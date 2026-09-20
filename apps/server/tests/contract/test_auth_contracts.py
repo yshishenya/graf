@@ -49,6 +49,7 @@ from twobrain_rec_server.db.models import (
     AuthRateLimitBucket,
     AuthSession,
     AuthSessionDeviceBinding,
+    ClientAcquisitionAttribute,
     ExternalIdentity,
     Organization,
     RegisteredDevice,
@@ -618,6 +619,52 @@ def test_auth_policy_read_endpoints_do_not_create_rows(client: TestClient) -> No
     assert policy.json()["consent"]["language"] == "ru"
 
     assert asyncio.run(count_policy_rows()) == (0, 0)
+
+
+def test_oauth_registration_commits_client_acquisition_attribute(
+    monkeypatch, client: TestClient
+) -> None:
+    """The OAuth callback must not lose the first acquisition row after auth commit."""
+    _patch_fake_providers(monkeypatch, client)
+    campaign = "273_oauth_commit_regression"
+    visit = client.get(
+        "/download",
+        params={"utm_source": "yandex_direct", "utm_campaign": campaign},
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 Chrome/128.0 Safari/537.36"
+            )
+        },
+    )
+    assert visit.status_code == 200
+
+    started = client.post(
+        "/api/v1/auth/providers/yandex/start",
+        json={"workspace_return_url": "app://auth-callback"},
+    )
+    assert started.status_code == 200
+    callback = client.get(
+        "/api/v1/auth/callback/yandex",
+        params={"state": started.json()["state_nonce"], "code": "TEST-YA-USER"},
+    )
+    assert callback.status_code == 200
+    user_id = UUID(callback.json()["user_id"])
+
+    import asyncio
+
+    async def load_attribute() -> ClientAcquisitionAttribute | None:
+        async with client.app_state["sessionmaker"]() as db:
+            return await db.scalar(
+                select(ClientAcquisitionAttribute).where(
+                    ClientAcquisitionAttribute.account_id == user_id
+                )
+            )
+
+    attribute = asyncio.run(load_attribute())
+    assert attribute is not None
+    assert attribute.source == "yandex_direct"
+    assert attribute.campaign == campaign
 
 
 def test_unbound_api_auth_callback_returns_token_without_browser_session_or_redirect(

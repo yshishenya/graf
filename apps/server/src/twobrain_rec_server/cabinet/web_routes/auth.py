@@ -1,16 +1,23 @@
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
-from fastapi import APIRouter, Form, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.auth import (
+    EMAIL_CODE_AUTH_METHOD_CATEGORY,
     _set_browser_auth_state_cookie,
+    attribution_handoff_for_request_async,
     build_provider_callback_url,
+    capture_client_acquisition_attribute,
+    resolve_attribution_snapshot_for_request_async,
+    schedule_account_connected_milestone,
 )
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth import email_delivery
@@ -68,9 +75,21 @@ from twobrain_rec_server.db.tenant_context import (
     WorkspaceAuthContext,
     apply_tenant_context,
 )
+from twobrain_rec_server.product_analytics.anonymous_aggregate import (
+    WEB_REGISTRATION_STEP_COMPLETED,
+    WEB_REGISTRATION_STEP_FAILED,
+    WEB_REGISTRATION_STEP_STARTED,
+)
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
 )
+from twobrain_rec_server.public.analytics import record_public_registration_step
+from twobrain_rec_server.public.templates import (
+    public_analytics_page_context,
+    record_public_page_response,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["cabinet-web"])
 
@@ -87,6 +106,36 @@ LogoutNextForm = Form(default="/login?next=/meetings", alias="next", max_length=
 
 def _auth_rate_limit_headers(retry_after: int) -> dict[str, str]:
     return {"Retry-After": str(max(1, retry_after))}
+
+
+def _attribution_request_values(request: Request) -> dict[str, Any]:
+    """The cookies and the query of a request, as the attribution path reads them."""
+    values: dict[str, Any] = dict(getattr(request, "cookies", None) or {})
+    values.update(dict(getattr(request, "query_params", None) or {}))
+    return values
+
+
+async def _record_web_registration_step(
+    request: Request,
+    *,
+    db: AsyncSession | None,
+    step: str,
+) -> None:
+    """Count one step of web registration with the campaign of the visit (FR-020).
+
+    Registration is measured in the route that performs it, because before
+    sign-in the browser has no analytics identity and may send nothing optional
+    at all (FR-007, FR-010), while the campaign of the visit is known to the
+    server in every case. A step is a level 1 counter: no identifier is stored,
+    and a refused write leaves a measurement gap instead of a broken
+    registration (FR-058). The level 1 brake that governs public page counting
+    also governs these steps, so an operator can stop the counter when its basis
+    falls away (FR-048) without touching the optional levels.
+    """
+    settings = getattr(request.app.state, "settings", None)
+    if settings is not None and not settings.product_analytics_anonymous_aggregate_enabled:
+        return
+    await record_public_registration_step(db, request, step, now=datetime.now(UTC))
 
 
 def _request_ip(request: Request) -> str:
@@ -155,7 +204,11 @@ async def browser_login_page(
         error=error,
         db=db,
     )
-    return HTMLResponse(
+    # FR-027: login is a public page, so it carries the same consent-based
+    # measurement as the landing page. The context comes from the public builder,
+    # which authorises the first-party relay and keeps the external counter off a
+    # page that shows a credential form.
+    response = HTMLResponse(
         render_login_page(
             workspace_id=resolved_workspace_id,
             providers=providers,
@@ -165,8 +218,10 @@ async def browser_login_page(
             product_analytics_provider=build_request_browser_provider_context(
                 request, "login_signup"
             ),
+            public_analytics=public_analytics_page_context(request, "/login"),
         )
     )
+    return await record_public_page_response(request, response, db=db)
 
 
 @router.get("/sign-up", response_class=HTMLResponse, include_in_schema=False)
@@ -183,7 +238,9 @@ async def browser_signup_page(
         error=error,
         db=db,
     )
-    return HTMLResponse(
+    # FR-027: sign-up is a public page with a credential form, so it is measured
+    # by consent through the first-party relay only.
+    response = HTMLResponse(
         render_signup_page(
             workspace_id=resolved_workspace_id,
             providers=providers,
@@ -193,8 +250,10 @@ async def browser_signup_page(
             product_analytics_provider=build_request_browser_provider_context(
                 request, "login_signup"
             ),
+            public_analytics=public_analytics_page_context(request, "/sign-up"),
         )
     )
+    return await record_public_page_response(request, response, db=db)
 
 
 @router.post("/login/email/start", response_class=HTMLResponse, include_in_schema=False)
@@ -534,6 +593,13 @@ async def browser_email_signup_start(
                 metadata={"flow": "registration"},
             )
             await db.commit()
+            # The visitor asked for the registration step and the system could not
+            # deliver it: a refused attempt, not a new step. A rejected address or
+            # a hit rate limit is not counted here, because the visitor never
+            # entered the registration step at all.
+            await _record_web_registration_step(
+                request, db=db, step=WEB_REGISTRATION_STEP_FAILED
+            )
             return await _browser_auth_error_response(
                 request,
                 db=db,
@@ -571,6 +637,10 @@ async def browser_email_signup_start(
         browser_nonce=browser_nonce,
         max_age=ttl_seconds,
     )
+    # The visitor reached the registration step: the code was issued and the
+    # step is shown. This is the "started" step of the web registration funnel
+    # (FR-020), and it carries the campaign of the visit.
+    await _record_web_registration_step(request, db=db, step=WEB_REGISTRATION_STEP_STARTED)
     return response
 
 
@@ -581,6 +651,7 @@ async def browser_email_login_verify(
     code: str = LoginCodeForm,
     state: str = LoginStateForm,
     next_path: str = LoginNextForm,
+    background_tasks: BackgroundTasks = None,
     db: AsyncSession | None = LoginDbDependency,
 ):
     safe_next = _safe_browser_next_path(next_path)
@@ -665,7 +736,12 @@ async def browser_email_login_verify(
             allow_registration=True,
             invitation_flow=invitation_flow,
         )
-        response = await _prepare_email_auth_response(request, db=db, result=result)
+        response = await _prepare_email_auth_response(
+            request,
+            db=db,
+            result=result,
+            background_tasks=background_tasks,
+        )
         if not isinstance(result, EmailCodeRetryResponse):
             _clear_email_auth_browser_cookie(request, response, state_nonce=state)
         await db.commit()
@@ -756,6 +832,7 @@ async def browser_email_signup_verify(
     code: str = LoginCodeForm,
     state: str = LoginStateForm,
     next_path: str = LoginNextForm,
+    background_tasks: BackgroundTasks = None,
     db: AsyncSession | None = LoginDbDependency,
 ):
     safe_next = _safe_browser_next_path(next_path)
@@ -768,6 +845,9 @@ async def browser_email_signup_verify(
             title="Authentication DB dependency unavailable",
         )
     if resolved_workspace_id is None or normalized_email is None:
+        await _record_web_registration_step(
+            request, db=db, step=WEB_REGISTRATION_STEP_FAILED
+        )
         return HTMLResponse(
             render_email_code_page(
                 email=normalized_email or "",
@@ -793,6 +873,9 @@ async def browser_email_signup_verify(
         scope_secret=request.app.state.settings.share_identity_hash_secret,
     )
     if retry_after is not None:
+        await _record_web_registration_step(
+            request, db=db, step=WEB_REGISTRATION_STEP_FAILED
+        )
         return HTMLResponse(
             render_email_code_page(
                 email=normalized_email,
@@ -823,10 +906,24 @@ async def browser_email_signup_verify(
             request,
             db=db,
             result=result,
+            background_tasks=background_tasks,
             clear_referral_on_registration=True,
         )
         if not isinstance(result, EmailCodeRetryResponse):
             _clear_email_auth_browser_cookie(request, response, state_nonce=state)
+        # The last step of the web registration funnel: either the account was
+        # created, or the step was refused. Both carry the campaign of the visit
+        # (FR-020), so a campaign with many started and few completed steps is
+        # visible as the problem it is.
+        await _record_web_registration_step(
+            request,
+            db=db,
+            step=(
+                WEB_REGISTRATION_STEP_COMPLETED
+                if isinstance(result, EmailLoginCompletion) and result.registered
+                else WEB_REGISTRATION_STEP_FAILED
+            ),
+        )
         await db.commit()
         return response
     except Exception:
@@ -1078,6 +1175,7 @@ async def _browser_auth_error_response(
             product_analytics_provider=build_request_browser_provider_context(
                 request, "login_signup"
             ),
+            public_analytics=public_analytics_page_context(request, "/sign-up"),
         )
     else:
         page = render_login_page(
@@ -1090,8 +1188,13 @@ async def _browser_auth_error_response(
             product_analytics_provider=build_request_browser_provider_context(
                 request, "login_signup"
             ),
+            public_analytics=public_analytics_page_context(request, "/login"),
         )
-    return HTMLResponse(page, status_code=status_code, headers=headers)
+    # An error page of login or sign-up is still that public page, so it is
+    # counted and keeps the campaign labels of the visit (FR-009, FR-014, FR-027).
+    return await record_public_page_response(
+        request, HTMLResponse(page, status_code=status_code, headers=headers), db=db
+    )
 
 
 async def _ambiguous_email_recovery_response(
@@ -1120,23 +1223,28 @@ async def _ambiguous_email_recovery_response(
             else "/settings/account"
         )
     )
-    return HTMLResponse(
-        render_login_page(
-            workspace_id=workspace_id,
-            providers=providers,
-            next_path=recovery_next,
-            error=(
-                "ambiguous_email_recovery_required"
-                if has_recovery_provider
-                else "ambiguous_email_recovery_unavailable"
+    return await record_public_page_response(
+        request,
+        HTMLResponse(
+            render_login_page(
+                workspace_id=workspace_id,
+                providers=providers,
+                next_path=recovery_next,
+                error=(
+                    "ambiguous_email_recovery_required"
+                    if has_recovery_provider
+                    else "ambiguous_email_recovery_unavailable"
+                ),
+                invitation_flow=invitation_flow,
+                recovery_mode=True,
+                product_analytics_provider=build_request_browser_provider_context(
+                    request, "login_signup"
+                ),
+                public_analytics=public_analytics_page_context(request, "/login"),
             ),
-            invitation_flow=invitation_flow,
-            recovery_mode=True,
-            product_analytics_provider=build_request_browser_provider_context(
-                request, "login_signup"
-            ),
+            status_code=400,
         ),
-        status_code=400,
+        db=db,
     )
 
 
@@ -1145,6 +1253,7 @@ async def _prepare_email_auth_response(
     *,
     db: AsyncSession,
     result: HTMLResponse | EmailLoginCompletion | EmailRecoveryRequired,
+    background_tasks: BackgroundTasks | None = None,
     clear_referral_on_registration: bool = False,
 ) -> HTMLResponse | RedirectResponse:
     if isinstance(result, HTMLResponse):
@@ -1159,6 +1268,26 @@ async def _prepare_email_auth_response(
         )
     if not isinstance(result, EmailLoginCompletion):
         raise TypeError(f"Unsupported email authentication result: {type(result).__name__}")
+    # The campaign of the visit becomes an attribute of the client record, both
+    # for a new account and for an existing one signing in (FR-015, FR-022).
+    # Sign-in is the path the desktop application connects its account with, so
+    # without it the handoff link of the download page would reach nothing. The
+    # write is idempotent: the storage keeps one attribute per account, so the
+    # campaign of the first sign-in is never rewritten by a later one, and a
+    # sign-in without a campaign is recorded as ``unknown`` rather than as a
+    # direct entry (FR-024).
+    attribution_snapshot = await resolve_attribution_snapshot_for_request_async(request, db=db)
+    await capture_client_acquisition_attribute(
+        request,
+        db=db,
+        account_id=result.user_id,
+        snapshot=attribution_snapshot,
+    )
+    resolved_handoff = await attribution_handoff_for_request_async(
+        request,
+        db=db,
+        snapshot=attribution_snapshot,
+    )
     redirect_path = await resolve_browser_auth_return_path(
         db,
         requested_redirect=result.requested_redirect,
@@ -1181,6 +1310,24 @@ async def _prepare_email_auth_response(
             secure=True,
             httponly=True,
             samesite="lax",
+        )
+    if background_tasks is not None:
+        # The route commits after this helper returns; the resolved handoff is
+        # passed explicitly so the background task does not inspect an unsigned
+        # cookie after the request transaction has closed.
+        # FR-021: the embedded cabinet sign-in by emailed code is the path the
+        # desktop application actually uses to connect an account, so the
+        # account-connected milestone has to come from here too. Without it the
+        # activation funnel silently loses its key step and channel numbers
+        # understate what the product achieved. Delivery happens after the
+        # response and never blocks or breaks the sign-in.
+        schedule_account_connected_milestone(
+            background_tasks,
+            request,
+            user_id=result.user_id,
+            provider=EMAIL_SIGNUP_PROVIDER,
+            handoff=resolved_handoff,
+            auth_method_category=EMAIL_CODE_AUTH_METHOD_CATEGORY,
         )
     return response
 

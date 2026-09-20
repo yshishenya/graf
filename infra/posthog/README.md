@@ -21,9 +21,20 @@ visitor/account identifiers, raw payloads, or provider exports.
 | --- | --- |
 | `docker-compose.posthog.yml` | GRAF handoff/preflight contract for the separate self-hosted PostHog runtime; not the full upstream stack. |
 | `posthog.production.env.example` | Redacted runtime environment example to copy outside git. |
-| `backup-restore.md` | Backup, restore, and restore rehearsal procedure. |
-| `graf-posthog-runtime-guard.*` | One-minute aggregate health/resource guard and fail-closed provider rollback contract. |
-| `runtime-guard.env.example` | Out-of-git systemd guard settings; no secrets. |
+| `backup-restore.md` | Backup, restore, and restore rehearsal procedure, including what a restore recreates and what is lost forever. |
+| `backup-volumes.txt` | Volume classes the analytics backup set must cover; `?` marks an optional class. |
+| `backup.env.example` | Out-of-git settings for the scheduled backup, restore verification and their thresholds. |
+| `graf-posthog-runtime-guard.*` | One-minute aggregate health/resource guard with analytics-first and host-only threshold scopes. |
+| `runtime-guard.env.example` | Out-of-git systemd guard settings for both scopes; no secrets. |
+| `graf-posthog-backup.{service,timer}` | Daily backup with a required offsite copy. |
+| `graf-posthog-restore-verify.{service,timer}` | Twice-a-month restore verification into isolated rehearsal volumes. |
+| `graf-posthog-retention-enforce.{service,timer}` | Daily retention enforcement with per-deletion logging. |
+| `graf-analytics-degradation-alert.{service,timer}` | External degradation alert, delivered inside the fifteen-minute deadline. |
+| `graf-analytics-alert-channel-check.{service,timer}` | Independent probe of the alert channel itself. |
+| `alert-rules.txt` | Every alert code with its scope, owner role, severity and escalation window; the named person lives outside git. |
+| `alert-analytics-degradation.env.example` | Out-of-git alert credentials, deadline, state paths and named owner roles. |
+| `retention.env.example` | Out-of-git retention terms and product-database access for the retention task. |
+| `clickhouse-retention.sql` | Forced 365-day row lifetime for measurement events, applied by `infra/scripts/apply-posthog-event-ttl.sh`. |
 
 ## Runtime Placement
 

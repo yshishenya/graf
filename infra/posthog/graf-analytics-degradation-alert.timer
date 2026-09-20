@@ -1,0 +1,13 @@
+[Unit]
+Description=Check for GRAF analytics degradation every five minutes
+
+[Timer]
+# The degradation delivery deadline is at most 15 minutes (SC-009); the guard
+# writes its state every minute and this unit runs every five.
+OnBootSec=3min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=graf-analytics-degradation-alert.service
+
+[Install]
+WantedBy=timers.target

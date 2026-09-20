@@ -80,6 +80,95 @@ dashboard freshness/goal visibility, or concrete resource-alert thresholds.
   a later approved category has a shorter retention.
 - Backup failures block PostHog readiness, not normal GRAF product use.
 
+## What A Restore Recreates And What Is Lost
+
+Feature `273-paid-traffic-analytics` requires the restore path to state which
+data comes back completely and which data is gone for good (FR-053). This
+section is the contract for that split. The 2026-07 receipts above stay valid
+for the manual rehearsal path; the scheduled automation that produces the
+archives is described in `docs/analytics/product-analytics-posthog-runbook.md`.
+
+Fully recoverable from the analytics backup set:
+
+- the PostHog relational database: projects, dashboards, insights, feature
+  flags, and organisation/user configuration;
+- ClickHouse event data that was durably persisted at backup time;
+- session-recording objects that were present in the backed-up object/blob
+  storage volumes;
+- queue, cache, and broker state that is part of the archive.
+
+Permanently lost without a fresh backup:
+
+- events captured after the newest archive;
+- in-flight ingestion that was never persisted to ClickHouse;
+- session-replay objects that were not yet uploaded to object storage;
+- every class the backup inventory excludes — `infra/posthog/backup-volumes.txt`
+  marks optional classes with a `?` suffix, so a `?` class is recoverable only
+  when the reviewed runtime actually included it;
+- provider-side data GRAF does not control, such as Yandex.Metrica aggregates,
+  which are never restored from this backup set;
+- data already removed by the enforced retention terms: measurement events at
+  365 days, anonymous aggregate at 1095 days, visit attribution at 90 days, and
+  client acquisition attribute at 1095 days.
+
+A restore recreates the analytics node only. GRAF product workflows are never
+restored from this backup set, are never stopped by it, and must keep running
+while the analytics node is rebuilt. The expected product impact of a restore is
+a measurement gap, not a product outage.
+
+### Copy Count And Placement (FR-052)
+
+A copy that lives only on the same disk as the original is not a backup. At
+least two copies of the analytics backup set are kept at all times, and at least
+one of them is offsite — outside the measured server. When either condition
+fails, analytics readiness stays blocked (`backup_copy_count_below_minimum` or
+`backup_offsite_copy_missing`) and the copy does not count as disaster
+recovery. An offsite copy that no run has refreshed is a stale copy, not a
+second copy.
+
+### Retention And Recovery Objectives
+
+| Objective | Value | Source |
+| --- | --- | --- |
+| Backup artifact retention | Keep at least two stored copies per FR-052; keep enough history to support the enforced analytics retention categories unless a later approved category is shorter | `## Backup Rules` |
+| Recovery-point objective | Newest archive not older than `26` hours (`GRAF_POSTHOG_BACKUP_MAX_AGE_HOURS`) | FR-033, FR-034 |
+| Recovery-verification objective | Successful restore verification not older than `30` days (`GRAF_POSTHOG_RESTORE_MAX_AGE_DAYS`), recorded as metadata-only evidence | FR-035, SC-010 |
+| Minimum stored copies | `2` (`GRAF_POSTHOG_BACKUP_MIN_COPIES`) | FR-052 |
+| Minimum offsite copies | `1` (`GRAF_POSTHOG_BACKUP_MIN_OFFSITE_COPIES`) | FR-052 |
+
+Backup artifact receipts and the newest archive age are recorded as metadata
+only. Production receipts for the scheduled backup, the restore verification,
+and the first offsite upload are `pending operator receipt`.
+
+### Scheduled Automation
+
+Three tasks keep the rules above true without an operator in the loop. Each one
+writes a metadata-only state file that the readiness report
+(`providers.analytics_operations`) and the external alert read, and each one
+alerts on failure instead of stopping the product.
+
+| Task | Unit and timer | State file |
+| --- | --- | --- |
+| Archive every inventory volume class and upload one offsite copy | `infra/posthog/graf-posthog-backup.{service,timer}`, daily 02:30 | `/var/lib/graf-posthog-backup/backup-state` |
+| Restore one stored copy into isolated rehearsal volumes and read it back | `infra/posthog/graf-posthog-restore-verify.{service,timer}`, days 1 and 15 at 04:30 | `/var/lib/graf-posthog-backup/restore-state` |
+| Enforce the events, aggregate and attribution retention terms | `infra/posthog/graf-posthog-retention-enforce.{service,timer}`, daily 03:15 | `/var/lib/graf-posthog-retention/retention-state` |
+
+Commands:
+
+```sh
+infra/scripts/backup-posthog.sh --dry-run
+infra/scripts/backup-posthog.sh --execute
+infra/scripts/verify-posthog-restore.sh --execute
+infra/scripts/verify-posthog-restore.sh --status
+```
+
+The restore verification never touches the live analytics stack: it verifies
+every archive against the SHA-256 manifest, unpacks into
+`graf-posthog-rehearsal-*` volumes, counts the restored files, and removes the
+rehearsal volumes afterwards. The volume class list is
+`infra/posthog/backup-volumes.txt`; a class marked with `?` is optional, and a
+required class that resolves to no volume fails the run.
+
 ## Restore Rehearsal
 
 Record only:
