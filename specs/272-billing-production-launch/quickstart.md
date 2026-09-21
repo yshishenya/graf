@@ -121,6 +121,42 @@ T054 остаётся открытой. После разрешённого ко
 выключен; ради приёмки реальные интеграции не включались. Внешняя цепочка
 ЮKassa/банка остаётся отдельным разрешённым окном по runbook §3.
 
+### 1.3 Повторная установка кандидата после исправления стенда
+
+21 сентября 2026 года после сохранённого отката Dev выяснилось, что
+`promote --live` того же активного манифеста корректно завершался как
+`idempotent`, но не восстанавливал отсутствующий пакет приложения, а повторная
+сборка ранее виденного SHA блокировалась сравнением синтетических и уже
+разрешённых `digest`. Исправлено минимально в `scripts/dev-harness.py`:
+идентичность пересборки сравнивает SHA, версии компонентов и миграцию, а не
+производные дайджесты образов и приложения; добавлен регрессионный тест
+`tests/governance/test_graf_local_adapter.py`.
+
+Коммит исправления стенда и текущий кандидат:
+`cad0f8b31c73e0343e35259c5a44f577263d18d4`.
+
+```sh
+python3 -m pytest -q tests/governance/test_graf_local_adapter.py
+# 44 passed in 0.51s
+
+./infra/scripts/dev-harness.sh build --sha cad0f8b31c73e0343e35259c5a44f577263d18d4 --feature-id 272 --live
+./infra/scripts/dev-harness.sh promote \
+  --manifest "/Users/yshishenya/Library/Application Support/GRAF Dev/crisp/harness/manifests/dev-cad0f8b31c73.json" \
+  --live --previous-checkout /private/tmp/graf-dev-f272-previous.ZcoT9c
+./infra/scripts/dev-harness.sh status --json
+./infra/scripts/dev-harness.sh smoke --json --live
+```
+
+Фактический результат: манифест `dev-cad0f8b31c73`,
+`installed=true`, `/Applications/GRAF Dev.app`, bundle ID
+`pro.2brain.graf.dev`, подпись `GRAF Local Code Signing`, точный SHA
+`cad0f8b31c73e0343e35259c5a44f577263d18d4`, smoke **13/13 PASS**.
+Свежий AX-снимок `/billing` подтверждает, что после фокуса на заголовке
+первый обычный `Tab` достигает ссылки «Промокоды и скидки», а не пропускает её.
+Обратный `Shift+Tab`, видимое кольцо фокуса, VoiceOver, темы, масштаб 200 %,
+полная форма с двумя согласиями и синтетические возврат/ошибка в установленном
+приложении ещё не завершены; T054 остаётся открытой до их отдельной записи.
+
 ## 2. Проверяется одной командой
 
 Перед итоговыми GitHub-проверками ветка перенесена с базы
