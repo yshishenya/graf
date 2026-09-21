@@ -2560,10 +2560,29 @@ def _same_manifest_identity(existing: Dict[str, Any], candidate: Dict[str, Any])
 
     Rebuilding artifacts after retention removed the files must stay possible,
     so the comparison covers the identity of the candidate and ignores the
-    fields that legitimately differ between two runs.
+    fields that legitimately differ between two runs. Live build resolves
+    image and app digests after this comparison, so those derived digests must
+    not prevent rebuilding a candidate whose source identity is unchanged.
     """
-    fields = ("schema_version", "manifest_id", "feature_id", "source_sha", "components", "migration_head")
-    return all(existing.get(field) == candidate.get(field) for field in fields)
+    fields = ("schema_version", "manifest_id", "feature_id", "source_sha", "migration_head")
+    if not all(existing.get(field) == candidate.get(field) for field in fields):
+        return False
+    existing_components = existing.get("components")
+    candidate_components = candidate.get("components")
+    if not isinstance(existing_components, dict) or not isinstance(candidate_components, dict):
+        return False
+    if set(existing_components) != set(candidate_components):
+        return False
+    if not all(
+        isinstance(existing_components[name], dict) and isinstance(candidate_components[name], dict)
+        for name in existing_components
+    ):
+        return False
+    return all(
+        existing_components[name].get("source_sha") == candidate_components[name].get("source_sha")
+        and existing_components[name].get("version") == candidate_components[name].get("version")
+        for name in existing_components
+    )
 
 
 def _publish_active(root: Path, manifest: Dict[str, Any], mode: str) -> None:

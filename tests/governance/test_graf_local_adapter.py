@@ -224,6 +224,15 @@ def test_live_promote_rehydrates_missing_installed_app_even_when_process_is_aliv
     assert calls == [candidate["manifest_id"]]
 
 
+def test_rebuild_identity_ignores_resolved_artifact_digests(tmp_path):
+    existing = manifest(tmp_path, "a" * 40, feature="272")
+    candidate = manifest(tmp_path, "a" * 40, feature="272")
+    for component in existing["components"].values():
+        component["digest"] = "sha256:" + "1" * 64
+
+    assert dev_harness._same_manifest_identity(existing, candidate)
+
+
 def test_feature_229_env_pins_every_compose_service_to_manifest_image_id(tmp_path):
     candidate = manifest(tmp_path, "a" * 40, feature="229")
     adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
