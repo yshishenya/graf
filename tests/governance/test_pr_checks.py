@@ -327,6 +327,70 @@ def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
             assert max_active >= 2
 
 
+def test_initial_release_prep_accepts_archived_fragments(snapshot, monkeypatch):
+    root, _, pr = snapshot
+    monkeypatch.chdir(root)
+    monkeypatch.setattr(checks, "ROOT", root)
+    base, first = pr["base"]["sha"], pr["head"]["sha"]
+    version = "2026.09.15.1"
+    fragment = root / "changes" / "unreleased" / "F211.yaml"
+    fragment.parent.mkdir(parents=True)
+    fragment.write_text(
+        "schema_version: 1\nfeature_id: 211\ncategory: Fixed\n"
+        "summary: \"Исправление\"\nissue: 6986\ntasks: [T063]\n"
+        "compatibility: \"Совместимость\"\nknown_limitations:\n  - \"Ограничение\"\n"
+        "release_notes: \"Проверка\"\n"
+    )
+    (root / "CHANGELOG.md").write_text(
+        "## [2026.09.14.1] - 2026-09-14\n\n"
+        "<!-- Release features: F210 -->\n\n"
+        "- Старый выпуск\n"
+    )
+    git(root, "add", "CHANGELOG.md", str(fragment.relative_to(root)))
+    git(root, "commit", "-qm", "feature with unreleased metadata")
+    first = git(root, "rev-parse", "HEAD")
+    pr["head"]["sha"] = first
+    pr["body"] = pr["body"].replace(base, first)
+    archived = root / "changes" / "releases" / f"v{version}" / "F211.yaml"
+    archived.parent.mkdir(parents=True)
+    fragment.rename(archived)
+    (root / "CHANGELOG.md").write_text(
+        "## [2026.09.15.1] - 2026-09-15\n\n"
+        "<!-- Release features: F211 -->\n\n"
+        "### Изменено\n- Исправление\n\n"
+        "## [2026.09.14.1] - 2026-09-14\n\n"
+        "<!-- Release features: F210 -->\n\n"
+        "- Старый выпуск\n"
+    )
+    git(root, "add", "CHANGELOG.md", str(archived.relative_to(root)))
+    git(root, "rm", "--cached", str(fragment.relative_to(root)))
+    git(root, "commit", "-qm", "[Release] Подготовить выпуск 2026.09.15.1")
+    source = git(root, "rev-parse", "HEAD")
+    policy = dict(schema_version=1, repository="owner/repo", foundation_pr=1,
+                  foundation_sha=base, activated_at="2026-09-01T00:00:00Z")
+    (root / ".github").mkdir()
+    (root / ".github/pr-check-policy.json").write_text(json.dumps(policy))
+
+    def api(_repo, endpoint, **_kwargs):
+        if endpoint.startswith("releases?"):
+            return [dict(tag_name="v2026.08.31.1", published_at="2026-08-31T00:00:00Z")]
+        if endpoint.startswith("git/ref/tags/"):
+            return dict(object=dict(type="tag", sha="a" * 40))
+        if endpoint == "git/tags/" + "a" * 40:
+            return dict(object=dict(type="commit", sha=base))
+        commit = endpoint.split("/")[1]
+        return [] if commit == source else [dict(number=7, merge_commit_sha=commit,
+                                                  merged_at="2026-09-13T00:00:00Z",
+                                                  base=dict(ref="master"))]
+
+    monkeypatch.setattr(checks, "api", api)
+    monkeypatch.setattr(checks, "verify", lambda *_args: dict(
+        pr_number=7, merge_commit_sha=first, base_sha=base, target_sha=source,
+    ))
+    results = checks.verify_source("owner/repo", source, included_prs=[7])
+    assert [row["pr_number"] for row in results] == [7]
+
+
 def test_task_closeout_is_metadata_only_only_for_task_docs(snapshot, monkeypatch):
     root, _, _ = snapshot
     monkeypatch.chdir(root)

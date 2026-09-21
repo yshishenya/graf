@@ -325,6 +325,10 @@ def current_gate(repository, workflow, pr, base):
 _RELEASE_PREP_FRAGMENT = re.compile(
     r"changes/releases/(v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*)/F[0-9]+\.yaml"
 )
+_RELEASE_PREP_UNRELEASED_FRAGMENT = re.compile(r"changes/unreleased/F([0-9]+)\.yaml")
+_RELEASE_PREP_ARCHIVED_FRAGMENT = re.compile(
+    r"changes/releases/(v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*)/F([0-9]+)\.yaml"
+)
 _RELEASE_PREP_SUBJECT = re.compile(r"(?:release|релиз|выпуск|заметк)", re.IGNORECASE)
 _CLOSEOUT_SUBJECT = re.compile(r"^docs\(closeout\):\s+", re.IGNORECASE)
 _CLOSEOUT_TASK = re.compile(r"^specs/[0-9]{3,}-[^/]+/tasks\.md$")
@@ -390,11 +394,107 @@ def metadata_only_release_prep(commit, published_version=None):
         if not _RELEASE_PREP_SUBJECT.search(subject):
             return False
         rows = subprocess.check_output(
-            ["git", "diff-tree", "--no-commit-id", "--name-status", "-r", parents[1], commit],
+            ["git", "diff-tree", "--no-commit-id", "--name-status", "-r", "-M", parents[1], commit],
             stderr=subprocess.DEVNULL,
         ).decode("utf-8").splitlines()
     except (UnicodeDecodeError, subprocess.CalledProcessError):
         return False
+    rename_rows = []
+    for row in rows:
+        fields = row.split("\t")
+        if len(fields) == 3 and fields[0] == "R100":
+            rename_rows.append((fields[1], fields[2]))
+    if rename_rows:
+        if len(rows) != len(rename_rows) + 1 or not any(
+            row.split("\t") == ["M", "CHANGELOG.md"] for row in rows
+        ):
+            return False
+        parent = parents[1]
+
+        def blob(revision, path):
+            return subprocess.check_output(
+                ["git", "show", f"{revision}:{path}"], stderr=subprocess.DEVNULL,
+            ).decode("utf-8")
+
+        try:
+            before_changelog = blob(parent, "CHANGELOG.md")
+            after_changelog = blob(commit, "CHANGELOG.md")
+            before_heading = _RELEASE_HEADING.search(before_changelog)
+            after_heading = _RELEASE_HEADING.search(after_changelog)
+            before_headings = _RELEASE_HEADING.findall(before_changelog)
+            after_headings = _RELEASE_HEADING.findall(after_changelog)
+            if (
+                before_heading is None
+                or after_heading is None
+                or len(after_headings) != len(before_headings) + 1
+                or after_headings[1:] != before_headings
+                or after_heading.start() != after_changelog.find(f"## [{after_headings[0]}]")
+            ):
+                return False
+            latest = after_headings[0]
+            if published_version is not None:
+                published_key = _calver_key(published_version)
+                latest_key = _calver_key(f"v{latest}")
+                if published_key is None or latest_key is None or latest_key <= published_key:
+                    return False
+            section_start = after_heading.start()
+            next_heading = _RELEASE_HEADING.search(after_changelog, section_start + 1)
+            section_end = next_heading.start() if next_heading else len(after_changelog)
+            if (
+                after_changelog[:section_start] != before_changelog[:before_heading.start()]
+                or after_changelog[section_end:] != before_changelog[before_heading.start():]
+            ):
+                return False
+            section = after_changelog[section_start:section_end]
+            marker_lines = _RELEASE_MARKER.findall(section)
+            if len(marker_lines) != 1 or not re.search(r"[А-Яа-яЁё]", section):
+                return False
+            changed = subprocess.check_output(
+                ["git", "diff", "--unified=0", parent, commit, "--", "CHANGELOG.md"],
+                stderr=subprocess.DEVNULL,
+            ).decode("utf-8")
+        except (UnicodeDecodeError, ValueError, subprocess.CalledProcessError):
+            return False
+
+        fragment_ids = set()
+        versions = set()
+        for old_path, new_path in rename_rows:
+            old_match = _RELEASE_PREP_UNRELEASED_FRAGMENT.fullmatch(old_path)
+            new_match = _RELEASE_PREP_ARCHIVED_FRAGMENT.fullmatch(new_path)
+            if old_match is None or new_match is None:
+                return False
+            if new_match.group(2) != old_match.group(1):
+                return False
+            versions.add(new_match.group(1))
+            try:
+                before, after = blob(parent, old_path), blob(commit, new_path)
+            except (UnicodeDecodeError, subprocess.CalledProcessError):
+                return False
+            if before != after:
+                return False
+            feature_id = _valid_release_fragment(
+                after, new_path, f"v{latest}", expected_feature=old_match.group(1)
+            )
+            if feature_id is None:
+                return False
+            fragment_ids.add(feature_id)
+            changed += subprocess.check_output(
+                ["git", "diff", "--unified=0", parent, commit, "--", old_path, new_path],
+                stderr=subprocess.DEVNULL,
+            ).decode("utf-8")
+
+        marker_ids = {
+            feature_id
+            for marker in marker_lines
+            for feature_id in re.findall(r"\bF([0-9]+)\b", marker)
+        }
+        if not fragment_ids or versions != {f"v{latest}"} or marker_ids != fragment_ids:
+            return False
+        return not any(
+            _sensitive_release_text(line[1:])
+            for line in changed.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        )
     paths = []
     fragments = []
     for row in rows:

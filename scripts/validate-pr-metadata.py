@@ -252,7 +252,7 @@ def checked_base(pr: dict) -> str:
             merge_tree == head_tree
             and merge_head == head
             and is_ancestor(merge_parent, head)
-            and any(merge_parent in row.split()[2:] for row in source_merges)
+            and (merge_parent == base or any(merge_parent in row.split()[2:] for row in source_merges))
             and int(_git("rev-list", "--count", f"{merge_parent}..{head}")) == count
         ):
             return merge_parent
