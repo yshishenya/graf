@@ -2606,7 +2606,10 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
             live_runtime = GrafLocalAdapter(_repo_root(), root)._runtime_is_live(
                 _read_json(root / "runtime.json") if (root / "runtime.json").exists() else None
             ) if getattr(args, "live", False) and not args.dry_run else False
-            if not getattr(args, "live", False) or (runtime_mode == "live" and live_runtime):
+            installed_app = _installed_app_state()["installed"] if getattr(args, "live", False) and not args.dry_run else False
+            if not getattr(args, "live", False) or (
+                runtime_mode == "live" and live_runtime and installed_app
+            ):
                 return {"operation": "promote", "dry_run": bool(args.dry_run), "status": "active", "manifest": active, "idempotent": True}
         if str(candidate.get("feature_id")) == "229" and not args.dry_run and not getattr(args, "live", False):
             health = candidate.get("health", {})
