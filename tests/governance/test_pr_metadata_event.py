@@ -459,18 +459,19 @@ def test_merged_metadata_binds_actual_history_not_moving_master(snapshot, kind):
     parents = ["-p", parent, "-p", head] if kind == "merge-commit" else ["-p", parent]
     merge = git(root, "commit-tree", tree, *parents, "-m", "merged")
     moved = git(root, "commit-tree", tree, "-p", merge, "-m", "later master")
+    api_base = base if kind == "merge-commit" else moved
     current.update(state="closed", merged=True, merge_commit_sha=merge, commits=1 if kind == "wrong-count" else 2)
     current["head"]["sha"] = head
-    current["base"]["sha"] = moved
+    current["base"]["sha"] = api_base
     current["body"] = body(head)
     event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
     git(root, "checkout", "-q", "--detach", base)
     result = run_trusted(root, event, current)
-    assert (result.returncode == 0) == (kind in {"squash", "rebase"}), result.stderr
+    assert (result.returncode == 0) == (kind in {"squash", "rebase", "merge-commit"}), result.stderr
     if result.returncode == 0:
         proof = json.loads((root / "trusted-result.json").read_text())
         assert proof["base_sha"] == base
-        assert proof["api_base_sha"] == moved
+        assert proof["api_base_sha"] == api_base
 
 
 def test_squash_accepts_pr_that_merged_an_updated_master(snapshot):
@@ -494,6 +495,39 @@ def test_squash_accepts_pr_that_merged_an_updated_master(snapshot):
     current["body"] = body(head)
     event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
     git(root, "checkout", "-q", "--detach", base)
+    result = run_trusted(root, event, current)
+    assert result.returncode == 0, result.stderr
+    assert json.loads((root / "trusted-result.json").read_text())["base_sha"] == checked_base
+
+
+def test_merge_accepts_pr_head_that_merged_the_checked_base(snapshot):
+    root, event, current = snapshot
+    current = trusted_pr(current)
+    base, first = current["base"]["sha"], current["head"]["sha"]
+
+    git(root, "checkout", "-q", "--detach", base)
+    (root / "other.txt").write_text("target update\n")
+    git(root, "add", "other.txt")
+    git(root, "commit", "-qm", "target update")
+    checked_base = git(root, "rev-parse", "HEAD")
+
+    git(root, "checkout", "-q", "--detach", first)
+    git(root, "merge", "--no-ff", "-qm", "merge target into PR", checked_base)
+    (root / "follow-up.txt").write_text("follow-up source fix\n")
+    git(root, "add", "follow-up.txt")
+    git(root, "commit", "-qm", "follow-up source fix")
+    head = git(root, "rev-parse", "HEAD")
+    count = int(git(root, "rev-list", "--count", f"{checked_base}..{head}"))
+    tree = git(root, "rev-parse", f"{head}^{{tree}}")
+    merge = git(root, "commit-tree", tree, "-p", checked_base, "-p", head, "-m", "merge PR")
+
+    current.update(state="closed", merged=True, merge_commit_sha=merge, commits=count)
+    current["head"]["sha"] = head
+    current["base"]["sha"] = merge
+    current["body"] = body(head)
+    event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
+    git(root, "checkout", "-q", "--detach", base)
+
     result = run_trusted(root, event, current)
     assert result.returncode == 0, result.stderr
     assert json.loads((root / "trusted-result.json").read_text())["base_sha"] == checked_base

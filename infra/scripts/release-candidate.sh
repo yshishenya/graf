@@ -821,7 +821,7 @@ if op == "train-freeze":
         if not isinstance(proof, dict) or not isinstance(proof.get("pr_number"), int):
             die("release PR verification returned malformed proof")
         number = proof["pr_number"]
-        if number in verified_by_pr or proof.get("target_sha") != source_sha:
+        if number in verified_by_pr or proof.get("release_source_sha") != source_sha:
             die("release PR verification returned a duplicate or stale proof")
         governance = proof.get("checks", {}).get("governance-fast", {})
         run_id = governance.get("run_id") if isinstance(governance, dict) else None

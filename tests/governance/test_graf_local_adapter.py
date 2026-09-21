@@ -187,6 +187,43 @@ def test_rehydrate_loads_archived_images_and_verifies_manifest(monkeypatch, tmp_
     assert calls[1] == "verified"
 
 
+def test_live_promote_rehydrates_missing_installed_app_even_when_process_is_alive(
+    monkeypatch, tmp_path
+):
+    sha = "a" * 40
+    state = tmp_path / "state"
+    candidate = manifest(state, sha, feature="272")
+    candidate["migration_head"] = "test-head"
+    candidate_path = tmp_path / "candidate.json"
+    dev_harness._write_json(candidate_path, candidate)
+    dev_harness._write_json(state / "manifests" / f"{candidate['manifest_id']}.json", candidate)
+    dev_harness._write_json(
+        state / "active-manifest.json",
+        {"schema_version": dev_harness.POINTER_VERSION, "manifest_id": candidate["manifest_id"], "runtime_mode": "live"},
+    )
+    install_path = tmp_path / "Applications" / "GRAF Dev.app"
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(install_path))
+    monkeypatch.setattr(dev_harness, "state_dir", lambda live=False: state)
+    monkeypatch.setattr(dev_harness, "_assert_dev_environment", lambda: None)
+    monkeypatch.setattr(dev_harness.GrafLocalAdapter, "_runtime_is_live", lambda self, _: True)
+    calls = []
+
+    def fake_promote(self, promoted, *, previous_checkout=None):
+        calls.append(promoted["manifest_id"])
+        return {"mode": "live", "checks": {"app_identity": "pass"}}
+
+    monkeypatch.setattr(dev_harness.GrafLocalAdapter, "promote", fake_promote)
+
+    result = dev_harness.operation_promote(
+        dev_harness.argparse.Namespace(
+            manifest=str(candidate_path), live=True, dry_run=False, previous_checkout=None
+        )
+    )
+
+    assert result["adapter"]["mode"] == "live"
+    assert calls == [candidate["manifest_id"]]
+
+
 def test_feature_229_env_pins_every_compose_service_to_manifest_image_id(tmp_path):
     candidate = manifest(tmp_path, "a" * 40, feature="229")
     adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
@@ -600,6 +637,14 @@ def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failur
     monkeypatch.setattr(adapter, "_app_is_running", lambda _: True)
     monkeypatch.setattr(adapter, "_terminate_dev_app", lambda _: calls.append("stop-app") or True)
     monkeypatch.setattr(adapter, "_launch_dev_app", lambda _: calls.append("start-app"))
+
+    def fake_atomic_swap(staged, destination):
+        candidate = tmp_path / "candidate-before-restore.app"
+        destination.replace(candidate)
+        staged.replace(destination)
+        candidate.replace(staged)
+
+    monkeypatch.setattr(adapter, "_atomic_swap_dev_app", fake_atomic_swap)
 
     def fake_install(manifest_value, _env):
         calls.append(("install", manifest_value["source_sha"]))
