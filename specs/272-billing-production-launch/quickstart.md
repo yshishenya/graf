@@ -157,14 +157,14 @@ python3 -m pytest -q tests/governance/test_graf_local_adapter.py
 полная форма с двумя согласиями и синтетические возврат/ошибка в установленном
 приложении ещё не завершены; T054 остаётся открытой до их отдельной записи.
 
-### 1.4 Финальный кандидат документационного коммита
+### 1.4 Кандидат перед повторным exact-SHA source-прогоном
 
-После документирующего коммита `25c0fb304de83d46b77c316b1bbf817ff5d65ea4`
+После документирующего коммита `3a101c6ced2dbe7f0de1f24f7575ae5526587ba2`
 кандидат повторно собран и установлен через тот же `dev-harness`:
-`dev-25c0fb304de8`. Текущие `status --json` и `smoke --json --live`
+`dev-3a101c6ced2d`. Текущие `status --json` и `smoke --json --live`
 подтвердили `installed=true`, `/Applications/GRAF Dev.app`, bundle ID
 `pro.2brain.graf.dev`, `GRAF Local Code Signing`, точный SHA
-`25c0fb304de83d46b77c316b1bbf817ff5d65ea4` и **13/13 PASS**.
+`3a101c6ced2dbe7f0de1f24f7575ae5526587ba2` и **13/13 PASS**.
 
 Ручной Tab/Shift+Tab-прогон после этого последнего документирующего коммита
 ещё не выполнен; доказательство первого Tab на промежуточном кандидате
