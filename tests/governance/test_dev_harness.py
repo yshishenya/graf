@@ -249,6 +249,35 @@ def test_app_snapshot_preserves_bundle_symlinks(monkeypatch, tmp_path):
     assert (backup / "Contents/Current").readlink() == Path("Versions/A")
 
 
+def test_app_restore_keeps_installed_path_during_atomic_swap(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    destination = tmp_path / "GRAF Dev.app"
+    backup = tmp_path / "previous.app"
+    (destination / "Contents").mkdir(parents=True)
+    (backup / "Contents").mkdir(parents=True)
+    (destination / "Contents/marker").write_text("candidate", encoding="utf-8")
+    (backup / "Contents/marker").write_text("previous", encoding="utf-8")
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(destination))
+    monkeypatch.setattr(adapter, "_terminate_dev_app", lambda _: None)
+    monkeypatch.setattr(adapter, "_refresh_dev_app_registration", lambda _: None)
+    observed = []
+
+    def swap(staged, installed):
+        observed.append(installed.exists())
+        candidate = tmp_path / "candidate-after-swap.app"
+        installed.replace(candidate)
+        staged.replace(installed)
+        candidate.replace(staged)
+
+    monkeypatch.setattr(adapter, "_atomic_swap_dev_app", swap)
+    adapter._restore_app(backup)
+
+    assert observed == [True]
+    assert destination.is_dir()
+    assert (destination / "Contents/marker").read_text(encoding="utf-8") == "previous"
+    assert not backup.exists()
+
+
 def test_status_reports_missing_installed_app(monkeypatch, tmp_path):
     """A lost installation must be visible in status, not only at the next promote."""
     destination = tmp_path / "GRAF Dev.app"

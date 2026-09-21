@@ -601,6 +601,14 @@ def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failur
     monkeypatch.setattr(adapter, "_terminate_dev_app", lambda _: calls.append("stop-app") or True)
     monkeypatch.setattr(adapter, "_launch_dev_app", lambda _: calls.append("start-app"))
 
+    def fake_atomic_swap(staged, destination):
+        candidate = tmp_path / "candidate-before-restore.app"
+        destination.replace(candidate)
+        staged.replace(destination)
+        candidate.replace(staged)
+
+    monkeypatch.setattr(adapter, "_atomic_swap_dev_app", fake_atomic_swap)
+
     def fake_install(manifest_value, _env):
         calls.append(("install", manifest_value["source_sha"]))
         marker.write_text("new", encoding="utf-8")

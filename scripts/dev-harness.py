@@ -1702,19 +1702,32 @@ class GrafLocalAdapter:
         """Reject invalid or production app destinations before mutation."""
         _validate_dev_app_destination(destination)
 
+    def _atomic_swap_dev_app(self, staged: Path, destination: Path) -> None:
+        _run_command(
+            ["swift", str(self.app_lifecycle_script), "swap", str(staged), str(destination)],
+            cwd=self.root,
+        )
+
     def _restore_app(self, backup: Optional[Path]) -> None:
         destination = _dev_app_destination()
         self._assert_dev_app_destination(destination)
         self._terminate_dev_app(destination)
-        if destination.exists():
+        if backup is None:
+            return
+        restored = destination.parent / f".{destination.name}.restore.{os.getpid()}.{time.time_ns()}"
+        shutil.copytree(backup, restored, symlinks=True)
+        try:
             if destination.is_dir() and not destination.is_symlink():
-                shutil.rmtree(destination)
+                self._atomic_swap_dev_app(restored, destination)
             else:
-                destination.unlink()
-        if backup is not None:
-            shutil.copytree(backup, destination, symlinks=True)
-            shutil.rmtree(backup)
+                os.replace(restored, destination)
             self._refresh_dev_app_registration(destination)
+        finally:
+            if restored.is_dir() and not restored.is_symlink():
+                shutil.rmtree(restored)
+            elif restored.exists() or restored.is_symlink():
+                restored.unlink()
+        shutil.rmtree(backup)
 
     def _restore_runtime(
         self,

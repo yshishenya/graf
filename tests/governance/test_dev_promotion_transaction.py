@@ -26,10 +26,13 @@ def test_app_swap_rechecks_lifecycle_and_allows_cleanup_grace():
     ditto_offset = installer.index('ditto --norsrc --noextattr --noqtn "$CANDIDATE" "$STAGED_DESTINATION"')
     assert installer.index('assert_app_stopped', ditto_offset) > ditto_offset
     assert 'LaunchServices registration failed' in installer
+    assert 'swift "$APP_LIFECYCLE" swap "$STAGED_DESTINATION" "$DESTINATION"' in installer
+    assert 'renameatx_np' in lifecycle
+    assert 'RENAME_SWAP' in lifecycle
     registration_offset = installer.index('if ! "$LSREGISTER" -f "$DESTINATION"')
-    assert installer.index('rm -rf "$DESTINATION"', registration_offset) > registration_offset
-    assert installer.index('mv "$BACKUP_DESTINATION" "$DESTINATION"', registration_offset) > registration_offset
-    assert installer.index('rm -rf "$BACKUP_DESTINATION"', registration_offset) > registration_offset
+    assert 'rm -rf "$DESTINATION"' not in installer
+    assert 'BACKUP_DESTINATION' not in installer
+    assert installer.index('rm -rf "$STAGED_DESTINATION"', registration_offset) > registration_offset
     assert 'expectedBundleIdentifier = "pro.2brain.graf.dev"' in lifecycle
     assert 'destination must not be a symlink' in lifecycle
     assert 'application.bundleIdentifier == expectedBundleIdentifier' in lifecycle
@@ -38,6 +41,10 @@ def test_app_swap_rechecks_lifecycle_and_allows_cleanup_grace():
     assert "if not self._app_is_running(destination):" in harness
     assert harness.count("if self._app_is_running(destination):") >= 2
     assert "check=True" in harness
+    assert "def _atomic_swap_dev_app" in harness
+    restore = harness[harness.index("    def _restore_app("):harness.index("    def _restore_runtime(")]
+    assert "shutil.rmtree(destination)" not in restore
+    assert "self._atomic_swap_dev_app(restored, destination)" in restore
 
     promote = harness[harness.index("    def promote("):harness.index("    def rollback(")]
     rollback = harness[harness.index("    def rollback("):]

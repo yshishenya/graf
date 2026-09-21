@@ -37,6 +37,9 @@ final class DevChannelPackagingTests: XCTestCase {
         XCTAssertTrue(source.contains("/Applications/GRAF Dev.app"))
         XCTAssertTrue(source.contains("mktemp"))
         XCTAssertTrue(source.contains("mv"))
+        XCTAssertTrue(source.contains("renameatx_np"))
+        XCTAssertTrue(source.contains("RENAME_SWAP"))
+        XCTAssertFalse(source.contains("rm -rf \"$DESTINATION\""))
         XCTAssertTrue(source.contains("pro.2brain.graf.dev"))
         XCTAssertTrue(source.contains("GRAF Dev"))
         XCTAssertTrue(source.contains("GRAF.app"))
@@ -56,6 +59,8 @@ final class DevChannelPackagingTests: XCTestCase {
         XCTAssertTrue(source.contains("NSWorkspace.shared.runningApplications"))
         XCTAssertTrue(source.contains("terminate()"))
         XCTAssertTrue(source.contains("bundleURL"))
+        XCTAssertTrue(source.contains("renameatx_np"))
+        XCTAssertTrue(source.contains("RENAME_SWAP"))
         XCTAssertFalse(source.localizedCaseInsensitiveContains("kill("))
         XCTAssertFalse(source.localizedCaseInsensitiveContains("osascript"))
     }
