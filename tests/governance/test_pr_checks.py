@@ -389,6 +389,7 @@ def test_initial_release_prep_accepts_archived_fragments(snapshot, monkeypatch):
     ))
     results = checks.verify_source("owner/repo", source, included_prs=[7])
     assert [row["pr_number"] for row in results] == [7]
+    assert results[0]["release_source_sha"] == source
 
 
 def test_task_closeout_is_metadata_only_only_for_task_docs(snapshot, monkeypatch):
