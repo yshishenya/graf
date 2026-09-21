@@ -4,8 +4,10 @@
 #include "ClockMapper.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <limits>
+#include <mutex>
 #include <thread>
 
 #ifdef _WIN32
@@ -64,6 +66,7 @@ std::wstring WasapiCaptureWorker::utf8ToWide(const std::string& value) {
 #endif
 
 struct WasapiCaptureWorker::Impl {
+    static constexpr std::size_t maxTraceEvents = 64;
     WasapiEndpointSnapshot endpoint;
     bool renderLoopback = false;
     CaptureWorkerConfig config;
@@ -74,7 +77,47 @@ struct WasapiCaptureWorker::Impl {
     std::atomic<CaptureWorkerError> error{CaptureWorkerError::none};
     std::atomic<ClockFault> clockFault{ClockFault::none};
     std::atomic<std::uint32_t> startupDiscardedFrames{0};
+    mutable std::mutex traceMutex;
+    std::array<CaptureStageTrace, maxTraceEvents> trace{};
+    std::size_t traceStart = 0;
+    std::size_t traceSize = 0;
+    std::uint64_t nextTraceSequence = 0;
     std::thread thread;
+
+    void recordTrace(CaptureStage stage, std::int32_t hresult = 0, std::uint32_t flags = 0,
+                     std::uint32_t frameCount = 0, std::uint64_t devicePosition = 0,
+                     std::uint64_t qpcPosition = 0, std::uint64_t audioClockPosition = 0,
+                     std::uint64_t audioClockFrequency = 0, bool released = false) noexcept {
+        std::lock_guard<std::mutex> lock(traceMutex);
+        CaptureStageTrace event;
+        event.sequence = ++nextTraceSequence;
+        event.stage = stage;
+        event.hresult = hresult;
+        event.flags = flags;
+        event.frameCount = frameCount;
+        event.devicePosition = devicePosition;
+        event.qpcPosition = qpcPosition;
+        event.audioClockPosition = audioClockPosition;
+        event.audioClockFrequency = audioClockFrequency;
+        event.released = released;
+        const auto index = traceSize < maxTraceEvents
+            ? (traceStart + traceSize++) % maxTraceEvents
+            : (traceStart++ % maxTraceEvents);
+        trace[index] = event;
+    }
+
+    CaptureClockDiagnostics diagnostics() const noexcept {
+        CaptureClockDiagnostics result;
+        result.startupDiscardedFrames = startupDiscardedFrames.load();
+        result.fault = clockFault.load();
+        std::lock_guard<std::mutex> lock(traceMutex);
+        result.traceCount = static_cast<std::uint32_t>(traceSize);
+        if (traceSize != 0) {
+            result.lastTrace = trace[(traceStart + traceSize - 1) % maxTraceEvents];
+        }
+        return result;
+    }
+
     void run(WasapiCaptureWorker& owner) {
 #ifndef _WIN32
         (void)owner;
@@ -82,6 +125,7 @@ struct WasapiCaptureWorker::Impl {
 #else
         HRESULT init = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         if (FAILED(init)) {
+            recordTrace(CaptureStage::initialize, static_cast<std::int32_t>(init));
             error.store(CaptureWorkerError::initializationFailed);
             return;
         }
@@ -105,11 +149,15 @@ struct WasapiCaptureWorker::Impl {
         auto& format = resources.format;
         do {
             if (!running.load()) break;
-            if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
-                                        IID_PPV_ARGS(&enumerator)))) { error = CaptureWorkerError::initializationFailed; break; }
+            const auto enumeratorResult = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
+                                                           IID_PPV_ARGS(&enumerator));
+            recordTrace(CaptureStage::initialize, static_cast<std::int32_t>(enumeratorResult));
+            if (FAILED(enumeratorResult)) { error = CaptureWorkerError::initializationFailed; break; }
             if (!running.load()) break;
             const auto id = WasapiCaptureWorker::utf8ToWide(endpoint.stableId);
-            if (id.empty() || FAILED(enumerator->GetDevice(id.c_str(), &device))) {
+            const auto deviceResult = id.empty() ? E_INVALIDARG : enumerator->GetDevice(id.c_str(), &device);
+            recordTrace(CaptureStage::initialize, static_cast<std::int32_t>(deviceResult));
+            if (FAILED(deviceResult)) {
                 error = CaptureWorkerError::invalidEndpoint; break;
             }
             if (!running.load()) break;
@@ -121,7 +169,9 @@ struct WasapiCaptureWorker::Impl {
                 break;
             }
             if (!running.load()) break;
-            if (FAILED(client->GetMixFormat(&format))) { error = CaptureWorkerError::initializationFailed; break; }
+            const auto formatResult = client->GetMixFormat(&format);
+            recordTrace(CaptureStage::initialize, static_cast<std::int32_t>(formatResult));
+            if (FAILED(formatResult)) { error = CaptureWorkerError::initializationFailed; break; }
             if (!running.load()) break;
             const auto pcmFormat = inspectFormat(*format);
             if (!pcmFormat.float32 && !pcmFormat.pcm16) {
@@ -141,15 +191,25 @@ struct WasapiCaptureWorker::Impl {
                 break;
             }
             if (!running.load()) break;
-            if (FAILED(client->SetEventHandle(eventHandle))) { error = CaptureWorkerError::initializationFailed; break; }
+            const auto eventResult = client->SetEventHandle(eventHandle);
+            recordTrace(CaptureStage::initialize, static_cast<std::int32_t>(eventResult));
+            if (FAILED(eventResult)) { error = CaptureWorkerError::initializationFailed; break; }
             if (!running.load()) break;
-            if (FAILED(client->GetService(IID_PPV_ARGS(&capture)))) {
+            const auto captureResult = client->GetService(IID_PPV_ARGS(&capture));
+            recordTrace(CaptureStage::initialize, static_cast<std::int32_t>(captureResult));
+            if (FAILED(captureResult)) {
                 error.store(CaptureWorkerError::initializationFailed);
                 break;
             }
             UINT64 audioClockFrequency = 0;
-            if (FAILED(client->GetService(IID_PPV_ARGS(&audioClock))) ||
-                FAILED(audioClock->GetFrequency(&audioClockFrequency)) || audioClockFrequency == 0) {
+            const auto audioClockResult = client->GetService(IID_PPV_ARGS(&audioClock));
+            recordTrace(CaptureStage::audioClock, static_cast<std::int32_t>(audioClockResult),
+                        0, 0, 0, 0, 0, audioClockFrequency);
+            const auto frequencyResult = SUCCEEDED(audioClockResult)
+                ? audioClock->GetFrequency(&audioClockFrequency) : E_FAIL;
+            recordTrace(CaptureStage::audioClock, static_cast<std::int32_t>(frequencyResult),
+                        0, 0, 0, 0, 0, audioClockFrequency);
+            if (FAILED(audioClockResult) || FAILED(frequencyResult) || audioClockFrequency == 0) {
                 error.store(CaptureWorkerError::initializationFailed);
                 break;
             }
@@ -166,39 +226,75 @@ struct WasapiCaptureWorker::Impl {
             ClockMapper clockMapper;
             AudioNormalizer normalizer(config.maxBatchFrames * 6);
             while (running.load() && error.load() == CaptureWorkerError::none) {
-                if (WaitForSingleObject(eventHandle, 500) == WAIT_TIMEOUT) continue;
+                const auto waitResult = WaitForSingleObject(eventHandle, 500);
+                recordTrace(CaptureStage::wait, static_cast<std::int32_t>(waitResult));
+                if (waitResult == WAIT_TIMEOUT) continue;
+                if (waitResult != WAIT_OBJECT_0) {
+                    error.store(CaptureWorkerError::waitFailed);
+                    break;
+                }
                 if (!running.load()) break;
                 UINT32 frames = 0;
-                if (FAILED(capture->GetNextPacketSize(&frames))) {
-                    error.store(CaptureWorkerError::deviceInvalidated);
+                auto packetResult = capture->GetNextPacketSize(&frames);
+                recordTrace(CaptureStage::nextPacketSize, static_cast<std::int32_t>(packetResult), 0, frames);
+                if (FAILED(packetResult)) {
+                    error.store(CaptureWorkerError::packetReadFailed);
                     break;
                 }
                 while (frames > 0 && running.load()) {
                     BYTE* data = nullptr; UINT32 count = 0; DWORD flagsRead = 0;
                     UINT64 devicePosition = 0; UINT64 qpcPosition = 0;
-                    if (FAILED(capture->GetBuffer(&data, &count, &flagsRead, &devicePosition, &qpcPosition))) {
-                        error.store(CaptureWorkerError::deviceInvalidated); break;
+                    const auto bufferResult = capture->GetBuffer(&data, &count, &flagsRead,
+                                                                 &devicePosition, &qpcPosition);
+                    recordTrace(CaptureStage::getBuffer, static_cast<std::int32_t>(bufferResult), flagsRead,
+                                count, devicePosition, qpcPosition);
+                    if (FAILED(bufferResult)) {
+                        error.store(CaptureWorkerError::bufferReadFailed); break;
                     }
                     if (count == 0) {
-                        if (FAILED(capture->ReleaseBuffer(0)) || FAILED(capture->GetNextPacketSize(&frames))) {
-                            error.store(CaptureWorkerError::deviceInvalidated);
+                        const auto releaseResult = capture->ReleaseBuffer(0);
+                        recordTrace(CaptureStage::releaseBuffer, static_cast<std::int32_t>(releaseResult),
+                                    flagsRead, count, devicePosition, qpcPosition, 0, audioClockFrequency,
+                                    SUCCEEDED(releaseResult));
+                        packetResult = capture->GetNextPacketSize(&frames);
+                        recordTrace(CaptureStage::nextPacketSize, static_cast<std::int32_t>(packetResult),
+                                    0, frames);
+                        if (FAILED(releaseResult)) {
+                            error.store(CaptureWorkerError::releaseFailed);
+                            break;
+                        }
+                        if (FAILED(packetResult)) {
+                            error.store(CaptureWorkerError::packetReadFailed);
                             break;
                         }
                         continue;
                     }
                     UINT64 audioClockPosition = 0;
-                    if (FAILED(audioClock->GetPosition(&audioClockPosition, nullptr))) {
-                        error.store(CaptureWorkerError::deviceInvalidated);
-                        if (FAILED(capture->ReleaseBuffer(count))) break;
+                    const auto positionResult = audioClock->GetPosition(&audioClockPosition, nullptr);
+                    recordTrace(CaptureStage::audioClock, static_cast<std::int32_t>(positionResult), flagsRead,
+                                count, devicePosition, qpcPosition, audioClockPosition, audioClockFrequency);
+                    if (FAILED(positionResult)) {
+                        error.store(CaptureWorkerError::audioClockFailed);
+                        const auto releaseResult = capture->ReleaseBuffer(count);
+                        recordTrace(CaptureStage::releaseBuffer, static_cast<std::int32_t>(releaseResult),
+                                    flagsRead, count, devicePosition, qpcPosition, audioClockPosition,
+                                    audioClockFrequency, SUCCEEDED(releaseResult));
                         break;
                     }
                     if (!owner.consumePacket(clockMapper, normalizer,
                             {qpcPosition, devicePosition, format->nSamplesPerSec, flagsRead, count,
                              audioClockPosition, audioClockFrequency},
                             data, format->nChannels, pcmFormat.float32,
-                            [&](std::uint32_t consumed) { return SUCCEEDED(capture->ReleaseBuffer(consumed)); })) break;
-                    if (FAILED(capture->GetNextPacketSize(&frames))) {
-                        error.store(CaptureWorkerError::deviceInvalidated);
+                            [&](std::uint32_t consumed) {
+                                const auto releaseResult = capture->ReleaseBuffer(consumed);
+                                return CaptureReleaseResult{
+                                    SUCCEEDED(releaseResult), static_cast<std::int32_t>(releaseResult)};
+                            })) break;
+                    packetResult = capture->GetNextPacketSize(&frames);
+                    recordTrace(CaptureStage::nextPacketSize, static_cast<std::int32_t>(packetResult),
+                                0, frames);
+                    if (FAILED(packetResult)) {
+                        error.store(CaptureWorkerError::packetReadFailed);
                         break;
                     }
                 }
@@ -213,10 +309,14 @@ struct WasapiCaptureWorker::Impl {
 
 bool WasapiCaptureWorker::consumePacket(ClockMapper& mapper, AudioNormalizer& normalizer,
     ClockObservation packet, const void* data, std::uint16_t channels, bool float32,
-    const std::function<bool(std::uint32_t)>& releaseBuffer) {
+    const std::function<CaptureReleaseResult(std::uint32_t)>& releaseBuffer) {
     const auto release = [&] {
-        if (releaseBuffer(packet.frameCount)) return true;
-        impl_->error.store(CaptureWorkerError::deviceInvalidated);
+        const auto result = releaseBuffer(packet.frameCount);
+        impl_->recordTrace(CaptureStage::releaseBuffer, result.hresult, packet.flags,
+                           packet.frameCount, packet.deviceFrames, packet.qpc100ns,
+                           packet.audioClockPosition, packet.audioClockFrequency, result.succeeded);
+        if (result.succeeded) return true;
+        impl_->error.store(CaptureWorkerError::releaseFailed);
         return false;
     };
     if (impl_->error.load() != CaptureWorkerError::none) { (void)release(); return false; }
@@ -254,24 +354,35 @@ bool WasapiCaptureWorker::consumePacket(ClockMapper& mapper, AudioNormalizer& no
         const auto* samples = static_cast<const std::int16_t*>(data);
         for (std::size_t i = 0; i < batch.samples.size(); ++i) batch.samples[i] = samples[i] / 32768.0F;
     } else if (!silent) {
-        impl_->error.store(CaptureWorkerError::unsupportedFormat);
+        impl_->error.store(CaptureWorkerError::normalizationFailed);
         (void)release();
         return false;
     }
     if (!release()) return false;
     AudioBatch normalized;
     // The normalizer validates finite samples as well as the packet format.
-    if (!normalizer.normalize(std::move(batch), mapping.qpc100ns, normalized)) {
-        impl_->error.store(CaptureWorkerError::unsupportedFormat);
+    const auto normalizedOk = normalizer.normalize(std::move(batch), mapping.qpc100ns, normalized);
+    impl_->recordTrace(CaptureStage::normalize, normalizedOk ? 0 : -1, packet.flags,
+                       packet.frameCount, packet.deviceFrames, packet.qpc100ns,
+                       packet.audioClockPosition, packet.audioClockFrequency);
+    if (!normalizedOk) {
+        impl_->error.store(CaptureWorkerError::normalizationFailed);
         return false;
     }
     if (impl_->running.load() && !normalized.samples.empty()) {
         try {
-            if (!impl_->callback(std::move(normalized))) {
-                impl_->error.store(CaptureWorkerError::bufferOverflow);
+            const auto accepted = impl_->callback(std::move(normalized));
+            impl_->recordTrace(CaptureStage::callback, accepted ? 0 : -1, packet.flags,
+                               packet.frameCount, packet.deviceFrames, packet.qpc100ns,
+                               packet.audioClockPosition, packet.audioClockFrequency);
+            if (!accepted) {
+                impl_->error.store(CaptureWorkerError::sinkRejected);
                 return false;
             }
         } catch (...) {
+            impl_->recordTrace(CaptureStage::callback, -1, packet.flags, packet.frameCount,
+                               packet.deviceFrames, packet.qpc100ns, packet.audioClockPosition,
+                               packet.audioClockFrequency);
             impl_->error.store(CaptureWorkerError::initializationFailed);
             return false;
         }
@@ -310,6 +421,12 @@ CaptureWorkerError WasapiCaptureWorker::start(CaptureBatchCallback callback) {
     impl_->error.store(CaptureWorkerError::none);
     impl_->clockFault.store(ClockFault::none);
     impl_->startupDiscardedFrames.store(0);
+    {
+        std::lock_guard<std::mutex> lock(impl_->traceMutex);
+        impl_->traceStart = 0;
+        impl_->traceSize = 0;
+        impl_->nextTraceSequence = 0;
+    }
     impl_->ready.store(false);
     impl_->running.store(true);
     impl_->finished.store(false);
@@ -349,7 +466,7 @@ CaptureWorkerError WasapiCaptureWorker::lastError() const noexcept {
 }
 
 CaptureClockDiagnostics WasapiCaptureWorker::clockDiagnostics() const noexcept {
-    return {impl_->startupDiscardedFrames.load(), impl_->clockFault.load()};
+    return impl_->diagnostics();
 }
 
 } // namespace graf::windows

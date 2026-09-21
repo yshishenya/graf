@@ -110,16 +110,16 @@ struct UploadServerTruth {
     // Server meeting id. The cabinet binds a local row to its server meeting by
     // this id, so the local copy disappears from the list once the server owns
     // it instead of staying next to it as a second entry.
-    std::string meetingId;
+    std::string meetingId = {};
     // Server-side identity of the accepted media revision and of the upload
     // session that carries it, plus the lifecycle states the server named.
     // Persisted with the row; declared last so existing positional initializers
     // keep their meaning.
-    std::string mediaRevisionId;
-    std::string uploadSessionId;
-    std::string serverStatus;
-    std::string processingStatus;
-    std::string mediaRevisionStatus;
+    std::string mediaRevisionId = {};
+    std::string uploadSessionId = {};
+    std::string serverStatus = {};
+    std::string processingStatus = {};
+    std::string mediaRevisionStatus = {};
 };
 
 enum class LocalCopyRemovalResult {

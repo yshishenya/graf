@@ -202,7 +202,7 @@ int main() {
     assert(queue.enqueue({"recording", "directory", "session", package, UploadQueueStatus::pending, {}, 0, ""}));
     assert(!queue.enqueue({"escape", "directory", "session-escape", outside, UploadQueueStatus::pending, {}, 0, ""}));
     assert(!queue.enqueue({"recording", "directory", "session2", package, UploadQueueStatus::pending, {}, 0, ""}));
-    assert(queue.reconcile({"recording", true, true, {10, 20, 30}, false, "meeting-id"}));
+    assert(queue.reconcile({"recording", true, true, {10, 20, 30}, false, "meeting-id", {}, {}, {}, {}, {}}));
     assert(queue.items()[0].status == UploadQueueStatus::uploading);
     assert(queue.items()[0].acceptedBytes[1] == 20);
     // The cabinet binds a local row to its server meeting by this id, so it has
@@ -210,9 +210,9 @@ int main() {
     assert(queue.items()[0].meetingId == "meeting-id");
     // A later server response must not overwrite the binding, and an unusable
     // id must not reach the ledger.
-    assert(queue.reconcile({"recording", true, true, {10, 20, 30}, false, "other-id"}));
+    assert(queue.reconcile({"recording", true, true, {10, 20, 30}, false, "other-id", {}, {}, {}, {}, {}}));
     assert(queue.items()[0].meetingId == "meeting-id");
-    assert(queue.reconcile({"recording", true, true, {10, 20, 30}, false, "not a safe id"}));
+    assert(queue.reconcile({"recording", true, true, {10, 20, 30}, false, "not a safe id", {}, {}, {}, {}, {}}));
     assert(queue.items()[0].meetingId == "meeting-id");
     // The rest of the server's fingerprint is written with the row and read back
     // after a restart: which revision the server accepted, which session carries

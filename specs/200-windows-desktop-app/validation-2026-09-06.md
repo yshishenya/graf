@@ -1173,3 +1173,151 @@ Parallels. Приложение и CTest — x64 под эмуляцией Windo
 
 Проверка снова не читала и не сохраняла raw audio, расшифровки, cookies,
 токены или private meeting data.
+
+## Дополнительная проверка текущего среза: Windows audio custody и MSIX (2026-09-20)
+
+Этот раздел добавлен к историческому журналу и фиксирует только доказательства
+текущего среза ветки. Он не закрывает задачи автоматически и не является
+разрешением внешнего выпуска.
+
+### Идентичность проверенного среза
+
+- Рабочая ветка: `codex/200-windows-followup`.
+- База до изменений: `f83a9c9414393492b6e9e83cfd8f9cf16f1e26f3`.
+- В diff до добавления этого metadata-only раздела — 20 файлов Windows-кода и
+  тестов; SHA-256 бинарного diff: `0d06d0ca535e96fbd9448092ab3797177ee2588e64e9d605f2b1c95be39b79b3`.
+- Серверный код, macOS-код и корневой `CHANGELOG.md` в этот срез не входили.
+
+### Проверки исходников и тестов
+
+| Проверка | Результат | Граница доказательства |
+| --- | --- | --- |
+| macOS `cmake --build /tmp/graf-feature-200-followup-build -j2` | PASS | переносимая сборка текущего среза |
+| macOS `ctest --test-dir /tmp/graf-feature-200-followup-build --output-on-failure` | **30/30 PASS** | переносимые тесты, не аппаратный Windows |
+| Windows `cmake --preset x64-release` и `cmake --build --preset x64-release` | PASS | Windows 11 ARM64 в Parallels, x64 под эмуляцией |
+| Windows `ctest --preset x64-release --output-on-failure` | **30/30 PASS** | та же виртуальная машина, не физический x64 |
+| `validate-webview-boundary.ps1 -Contract` | **7/7 PASS** | граница маршрутов/моста и offline native recording |
+| `validate-audio-contract.ps1 -Synthetic` | **4/4 PASS** | синтетические аудиоданные |
+| `validate-audio-contract.ps1 -CustodyFaults` | **4/4 PASS**, затем **3/3 PASS** | запуски выполнялись последовательно против одной временной папки |
+| `V5LocalRecordingWriterTests` | **10/10 PASS** | повторяемость локальной записи на синтетических кадрах |
+| `GrafWindows.sln` через MSBuild Restore/Release x64 | PASS | `GrafWindowsCoreTests.vcxproj` и `GrafWindowsApp.vcxproj` собраны; предупреждения сторонних заголовков не являются ошибками |
+
+Проверки `-CustodyFaults` намеренно не запускались параллельно: отдельный
+одновременный запуск трёх проверок против одной временной папки однажды завершил
+ся `0xc0000409`; последовательный повтор прошёл полностью и является
+используемым доказательством.
+
+### Пакет MSIX и установленный запуск
+
+Канонический пакет из манифеста `0.1.0.0`:
+
+- файл: `GrafWindows.Package_0.1.0.0_x64.msix`;
+- SHA-256: `023023f74e9978521a4b0bc672afb83e16c0e0a4fe300c1d4bf1c029c40487fb`;
+- подпись: `Status: Valid`, субъект `CN=GRAF`, отпечаток
+  `816CC8B4EB216A0755BFB118992BB594AF51BF6C`;
+- статическая проверка: `identity=com.graf.desktop`,
+  `entryPoint=GrafWindowsApp.exe`, `signatureStatus=Valid`;
+- манифест содержит x64, `Microsoft.VCLibs.140.00.UWPDesktop`,
+  `Microsoft.WindowsAppRuntime.2`, `internetClient`, `microphone`,
+  `runFullTrust` и `GrafWindowsApp.exe`;
+- SHA-256 свежего `GrafWindowsApp.exe` до упаковки и извлечённого из этого
+  пакета совпал: `116a2e49268b20beda7368cfb3db608d1c90d8ecd6b92904634a5598d0799c91`;
+- `dumpbin /dependents` не показал импорт
+  `Microsoft.WindowsAppRuntime.Bootstrap.dll`.
+
+Для проверки обновления поверх уже установленного приложения временно
+использовалась версия `0.1.0.2`; исходный манифест после проверки восстановлен
+к `0.1.0.0`. Временный пакет имеет SHA-256
+`accc6341dfc7313d7b6d4616431c2079ae8c8a64e08592def7190bf32f810bda`.
+Установка завершилась `Status: Ok`, `SignatureKind: Developer`; запуск из
+установленного пакета показал заголовок `GRAF` и `Responding: True`. SHA-256
+свежего временного `GrafWindowsApp.exe` и установленного файла совпал:
+`44a5df8285fc8dd8ae6fccc227be2ae43bee6bbc1c51fbc73a31e2a9a719c201`.
+
+Эти сведения доказывают сборку, подпись, содержимое пакета и запуск в
+разработческой ARM64-виртуальной машине. Они не доказывают доверенную подпись
+для внешних клиентов, чистый образ без среды разработки, обновление/откат на
+физическом x64 или отсутствие проблем на реальных аудиоустройствах.
+
+### Границы текущего доказательства
+
+Остаются открытыми физический Windows x64 и 60-минутная аппаратная матрица,
+AEC3 и качество записи на реальных устройствах, полноценный WebView2/auth
+жизненный цикл, все живые окна и проверки доступности, реальная авторизованная
+отправка и удаление, а также clean-image install/update/rollback. Пакетный
+контур проверен, но внешний релиз, публикация и развёртывание не заявляются.
+
+## Раунд 55 — единый NuGet-корень и свежая сборка решения (2026-09-20)
+
+Этот раздел добавлен в конец журнала после исправления сборочного сбоя. Он
+описывает срез ветки `codex/200-windows-followup` на базе
+`f83a9c9414393492b6e9e83cfd8f9cf16f1e26f3` и не переписывает предыдущие
+результаты.
+
+### Что было исправлено
+
+В `apps/windows/RecApp/GrafWindowsApp.vcxproj` путь WebView2 теперь добавляет
+разделитель перед `microsoft.web.webview2`. До этого при заданном NuGet-свойстве
+`NuGetPackageRoot` путь склеивался как
+`...\\packagesmicrosoft.web.webview2...`: restore проходил, но `cppwinrt` не
+мог открыть `Microsoft.Web.WebView2.Core.winmd`. Проверка подтвердила, что
+пакет и winmd реально есть в пользовательском кэше; менять окружение Windows для
+обхода ошибки не потребовалось — исправлен сам корень пути в проекте.
+
+В этом же срезе сохранены аудиоконтракты предыдущего раунда:
+
+- `CaptureReleaseResult` передаёт из `IAudioCaptureClient::ReleaseBuffer` и
+  признак успеха, и точный `HRESULT`; `consumePacket` записывает этот код в
+  metadata-only trace до обобщённого события ошибки и закрывает захват при
+  неуспехе;
+- `RecordingAudioTimeline::close()` не объявлен `noexcept`, поскольку
+  финализация может расширить буфер кадров;
+- перед уничтожением `WindowsCaptureSessionController` новые аудиопакеты
+  блокируются до остановки рабочих потоков; типизированные EOS и наблюдатель
+  порядка завершения сохранены для регрессий.
+
+Идентификатор исходного состояния: `f83a9c9414393492b6e9e83cfd8f9cf16f1e26f3`.
+SHA-256 бинарного diff только каталога `apps/windows`:
+`fb7487669e696276e43611a9323108ad41646f7f6234e5df8a639b8834ee1908`.
+
+### Свежие проверки
+
+| Проверка | Результат | Граница доказательства |
+| --- | --- | --- |
+| macOS `cmake --build /tmp/graf-feature-200-followup-build -j2` | PASS | переносимая сборка |
+| macOS `ctest --test-dir /tmp/graf-feature-200-followup-build --output-on-failure` | **30/30 PASS** | переносимые тесты, не аппаратный Windows |
+| Windows `msbuild GrafWindows.sln /t:Restore` с единым пользовательским корнем | `RESTORE_EXIT=0` | Windows 11 ARM64 в Parallels |
+| Windows `GrafWindows.sln`, Release x64, `NuGetPackageRoot` и `RestorePackagesPath` заданы явно | **`BUILD_EXIT=0`** | полная solution-сборка под x64-эмуляцией |
+| Windows `ctest --preset x64-release --output-on-failure` | **30/30 PASS** | та же виртуальная машина, не физический x64 |
+| `validate-webview-boundary.ps1 -Contract` | **7/7 PASS** | маршруты, мост, WebView2 lifecycle и parity-контракты |
+| `validate-audio-contract.ps1 -Synthetic` | **4/4 PASS** | синтетическая запись, нормализация, ошибки захвата и writer |
+| `validate-audio-contract.ps1 -CustodyFaults` | **4/4 + 3/3 PASS** | аудио и custody/queue/upload; запущено последовательно |
+| `GrafWindows.Package.wapproj`, Release x64 | **`PACKAGE_BUILD_EXIT=0`** | свежий установочный пакет из текущего Windows-зеркала |
+| development signing script | **`SIGN_EXIT=0`**, `Valid`, `CN=GRAF` | локальная подпись для VM, не внешняя доверенная подпись |
+| `validate-package-smoke.ps1 -Package ... -UiMatrix` | **`PACKAGE_SMOKE_EXIT=0`** | identity/entry point/capabilities/запрет драйверов и служб; clean-image UI остаётся гейтом |
+| `Add-AppxPackage -ForceUpdateFromAnyVersion` | **`INSTALL_EXIT=0`**, version `0.1.0.0`, status `Ok` | установка поверх старого dev-пакета без удаления состояния |
+| запуск через `shell:AppsFolder` | **`Responding=True`** | процесс шёл из установленного `WindowsApps` каталога, затем остановлен после проверки |
+
+Параллельный запуск `-CustodyFaults` не использовался: он ранее создавал
+гонку против одной временной папки и один раз завершился `0xc0000409`.
+
+### Пакет и граница раунда
+
+Проверенный пакет: `GrafWindows.Package_0.1.0.0_x64.msix`, SHA-256
+`CE0D64C8E9F248763594639036173C9DE85056C97C99001A17E38FC0C9D29F42`.
+SHA-256 установленного `GrafWindowsApp.exe` совпал с текущим пакетом:
+`ACD34D9078D8F5050364B5D6964D5C9105D09834A8F18DA2655B5329C024330E`.
+Пакет был установлен и запущен как `com.graf.desktop` версии `0.1.0.0`; путь
+процесса находился под `C:\Program Files\WindowsApps\...`, а не в каталоге
+исходников. SHA-256 `GrafWindowsApp.exe` внутри MSIX и установленного exe
+совпал: `ACD34D9078D8F5050364B5D6964D5C9105D09834A8F18DA2655B5329C024330E`.
+Подпись `CN=GRAF` — development-сертификат, сохранённый вне репозитория; это
+не доверенная подпись для внешних клиентов.
+
+По-прежнему не закрыты физический Windows x64, 60-минутная аппаратная матрица,
+реальные аудиоустройства и AEC3, полный авторизованный WebView2/upload путь,
+полный живой accessibility-проход и clean-image install/update/rollback.
+`-UiMatrix` оставил эти пункты гейтом. Независимая UI Automation-проверка окна
+из гостевой команды видит только 7 корневых элементов WebView2 и не раскрывает
+меню «Вид»/кнопки кабинета, поэтому T097 не закрыта по одному факту запуска.
+Commit, push, PR, `release-full` и публикация не выполнялись.

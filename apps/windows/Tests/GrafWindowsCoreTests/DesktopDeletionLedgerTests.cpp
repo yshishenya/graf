@@ -334,7 +334,7 @@ void testServerOriginValidation() {
                                  operationId));
     assert(queue.requestDeletion(DeletionTarget::ownOrigin, "directory-three", kOwner, "http://localhost",
                                  operationId));
-    for (const auto origin : {std::string(""), std::string("graf.example.test"), std::string("ftp://graf.example.test"),
+    for (const auto& origin : {std::string(""), std::string("graf.example.test"), std::string("ftp://graf.example.test"),
                               std::string("http://graf.example.test"), std::string("https://graf.example.test/path"),
                               std::string("https://user@graf.example.test"), std::string("https://graf.example.test?a=1"),
                               std::string("https://graf.example.test#fragment")}) {
@@ -600,7 +600,7 @@ void testPurgeOfATypeThisClientCannotVerify() {
     // Only the buffers task is about the local copies themselves. A task this
     // client cannot carry out is answered honestly and touches no file: a claimed
     // deletion that was not verified is the false proof this port removed once.
-    for (const auto type : {std::string("purge_local_exports"), std::string("confirm_local_expiry")}) {
+    for (const auto& type : {std::string("purge_local_exports"), std::string("confirm_local_expiry")}) {
         std::size_t calls = 0;
         const auto completion = queue.completeLocalPurgeTask(purgeTask(std::string(kMeeting), type), recycling(&calls));
         assert(completion.verification == DesktopUploadQueueService::LocalPurgeVerification::unverified);
@@ -886,12 +886,12 @@ void testRequestHasToNameARealAccountAndServer() {
     // An account that is not an account, or a server this client may not talk to,
     // is not a request that may be stored: it would name something the server
     // cannot resolve, and "сохранено" would be a promise nobody keeps.
-    for (const auto owner : {DesktopAccountIdentity{"", std::string(kWorkspace)},
+    for (const auto& owner : {DesktopAccountIdentity{"", std::string(kWorkspace)},
                              DesktopAccountIdentity{std::string(kActor), ""},
                              DesktopAccountIdentity{"not-an-account", std::string(kWorkspace)}}) {
         assert(!queue.planDeletionSelection(selection, owner, kOrigin).saved);
     }
-    for (const auto origin : {std::string(""), std::string("graf.example.test"),
+    for (const auto& origin : {std::string(""), std::string("graf.example.test"),
                               std::string("http://graf.example.test")}) {
         assert(!queue.planDeletionSelection(selection, kOwner, origin).saved);
     }

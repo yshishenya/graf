@@ -161,7 +161,8 @@ void refreshShellPalette(bool isDark) {
         const auto red = highContrast ? GetRValue(system) : static_cast<BYTE>(palette.rgb >> 16);
         const auto green = highContrast ? GetGValue(system) : static_cast<BYTE>(palette.rgb >> 8);
         const auto blue = highContrast ? GetBValue(system) : static_cast<BYTE>(palette.rgb & 0xFF);
-        const auto alpha = highContrast ? 255 : static_cast<BYTE>(palette.alpha * 255.0 + 0.5);
+        const auto alpha = highContrast ? static_cast<BYTE>(255)
+                                        : static_cast<BYTE>(palette.alpha * 255.0 + 0.5);
         const auto value = winrt::Windows::UI::ColorHelper::FromArgb(alpha, red, green, blue);
         const auto key = box_value(entry.key);
         if (resources.HasKey(key)) {
@@ -837,6 +838,11 @@ private:
                     // writer/timeline, never the UI, account, or upload queue.
                     std::packaged_task<graf::windows::V5WriterResult()> task(
                         [timeline = timeline_, writer = writer_, failure, stopReason]() mutable {
+                            // Controller EOS has already crossed the dispatcher.
+                            // Close the timeline before handing its final frames
+                            // to the writer; never fill an unmatched tail.
+                            if (!timeline->close() && failure == graf::windows::ReasonCode::none)
+                                failure = graf::windows::ReasonCode::clockDiscontinuity;
                             for (const auto& frame : timeline->takeFrames()) {
                                 if (!writer->append(frame)) {
                                     failure = graf::windows::ReasonCode::storageUnavailable;

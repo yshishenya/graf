@@ -34,13 +34,17 @@ void testUnchangedMappings() {
     assert(reasonForWorkerError(CaptureWorkerError::none, true) == ReasonCode::none);
     assert(reasonForWorkerError(CaptureWorkerError::alreadyRunning, true) == ReasonCode::activeSessionExists);
     assert(reasonForWorkerError(CaptureWorkerError::unsupportedFormat, true) == ReasonCode::formatNormalizationUnavailable);
+    assert(reasonForWorkerError(CaptureWorkerError::normalizationFailed, true) == ReasonCode::formatNormalizationUnavailable);
     assert(reasonForWorkerError(CaptureWorkerError::bufferOverflow, true) == ReasonCode::queueOverflow);
+    assert(reasonForWorkerError(CaptureWorkerError::sinkRejected, true) == ReasonCode::queueOverflow);
     assert(reasonForWorkerError(CaptureWorkerError::clockDiscontinuity, true) == ReasonCode::clockDiscontinuity);
+    assert(reasonForWorkerError(CaptureWorkerError::releaseFailed, true) == ReasonCode::endpointInvalidated);
+    assert(reasonForWorkerError(CaptureWorkerError::audioClockFailed, false) == ReasonCode::endpointInvalidated);
     assert(reasonForWorkerError(CaptureWorkerError::unsupportedPlatform, false) == ReasonCode::endpointInvalidated);
 }
 
 void testEveryErrorHasAReason() {
-    const std::array<CaptureWorkerError, 10> errors{
+    const std::array<CaptureWorkerError, 17> errors{
         CaptureWorkerError::none,
         CaptureWorkerError::alreadyRunning,
         CaptureWorkerError::invalidEndpoint,
@@ -51,6 +55,13 @@ void testEveryErrorHasAReason() {
         CaptureWorkerError::clockDiscontinuity,
         CaptureWorkerError::unsupportedPlatform,
         CaptureWorkerError::accessDenied,
+        CaptureWorkerError::waitFailed,
+        CaptureWorkerError::packetReadFailed,
+        CaptureWorkerError::bufferReadFailed,
+        CaptureWorkerError::audioClockFailed,
+        CaptureWorkerError::releaseFailed,
+        CaptureWorkerError::normalizationFailed,
+        CaptureWorkerError::sinkRejected,
     };
     for (const auto error : errors) {
         for (const bool microphone : {false, true}) {

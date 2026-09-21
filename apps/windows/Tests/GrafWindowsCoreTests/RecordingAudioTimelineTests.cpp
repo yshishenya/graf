@@ -303,6 +303,24 @@ void boundsAndOverflow() {
     assert(extremeFrames.size() == 1 && extremeFrames[0].system[0] == 0.0F);
     assert(extremeFrames[0].system[1] == -std::numeric_limits<float>::max());
 }
+
+void closesWithoutPadding() {
+    FakeAec aec;
+    RecordingAudioTimeline timeline(aec);
+    assert(timeline.push(batch(AudioSource::systemRender, 0, 480, 0.25F)));
+    assert(timeline.push(batch(AudioSource::microphone, 0, 240, 0.5F)));
+    assert(timeline.close());
+    assert(timeline.takeFrames().empty());
+    // EOS is terminal, so a late packet cannot reopen the timeline or turn an
+    // unmatched microphone tail into synthetic samples.
+    assert(!timeline.push(batch(AudioSource::microphone, 240, 240, 0.5F)));
+
+    RecordingAudioTimeline complete(aec);
+    assert(complete.push(batch(AudioSource::systemRender, 0, 480, 0.25F)));
+    assert(complete.push(batch(AudioSource::microphone, 0, 480, 0.5F)));
+    assert(complete.close());
+    assert(!complete.push(batch(AudioSource::systemRender, 480, 480, 0.25F)));
+}
 }
 
 int main() {
@@ -312,6 +330,7 @@ int main() {
     rejectsUntrustedBatches();
     consumesSmallClockOverlapOnce();
     boundsAndOverflow();
+    closesWithoutPadding();
     FakeAec aec;
     RecordingAudioTimeline timeline(aec);
     AudioBatch system{AudioSource::systemRender, 48'000, 1, 0, 1, 1, false, std::vector<float>(480, 0.25F)};

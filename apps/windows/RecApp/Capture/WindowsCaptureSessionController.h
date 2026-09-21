@@ -16,6 +16,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <variant>
 
 namespace graf::windows {
 
@@ -69,6 +70,11 @@ public:
     [[nodiscard]] CaptureClockDiagnostics clockDiagnostics(AudioSource source) const noexcept;
 
 private:
+    struct SourceEndOfStream {
+        AudioSource source = AudioSource::systemRender;
+    };
+    using DispatchItem = std::variant<AudioBatch, SourceEndOfStream>;
+
     friend struct CaptureSessionTestPeer;
     [[nodiscard]] bool startWorkers();
     [[nodiscard]] ReasonCode captureFailureReason() const noexcept;
@@ -77,6 +83,7 @@ private:
     [[nodiscard]] bool sourceProducing(const WasapiCaptureWorker* worker, bool isMicrophone) const noexcept;
     void stopWorkers() noexcept;
     [[nodiscard]] bool enqueueBatch(AudioBatch batch);
+    [[nodiscard]] bool enqueueSourceEnd(AudioSource source);
     void dispatchLoop() noexcept;
     void requestDispatcherStop() noexcept;
     void joinDispatcher() noexcept;
@@ -110,11 +117,15 @@ private:
     static constexpr std::size_t maxPendingBatches_ = 256;
     std::mutex dispatchMutex_;
     std::condition_variable dispatchCondition_;
-    std::deque<AudioBatch> pendingBatches_;
+    std::deque<DispatchItem> pendingBatches_;
     std::thread dispatchThread_;
     std::atomic_bool dispatchFinished_{true};
     std::atomic_bool dispatchBusy_{false};
     bool dispatchStopRequested_ = false;
+    bool sourceEndsEnqueued_ = false;
+    std::atomic<std::uint8_t> sourceEndsProcessed_{0};
+    static constexpr std::size_t sourceCount_ = 2;
+    static constexpr std::size_t maxDataBatches_ = maxPendingBatches_ - sourceCount_;
 };
 
 } // namespace graf::windows

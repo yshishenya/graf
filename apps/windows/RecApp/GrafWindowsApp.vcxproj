@@ -35,7 +35,7 @@
     <WebView2UseWinRT>false</WebView2UseWinRT>
     <WebView2LoaderPreference>Dynamic</WebView2LoaderPreference>
     <GrafWebView2SdkVersion Condition="'$(GrafWebView2SdkVersion)' == ''">1.0.4129.50</GrafWebView2SdkVersion>
-    <GrafWebView2NativeRoot Condition="'$(GrafWebView2NativeRoot)' == '' and '$(NuGetPackageRoot)' != ''">$(NuGetPackageRoot)microsoft.web.webview2\$(GrafWebView2SdkVersion)\build\native</GrafWebView2NativeRoot>
+    <GrafWebView2NativeRoot Condition="'$(GrafWebView2NativeRoot)' == '' and '$(NuGetPackageRoot)' != ''">$(NuGetPackageRoot)\microsoft.web.webview2\$(GrafWebView2SdkVersion)\build\native</GrafWebView2NativeRoot>
     <GrafWebView2NativeRoot Condition="'$(GrafWebView2NativeRoot)' == ''">$(UserProfile)\.nuget\packages\microsoft.web.webview2\$(GrafWebView2SdkVersion)\build\native</GrafWebView2NativeRoot>
     <!-- Prefer the verified checkout/build produced by build-graf-aec3.ps1.
          Environment overrides remain available for CI or an external cache. -->

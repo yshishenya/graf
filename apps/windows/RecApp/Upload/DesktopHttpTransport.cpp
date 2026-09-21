@@ -206,6 +206,8 @@ struct HttpResponse {
 // A response header that must be ASCII digits and nothing else. macOS reads the
 // same header with the same rule, so a decorated or localized value is not a
 // deadline on either platform.
+#endif
+
 std::optional<std::int64_t> parseEpochSeconds(std::string_view raw) {
     if (raw.empty() || raw.size() > 19) return std::nullopt;
     std::int64_t value = 0;
@@ -215,6 +217,8 @@ std::optional<std::int64_t> parseEpochSeconds(std::string_view raw) {
     }
     return value;
 }
+
+#ifdef _WIN32
 
 struct ByteRange {
     std::uint64_t start = 0;
@@ -478,10 +482,14 @@ std::string normalizedStatus(std::string value) {
 
 std::array<std::uint64_t, 3> packageTrackBytes(const UploadCustodyItem& item) {
     std::array<std::uint64_t, 3> result{};
+#ifdef _WIN32
     std::uint32_t durationSeconds = 0;
     const auto tracks = packageTracks(item, &durationSeconds);
     if (!tracks) return result;
     for (const auto& track : *tracks) result[trackIndex(track.role)] = track.bytes;
+#else
+    (void)item;
+#endif
     return result;
 }
 
@@ -853,13 +861,17 @@ std::string DesktopHttpTransport::replacementUploadSessionKey(
 }
 
 DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& item) const {
-    if (cancelled(config_)) return {DesktopTransportStatus::retryableFailure, std::nullopt};
+    if (cancelled(config_)) return DesktopTransportResult{
+        DesktopTransportStatus::retryableFailure, std::nullopt, {}, {}, 0, std::nullopt};
     if (ownerBlockReason(item, std::nullopt) == "local_owner_unclaimed")
-        return {DesktopTransportStatus::authRequired, std::nullopt, "local_owner_unclaimed"};
-    if (config_.sessionToken.empty()) return {DesktopTransportStatus::authRequired, std::nullopt};
+        return DesktopTransportResult{
+            DesktopTransportStatus::authRequired, std::nullopt, "local_owner_unclaimed", {}, 0, std::nullopt};
+    if (config_.sessionToken.empty()) return DesktopTransportResult{
+        DesktopTransportStatus::authRequired, std::nullopt, {}, {}, 0, std::nullopt};
 #ifndef _WIN32
     (void)item;
-    return {DesktopTransportStatus::unsupportedPlatform, std::nullopt};
+    return DesktopTransportResult{
+        DesktopTransportStatus::unsupportedPlatform, std::nullopt, {}, {}, 0, std::nullopt};
 #else
     std::uint32_t durationSeconds = 0;
     std::uint64_t startedAtMs = 0;
@@ -868,7 +880,8 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
     const auto tracks = packageTracks(item, &durationSeconds, &startedAtMs, &stoppedAtMs, &displayOffsetMinutes);
     if (!tracks || !isSafeIdentifier(item.directoryId) || !isSafeIdentifier(item.localRecordingId) ||
         !isSafeIdentifier(item.sessionId)) {
-        return {DesktopTransportStatus::invalidPackage, std::nullopt};
+        return DesktopTransportResult{
+            DesktopTransportStatus::invalidPackage, std::nullopt, {}, {}, 0, std::nullopt};
     }
     // Resolve with the same copied session used by every following request, and
     // prefer the snapshot the shell confirmed for it. This precedes sync-state

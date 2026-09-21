@@ -17,12 +17,13 @@ WindowsCaptureSessionController::WindowsCaptureSessionController(std::string ses
       indicator_([this] { (void)stop(); }) {}
 
 WindowsCaptureSessionController::~WindowsCaptureSessionController() {
+    acceptingBatches_.store(false, std::memory_order_release);
     stopWorkers();
-    joinDispatcher();
     // Join while the callback fence/mutex/sink still exist. Normally UI polling
     // has already observed completion; forced destruction can wait for native COM.
     renderWorker_.reset();
     microphoneWorker_.reset();
+    joinDispatcher();
 }
 
 void WindowsCaptureSessionController::setEndpoints(WasapiEndpointSnapshot render,
@@ -149,6 +150,10 @@ TransitionResult WindowsCaptureSessionController::stop(RecordingStopReason reaso
     if (requested.status != TransitionStatus::accepted) return requested;
     // Latch only after the transition was accepted, so an idempotent repeat
     // cannot overwrite the reason the original stop was classified with.
+    // Stop is the linearization point for capture delivery: callbacks already
+    // accepted before it may drain, but a callback that races with or follows
+    // Stop must never append another batch to the dispatcher.
+    acceptingBatches_.store(false, std::memory_order_release);
     stopReason_ = reason;
     indicator_.publish(session_.state(), session_.reason());
     // Latch unexpected worker termination before the deliberate shutdown.
@@ -162,6 +167,19 @@ TransitionResult WindowsCaptureSessionController::finishStop() {
     if (pollingFinalizer_) return {TransitionStatus::idempotent, session_.state(), session_.reason()};
     for (const auto* worker : {renderWorker_.get(), microphoneWorker_.get()}) {
         if (worker && !worker->finished()) return {TransitionStatus::idempotent, session_.state(), session_.reason()};
+    }
+    // Workers can still be returning from their final callback until the
+    // finished fence above. Keep the dispatcher alive for those accepted
+    // batches, then append typed EOS records in FIFO order. Two queue slots are
+    // reserved for them, so EOS cannot be displaced by audio data.
+    if (!sourceEndsEnqueued_) {
+        acceptingBatches_.store(false);
+        if (captureFault_.load() == ReasonCode::none) {
+            const auto renderQueued = enqueueSourceEnd(AudioSource::systemRender);
+            const auto microphoneQueued = enqueueSourceEnd(AudioSource::microphone);
+            if (!renderQueued || !microphoneQueued) latchFault(ReasonCode::queueOverflow);
+        }
+        sourceEndsEnqueued_ = true;
     }
     requestDispatcherStop();
     if (!dispatchFinished_.load(std::memory_order_acquire)) {
@@ -226,6 +244,8 @@ bool WindowsCaptureSessionController::startWorkers() {
         std::lock_guard<std::mutex> lock(dispatchMutex_);
         pendingBatches_.clear();
         dispatchStopRequested_ = false;
+        sourceEndsEnqueued_ = false;
+        sourceEndsProcessed_.store(0, std::memory_order_release);
         dispatchFinished_.store(false, std::memory_order_release);
         dispatchBusy_.store(false, std::memory_order_release);
     }
@@ -297,31 +317,37 @@ ReasonCode WindowsCaptureSessionController::captureFailureReason() const noexcep
 }
 
 void WindowsCaptureSessionController::stopWorkers() noexcept {
-    acceptingBatches_.store(false);
     if (renderWorker_) renderWorker_->stop();
     if (microphoneWorker_) microphoneWorker_->stop();
-    requestDispatcherStop();
 }
 
 bool WindowsCaptureSessionController::enqueueBatch(AudioBatch batch) {
-    // Synthetic lifecycle tests use an empty callback marker. Real workers only
-    // publish normalized non-empty batches, so keep that marker synchronous.
-    if (batch.samples.empty()) return handleBatch(std::move(batch));
+    // An empty batch is never a lifecycle signal. EOS has its own typed queue
+    // item, so malformed/placeholder audio cannot reach the timeline.
+    if (batch.samples.empty()) return false;
     if (!acceptingBatches_.load() || captureFault_.load() != ReasonCode::none) return true;
     {
         std::lock_guard<std::mutex> lock(dispatchMutex_);
         if (!acceptingBatches_.load() || captureFault_.load() != ReasonCode::none || dispatchStopRequested_)
             return true;
-        if (pendingBatches_.size() >= maxPendingBatches_) return false;
-        pendingBatches_.push_back(std::move(batch));
+        if (pendingBatches_.size() >= maxDataBatches_) return false;
+        pendingBatches_.emplace_back(std::move(batch));
     }
+    dispatchCondition_.notify_one();
+    return true;
+}
+
+bool WindowsCaptureSessionController::enqueueSourceEnd(AudioSource source) {
+    std::lock_guard<std::mutex> lock(dispatchMutex_);
+    if (pendingBatches_.size() >= maxPendingBatches_) return false;
+    pendingBatches_.emplace_back(SourceEndOfStream{source});
     dispatchCondition_.notify_one();
     return true;
 }
 
 void WindowsCaptureSessionController::dispatchLoop() noexcept {
     while (true) {
-        AudioBatch batch;
+        DispatchItem item;
         {
             std::unique_lock<std::mutex> lock(dispatchMutex_);
             dispatchCondition_.wait(lock, [this] {
@@ -331,11 +357,21 @@ void WindowsCaptureSessionController::dispatchLoop() noexcept {
                 if (dispatchStopRequested_) break;
                 continue;
             }
-            batch = std::move(pendingBatches_.front());
+            item = std::move(pendingBatches_.front());
             pendingBatches_.pop_front();
             dispatchBusy_.store(true, std::memory_order_release);
         }
-        if (!processBatch(std::move(batch))) {
+        if (std::holds_alternative<SourceEndOfStream>(item)) {
+            // The queue position itself is the completion fence. The finalizer
+            // runs only after both typed EOS items and all earlier batches have
+            // crossed the dispatcher.
+            const auto source = std::get<SourceEndOfStream>(item).source;
+            const auto bit = source == AudioSource::systemRender ? std::uint8_t{1} : std::uint8_t{2};
+            sourceEndsProcessed_.fetch_or(bit, std::memory_order_release);
+            dispatchBusy_.store(false, std::memory_order_release);
+            continue;
+        }
+        if (!processBatch(std::move(std::get<AudioBatch>(item)))) {
             dispatchBusy_.store(false, std::memory_order_release);
             latchFault(ReasonCode::clockDiscontinuity);
             acceptingBatches_.store(false);
@@ -374,12 +410,23 @@ void WindowsCaptureSessionController::latchFault(ReasonCode reason) noexcept {
 }
 
 bool WindowsCaptureSessionController::handleBatch(AudioBatch batch) {
+    // This path is retained only for synchronous test/device adapters. It is
+    // not a lifecycle marker and cannot accept malformed empty audio.
+    if (batch.samples.empty()) return false;
+    if (session_.state() == SessionState::stopping || session_.state() == SessionState::finalizing) return true;
     if (!acceptingBatches_.load() || captureFault_.load() != ReasonCode::none) return true;
+    // Synchronous test/device adapters keep their original fire-and-report
+    // contract: processBatch latches a sink fault for the UI poll, while the
+    // producer itself is not made to interpret the terminal state.
     (void)processBatch(std::move(batch));
     return true;
 }
 
 bool WindowsCaptureSessionController::processBatch(AudioBatch batch) {
+    if (batch.samples.empty()) {
+        latchFault(ReasonCode::formatNormalizationUnavailable);
+        return false;
+    }
     if (!batchSink_) return false;
     std::lock_guard<std::mutex> lock(captureMutex_);
     bool accepted = true;

@@ -41,7 +41,7 @@ struct DesktopTransportResult {
     // renewed its session while answering, and the cabinet's own cookie has to
     // learn that deadline or the cabinet signs out while the app's calls still
     // work. Empty means the server named no deadline.
-    std::optional<std::int64_t> authExpiresAt;
+    std::optional<std::int64_t> authExpiresAt = std::nullopt;
 };
 
 struct DesktopRemoteUploadState {

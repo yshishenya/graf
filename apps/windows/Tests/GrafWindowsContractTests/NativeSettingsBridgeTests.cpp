@@ -19,8 +19,9 @@ void testOnlyTheSettingsPageMayUseTheBridge() {
         "https://rec.2brain.pro/desktop/settings/recording"));
     assert(graf::windows::NativeSettingsBridge::isSettingsRoute(
         "http://127.0.0.1:8080/desktop/settings/recording"));
-    // A different page, a query, a fragment and a look-alike path are not it.
-    assert(!graf::windows::NativeSettingsBridge::isSettingsRoute(
+    // The notification settings page is also a supported native bridge route;
+    // a query, a fragment and a look-alike path are not.
+    assert(graf::windows::NativeSettingsBridge::isSettingsRoute(
         "https://rec.2brain.pro/desktop/settings/notifications"));
     assert(!graf::windows::NativeSettingsBridge::isSettingsRoute(
         "https://rec.2brain.pro/desktop/settings/recording?next=/desktop/meetings"));

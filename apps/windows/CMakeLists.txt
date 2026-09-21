@@ -52,7 +52,7 @@ target_include_directories(graf_windows_common PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/RecApp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Native/GrafAEC3")
 target_compile_options(graf_windows_common PRIVATE
-    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/utf-8>
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
 foreach(test_source IN LISTS GRAF_WINDOWS_TESTS)
     get_filename_component(test_name "${test_source}" NAME_WE)
@@ -61,7 +61,7 @@ foreach(test_source IN LISTS GRAF_WINDOWS_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/RecApp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Native/GrafAEC3")
     target_compile_options("${test_name}" PRIVATE
-        $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/utf-8>
+        $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
     if(WIN32)
         target_link_libraries("${test_name}" PRIVATE mfplat mfreadwrite mfuuid ole32 avrt advapi32 shell32 winhttp wintrust bcrypt)

@@ -10,12 +10,19 @@ RecordingAudioTimeline::RecordingAudioTimeline(IAec3Processor& processor, Timeli
     : processor_(processor), limits_(limits) {}
 
 bool RecordingAudioTimeline::push(AudioBatch batch) {
-    if (!healthy() || batch.samples.empty()) {
+    if (closed_ || !healthy() || batch.samples.empty()) {
         return false;
     }
     if (!normalizeAndStore(std::move(batch))) {
         return false;
     }
+    drain();
+    return healthy();
+}
+
+bool RecordingAudioTimeline::close() {
+    if (closed_) return healthy();
+    closed_ = true;
     drain();
     return healthy();
 }

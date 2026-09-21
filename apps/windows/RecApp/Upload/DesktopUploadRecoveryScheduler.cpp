@@ -74,7 +74,8 @@ void DesktopUploadRecoveryScheduler::execute(const std::shared_ptr<Flight>& flig
         DesktopTransportResult result;
         try {
             if (DesktopHttpTransport::ownerBlockReason(item, std::nullopt) == "local_owner_unclaimed")
-                result = {DesktopTransportStatus::authRequired, std::nullopt, "local_owner_unclaimed"};
+                result = DesktopTransportResult{
+                    DesktopTransportStatus::authRequired, std::nullopt, "local_owner_unclaimed", {}, 0, std::nullopt};
             else result = worker(item, flight->cancelled);
         } catch (...) {
             // Never copy raw transport exception/URL/token into custody state.

@@ -8,9 +8,37 @@ enum class ClockFault {
     none, invalidPacket, timestampError, discontinuity, nonMonotonic, sampleCountMismatch, clockDrift,
 };
 
+enum class CaptureStage : std::uint8_t {
+    initialize,
+    wait,
+    nextPacketSize,
+    getBuffer,
+    audioClock,
+    releaseBuffer,
+    normalize,
+    callback,
+};
+
+struct CaptureStageTrace {
+    std::uint64_t sequence = 0;
+    CaptureStage stage = CaptureStage::initialize;
+    // HRESULT for native calls; bounded wait/logic results use the same signed
+    // field so a single metadata-only record remains easy to export.
+    std::int32_t hresult = 0;
+    std::uint32_t flags = 0;
+    std::uint32_t frameCount = 0;
+    std::uint64_t devicePosition = 0;
+    std::uint64_t qpcPosition = 0;
+    std::uint64_t audioClockPosition = 0;
+    std::uint64_t audioClockFrequency = 0;
+    bool released = false;
+};
+
 struct CaptureClockDiagnostics {
     std::uint32_t startupDiscardedFrames = 0;
     ClockFault fault = ClockFault::none;
+    std::uint32_t traceCount = 0;
+    CaptureStageTrace lastTrace{};
 };
 
 struct ClockObservation {

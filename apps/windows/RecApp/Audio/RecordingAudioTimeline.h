@@ -46,6 +46,10 @@ public:
     explicit RecordingAudioTimeline(IAec3Processor& processor, TimelineLimits limits = {});
 
     [[nodiscard]] bool push(AudioBatch batch);
+    // Typed source EOS closes input without inventing silence or advancing the
+    // timeline. Any complete common prefix is drained before the writer reads
+    // frames; unmatched tails remain untrusted and are not padded.
+    [[nodiscard]] bool close();
     [[nodiscard]] std::vector<CanonicalAudioFrame> takeFrames();
     void setMicrophonePaused(bool paused) noexcept { microphonePaused_ = paused; }
 
@@ -84,6 +88,7 @@ private:
     std::uint64_t clockDomain_ = 0;
     std::uint64_t processedFrames_ = 0;
     bool microphonePaused_ = false;
+    bool closed_ = false;
     TimelineFault fault_ = TimelineFault::none;
 };
 

@@ -5,6 +5,7 @@
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
+#include <algorithm>
 #include <cassert>
 #include <atomic>
 #include <stdexcept>
@@ -19,20 +20,26 @@
 #endif
 
 namespace graf::windows {
+AudioBatch syntheticLifecycleBatch() {
+    return {AudioSource::systemRender, 48'000, 1, 0, 1, 1, false,
+            std::vector<float>(480, 0.0F)};
+}
+
 // Exercise the real controller's sink/Stop/polling without requiring a microphone.
 // Only acquisition is bypassed; production state, finalizer and worker errors run.
 struct CaptureSessionTestPeer {
     template<class Run>
     static void device(WasapiCaptureWorker& worker, Run run) { worker.deviceRunForTesting_ = std::move(run); }
     static bool packet(WasapiCaptureWorker& worker, ClockMapper& mapper, AudioNormalizer& normalizer,
-        ClockObservation packet, const void* data, const std::function<bool(std::uint32_t)>& release) {
+        ClockObservation packet, const void* data,
+        const std::function<CaptureReleaseResult(std::uint32_t)>& release) {
         return worker.consumePacket(mapper, normalizer, packet, data, 1, true, release);
     }
     static bool packet(WindowsCaptureSessionController& controller, bool render,
                        ClockMapper& mapper, AudioNormalizer& normalizer, ClockObservation observation) {
         auto& worker = render ? controller.renderWorker_ : controller.microphoneWorker_;
         return packet(*worker, mapper, normalizer, observation, reinterpret_cast<const void*>(1),
-            [](std::uint32_t frames) { assert(frames == 480); return true; });
+            [](std::uint32_t frames) { assert(frames == 480); return CaptureReleaseResult{true, 0}; });
     }
 #ifdef _WIN32
     static std::wstring wideId(const std::string& value) { return WasapiCaptureWorker::utf8ToWide(value); }
@@ -64,7 +71,7 @@ struct CaptureSessionTestPeer {
         controller.indicator_.publish(controller.session_.state());
     }
     static bool push(WindowsCaptureSessionController& controller) {
-        return controller.handleBatch({});
+        return controller.handleBatch(syntheticLifecycleBatch());
     }
     static void failMicrophoneWorker(WindowsCaptureSessionController& controller) {
         // Пустой идентификатор устройства — тот же отказ, что видит человек,
@@ -88,6 +95,14 @@ struct CaptureSessionTestPeer {
         return !controller.acceptingBatches_.load() &&
             (!controller.renderWorker_ || !controller.renderWorker_->running()) &&
             (!controller.microphoneWorker_ || !controller.microphoneWorker_->running());
+    }
+    static std::uint8_t sourceEndMask(const WindowsCaptureSessionController& controller) {
+        return controller.sourceEndsProcessed_.load();
+    }
+    static bool dispatcherIdle(WindowsCaptureSessionController& controller) {
+        std::lock_guard<std::mutex> lock(controller.dispatchMutex_);
+        return !controller.dispatchBusy_.load(std::memory_order_acquire) &&
+            controller.pendingBatches_.empty();
     }
 };
 }
@@ -122,12 +137,12 @@ struct DeviceStage {
         if (running.load()) ready.store(true);
         initialized.store(true);
         while (running.load()) {
-            assert(callback({}));
+            assert(callback(graf::windows::syntheticLifecycleBatch()));
             ++callbacks;
             std::this_thread::yield();
         }
         // A callback already in the device path when Stop won must be discarded.
-        assert(callback({}));
+        assert(callback(graf::windows::syntheticLifecycleBatch()));
         ++callbacks;
         cleaning.store(true);
         waitUntil([&] { return allowCleanup.load(); });
@@ -275,7 +290,7 @@ int main() {
             const auto release = [&](std::uint32_t frames) {
                 assert(frames == 441);
                 ++releases;
-                return releaseSucceeds;
+                return CaptureReleaseResult{releaseSucceeds, releaseSucceeds ? 0 : -1};
             };
             assert(CaptureSessionTestPeer::packet(worker, clock, normalizer,
                 {900'000, 8'000, 44'100, 1, 441}, reinterpret_cast<const void*>(1), release) == releaseSucceeds);
@@ -301,10 +316,44 @@ int main() {
         assert(worker.start([&](AudioBatch batch) { ++callbacks; output = std::move(batch); return true; }) == CaptureWorkerError::none);
         waitUntil([&] { return consumed.load(); });
         assert(worker.ready() == releaseSucceeds && releases == 2);
-        assert(worker.lastError() == (releaseSucceeds ? CaptureWorkerError::none : CaptureWorkerError::deviceInvalidated));
+        assert(worker.lastError() == (releaseSucceeds ? CaptureWorkerError::none : CaptureWorkerError::releaseFailed));
+        const auto diagnostics = worker.clockDiagnostics();
+        assert(diagnostics.traceCount > 0 && diagnostics.lastTrace.frameCount == 441);
+        assert(diagnostics.lastTrace.stage == (releaseSucceeds ? CaptureStage::callback : CaptureStage::releaseBuffer));
         worker.stop();
         waitUntil([&] { return worker.finished(); });
         assert(!worker.ready() && worker.clockDiagnostics().fault == ClockFault::none);
+    }
+
+    // AUDCLNT_BUFFERFLAGS_SILENT is a valid packet with no data pointer. The
+    // worker must release it and deliver explicit zero samples, never read a
+    // fabricated pointer or treat the packet as a missing source.
+    {
+        WasapiCaptureWorker worker({"silent", "Silent", WasapiDataFlow::capture,
+                                    48'000, 1, true, true, 1}, false);
+        std::atomic_bool consumed{false};
+        AudioBatch output;
+        CaptureSessionTestPeer::device(worker, [&](const auto& running, auto&, const auto&) {
+            ClockMapper clock;
+            AudioNormalizer normalizer;
+            std::uint32_t releasedFrames = 0;
+            const auto release = [&](std::uint32_t frames) {
+                releasedFrames = frames;
+                return CaptureReleaseResult{true, 0};
+            };
+            assert(CaptureSessionTestPeer::packet(worker, clock, normalizer,
+                {100'000, 10, 48'000, ClockObservation::silent, 480}, nullptr, release));
+            assert(releasedFrames == 480);
+            consumed.store(true);
+            while (running.load()) std::this_thread::yield();
+        });
+        assert(worker.start([&](AudioBatch batch) { output = std::move(batch); return true; }) == CaptureWorkerError::none);
+        waitUntil([&] { return consumed.load(); });
+        assert(worker.lastError() == CaptureWorkerError::none && worker.ready());
+        assert(output.samples.size() == 480);
+        assert(std::all_of(output.samples.begin(), output.samples.end(), [](float value) { return value == 0.0F; }));
+        worker.stop();
+        waitUntil([&] { return worker.finished(); });
     }
 
     // Regression: real worker error must not skip the finalizer, including startup.
@@ -383,8 +432,9 @@ int main() {
             assert(controller.pollHealth().state == SessionState::degraded);
             assert(controller.stop().status == TransitionStatus::accepted);
         }
-        waitUntil([&] { return CaptureSessionTestPeer::finished(controller); });
-        assert(controller.pollHealth().state == SessionState::failed && finalized == 1);
+        waitUntil([&] { return controller.pollHealth().state == SessionState::failed; });
+        const auto terminal = controller.pollHealth();
+        assert(terminal.state == SessionState::failed && finalized == 1);
         if (!clockFailure) {
             // Причина ограничения называет источник, который не поднялся.
             assert(controller.finalization().degradedReason == ReasonCode::renderEndpointUnavailable);
@@ -462,15 +512,21 @@ int main() {
         assert(!competing.beginReadinessCheck().accepted());
         microphone.allowStartup.store(true);
         waitUntil([&] { return render.cleaning.load() && microphone.cleaning.load(); });
+        // Stop fences new callbacks, but batches accepted before that fence are
+        // still drained in FIFO order. Stabilize the observation before
+        // checking that a late callback did not add work.
+        waitUntil([&] { return CaptureSessionTestPeer::dispatcherIdle(controller); });
         const int stoppedAt = delivered.load();
         assert(CaptureSessionTestPeer::push(controller));
         assert(delivered.load() == stoppedAt);
         render.allowCleanup.store(true);
         assert(controller.pollHealth().state == SessionState::stopping && finalized == 0);
         microphone.allowCleanup.store(true);
-        waitUntil([&] { return CaptureSessionTestPeer::finished(controller); });
+        const auto expectedState = scenario == 1 ? SessionState::failed : SessionState::savedLocal;
+        waitUntil([&] { return controller.pollHealth().state == expectedState; });
         const auto terminal = controller.pollHealth();
-        assert(terminal.state == (scenario == 1 ? SessionState::failed : SessionState::savedLocal));
+        assert(terminal.state == expectedState);
+        assert(CaptureSessionTestPeer::sourceEndMask(controller) == 3);
         if (scenario == 2) {
             assert(controller.finalization().degradedReason == ReasonCode::microphoneEndpointUnavailable);
         }
@@ -512,8 +568,8 @@ int main() {
         // Человек останавливает запись сам: она сохраняется, причина едет с ней.
         assert(controller.stop().status == TransitionStatus::accepted);
         render.allowCleanup.store(true);
-        waitUntil([&] { return CaptureSessionTestPeer::finished(controller); });
-        assert(controller.pollHealth().state == SessionState::savedLocal && finalized == 1);
+        waitUntil([&] { return controller.pollHealth().state == SessionState::savedLocal; });
+        assert(finalized == 1);
         assert(controller.finalization().savedLocal);
         // Причина ограничения едет отдельно от причины отказа: запись цела.
         assert(controller.finalization().degradedReason == ReasonCode::microphoneEndpointUnavailable);
@@ -554,8 +610,8 @@ int main() {
         // Голос продолжает попадать в запись, хотя системный звук отказал.
         waitUntil([&] { return delivered.load() > deliveredBefore; });
         assert(controller.stop().status == TransitionStatus::accepted);
-        waitUntil([&] { return CaptureSessionTestPeer::finished(controller); });
-        assert(controller.pollHealth().state == SessionState::savedLocal && finalized == 1);
+        waitUntil([&] { return controller.pollHealth().state == SessionState::savedLocal; });
+        assert(finalized == 1);
         assert(controller.finalization().degradedReason == ReasonCode::renderEndpointUnavailable);
         assert(controller.finalization().reason == ReasonCode::none);
     }
@@ -598,8 +654,8 @@ int main() {
         waitUntil([&] { return delivered.load() > 0; });
         render.allowCleanup.store(true);
         assert(controller.stop().status == TransitionStatus::accepted);
-        waitUntil([&] { return CaptureSessionTestPeer::finished(controller); });
-        assert(controller.pollHealth().state == SessionState::savedLocal && finalized == 1);
+        waitUntil([&] { return controller.pollHealth().state == SessionState::savedLocal; });
+        assert(finalized == 1);
         assert(controller.finalization().degradedReason == ReasonCode::microphoneEndpointUnavailable);
     }
 
@@ -632,8 +688,8 @@ int main() {
         assert(std::chrono::steady_clock::now() - beforeStop < std::chrono::milliseconds(500));
         assert(controller.pollHealth().state == SessionState::stopping && finalized == 0);
         releaseSink.store(true);
-        waitUntil([&] { return CaptureSessionTestPeer::finished(controller); });
-        assert(controller.pollHealth().state == SessionState::savedLocal && finalized == 1);
+        waitUntil([&] { return controller.pollHealth().state == SessionState::savedLocal; });
+        assert(finalized == 1);
     }
 
     for (const bool workerFault : {false, true}) {
@@ -749,7 +805,9 @@ int main() {
     assert(stopping.state == SessionState::savedLocal || stopping.state == SessionState::stopping);
     run.store(false);
     producer.join();
-    if (normal.session().state() == SessionState::stopping) assert(normal.pollHealth().state == SessionState::savedLocal);
+    if (normal.session().state() == SessionState::stopping) {
+        waitUntil([&] { return normal.pollHealth().state == SessionState::savedLocal; });
+    }
     const int stoppedAt = batches.load();
     assert(CaptureSessionTestPeer::push(normal));
     assert(batches.load() == stoppedAt);
