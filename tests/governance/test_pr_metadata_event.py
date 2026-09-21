@@ -459,18 +459,19 @@ def test_merged_metadata_binds_actual_history_not_moving_master(snapshot, kind):
     parents = ["-p", parent, "-p", head] if kind == "merge-commit" else ["-p", parent]
     merge = git(root, "commit-tree", tree, *parents, "-m", "merged")
     moved = git(root, "commit-tree", tree, "-p", merge, "-m", "later master")
+    api_base = base if kind == "merge-commit" else moved
     current.update(state="closed", merged=True, merge_commit_sha=merge, commits=1 if kind == "wrong-count" else 2)
     current["head"]["sha"] = head
-    current["base"]["sha"] = moved
+    current["base"]["sha"] = api_base
     current["body"] = body(head)
     event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
     git(root, "checkout", "-q", "--detach", base)
     result = run_trusted(root, event, current)
-    assert (result.returncode == 0) == (kind in {"squash", "rebase"}), result.stderr
+    assert (result.returncode == 0) == (kind in {"squash", "rebase", "merge-commit"}), result.stderr
     if result.returncode == 0:
         proof = json.loads((root / "trusted-result.json").read_text())
         assert proof["base_sha"] == base
-        assert proof["api_base_sha"] == moved
+        assert proof["api_base_sha"] == api_base
 
 
 def test_squash_accepts_pr_that_merged_an_updated_master(snapshot):
