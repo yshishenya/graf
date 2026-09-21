@@ -232,4 +232,8 @@ public extension DesktopCabinetSessionBridge {
 
 public extension Notification.Name {
     static let twoBrainRecDesktopAuthSessionDidChange = Notification.Name("pro.2brain.graf.desktopAuthSessionDidChange")
+    /// Встроенный кабинет показал страницу результата встречи.
+    static let twoBrainRecDesktopCabinetDidShowMeetingDetail = Notification.Name("pro.2brain.graf.desktopCabinetDidShowMeetingDetail")
+    /// Страница загрузки передала приложению ссылку с атрибуцией кампании.
+    static let twoBrainRecDesktopAttributionHandoffDidArrive = Notification.Name("pro.2brain.graf.desktopAttributionHandoffDidArrive")
 }

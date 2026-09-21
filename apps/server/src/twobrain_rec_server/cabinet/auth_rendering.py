@@ -87,6 +87,7 @@ def render_login_page(
     recovery_mode: bool = False,
     email_value: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
+    public_analytics: dict[str, object] | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
     embedded = safe_next.startswith("/desktop/")
@@ -114,7 +115,12 @@ def render_login_page(
         message_kind="success" if success_result else "error",
         message_heading=message_heading,
     )
-    return _standalone_page("Вход", content, product_analytics_provider=product_analytics_provider)
+    return _standalone_page(
+        "Вход",
+        content,
+        product_analytics_provider=product_analytics_provider,
+        public_analytics=public_analytics,
+    )
 
 
 def render_signup_page(
@@ -126,6 +132,7 @@ def render_signup_page(
     mode: str | None = None,
     email_value: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
+    public_analytics: dict[str, object] | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
     email_mode = str(mode or "").lower() == "email"
@@ -142,7 +149,10 @@ def render_signup_page(
         signup_email_href=f"/sign-up?{urlencode({'next': safe_next, 'mode': 'email'})}",
     )
     return _standalone_page(
-        "Регистрация", content, product_analytics_provider=product_analytics_provider
+        "Регистрация",
+        content,
+        product_analytics_provider=product_analytics_provider,
+        public_analytics=public_analytics,
     )
 
 
@@ -156,6 +166,7 @@ def render_email_code_page(
     flow: str = "login",
     csrf_token: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
+    public_analytics: dict[str, object] | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
     link_flow = flow in {"link", "desktop_link"}
@@ -236,7 +247,10 @@ def render_email_code_page(
         retry_requires_email=not bool(email),
     )
     return _standalone_page(
-        "Код входа", content, product_analytics_provider=product_analytics_provider
+        "Код входа",
+        content,
+        product_analytics_provider=product_analytics_provider,
+        public_analytics=public_analytics,
     )
 
 
@@ -246,13 +260,23 @@ def _standalone_page(
     *,
     csrf_token: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
+    public_analytics: dict[str, object] | None = None,
 ) -> str:
+    """Render one auth page.
+
+    ``public_analytics`` carries the consent-based measurement of the public
+    surfaces (FR-027). Sign-up and login are public pages with a credential form,
+    so the context is built by the public builder: it authorises the first-party
+    relay and withholds the external counter, which is why a visitor's decision
+    can never hand a typed value to a third-party script.
+    """
     return render_template(
         "cabinet/base.html",
         title=title,
         surface_mode="auth",
         csrf_token=csrf_token,
         product_analytics_provider=product_analytics_provider,
+        public_analytics=public_analytics,
         content=trusted_component_html(content, source="auth.shell"),
     )
 

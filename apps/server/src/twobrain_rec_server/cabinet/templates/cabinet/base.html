@@ -44,5 +44,8 @@
   {% endif %}
   <noscript><p class="settings-status" role="status" aria-live="polite">Чтобы менять настройки, включите JavaScript.</p></noscript>
   {{ content }}
+  {% if surface_mode|default('standalone_browser') == 'auth' %}
+    {% include "cabinet/auth/analytics.html" %}
+  {% endif %}
 </body>
 </html>

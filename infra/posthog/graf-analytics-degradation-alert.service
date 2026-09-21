@@ -1,0 +1,18 @@
+[Unit]
+Description=Deliver the GRAF analytics degradation alert to the external channel
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=-/etc/graf-analytics-alert.env
+EnvironmentFile=-/etc/graf-posthog-runtime-guard.env
+EnvironmentFile=-/etc/graf-posthog-backup.env
+ExecStart=/usr/local/libexec/graf-analytics-degradation-alert.sh
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=-/var/lib/graf-analytics-alert
+ReadWritePaths=-/etc/graf-analytics-alert-rules.txt
+TimeoutStartSec=5min

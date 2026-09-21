@@ -20,6 +20,21 @@ x-graf-official-runtime-handoff:
   production_execute: "requires_explicit_release_approval"
   secret_policy: "live_values_only_via_runtime_secret_files_or_operator_secret_store"
 
+x-graf-clickhouse-retention:
+  feature: "273-paid-traffic-analytics"
+  local_file_purpose: "retention_contract_not_runtime_enforcement"
+  production_runtime_source: "official_posthog_hobby_generated_compose"
+  storage: "clickhouse_inside_posthog"
+  data_class: "measurement_levels_2_and_3_events"
+  retention_days: 365
+  enforcement: "row_ttl_on_sharded_events"
+  statement_file: "infra/posthog/clickhouse-retention.sql"
+  apply_command: "infra/scripts/apply-posthog-event-ttl.sh --execute"
+  verify_command: "infra/scripts/enforce-product-analytics-retention.sh --status"
+  required_runtime_env: "POSTHOG_EVENT_RETENTION_DAYS=365"
+  readiness_rule: "blocked_when_ttl_missing_or_shorter_than_365_days"
+  evidence: "metadata_only"
+
 x-posthog-common: &posthog-common
   restart: unless-stopped
   env_file:

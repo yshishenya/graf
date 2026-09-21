@@ -2991,6 +2991,76 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/product-analytics/reports:
+    get:
+      tags:
+      - product-analytics
+      summary: Product Analytics Reports
+      description: |-
+        Отчётная поверхность продукта: доля согласия и стоимость результата.
+
+        Требование FR-012 закрыто здесь: доля согласия считается кодом продукта из
+        обезличенного счёта уровня 1 и числа согласившихся визитов, а не вписывается
+        оператором. FR-041 закрыт здесь же: расход кабинета соединяется с
+        конверсиями по кампании кодом продукта.
+
+        Поверхность закрыта аутентификацией, потому что стоимость активации по
+        кампании — это расход рекламного бюджета, а не публичная цифра. Доля
+        согласия сама по себе не является коммерческой тайной, но она считается
+        вместе с той же поверхностью и по тем же источникам.
+      operationId: product_analytics_reports_api_v1_product_analytics_reports_get
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Product Analytics Reports Api V1 Product Analytics Reports Get
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/product-analytics/catalog:
     get:
       tags:
@@ -16416,10 +16486,9 @@ components:
     PostHogAutocaptureEventRequest:
       properties:
         distinct_id:
-          anyOf:
-          - type: string
-            maxLength: 120
-          - type: 'null'
+          type: string
+          minLength: 1
+          maxLength: 120
           title: Distinct Id
         event_type:
           type: string
@@ -16501,6 +16570,7 @@ components:
           default: browser_autocapture
       type: object
       required:
+      - distinct_id
       - consent_state
       - page_class
       title: PostHogAutocaptureEventRequest
