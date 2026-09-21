@@ -3,12 +3,18 @@
 Этот runbook описывает контролируемое включение биллинга: сначала Feature 140,
 затем выход на реальные платежи по Feature 272.
 
-Состояние на момент Feature 272: оформление оплаты и наблюдение за провайдером
-уже включены в production, но указывают на **тестовый** магазин `1436758`.
-Поэтому включение реальных платежей сводится к согласованному переключению
-окружения, shopId, секретов и адреса вебхука на боевой магазин `1430118`, а не к
-включению флага. До подписи ответственных из раздела 5 и до выполнения раздела 4
-реальные списания не начинаются.
+Снимок чтения 20 сентября 2026 года: файл настроек и работающие `rec-api`,
+`rec-processing-worker`, `rec-maintenance` указывают на `production` / магазин
+`1430118`; оформление оплаты везде выключено. Наблюдение за провайдером включено
+в файле и рендере Compose, но выключено во всех трёх работающих службах. Причина
+расхождения не установлена. Снимок не доказывает применение текущего кода или
+готовность к списанию; перед запуском требуется повторная проверка.
+
+Включение требует согласованной конфигурации работающих служб, проверки
+секретов и адреса вебхука, одобренного развёртывания точного SHA и живой приёмки.
+До подписей ответственных из раздела 5 и разрешённого окна раздела 4 реальные
+списания не начинаются. Изменение файла настроек не заменяет применение
+конфигурации штатным процессом из `docs/agent-guidance/release-and-validation.md`.
 
 Возврат выполняется оператором только во внешнем кабинете YooKassa; GRAF не
 создаёт refund mutation и не показывает клиенту результат возврата.
@@ -62,12 +68,18 @@
 Установка выполняется скриптом `infra/scripts/install-billing-webhook-edge.sh`
 (сначала `--dry-run`, затем `--execute`). Скрипт сам проверяет, что записанный в
 конфигурацию границы секрет совпадает с секретом, который загрузило приложение:
-после перезагрузки nginx он отправляет этот секрет напрямую в backend. Ответ,
-отличный от `401`, означает совпадение; `401` на обоих путях окружения считается
-провалом, и скрипт откатывает изменения. В отчёте это поля
-`secret_probe_production` и `secret_probe_test`. Значение `503` — ожидаемый
-успех: секрет принят, а уведомление без метаданных рабочего пространства
-отложено.
+после перезагрузки nginx он отправляет этот секрет напрямую в backend.
+Установщик требует строго `503` хотя бы на одном из двух путей окружения;
+любой другой результат на обоих путях считается провалом и вызывает откат.
+В отчёте это поля `secret_probe_production` и `secret_probe_test`. `503` для
+специального уведомления означает: секрет принят, а уведомление без метаданных
+рабочего пространства отложено. Произвольный ответ, отличный от `401`, успехом
+не считается.
+
+Для боевого запуска дополнительно обязательны фактическое окружение
+`production` и `secret_probe_production=503`; `secret_probe_test=503` не
+заменяет эту проверку. Успех проверки секрета не доказывает доставку провайдером:
+подтверждение доставки YooKassa остаётся отдельным условием запуска.
 
 ### Каталог цен
 
@@ -118,6 +130,10 @@ dry-run, получает код через скрытый prompt/stdin, сох�
 
 - [ ] Проверены target hostname, environment label, migration head и exact
   `release_sha`; checkout пока disabled.
+- [ ] Файл настроек, используемая конфигурация Compose и фактически работающие
+  `rec-api`, `rec-processing-worker`, `rec-maintenance` согласованы по окружению,
+  магазину, выключенному checkout и включённому наблюдению. Проверка файла не
+  заменяет проверку служб; секреты не выводятся в отчёт.
 - [ ] Test и production YooKassa shop/credentials разделены; rotation и
   access log зафиксированы metadata-only.
 - [ ] Backup/restore reference и migration rollback rehearsal существуют;
@@ -135,8 +151,9 @@ dry-run, получает код через скрытый prompt/stdin, сох�
   storage ladder, fair-use и cohort copy.
 - [ ] `finance/accounting`: подтверждены COGS, gross-margin floor, 54-ФЗ/VAT,
   receipt lines, ledger retention и source-retention policy.
-- [ ] `legal`: опубликованы offer, recurring consent, immediate-Free/no-grace
-  wording и email-only external refund boundary.
+- [ ] `legal`: опубликованы offer, recurring consent, три попытки до окончания
+  оплаченного периода, Free без льготного периода после его окончания и
+  email-only external refund boundary.
 - [ ] `security/qa`: пройдены RLS, CSRF, redaction, provider boundary,
   accessibility, no-refund-mutation scan и test-shop matrix.
 - [ ] YooKassa capability evidence имеет отдельные rows для initial payment,
@@ -181,9 +198,15 @@ receipt/VAT/price, provider contract, cohort или при незакрытом 
    перед переключением остановить checkout/observation, убедиться, что нет
    незавершённых provider-операций, заменить explicit environment/shop/secret
    configuration согласованным набором и проверить config snapshot. Не смешивать
-   test payment data с production customer cohort; после теста удалить synthetic
-   данные по runbook и вернуть production configuration до любого публичного
-   smoke.
+   test payment data с production customer cohort. Вернуть production
+   configuration до любого публичного smoke. Автоматическая или ручная очистка
+   тестового аккаунта/пространства на production этим runbook не разрешена:
+   до отдельного согласования точных объектов и проверенной процедуры данные
+   сохраняются. Счета, операции, выдача доступа, согласия, способы оплаты,
+   уведомления и журнал финансовых событий не удаляются и не переписываются
+   для «очистки теста». Отключение автопродления тестового аккаунта допустимо
+   только по отдельному решению владельца через штатный путь с сохранением
+   оплаченного срока и истории; прямые SQL-правки запрещены.
 2. На exact SHA выполнить:
 
    ```sh
@@ -196,9 +219,7 @@ receipt/VAT/price, provider contract, cohort или при незакрытом 
    ```
 
    Для реального provider окна оператор заранее кладёт test API и webhook
-   secrets в отдельные защищённые файлы (например,
-   `secrets/twobrain_yookassa_test_secret` и
-   `secrets/twobrain_yookassa_test_webhook_secret`) и временно указывает их
+   secrets в отдельные защищённые файлы и временно указывает их
    через `TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE` и
    `TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE`. Значения не передаются в
    чат и не попадают в Git.
@@ -207,17 +228,26 @@ receipt/VAT/price, provider contract, cohort или при незакрытом 
    annual, saved-method, decline, timeout/unknown, duplicate/out-of-order
    webhook, authoritative GET и exact receipt. Return URL/webhook без
    authenticated GET не даёт entitlement.
-4. Проверить one-attempt renewal success, confirmed failure→immediate Free,
-   unknown→blocked pay-again, late-success/refusal precedence, storage
-   admission, unlimited paid core и no-grace/no-retry.
+4. Проверить три окна продления за 72, 48 и 24 часа до конца периода, отдельный
+   ключ каждой попытки и письмо при неудаче. Первые два отказа сохраняют
+   автопродление, третий отключает его, но оплаченный доступ сохраняется до
+   конца периода; Free без льготного периода наступает только после окончания
+   текущего оплаченного периода, если продление не подтверждено.
+   Неопределённый исход продления запрещает
+   новое автоматическое списание с другим ключом, но не блокирует новое
+   оформление пользователем. Истёкшее ожидание первичной оплаты снимает её
+   блокировку, сохраняя позднюю сверку и однократную выдачу доступа. Проверить
+   также late-success/refusal precedence, storage admission и unlimited paid core.
 5. В merchant cabinet test shop (не в GRAF) выполнить full и partial refund,
    если capability поддерживает это. В GRAF проверить только read-only
    webhook/GET/list/registry convergence и отсутствие refund API mutation.
 6. Заполнить capability rows, metrics snapshot, stop rehearsal и независимую
    review. После окна вернуть checkout disabled, восстановить
    `TWOBRAIN_BILLING_YOOKASSA_ENVIRONMENT=production`, shop `1430118` и
-   production secret files, перезапустить сервисы, проверить health/readiness и
-   только затем считать систему готовой к production canary.
+   production secret files. Применить конфигурацию одобренным процессом
+   развёртывания точного SHA, проверить фактические настройки всех трёх служб,
+   health/readiness и подписи раздела 5; прямой перезапуск не заменяет условия
+   допуска к production canary.
 
 Любой mismatch amount/currency/shop/environment, duplicate grant, missing
 receipt, unexpected refund call, leaked secret или customer content — `fail`,
@@ -241,8 +271,12 @@ canary оператор:
    read-only reconciliation и выключенный флаг оплаты;
 2. проводит base + one add-on payment и подтверждает authenticated GET,
    webhook, exact receipt, entitlement и storage projection;
-3. выполняет заранее одобренный renewal failure→immediate Free без retry/grace,
-   затем проверяет late-outcome precedence и отсутствие второй charge key;
+3. по отдельному согласованному сценарию проверяет три попытки продления до
+   окончания периода, письма об отказе и сохранение оплаченного доступа до его
+   конца; при отсутствии успешного продления — Free без льготного периода.
+   Затем проверяет late-outcome precedence, отсутствие дублирующего списания
+   внутри одной попытки и запрет новой автоматической попытки при неизвестном
+   исходе предыдущей;
 4. выполняет manual full и partial refund во внешнем merchant cabinet;
 5. подтверждает в GRAF только observed refund receipt/list/registry convergence,
    gap ownership, отсутствие customer-facing refund status/notification и ноль
@@ -262,7 +296,7 @@ approver должны быть разными людьми; запись без 
 | --- | --- | --- | --- | --- | --- |
 | Product, plan/storage/fair-use/cohort | `product` | `pending` | `<ref>` | `<date/trigger>` | `<date / initials>` |
 | Finance/accounting, COGS/VAT/54-ФЗ/receipt/retention | `finance/accounting` | `pending` | `<ref>` | `<date/trigger>` | `<date / initials>` |
-| Legal, offer/recurring/immediate-Free/refund boundary | `legal` | `pending` | `<ref>` | `<date/trigger>` | `<date / initials>` |
+| Legal, offer/recurring/Free after paid period/refund boundary | `legal` | `pending` | `<ref>` | `<date/trigger>` | `<date / initials>` |
 | Security/QA, RLS/CSRF/redaction/accessibility/rollback | `security/qa` | `pending` | `<ref>` | `<date/trigger>` | `<date / initials>` |
 | Infrastructure/on-call, backup/TLS/secrets/stop path | `infrastructure/on-call` | `pending` | `<ref>` | `<date/trigger>` | `<date / initials>` |
 | Release decision, executor ≠ independent approver | `release owner + independent approver` | `pending` | `<ref>` | `<date/trigger>` | `<date / initials>` |
@@ -284,8 +318,10 @@ TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED=true
 ```
 
 `TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED=true` при инциденте обязательно
-оставлять включённым: сверка с провайдером должна продолжаться, чтобы поздние
-webhook/GET-исходы не потерялись и reconciliation gap оставался видимым.
+сохранять в фактически работающих службах: сверка с провайдером должна
+продолжаться, чтобы поздние webhook/GET-исходы не потерялись и reconciliation gap
+оставался видимым. После одобренного применения проверить все три службы;
+запись `true` только в файле не доказывает, что наблюдение работает.
 
 Затем прогнать `infra/scripts/cd-remote.sh --dry-run`; execute — только с
 отдельной authorization. Выключенный checkout обязан блокировать checkout,

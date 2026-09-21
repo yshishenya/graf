@@ -245,8 +245,7 @@ class Settings(BaseSettings):
     # Billing is fail-closed until the merchant, legal and receipt gates are
     # explicitly enabled in the deployment environment.
     billing_checkout_enabled: bool = False
-    # Read-only GET/list reconciliation can stay available during an emergency
-    # stop or checkout rollback. It never permits a provider money mutation.
+    # Read-only provider observation never permits a money mutation.
     billing_provider_observation_enabled: bool = False
     billing_yookassa_base_url: AnyUrl | None = None
     # YooKassa uses the same API host for test and production shops. Keep the

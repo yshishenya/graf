@@ -27,7 +27,8 @@
         {% if checkout_blocked %}<div class="notice notice--warning" role="status" aria-live="polite"><p>Платеж уже создан. Повторную оплату не начинаем.</p>{% if checkout_continuation_url|default(None) %}<a class="button" href="{{ checkout_continuation_url|e }}">Продолжить этот платеж в ЮKassa</a>{% else %}<a class="button quiet" href="/billing/history">Открыть историю платежей</a>{% endif %}</div>
         {% elif promo_preview_error|default(None) %}<p id="billing-checkout-error" role="alert" class="notice notice--error">{{ promo_preview_error }}</p>
         {% elif checkout_result == "owner_only" %}<p class="notice notice--error" role="alert">Оплатить тариф может только владелец пространства.</p>
-        {% elif checkout_result == "offer_required" %}<p class="notice notice--warning" role="alert">Откройте и примите оферту версии {{ offer_version_label|default("billing-personal-v1") }}.</p>
+        {% elif checkout_result == "offer_required" %}<p class="notice notice--warning" role="alert">Откройте и примите оферту версии {{ offer_version_label|default("personal-2026-08-21") }}.</p>
+        {% elif checkout_result == "offer_changed" %}<p class="notice notice--warning" role="alert">Условия оплаты изменились. Проверьте итог и заново примите оферту. Новая оплата не создана.</p>
         {% elif checkout_result == "consent_required" %}<p class="notice notice--warning" role="alert">Подтвердите согласие на регулярное списание или отмените оплату.</p>
         {% elif checkout_result == "catalog_not_approved" %}<p class="notice notice--warning" role="alert">Оплата временно недоступна. Попробуйте позже.</p>
         {% elif checkout_result == "unavailable" %}<p class="notice notice--warning" role="alert">Оплата временно недоступна. Повторите попытку позже.</p>
@@ -56,9 +57,10 @@
         <form action="/billing/checkout/start" method="post" class="billing-checkout-form">
           {{ sections.csrf_field(csrf_token|default(None)) }}
           <input type="hidden" name="idempotency_key" value="{{ checkout_idempotency_key }}">
+          <input type="hidden" name="offer_version" value="{{ offer_version_label|default('personal-2026-08-21') }}">
           <input type="hidden" name="promo_code" value="{{ checkout_promo_code|default('') }}">
           <input type="hidden" name="cycle" value="{{ checkout_cycle }}">
-          <label class="billing-consent"><input type="checkbox" name="offer_consent" value="true" required> <span>Принимаю <a href="/offer" target="_blank" rel="noopener">оферту</a> версии {{ offer_version_label|default("billing-personal-v1") }}.</span></label>
+          <label class="billing-consent"><input type="checkbox" name="offer_consent" value="true" required> <span>Принимаю <a href="/offer" target="_blank" rel="noopener">оферту</a> версии {{ offer_version_label|default("personal-2026-08-21") }}.</span></label>
           <label class="billing-consent"><input type="checkbox" name="recurring_consent" value="true" required> <span>Согласен на регулярное списание: оплата списывается автоматически, отключить автопродление можно в кабинете.</span></label>
           <button class="button billing-checkout-form__submit" data-billing-primary type="submit">Оплатить {{ selected_price_label }} в ЮKassa — {% if checkout_cycle == "year" %}год{% else %}месяц{% endif %}</button>
         </form>

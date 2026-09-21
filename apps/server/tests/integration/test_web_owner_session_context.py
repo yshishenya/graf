@@ -809,6 +809,78 @@ def test_browser_email_login_start_issues_code_for_new_email_without_creating_it
     assert client.portal.call(email_identity_count) == before_identities
 
 
+def test_browser_email_login_unknown_email_creates_personal_access_and_redirects_to_billing(
+    client,
+) -> None:
+    email = "new-billing-login@example.test"
+
+    start = client.post(
+        "/login/email/start",
+        data={"email": email, "next": "/billing"},
+    )
+    assert start.status_code == 200
+    state_match = re.search(r'name="state" value="([^"]+)"', start.text)
+    code_match = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
+    assert state_match is not None
+    assert code_match is not None
+    state = state_match.group(1)
+    _bind_email_auth_attempt_cookie(client, start, state_nonce=state)
+
+    callback = client.post(
+        "/login/email/verify",
+        data={
+            "email": email,
+            "code": code_match.group(1),
+            "state": state,
+            "next": "/billing",
+        },
+        follow_redirects=False,
+    )
+
+    assert callback.status_code == 303
+    assert callback.headers["location"] == "/billing"
+    session_cookie = callback.cookies.get(AUTH_SESSION_COOKIE_NAME)
+    assert session_cookie
+
+    async def read_created_access() -> tuple[ExternalIdentity, UserIdentity, Workspace, WorkspaceMembership, AuthSession]:
+        async with client.app_state["sessionmaker"]() as db:
+            identity = await db.scalar(
+                select(ExternalIdentity).where(
+                    ExternalIdentity.provider == "email",
+                    ExternalIdentity.email == email,
+                )
+            )
+            assert identity is not None
+            user = await db.get(UserIdentity, identity.user_id)
+            assert user is not None
+            personal_workspace = await db.scalar(
+                select(Workspace).where(
+                    Workspace.organization_id == user.organization_id,
+                    Workspace.owner_user_id == user.id,
+                    Workspace.kind == "personal",
+                )
+            )
+            assert personal_workspace is not None
+            membership = await db.get(WorkspaceMembership, (personal_workspace.id, user.id))
+            assert membership is not None
+            session = await db.scalar(
+                select(AuthSession).where(
+                    AuthSession.session_token_hash == hash_token(session_cookie),
+                )
+            )
+            assert session is not None
+            return identity, user, personal_workspace, membership, session
+
+    identity, user, personal_workspace, membership, session = client.portal.call(read_created_access)
+    assert identity.is_verified is True
+    assert identity.is_active is True
+    assert membership.role == "owner"
+    assert membership.status == "active"
+    assert session.user_id == user.id
+    assert session.workspace_id == personal_workspace.id
+    assert session.provider == "email"
+
+
 def test_browser_email_login_code_page_normalizes_email_without_download_pitch(client) -> None:
     response = client.post(
         "/login/email/start",

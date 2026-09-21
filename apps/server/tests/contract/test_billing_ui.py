@@ -24,6 +24,12 @@ from twobrain_rec_server.cabinet.web_routes.billing import (
 from twobrain_rec_server.cabinet.web_routes.billing import (
     router as billing_router,
 )
+from twobrain_rec_server.db.models import BillingPlanVersion
+from twobrain_rec_server.public.offers import (
+    PUBLIC_ANNUAL_AMOUNT_MINOR,
+    PUBLIC_APPROVED_OFFER_VERSION,
+    PUBLIC_MONTHLY_AMOUNT_MINOR,
+)
 
 CABINET_CSS = (
     Path(__file__).resolve().parents[4]
@@ -54,12 +60,23 @@ def test_new_money_mutations_block_initial_checkout_and_renewal_operations() -> 
         )
     )
 
-    assert "kind IN ('initial_checkout', 'renewal')" in statement
-    for state in ("scheduled", "sent", "processing", "unknown", "pending_reconciliation"):
+    assert "kind = 'initial_checkout'" in statement
+    for state in (
+        "scheduled",
+        "provider_pending",
+        "sent",
+        "processing",
+        "unknown",
+        "pending_reconciliation",
+        "manual_resolution",
+        "reconciliation_gap",
+    ):
         assert f"'{state}'" in statement
-    assert "CASE WHEN" in statement
-    assert "kind = 'renewal' AND billing_operations.state = 'scheduled'" in statement
-    assert "THEN 1 ELSE 0 END, billing_operations.created_at DESC" in statement
+    assert "'provider_key_expired'" not in statement
+    assert "CASE WHEN" not in statement
+    assert "kind = 'renewal'" not in statement
+    assert "billing_operations.created_at DESC" in statement
+    assert _operation_state_label("observation_expired") == "Срок проверки платежа истек"
 
 
 def test_in_flight_operation_labels_are_explicit() -> None:
@@ -71,6 +88,50 @@ def test_billing_receipt_registration_uses_provider_status_mapping() -> None:
     assert _receipt_registration_state("succeeded") is ReceiptState.AVAILABLE
     assert _receipt_registration_state("pending") is ReceiptState.PENDING
     assert _receipt_registration_state("invalid") is ReceiptState.UNKNOWN
+
+
+@pytest.mark.asyncio
+async def test_cabinet_catalog_uses_the_same_guard_as_the_public_offer() -> None:
+    class CatalogSession:
+        def __init__(self, rows: list[BillingPlanVersion]) -> None:
+            self.rows = rows
+
+        async def scalars(self, _statement: object) -> list[BillingPlanVersion]:
+            return self.rows
+
+    common = {
+        "plan_code": "personal",
+        "version": 1,
+        "currency": "RUB",
+        "storage_bytes": 2_000_000_000,
+        "processing_mode": "unlimited",
+        "enabled_for_checkout": True,
+        "policy_snapshot": {"offer_version": PUBLIC_APPROVED_OFFER_VERSION},
+        "effective_from": datetime(2026, 8, 1, tzinfo=UTC),
+    }
+    approved_rows = [
+        BillingPlanVersion(
+            cycle="month", amount_minor=PUBLIC_MONTHLY_AMOUNT_MINOR, **common
+        ),
+        BillingPlanVersion(
+            cycle="year", amount_minor=PUBLIC_ANNUAL_AMOUNT_MINOR, **common
+        ),
+    ]
+    approved = await billing_routes._approved_personal_catalog(
+        CatalogSession(approved_rows),
+        now=datetime(2026, 8, 21, tzinfo=UTC),
+    )
+    assert set(approved) == {"month", "year"}
+
+    mismatched_rows = [
+        approved_rows[0],
+        BillingPlanVersion(cycle="year", amount_minor=999_000, **common),
+    ]
+    rejected = await billing_routes._approved_personal_catalog(
+        CatalogSession(mismatched_rows),
+        now=datetime(2026, 8, 21, tzinfo=UTC),
+    )
+    assert rejected == {}
 
 
 @pytest.mark.asyncio
@@ -594,7 +655,22 @@ def test_checkout_offer_consent_error_is_explicit() -> None:
         annual_saving_label="Экономия 1 580 ₽ (17%)",
     )
     assert "примите оферту" in html.lower()
-    assert "billing-personal-v1" in html
+    assert PUBLIC_APPROVED_OFFER_VERSION in html
+    assert "billing-personal-v1" not in html
+
+
+def test_checkout_offer_version_fallback_has_no_legacy_route_or_template_literal() -> None:
+    route_source = Path(billing_routes.__file__).read_text(encoding="utf-8")
+    template_source = (
+        Path(__file__).resolve().parents[4]
+        / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html"
+    ).read_text(encoding="utf-8")
+
+    assert "PUBLIC_APPROVED_OFFER_VERSION" in route_source
+    assert "_BILLING_OFFER_VERSION" not in route_source
+    assert "billing-personal-v1" not in route_source
+    assert PUBLIC_APPROVED_OFFER_VERSION in template_source
+    assert "billing-personal-v1" not in template_source
 
 
 def test_pending_checkout_hides_recomputed_order_total() -> None:
