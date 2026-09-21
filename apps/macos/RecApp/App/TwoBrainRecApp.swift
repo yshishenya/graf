@@ -3230,10 +3230,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
             mainWindow.makeKeyAndOrderFront(nil)
             mainWindow.orderFrontRegardless()
             NSApp.activate(ignoringOtherApps: true)
-            AppLog.writeRaw(
-                event: "app_main_window_presented",
-                detail: "reason=\(reason) reused=true"
-            )
+            logMainWindowPresented(reason: reason, window: mainWindow, reused: true)
             return
         }
 
@@ -3258,13 +3255,24 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         )
         window.center()
         mainWindow = window
-        AppLog.writeRaw(
-            event: "app_main_window_presented",
-            detail: "reason=\(reason) reused=false"
-        )
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
+        logMainWindowPresented(reason: reason, window: window, reused: false)
+    }
+
+    private func logMainWindowPresented(reason: String, window: NSWindow, reused: Bool) {
+        guard window.isVisible else {
+            AppLog.writeRaw(
+                event: "app_main_window_presentation_failed",
+                detail: "reason=\(reason) reused=\(reused) visible=false"
+            )
+            return
+        }
+        AppLog.writeRaw(
+            event: "app_main_window_presented",
+            detail: "reason=\(reason) reused=\(reused) visible=true"
+        )
     }
 
     private func configureMainWindowCollectionBehavior(_ window: NSWindow) {

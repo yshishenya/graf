@@ -20,7 +20,7 @@ usage: scripts/release.sh <YYYY.MM.DD.N> [options]
   --deploy            deploy to production after a clean dry run
   --no-app            skip building and attaching the macOS app update
   --from <step>       resume at a step: prep, train, ci, decide, deploy, publish
-  --stop-after <step> stop once this step is done
+  --stop-after <step> stop once this step is done and preserve resumable state
 
 The macOS app update is built in the background while the release train runs
 and is attached to the release before it becomes public; --no-app skips it.
@@ -62,10 +62,30 @@ root="$(git rev-parse --show-toplevel)"
 cd "$root"
 tag="v${version}"
 release_published=false
+release_was_public_before_run=false
+release_tag_owned_by_run=false
+release_publication_started=false
+release_stop_requested=false
+candidate_file=""
 
 cleanup_unpublished_release() {
   local status=$?
-  [[ "$release_published" == "true" ]] && return "$status"
+  if [[ -n "${app_sign_pid:-}" ]]; then
+    kill "$app_sign_pid" >/dev/null 2>&1 || true
+    wait "$app_sign_pid" >/dev/null 2>&1 || true
+    app_sign_pid=""
+  fi
+  if [[ -n "${app_build_pid:-}" ]]; then
+    kill "$app_build_pid" >/dev/null 2>&1 || true
+    wait "$app_build_pid" >/dev/null 2>&1 || true
+    app_build_pid=""
+  fi
+  [[ -n "${app_build_log:-}" ]] && rm -f "$app_build_log" || true
+  [[ -n "${app_sign_log:-}" ]] && rm -f "$app_sign_log" || true
+  [[ -n "${release_notes_file:-}" ]] && rm -f "$release_notes_file" || true
+  [[ "$release_published" == "true" || "$release_was_public_before_run" == "true" || "$release_publication_started" == "true" || "$release_stop_requested" == "true" ]] && return "$status"
+  abandon_unpublished_candidate
+  [[ "$release_tag_owned_by_run" == "true" ]] || return "$status"
   # The tag is created early so the app update can be signed and uploaded next
   # to the release train instead of after the deploy.  A release that fails
   # before it becomes public must not leave that tag behind: an unpublished tag
@@ -76,6 +96,61 @@ cleanup_unpublished_release() {
     git tag -d "$tag" >/dev/null 2>&1 || true
   fi
   return "$status"
+}
+
+# A frozen candidate is an immutable record and is never rewritten.  Preparing
+# a release refuses to start while a frozen candidate still targets the current
+# tree, which is correct while a release is running but blocks the retry after a
+# failure.  Record the abandonment as a separate file next to the candidate so
+# the retry can proceed without touching the frozen record or its identity
+# digest.
+abandon_unpublished_candidate() {
+  [[ -n "$candidate_file" && -f "$candidate_file" ]] || return 0
+  python3 - "$candidate_file" "$tag" <<'PY' || true
+import datetime as dt
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+tag = sys.argv[2]
+try:
+    candidate = json.loads(path.read_text(encoding="utf-8"))
+except (OSError, UnicodeError, json.JSONDecodeError):
+    raise SystemExit(0)
+if candidate.get("status") != "frozen":
+    raise SystemExit(0)
+record = path.with_name("." + path.name + ".abandoned.json")
+if record.exists():
+    raise SystemExit(0)
+identity = path.with_name("." + path.name + ".identity.json")
+record.write_text(
+    json.dumps(
+        {
+            "candidate_id": candidate.get("candidate_id"),
+            "candidate_path": str(path.resolve()),
+            "candidate_digest": identity.read_text(encoding="utf-8").strip()
+            if identity.exists()
+            else None,
+            "release_tag": tag,
+            "reason": f"выпуск {tag} не дошёл до публикации; кандидат оставлен без выпуска",
+            "abandoned_at": dt.datetime.now(dt.timezone.utc)
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z"),
+        },
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+print(
+    f"release_cleanup=abandoned_candidate candidate={path.name} record={record.name}",
+    file=sys.stderr,
+)
+PY
 }
 trap cleanup_unpublished_release EXIT
 
@@ -118,7 +193,6 @@ numeric_feature_ids() {
 total_elapsed=0
 started_all="$(date -u +%s)"
 
-completed=false
 step_order=(prep train ci decide deploy publish)
 step_index_of() {
   local name="$1" index=0
@@ -145,6 +219,88 @@ should_run() {
     (( index <= stop_index )) || return 1
   fi
   return 0
+}
+
+resolve_publish_identity() {
+  if [[ -z "${decision_file:-}" || ! -f "$decision_file" ]]; then
+    decision_file="$(python3 - "$tag" <<'PY'
+import json
+import pathlib
+import sys
+
+tag = sys.argv[1]
+matches = []
+for path in sorted(pathlib.Path(".dev/release/decisions").glob("*.decision.json")):
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        continue
+    if record.get("tag") == tag and record.get("status") == "go" and record.get("decision") == "go":
+        matches.append(path)
+if len(matches) != 1:
+    raise SystemExit(f"expected exactly one go decision for {tag}, found {len(matches)}")
+print(matches[0])
+PY
+)" || { printf 'release: cannot resolve immutable decision for %s\n' "$tag" >&2; exit 1; }
+  fi
+  source_sha="$(python3 - "$decision_file" "$tag" <<'PY'
+import json
+import pathlib
+import re
+import sys
+
+path, tag = sys.argv[1:]
+try:
+    record = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    raise SystemExit(f"cannot read release decision: {exc}")
+if record.get("tag") != tag or record.get("status") != "go" or record.get("decision") != "go":
+    raise SystemExit("release decision is not an approved decision for this tag")
+source_sha = record.get("source_sha")
+if not isinstance(source_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", source_sha):
+    raise SystemExit("release decision has no exact source SHA")
+print(source_sha)
+PY
+)" || { printf 'release: invalid immutable decision for %s\n' "$tag" >&2; exit 1; }
+  current_sha="$(git rev-parse HEAD)"
+  [[ "$current_sha" == "$source_sha" ]] \
+    || { printf 'release: current HEAD %s differs from approved source %s\n' "${current_sha:0:12}" "${source_sha:0:12}" >&2; exit 1; }
+  printf 'release_source_sha=%s source=immutable-decision\n' "$source_sha"
+}
+
+ensure_release_tag() {
+  local remote_sha local_sha
+  remote_sha="$(git ls-remote --tags origin "refs/tags/$tag^{}" 2>/dev/null | awk 'NR == 1 { print $1 }')"
+  if [[ -z "$remote_sha" ]]; then
+    remote_sha="$(git ls-remote --tags origin "refs/tags/$tag" 2>/dev/null | awk 'NR == 1 { print $1 }')"
+  fi
+  if [[ -n "$remote_sha" ]]; then
+    [[ "$remote_sha" == "$source_sha" ]] \
+      || { printf 'release: remote tag %s points at %s, expected %s\n' \
+        "$tag" "${remote_sha:0:12}" "${source_sha:0:12}" >&2; exit 1; }
+    local_sha="$(git rev-parse --verify "refs/tags/$tag^{}" 2>/dev/null || true)"
+    if [[ -z "$local_sha" ]]; then
+      git fetch --no-tags origin "refs/tags/$tag:refs/tags/$tag" >/dev/null
+      local_sha="$(git rev-parse --verify "refs/tags/$tag^{}" 2>/dev/null || true)"
+    fi
+    [[ "$local_sha" == "$source_sha" ]] \
+      || { printf 'release: local tag %s is not bound to approved source %s\n' \
+        "$tag" "${source_sha:0:12}" >&2; exit 1; }
+    printf 'release_tag=exists tag=%s source=%s\n' "$tag" "${source_sha:0:12}"
+    return 0
+  fi
+
+  local_sha="$(git rev-parse --verify "refs/tags/$tag^{}" 2>/dev/null || true)"
+  if [[ -n "$local_sha" ]]; then
+    [[ "$local_sha" == "$source_sha" ]] \
+      || { printf 'release: local tag %s points at %s, expected %s\n' \
+        "$tag" "${local_sha:0:12}" "${source_sha:0:12}" >&2; exit 1; }
+  else
+    git tag -a "$tag" -m "Релиз ${version}" "$source_sha"
+  fi
+  release_tag_owned_by_run=true
+  git push origin "$tag"
+  printf 'release_tag=created tag=%s source=%s\n' "$tag" "${source_sha:0:12}"
 }
 
 require_clean_master() {
@@ -215,6 +371,19 @@ PY
   printf 'release_features=%s feature_ids=%s\n' "$features" "$feature_ids"
 
   git add -A
+  if git diff --cached --quiet; then
+    # Прошлая попытка уже влила подготовку этого выпуска в мастер. Собирать
+    # нечего — это не ошибка.  Раньше здесь стоял `git commit`, который при
+    # отсутствии изменений молча убивал выпуск: оператор видел только
+    # "нечего коммитить" и не понимал, что делать дальше.
+    source_sha="$(git rev-parse HEAD)"
+    printf 'release_prep=already_merged version=%s sha=%s\n' "$version" "${source_sha:0:12}"
+    printf 'Подготовка выпуска %s уже влита в мастер прошлой попыткой.\n' "$version"
+    printf 'Дальше: продолжить выпуск с готового состояния командой\n'
+    printf '  scripts/release.sh %s --from train%s\n' "$version" \
+      "$([[ "$deploy" == true ]] && printf ' --deploy')"
+    exit 0
+  fi
   git commit -m "Подготовка релиза ${version}
 
 Раздел CHANGELOG.md собран из фрагментов выпуска, фрагменты перенесены в
@@ -355,13 +524,25 @@ upload_release_input() {
   # The signer reads the candidate archive and the release notes from the release
   # itself, so both must be attached before it runs.  The asset name is set by
   # the target file name, because gh keeps the local basename otherwise.
-  local source_path="$1" asset_name="$2" staging
-  [[ -f "$source_path" ]] || { printf 'release: missing release input %s\n' "$source_path" >&2; exit 1; }
+  local source_path="$1" asset_name="$2" staging existing_json local_sha remote_sha remote_api_url
+  [[ -f "$source_path" && ! -L "$source_path" ]] || { printf 'release: missing release input %s\n' "$source_path" >&2; exit 1; }
+  local_sha="$(shasum -a 256 "$source_path" | awk '{print $1}')"
+  existing_json="$(gh release view "$tag" --json assets --jq '.assets[]|select(.name=="'"$asset_name"'")|{name,size,apiUrl}' 2>/dev/null || true)"
+  if [[ -n "$existing_json" ]]; then
+    remote_api_url="$(printf '%s' "$existing_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["apiUrl"])')"
+    remote_sha="$(gh api --header 'Accept: application/octet-stream' "$remote_api_url" 2>/dev/null | shasum -a 256 | awk '{print $1}' || true)"
+    [[ "$remote_sha" == "$local_sha" ]] || {
+      printf 'release: existing asset %s conflicts with prepared bytes\n' "$asset_name" >&2
+      exit 1
+    }
+    printf 'release_input=already_present asset=%s sha256=%s\n' "$asset_name" "$local_sha"
+    return 0
+  fi
   staging="$(mktemp -d)"
   cp "$source_path" "$staging/$asset_name"
-  gh release upload "$tag" "$staging/$asset_name" --clobber >/dev/null
+  gh release upload "$tag" "$staging/$asset_name" >/dev/null
   rm -rf "$staging"
-  printf 'release_input_uploaded=%s\n' "$asset_name"
+  printf 'release_input_uploaded=%s sha256=%s\n' "$asset_name" "$local_sha"
 }
 
 app_build() {
@@ -384,9 +565,11 @@ app_sign() {
   [[ -f "$app_candidate_zip" ]] \
     || { printf 'release: the app build produced no candidate archive\n'; return 1; }
   upload_release_input "$app_candidate_zip" "GRAF-$version-candidate.zip" || return 1
-  if [[ -n "${release_notes_file:-}" && -f "$release_notes_file" ]]; then
-    upload_release_input "$release_notes_file" "release-notes-v$version.md" || return 1
+  if [[ -z "${release_notes_file:-}" || ! -f "$release_notes_file" ]]; then
+    release_notes_file="$(mktemp)"
+    notes_python
   fi
+  upload_release_input "$release_notes_file" "release-notes-v$version.md" || return 1
   bash apps/macos/Installer/Scripts/release-app-update.sh \
     --version "$version" --phase publish || return 1
   [[ -n "${release_notes_file:-}" ]] && rm -f "$release_notes_file"
@@ -418,8 +601,28 @@ open_draft_release() {
   # does not create the tag: GitHub creates it when the release goes public, so
   # a failed release leaves no stray tag behind.
   [[ -n "${source_sha:-}" ]] || return 0
-  if gh release view "$tag" >/dev/null 2>&1; then
-    printf 'release_draft=exists tag=%s\n' "$tag"
+  draft_json="$(gh release view "$tag" --json isDraft,targetCommitish 2>/dev/null || true)"
+  if [[ -n "$draft_json" ]]; then
+    draft_is_draft="$(python3 -c 'import json,sys; print(str(json.load(sys.stdin)["isDraft"]).lower())' <<<"$draft_json")"
+    draft_target="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("targetCommitish") or "")' <<<"$draft_json")"
+    if [[ "$draft_is_draft" != "true" ]]; then
+      release_was_public_before_run=true
+      printf 'release_public=already_published tag=%s\n' "$tag"
+      return 0
+    fi
+    if [[ "$draft_target" != "$source_sha" ]]; then
+      # A previous failed attempt may have left a draft pointing at its old
+      # preparation commit.  Reusing it unchanged would publish the wrong
+      # source and keep stale app assets attached to the next release.
+      release_notes_file="$(mktemp)"
+      notes_python
+      gh release edit "$tag" --draft --title "${tag}" \
+        --notes-file "$release_notes_file" --target "$source_sha" >/dev/null
+      printf 'release_draft=retargeted tag=%s from=%s to=%s\n' \
+        "$tag" "${draft_target:0:12}" "${source_sha:0:12}"
+    else
+      printf 'release_draft=exists tag=%s target=%s\n' "$tag" "${source_sha:0:12}"
+    fi
     return 0
   fi
   release_notes_file="$(mktemp)"
@@ -454,7 +657,9 @@ NOTES
 }
 
 open_draft_release
-start_app_build
+if [[ "$resume_step" != "publish" && "$resume_step" != "deploy" ]]; then
+  start_app_build
+fi
 
 # --------------------------------------------------------------- step: train
 
@@ -462,28 +667,14 @@ if should_run train; then
   step "train: заморозить поезд и кандидата"
   require_clean_master
 
-  # The train needs one receipt reference per included pull request.  They are
-  # derived from the successful governance run on each pull request's exact
-  # head, so the operator never copies identifiers by hand.  The loop avoids
-  # mapfile because macOS still ships bash 3.2.
-  prs=()
-  receipts=()
-  while IFS= read -r number; do
-    [[ -n "$number" ]] || continue
-    merge_sha="$(gh pr view "$number" --json mergeCommit --jq '.mergeCommit.oid')"
-    [[ -n "$merge_sha" && "$merge_sha" != "null" ]] || continue
-    git merge-base --is-ancestor "$merge_sha" HEAD 2>/dev/null || continue
-    git merge-base --is-ancestor "$merge_sha" "$base_sha" 2>/dev/null && continue
-    head_sha="$(gh pr view "$number" --json headRefOid --jq '.headRefOid')"
-    run_id="$(gh api "repos/$(gh repo view --json nameWithOwner --jq '.nameWithOwner')/commits/${head_sha}/check-runs?per_page=100" \
-      --jq '[.check_runs[]|select(.name=="governance-fast" and .conclusion=="success")]|sort_by(.id)|last|.id' 2>/dev/null || true)"
-    [[ -n "$run_id" && "$run_id" != "null" ]] || continue
-    prs+=("$number")
-    receipts+=("pr-${number}-governance-${run_id}")
-  done < <(gh pr list --state merged --base master --limit 50 --json number --jq '.[].number')
-  [[ ${#prs[@]} -gt 0 ]] || { printf 'release: no merged pull requests found between %s and HEAD\n' "$previous_tag" >&2; exit 1; }
-  pr_list="$(IFS=,; printf '%s' "${prs[*]}")"
-  receipt_list="$(IFS=,; printf '%s' "${receipts[*]}")"
+  # The helper finds the exact merged PR set and reports missing preliminary
+  # proofs. The authoritative proof, including all required checks and receipt
+  # identities, is produced once by train-freeze below.
+  train_collection="$(python3 scripts/collect_release_train.py \
+    --base-sha "$base_sha" --source-sha "$source_sha")" \
+    || { printf 'release: не удалось собрать поезд пул-реквестов\n' >&2; exit 1; }
+  pr_list="$(python3 -c 'import json,sys; print(",".join(json.load(sys.stdin)["prs"]))' <<<"$train_collection")"
+  [[ -n "$pr_list" ]] || { printf 'release: no merged pull requests found between %s and HEAD\n' "$previous_tag" >&2; exit 1; }
   printf 'release_prs=%s\n' "$pr_list"
 
   # A synthetic merge SHA is a real commit object whose tree is the released
@@ -495,8 +686,7 @@ if should_run train; then
   train_output="$(infra/scripts/release-candidate.sh train-freeze \
     --source-sha "$source_sha" --base-sha "$base_sha" \
     --synthetic-merge-sha "$synthetic_sha" \
-    --prs "$pr_list" --features "$feature_ids" --operator "$operator" \
-    --pr-receipts "$receipt_list")"
+    --prs "$pr_list" --features "$feature_ids" --operator "$operator" )"
   printf '%s\n' "$train_output" | tail -3
   train_file="$(ls -t .dev/release/trains/train-*.json | grep -v -- '-go.json' | head -1)"
   printf 'release_train=%s\n' "$train_file"
@@ -574,13 +764,7 @@ if should_run decide; then
   # early enough for the signing to overlap the production deploy.  A release
   # that fails before it becomes public removes the tag again.
   if [[ -n "${source_sha:-}" ]]; then
-    if git ls-remote --tags origin "refs/tags/$tag" 2>/dev/null | grep -q .; then
-      printf 'release_tag=exists tag=%s\n' "$tag"
-    else
-      git tag -a "$tag" -m "Релиз ${version}" "$source_sha"
-      git push origin "$tag"
-      printf 'release_tag=created tag=%s\n' "$tag"
-    fi
+    ensure_release_tag
   fi
   if [[ -n "${app_build_pid:-}" ]]; then
     if ! wait "$app_build_pid"; then
@@ -608,6 +792,10 @@ if should_run deploy; then
   step_done "deploy:dry-run"
 
   if [[ "$deploy" != true ]]; then
+    release_stop_requested=true
+    finished_all="$(date -u +%s)"
+    printf '\nrelease_result=stopped after=deploy version=%s total_duration_seconds=%s\n' \
+      "$version" "$((finished_all - started_all))"
     cat <<EOF
 
 Предварительный прогон чист. Дальше — выкатка в прод:
@@ -622,13 +810,14 @@ EOF
   grep -q '^deploy_result=pass$' /tmp/release-deploy.log \
     || { printf 'release: production deploy did not report deploy_result=pass\n' >&2; exit 1; }
   step_done "deploy:execute"
+
 fi
 
 # ------------------------------------------------------------- step: publish
 
 if should_run publish; then
   step "publish: тег, выпуск и подтверждение"
-  [[ -n "${source_sha:-}" ]] || source_sha="$(git rev-parse HEAD)"
+  resolve_publish_identity
   # A resumed run may reach this step without having opened the draft: the draft
   # and the tag are created together right after the preparation, and that only
   # happens when the source is known.
@@ -636,6 +825,11 @@ if should_run publish; then
     open_draft_release
     gh release view "$tag" >/dev/null 2>&1 \
       || { printf 'release: could not open the release draft %s\n' "$tag" >&2; exit 1; }
+  fi
+  ensure_release_tag
+  if [[ "$with_app" == "true" && -z "${app_sign_pid:-}" \
+     && "$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null || true)" == "true" ]]; then
+    start_app_sign
   fi
   if [[ -n "${app_sign_pid:-}" ]]; then
     step "publish: дождаться обновления приложения"
@@ -648,18 +842,25 @@ if should_run publish; then
     app_sign_pid=""
     step_done "publish:app-attach"
   fi
-  if ! git ls-remote --tags origin "refs/tags/$tag" 2>/dev/null | grep -q .; then
-    git tag -a "$tag" -m "Релиз ${version}" "$source_sha"
-    git push origin "$tag"
-    printf 'release_tag=created tag=%s\n' "$tag"
-  fi
   if [[ "$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null || true)" == "true" ]]; then
+    release_publication_started=true
     gh release edit "$tag" --draft=false
     release_published=true
     printf 'release_published=%s\n' "$tag"
   else
     release_published=true
     printf 'release_publish=already_published tag=%s\n' "$tag"
+  fi
+  if [[ "$with_app" == "true" ]]; then
+    app_archive="$root/apps/macos/.build/updates/GRAF-$version.zip"
+    appcast_file="$root/apps/macos/.build/updates/graf-appcast.xml"
+    step "publish: опубликовать подписанный appcast"
+    infra/scripts/publish-appcast-remote.sh \
+      --version "$version" --archive "$app_archive" --appcast "$appcast_file" \
+      --source-sha "$source_sha"
+    step_done "publish:appcast"
+    bash apps/macos/Installer/Scripts/release-app-update.sh \
+      --version "$version" --verify-feed-only "$version"
   fi
   decision_file="${decision_file:-$(ls -t .dev/release/decisions/*.decision.json | head -1)}"
   infra/scripts/release-candidate.sh attest "$decision_file" \
@@ -669,4 +870,10 @@ if should_run publish; then
 fi
 
 finished_all="$(date -u +%s)"
-printf '\nrelease_result=pass version=%s total_duration_seconds=%s\n' "$version" "$((finished_all - started_all))"
+if [[ -n "$stop_after" ]]; then
+  release_stop_requested=true
+  printf '\nrelease_result=stopped after=%s version=%s total_duration_seconds=%s\n' \
+    "$stop_after" "$version" "$((finished_all - started_all))"
+else
+  printf '\nrelease_result=pass version=%s total_duration_seconds=%s\n' "$version" "$((finished_all - started_all))"
+fi

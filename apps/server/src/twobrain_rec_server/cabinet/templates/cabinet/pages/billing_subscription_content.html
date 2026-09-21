@@ -22,7 +22,7 @@
         {% if active %}
         <p>Оплачено до: <strong>{{ paid_through_label|default("дата уточняется") }}</strong>.</p>
         {% if subscription.recurring_allowed %}
-        <p>Следующее списание: <strong>{{ paid_through_label|default("дата уточняется") }}</strong> по сохраненному способу оплаты.</p>
+        <p>Следующее списание: <strong>{{ next_charge_label|default("дата уточняется") }}</strong> по сохраненному способу оплаты.</p>
         <p class="muted">Если передумаете, автопродление можно включить снова до даты окончания доступа.</p>
         <form action="/billing/subscription/cancel" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><button class="button quiet" type="submit">Отключить автопродление</button></form>
         {% else %}

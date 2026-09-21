@@ -682,3 +682,164 @@ def test_prepare_release_merges_same_feature_across_failed_attempt_and_current_w
     assert "Старая запись из провалившегося выпуска" in section, section
     assert "Новая работа по той же доработке" in section, section
     assert "сведены" in output.lower() or "merged" in output.lower(), output
+
+
+def test_prepare_release_proceeds_after_failed_release_abandoned_its_candidate(
+    tmp_path: Path,
+) -> None:
+    """Повторный запуск после провала не должен упираться в замороженного кандидата.
+
+    Кандидат — неизменяемая запись, поэтому провалившийся выпуск оставляет рядом
+    отдельную отметку об отмене. Сама запись и её контрольная сумма не трогаются,
+    а подготовка следующего выпуска проходит.
+    """
+    root = fixture(tmp_path)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "Release Test"], cwd=root, check=True)
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    candidate = root / ".dev" / "release" / "candidates" / "rc-current.json"
+    candidate.parent.mkdir(parents=True)
+    frozen = f'{{"status": "frozen", "source_sha": "{sha}"}}\n'
+    candidate.write_text(frozen, encoding="utf-8")
+    (candidate.parent / ".rc-current.json.identity.json").write_text(
+        '{"digest": "sha256:stub"}\n', encoding="utf-8"
+    )
+    (candidate.parent / ".rc-current.json.abandoned.json").write_text(
+        '{"reason": "выпуск не дошёл до публикации"}\n', encoding="utf-8"
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/prepare-release.sh", "2099.01.01.5"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=release_env(),
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "release_candidate_abandoned=rc-current.json" in output, output
+    assert candidate.read_text(encoding="utf-8") == frozen, "неизменяемая запись изменена"
+    assert (root / "CHANGELOG.md").read_text(encoding="utf-8").count("## [2099.01.01.5]") == 1
+
+
+def test_prepare_release_merges_fragments_with_different_categories(tmp_path: Path) -> None:
+    """Доработка живёт несколько выпусков и меняет категорию — это не стоп.
+
+    Одну часть доработки поправили, другую изменили: фрагменты расходятся в
+    категории. Запись в журнале одна, поэтому раздел выбирает свежая работа —
+    та, что лежит в unreleased, — а подготовка печатает об этом отчёт.
+    """
+    root = fixture(tmp_path)
+    (root / "CHANGELOG.md").write_text(
+        """# История изменений
+
+## [Unreleased]
+
+### Изменено
+- _Пока нет записей._
+
+## [2026.09.02.2] - 2026-09-02
+
+### Изменено
+- Старая подготовленная запись. (Фича 217, issue #6217)
+
+## [2026.09.02.1] - 2026-09-02
+
+### Изменено
+- Реально опубликованная запись.
+""",
+        encoding="utf-8",
+    )
+    (root / "changes" / "unreleased" / "F217.yaml").write_text(
+        fragment(217, "Свежая работа").replace("category: Changed", "category: Fixed"),
+        encoding="utf-8",
+    )
+    pending = root / "changes" / "releases" / "v2026.09.02.2"
+    pending.mkdir(parents=True)
+    (pending / "F217.yaml").write_text(
+        fragment(217, "Старая подготовленная запись"), encoding="utf-8"
+    )
+    configure_github_release_repo(root, "v2026.09.02.1")
+
+    result = subprocess.run(
+        ["bash", "scripts/prepare-release.sh", "2026.09.04.1"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=github_release_env(root, "v2026.09.02.1"),
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "release_fragment_category=feature 217 chosen=Fixed" in output, output
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "Свежая работа" in changelog, changelog
+    assert "Старая подготовленная запись" in changelog, changelog
+    archived = list((root / "changes" / "releases" / "v2026.09.04.1").glob("F217.yaml"))
+    assert len(archived) == 1, archived
+    assert 'category: "Fixed"' in archived[0].read_text(encoding="utf-8")
+
+
+def test_merged_archive_fragment_keeps_numbers_unquoted(tmp_path: Path) -> None:
+    """Сведённый фрагмент должен быть пригоден для следующего выпуска.
+
+    Номер версии схемы и номер доработки — числа. В кавычках их не принимает
+    проверка архивного фрагмента, и следующий выпуск считает файл испорченным:
+
+        invalid pending fragment: .../F271.yaml
+        error: cannot reconcile unpublished changelog sections
+    """
+    root = fixture(tmp_path)
+    (root / "CHANGELOG.md").write_text(
+        """# История изменений
+
+## [Unreleased]
+
+### Изменено
+- _Пока нет записей._
+
+## [2026.09.02.2] - 2026-09-02
+
+### Изменено
+- Старая подготовленная запись. (Фича 217, issue #6217)
+
+## [2026.09.02.1] - 2026-09-02
+
+### Изменено
+- Реально опубликованная запись.
+""",
+        encoding="utf-8",
+    )
+    (root / "changes" / "unreleased" / "F217.yaml").write_text(
+        fragment(217, "Свежая работа"), encoding="utf-8"
+    )
+    pending = root / "changes" / "releases" / "v2026.09.02.2"
+    pending.mkdir(parents=True)
+    (pending / "F217.yaml").write_text(
+        fragment(217, "Старая подготовленная запись"), encoding="utf-8"
+    )
+    configure_github_release_repo(root, "v2026.09.02.1")
+
+    result = subprocess.run(
+        ["bash", "scripts/prepare-release.sh", "2026.09.04.1"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=github_release_env(root, "v2026.09.02.1"),
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    archived = (root / "changes" / "releases" / "v2026.09.04.1" / "F217.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert 'schema_version: "1"' not in archived, archived
+    assert 'feature_id: "217"' not in archived, archived
+    assert "schema_version: 1" in archived, archived
+    assert "feature_id: 217" in archived, archived

@@ -21,6 +21,11 @@ fi
 # fragments. Never invalidate a candidate that has already been frozen for
 # this exact source tree; create a new candidate only after the release-prep
 # commit is complete.
+#
+# A candidate left behind by a release that never reached publication carries
+# an abandonment record written by that failed release.  The frozen record and
+# its identity digest stay untouched; only the retry is allowed through,
+# otherwise a failure would force manual cleanup before the next attempt.
 current_sha="$(git rev-parse HEAD 2>/dev/null || true)"
 if ! python3 - "$PWD/.dev/release/candidates" "$current_sha" <<'PY'
 import json
@@ -38,11 +43,19 @@ for path in sorted(candidate_dir.glob("rc-*.json")):
         raise SystemExit(f"error: release candidate is unreadable: {path}: {exc}")
     if not isinstance(data, dict):
         raise SystemExit(f"error: release candidate is malformed: {path}")
-    if data.get("status") == "frozen" and data.get("source_sha") == current_sha:
-        raise SystemExit(
-            f"error: frozen release candidate targets current HEAD: {path}; "
-            "validate or invalidate it before preparing a release"
+    if data.get("status") != "frozen" or data.get("source_sha") != current_sha:
+        continue
+    abandoned = path.with_name("." + path.name + ".abandoned.json")
+    if abandoned.exists():
+        print(
+            f"release_candidate_abandoned={path.name} "
+            f"record={abandoned.name} reason=unpublished-release"
         )
+        continue
+    raise SystemExit(
+        f"error: frozen release candidate targets current HEAD: {path}; "
+        "validate or invalidate it before preparing a release"
+    )
 PY
 then
   exit 1
@@ -506,6 +519,11 @@ def dump(values):
         if isinstance(value, list):
             joined = ", ".join(json.dumps(item, ensure_ascii=False) for item in value)
             lines.append(f"{key}: [{joined}]" if value else f"{key}: []")
+        elif key in {"schema_version", "feature_id"} and str(value).isdigit():
+            # Номер версии схемы и номер доработки — числа, а не строки.  В
+            # кавычках их не принимает проверка архивного фрагмента, и следующий
+            # выпуск считает такой файл испорченным.
+            lines.append(f"{key}: {value}")
         else:
             lines.append(f"{key}: {json.dumps(str(value), ensure_ascii=False)}")
     return "\n".join(lines) + "\n"
@@ -568,9 +586,20 @@ for name in sorted(by_name, key=lambda item: int(re.search(r"\d+", item).group()
     merged["known_limitations"] = list(dict.fromkeys(limitations))
     categories = {str(values.get("category", "")) for _, values in ordered}
     if len(categories) > 1:
-        raise SystemExit(
-            f"conflicting categories for Feature {feature_id}: {sorted(categories)}; "
-            "align the fragments before preparing the release"
+        # Доработка живёт несколько выпусков и естественно накапливает
+        # фрагменты с разными категориями: одну её часть поправили, другую
+        # изменили.  Это не повод останавливать выпуск.  Запись одна, поэтому
+        # раздел выбирает свежая работа — та, что лежит в unreleased.
+        chosen = str(base.get("category", ""))
+        print(
+            f"release_fragment_category=feature {feature_id} chosen={chosen} "
+            f"others={sorted(categories - {chosen})}",
+            file=sys.stderr,
+        )
+        print(
+            f"Категории фрагментов доработки {feature_id} различались "
+            f"({', '.join(sorted(categories))}); запись попадёт в раздел «{chosen}».",
+            file=sys.stderr,
         )
     destination = merge_dir / f"F{feature_id}.yaml"
     destination.write_text(dump(merged), encoding="utf-8")

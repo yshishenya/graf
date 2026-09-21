@@ -1113,11 +1113,14 @@ def test_cd_execute_runs_full_after_sync_and_before_remote_gates() -> None:
     script = REMOTE_CD.read_text(encoding="utf-8")
 
     clean = script.index('git status --porcelain --untracked-files=all')
-    sync = script.index('git fetch origin "$BRANCH"')
+    retry_helper = script.index('fetch_origin_retry() {')
+    sync = script.index('fetch_origin_retry origin "$BRANCH"')
     full = script.index('ci-local.sh --full')
-    post_full_sync = script.index('git fetch origin "$BRANCH"', sync + 1)
+    post_full_sync = script.index('fetch_origin_retry origin "$BRANCH"', sync + 1)
     remote = script.index('remote_script=$(cat')
-    assert clean < sync < full < post_full_sync < remote
+    assert retry_helper < clean < sync < full < post_full_sync < remote
+    assert "git fetch \"$@\"" in script
+    assert "deploy: git fetch attempt" in script
     assert "candidate_changed_during_full" in script
     assert "reason=worktree_status_failed" in script
     assert "reason=worktree_status_failed_after_full" in script

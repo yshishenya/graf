@@ -297,7 +297,9 @@ async def browser_email_login_start(
             email_value=normalized_email,
         )
     try:
-        workspace, user = await _resolve_email_login_user(
+        # A first login is the registration: an unknown address still receives a
+        # code, and the account is created when that code is confirmed.
+        workspace, _user = await _resolve_email_login_user(
             db,
             workspace_id=resolved_workspace_id,
             email=normalized_email,
@@ -320,16 +322,15 @@ async def browser_email_login_start(
         )
         await db.commit()
         return response
-    if workspace is None or (user is None and invitation_context is None):
-        if workspace is not None:
-            await _record_email_login_audit(
-                db,
-                request=request,
-                workspace_id=workspace.id,
-                outcome="failure",
-                error_code="email_identity_not_found",
-            )
-            await db.commit()
+    if workspace is None:
+        await _record_email_login_audit(
+            db,
+            request=request,
+            workspace_id=resolved_workspace_id,
+            outcome="failure",
+            error_code="email_login_workspace_unavailable",
+        )
+        await db.commit()
         return await _browser_auth_error_response(
             request,
             db=db,
@@ -661,7 +662,7 @@ async def browser_email_login_verify(
             code=code,
             state_nonce=state,
             next_path=safe_next,
-            allow_registration=invitation_context is not None,
+            allow_registration=True,
             invitation_flow=invitation_flow,
         )
         response = await _prepare_email_auth_response(request, db=db, result=result)

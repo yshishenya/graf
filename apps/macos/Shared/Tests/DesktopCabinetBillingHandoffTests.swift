@@ -163,25 +163,126 @@ final class DesktopCabinetBillingHandoffTests: XCTestCase {
         XCTAssertNil(policy.sanitizedExternalURL(for: source))
     }
 
-    func testOnlyAllowlistedPaymentProviderLoadsDuringCheckout() throws {
+    func testOnlyAllowlistedPaymentProviderHostsMayStartTheConfirmationChain() throws {
         let policy = DesktopCabinetRoutePolicy(
             baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
         )
+        let checkout = try XCTUnwrap(URL(string: "https://rec.2brain.dev/billing/checkout"))
         let provider = try XCTUnwrap(URL(string: "https://yookassa.test/checkout/abc"))
         let evil = try XCTUnwrap(URL(string: "https://evil.example/checkout/abc"))
+        let chain = DesktopCabinetPaymentNavigation(sessionOrigin: policy.cabinetBaseURL)
 
-        XCTAssertEqual(
-            policy.decision(for: provider, allowExternalPaymentProvider: true).decision,
-            .allow
+        XCTAssertTrue(chain.begin(isBillingCheckoutDocument: true, destination: provider).isActive)
+        XCTAssertTrue(
+            chain.begin(isBillingCheckoutDocument: true, destination: provider).isActive,
+            "A resumed payment from any cabinet billing page must open a chain too"
         )
-        XCTAssertEqual(
-            policy.decision(for: provider, allowExternalPaymentProvider: true).reason,
-            .openExternalSafeLink
+        XCTAssertFalse(chain.begin(isBillingCheckoutDocument: true, destination: evil).isActive)
+        XCTAssertFalse(
+            chain.begin(isBillingCheckoutDocument: false, destination: provider).isActive,
+            "A page that is not the cabinet checkout must not open a payment chain"
         )
-        XCTAssertEqual(
-            policy.decision(for: evil, allowExternalPaymentProvider: true).decision,
-            .blockWithMessage
+        XCTAssertFalse(
+            chain.begin(
+                isBillingCheckoutDocument: true,
+                destination: try XCTUnwrap(URL(string: "http://yookassa.test/checkout/abc"))
+            ).isActive,
+            "Insecure provider URLs never open a chain"
         )
+
+        // Outside a chain the sandbox stays exactly as strict as before.
+        for path in ["/desktop/meetings", "/billing/checkout"] {
+            let allowed = policy.decision(
+                for: try XCTUnwrap(URL(string: "https://rec.2brain.dev\(path)"))
+            )
+            XCTAssertEqual(allowed.decision, .allow, path)
+        }
+        XCTAssertEqual(policy.decision(for: provider).decision, .blockWithMessage)
+        XCTAssertEqual(policy.decision(for: evil).decision, .blockWithMessage)
+        XCTAssertEqual(policy.decision(for: checkout).decision, .allow)
+    }
+
+    func testMultiStepConfirmationChainAllowsEveryBankHopAndEndsOnTheCabinet() throws {
+        let policy = DesktopCabinetRoutePolicy(
+            baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+        )
+        let now = Date()
+
+        // Each step is one main-frame navigation on another host, exactly as the
+        // WebKit delegate sees a card payment confirmed by redirect.
+        let steps: [(
+            url: String,
+            handedOverFromBilling: Bool,
+            chainActiveAfterLoad: Bool,
+            reportKeepsChain: Bool
+        )] = [
+            ("https://rec.2brain.dev/billing/checkout", false, false, false),
+            ("https://yookassa.ru/checkout/abc", true, true, true),
+            ("https://3ds.issuer-bank-one.example/acs/challenge", false, true, true),
+            ("https://yookassa.ru/checkout/abc/processing", false, true, true),
+            ("https://3ds.issuer-bank-two.example/3ds2/auth", false, true, true),
+            ("https://rec.2brain.dev/billing/checkout/return", false, true, false)
+        ]
+
+        var chain = DesktopCabinetPaymentNavigation(sessionOrigin: policy.cabinetBaseURL)
+        for step in steps {
+            let url = try XCTUnwrap(URL(string: step.url), step.url)
+
+            chain = chain.begin(
+                isBillingCheckoutDocument: step.handedOverFromBilling,
+                destination: url,
+                now: now
+            )
+            XCTAssertEqual(chain.isActive, step.chainActiveAfterLoad, "active after \(step.url)")
+
+            // Every hop must load; a blocked bank hop is the launch stopper.
+            let decision = policy.decision(
+                for: url,
+                allowExternalPaymentProvider: chain.externalProviderNavigationAllowed
+            )
+            XCTAssertEqual(decision.decision, .allow, step.url)
+
+            guard chain.isActive else { continue }
+            let report = chain.report(loadedURL: url, now: now.addingTimeInterval(60))
+            XCTAssertEqual(
+                report == .continueSession,
+                step.reportKeepsChain,
+                "report for \(step.url)"
+            )
+            if report == .stopSession { chain = chain.stopped() }
+        }
+
+        XCTAssertFalse(chain.isActive, "The chain ends once a cabinet document loads again")
+        XCTAssertEqual(
+            policy.decision(for: try XCTUnwrap(URL(string: "https://rec.2brain.dev/billing")))
+                .route.kind,
+            .billing
+        )
+        // After payment the ordinary sandbox is back.
+        for abandoned in steps.map(\.url) where !abandoned.hasPrefix("https://rec.2brain.dev") {
+            XCTAssertEqual(
+                policy.decision(for: try XCTUnwrap(URL(string: abandoned))).decision,
+                .blockWithMessage,
+                abandoned
+            )
+        }
+    }
+
+    func testAbandonedConfirmationChainExpiresInsteadOfStayingOpen() throws {
+        let policy = DesktopCabinetRoutePolicy(
+            baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+        )
+        let now = Date()
+        let provider = try XCTUnwrap(URL(string: "https://yookassa.ru/checkout/abc"))
+        let bank = try XCTUnwrap(URL(string: "https://3ds.issuer-bank.example/acs"))
+
+        let chain = DesktopCabinetPaymentNavigation(sessionOrigin: policy.cabinetBaseURL)
+            .begin(isBillingCheckoutDocument: true, destination: provider, now: now)
+        XCTAssertTrue(chain.isActive)
+
+        let expired = now.addingTimeInterval(DesktopCabinetPaymentNavigation.defaultTimeLimit + 1)
+        XCTAssertEqual(chain.report(loadedURL: provider, now: expired), .stopSession)
+        XCTAssertEqual(chain.report(loadedURL: bank, now: expired), .stopSession)
     }
 }
 #endif

@@ -249,6 +249,160 @@ def test_app_snapshot_preserves_bundle_symlinks(monkeypatch, tmp_path):
     assert (backup / "Contents/Current").readlink() == Path("Versions/A")
 
 
+def test_app_restore_keeps_installed_path_during_atomic_swap(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    destination = tmp_path / "GRAF Dev.app"
+    backup = tmp_path / "previous.app"
+    (destination / "Contents").mkdir(parents=True)
+    (backup / "Contents").mkdir(parents=True)
+    (destination / "Contents/marker").write_text("candidate", encoding="utf-8")
+    (backup / "Contents/marker").write_text("previous", encoding="utf-8")
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(destination))
+    monkeypatch.setattr(adapter, "_terminate_dev_app", lambda _: None)
+    monkeypatch.setattr(adapter, "_refresh_dev_app_registration", lambda _: None)
+    observed = []
+
+    def swap(staged, installed):
+        observed.append(installed.exists())
+        candidate = tmp_path / "candidate-after-swap.app"
+        installed.replace(candidate)
+        staged.replace(installed)
+        candidate.replace(staged)
+
+    monkeypatch.setattr(adapter, "_atomic_swap_dev_app", swap)
+    adapter._restore_app(backup)
+
+    assert observed == [True]
+    assert destination.is_dir()
+    assert (destination / "Contents/marker").read_text(encoding="utf-8") == "previous"
+    assert not backup.exists()
+
+
+def test_app_restore_discards_failed_first_install(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    destination = tmp_path / "GRAF Dev.app"
+    (destination / "Contents").mkdir(parents=True)
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(destination))
+    monkeypatch.setattr(adapter, "_terminate_dev_app", lambda _: None)
+
+    adapter._restore_app(None)
+
+    assert not destination.exists()
+    assert not list(tmp_path.glob(".GRAF Dev.app.discard.*"))
+
+
+def test_app_restore_cleans_partial_snapshot_copy(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    destination = tmp_path / "GRAF Dev.app"
+    backup = tmp_path / "previous.app"
+    (destination / "Contents").mkdir(parents=True)
+    (backup / "Contents").mkdir(parents=True)
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(destination))
+    monkeypatch.setattr(adapter, "_terminate_dev_app", lambda _: None)
+
+    def partial_copy(_source, target, *, symlinks):
+        Path(target).mkdir(parents=True)
+        raise OSError("injected snapshot copy failure")
+
+    monkeypatch.setattr(dev_harness.shutil, "copytree", partial_copy)
+    with pytest.raises(OSError, match="injected snapshot copy failure"):
+        adapter._restore_app(backup)
+
+    assert destination.is_dir()
+    assert backup.is_dir()
+    assert not list(tmp_path.glob(".GRAF Dev.app.restore.*"))
+
+
+def test_status_reports_missing_installed_app(monkeypatch, tmp_path):
+    """A lost installation must be visible in status, not only at the next promote."""
+    destination = tmp_path / "GRAF Dev.app"
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(destination))
+    manifest = build(tmp_path, "c" * 40)
+    run(
+        "promote",
+        tmp_path,
+        manifest=str(tmp_path / "manifests" / f"{manifest['manifest_id']}.json"),
+        dry_run=False,
+    )
+
+    missing = run("status", tmp_path)
+
+    assert missing["app"] == {"path": str(destination), "installed": False}
+    assert len(missing["warnings"]) == 1
+    assert "missing" in missing["warnings"][0]
+    assert str(destination) in missing["warnings"][0]
+
+    destination.mkdir()
+
+    present = run("status", tmp_path)
+
+    assert present["app"] == {"path": str(destination), "installed": True}
+    assert "warnings" not in present
+
+
+def test_dev_app_destination_honours_the_injected_path(monkeypatch, tmp_path):
+    """Every lifecycle site, including schema transitions, resolves one path."""
+    injected = tmp_path / "GRAF Dev.app"
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(injected))
+    assert dev_harness._dev_app_destination() == injected
+
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", "")
+    assert dev_harness._dev_app_destination() == dev_harness.DEV_APP_PATH
+
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(tmp_path / "wrong-name"))
+    with pytest.raises(dev_harness.HarnessError, match="GRAF Dev.app"):
+        dev_harness._installed_app_state()
+
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", "GRAF Dev.app")
+    with pytest.raises(dev_harness.HarnessError, match="absolute"):
+        dev_harness._installed_app_state()
+
+    monkeypatch.delenv("GRAF_DEV_INSTALL_PATH")
+    assert dev_harness._dev_app_destination() == dev_harness.DEV_APP_PATH
+
+
+def test_status_reports_app_state_for_blocked_and_recovery_outcomes(monkeypatch, tmp_path):
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(tmp_path / "GRAF Dev.app"))
+
+    blocked = run("status", tmp_path)
+    assert blocked["status"] == "blocked"
+    assert blocked["app"] == {"path": str(tmp_path / "GRAF Dev.app"), "installed": False}
+    assert blocked["warnings"] == [
+        f"installed Dev app is missing at {tmp_path / 'GRAF Dev.app'}; no active manifest is available"
+    ]
+
+    monkeypatch.setattr(
+        dev_harness,
+        "_read_schema_transition",
+        lambda _root: {"phase": "migrating", "target": {"source_sha": "e" * 40}},
+    )
+    transition = run("status", tmp_path)
+    assert transition["status"] == "rollback_required"
+    assert transition["app"] == blocked["app"]
+    assert transition["warnings"] == [
+        f"installed Dev app is missing at {tmp_path / 'GRAF Dev.app'}; recover the unfinished schema transition before manual checks"
+    ]
+    monkeypatch.setattr(dev_harness, "_read_schema_transition", lambda _root: None)
+
+    recovery = {
+        "schema_version": "dev-rollback-required.v1",
+        "status": "rollback_required",
+        "manifest_id": "dev-" + "d" * 12,
+        "source_sha": "d" * 40,
+    }
+    manifest = build(tmp_path, "d" * 40)
+    recovery["manifest_id"] = manifest["manifest_id"]
+    dev_harness._write_json(tmp_path / "manifests" / f"{manifest['manifest_id']}.json", manifest)
+    dev_harness._write_json(tmp_path / "rollback-required.json", recovery)
+
+    required = run("status", tmp_path)
+    assert required["status"] == "rollback_required"
+    assert required["app"] == blocked["app"]
+    assert required["warnings"] == [
+        f"installed Dev app is missing at {tmp_path / 'GRAF Dev.app'}; restore it from the rollback-required manifest before manual checks"
+    ]
+
+
 def _promote_worker(root: str, manifest: str, queue) -> None:
     try:
         result = run("promote", Path(root), manifest=manifest, dry_run=False)

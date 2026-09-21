@@ -1,4 +1,10 @@
 <!--
+Sync Impact Report — 2026-09-20, automatic independent checklist review
+Version change: 7.0.0 -> 7.1.0
+Added governance gate: before implementation of an active slice with a reviewer-owned checklist, an independent read-only reviewer agent is started automatically; it checks every item against evidence, marks only supported items, records reasons for unsupported items, rereads the checklist and reports totals. The reviewer may edit only the checklist and separate review report; failed or unverifiable review leaves the gate unsatisfied.
+Dependent process surfaces updated: AGENTS.md, docs/agent-guidance/spec-kit-flow.md, and .agents/skills/speckit-implement/SKILL.md.
+No application, release, deployment, or GitHub state was changed by this amendment.
+
 Sync Impact Report — 2026-09-08, Feature 239 clean restart
 Version change: 6.0.0 -> 7.0.0
 Modified principle: III. Plaintext Observability For Internal MVP.
@@ -473,6 +479,16 @@ Required quality gates:
 
 - Every implementation records the selected validation lane and why it is
   sufficient.
+- Before implementation of any active slice with a reviewer-owned checklist,
+  an independent read-only reviewer agent MUST be started automatically without
+  waiting for separate user confirmation. The reviewer MUST inspect the
+  checklist, specification, plan, tasks, constitution and required guidance,
+  mark `[x]` only items supported by concrete evidence, leave unsupported items
+  unchecked with reasons, reread the checklist and report checked/unchecked
+  totals. The reviewer may modify only the checklist and a separate review
+  report; it MUST NOT modify code, specification, plan, tasks, constitution,
+  pull requests, GitHub state, commits, releases or deployments. A failed or
+  unverifiable review leaves the checklist gate unsatisfied.
 - No implementation starts with unresolved critical Spec Kit analyze findings.
 - No implementation starts with unresolved constitution violations.
 - Capture features require permission, system-audio, microphone, track
@@ -511,4 +527,4 @@ Amendment procedure:
 - Every implementation review MUST verify that tasks and code preserve the
   applicable constitution gates.
 
-**Version**: 7.0.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-09-08
+**Version**: 7.1.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-09-20

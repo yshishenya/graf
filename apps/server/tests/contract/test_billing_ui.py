@@ -316,18 +316,16 @@ async def test_scheduled_renewal_uses_persisted_invoice_amount(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("checkout_enabled", "emergency_stop", "billing_actor_user_id", "expected_url"),
+    ("checkout_enabled", "billing_actor_user_id", "expected_url"),
     (
-        (True, False, str(UUID(int=1)), "https://yookassa.test/checkout/existing-payment"),
-        (False, False, str(UUID(int=1)), None),
-        (True, True, str(UUID(int=1)), None),
-        (True, False, str(UUID(int=4)), None),
+        (True, str(UUID(int=1)), "https://yookassa.test/checkout/existing-payment"),
+        (False, str(UUID(int=1)), None),
+        (True, str(UUID(int=4)), None),
     ),
 )
 async def test_checkout_page_only_offers_authorized_persisted_continuation(
     monkeypatch: pytest.MonkeyPatch,
     checkout_enabled: bool,
-    emergency_stop: bool,
     billing_actor_user_id: str,
     expected_url: str | None,
 ) -> None:
@@ -380,7 +378,6 @@ async def test_checkout_page_only_offers_authorized_persisted_continuation(
                 state=SimpleNamespace(
                     settings=SimpleNamespace(
                         billing_checkout_enabled=checkout_enabled,
-                        billing_emergency_stop=emergency_stop,
                     )
                 )
             ),

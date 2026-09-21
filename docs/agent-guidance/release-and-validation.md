@@ -479,11 +479,16 @@ exact release tag on current `origin/master`.
 
 ### The app release runs beside the server train, not after it
 
-The macOS app release is local and manual: no workflow in `.github/workflows/`
-builds, notarizes, or publishes the app or its appcast, and
-`scripts/prepare-release.sh` touches release metadata only. The whole chain is
-therefore the operator's to schedule, and its cost is dominated by one external
-wait that cannot be shortened.
+The macOS build, notarization and Sparkle signing stay local and never export
+signing keys. The release driver then publishes the already signed archive and
+appcast through `infra/scripts/publish-appcast-remote.sh`: the archive is
+installed first, `graf-appcast.xml` is replaced last, the previous feed is kept
+for rollback, and a repeated identical publication is a no-op. There is no
+manual owner copy step in the normal release path. The one-time Developer ID
+migration above remains manual and never changes the live appcast.
+
+`scripts/prepare-release.sh` touches release metadata only; the release driver
+owns the final remote publication after deploy and its live-feed verification.
 
 Measured on this workstation for `2026.09.17.1` from the retained release state
 under `apps/macos/.build/`. Rows marked "measured" come from artifact
@@ -521,8 +526,9 @@ sh apps/macos/Installer/Scripts/release-app-update.sh \
 ```
 
 The entrypoint prints a measured duration per phase, so the next release is
-planned from real numbers instead of estimates. It never replaces the live
-appcast; that stays a separate, deliberate owner action.
+planned from real numbers instead of estimates. Its final publication step
+replaces the live appcast only after the signed archive is safely present on the
+same host; the replacement is atomic and rollback-safe.
 
 Server CD preserves an existing regular, nonempty runtime `graf.pkg`; its
 public-download smoke verifies those preserved bytes. Only an absent runtime

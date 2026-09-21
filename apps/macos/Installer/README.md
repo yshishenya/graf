@@ -72,9 +72,11 @@ stapled, Gatekeeper-checked and installed over `2026.07.26.7` through the
 ordinary Developer ID → Developer ID Sparkle path. Future public releases must
 follow this same sequence.
 
-Run the whole chain with one command. It adds no gate of its own: every step
-delegates to the reviewed helper below, and it prints a measured duration per
-phase. It never replaces the live appcast.
+Run the whole local signing chain with one command. It adds no gate of its own:
+every step delegates to the reviewed helper below, and it prints a measured
+duration per phase. The outer release driver publishes the signed archive and
+appcast atomically after deployment; this local helper never does that remote
+mutation.
 
 ```sh
 # Build, notarize, staple and prove Gatekeeper. Needs only the clean frozen

@@ -312,7 +312,7 @@ public enum DesktopCabinetWorkspace {
             let decision = policy.decision(for: route)
             if decision.decision == .allow,
                [.meetingList, .meetingDetail, .meetingDeletionReport, .settings, .calendarSettings,
-                .meetingDetectionSettings].contains(decision.route.kind) {
+                .meetingDetectionSettings, .billing].contains(decision.route.kind) {
                 return route
             }
         }

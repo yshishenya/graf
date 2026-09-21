@@ -13,6 +13,34 @@ final class AppLifecycleWindowRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains("onClose: onDismiss"))
     }
 
+    func testMainWindowReadinessMarkerFollowsVisibilityAttempt() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent("RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+        let methodStart = try XCTUnwrap(source.range(of: "    private func presentMainWindow(reason: String)"))
+        let methodEnd = try XCTUnwrap(source.range(of: "    private func configureMainWindowCollectionBehavior", range: methodStart.upperBound..<source.endIndex))
+        let method = String(source[methodStart.lowerBound..<methodEnd.lowerBound])
+        let newWindowBranch = try XCTUnwrap(method.range(of: "        let window = NSWindow("))
+        let branch = String(method[newWindowBranch.lowerBound..<method.endIndex])
+        let show = try XCTUnwrap(branch.range(of: "window.makeKeyAndOrderFront(nil)"))
+        let order = try XCTUnwrap(branch.range(of: "window.orderFrontRegardless()"))
+        let activate = try XCTUnwrap(branch.range(of: "NSApp.activate(ignoringOtherApps: true)"))
+        let readinessCall = try XCTUnwrap(branch.range(of: "logMainWindowPresented(reason: reason, window: window, reused: false)"))
+        XCTAssertLessThan(show.lowerBound, readinessCall.lowerBound)
+        XCTAssertLessThan(order.lowerBound, readinessCall.lowerBound)
+        XCTAssertLessThan(activate.lowerBound, readinessCall.lowerBound)
+        let reusedBranch = String(method[..<newWindowBranch.lowerBound])
+        let reusedReadinessCall = try XCTUnwrap(reusedBranch.range(of: "logMainWindowPresented(reason: reason, window: mainWindow, reused: true)"))
+        let reusedActivate = try XCTUnwrap(reusedBranch.range(of: "NSApp.activate(ignoringOtherApps: true)"))
+        XCTAssertLessThan(reusedActivate.lowerBound, reusedReadinessCall.lowerBound)
+        let helperStart = try XCTUnwrap(method.range(of: "    private func logMainWindowPresented"))
+        let helper = String(method[helperStart.lowerBound..<method.endIndex])
+        let visibilityGuard = try XCTUnwrap(helper.range(of: "guard window.isVisible else"))
+        let helperMarker = try XCTUnwrap(helper.range(of: "event: \"app_main_window_presented\""))
+        XCTAssertLessThan(visibilityGuard.lowerBound, helperMarker.lowerBound)
+        XCTAssertTrue(helper.contains("event: \"app_main_window_presentation_failed\""))
+    }
+
     func testReopenAndActivationPreserveSelectedWindow() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()

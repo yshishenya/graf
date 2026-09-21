@@ -21,6 +21,7 @@ class BillingNotification(StrEnum):
     RECEIPT_AVAILABLE = "receipt_available"
     REFERRAL_CREDIT = "referral_credit"
     RENEWAL_UNKNOWN = "renewal_unknown"
+    RENEWAL_ATTEMPT_FAILED = "renewal_attempt_failed"
     RENEWAL_LATE_SUCCESS = "renewal_late_success"
     RENEWAL_LATE_SUCCESS_REFUSED = "renewal_late_success_refused"
     RENEWAL_MANUAL_RESUME = "renewal_manual_resume"
@@ -35,6 +36,7 @@ MANDATORY_NOTIFICATION_KINDS = frozenset(
         BillingNotification.PAYMENT_FAILED,
         BillingNotification.RECEIPT_AVAILABLE,
         BillingNotification.RENEWAL_UNKNOWN,
+        BillingNotification.RENEWAL_ATTEMPT_FAILED,
         BillingNotification.RENEWAL_LATE_SUCCESS,
         BillingNotification.RENEWAL_LATE_SUCCESS_REFUSED,
         BillingNotification.RENEWAL_MANUAL_RESUME,
@@ -241,6 +243,7 @@ def notification_copy(
         "security_abuse": "подозрение на злоупотребление безопасностью",
     }.get(event.safe_payload.get("reason", ""), "доказуемая неперсональная эксплуатация")
     fair_use_deadline = event.safe_payload.get("review_by", "в течение 24 часов")
+    renewal_access_until = event.safe_payload.get("access_until", "в конце оплаченного периода")
     support_instruction = (
         f" Напишите в поддержку: {support_email}."
         if support_email and "\n" not in support_email and "\r" not in support_email
@@ -255,6 +258,12 @@ def notification_copy(
         BillingNotification.RECEIPT_AVAILABLE: ("Чек доступен", "Откройте историю платежей, чтобы посмотреть чек."),
         BillingNotification.REFERRAL_CREDIT: ("Начислен реферальный бонус", "Дополнительные дни применены к вашему оплачиваемому периоду."),
         BillingNotification.RENEWAL_UNKNOWN: ("Проверяем продление", "Статус платежа пока неизвестен. Новое списание не создаем."),
+        BillingNotification.RENEWAL_ATTEMPT_FAILED: (
+            "Списание не прошло",
+            f"Оплата за продление не прошла.{suffix} "
+            f"Доступ отключится {renewal_access_until} МСК. "
+            "Проверьте карту в кабинете, чтобы продлить подписку.",
+        ),
         BillingNotification.RENEWAL_LATE_SUCCESS: ("Продление подтверждено поздно", "Мы восстановили оплаченный период. Проверьте дату следующего списания."),
         BillingNotification.RENEWAL_LATE_SUCCESS_REFUSED: (
             "Платеж подтвержден после отключения продления",
@@ -279,6 +288,7 @@ def build_notification(*, event_id: str, kind: BillingNotification, payload: dic
         BillingNotification.PAYMENT_FAILED: {"invoice"},
         BillingNotification.RECEIPT_AVAILABLE: {"invoice"},
         BillingNotification.RENEWAL_UNKNOWN: {"invoice"},
+        BillingNotification.RENEWAL_ATTEMPT_FAILED: {"invoice", "access_until"},
         BillingNotification.RENEWAL_LATE_SUCCESS: {"invoice"},
         BillingNotification.RENEWAL_LATE_SUCCESS_REFUSED: {"invoice"},
         BillingNotification.RENEWAL_MANUAL_RESUME: {"invoice"},
@@ -294,7 +304,7 @@ def build_notification(*, event_id: str, kind: BillingNotification, payload: dic
         value = payload.get(key)
         pattern = (
             r"\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}"
-            if key == "review_by"
+            if key in {"review_by", "access_until"}
             else r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}"
         )
         if isinstance(value, str) and re.fullmatch(pattern, value):

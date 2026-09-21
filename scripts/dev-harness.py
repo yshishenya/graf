@@ -42,6 +42,7 @@ MANIFEST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 APP_BUNDLE_ID = "pro.2brain.graf.dev"
 APP_CHANNEL = "dev"
 PRODUCTION_APP_PATH = Path("/Applications/GRAF.app")
+DEV_APP_PATH = Path("/Applications/GRAF Dev.app")
 SCHEMA_VERSION = "dev-manifest.v1"
 POINTER_VERSION = "dev-active-pointer.v1"
 PROCESS_STOP_TIMEOUT_SECONDS = 10
@@ -194,6 +195,55 @@ def state_dir(*, live: bool = False) -> Path:
     if path == Path("/") or path == Path.home():
         raise HarnessError("Dev state path is too broad: " + str(path))
     return path
+
+
+def _dev_app_destination() -> Path:
+    """Resolve the installed Dev app path.
+
+    The destination is fixed at /Applications/GRAF Dev.app; tests and operators
+    can still inject an explicit path through GRAF_DEV_INSTALL_PATH. Empty
+    overrides are treated as unset so ``Path("")`` can never silently resolve
+    status to the current working directory.
+    """
+    configured = os.environ.get("GRAF_DEV_INSTALL_PATH")
+    if configured is None or not configured.strip():
+        return DEV_APP_PATH
+    return Path(configured)
+
+
+def _validate_dev_app_destination(destination: Path) -> None:
+    """Reject invalid or production app destinations before reading or mutating."""
+    canonical = Path(os.path.realpath(destination))
+    production = Path(os.path.realpath(PRODUCTION_APP_PATH))
+    if not destination.is_absolute():
+        raise HarnessError("Dev destination must be absolute")
+    if destination.name != "GRAF Dev.app":
+        raise HarnessError("Dev destination must end in GRAF Dev.app")
+    if canonical == production or production in canonical.parents:
+        raise HarnessError("Dev destination cannot be the production GRAF.app or a child path")
+
+
+def _installed_app_state() -> Dict[str, Any]:
+    """Report whether the installed Dev app is present, without launching it.
+
+    The process check in dev-app-lifecycle.swift matches a running process by
+    its bundle path, so it still answers ``running`` after the bundle is gone.
+    Presence on disk is therefore the only signal that notices a lost install.
+    """
+    destination = _dev_app_destination()
+    _validate_dev_app_destination(destination)
+    return {"path": str(destination), "installed": destination.is_dir()}
+
+
+def _status_app_fields(*, recovery_hint: str) -> Dict[str, Any]:
+    """Return app presence fields shared by every status outcome."""
+    app_state = _installed_app_state()
+    fields: Dict[str, Any] = {"app": app_state}
+    if not app_state["installed"]:
+        fields["warnings"] = [
+            f"installed Dev app is missing at {app_state['path']}; {recovery_hint}"
+        ]
+    return fields
 
 
 def _assert_dev_environment() -> None:
@@ -1569,7 +1619,7 @@ class GrafLocalAdapter:
 
     def _install_app(self, manifest: Dict[str, Any], env: Dict[str, str]) -> None:
         env = dict(env)
-        env["GRAF_DEV_INSTALL_PATH"] = os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app")
+        env["GRAF_DEV_INSTALL_PATH"] = str(_dev_app_destination())
         env["GRAF_DEV_APP_SOURCE_BUNDLE"] = str(self._checked_app_bundle(manifest))
         _run_command(["sh", str(self.install_app_script)], cwd=self.root, env=env)
 
@@ -1635,7 +1685,7 @@ class GrafLocalAdapter:
                 raise HarnessError("LaunchServices registration failed") from exc
 
     def _snapshot_app(self) -> Optional[Path]:
-        destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
+        destination = _dev_app_destination()
         self._assert_dev_app_destination(destination)
         if not destination.exists():
             return None
@@ -1649,27 +1699,42 @@ class GrafLocalAdapter:
 
     @staticmethod
     def _assert_dev_app_destination(destination: Path) -> None:
-        """Reject production app paths before reading or mutating them."""
-        canonical = Path(os.path.realpath(destination))
-        production = Path(os.path.realpath(PRODUCTION_APP_PATH))
-        if destination.name != "GRAF Dev.app":
-            raise HarnessError("Dev destination must end in GRAF Dev.app")
-        if canonical == production or production in canonical.parents:
-            raise HarnessError("Dev destination cannot be the production GRAF.app or a child path")
+        """Reject invalid or production app destinations before mutation."""
+        _validate_dev_app_destination(destination)
+
+    def _atomic_swap_dev_app(self, staged: Path, destination: Path) -> None:
+        _run_command(
+            ["swift", str(self.app_lifecycle_script), "swap", str(staged), str(destination)],
+            cwd=self.root,
+        )
 
     def _restore_app(self, backup: Optional[Path]) -> None:
-        destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
+        destination = _dev_app_destination()
         self._assert_dev_app_destination(destination)
         self._terminate_dev_app(destination)
-        if destination.exists():
+        if backup is None:
+            if destination.exists() or destination.is_symlink():
+                discarded = destination.parent / f".{destination.name}.discard.{os.getpid()}.{time.time_ns()}"
+                os.replace(destination, discarded)
+                if discarded.is_dir() and not discarded.is_symlink():
+                    shutil.rmtree(discarded)
+                else:
+                    discarded.unlink()
+            return
+        restored = destination.parent / f".{destination.name}.restore.{os.getpid()}.{time.time_ns()}"
+        try:
+            shutil.copytree(backup, restored, symlinks=True)
             if destination.is_dir() and not destination.is_symlink():
-                shutil.rmtree(destination)
+                self._atomic_swap_dev_app(restored, destination)
             else:
-                destination.unlink()
-        if backup is not None:
-            shutil.copytree(backup, destination, symlinks=True)
-            shutil.rmtree(backup)
+                os.replace(restored, destination)
             self._refresh_dev_app_registration(destination)
+        finally:
+            if restored.is_dir() and not restored.is_symlink():
+                shutil.rmtree(restored)
+            elif restored.exists() or restored.is_symlink():
+                restored.unlink()
+        shutil.rmtree(backup)
 
     def _restore_runtime(
         self,
@@ -1822,7 +1887,7 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
                 )
 
     def _schema_stop(self, manifest):
-        self._terminate_dev_app(Path("/Applications/GRAF Dev.app"))
+        self._terminate_dev_app(_dev_app_destination())
         self._stop_previous()
         self._schema_compose(manifest, "stop", "--timeout", "60")
         journal = _read_schema_transition(self.state)
@@ -1904,7 +1969,7 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
         self._schema_phase(journal, "writers_may_have_started" if forward else "previous_writers_may_have_started")
         self._schema_start_authorized(adapter, chosen, journal)
         if forward or journal["app_was_running"]:
-            self._launch_dev_app(Path("/Applications/GRAF Dev.app"))
+            self._launch_dev_app(_dev_app_destination())
         checks = adapter.smoke(chosen)
         self._assert_transition_smoke(checks, app_was_running=forward or journal["app_was_running"])
         result = dict(chosen, status="active", health={"result": "pass", "checked_at": now(), "checks": checks})
@@ -1939,7 +2004,7 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
         journal = {"schema_version": "dev-schema-transition.v1", "operation_id": operation,
                    "previous": previous, "target": target, "previous_checkout": str(previous_adapter.root),
                    "target_checkout": str(self.root), "previous_runtime": _read_json(self._runtime_record()), "volumes": volumes, "migration_path": path,
-                   "app_was_running": self._app_is_running(Path("/Applications/GRAF Dev.app")),
+                   "app_was_running": self._app_is_running(_dev_app_destination()),
                    "controller_pid": os.getpid(), "controller_start": self._process_start_token(os.getpid()), "snapshots": {}}
         self._schema_phase(journal, "prepared")
         try:
@@ -1958,7 +2023,7 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
             self._install_app(target, self._env(target))
             self._schema_phase(journal, "writers_may_have_started")
             self._schema_start_authorized(self, target, journal)
-            self._launch_dev_app(Path("/Applications/GRAF Dev.app"))
+            self._launch_dev_app(_dev_app_destination())
             checks = self.smoke(target)
             self._assert_transition_smoke(checks)
             self._schema_phase(journal, "verified")
@@ -2017,7 +2082,7 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
             # left to the ordinary path below.
             self._ensure_rollback_archive(previous_manifest)
             return self._promote_schema(previous_manifest, manifest, previous_adapter)
-        app_destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
+        app_destination = _dev_app_destination()
         previous_app_was_running = self._app_is_running(app_destination)
         app_backup = self._snapshot_app()
         try:
@@ -2110,7 +2175,7 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
         previous_env = previous_adapter._env(active)
         previous_adapter._compose_config(previous_env)
         previous_adapter._assert_manifest_images(active, previous_env)
-        app_destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
+        app_destination = _dev_app_destination()
         previous_app_was_running = self._app_is_running(app_destination)
         app_backup = self._snapshot_app()
         try:
@@ -2231,7 +2296,7 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
             checks["representative_api"] = "pass" if representative_status in {200, 401, 403} else "fail"
         except HarnessError:
             checks["representative_api"] = "fail"
-        app_path = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
+        app_path = _dev_app_destination()
         info_plist = app_path / "Contents" / "Info.plist"
         try:
             app_sha = _run_command(["plutil", "-extract", "GRAFSourceSHA", "raw", str(info_plist)], cwd=self.root)
@@ -2541,7 +2606,10 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
             live_runtime = GrafLocalAdapter(_repo_root(), root)._runtime_is_live(
                 _read_json(root / "runtime.json") if (root / "runtime.json").exists() else None
             ) if getattr(args, "live", False) and not args.dry_run else False
-            if not getattr(args, "live", False) or (runtime_mode == "live" and live_runtime):
+            installed_app = _installed_app_state()["installed"] if getattr(args, "live", False) and not args.dry_run else False
+            if not getattr(args, "live", False) or (
+                runtime_mode == "live" and live_runtime and installed_app
+            ):
                 return {"operation": "promote", "dry_run": bool(args.dry_run), "status": "active", "manifest": active, "idempotent": True}
         if str(candidate.get("feature_id")) == "229" and not args.dry_run and not getattr(args, "live", False):
             health = candidate.get("health", {})
@@ -2614,7 +2682,17 @@ def operation_status(args: argparse.Namespace) -> Dict[str, Any]:
     root = state_dir(live=bool(getattr(args, "live", False)))
     journal = _read_schema_transition(root)
     if journal and journal["phase"] not in {"complete", "recovered"}:
-        return {"operation": "status", "status": "rollback_required", "phase": journal["phase"], "source_sha": journal["target"]["source_sha"], "state_dir": str(root)}
+        app_fields = _status_app_fields(
+            recovery_hint="recover the unfinished schema transition before manual checks"
+        )
+        return {
+            "operation": "status",
+            "status": "rollback_required",
+            "phase": journal["phase"],
+            "source_sha": journal["target"]["source_sha"],
+            "state_dir": str(root),
+            **app_fields,
+        }
     recovery_path = root / "rollback-required.json"
     if recovery_path.exists():
         recovery = _read_json(recovery_path)
@@ -2630,16 +2708,29 @@ def operation_status(args: argparse.Namespace) -> Dict[str, Any]:
         _validate_manifest(manifest)
         if manifest["source_sha"] != recovery["source_sha"]:
             raise HarnessError("rollback-required receipt does not match its manifest")
+        app_fields = _status_app_fields(
+            recovery_hint="restore it from the rollback-required manifest before manual checks"
+        )
         return {
             "operation": "status",
             "status": "rollback_required",
             "state_dir": str(root),
             "manifest": manifest,
             "recovery": recovery,
+            **app_fields,
         }
     active = _load_active(root)
     if active is None:
-        return {"operation": "status", "status": "blocked", "reason": "no active Dev manifest", "state_dir": str(root)}
+        app_fields = _status_app_fields(
+            recovery_hint="no active manifest is available"
+        )
+        return {
+            "operation": "status",
+            "status": "blocked",
+            "reason": "no active Dev manifest",
+            "state_dir": str(root),
+            **app_fields,
+        }
     retention = {
         "active_manifest_id": str(active["manifest_id"]),
         "rollback_target_id": None,
@@ -2653,12 +2744,16 @@ def operation_status(args: argparse.Namespace) -> Dict[str, Any]:
     artifacts = root / "artifacts"
     if artifacts.is_dir():
         retention["artifacts_bytes"] = sum(_path_bytes(child) for child in artifacts.iterdir())
+    app_fields = _status_app_fields(
+        recovery_hint="re-promote the active manifest from its exact-SHA checkout to restore it before manual checks"
+    )
     return {
         "operation": "status",
         "status": active.get("status", "active"),
         "state_dir": str(root),
         "manifest": active,
         "retention": retention,
+        **app_fields,
     }
 
 

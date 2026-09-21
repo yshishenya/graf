@@ -92,10 +92,11 @@ async def build_public_offer_view(
         return unavailable_public_offer()
 
     saving_minor = PUBLIC_MONTHLY_AMOUNT_MINOR * 12 - PUBLIC_ANNUAL_AMOUNT_MINOR
+    # A test shop must never look like a shop that takes money right now.
     sale_ready = bool(
         settings.billing_checkout_enabled
-        and not settings.billing_emergency_stop
         and settings.billing_yookassa_shop_id
+        and settings.billing_yookassa_environment == "production"
     )
     return PublicOfferView(
         catalog_ready=True,

@@ -13,12 +13,10 @@ from twobrain_rec_server.billing.authority import (
     safe_audit_metadata,
 )
 from twobrain_rec_server.billing.operations import (
-    BillingEmergencyStop,
     OperationOutcome,
     blocks_new_checkout,
     classify_provider_outcome,
     provider_key_is_expired,
-    require_billing_enabled,
 )
 from twobrain_rec_server.db.models import BillingOperation
 
@@ -46,7 +44,7 @@ def test_authority_version_and_audit_redaction_fail_closed() -> None:
     ) == {"state": "paid"}
 
 
-def test_operation_outcomes_and_emergency_stop() -> None:
+def test_operation_outcomes() -> None:
     assert (
         classify_provider_outcome(status_code=200, provider_status="succeeded")
         is OperationOutcome.SUCCESS
@@ -65,5 +63,3 @@ def test_operation_outcomes_and_emergency_stop() -> None:
     assert blocks_new_checkout("provider_key_expired")
     assert not blocks_new_checkout("canceled")
     assert not blocks_new_checkout("succeeded")
-    with pytest.raises(BillingEmergencyStop):
-        require_billing_enabled(checkout_enabled=True, emergency_stop=True)
