@@ -238,7 +238,7 @@ final class DesktopCabinetBillingHandoffTests: XCTestCase {
             // Every hop must load; a blocked bank hop is the launch stopper.
             let decision = policy.decision(
                 for: url,
-                allowExternalPaymentProvider: chain.externalProviderNavigationAllowed
+                allowExternalPaymentProvider: chain.externalProviderNavigationAllowed(at: now.addingTimeInterval(60))
             )
             XCTAssertEqual(decision.decision, .allow, step.url)
 
@@ -280,7 +280,23 @@ final class DesktopCabinetBillingHandoffTests: XCTestCase {
             .begin(isBillingCheckoutDocument: true, destination: provider, now: now)
         XCTAssertTrue(chain.isActive)
 
-        let expired = now.addingTimeInterval(DesktopCabinetPaymentNavigation.defaultTimeLimit + 1)
+        let exactExpiry = now.addingTimeInterval(DesktopCabinetPaymentNavigation.defaultTimeLimit)
+        XCTAssertFalse(
+            chain.externalProviderNavigationAllowed(at: exactExpiry),
+            "the exact time limit is already expired"
+        )
+        let expired = exactExpiry.addingTimeInterval(1)
+        XCTAssertFalse(
+            chain.externalProviderNavigationAllowed(at: expired),
+            "an expired chain must not allow another external hop before load"
+        )
+        XCTAssertEqual(
+            policy.decision(
+                for: bank,
+                allowExternalPaymentProvider: chain.externalProviderNavigationAllowed(at: expired)
+            ).decision,
+            .blockWithMessage
+        )
         XCTAssertEqual(chain.report(loadedURL: provider, now: expired), .stopSession)
         XCTAssertEqual(chain.report(loadedURL: bank, now: expired), .stopSession)
     }

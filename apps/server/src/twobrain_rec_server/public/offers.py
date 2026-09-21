@@ -88,7 +88,7 @@ async def build_public_offer_view(
     year = approved_by_cycle.get("year")
     if month is None or year is None:
         return unavailable_public_offer()
-    if not _matching_public_catalog(month, year):
+    if not matches_approved_public_catalog(month, year):
         return unavailable_public_offer()
 
     saving_minor = PUBLIC_MONTHLY_AMOUNT_MINOR * 12 - PUBLIC_ANNUAL_AMOUNT_MINOR
@@ -112,9 +112,22 @@ async def build_public_offer_view(
     )
 
 
-def _matching_public_catalog(month: PlanCatalogSnapshot, year: PlanCatalogSnapshot) -> bool:
+def matches_approved_public_catalog(
+    month: PlanCatalogSnapshot | None,
+    year: PlanCatalogSnapshot | None,
+) -> bool:
+    """Apply the public offer guard to every catalog consumer.
+
+    The landing page and the cabinet must fail closed on the same immutable
+    tuple: prices, currency, entitlements and offer revision.  Keeping this
+    check here prevents checkout from accepting a catalog that the public page
+    would refuse to advertise.
+    """
+
     return bool(
-        month.amount_minor == PUBLIC_MONTHLY_AMOUNT_MINOR
+        month is not None
+        and year is not None
+        and month.amount_minor == PUBLIC_MONTHLY_AMOUNT_MINOR
         and year.amount_minor == PUBLIC_ANNUAL_AMOUNT_MINOR
         and month.currency == year.currency == "RUB"
         and month.storage_bytes == year.storage_bytes

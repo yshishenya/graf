@@ -9,6 +9,7 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from twobrain_rec_server.billing.entitlements import grant_confirmed_renewal
+from twobrain_rec_server.billing.reconciliation import validate_renewal_payment
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
     BillingInvoice,
@@ -26,7 +27,6 @@ from twobrain_rec_server.workflows.billing_renewal_workflow import (
     validate_billing_renewal_payload,
 )
 from twobrain_rec_server.workflows.worker import (
-    _validate_authoritative_renewal_payment,
     run_billing_renewal_activity,
     run_billing_renewal_reconciler,
 )
@@ -456,7 +456,7 @@ def test_authoritative_payment_requires_exact_operation_amount() -> None:
     }
 
     assert (
-        _validate_authoritative_renewal_payment(
+        validate_renewal_payment(
             payment,
             operation=operation,
             invoice=invoice,
@@ -464,7 +464,7 @@ def test_authoritative_payment_requires_exact_operation_amount() -> None:
         == "succeeded"
     )
     with pytest.raises(ValueError, match="amount does not match"):
-        _validate_authoritative_renewal_payment(
+        validate_renewal_payment(
             {**payment, "amount": {"value": "998.00", "currency": "RUB"}},
             operation=operation,
             invoice=invoice,

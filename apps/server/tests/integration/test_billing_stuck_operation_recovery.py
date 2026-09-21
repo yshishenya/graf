@@ -118,8 +118,9 @@ async def _seed_initial_checkout(
     created_at: datetime,
     updated_at: datetime,
     invoice_status: str = "pending",
+    kind: str = "initial_checkout",
 ) -> tuple[UUID, UUID]:
-    """Persist one initial checkout operation together with its invoice."""
+    """Persist one billing operation together with its invoice."""
     suffix = uuid4().hex
     operation_id = uuid4()
     invoice_id = uuid4()
@@ -127,7 +128,7 @@ async def _seed_initial_checkout(
         BillingOperation(
             id=operation_id,
             workspace_id=workspace_id,
-            kind="initial_checkout",
+            kind=kind,
             idempotency_key=f"stuck-operation-{suffix}",
             provider_id=provider_id,
             state=state,
@@ -370,6 +371,47 @@ def test_stale_operation_with_provider_id_is_still_marked_unknown(client) -> Non
     assert len(evidence["blocking_after"]) == 1
     assert STUCK_AUDIT_ACTION in evidence["audit_actions"]
     assert evidence["counters"]["stuck_operations"] == 1
+
+
+def test_expired_provider_id_operation_becomes_non_blocking_but_remains_reconcilable(client) -> None:
+    """Known provider ids may stop blocking after bounded observation, never after a blind cancellation."""
+    now = datetime.now(UTC).replace(microsecond=0)
+
+    async def exercise() -> dict[str, object]:
+        sessionmaker = client.app_state["sessionmaker"]
+        async with sessionmaker() as db:
+            await apply_tenant_context(db, _maintenance_context())
+            workspace_id, user_id = await _seed_workspace(db)
+            operation_id, invoice_id = await _seed_initial_checkout(
+                db,
+                workspace_id=workspace_id,
+                state="unknown",
+                provider_id=f"pay-{uuid4().hex}",
+                created_at=now - timedelta(hours=30),
+                updated_at=now - timedelta(hours=2),
+                key_expires_at=now - timedelta(hours=1),
+            )
+            await db.commit()
+        counters = await _run_maintenance(sessionmaker, now=now)
+        async with sessionmaker() as db:
+            await apply_tenant_context(db, _request_context(workspace_id, user_id))
+            operation = await db.scalar(select(BillingOperation).where(BillingOperation.id == operation_id))
+            invoice_status = await db.scalar(select(BillingInvoice.status).where(BillingInvoice.id == invoice_id))
+            blocking_after = await _blocking_operation_ids(db, workspace_id)
+        return {
+            "operation": operation,
+            "invoice_status": invoice_status,
+            "blocking_after": blocking_after,
+            "counters": counters,
+        }
+
+    evidence = asyncio.run(exercise())
+    operation = evidence["operation"]
+    assert operation.state == "observation_expired"
+    assert operation.provider_id is not None
+    assert evidence["invoice_status"] == "unknown"
+    assert evidence["blocking_after"] == []
+    assert evidence["counters"]["expired_provider_observations"] == 1
 
 
 def test_stale_operation_without_provider_id_keeps_resumable_state(client) -> None:

@@ -4,7 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -26,6 +26,7 @@ from twobrain_rec_server.billing.webhook_reconciliation import (
     _enqueue_deferred_referral_reconciliation,
 )
 from twobrain_rec_server.db.models import (
+    BillingInvoice,
     BillingOperation,
     BillingWebhookEvent,
     ReferralAttribution,
@@ -175,6 +176,43 @@ async def test_workspace_subscription_isolated_and_missing_context_denied(rls_en
             )
             == 0
         )
+
+
+@pytest.mark.asyncio
+async def test_financial_rows_are_isolated_for_exact_application_role(
+    rls_engine, migrated_postgres_urls
+) -> None:
+    ids = await _seed_probe_rows(rls_engine)
+    operation_id, invoice_id = uuid4(), uuid4()
+    async with async_sessionmaker(rls_engine, expire_on_commit=False)() as db:
+        await apply_tenant_context(db, _request_context(ids, "a"))
+        db.add(BillingOperation(
+            id=operation_id, workspace_id=ids["workspace_a"], kind="initial_checkout",
+            idempotency_key="rls-financial", state="provider_pending",
+        ))
+        await db.flush()
+        db.add(BillingInvoice(
+            id=invoice_id, workspace_id=ids["workspace_a"], operation_id=operation_id,
+            safe_number=f"INV-RLS-{invoice_id.hex}", amount_minor=100_000, currency="RUB",
+        ))
+        await db.commit()
+    async with _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine:
+        async with app_engine.begin() as conn:
+            assert await conn.scalar(text("select current_user")) == "twobrain_rec_app"
+            assert await conn.scalar(text("select rolbypassrls from pg_roles where rolname=current_user")) is False
+        for scope in (None, "b", "a"):
+            async with app_engine.begin() as conn:
+                if scope is not None:
+                    await apply_tenant_context_to_connection(conn, _request_context(ids, scope))
+                for model, row_id, field in (
+                    (BillingOperation, operation_id, "state"),
+                    (BillingInvoice, invoice_id, "status"),
+                ):
+                    visible = await conn.scalar(select(model.id).where(model.id == row_id))
+                    assert visible == (row_id if scope == "a" else None)
+                    if scope != "a":
+                        result = await conn.execute(update(model).where(model.id == row_id).values({field: "canceled"}))
+                        assert result.rowcount == 0
 
 
 @pytest.mark.asyncio

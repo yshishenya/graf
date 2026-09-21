@@ -28,9 +28,13 @@ CHECKOUT_BLOCKING_STATES = frozenset(
         "method_required",
         "reconciliation_gap",
         "manual_resolution",
-        "provider_key_expired",
     }
 )
+
+# A provider-key expiry is a terminal local observation outcome, not a provider
+# cancellation. It must not block a fresh initial checkout, while the provider
+# id (when known) remains available for late GET/webhook reconciliation.
+INITIAL_CHECKOUT_OBSERVATION_EXPIRED = "observation_expired"
 
 
 def blocks_new_checkout(operation_state: str) -> bool:

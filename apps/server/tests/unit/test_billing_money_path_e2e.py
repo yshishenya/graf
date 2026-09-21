@@ -20,18 +20,21 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
+import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from cryptography.fernet import Fernet
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from tests.fakes.auth_contexts import ORG_ID, USER_ID
+from tests.fakes.auth_contexts import WORKSPACE_ID as OTHER_WORKSPACE_ID
 from twobrain_rec_server.auth.csrf import issue_csrf_token
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.auth.sessions import issue_auth_session
 from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_workspace
 from twobrain_rec_server.billing import webhook_reconciliation
 from twobrain_rec_server.billing.catalog import CatalogNotApproved, validate_plan_version
+from twobrain_rec_server.billing.promotions import promo_code_hash
 from twobrain_rec_server.billing.yookassa import YooKassaClient
 from twobrain_rec_server.cabinet.user_time import format_user_datetime
 from twobrain_rec_server.cabinet.web_routes import billing as billing_routes
@@ -39,11 +42,14 @@ from twobrain_rec_server.db.models import (
     AuthSessionDeviceBinding,
     BillingEntitlementGrant,
     BillingInvoice,
+    BillingNotificationDelivery,
     BillingOperation,
     BillingPlanVersion,
     BillingWebhookEvent,
     ExternalIdentity,
+    PromotionCampaign,
     RegisteredDevice,
+    WorkspaceMembership,
     WorkspaceSubscription,
 )
 from twobrain_rec_server.public.offers import (
@@ -51,6 +57,7 @@ from twobrain_rec_server.public.offers import (
     PUBLIC_APPROVED_OFFER_VERSION,
     PUBLIC_MONTHLY_AMOUNT_MINOR,
 )
+from twobrain_rec_server.workflows import worker
 
 SERVER_ROOT = Path(__file__).resolve().parents[2]
 CATALOG_MIGRATION = (
@@ -262,7 +269,7 @@ def _reconcile(client) -> dict[str, int]:
     return asyncio.run(run())
 
 
-def _start_checkout(client, headers: dict[str, str], key: str):
+def _start_checkout(client, headers: dict[str, str], key: str, *, offer_version=PUBLIC_APPROVED_OFFER_VERSION):
     return client.post(
         CHECKOUT_PATH,
         headers=headers,
@@ -272,6 +279,7 @@ def _start_checkout(client, headers: dict[str, str], key: str):
             "idempotency_key": key,
             "offer_consent": "true",
             "recurring_consent": "true",
+            "offer_version": offer_version,
         },
     )
 
@@ -383,7 +391,7 @@ def test_confirmed_payment_grants_access_and_survives_replays(
     # Replay: a duplicate signal, an idempotent pass and no second provider payment.
     assert _deliver_webhook(client, webhook).json() == {"status": "duplicate"}
     assert _reconcile(client) == {"processed": 0, "reconciled": 0, "pending": 0, "failed": 0}
-    retried = _start_checkout(client, checkout.headers, key)
+    retried = _start_checkout(client, checkout.headers, key, offer_version="older-shown-offer")
     assert retried.status_code == 303
     assert retried.headers["location"] == checkout.started.headers["location"]
     assert len(provider.create_payloads) == 1
@@ -448,6 +456,7 @@ def test_early_payment_extends_the_paid_period_and_keeps_the_remainder(
         data={
             "cycle": "year",
             "idempotency_key": "checkout-early-year",
+            "offer_version": PUBLIC_APPROVED_OFFER_VERSION,
             "offer_consent": "true",
             "recurring_consent": "true",
         },
@@ -466,6 +475,7 @@ def test_early_payment_extends_the_paid_period_and_keeps_the_remainder(
         data={
             "cycle": "year",
             "idempotency_key": "checkout-early-year",
+            "offer_version": PUBLIC_APPROVED_OFFER_VERSION,
             "offer_consent": "true",
             "recurring_consent": "true",
         },
@@ -530,3 +540,300 @@ def test_subscription_page_names_the_real_charge_day(client, monkeypatch, tmp_pa
     assert f"Следующее списание: <strong>{period_end}</strong>" not in page.text
     # Оплаченный период по-прежнему показан его собственной датой.
     assert f"Оплачено до: <strong>{period_end}</strong>" in page.text
+
+
+@pytest.mark.parametrize("path", ["poll", "webhook", "concurrent_preflight", "concurrent_apply"])
+@pytest.mark.parametrize("attempt", [1, 2, 3])
+@pytest.mark.parametrize("status", ["canceled", "succeeded"])
+def test_confirmed_renewal_is_atomic_and_replay_safe(
+    client, monkeypatch, tmp_path: Path, path: str, attempt: int, status: str
+) -> None:
+    _configure_billing(client, tmp_path)
+    workspace_id, _ = _prepare_owner_session(client)
+    operation_id, invoice_id = uuid4(), uuid4()
+    paid_through = datetime.now(UTC) + timedelta(days=3)
+    payment = {
+        "id": "pay-renewal-declined",
+        "status": status,
+        "created_at": datetime.now(UTC).isoformat(),
+        "amount": {"value": "1000.00", "currency": "RUB"},
+        "metadata": {"workspace_id": str(workspace_id), "operation_id": str(operation_id)},
+    }
+    reads = []
+    poll_observed = None
+
+    def handle(request):
+        assert request.method == "GET", "observation must never create a payment"
+        assert request.url.path == "/v3/payments/pay-renewal-declined"
+        reads.append(request.url.path)
+        if poll_observed is not None and asyncio.current_task().get_name() == "renewal-poll":
+            poll_observed.set()
+        return httpx.Response(200, json=payment)
+
+    factory = lambda settings: YooKassaClient(settings, transport=httpx.MockTransport(handle))  # noqa: E731
+    monkeypatch.setattr(worker, "YooKassaClient", factory)
+    monkeypatch.setattr(worker, "get_settings", lambda: client.app.state.settings)
+    monkeypatch.setattr(webhook_reconciliation, "YooKassaClient", factory)
+
+    async def seed():
+        async with client.app_state["sessionmaker"]() as db:
+            subscription = WorkspaceSubscription(
+                workspace_id=workspace_id, billing_owner_id=USER_ID,
+                plan_code="personal", state="personal", cycle="month",
+                paid_through=paid_through, recurring_allowed=True,
+                recurring_authority_version=4,
+            )
+            db.add(subscription)
+            db.add(BillingOperation(
+                id=operation_id, workspace_id=workspace_id, kind="renewal",
+                idempotency_key="renewal-decline", provider_id=payment["id"], state="sent",
+                provider_key_expires_at=paid_through,
+                request_snapshot={
+                    "plan_code": "personal", "cycle": "month",
+                    "billing_actor_user_id": str(USER_ID),
+                    "paid_through_at": paid_through.isoformat(),
+                    "recurring_authority_version": 4, "renewal_attempt": attempt,
+                },
+            ))
+            await db.flush()
+            db.add(BillingInvoice(
+                id=invoice_id, workspace_id=workspace_id, operation_id=operation_id,
+                safe_number="INV-RENEWAL-DECLINED", amount_minor=100_000, currency="RUB",
+            ))
+            await db.commit()
+
+    async def check_projection():
+        async with client.app_state["sessionmaker"]() as db:
+            operation = await db.get(BillingOperation, operation_id)
+            invoice = await db.get(BillingInvoice, invoice_id)
+            subscription = await db.get(WorkspaceSubscription, workspace_id)
+            notices = list(await db.scalars(select(BillingNotificationDelivery).where(
+                BillingNotificationDelivery.workspace_id == workspace_id,
+                BillingNotificationDelivery.template_key == "renewal_attempt_failed",
+            )))
+            if status == "succeeded":
+                assert operation.state == invoice.status == "succeeded"
+                assert subscription.recurring_allowed and subscription.recurring_authority_version == 4
+                assert subscription.paid_through > paid_through
+                grants = list(await db.scalars(select(BillingEntitlementGrant).where(
+                    BillingEntitlementGrant.invoice_id == invoice_id,
+                )))
+                assert len(grants) == 1 and grants[0].starts_at == paid_through
+                assert grants[0].ends_at == subscription.paid_through
+                assert notices == []
+                return
+            assert operation.state == invoice.status == "canceled"
+            assert operation.provider_id == payment["id"]
+            assert subscription.recurring_allowed is (attempt < 3)
+            assert subscription.recurring_authority_version == (4 if attempt < 3 else 5)
+            assert subscription.renewal_resolution == ("attempt_failed" if attempt < 3 else "canceled")
+            assert subscription.paid_through == paid_through
+            assert (subscription.state, subscription.plan_code) == ("personal", "personal")
+            assert len(notices) == 1
+            assert notices[0].event_id == f"renewal:{invoice_id}:attempt_failed"
+            assert notices[0].safe_payload["invoice"] == invoice.safe_number
+
+    asyncio.run(seed())
+    if path.startswith("concurrent_"):
+        assert _deliver_webhook(client, {
+            "type": "notification", "event": f"payment.{status}", "object": payment,
+        }).status_code == 200
+
+        async def run_concurrently():
+            nonlocal poll_observed
+            poll_observed = asyncio.Event()
+            webhook_locked, poll_waiting = asyncio.Event(), asyncio.Event()
+            workspace_lock = worker.lock_storage_workspace
+            poll_lock_calls = 0
+
+            async def coordinate_workspace_lock(db, workspace_id):
+                nonlocal poll_lock_calls
+                task_name = asyncio.current_task().get_name()
+                if task_name == "renewal-poll":
+                    poll_lock_calls += 1
+                    phase = 1 if path == "concurrent_preflight" else 2
+                    if poll_lock_calls == phase:
+                        await webhook_locked.wait()
+                        poll_waiting.set()
+                await workspace_lock(db, workspace_id)
+                if task_name == "renewal-webhook":
+                    webhook_locked.set()
+                    await poll_waiting.wait()
+
+            async def reconcile():
+                if path == "concurrent_apply":
+                    await poll_observed.wait()
+                async with client.app_state["sessionmaker"]() as db:
+                    return await webhook_reconciliation.reconcile_pending_webhook_events(
+                        db, client.app.state.settings,
+                    )
+
+            # Force contention before either caller acquires dependent rows.
+            with monkeypatch.context() as scoped:
+                scoped.setattr(worker, "lock_storage_workspace", coordinate_workspace_lock)
+                scoped.setattr(webhook_reconciliation, "lock_storage_workspace", coordinate_workspace_lock)
+                results = await asyncio.wait_for(asyncio.gather(
+                    asyncio.create_task(worker.run_billing_renewal_activity({
+                        "operation_id": str(operation_id), "workspace_id": str(workspace_id),
+                    }), name="renewal-poll"),
+                    asyncio.create_task(reconcile(), name="renewal-webhook"),
+                ), timeout=10)
+            assert results[0]["status"] == status
+            assert results[1]["reconciled"] == 1
+            await check_projection()
+
+        asyncio.run(run_concurrently())
+        poll_observed = None
+    if path == "poll":
+        for _ in range(2):
+            result = asyncio.run(worker.run_billing_renewal_activity({
+                "operation_id": str(operation_id), "workspace_id": str(workspace_id),
+            }))
+            assert result["status"] == status
+            asyncio.run(check_projection())
+    # A second, independently accepted signal must not enqueue a second email.
+    for _ in range(2):
+        body = {"type": "notification", "event": f"payment.{status}", "object": payment}
+        assert _deliver_webhook(client, body).status_code == 200
+        assert _reconcile(client)["pending"] == 0
+        asyncio.run(check_projection())
+    assert reads
+
+
+@pytest.mark.parametrize("denial", [
+    "guest", "member", "missing_csrf", "invalid_csrf", "offer_consent",
+    "recurring_consent", "stale_catalog", "stale_offer", "missing_offer_version",
+])
+def test_checkout_denials_leave_no_money_state(client, monkeypatch, tmp_path: Path, denial: str) -> None:
+    _configure_billing(client, tmp_path)
+    _approved_month_catalog(client)
+    workspace_id, headers = _prepare_owner_session(client)
+    provider = _FakeYooKassa()
+    monkeypatch.setattr(billing_routes, "YooKassaClient", lambda settings: YooKassaClient(
+        settings, transport=httpx.MockTransport(provider.handle)
+    ))
+    data = {
+        "cycle": "month", "idempotency_key": "denied-checkout",
+        "offer_consent": "true", "recurring_consent": "true",
+        "offer_version": PUBLIC_APPROVED_OFFER_VERSION,
+    }
+
+    async def change_preconditions():
+        async with client.app_state["sessionmaker"]() as db:
+            if denial == "member":
+                member = await db.scalar(select(WorkspaceMembership).where(
+                    WorkspaceMembership.workspace_id == workspace_id,
+                    WorkspaceMembership.user_id == USER_ID,
+                ))
+                member.role = "member"
+            if denial == "stale_catalog":
+                for row in await db.scalars(select(BillingPlanVersion)):
+                    row.policy_snapshot = {"offer_version": "stale-offer"}
+            await db.commit()
+
+    asyncio.run(change_preconditions())
+    if denial == "guest":
+        client.cookies.clear()
+    elif denial == "missing_csrf":
+        headers = {}
+    elif denial == "invalid_csrf":
+        headers = {"X-CSRF-Token": "not-the-session-token"}
+    elif denial in {"offer_consent", "recurring_consent"}:
+        data.pop(denial)
+    elif denial == "stale_offer":
+        data["offer_version"] = "stale-offer"
+    elif denial == "missing_offer_version":
+        data.pop("offer_version")
+    response = client.post(CHECKOUT_PATH, headers=headers, data=data, follow_redirects=False)
+    assert response.status_code in {303, 401, 403, 409}
+    assert not response.headers.get("location", "").startswith("https://yookassa")
+    if denial in {"stale_offer", "missing_offer_version"}:
+        assert response.status_code == 409
+        assert "Условия оплаты изменились" in response.text
+    assert provider.create_payloads == []
+
+    async def check_no_money():
+        async with client.app_state["sessionmaker"]() as db:
+            for model in (BillingOperation, BillingInvoice, BillingEntitlementGrant, BillingNotificationDelivery):
+                assert await db.scalar(select(func.count()).select_from(model)) == 0
+
+    asyncio.run(check_no_money())
+
+
+def test_changed_offer_preserves_year_and_recalculates_promo(client, monkeypatch, tmp_path: Path):
+    _configure_billing(client, tmp_path)
+    _approved_month_catalog(client)
+    _, headers = _prepare_owner_session(client)
+    provider = _FakeYooKassa()
+    monkeypatch.setattr(billing_routes, "YooKassaClient", lambda settings: YooKassaClient(
+        settings, transport=httpx.MockTransport(provider.handle)
+    ))
+
+    async def seed_promo():
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(PromotionCampaign(
+                code_hash=promo_code_hash("SAVE10"), discount_percent=10,
+                plan_code="personal", cycle="year", enabled=True,
+                campaign_version="synthetic-v1", max_redemptions=10,
+            ))
+            await db.commit()
+
+    asyncio.run(seed_promo())
+    response = client.post(CHECKOUT_PATH, headers=headers, follow_redirects=False, data={
+        "cycle": "year", "promo_code": "SAVE10", "idempotency_key": "changed-offer",
+        "offer_version": "older-offer", "offer_consent": "true", "recurring_consent": "true",
+    })
+    assert response.status_code == 409
+    assert 'name="cycle" value="year"' in response.text
+    assert 'name="promo_code" value="SAVE10"' in response.text
+    assert 'name="offer_version" value="' + PUBLIC_APPROVED_OFFER_VERSION + '"' in response.text
+    assert "Оплатить 9 000 ₽ в ЮKassa — год" in response.text
+    assert '<input type="checkbox" name="offer_consent" value="true" required>' in response.text
+    assert '<input type="checkbox" name="recurring_consent" value="true" required>' in response.text
+    assert provider.create_payloads == []
+
+
+@pytest.mark.parametrize(("method", "path"), [
+    ("GET", "/billing/invoices/INV-OTHER-OWNER"),
+    ("GET", "/billing/checkout/status/INV-OTHER-OWNER"),
+    ("POST", "/billing/checkout/status/INV-OTHER-OWNER/continue"),
+    ("POST", "/billing/checkout/status/INV-OTHER-OWNER/refresh"),
+])
+def test_foreign_invoice_is_neither_read_nor_resumed(client, monkeypatch, tmp_path: Path, method, path):
+    _configure_billing(client, tmp_path)
+    workspace_id, headers = _prepare_owner_session(client)
+    assert workspace_id != OTHER_WORKSPACE_ID
+    operation_id = uuid4()
+    provider = _FakeYooKassa()
+    factory = lambda settings: YooKassaClient(settings, transport=httpx.MockTransport(provider.handle))  # noqa: E731
+    monkeypatch.setattr(billing_routes, "YooKassaClient", factory)
+    monkeypatch.setattr(webhook_reconciliation, "YooKassaClient", factory)
+
+    async def seed():
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(BillingOperation(
+                id=operation_id, workspace_id=OTHER_WORKSPACE_ID, kind="initial_checkout",
+                idempotency_key="foreign-invoice", state="provider_pending", provider_id=provider.payment_id,
+            ))
+            await db.flush()
+            db.add(BillingInvoice(
+                workspace_id=OTHER_WORKSPACE_ID, operation_id=operation_id,
+                safe_number="INV-OTHER-OWNER", amount_minor=123456, currency="RUB",
+            ))
+            await db.commit()
+
+    asyncio.run(seed())
+    response = client.request(method, path, headers=headers, follow_redirects=False)
+    assert response.status_code in {303, 403, 404}
+    assert "INV-OTHER-OWNER" not in response.text
+    assert provider.create_payloads == [] and provider.read_count == 0
+
+    async def check_unchanged():
+        async with client.app_state["sessionmaker"]() as db:
+            operation = await db.get(BillingOperation, operation_id)
+            invoice = await db.scalar(select(BillingInvoice).where(BillingInvoice.operation_id == operation_id))
+            assert operation.state == "provider_pending" and invoice.status == "pending"
+            assert await db.scalar(select(func.count()).select_from(BillingOperation)) == 1
+            assert await db.scalar(select(func.count()).select_from(BillingEntitlementGrant)) == 0
+
+    asyncio.run(check_unchanged())

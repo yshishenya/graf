@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 import httpx
 from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import case, func, select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,6 +44,7 @@ from twobrain_rec_server.billing.entitlements import effective_plan_code
 from twobrain_rec_server.billing.history import mask_payment_method
 from twobrain_rec_server.billing.operations import (
     CHECKOUT_BLOCKING_STATES,
+    INITIAL_CHECKOUT_OBSERVATION_EXPIRED,
     BillingCheckoutDisabled,
     provider_key_is_expired,
     require_billing_enabled,
@@ -142,7 +143,10 @@ from twobrain_rec_server.db.tenant_context import (
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
 )
-from twobrain_rec_server.public.offers import PUBLIC_APPROVED_OFFER_VERSION
+from twobrain_rec_server.public.offers import (
+    PUBLIC_APPROVED_OFFER_VERSION,
+    matches_approved_public_catalog,
+)
 
 if TYPE_CHECKING:
     from twobrain_rec_server.config import Settings
@@ -151,7 +155,6 @@ router = APIRouter(tags=["cabinet-web"])
 
 _CHECKOUT_PROMO_COOKIE = "graf_checkout_promo"
 _CHECKOUT_PROMO_COOKIE_MAX_AGE = 5 * 60
-_BILLING_OFFER_VERSION = "billing-personal-v1"
 
 
 def _is_embedded_request(request: Request) -> bool:
@@ -361,19 +364,12 @@ def _blocking_payment_operation_query(workspace_id: UUID):
         select(BillingOperation)
         .where(
             BillingOperation.workspace_id == workspace_id,
-            BillingOperation.kind.in_(("initial_checkout", "renewal")),
+            # Renewal operations are reconciled against their own paid-through
+            # cutoff and must never make a fresh initial checkout wait forever.
+            BillingOperation.kind == "initial_checkout",
             BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
         )
-        .order_by(
-            case(
-                (
-                    (BillingOperation.kind == "renewal") & (BillingOperation.state == "scheduled"),
-                    1,
-                ),
-                else_=0,
-            ),
-            BillingOperation.created_at.desc(),
-        )
+        .order_by(BillingOperation.created_at.desc(), BillingOperation.id.desc())
     )
 
 
@@ -385,7 +381,7 @@ def _initial_checkout_can_continue(
     return (
         operation.kind == "initial_checkout"
         and operation.provider_id is None
-        and operation.state in {"scheduled", "manual_resolution"}
+        and operation.state in {"scheduled", "manual_resolution", "unknown"}
         and operation.provider_key_expires_at is not None
         and not provider_key_is_expired(
             expires_at=operation.provider_key_expires_at,
@@ -447,8 +443,8 @@ def _record_initial_checkout_failure(
         operation.state = "unknown"
         invoice.status = "unknown"
     elif provider_key_is_expired(expires_at=operation.provider_key_expires_at, now=current):
-        operation.state = "provider_key_expired"
-        invoice.status = "manual_resolution"
+        operation.state = "canceled"
+        invoice.status = "canceled"
     else:
         operation.state = "manual_resolution"
         invoice.status = "manual_resolution"
@@ -689,6 +685,7 @@ def _operation_state_label(state: str | None) -> str:
         "reconciliation_gap": "Нужна ручная сверка платежа",
         "manual_resolution": "Нужна ручная сверка платежа",
         "provider_key_expired": "Срок безопасного продолжения оплаты истек",
+        "observation_expired": "Срок проверки платежа истек",
         "method_required": "Нужен способ оплаты",
         "succeeded": "Платеж подтвержден",
         "canceled": "Платеж отменен",
@@ -828,6 +825,8 @@ async def _approved_personal_catalog(
         if snapshot.offer_version != PUBLIC_APPROVED_OFFER_VERSION:
             continue
         approved[row.cycle] = snapshot
+    if not matches_approved_public_catalog(approved.get("month"), approved.get("year")):
+        return {}
     return approved
 
 
@@ -1801,7 +1800,7 @@ async def billing_checkout_status_page(
         operation is not None
         and operation.provider_id is not None
         and operation.kind == "initial_checkout"
-        and operation.state in {"provider_pending", "unknown"}
+        and operation.state in {"provider_pending", "unknown", INITIAL_CHECKOUT_OBSERVATION_EXPIRED}
     )
     content = _page_shell(
         "Статус платежа",
@@ -1988,8 +1987,8 @@ async def continue_billing_checkout(
             status_code=303,
         )
     if provider_key_is_expired(expires_at=operation.provider_key_expires_at):
-        operation.state = "provider_key_expired"
-        invoice.status = "manual_resolution"
+        operation.state = "canceled"
+        invoice.status = "canceled"
         await db.commit()
         return RedirectResponse(
             _checkout_status_location(safe_number, result="continuation_expired"),
@@ -2757,7 +2756,9 @@ async def billing_checkout_page(
     if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     settings = request.app.state.settings
-    checkout_result = request.query_params.get("result")
+    checkout_result = getattr(
+        request.state, "billing_checkout_result", request.query_params.get("result")
+    )
     blocking_operation = (
         await db.scalar(_blocking_payment_operation_query(tenant_scope.workspace_id).limit(1))
         if db is not None
@@ -2779,8 +2780,12 @@ async def billing_checkout_page(
     checkout_continuation_url = (
         continuation_candidate if is_allowed_confirmation_url(continuation_candidate) else None
     )
-    checkout_promo_code = request.cookies.get(_CHECKOUT_PROMO_COOKIE, "")
-    checkout_cycle = request.query_params.get("cycle", "month")
+    checkout_promo_code = getattr(
+        request.state, "billing_checkout_promo_code", request.cookies.get(_CHECKOUT_PROMO_COOKIE, "")
+    )
+    checkout_cycle = getattr(
+        request.state, "billing_checkout_cycle", request.query_params.get("cycle", "month")
+    )
     if checkout_cycle not in {"month", "year"}:
         checkout_cycle = "month"
     descriptor = plan_descriptor("personal")
@@ -2808,7 +2813,9 @@ async def billing_checkout_page(
         monthly_catalog.storage_bytes if monthly_catalog is not None else descriptor.storage_bytes
     )
     offer_version = (
-        monthly_catalog.offer_version if monthly_catalog is not None else _BILLING_OFFER_VERSION
+        monthly_catalog.offer_version
+        if monthly_catalog is not None
+        else PUBLIC_APPROVED_OFFER_VERSION
     )
     checkout_preview_data: dict[str, str] | None = None
     promo_preview_error: str | None = None
@@ -2980,8 +2987,9 @@ async def start_billing_checkout(
     idempotency_key: str = Form(default="", max_length=240),
     offer_consent: bool = Form(default=False),
     recurring_consent: bool = Form(default=False),
+    offer_version: str = Form(default="", max_length=64),
     promo_code: str | None = Form(default=None, max_length=48),
-) -> RedirectResponse:
+) -> HTMLResponse:
     settings = request.app.state.settings
     if db is None:
         return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
@@ -3076,25 +3084,20 @@ async def start_billing_checkout(
         # row.  Static descriptors remain useful for read-only copy and unit
         # tests, but are never a checkout authority once the billing DB is
         # available.  An absent/stale/disabled row therefore fails closed.
-        catalog_rows = await db.scalars(
-            select(BillingPlanVersion)
-            .where(
-                BillingPlanVersion.plan_code == "personal",
-                BillingPlanVersion.cycle == cycle,
-            )
-            .order_by(BillingPlanVersion.version.desc())
-        )
-        catalog_snapshot = None
-        for catalog_row in catalog_rows:
-            try:
-                catalog_snapshot = validate_plan_version(catalog_row, now=now)
-                break
-            except (CatalogNotApproved, ValueError):
-                continue
+        catalog_snapshot = (await _approved_personal_catalog(db, now=now)).get(cycle)
         if catalog_snapshot is None:
             return RedirectResponse(
                 "/billing/checkout?result=catalog_not_approved", status_code=303
             )
+        if offer_version != catalog_snapshot.offer_version:
+            request.state.billing_checkout_result = "offer_changed"
+            request.state.billing_checkout_cycle = cycle
+            request.state.billing_checkout_promo_code = promo_code or ""
+            response = await billing_checkout_page(
+                request, tenant_scope=tenant_scope, principal=principal, db=db,
+            )
+            response.status_code = 409
+            return response
 
         promo: PromoCode | None = None
         promo_campaign: PromotionCampaign | None = None
