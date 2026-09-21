@@ -822,6 +822,7 @@ def verify_source(repository, source_sha, *, included_prs=None):
                 continue
             proof = future.result()
             require(proof["merge_commit_sha"] == commit, "release PR merge identity changed")
+            proof["release_source_sha"] = source_sha
             covered.update(metadata._git("rev-list", "--first-parent", f"{proof['base_sha']}..{commit}").splitlines())
             results.append(proof)
     numbers = sorted(proof["pr_number"] for proof in results)
