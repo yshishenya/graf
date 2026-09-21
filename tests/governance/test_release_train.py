@@ -41,7 +41,8 @@ args = parser.parse_args()
 if os.environ.get('TEST_PR_CHECKS_FAIL'):
     sys.exit(17)
 print(json.dumps([
-    {'pr_number': int(number), 'target_sha': args.source_sha,
+    {'pr_number': int(number), 'target_sha': 'a' * 40,
+     'release_source_sha': args.source_sha,
      'checks': {'governance-fast': {'run_id': str(number)}}}
     for number in args.included_prs.split(',')
 ]))
