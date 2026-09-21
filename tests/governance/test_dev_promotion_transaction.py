@@ -31,6 +31,10 @@ def test_app_swap_rechecks_lifecycle_and_allows_cleanup_grace():
     assert 'mv "$DESTINATION" "$STAGED_DESTINATION"' in installer
     assert 'renameatx_np' in lifecycle
     assert 'RENAME_SWAP' in lifecycle
+    assert 'expectedDevDestination' in lifecycle
+    assert 'app swap destination must be /Applications/GRAF Dev.app' in lifecycle
+    assert 'assertDevBundle(staged' in lifecycle
+    assert 'assertDevBundle(installed' in lifecycle
     registration_offset = installer.index('if ! "$LSREGISTER" -f "$DESTINATION"')
     assert 'rm -rf "$DESTINATION"' not in installer
     assert 'BACKUP_DESTINATION' not in installer

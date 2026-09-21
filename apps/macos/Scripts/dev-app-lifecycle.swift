@@ -9,9 +9,16 @@ func fail(_ message: String) -> Never {
 }
 
 let expectedBundleIdentifier = "pro.2brain.graf.dev"
+let expectedDevDestination = URL(fileURLWithPath: "/Applications/GRAF Dev.app").standardizedFileURL
 let arguments = CommandLine.arguments
 guard arguments.count == 3 || (arguments.count == 4 && arguments[1] == "swap") else {
     fail("usage: dev-app-lifecycle.swift <status|terminate> <app-path> | swap <staged-app-path> <installed-app-path>")
+}
+
+func assertDevBundle(_ url: URL, label: String) {
+    guard Bundle(url: url)?.bundleIdentifier == expectedBundleIdentifier else {
+        fail("\(label) has an unexpected bundle identifier")
+    }
 }
 
 let action = arguments[1]
@@ -22,6 +29,11 @@ if action == "swap" {
           installed.path == installed.resolvingSymlinksInPath().standardizedFileURL.path else {
         fail("app swap paths must not be symlinks")
     }
+    guard installed.path == expectedDevDestination.path else {
+        fail("app swap destination must be /Applications/GRAF Dev.app")
+    }
+    assertDevBundle(staged, label: "staged Dev app")
+    assertDevBundle(installed, label: "installed Dev app")
     var stagedIsDirectory = ObjCBool(false)
     var installedIsDirectory = ObjCBool(false)
     guard FileManager.default.fileExists(atPath: staged.path, isDirectory: &stagedIsDirectory), stagedIsDirectory.boolValue,
@@ -51,9 +63,7 @@ guard requestedDestination.path == destinationURL.path else {
     fail("Dev app destination must not be a symlink")
 }
 if FileManager.default.fileExists(atPath: destinationURL.path) {
-    guard Bundle(url: destinationURL)?.bundleIdentifier == expectedBundleIdentifier else {
-        fail("Dev app destination has an unexpected bundle identifier")
-    }
+    assertDevBundle(destinationURL, label: "Dev app destination")
 }
 let destination = destinationURL.path
 let applications = NSWorkspace.shared.runningApplications.filter { application in
