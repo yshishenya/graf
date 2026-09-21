@@ -1584,6 +1584,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
 
     public func makeNSView(context: Context) -> NSView {
         let configuration = WKWebViewConfiguration()
+        configuration.preferences.tabFocusesLinks = true
         configuration.applicationNameForUserAgent = DesktopCabinetConfiguration.applicationNameForUserAgent()
         configuration.allowsAirPlayForMediaPlayback = false
         configuration.userContentController.addUserScript(
