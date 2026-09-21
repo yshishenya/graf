@@ -121,7 +121,9 @@ def test_the_bridge_identifier_resolves_back_to_the_same_campaign_labels() -> No
     registry.record(bridge)
     assert len(registry) == 1
 
-    handoff = resolve_attribution_handoff({"bridge": bridge.graf_attribution_id}, registry=registry)
+    handoff = resolve_attribution_handoff(
+        {"bridge": bridge.graf_attribution_id}, registry=registry, now=NOW
+    )
 
     assert handoff is not None
     assert handoff.graf_attribution_id == BRIDGE_ID
