@@ -1713,10 +1713,17 @@ class GrafLocalAdapter:
         self._assert_dev_app_destination(destination)
         self._terminate_dev_app(destination)
         if backup is None:
+            if destination.exists() or destination.is_symlink():
+                discarded = destination.parent / f".{destination.name}.discard.{os.getpid()}.{time.time_ns()}"
+                os.replace(destination, discarded)
+                if discarded.is_dir() and not discarded.is_symlink():
+                    shutil.rmtree(discarded)
+                else:
+                    discarded.unlink()
             return
         restored = destination.parent / f".{destination.name}.restore.{os.getpid()}.{time.time_ns()}"
-        shutil.copytree(backup, restored, symlinks=True)
         try:
+            shutil.copytree(backup, restored, symlinks=True)
             if destination.is_dir() and not destination.is_symlink():
                 self._atomic_swap_dev_app(restored, destination)
             else:

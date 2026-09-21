@@ -149,7 +149,9 @@ rm -rf "$STAGED_DESTINATION"
 ditto --norsrc --noextattr --noqtn "$CANDIDATE" "$STAGED_DESTINATION"
 assert_app_stopped
 
+DESTINATION_WAS_PRESENT=false
 if [ -e "$DESTINATION" ]; then
+  DESTINATION_WAS_PRESENT=true
   if ! swift "$APP_LIFECYCLE" swap "$STAGED_DESTINATION" "$DESTINATION"; then
     fail "atomic replacement failed; installed Dev app was left unchanged"
   fi
@@ -166,6 +168,11 @@ if [ -x "$LSREGISTER" ]; then
       swift "$APP_LIFECYCLE" swap "$STAGED_DESTINATION" "$DESTINATION" ||
         fail "LaunchServices registration failed; installed Dev app was left unchanged"
       rm -rf "$STAGED_DESTINATION"
+    elif [ "$DESTINATION_WAS_PRESENT" = false ] && [ -e "$DESTINATION" ]; then
+      mv "$DESTINATION" "$STAGED_DESTINATION" ||
+        fail "LaunchServices registration failed; initial Dev app remains for recovery"
+      rm -rf "$STAGED_DESTINATION" ||
+        fail "LaunchServices registration failed; initial Dev app cleanup failed"
     fi
     fail "LaunchServices registration failed; previous Dev app was restored"
   fi

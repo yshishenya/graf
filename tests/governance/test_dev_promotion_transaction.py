@@ -27,6 +27,8 @@ def test_app_swap_rechecks_lifecycle_and_allows_cleanup_grace():
     assert installer.index('assert_app_stopped', ditto_offset) > ditto_offset
     assert 'LaunchServices registration failed' in installer
     assert 'swift "$APP_LIFECYCLE" swap "$STAGED_DESTINATION" "$DESTINATION"' in installer
+    assert 'DESTINATION_WAS_PRESENT=false' in installer
+    assert 'mv "$DESTINATION" "$STAGED_DESTINATION"' in installer
     assert 'renameatx_np' in lifecycle
     assert 'RENAME_SWAP' in lifecycle
     registration_offset = installer.index('if ! "$LSREGISTER" -f "$DESTINATION"')

@@ -278,6 +278,41 @@ def test_app_restore_keeps_installed_path_during_atomic_swap(monkeypatch, tmp_pa
     assert not backup.exists()
 
 
+def test_app_restore_discards_failed_first_install(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    destination = tmp_path / "GRAF Dev.app"
+    (destination / "Contents").mkdir(parents=True)
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(destination))
+    monkeypatch.setattr(adapter, "_terminate_dev_app", lambda _: None)
+
+    adapter._restore_app(None)
+
+    assert not destination.exists()
+    assert not list(tmp_path.glob(".GRAF Dev.app.discard.*"))
+
+
+def test_app_restore_cleans_partial_snapshot_copy(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    destination = tmp_path / "GRAF Dev.app"
+    backup = tmp_path / "previous.app"
+    (destination / "Contents").mkdir(parents=True)
+    (backup / "Contents").mkdir(parents=True)
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(destination))
+    monkeypatch.setattr(adapter, "_terminate_dev_app", lambda _: None)
+
+    def partial_copy(_source, target, *, symlinks):
+        Path(target).mkdir(parents=True)
+        raise OSError("injected snapshot copy failure")
+
+    monkeypatch.setattr(dev_harness.shutil, "copytree", partial_copy)
+    with pytest.raises(OSError, match="injected snapshot copy failure"):
+        adapter._restore_app(backup)
+
+    assert destination.is_dir()
+    assert backup.is_dir()
+    assert not list(tmp_path.glob(".GRAF Dev.app.restore.*"))
+
+
 def test_status_reports_missing_installed_app(monkeypatch, tmp_path):
     """A lost installation must be visible in status, not only at the next promote."""
     destination = tmp_path / "GRAF Dev.app"
