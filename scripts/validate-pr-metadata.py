@@ -247,11 +247,12 @@ def checked_base(pr: dict) -> str:
         merge_parent, merge_head = merge_rows[1:]
         merge_tree = _git("rev-parse", f"{merge}^{{tree}}")
         head_tree = _git("rev-parse", f"{head}^{{tree}}")
-        head_parents = _git("rev-list", "--parents", "--max-count=1", head).split()[1:]
+        source_merges = _git("rev-list", "--merges", "--parents", f"{merge_parent}..{head}").splitlines()
         if (
             merge_tree == head_tree
             and merge_head == head
-            and merge_parent in head_parents
+            and is_ancestor(merge_parent, head)
+            and any(merge_parent in row.split()[2:] for row in source_merges)
             and int(_git("rev-list", "--count", f"{merge_parent}..{head}")) == count
         ):
             return merge_parent

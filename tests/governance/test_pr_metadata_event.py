@@ -512,6 +512,9 @@ def test_merge_accepts_pr_head_that_merged_the_checked_base(snapshot):
 
     git(root, "checkout", "-q", "--detach", first)
     git(root, "merge", "--no-ff", "-qm", "merge target into PR", checked_base)
+    (root / "follow-up.txt").write_text("follow-up source fix\n")
+    git(root, "add", "follow-up.txt")
+    git(root, "commit", "-qm", "follow-up source fix")
     head = git(root, "rev-parse", "HEAD")
     count = int(git(root, "rev-list", "--count", f"{checked_base}..{head}"))
     tree = git(root, "rev-parse", f"{head}^{{tree}}")
