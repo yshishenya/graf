@@ -1,12 +1,13 @@
+import ipaddress
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import quote, unquote, urlsplit
 from uuid import UUID
 
 from pydantic import AliasChoices, AnyUrl, Field, PositiveInt, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 AUTH_SESSION_TTL_SECONDS = 30 * 86_400
 
@@ -111,6 +112,22 @@ class Settings(BaseSettings):
     product_analytics_enabled: bool = False
     product_analytics_validation_mode: str = "disabled"
     product_analytics_provider_mode: str = "disabled"
+    # Level 1 of feature 273: the anonymous page aggregate keeps no identifier,
+    # no device address and no link between visits, so it carries no personal
+    # data and needs no consent. FR-009 requires the count on every public page
+    # including visitors who gave no consent, and FR-012 needs it as the
+    # denominator of the consent share, so it is on by default while the optional
+    # levels stay off. Turning it off stops level 1 counting on public pages and
+    # on web registration steps (FR-048) without touching those optional levels.
+    product_analytics_anonymous_aggregate_enabled: bool = True
+    # Exact connection addresses or CIDR networks owned by operators and test
+    # stands. The request classifier reads the ASGI peer address only; forwarded
+    # headers are not trusted for this exclusion.
+    product_analytics_internal_hosts: Annotated[tuple[str, ...], NoDecode] = ()
+    # Public campaign attribution is best-effort, but its durable reference table
+    # must have a bounded admission rate even when callers send fresh labels.
+    product_analytics_visit_attribution_admission_limit: PositiveInt = Field(default=10_000)
+    product_analytics_visit_attribution_admission_window_seconds: PositiveInt = Field(default=3_600)
     product_analytics_posthog_enabled: bool = False
     product_analytics_posthog_host: AnyUrl | None = None
     product_analytics_posthog_project_key_file: Path | None = None
@@ -350,6 +367,38 @@ class Settings(BaseSettings):
                     "prompt_optimization_database_url must use the twobrain_rec_maintenance role"
                 )
         return value
+
+    @field_validator("product_analytics_internal_hosts", mode="before")
+    @classmethod
+    def parse_product_analytics_internal_hosts(cls, value: Any) -> tuple[str, ...]:
+        """Parse comma-separated operator addresses or CIDR networks safely."""
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            raw_values = value.replace("[", "").replace("]", "").replace('"', "").split(",")
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            raw_values = value
+        else:
+            raise ValueError("product_analytics_internal_hosts must be a list or comma-separated string")
+        normalized: list[str] = []
+        for raw in raw_values:
+            if not isinstance(raw, str):
+                raise ValueError("product_analytics_internal_hosts entries must be strings")
+            candidate = raw.strip()
+            if not candidate:
+                continue
+            try:
+                if "/" in candidate:
+                    candidate = str(ipaddress.ip_network(candidate, strict=False))
+                else:
+                    candidate = str(ipaddress.ip_address(candidate))
+            except ValueError as exc:
+                raise ValueError(
+                    f"product_analytics_internal_hosts contains an invalid address or network: {candidate}"
+                ) from exc
+            if candidate not in normalized:
+                normalized.append(candidate)
+        return tuple(normalized)
 
     @field_validator("public_analytics_validation_mode")
     @classmethod

@@ -1,0 +1,16 @@
+[Unit]
+Description=Detect an unavailable GRAF analytics alert channel independently
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=-/etc/graf-analytics-alert.env
+EnvironmentFile=-/etc/graf-posthog-runtime-guard.env
+ExecStart=/usr/local/libexec/graf-analytics-degradation-alert.sh --check-channel
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=-/var/lib/graf-analytics-alert
+TimeoutStartSec=2min

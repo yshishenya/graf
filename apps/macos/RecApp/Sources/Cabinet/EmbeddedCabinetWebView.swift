@@ -2547,6 +2547,15 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 return
             }
             updateAuthContinuation(for: routeDecision.route.kind)
+            if routeDecision.route.kind == .meetingDetail {
+                // Пользователь открыл результат встречи во встроенном кабинете:
+                // это настоящий путь просмотра результата (FR-021).
+                NotificationCenter.default.post(
+                    name: .twoBrainRecDesktopCabinetDidShowMeetingDetail,
+                    object: nil,
+                    userInfo: ["meetingId": routeDecision.route.meetingId ?? ""]
+                )
+            }
             let finishedState = EmbeddedCabinetWebView.finishedState(for: routeDecision.route.kind)
             webContentProcessTerminated = false
             synchronizeUserTime(from: webView, url: url)

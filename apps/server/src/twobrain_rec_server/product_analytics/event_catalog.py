@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from twobrain_rec_server.product_analytics.forbidden_fields import FORBIDDEN_FIELD_NAMES
+from twobrain_rec_server.product_analytics.forbidden_fields import (
+    ANONYMOUS_AGGREGATE_ALLOWED_FIELDS,
+    FORBIDDEN_FIELD_NAMES,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +76,17 @@ _COMMON_FIELDS = (
     "graf_attribution_id",
     "attribution_reliability",
     "bridge_present",
+    # Every conversion event carries the campaign it came from (FR-018). The
+    # labels are the categories of the visit — never a click identifier and
+    # never a value that could point at a person — and ``campaign_label_state``
+    # says explicitly whether the campaign is known at all, so "unknown" can
+    # never be read as "прямой заход" (FR-024).
+    "campaign_label_state",
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_content",
+    "utm_term",
     "elapsed_bucket",
     "source_bucket",
     "yandex_user_id_present",
@@ -107,6 +121,10 @@ ACTIVATION_EVENT_CATALOG: dict[str, ActivationEventDefinition] = {
         yandex_destination="offline_conversion",
         allowed_fields=(
             *_COMMON_FIELDS,
+            # The way in: ``oauth_provider`` for an external provider and
+            # ``email_code`` for the embedded cabinet signing in by an emailed
+            # code. Keeping them apart is the point of the field, so a new way in
+            # must add its own value rather than reuse the provider one.
             "auth_method_category",
             "account_connection_state",
         ),
@@ -126,7 +144,10 @@ ACTIVATION_EVENT_CATALOG: dict[str, ActivationEventDefinition] = {
             *_COMMON_FIELDS,
             "policy_state",
             "previous_state",
-            "source",
+            # Named for what it is: the event is sent by the desktop app too, and
+            # a bare ``source`` would sit next to the campaign labels of FR-018
+            # and be read as the channel the person came from.
+            "autorecord_source",
             "surface",
         ),
         delivery_mode="server_mediated",
@@ -211,3 +232,107 @@ def catalog_payload() -> list[dict[str, object]]:
 
 def yandex_offline_conversion_event_names() -> tuple[str, ...]:
     return YANDEX_OFFLINE_CONVERSION_EVENTS
+
+
+# Level 1 signals of feature 273. They describe the anonymous page aggregate:
+# dimensions plus a visit counter, no identifier and no provider delivery. They
+# deliberately live outside ACTIVATION_EVENT_CATALOG, because that catalog is
+# the provider contract and every entry there may be sent to a provider.
+ANONYMOUS_AGGREGATE_SIGNAL_NAMES = (
+    "public_page_view_aggregate",
+    "public_source_aggregate",
+    "public_installer_download_aggregate",
+    "public_consent_share_aggregate",
+)
+
+ANONYMOUS_AGGREGATE_DELIVERY_MODE = "anonymous_aggregate"
+
+_ANONYMOUS_AGGREGATE_IDENTITY_RULE = (
+    "no identifiers: only coarse dimensions and a visit counter are stored"
+)
+
+# ``allowed_fields`` is the allowlist of the aggregate itself (data-model.md,
+# level 1), reused instead of copied: device address, session or visit
+# identifier, user-agent string, device fingerprint and any pseudonym are absent
+# from it, and the forbidden list below stays the single source of truth.
+ANONYMOUS_AGGREGATE_SIGNAL_CATALOG: dict[str, ActivationEventDefinition] = {
+    "public_page_view_aggregate": ActivationEventDefinition(
+        event_name="public_page_view_aggregate",
+        surface="public_web",
+        owner="public_web",
+        posthog_destination="none",
+        yandex_destination="none",
+        allowed_fields=ANONYMOUS_AGGREGATE_ALLOWED_FIELDS,
+        delivery_mode=ANONYMOUS_AGGREGATE_DELIVERY_MODE,
+        identity_rule=_ANONYMOUS_AGGREGATE_IDENTITY_RULE,
+        retention_category="anonymous_page_aggregate",
+        dashboard_owner="product_analytics_growth",
+        reason="Count public page visits without any identifier of the visitor.",
+    ),
+    "public_source_aggregate": ActivationEventDefinition(
+        event_name="public_source_aggregate",
+        surface="public_web",
+        owner="public_web",
+        posthog_destination="none",
+        yandex_destination="none",
+        allowed_fields=ANONYMOUS_AGGREGATE_ALLOWED_FIELDS,
+        delivery_mode=ANONYMOUS_AGGREGATE_DELIVERY_MODE,
+        identity_rule=_ANONYMOUS_AGGREGATE_IDENTITY_RULE,
+        retention_category="anonymous_page_aggregate",
+        dashboard_owner="product_analytics_growth",
+        reason="Split public visits by campaign label and referrer category only.",
+    ),
+    "public_installer_download_aggregate": ActivationEventDefinition(
+        event_name="public_installer_download_aggregate",
+        surface="public_web",
+        owner="public_web",
+        posthog_destination="none",
+        yandex_destination="none",
+        allowed_fields=ANONYMOUS_AGGREGATE_ALLOWED_FIELDS,
+        delivery_mode=ANONYMOUS_AGGREGATE_DELIVERY_MODE,
+        identity_rule=_ANONYMOUS_AGGREGATE_IDENTITY_RULE,
+        retention_category="anonymous_page_aggregate",
+        dashboard_owner="product_analytics_growth",
+        reason="Count installer downloads on the public download page as a counter only.",
+    ),
+    "public_consent_share_aggregate": ActivationEventDefinition(
+        event_name="public_consent_share_aggregate",
+        surface="public_web",
+        owner="public_web",
+        posthog_destination="none",
+        yandex_destination="none",
+        allowed_fields=ANONYMOUS_AGGREGATE_ALLOWED_FIELDS,
+        delivery_mode=ANONYMOUS_AGGREGATE_DELIVERY_MODE,
+        identity_rule=_ANONYMOUS_AGGREGATE_IDENTITY_RULE,
+        retention_category="anonymous_page_aggregate",
+        dashboard_owner="product_analytics_growth",
+        reason="Report the share of visitors who gave consent without identifying them.",
+    ),
+}
+
+
+def anonymous_aggregate_signal_names() -> tuple[str, ...]:
+    return ANONYMOUS_AGGREGATE_SIGNAL_NAMES
+
+
+def get_anonymous_aggregate_signal(event_name: str) -> ActivationEventDefinition:
+    try:
+        return ANONYMOUS_AGGREGATE_SIGNAL_CATALOG[event_name]
+    except KeyError as exc:
+        raise ValueError(f"unknown anonymous aggregate signal: {event_name}") from exc
+
+
+def anonymous_aggregate_signals_payload() -> list[dict[str, object]]:
+    return [definition.as_dict() for definition in ANONYMOUS_AGGREGATE_SIGNAL_CATALOG.values()]
+
+
+def aggregate_signal_delivers_to_provider(event_name: str) -> bool:
+    """Level 1 never sends anything to a provider; fail closed for unknown names."""
+    definition = ANONYMOUS_AGGREGATE_SIGNAL_CATALOG.get(event_name)
+    if definition is None:
+        return False
+    return (
+        definition.posthog_destination != "none"
+        or definition.yandex_destination != "none"
+        or definition.delivery_mode != ANONYMOUS_AGGREGATE_DELIVERY_MODE
+    )

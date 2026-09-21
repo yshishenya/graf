@@ -244,6 +244,21 @@ public enum DesktopCabinetWorkspace {
         return components?.url ?? configuration.baseURL.appending(path: "login")
     }
 
+    /// Маршрут входа вместе с метками кампании (FR-022).
+    ///
+    /// Один путь на все входы в кабинет: и первый показ входа, и повторный
+    /// вход из раздела поддержки. Иначе часть входов открывает маршрут без
+    /// меток, и кампания теряется ровно там, где приложение связывает аккаунт.
+    public static func signInRoute(
+        configuration: DesktopCabinetConfiguration,
+        handoff: ProductAttributionHandoff?,
+        next: String = "/desktop/meetings"
+    ) -> URL {
+        let route = loginRoute(configuration: configuration, next: next)
+        guard let handoff else { return route }
+        return handoff.applyingSignInQueryItems(to: route)
+    }
+
     public static func detailRoute(meetingId: String, configuration: DesktopCabinetConfiguration) -> URL {
         configuration.meetingDetailURL(meetingId: meetingId)
     }

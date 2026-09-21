@@ -13,6 +13,15 @@ public enum ProductActivationEventName: String, Codable, CaseIterable, Sendable 
             "graf_attribution_id",
             "attribution_reliability",
             "bridge_present",
+            // Метки кампании и явное состояние метки: без них конверсию нельзя
+            // связать с каналом, а «неизвестно» нельзя отличить от «прямого
+            // захода» (FR-018, FR-024).
+            "campaign_label_state",
+            "utm_source",
+            "utm_medium",
+            "utm_campaign",
+            "utm_content",
+            "utm_term",
             "elapsed_bucket",
             "source_bucket",
             "yandex_user_id_present",
@@ -25,7 +34,7 @@ public enum ProductActivationEventName: String, Codable, CaseIterable, Sendable 
         case .desktopAccountConnected:
             return common.union(["auth_method_category", "account_connection_state"])
         case .desktopAutorecordEnabled:
-            return common.union(["policy_state", "previous_state", "source", "surface"])
+            return common.union(["policy_state", "previous_state", "autorecord_source", "surface"])
         case .firstRecordingCompleted:
             return common.union(["duration_bucket", "capture_mode", "completion_state", "result_pending_state"])
         case .firstResultViewed:
@@ -161,9 +170,10 @@ public struct ProductActivationAnalyticsPayload: Codable, Equatable, Sendable {
     }
 
     public static func isSafePseudonymousIdentity(_ value: String) -> Bool {
-        if value == "graf_pseudo_browser_anonymous" {
-            return true
-        }
+        // No shared anonymous identifier is accepted. One value reused by every
+        // unidentified install would be a long-lived identifier and would merge
+        // unrelated people into one, so an install without a pseudonymous
+        // identity sends nothing rather than borrowing somebody else's.
         let parts = value.split(separator: "_", omittingEmptySubsequences: false)
         guard parts.count == 4,
               parts[0] == "graf",
