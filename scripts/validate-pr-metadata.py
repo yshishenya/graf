@@ -219,7 +219,7 @@ def _git(*args: str) -> str:
 
 
 def checked_base(pr: dict) -> str:
-    """Recover the actual strict, linear merge base, never today's master."""
+    """Recover the actual checked base without trusting today's master."""
     _, head, base, _ = _pr_identity(pr)
     if not pr["merged"]:
         return base
@@ -242,6 +242,21 @@ def checked_base(pr: dict) -> str:
             check=False,
         ).returncode == 0
 
+    merge_rows = _git("rev-list", "--parents", "--max-count=1", merge).split()
+    if len(merge_rows) == 3:
+        merge_parent, merge_head = merge_rows[1:]
+        merge_tree = _git("rev-parse", f"{merge}^{{tree}}")
+        head_tree = _git("rev-parse", f"{head}^{{tree}}")
+        source_merges = _git("rev-list", "--merges", "--parents", f"{merge_parent}..{head}").splitlines()
+        if (
+            merge_tree == head_tree
+            and merge_head == head
+            and is_ancestor(merge_parent, head)
+            and (merge_parent == base or any(merge_parent in row.split()[2:] for row in source_merges))
+            and int(_git("rev-list", "--count", f"{merge_parent}..{head}")) == count
+        ):
+            return merge_parent
+        raise ValueError("merge/source range must be linear")
     merge_parent = predecessor(merge, 1)
     merge_tree = _git("rev-parse", f"{merge}^{{tree}}")
     head_tree = _git("rev-parse", f"{head}^{{tree}}")
