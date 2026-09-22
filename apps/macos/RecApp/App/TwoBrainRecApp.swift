@@ -1745,12 +1745,16 @@ private struct ContentView: View {
                     bundleID: prompt.bundleID,
                     outcome: .retryable(reason: "current_prompt_decision_blocked")
                 )
+                DesktopNotificationPresenter.shared.reconcileCard()
                 return
             }
             let outcome = await startManualRecording(
                 meetingDetectionTarget: decision
             )
             recordMeetingDetectionConsumerOutcome(bundleID: prompt.bundleID, outcome: outcome)
+            if outcome != .accepted {
+                DesktopNotificationPresenter.shared.reconcileCard()
+            }
         }
     }
 
