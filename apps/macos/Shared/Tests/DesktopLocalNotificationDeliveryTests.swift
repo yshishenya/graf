@@ -12,29 +12,68 @@ final class DesktopLocalNotificationDeliveryTests: XCTestCase {
         return LocalDeliveryFixture(defaults: try XCTUnwrap(UserDefaults(suiteName: name)))
     }
 
-    func testGeneratedTestNotificationPresentsAndOpensSettings() async throws {
+    // Проверка из настроек показывает ту же карточку, что и настоящее
+    // напоминание, но остаётся безопасным предпросмотром без побочных эффектов.
+    func testGeneratedTestNotificationShowsTheCardAndOpensSettings() async throws {
         let f = try fixture()
         let presenter = f.presenter()
         var preferences = presenter.preferences; preferences.sound = true
         XCTAssertTrue(presenter.save(preferences))
         var settingsOpened = 0
         presenter.onOpenSettings = { settingsOpened += 1 }
+        defer { presenter.card.dismiss() }
         await presenter.test()
-        let id = try XCTUnwrap(f.sent.last?.identifier)
-        XCTAssertNotEqual(id, "graf.local.test")
-        XCTAssertEqual(presenter.presentationOptions(for: id), [.banner, .list, .sound])
-        presenter.openResponse(id, actionIdentifier: UNNotificationDefaultActionIdentifier)
-        XCTAssertEqual(settingsOpened, 1)
-        var recording = f.snapshot([]); recording.stopping = true
-        await presenter.updateSnapshot(recording)?.value
-        XCTAssertEqual(presenter.presentationOptions(for: id), [.banner, .list])
-        for invalid in ["graf.local.test.", "graf.local.test.invalid", "foreign." + id] {
-            XCTAssertEqual(presenter.presentationOptions(for: invalid), [])
-            presenter.openResponse(invalid, actionIdentifier: UNNotificationDefaultActionIdentifier)
-        }
-        presenter.openResponse(id, actionIdentifier: UNNotificationDismissActionIdentifier)
-        XCTAssertEqual(settingsOpened, 1)
+        XCTAssertTrue(presenter.card.isVisible, "проверка обязана показать карточку")
+        XCTAssertEqual(presenter.card.presentedContent,
+                       .preview(title: "Проверка уведомлений GRAF",
+                                message: "Так выглядит напоминание о встрече."))
+        XCTAssertTrue(f.sent.isEmpty, "предпросмотр не отправляет системный запрос")
+        XCTAssertTrue(f.removed.isEmpty, "предпросмотр не удаляет системные запросы")
+        let panel = try XCTUnwrap(presenter.card.window)
+        XCTAssertEqual(panel.identifier?.rawValue, "graf-notification-card")
+        XCTAssertEqual(panel.frame.width, DesktopNotificationCardPresenter.windowWidth)
+        XCTAssertFalse(panel.canBecomeKey)
+        // Системный баннер не отправляется: проверка показывает поверхность GRAF.
+        XCTAssertNil(f.sent.last?.identifier)
         XCTAssertTrue(DesktopNotificationPresenter.isTestNotification("graf.local.test"))
+        XCTAssertEqual(settingsOpened, 0)
+    }
+
+    func testProblemIncidentUsesCardWithoutSystemSubmission() async throws {
+        let f = try fixture()
+        let presenter = f.presenter()
+        let item = f.item()
+        f.bind(item)
+        let task = presenter.updateSnapshot(f.snapshot([item]))
+        await task?.value
+        XCTAssertTrue(f.sent.isEmpty, "проблема показывается карточкой без системного баннера")
+        XCTAssertEqual(presenter.card.presentedContent?.identifier, "graf.card.problem")
+    }
+
+    func testCardBrokerKeepsHigherPriorityProblemAndDoesNotConsumeHiddenIncident() async throws {
+        let f = try fixture()
+        let presenter = f.presenter()
+        let item = f.item()
+        f.bind(item)
+        await presenter.updateSnapshot(f.snapshot([item]))?.value
+        XCTAssertEqual(presenter.card.presentedContent?.identifier, "graf.card.problem")
+
+        XCTAssertFalse(presenter.presentPreview(title: "Проверка", message: "Предпросмотр"),
+                       "предпросмотр не должен молча заменять проблему записи")
+        XCTAssertEqual(presenter.card.presentedContent?.identifier, "graf.card.problem")
+    }
+
+    func testShortRecordingNoticeUsesTheSameBrokerAsOtherCards() throws {
+        let f = try fixture()
+        let presenter = f.presenter()
+        let notice = DesktopRecordingNoticePresenter(presenter: presenter)
+        notice.showShortRecordingDiscarded()
+        XCTAssertEqual(presenter.card.presentedContent?.identifier, "graf.card.short-recording")
+        XCTAssertFalse(presenter.presentPreview(title: "Проверка", message: "Предпросмотр"),
+                       "предпросмотр не должен заменять важное сообщение")
+        XCTAssertEqual(notice.presentedContent?.identifier, "graf.card.short-recording")
+        notice.dismiss()
+        XCTAssertNil(presenter.card.presentedContent)
     }
 
     func testNotificationTargetIsVisibleEvenWhenAnotherFailureLeadsItsGroup() throws {
@@ -77,9 +116,11 @@ final class DesktopLocalNotificationDeliveryTests: XCTestCase {
         let own = f.item(id: "own")
         for item in old + [own] { f.bind(item) }
         await presenter.updateSnapshot(f.snapshot([foreign] + old + [own]))?.value
-        XCTAssertEqual(f.sent.map(\.identifier), ["graf.local.capture." + own.sessionId])
+        XCTAssertTrue(f.sent.isEmpty)
+        XCTAssertEqual(presenter.card.presentedContent?.identifier, "graf.card.problem")
         await presenter.refreshLocal(f.snapshot([foreign] + old + [own]))
-        XCTAssertEqual(f.sent.count, 1)
+        XCTAssertTrue(f.sent.isEmpty)
+        XCTAssertEqual(presenter.card.presentedContent?.identifier, "graf.card.problem")
     }
 
     func testDeniedPermissionCanReconsiderUnclaimedIncident() async throws {
@@ -91,63 +132,63 @@ final class DesktopLocalNotificationDeliveryTests: XCTestCase {
         await presenter.updateSnapshot(f.snapshot([item]))?.value
         XCTAssertTrue(f.sent.isEmpty)
         f.status = .authorized
-        await presenter.refreshPermission()
-        XCTAssertEqual(f.sent.count, 1)
-        await presenter.refreshPermission()
-        XCTAssertEqual(f.sent.count, 1)
+        await presenter.refreshLocal(f.snapshot([item]))
+        XCTAssertTrue(f.sent.isEmpty)
+        XCTAssertEqual(presenter.card.presentedContent?.identifier, "graf.card.problem")
+        await presenter.refreshLocal(f.snapshot([item]))
+        XCTAssertTrue(f.sent.isEmpty)
+        XCTAssertEqual(presenter.card.presentedContent?.identifier, "graf.card.problem")
     }
 
-    func testSnapshotAndCalendarChangesDuringPermissionWaitKeepCurrentIncident() async throws {
+    func testSnapshotAndCalendarChangesKeepCurrentIncident() async throws {
         let f = try fixture()
         let presenter = f.presenter()
         let item = f.item()
         f.bind(item)
-        let gate = LocalDeliveryGate()
-        f.beforeStatus = { await gate.wait() }
         let first = presenter.updateSnapshot(f.snapshot([item]))
-        await gate.untilWaiting()
         var latest = f.snapshot([item]); latest.transitioning = true
         let second = presenter.updateSnapshot(latest)
         presenter.clearCalendar()
-        gate.release()
-        await first?.value; await second?.value
-        XCTAssertEqual(f.sent.count, 1)
+        _ = await first?.value
+        _ = await second?.value
+        XCTAssertTrue(f.sent.isEmpty)
+        XCTAssertEqual(presenter.card.presentedContent?.identifier, "graf.card.problem")
     }
 
-    func testLogoutDuringPermissionDoesNotConsumeOrDeliverOldOwnerIncident() async throws {
+    func testLogoutDoesNotConsumeOrDeliverOldOwnerIncident() async throws {
         let f = try fixture()
         let presenter = f.presenter()
         let item = f.item()
         f.bind(item)
-        let gate = LocalDeliveryGate()
-        f.beforeStatus = { await gate.wait() }
         let delivery = presenter.updateSnapshot(f.snapshot([item]))
-        await gate.untilWaiting()
         presenter.invalidate()
-        presenter.updateContext(user: "other", workspace: "workspace")
-        gate.release()
-        await delivery?.value
+        _ = await delivery?.value
         XCTAssertTrue(f.sent.isEmpty)
-        presenter.updateContext(user: "owner", workspace: "workspace")
+        XCTAssertNil(presenter.card.presentedContent)
+        presenter.updateContext(user: "other", workspace: "workspace")
         await presenter.refreshLocal(f.snapshot([item]))
-        XCTAssertEqual(f.sent.count, 1)
+        XCTAssertTrue(f.sent.isEmpty)
+        XCTAssertNil(presenter.card.presentedContent)
     }
 
-    func testCalendarRefreshDuringSubmitDoesNotRemoveButLogoutDoes() async throws {
+    func testCalendarRefreshAndLogoutDoNotCreateSystemIncidentRequests() async throws {
         for logout in [false, true] {
             let f = try fixture()
             let presenter = f.presenter()
             let item = f.item()
             f.bind(item)
-            let gate = LocalDeliveryGate()
-            f.beforeSubmit = { await gate.wait() }
             let delivery = presenter.updateSnapshot(f.snapshot([item]))
-            await gate.untilWaiting()
-            if logout { presenter.invalidate() } else { presenter.clearCalendar() }
-            gate.release()
+            if logout {
+                presenter.invalidate()
+            } else {
+                presenter.clearCalendar()
+            }
             await delivery?.value
-            let id = try XCTUnwrap(f.sent.first?.identifier)
-            XCTAssertEqual(f.removed.contains(id), logout)
+            XCTAssertTrue(f.sent.isEmpty)
+            XCTAssertTrue(f.removed.isEmpty)
+            if logout {
+                XCTAssertFalse(presenter.card.isVisible)
+            }
         }
     }
 
@@ -157,15 +198,16 @@ final class DesktopLocalNotificationDeliveryTests: XCTestCase {
         let item = f.item()
         f.bind(item)
         await presenter.updateSnapshot(f.snapshot([item]))?.value
-        let id = try XCTUnwrap(f.sent.first?.identifier)
-        presenter.openResponse(id, actionIdentifier: UNNotificationDefaultActionIdentifier)
+        XCTAssertTrue(f.sent.isEmpty)
+        XCTAssertEqual(presenter.card.presentedContent?.identifier, "graf.card.problem")
+        presenter.openResponse("graf.local.capture.\(item.sessionId)", actionIdentifier: UNNotificationDefaultActionIdentifier)
         XCTAssertEqual(f.actions, [.localRecording(item.sessionId)])
         var recovered = item; recovered.state = .queued
         await presenter.updateSnapshot(f.snapshot([recovered]))?.value
-        presenter.openResponse(id, actionIdentifier: UNNotificationDefaultActionIdentifier)
+        presenter.openResponse("graf.local.capture.\(item.sessionId)", actionIdentifier: UNNotificationDefaultActionIdentifier)
         XCTAssertEqual(f.actions.count, 1)
         presenter.invalidate()
-        presenter.openResponse(id, actionIdentifier: UNNotificationDefaultActionIdentifier)
+        presenter.openResponse("graf.local.capture.\(item.sessionId)", actionIdentifier: UNNotificationDefaultActionIdentifier)
         XCTAssertEqual(f.actions.count, 1)
     }
 }

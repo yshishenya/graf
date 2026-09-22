@@ -1,58 +1,45 @@
 import AppKit
 
-/// Passive local feedback, independent of system notification permissions.
+/// Короткое сообщение о том, что запись не сохранена: та же поверхность, что и
+/// у остальных уведомлений GRAF, — карточка в правом верхнем углу рабочей
+/// области, которая исчезает сама.
 @MainActor
 public final class DesktopRecordingNoticePresenter {
-    public static let message = "Запись короче 30 секунд не сохранена"
-    private var dismissal: Task<Void, Never>?
-    private(set) var panel: NSPanel?
+    public static let title = "Запись слишком короткая"
+    public static let message = "Записи короче 30 секунд не сохраняются."
+    /// Сообщение о потере короткой записи живёт дольше обычной подсказки.
+    public static let displayDuration: TimeInterval = 20
 
-    public init() {}
+    private let card: DesktopNotificationCardPresenter
+    private weak var broker: DesktopNotificationPresenter?
+
+    public init(card: DesktopNotificationCardPresenter = DesktopNotificationCardPresenter(),
+                presenter: DesktopNotificationPresenter? = nil) {
+        self.card = card
+        self.broker = presenter
+    }
+
+    /// Окно сообщения: доступно проверкам поверхности.
+    var window: NSWindow? { broker?.card.window ?? card.window }
 
     public func showShortRecordingDiscarded() {
-        dismiss()
-        let window = RecordingNoticePanel(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 64),
-            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false
-        )
-        window.level = .statusBar
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
-        window.hidesOnDeactivate = false
-        window.isReleasedWhenClosed = false
-        window.ignoresMouseEvents = true
-        window.backgroundColor = .windowBackgroundColor
-        window.hasShadow = true
-        window.identifier = NSUserInterfaceItemIdentifier("graf-short-recording-notice")
-        let label = NSTextField(wrappingLabelWithString: Self.message)
-        label.font = .systemFont(ofSize: 14)
-        label.textColor = .labelColor
-        label.frame = NSRect(x: 16, y: 16, width: 348, height: 36)
-        window.contentView?.addSubview(label)
-        if let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main {
-            let frame = screen.visibleFrame
-            window.setFrameOrigin(NSPoint(x: frame.maxX - 396, y: frame.maxY - 80))
+        if let broker {
+            _ = broker.presentShortRecording(title: Self.title,
+                                             message: Self.message,
+                                             duration: Self.displayDuration)
+        } else {
+            card.presentShortRecording(title: Self.title,
+                                       message: Self.message,
+                                       duration: Self.displayDuration)
         }
-        panel = window
-        window.orderFrontRegardless()
-        NSAccessibility.post(element: window, notification: .announcementRequested, userInfo: [
-            .announcement: Self.message,
-            .priority: NSAccessibilityPriorityLevel.high.rawValue
-        ])
-        dismissal = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(6)) } catch { return }
-            self?.dismiss()
-        }
+    }
+
+    public var presentedContent: DesktopNotificationCardContent? {
+        broker?.card.presentedContent ?? card.presentedContent
     }
 
     public func dismiss() {
-        dismissal?.cancel()
-        dismissal = nil
-        panel?.orderOut(nil)
-        panel = nil
+        if let broker { broker.dismissShortRecording() }
+        else { card.dismiss() }
     }
-}
-
-private final class RecordingNoticePanel: NSPanel {
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
 }

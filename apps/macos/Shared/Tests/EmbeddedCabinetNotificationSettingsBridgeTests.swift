@@ -171,24 +171,35 @@ final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
         XCTAssertFalse(presenter.save(value))
     }
 
+    // Выход из аккаунта во время запроса разрешения не оставляет следов. Проверка
+    // показа теперь намеренно не ждёт разрешение macOS: она синхронно показывает
+    // безопасную карточку, а выход из аккаунта должен убрать её тем же lifecycle.
     func testLogoutWhilePermissionOrTestIsPendingHasNoLateEffects() async throws {
-        for action in ["permission", "test"] {
-            let suite = "F260-\(UUID().uuidString)"
-            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-            defer { defaults.removePersistentDomain(forName: suite) }
-            let gate = NotificationSettingsGate()
-            var sent: [String] = [], removed: [String] = []
-            let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel(), status: { .authorized },
-                submit: { request in sent.append(request.identifier); await gate.wait() },
-                remove: { removed.append(contentsOf: $0 ?? sent) },
-                requestPermission: { await gate.wait(); return true })
-            presenter.updateContext(user: "a", workspace: "w")
-            let task = Task { if action == "test" { await presenter.test() } else { await presenter.enable() } }
-            await gate.untilWaiting()
-            presenter.invalidate(); gate.release(); await task.value
-            XCTAssertEqual(presenter.message, "")
-            XCTAssertTrue(sent.allSatisfy { removed.contains($0) })
-        }
+        let suite = "F260-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let gate = NotificationSettingsGate()
+        var sent: [String] = [], removed: [String] = []
+        let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel(),
+            status: { await gate.wait(); return .authorized },
+            submit: { request in sent.append(request.identifier) },
+            remove: { removed.append(contentsOf: $0 ?? sent) },
+            requestPermission: { await gate.wait(); return true })
+        presenter.updateContext(user: "a", workspace: "w")
+        let permission = Task { await presenter.enable() }
+        await gate.untilWaiting()
+        presenter.invalidate()
+        gate.release()
+        await permission.value
+        XCTAssertEqual(presenter.message, "")
+        XCTAssertTrue(sent.allSatisfy { removed.contains($0) })
+        XCTAssertFalse(presenter.card.isVisible, "карточка не появляется после выхода")
+
+        await presenter.test()
+        XCTAssertTrue(presenter.card.isVisible)
+        presenter.invalidate()
+        XCTAssertEqual(presenter.message, "")
+        XCTAssertFalse(presenter.card.isVisible, "предпросмотр убирается при выходе")
     }
 }
 
