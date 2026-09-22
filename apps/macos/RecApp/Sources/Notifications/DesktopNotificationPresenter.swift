@@ -629,7 +629,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
 
     /// Приводит карточку в соответствие с текущим набором напоминаний: показывает
     /// актуальную встречу, убирает устаревшую и никогда не возвращает закрытую.
-    func reconcileCard(now: Date = Date()) {
+    public func reconcileCard(now: Date = Date()) {
         guard !owner.isEmpty, preferences.reminders, !context.isEmpty else {
             clearCard()
             return
