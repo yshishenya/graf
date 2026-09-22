@@ -553,6 +553,8 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("if registryWasUnavailable, meetingDetectionLogStream != nil"))
         XCTAssertTrue(source.contains("restartMeetingDetectionObservation(reason: \"registry_recovered\")"))
         XCTAssertTrue(source.contains("outcome: .retryable(reason: \"current_prompt_decision_blocked\")"))
+        XCTAssertTrue(source.contains("DesktopNotificationPresenter.shared.reconcileCard()"))
+        XCTAssertTrue(source.contains("if outcome != .accepted"))
         XCTAssertTrue(source.contains("recordMeetingDetectionConsumerOutcome(bundleID: prompt.bundleID, outcome: outcome)"))
         XCTAssertTrue(source.contains("reason: .userSkipped"))
         XCTAssertTrue(source.contains("outcome: .terminal(reason: reason.rawValue)"))
