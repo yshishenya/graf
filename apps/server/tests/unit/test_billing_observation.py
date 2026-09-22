@@ -38,6 +38,9 @@ class _Db:
         return _Rows(self.operations)
 
     async def scalar(self, _query):
+        entity = _query.column_descriptions[0].get("entity")
+        if entity is BillingOperation and self.operations:
+            return self.operations[0]
         return self.scope
 
 
@@ -145,6 +148,9 @@ def test_terminal_initial_observation_is_polled_only_by_explicit_operation_refre
 
     class ExplicitDb(_Db):
         async def scalar(self, query):
+            entity = query.column_descriptions[0].get("entity")
+            if entity is BillingOperation:
+                return self.operations[0] if self.operations else None
             return workspace
 
     db = ExplicitDb([])
@@ -194,6 +200,7 @@ def test_observation_only_polls_known_payment_without_enabling_checkout(
         [
             SimpleNamespace(
                 provider_id="payment-1",
+                id=UUID("10000000-0000-4000-8000-000000000001"),
                 workspace_id=UUID("20000000-0000-4000-8000-000000000002"),
             )
         ]
@@ -245,6 +252,8 @@ def test_invalid_initial_checkout_scope_is_terminal_without_provider_call(
 
         async def scalar(self, query):
             entity = query.column_descriptions[0].get("entity")
+            if entity is BillingOperation:
+                return operation
             if entity is Workspace:
                 return None
             if entity is BillingInvoice:
@@ -289,6 +298,107 @@ def test_observation_only_cannot_authorize_provider_payment() -> None:
         source = source_path.read_text(encoding="utf-8")
         assert "billing_provider_observation_enabled" not in source
         assert "create_payment(" in source
+
+
+def test_initial_reconciliation_locks_workspace_before_operation(
+    monkeypatch, tmp_path: Path
+) -> None:
+    workspace_id = UUID("20000000-0000-4000-8000-000000000002")
+    operation = SimpleNamespace(
+        id=UUID("10000000-0000-4000-8000-000000000001"),
+        workspace_id=workspace_id,
+        kind="initial_checkout",
+        provider_id="payment-1",
+        state="provider_pending",
+    )
+    workspace = Workspace(
+        id=workspace_id,
+        organization_id=UUID("30000000-0000-4000-8000-000000000003"),
+        slug="personal-owner",
+        name="Personal owner",
+        kind="personal",
+        owner_user_id=UUID("40000000-0000-4000-8000-000000000004"),
+    )
+
+    class OrderingDb:
+        def __init__(self) -> None:
+            self.events: list[str] = []
+
+        async def scalars(self, _query):
+            self.events.append("candidate_scan")
+            return [operation]
+
+        async def scalar(self, query):
+            entity = query.column_descriptions[0].get("entity")
+            if entity is BillingOperation:
+                self.events.append("operation_lock")
+                return operation
+            if entity is Workspace:
+                self.events.append("workspace_row_lock")
+                return workspace
+            raise AssertionError(f"unexpected query entity: {entity}")
+
+    async def lock_workspace(_db, _workspace_id) -> None:
+        db.events.append("workspace_advisory_lock")
+
+    class Provider:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get_payment(self, _payment_id):
+            return {}
+
+    async def grant_payment(*_args, **_kwargs):
+        db.events.append("grant")
+        return "granted"
+
+    db = OrderingDb()
+    monkeypatch.setattr(webhook_reconciliation, "lock_storage_workspace", lock_workspace)
+    monkeypatch.setattr(webhook_reconciliation, "grant_confirmed_payment", grant_payment)
+    monkeypatch.setattr(webhook_reconciliation, "YooKassaClient", lambda _settings: Provider())
+    monkeypatch.setattr(
+        webhook_reconciliation,
+        "extract_payment_observation",
+        lambda _payload, *, scope: SimpleNamespace(
+            status="succeeded",
+            provider_payment_id="payment-1",
+            amount_minor=100_000,
+            currency="RUB",
+            provider_created_at=datetime(2026, 9, 22, tzinfo=UTC),
+            receipt_registration=None,
+        ),
+    )
+    monkeypatch.setattr(webhook_reconciliation, "saved_bank_card_confirmed", lambda _payload: False)
+    monkeypatch.setattr(webhook_reconciliation, "extract_saved_bank_card", lambda _payload: None)
+    monkeypatch.setattr(webhook_reconciliation, "extract_payment_method_label", lambda _payload: None)
+    monkeypatch.setattr(webhook_reconciliation, "read_billing_encryption_key", lambda _path: None)
+    secret = tmp_path / "provider-secret"
+    secret.write_text("synthetic", encoding="utf-8")
+
+    result = asyncio.run(
+        webhook_reconciliation.reconcile_pending_initial_checkout_operations(
+            db,
+            Settings(
+                billing_provider_observation_enabled=True,
+                billing_yookassa_base_url="https://api.yookassa.test",
+                billing_yookassa_shop_id="shop-test",
+                billing_yookassa_secret_file=secret,
+            ),
+        )
+    )
+
+    assert result["succeeded"] == 1
+    assert db.events.index("workspace_advisory_lock") < db.events.index("operation_lock")
+    assert db.events == [
+        "candidate_scan",
+        "workspace_advisory_lock",
+        "operation_lock",
+        "workspace_row_lock",
+        "grant",
+    ]
 
 
 def test_invalid_historical_webhook_is_terminal_without_provider_call(

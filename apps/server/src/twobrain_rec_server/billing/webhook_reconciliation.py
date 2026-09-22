@@ -99,13 +99,29 @@ async def reconcile_pending_initial_checkout_operations(
             .where(*filters)
             .order_by(BillingOperation.updated_at, BillingOperation.id)
             .limit(max(1, min(limit, 500)))
-            .with_for_update()
         )
     )
     counters = {"processed": 0, "succeeded": 0, "canceled": 0, "pending": 0, "failed": 0}
     valid_operations: list[BillingOperation] = []
-    for operation in operations:
+    for candidate in operations:
         counters["processed"] += 1
+        # Webhooks lock the workspace before the operation. Keep this scan
+        # unlocked and acquire the operation row only after the same advisory
+        # lock to preserve one lock order for both paths.
+        await lock_storage_workspace(db, candidate.workspace_id)
+        operation = await db.scalar(
+            select(BillingOperation)
+            .where(
+                BillingOperation.id == candidate.id,
+                BillingOperation.workspace_id == candidate.workspace_id,
+                BillingOperation.kind == "initial_checkout",
+                BillingOperation.provider_id.is_not(None),
+                BillingOperation.state.in_(observation_states),
+            )
+            .with_for_update()
+        )
+        if operation is None:
+            continue
         workspace = await db.scalar(
             select(Workspace)
             .join(

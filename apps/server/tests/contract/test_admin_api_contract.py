@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from uuid import uuid4
 
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fakes.auth_contexts import WORKSPACE_ID
 from tests.fixtures.admin import (
     DEFAULT_ADMIN_DEVICE_ID,
     DEFAULT_ADMIN_USER_ID,
@@ -14,7 +16,7 @@ from tests.fixtures.admin import (
     seed_default_workspace_admin_roles,
 )
 from tests.fixtures.cabinet import seed_cabinet_meetings
-from twobrain_rec_server.db.models import AdminAuditEvent
+from twobrain_rec_server.db.models import AdminAuditEvent, BillingOperation
 
 
 def test_admin_overview_contract_for_owner_and_admin(client) -> None:
@@ -199,6 +201,22 @@ def test_admin_file_contract_metadata_safe(client) -> None:
 
 
 def test_admin_metrics_and_audit_contract(client) -> None:
+    async def seed_observation_expired() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                BillingOperation(
+                    id=uuid4(),
+                    workspace_id=WORKSPACE_ID,
+                    kind="initial_checkout",
+                    idempotency_key=f"metrics-observation-expired-{uuid4()}",
+                    provider_id="payment-metrics-expired",
+                    state="observation_expired",
+                    request_snapshot={},
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_observation_expired())
     metrics = client.get("/api/v1/admin/metrics", headers=auth_headers())
     audit = client.get("/api/v1/admin/audit", headers=auth_headers())
 
@@ -211,6 +229,7 @@ def test_admin_metrics_and_audit_contract(client) -> None:
         "storage_reserved_bytes",
         "observed_refunds",
     }
+    assert metric_payload["billing"]["unknown_operations"] >= 1
     assert {card["family"] for card in metric_payload["metrics"]} == {
         "adoption",
         "usage",
