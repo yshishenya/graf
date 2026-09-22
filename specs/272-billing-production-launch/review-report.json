@@ -1,0 +1,611 @@
+{
+  "schema_version": 1,
+  "feature_dir": "specs/272-billing-production-launch",
+  "target_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+  "input_digests": [
+    {
+      "path": ".specify/memory/constitution.md",
+      "sha256": "7616e3d7c8112aa60b1be1cc40594a7dfd25b0870f23b821d7efefd7c23f4ba8"
+    },
+    {
+      "path": "AGENTS.md",
+      "sha256": "384c41c0b1674a3daf75d0e57646379198295c3f8452012c8101fc6332bec58b"
+    },
+    {
+      "path": "docs/agent-guidance/spec-kit-flow.md",
+      "sha256": "5edf818b6ee27c7ee66d14edc003325ec7b16789eb1a195377cdeb901ae44887"
+    },
+    {
+      "path": "specs/272-billing-production-launch/plan.md",
+      "sha256": "7da6bf3063bdefb5bbf0321f77afabb489bc4513452c1a2125d2aa7179bba4ad"
+    },
+    {
+      "path": "specs/272-billing-production-launch/quickstart.md",
+      "sha256": "faeb63caf33a2b83837abb6736b65419f460ea1dc795001483f57653b91a20a8"
+    },
+    {
+      "path": "specs/272-billing-production-launch/spec.md",
+      "sha256": "8ba97bc03c001987fe8053cc95f41085ecf07eddd097227000ba903c773299b4"
+    },
+    {
+      "path": "specs/272-billing-production-launch/tasks.md",
+      "sha256": "8bfeb7551a3229c7fcdbc85a0d88edd4d3dbd1cd98627ab36b3ebf0afad38c78"
+    }
+  ],
+  "checklist_paths": [
+    "specs/272-billing-production-launch/checklists/release-readiness.md"
+  ],
+  "items": [
+    {
+      "id": "CHK001",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 36,
+      "text_sha256": "027d2458e99aba9317ae405e9dcc702dc0863a5961c97b8a47052e2bc8f40357",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/spec.md",
+          "line_start": 37,
+          "line_end": 50,
+          "scope": "requirements-quality",
+          "note": "US1 описывает новый вход, создание аккаунта после подтверждения и запрет дублей."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/plan.md",
+          "line_start": 102,
+          "line_end": 112,
+          "scope": "requirements-quality",
+          "note": "Plan 2.5 связывает FR-001..FR-006 с проверяемой границей создания аккаунта."
+        }
+      ],
+      "reason": ""
+    },
+    {
+      "id": "CHK002",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 43,
+      "text_sha256": "f3958ec88fc599807733a9686187d5919a5aac27cfab50641f3416a147255aec",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/spec.md",
+          "line_start": 141,
+          "line_end": 144,
+          "scope": "requirements-quality",
+          "note": "FR-010..FR-013 задают восстановление, bounded timeout и однократную выдачу."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/plan.md",
+          "line_start": 58,
+          "line_end": 77,
+          "scope": "requirements-quality",
+          "note": "Plan 2.2 задаёт переходы для известного и отсутствующего provider_id."
+        }
+      ],
+      "reason": ""
+    },
+    {
+      "id": "CHK003",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 60,
+      "text_sha256": "898f0fd2eb7ac32264a5a93160a0fd3d7e63a2d4a5a65ee8d2ab060021f90183",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/spec.md",
+          "line_start": 94,
+          "line_end": 106,
+          "scope": "requirements-quality",
+          "note": "US5 и сценарии описывают досрочную оплату, годовой переход и повторное нажатие."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/plan.md",
+          "line_start": 92,
+          "line_end": 100,
+          "scope": "requirements-quality",
+          "note": "Plan 2.4 фиксирует базу оплаченного периода и повторное использование операции."
+        }
+      ],
+      "reason": ""
+    },
+    {
+      "id": "CHK004",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 69,
+      "text_sha256": "387951d927f2b0a1c2590b535348b5e990431a1cea6913d313b26c4847d48e69",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/spec.md",
+          "line_start": 145,
+          "line_end": 149,
+          "scope": "requirements-quality",
+          "note": "FR-014..FR-018 задают три окна, предел попыток и unknown-outcome boundary."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/plan.md",
+          "line_start": 79,
+          "line_end": 91,
+          "scope": "requirements-quality",
+          "note": "Plan 2.3 связывает окна продления, попытки и письмо с acceptance criteria."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "docs/runbooks/billing-launch.md",
+          "line_start": 227,
+          "line_end": 240,
+          "scope": "requirements-quality",
+          "note": "Runbook содержит последовательность test-shop проверок продления и late outcome."
+        }
+      ],
+      "reason": ""
+    },
+    {
+      "id": "CHK005",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 75,
+      "text_sha256": "ab9c6713e28494c8dfd784338d0b9cde7295a663f8c98abc7f6a5ff37e274112",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/spec.md",
+          "line_start": 148,
+          "line_end": 149,
+          "scope": "requirements-quality",
+          "note": "FR-017..FR-018 отделяют письмо, отключение автопродления и окончание оплаченного периода."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "docs/runbooks/billing-launch.md",
+          "line_start": 231,
+          "line_end": 240,
+          "scope": "requirements-quality",
+          "note": "Runbook задаёт три попытки, письмо, сохранение paid period и переход Free после срока."
+        }
+      ],
+      "reason": ""
+    },
+    {
+      "id": "CHK006",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 83,
+      "text_sha256": "da1b6c9130f1fa72070019ac4d0e7b0573b02799ab3073334c8fbcd452b12188",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/spec.md",
+          "line_start": 153,
+          "line_end": 155,
+          "scope": "requirements-quality",
+          "note": "FR-022..FR-024 фиксируют каталог, сохранение значений и единую редакцию оферты."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "docs/runbooks/billing-launch.md",
+          "line_start": 84,
+          "line_end": 93,
+          "scope": "requirements-quality",
+          "note": "Runbook задаёт две цены, валюту, редакцию оферты и запрет тестового checkout."
+        }
+      ],
+      "reason": ""
+    },
+    {
+      "id": "CHK007",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 92,
+      "text_sha256": "38bf3c922a840ae5293a455134d68ab800bffa45d45e1b91897a336270f32da5",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/spec.md",
+          "line_start": 140,
+          "line_end": 140,
+          "scope": "requirements-quality",
+          "note": "FR-009 связывает production shop, окружение, секреты и webhook endpoint."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/quickstart.md",
+          "line_start": 243,
+          "line_end": 284,
+          "scope": "requirements-quality",
+          "note": "Quickstart явно отделяет исторический снимок, файл/Compose и работающие службы; повторная проверка обязательна."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "docs/runbooks/billing-launch.md",
+          "line_start": 127,
+          "line_end": 146,
+          "scope": "requirements-quality",
+          "note": "Runbook требует отдельной проверки фактических трёх служб и секретных mounts."
+        }
+      ],
+      "reason": ""
+    },
+    {
+      "id": "CHK008",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 102,
+      "text_sha256": "c6a3e92c3ed4ea60667f03d3f989a39defa70842053da16d8b439cbfb7b14a84",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/spec.md",
+          "line_start": 157,
+          "line_end": 157,
+          "scope": "requirements-quality",
+          "note": "FR-026 задаёт строгий 503, fail-closed на обоих путях и production probe."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/plan.md",
+          "line_start": 123,
+          "line_end": 133,
+          "scope": "requirements-quality",
+          "note": "Plan 2.7 разделяет secret probe, окружение production и откат."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "docs/runbooks/billing-launch.md",
+          "line_start": 54,
+          "line_end": 82,
+          "scope": "requirements-quality",
+          "note": "Runbook описывает edge secret, 503 probe и отдельное доказательство доставки."
+        }
+      ],
+      "reason": ""
+    },
+    {
+      "id": "CHK009",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 108,
+      "text_sha256": "f18bf7fe767813ccc1a3e6f62133d23cb56b7ad964d75e43be415405d35a630d",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/spec.md",
+          "line_start": 52,
+          "line_end": 64,
+          "scope": "requirements-quality",
+          "note": "US2 разделяет payment, webhook, entitlement и receipt в боевом магазине."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/quickstart.md",
+          "line_start": 286,
+          "line_end": 303,
+          "scope": "requirements-quality",
+          "note": "Quickstart отделяет установку защиты секрета от provider delivery."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "docs/runbooks/billing-launch.md",
+          "line_start": 167,
+          "line_end": 190,
+          "scope": "requirements-quality",
+          "note": "Runbook задаёт отдельные metadata-only capability rows и stale rules."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "docs/runbooks/billing-launch.md",
+          "line_start": 227,
+          "line_end": 230,
+          "scope": "requirements-quality",
+          "note": "Runbook требует authenticated GET, webhook, receipt и entitlement отдельно."
+        }
+      ],
+      "reason": ""
+    },
+    {
+      "id": "CHK010",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 114,
+      "text_sha256": "5008c31187bb21b786a80c72581f1722678ad14f70007069b6b4f41b5d6e27fb",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/spec.md",
+          "line_start": 156,
+          "line_end": 156,
+          "scope": "requirements-quality",
+          "note": "FR-025 требует денежный путь в обычной PR-проверке."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/plan.md",
+          "line_start": 233,
+          "line_end": 250,
+          "scope": "requirements-quality",
+          "note": "Plan 5 разводит local diagnostics, exact-SHA checks, deploy и live payment."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/quickstart.md",
+          "line_start": 183,
+          "line_end": 210,
+          "scope": "requirements-quality",
+          "note": "Quickstart прямо запрещает перенос старого SHA на новый и разделяет release gates."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "docs/agent-guidance/spec-kit-flow.md",
+          "line_start": 242,
+          "line_end": 267,
+          "scope": "requirements-quality",
+          "note": "Spec Kit guidance требует свежий analyze до implement и запрещает unresolved high issues."
+        }
+      ],
+      "reason": ""
+    },
+    {
+      "id": "CHK011",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 124,
+      "text_sha256": "59bfc502e9768e93f9cf617974437bac59905011a72ef6892b842408a2c527b4",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/spec.md",
+          "line_start": 138,
+          "line_end": 139,
+          "scope": "requirements-quality",
+          "note": "FR-007..FR-008 сохраняют безопасную границу при выключенном checkout."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "docs/runbooks/billing-launch.md",
+          "line_start": 308,
+          "line_end": 353,
+          "scope": "requirements-quality",
+          "note": "Runbook задаёт checkout=false, provider observation=true, stop path и rollback."
+        }
+      ],
+      "reason": ""
+    },
+    {
+      "id": "CHK012",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 130,
+      "text_sha256": "daea804b7669a1d8251dc9d5b8d74df88f8f8ebee65f70b880d7ced0cf8694d0",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/spec.md",
+          "line_start": 119,
+          "line_end": 126,
+          "scope": "requirements-quality",
+          "note": "Edge cases описывают test-shop method и переключение магазина без неопределённой операции."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/quickstart.md",
+          "line_start": 305,
+          "line_end": 315,
+          "scope": "requirements-quality",
+          "note": "Quickstart требует свежей проверки test-shop methods и отдельного решения владельца."
+        }
+      ],
+      "reason": ""
+    },
+    {
+      "id": "CHK013",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 135,
+      "text_sha256": "745b70fed578ac88c1a12bef68ca11700c1dc14b6c020a5cc0d4c21376bfc397",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/spec.md",
+          "line_start": 159,
+          "line_end": 177,
+          "scope": "requirements-quality",
+          "note": "FR-028/SC-008 задают точные домены, HTTPS, 15 минут и очистку WKWebView chain."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/plan.md",
+          "line_start": 145,
+          "line_end": 160,
+          "scope": "requirements-quality",
+          "note": "Plan 2.9 перечисляет route policy, popup, очистку и focused macOS suite."
+        }
+      ],
+      "reason": ""
+    },
+    {
+      "id": "CHK014",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 142,
+      "text_sha256": "d398b6d3dd1d930f4687a87717d044fdd71c4db75451ab30e88261dd7fc3b21b",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/spec.md",
+          "line_start": 160,
+          "line_end": 177,
+          "scope": "requirements-quality",
+          "note": "FR-029 задаёт browser/WKWebView accessibility, keyboard, focus, VoiceOver, themes и 200%."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/plan.md",
+          "line_start": 162,
+          "line_end": 168,
+          "scope": "requirements-quality",
+          "note": "Plan 2.10 разделяет автоматические проверки и ручную accessibility matrix."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/quickstart.md",
+          "line_start": 213,
+          "line_end": 239,
+          "scope": "requirements-quality",
+          "note": "Quickstart содержит проверяемую accessibility/security matrix и запрещает подмену ручной приёмки."
+        }
+      ],
+      "reason": ""
+    },
+    {
+      "id": "CHK015",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 153,
+      "text_sha256": "e9ba8705d9827f55acf82bb079a8b406720446dd234eb2aa982d8eaaba23ddbc",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/spec.md",
+          "line_start": 178,
+          "line_end": 191,
+          "scope": "requirements-quality",
+          "note": "FR-030 задаёт owner/RLS/CSRF/consents и metadata-only evidence без секретов и customer data."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/plan.md",
+          "line_start": 162,
+          "line_end": 174,
+          "scope": "requirements-quality",
+          "note": "Plan 2.10 сохраняет owner, RLS, CSRF и версии согласий."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "docs/runbooks/billing-launch.md",
+          "line_start": 22,
+          "line_end": 52,
+          "scope": "requirements-quality",
+          "note": "Runbook ограничивает secret custody, provider boundary и состав безопасных доказательств."
+        }
+      ],
+      "reason": ""
+    },
+    {
+      "id": "CHK016",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 166,
+      "text_sha256": "3465c364282d7eaeb0baf95f4fb935bb476d4bc9ef65dff8e15386b8a7b2de08",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/quickstart.md",
+          "line_start": 183,
+          "line_end": 239,
+          "scope": "requirements-quality",
+          "note": "Quickstart разводит local/PR/release/deploy/live payment и отдельные разрешения."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "docs/runbooks/billing-launch.md",
+          "line_start": 257,
+          "line_end": 306,
+          "scope": "requirements-quality",
+          "note": "Runbook требует dry-run, отдельную authorization и sign-off до real-shop canary."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "AGENTS.md",
+          "line_start": 117,
+          "line_end": 140,
+          "scope": "requirements-quality",
+          "note": "Project guidance разделяет CI, deploy, release и approvals."
+        }
+      ],
+      "reason": ""
+    },
+    {
+      "id": "CHK017",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 173,
+      "text_sha256": "8d9818bef8ebd25a7110cd95ae71773ca30d544b9149d4691db31da4193fe9c3",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "docs/runbooks/billing-launch.md",
+          "line_start": 289,
+          "line_end": 306,
+          "scope": "requirements-quality",
+          "note": "Runbook задаёт шесть ролей, evidence_ref, срок действия и блокирующие pending/fail/stale."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "docs/agent-guidance/spec-kit-flow.md",
+          "line_start": 176,
+          "line_end": 217,
+          "scope": "requirements-quality",
+          "note": "Spec Kit guidance отделяет reviewer ownership от user approval и implementation."
+        }
+      ],
+      "reason": ""
+    },
+    {
+      "id": "CHK018",
+      "checklist_path": "specs/272-billing-production-launch/checklists/release-readiness.md",
+      "line": 180,
+      "text_sha256": "40b3812910d881f83d41c9d27cf49c506e77e9123d3b55d5e5389d6a2963c233",
+      "status": "checked",
+      "evidence_refs": [
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "specs/272-billing-production-launch/spec.md",
+          "line_start": 52,
+          "line_end": 78,
+          "scope": "requirements-quality",
+          "note": "US2/US3 задают payment, delivery, entitlement и recovery без оператора."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "docs/runbooks/billing-launch.md",
+          "line_start": 194,
+          "line_end": 255,
+          "scope": "requirements-quality",
+          "note": "Runbook запрещает ручную очистку/SQL-переписывание финансовой истории и задаёт stop conditions."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "docs/runbooks/billing-launch.md",
+          "line_start": 257,
+          "line_end": 287,
+          "scope": "requirements-quality",
+          "note": "Runbook задаёт controlled canary, capability packet, receipt и stop-on-gap."
+        },
+        {
+          "source_sha": "03f0e9ab2e3bca9728d566d1d7beff77de5fbe17",
+          "path": "docs/runbooks/billing-launch.md",
+          "line_start": 308,
+          "line_end": 353,
+          "scope": "requirements-quality",
+          "note": "Runbook задаёт выключение, сохранение reconciliation и восстановление без ручной правки ledger."
+        }
+      ],
+      "reason": ""
+    }
+  ],
+  "totals": {
+    "total": 18,
+    "checked": 18,
+    "unchecked": 0
+  },
+  "verdict": "PASS",
+  "report_digest": "de1b7a35d91879df6f1fea8268a0b960145ea2dc24484a7fd7b7a043e529588d"
+}
