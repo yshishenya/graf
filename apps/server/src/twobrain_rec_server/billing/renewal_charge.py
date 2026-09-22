@@ -621,6 +621,7 @@ async def record_renewal_decline(
     operation: BillingOperation,
     invoice: BillingInvoice,
     now: datetime,
+    reason_code: str = "provider_declined",
 ) -> None:
     """Apply a confirmed decline to locked rows; the caller owns the transaction."""
     if (
@@ -661,7 +662,7 @@ async def record_renewal_decline(
         subscription.renewal_resolution = "attempt_failed"
     _record_charge_audit(
         db, subscription=subscription, operation=operation,
-        outcome="canceled", reason_code="provider_declined",
+        outcome="canceled", reason_code=reason_code,
     )
     await _enqueue_renewal_attempt_failure(db, subscription=subscription, invoice=invoice)
 
@@ -819,8 +820,19 @@ async def charge_renewal_operation(
             )
             .with_for_update()
         )
+        if method is None:
+            await record_renewal_decline(
+                db,
+                subscription=subscription,
+                operation=operation,
+                invoice=invoice,
+                now=current,
+                reason_code="saved_method_missing",
+            )
+            await db.commit()
+            return RenewalChargeResult(operation_id, operation.state)
         key = read_billing_encryption_key(settings.credential_encryption_key_file)
-        if method is None or key is None or method.key_version != "billing-v1":
+        if key is None or method.key_version != "billing-v1":
             raise ValueError("saved payment method is unavailable")
         provider_ref = open_provider_reference(
             method.encrypted_provider_ref,

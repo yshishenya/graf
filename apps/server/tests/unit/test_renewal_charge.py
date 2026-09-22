@@ -25,6 +25,7 @@ from twobrain_rec_server.billing.renewal_charge import (
 from twobrain_rec_server.billing.yookassa import YooKassaProviderError
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
+    BillingAuditEvent,
     BillingInvoice,
     BillingNotificationDelivery,
     BillingOperation,
@@ -837,6 +838,59 @@ async def test_charge_waits_for_its_own_attempt_moment(monkeypatch, tmp_path: Pa
     assert result.status == "scheduled"
     assert operation.state == "scheduled"
     assert provider.calls == []
+
+
+@pytest.mark.asyncio
+async def test_missing_saved_method_resolves_attempt_and_allows_next_window(
+    monkeypatch, tmp_path: Path
+) -> None:
+    settings = _settings(tmp_path)
+    subscription, operation, invoice, _method = _rows(tmp_path, attempt=1)
+    provider = FakeProvider({"id": "must-not-be-called"})
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.renewal_charge.YooKassaClient",
+        lambda _settings: provider,
+    )
+
+    db = FakeDb([subscription, operation, invoice, None, None])
+    result = await charge_renewal_operation(
+        db,
+        settings,
+        operation_id=OPERATION_ID,
+        workspace_id=WORKSPACE_ID,
+        now=_attempt_charge_moment(1),
+    )
+
+    assert result.status == "canceled"
+    assert operation.state == invoice.status == "canceled"
+    assert subscription.recurring_allowed is True
+    assert subscription.renewal_resolution == "attempt_failed"
+    delivery = next(row for row in db.added if isinstance(row, BillingNotificationDelivery))
+    assert delivery.template_key == "renewal_attempt_failed"
+    audit = next(row for row in db.added if isinstance(row, BillingAuditEvent))
+    assert audit.reason_code == "saved_method_missing"
+    assert provider.calls == []
+
+    planning_db = PlanningDb(
+        [
+            subscription,
+            None,
+            _planning_catalog(),
+            UUID(int=1),
+            "billing@2brain.pro",
+            operation,
+            None,
+        ]
+    )
+    planned = await plan_due_renewals(
+        planning_db,
+        now=PAID_THROUGH - timedelta(hours=48),
+    )
+    assert len(planned) == 1
+    next_operation = next(
+        row for row in planning_db.added if isinstance(row, BillingOperation)
+    )
+    assert next_operation.request_snapshot["renewal_attempt"] == 2
 
 
 @pytest.mark.asyncio
