@@ -257,3 +257,10 @@
       lock; добавить контракт порядка вызовов в
       `apps/server/tests/unit/test_billing_reconciliation_activity.py` (review
       P1, исправлено).
+- [X] T060 [US3] Сохранить неизменяемые идентификаторы кандидатов до
+      `rollback()` в фоновой initial-checkout-сверке, чтобы ошибка провайдера
+      не инвалидировала ORM-объекты следующей операции и не останавливала
+      оставшуюся пачку; добавить регрессию с ошибкой первой операции и
+      обработкой второй в
+      `apps/server/tests/unit/test_billing_observation.py` (review P1,
+      исправлено).
