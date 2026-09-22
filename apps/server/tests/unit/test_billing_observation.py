@@ -113,6 +113,7 @@ def test_terminal_initial_observation_is_polled_only_by_explicit_operation_refre
         billing_yookassa_base_url="https://api.yookassa.test",
         billing_yookassa_shop_id="shop-test",
         billing_yookassa_secret_file=secret,
+        billing_yookassa_webhook_secret_file=secret,
     )
     calls: list[str] = []
 
@@ -178,6 +179,7 @@ def test_observation_only_polls_known_payment_without_enabling_checkout(
         billing_yookassa_base_url="https://api.yookassa.test",
         billing_yookassa_shop_id="shop-test",
         billing_yookassa_secret_file=secret,
+        billing_yookassa_webhook_secret_file=secret,
     )
     calls: list[str] = []
 
@@ -280,6 +282,7 @@ def test_invalid_initial_checkout_scope_is_terminal_without_provider_call(
                 billing_yookassa_base_url="https://api.yookassa.test",
                 billing_yookassa_shop_id="shop-test",
                 billing_yookassa_secret_file=provider_secret,
+                billing_yookassa_webhook_secret_file=provider_secret,
             ),
         )
     )
@@ -388,6 +391,7 @@ def test_initial_reconciliation_locks_workspace_before_operation(
                 billing_yookassa_base_url="https://api.yookassa.test",
                 billing_yookassa_shop_id="shop-test",
                 billing_yookassa_secret_file=secret,
+                billing_yookassa_webhook_secret_file=secret,
             ),
         )
     )
@@ -490,6 +494,7 @@ def test_background_initial_reconciliation_commits_between_candidates(
                 billing_yookassa_base_url="https://api.yookassa.test",
                 billing_yookassa_shop_id="shop-test",
                 billing_yookassa_secret_file=provider_secret,
+                billing_yookassa_webhook_secret_file=provider_secret,
             ),
             commit_each_operation=True,
         )
@@ -600,6 +605,7 @@ def test_background_initial_reconciliation_keeps_candidate_keys_after_rollback(
                 billing_yookassa_base_url="https://api.yookassa.test",
                 billing_yookassa_shop_id="shop-test",
                 billing_yookassa_secret_file=provider_secret,
+                billing_yookassa_webhook_secret_file=provider_secret,
             ),
             commit_each_operation=True,
         )
@@ -688,6 +694,7 @@ def test_invalid_historical_webhook_is_terminal_without_provider_call(
                 billing_yookassa_base_url="https://api.yookassa.test",
                 billing_yookassa_shop_id="shop-test",
                 billing_yookassa_secret_file=provider_secret,
+                billing_yookassa_webhook_secret_file=provider_secret,
             ),
         )
     )

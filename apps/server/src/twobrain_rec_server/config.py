@@ -664,17 +664,30 @@ class Settings(BaseSettings):
                     raise ValueError(
                         f"production billing secret must be at least 32 characters and non-placeholder: {field_name}"
                     )
+        if self.billing_yookassa_webhook_secret_file is None:
+            raise ValueError("enabled billing observation requires a webhook secret file")
+        webhook_path = self.billing_yookassa_webhook_secret_file
+        if not webhook_path.is_file() or not webhook_path.read_text(encoding="utf-8").strip():
+            raise ValueError("enabled billing requires a non-empty billing_yookassa_webhook_secret_file")
+        if self.env.lower() == "production":
+            value = webhook_path.read_text(encoding="utf-8").strip()
+            placeholder_values = {"replace-me", "changeme", "password", "secret", "default"}
+            if (
+                len(value) < 32
+                or value.lower() in placeholder_values
+                or value.lower().startswith("synthetic")
+            ):
+                raise ValueError(
+                    "production billing secret must be at least 32 characters and non-placeholder: "
+                    "billing_yookassa_webhook_secret_file"
+                )
         if not self.billing_checkout_enabled:
             return self
         if self.public_base_url is None or self.public_base_url.scheme != "https":
             raise ValueError("enabled billing requires an HTTPS public_base_url")
-        if (
-            self.billing_yookassa_webhook_secret_file is None
-            or self.billing_referral_secret_file is None
-        ):
-            raise ValueError("enabled billing requires webhook and referral secret files")
+        if self.billing_referral_secret_file is None:
+            raise ValueError("enabled billing requires a referral secret file")
         for field_name, path in (
-            ("billing_yookassa_webhook_secret_file", self.billing_yookassa_webhook_secret_file),
             ("billing_referral_secret_file", self.billing_referral_secret_file),
         ):
             if not path.is_file() or not path.read_text(encoding="utf-8").strip():
@@ -825,7 +838,9 @@ class Settings(BaseSettings):
                 else None
             ),
             "billing_yookassa_webhook_secret_file": (
-                self.billing_yookassa_webhook_secret_file if self.billing_checkout_enabled else None
+                self.billing_yookassa_webhook_secret_file
+                if self.billing_provider_observation_enabled or self.billing_checkout_enabled
+                else None
             ),
             "support_incident_github_token_file": self.support_incident_github_token_file,
             "product_analytics_posthog_project_key_file": self.product_analytics_posthog_project_key_file,
