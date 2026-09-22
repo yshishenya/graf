@@ -1321,3 +1321,62 @@ SHA-256 установленного `GrafWindowsApp.exe` совпал с тек
 из гостевой команды видит только 7 корневых элементов WebView2 и не раскрывает
 меню «Вид»/кнопки кабинета, поэтому T097 не закрыта по одному факту запуска.
 Commit, push, PR, `release-full` и публикация не выполнялись.
+
+## Раунд 56 — коммит, восстановление контекста и быстрый гейт на точной ревизии (2026-09-22)
+
+Реализация раунда 55 зафиксирована коммитом
+`c4da6793860ee07c9b2097645bb72a730a877879` («fix(200): довести нативный
+аудиоконтур Windows и доказательства сборки»). Коммит затронул только
+`apps/windows`, `specs/200-windows-desktop-app` и `changes/unreleased/F200.yaml`;
+серверный код, macOS-код и корневой `CHANGELOG.md` не менялись. Push, PR,
+`release-full` и публикация не выполнялись.
+
+### Восстановление контекста Spec Kit
+
+Перед гейтом обнаружено, что игнорируемый файл `.specify/feature.json` в этом
+рабочем дереве содержал только `feature_directory`, тогда как
+`scripts/validate-agent-context.py` требует восемь полей и совпадения
+`source_sha` с текущим `HEAD`. Контекст восстановлен из зеркала Feature 200 с
+`source_sha=c4da6793860ee07c9b2097645bb72a730a877879`; `validate-agent-context`
+и `check-development-process` прошли (`agent-context: OK`,
+`development-process: OK feature=specs/200-windows-desktop-app`).
+
+### Первый прогон быстрого гейта и его причина
+
+Первый `infra/scripts/ci-local.sh --fast` на ревизии `c4da6793860e` завершился
+`status=failed`, `reason=ci_stage_failed`, receipt
+`.dev/ci-evidence/ci-fast-c4da6793860e-6a7ef65e717a.json`. Серверная полоса дала
+`99 passed, 1 error`: тест `test_meeting_progress_ui.py::test_first_transcript_refresh_keeps_live_audio_and_comment_draft`
+запускает `apps/server/tests/browser/playback-refresh.test.cjs`, а в этом рабочем
+дереве не были установлены браузерные зависимости, поэтому Node не находил
+модуль `playwright`.
+
+Это отказ окружения, а не следствие изменений коммита: `apps/server` в коммите не
+менялся (`git diff HEAD~1 HEAD -- apps/server` пуст). Причина устранена штатным
+способом из workflow: `npm ci --ignore-scripts --prefix apps/server/tests/browser`
+и `playwright install chromium`; после этого тест прошёл отдельно
+(`PASS: refresh preserves audio/comments and live title draft/focus/selection`).
+Каталог `node_modules` в git не попадает (`.gitignore`).
+
+### Второй прогон: PASS на точной ревизии
+
+| Что | Значение |
+| --- | --- |
+| Команда | `infra/scripts/ci-local.sh --fast` |
+| Ревизия | `c4da6793860ee07c9b2097645bb72a730a877879` |
+| Начало/конец наблюдения SHA | тот же SHA до и после прогона |
+| Результат | **`ci_local_result=pass mode=fast`** |
+| Receipt | `.dev/ci-evidence/ci-fast-c4da6793860e-fbfff957d71f.json` |
+| Серверная полоса | `153 passed` |
+| Следующий гейт | `full_before_release` |
+
+`--fast` не является релизным гейтом и не заменяет `release-full`. Физический
+Windows x64, аппаратная матрица и AEC, clean-image install/update/rollback, живой
+auth/upload, полный accessibility-проход и свежая визуальная приёмка MSIX
+(T063, T071, T083, T087, T088, T094–T097) остаются открытыми. Push, PR и
+публикация не выполнялись.
+
+Сам этот раздел добавлен после гейта и меняет только текст доказательств: код
+ревизии `c4da6793860e` он не затрагивает, поэтому receipt
+`ci-fast-c4da6793860e-fbfff957d71f` остаётся привязанным к той же кодовой
+ревизии. Следующий гейт для PR всё равно запускается заново на итоговом SHA.
