@@ -893,9 +893,13 @@ async def run_billing_reconciliation_activity(payload: dict[str, str]) -> dict[s
         async with sessionmaker() as db:
             await apply_tenant_context(db, context)
             counters = await reconcile_billing_maintenance(db)
+            # Maintenance locks stale operation rows. Release them before the
+            # webhook path acquires workspace advisory locks, otherwise a
+            # concurrent webhook can observe the inverse lock order.
+            await db.commit()
             webhook_counters = await reconcile_pending_webhook_events(db, settings)
             initial_checkout_counters = await reconcile_pending_initial_checkout_operations(
-                db, settings
+                db, settings, commit_each_operation=True
             )
             await db.commit()
         return {

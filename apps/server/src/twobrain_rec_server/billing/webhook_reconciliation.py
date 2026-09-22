@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import AsyncExitStack
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import TYPE_CHECKING
@@ -70,12 +71,15 @@ async def reconcile_pending_initial_checkout_operations(
     limit: int = 100,
     operation_id: object | None = None,
     defer_referral_reward: bool = False,
+    commit_each_operation: bool = False,
 ) -> dict[str, int]:
     """Poll persisted initial payments when the webhook was lost.
 
     This is observation-only and requires a provider id already persisted by
     the hosted checkout path; a POST timeout before that id remains a manual
-    reconciliation gap until the provider can be searched by metadata.
+    reconciliation gap until the provider can be searched by metadata. The
+    maintenance worker enables ``commit_each_operation`` so one provider
+    observation cannot retain locks for the rest of the batch.
     """
     if not (settings.billing_provider_observation_enabled or settings.billing_checkout_enabled):
         return {"processed": 0, "succeeded": 0, "canceled": 0, "pending": 0, "failed": 0}
@@ -103,109 +107,140 @@ async def reconcile_pending_initial_checkout_operations(
     )
     counters = {"processed": 0, "succeeded": 0, "canceled": 0, "pending": 0, "failed": 0}
     valid_operations: list[BillingOperation] = []
-    for candidate in operations:
-        counters["processed"] += 1
-        # Webhooks lock the workspace before the operation. Keep this scan
-        # unlocked and acquire the operation row only after the same advisory
-        # lock to preserve one lock order for both paths.
-        await lock_storage_workspace(db, candidate.workspace_id)
-        operation = await db.scalar(
-            select(BillingOperation)
-            .where(
-                BillingOperation.id == candidate.id,
-                BillingOperation.workspace_id == candidate.workspace_id,
-                BillingOperation.kind == "initial_checkout",
-                BillingOperation.provider_id.is_not(None),
-                BillingOperation.state.in_(observation_states),
+
+    async def reconcile_operation(operation: BillingOperation, provider: YooKassaClient, scope: ProviderScope) -> str:
+        payload = await provider.get_payment(operation.provider_id or "")
+        observation = extract_payment_observation(payload, scope=scope)
+        if observation.status == "succeeded":
+            grant_result = await grant_confirmed_payment(
+                db,
+                workspace_id=operation.workspace_id,
+                provider_payment_id=observation.provider_payment_id,
+                amount_minor=observation.amount_minor,
+                currency=observation.currency,
+                paid_at=observation.provider_created_at,
+                recurring_method_confirmed=saved_bank_card_confirmed(payload),
+                saved_payment_method=extract_saved_bank_card(payload),
+                payment_method_label=extract_payment_method_label(payload),
+                payment_method_key=read_billing_encryption_key(
+                    settings.credential_encryption_key_file
+                ),
+                receipt_registration=observation.receipt_registration,
+                defer_referral_reward=defer_referral_reward,
             )
-            .with_for_update()
-        )
-        if operation is None:
-            continue
-        workspace = await db.scalar(
-            select(Workspace)
-            .join(
-                WorkspaceMembership,
-                (WorkspaceMembership.workspace_id == Workspace.id)
-                & (WorkspaceMembership.user_id == Workspace.owner_user_id),
+            if grant_result in {"granted", "duplicate"}:
+                if defer_referral_reward:
+                    await _enqueue_deferred_referral_reconciliation(
+                        db,
+                        operation=operation,
+                        observation=observation,
+                    )
+                return "succeeded"
+            return "failed"
+        if observation.status == "canceled":
+            await release_payment_promo(
+                db,
+                workspace_id=operation.workspace_id,
+                provider_payment_id=observation.provider_payment_id,
+                now=observation.provider_created_at,
             )
-            .where(
-                Workspace.id == operation.workspace_id,
-                Workspace.kind == "personal",
-                WorkspaceMembership.role == "owner",
-                WorkspaceMembership.status == "active",
+            operation.state = "canceled"
+            invoice = await db.scalar(
+                select(BillingInvoice)
+                .where(BillingInvoice.operation_id == operation.id)
+                .with_for_update()
             )
-            .with_for_update()
-        )
-        if workspace is not None:
-            valid_operations.append(operation)
-            continue
-        operation.state = "manual_resolution"
-        invoice = await db.scalar(
-            select(BillingInvoice)
-            .where(BillingInvoice.operation_id == operation.id)
-            .with_for_update()
-        )
-        if invoice is not None:
-            invoice.status = "manual_resolution"
-        counters["failed"] += 1
-    if not valid_operations:
-        return counters
+            if invoice is not None:
+                invoice.status = "canceled"
+            return "canceled"
+        return "pending"
+
+    provider: YooKassaClient | None = None
+    scope: ProviderScope | None = None
     try:
-        async with YooKassaClient(settings) as provider:
-            environment = provider_environment(settings.billing_yookassa_environment)
-            scope = ProviderScope(
-                environment=environment, shop_id=settings.billing_yookassa_shop_id
-            )
+        async with AsyncExitStack() as provider_stack:
+            for candidate in operations:
+                counters["processed"] += 1
+                # Webhooks lock the workspace before the operation. Keep this scan
+                # unlocked and acquire the operation row only after the same advisory
+                # lock to preserve one lock order for both paths.
+                await lock_storage_workspace(db, candidate.workspace_id)
+                operation = await db.scalar(
+                    select(BillingOperation)
+                    .where(
+                        BillingOperation.id == candidate.id,
+                        BillingOperation.workspace_id == candidate.workspace_id,
+                        BillingOperation.kind == "initial_checkout",
+                        BillingOperation.provider_id.is_not(None),
+                        BillingOperation.state.in_(observation_states),
+                    )
+                    .with_for_update()
+                )
+                if operation is None:
+                    if commit_each_operation:
+                        await db.commit()
+                    continue
+                workspace = await db.scalar(
+                    select(Workspace)
+                    .join(
+                        WorkspaceMembership,
+                        (WorkspaceMembership.workspace_id == Workspace.id)
+                        & (WorkspaceMembership.user_id == Workspace.owner_user_id),
+                    )
+                    .where(
+                        Workspace.id == operation.workspace_id,
+                        Workspace.kind == "personal",
+                        WorkspaceMembership.role == "owner",
+                        WorkspaceMembership.status == "active",
+                    )
+                    .with_for_update()
+                )
+                if workspace is not None:
+                    if provider is None:
+                        environment = provider_environment(settings.billing_yookassa_environment)
+                        scope = ProviderScope(
+                            environment=environment, shop_id=settings.billing_yookassa_shop_id
+                        )
+                        provider = await provider_stack.enter_async_context(
+                            YooKassaClient(settings)
+                        )
+                    if commit_each_operation:
+                        try:
+                            assert provider is not None and scope is not None
+                            outcome = await reconcile_operation(operation, provider, scope)
+                            counters[outcome] += 1
+                        except (
+                            ProviderEventError,
+                            ProviderObservationError,
+                            YooKassaConfigurationError,
+                            YooKassaProviderError,
+                            ValueError,
+                            httpx.HTTPError,
+                        ):
+                            await db.rollback()
+                            counters["failed"] += 1
+                        else:
+                            await db.commit()
+                    else:
+                        valid_operations.append(operation)
+                    continue
+                operation.state = "manual_resolution"
+                invoice = await db.scalar(
+                    select(BillingInvoice)
+                    .where(BillingInvoice.operation_id == operation.id)
+                    .with_for_update()
+                )
+                if invoice is not None:
+                    invoice.status = "manual_resolution"
+                counters["failed"] += 1
+                if commit_each_operation:
+                    await db.commit()
+            if not valid_operations:
+                return counters
+            assert provider is not None and scope is not None
             for operation in valid_operations:
                 try:
-                    payload = await provider.get_payment(operation.provider_id or "")
-                    observation = extract_payment_observation(payload, scope=scope)
-                    if observation.status == "succeeded":
-                        grant_result = await grant_confirmed_payment(
-                            db,
-                            workspace_id=operation.workspace_id,
-                            provider_payment_id=observation.provider_payment_id,
-                            amount_minor=observation.amount_minor,
-                            currency=observation.currency,
-                            paid_at=observation.provider_created_at,
-                            recurring_method_confirmed=saved_bank_card_confirmed(payload),
-                            saved_payment_method=extract_saved_bank_card(payload),
-                            payment_method_label=extract_payment_method_label(payload),
-                            payment_method_key=read_billing_encryption_key(
-                                settings.credential_encryption_key_file
-                            ),
-                            receipt_registration=observation.receipt_registration,
-                            defer_referral_reward=defer_referral_reward,
-                        )
-                        if grant_result in {"granted", "duplicate"}:
-                            if defer_referral_reward:
-                                await _enqueue_deferred_referral_reconciliation(
-                                    db,
-                                    operation=operation,
-                                    observation=observation,
-                                )
-                            counters["succeeded"] += 1
-                        else:
-                            counters["failed"] += 1
-                    elif observation.status == "canceled":
-                        await release_payment_promo(
-                            db,
-                            workspace_id=operation.workspace_id,
-                            provider_payment_id=observation.provider_payment_id,
-                            now=observation.provider_created_at,
-                        )
-                        operation.state = "canceled"
-                        invoice = await db.scalar(
-                            select(BillingInvoice)
-                            .where(BillingInvoice.operation_id == operation.id)
-                            .with_for_update()
-                        )
-                        if invoice is not None:
-                            invoice.status = "canceled"
-                        counters["canceled"] += 1
-                    else:
-                        counters["pending"] += 1
+                    counters[await reconcile_operation(operation, provider, scope)] += 1
                 except (
                     ProviderEventError,
                     ProviderObservationError,
@@ -216,7 +251,9 @@ async def reconcile_pending_initial_checkout_operations(
                 ):
                     counters["failed"] += 1
     except (YooKassaConfigurationError, ValueError):
-        counters["failed"] += len(valid_operations)
+        if commit_each_operation:
+            await db.rollback()
+        counters["failed"] += len(valid_operations) or 1
     return counters
 
 

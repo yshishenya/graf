@@ -243,3 +243,17 @@
       неизвестных исходов и проверить численное значение метрики на PostgreSQL,
       чтобы закрытое состояние не исчезало из наблюдаемости по FR-011 и
       runbook §1 (review P2, исправлено).
+- [X] T058 [US3] Для фоновой сверки начальных платежей обрабатывать одну
+      операцию и фиксировать её результат до перехода к следующей, чтобы
+      advisory lock workspace не удерживался на всю пачку и сетевые вызовы
+      провайдера не блокировали несвязанные пространства; добавить регрессию
+      на границу `commit_each_operation` в
+      `apps/server/tests/unit/test_billing_observation.py` (review P1,
+      исправлено).
+- [X] T059 [US3] Зафиксировать maintenance-транзакцию до запуска webhook- и
+      initial-checkout-сверки в
+      `apps/server/src/twobrain_rec_server/workflows/worker.py`, чтобы не
+      пересекать удержанные `BillingOperation FOR UPDATE` с workspace advisory
+      lock; добавить контракт порядка вызовов в
+      `apps/server/tests/unit/test_billing_reconciliation_activity.py` (review
+      P1, исправлено).

@@ -401,6 +401,114 @@ def test_initial_reconciliation_locks_workspace_before_operation(
     ]
 
 
+def test_background_initial_reconciliation_commits_between_candidates(
+    monkeypatch, tmp_path: Path
+) -> None:
+    workspace_id = UUID("20000000-0000-4000-8000-000000000002")
+    operations = [
+        SimpleNamespace(
+            id=UUID("10000000-0000-4000-8000-000000000001"),
+            workspace_id=workspace_id,
+            kind="initial_checkout",
+            provider_id="payment-1",
+            state="provider_pending",
+        ),
+        SimpleNamespace(
+            id=UUID("10000000-0000-4000-8000-000000000002"),
+            workspace_id=workspace_id,
+            kind="initial_checkout",
+            provider_id="payment-2",
+            state="provider_pending",
+        ),
+    ]
+    workspace = Workspace(
+        id=workspace_id,
+        organization_id=UUID("30000000-0000-4000-8000-000000000003"),
+        slug="personal-owner",
+        name="Personal owner",
+        kind="personal",
+        owner_user_id=UUID("40000000-0000-4000-8000-000000000004"),
+    )
+
+    class Db:
+        def __init__(self) -> None:
+            self.events: list[str] = []
+            self.locked_operations = iter(operations)
+
+        async def scalars(self, _query):
+            self.events.append("candidate_scan")
+            return operations
+
+        async def scalar(self, query):
+            entity = query.column_descriptions[0].get("entity")
+            if entity is BillingOperation:
+                self.events.append("operation_lock")
+                return next(self.locked_operations)
+            if entity is Workspace:
+                self.events.append("workspace_row_lock")
+                return workspace
+            raise AssertionError(f"unexpected query entity: {entity}")
+
+        async def commit(self):
+            self.events.append("commit")
+
+        async def rollback(self):
+            self.events.append("rollback")
+
+    async def lock_workspace(_db, _workspace_id) -> None:
+        db.events.append("workspace_advisory_lock")
+
+    class Provider:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get_payment(self, payment_id: str):
+            db.events.append(f"provider:{payment_id}")
+            return {}
+
+    monkeypatch.setattr(webhook_reconciliation, "lock_storage_workspace", lock_workspace)
+    monkeypatch.setattr(webhook_reconciliation, "YooKassaClient", lambda _settings: Provider())
+    monkeypatch.setattr(
+        webhook_reconciliation,
+        "extract_payment_observation",
+        lambda _payload, *, scope: SimpleNamespace(status="pending"),
+    )
+    provider_secret = tmp_path / "provider-secret"
+    provider_secret.write_text("synthetic", encoding="utf-8")
+    db = Db()
+
+    result = asyncio.run(
+        webhook_reconciliation.reconcile_pending_initial_checkout_operations(
+            db,
+            Settings(
+                billing_provider_observation_enabled=True,
+                billing_yookassa_base_url="https://api.yookassa.test",
+                billing_yookassa_shop_id="shop-test",
+                billing_yookassa_secret_file=provider_secret,
+            ),
+            commit_each_operation=True,
+        )
+    )
+
+    assert result == {"processed": 2, "succeeded": 0, "canceled": 0, "pending": 2, "failed": 0}
+    assert db.events == [
+        "candidate_scan",
+        "workspace_advisory_lock",
+        "operation_lock",
+        "workspace_row_lock",
+        "provider:payment-1",
+        "commit",
+        "workspace_advisory_lock",
+        "operation_lock",
+        "workspace_row_lock",
+        "provider:payment-2",
+        "commit",
+    ]
+
+
 def test_invalid_historical_webhook_is_terminal_without_provider_call(
     monkeypatch, tmp_path: Path
 ) -> None:
