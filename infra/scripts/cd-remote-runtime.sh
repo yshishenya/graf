@@ -96,15 +96,19 @@ if [[ "${TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED:-false}" == "true" \
 else
   export TWOBRAIN_BILLING_YOOKASSA_SECRET_FILE="$disabled_billing_secret"
 fi
-if [[ "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
+if [[ "${TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED:-false}" == "true" \
+  || "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
   export TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE="$(
     normalize_compose_secret_path "${TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE:-./secrets/twobrain_yookassa_webhook_secret}"
   )"
+else
+  export TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE="$disabled_billing_secret"
+fi
+if [[ "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
   export TWOBRAIN_BILLING_REFERRAL_SECRET_FILE="$(
     normalize_compose_secret_path "${TWOBRAIN_BILLING_REFERRAL_SECRET_FILE:-./secrets/twobrain_billing_referral_secret}"
   )"
 else
-  export TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE="$disabled_billing_secret"
   export TWOBRAIN_BILLING_REFERRAL_SECRET_FILE="$disabled_billing_secret"
 fi
 if [[ "${TWOBRAIN_GOOGLE_CALENDAR_ENABLED:-false}" == "true" ]]; then
@@ -984,16 +988,23 @@ if [[ "${TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED:-false}" == "true" \
   fi
 fi
 
-if [[ "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
+if [[ "${TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED:-false}" == "true" \
+  || "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
   for billing_secret in \
-    "${TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE:-./secrets/twobrain_yookassa_webhook_secret}" \
-    "${TWOBRAIN_BILLING_REFERRAL_SECRET_FILE:-./secrets/twobrain_billing_referral_secret}"; do
+    "${TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE:-./secrets/twobrain_yookassa_webhook_secret}"; do
     if ! secure_runtime_secret_file "$billing_secret"; then
       echo "deploy_result=blocked"
       echo "reason=billing_secret_permissions_invalid"
       exit 1
     fi
   done
+  if [[ "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
+    if ! secure_runtime_secret_file "${TWOBRAIN_BILLING_REFERRAL_SECRET_FILE:-./secrets/twobrain_billing_referral_secret}"; then
+      echo "deploy_result=blocked"
+      echo "reason=billing_secret_permissions_invalid"
+      exit 1
+    fi
+  fi
   echo "billing_secret_permissions_result=pass"
 else
   echo "billing_secret_permissions_result=disabled"
@@ -1071,14 +1082,18 @@ if [[ "${TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED:-false}" == "true" \
 else
   [[ "$billing_provider_secret_source" == "$disabled_billing_secret" ]] || billing_secret_sources_valid=0
 fi
-if [[ "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
+if [[ "${TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED:-false}" == "true" \
+  || "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
   [[ -n "$billing_webhook_secret_source" \
-    && "$billing_webhook_secret_source" != "$disabled_billing_secret" \
-    && -n "$billing_referral_secret_source" \
+    && "$billing_webhook_secret_source" != "$disabled_billing_secret" ]] || billing_secret_sources_valid=0
+else
+  [[ "$billing_webhook_secret_source" == "$disabled_billing_secret" ]] || billing_secret_sources_valid=0
+fi
+if [[ "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then
+  [[ -n "$billing_referral_secret_source" \
     && "$billing_referral_secret_source" != "$disabled_billing_secret" ]] || billing_secret_sources_valid=0
 else
-  [[ "$billing_webhook_secret_source" == "$disabled_billing_secret" \
-    && "$billing_referral_secret_source" == "$disabled_billing_secret" ]] || billing_secret_sources_valid=0
+  [[ "$billing_referral_secret_source" == "$disabled_billing_secret" ]] || billing_secret_sources_valid=0
 fi
 if [[ "$billing_secret_sources_valid" != "1" ]]; then
   echo "deploy_result=blocked"

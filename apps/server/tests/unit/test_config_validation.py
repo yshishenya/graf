@@ -100,24 +100,43 @@ def test_enabled_billing_requires_canonical_https_public_origin(tmp_path) -> Non
     assert settings.public_base_url is not None
 
 
-def test_billing_observation_requires_only_provider_read_credentials(tmp_path) -> None:
+def test_billing_observation_requires_provider_and_webhook_credentials(tmp_path) -> None:
     secret = tmp_path / "yookassa-secret"
+    webhook = tmp_path / "yookassa-webhook"
     secret.write_text("test", encoding="utf-8")
+    webhook.write_text("test", encoding="utf-8")
 
     settings = Settings(
         billing_provider_observation_enabled=True,
         billing_yookassa_base_url="https://api.yookassa.test",
         billing_yookassa_shop_id="shop-test",
         billing_yookassa_secret_file=secret,
+        billing_yookassa_webhook_secret_file=webhook,
     )
 
     assert settings.billing_checkout_enabled is False
     assert settings.billing_yookassa_secret_file == secret
+    assert settings.billing_yookassa_webhook_secret_file == webhook
+
+
+def test_billing_observation_rejects_missing_webhook_credentials(tmp_path) -> None:
+    secret = tmp_path / "yookassa-secret"
+    secret.write_text("test", encoding="utf-8")
+
+    with pytest.raises(ValidationError, match="webhook secret file"):
+        Settings(
+            billing_provider_observation_enabled=True,
+            billing_yookassa_base_url="https://api.yookassa.test",
+            billing_yookassa_shop_id="shop-test",
+            billing_yookassa_secret_file=secret,
+        )
 
 
 def test_yookassa_environment_is_explicit_when_api_host_is_shared(tmp_path) -> None:
     secret = tmp_path / "yookassa-secret"
+    webhook = tmp_path / "yookassa-webhook"
     secret.write_text("test", encoding="utf-8")
+    webhook.write_text("test", encoding="utf-8")
 
     test_settings = Settings(
         billing_provider_observation_enabled=True,
@@ -125,6 +144,7 @@ def test_yookassa_environment_is_explicit_when_api_host_is_shared(tmp_path) -> N
         billing_yookassa_environment="test",
         billing_yookassa_shop_id="1436758",
         billing_yookassa_secret_file=secret,
+        billing_yookassa_webhook_secret_file=webhook,
     )
     production_settings = Settings(
         billing_provider_observation_enabled=True,
@@ -132,6 +152,7 @@ def test_yookassa_environment_is_explicit_when_api_host_is_shared(tmp_path) -> N
         billing_yookassa_environment="production",
         billing_yookassa_shop_id="1430118",
         billing_yookassa_secret_file=secret,
+        billing_yookassa_webhook_secret_file=webhook,
     )
 
     assert test_settings.billing_yookassa_environment == "test"
@@ -144,6 +165,7 @@ def test_yookassa_environment_is_explicit_when_api_host_is_shared(tmp_path) -> N
             billing_yookassa_environment="sandbox",
             billing_yookassa_shop_id="1436758",
             billing_yookassa_secret_file=secret,
+            billing_yookassa_webhook_secret_file=webhook,
         )
 
 
