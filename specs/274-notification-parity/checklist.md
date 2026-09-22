@@ -80,7 +80,7 @@
 Объект: рабочее дерево
 /Users/yshishenya/.dsh/clutch-dsh-worktree/worktree/wt_6b80dad08d61,
 ветка 274-notification-parity, HEAD
-7c39dc2e2ad5a4c0aaf911bfba6ce1ae9674f503. Сверены текущие spec.md,
+8c2bd308754793861748936c59828ceb12dfcac2. Сверены текущие spec.md,
 plan.md, tasks.md, quickstart.md, research.md,
 changes/unreleased/F274.yaml, исходники согласователя/карточки и тесты.
 Изменён только этот файл; commit, push, merge и release не выполнялись.
@@ -109,7 +109,7 @@ changes/unreleased/F274.yaml, исходники согласователя/ка
 | CHK015 | BLOCKED | `refreshPermission` обновляет текст без перезапуска по коду, но фактическое переключение разрешения macOS туда/обратно не выполнено. |
 | CHK016 | BLOCKED | По текущему контракту отдельного плавающего индикатора нет: состояние должно быть в приложении, строке меню и панели управления. Полный живой цикл записи и исчезновение состояния после обработки не проверены. |
 | CHK017 | BLOCKED | Состояния `recording`/`transcribing`/`finished` сохранены для контроля, а `elapsed` намеренно не рисуется карточкой; правильная длительность в штатной поверхности не проверена живьём. |
-| CHK018 | BLOCKED | Команда остановки и доступность покрыты кодом и тестами, но этот пункт требует поведения штатной поверхности и живого клика; установленное приложение текущего SHA не запускалось. |
+| CHK018 | BLOCKED | Команда остановки и доступность покрыты кодом и тестами, но этот пункт требует поведения штатной поверхности и живого клика. CUA открыл страницу настроек уведомлений и нажал «Проверить уведомление», однако отдельная `nonactivating NSPanel` не попала в AX-дерево главного окна, а снимок самой карточки не получен; полной визуальной приёмки нет. |
 | CHK019 | BLOCKED | Карточка не становится key/main и использует `nonactivatingPanel`; отсутствие перехвата фокуса во всех штатных поверхностях живьём не проверено. |
 | CHK020 | BLOCKED | Цвета зависят от `effectiveAppearance`, но светлая и тёмная темы карточки и индикатора живьём или снимками не подтверждены. |
 | CHK021 | BLOCKED | Есть `accessibilitySummary`, подписи элементов и announcement; фактическое чтение карточки и состояния VoiceOver не выполнено. |
@@ -118,7 +118,7 @@ changes/unreleased/F274.yaml, исходники согласователя/ка
 | CHK024 | PASS | `swift test --package-path apps/macos --filter DesktopNotificationCardTests`: 34 теста, 1 ожидаемый пропуск, 0 ошибок. Тесты проверяют геометрию крестика, пять типов, границы, длинный текст, флажок, приоритет и сроки. |
 | CHK025 | PASS | На текущем SHA прошли `DesktopNotificationControlTests` (21/0), `DesktopLocalNotificationDeliveryTests` (12/0), `ShortRecordingNoticeTests` (1/0), `AppControlAccessibilityTests` (24/0); фильтр `DesktopNotification` дал 55 тестов, 1 пропуск, 0 ошибок. |
 | CHK026 | PASS | `bash apps/macos/Scripts/run-swift-tests.sh`: 1050 тестов, 2 пропуска, 0 ошибок; код возврата 0. |
-| CHK027 | BLOCKED | `infra/scripts/dev-harness.sh status --json` подтверждает active manifest `dev-7c39dc2e2ad5`, exact `source_sha=7c39dc2e2ad5a4c0aaf911bfba6ce1ae9674f503` и health `pass`, но `/Applications/GRAF Dev.app` отсутствует (`installed=false`); ручная CUA/live-проверка заблокирована. |
+| CHK027 | BLOCKED | `infra/scripts/dev-harness.sh status --json` подтверждает active manifest `dev-8c2bd3087547`, `status=active`, exact `source_sha=8c2bd308754793861748936c59828ceb12dfcac2` и health `pass`; `/Applications/GRAF Dev.app` установлено (`installed=true`), а `live smoke --json --live` прошёл на exact SHA. Однако CUA не увидел отдельную `nonactivating NSPanel` в AX-дереве главного окна, и снимок карточки не получен; это не полная визуальная приёмка, поэтому пункт остаётся BLOCKED. |
 | CHK028 | BLOCKED | `infra/scripts/ci-local.sh --fast` на грязном reviewer checkout завершился с exit 2; `ci_evidence_status=ambiguous`, `reason=dirty_worktree`. Это не PASS; свежих снимков и полной живой матрицы нет, поэтому доказательства живой приёмки неполны. |
 | CHK029 | PASS | `spec.md`, `plan.md`, `tasks.md`, `quickstart.md`, `research.md` и `changes/unreleased/F274.yaml` согласованы с текущей реализацией: левый крестик, адаптивная высота, пять типов, флажок, сроки и тексты. T044/T045 остаются BLOCKED и открытыми как отдельные живые/exact-SHA гейты. |
 | CHK030 | PASS | В проверенных артефактах нет секретов, токенов, содержимого встреч или персональных данных; используются синтетические значения. |
@@ -131,29 +131,38 @@ changes/unreleased/F274.yaml, исходники согласователя/ка
 затем meeting, затем preview; тесты подтверждают защиту проблемы, общую
 поверхность короткой записи и непоглощение инцидента. Активная или переходящая
 запись подавляет вторую запись. Закрытие, истечение, выход и завершение
-очищают поверхность по коду и тестам; актуальная живая сборка не доказана.
+очищают поверхность по коду и тестам; exact-SHA live smoke прошёл, но полная
+визуальная приёмка не доказана: отдельная `nonactivating NSPanel` не попала в
+AX-дерево главного окна, отдельный снимок карточки не получен.
 
 Точный остаток: F274 нельзя объявить полностью готовой к выпуску. Проверяемый
-HEAD/PR — `7c39dc2e2ad5a4c0aaf911bfba6ce1ae9674f503`. Active manifest
-`dev-7c39dc2e2ad5` указывает на тот же exact `source_sha` и имеет health
-`pass`, но `/Applications/GRAF Dev.app` отсутствует (`installed=false`), а CUA
-сообщает `Mac locked`. Не доказаны разрешения macOS, «Не беспокоить»,
-светлая/тёмная тема, VoiceOver, крупный шрифт, полноэкранный/многоэкранный
-режим и полный цикл записи/завершения процесса. `ci-local --fast` завершился с
-exit 2; `ci_evidence_status=ambiguous`, `reason=dirty_worktree`, поэтому это
-не PASS. Commit, PR, GitHub gates, merge, deploy и release не выполнялись.
-T044 и T045 обоснованно остаются BLOCKED и [ ].
+HEAD/source_sha — `8c2bd308754793861748936c59828ceb12dfcac2`. Active manifest
+`dev-8c2bd3087547` имеет `status=active`, тот же exact `source_sha` и health
+`pass`; `/Applications/GRAF Dev.app` установлено (`installed=true`), а
+`live smoke --json --live` прошёл на exact SHA. CUA открыл страницу настроек
+уведомлений и нажал «Проверить уведомление», но отдельная `nonactivating NSPanel`
+не попала в AX-дерево главного окна и отдельный снимок карточки не получен.
+Поэтому не доказаны разрешения macOS, «Не беспокоить», светлая/тёмная тема,
+VoiceOver, крупный шрифт, полноэкранный/многоэкранный режим, полный цикл
+записи/завершения процесса и полная визуальная приёмка. `ci-local --fast`
+завершился с exit 2; `ci_evidence_status=ambiguous`,
+`reason=dirty_worktree`, поэтому это не PASS. Commit, PR, GitHub gates, merge,
+deploy и release не выполнялись. T044 и T045 обоснованно остаются BLOCKED и [ ].
 
 ### Findings текущего SHA
 
-1. **P1 — доказательства живой приёмки заблокированы.**
-   Проверяемый HEAD/PR — `7c39dc2e2ad5a4c0aaf911bfba6ce1ae9674f503`. Active manifest
-   `dev-7c39dc2e2ad5` указывает на exact `source_sha`
-   `7c39dc2e2ad5a4c0aaf911bfba6ce1ae9674f503` и имеет `health.result=pass`, но
-   `/Applications/GRAF Dev.app` отсутствует (`installed=false`), а CUA сообщает
-   `Mac locked`. Поэтому нельзя считать доказанными системное разрешение, «Не
-   беспокоить», полный цикл записи, закрытие главного окна, тему, VoiceOver,
-   крупный шрифт, полноэкранный режим и несколько мониторов.
+1. **P1 — полная живая приёмка всё ещё заблокирована.**
+   Проверяемый HEAD/source_sha — `8c2bd308754793861748936c59828ceb12dfcac2`. Active manifest
+   `dev-8c2bd3087547` имеет `status=active`, exact `source_sha`
+   `8c2bd308754793861748936c59828ceb12dfcac2` и `health.result=pass`;
+   `/Applications/GRAF Dev.app` установлено (`installed=true`),
+   `live smoke --json --live` прошёл на exact SHA. CUA открыл настройки
+   уведомлений и нажал «Проверить уведомление», но отдельная
+   `nonactivating NSPanel` не попала в AX-дерево главного окна, а снимок
+   карточки не получен. Это подтверждает smoke/runtime identity, но не полную
+   визуальную приёмку; системное разрешение, «Не беспокоить», полный цикл
+   записи, тему, VoiceOver, крупный шрифт, полноэкранный режим и несколько
+   мониторов по-прежнему нельзя считать доказанными.
 
 2. **P1 — локальный шлюз не даёт PASS и не закрывает T044.**
    Полный macOS-набор текущего SHA — 1050 тестов, 2 пропуска, 0 ошибок;
