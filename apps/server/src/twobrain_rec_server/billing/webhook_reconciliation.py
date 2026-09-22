@@ -97,8 +97,9 @@ async def reconcile_pending_initial_checkout_operations(
     ]
     if operation_id is not None:
         filters.append(BillingOperation.id == operation_id)
-    operations = tuple(
-        await db.scalars(
+    candidates = tuple(
+        (operation.id, operation.workspace_id)
+        for operation in await db.scalars(
             select(BillingOperation)
             .where(*filters)
             .order_by(BillingOperation.updated_at, BillingOperation.id)
@@ -159,17 +160,17 @@ async def reconcile_pending_initial_checkout_operations(
     scope: ProviderScope | None = None
     try:
         async with AsyncExitStack() as provider_stack:
-            for candidate in operations:
+            for candidate_id, candidate_workspace_id in candidates:
                 counters["processed"] += 1
                 # Webhooks lock the workspace before the operation. Keep this scan
                 # unlocked and acquire the operation row only after the same advisory
                 # lock to preserve one lock order for both paths.
-                await lock_storage_workspace(db, candidate.workspace_id)
+                await lock_storage_workspace(db, candidate_workspace_id)
                 operation = await db.scalar(
                     select(BillingOperation)
                     .where(
-                        BillingOperation.id == candidate.id,
-                        BillingOperation.workspace_id == candidate.workspace_id,
+                        BillingOperation.id == candidate_id,
+                        BillingOperation.workspace_id == candidate_workspace_id,
                         BillingOperation.kind == "initial_checkout",
                         BillingOperation.provider_id.is_not(None),
                         BillingOperation.state.in_(observation_states),
