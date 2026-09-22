@@ -234,15 +234,18 @@
       начального платежа: advisory lock workspace до `BillingOperation
       FOR UPDATE`; добавить регрессию на порядок и повторную выборку операции
       по FR-010–FR-013 и plan §2.1 (review P1, исправлено).
+      Связь: (Issue #7252).
 - [X] T056 [US4] При отсутствии сохранённого способа оплаты завершать текущую
       попытку как подтверждённо неуспешную с письмом и `attempt_failed`, не
       переводить её в `manual_resolution`, чтобы планировщик мог открыть
       следующее окно; ошибки ключа, версии и расшифровки оставить
       `manual_resolution` по FR-015–FR-018 и plan §2.3 (review P1, исправлено).
+      Связь: (Issue #7252).
 - [X] T057 Включить `observation_expired` в административную очередь
       неизвестных исходов и проверить численное значение метрики на PostgreSQL,
       чтобы закрытое состояние не исчезало из наблюдаемости по FR-011 и
       runbook §1 (review P2, исправлено).
+      Связь: (Issue #7252).
 - [X] T058 [US3] Для фоновой сверки начальных платежей обрабатывать одну
       операцию и фиксировать её результат до перехода к следующей, чтобы
       advisory lock workspace не удерживался на всю пачку и сетевые вызовы
@@ -250,6 +253,7 @@
       на границу `commit_each_operation` в
       `apps/server/tests/unit/test_billing_observation.py` (review P1,
       исправлено).
+      Связь: (Issue #7252).
 - [X] T059 [US3] Зафиксировать maintenance-транзакцию до запуска webhook- и
       initial-checkout-сверки в
       `apps/server/src/twobrain_rec_server/workflows/worker.py`, чтобы не
@@ -257,6 +261,7 @@
       lock; добавить контракт порядка вызовов в
       `apps/server/tests/unit/test_billing_reconciliation_activity.py` (review
       P1, исправлено).
+      Связь: (Issue #7252).
 - [X] T060 [US3] Сохранить неизменяемые идентификаторы кандидатов до
       `rollback()` в фоновой initial-checkout-сверке, чтобы ошибка провайдера
       не инвалидировала ORM-объекты следующей операции и не останавливала
@@ -264,3 +269,4 @@
       обработкой второй в
       `apps/server/tests/unit/test_billing_observation.py` (review P1,
       исправлено).
+      Связь: (Issue #7252).
