@@ -217,9 +217,6 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     private func finishExternalCard(_ owner: CardOwner) {
         guard activeCardOwner == owner else { return }
         resetCardState()
-        // После истечения более важной карточки не теряем встречу, которая
-        // стала актуальной, пока внешнее сообщение было на экране.
-        reconcileCard()
     }
 
     private func dismissExternalCard(_ owner: CardOwner) {
@@ -241,6 +238,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
                             onExpire: { [weak self] in
                                 self?.finishExternalCard(owner)
                                 onExpire?()
+                                self?.reconcileCard()
                             })
         return true
     }
@@ -258,6 +256,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
                                    onExpire: { [weak self] in
                                        self?.finishExternalCard(owner)
                                        onExpire?()
+                                       self?.reconcileCard()
                                    })
         return true
     }
@@ -300,8 +299,11 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
                 return onTick?()
             },
             onExpire: { [weak self] in
-                self?.finishExternalCard(owner)
                 onExpire?()
+                // Обработчик тайм-аута сначала убирает вопрос и запускает
+                // запись. Не показываем встречу между этими двумя шагами:
+                // состояние записи само вызовет следующую сверку.
+                self?.finishExternalCard(owner)
             },
             onSkip: { [weak self] rememberChoice in
                 onSkip?(rememberChoice)
@@ -801,7 +803,10 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
                              self?.dismissExternalCard(owner)
                          }
                      },
-                     onExpire: { [weak self] in self?.finishExternalCard(owner) },
+                     onExpire: { [weak self] in
+                         self?.finishExternalCard(owner)
+                         self?.reconcileCard()
+                     },
                      onClose: { [weak self] in self?.dismissExternalCard(owner) })
         return card.isVisible && card.presentedContent?.identifier == "graf.card.problem"
     }

@@ -488,6 +488,29 @@ final class DesktopNotificationCardTests: XCTestCase {
         XCTAssertEqual(harness.presenter.card.presentedContent?.identifier, "graf.card.meeting")
     }
 
+    func testRecordingPromptExpiryDoesNotRestoreMeetingBeforeItsActionCompletes() async throws {
+        let harness = CardHarness()
+        defer { harness.finish() }
+        let event = harness.event(startsIn: 14 * 60)
+        await harness.updateCalendar([event])
+        var expired = false
+
+        XCTAssertTrue(harness.presenter.presentRecordingPrompt(
+            displayName: "Zoom",
+            remainingSeconds: 1,
+            progress: 0,
+            duration: 0.01,
+            onStart: {},
+            onDismiss: {},
+            onRememberChoiceChanged: { _ in },
+            onExpire: { expired = true }
+        ))
+        try await Task.sleep(for: .milliseconds(1_200))
+        XCTAssertTrue(expired)
+        XCTAssertNil(harness.presenter.card.presentedContent,
+                     "встреча не должна мелькать до завершения решения о записи")
+    }
+
     func testPresenterDoesNotRestoreDismissedCardAndKeepsBannerFallback() async throws {
         let harness = CardHarness()
         defer { harness.finish() }
