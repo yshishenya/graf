@@ -468,6 +468,26 @@ final class DesktopNotificationCardTests: XCTestCase {
         XCTAssertTrue(harness.presenter.presentationOptions(for: harness.reminderID(event)).isEmpty)
     }
 
+    func testExpiredHigherPriorityCardRestoresPendingMeeting() async throws {
+        let harness = CardHarness()
+        defer { harness.finish() }
+        let event = harness.event(startsIn: 14 * 60)
+        await harness.updateCalendar([event])
+        XCTAssertEqual(harness.presenter.card.presentedContent?.identifier, "graf.card.meeting")
+
+        XCTAssertTrue(harness.presenter.presentShortRecording(
+            title: "Запись слишком короткая",
+            message: "Записи короче 30 секунд не сохраняются.",
+            duration: 0.01
+        ))
+        XCTAssertEqual(harness.presenter.card.presentedContent?.identifier, "graf.card.short-recording")
+
+        // Карточка обновляет срок раз в секунду; после истечения встреча,
+        // скрытая более приоритетным сообщением, должна быть согласована снова.
+        try await Task.sleep(for: .milliseconds(1_200))
+        XCTAssertEqual(harness.presenter.card.presentedContent?.identifier, "graf.card.meeting")
+    }
+
     func testPresenterDoesNotRestoreDismissedCardAndKeepsBannerFallback() async throws {
         let harness = CardHarness()
         defer { harness.finish() }

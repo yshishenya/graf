@@ -217,6 +217,9 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     private func finishExternalCard(_ owner: CardOwner) {
         guard activeCardOwner == owner else { return }
         resetCardState()
+        // После истечения более важной карточки не теряем встречу, которая
+        // стала актуальной, пока внешнее сообщение было на экране.
+        reconcileCard()
     }
 
     private func dismissExternalCard(_ owner: CardOwner) {
