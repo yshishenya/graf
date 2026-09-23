@@ -76,7 +76,7 @@ def build_default_evidence(
             type="document",
             source="docs/current-product-status.md#feature-020-speaker-to-mic-leakage",
             captured_at=captured_at,
-            scope="Accepted finalization truth gate for dual-track recording packages.",
+            scope="Historical finalization evidence; not proof of current single-source upload readiness.",
             strength="docs_only",
             forbidden_content_scan="not_applicable",
         ),

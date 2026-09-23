@@ -376,14 +376,14 @@ def test_cabinet_list_shows_server_upload_progress_for_active_recording(client) 
     session = client.post(
         f"/api/v1/meetings/{meeting_id}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"manifest": 8, "microphone": 16, "system": 16}},
+        json={"expected_track_sizes": {"manifest": 8, "media": 16, "playback": 16}},
     )
     assert session.status_code == 200
     session_id = session.json()["session_id"]
     data = deterministic_wav_bytes(16)
     digest = sha256(data).hexdigest()
     upload = client.put(
-        f"/api/v1/upload-sessions/{session_id}/tracks/microphone/parts/0",
+        f"/api/v1/upload-sessions/{session_id}/tracks/media/parts/0",
         headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
         content=data,
     )
@@ -458,7 +458,7 @@ def test_terminal_upload_uses_attention_group_without_changing_public_status_fil
     session = client.post(
         f"/api/v1/meetings/{meeting_id}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"manifest": 8, "microphone": 16, "system": 16}},
+        json={"expected_track_sizes": {"manifest": 8, "media": 16, "playback": 16}},
     )
     assert session.status_code == 200
 
@@ -1588,7 +1588,7 @@ def test_mixed_meeting_chronology_and_local_date_search(client) -> None:
             db.add(MediaRevision(
                 id=uuid4(), workspace_id=WORKSPACE_ID, meeting_id=ids[2],
                 local_media_revision_id="synthetic-pending-252", revision_number=2,
-                source_kind="initial_recording", status="pending_upload",
+                source_kind="initial_mixed_recording", status="pending_upload",
             ))
             await db.commit()
 

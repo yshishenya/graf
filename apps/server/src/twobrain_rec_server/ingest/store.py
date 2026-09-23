@@ -86,11 +86,12 @@ class UploadSessionRecord:
     status: UploadSessionStatus
     expires_at: datetime
     media_revision_id: UUID | None = None
+    media_revision_source_kind: MediaRevisionSourceKind = MediaRevisionSourceKind.INITIAL_MIXED_RECORDING
     upload_strategy: UploadStrategy = UploadStrategy.SERVER_MEDIATED
     processing_status: ProcessingStatus = ProcessingStatus.NOT_SUBMITTED
     archive_audio: bool = True
     expected_track_roles: list[TrackRole] = field(
-        default_factory=lambda: [TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM]
+        default_factory=lambda: [TrackRole.MANIFEST, TrackRole.MEDIA, TrackRole.PLAYBACK]
     )
     expected_track_sizes: dict[TrackRole, int] = field(default_factory=dict)
     finalized_at: datetime | None = None
@@ -131,7 +132,7 @@ class InMemoryIngestStore:
         duration_seconds: int,
         title: str | None,
         title_source: str,
-        media_revision_source_kind: MediaRevisionSourceKind = MediaRevisionSourceKind.INITIAL_RECORDING,
+        media_revision_source_kind: MediaRevisionSourceKind = MediaRevisionSourceKind.INITIAL_MIXED_RECORDING,
     ) -> MeetingRecord:
         key = (workspace_id, user_id, local_recording_id)
         if key in self.meetings_by_local_id:
@@ -180,9 +181,14 @@ class InMemoryIngestStore:
             device_id=device_id or meeting.device_id,
             created_by_user_id=meeting.created_by_user_id,
             media_revision_id=meeting.media_revision_id,
+            media_revision_source_kind=meeting.media_revision_source_kind,
             status=UploadSessionStatus.PENDING,
             expires_at=datetime.now(UTC) + timedelta(seconds=settings.upload_session_ttl_seconds),
-            expected_track_roles=expected_track_roles or [TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM],
+            expected_track_roles=expected_track_roles or (
+                [TrackRole.MANIFEST, TrackRole.MEDIA, TrackRole.PLAYBACK]
+                if meeting.media_revision_source_kind == MediaRevisionSourceKind.INITIAL_MIXED_RECORDING
+                else [TrackRole.MANIFEST, TrackRole.MEDIA]
+            ),
             expected_track_sizes=expected_track_sizes or {},
             idempotency_key=idempotency_key,
         )
@@ -421,7 +427,8 @@ async def load_meeting_record(
         media_revision_source_kind=(
             MediaRevisionSourceKind(media_revision.source_kind)
             if media_revision is not None
-            else initial_media_revision_source_kind()
+            # Rows predating media revisions must retain historical provenance.
+            else MediaRevisionSourceKind.INITIAL_RECORDING
         ),
         started_at=model.started_at,
         ended_at=model.ended_at,
@@ -531,6 +538,11 @@ async def load_upload_session_record(
         device_id=model.device_id,
         created_by_user_id=model.created_by_user_id,
         media_revision_id=model.media_revision_id or meeting.media_revision_id,
+        media_revision_source_kind=(
+            MediaRevisionSourceKind(session_revision.source_kind)
+            if session_revision is not None
+            else MediaRevisionSourceKind.INITIAL_RECORDING
+        ),
         status=UploadSessionStatus(model.status),
         expires_at=model.expires_at,
         upload_strategy=UploadStrategy(model.upload_strategy),
@@ -962,11 +974,7 @@ async def persist_transient_source_objects(
     if session.archive_audio:
         raise ValueError("transient source objects require archive_audio=False")
     for track_role, (object_key, byte_length) in source_object_keys.items():
-        if track_role not in {
-            TrackRole.MEDIA,
-            TrackRole.MICROPHONE,
-            TrackRole.SYSTEM,
-        }:
+        if track_role != TrackRole.MEDIA:
             raise ValueError("transient source must be an audio track")
         if not object_key or byte_length <= 0:
             raise ValueError("transient source object metadata is invalid")

@@ -31,11 +31,13 @@ class TransientFailurePipeline:
     async def derive_candidate(self, _source_path: Path, _output_path: Path):
         raise RuntimeError("storage_unavailable")
 
-    async def derive_dual_source(
+    async def derive_single_source(
         self,
-        _microphone_path: Path,
-        _system_path: Path,
+        _source_path: Path,
         _output_path: Path,
+        *,
+        tolerant_first: bool = False,
+        expected_duration_seconds: int | None = None,
     ):
         raise AssertionError("candidate failure must not switch to source fallback")
 

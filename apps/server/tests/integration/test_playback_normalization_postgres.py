@@ -378,7 +378,7 @@ async def _seed_revision(engine: AsyncEngine) -> dict[str, UUID]:
                      source_kind, status, immutable, accepted_at)
                 values
                     (:id, :workspace_id, :meeting_id, :local_media_revision_id, 1,
-                     'initial_recording', 'accepted', true, :accepted_at)
+                     'initial_mixed_recording', 'accepted', true, :accepted_at)
                 """
             ),
             {
@@ -402,12 +402,11 @@ async def _seed_queued_job(
     workflow_id = f"playback-normalization/{ids['media_revision_id']}/v1"
     manifest_sha256 = sha256(b"postgres-normalization-manifest" + job_id.bytes).hexdigest()
     track_sha256_by_role = {
-        "microphone": sha256(b"postgres-normalization-microphone" + job_id.bytes).hexdigest(),
-        "system": sha256(b"postgres-normalization-system" + job_id.bytes).hexdigest(),
+        "media": sha256(b"postgres-normalization-media" + job_id.bytes).hexdigest(),
     }
     source_fingerprint = source_fingerprint_sha256(
         media_revision_id=ids["media_revision_id"],
-        source_kind="initial_recording",
+        source_kind="initial_mixed_recording",
         manifest_sha256=manifest_sha256,
         track_sha256_by_role=track_sha256_by_role,
         duration_seconds=60,
@@ -443,7 +442,7 @@ async def _seed_queued_job(
                 values
                     (:id, :organization_id, :workspace_id, :requested_by_user_id,
                      :source_device_id, :meeting_id, :media_revision_id, :profile_version,
-                     :validation_version, 'finalize', 'new_ingest', 'initial_recording',
+                     :validation_version, 'finalize', 'new_ingest', 'initial_mixed_recording',
                      :source_fingerprint_sha256, :planned_action, 'queued', :workflow_id)
                 """
             ),
@@ -1104,7 +1103,7 @@ async def test_postgres_cleanup_function_returns_only_unverified_purged_attempts
                     values
                         (:id, :organization_id, :workspace_id, :requested_by_user_id,
                          :source_device_id, :meeting_id, :media_revision_id,
-                         'finalize', 'new_ingest', 'initial_recording',
+                         'finalize', 'new_ingest', 'initial_mixed_recording',
                          :source_fingerprint_sha256, 'normalize_source', :workflow_id)
                     """
                 ),
@@ -1461,7 +1460,7 @@ async def test_postgres_concurrent_due_pickup_grants_one_durable_lease(
             validation_version=VALIDATION_VERSION,
             trigger_kind="finalize",
             priority_class="new_ingest",
-            source_kind="initial_recording",
+            source_kind="initial_mixed_recording",
             source_fingerprint_sha256="f" * 64,
             planned_action="validate_candidate",
             state="queued",

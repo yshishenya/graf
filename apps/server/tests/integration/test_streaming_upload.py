@@ -125,11 +125,11 @@ def test_upload_part_limit_rejects_before_storage_write(client) -> None:
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"system": 4}},
+        json={"expected_track_sizes": {"playback": 4}},
     ).json()
     data = deterministic_wav_bytes(4)
     response = client.put(
-        f"/api/v1/upload-sessions/{session['session_id']}/tracks/system/parts/0",
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/playback/parts/0",
         headers=auth_headers()
         | {"X-Byte-Offset": "0", "X-Content-SHA256": sha256(data).hexdigest()},
         content=data,

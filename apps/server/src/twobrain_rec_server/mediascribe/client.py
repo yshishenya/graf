@@ -138,38 +138,6 @@ class MediaScribeClient:
         if self.shared_http_client is not None:
             await self.shared_http_client.aclose()
 
-    async def submit_dual_track(
-        self,
-        *,
-        mic_file: BinaryIO,
-        incoming_file: BinaryIO,
-        diarize: bool,
-        summarize: bool,
-        num_speakers: int | None = None,
-        speaker_count_mode: str | None = None,
-        idempotency_key: str | None = None,
-        request_id: str | None = None,
-    ) -> MediaScribeSubmitResponse:
-        payload = _upload_form_fields(
-            diarize=diarize,
-            summarize=summarize,
-            num_speakers=num_speakers,
-            speaker_count_mode=speaker_count_mode,
-        )
-        files = {
-            "mic_file": ("microphone.wav", mic_file, "audio/wav"),
-            "incoming_file": ("incoming.wav", incoming_file, "audio/wav"),
-        }
-        response = await self._request_json(
-            "POST",
-            f"{_V1_TRANSCRIPTIONS_PATH}/dual-track",
-            data=payload,
-            files=files,
-            idempotency_key=idempotency_key,
-            request_id=request_id,
-        )
-        return _parse_submit_response(response)
-
     async def submit_single_track(
         self,
         *,

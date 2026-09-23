@@ -42,7 +42,6 @@ MEETING_TITLE_SOURCES = frozenset(
 )
 
 FIRST_PARTY_RECORDING_SOURCE_MODES = {
-    MediaRevisionSourceKind.INITIAL_RECORDING.value: "dual",
     MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value: "single_wav_v1",
 }
 
@@ -81,19 +80,24 @@ async def create_or_get_meeting(
     started_at: datetime | None = None,
     ended_at: datetime | None = None,
     recording_display_timezone_offset_minutes: int | None = None,
-    media_revision_source_kind: MediaRevisionSourceKind = MediaRevisionSourceKind.INITIAL_RECORDING,
+    media_revision_source_kind: MediaRevisionSourceKind = MediaRevisionSourceKind.INITIAL_MIXED_RECORDING,
     media_scribe_source_mode: str | None = None,
     calendar_match_attempt_id: UUID | None = None,
     consume_calendar_context: bool = False,
 ) -> MeetingRecord:
     validate_recording_duration(settings, duration_seconds)
+    if media_revision_source_kind == MediaRevisionSourceKind.INITIAL_RECORDING:
+        raise ProblemDetail(
+            status=400, code="unsupported_recording_source_kind",
+            title="Historical recording sources are read and delete only",
+        )
     if (
         media_revision_source_kind == MediaRevisionSourceKind.INITIAL_MIXED_RECORDING
         or media_scribe_source_mode is not None
     ):
         validate_first_party_recording_source_mode(
             source_kind=media_revision_source_kind,
-            media_scribe_source_mode=media_scribe_source_mode,
+            media_scribe_source_mode=media_scribe_source_mode or "single_wav_v1",
         )
     normalized_title_source = normalize_meeting_title_source(
         title=title,
@@ -110,7 +114,7 @@ async def create_or_get_meeting(
         recording_display_timezone_offset_minutes=recording_display_timezone_offset_minutes,
         media_revision_source_kind=media_revision_source_kind,
         media_scribe_source_mode=(
-            media_scribe_source_mode
+            media_scribe_source_mode or "single_wav_v1"
             if media_revision_source_kind == MediaRevisionSourceKind.INITIAL_MIXED_RECORDING
             else None
         ),

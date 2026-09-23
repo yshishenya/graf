@@ -207,7 +207,7 @@ def _review(
     return MeetingReviewResponse(
         meeting=item,
         provenance=MeetingProvenance(
-            source_roles=["local_microphone", "incoming_system"],
+            source_roles=["canonical_mixed"],
             processing_dependency="mediascribe",
             content_policy="authorized_detail_only",
         ),
@@ -2083,7 +2083,7 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
         playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
         policy_label="Аудио доступно для проверки",
         source_mode="stored_review_m4a",
-        included_sources=["local_microphone", "incoming_system"],
+        included_sources=["canonical_mixed"],
     )
     review.transcript = TranscriptReviewState(
         available=True,
@@ -2097,7 +2097,7 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
                 end_seconds=10.0,
                 timestamp_label="00:00",
                 speaker_label="SPEAKER_00",
-                source_role="local_microphone",
+                source_role="canonical_mixed",
                 text="Безопасный синтетический текст.",
                 seekable=True,
                 seek_seconds=0.0,
@@ -2109,7 +2109,7 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
                 end_seconds=20.0,
                 timestamp_label="00:12",
                 speaker_label="SPEAKER_01",
-                source_role="incoming_system",
+                source_role="canonical_mixed",
                 text="Еще один безопасный синтетический текст.",
                 seekable=True,
                 seek_seconds=12.5,
@@ -2191,7 +2191,7 @@ def test_detail_shell_prefers_derived_turns_and_keeps_raw_fallback_safe() -> Non
         playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
         policy_label="Аудио доступно для проверки",
         source_mode="stored_review_m4a",
-        included_sources=["local_microphone", "incoming_system"],
+        included_sources=["canonical_mixed"],
     )
     review.transcript = TranscriptReviewState(
         available=True,
@@ -2205,7 +2205,7 @@ def test_detail_shell_prefers_derived_turns_and_keeps_raw_fallback_safe() -> Non
                 end_seconds=11.0,
                 timestamp_label="00:10",
                 speaker_label="SPEAKER_00",
-                source_role="incoming_system",
+                source_role="canonical_mixed",
                 text="raw fragment must not be rendered when a turn exists",
                 seekable=True,
                 seek_seconds=10.0,
@@ -2219,7 +2219,7 @@ def test_detail_shell_prefers_derived_turns_and_keeps_raw_fallback_safe() -> Non
                 end_seconds=12.0,
                 timestamp_label="00:10",
                 speaker_label="SPEAKER_00",
-                source_role="incoming_system",
+                source_role="canonical_mixed",
                 text="<synthetic merged turn>",
                 source_segment_ids=["raw-only-id", "raw-second-id"],
                 seekable=True,
@@ -2327,7 +2327,7 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
         playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
         policy_label="Аудио доступно для проверки",
         source_mode="stored_review_m4a",
-        included_sources=["local_microphone", "incoming_system"],
+        included_sources=["canonical_mixed"],
     )
     review.speakers = SpeakerReviewState(
         available=True,
@@ -2338,14 +2338,14 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
                 speaker_key="speaker_00",
                 label="SPEAKER_00",
                 talk_time_percent=35,
-                source_roles=["local_microphone"],
+                source_roles=["canonical_mixed"],
                 segments=[SpeakerLaneSegment(start_seconds=0.0, end_seconds=12.0)],
             ),
             SpeakerLane(
                 speaker_key="speaker_01",
                 label="SPEAKER_01",
                 talk_time_percent=65,
-                source_roles=["incoming_system"],
+                source_roles=["canonical_mixed"],
                 segments=[SpeakerLaneSegment(start_seconds=30.0, end_seconds=90.0)],
             ),
         ],
@@ -2363,7 +2363,7 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
                 timestamp_label="00:00",
                 speaker_key="speaker_00",
                 speaker_label="Очень длинное имя спикера для проверки подписи",
-                source_role="local_microphone",
+                source_role="canonical_mixed",
                 text="Безопасный синтетический текст.",
                 seekable=True,
                 seek_seconds=0,
@@ -2437,7 +2437,7 @@ def test_speaker_timeline_resize_contract_scales_with_synthetic_row_count() -> N
         playback_path="/synthetic-review.m4a",
         policy_label="Аудио доступно для проверки",
         source_mode="stored_review_m4a",
-        included_sources=["local_microphone", "incoming_system"],
+        included_sources=["canonical_mixed"],
     )
 
     def speaker(index: int) -> SpeakerLane:
@@ -2515,7 +2515,7 @@ def test_playback_timeline_keeps_full_width_lanes_and_separate_speaker_manager()
         playback_path="/synthetic.wav",
         policy_label="Аудио доступно",
         source_mode="stored_review_m4a",
-        included_sources=["local_microphone", "incoming_system"],
+        included_sources=["canonical_mixed"],
     )
     review.speakers = SpeakerReviewState(
         available=True,
@@ -2575,7 +2575,7 @@ def test_speaker_ui_counts_only_confirmed_people_and_labels_talk_time() -> None:
         playback_path="/synthetic.wav",
         policy_label="Аудио доступно",
         source_mode="stored_review_m4a",
-        included_sources=["local_microphone", "incoming_system"],
+        included_sources=["canonical_mixed"],
     )
     review.speakers = SpeakerReviewState(
         available=True,
@@ -2826,7 +2826,7 @@ def test_detail_shell_renders_stored_outcomes_with_long_content_and_playback_spa
         playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
         policy_label="Аудио доступно для проверки",
         source_mode="stored_review_m4a",
-        included_sources=["local_microphone", "incoming_system"],
+        included_sources=["canonical_mixed"],
     )
     summary = NotesActionCategoryState(
         state="available",
@@ -3224,7 +3224,7 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
         playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
         policy_label="Аудио доступно для проверки",
         source_mode="stored_review_m4a",
-        included_sources=["local_microphone", "incoming_system"],
+        included_sources=["canonical_mixed"],
     )
     review.transcript = TranscriptReviewState(
         available=True,
@@ -3238,7 +3238,7 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
                 end_seconds=8.0,
                 timestamp_label="00:00",
                 speaker_label="SPEAKER_00",
-                source_role="local_microphone",
+                source_role="canonical_mixed",
                 text="Безопасная синтетическая строка для проверки review.",
                 seekable=True,
                 seek_seconds=0.0,
@@ -3254,7 +3254,7 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
                 speaker_key="speaker_00",
                 label="SPEAKER_00",
                 talk_time_percent=60,
-                source_roles=["local_microphone"],
+                source_roles=["canonical_mixed"],
                 segments=[SpeakerLaneSegment(start_seconds=0.0, end_seconds=8.0)],
             )
         ],
@@ -3311,7 +3311,7 @@ def test_052_owner_review_keeps_recording_playback_timeline_and_outcomes_separat
         playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
         policy_label="Аудио доступно для проверки",
         source_mode="stored_review_m4a",
-        included_sources=["local_microphone", "incoming_system"],
+        included_sources=["canonical_mixed"],
     )
     review.speakers = SpeakerReviewState(
         available=True,
@@ -3322,7 +3322,7 @@ def test_052_owner_review_keeps_recording_playback_timeline_and_outcomes_separat
                 speaker_key="speaker_00",
                 label="SPEAKER_00",
                 talk_time_percent=60,
-                source_roles=["local_microphone"],
+                source_roles=["canonical_mixed"],
                 segments=[SpeakerLaneSegment(start_seconds=0.0, end_seconds=8.0)],
             )
         ],
@@ -3538,7 +3538,7 @@ def test_embedded_detail_preserves_playback_player_and_timestamp_seek() -> None:
         playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
         policy_label="Аудио доступно для проверки",
         source_mode="stored_review_m4a",
-        included_sources=["local_microphone", "incoming_system"],
+        included_sources=["canonical_mixed"],
     )
     review.transcript = TranscriptReviewState(
         available=True,
@@ -3552,7 +3552,7 @@ def test_embedded_detail_preserves_playback_player_and_timestamp_seek() -> None:
                 end_seconds=20.0,
                 timestamp_label="00:12",
                 speaker_label="SPEAKER_00",
-                source_role="incoming_system",
+                source_role="canonical_mixed",
                 text="Безопасный синтетический текст.",
                 seekable=True,
                 seek_seconds=12.5,

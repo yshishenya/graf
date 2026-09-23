@@ -202,6 +202,37 @@ async def pick_up_processing(
             result.blocked_count += 1
             result.meeting_ids.append(meeting.id)
             continue
+        historical_workflow = await store.get_processing_workflow(
+            db, workspace_id=workspace_id, meeting_id=meeting.id,
+            media_revision_id=media_revision_id, active_only=False,
+        )
+        historical_job = (
+            await store.get_mediascribe_job(
+                db, workspace_id=workspace_id, meeting_id=meeting.id,
+                media_revision_id=media_revision_id,
+                processing_workflow_id=historical_workflow.id,
+            ) if historical_workflow is not None else None
+        )
+        if await store.processing_source_is_retired(
+            db, workspace_id=workspace_id, meeting_id=meeting.id,
+            media_revision_id=media_revision_id, job=historical_job,
+        ):
+            if historical_workflow is not None:
+                await store.retire_unsupported_processing(
+                    db, workflow=historical_workflow, job=historical_job,
+                )
+            else:
+                await _block_meeting(
+                    db, meeting, media_revision_id=media_revision_id,
+                    reason_code=reasons.UNSUPPORTED_RECORDING_SOURCE,
+                    expected_meeting_status=expected_meeting_status,
+                    expected_media_revision_id=media_revision_id,
+                    archive_audio=meeting_archive_audio,
+                    status=ProcessingStatus.FAILED_TERMINAL,
+                )
+            result.blocked_count += 1
+            result.meeting_ids.append(meeting.id)
+            continue
         source_fingerprint = None
         if media_revision is not None:
             try:

@@ -1421,8 +1421,6 @@ async def run_processing_pipeline_activity(
         owned_engine = create_engine(settings)
         sessionmaker = create_sessionmaker(owned_engine)
     try:
-        mediascribe_client = mediascribe_client or MediaScribeClient.from_settings(settings)
-        storage = storage or get_storage(settings)
         async with sessionmaker() as db:
             await apply_tenant_scope(db, tenant_scope, context_kind="worker")
             workflow = await _load_processing_workflow_for_activity(
@@ -1450,6 +1448,14 @@ async def run_processing_pipeline_activity(
                 processing_workflow_id=workflow.id,
                 active_only=False,
             )
+            if await store.retire_unsupported_processing(db, workflow=workflow, job=job):
+                return {
+                    "meeting_id": str(meeting_id),
+                    "processing_status": ProcessingStatus.FAILED_TERMINAL.value,
+                    "reason_code": reasons.UNSUPPORTED_RECORDING_SOURCE,
+                }
+            mediascribe_client = mediascribe_client or MediaScribeClient.from_settings(settings)
+            storage = storage or get_storage(settings)
             if _is_unknown_mediascribe_upload(workflow=workflow, job=job):
                 job = await _reconcile_unknown_mediascribe_upload(
                     db,
@@ -2502,6 +2508,8 @@ def _processing_status_for_runtime_error(
     exc: RuntimeError,
 ) -> tuple[ProcessingStatus, bool] | None:
     reason_code = str(exc)
+    if reason_code == reasons.UNSUPPORTED_RECORDING_SOURCE:
+        return ProcessingStatus.FAILED_TERMINAL, False
     if reason_code == reasons.BLOCKED_MISSING_ARTIFACTS:
         return ProcessingStatus.BLOCKED, False
     if reason_code == reasons.PROCESSING_TEMP_STORAGE_UNAVAILABLE:

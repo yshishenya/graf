@@ -16,7 +16,7 @@ def test_selected_media_requires_both_tools(monkeypatch, tmp_path, missing, entr
             if entrypoint == "matrix":
                 matrix._media_tools()
             elif entrypoint == "workflow":
-                workflow.test_real_ffmpeg_pipeline_builds_validated_dual_source_playback(tmp_path)
+                workflow.test_real_ffmpeg_pipeline_builds_historical_dual_source_playback(tmp_path)
             else:
                 test_rec.test_authorized_test_rec_converts_automatically_and_leaves_no_residue(None, tmp_path)
     except pytest.skip.Exception:

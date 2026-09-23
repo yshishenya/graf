@@ -192,6 +192,17 @@ def test_production_share_head_upgrades_to_regeneration_merge(
                 versions = (
                     await connection.scalars(text("select version_num from alembic_version"))
                 ).all()
+                source_defaults = {
+                    (row.table_name, row.column_name): row.column_default
+                    for row in await connection.execute(text(
+                        "select table_name, column_name, column_default "
+                        "from information_schema.columns where table_schema = 'public' "
+                        "and ((table_name = 'mediascribe_jobs' and column_name = 'request_mode') "
+                        "or (table_name = 'media_revisions' and column_name = 'source_kind'))"
+                    ))
+                }
+                assert "single_track" in source_defaults[("mediascribe_jobs", "request_mode")]
+                assert "initial_mixed_recording" in source_defaults[("media_revisions", "source_kind")]
                 tables = set(
                     (
                         await connection.scalars(
@@ -248,7 +259,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         promotion_counter_function,
         promotion_counter_config,
     ) = asyncio.run(inspect_schema())
-    assert versions == ["0097_public_attribution_index"]
+    assert versions == ["0099_single_source_revision"]
     assert "public.promotion_campaigns" in promotion_counter_function
     assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {
@@ -261,6 +272,10 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         "processing_workflows": {"purpose", "source_fingerprint", "deletion_epoch_at_start"},
         "processing_results": {"processing_workflow_id", "deletion_epoch_at_start"},
         "mediascribe_jobs": {
+            # Historical rows remain readable/deletable after default changes.
+            "mic_track_artifact_id",
+            "incoming_track_artifact_id",
+            "source_track_artifact_id",
             "idempotency_key",
             "source_fingerprint",
             "deletion_epoch_at_start",

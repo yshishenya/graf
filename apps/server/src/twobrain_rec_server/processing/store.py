@@ -87,6 +87,7 @@ from twobrain_rec_server.processing.reasons import (
     BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
     BLOCKED_TEMPORAL_UNAVAILABLE,
     MEDIASCRIBE_MALFORMED_RESPONSE,
+    UNSUPPORTED_RECORDING_SOURCE,
 )
 from twobrain_rec_server.processing.recovery import (
     DEFAULT_DEADLINE,
@@ -189,8 +190,6 @@ def processing_request_fingerprint(
     *,
     request_mode: str,
     source_fingerprint: str | None,
-    mic_artifact: TrackArtifact | None,
-    incoming_artifact: TrackArtifact | None,
     source_artifact: TrackArtifact | None,
     diarize: bool,
     summarize: bool,
@@ -212,8 +211,8 @@ def processing_request_fingerprint(
         "request_mode": request_mode,
         "source_fingerprint": source_fingerprint,
         "artifacts": {
-            "mic": artifact_snapshot(mic_artifact),
-            "incoming": artifact_snapshot(incoming_artifact),
+            "mic": None,  # Preserve the pre-F275 single-request fingerprint exactly.
+            "incoming": None,
             "source": artifact_snapshot(source_artifact),
         },
         "diarize": bool(diarize),
@@ -645,26 +644,15 @@ async def release_processing_manual_check_claim(
 
 @dataclass(frozen=True, slots=True)
 class ProcessingSourceArtifacts:
-    """Immutable source selection for one revision.
-
-    The mic/incoming fields are a compatibility drain for pre-v5 accepted
-    revisions only. New first-party capture uses source_artifact as one
-    canonical WAV and never selects a playback artifact for processing.
-    """
+    """One immutable processing source; historical pairs are never selected."""
 
     request_mode: str
     source_kind: str
-    mic_artifact: TrackArtifact | None = None
-    incoming_artifact: TrackArtifact | None = None
-    source_artifact: TrackArtifact | None = None
+    source_artifact: TrackArtifact
 
     @property
     def byte_length(self) -> int:
-        if self.request_mode == "single_track":
-            return self.source_artifact.byte_length if self.source_artifact is not None else 0
-        return (self.mic_artifact.byte_length if self.mic_artifact is not None else 0) + (
-            self.incoming_artifact.byte_length if self.incoming_artifact is not None else 0
-        )
+        return self.source_artifact.byte_length
 
     @property
     def is_v5_mixed_recording(self) -> bool:
@@ -1009,6 +997,8 @@ async def prepare_closed_workflow_same_job_recovery(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
+    if await retire_unsupported_processing(db, workflow=current, job=job):
+        return None
     if job is None:
         return None
     next_ordinal = int(current.attempt_ordinal or 1) + 1
@@ -1264,6 +1254,32 @@ async def create_processing_attempt(
             result="source_unavailable",
             media_revision_id=media_revision.id,
         )
+    previous_workflow = await get_processing_workflow(
+        db, workspace_id=workspace_id, meeting_id=meeting_id,
+        media_revision_id=media_revision.id, active_only=False,
+    )
+    previous_job = (
+        await get_mediascribe_job(
+            db, workspace_id=workspace_id, meeting_id=meeting_id,
+            media_revision_id=media_revision.id,
+            processing_workflow_id=previous_workflow.id,
+        ) if previous_workflow is not None else None
+    )
+    if await processing_source_is_retired(
+        db, workspace_id=workspace_id, meeting_id=meeting_id,
+        media_revision_id=media_revision.id, job=previous_job,
+    ):
+        if previous_workflow is not None:
+            await retire_unsupported_processing(db, workflow=previous_workflow, job=previous_job)
+        return ProcessingAttemptCreation(result="source_unavailable", media_revision_id=media_revision.id)
+    known_provider_job = (
+        previous_job is not None and bool(previous_job.external_job_id)
+        and previous_workflow.last_reason_code in _RESUMABLE_PROVIDER_JOB_REASONS
+        and previous_job.status not in {
+            MediaScribeJobStatus.FAILED.value, MediaScribeJobStatus.BLOCKED.value,
+            MediaScribeJobStatus.DELETING.value,
+        }
+    )
     preparation = await load_manual_upload_preparation(
         db,
         workspace_id=workspace_id,
@@ -1271,7 +1287,7 @@ async def create_processing_attempt(
         media_revision_id=media_revision.id,
         revision=media_revision,
     )
-    if preparation is not None and preparation.state in {"terminal", "cancelled"}:
+    if not known_provider_job and preparation is not None and preparation.state in {"terminal", "cancelled"}:
         return ProcessingAttemptCreation(
             result="source_unavailable",
             media_revision_id=media_revision.id,
@@ -1286,7 +1302,7 @@ async def create_processing_attempt(
             media_revision_id=media_revision.id,
         )
     )
-    if source is None:
+    if source is None and not known_provider_job:
         return ProcessingAttemptCreation(
             result="source_unavailable",
             media_revision_id=media_revision.id,
@@ -1311,7 +1327,8 @@ async def create_processing_attempt(
     # Purge reconciliation locks the same workflow rows. Check the shared
     # revision source only after that lock so retry cannot race a deletion.
     if (
-        await load_processing_source(
+        not known_provider_job
+        and await load_processing_source(
             db,
             workspace_id=workspace_id,
             meeting_id=meeting_id,
@@ -1397,6 +1414,10 @@ async def create_processing_attempt(
             )
             .with_for_update()
             .execution_options(populate_existing=True)
+        )
+    if source is None and resumable_provider_job is None:
+        return ProcessingAttemptCreation(
+            result="source_unavailable", media_revision_id=media_revision.id,
         )
     terminal_result_is_terminal = bool(
         current_result is not None
@@ -1690,6 +1711,53 @@ async def fail_processing_attempt_dispatch(
     return False
 
 
+async def processing_source_is_retired(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID | None,
+    job: MediaScribeJob | None = None,
+) -> bool:
+    # A known provider ID needs no new source upload, even after source retention.
+    if job is not None and job.external_job_id:
+        return False
+    if job is not None and job.request_mode != "single_track":
+        return True
+    revision = await db.scalar(
+        select(MediaRevision).where(
+            MediaRevision.id == media_revision_id,
+            MediaRevision.workspace_id == workspace_id,
+            MediaRevision.meeting_id == meeting_id,
+        )
+    )
+    return (
+        revision is not None
+        and revision.source_kind == MediaRevisionSourceKind.INITIAL_RECORDING.value
+    )
+
+
+async def retire_unsupported_processing(
+    db: AsyncSession,
+    *,
+    workflow: ProcessingWorkflow,
+    job: MediaScribeJob | None = None,
+) -> bool:
+    if not await processing_source_is_retired(
+        db,
+        workspace_id=workflow.workspace_id,
+        meeting_id=workflow.meeting_id,
+        media_revision_id=workflow.media_revision_id,
+        job=job,
+    ):
+        return False
+    await set_workflow_status(
+        db, workflow, ProcessingStatus.FAILED_TERMINAL,
+        reason_code=UNSUPPORTED_RECORDING_SOURCE, terminal=True,
+    )
+    return True
+
+
 async def load_processing_source(
     db: AsyncSession,
     *,
@@ -1712,7 +1780,8 @@ async def load_processing_source(
             desc(MediaRevision.updated_at),
         )
     revision = await db.scalar(revision_query)
-    if revision is None or not revision.track_sha256_by_role:
+    if (revision is None or not revision.track_sha256_by_role
+        or revision.source_kind == MediaRevisionSourceKind.INITIAL_RECORDING.value):
         return None
     try:
         expected_digests = authoritative_track_sha256_by_role(
@@ -1755,15 +1824,6 @@ async def load_processing_source(
             request_mode="single_track",
             source_kind=revision.source_kind,
             source_artifact=artifacts_by_role[TrackRole.MEDIA.value],
-        )
-    if revision.source_kind == MediaRevisionSourceKind.INITIAL_RECORDING.value:
-        # Historical compatibility only. New recordings are initial_mixed_recording
-        # and take the canonical media branch above.
-        return ProcessingSourceArtifacts(
-            request_mode="dual_track",
-            source_kind=revision.source_kind,
-            mic_artifact=artifacts_by_role[TrackRole.MICROPHONE.value],
-            incoming_artifact=artifacts_by_role[TrackRole.SYSTEM.value],
         )
     return None
 
@@ -2035,6 +2095,15 @@ async def upsert_processing_workflow(
             workflow.started_at = now
         if not workflow.archive_audio and workflow.transient_admitted_at is None:
             _start_transient_lifecycle(workflow, now=now)
+    if status == ProcessingStatus.FAILED_TERMINAL and reason_code == UNSUPPORTED_RECORDING_SOURCE:
+        workflow.ended_at = workflow.ended_at or now
+        workflow.retry_class = "terminal"
+        workflow.next_attempt_at = None
+        workflow.next_attempt_source = None
+        await release_processing_usage_reservation(
+            db, workspace_id=workspace_id, media_revision_id=media_revision_id,
+            meeting_id=meeting_id,
+        )
     if not archive_audio and status in TERMINAL_PROCESSING_STATUSES:
         _mark_transient_terminal(workflow, now=now)
     await _sync_meeting_processing_status(
@@ -2130,6 +2199,7 @@ async def set_workflow_status(
         current.next_attempt_at = None
         current.next_attempt_source = None
     if terminal:
+        current.retry_class = "terminal"
         current.ended_at = datetime.now(UTC)
         if not current.archive_audio:
             _mark_transient_terminal(current, now=current.ended_at)
@@ -2259,8 +2329,6 @@ async def upsert_mediascribe_job(
     db: AsyncSession,
     *,
     workflow: ProcessingWorkflow,
-    mic_artifact: TrackArtifact | None = None,
-    incoming_artifact: TrackArtifact | None = None,
     source_artifact: TrackArtifact | None = None,
     request_mode: str,
     source_fingerprint: str | None = None,
@@ -2269,9 +2337,9 @@ async def upsert_mediascribe_job(
     speaker_count_mode: str | None = None,
     num_speakers: int | None = None,
 ) -> MediaScribeJob:
-    if request_mode == "dual_track" and (mic_artifact is None or incoming_artifact is None):
-        raise ValueError("dual_track_requires_artifact_pair")
-    if request_mode == "single_track" and source_artifact is None:
+    if request_mode != "single_track":
+        raise ValueError(UNSUPPORTED_RECORDING_SOURCE)
+    if source_artifact is None:
         raise ValueError("single_track_requires_source_artifact")
     effective_source_fingerprint = source_fingerprint or workflow.source_fingerprint
     if workflow.media_revision_id is None or not effective_source_fingerprint:
@@ -2279,8 +2347,6 @@ async def upsert_mediascribe_job(
     request_fingerprint = processing_request_fingerprint(
         request_mode=request_mode,
         source_fingerprint=effective_source_fingerprint,
-        mic_artifact=mic_artifact,
-        incoming_artifact=incoming_artifact,
         source_artifact=source_artifact,
         diarize=diarize,
         summarize=summarize,
@@ -2291,8 +2357,6 @@ async def upsert_mediascribe_job(
     meeting_id = workflow.meeting_id
     media_revision_id = workflow.media_revision_id
     processing_workflow_id = workflow.id
-    mic_artifact_id = mic_artifact.id if mic_artifact is not None else None
-    incoming_artifact_id = incoming_artifact.id if incoming_artifact is not None else None
     source_artifact_id = source_artifact.id if source_artifact is not None else None
     job = await get_mediascribe_job(
         db,
@@ -2322,8 +2386,6 @@ async def upsert_mediascribe_job(
                 idempotency_key=idempotency_key,
                 source_fingerprint=effective_source_fingerprint,
                 deletion_epoch_at_start=workflow.deletion_epoch_at_start,
-                mic_track_artifact_id=mic_artifact_id,
-                incoming_track_artifact_id=incoming_artifact_id,
                 source_track_artifact_id=source_artifact_id,
                 status=MediaScribeJobStatus.NOT_SUBMITTED.value,
                 request_mode=request_mode,
@@ -2351,8 +2413,6 @@ async def upsert_mediascribe_job(
         if job.request_fingerprint not in {None, request_fingerprint}:
             raise ProcessingLifecycleBlocked("processing_request_fingerprint_conflict")
         job.request_mode = request_mode
-        job.mic_track_artifact_id = mic_artifact_id
-        job.incoming_track_artifact_id = incoming_artifact_id
         job.source_track_artifact_id = source_artifact_id
         job.diarize = diarize
         job.summarize = summarize

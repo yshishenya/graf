@@ -805,6 +805,7 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
             return false
         }
 
+        // Structural historical readability only; upload admission is v5-only.
         if mediaScribeSourceMode == "dual" {
             return Set(tracks.map(\.role)) == Set([.localMic, .remoteSpeaker]) &&
                 tracks.allSatisfy { $0.sourceKind != nil } &&
@@ -828,29 +829,6 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     public var isHistoricCompatibilityPackage: Bool {
         Self.historicCompatibilitySchemaVersions.contains(schemaVersion) &&
             ["dual", "derived_dual"].contains(mediaScribeSourceMode)
-    }
-
-    public static func transcriptionReadiness(
-        forSchemaVersion schemaVersion: String,
-        tracks: [LocalRecordingTrack] = []
-    ) -> TranscriptionReadinessState {
-        guard schemaVersion == Self.schemaVersion ||
-              Self.historicCompatibilitySchemaVersions.contains(schemaVersion)
-        else {
-            return .historicalPackage
-        }
-        guard schemaVersion != Self.schemaVersion else {
-            return .degraded
-        }
-        if tracks.contains(where: { $0.role == .localMic && $0.isMediaScribeReady }) &&
-            tracks.contains(where: { $0.role == .remoteSpeaker && $0.isMediaScribeReady }) {
-            return .ready
-        }
-        if tracks.contains(where: { $0.role == .derivedLocalMic && $0.isMediaScribeReady }) &&
-            tracks.contains(where: { $0.role == .remoteSpeaker && $0.isMediaScribeReady }) {
-            return .ready
-        }
-        return .degraded
     }
 }
 
@@ -892,6 +870,7 @@ public struct LocalBufferItem: Codable, Equatable, Sendable {
 }
 
 public enum DesktopUploadTransportRole: String, Codable, CaseIterable, Sendable {
+    // Historical serialized roles remain readable for accounting and deletion only.
     case microphone
     case system
     case media
@@ -900,10 +879,8 @@ public enum DesktopUploadTransportRole: String, Codable, CaseIterable, Sendable 
 
     public static func role(forLocalTrackRole role: AudioTrackRole) -> DesktopUploadTransportRole? {
         switch role {
-        case .localMic:
-            return .microphone
-        case .remoteSpeaker:
-            return .system
+        case .localMic, .remoteSpeaker:
+            return nil
         case .mixedMeetingAudio:
             return .media
         case .reviewPlayback:
@@ -1637,6 +1614,35 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
 
     public var isV5Package: Bool {
         artifactProfile.isV5Package
+    }
+
+    public static let unsupportedRecordingSourceReason = "unsupported_recording_source"
+
+    public var hasUnsupportedRecordingSource: Bool {
+        artifactProfile.schemaVersion != LocalRecordingManifest.schemaVersion
+    }
+
+    /// A persisted `isUploadable` flag is evidence about files, never permission
+    /// to revive a retired transport format.
+    public var isUploadEligible: Bool {
+        isV5Package && artifactProfile.isUploadable
+    }
+
+    public func retiringUnsupportedUpload(at now: Date) -> Self {
+        guard hasUnsupportedRecordingSource else { return self }
+        var next = self
+        next.artifactProfile.isUploadable = false
+        next.nextRetryAt = nil
+        next.retryMode = state.isTerminal ? .terminal : .manualOnly
+        // Preserve confirmed deletion, terminal server truth and recovery reasons.
+        if !state.isTerminal && !hasConfirmedDeletion && deletionOperation?.blocksContent != true &&
+            syncConflictState != .queueDocumentMalformed {
+            next.state = .blocked
+            next.failureCategory = .schemaIncompatibility
+            next.failureReason = Self.unsupportedRecordingSourceReason
+        }
+        if next != self { next.updatedAt = now }
+        return next
     }
 
     public init(

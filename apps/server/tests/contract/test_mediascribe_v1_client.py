@@ -9,7 +9,7 @@ from twobrain_rec_server.mediascribe.schemas import MediaScribeDeletionState
 
 
 @pytest.mark.asyncio
-async def test_v1_fixture_covers_capabilities_single_dual_status_result_and_deletion() -> None:
+async def test_v1_fixture_covers_capabilities_single_status_result_and_deletion() -> None:
     fixture = MediaScribeV1Fixture()
     client = MediaScribeClient(
         base_url="https://mediascribe.test",
@@ -26,25 +26,17 @@ async def test_v1_fixture_covers_capabilities_single_dual_status_result_and_dele
         summarize=False,
         idempotency_key="fixture-single-key",
     )
-    dual = await client.submit_dual_track(
-        mic_file=BytesIO(b"mic"),
-        incoming_file=BytesIO(b"incoming"),
-        diarize=True,
-        summarize=False,
-        idempotency_key="fixture-dual-key",
-    )
     status = await client.poll_job(single.external_job_id)
     result = await client.fetch_result(single.external_job_id)
     deletion = await client.delete_job(single.external_job_id)
 
-    assert capabilities.dual_track_supported
     assert capabilities.summary_available
-    assert single.external_job_id == dual.external_job_id == fixture.job_id
+    assert single.external_job_id == fixture.job_id
     assert status.status == MediaScribeJobStatus.READY
     assert result.diarization
     assert result.summary_status.value == "unavailable"
     assert deletion.state == MediaScribeDeletionState.COMPLETED
-    assert fixture.submissions == ["fixture-single-key", "fixture-dual-key"]
+    assert fixture.submissions == ["fixture-single-key"]
     assert all("server-only-key" not in path for _, path in fixture.calls)
 
 

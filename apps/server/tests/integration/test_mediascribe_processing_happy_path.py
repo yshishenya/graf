@@ -727,10 +727,10 @@ def test_processing_e2e_submits_uploaded_track_hashes_and_persists_result_rows(c
     persisted = asyncio.run(run_pipeline())
 
     expected_submission = {
-        "mic_size": 16,
-        "incoming_size": 24,
-        "mic_sha256": expected_hashes["microphone"],
-        "incoming_sha256": expected_hashes["system"],
+        "request_mode": "single_track",
+        "media_sha256": expected_hashes["media"],
+        "media_content_type": "audio/wav",
+        "media_filename": "meeting-transcription.wav",
         "diarize": True,
         "summarize": False,
     }

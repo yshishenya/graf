@@ -398,8 +398,7 @@ def test_reprocess_rejects_missing_retained_source(client) -> None:
             media_revision_id=media_revision_id,
         )
     )
-    set_retained_audio_source_status(client, meeting_id, TrackRole.MICROPHONE, "purged")
-    set_retained_audio_source_status(client, meeting_id, TrackRole.SYSTEM, "purged")
+    set_retained_audio_source_status(client, meeting_id, TrackRole.MEDIA, "purged")
 
     response = client.post(
         f"/api/v1/meetings/{meeting_id}/processing/reprocess",

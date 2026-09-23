@@ -31,10 +31,14 @@ def initial_local_media_revision_id(local_recording_id: str) -> str:
 def revision_aware_recording_fixture(local_recording_id: str = "offline-fixture-001") -> RevisionAwareRecordingFixture:
     tracks = [
         track_descriptor("manifest", size=128),
-        track_descriptor("microphone", size=1_024),
-        track_descriptor("system", size=2_048),
+        track_descriptor("media", size=1_024),
+        track_descriptor("playback", size=2_048),
     ]
-    by_role = {str(track["track_role"]): str(track["sha256"]) for track in tracks}
+    by_role = {
+        str(track["track_role"]): str(track["sha256"])
+        for track in tracks
+        if track["track_role"] != "playback"
+    }
     local_media_revision_id = initial_local_media_revision_id(local_recording_id)
     return RevisionAwareRecordingFixture(
         local_recording_id=local_recording_id,
@@ -84,7 +88,9 @@ def desktop_sync_state_payload(
         "upload_session": {
             "session_id": str(stable_uuid("upload-session", fixture.local_recording_id)),
             "status": state,
-            "accepted_bytes_by_track": {"manifest": 0, "microphone": 0, "system": 0},
+            "accepted_bytes_by_track": {
+                str(track["track_role"]): 0 for track in fixture.expected_tracks
+            },
             "desktop_truth_rule": "server_ranges_authoritative",
         },
         "processing": {"status": "not_submitted", "workflow_id": None, "reason_code": None},

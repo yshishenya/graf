@@ -1,18 +1,9 @@
+from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import TrackDescriptor
 from twobrain_rec_server.domain.statuses import MediaRevisionSourceKind, TrackRole
 
-# These role sets are intentionally limited to immutable pre-v5 records. New
-# first-party capture declares INITIAL_MIXED_RECORDING and must take the v5
-# canonical-media branch below.
-HISTORICAL_DUAL_FINALIZE_ROLES = {TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM}
-HISTORICAL_DUAL_WITH_PLAYBACK_FINALIZE_ROLES = HISTORICAL_DUAL_FINALIZE_ROLES | {TrackRole.PLAYBACK}
 SINGLE_TRACK_FINALIZE_ROLES = {TrackRole.MANIFEST, TrackRole.MEDIA}
 MIXED_RECORDING_V5_FINALIZE_ROLES = SINGLE_TRACK_FINALIZE_ROLES | {TrackRole.PLAYBACK}
-VALID_FINALIZE_ROLE_SETS = (
-    HISTORICAL_DUAL_FINALIZE_ROLES,
-    HISTORICAL_DUAL_WITH_PLAYBACK_FINALIZE_ROLES,
-    SINGLE_TRACK_FINALIZE_ROLES,
-)
 
 MIXED_RECORDING_V5_DESCRIPTOR_CONTRACT = {
     TrackRole.MANIFEST: ("json", 1, 1),
@@ -33,8 +24,6 @@ def _source_kind_value(source_kind: MediaRevisionSourceKind | str | None) -> str
 
 def _expected_roles_for_source_kind(source_kind: MediaRevisionSourceKind | str) -> set[TrackRole]:
     source_kind_value = _source_kind_value(source_kind)
-    if source_kind_value == MediaRevisionSourceKind.INITIAL_RECORDING.value:
-        return HISTORICAL_DUAL_FINALIZE_ROLES
     if source_kind_value == MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value:
         return MIXED_RECORDING_V5_FINALIZE_ROLES
     if source_kind_value == MediaRevisionSourceKind.MANUAL_UPLOAD.value:
@@ -50,6 +39,20 @@ def _expected_roles_for_source_kind(source_kind: MediaRevisionSourceKind | str) 
     raise ManifestValidationError("unsupported media revision source kind")
 
 
+def ensure_supported_upload_source(
+    source_kind: MediaRevisionSourceKind | str,
+    roles: list[TrackRole] | None = None,
+) -> None:
+    """Admission only: historical values remain usable by readers and deletion."""
+    if _source_kind_value(source_kind) == MediaRevisionSourceKind.INITIAL_RECORDING.value or (
+        roles is not None and any(role in {TrackRole.MICROPHONE, TrackRole.SYSTEM} for role in roles)
+    ):
+        raise ProblemDetail(
+            status=400, code="unsupported_recording_source_kind",
+            title="Historical recording sources are read and delete only",
+        )
+
+
 def validate_required_track_roles(
     roles: set[TrackRole],
     *,
@@ -58,14 +61,7 @@ def validate_required_track_roles(
     source_kind_value = _source_kind_value(source_kind)
     if source_kind_value is not None:
         expected = _expected_roles_for_source_kind(source_kind_value)
-        if source_kind_value == MediaRevisionSourceKind.INITIAL_RECORDING.value:
-            accepted_role_sets = (
-                HISTORICAL_DUAL_FINALIZE_ROLES,
-                HISTORICAL_DUAL_WITH_PLAYBACK_FINALIZE_ROLES,
-            )
-            if roles in accepted_role_sets:
-                return
-        elif roles == expected:
+        if roles == expected:
             return
         missing = expected - roles
         if missing:
@@ -73,11 +69,10 @@ def validate_required_track_roles(
             raise ManifestValidationError(f"missing required track roles: {missing_names}")
         role_names = ", ".join(sorted(role.value for role in roles))
         raise ManifestValidationError(f"invalid finalize track role combination: {role_names}")
-    # Source-kind-less clients predate v5. Keep their accepted shapes readable,
-    # but no v5 desktop path may rely on this fallback.
-    if roles in VALID_FINALIZE_ROLE_SETS:
+    # Source-kind-less validation is retained for the manual single-file path.
+    if roles == SINGLE_TRACK_FINALIZE_ROLES:
         return
-    expected = SINGLE_TRACK_FINALIZE_ROLES if TrackRole.MEDIA in roles else HISTORICAL_DUAL_FINALIZE_ROLES
+    expected = SINGLE_TRACK_FINALIZE_ROLES
     missing = expected - roles
     if missing:
         missing_names = ", ".join(sorted(role.value for role in missing))

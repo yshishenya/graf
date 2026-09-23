@@ -43,7 +43,7 @@ class MediaRevision(Base):
     local_media_revision_id: Mapped[str] = mapped_column(String(300), nullable=False)
     revision_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     source_kind: Mapped[str] = mapped_column(
-        String(64), nullable=False, default="initial_recording"
+        String(64), nullable=False, default="initial_mixed_recording", server_default="initial_mixed_recording"
     )
     status: Mapped[str] = mapped_column(String(64), nullable=False, default="pending_upload")
     manifest_sha256: Mapped[str | None] = mapped_column(String(64))

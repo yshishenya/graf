@@ -579,7 +579,7 @@ def build_default_stages(feature: str = "034-mvp-loop-readiness") -> list[MvpLoo
             evidence_strength="docs_only",
             evidence_ids=["feature-020-finalization"],
             claim_impact=["desktop_loop_verified", "mvp_loop_ready"],
-            notes="Finalization truth gate is accepted for dual-track packages.",
+            notes="Historical finalization evidence does not prove current single-source upload readiness.",
         ),
         MvpLoopStage(
             id="upload-server-ingest",

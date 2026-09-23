@@ -105,11 +105,11 @@ def test_us2_latest_provider_failure_resolves_and_consumes_fail_soft(client) -> 
     upload_session = client.post(
         f"/api/v1/meetings/{meeting.json()['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_tracks": ["manifest", "microphone", "system"]},
+        json={"expected_tracks": ["manifest", "media", "playback"]},
     )
     assert upload_session.status_code == 200
     assert upload_session.json()["status"] == "pending"
-    assert upload_session.json()["expected_tracks"] == ["manifest", "microphone", "system"]
+    assert upload_session.json()["expected_tracks"] == ["manifest", "media", "playback"]
 
     async def load_truth() -> tuple[
         RecordingCalendarContextLink | None,

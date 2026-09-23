@@ -35,7 +35,7 @@ def _create_upload_session(client, meeting_id: str) -> dict:
     response = client.post(
         f"/api/v1/meetings/{meeting_id}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_tracks": ["manifest", "microphone", "system"]},
+        json={"expected_tracks": ["manifest", "media", "playback"]},
     )
     assert response.status_code == 200
     return response.json()

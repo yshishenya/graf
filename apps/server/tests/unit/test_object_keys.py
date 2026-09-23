@@ -10,10 +10,10 @@ def test_object_key_contains_tenant_workspace_meeting_and_session_scope() -> Non
         workspace_id=UUID("20000000-0000-0000-0000-000000000001"),
         meeting_id=UUID("30000000-0000-0000-0000-000000000001"),
         upload_session_id=UUID("40000000-0000-0000-0000-000000000001"),
-        track_role=TrackRole.MICROPHONE,
+        track_role=TrackRole.MEDIA,
         part_number=2,
     )
     assert "organizations/10000000-0000-0000-0000-000000000001" in key
     assert "workspaces/20000000-0000-0000-0000-000000000001" in key
     assert "sessions/40000000-0000-0000-0000-000000000001" in key
-    assert key.endswith("/tracks/microphone/parts/00000002")
+    assert key.endswith("/tracks/media/parts/00000002")

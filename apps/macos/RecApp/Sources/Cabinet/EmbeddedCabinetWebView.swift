@@ -1005,6 +1005,8 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
                 "Не удалось подтвердить доступ к записи"
             } else if damaged {
                 "Запись повреждена"
+            } else if item.hasUnsupportedRecordingSource && !item.state.isTerminal {
+                "Старый формат · отправка недоступна"
             } else if localCaptureFailure && canOpen {
                 "Сохранена часть записи"
             } else if item.state == .uploading,
@@ -1034,7 +1036,7 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
                 canOpen: canOpen,
                 showsPartialDuration: showsPartialDuration,
                 canSend: !damaged && !item.lifecycleBlocksContent
-                    && item.artifactProfile.isUploadable
+                    && item.isUploadEligible
                     && ![.saving, .uploading, .uploaded].contains(item.state),
                 canDelete: !item.lifecycleBlocksContent && item.state != .saving &&
                     (item.ownerScope != nil || DesktopUploadQueueService.canDeleteLocalCopy(item: item, recordingsRootURL: recordingsRootURL)),

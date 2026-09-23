@@ -21,7 +21,7 @@ def test_matching_retry_is_idempotent(client) -> None:
     session = create_session(client)
     data = deterministic_wav_bytes(64)
     digest = sha256(data).hexdigest()
-    path = f"/api/v1/upload-sessions/{session['session_id']}/tracks/microphone/parts/0"
+    path = f"/api/v1/upload-sessions/{session['session_id']}/tracks/media/parts/0"
     first = client.put(path, headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest}, content=data)
     second = client.put(path, headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest}, content=data)
     assert first.status_code == 200
@@ -33,7 +33,7 @@ def test_conflicting_retry_is_rejected(client) -> None:
     session = create_session(client)
     data = deterministic_wav_bytes(64)
     digest = sha256(data).hexdigest()
-    path = f"/api/v1/upload-sessions/{session['session_id']}/tracks/microphone/parts/0"
+    path = f"/api/v1/upload-sessions/{session['session_id']}/tracks/media/parts/0"
     assert client.put(path, headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest}, content=data).status_code == 200
     other = b"other"
     other_digest = sha256(other).hexdigest()
@@ -46,7 +46,7 @@ def test_body_checksum_mismatch_is_rejected_without_accepted_bytes(client) -> No
     session = create_session(client)
     data = deterministic_wav_bytes(64)
     wrong_digest = sha256(b"not-this-body").hexdigest()
-    path = f"/api/v1/upload-sessions/{session['session_id']}/tracks/microphone/parts/0"
+    path = f"/api/v1/upload-sessions/{session['session_id']}/tracks/media/parts/0"
 
     mismatch = client.put(path, headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": wrong_digest}, content=data)
     status = client.get(f"/api/v1/upload-sessions/{session['session_id']}", headers=auth_headers())
