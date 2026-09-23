@@ -32,7 +32,7 @@ Independent test: synthetic smoke package корректен, active docs и res
 
 ## Phase 6: Validation and closeout
 
-- [ ] T008 Выполнить quickstart.md high-risk-feature проверки server/native/scripts, независимый review и converge; записать точные результаты, ограничения и PR checks в specs/275-retire-dual-transcription/quickstart.md (FR-008, SC-001–SC-004).
+- [X] T008 Выполнить quickstart.md high-risk-feature проверки server/native/scripts, независимый review и converge; записать точные результаты, ограничения и PR checks в specs/275-retire-dual-transcription/quickstart.md (FR-008, SC-001–SC-004).
 
 ## Dependencies And Parallel Execution
 
