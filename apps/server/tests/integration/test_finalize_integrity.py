@@ -73,12 +73,12 @@ def _create_session_with_parts(
         headers=auth_headers(),
         json={
             "expected_track_sizes": expected_track_sizes
-            or {"manifest": sizes[0], "microphone": sizes[1], "system": sizes[2]}
+            or {"manifest": sizes[0], "media": sizes[1], "playback": sizes[2]}
         },
     ).json()
 
     tracks = []
-    for size, role in zip(sizes, ["manifest", "microphone", "system"], strict=True):
+    for size, role in zip(sizes, ["manifest", "media", "playback"], strict=True):
         data = deterministic_wav_bytes(size)
         digest = sha256(data).hexdigest()
         response = client.put(
@@ -154,19 +154,19 @@ def test_finalize_accepts_contiguous_multipart_track(client: TestClient) -> None
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"manifest": 4, "microphone": 4, "system": 8}},
+        json={"expected_track_sizes": {"manifest": 4, "media": 4, "playback": 8}},
     ).json()
     session_id = session["session_id"]
 
     manifest = b"m123"
-    microphone = b"u123"
-    system_head = b"s123"
-    system_tail = b"s456"
+    media = b"u123"
+    playback_head = b"s123"
+    playback_tail = b"s456"
     uploads = [
         ("manifest", 0, 0, manifest),
-        ("microphone", 0, 0, microphone),
-        ("system", 1, 4, system_tail),
-        ("system", 0, 0, system_head),
+        ("media", 0, 0, media),
+        ("playback", 1, 4, playback_tail),
+        ("playback", 0, 0, playback_head),
     ]
     for role, part_number, offset, data in uploads:
         response = client.put(
@@ -176,12 +176,12 @@ def test_finalize_accepts_contiguous_multipart_track(client: TestClient) -> None
         )
         assert response.status_code == 200
 
-    system = system_head + system_tail
+    playback = playback_head + playback_tail
     tracks = [
         track_descriptor("manifest", len(manifest)) | {"sha256": sha256(manifest).hexdigest(), "byte_length": len(manifest)},
-        track_descriptor("microphone", len(microphone))
-        | {"sha256": sha256(microphone).hexdigest(), "byte_length": len(microphone)},
-        track_descriptor("system", len(system)) | {"sha256": sha256(system).hexdigest(), "byte_length": len(system)},
+        track_descriptor("media", len(media))
+        | {"sha256": sha256(media).hexdigest(), "byte_length": len(media)},
+        track_descriptor("playback", len(playback)) | {"sha256": sha256(playback).hexdigest(), "byte_length": len(playback)},
     ]
 
     original_storage = client.app.state.storage
@@ -193,12 +193,12 @@ def test_finalize_accepts_contiguous_multipart_track(client: TestClient) -> None
 
     assert response.status_code == 200
 
-    async def persisted_system_artifact() -> TrackArtifact:
+    async def persisted_playback_artifact() -> TrackArtifact:
         async with client.app_state["sessionmaker"]() as db:
             artifact = await db.scalar(
                 select(TrackArtifact).where(
                     TrackArtifact.meeting_id == UUID(meeting["meeting_id"]),
-                    TrackArtifact.track_role == "system",
+                    TrackArtifact.track_role == "playback",
                 )
             )
             assert artifact is not None
@@ -206,15 +206,15 @@ def test_finalize_accepts_contiguous_multipart_track(client: TestClient) -> None
 
     import asyncio
 
-    artifact = asyncio.run(persisted_system_artifact())
-    assert artifact.byte_length == len(system)
-    assert artifact.sha256 == sha256(system).hexdigest()
-    assert client.app_state["storage"].objects[artifact.storage_object_key] == system
+    artifact = asyncio.run(persisted_playback_artifact())
+    assert artifact.byte_length == len(playback)
+    assert artifact.sha256 == sha256(playback).hexdigest()
+    assert client.app_state["storage"].objects[artifact.storage_object_key] == playback
 
 
 def test_finalize_rejects_mismatched_track_sha(client: TestClient) -> None:
     session_id, tracks = _create_session_with_parts(client)
-    tracks[1] = tracks[1] | {"sha256": sha256(b"wrong-microphone").hexdigest()}
+    tracks[1] = tracks[1] | {"sha256": sha256(b"wrong-media").hexdigest()}
 
     response = _finalize(client, session_id, tracks, str(tracks[0]["sha256"]))
 
@@ -231,18 +231,18 @@ def test_finalize_cleans_materialized_track_after_checksum_mismatch(client: Test
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"manifest": 4, "microphone": 4, "system": 8}},
+        json={"expected_track_sizes": {"manifest": 4, "media": 4, "playback": 8}},
     ).json()
     session_id = session["session_id"]
     manifest = b"m123"
-    microphone = b"u123"
-    system_head = b"s123"
-    system_tail = b"s456"
+    media = b"u123"
+    playback_head = b"s123"
+    playback_tail = b"s456"
     for role, part_number, offset, data in [
         ("manifest", 0, 0, manifest),
-        ("microphone", 0, 0, microphone),
-        ("system", 0, 0, system_head),
-        ("system", 1, 4, system_tail),
+        ("media", 0, 0, media),
+        ("playback", 0, 0, playback_head),
+        ("playback", 1, 4, playback_tail),
     ]:
         response = client.put(
             f"/api/v1/upload-sessions/{session_id}/tracks/{role}/parts/{part_number}",
@@ -251,13 +251,13 @@ def test_finalize_cleans_materialized_track_after_checksum_mismatch(client: Test
         )
         assert response.status_code == 200
 
-    system = system_head + system_tail
+    playback = playback_head + playback_tail
     tracks = [
         track_descriptor("manifest", len(manifest)) | {"sha256": sha256(manifest).hexdigest(), "byte_length": len(manifest)},
-        track_descriptor("microphone", len(microphone))
-        | {"sha256": sha256(microphone).hexdigest(), "byte_length": len(microphone)},
-        track_descriptor("system", len(system))
-        | {"sha256": sha256(b"wrong-system").hexdigest(), "byte_length": len(system)},
+        track_descriptor("media", len(media))
+        | {"sha256": sha256(media).hexdigest(), "byte_length": len(media)},
+        track_descriptor("playback", len(playback))
+        | {"sha256": sha256(b"wrong-playback").hexdigest(), "byte_length": len(playback)},
     ]
 
     response = _finalize(client, session_id, tracks, sha256(manifest).hexdigest())
@@ -276,18 +276,18 @@ def test_finalize_cleans_prior_materialized_track_after_later_track_gap(client: 
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"manifest": 8, "microphone": 4, "system": 8}},
+        json={"expected_track_sizes": {"manifest": 8, "media": 4, "playback": 8}},
     ).json()
     session_id = session["session_id"]
     manifest_head = b"m123"
     manifest_tail = b"m456"
-    microphone = b"u123"
-    system_tail = b"s456"
+    media = b"u123"
+    playback_tail = b"s456"
     for role, part_number, offset, data in [
         ("manifest", 0, 0, manifest_head),
         ("manifest", 1, 4, manifest_tail),
-        ("microphone", 0, 0, microphone),
-        ("system", 1, 4, system_tail),
+        ("media", 0, 0, media),
+        ("playback", 1, 4, playback_tail),
     ]:
         response = client.put(
             f"/api/v1/upload-sessions/{session_id}/tracks/{role}/parts/{part_number}",
@@ -299,9 +299,9 @@ def test_finalize_cleans_prior_materialized_track_after_later_track_gap(client: 
     manifest = manifest_head + manifest_tail
     tracks = [
         track_descriptor("manifest", len(manifest)) | {"sha256": sha256(manifest).hexdigest(), "byte_length": len(manifest)},
-        track_descriptor("system", 8) | {"sha256": sha256(b"system-with-gap").hexdigest(), "byte_length": 8},
-        track_descriptor("microphone", len(microphone))
-        | {"sha256": sha256(microphone).hexdigest(), "byte_length": len(microphone)},
+        track_descriptor("playback", 8) | {"sha256": sha256(b"playback-with-gap").hexdigest(), "byte_length": 8},
+        track_descriptor("media", len(media))
+        | {"sha256": sha256(media).hexdigest(), "byte_length": len(media)},
     ]
 
     response = _finalize(client, session_id, tracks, sha256(manifest).hexdigest())
@@ -312,7 +312,7 @@ def test_finalize_cleans_prior_materialized_track_after_later_track_gap(client: 
 
 
 def test_finalize_rejects_mismatched_track_byte_length(client: TestClient) -> None:
-    session_id, tracks = _create_session_with_parts(client, {"manifest": 8, "microphone": 9, "system": 11})
+    session_id, tracks = _create_session_with_parts(client, {"manifest": 8, "media": 9, "playback": 11})
     tracks[2] = tracks[2] | {"byte_length": 11}
 
     response = _finalize(client, session_id, tracks, str(tracks[0]["sha256"]))
@@ -323,14 +323,14 @@ def test_finalize_rejects_mismatched_track_byte_length(client: TestClient) -> No
 
 def test_finalize_rejects_role_object_mapping_mismatch(client: TestClient) -> None:
     session_id, tracks = _create_session_with_parts(client)
-    microphone = next(track for track in tracks if track["track_role"] == "microphone")
-    system = next(track for track in tracks if track["track_role"] == "system")
+    media = next(track for track in tracks if track["track_role"] == "media")
+    playback = next(track for track in tracks if track["track_role"] == "playback")
     tracks = [
         track
         if track["track_role"] == "manifest"
-        else track | {"sha256": system["sha256"]}
-        if track["track_role"] == "microphone"
-        else track | {"sha256": microphone["sha256"]}
+        else track | {"sha256": playback["sha256"]}
+        if track["track_role"] == "media"
+        else track | {"sha256": media["sha256"]}
         for track in tracks
     ]
 
@@ -341,7 +341,7 @@ def test_finalize_rejects_role_object_mapping_mismatch(client: TestClient) -> No
 
 
 def test_finalize_rejects_expected_track_size_mismatch(client: TestClient) -> None:
-    session_id, tracks = _create_session_with_parts(client, {"manifest": 8, "microphone": 99, "system": 10})
+    session_id, tracks = _create_session_with_parts(client, {"manifest": 8, "media": 99, "playback": 10})
 
     response = _finalize(client, session_id, tracks, str(tracks[0]["sha256"]))
 
@@ -390,8 +390,8 @@ def test_media_revision_acceptance_lock_serializes_concurrent_checks(client: Tes
                 media_revision_id=media_revision_id,
                 manifest_sha256="m" * 64,
                 tracks=[
-                    {"track_role": "microphone", "sha256": "u" * 64},
-                    {"track_role": "system", "sha256": "s" * 64},
+                    {"track_role": "media", "sha256": "u" * 64},
+                    {"track_role": "playback", "sha256": "s" * 64},
                 ],
             )
 
@@ -405,8 +405,8 @@ def test_media_revision_acceptance_lock_serializes_concurrent_checks(client: Tes
                     media_revision_id=media_revision_id,
                     manifest_sha256="m" * 64,
                     tracks=[
-                        {"track_role": "microphone", "sha256": "u" * 64},
-                        {"track_role": "system", "sha256": "s" * 64},
+                        {"track_role": "media", "sha256": "u" * 64},
+                        {"track_role": "playback", "sha256": "s" * 64},
                     ],
                 )
                 await second.commit()
@@ -438,14 +438,14 @@ def test_finalize_fingerprint_conflict_preserves_existing_multipart_objects(clie
 
     def upload_multipart(session_id: str, *, prefix: bytes) -> list[dict[str, object]]:
         manifest = prefix + b"manifest"
-        microphone = prefix + b"microphone"
-        system_head = prefix + b"system-head"
-        system_tail = b"-tail"
+        media = prefix + b"source-wav"
+        playback_head = prefix + b"review-head"
+        playback_tail = b"-tail"
         parts = [
             ("manifest", 0, 0, manifest),
-            ("microphone", 0, 0, microphone),
-            ("system", 0, 0, system_head),
-            ("system", 1, len(system_head), system_tail),
+            ("media", 0, 0, media),
+            ("playback", 0, 0, playback_head),
+            ("playback", 1, len(playback_head), playback_tail),
         ]
         for role, part_number, offset, data in parts:
             response = client.put(
@@ -456,7 +456,7 @@ def test_finalize_fingerprint_conflict_preserves_existing_multipart_objects(clie
             )
             assert response.status_code == 200, response.text
         tracks = []
-        for role, data in [("manifest", manifest), ("microphone", microphone), ("system", system_head + system_tail)]:
+        for role, data in [("manifest", manifest), ("media", media), ("playback", playback_head + playback_tail)]:
             tracks.append(
                 track_descriptor(role, len(data))
                 | {"sha256": sha256(data).hexdigest(), "byte_length": len(data)}
@@ -466,7 +466,7 @@ def test_finalize_fingerprint_conflict_preserves_existing_multipart_objects(clie
     first_session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"manifest": 14, "microphone": 16, "system": 22}},
+        json={"expected_track_sizes": {"manifest": 14, "media": 16, "playback": 22}},
     ).json()["session_id"]
     first_tracks = upload_multipart(first_session, prefix=b"first-")
     first_finalize = _finalize(client, first_session, first_tracks, str(first_tracks[0]["sha256"]))
@@ -480,7 +480,7 @@ def test_finalize_fingerprint_conflict_preserves_existing_multipart_objects(clie
     second_session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"manifest": 15, "microphone": 17, "system": 23}},
+        json={"expected_track_sizes": {"manifest": 15, "media": 17, "playback": 23}},
     ).json()["session_id"]
     second_tracks = upload_multipart(second_session, prefix=b"second-")
     response = _finalize(client, second_session, second_tracks, str(second_tracks[0]["sha256"]))
@@ -509,18 +509,18 @@ def test_finalize_cleans_materialized_track_after_immutable_conflict(client: Tes
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"manifest": 4, "microphone": 4, "system": 8}},
+        json={"expected_track_sizes": {"manifest": 4, "media": 4, "playback": 8}},
     ).json()
     session_id = session["session_id"]
     manifest = b"m456"
-    microphone = b"u456"
-    system_head = b"s456"
-    system_tail = b"s789"
+    media = b"u456"
+    playback_head = b"s456"
+    playback_tail = b"s789"
     uploads = [
         ("manifest", 0, 0, manifest),
-        ("microphone", 0, 0, microphone),
-        ("system", 0, 0, system_head),
-        ("system", 1, 4, system_tail),
+        ("media", 0, 0, media),
+        ("playback", 0, 0, playback_head),
+        ("playback", 1, 4, playback_tail),
     ]
     for role, part_number, offset, data in uploads:
         response = client.put(
@@ -529,12 +529,12 @@ def test_finalize_cleans_materialized_track_after_immutable_conflict(client: Tes
             content=data,
         )
         assert response.status_code == 200
-    system = system_head + system_tail
+    playback = playback_head + playback_tail
     tracks = [
         track_descriptor("manifest", len(manifest)) | {"sha256": sha256(manifest).hexdigest(), "byte_length": len(manifest)},
-        track_descriptor("microphone", len(microphone))
-        | {"sha256": sha256(microphone).hexdigest(), "byte_length": len(microphone)},
-        track_descriptor("system", len(system)) | {"sha256": sha256(system).hexdigest(), "byte_length": len(system)},
+        track_descriptor("media", len(media))
+        | {"sha256": sha256(media).hexdigest(), "byte_length": len(media)},
+        track_descriptor("playback", len(playback)) | {"sha256": sha256(playback).hexdigest(), "byte_length": len(playback)},
     ]
 
     response = _finalize(client, session_id, tracks, sha256(manifest).hexdigest())
@@ -554,18 +554,18 @@ def test_finalize_cleans_materialized_track_after_persistence_failure(client: Te
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"manifest": 4, "microphone": 4, "system": 8}},
+        json={"expected_track_sizes": {"manifest": 4, "media": 4, "playback": 8}},
     ).json()
     session_id = session["session_id"]
     manifest = b"m123"
-    microphone = b"u123"
-    system_head = b"s123"
-    system_tail = b"s456"
+    media = b"u123"
+    playback_head = b"s123"
+    playback_tail = b"s456"
     for role, part_number, offset, data in [
         ("manifest", 0, 0, manifest),
-        ("microphone", 0, 0, microphone),
-        ("system", 0, 0, system_head),
-        ("system", 1, 4, system_tail),
+        ("media", 0, 0, media),
+        ("playback", 0, 0, playback_head),
+        ("playback", 1, 4, playback_tail),
     ]:
         response = client.put(
             f"/api/v1/upload-sessions/{session_id}/tracks/{role}/parts/{part_number}",
@@ -575,12 +575,12 @@ def test_finalize_cleans_materialized_track_after_persistence_failure(client: Te
         assert response.status_code == 200
     before_meeting_status = store_module.store.meetings[UUID(meeting["meeting_id"])].status
     before_session_status = store_module.store.sessions[UUID(session_id)].status
-    system = system_head + system_tail
+    playback = playback_head + playback_tail
     tracks = [
         track_descriptor("manifest", len(manifest)) | {"sha256": sha256(manifest).hexdigest(), "byte_length": len(manifest)},
-        track_descriptor("microphone", len(microphone))
-        | {"sha256": sha256(microphone).hexdigest(), "byte_length": len(microphone)},
-        track_descriptor("system", len(system)) | {"sha256": sha256(system).hexdigest(), "byte_length": len(system)},
+        track_descriptor("media", len(media))
+        | {"sha256": sha256(media).hexdigest(), "byte_length": len(media)},
+        track_descriptor("playback", len(playback)) | {"sha256": sha256(playback).hexdigest(), "byte_length": len(playback)},
     ]
 
     async def fail_persist_finalized_tracks(*_args, **_kwargs) -> None:

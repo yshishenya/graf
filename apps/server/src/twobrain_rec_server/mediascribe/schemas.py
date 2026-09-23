@@ -166,7 +166,6 @@ class MediaScribeCapabilitiesResponse(MediaScribeModel):
     cancellation_grace_seconds: int
     default_poll_interval_seconds: int = 3
     delivery_without_idempotency_key: str = "at_least_once"
-    dual_track_supported: bool = True
     idempotency_key_header: str = "Idempotency-Key"
     idempotency_key_max_length: int = 256
     idempotency_key_required: bool = False

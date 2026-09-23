@@ -110,7 +110,7 @@ def test_processing_failure_keeps_upload_finalized_in_custody_read_model() -> No
     custody = _custody_read_model(
         meeting=meeting,
         session=session,
-        accepted_bytes_by_track={"microphone": 120, "system": 160},
+        accepted_bytes_by_track={"media": 120, "playback": 160},
         processing_status=ProcessingStatus.FAILED_TERMINAL,
         conflict=DesktopSyncConflict(
             state=SyncConflictState.PROCESSING_FAILED,

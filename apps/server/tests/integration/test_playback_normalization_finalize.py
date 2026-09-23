@@ -39,14 +39,6 @@ class NeverCalledNormalizationPipeline:
     async def derive_candidate(self, _source_path: Path, _output_path: Path):
         raise AssertionError("source custody must fail before conversion")
 
-    async def derive_dual_source(
-        self,
-        _microphone_path: Path,
-        _system_path: Path,
-        _output_path: Path,
-    ):
-        raise AssertionError("source custody must fail before conversion")
-
     async def derive_single_source(
         self,
         _source_path: Path,
@@ -106,18 +98,23 @@ def _accept_first_party_recording(
     local_recording_id: str,
     include_playback: bool,
 ) -> tuple[dict[str, object], dict[str, object]]:
-    meeting = client.post(
+    meeting_response = client.post(
         "/api/v1/meetings",
         headers=auth_headers(),
-        json={"local_recording_id": local_recording_id, "duration_seconds": 60},
-    ).json()
+        json={
+            "local_recording_id": local_recording_id,
+            "duration_seconds": 60,
+            "source_kind": "initial_mixed_recording",
+            "media_scribe_source_mode": "single_wav_v1",
+        },
+    )
+    assert meeting_response.status_code == 200
+    meeting = meeting_response.json()
     payloads = {
         "manifest": b'{"schema":"test"}',
-        "microphone": b"microphone-source",
-        "system": b"system-source",
+        "media": deterministic_canonical_wav_bytes(),
+        "playback": b"untrusted-playback-candidate",
     }
-    if include_playback:
-        payloads["playback"] = b"untrusted-playback-candidate"
     expected_tracks = list(payloads)
     session_response = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
@@ -140,24 +137,37 @@ def _accept_first_party_recording(
             content=data,
         )
         assert response.status_code == 200
-        tracks.append(
-            track_descriptor(role, len(data))
-            | {
-                "byte_length": len(data),
-                "sha256": digest,
-                "codec": "m4a-aac-lc" if role == "playback" else "pcm_s16le",
-            }
-        )
+        tracks.append(track_descriptor(role, data=data))
 
     response = client.post(
         f"/api/v1/upload-sessions/{session['session_id']}/finalize",
         headers=auth_headers(),
         json={"manifest_sha256": sha256(payloads["manifest"]).hexdigest(), "tracks": tracks},
     )
+    assert response.status_code == 200
+    if not include_playback:
+        # v5 always uploads a candidate. Exercise source-only recovery after
+        # that candidate was superseded; never create an obsolete upload.
+        async def supersede_candidate() -> None:
+            async with client.app_state["sessionmaker"]() as db:
+                meeting_id = UUID(str(meeting["meeting_id"]))
+                candidate = await db.scalar(select(TrackArtifact).where(
+                    TrackArtifact.meeting_id == meeting_id,
+                    TrackArtifact.track_role == "playback",
+                ))
+                job = await db.scalar(select(PlaybackNormalizationJob).where(
+                    PlaybackNormalizationJob.meeting_id == meeting_id,
+                ))
+                assert candidate is not None and job is not None
+                candidate.status = "superseded"
+                job.planned_action = "normalize_source"
+                await db.commit()
+
+        asyncio.run(supersede_candidate())
     return meeting, response.json() | {"status_code": response.status_code}
 
 
-def test_finalize_persists_optional_playback_as_hidden_candidate_and_queues_validation(
+def test_finalize_persists_v5_playback_as_hidden_candidate_and_queues_validation(
     client: TestClient,
 ) -> None:
     meeting, result = _accept_first_party_recording(
@@ -201,9 +211,12 @@ def test_finalize_persists_optional_playback_as_hidden_candidate_and_queues_vali
     assert job.workflow_id == f"playback-normalization/{revision.id}/v1"
 
 
-def test_finalize_without_candidate_queues_authoritative_source_normalization(
+def test_superseded_v5_candidate_preserves_authoritative_source_normalization(
     client: TestClient,
+    tmp_path: Path,
 ) -> None:
+    from tests.integration.test_playback_normalization_workflow import FakeNormalizationPipeline
+
     meeting, result = _accept_first_party_recording(
         client,
         local_recording_id="normalization-source-finalize",
@@ -223,6 +236,21 @@ def test_finalize_without_candidate_queues_authoritative_source_normalization(
     job = asyncio.run(load_job())
     assert job is not None
     assert job.planned_action == "normalize_source"
+    pipeline = FakeNormalizationPipeline("invalid")
+
+    async def recover_source():
+        async with client.app_state["sessionmaker"]() as db:
+            await apply_job_worker_scope(db, job)
+            execution = await run_normalization_job(
+                db=db, storage=client.app_state["storage"], job_id=job.id,
+                work_directory=tmp_path, pipeline=pipeline,
+            )
+            return execution, await db.get(TrackArtifact, execution.canonical_track_artifact_id)
+
+    execution, canonical = asyncio.run(recover_source())
+    assert pipeline.calls == ["single_source"]
+    assert execution.derivation_kind == "single_source_transcode"
+    assert canonical is not None and canonical.status == "stored"
 
 
 def test_no_archive_manual_normalization_publishes_without_storage_reservation(
@@ -398,20 +426,19 @@ def test_candidate_digest_does_not_change_authoritative_source_fingerprint() -> 
     revision_id = UUID("11111111-1111-4111-8111-111111111111")
     common = {
         "manifest": "a" * 64,
-        "microphone": "b" * 64,
-        "system": "c" * 64,
+        "media": "b" * 64,
     }
 
     without_candidate = source_fingerprint_sha256(
         media_revision_id=revision_id,
-        source_kind="initial_recording",
+        source_kind="initial_mixed_recording",
         manifest_sha256="a" * 64,
         track_sha256_by_role=common,
         duration_seconds=60,
     )
     with_candidate = source_fingerprint_sha256(
         media_revision_id=revision_id,
-        source_kind="initial_recording",
+        source_kind="initial_mixed_recording",
         manifest_sha256="a" * 64,
         track_sha256_by_role=common | {"playback": "d" * 64},
         duration_seconds=60,
@@ -433,11 +460,11 @@ def test_unfinalized_and_unmanaged_sources_cannot_create_normalization_jobs(
     session = client.post(
         f"/api/v1/meetings/{meeting_id}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_tracks": ["manifest", "microphone", "system"]},
+        json={"expected_tracks": ["manifest", "media", "playback"]},
     ).json()
-    raw_part = b"raw-in-flight-microphone"
+    raw_part = b"raw-in-flight-media"
     response = client.put(
-        f"/api/v1/upload-sessions/{session['session_id']}/tracks/microphone/parts/0",
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/media/parts/0",
         headers=auth_headers()
         | {
             "X-Byte-Offset": "0",
@@ -507,14 +534,14 @@ def test_authoritative_source_digest_mismatch_stops_before_conversion(
                     PlaybackNormalizationJob.meeting_id == meeting_id
                 )
             )
-            microphone = await db.scalar(
+            source = await db.scalar(
                 select(TrackArtifact).where(
                     TrackArtifact.meeting_id == meeting_id,
-                    TrackArtifact.track_role == "microphone",
+                    TrackArtifact.track_role == "media",
                 )
             )
-            assert job is not None and microphone is not None
-            microphone.sha256 = "f" * 64
+            assert job is not None and source is not None
+            source.sha256 = "f" * 64
             await db.commit()
             await apply_job_worker_scope(db, job)
             with pytest.raises(NormalizationExecutionFailure) as caught:

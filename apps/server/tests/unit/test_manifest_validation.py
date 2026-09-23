@@ -17,25 +17,14 @@ def descriptor(role: TrackRole) -> TrackDescriptor:
     )
 
 
-def test_required_tracks_accepts_manifest_microphone_and_system() -> None:
-    validate_required_tracks(
-        [
-            descriptor(TrackRole.MANIFEST),
-            descriptor(TrackRole.MICROPHONE),
-            descriptor(TrackRole.SYSTEM),
-        ]
-    )
-
-
-def test_required_tracks_accepts_optional_playback_candidate() -> None:
-    validate_required_tracks(
-        [
-            descriptor(TrackRole.MANIFEST),
-            descriptor(TrackRole.MICROPHONE),
-            descriptor(TrackRole.SYSTEM),
-            descriptor(TrackRole.PLAYBACK),
-        ]
-    )
+@pytest.mark.parametrize("source_kind", [None, MediaRevisionSourceKind.INITIAL_RECORDING])
+@pytest.mark.parametrize("with_playback", [False, True])
+def test_required_tracks_rejects_historical_roles(source_kind, with_playback) -> None:
+    tracks = [descriptor(role) for role in (TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM)]
+    if with_playback:
+        tracks.append(descriptor(TrackRole.PLAYBACK))
+    with pytest.raises(ManifestValidationError):
+        validate_required_tracks(tracks, source_kind=source_kind)
 
 
 def test_required_tracks_rejects_missing_system_track() -> None:

@@ -65,6 +65,7 @@ private struct LegacyDeletionFixture {
         var value = custodyFixtureQueueItem(state: .uploaded, meetingId: UUID().uuidString.lowercased())
         let package = root.appendingPathComponent(value.directoryId)
         try FileManager.default.createDirectory(at: package, withIntermediateDirectories: true)
+        value.artifactProfile.schemaVersion = "local-recording-manifest.v4"
         value.directoryPath = package.path
         value.manifestPath = package.appendingPathComponent("manifest.json").path
         value.microphonePath = package.appendingPathComponent("mic.wav").path

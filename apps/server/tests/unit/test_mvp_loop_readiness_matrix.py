@@ -23,6 +23,15 @@ def test_default_matrix_covers_required_mvp_loop_stage_ids() -> None:
     assert [stage.id for stage in report.stages] == REQUIRED_MVP_LOOP_STAGE_IDS
 
 
+def test_historical_finalization_evidence_does_not_claim_current_readiness() -> None:
+    report = build_default_readiness_report()
+    stage = next(stage for stage in report.stages if stage.id == "local-artifact-finalization")
+    assert stage.status == "degraded"
+    assert "single-source-finalization-evidence" in stage.launch_gap_ids
+    gap = next(gap for gap in report.launch_gaps if gap.id == stage.launch_gap_ids[0])
+    assert gap.affected_journey == "local-artifact-finalization"
+
+
 def test_ready_stage_requires_evidence_record() -> None:
     with pytest.raises(ValueError, match="ready stage"):
         MvpLoopStage(

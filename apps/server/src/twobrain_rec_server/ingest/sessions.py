@@ -19,6 +19,7 @@ from twobrain_rec_server.ingest.audit import record_audit_event
 from twobrain_rec_server.ingest.lifecycle_guards import ensure_meeting_accepts_uploads
 from twobrain_rec_server.ingest.manifest import (
     ManifestValidationError,
+    ensure_supported_upload_source,
     validate_required_track_roles,
 )
 from twobrain_rec_server.ingest.policy import IngestLimitViolation, validate_recording_duration
@@ -42,8 +43,7 @@ _TERMINAL_UPLOAD_STATUSES = {
 
 
 def _default_revision_track_roles(source_kind: MediaRevisionSourceKind) -> list[TrackRole]:
-    if source_kind == MediaRevisionSourceKind.INITIAL_RECORDING:
-        return [TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM]
+    ensure_supported_upload_source(source_kind)
     if source_kind == MediaRevisionSourceKind.INITIAL_MIXED_RECORDING:
         return [TrackRole.MANIFEST, TrackRole.MEDIA, TrackRole.PLAYBACK]
     return [TrackRole.MANIFEST, TrackRole.MEDIA]
@@ -81,6 +81,7 @@ async def create_media_revision_upload_session(
     if meeting_model.created_by_user_id != tenant_scope.user_id:
         raise ProblemDetail(status=403, code="meeting_scope_denied", title="Meeting scope denied")
     await ensure_meeting_accepts_uploads(db=db, meeting_id=meeting_id)
+    ensure_supported_upload_source(source_kind, expected_track_roles)
     if duration_seconds <= 0:
         raise ProblemDetail(status=400, code="invalid_duration", title="Duration must be positive")
     try:
@@ -155,6 +156,7 @@ async def create_media_revision_upload_session(
     if active_model is not None:
         active = await load_upload_session_record(db, active_model.id)
         if active is not None:
+            ensure_supported_upload_source(active.media_revision_source_kind, active.expected_track_roles)
             if idempotency_key and active.idempotency_key == idempotency_key:
                 if active.expected_track_roles == roles and active.expected_track_sizes == sizes:
                     return revision, active
@@ -238,11 +240,9 @@ async def create_upload_session(
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     if meeting.created_by_user_id != tenant_scope.user_id:
         raise ProblemDetail(status=403, code="meeting_scope_denied", title="Meeting scope denied")
+    ensure_supported_upload_source(meeting.media_revision_source_kind, expected_track_roles)
     if not expected_track_roles:
-        if meeting.media_revision_source_kind == "initial_mixed_recording":
-            expected_track_roles = [TrackRole.MANIFEST, TrackRole.MEDIA, TrackRole.PLAYBACK]
-        else:
-            expected_track_roles = [TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM]
+        expected_track_roles = _default_revision_track_roles(meeting.media_revision_source_kind)
     for size in (expected_track_sizes or {}).values():
         if size < 0:
             raise ProblemDetail(
@@ -275,6 +275,7 @@ async def create_upload_session(
     )
     active_session = await load_active_upload_session_for_meeting(db, meeting.id)
     if active_session is not None:
+        ensure_supported_upload_source(active_session.media_revision_source_kind, active_session.expected_track_roles)
         if idempotency_key and active_session.idempotency_key == idempotency_key:
             if (
                 active_session.expected_track_roles == expected_track_roles

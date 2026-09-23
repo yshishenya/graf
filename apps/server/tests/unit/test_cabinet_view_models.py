@@ -1256,7 +1256,12 @@ def test_latest_workflow_status_does_not_hide_effective_complete_result() -> Non
     assert item.diarization_available is True
 
 
-def test_transcript_mapping_uses_timestamp_speaker_and_source_role_truth() -> None:
+@pytest.mark.parametrize(
+    ("source_role", "expected_role"),
+    [("mixed", "canonical_mixed"), ("incoming", "incoming_system")],
+    ids=["canonical", "historical-result"],
+)
+def test_transcript_mapping_uses_timestamp_speaker_and_source_role_truth(source_role, expected_role) -> None:
     meeting = _meeting()
     result_id = uuid4()
     transcript = [
@@ -1269,7 +1274,7 @@ def test_transcript_mapping_uses_timestamp_speaker_and_source_role_truth() -> No
             start_seconds=Decimal("65.500"),
             end_seconds=Decimal("70.000"),
             text="hello",
-            source_role="incoming",
+            source_role=source_role,
         )
     ]
     diarization = [
@@ -1283,7 +1288,7 @@ def test_transcript_mapping_uses_timestamp_speaker_and_source_role_truth() -> No
             end_seconds=Decimal("70.000"),
             text="hello",
             speaker_label="Speaker 2",
-            source_role="incoming",
+            source_role=source_role,
         )
     ]
 
@@ -1297,13 +1302,14 @@ def test_transcript_mapping_uses_timestamp_speaker_and_source_role_truth() -> No
     assert state.available is True
     assert state.segments[0].timestamp_label == "01:05"
     assert state.segments[0].speaker_label == "Спикер не определён"
-    assert state.segments[0].source_role == "incoming_system"
+    assert state.segments[0].source_role == expected_role
     assert state.segments[0].seekable is False
     assert state.segments[0].seek_seconds is None
     assert state.speaker_turns[0].speaker_label == "SPEAKER_00"
 
 
-def test_transcript_mapping_matches_diarization_by_sequence_and_source_role() -> None:
+def test_historical_transcript_mapping_matches_diarization_by_sequence_and_source_role() -> None:
+    # Read persisted paired results without reconstructing a submission request.
     meeting = _meeting()
     result_id = uuid4()
     transcript = [
@@ -1384,7 +1390,7 @@ def test_transcript_mapping_uses_diarization_time_when_sequence_conflicts() -> N
             start_seconds=Decimal("30.000"),
             end_seconds=Decimal("35.000"),
             text="current speaker",
-            source_role="incoming",
+            source_role="mixed",
         )
     ]
     diarization = [
@@ -1398,7 +1404,7 @@ def test_transcript_mapping_uses_diarization_time_when_sequence_conflicts() -> N
             end_seconds=Decimal("10.000"),
             text="old speaker",
             speaker_label="OLD_REMOTE",
-            source_role="incoming",
+            source_role="mixed",
         ),
         DiarizationSegment(
             id=uuid4(),
@@ -1410,7 +1416,7 @@ def test_transcript_mapping_uses_diarization_time_when_sequence_conflicts() -> N
             end_seconds=Decimal("40.000"),
             text="current speaker",
             speaker_label="CURRENT_REMOTE",
-            source_role="incoming",
+            source_role="mixed",
         ),
     ]
 
@@ -1426,7 +1432,7 @@ def test_transcript_mapping_uses_diarization_time_when_sequence_conflicts() -> N
     assert state.segments[0].attribution_state == "uncertain"
 
 
-def test_dual_track_mapping_canonicalizes_dependency_labels_when_speaker_style_label_is_present() -> (
+def test_historical_dual_track_mapping_canonicalizes_dependency_labels_when_speaker_style_label_is_present() -> (
     None
 ):
     meeting = _meeting()
@@ -1510,7 +1516,7 @@ def test_manual_upload_transcript_uses_diarization_rows_for_speaker_labels() -> 
             start_seconds=Decimal("0.500"),
             end_seconds=Decimal("4.500"),
             text="speaker zero",
-            source_role="incoming",
+            source_role="mixed",
         ),
         TranscriptSegment(
             id=uuid4(),
@@ -1521,7 +1527,7 @@ def test_manual_upload_transcript_uses_diarization_rows_for_speaker_labels() -> 
             start_seconds=Decimal("5.500"),
             end_seconds=Decimal("9.500"),
             text="speaker one",
-            source_role="incoming",
+            source_role="mixed",
         ),
         TranscriptSegment(
             id=uuid4(),
@@ -1532,7 +1538,7 @@ def test_manual_upload_transcript_uses_diarization_rows_for_speaker_labels() -> 
             start_seconds=Decimal("10.500"),
             end_seconds=Decimal("12.000"),
             text="unknown dependency label",
-            source_role="incoming",
+            source_role="mixed",
         ),
         TranscriptSegment(
             id=uuid4(),
@@ -1543,7 +1549,7 @@ def test_manual_upload_transcript_uses_diarization_rows_for_speaker_labels() -> 
             start_seconds=Decimal("15.500"),
             end_seconds=Decimal("19.500"),
             text="speaker two sequence mismatch",
-            source_role="incoming",
+            source_role="mixed",
         ),
     ]
     diarization = [
@@ -1557,7 +1563,7 @@ def test_manual_upload_transcript_uses_diarization_rows_for_speaker_labels() -> 
             end_seconds=Decimal("5.000"),
             text="speaker zero",
             speaker_label="SPEAKER_00",
-            source_role="incoming",
+            source_role="mixed",
         ),
         DiarizationSegment(
             id=uuid4(),
@@ -1569,7 +1575,7 @@ def test_manual_upload_transcript_uses_diarization_rows_for_speaker_labels() -> 
             end_seconds=Decimal("10.000"),
             text="speaker one",
             speaker_label="SPEAKER_01",
-            source_role="incoming",
+            source_role="mixed",
         ),
         DiarizationSegment(
             id=uuid4(),
@@ -1581,7 +1587,7 @@ def test_manual_upload_transcript_uses_diarization_rows_for_speaker_labels() -> 
             end_seconds=Decimal("13.000"),
             text="unknown dependency label",
             speaker_label="UNKNOWN",
-            source_role="incoming",
+            source_role="mixed",
         ),
         DiarizationSegment(
             id=uuid4(),
@@ -1593,7 +1599,7 @@ def test_manual_upload_transcript_uses_diarization_rows_for_speaker_labels() -> 
             end_seconds=Decimal("22.000"),
             text="speaker two",
             speaker_label=" SPEAKER_02 ",
-            source_role="incoming",
+            source_role="mixed",
         ),
     ]
 
@@ -1629,7 +1635,7 @@ def test_manual_upload_transcript_keeps_unknown_when_diarization_is_missing() ->
             start_seconds=Decimal("0.000"),
             end_seconds=Decimal("10.000"),
             text="single track text",
-            source_role="incoming",
+            source_role="mixed",
         ),
         TranscriptSegment(
             id=uuid4(),
@@ -1640,7 +1646,7 @@ def test_manual_upload_transcript_keeps_unknown_when_diarization_is_missing() ->
             start_seconds=Decimal("11.000"),
             end_seconds=Decimal("20.000"),
             text="single track text",
-            source_role="incoming",
+            source_role="mixed",
         ),
     ]
 
@@ -1700,7 +1706,7 @@ def test_manual_upload_review_response_preserves_unknown_without_diarization() -
             start_seconds=Decimal("0.000"),
             end_seconds=Decimal("10.000"),
             text="single track text",
-            source_role="incoming",
+            source_role="mixed",
         )
     ]
 
@@ -1755,7 +1761,7 @@ def test_manual_upload_review_response_uses_diarization_as_transcript_source() -
             start_seconds=Decimal("40.000"),
             end_seconds=Decimal("45.000"),
             text="transcript row should not be used",
-            source_role="incoming",
+            source_role="mixed",
         )
     ]
     diarization = [
@@ -1769,7 +1775,7 @@ def test_manual_upload_review_response_uses_diarization_as_transcript_source() -
             end_seconds=Decimal("5.000"),
             text="diarization row is the review source",
             speaker_label="SPEAKER_01",
-            source_role="incoming",
+            source_role="mixed",
         )
     ]
     workflow = ProcessingWorkflow(
@@ -1984,7 +1990,7 @@ def test_manual_upload_transcript_falls_back_to_transcript_text_when_diarization
             start_seconds=Decimal("0.000"),
             end_seconds=Decimal("4.000"),
             text="first transcript row",
-            source_role="incoming",
+            source_role="mixed",
         ),
         TranscriptSegment(
             id=uuid4(),
@@ -1995,7 +2001,7 @@ def test_manual_upload_transcript_falls_back_to_transcript_text_when_diarization
             start_seconds=Decimal("10.000"),
             end_seconds=Decimal("14.000"),
             text="second transcript row",
-            source_role="incoming",
+            source_role="mixed",
         ),
     ]
     diarization = [
@@ -2009,7 +2015,7 @@ def test_manual_upload_transcript_falls_back_to_transcript_text_when_diarization
             end_seconds=Decimal("5.000"),
             text="",
             speaker_label="SPEAKER_00",
-            source_role="incoming",
+            source_role="mixed",
         ),
         DiarizationSegment(
             id=uuid4(),
@@ -2021,7 +2027,7 @@ def test_manual_upload_transcript_falls_back_to_transcript_text_when_diarization
             end_seconds=Decimal("15.000"),
             text=" ",
             speaker_label="SPEAKER_01",
-            source_role="incoming",
+            source_role="mixed",
         ),
     ]
 
@@ -2055,7 +2061,7 @@ def test_manual_upload_transcript_omits_blank_diarization_display_rows() -> None
             end_seconds=Decimal("5.000"),
             text="",
             speaker_label="SPEAKER_00",
-            source_role="incoming",
+            source_role="mixed",
         ),
         DiarizationSegment(
             id=uuid4(),
@@ -2067,7 +2073,7 @@ def test_manual_upload_transcript_omits_blank_diarization_display_rows() -> None
             end_seconds=Decimal("4.000"),
             text="speaker zero text",
             speaker_label="UNKNOWN",
-            source_role="incoming",
+            source_role="mixed",
         ),
         DiarizationSegment(
             id=uuid4(),
@@ -2079,7 +2085,7 @@ def test_manual_upload_transcript_omits_blank_diarization_display_rows() -> None
             end_seconds=Decimal("9.000"),
             text="speaker one text",
             speaker_label="SPEAKER_01",
-            source_role="incoming",
+            source_role="mixed",
         ),
     ]
 
@@ -2119,7 +2125,7 @@ def test_transcript_mapping_marks_valid_segments_seekable_when_playback_availabl
             start_seconds=Decimal("0.000"),
             end_seconds=Decimal("10.000"),
             text="local audio",
-            source_role="mic",
+            source_role="mixed",
         ),
         TranscriptSegment(
             id=uuid4(),
@@ -2130,7 +2136,7 @@ def test_transcript_mapping_marks_valid_segments_seekable_when_playback_availabl
             start_seconds=Decimal("12.500"),
             end_seconds=Decimal("20.000"),
             text="remote audio",
-            source_role="incoming",
+            source_role="mixed",
         ),
     ]
 
@@ -2163,7 +2169,7 @@ def test_speaker_mapping_calculates_talk_time_percentages() -> None:
             end_seconds=Decimal(30),
             text="one",
             speaker_label="Speaker 1",
-            source_role="mic",
+            source_role="mixed",
         ),
         DiarizationSegment(
             id=uuid4(),
@@ -2175,7 +2181,7 @@ def test_speaker_mapping_calculates_talk_time_percentages() -> None:
             end_seconds=Decimal(60),
             text="two",
             speaker_label="Speaker 2",
-            source_role="incoming",
+            source_role="mixed",
         ),
     ]
 
@@ -2206,7 +2212,7 @@ def test_manual_upload_speaker_mapping_hides_unknown_when_speaker_labels_are_pre
             end_seconds=Decimal(10),
             text="one",
             speaker_label="SPEAKER_00",
-            source_role="incoming",
+            source_role="mixed",
         ),
         DiarizationSegment(
             id=uuid4(),
@@ -2218,7 +2224,7 @@ def test_manual_upload_speaker_mapping_hides_unknown_when_speaker_labels_are_pre
             end_seconds=Decimal(12),
             text="unknown",
             speaker_label="UNKNOWN",
-            source_role="incoming",
+            source_role="mixed",
         ),
         DiarizationSegment(
             id=uuid4(),
@@ -2230,7 +2236,7 @@ def test_manual_upload_speaker_mapping_hides_unknown_when_speaker_labels_are_pre
             end_seconds=Decimal(30),
             text="two",
             speaker_label="SPEAKER_01",
-            source_role="incoming",
+            source_role="mixed",
         ),
     ]
 
@@ -2262,7 +2268,7 @@ def test_manual_upload_speaker_mapping_preserves_unknown_rows() -> None:
             end_seconds=Decimal(10),
             text="unknown dependency label",
             speaker_label="UNKNOWN",
-            source_role="incoming",
+            source_role="mixed",
         )
     ]
 
@@ -2299,7 +2305,7 @@ def test_calendar_roster_does_not_rename_transcript_speakers_or_grant_access() -
             end_seconds=Decimal(10),
             text="hello",
             speaker_label="Speaker 1",
-            source_role="mic",
+            source_role="mixed",
         )
     ]
 
@@ -2574,7 +2580,7 @@ def test_us6_calendar_roster_stays_metadata_and_speaker_labels_stay_canonical() 
             start_seconds=Decimal(index * 10),
             end_seconds=Decimal(index * 10 + 10),
             text=f"synthetic transcript segment {index}",
-            source_role="incoming",
+            source_role="mixed",
         )
         for index in range(2)
     ]
@@ -2589,7 +2595,7 @@ def test_us6_calendar_roster_stays_metadata_and_speaker_labels_stay_canonical() 
             end_seconds=Decimal(index * 10 + 10),
             text=f"synthetic transcript segment {index}",
             speaker_label=f"Synthetic Calendar Person {chr(ord('A') + index)}",
-            source_role="incoming",
+            source_role="mixed",
         )
         for index in range(2)
     ]
@@ -2708,6 +2714,32 @@ def test_processing_failure_copy_covers_retryable_and_terminal_provider_reasons(
     )
 
 
+def test_unsupported_recording_source_explains_preserved_results_without_offering_retry() -> None:
+    meeting = _meeting(ProcessingStatus.FAILED_TERMINAL)
+    workflow = ProcessingWorkflow(
+        id=uuid4(),
+        meeting_id=meeting.id,
+        workspace_id=meeting.workspace_id,
+        workflow_id="historical-unsupported-source",
+        status=ProcessingStatus.FAILED_TERMINAL.value,
+        last_reason_code="unsupported_recording_source",
+    )
+
+    state = view_models.processing_state(meeting, result=None, workflow=workflow)
+
+    expected_label = (
+        "Запись сохранена в старом формате. Повторная отправка на расшифровку недоступна; "
+        "сохраненные результаты и удаление записи остаются доступны."
+    )
+    assert state.state == "failed"
+    assert state.reason_code == "unsupported_recording_source"
+    assert state.reason_label == expected_label
+    assert view_models.reason_label("unsupported_recording_source") == expected_label
+    assert state.next_action == "contact_operator"
+    assert state.next_action != "retry_future"
+    assert state.reprocess_available is False
+
+
 def test_transcript_state_derives_same_speaker_turns_and_preserves_raw_segments() -> None:
     meeting = _meeting()
     result_id = uuid4()
@@ -2723,7 +2755,7 @@ def test_transcript_state_derives_same_speaker_turns_and_preserves_raw_segments(
             start_seconds=Decimal(str(start)),
             end_seconds=Decimal(str(end)),
             text=f"synthetic fragment {index}",
-            source_role="incoming",
+            source_role="mixed",
         )
         for index, (segment_id, (start, end)) in enumerate(zip(segment_ids, spans, strict=True))
     ]
@@ -2738,7 +2770,7 @@ def test_transcript_state_derives_same_speaker_turns_and_preserves_raw_segments(
             end_seconds=Decimal(str(end)),
             text=f"synthetic fragment {index}",
             speaker_label="remote-speaker",
-            source_role="incoming",
+            source_role="mixed",
         )
         for index, (start, end) in enumerate(spans)
     ]
@@ -2791,7 +2823,7 @@ def test_speaker_display_name_changes_labels_without_changing_keys() -> None:
             end_seconds=Decimal("3"),
             text="synthetic",
             speaker_label="SPEAKER_00",
-            source_role="incoming",
+            source_role="mixed",
         )
     ]
 
@@ -2830,7 +2862,7 @@ def test_speaker_display_name_changes_labels_without_changing_keys() -> None:
     assert speakers.can_rename is True
 
 
-def test_transcript_turns_split_on_speaker_track_and_exact_threshold() -> None:
+def test_historical_transcript_turns_split_on_speaker_track_and_exact_threshold() -> None:
     meeting = _meeting()
     result_id = uuid4()
     transcript = [
@@ -2893,7 +2925,7 @@ def test_transcript_turns_do_not_merge_unconfirmed_mapping_or_incomplete_state()
             start_seconds=Decimal(str(index)),
             end_seconds=Decimal(str(index + 0.5)),
             text=f"unmapped {index}",
-            source_role="incoming",
+            source_role="mixed",
         )
         for index in range(2)
     ]
@@ -2924,7 +2956,7 @@ def test_transcript_turns_do_not_merge_unconfirmed_mapping_or_incomplete_state()
                 end_seconds=row.end_seconds,
                 text=row.text,
                 speaker_label="remote-speaker",
-                source_role="incoming",
+                source_role="mixed",
             )
             for index, row in enumerate(transcript)
         ],
@@ -2955,7 +2987,7 @@ def test_transcript_and_timeline_share_degraded_asr_fallback_without_provider_tu
             start_seconds=Decimal("1.250"),
             end_seconds=Decimal("2.750"),
             text="synthetic fallback",
-            source_role="incoming",
+            source_role="mixed",
         )
     ]
 
@@ -2997,7 +3029,7 @@ def test_canonical_provider_turns_are_stable_across_rebuilds() -> None:
             end_seconds=Decimal(str(index * 1.5 + 1)),
             text=f"manual fragment {index}",
             speaker_label="SPEAKER_01",
-            source_role="incoming",
+            source_role="mixed",
         )
         for index in range(3)
     ]
@@ -3036,7 +3068,7 @@ def test_canonical_provider_turns_preserve_unknown_rows_as_singletons() -> None:
             end_seconds=Decimal(str(index + 0.9)),
             text=f"unconfirmed {index}",
             speaker_label="UNKNOWN",
-            source_role="incoming",
+            source_role="mixed",
         )
         for index in range(2)
     ]

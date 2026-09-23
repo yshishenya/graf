@@ -42,7 +42,7 @@ class FailingMediaScribeClient:
         self.reason_code = reason_code
         self.retryable = retryable
 
-    async def submit_dual_track(self, **_kwargs):
+    async def submit_single_track(self, **_kwargs):
         raise MediaScribeClientError(self.reason_code, retryable=self.retryable)
 
 
@@ -1079,9 +1079,8 @@ def test_result_import_validation_error_is_persisted_as_terminal_safe_reason(cli
             job = await store.upsert_mediascribe_job(
                 db,
                 workflow=workflow,
-                mic_artifact=await _track_artifact(db, workspace_id, meeting_id, "microphone"),
-                incoming_artifact=await _track_artifact(db, workspace_id, meeting_id, "system"),
-                request_mode="dual_track",
+                source_artifact=await _track_artifact(db, workspace_id, meeting_id, "media"),
+                request_mode="single_track",
             )
             await store.persist_mediascribe_submission(
                 db,
@@ -1276,9 +1275,8 @@ async def _submitted_job(
     job = await store.upsert_mediascribe_job(
         db,
         workflow=workflow,
-        mic_artifact=await _track_artifact(db, workspace_id, meeting_id, "microphone"),
-        incoming_artifact=await _track_artifact(db, workspace_id, meeting_id, "system"),
-        request_mode="dual_track",
+        source_artifact=await _track_artifact(db, workspace_id, meeting_id, "media"),
+        request_mode="single_track",
     )
     await store.persist_mediascribe_submission(
         db,

@@ -12897,15 +12897,15 @@ components:
           - type: 'null'
           title: Local Media Revision Id
         source_kind:
-          $ref: '#/components/schemas/MediaRevisionSourceKind'
-          default: initial_recording
+          type: string
+          const: initial_mixed_recording
+          title: Source Kind
+          default: initial_mixed_recording
         media_scribe_source_mode:
           type: string
-          enum:
-          - dual
-          - single_wav_v1
+          const: single_wav_v1
           title: Media Scribe Source Mode
-          default: dual
+          default: single_wav_v1
         title:
           anyOf:
           - type: string

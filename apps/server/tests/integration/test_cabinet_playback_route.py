@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import wave
+from hashlib import sha256
 
 from sqlalchemy import select
 
@@ -81,6 +82,23 @@ def _samples(body: bytes) -> list[int]:
 def test_owner_playback_route_returns_combined_review_audio_without_storage_url(client) -> None:
     ready_id = create_ready_meeting(client)
     replace_retained_audio_with_test_wav(client, ready_id)
+
+    async def load_source():
+        async with client.app_state["sessionmaker"]() as db:
+            artifacts = list(await db.scalars(
+                select(TrackArtifact).where(TrackArtifact.meeting_id == ready_id)
+            ))
+            assert {artifact.track_role for artifact in artifacts} == {"manifest", "media", "playback"}
+            return next(artifact for artifact in artifacts if artifact.track_role == TrackRole.MEDIA.value)
+
+    source = asyncio.run(load_source())
+    source_body = client.app_state["storage"].objects[source.storage_object_key]
+    assert _samples(source_body) == [1000, 1000, 2000, 2000]
+    assert source.codec == "wav-pcm-s16le"
+    assert source.sample_rate_hz == 16_000
+    assert source.channel_count == 1
+    assert source.byte_length == len(source_body)
+    assert source.sha256 == sha256(source_body).hexdigest()
     m4a_body = add_retained_playback_m4a(client, ready_id, b"\x00\x00\x00\x18ftypM4A review")
 
     response = client.get(
@@ -399,7 +417,7 @@ def test_playback_route_blocks_processing_and_failed_reviews_even_when_audio_pol
 def test_playback_route_requires_stored_review_m4a_artifact(client) -> None:
     ready_id = create_ready_meeting(client)
     replace_retained_audio_with_test_wav(client, ready_id)
-    set_retained_audio_source_status(client, ready_id, TrackRole.SYSTEM, "purged")
+    set_retained_audio_source_status(client, ready_id, TrackRole.MEDIA, "purged")
 
     response = client.get(
         f"/api/v1/cabinet/meetings/{ready_id}/playback", headers=auth_headers()

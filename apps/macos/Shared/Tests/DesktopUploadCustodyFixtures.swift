@@ -7,18 +7,22 @@ func custodyFixtureProfile(
     durationSeconds: Int = 60
 ) -> ArtifactCompletenessProfile {
     ArtifactCompletenessProfile(
-        schemaVersion: LocalRecordingManifest.legacySchemaVersion,
+        schemaVersion: LocalRecordingManifest.schemaVersion,
         manifestPresent: true,
-        microphonePresent: true,
-        systemAudioPresent: true,
+        microphonePresent: false,
+        systemAudioPresent: false,
         manifestSha256: String(repeating: "a", count: 64),
-        microphoneSha256: String(repeating: "b", count: 64),
-        systemAudioSha256: String(repeating: "c", count: 64),
+        microphoneSha256: nil,
+        systemAudioSha256: nil,
         manifestSizeBytes: 128,
-        microphoneSizeBytes: 256,
-        systemAudioSizeBytes: 512,
+        microphoneSizeBytes: 0,
+        systemAudioSizeBytes: 0,
         durationSeconds: durationSeconds,
-        trackCompleteness: [],
+        trackCompleteness: [
+            UploadTrackCompleteness(transportRole: .manifest, fileName: "manifest.json", present: true, byteCount: 128, sha256: String(repeating: "a", count: 64)),
+            UploadTrackCompleteness(transportRole: .media, fileName: "meeting-transcription.wav", present: true, byteCount: 256, sha256: String(repeating: "b", count: 64)),
+            UploadTrackCompleteness(transportRole: .playback, fileName: "meeting-review.m4a", present: true, byteCount: 512, sha256: String(repeating: "c", count: 64))
+        ],
         isUploadable: uploadable
     )
 }
@@ -42,8 +46,8 @@ func custodyFixtureQueueItem(
         localMediaRevisionId: "\(id)-directory--initial",
         directoryPath: "/redacted/\(id)",
         manifestPath: "/redacted/\(id)/manifest.json",
-        microphonePath: "/redacted/\(id)/mic.wav",
-        systemAudioPath: "/redacted/\(id)/incoming.wav",
+        microphonePath: "/redacted/\(id)/meeting-transcription.wav",
+        systemAudioPath: "/redacted/\(id)/meeting-review.m4a",
         state: state,
         failureCategory: failureCategory,
         failureReason: failureReason,

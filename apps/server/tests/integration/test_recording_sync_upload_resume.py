@@ -33,8 +33,8 @@ def _create_upload_session(client, meeting_id: str, *, idempotency_key: str = "r
         f"/api/v1/meetings/{meeting_id}/upload-sessions",
         headers=auth_headers() | {"Idempotency-Key": idempotency_key},
         json={
-            "expected_tracks": ["manifest", "microphone", "system"],
-            "expected_track_sizes": {"manifest": 32, "microphone": 128, "system": 96},
+            "expected_tracks": ["manifest", "media", "playback"],
+            "expected_track_sizes": {"manifest": 32, "media": 128, "playback": 96},
         },
     )
     assert response.status_code == 200
@@ -76,8 +76,8 @@ def test_upload_session_can_start_after_same_user_device_rotation(client) -> Non
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers() | {"X-Device-Id": str(ROTATED_DEVICE_ID)},
         json={
-            "expected_tracks": ["manifest", "microphone", "system"],
-            "expected_track_sizes": {"manifest": 32, "microphone": 128, "system": 96},
+            "expected_tracks": ["manifest", "media", "playback"],
+            "expected_track_sizes": {"manifest": 32, "media": 128, "playback": 96},
         },
     )
 
@@ -99,8 +99,8 @@ def test_sync_state_returns_server_authoritative_resume_ranges(client) -> None:
     session = _create_upload_session(client, meeting["meeting_id"])
     accepted = deterministic_wav_bytes(64)
 
-    first = _put_part(client, session["session_id"], "microphone", 0, accepted)
-    replay = _put_part(client, session["session_id"], "microphone", 0, accepted)
+    first = _put_part(client, session["session_id"], "media", 0, accepted)
+    replay = _put_part(client, session["session_id"], "media", 0, accepted)
     sync_state = client.get(
         f"/api/v1/desktop/recordings/{local_id}/sync-state",
         headers=auth_headers(),
@@ -114,10 +114,10 @@ def test_sync_state_returns_server_authoritative_resume_ranges(client) -> None:
     assert body["meeting"]["meeting_id"] == meeting["meeting_id"]
     assert body["media_revision"]["media_revision_id"] == meeting["media_revision"]["media_revision_id"]
     assert body["upload_session"]["session_id"] == session["session_id"]
-    assert body["upload_session"]["expected_tracks"] == ["manifest", "microphone", "system"]
-    assert body["upload_session"]["accepted_bytes_by_track"] == {"microphone": 64}
-    assert body["upload_session"]["missing_ranges_by_track"]["microphone"] == [{"start": 64, "end": 128}]
-    assert body["upload_session"]["missing_ranges_by_track"]["system"] == [{"start": 0, "end": 96}]
+    assert body["upload_session"]["expected_tracks"] == ["manifest", "media", "playback"]
+    assert body["upload_session"]["accepted_bytes_by_track"] == {"media": 64}
+    assert body["upload_session"]["missing_ranges_by_track"]["media"] == [{"start": 64, "end": 128}]
+    assert body["upload_session"]["missing_ranges_by_track"]["playback"] == [{"start": 0, "end": 96}]
     assert body["conflict"]["state"] == "none"
 
 
@@ -182,8 +182,8 @@ def test_expired_session_can_retry_after_same_user_device_rotation(client) -> No
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=rotated_headers | {"Idempotency-Key": "resume-expired-rotated-retry"},
         json={
-            "expected_tracks": ["manifest", "microphone", "system"],
-            "expected_track_sizes": {"manifest": 32, "microphone": 128, "system": 96},
+            "expected_tracks": ["manifest", "media", "playback"],
+            "expected_track_sizes": {"manifest": 32, "media": 128, "playback": 96},
         },
     )
 

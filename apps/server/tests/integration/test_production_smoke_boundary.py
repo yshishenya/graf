@@ -55,11 +55,14 @@ def test_production_smoke_runner_mints_auth_session_and_cleans_it_up() -> None:
     assert "python scripts/issue_smoke_auth_session.py" in script
     assert "python scripts/cleanup_smoke_auth_session.py" in script
     assert "run --pull never --rm --no-deps -T rec-maintenance" in script
-    assert "require_json_status \"$SMOKE_AUTH_CLEANUP_JSON\" auth_cleanup_result pass" in script
-    assert "require_json_status \"$SMOKE_ARTIFACT_CLEANUP_JSON\" cleanup_result pass" in script
+    assert 'require_json_status "$SMOKE_AUTH_CLEANUP_JSON" auth_cleanup_result pass' in script
+    assert 'require_json_status "$SMOKE_ARTIFACT_CLEANUP_JSON" cleanup_result pass' in script
     assert "trap cleanup_on_exit EXIT" in script
     assert "trap - EXIT" in script
-    assert 'SMOKE_TOKEN_FILE="${TWOBRAIN_SMOKE_TOKEN_FILE:-/tmp/twobrain-rec-smoke-auth-token-${RUN_ID}}"' in script
+    assert (
+        'SMOKE_TOKEN_FILE="${TWOBRAIN_SMOKE_TOKEN_FILE:-/tmp/twobrain-rec-smoke-auth-token-${RUN_ID}}"'
+        in script
+    )
     assert "--auth-session-id" in script
     assert '--token-file "$SMOKE_TOKEN_FILE"' in script
     assert '--run-id "$RUN_ID"' in script
@@ -70,7 +73,7 @@ def test_production_smoke_runner_mints_auth_session_and_cleans_it_up() -> None:
     assert script.index("python scripts/seed_smoke_identity.py") < script.index(
         "python scripts/issue_smoke_auth_session.py"
     )
-    assert 'TWOBRAIN_SMOKE_RUN_ID=\'$RUN_ID\'' not in script
+    assert "TWOBRAIN_SMOKE_RUN_ID='$RUN_ID'" not in script
     assert "od -An -N8 -tx1 /dev/urandom" in script
     assert 'SMOKE_RUN_DIR="$(mktemp -d "/tmp/twobrain-rec-smoke-${RUN_ID}.' in script
     assert 'SMOKE_ARTIFACT_DIR="${SMOKE_ARTIFACT_BASE%/}-${RUN_ID}"' in script
@@ -154,7 +157,20 @@ def test_test_artifact_generator_refuses_preexisting_symlink(tmp_path: Path) -> 
     )
 
     assert result.returncode != 0
-    assert not (target / "mic.wav").exists()
+    assert list(target.iterdir()) == []
+
+
+def test_smoke_generates_in_media_runtime_and_receives_bounded_package_in_api() -> None:
+    script = (REPO_ROOT / "infra/scripts/run-production-smoke.sh").read_text()
+    start = script.index('"${compose[@]}" exec -T rec-media-worker')
+    end = script.index('>"$SMOKE_ARTIFACT_JSON"', start)
+    transfer = script[start:end]
+    assert "set -euo pipefail" in script
+    assert "python scripts/create_test_artifact.py --stream" in transfer
+    assert '"${compose[@]}" exec -T rec-api' in transfer
+    assert "python scripts/create_test_artifact.py --receive" in transfer
+    assert '--out "$SMOKE_ARTIFACT_DIR"' in transfer
+    assert "--media-revision-id" in script
 
 
 @pytest.mark.parametrize(
@@ -177,7 +193,12 @@ def test_smoke_run_id_rejects_shell_and_path_injection(run_id: str) -> None:
 @pytest.mark.parametrize("run_id", ["smoke-014", "run.2026_07-20", "A" + "x" * 127])
 def test_smoke_run_id_accepts_bounded_safe_identifiers(run_id: str) -> None:
     result = subprocess.run(
-        [sys.executable, str(REPO_ROOT / "apps/server/scripts/smoke_target.py"), "--validate-run-id", run_id],
+        [
+            sys.executable,
+            str(REPO_ROOT / "apps/server/scripts/smoke_target.py"),
+            "--validate-run-id",
+            run_id,
+        ],
         check=False,
         text=True,
         capture_output=True,
@@ -191,15 +212,20 @@ def test_remote_cd_deploys_processing_runtime_services() -> None:
     wrapper = (REPO_ROOT / "infra/scripts/cd-remote.sh").read_text()
     runtime = (REPO_ROOT / "infra/scripts/cd-remote-runtime.sh").read_text()
 
-    assert 'bash infra/scripts/cd-remote-runtime.sh "$branch" "$expected_sha" "$previous_sha"' in wrapper
-    assert 'python3 infra/scripts/release-images.py prepare' in runtime
+    assert (
+        'bash infra/scripts/cd-remote-runtime.sh "$branch" "$expected_sha" "$previous_sha"'
+        in wrapper
+    )
+    assert "python3 infra/scripts/release-images.py prepare" in runtime
     assert '"${compose[@]}" build' not in runtime
     assert "rec-temporal" in runtime
     assert "rec-processing-worker" in runtime
     assert "rec-maintenance" in runtime
     assert "rec-media-worker" in runtime
     assert 'if [[ "${TWOBRAIN_GOOGLE_CALENDAR_ENABLED:-false}" == "true" ]]' in runtime
-    assert 'export TWOBRAIN_GOOGLE_CALENDAR_CLIENT_SECRET_FILE="$disabled_billing_secret"' in runtime
+    assert (
+        'export TWOBRAIN_GOOGLE_CALENDAR_CLIENT_SECRET_FILE="$disabled_billing_secret"' in runtime
+    )
 
 
 def test_remote_cd_finishes_production_smoke_before_opening_dispatch() -> None:
@@ -211,9 +237,7 @@ def test_remote_cd_finishes_production_smoke_before_opening_dispatch() -> None:
     assert runtime.count(smoke_step) == 1
     assert runtime.index(smoke_step) < runtime.index(dispatch_step)
     dry_run_steps = next(line for line in wrapper.splitlines() if line.startswith("steps="))
-    assert dry_run_steps.index("production_smoke") < dry_run_steps.index(
-        "automatic_dispatch_open"
-    )
+    assert dry_run_steps.index("production_smoke") < dry_run_steps.index("automatic_dispatch_open")
 
 
 def test_issue_smoke_auth_session_dry_run_never_writes_raw_token(tmp_path: Path) -> None:
@@ -267,7 +291,14 @@ def test_issue_smoke_auth_session_owner_review_purpose_is_metadata_only(tmp_path
     assert payload["auth_session_purpose"] == "owner_review"
     assert payload["token_written"] is False
     assert not token_file.exists()
-    forbidden = ["bearer ", "authorization:", "x-auth-session", "session_token", "cookie", "set-cookie"]
+    forbidden = [
+        "bearer ",
+        "authorization:",
+        "x-auth-session",
+        "session_token",
+        "cookie",
+        "set-cookie",
+    ]
     assert all(marker not in result.stdout.lower() for marker in forbidden)
 
 

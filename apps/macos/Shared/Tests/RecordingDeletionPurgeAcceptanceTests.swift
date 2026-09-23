@@ -152,11 +152,12 @@ private struct PurgeAcceptanceFixture {
             item.serverCreationAttempted = true
             item.directoryPath = folder.path
             item.manifestPath = folder.appendingPathComponent("manifest.json").path
-            item.microphonePath = folder.appendingPathComponent("mic.wav").path
-            item.systemAudioPath = folder.appendingPathComponent("incoming.wav").path
+            item.microphonePath = folder.appendingPathComponent("meeting-transcription.wav").path
+            item.systemAudioPath = folder.appendingPathComponent("meeting-review.m4a").path
             item.artifactProfile.trackCompleteness = [
-                UploadTrackCompleteness(transportRole: .microphone, fileName: "mic.wav", present: true, byteCount: 23, sha256: nil, durationSeconds: 1),
-                UploadTrackCompleteness(transportRole: .system, fileName: "incoming.wav", present: true, byteCount: 23, sha256: nil, durationSeconds: 1)
+                UploadTrackCompleteness(transportRole: .manifest, fileName: "manifest.json", present: true, byteCount: 23, sha256: nil, durationSeconds: 1),
+                UploadTrackCompleteness(transportRole: .media, fileName: "meeting-transcription.wav", present: true, byteCount: 23, sha256: nil, durationSeconds: 1),
+                UploadTrackCompleteness(transportRole: .playback, fileName: "meeting-review.m4a", present: true, byteCount: 23, sha256: nil, durationSeconds: 1)
             ]
             for path in [item.manifestPath, item.microphonePath, item.systemAudioPath] {
                 try Data("synthetic purge fixture".utf8).write(to: URL(fileURLWithPath: path))

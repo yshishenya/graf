@@ -1,3 +1,4 @@
+UNSUPPORTED_RECORDING_SOURCE = "unsupported_recording_source"
 BLOCKED_CONFIG = "blocked_config"
 BLOCKED_TEMPORAL_UNAVAILABLE = "blocked_temporal_unavailable"
 BLOCKED_MEDIASCRIBE_UNAVAILABLE = "blocked_mediascribe_unavailable"

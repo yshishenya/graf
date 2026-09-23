@@ -1,6 +1,26 @@
 # Текущий статус продукта
 
-Date: 2026-09-18
+Date: 2026-09-24
+
+## Implementation update (2026-09-24) — Feature 275 single-source transcription
+
+- Из рабочего кода удалён путь создания заданий из двух отдельных аудиофайлов.
+  Запись приложения использует `meeting-transcription.wav`; ручная загрузка —
+  подготовленный и проверенный `manual-media.m4a`.
+- Старый формат не принимается при создании или продолжении загрузки. Очередь
+  macOS не отправляет старые пакеты после перезапуска и ручного повтора, но
+  сохраняет их для чтения и удаления.
+- Старый источник без известного внешнего задания получает конечный отказ.
+  Уже известные задания можно опрашивать, получать их результаты и удалять;
+  неизвестная старая отправка не повторяется.
+- Значения по умолчанию изменены новыми миграциями без переписывания старых
+  строк. Пустые исторические поля отпечатка single-source запроса сохранены для
+  совместимости ранее созданных повторов.
+- Служебные проверки создают корректные WAV/M4A вместо текстовых заглушек с
+  расширением WAV. Действующий контракт: `docs/integrations/mediascribe-api.md`.
+- Проверки и ограничения фиксируются в
+  `specs/275-retire-dual-transcription/quickstart.md`. Это состояние исходников,
+  а не утверждение о выпуске или развёртывании на рабочем сервере.
 
 ## Implementation update (2026-09-18) — Feature 272 production billing launch
 
@@ -1301,10 +1321,11 @@ receipt не заявляются; они остаются отдельными 
   script coverage, diagnostics redaction, and upload-queue regressions are
   included. This slice does not implement third-party Zoom/Telemost mute
   adapters or claim that meeting-app mute itself is respected.
-- The active MediaScribe contract is the v5 single-WAV section in
-  `docs/integrations/mediascribe-dual-track-api.md`; its dual endpoint is a
-  historical compatibility drain only. The real API key is intentionally not
-  committed.
+- The active MediaScribe contract is the single-source contract in
+  `docs/integrations/mediascribe-api.md`. F275 removes historical submission
+  compatibility while preserving stored results, known-job polling and deletion.
+  Source changes do not claim release or production deployment. The real API
+  key is intentionally not committed.
 - Historical archive — feature `010-recording-artifact-format` proved the
   former v3 package format. Its separate-file assertions and role mapping are
   not the active local-artifact contract and cannot be copied into new capture

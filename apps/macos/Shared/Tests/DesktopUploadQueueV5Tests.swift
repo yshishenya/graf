@@ -9,14 +9,24 @@ import XCTest
 
 final class DesktopUploadQueueTests: XCTestCase {
     func testShortRecordingCleanupAndRestartLeaveHistoricalPackageAlone() throws {
-        for saving in [false, true] {
+        for savingState in ["absent", "current", "previous-v5-paths"] {
             let root = temporaryRoot()
             defer { try? FileManager.default.removeItem(at: root) }
             let package = try makeV5RecordingPackage(root: root, directoryId: "short", sessionId: "short-session")
             let historical = try makeV5RecordingPackage(root: root, directoryId: "historical", sessionId: "old-session")
             let service = DesktopUploadQueueService(queueURL: root.appendingPathComponent("queue.json"), recordingsRootURL: root, client: nil)
             var manifest = try LocalRecordingManifestService().read(from: package.manifestURL)
-            if saving { _ = try service.enqueueSaving(manifest: manifest, directoryURL: package.directoryURL) }
+            if savingState != "absent" {
+                var saving = try service.enqueueSaving(manifest: manifest, directoryURL: package.directoryURL)
+                XCTAssertEqual(saving.microphonePath, "metadata-only")
+                XCTAssertEqual(saving.systemAudioPath, "metadata-only")
+                if savingState == "previous-v5-paths" {
+                    saving.microphonePath = package.directoryURL.appendingPathComponent("mic.wav").path
+                    saving.systemAudioPath = package.directoryURL.appendingPathComponent("incoming.wav").path
+                    try JSONEncoder.uploadQueueTestEncoder.encode(DesktopUploadQueueDocument(updatedAt: Date(), items: [saving]))
+                        .write(to: root.appendingPathComponent("queue.json"))
+                }
+            }
             manifest.applyShortRecordingPolicy(stopReason: .userRequested)
             XCTAssertEqual(manifest.shortRecordingDiscarded, true)
             try LocalRecordingManifestService().write(manifest, to: package.manifestURL)
@@ -385,7 +395,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             pendingCount: 1,
             totalCount: 1
         )
-        XCTAssertEqual(historicalSummary.detail, "сохраненная ранее запись будет отправлена в режиме совместимости")
+        XCTAssertEqual(historicalSummary.detail, "отправка записи старого формата больше не поддерживается; локальная копия сохранена")
         XCTAssertEqual(silentSummary.detail, "микрофон был слишком тихим или пустым; отправим как есть")
     }
 
@@ -1128,7 +1138,7 @@ final class DesktopUploadQueueTests: XCTestCase {
         )
 
         let recovered = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
-        let createPayload = DesktopUploadClient.createMeetingPayload(for: recovered)
+        let createPayload = try DesktopUploadClient.createMeetingPayload(for: recovered)
 
         XCTAssertNil(recovered.calendarMatchAttemptId)
         XCTAssertNil(createPayload.calendar_match_attempt_id)
@@ -1172,7 +1182,7 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertNil(failedResolveItem.calendarMatchAttemptId)
         XCTAssertNil(retried.calendarMatchAttemptId)
         XCTAssertNil(recovered.calendarMatchAttemptId)
-        XCTAssertNil(DesktopUploadClient.createMeetingPayload(for: recovered).calendar_match_attempt_id)
+        XCTAssertNil(try DesktopUploadClient.createMeetingPayload(for: recovered).calendar_match_attempt_id)
         XCTAssertEqual(recovered.state, .queued)
         XCTAssertEqual(recovered.retryMode, .automatic)
         XCTAssertTrue(recovered.artifactProfile.isUploadable)

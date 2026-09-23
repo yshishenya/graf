@@ -396,10 +396,10 @@ async def _seed_normalization_boundary(
                 cycle_number=1,
                 state=attempt_state,
                 storage_object_key=attempt_key,
-                derivation_kind="dual_source_mix_transcode",
-                selected_stream_index=None,
-                source_stream_count=2,
-                source_audio_stream_count=2,
+                derivation_kind="single_source_transcode",
+                selected_stream_index=0,
+                source_stream_count=1,
+                source_audio_stream_count=1,
             )
             if attempt_state in {"uploaded", "cleanup_pending"}:
                 body = f"normalized-{suffix}".encode()

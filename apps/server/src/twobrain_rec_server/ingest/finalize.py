@@ -25,7 +25,11 @@ from twobrain_rec_server.domain.statuses import (
 from twobrain_rec_server.ingest import store as store_module
 from twobrain_rec_server.ingest.audit import record_audit_event
 from twobrain_rec_server.ingest.lifecycle_guards import ensure_upload_session_mutable
-from twobrain_rec_server.ingest.manifest import ManifestValidationError, validate_required_tracks
+from twobrain_rec_server.ingest.manifest import (
+    ManifestValidationError,
+    ensure_supported_upload_source,
+    validate_required_tracks,
+)
 from twobrain_rec_server.ingest.media_revisions import (
     MediaRevisionFingerprintConflict,
     ensure_media_revision_acceptance_is_safe,
@@ -460,6 +464,7 @@ async def finalize_upload(
     # Read a stable snapshot for validation/materialization. Final mutation
     # takes Meeting → MediaRevision → UploadSession locks after storage I/O.
     session = await get_session_for_tenant(session_id, tenant_scope, db)
+    ensure_supported_upload_source(session.media_revision_source_kind, session.expected_track_roles)
     await ensure_upload_session_mutable(db=db, session=session, event_type="expired")
     session_parts_snapshot = dict(session.parts)
     meeting = store_module.store.meetings[session.meeting_id]
@@ -477,7 +482,7 @@ async def finalize_upload(
     try:
         validate_required_tracks(
             tracks,
-            source_kind=meeting.media_revision_source_kind,
+            source_kind=session.media_revision_source_kind,
         )
     except ManifestValidationError as exc:
         await _raise_degraded_finalize_problem(
@@ -705,6 +710,7 @@ async def finalize_upload(
             tracks=tracks,
         )
         session = await get_session_for_tenant(session.id, tenant_scope, db, for_update=True)
+        ensure_supported_upload_source(session.media_revision_source_kind, session.expected_track_roles)
         if session.status not in {
             UploadSessionStatus.PENDING,
             UploadSessionStatus.UPLOADING,
@@ -805,7 +811,7 @@ async def finalize_upload(
                     track.byte_length,
                 )
                 for track in tracks
-                if track.track_role in {TrackRole.MEDIA, TrackRole.MICROPHONE, TrackRole.SYSTEM}
+                if track.track_role == TrackRole.MEDIA
             }
             await persist_transient_source_objects(
                 db,

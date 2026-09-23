@@ -12,7 +12,7 @@ from hashlib import sha256
 from uuid import UUID
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
@@ -41,13 +41,53 @@ except ModuleNotFoundError:
     from smoke_target import validate_run_id
 
 
-async def seed_outcome(settings: Settings, *, run_id: str, meeting_id: UUID, execute: bool) -> dict[str, object]:
+async def load_canonical_media(db: AsyncSession, revision: MediaRevision) -> TrackArtifact:
+    artifacts = (
+        await db.scalars(
+            select(TrackArtifact)
+            .where(
+                TrackArtifact.workspace_id == revision.workspace_id,
+                TrackArtifact.meeting_id == revision.meeting_id,
+                TrackArtifact.media_revision_id == revision.id,
+                TrackArtifact.track_role == "media",
+                TrackArtifact.status == "stored",
+            )
+            .limit(2)
+        )
+    ).all()
+    if len(artifacts) != 1:
+        raise RuntimeError("smoke_canonical_media_unavailable")
+    (artifact,) = artifacts
+    if (
+        revision.source_kind != "initial_mixed_recording"
+        or (artifact.codec, artifact.sample_rate_hz, artifact.channel_count)
+        != ("wav-pcm-s16le", 16_000, 1)
+        or artifact.sha256 != (revision.track_sha256_by_role or {}).get("media")
+    ):
+        raise RuntimeError("smoke_canonical_media_invalid")
+    return artifact
+
+
+async def seed_outcome(
+    settings: Settings,
+    *,
+    run_id: str,
+    meeting_id: UUID,
+    media_revision_id: UUID,
+    execute: bool,
+) -> dict[str, object]:
     run_id = validate_run_id(run_id)
     seed = build_smoke_identity_seed(run_id)
     if not execute:
-        return {"mode": "dry_run", "meeting_id": str(meeting_id), "identity_class": seed.identity_class}
+        return {
+            "mode": "dry_run",
+            "meeting_id": str(meeting_id),
+            "identity_class": seed.identity_class,
+        }
 
-    source_hash = sha256(f"graf-production-smoke-outcome:{run_id}".encode()).hexdigest()
+    source_hash = sha256(
+        f"graf-production-smoke-outcome:{run_id}:{media_revision_id}".encode()
+    ).hexdigest()
     engine = create_async_engine(settings.database_url)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     try:
@@ -65,6 +105,7 @@ async def seed_outcome(settings: Settings, *, run_id: str, meeting_id: UUID, exe
                 select(ProcessingResult).where(
                     ProcessingResult.workspace_id == seed.workspace_id,
                     ProcessingResult.meeting_id == meeting_id,
+                    ProcessingResult.media_revision_id == media_revision_id,
                     ProcessingResult.source_result_hash == source_hash,
                 )
             )
@@ -77,7 +118,9 @@ async def seed_outcome(settings: Settings, *, run_id: str, meeting_id: UUID, exe
                     "mode": "execute",
                     "meeting_id": str(meeting_id),
                     "result_id": str(existing.id),
-                    "candidate_id": str(candidate.candidate_id) if candidate and candidate.candidate_id else None,
+                    "candidate_id": str(candidate.candidate_id)
+                    if candidate and candidate.candidate_id
+                    else None,
                     "status": "reused",
                 }
 
@@ -85,27 +128,17 @@ async def seed_outcome(settings: Settings, *, run_id: str, meeting_id: UUID, exe
                 select(MediaRevision).where(
                     MediaRevision.workspace_id == seed.workspace_id,
                     MediaRevision.meeting_id == meeting_id,
+                    MediaRevision.id == media_revision_id,
                     MediaRevision.status == "accepted",
                     MediaRevision.immutable.is_(True),
-                ).order_by(MediaRevision.revision_number.desc())
+                )
             )
             if revision is None:
                 raise RuntimeError("smoke_media_revision_unavailable")
             meeting = await db.get(Meeting, meeting_id)
             if meeting is None or meeting.workspace_id != seed.workspace_id:
                 raise RuntimeError("smoke_meeting_unavailable")
-            artifacts = (
-                await db.scalars(
-                    select(TrackArtifact)
-                    .where(
-                        TrackArtifact.workspace_id == seed.workspace_id,
-                        TrackArtifact.meeting_id == meeting_id,
-                    )
-                    .order_by(TrackArtifact.track_role)
-                )
-            ).all()
-            if len(artifacts) < 2:
-                raise RuntimeError("smoke_track_artifacts_unavailable")
+            source = await load_canonical_media(db, revision)
             now = datetime.now(UTC)
             next_result_version = await db.scalar(
                 select(func.coalesce(func.max(ProcessingResult.result_version), 0)).where(
@@ -119,7 +152,7 @@ async def seed_outcome(settings: Settings, *, run_id: str, meeting_id: UUID, exe
                 workspace_id=seed.workspace_id,
                 meeting_id=meeting_id,
                 media_revision_id=revision.id,
-                workflow_id=f"production-smoke/{run_id}",
+                workflow_id=f"production-smoke/{run_id}/{revision.id}",
                 purpose="transcription",
                 source_fingerprint=source_fingerprint,
                 status="processed",
@@ -134,12 +167,12 @@ async def seed_outcome(settings: Settings, *, run_id: str, meeting_id: UUID, exe
                 meeting_id=meeting_id,
                 media_revision_id=revision.id,
                 processing_workflow_id=workflow.id,
-                idempotency_key=f"production-smoke/{run_id}",
+                idempotency_key=f"production-smoke/{run_id}/{revision.id}",
                 source_fingerprint=source_fingerprint,
-                external_job_id=f"production-smoke-{run_id}",
+                external_job_id=f"production-smoke-{run_id}-{revision.id}",
                 status=MediaScribeJobStatus.READY.value,
-                mic_track_artifact_id=artifacts[0].id,
-                incoming_track_artifact_id=artifacts[1].id,
+                request_mode="single_track",
+                source_track_artifact_id=source.id,
                 submitted_at=now,
                 ready_at=now,
             )
@@ -177,8 +210,8 @@ async def seed_outcome(settings: Settings, *, run_id: str, meeting_id: UUID, exe
                         start_seconds=Decimal("0.000"),
                         end_seconds=Decimal("3.000"),
                         text="Synthetic smoke: the team approved the release checklist.",
-                        source_role="mic",
-                        source_role_original="microphone",
+                        source_role="mixed",
+                        source_role_original="mixed",
                     ),
                     TranscriptSegment(
                         workspace_id=seed.workspace_id,
@@ -188,8 +221,8 @@ async def seed_outcome(settings: Settings, *, run_id: str, meeting_id: UUID, exe
                         start_seconds=Decimal("3.000"),
                         end_seconds=Decimal("6.000"),
                         text="Synthetic smoke: Alex will publish the checklist tomorrow.",
-                        source_role="incoming",
-                        source_role_original="system",
+                        source_role="mixed",
+                        source_role_original="mixed",
                     ),
                     TranscriptSegment(
                         workspace_id=seed.workspace_id,
@@ -199,8 +232,8 @@ async def seed_outcome(settings: Settings, *, run_id: str, meeting_id: UUID, exe
                         start_seconds=Decimal("6.000"),
                         end_seconds=Decimal("9.000"),
                         text="Synthetic smoke: the team will review the result next week.",
-                        source_role="mic",
-                        source_role_original="microphone",
+                        source_role="mixed",
+                        source_role_original="mixed",
                     ),
                 ]
             )
@@ -216,7 +249,9 @@ async def seed_outcome(settings: Settings, *, run_id: str, meeting_id: UUID, exe
                 "mode": "execute",
                 "meeting_id": str(meeting_id),
                 "result_id": str(result.id),
-                "candidate_id": str(candidate.candidate_id) if candidate and candidate.candidate_id else None,
+                "candidate_id": str(candidate.candidate_id)
+                if candidate and candidate.candidate_id
+                else None,
                 "status": "seeded",
             }
     finally:
@@ -227,9 +262,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Seed a synthetic production outcome smoke result")
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--meeting-id", required=True, type=UUID)
+    parser.add_argument("--media-revision-id", required=True, type=UUID)
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(asyncio.run(seed_outcome(Settings(), run_id=args.run_id, meeting_id=args.meeting_id, execute=args.execute)), sort_keys=True))
+    print(
+        json.dumps(
+            asyncio.run(
+                seed_outcome(
+                    Settings(),
+                    run_id=args.run_id,
+                    meeting_id=args.meeting_id,
+                    media_revision_id=args.media_revision_id,
+                    execute=args.execute,
+                )
+            ),
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":

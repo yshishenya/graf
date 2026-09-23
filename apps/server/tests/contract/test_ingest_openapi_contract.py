@@ -42,17 +42,24 @@ def test_openapi_declares_v5_mixed_recording_source_without_provider_details(
     source_kind = schema["components"]["schemas"]["MediaRevisionSourceKind"]
 
     assert "initial_mixed_recording" in source_kind["enum"]
+    assert "initial_recording" in source_kind["enum"]  # Historical readers retain their values.
+    create_source = schema["components"]["schemas"]["CreateMeetingRequest"]["properties"]["source_kind"]
+    assert create_source["const"] == "initial_mixed_recording"
+    assert create_source["default"] == "initial_mixed_recording"
+    assert "$ref" not in create_source
+    revision_source = schema["components"]["schemas"]["CreateMediaRevisionUploadSessionRequest"]["properties"]["source_kind"]
+    assert revision_source["$ref"].endswith("/MediaRevisionSourceKind")
     assert "single_wav_v1" in str(schema)
     assert "mediascribe_api_key" not in str(schema).lower()
     assert "external_job_id" not in str(schema)
 
 
-def test_v5_integration_document_separates_active_wav_from_historical_dual_drain() -> None:
+def test_v5_integration_document_separates_active_wav_from_historical_reads() -> None:
     document = (
         Path(__file__).resolve().parents[4]
         / "docs"
         / "integrations"
-        / "mediascribe-dual-track-api.md"
+        / "mediascribe-api.md"
     ).read_text(encoding="utf-8")
 
     assert "## Active v5 contract" in document
@@ -60,9 +67,9 @@ def test_v5_integration_document_separates_active_wav_from_historical_dual_drain
     assert "`meeting-review.m4a`" in document
     assert "`meeting-review.m4a` is never sent to MediaScribe" in document
     assert "POST /v1/audio/transcriptions" in document
-    assert "## Historical dual compatibility drain" in document
-    assert "`initial_mixed_recording`" in document
-    assert "cannot be selected by a new v5 writer" in document
+    assert "## Historical records (read and delete only)" in document
+    assert "`source_kind=initial_mixed_recording`" in document
+    assert "An unknown historical POST is never replayed" in " ".join(document.split())
     assert "GET /jobs/" not in document
 
 
@@ -82,14 +89,14 @@ def test_happy_path_contract_exposes_server_mediated_ingest(client: TestClient) 
     session_response = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_tracks": ["manifest", "microphone", "system"]},
+        json={"expected_tracks": ["manifest", "media", "playback"]},
     )
     assert session_response.status_code == 200
     session = session_response.json()
     assert session["upload_strategy"] == "server_mediated"
 
     uploaded_tracks = []
-    for index, role in enumerate(["manifest", "microphone", "system"]):
+    for index, role in enumerate(["manifest", "media", "playback"]):
         data = deterministic_wav_bytes(128 + index)
         digest = sha256(data).hexdigest()
         part_response = client.put(
@@ -134,13 +141,13 @@ def test_finalize_contract_exposes_processing_start_when_enabled(client: TestCli
     session_response = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_tracks": ["manifest", "microphone", "system"]},
+        json={"expected_tracks": ["manifest", "media", "playback"]},
     )
     assert session_response.status_code == 200
     session = session_response.json()
 
     uploaded_tracks = []
-    for index, role in enumerate(["manifest", "microphone", "system"]):
+    for index, role in enumerate(["manifest", "media", "playback"]):
         data = deterministic_wav_bytes(128 + index)
         digest = sha256(data).hexdigest()
         part_response = client.put(

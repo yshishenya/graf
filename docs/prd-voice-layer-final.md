@@ -50,9 +50,9 @@ Current accepted local baseline:
   HPF/NS/AGC/VAD/gates, and fails closed without a raw-microphone fallback.
   Synthetic and local packaging evidence are required in this slice; controlled
   two-Mac hardware acceptance and public release remain separate gates.
-- The current MediaScribe integration contract is the v5 single-WAV section in
-  `docs/integrations/mediascribe-dual-track-api.md`; the dual endpoint there is
-  retained solely for immutable v3/v4 compatibility records.
+- The current MediaScribe integration contract is the single-source contract in
+  `docs/integrations/mediascribe-api.md`. Historical v3/v4 records remain
+  readable and deletable, but cannot create or retry a provider submission.
 - Feature `012-server-ingest-foundation` is implemented in-repository as the
   first backend foundation: FastAPI ingest API, local/prod Docker Compose
   scaffolds with Rec-owned Postgres/MinIO, Alembic schema models,
@@ -1301,14 +1301,15 @@ MediaScribe is the existing STT backend for MVP.
 Current `2brain Rec` integration contract:
 
 - The canonical contract is the v5 active section of
-  `docs/integrations/mediascribe-dual-track-api.md`.
+  `docs/integrations/mediascribe-api.md`.
 - For `initial_mixed_recording`, `2brain Rec` submits exactly one
   `meeting-transcription.wav` as `audio/wav` to
   `POST /v1/audio/transcriptions`.
 - `meeting-review.m4a` stays a playback artifact and is never sent to
   MediaScribe.
-- The dual endpoint is retained only for immutable `initial_recording` v3/v4
-  compatibility packages; no new desktop writer or upload session may select it.
+- Historical `initial_recording` v3/v4 packages cannot be uploaded or submitted.
+  Existing provider job ids remain available for polling, result import and
+  deletion; unknown historical submissions are never replayed.
 
 Base URL:
 
@@ -2430,7 +2431,7 @@ Required decisions:
 2. App-only installer/signing/notarization approach.
 3. Default mode: audio plus transcript retained.
 4. Retention UX for full-meeting deletion and keep/delete controls.
-5. MediaScribe authenticated single-WAV job API contract using `X-API-Key`; historic dual-track jobs remain readable only until their documented drain condition is met.
+5. MediaScribe authenticated single-source job API contract using `X-API-Key`; historical records and known jobs remain readable and deletable without permitting new submissions.
 6. MediaScribe processing capacity, timeout, and retry policy.
 7. Langfuse tracing keys/project setup for project `2brain_rec`.
 8. Consent default for internal team and later customer use.

@@ -54,7 +54,8 @@ def test_deletion_request_and_report_contract_exposes_no_private_content(client)
     rows = {row["artifact_class"]: row for row in report.json()["artifact_states"]}
     assert rows["normalization_job"]["state"] == "metadata_retained"
     assert rows["normalization_attempt_temp"]["state"] == "not_applicable"
-    assert rows["playback_candidate"]["state"] == "not_applicable"
+    # A current v5 package includes a review candidate; deletion must purge it.
+    assert rows["playback_candidate"]["state"] == "purged"
     assert rows["playback_canonical"]["state"] == "not_applicable"
     assert rows["normalization_backfill"]["state"] == "not_applicable"
 

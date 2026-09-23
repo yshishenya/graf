@@ -55,9 +55,7 @@ def initial_media_revision_status() -> MediaRevisionStatus:
 
 
 def initial_media_revision_source_kind() -> MediaRevisionSourceKind:
-    # This is the legacy API default for older clients. New first-party v5
-    # uploads explicitly declare INITIAL_MIXED_RECORDING in their request.
-    return MediaRevisionSourceKind.INITIAL_RECORDING
+    return MediaRevisionSourceKind.INITIAL_MIXED_RECORDING
 
 
 def track_sha256_by_role(tracks: Iterable[object]) -> dict[str, str]:

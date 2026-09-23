@@ -117,14 +117,14 @@ def _create_meeting_and_session(client, local_recording_id: str) -> dict[str, ob
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"manifest": 8, "microphone": 9, "system": 10}},
+        json={"expected_track_sizes": {"manifest": 8, "media": 9, "playback": 10}},
     ).json()
     return {"meeting": meeting, "session": session, "tracks": []}
 
 
 def _upload_required_tracks(client, session: dict[str, str], sizes: list[int]) -> list[dict[str, object]]:
     tracks = []
-    for size, role in zip(sizes, ["manifest", "microphone", "system"], strict=True):
+    for size, role in zip(sizes, ["manifest", "media", "playback"], strict=True):
         data = deterministic_wav_bytes(size)
         digest = sha256(data).hexdigest()
         response = client.put(

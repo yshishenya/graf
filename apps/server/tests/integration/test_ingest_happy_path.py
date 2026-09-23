@@ -10,6 +10,7 @@ from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
 from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
 from twobrain_rec_server.db.models import (
+    MediaRevision,
     Meeting,
     RegisteredDevice,
     UserIdentity,
@@ -18,7 +19,7 @@ from twobrain_rec_server.db.models import (
 from twobrain_rec_server.domain.statuses import MeetingStatus, ProcessingStatus
 
 
-def test_30_minute_dual_track_happy_path(client: TestClient) -> None:
+def test_30_minute_canonical_recording_happy_path(client: TestClient) -> None:
     meeting_response = client.post(
         "/api/v1/meetings",
         headers=auth_headers(),
@@ -30,13 +31,13 @@ def test_30_minute_dual_track_happy_path(client: TestClient) -> None:
     session_response = client.post(
         f"/api/v1/meetings/{meeting_id}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_tracks": ["manifest", "microphone", "system"]},
+        json={"expected_tracks": ["manifest", "media", "playback"]},
     )
     assert session_response.status_code == 200
     session_id = session_response.json()["session_id"]
 
     tracks = []
-    for role in ["manifest", "microphone", "system"]:
+    for role in ["manifest", "media", "playback"]:
         data = deterministic_wav_bytes(512)
         digest = sha256(data).hexdigest()
         response = client.put(
@@ -138,7 +139,7 @@ def test_v5_mixed_recording_rejects_legacy_upload_roles(client: TestClient) -> N
     )
 
     assert session_response.status_code == 400
-    assert session_response.json()["code"] == "invalid_expected_track_roles"
+    assert session_response.json()["code"] == "unsupported_recording_source_kind"
 
 
 def test_create_meeting_persists_recording_title_and_instants(client: TestClient) -> None:
@@ -340,7 +341,7 @@ def test_create_meeting_local_recording_id_is_scoped_to_current_user(client: Tes
     assert second.json()["title"] == "Other recording"
 
 
-def test_create_meeting_unsafe_legacy_title_retry_returns_existing_meeting(
+def test_create_meeting_unsafe_saved_title_retry_returns_existing_meeting(
     client: TestClient,
 ) -> None:
     meeting_id = uuid4()
@@ -361,6 +362,13 @@ def test_create_meeting_unsafe_legacy_title_retry_returns_existing_meeting(
                     processing_status=ProcessingStatus.NOT_SUBMITTED.value,
                 )
             )
+            await db.flush()
+            db.add(MediaRevision(
+                workspace_id=WORKSPACE_ID, meeting_id=meeting_id,
+                local_media_revision_id="legacy-unsafe-title-retry--initial",
+                source_kind="initial_mixed_recording", duration_seconds=60,
+                status="pending_upload", immutable=False,
+            ))
             await db.commit()
 
     client.portal.call(seed_legacy_meeting)

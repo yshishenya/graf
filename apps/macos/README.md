@@ -79,20 +79,33 @@ remove privileged audio components and do not restart Core Audio services.
 - New recordings use the current GRAF application-support directory.
 - Existing recordings under the former application-support directory remain
   readable.
-- Historical v3/v4 manifests are decoded and queued only by the isolated
-  compatibility reader. They do not shape new-writer defaults or v5 package
-  validation.
+- Historical v3/v4 manifests and queue documents v1/v2/v3 remain readable
+  for local playback, existing server status and deletion. Their original
+  paths, identities and deletion operations are retained; no automatic
+  conversion or file removal occurs.
+- Only a complete v5 package can be uploaded: manifest, canonical transcription
+  WAV and review M4A. Old mic/incoming packages are blocked before meeting or
+  upload-session creation and cannot be retried manually. Queue loading, scans,
+  scheduling and in-flight callbacks enforce the same restriction, including
+  entries with a previously saved uploadable flag or server identity.
+- Historical role values remain in decoding and byte accounting only. They
+  do not create upload descriptors or change the current capture/AEC pipeline.
 
 ## Validation
 
 ```sh
-swift build --package-path apps/macos
-swift test --package-path apps/macos
-swift run --package-path apps/macos ContractValidation
+swift build --package-path apps/macos -j 4
+swift test --package-path apps/macos -j 4 --disable-swift-testing
+swift build --package-path apps/macos -j 4 --product ContractValidation
+MACOS_VALIDATION_BIN="$(swift build --package-path apps/macos -j 4 --show-bin-path)"
+"$MACOS_VALIDATION_BIN/ContractValidation"
 sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh
 sh apps/macos/Scripts/validate-system-audio-capture-pivot.sh --self-test-artifact-metadata
 sh apps/macos/Scripts/validate-foundation.sh
 ```
+
+These automated commands do not launch the desktop app. Manual/runtime checks
+require the local-development guide and the single GRAF Dev installation.
 
 Current release QA is in `qa/macos/release-candidate-checklist.md`.
 
