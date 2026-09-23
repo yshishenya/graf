@@ -1722,6 +1722,8 @@ async def processing_source_is_retired(
     # A known provider ID needs no new source upload, even after source retention.
     if job is not None and job.external_job_id:
         return False
+    if media_revision_id is None:
+        return True
     if job is not None and job.request_mode != "single_track":
         return True
     revision = await db.scalar(

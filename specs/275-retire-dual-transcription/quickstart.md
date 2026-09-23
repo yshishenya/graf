@@ -11,6 +11,34 @@ Lane: high-risk-feature. Production deployment не входит.
 
 ## Evidence
 
+### Дополнительные замечания перед выпуском — 2026-09-24
+
+После прежнего PASS автоматическое ревью PR выявило два дополнительных
+сценария. Независимый рецензент подтвердил оба: workflow без ревизии и без
+известного внешнего ID не получал причину неподдерживаемого источника;
+историческое доказательство финализации ошибочно давало этапу `ready`.
+В рамках T003/T007 добавлена остановка до новых запросов и резервирования,
+с сохранением исключения для известного ID; этап готовности теперь `degraded`
+с явным пробелом актуального подтверждения. Требования и границы не меняются.
+
+Регрессии сначала воспроизвели дефекты: 5 failed, 47 passed. После исправления
+расширенный набор — **81 passed**, 10 warnings, 41.76 s, exit 0:
+
+```sh
+bash apps/server/scripts/run_local_postgres_tests.sh --focused --partitioned -q \
+  tests/integration/test_retired_processing_source.py \
+  tests/unit/test_single_source_retirement.py \
+  tests/unit/test_mvp_loop_readiness_matrix.py \
+  tests/integration/test_mvp_loop_readiness_report.py \
+  tests/contract/test_mvp_loop_readiness_contract.py \
+  tests/unit/test_mvp_launch_proof_readiness.py \
+  tests/unit/test_mvp_owner_journey_readiness.py
+```
+
+Ruff и diff-check проходят. Прежние полные результаты ниже относятся только
+к прежнему code SHA и не присваиваются этому исправлению: обязательные PR
+проверки и полная проверка кандидата выпуска должны пройти на новых SHA.
+
 Результаты на 2026-09-24. Локальная проверка завершена; обязательные проверки
 GitHub для итогового коммита проверяются отдельно. Недоступное доказательство
 не считается PASS.

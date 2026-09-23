@@ -57,6 +57,57 @@ async def historical_revision(db, finalized):
     return revision
 
 
+@pytest.mark.parametrize("state", ["not_submitted", "workflow_started", "waiting_retry"])
+def test_revisionless_pending_workflow_is_retired_before_pickup(client, monkeypatch, state):
+    finalized = create_finalized_meeting(client, f"revisionless-{state}")
+    reservation = AsyncMock(side_effect=AssertionError("legacy source reserved quota"))
+    monkeypatch.setattr(store, "ensure_processing_usage_reservation", reservation)
+    monkeypatch.setattr(store, "_reserve_processing_attempt_quota", reservation)
+    temporal = FakeTemporalClient()
+
+    async def run():
+        async with client.app_state["sessionmaker"]() as db:
+            source = await db.get(Meeting, UUID(finalized["meeting"]["meeting_id"]))
+            meeting = Meeting(
+                workspace_id=source.workspace_id,
+                created_by_user_id=source.created_by_user_id,
+                device_id=source.device_id,
+                local_recording_id=f"legacy-without-revision-{state}",
+                duration_seconds=60,
+                status="ingested_pending_processing",
+            )
+            db.add(meeting)
+            await db.commit()
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=None,
+                workflow_id=f"processing/legacy/{meeting.id}",
+                status=ProcessingStatus(state),
+            )
+            await db.commit()
+            workflow_id = workflow.id
+            await pick_up_processing(
+                db=db,
+                settings=client.app.state.settings,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                temporal_client=temporal,
+            )
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await db.get(ProcessingWorkflow, workflow_id)
+            assert workflow.status == "failed_terminal"
+            assert workflow.last_reason_code == "unsupported_recording_source"
+            assert workflow.ended_at is not None
+            assert workflow.next_attempt_at is None
+            assert await db.scalar(select(func.count()).select_from(MediaScribeJob)) == 0
+        reservation.assert_not_awaited()
+        assert temporal.starts == {}
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize(
     "state", ["not_submitted", "workflow_started", "waiting_retry", "blocked_unknown"]
 )
