@@ -260,7 +260,12 @@ def checked_base(pr: dict) -> str:
     merge_parent = predecessor(merge, 1)
     merge_tree = _git("rev-parse", f"{merge}^{{tree}}")
     head_tree = _git("rev-parse", f"{head}^{{tree}}")
+    head_row = _git("rev-list", "--parents", "--max-count=1", head).split()
     if merge_tree != head_tree:
+        if len(head_row) > 2:
+            # Target advancement and tampered sync replays are ambiguous here,
+            # regardless of replay count. Aggregate equality is not proof.
+            raise ValueError("synced source requires the exact checked final tree")
         # GitHub can squash a PR whose target advanced after the PR branch was
         # cut.  The merge tree then contains both the reviewed PR and those
         # target commits.  Accept only the exact three-way merge result for the
@@ -283,6 +288,38 @@ def checked_base(pr: dict) -> str:
     if (_git("merge-base", squash_base, head) == squash_base
             and int(_git("rev-list", "--count", f"{squash_base}..{head}")) == count):
         return squash_base
+    if len(head_row) == 3:
+        # GitHub rebase may drop one terminal target-sync merge. Prove every
+        # replay, not just the final tree: a later commit could hide tampering.
+        source_tip, checked = head_row[1:]
+        replay_count = count - 1
+        if replay_count < 2 or not is_ancestor(predecessor(source_tip, replay_count), checked):
+            raise ValueError("synced rebase source does not start on checked target")
+        source_rows = _git(
+            "rev-list", "--parents", f"--max-count={count + 1}", f"{checked}..{head}",
+        ).splitlines()
+        source_chain = _git(
+            "rev-list", "--parents", f"--max-count={replay_count}", source_tip,
+        ).splitlines()
+        if len(source_rows) != count or source_rows != [" ".join(head_row), *source_chain]:
+            raise ValueError("synced rebase source range differs from PR count")
+        if predecessor(merge, replay_count) != checked:
+            raise ValueError("synced rebase target does not start on checked base")
+        target_chain = _git(
+            "rev-list", "--parents", f"--max-count={replay_count}", merge,
+        ).splitlines()
+        if _git("merge-tree", "--write-tree", source_tip, checked) != head_tree:
+            raise ValueError("synced rebase contains additional sync changes")
+        for source_row, target_row in zip(reversed(source_chain), reversed(target_chain)):
+            source, source_parent = source_row.split()
+            target, target_parent = target_row.split()
+            expected = _git(
+                "merge-tree", "--write-tree", f"--merge-base={source_parent}",
+                target_parent, source,
+            )
+            if expected != _git("rev-parse", f"{target}^{{tree}}"):
+                raise ValueError("synced rebase replay differs from checked source")
+        return checked
     source_base = predecessor(head, count)
     if predecessor(merge, count) == source_base:
         return source_base
