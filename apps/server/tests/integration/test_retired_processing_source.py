@@ -86,8 +86,19 @@ def test_revisionless_pending_workflow_is_retired_before_pickup(client, monkeypa
                 workflow_id=f"processing/legacy/{meeting.id}",
                 status=ProcessingStatus(state),
             )
+            now = datetime.now(UTC)
+            existing_reservation = await reserve_free_usage(
+                db,
+                workspace_id=meeting.workspace_id,
+                reservation_key=f"processing:{meeting.id}",
+                declared_seconds=60,
+                now=now,
+                expires_at=now + timedelta(hours=1),
+            )
             await db.commit()
             workflow_id = workflow.id
+            reservation_id = existing_reservation.id
+            window_id = existing_reservation.window_id
             await pick_up_processing(
                 db=db,
                 settings=client.app.state.settings,
@@ -101,6 +112,11 @@ def test_revisionless_pending_workflow_is_retired_before_pickup(client, monkeypa
             assert workflow.last_reason_code == "unsupported_recording_source"
             assert workflow.ended_at is not None
             assert workflow.next_attempt_at is None
+            existing_reservation = await db.get(UsageReservation, reservation_id)
+            window = await db.get(FreeUsageWindow, window_id)
+            assert existing_reservation.state == "released"
+            assert window.reserved_seconds == 0
+            assert window.committed_seconds == 0
             assert await db.scalar(select(func.count()).select_from(MediaScribeJob)) == 0
         reservation.assert_not_awaited()
         assert temporal.starts == {}
