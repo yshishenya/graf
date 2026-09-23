@@ -213,7 +213,15 @@ async def pick_up_processing(
                 processing_workflow_id=historical_workflow.id,
             ) if historical_workflow is not None else None
         )
-        if await store.processing_source_is_retired(
+        should_check_retirement = (
+            media_revision_id is not None
+            or (
+                historical_workflow is not None
+                and historical_workflow.last_reason_code != reasons.BLOCKED_INVALID_MEETING_STATE
+            )
+            or meeting.status == MeetingStatus.INGESTED_PENDING_PROCESSING.value
+        )
+        if should_check_retirement and await store.processing_source_is_retired(
             db, workspace_id=workspace_id, meeting_id=meeting.id,
             media_revision_id=media_revision_id, job=historical_job,
         ):
