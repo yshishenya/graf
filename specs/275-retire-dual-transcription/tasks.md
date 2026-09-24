@@ -46,11 +46,11 @@ T001 → T002 → T003/T004/T005/T006/T007 → T008. T002 завершается
 
 Umbrella: https://github.com/yshishenya/graf/issues/7258.
 
-- T001: https://github.com/yshishenya/graf/issues/7259
-- T002: https://github.com/yshishenya/graf/issues/7260
-- T003: https://github.com/yshishenya/graf/issues/7261
-- T004: https://github.com/yshishenya/graf/issues/7262
-- T005: https://github.com/yshishenya/graf/issues/7263
-- T006: https://github.com/yshishenya/graf/issues/7264
-- T007: https://github.com/yshishenya/graf/issues/7265
-- T008: https://github.com/yshishenya/graf/issues/7266
+- T001 (Issue #7259): https://github.com/yshishenya/graf/issues/7259
+- T002 (Issue #7260): https://github.com/yshishenya/graf/issues/7260
+- T003 (Issue #7261): https://github.com/yshishenya/graf/issues/7261
+- T004 (Issue #7262): https://github.com/yshishenya/graf/issues/7262
+- T005 (Issue #7263): https://github.com/yshishenya/graf/issues/7263
+- T006 (Issue #7264): https://github.com/yshishenya/graf/issues/7264
+- T007 (Issue #7265): https://github.com/yshishenya/graf/issues/7265
+- T008 (Issue #7266): https://github.com/yshishenya/graf/issues/7266
