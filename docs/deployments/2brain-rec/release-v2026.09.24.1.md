@@ -43,14 +43,27 @@
 - Developer ID Application и Developer ID Installer, team 94N8HYG672.
 - Apple ZIP request: `90f6941a-ed2d-4169-8408-a31e64a35f6b`, Accepted.
 - Apple PKG request: `6a34ed0a-234d-42de-a21c-9ae3c4c540f6`, Accepted.
-- Stapling, вложенные подписи, Gatekeeper, Sparkle и совместимость с 22.1 — PASS.
+- Stapling, вложенные подписи, Sparkle и совместимость с 22.1 — PASS.
 - Подписанный ZIP: 9227321 байт. Лента предлагает 2026.09.24.1, HTTPS GET=200.
 - Публичный PKG SHA-256:
   `89faaa9c63ed1d67cf422907e027ea0074a5d44f2428de2ee42d7f32bd7ddfa7`.
 - PKG заменён атомарно под общей блокировкой CD; прежний файл и прежняя лента
   сохранены для отката. Отслеживаемый в Git установщик не менялся.
 - Публичные ZIP, PKG и XML скачаны повторно, побайтово совпали с проверенными
-  файлами. Повторные validate-app-updates, stapler и Gatekeeper — PASS.
+  файлами. Повторные validate-app-updates и stapler — PASS.
+- Первоначальный spctl accepted содержал `override=security disabled`:
+  глобальная оценка Gatekeeper на этом Mac выключена. Этот ответ не засчитывается
+  как самостоятельное доказательство строгой политики; настройки не менялись.
+- Дополнительно публичные приложение и PKG проверены через системный
+  SecAssessment API с Enforce, IgnoreCache и NoCache: оба verdict=true,
+  source=Notarized Developer ID, authority override отсутствует. Проверяющий
+  инструмент отклоняет любой override даже при внешнем verdict=true.
+  Отрицательный контроль на неизменном GRAF Dev отклонён с exit 3:
+  его authority verdict=false и override=security disabled. Значит глобальное
+  отключение не засчитывается инструментом как положительная оценка.
+- Основание для флагов: [интерфейс Apple SecAssessment](https://github.com/apple-oss-distributions/Security/blob/main/OSX/libsecurity_codesigning/lib/SecAssessment.h).
+  Дополнительный syspolicy_check distribution публичного приложения — exit 0,
+  без замечаний. Проверки не запускали приложения и не меняли системную политику.
 - [GitHub Release](https://github.com/yshishenya/graf/releases/tag/v2026.09.24.1)
   содержит только три пользовательских изменения; техническое F276 исключено.
 
