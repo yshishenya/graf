@@ -82,3 +82,26 @@ gates, перечисленных в её критериях; локальный
 Не изменены продукт, production, настройки защиты, форматы доказательств и
 старые тестовые ожидания. Required GitHub checks exact SHA/base, один frozen
 release-full, подпись/Apple/publication остаются отдельными обязательными gates.
+
+## Заключительная проверка выпуска 2026.09.24.1
+
+T004 завершена после фактического успеха внешних проверок. Эти метаданные
+записаны отдельным последующим изменением: замороженный кандидат не меняется.
+
+- PR #7273: `5609514f1f6eb375c449571c35d91c0b03ce16ea`, проверенная база
+  `0580a8903a472c65541cbfa8a474b77658145c80`.
+- governance-fast PASS: https://github.com/yshishenya/graf/actions/runs/35936301628
+- macos-pr PASS: https://github.com/yshishenya/graf/actions/runs/35936301480
+- pr-metadata PASS: https://github.com/yshishenya/graf/actions/runs/35936344496
+- Общий exact-SHA verifier перед merge — PASS; PR принят без обхода защиты.
+- Release-prep PR #7274 — PASS независимого ревью и обязательных проверок.
+- Candidate SHA: `f5cca687a06dc57ad6ccbef840a0be897eaa6336`.
+- Candidate ID: `rc-20260924T001804Z-775067689749`.
+- release-full PASS: https://github.com/yshishenya/graf/actions/runs/35937798319
+  (attempt 1, 2026-09-24 00:18:13–00:26:02 UTC).
+- Все компоненты привязаны к одному candidate SHA; authoritative_full=true,
+  skipped_gates=[]; train-attest и decision — go. Локальный full не подменял CI.
+- Фрагмент F276 штатно архивирован в `changes/releases/v2026.09.24.1/F276.yaml`.
+- Проверка фактической публикации и развёртывания относится к оператору выпуска;
+  данный результат не закрывает readiness-пробел `single-source-finalization-evidence`,
+  ручную матрицу F274 или условия запуска оплат F272.
