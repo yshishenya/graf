@@ -500,6 +500,165 @@ def test_squash_accepts_pr_that_merged_an_updated_master(snapshot):
     assert json.loads((root / "trusted-result.json").read_text())["base_sha"] == checked_base
 
 
+@pytest.fixture
+def synced_rebase(snapshot):
+    root, event, original = snapshot
+    current = trusted_pr(original)
+    base, first = current["base"]["sha"], current["head"]["sha"]
+    sources = [first]
+    for name in ("second.txt", "third.txt"):
+        (root / name).write_text(name + "\n")
+        git(root, "add", name)
+        git(root, "commit", "-qm", name)
+        sources.append(git(root, "rev-parse", "HEAD"))
+    git(root, "checkout", "-q", "--detach", base)
+    (root / "target.txt").write_text("target advance\n")
+    git(root, "add", "target.txt")
+    git(root, "commit", "-qm", "target advance")
+    checked = git(root, "rev-parse", "HEAD")
+    git(root, "checkout", "-q", "--detach", sources[-1])
+    git(root, "merge", "--no-ff", "-qm", "sync target", checked)
+    head = git(root, "rev-parse", "HEAD")
+    git(root, "checkout", "-q", "--detach", checked)
+    targets = []
+    for source in sources:
+        git(root, "cherry-pick", source)
+        targets.append(git(root, "rev-parse", "HEAD"))
+    assert git(root, "rev-parse", f"{head}^{{tree}}") == git(root, "rev-parse", "HEAD^{tree}")
+    current.update(state="closed", merged=True, merge_commit_sha=targets[-1], commits=4)
+    current["head"]["sha"] = head
+    current["base"]["sha"] = checked
+    current["body"] = body(head)
+    git(root, "checkout", "-q", "--detach", base)
+    return root, event, current, base, checked, sources, targets
+
+
+@pytest.mark.parametrize("advanced_api_base", [False, True])
+def test_rebase_accepts_terminal_target_sync_without_mutating_checkout(synced_rebase, advanced_api_base):
+    root, event, current, base, checked, _, targets = synced_rebase
+    if advanced_api_base:
+        current["base"]["sha"] = git(
+            root, "commit-tree", f"{targets[-1]}^{{tree}}", "-p", targets[-1], "-m", "later master",
+        )
+    event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
+    before = (
+        git(root, "rev-parse", "HEAD"), git(root, "for-each-ref"),
+        (root / ".git/index").read_bytes(), (root / "scripts/validate-pr-metadata.py").read_bytes(),
+    )
+    result = run_trusted(root, event, current)
+    assert result.returncode == 0, result.stderr
+    assert json.loads((root / "trusted-result.json").read_text())["base_sha"] == checked
+    assert before == (
+        git(root, "rev-parse", "HEAD"), git(root, "for-each-ref"),
+        (root / ".git/index").read_bytes(), (root / "scripts/validate-pr-metadata.py").read_bytes(),
+    )
+    assert git(root, "diff", "--stat") == git(root, "diff", "--cached", "--stat") == ""
+    assert git(root, "rev-parse", "HEAD") == base
+
+
+@pytest.mark.parametrize("mutation", [
+    "wrong-count", "wrong-base", "dropped", "extra", "reordered", "intermediate",
+    "final-tree", "manual-sync", "extra-source-merge", "octopus", "missing-head",
+    "sync-conflict", "retained-extra", "dropped-extra", "extra-extra",
+])
+def test_rebase_terminal_sync_rejects_unproven_history(synced_rebase, mutation):
+    root, event, current, base, checked, sources, targets = synced_rebase
+    head = current["head"]["sha"]
+    trees = [git(root, "rev-parse", f"{sha}^{{tree}}") for sha in targets]
+    parent = checked
+    if mutation == "wrong-count":
+        current["commits"] += 1
+    elif mutation == "wrong-base":
+        parent = base
+    elif mutation == "dropped":
+        trees = trees[1:]
+    elif mutation == "extra":
+        trees.append(trees[-1])
+    elif mutation == "reordered":
+        trees[0], trees[1] = trees[1], trees[0]
+    elif mutation == "intermediate":
+        trees[0] = git(root, "rev-parse", f"{checked}^{{tree}}")
+    elif mutation == "final-tree":
+        trees[-1] = git(root, "rev-parse", f"{checked}^{{tree}}")
+    elif mutation in {"retained-extra", "dropped-extra", "extra-extra"}:
+        for index, target in enumerate(targets):
+            git(root, "checkout", "-q", "--detach", target)
+            (root / "unreviewed.txt").write_text("unreviewed addition\n")
+            git(root, "add", "unreviewed.txt")
+            trees[index] = git(root, "write-tree")
+            git(root, "commit", "-qm", "fixture extra")
+        if mutation == "dropped-extra":
+            trees = trees[1:]
+        elif mutation == "extra-extra":
+            trees.append(trees[-1])
+    elif mutation == "manual-sync":
+        git(root, "checkout", "-q", "--detach", head)
+        (root / "unreviewed.txt").write_text("extra sync content\n")
+        git(root, "add", "unreviewed.txt")
+        tree = git(root, "write-tree")
+        head = git(root, "commit-tree", tree, "-p", sources[-1], "-p", checked, "-m", "edited sync")
+        trees[-1] = tree  # Even an identical final tree must not hide a bad sync.
+    elif mutation == "extra-source-merge":
+        side = git(root, "commit-tree", f"{base}^{{tree}}", "-p", base, "-m", "side")
+        source_merge = git(
+            root, "commit-tree", f"{sources[-1]}^{{tree}}",
+            "-p", sources[-1], "-p", side, "-m", "extra source merge",
+        )
+        head = git(root, "commit-tree", trees[-1], "-p", source_merge, "-p", checked, "-m", "sync")
+        current["commits"] = int(git(root, "rev-list", "--count", f"{checked}..{head}"))
+    elif mutation == "octopus":
+        side = git(root, "commit-tree", f"{base}^{{tree}}", "-m", "unrelated")
+        head = git(
+            root, "commit-tree", trees[-1], "-p", sources[-1],
+            "-p", checked, "-p", side, "-m", "octopus",
+        )
+        current["commits"] = int(git(root, "rev-list", "--count", f"{checked}..{head}"))
+    elif mutation == "missing-head":
+        head = "f" * 40
+    elif mutation == "sync-conflict":
+        git(root, "checkout", "-q", "--detach", checked)
+        path = root / "specs/211-example/spec.md"
+        path.parent.mkdir(parents=True)
+        path.write_text("target's conflicting version\n")
+        git(root, "add", ".")
+        git(root, "commit", "-qm", "conflicting target")
+        parent = checked = git(root, "rev-parse", "HEAD")
+        conflict = subprocess.run(
+            ["git", "merge-tree", "--write-tree", sources[-1], checked],
+            cwd=root, text=True, capture_output=True,
+        )
+        assert conflict.returncode == 1, conflict.stdout
+        head = git(root, "commit-tree", trees[-1], "-p", sources[-1], "-p", checked, "-m", "resolved sync")
+        current["base"]["sha"] = checked
+    for tree in trees:
+        parent = git(root, "commit-tree", tree, "-p", parent, "-m", "replayed")
+    current.update(merge_commit_sha=parent)
+    current["head"]["sha"] = head
+    current["body"] = body(head)
+    event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
+    git(root, "checkout", "-q", "--detach", base)
+    result = run_trusted(root, event, current)
+    assert result.returncode == 1, result.stdout
+    assert not (root / "trusted-result.json").exists()
+
+
+def test_squash_of_synced_source_rejects_unprovable_target_advance(synced_rebase):
+    root, event, current, base, checked, _, _ = synced_rebase
+    # Its length is not proof of a squash rather than tampered replay.
+    git(root, "checkout", "-q", "--detach", checked)
+    (root / "later-target.txt").write_text("separate target change\n")
+    git(root, "add", "later-target.txt")
+    git(root, "commit", "-qm", "later target change")
+    advanced = git(root, "rev-parse", "HEAD")
+    tree = git(root, "merge-tree", "--write-tree", advanced, current["head"]["sha"])
+    current["merge_commit_sha"] = git(root, "commit-tree", tree, "-p", advanced, "-m", "squash")
+    event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
+    git(root, "checkout", "-q", "--detach", base)
+    result = run_trusted(root, event, current)
+    assert result.returncode == 1, result.stdout
+    assert not (root / "trusted-result.json").exists()
+
+
 def test_merge_accepts_pr_head_that_merged_the_checked_base(snapshot):
     root, event, current = snapshot
     current = trusted_pr(current)
