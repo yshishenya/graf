@@ -1,5 +1,7 @@
 #include "../../RecApp/Upload/DesktopUploadRecoveryScheduler.h"
 #include "../../RecApp/Upload/DesktopApiClient.h"
+#include "../../RecApp/Recording/LocalRecordingPackage.h"
+#include "../../RecApp/Storage/AtomicFileStore.h"
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -7,6 +9,7 @@
 #include <cassert>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <stdexcept>
 #include <thread>
@@ -338,6 +341,91 @@ std::size_t runWorker(graf::windows::DesktopUploadRecoveryScheduler& scheduler,
     return handled;
 }
 
+void testPermanentRejectionDurability(const std::filesystem::path& root) {
+    using namespace graf::windows;
+    struct Interrupted {};
+    enum class Fault { afterFirstCommit, secondWrite, beforeCommit };
+    unsigned caseNumber = 0;
+    for (const auto reason : {"unsupported_recording_source_kind", "invalid_recording_source_mode", "not_retryable"}) {
+        for (const bool hasTruth : {true, false}) {
+            for (const auto fault : {Fault::afterFirstCommit, Fault::secondWrite, Fault::beforeCommit}) {
+                const auto directory = root / std::to_string(++caseNumber);
+                const auto ledger = directory / "queue.json";
+                const auto package = directory / "package";
+                std::filesystem::create_directories(package);
+                std::ofstream(package / "meeting-review.m4a") << "synthetic-playback";
+                const std::array<std::uint64_t, 3> previousBytes{1, 2, 3};
+                const std::array<std::uint64_t, 3> answeredBytes{11, 22, 33};
+                DesktopUploadQueueService initial(ledger, directory);
+                assert(initial.load());
+                assert(initial.enqueue({"recording", "directory", "session", package,
+                    UploadQueueStatus::retry, previousBytes, 2, "transport_unavailable", owner.userId, owner.workspaceId}));
+                unsigned writes = 0;
+                DesktopUploadQueueService queue(ledger, directory,
+                    [&](const auto& custodyRoot, const auto& path, std::string_view json) {
+                        ++writes;
+                        if (fault == Fault::beforeCommit || (fault == Fault::secondWrite && writes == 2)) return false;
+                        assert(AtomicFileStore::writeWithinRoot(custodyRoot, path, json, 4 * 1024 * 1024).ok());
+                        if (fault == Fault::afterFirstCommit) throw Interrupted{};
+                        return true;
+                    });
+                assert(queue.load() && writes == 0);
+                UploadServerTruth truth{"recording", true, true, answeredBytes, false};
+                truth.meetingId = "meeting-id";
+                truth.mediaRevisionId = "revision-id";
+                truth.uploadSessionId = "upload-id";
+                truth.serverStatus = "uploading";
+                auto foreignTruth = truth;
+                foreignTruth.localRecordingId = "other-recording";
+                assert(!queue.markBlocked("recording", reason, &foreignTruth));
+                assert(writes == 0 && queue.items()[0].acceptedBytes == previousBytes);
+                bool interrupted = false;
+                {
+                    DesktopUploadRecoveryScheduler scheduler(queue);
+                    try {
+                        assert(runWorker(scheduler, RecoveryTrigger::scheduled, [&](const auto&, auto) {
+                            return DesktopTransportResult{DesktopTransportStatus::serverRejected,
+                                hasTruth ? std::optional<UploadServerTruth>(truth) : std::nullopt, reason, "not_retryable"};
+                        }) == 1);
+                    } catch (const Interrupted&) { interrupted = true; }
+                }
+                assert(interrupted == (fault == Fault::afterFirstCommit));
+                DesktopUploadQueueService restarted(ledger, directory);
+                assert(restarted.load() && restarted.items().size() == 1);
+                const auto& row = restarted.items()[0];
+                if (fault == Fault::beforeCommit) {
+                    // A failed atomic replacement preserves the entire old
+                    // snapshot. It cannot invent durable knowledge of the answer.
+                    assert(queue.quarantined() && !queue.requestRetry("recording"));
+                    assert(queue.items()[0].status == UploadQueueStatus::blocked);
+                    assert(queue.items()[0].safeReason == reason);
+                    assert(queue.items()[0].acceptedBytes == (hasTruth ? answeredBytes : previousBytes));
+                    assert(row.status == UploadQueueStatus::retry && row.safeReason == "transport_unavailable");
+                    assert(row.acceptedBytes == previousBytes && row.meetingId.empty());
+                } else {
+                    // Restart immediately after the first commit, or fail any
+                    // second write: neither may expose uploading without reason.
+                    assert(row.status == UploadQueueStatus::blocked && row.safeReason == reason);
+                    assert(row.acceptedBytes == (hasTruth ? answeredBytes : previousBytes));
+                    assert(row.meetingId == (hasTruth ? "meeting-id" : ""));
+                    assert(row.mediaRevisionId == (hasTruth ? "revision-id" : ""));
+                    assert(row.uploadSessionId == (hasTruth ? "upload-id" : ""));
+                    assert(row.serverStatus == (hasTruth ? "uploading" : ""));
+                    assert(!DesktopUploadQueueService::canRetry(row) && !restarted.requestRetry("recording"));
+                    assert(!restarted.nextPending());
+                    DesktopUploadRecoveryScheduler resumed(restarted);
+                    assert(!resumed.startAsync(RecoveryTrigger::launch, [](const auto&, auto) -> DesktopTransportResult {
+                        assert(false && "a committed permanent rejection must never be sent again");
+                        return {};
+                    }));
+                }
+                assert(writes == 1 && row.attempts == 2);
+                assert(std::filesystem::exists(package / "meeting-review.m4a"));
+            }
+        }
+    }
+}
+
 void testManualRetry(const std::filesystem::path& root) {
     using namespace graf::windows;
     std::filesystem::create_directories(root / "package");
@@ -385,6 +473,175 @@ void testManualRetry(const std::filesystem::path& root) {
     }) == 1);
 }
 
+// Exercise the production upload sequence with local v5 bytes and synthetic HTTP
+// answers. Only the wire is replaced: create, part receipts, finalize, scheduler
+// and durable queue transitions are the same as in the app.
+void testUploadProblemResponses(const std::filesystem::path& root) {
+    using namespace graf::windows;
+    using Response = DesktopHttpTransport::UploadResponse;
+    unsigned caseNumber = 0;
+    const auto run = [&](std::string_view failedStage, const Response& answer,
+                         DesktopTransportStatus expected, std::string_view reason) {
+        const auto directory = root / std::to_string(++caseNumber);
+        const auto package = directory / "package";
+        std::filesystem::create_directories(package);
+        V5LocalRecordingWriter writer(package, [](const auto& path, const auto&, std::uint64_t) {
+            std::ofstream output(path, std::ios::binary);
+            output << "synthetic-playback";
+            return output.good();
+        });
+        CanonicalAudioFrame frame; frame.mixed.fill(0.25F);
+        assert(writer.append(frame));
+        const auto written = writer.finalize();
+        assert(written.ok());
+        const auto before = LocalRecordingPackage::inspect(package, directory);
+        assert(before.integrity == PackageIntegrity::valid);
+        const std::array<std::uint64_t, 3> sizes{
+            std::filesystem::file_size(package / "manifest.json"), written.wavBytes, written.playbackBytes};
+        DesktopUploadQueueService queue(directory / "queue.json", directory);
+        assert(queue.load());
+        assert(queue.enqueue({"recording", "directory", "session", package,
+            UploadQueueStatus::pending, {}, 0, "", owner.userId, owner.workspaceId}));
+        DesktopHttpConfig config;
+        config.sessionToken = "synthetic-session";
+        config.workspaceId = owner.workspaceId;
+        config.confirmedIdentity = owner;
+        unsigned calls = 0, rangeReads = 0, parts = 0;
+        bool failed = false;
+        const DesktopHttpTransport::UploadSend send = [&](const DesktopHttpConfig& requestConfig,
+                                                         const DesktopHttpTransport::UploadRequest& request) -> Response {
+            assert(!failed); // No later request after a rejected stage.
+            assert(requestConfig.sessionToken == config.sessionToken);
+            ++calls;
+            std::string stage;
+            if (request.path.find("/sync-state?") != std::string::npos) stage = "sync";
+            else if (request.path == "/api/v1/meetings") stage = "create";
+            else if (request.path == "/api/v1/meetings/meeting-id/upload-sessions") stage = "session";
+            else if (request.path.find("/missing-ranges") != std::string::npos) stage = "ranges";
+            else if (request.path.find("/finalize") != std::string::npos) stage = "finalize";
+            else if (request.path.find("/tracks/manifest/parts/") != std::string::npos) stage = "manifest";
+            else if (request.path.find("/tracks/media/parts/") != std::string::npos) stage = "media";
+            else if (request.path.find("/tracks/playback/parts/") != std::string::npos) stage = "playback";
+            else assert(false && "unexpected upload endpoint");
+            if (stage == failedStage) { failed = true; return answer; }
+            if (stage == "sync") return {404, R"({"code":"recording_not_found"})"};
+            if (stage == "create") {
+                assert(request.method == "POST" && !request.idempotencyKey.empty());
+                assert(request.body.find("single_wav_v1") != std::string::npos);
+                return {201, R"({"meeting_id":"meeting-id"})"};
+            }
+            if (stage == "session") return {201, R"({"session_id":"upload-id","accepted_bytes_by_track":{}})"};
+            if (stage == "ranges") {
+                if (++rangeReads > 1) return {200, R"({"missing_ranges_by_track":{}})"};
+                return {200, "{\"missing_ranges_by_track\":{\"manifest\":[{\"start\":0,\"end\":" +
+                    std::to_string(sizes[0]) + "}],\"media\":[{\"start\":0,\"end\":" + std::to_string(sizes[1]) +
+                    "}],\"playback\":[{\"start\":0,\"end\":" + std::to_string(sizes[2]) + "}]}}"};
+            }
+            if (stage == "finalize") { assert(parts == 3); return {200, "{}"}; }
+            assert(request.method == "PUT" && !request.jsonBody && request.byteOffset == 0);
+            assert(request.contentSha256.size() == 64);
+            ++parts;
+            return {200, "{\"byte_offset\":0,\"byte_length\":" + std::to_string(request.body.size()) + "}"};
+        };
+        DesktopUploadRecoveryScheduler scheduler(queue);
+        DesktopTransportResult result;
+        assert(runWorker(scheduler, RecoveryTrigger::scheduled, [&](const auto& item, auto cancellation) {
+            auto workerConfig = config;
+            workerConfig.cancellation = std::move(cancellation);
+            result = DesktopHttpTransport(workerConfig).upload(item, send);
+            return result;
+        }) == 1);
+        assert(calls > 0 && failed == !failedStage.empty());
+        assert(result.status == expected && result.safeReason == reason);
+        assert(result.retryClass == (reason.empty() ? "" : "not_retryable"));
+        const auto& row = queue.items()[0];
+        std::array<std::uint64_t, 3> accepted{};
+        for (std::size_t index = 0; index < parts; ++index) accepted[index] = sizes[index];
+        assert(row.acceptedBytes == accepted);
+        assert(row.meetingId == (failedStage == "create" ? "" : "meeting-id"));
+        const auto after = LocalRecordingPackage::inspect(package, directory);
+        assert(after.integrity == before.integrity && after.playbackAvailable == before.playbackAvailable);
+        assert(after.durationMs == before.durationMs);
+        DesktopUploadQueueService restarted(directory / "queue.json", directory);
+        assert(restarted.load());
+        assert(restarted.items()[0].safeReason == row.safeReason);
+        assert(restarted.items()[0].acceptedBytes == row.acceptedBytes);
+        assert(restarted.items()[0].meetingId == row.meetingId);
+        if (!reason.empty()) {
+            assert(row.status == UploadQueueStatus::blocked && row.safeReason == reason && row.attempts == 0);
+            assert(!DesktopUploadQueueService::canRetry(row));
+            assert(!queue.requestRetry("recording") && !restarted.requestRetry("recording"));
+            assert(restarted.requeueNeedsAuth());
+            assert(!restarted.nextPending() && restarted.pendingItems(32).empty());
+            DesktopUploadRecoveryScheduler resumed(restarted);
+            for (const auto trigger : {RecoveryTrigger::launch, RecoveryTrigger::scheduled,
+                RecoveryTrigger::authRecovered, RecoveryTrigger::networkRecovered, RecoveryTrigger::activation}) {
+                assert(!resumed.startAsync(trigger, [](const auto&, auto) -> DesktopTransportResult {
+                    assert(false && "permanent rejection must never reach the wire");
+                    return {};
+                }));
+            }
+            const auto beforeBlockedSend = calls;
+            assert(DesktopHttpTransport(config).upload(restarted.items()[0], send).retryClass == "not_retryable");
+            assert(calls == beforeBlockedSend);
+            std::ifstream ledger(directory / "queue.json");
+            const std::string stored((std::istreambuf_iterator<char>(ledger)), {});
+            assert(stored.find("desktop-upload-queue.v3") != std::string::npos);
+            assert(stored.find("private-problem-detail") == std::string::npos);
+            ledger.close();
+            assert(restarted.removeLocalCopy("recording", LocalPurgeProof::userConfirmedLocalCopy,
+                [&](const auto& path) { std::filesystem::rename(path, directory / "recycled"); return true; }) ==
+                LocalCopyRemovalResult::removed);
+            assert(std::filesystem::exists(directory / "recycled" / "meeting-review.m4a"));
+        } else if (expected == DesktopTransportStatus::uploaded) {
+            assert(row.status == UploadQueueStatus::uploaded && row.acceptedBytes == sizes && parts == 3);
+        } else if (expected == DesktopTransportStatus::authRequired) {
+            assert(row.status == UploadQueueStatus::needsAuth && row.attempts == 0);
+        } else {
+            assert(row.status == UploadQueueStatus::retry);
+            assert(row.attempts == (answer.status == 429 ? 0U : 1U));
+            assert(DesktopUploadQueueService::canRetry(row) && restarted.requestRetry("recording"));
+            if (answer.status == 429) {
+                assert(result.retryAfterSeconds == 120 && scheduler.deferralRemainingMs() > 0);
+            }
+        }
+        if (!answer.authExpiresAt.empty()) assert(result.authExpiresAt == 1800000000);
+    };
+    run("", {}, DesktopTransportStatus::uploaded, ""); // Current Windows v5 success path.
+    for (const auto code : {"unsupported_recording_source_kind", "invalid_recording_source_mode"}) {
+        const auto body = "{ \"code\" : \"" + std::string(code) +
+            "\", \"title\":\"private-problem-detail\", \"detail\":\"private-problem-detail\" }";
+        for (const auto stage : {"create", "session", "manifest", "media", "playback", "finalize"}) {
+            run(stage, {400, body, false, "", "1800000000"}, DesktopTransportStatus::serverRejected, code);
+            for (const auto status : {401U, 403U, 408U, 429U, 500U, 503U}) {
+                run(stage, {status, body, false, "120", "1800000000"},
+                    status == 401 || status == 403 ? DesktopTransportStatus::authRequired :
+                    DesktopTransportStatus::retryableFailure, "");
+            }
+            run(stage, {400, body, true}, DesktopTransportStatus::retryableFailure, "");
+            run(stage, {0, body, true}, DesktopTransportStatus::retryableFailure, "");
+        }
+    }
+    for (const auto& body : {
+        std::string(R"({"code":"unsupported_recording_source_kind_suffix"})"),
+        std::string(R"({"code":"UNSUPPORTED_RECORDING_SOURCE_KIND"})"),
+        std::string(R"({"code":"not_retryable"})"),
+        std::string(R"({"code":"other","detail":"unsupported_recording_source_kind"})"),
+        std::string(R"({"nested":{"code":"unsupported_recording_source_kind"}})"),
+        std::string(R"({"code":null})"), std::string(R"({"code":400})"),
+        std::string(R"({"code":"unsupported_recording_source_kind","code":"other"})"),
+        std::string(R"({"code":"other","code":"unsupported_recording_source_kind"})"),
+        std::string(R"({"code":"unsupported_recording_source_kind","\u0063ode":"other"})"),
+        std::string(R"({"code":"unsupported_recording_source_kind"} trailing)"),
+        std::string(R"({"code":"unsupported_recording_source_kind")"),
+        std::string(R"({"code":"unsupported_recording_source_kind","extra":)") + std::string(40, '[') +
+            "0" + std::string(40, ']') + "}",
+        std::string(2 * 1024 * 1024 + 1, ' ') + R"({"code":"unsupported_recording_source_kind"})"}) {
+        run("create", {400, body}, DesktopTransportStatus::serverRejected, "");
+    }
+    run("create", {409, R"({"code":"unsupported_recording_source_kind"})"}, DesktopTransportStatus::serverRejected, "");
+}
+
 void testRetryClassClassification(const std::filesystem::path& root) {
     using namespace graf::windows;
     std::filesystem::create_directories(root / "package");
@@ -410,8 +667,7 @@ void testRetryClassClassification(const std::filesystem::path& root) {
 
     // A sign-in is a user action the account flow can recover from.
     assert(queue.items()[0].status == UploadQueueStatus::needsAuth && queue.items()[0].safeReason == "auth_required");
-    // An admin pause and a not-retryable conflict stop automatic attempts but
-    // stay recoverable by an explicit request from the owner.
+    // An admin pause can be rearmed; a permanent rejection cannot.
     assert(queue.items()[1].status == UploadQueueStatus::blocked && queue.items()[1].safeReason == "needs_admin");
     assert(queue.items()[2].status == UploadQueueStatus::blocked && queue.items()[2].safeReason == "not_retryable");
     // A terminal conflict cannot be sent at all.
@@ -433,6 +689,11 @@ void testRetryClassClassification(const std::filesystem::path& root) {
     assert(queue.requestRetry("class-admin"));
     assert(queue.items()[1].status == UploadQueueStatus::retry && queue.items()[1].attempts == 0);
     assert(!queue.requestRetry("class-terminal"));
+    assert(!queue.requestRetry("class-not-retryable"));
+    DesktopUploadQueueService restarted(root / "queue.json", root);
+    assert(restarted.load());
+    assert(!restarted.requestRetry("class-not-retryable"));
+    assert(restarted.items()[2].safeReason == "not_retryable");
     assert(queue.items()[3].status == UploadQueueStatus::quarantined);
 }
 
@@ -660,7 +921,9 @@ void testSessionDeadlineHeader() {
     // A value longer than any real instant is refused as a whole instead of
     // overflowing into a number the app would trust.
     assert(!DesktopHttpTransport::epochSecondsFromHeader("99999999999999999999").has_value());
-    assert(DesktopHttpTransport::epochSecondsFromHeader("9999999999999999999").has_value());
+    assert(!DesktopHttpTransport::epochSecondsFromHeader("9999999999999999999").has_value());
+    assert(!DesktopHttpTransport::epochSecondsFromHeader("9223372036854775808").has_value());
+    assert(DesktopHttpTransport::epochSecondsFromHeader("9223372036854775807") == std::numeric_limits<std::int64_t>::max());
 }
 
 void testRateLimitPause(const std::filesystem::path& root) {
@@ -801,6 +1064,8 @@ int main() {
     const auto package = root / "recording";
     std::filesystem::create_directories(package);
     testManualRetry(root / "manual");
+    testPermanentRejectionDurability(root / "permanent-durability");
+    testUploadProblemResponses(root / "problem-responses");
     testRetryClassClassification(root / "retry-class");
     testRateLimitPause(root / "rate-limit");
     testSessionDeadlineHeader();

@@ -127,8 +127,9 @@ constexpr std::array<std::uint64_t, 4> kDeletionRetryDelayMs = {5000, 15000, 300
 
 DesktopUploadQueueService::DesktopUploadQueueService(
     std::filesystem::path ledgerPath,
-    std::filesystem::path custodyRoot)
-    : ledgerPath_(std::move(ledgerPath)),
+    std::filesystem::path custodyRoot,
+    LedgerWriter ledgerWriter)
+    : ledgerWriter_(std::move(ledgerWriter)), ledgerPath_(std::move(ledgerPath)),
       custodyRoot_(custodyRoot.empty() ? ledgerPath_.parent_path() : std::move(custodyRoot)) {}
 
 bool DesktopUploadQueueService::load() {
@@ -385,11 +386,17 @@ bool DesktopUploadQueueService::enqueue(UploadCustodyItem item) {
 bool DesktopUploadQueueService::reconcile(const UploadServerTruth& truth) {
     auto* item = find(truth.localRecordingId);
     if (item == nullptr) return false;
-    item->acceptedBytes = truth.acceptedBytes;
+    applyServerTruth(*item, truth);
+    stamp(*item);
+    return persist();
+}
+
+void DesktopUploadQueueService::applyServerTruth(UploadCustodyItem& item, const UploadServerTruth& truth) {
+    item.acceptedBytes = truth.acceptedBytes;
     // Adopt the server meeting id once, and only if the server sent a usable
     // one: the ledger field has to stay safe to serialize.
-    if (item->meetingId.empty() && !truth.meetingId.empty() && validIdentity(truth.meetingId))
-        item->meetingId = truth.meetingId;
+    if (item.meetingId.empty() && !truth.meetingId.empty() && validIdentity(truth.meetingId))
+        item.meetingId = truth.meetingId;
     // The server's own fingerprint is adopted as it arrives: it describes what
     // the server holds now, and a stale copy would make the ledger claim a
     // revision or a session the server has already replaced. Every value is
@@ -397,15 +404,13 @@ bool DesktopUploadQueueService::reconcile(const UploadServerTruth& truth) {
     const auto adopt = [](std::string& field, const std::string& value, bool (*valid)(std::string_view)) {
         if (!value.empty() && valid(value)) field = value;
     };
-    adopt(item->mediaRevisionId, truth.mediaRevisionId, validIdentity);
-    adopt(item->uploadSessionId, truth.uploadSessionId, validIdentity);
-    adopt(item->serverStatus, truth.serverStatus, validSafeReason);
-    adopt(item->processingStatus, truth.processingStatus, validSafeReason);
-    adopt(item->mediaRevisionStatus, truth.mediaRevisionStatus, validSafeReason);
-    if (truth.finalized) item->status = UploadQueueStatus::uploaded;
-    else if (truth.uploadSessionExists) item->status = UploadQueueStatus::uploading;
-    stamp(*item);
-    return persist();
+    adopt(item.mediaRevisionId, truth.mediaRevisionId, validIdentity);
+    adopt(item.uploadSessionId, truth.uploadSessionId, validIdentity);
+    adopt(item.serverStatus, truth.serverStatus, validSafeReason);
+    adopt(item.processingStatus, truth.processingStatus, validSafeReason);
+    adopt(item.mediaRevisionStatus, truth.mediaRevisionStatus, validSafeReason);
+    if (truth.finalized) item.status = UploadQueueStatus::uploaded;
+    else if (truth.uploadSessionExists) item.status = UploadQueueStatus::uploading;
 }
 
 bool DesktopUploadQueueService::markDeferred(std::string_view id, std::string reason) {
@@ -430,10 +435,7 @@ bool DesktopUploadQueueService::markRetry(std::string_view id, std::string reaso
 
 bool DesktopUploadQueueService::requestRetry(std::string_view id) {
     auto* item = find(id);
-    if (quarantined_ || !item ||
-        (item->status != UploadQueueStatus::pending && item->status != UploadQueueStatus::retry &&
-         item->status != UploadQueueStatus::needsAuth && item->status != UploadQueueStatus::blocked) ||
-        !DesktopApiClient::accountId(item->ownerUserId) || !DesktopApiClient::accountId(item->ownerWorkspaceId)) return false;
+    if (quarantined_ || !item || !canRetry(*item)) return false;
     const auto previous = *item;
     item->status = UploadQueueStatus::retry;
     item->attempts = 0;
@@ -442,6 +444,18 @@ bool DesktopUploadQueueService::requestRetry(std::string_view id) {
     if (persist()) return true;
     *item = previous;
     return false;
+}
+
+bool DesktopUploadQueueService::isPermanentUploadReason(std::string_view reason) noexcept {
+    return reason == "not_retryable" || reason == "unsupported_recording_source_kind" ||
+        reason == "invalid_recording_source_mode";
+}
+
+bool DesktopUploadQueueService::canRetry(const UploadCustodyItem& item) noexcept {
+    return !isPermanentUploadReason(item.safeReason) &&
+        (item.status == UploadQueueStatus::pending || item.status == UploadQueueStatus::retry ||
+         item.status == UploadQueueStatus::needsAuth || item.status == UploadQueueStatus::blocked) &&
+        DesktopApiClient::accountId(item.ownerUserId) && DesktopApiClient::accountId(item.ownerWorkspaceId);
 }
 
 bool DesktopUploadQueueService::markNeedsAuth(std::string_view id, std::string reason) {
@@ -488,8 +502,11 @@ bool DesktopUploadQueueService::markQuarantined(std::string_view id, std::string
     return persist();
 }
 
-bool DesktopUploadQueueService::markBlocked(std::string_view id, std::string reason) {
-    auto* item = find(id); if (!item || reason.empty() || !validSafeReason(reason)) return false;
+bool DesktopUploadQueueService::markBlocked(std::string_view id, std::string reason, const UploadServerTruth* truth) {
+    auto* item = find(id);
+    if (quarantined_ || !item || reason.empty() || !validSafeReason(reason) ||
+        (truth && truth->localRecordingId != id)) return false;
+    if (truth) applyServerTruth(*item, *truth);
     item->status = UploadQueueStatus::blocked; item->safeReason = std::move(reason);
     stamp(*item);
     return persist();
@@ -1205,9 +1222,10 @@ bool DesktopUploadQueueService::persist() {
     // The document stamp is the moment of the last change to the ledger as a
     // whole, so it is taken here rather than by each caller.
     updatedAtMs_ = nowMs();
-    if (AtomicFileStore::writeWithinRoot(custodyRoot_, ledgerPath_,
-            serialize(items_, deletionOperations_, purgeAcknowledgements_, updatedAtMs_),
-            4 * 1024 * 1024).ok()) return true;
+    const auto json = serialize(items_, deletionOperations_, purgeAcknowledgements_, updatedAtMs_);
+    const bool saved = ledgerWriter_ ? ledgerWriter_(custodyRoot_, ledgerPath_, json) :
+        AtomicFileStore::writeWithinRoot(custodyRoot_, ledgerPath_, json, 4 * 1024 * 1024).ok();
+    if (saved) return true;
     quarantined_ = true;
     return false;
 }

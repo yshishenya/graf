@@ -24,8 +24,8 @@ enum class UploadQueueStatus {
     quarantined,
     // The server classified this item as paused until a workspace admin acts or
     // as not retryable, so no automatic attempt can succeed. It is not
-    // quarantined: once the condition is resolved the owner can ask for one
-    // explicit attempt, which is what the macOS port calls manual only.
+    // quarantined: playback/deletion remain available. Only an admin pause can
+    // be rearmed; a permanent rejection also forbids explicit attempts.
     blocked,
 };
 
@@ -140,9 +140,13 @@ enum class ShortRecordingDiscardResult {
 
 class DesktopUploadQueueService final {
 public:
+    // Optional persistence seam for interruption/failure tests. Production uses
+    // AtomicFileStore::writeWithinRoot; a successful writer must replace atomically.
+    using LedgerWriter = std::function<bool(const std::filesystem::path&, const std::filesystem::path&, std::string_view)>;
     explicit DesktopUploadQueueService(
         std::filesystem::path ledgerPath,
-        std::filesystem::path custodyRoot = {});
+        std::filesystem::path custodyRoot = {},
+        LedgerWriter ledgerWriter = {});
 
     [[nodiscard]] bool load();
     [[nodiscard]] bool enqueue(UploadCustodyItem item);
@@ -154,6 +158,10 @@ public:
     // UI owner only, with no upload in flight and after current-account checks.
     // Explicit retry rearms only this owned row; accepted bytes/identity stay put.
     [[nodiscard]] bool requestRetry(std::string_view localRecordingId);
+    // Shared with the shell action projection; its current-account/busy and
+    // package-integrity checks still apply. Uses existing durable safe_reason.
+    [[nodiscard]] static bool canRetry(const UploadCustodyItem& item) noexcept;
+    [[nodiscard]] static bool isPermanentUploadReason(std::string_view reason) noexcept;
     [[nodiscard]] bool markNeedsAuth(std::string_view localRecordingId, std::string reason = "auth_required");
     // UI thread, only after explicit native confirmation against the current
     // account generation. A known owner can never be reassigned, even to itself.
@@ -162,7 +170,10 @@ public:
     [[nodiscard]] bool markQuarantined(std::string_view localRecordingId, std::string reason);
     // Stops automatic attempts without discarding the row: the server said only
     // an admin action or a fix on this computer can unblock it.
-    [[nodiscard]] bool markBlocked(std::string_view localRecordingId, std::string reason);
+    // When supplied, server truth and the block are committed in one atomic
+    // replacement: a restart must never see new bytes without the refusal.
+    [[nodiscard]] bool markBlocked(std::string_view localRecordingId, std::string reason,
+                                   const UploadServerTruth* truth = nullptr);
     [[nodiscard]] bool markUploaded(std::string_view localRecordingId);
     // UI thread, after scheduler cancellation/drain (busy == false) and native
     // confirmation. The callback must recycle, not permanently delete; it must
@@ -378,6 +389,8 @@ public:
     [[nodiscard]] std::uint64_t nowMs() const;
 
 private:
+    LedgerWriter ledgerWriter_;
+    static void applyServerTruth(UploadCustodyItem& item, const UploadServerTruth& truth);
     [[nodiscard]] bool persist();
     [[nodiscard]] static std::string serialize(const std::vector<UploadCustodyItem>& items,
                                                const std::vector<DeletionOperationRecord>& operations,

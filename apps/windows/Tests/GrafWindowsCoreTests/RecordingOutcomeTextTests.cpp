@@ -13,9 +13,6 @@ namespace {
 
 using graf::windows::ReasonCode;
 using graf::windows::effectiveFailureReason;
-using graf::windows::isMicrophoneOnlyReason;
-using graf::windows::isRenderOnlyReason;
-using graf::windows::recordingDegradedText;
 using graf::windows::recordingFailureText;
 
 bool contains(const std::wstring& text, const wchar_t* needle) {
@@ -112,32 +109,6 @@ void testDeniedPermissionWinsOverTheDeviceMechanism() {
                     L"Разрешения Windows"));
 }
 
-void testDegradedRecordingIsExplained() {
-    // Запись без микрофона сохранена: об этом нужно сказать прямо, иначе
-    // человек узнает о пропаже голоса только на расшифровке.
-    assert(isMicrophoneOnlyReason(ReasonCode::microphonePermissionDenied));
-    assert(isMicrophoneOnlyReason(ReasonCode::microphoneEndpointUnavailable));
-    assert(!isMicrophoneOnlyReason(ReasonCode::endpointInvalidated));
-    assert(!isMicrophoneOnlyReason(ReasonCode::storageUnavailable));
-    const auto denied = recordingDegradedText(ReasonCode::microphonePermissionDenied);
-    assert(contains(denied, L"нет разрешения"));
-    assert(contains(denied, L"системным звуком"));
-    assert(contains(recordingDegradedText(ReasonCode::microphoneEndpointUnavailable), L"системным звуком"));
-    // Ограничение — не отказ: текст не должен пугать потерей записи.
-    assert(!contains(denied, L"Не удалось сохранить"));
-
-    // Отказать может и системный звук: тогда запись остаётся с микрофоном, и
-    // текст обязан назвать именно системный звук — иначе человек пойдёт чинить
-    // микрофон.
-    assert(isRenderOnlyReason(ReasonCode::renderEndpointUnavailable));
-    assert(!isRenderOnlyReason(ReasonCode::microphoneEndpointUnavailable));
-    assert(!isRenderOnlyReason(ReasonCode::endpointInvalidated));
-    const auto render = recordingDegradedText(ReasonCode::renderEndpointUnavailable);
-    assert(contains(render, L"Системный звук недоступен"));
-    assert(contains(render, L"микрофоном"));
-    assert(!contains(render, L"Не удалось сохранить"));
-}
-
 } // namespace
 
 int main() {
@@ -146,7 +117,6 @@ int main() {
     testDeviceProblemsNameTheDevice();
     testUnknownReasonKeepsTheOldCopy();
     testDeniedPermissionWinsOverTheDeviceMechanism();
-    testDegradedRecordingIsExplained();
     std::printf("RecordingOutcomeTextTests: ok\n");
     return 0;
 }

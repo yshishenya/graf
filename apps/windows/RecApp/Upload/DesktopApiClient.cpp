@@ -1,10 +1,21 @@
 #include "DesktopApiClient.h"
+#include "DesktopHttpTransport.h"
 
 #include "../Storage/Sha256.h"
 
 #include <cctype>
+#include <charconv>
 #include <cstdio>
 #include <set>
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <memory>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <winhttp.h>
+#endif
 
 namespace graf::windows {
 namespace {
@@ -419,6 +430,243 @@ std::string DesktopApiClient::meetingDeletionPath(std::string_view meetingId) {
     // never reach the wire as if it identified a meeting.
     if (!accountId(meetingId)) return {};
     return std::string(cabinetMeetingPrefix) + std::string(meetingId) + std::string(ownOriginDeletionSuffix);
+}
+
+namespace {
+// Calendar strings may contain JSON Unicode escapes. Upload decoding is unchanged.
+std::optional<std::string> calendarString(std::string_view raw) {
+    if (raw.size() < 2 || raw.front() != '"' || raw.back() != '"' || raw.size() > 16384) return std::nullopt;
+    std::string result;
+    const auto append = [&](unsigned cp) {
+        if (cp < 0x80) result += static_cast<char>(cp);
+        else if (cp < 0x800) { result += static_cast<char>(0xc0 | (cp >> 6)); result += static_cast<char>(0x80 | (cp & 63)); }
+        else if (cp < 0x10000) {
+            result += static_cast<char>(0xe0 | (cp >> 12)); result += static_cast<char>(0x80 | ((cp >> 6) & 63));
+            result += static_cast<char>(0x80 | (cp & 63));
+        } else {
+            result += static_cast<char>(0xf0 | (cp >> 18)); result += static_cast<char>(0x80 | ((cp >> 12) & 63));
+            result += static_cast<char>(0x80 | ((cp >> 6) & 63)); result += static_cast<char>(0x80 | (cp & 63));
+        }
+    };
+    const auto hex = [&](std::size_t& i) -> std::optional<unsigned> {
+        unsigned cp = 0;
+        for (int n = 0; n < 4; ++n) {
+            if (++i >= raw.size() - 1) return std::nullopt;
+            char c = raw[i];
+            if (c >= '0' && c <= '9') cp = cp * 16 + (c - '0');
+            else if (c >= 'a' && c <= 'f') cp = cp * 16 + (c - 'a' + 10);
+            else if (c >= 'A' && c <= 'F') cp = cp * 16 + (c - 'A' + 10);
+            else return std::nullopt;
+        }
+        return cp;
+    };
+    for (std::size_t i = 1; i < raw.size() - 1; ++i) {
+        auto c = raw[i];
+        if (c != '\\') {
+            if (static_cast<unsigned char>(c) < 0x20 || c == '"') return std::nullopt;
+            unsigned cp = static_cast<unsigned char>(c), count = 0, minimum = 0;
+            if (cp >= 0xf0 && cp <= 0xf4) { cp &= 7; count = 3; minimum = 0x10000; }
+            else if (cp >= 0xe0 && cp <= 0xef) { cp &= 15; count = 2; minimum = 0x800; }
+            else if (cp >= 0xc2 && cp <= 0xdf) { cp &= 31; count = 1; minimum = 0x80; }
+            else if (cp >= 0x80) return std::nullopt;
+            while (count--) {
+                if (++i >= raw.size() - 1) return std::nullopt;
+                const auto next = static_cast<unsigned char>(raw[i]);
+                if ((next & 0xc0) != 0x80) return std::nullopt;
+                cp = (cp << 6) | (next & 63);
+            }
+            if (cp < minimum || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) return std::nullopt;
+            append(cp); continue;
+        }
+        if (++i >= raw.size() - 1) return std::nullopt;
+        switch (raw[i]) {
+        case '"': result += '"'; break;
+        case '\\': result += '\\'; break;
+        case '/': result += '/'; break;
+        case 'n': result += '\n'; break;
+        case 'r': result += '\r'; break;
+        case 't': result += '\t'; break;
+        case 'b': result += '\b'; break;
+        case 'f': result += '\f'; break;
+        case 'u': {
+            auto cp = hex(i); if (!cp) return std::nullopt;
+            if (*cp >= 0xd800 && *cp <= 0xdbff) {
+                if (i + 2 >= raw.size() - 1 || raw[++i] != '\\' || raw[++i] != 'u') return std::nullopt;
+                const auto low = hex(i);
+                if (!low || *low < 0xdc00 || *low > 0xdfff) return std::nullopt;
+                *cp = 0x10000 + ((*cp - 0xd800) << 10) + *low - 0xdc00;
+            } else if (*cp >= 0xdc00 && *cp <= 0xdfff) return std::nullopt;
+            if (*cp == 0) return std::nullopt;
+            append(*cp); break;
+        }
+        default: return std::nullopt;
+        }
+    }
+    return result;
+}
+
+std::optional<double> calendarInstant(std::string_view raw) {
+    const auto text = calendarString(raw);
+    if (!text || text->size() < 20 || text->size() > 40) return std::nullopt;
+    const auto& s = *text;
+    const auto number = [&](std::size_t pos, std::size_t count) -> int {
+        int result = 0;
+        for (std::size_t i = pos; i < pos + count; ++i) {
+            if (s[i] < '0' || s[i] > '9') return -1;
+            result = result * 10 + s[i] - '0';
+        }
+        return result;
+    };
+    if (s[4] != '-' || s[7] != '-' || s[10] != 'T' || s[13] != ':' || s[16] != ':') return std::nullopt;
+    const int y = number(0, 4), m = number(5, 2), d = number(8, 2);
+    const int h = number(11, 2), minute = number(14, 2), second = number(17, 2);
+    if (y < 1970 || m < 1 || m > 12 || h < 0 || h > 23 || minute < 0 || minute > 59 || second < 0 || second > 59) return std::nullopt;
+    const int days[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    const int maxDay = days[m - 1] + (m == 2 && y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) ? 1 : 0);
+    if (d < 1 || d > maxDay) return std::nullopt;
+    std::size_t i = 19; double fraction = 0;
+    if (s[i] == '.') {
+        double place = 0.1; const auto first = ++i;
+        while (i < s.size() && s[i] >= '0' && s[i] <= '9') { fraction += (s[i++] - '0') * place; place *= 0.1; }
+        if (i == first || i - first > 9) return std::nullopt;
+    }
+    int offset = 0;
+    if (i < s.size() && s[i] == 'Z' && i + 1 == s.size()) {}
+    else if (i + 6 == s.size() && (s[i] == '+' || s[i] == '-') && s[i + 3] == ':') {
+        const auto oh = number(i + 1, 2), om = number(i + 4, 2);
+        if (oh < 0 || oh > 14 || om < 0 || om > 59 || (oh == 14 && om != 0)) return std::nullopt;
+        offset = (oh * 60 + om) * (s[i] == '+' ? 1 : -1);
+    } else return std::nullopt;
+    const auto year = y - (m <= 2 ? 1 : 0);
+    const auto era = year / 400, yoe = year - era * 400;
+    const auto doy = (153 * (m > 2 ? m - 3 : m + 9) + 2) / 5 + d - 1;
+    const auto dayCount = era * 146097LL + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468;
+    return static_cast<double>(dayCount * 86400 + h * 3600 + minute * 60 + second - offset * 60) + fraction;
+}
+}
+
+std::optional<CalendarReminderSnapshot> DesktopApiClient::decodeCalendarReminders(std::string_view json) {
+    if (json.size() > 1024 * 1024) return std::nullopt;
+    const auto root = jsonObjectFields(json); if (!root) return std::nullopt;
+    const auto field = [](const auto& fields, std::string_view key) -> std::string_view {
+        auto it = fields.find(key); return it == fields.end() ? std::string_view{} : it->second;
+    };
+    const auto owner = calendarString(field(*root, "notification_owner_id"));
+    const auto workspace = calendarString(field(*root, "notification_workspace_id"));
+    const auto events = jsonArrayValues(field(*root, "events"));
+    if (!owner || !workspace || !accountId(*owner) || !accountId(*workspace) || !events || events->size() > 50) return std::nullopt;
+    CalendarReminderSnapshot result{*owner, *workspace, {}};
+    std::set<std::string> ids;
+    for (const auto raw : *events) {
+        const auto fields = jsonObjectFields(raw); if (!fields) return std::nullopt;
+        auto id = calendarString(field(*fields, "event_id"));
+        auto start = calendarInstant(field(*fields, "starts_at")), end = calendarInstant(field(*fields, "ends_at"));
+        auto state = calendarString(field(*fields, "join_prompt_state"));
+        auto titleState = calendarString(field(*fields, "title_state"));
+        auto link = field(*fields, "meeting_link_present");
+        if (!id || !accountId(*id) || !ids.insert(*id).second || !start || !end || *end <= *start ||
+            !state || !titleState || (link != "true" && link != "false")) return std::nullopt;
+        CalendarReminderEvent event{*id, *start, *end, *state == "not_due" || *state == "shown", *titleState == "available", "", link == "true", ""};
+        auto title = field(*fields, "title");
+        if (!title.empty() && title != "null") {
+            auto decoded = calendarString(title); if (!decoded || decoded->size() > 4096) return std::nullopt;
+            if (event.titleAvailable) event.title = std::move(*decoded);
+        }
+        auto url = field(*fields, "open_meeting_url");
+        if (!url.empty() && url != "null") {
+            auto decoded = calendarString(url); if (!decoded || decoded->size() > 4096) return std::nullopt;
+            event.meetingUrl = std::move(*decoded);
+        }
+        result.events.push_back(std::move(event));
+    }
+    return result;
+}
+
+void CalendarReminderResponse::inheritAuthExpiry(std::optional<std::int64_t> contextExpiry) {
+    if (status == 401 || status == 403) { authExpiresAt.reset(); return; }
+    if (!authExpiresAt) authExpiresAt = contextExpiry;
+}
+
+std::optional<std::int64_t> CalendarReminderResponse::renewedSessionExpiry(std::int64_t now) const {
+    if (status == 401 || status == 403 || !authExpiresAt || *authExpiresAt <= 0 || *authExpiresAt <= now) return std::nullopt;
+    return authExpiresAt;
+}
+
+std::optional<std::int64_t> DesktopApiClient::calendarAuthExpiryFromHeader(std::string_view raw) {
+    if (raw.empty() || raw.size() > 19 || raw.front() < '0' || raw.front() > '9') return std::nullopt;
+    std::int64_t value = 0;
+    const auto parsed = std::from_chars(raw.data(), raw.data() + raw.size(), value);
+    if (parsed.ec != std::errc{} || parsed.ptr != raw.data() + raw.size()) return std::nullopt;
+    return value;
+}
+
+CalendarReminderResponse DesktopApiClient::calendarReminders(const DesktopHttpConfig& config) {
+    CalendarReminderResponse result;
+#ifdef _WIN32
+    const auto cancelled = [&] { return config.cancellation && config.cancellation->load(); };
+    if (cancelled() || !config.confirmedIdentity || !accountId(config.confirmedIdentity->userId) ||
+        !accountId(config.workspaceId) || config.confirmedIdentity->workspaceId != config.workspaceId ||
+        config.sessionToken.empty() || config.sessionToken.size() > 4096) return result;
+    for (const auto c : config.sessionToken) if (static_cast<unsigned char>(c) < 0x21 || static_cast<unsigned char>(c) > 0x7e) return result;
+    // Configuration is native-owned; userinfo/path/query/fragment cannot become
+    // an alternative authenticated destination. The request path is constant.
+    if (config.baseOrigin.size() > 2048 || config.baseOrigin.find_first_of("\r\n\t @?#") != std::string::npos) return result;
+    const auto scheme = config.baseOrigin.find("://");
+    if (scheme == std::string::npos || config.baseOrigin.find('/', scheme + 3) != std::string::npos) return result;
+    const std::wstring origin(config.baseOrigin.begin(), config.baseOrigin.end());
+    URL_COMPONENTS components{}; components.dwStructSize = sizeof(components);
+    components.dwSchemeLength = static_cast<DWORD>(-1); components.dwHostNameLength = static_cast<DWORD>(-1);
+    if (!WinHttpCrackUrl(origin.c_str(), 0, 0, &components) || components.nScheme != INTERNET_SCHEME_HTTPS || !components.dwHostNameLength) return result;
+    using Handle = std::unique_ptr<void, decltype(&WinHttpCloseHandle)>;
+    Handle session(WinHttpOpen(L"GRAF/Feature200", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0), WinHttpCloseHandle);
+    if (!session || !WinHttpSetTimeouts(session.get(), 5000, 5000, 5000, 5000)) return result;
+    const std::wstring host(components.lpszHostName, components.dwHostNameLength);
+    Handle connection(WinHttpConnect(session.get(), host.c_str(), components.nPort, 0), WinHttpCloseHandle);
+    if (!connection) return result;
+    const std::wstring path(calendarUpcomingPath.begin(), calendarUpcomingPath.end());
+    Handle request(WinHttpOpenRequest(connection.get(), L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,
+                                      WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE), WinHttpCloseHandle);
+    if (!request) return result;
+    DWORD disabled = WINHTTP_DISABLE_REDIRECTS | WINHTTP_DISABLE_COOKIES;
+    if (!WinHttpSetOption(request.get(), WINHTTP_OPTION_DISABLE_FEATURE, &disabled, sizeof(disabled))) return result;
+    const std::string headers = "Accept: application/json\r\nX-Auth-Session: " + config.sessionToken +
+        "\r\nX-Workspace-Id: " + config.workspaceId + "\r\nX-Graf-Expected-Actor: " + config.confirmedIdentity->userId +
+        "\r\nX-Graf-Expected-Workspace: " + config.workspaceId + "\r\n";
+    const std::wstring wide(headers.begin(), headers.end());
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+    if (cancelled() || !WinHttpSendRequest(request.get(), wide.c_str(), static_cast<DWORD>(wide.size()),
+        WINHTTP_NO_REQUEST_DATA, 0, 0, 0) || cancelled() || !WinHttpReceiveResponse(request.get(), nullptr)) return result;
+    DWORD status = 0, bytes = sizeof(status);
+    if (!WinHttpQueryHeaders(request.get(), WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+        WINHTTP_HEADER_NAME_BY_INDEX, &status, &bytes, WINHTTP_NO_HEADER_INDEX)) return result;
+    result.status = status;
+    // Fixed-size header read: at most 19 ASCII digits plus the terminator.
+    wchar_t expiry[20]{}; DWORD expiryBytes = sizeof(expiry);
+    if (WinHttpQueryHeaders(request.get(), WINHTTP_QUERY_CUSTOM, L"X-GRAF-Auth-Expires-At",
+        expiry, &expiryBytes, WINHTTP_NO_HEADER_INDEX)) {
+        std::string raw;
+        for (const auto c : expiry) {
+            if (!c) break;
+            if (c < L'0' || c > L'9') { raw.clear(); break; }
+            raw += static_cast<char>(c);
+        }
+        result.authExpiresAt = calendarAuthExpiryFromHeader(raw);
+    }
+    if (status != 200) return result;
+    std::string body;
+    for (;;) {
+        if (cancelled() || std::chrono::steady_clock::now() >= deadline) return result;
+        char buffer[8192]; DWORD read = 0;
+        if (!WinHttpReadData(request.get(), buffer, sizeof(buffer), &read)) return result;
+        if (!read) break;
+        if (body.size() + read > 1024 * 1024) return result;
+        body.append(buffer, read);
+    }
+    if (!cancelled()) result.snapshot = decodeCalendarReminders(body);
+#else
+    (void)config;
+#endif
+    return result;
 }
 
 std::optional<NotificationContext> DesktopApiClient::decodeNotificationContext(std::string_view json) {

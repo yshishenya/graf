@@ -1,57 +1,68 @@
 #pragma once
-
 #include "../Contracts/WindowsDesktopContracts.h"
-
 #include <chrono>
-#include <cstdint>
-#include <string_view>
+#include <functional>
+#include <optional>
+#include <string>
+#include <vector>
 
 namespace graf::windows {
-
-// Feature 6796 parity with macOS `DesktopRecordingNoticePresenter`: passive
-// local feedback that is independent of system notification permissions, never
-// takes focus, shows one notice at a time and expires on its own.
-//
-// The portable half owns the truth (visible, replaced, expired). The Windows
-// half draws a topmost, non-activating popup and never becomes the foreground
-// window, so a short recording cannot steal focus from the user's meeting.
-class RecordingNoticePresenter final {
-public:
-    static constexpr std::uint64_t durationMilliseconds = 6'000;
-
-    RecordingNoticePresenter() = default;
-    ~RecordingNoticePresenter();
-
-    RecordingNoticePresenter(const RecordingNoticePresenter&) = delete;
-    RecordingNoticePresenter& operator=(const RecordingNoticePresenter&) = delete;
-
-    // A repeat replaces the previous notice instead of stacking a second one.
-    void showShortRecordingDiscarded(std::chrono::steady_clock::time_point now);
-    void dismiss();
-    // Called from the UI timer; expires the notice without user interaction.
-    void tick(std::chrono::steady_clock::time_point now);
-
-    [[nodiscard]] bool visible() const noexcept { return visible_; }
-    [[nodiscard]] bool expired(std::chrono::steady_clock::time_point now) const noexcept {
-        return visible_ &&
-            std::chrono::duration_cast<std::chrono::milliseconds>(now - shownAt_).count() >=
-                static_cast<std::int64_t>(durationMilliseconds);
-    }
-    [[nodiscard]] static std::wstring_view message() noexcept {
-        return kShortRecordingDiscardedMessage;
-    }
-
-private:
-    bool visible_ = false;
-    std::chrono::steady_clock::time_point shownAt_{};
-#ifdef _WIN32
-    void createWindow();
-    void destroyWindow();
-
-    void* window_ = nullptr;
-    void* label_ = nullptr;
-    void* owner_ = nullptr;
-#endif
+enum class NoticeKind { preview = 1, meeting = 2, shortRecording = 3, problem = 4 };
+enum class NoticeAction { joinAndRecord, join, record };
+struct NoticeButton { std::wstring title; NoticeAction action; };
+struct NoticeContent {
+    NoticeKind kind = NoticeKind::preview;
+    std::string id;
+    std::wstring title, body;
+    std::vector<NoticeButton> buttons;
 };
 
+// One surface for reminders, previews and short notices. Automatic presentation
+// never activates it; F6 in the shell explicitly focuses accessible controls.
+class RecordingNoticePresenter final {
+public:
+    using Clock = std::chrono::steady_clock;
+    static constexpr std::uint64_t durationMilliseconds = 20'000;
+    RecordingNoticePresenter() = default;
+    ~RecordingNoticePresenter();
+    RecordingNoticePresenter(const RecordingNoticePresenter&) = delete;
+    RecordingNoticePresenter& operator=(const RecordingNoticePresenter&) = delete;
+    [[nodiscard]] bool present(NoticeContent content, Clock::time_point now, Clock::time_point deadline,
+        std::function<void(NoticeAction)> onAction = {}, std::function<void()> onClose = {});
+    void showShortRecordingDiscarded(Clock::time_point now);
+    void tick(Clock::time_point now);
+    void dismiss();
+    void close();
+    void invoke(NoticeAction action);
+    void focus();
+    // UI-thread lease for the existing automatic-recording window (priority 3).
+    // onReplaced synchronously confirms that window is hidden/closed, without
+    // throwing. False keeps its lease/callback and dismisses the replacement.
+    // Closed may release this generation during the callback, never a newer one.
+    [[nodiscard]] bool acquireAutomaticPrompt(std::uint64_t generation, Clock::time_point now,
+        std::function<bool()> onReplaced);
+    void releaseAutomaticPrompt(std::uint64_t generation);
+    [[nodiscard]] bool automaticPromptActive() const noexcept { return automaticPromptGeneration_.has_value(); }
+    [[nodiscard]] bool occupied() const noexcept { return visible_ || automaticPromptActive(); }
+    [[nodiscard]] bool visible() const noexcept { return visible_; }
+    [[nodiscard]] NoticeKind kind() const noexcept { return content_.kind; }
+    [[nodiscard]] const std::string& id() const noexcept { return content_.id; }
+    [[nodiscard]] const NoticeContent& content() const noexcept { return content_; }
+    [[nodiscard]] bool expired(Clock::time_point now) const noexcept { return visible_ && now >= deadline_; }
+    [[nodiscard]] static std::wstring_view message() noexcept { return L"Записи короче 30 секунд не сохраняются."; }
+private:
+    NoticeContent content_;
+    bool visible_ = false;
+    Clock::time_point deadline_{};
+    std::function<void(NoticeAction)> onAction_;
+    std::function<void()> onClose_;
+    std::optional<std::uint64_t> automaticPromptGeneration_;
+    std::function<bool()> onAutomaticPromptReplaced_;
+#ifdef _WIN32
+    [[nodiscard]] bool createWindow();
+    void destroyWindow();
+    void* window_ = nullptr;
+    void* font_ = nullptr;
+#endif
+};
 } // namespace graf::windows

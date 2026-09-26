@@ -1,5 +1,5 @@
 #include "RecordingNoticePresenter.h"
-
+#include <algorithm>
 #include <utility>
 
 #ifdef _WIN32
@@ -7,149 +7,164 @@
 #endif
 
 namespace graf::windows {
+RecordingNoticePresenter::~RecordingNoticePresenter() { dismiss(); }
 
+bool RecordingNoticePresenter::present(NoticeContent content, Clock::time_point now, Clock::time_point deadline,
+    std::function<void(NoticeAction)> onAction, std::function<void()> onClose) {
+    if (deadline <= now) return false;
+    tick(now);
+    if (automaticPromptActive() && static_cast<int>(content.kind) <= static_cast<int>(NoticeKind::shortRecording)) return false;
+    if (visible_ && !(content.kind == content_.kind && content.id == content_.id) &&
+        static_cast<int>(content.kind) <= static_cast<int>(content_.kind)) return false;
+    const bool unchanged = visible_ && content.kind == content_.kind && content.id == content_.id &&
+        content.title == content_.title && content.body == content_.body && content.buttons.size() == content_.buttons.size();
+    if (!unchanged) dismiss();
+    content_ = std::move(content); deadline_ = deadline;
+    onAction_ = std::move(onAction); onClose_ = std::move(onClose);
+    if (unchanged) return true;
 #ifdef _WIN32
-namespace {
-
-constexpr wchar_t kNoticeWindowClass[] = L"GrafRecordingNoticeWindow";
-constexpr int kNoticeBaseWidth = 380;
-constexpr int kNoticeBaseHeight = 64;
-constexpr int kNoticeMargin = 16;
-
-UINT windowDpi(HWND window) {
-    const auto user32 = GetModuleHandleW(L"user32.dll");
-    if (user32 != nullptr) {
-        using GetDpiForWindowFn = UINT(WINAPI*)(HWND);
-        const auto getDpiForWindow =
-            reinterpret_cast<GetDpiForWindowFn>(GetProcAddress(user32, "GetDpiForWindow"));
-        if (getDpiForWindow != nullptr) {
-            const auto dpi = getDpiForWindow(window);
-            if (dpi != 0) return dpi;
-        }
+    visible_ = createWindow();
+#else
+    visible_ = true; // portable state checks are not evidence of a Windows window
+#endif
+    if (visible_ && automaticPromptActive()) {
+        const auto generation = *automaticPromptGeneration_;
+        // Keep the callback alive if synchronous Closed clears the stored one.
+        auto replaced = onAutomaticPromptReplaced_;
+        if (!replaced || !replaced()) { dismiss(); return false; }
+        releaseAutomaticPrompt(generation);
     }
-    return 96;
+    return visible_;
 }
-
-int scaled(int value, UINT dpi) {
-    return MulDiv(value, static_cast<int>(dpi), 96);
-}
-
-bool ensureWindowClass() {
-    static bool registered = false;
-    if (registered) return true;
-    WNDCLASSEXW definition{};
-    definition.cbSize = sizeof(definition);
-    definition.lpfnWndProc = DefWindowProcW;
-    definition.hInstance = GetModuleHandleW(nullptr);
-    definition.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    definition.lpszClassName = kNoticeWindowClass;
-    // A notice must be able to repaint itself after the owner redraws; window
-    // background comes from system colours so High Contrast stays truthful.
-    definition.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
-    if (RegisterClassExW(&definition) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
-    registered = true;
+bool RecordingNoticePresenter::acquireAutomaticPrompt(std::uint64_t generation, Clock::time_point now,
+    std::function<bool()> onReplaced) {
+    if (!generation || !onReplaced) return false;
+    tick(now);
+    if (automaticPromptActive()) return *automaticPromptGeneration_ == generation;
+    if (visible_ && static_cast<int>(content_.kind) >= static_cast<int>(NoticeKind::shortRecording)) return false;
+    dismiss();
+    automaticPromptGeneration_ = generation;
+    onAutomaticPromptReplaced_ = std::move(onReplaced);
     return true;
 }
-
-} // namespace
-#endif
-
-RecordingNoticePresenter::~RecordingNoticePresenter() {
-    dismiss();
+void RecordingNoticePresenter::releaseAutomaticPrompt(std::uint64_t generation) {
+    if (automaticPromptGeneration_ != generation) return;
+    automaticPromptGeneration_.reset(); onAutomaticPromptReplaced_ = {};
 }
-
-void RecordingNoticePresenter::showShortRecordingDiscarded(std::chrono::steady_clock::time_point now) {
-    // A repeat replaces the previous notice instead of stacking a second one.
-    dismiss();
-    visible_ = true;
-    shownAt_ = now;
-#ifdef _WIN32
-    createWindow();
-#endif
+void RecordingNoticePresenter::showShortRecordingDiscarded(Clock::time_point now) {
+    (void)present({NoticeKind::shortRecording, "short-recording", L"Запись слишком короткая", std::wstring(message()), {}},
+                  now, now + std::chrono::milliseconds(durationMilliseconds));
 }
-
-void RecordingNoticePresenter::tick(std::chrono::steady_clock::time_point now) {
-    if (!visible_) return;
-    if (expired(now)) dismiss();
-}
-
+void RecordingNoticePresenter::tick(Clock::time_point now) { if (expired(now)) dismiss(); }
 void RecordingNoticePresenter::dismiss() {
-    visible_ = false;
+    visible_ = false; onClose_ = {}; onAction_ = {};
 #ifdef _WIN32
     destroyWindow();
 #endif
 }
+void RecordingNoticePresenter::close() {
+    auto callback = onClose_; dismiss(); if (callback) callback();
+}
+void RecordingNoticePresenter::invoke(NoticeAction action) {
+    if (!visible_ || expired(Clock::now())) return;
+    const bool offered = std::any_of(content_.buttons.begin(), content_.buttons.end(), [action](const auto& b) { return b.action == action; });
+    auto callback = onAction_; if (offered && callback) callback(action);
+}
+void RecordingNoticePresenter::focus() {
+#ifdef _WIN32
+    if (!window_ || !visible_) return;
+    auto window = static_cast<HWND>(window_);
+    SetForegroundWindow(window); SetFocus(GetNextDlgTabItem(window, nullptr, FALSE));
+#endif
+}
 
 #ifdef _WIN32
+namespace {
+constexpr wchar_t kClass[] = L"GrafNotificationCard";
+constexpr wchar_t kButtonProc[] = L"GrafNotificationButtonProc";
 
-void RecordingNoticePresenter::createWindow() {
-    if (!ensureWindowClass()) return;
-    const auto module = GetModuleHandleW(nullptr);
-    const auto instance = reinterpret_cast<HINSTANCE>(module);
-    auto* ownerWindow = static_cast<HWND>(owner_);
-    // WS_EX_NOACTIVATE plus SW_SHOWNOACTIVATE keeps the user's meeting window in
-    // front. WS_EX_TRANSPARENT means the notice never intercepts input.
-    const auto window = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT,
-        kNoticeWindowClass, message().data(), WS_POPUP,
-        0, 0, kNoticeBaseWidth, kNoticeBaseHeight,
-        ownerWindow, nullptr, instance, nullptr);
-    if (window == nullptr) return;
+LRESULT CALLBACK buttonProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    auto old = reinterpret_cast<WNDPROC>(GetPropW(window, kButtonProc));
+    if (message == WM_KEYDOWN && (wparam == VK_TAB || wparam == VK_ESCAPE)) {
+        if (wparam == VK_ESCAPE) SendMessageW(GetParent(window), WM_CLOSE, 0, 0);
+        else SetFocus(GetNextDlgTabItem(GetParent(window), window, GetKeyState(VK_SHIFT) < 0));
+        return 0;
+    }
+    return CallWindowProcW(old, window, message, wparam, lparam);
+}
+LRESULT CALLBACK cardProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    auto* presenter = reinterpret_cast<RecordingNoticePresenter*>(GetWindowLongPtrW(window, GWLP_USERDATA));
+    if (message == WM_NCCREATE) {
+        presenter = static_cast<RecordingNoticePresenter*>(reinterpret_cast<CREATESTRUCTW*>(lparam)->lpCreateParams);
+        SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(presenter));
+    }
+    if (message == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
+    if (presenter && message == WM_CLOSE) { presenter->close(); return 0; }
+    if (presenter && message == WM_COMMAND && HIWORD(wparam) == BN_CLICKED) {
+        const auto id = LOWORD(wparam);
+        if (id == 100) presenter->close();
+        else if (id >= 101 && id <= 103) presenter->invoke(static_cast<NoticeAction>(id - 101));
+        return 0;
+    }
+    return DefWindowProcW(window, message, wparam, lparam);
+}
+}
+
+bool RecordingNoticePresenter::createWindow() {
+    WNDCLASSEXW cls{}; cls.cbSize = sizeof(cls); cls.lpfnWndProc = cardProc;
+    cls.hInstance = GetModuleHandleW(nullptr); cls.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    cls.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1); cls.lpszClassName = kClass;
+    if (!RegisterClassExW(&cls) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
+    POINT cursor{}; GetCursorPos(&cursor);
+    MONITORINFO monitor{}; monitor.cbSize = sizeof(monitor);
+    if (!GetMonitorInfoW(MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST), &monitor)) return false;
+    auto window = CreateWindowExW(WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_CONTROLPARENT,
+        kClass, content_.title.c_str(), WS_POPUP | WS_BORDER, monitor.rcWork.right - 1, monitor.rcWork.top,
+        1, 1, nullptr, nullptr, cls.hInstance, this);
+    if (!window) return false;
     window_ = window;
-
-    const auto dpi = windowDpi(window);
-    const auto width = scaled(kNoticeBaseWidth, dpi);
-    const auto height = scaled(kNoticeBaseHeight, dpi);
-    const auto margin = scaled(kNoticeMargin, dpi);
-    const auto label = CreateWindowExW(
-        0, L"STATIC", message().data(),
-        WS_CHILD | WS_VISIBLE | SS_CENTER | SS_CENTERIMAGE | SS_LEFTNOWORDWRAP,
-        margin, margin, width - 2 * margin, height - 2 * margin,
-        window, nullptr, instance, nullptr);
-    if (label == nullptr) {
-        DestroyWindow(window);
-        window_ = nullptr;
-        return;
+    const UINT dpi = GetDpiForWindow(window);
+    const auto scale = [dpi](int value) { return MulDiv(value, static_cast<int>(dpi ? dpi : 96), 96); };
+    const int margin = scale(16);
+    const int width = std::min(scale(448), static_cast<int>(monitor.rcWork.right - monitor.rcWork.left) - 2 * margin);
+    const int buttonHeight = scale(40), textHeight = scale(72);
+    const int height = margin * 2 + textHeight + static_cast<int>(content_.buttons.size()) * (buttonHeight + scale(8));
+    NONCLIENTMETRICSW metrics{}; metrics.cbSize = sizeof(metrics);
+    if (SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0, dpi))
+        font_ = CreateFontIndirectW(&metrics.lfMessageFont);
+    const auto control = [&](const wchar_t* type, const std::wstring& text, DWORD style, int x, int y, int w, int h, int id) {
+        auto child = CreateWindowExW(0, type, text.c_str(), WS_CHILD | WS_VISIBLE | style, x, y, w, h, window,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)), cls.hInstance, nullptr);
+        if (child && font_) SendMessageW(child, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
+        if (child && (style & WS_TABSTOP)) {
+            auto old = GetWindowLongPtrW(child, GWLP_WNDPROC);
+            if (!SetPropW(child, kButtonProc, reinterpret_cast<HANDLE>(old))) { DestroyWindow(child); return static_cast<HWND>(nullptr); }
+            SetWindowLongPtrW(child, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(buttonProc));
+        }
+        return child;
+    };
+    if (!control(L"STATIC", content_.title + L"\r\n" + content_.body, SS_LEFT | SS_ENDELLIPSIS, margin, margin,
+                 width - 2 * margin - scale(100), textHeight, 0) ||
+        !control(L"BUTTON", L"Закрыть", WS_TABSTOP | BS_PUSHBUTTON, width - margin - scale(96), margin, scale(96), buttonHeight, 100)) {
+        destroyWindow(); return false;
     }
-    label_ = label;
-    // Use the operating-system message font so text follows the user's size,
-    // font and accessibility preferences instead of a hardcoded face.
-    NONCLIENTMETRICSW metrics{};
-    metrics.cbSize = sizeof(metrics);
-    if (SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0)) {
-        const auto font = CreateFontIndirectW(&metrics.lfMessageFont);
-        if (font != nullptr) SendMessageW(static_cast<HWND>(label), WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    int y = margin + textHeight;
+    for (const auto& button : content_.buttons) {
+        if (!control(L"BUTTON", button.title, WS_TABSTOP | BS_PUSHBUTTON, margin, y, width - 2 * margin, buttonHeight,
+                     101 + static_cast<int>(button.action))) { destroyWindow(); return false; }
+        y += buttonHeight + scale(8);
     }
-
-    // Place the notice on the monitor that owns the cursor, inside the work
-    // area, so it cannot be hidden behind the taskbar.
-    POINT cursor{};
-    GetCursorPos(&cursor);
-    const auto monitor = MonitorFromPoint(cursor, MONITOR_DEFAULTTONEAREST);
-    MONITORINFO monitorInfo{};
-    monitorInfo.cbSize = sizeof(monitorInfo);
-    RECT workArea{};
-    if (monitor != nullptr && GetMonitorInfoW(monitor, &monitorInfo)) {
-        workArea = monitorInfo.rcWork;
-    } else {
-        SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
-    }
-    const auto x = workArea.right - width - margin;
-    const auto y = workArea.bottom - height - margin;
-    SetWindowPos(window, HWND_TOPMOST, x, y, width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    SetWindowPos(window, HWND_TOPMOST, monitor.rcWork.right - width - margin, monitor.rcWork.top + scale(39),
+                 width, height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     ShowWindow(window, SW_SHOWNOACTIVATE);
-    // Ask assistive technology to read the notice without focusing it.
     NotifyWinEvent(EVENT_SYSTEM_ALERT, window, OBJID_CLIENT, CHILDID_SELF);
+    return IsWindowVisible(window) != FALSE;
 }
-
 void RecordingNoticePresenter::destroyWindow() {
-    if (window_ != nullptr) {
-        DestroyWindow(static_cast<HWND>(window_));
-        window_ = nullptr;
-    }
-    label_ = nullptr;
+    if (window_) DestroyWindow(static_cast<HWND>(window_));
+    window_ = nullptr;
+    if (font_) DeleteObject(static_cast<HFONT>(font_));
+    font_ = nullptr;
 }
-
 #endif
-
 } // namespace graf::windows

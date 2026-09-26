@@ -46,8 +46,8 @@ int main() {
     assert(!isShortRecording(100, RecordingStopReason::userRequested, true));
     assert(!isShortRecording(kShortRecordingMinimumFrames, RecordingStopReason::interruption, false));
 
-    const auto directory = std::filesystem::temp_directory_path() / "graf-feature-6796-threshold";
-    std::filesystem::remove_all(directory);
+    const auto directory = std::filesystem::temp_directory_path() /
+        ("graf-feature-6796-threshold-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     const auto custodyRoot = directory / "custody";
     std::filesystem::create_directories(custodyRoot);
     CanonicalAudioFrame frame;
@@ -167,17 +167,17 @@ int main() {
         presenter.showShortRecordingDiscarded(start);
         assert(presenter.visible());
         assert(!presenter.expired(start));
-        assert(!presenter.expired(start + std::chrono::milliseconds(5'999)));
-        assert(presenter.expired(start + std::chrono::milliseconds(6'000)));
+        assert(!presenter.expired(start + std::chrono::milliseconds(19'999)));
+        assert(presenter.expired(start + std::chrono::milliseconds(20'000)));
         // A repeat replaces the notice instead of stacking a second one.
         presenter.showShortRecordingDiscarded(start + std::chrono::milliseconds(1'000));
-        presenter.tick(start + std::chrono::milliseconds(6'000));
+        presenter.tick(start + std::chrono::milliseconds(20'000));
         assert(presenter.visible());
-        presenter.tick(start + std::chrono::milliseconds(7'000));
+        presenter.tick(start + std::chrono::milliseconds(21'000));
         assert(!presenter.visible());
         presenter.dismiss();
         assert(!presenter.visible());
-        assert(RecordingNoticePresenter::message() == L"Запись короче 30 секунд не сохранена");
+        assert(RecordingNoticePresenter::message() == L"Записи короче 30 секунд не сохраняются.");
     }
 
     std::filesystem::remove_all(directory);

@@ -47,12 +47,8 @@ TransitionResult WindowsCaptureSessionController::record(const ReadinessInputs& 
     const auto starting = session_.beginStart();
     indicator_.publish(session_.state(), session_.reason());
     acceptingBatches_.store(false);
-    // Новая запись начинается без прошлых ограничений: причина живёт одну сессию.
-    microphoneDegraded_ = false;
-    renderDegraded_ = false;
-    degradedReason_ = ReasonCode::none;
     startupDeadline_ = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    if (!startWorkers()) return stop();
+    if (!startWorkers()) return stop(RecordingStopReason::interruption);
     return starting;
 }
 
@@ -92,41 +88,6 @@ TransitionResult WindowsCaptureSessionController::pollHealth() {
             failure = renderWorker_ && renderWorker_->ready() ? ReasonCode::microphoneEndpointUnavailable
                                                               : ReasonCode::renderEndpointUnavailable;
         }
-        // Системный звук — главный источник встречи. Если он поднялся, а
-        // микрофон молчит (нет устройства, нет доступа, устройство занято),
-        // запись продолжается без голоса, а не обрывается.
-        const bool hasLiveSource = sourceUsable(startupExpired);
-        if (failure != ReasonCode::none && hasLiveSource) {
-            // Кто отказал — тот и назван: причина уходит в текст для человека и
-            // в саму запись, чтобы ограничение было видно и после остановки.
-            bool microphoneFault = sourceDead(microphoneWorker_.get(), true);
-            if (!microphoneFault && !sourceDead(renderWorker_.get(), false)) {
-                // Никто не отказал явно: значит истёк срок запуска, и виноват
-                // тот источник, который так и не дал звук.
-                microphoneFault = !sourceProducing(microphoneWorker_.get(), true);
-            }
-            auto reason = failure;
-            if (startupExpired || failure == ReasonCode::endpointInvalidated) {
-                // «Источник пропал» без имени бесполезно: человеку нужно знать,
-                // что чинить — микрофон или устройство воспроизведения.
-                reason = microphoneFault ? ReasonCode::microphoneEndpointUnavailable
-                                         : ReasonCode::renderEndpointUnavailable;
-            }
-            if (microphoneFault) {
-                microphoneDegraded_ = true;
-                if (microphoneWorker_) microphoneWorker_->stop();
-            } else {
-                renderDegraded_ = true;
-                if (renderWorker_) renderWorker_->stop();
-            }
-            degradedReason_ = reason;
-            (void)session_.markDegraded(reason);
-            // Без этого системный звук не попадёт в запись: пакеты принимаются
-            // только после готовности источников.
-            acceptingBatches_.store(true);
-            indicator_.publish(session_.state(), session_.reason());
-            return {TransitionStatus::accepted, session_.state(), session_.reason()};
-        }
         if (failure != ReasonCode::none) {
             latchFault(failure);
             (void)session_.markDegraded(failure);
@@ -155,26 +116,17 @@ TransitionResult WindowsCaptureSessionController::stop(RecordingStopReason reaso
     // Stop must never append another batch to the dispatcher.
     acceptingBatches_.store(false, std::memory_order_release);
     stopReason_ = reason;
+    drainDeadline_ = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     indicator_.publish(session_.state(), session_.reason());
     // Latch unexpected worker termination before the deliberate shutdown.
     if (beforeStop != ReasonCode::none) latchFault(beforeStop);
     stopWorkers();
-    const auto result = finishStop();
-    return {TransitionStatus::accepted, result.state, result.reason};
-}
-
-TransitionResult WindowsCaptureSessionController::finishStop() {
-    if (pollingFinalizer_) return {TransitionStatus::idempotent, session_.state(), session_.reason()};
-    for (const auto* worker : {renderWorker_.get(), microphoneWorker_.get()}) {
-        if (worker && !worker->finished()) return {TransitionStatus::idempotent, session_.state(), session_.reason()};
-    }
-    // Workers can still be returning from their final callback until the
-    // finished fence above. Keep the dispatcher alive for those accepted
-    // batches, then append typed EOS records in FIFO order. Two queue slots are
-    // reserved for them, so EOS cannot be displaced by audio data.
+    // Enqueue under the same mutex as data: a producer that accepted before
+    // Stop finishes its insertion first; all later callbacks are fenced out.
+    // EOS need not wait for UI polling or native cleanup. Finalization still
+    // waits for both workers as well as dispatcher/sink completion below.
     if (!sourceEndsEnqueued_) {
-        acceptingBatches_.store(false);
-        if (captureFault_.load() == ReasonCode::none) {
+        if (dispatchThread_.joinable()) {
             const auto renderQueued = enqueueSourceEnd(AudioSource::systemRender);
             const auto microphoneQueued = enqueueSourceEnd(AudioSource::microphone);
             if (!renderQueued || !microphoneQueued) latchFault(ReasonCode::queueOverflow);
@@ -182,20 +134,55 @@ TransitionResult WindowsCaptureSessionController::finishStop() {
         sourceEndsEnqueued_ = true;
     }
     requestDispatcherStop();
-    if (!dispatchFinished_.load(std::memory_order_acquire)) {
-        std::lock_guard<std::mutex> dispatchLock(dispatchMutex_);
-        if (dispatchBusy_.load(std::memory_order_acquire) || !pendingBatches_.empty())
-            return {TransitionStatus::idempotent, session_.state(), session_.reason()};
+    const auto result = finishStop();
+    return {TransitionStatus::accepted, result.state, result.reason};
+}
+
+void WindowsCaptureSessionController::markDrainTimedOut() {
+    // Do not overwrite the original source/sink fault. Timeout is independently
+    // sticky through writer polling, while ownership remains behind the fences.
+    drainTimedOut_ = true;
+    finalization_.reason = ReasonCode::finalizationFailed;
+    indicator_.publish(session_.state(), ReasonCode::finalizationFailed);
+}
+
+TransitionResult WindowsCaptureSessionController::finishStop() {
+    if (pollingFinalizer_) return {TransitionStatus::idempotent, session_.state(), session_.reason()};
+    // Sample before inspecting a pending fence. A UI scheduling pause between
+    // observing it and returning must not turn an on-time completion into a fault.
+    const auto observedAt = std::chrono::steady_clock::now();
+    const auto pendingDrain = [this, observedAt] {
+        if (session_.state() == SessionState::stopping && observedAt >= drainDeadline_) {
+            // Keep the active lease and memory until all completion fences.
+            // Publish failure without a terminal state that would release them.
+            markDrainTimedOut();
+        }
+        return TransitionResult{TransitionStatus::idempotent, session_.state(),
+            finalization_.reason == ReasonCode::none ? session_.reason() : finalization_.reason};
+    };
+    for (const auto* worker : {renderWorker_.get(), microphoneWorker_.get()}) {
+        if (worker && !worker->finished()) return pendingDrain();
+        if (worker && session_.state() == SessionState::stopping && worker->finishedAt() > drainDeadline_)
+            markDrainTimedOut();
     }
+    // Only the thread's completion fence permits joining. An empty queue and
+    // idle sink alone do not mean the dispatcher has returned yet.
+    if (!dispatchFinished_.load(std::memory_order_acquire)) return pendingDrain();
+    if (dispatchThread_.joinable() && sourceEndsProcessed_.load(std::memory_order_acquire) != 3)
+        latchFault(ReasonCode::finalizationFailed);
     joinDispatcher();
     // Also fence direct/synthetic producers, without making UI Stop wait on a
     // sink. A later poll retries after its in-flight call returns.
     std::unique_lock<std::mutex> lock(captureMutex_, std::try_to_lock);
-    if (!lock.owns_lock()) return {TransitionStatus::idempotent, session_.state(), session_.reason()};
-    const auto failure = captureFailureReason();
+    if (!lock.owns_lock()) return pendingDrain();
+    if (session_.state() == SessionState::stopping &&
+        (dispatchCompletedAt_ > drainDeadline_ || sinkCompletedAt_ > drainDeadline_)) {
+        markDrainTimedOut();
+    }
+    const auto failure = drainTimedOut_ ? ReasonCode::finalizationFailed : captureFailureReason();
     if (session_.state() == SessionState::stopping) {
         (void)session_.beginFinalizing();
-        indicator_.publish(session_.state(), session_.reason());
+        indicator_.publish(session_.state(), failure == ReasonCode::none ? session_.reason() : failure);
     }
     pollingFinalizer_ = true;
     try {
@@ -204,21 +191,19 @@ TransitionResult WindowsCaptureSessionController::finishStop() {
             : std::optional<CaptureFinalization>{CaptureFinalization{}};
         if (!result) {
             pollingFinalizer_ = false;
-            return {TransitionStatus::idempotent, session_.state(), session_.reason()};
+            return {TransitionStatus::idempotent, session_.state(),
+                failure == ReasonCode::none ? session_.reason() : failure};
         }
         finalization_ = *result;
     } catch (...) {
         finalization_ = {false, ReasonCode::finalizationFailed};
     }
     pollingFinalizer_ = false;
+    if (drainTimedOut_) finalization_.reason = ReasonCode::finalizationFailed;
     if (failure != ReasonCode::none) {
         finalization_.savedLocal = false;
         finalization_.shortRecordingDiscarded = false;
         if (finalization_.reason == ReasonCode::none) finalization_.reason = failure;
-    }
-    if (degradedReason_ != ReasonCode::none && finalization_.degradedReason == ReasonCode::none) {
-        // Ограниченная запись сохраняется: причина едет с записью, а не вместо неё.
-        finalization_.degradedReason = degradedReason_;
     }
     // A discarded short recording is a deliberate, successful outcome: nothing
     // is stored, no capture error is registered, and the session ends blocked
@@ -246,6 +231,7 @@ bool WindowsCaptureSessionController::startWorkers() {
         dispatchStopRequested_ = false;
         sourceEndsEnqueued_ = false;
         sourceEndsProcessed_.store(0, std::memory_order_release);
+        dispatchCompletedAt_ = {};
         dispatchFinished_.store(false, std::memory_order_release);
         dispatchBusy_.store(false, std::memory_order_release);
     }
@@ -267,44 +253,12 @@ bool WindowsCaptureSessionController::startWorkers() {
     return true;
 }
 
-bool WindowsCaptureSessionController::sourceDead(const WasapiCaptureWorker* worker, bool isMicrophone) const noexcept {
-    if (worker == nullptr) return true;
-    if (isMicrophone && microphoneDegraded_) return true;
-    if (!isMicrophone && renderDegraded_) return true;
-    if (worker->finished()) return true;
-    return reasonForWorkerError(worker->lastError(), isMicrophone) != ReasonCode::none;
-}
-
-bool WindowsCaptureSessionController::sourceProducing(const WasapiCaptureWorker* worker, bool isMicrophone) const noexcept {
-    if (sourceDead(worker, isMicrophone)) return false;
-    // Источник считается пишущим, только если он уже дал звук: молчащий
-    // источник — это и есть отказ, ради которого запись ограничивается.
-    return worker->ready() || worker->clockDiagnostics().startupDiscardedFrames > 0;
-}
-
-bool WindowsCaptureSessionController::sourceUsable(bool startupExpired) const noexcept {
-    const bool starting = session_.state() == SessionState::starting;
-    const auto usable = [&](const WasapiCaptureWorker* worker, bool isMicrophone) {
-        if (sourceDead(worker, isMicrophone)) return false;
-        // Истёк срок запуска: годится только тот источник, который уже дал звук.
-        if (startupExpired) return sourceProducing(worker, isMicrophone);
-        // Запись идёт: источник обязан писать, иначе запись выйдет пустой.
-        if (!starting) return sourceProducing(worker, isMicrophone);
-        // Источник ещё поднимается: ему дают договорить.
-        return true;
-    };
-    return usable(renderWorker_.get(), false) || usable(microphoneWorker_.get(), true);
-}
-
 ReasonCode WindowsCaptureSessionController::captureFailureReason() const noexcept {
     const auto pending = captureFault_.load();
     if (pending != ReasonCode::none) return pending;
     const std::pair<const WasapiCaptureWorker*, bool> workers[] = {
         {renderWorker_.get(), false}, {microphoneWorker_.get(), true}};
     for (const auto& [worker, isMicrophone] : workers) {
-        // Ограничение уже учтено: повторно оно запись не обрывает.
-        if (isMicrophone && microphoneDegraded_) continue;
-        if (!isMicrophone && renderDegraded_) continue;
         if (worker == nullptr) continue;
         const auto error = reasonForWorkerError(worker->lastError(), isMicrophone);
         if (error != ReasonCode::none) return error;
@@ -330,7 +284,11 @@ bool WindowsCaptureSessionController::enqueueBatch(AudioBatch batch) {
         std::lock_guard<std::mutex> lock(dispatchMutex_);
         if (!acceptingBatches_.load() || captureFault_.load() != ReasonCode::none || dispatchStopRequested_)
             return true;
-        if (pendingBatches_.size() >= maxDataBatches_) return false;
+        if (pendingBatches_.size() >= maxDataBatches_) {
+            latchFault(ReasonCode::queueOverflow);
+            acceptingBatches_.store(false);
+            return false;
+        }
         pendingBatches_.emplace_back(std::move(batch));
     }
     dispatchCondition_.notify_one();
@@ -346,6 +304,7 @@ bool WindowsCaptureSessionController::enqueueSourceEnd(AudioSource source) {
 }
 
 void WindowsCaptureSessionController::dispatchLoop() noexcept {
+    bool sinkFailed = false;
     while (true) {
         DispatchItem item;
         {
@@ -371,21 +330,20 @@ void WindowsCaptureSessionController::dispatchLoop() noexcept {
             dispatchBusy_.store(false, std::memory_order_release);
             continue;
         }
-        if (!processBatch(std::move(std::get<AudioBatch>(item)))) {
+        if (!sinkFailed && !processBatch(std::move(std::get<AudioBatch>(item)))) {
             dispatchBusy_.store(false, std::memory_order_release);
             latchFault(ReasonCode::clockDiscontinuity);
             acceptingBatches_.store(false);
             if (renderWorker_) renderWorker_->stop();
             if (microphoneWorker_) microphoneWorker_->stop();
-            std::lock_guard<std::mutex> lock(dispatchMutex_);
-            pendingBatches_.clear();
-            dispatchStopRequested_ = true;
-            dispatchCondition_.notify_all();
-            break;
+            // No later audio may pass a failed sink, but typed EOS must still
+            // cross this dispatcher before the UI can finalize the prefix.
+            sinkFailed = true;
         }
         dispatchBusy_.store(false, std::memory_order_release);
     }
     dispatchBusy_.store(false, std::memory_order_release);
+    dispatchCompletedAt_ = std::chrono::steady_clock::now();
     dispatchFinished_.store(true, std::memory_order_release);
 }
 
@@ -413,22 +371,24 @@ bool WindowsCaptureSessionController::handleBatch(AudioBatch batch) {
     // This path is retained only for synchronous test/device adapters. It is
     // not a lifecycle marker and cannot accept malformed empty audio.
     if (batch.samples.empty()) return false;
-    if (session_.state() == SessionState::stopping || session_.state() == SessionState::finalizing) return true;
     if (!acceptingBatches_.load() || captureFault_.load() != ReasonCode::none) return true;
     // Synchronous test/device adapters keep their original fire-and-report
     // contract: processBatch latches a sink fault for the UI poll, while the
     // producer itself is not made to interpret the terminal state.
-    (void)processBatch(std::move(batch));
+    (void)processBatch(std::move(batch), true);
     return true;
 }
 
-bool WindowsCaptureSessionController::processBatch(AudioBatch batch) {
+bool WindowsCaptureSessionController::processBatch(AudioBatch batch, bool requireAccepting) {
     if (batch.samples.empty()) {
         latchFault(ReasonCode::formatNormalizationUnavailable);
         return false;
     }
     if (!batchSink_) return false;
     std::lock_guard<std::mutex> lock(captureMutex_);
+    // Direct producers can have waited behind a sink while UI Stop fenced
+    // delivery. Recheck under the same mutex used by finalization.
+    if (requireAccepting && (!acceptingBatches_.load() || captureFault_.load() != ReasonCode::none)) return true;
     bool accepted = true;
     try {
         accepted = batchSink_(std::move(batch));
@@ -437,6 +397,7 @@ bool WindowsCaptureSessionController::processBatch(AudioBatch batch) {
         accepted = false;
         latchFault(ReasonCode::finalizationFailed);
     }
+    sinkCompletedAt_ = std::chrono::steady_clock::now();
     return accepted;
 }
 

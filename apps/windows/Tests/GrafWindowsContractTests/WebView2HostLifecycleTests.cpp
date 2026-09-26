@@ -66,8 +66,239 @@ void testTheSessionCookieIsExtendedOnlyOnTheAppsOwnTerms() {
     assert(!WebView2Host::authCookieShouldBeExtended("token", "token", 1'900'000'000, 1'900'000'000));
 }
 
+void testDocumentResponseLatch() {
+    using namespace graf::windows;
+    const auto url = std::string(kTrusted) + "/desktop/meetings/123";
+    for (const bool responseFirst : {false, true}) {
+        for (const bool reselect : {false, true}) {
+            WebView2Host host;
+            int logouts = 0;
+            host.setAuthSessionHandler([&](std::string) { ++logouts; });
+            (void)host.beginDocumentNavigation(url, 1, false, 0, "");
+            // Request tagging has no dependency on early browser headers.
+            const auto tag = host.documentRequestTag(url);
+            assert(!tag.empty());
+            assert(host.documentRequestTag("https://bank.test/3ds").empty());
+            const WebDocumentResponse metadata{200, true, "text/html", reselect ? "reselect-space" : ""};
+            const auto response = [&] {
+                assert(host.observeDocumentResponseHeaders(url, tag, "document", "GET", metadata));
+            };
+            if (responseFirst) response();
+            assert(host.tryFinishDocumentNavigation(1) == WebResponseDecision::ignore);
+            assert(host.observeDocumentCompletion(url, 1, 200, true, false, 2));
+            if (!responseFirst) {
+                assert(host.tryFinishDocumentNavigation(3) == WebResponseDecision::ignore);
+                assert(host.runtimeState() == WebRuntimeState::initializing && logouts == 0);
+                response();
+            }
+            assert(host.tryFinishDocumentNavigation(4) ==
+                (reselect ? WebResponseDecision::workspaceReselection : WebResponseDecision::cabinet));
+            assert(logouts == (reselect ? 1 : 0));
+            assert(host.tryFinishDocumentNavigation(5) == WebResponseDecision::ignore);
+            assert(!host.observeDocumentResponseHeaders(url, tag, "document", "GET", metadata));
+        }
+    }
+    {
+        WebView2Host host;
+        (void)host.beginDocumentNavigation(url, 1, false, 0, "");
+        const auto oldTag = host.documentRequestTag(url);
+        assert(host.observeDocumentCompletion(url, 1, 200, true, false, 1));
+        (void)host.beginDocumentNavigation(url, 2, false, 2, "");
+        const auto tag = host.documentRequestTag(url);
+        assert(tag != oldTag);
+        assert(!host.observeDocumentCompletion(url, 1, 200, true, false, 3));
+        assert(!host.observeDocumentResponseHeaders(url, oldTag, "document", "GET", {200, true, "", "reselect-space"}));
+        for (const auto dest : {"iframe", "frame", "empty", ""})
+            assert(!host.observeDocumentResponseHeaders(url, tag, dest, "GET", {200}));
+        for (const auto& badTag : {std::string{}, oldTag, tag + "x", "-" + tag})
+            assert(!host.observeDocumentResponseHeaders(url, badTag, "document", "GET", {200}));
+        assert(!host.observeDocumentResponseHeaders(url + "/other", tag, "document", "GET", {200}));
+        assert(host.tryFinishDocumentNavigation(6000) == WebResponseDecision::ignore); // No old timer ownership.
+        assert(host.observeDocumentCompletion(url, 2, 200, true, false, 6001));
+        assert(!host.observeDocumentCompletion(url, 2, 200, true, false, 10999)); // Cannot slide the deadline.
+        assert(host.tryFinishDocumentNavigation(11000) == WebResponseDecision::ignore);
+        assert(host.tryFinishDocumentNavigation(11001) == WebResponseDecision::unavailable);
+        assert(host.failureDetail().find("response-metadata-timeout") == 0);
+        assert(!host.observeDocumentResponseHeaders(url, tag, "document", "GET", {200}));
+        assert(host.tryFinishDocumentNavigation(11002) == WebResponseDecision::ignore);
+    }
+    {
+        WebView2Host host;
+        (void)host.beginDocumentNavigation(url, 7, false, 0, "");
+        const auto oldTag = host.documentRequestTag(url);
+        // Redirects retain NavigationId but must not retain the response tag.
+        (void)host.beginDocumentNavigation(url, 7, true, 1, "");
+        const auto tag = host.documentRequestTag(url);
+        assert(tag != oldTag);
+        assert(!host.observeDocumentResponseHeaders(url, oldTag, "document", "GET", {200}));
+        assert(host.observeDocumentCompletion(url, 7, 200, true, false, 2));
+        assert(host.observeDocumentResponseHeaders(url, tag, "document", "GET", {200}));
+        assert(host.tryFinishDocumentNavigation(5002) == WebResponseDecision::unavailable); // A late callback cannot beat timeout.
+        (void)host.beginDocumentNavigation(url, 8, false, 5003, "");
+        assert(host.observeDocumentCompletion(std::string(kTrusted) + "/billing", 8, 200, true, false, 5004));
+        assert(host.tryFinishDocumentNavigation(5004) == WebResponseDecision::blocked);
+    }
+    {
+        WebView2Host host;
+        const auto login = std::string(kTrusted) + "/login/email/verify";
+        (void)host.beginDocumentNavigation(login, 1, false, 0, "");
+        const auto tag = host.documentRequestTag(login);
+        assert(host.observeDocumentCompletion(login, 1, 400, false, true, 1));
+        assert(host.tryFinishDocumentNavigation(2) == WebResponseDecision::ignore);
+        assert(host.observeDocumentResponseHeaders(login, tag, "document", "POST", {400, true, "text/html"}));
+        assert(host.tryFinishDocumentNavigation(3) == WebResponseDecision::interactiveForm);
+        (void)host.beginDocumentNavigation(url, 2, false, 4, "");
+        assert(host.observeDocumentCompletion(url, 2, 0, false, false, 5));
+        assert(host.tryFinishDocumentNavigation(5) == WebResponseDecision::unavailable); // TLS/network needs no metadata wait.
+        (void)host.beginDocumentNavigation(url, 3, false, 6, "");
+        assert(host.observeDocumentCompletion(url, 3, 200, true, false, 7));
+        host.close();
+        assert(host.tryFinishDocumentNavigation(6000) == WebResponseDecision::ignore);
+    }
+}
+
 int main() {
+    testDocumentResponseLatch();
+    {
+        // WebView2's popup event does not carry a reusable request body. Both a
+        // provider popup and a same-origin checkout POST must fail explicitly,
+        // never become Navigate(Uri) GET or an external-browser handoff.
+        using namespace graf::windows;
+        for (const auto target : {"https://api.yookassa.ru/confirm", "https://rec.2brain.pro/billing/checkout/start"}) {
+            WebView2Host host;
+            const auto billing = std::string(kTrusted) + "/billing";
+            (void)host.beginDocumentNavigation(billing, 1, false, 0);
+            (void)host.completeDocumentNavigation(billing, 1, {200}, 1);
+            assert(host.evaluatePopupNavigation(target, 2).decision == RouteDecision::deny);
+            assert(host.failureDetail().find("payment-popup-request-unavailable") == 0);
+            assert(!host.paymentNavigationAllowedAt(2));
+        }
+    }
+    // T102/T103 use the same event transitions as the native adapter, with an
+    // injected monotonic clock. No browser, network, cookie or payment fixture.
+    {
+        using namespace graf::windows;
+        WebView2Host host;
+        const std::string billing = std::string(kTrusted) + "/billing/checkout";
+        int logoutCalls = 0;
+        host.setAuthSessionHandler([&](std::string token) { if (token.empty()) ++logoutCalls; });
+        assert(host.beginDocumentNavigation(billing, 1, false, 0).decision == RouteDecision::allow);
+        assert(host.completeDocumentNavigation(billing, 1, {200}, 1) == WebResponseDecision::cabinet);
+        const auto start = std::string(kTrusted) + "/billing/checkout/start";
+        assert(host.beginDocumentNavigation(start, 2, false, 2).decision == RouteDecision::allow);
+        assert(host.beginDocumentNavigation("https://api.yookassa.ru/confirm", 2, true, 3).kind == RouteKind::paymentProvider);
+        assert(host.completeDocumentNavigation("https://api.yookassa.ru/confirm", 2, {200}, 4) == WebResponseDecision::externalDocument);
+        assert(host.runtimeState() == WebRuntimeState::unprivileged);
+        assert(host.beginDocumentNavigation("https://bank.test/3ds", 3, false, 5).kind == RouteKind::paymentProvider);
+        assert(host.completeDocumentNavigation("https://bank.test/3ds", 3, {200}, 6) == WebResponseDecision::externalDocument);
+        assert(logoutCalls == 0);
+        assert(host.safeRecoveryUrl() == billing);
+        assert(!host.localRecordingActionAllowed("send", "any"));
+        // A replaced navigation cannot clear a live payment or install a bridge.
+        assert(host.completeDocumentNavigation(billing, 1, {200}, 7) == WebResponseDecision::ignore);
+        assert(host.paymentNavigationAllowedAt(8));
+        (void)host.beginDocumentNavigation("https://bank.test/error", 33, false, 8);
+        assert(host.completeDocumentNavigation("https://bank.test/error", 33, {401}, 8) == WebResponseDecision::externalDocument);
+        assert(logoutCalls == 0 && !host.paymentNavigationAllowedAt(8));
+        assert(host.beginDocumentNavigation(billing, 4, false, 9).decision == RouteDecision::allow);
+        assert(host.completeDocumentNavigation(billing, 4, {401}, 10) == WebResponseDecision::expiredSession);
+        assert(!host.paymentNavigationAllowedAt(11));
+        assert(logoutCalls == 1);
+        const auto login = host.recoveryUrl();
+        assert(login == std::string(kTrusted) + "/login?next=%2Fbilling%2Fcheckout");
+        assert(host.beginDocumentNavigation(login, 5, false, 12).decision == RouteDecision::allow);
+        assert(host.completeDocumentNavigation(login, 5, {429}, 13) == WebResponseDecision::interactiveForm);
+        assert(host.runtimeState() == WebRuntimeState::authRequired);
+        assert(host.safeRecoveryUrl() == billing);
+        assert(host.beginDocumentNavigation(billing, 6, false, 14).decision == RouteDecision::allow);
+        assert(host.completeDocumentNavigation(billing, 6, {403}, 15) == WebResponseDecision::accessDenied);
+        assert(logoutCalls == 1); // No fake logout for cabinet 403 either.
+        assert(host.recoveryUrl() == std::string(kTrusted) + "/desktop/meetings");
+    }
+    {
+        using namespace graf::windows;
+        WebView2Host host;
+        const auto billing = std::string(kTrusted) + "/billing";
+        (void)host.beginDocumentNavigation(billing, 1, false, 0);
+        (void)host.completeDocumentNavigation(billing, 1, {200}, 1);
+        (void)host.beginDocumentNavigation("https://yookassa.ru/confirm", 2, false, 100);
+        (void)host.completeDocumentNavigation("https://yookassa.ru/confirm", 2, {200}, 101);
+        assert(host.paymentNavigationAllowedAt(900099));
+        assert(host.beginDocumentNavigation("https://bank.test/3ds", 3, true, 900100).decision == RouteDecision::deny);
+        assert(!host.paymentNavigationAllowedAt(900100));
+        assert(host.runtimeState() == WebRuntimeState::unavailable);
+        host.close();
+        assert(!host.paymentNavigationAllowedAt(101));
+    }
+    {
+        using namespace graf::windows;
+        WebView2Host host;
+        const auto detail = std::string(kTrusted) + "/desktop/meetings/123";
+        (void)host.beginDocumentNavigation(detail, 1, false, 0);
+        (void)host.completeDocumentNavigation(detail, 1, {200}, 1);
+        (void)host.beginDocumentNavigation(std::string(kTrusted) + "/billing/checkout/start", 2, false, 2);
+        (void)host.completeDocumentNavigation(std::string(kTrusted) + "/billing/checkout/start", 2, {503}, 3);
+        // A payment action is never replayed by recovery, even if native code
+        // tries to navigate to it as a GET.
+        assert(host.recoveryUrl().find("/checkout/start") == std::string::npos);
+    }
     testTheSessionCookieIsExtendedOnlyOnTheAppsOwnTerms();
+    {
+        WebView2Host host;
+        const auto billing = std::string(kTrusted) + "/billing/checkout";
+        (void)host.navigate(billing);
+        const auto plain = std::string(kTrusted) + "/login?next=%2Fbilling%2Fcheckout";
+        assert(host.signInUrl() == plain);
+        host.setSignInUrlBuilder([](std::string_view url) { return std::string(url) + "&utm_source=synthetic"; });
+        assert(host.signInUrl() == plain + "&utm_source=synthetic");
+        for (const auto suffix : {"&next=https://evil.test", "&%6eext=/billing", "#fragment", "&workspace_id=other"}) {
+            host.setSignInUrlBuilder([suffix](std::string_view url) { return std::string(url) + suffix; });
+            assert(host.signInUrl() == plain);
+        }
+        host.setSignInUrlBuilder([](std::string_view) { return std::string("https://evil.test/login"); });
+        assert(host.signInUrl() == plain);
+        host.setSignInUrlBuilder([](std::string_view) -> std::string { throw std::runtime_error("optional decoration failed"); });
+        assert(host.signInUrl() == plain);
+    }
+    {
+        using namespace graf::windows;
+        WebView2Host host;
+        const auto detail = std::string(kTrusted) + "/desktop/meetings/123";
+        (void)host.beginDocumentNavigation(detail, 1, false, 0, "");
+        const auto oldGeneration = host.documentGeneration();
+        (void)host.beginDocumentNavigation(detail, 2, false, 1, "");
+        assert(!host.observeDocumentResponse(detail, oldGeneration, "GET", {200, true, "", "reselect-space"}));
+        assert(!host.observeDocumentResponse("https://bank.test/3ds", host.documentGeneration(), "GET", {200}));
+        assert(host.observeDocumentResponse(detail, host.documentGeneration(), "POST", {200}));
+        assert(host.safeRecoveryUrl().empty()); // Unknown/POST never becomes a retry document.
+        (void)host.completeDocumentNavigation(detail, 2, {200}, 2);
+        assert(!host.observeDocumentResponse(detail, host.documentGeneration(), "GET", {200}));
+        (void)host.beginDocumentNavigation(detail, 3, false, 3, "");
+        assert(host.observeDocumentResponse(detail, host.documentGeneration(), "GET", {200}));
+        assert(host.safeRecoveryUrl() == detail);
+        (void)host.completeDocumentNavigation(detail, 3, {200}, 4);
+        const auto login = std::string(kTrusted) + "/login";
+        (void)host.beginDocumentNavigation(login, 4, false, 5);
+        // A login document's history.replaceState cannot turn its completion
+        // into authority for a different cabinet page with the same nav id.
+        assert(host.completeDocumentNavigation(detail, 4, {200}, 6) == WebResponseDecision::blocked);
+    }
+    {
+        using namespace graf::windows;
+        WebView2Host host;
+        const auto billing = std::string(kTrusted) + "/billing";
+        (void)host.beginDocumentNavigation(billing, 1, false, 0);
+        (void)host.completeDocumentNavigation(billing, 1, {200}, 1);
+        (void)host.beginDocumentNavigation("https://yookassa.ru/confirm", 2, false, 2);
+        (void)host.completeDocumentNavigation("https://yookassa.ru/confirm", 2, {200}, 3);
+        // Expiry removes external authority, not the ability to leave the bank.
+        assert(host.beginDocumentNavigation(billing, 3, false, 900002).decision == RouteDecision::allow);
+        assert(!host.paymentNavigationAllowedAt(900002));
+        (void)host.completeDocumentNavigation(billing, 3, {200}, 900003);
+        (void)host.beginDocumentNavigation("https://yookassa.ru/confirm", 4, false, 900004);
+        assert(host.completeDocumentNavigation("https://yookassa.ru/confirm", 4, {0, false}, 900005) == WebResponseDecision::unavailable);
+        assert(!host.paymentNavigationAllowedAt(900005));
+    }
     testOnlyTheThreeAppearancesTheCabinetOwnsAreAccepted();
     // A host that was never attached claims nothing: no runtime, no failure, no
     // history, and no capability it cannot honour.

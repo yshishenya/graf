@@ -26,6 +26,7 @@ enum class WebRuntimeState {
     initializing,
     ready,
     authRequired,
+    unprivileged, // Visible payment/email form, never a native bridge or auth recovery signal.
     closed,
 };
 
@@ -73,6 +74,10 @@ public:
     using RuntimeHandler = std::function<void(WebRuntimeState)>;
     using QuitHandler = std::function<void()>;
     using AuthSessionHandler = std::function<void(std::string)>;
+    // Optional native-only decorator. Input is the already encoded, safe login
+    // URL. It may append query fields, never replace next/origin/workspace.
+    // Attribution validation/storage is owned by the caller, not this host.
+    using SignInUrlBuilder = std::function<std::string(std::string_view)>;
     using LocalRecordingHandler = std::function<void(std::string, std::string)>;
     // One of `light`, `dark` or `system`, exactly as macOS accepts it and nothing
     // else: a page that announces something unknown must not decide the appearance
@@ -89,6 +94,7 @@ public:
         std::string targetId;
         // `set` and `setAll` carry the rule; empty for `read`.
         std::string rule;
+        std::optional<NativeSettingsBridge::NotificationRequest> notification = std::nullopt;
     };
     // Answers one request with the JSON body the page validates. An empty answer
     // is a refusal and reaches the page as such.
@@ -130,6 +136,8 @@ public:
     void setRuntimeHandler(RuntimeHandler handler) { runtimeHandler_ = std::move(handler); }
     void setQuitHandler(QuitHandler handler) { quitHandler_ = std::move(handler); }
     void setAuthSessionHandler(AuthSessionHandler handler) { authSessionHandler_ = std::move(handler); }
+    void setSignInUrlBuilder(SignInUrlBuilder builder) { signInUrlBuilder_ = std::move(builder); }
+    [[nodiscard]] std::string signInUrl() const;
     void setLocalRecordingHandler(LocalRecordingHandler handler) { localRecordingHandler_ = std::move(handler); }
     // The cabinet owns its theme and announces it (macOS receives the same value
     // through `grafAppAppearance`), so the native surfaces can follow the page
@@ -209,6 +217,29 @@ public:
 
     [[nodiscard]] const std::string& currentUrl() const noexcept { return currentUrl_; }
     [[nodiscard]] const WebViewRoutePolicy& routePolicy() const noexcept { return policy_; }
+    // Shared lifecycle core, exercised by portable tests and the native events.
+    // Only main-document NavigationStarting/Completed may call these methods.
+    [[nodiscard]] RouteEvaluation beginDocumentNavigation(std::string_view url, std::uint64_t id,
+        bool redirected, std::uint64_t now, std::string_view method = "GET");
+    [[nodiscard]] WebResponseDecision completeDocumentNavigation(std::string_view url, std::uint64_t id,
+        const WebDocumentResponse& response, std::uint64_t now);
+    [[nodiscard]] RouteEvaluation evaluatePopupNavigation(std::string_view url, std::uint64_t now);
+    [[nodiscard]] bool paymentNavigationAllowedAt(std::uint64_t now) const noexcept { return payment_.live(now); }
+    [[nodiscard]] const std::string& safeRecoveryUrl() const noexcept { return safeRecoveryUrl_; }
+    [[nodiscard]] std::string recoveryUrl() const;
+    // Metadata is bound to the main request generation, not merely a URL which
+    // an older request or iframe can share with the next document.
+    [[nodiscard]] bool observeDocumentResponse(std::string_view url, std::uint64_t generation,
+        std::string_view method, const WebDocumentResponse& response);
+    // The request tag is issued before browser-added headers are necessarily
+    // available. Only the final browser document destination can consume it.
+    [[nodiscard]] std::string documentRequestTag(std::string_view url) const;
+    [[nodiscard]] bool observeDocumentResponseHeaders(std::string_view url, std::string_view tag,
+        std::string_view destination, std::string_view method, const WebDocumentResponse& response);
+    [[nodiscard]] bool observeDocumentCompletion(std::string_view url, std::uint64_t id,
+        int status, bool succeeded, bool httpErrorDocument, std::uint64_t now);
+    [[nodiscard]] WebResponseDecision tryFinishDocumentNavigation(std::uint64_t now);
+    [[nodiscard]] std::uint64_t documentGeneration() const noexcept { return documentGeneration_; }
 
 private:
     WebViewRoutePolicy policy_;
@@ -216,6 +247,7 @@ private:
     RuntimeHandler runtimeHandler_;
     QuitHandler quitHandler_;
     AuthSessionHandler authSessionHandler_;
+    SignInUrlBuilder signInUrlBuilder_;
     LocalRecordingHandler localRecordingHandler_;
     AppearanceHandler appearanceHandler_;
     std::function<void(bool)> preferredColorScheme_;
@@ -238,7 +270,30 @@ private:
     WebViewBridge bridge_;
     WebRuntimeState runtimeState_ = WebRuntimeState::unavailable;
     std::string currentUrl_;
-    std::string retryUrl_;
+    // A native GET requested before the control exists is not a loaded document
+    // or a recovery target. Keep it separately until NavigationStarting.
+    std::string requestedDocumentUrl_;
+    std::string safeRecoveryUrl_;
+    bool billingContext_ = false;
+    WebResponseDecision recoveryReason_ = WebResponseDecision::unavailable;
+    PaymentNavigation payment_;
+    std::string committedDocumentUrl_;
+    std::string navigationSourceUrl_;
+    std::string navigationUrl_;
+    std::string navigationMethod_;
+    std::optional<WebDocumentResponse> documentResponse_;
+    struct DocumentCompletion {
+        std::string url;
+        int status;
+        bool succeeded;
+        bool httpErrorDocument;
+        std::uint64_t observedAt;
+    };
+    std::optional<DocumentCompletion> documentCompletion_;
+    static constexpr std::uint64_t kResponseWaitMs = 5000;
+    std::function<void()> nativeFinishDocument_;
+    std::function<void()> nativeStopResponseTimer_;
+    void resetDocumentResponse() noexcept;
     std::uint64_t navigationId_ = 0;
     AuthContinuation authContinuation_ = AuthContinuation::none;
     std::chrono::steady_clock::time_point authStarted_{};
@@ -260,6 +315,7 @@ private:
     void fail(std::string_view stage, std::int32_t code) noexcept;
     void cancelDialog() noexcept;
     [[nodiscard]] AuthContinuation activeAuthContinuation() const noexcept;
+    [[nodiscard]] static std::uint64_t monotonicMilliseconds() noexcept;
 
 };
 

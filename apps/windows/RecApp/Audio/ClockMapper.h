@@ -22,8 +22,7 @@ enum class CaptureStage : std::uint8_t {
 struct CaptureStageTrace {
     std::uint64_t sequence = 0;
     CaptureStage stage = CaptureStage::initialize;
-    // HRESULT for native calls; bounded wait/logic results use the same signed
-    // field so a single metadata-only record remains easy to export.
+    // In-memory metadata only. Export aggregates must omit packet positions.
     std::int32_t hresult = 0;
     std::uint32_t flags = 0;
     std::uint32_t frameCount = 0;
@@ -54,6 +53,8 @@ struct ClockObservation {
     // mapper fixtures; the native worker requires the stream clock service.
     std::uint64_t audioClockPosition = 0;
     std::uint64_t audioClockFrequency = 0;
+    // IAudioClock::GetPosition must return exactly S_OK (0), not S_FALSE.
+    std::int32_t audioClockResult = 0;
 };
 
 struct ClockMapping {
@@ -75,15 +76,12 @@ private:
     std::uint64_t routeGeneration_ = 1;
     std::uint64_t firstQpc_ = 0;
     std::uint64_t firstDeviceFrames_ = 0;
-    std::uint64_t firstAudioClockPosition_ = 0;
     std::uint64_t lastQpc_ = 0;
-    std::uint64_t lastMappedQpc_ = 0;
     std::uint64_t lastDeviceFrames_ = 0;
     std::uint64_t lastAudioClockPosition_ = 0;
     std::uint32_t lastFrameCount_ = 0;
     std::uint32_t sampleRate_ = 0;
     std::uint64_t audioClockFrequency_ = 0;
-    bool mappedQpcInitialized_ = false;
     bool initialized_ = false;
     ClockFault fault_ = ClockFault::none;
 };

@@ -5,7 +5,91 @@
 #endif
 #include <cassert>
 
+static void paymentAndResponseContract() {
+    using namespace graf::windows;
+    const WebViewRoutePolicy policy;
+    const std::string origin = policy.trustedOrigin();
+    const auto billing = origin + "/billing/checkout";
+    for (const auto host : {"api.yookassa.ru", "api.yookassa.test", "yookassa.ru", "yookassa.test", "yoomoney.ru"}) {
+        const auto provider = std::string("https://") + host + "/confirm";
+        assert(policy.canStartPayment(billing, provider));
+        assert(!policy.canStartPayment(origin + "/desktop/meetings", provider));
+        assert(!policy.canStartPayment(origin + "/billing/unknown", provider));
+        assert(!policy.canStartPayment("https://evil.test/billing", provider));
+    }
+    assert(policy.canStartPayment("HTTPS://REC.2BRAIN.PRO:443/billing", "HTTPS://API.YOOKASSA.RU:444/confirm"));
+    for (const auto url : {"http://api.yookassa.ru/", "https://sub.yookassa.ru/", "https://yookassa.ru.evil.test/",
+                          "https://user@yookassa.ru/", "https://yookassa.ru@evil.test/", "https://yookassa.ru:0/",
+                          "https://yookassa.ru:65536/", "https://yookassa.ru\\@evil.test/", "javascript:alert(1)"}) {
+        assert(!policy.canStartPayment(billing, url));
+    }
+    PaymentNavigation payment;
+    assert(!payment.live(0));
+    assert(payment.begin(policy, billing, "https://api.yookassa.ru/confirm", 100));
+    assert(payment.live(900099));
+    assert(!payment.begin(policy, billing, "https://yookassa.ru/confirm", 500)); // Never slide the deadline.
+    assert(!payment.live(900100));
+    assert(!payment.live(99)); // A broken clock cannot extend authority.
+    assert(policy.evaluate("https://bank.test/3ds", true, AuthContinuation::none, payment.live(500)).kind == RouteKind::paymentProvider);
+    assert(policy.evaluate("https://bank.test/3ds").decision == RouteDecision::openExternal);
+    assert(policy.evaluate("http://bank.test/3ds", true, AuthContinuation::none, true).decision == RouteDecision::deny);
+    assert(policy.evaluate("https://user@bank.test/3ds", true, AuthContinuation::none, true).decision == RouteDecision::deny);
+    assert(policy.evaluate(origin + "/billing", false).decision == RouteDecision::allow);
+    assert(policy.evaluate("https://bank.test/3ds", false).decision == RouteDecision::deny);
+    assert(policy.evaluate("https://bank.test/3ds", false, AuthContinuation::none, true).decision == RouteDecision::allow);
+    assert(policy.evaluate("https://bank.test/3ds", false, AuthContinuation::yandex).decision == RouteDecision::deny);
+    payment.loaded(policy, "https://bank.test/3ds", 600);
+    assert(payment.live(601));
+    payment.loaded(policy, origin + "/billing", 700);
+    assert(!payment.live(701));
+    assert(!policy.allowsNativeBridge("https://bank.test/3ds"));
+    assert(!policy.allowsNativeBridge(origin + "/login"));
+    assert(!policy.allowsNativeBridge(origin + "/desktop/settings/account/email-link/verify"));
+    assert(policy.allowsNativeBridge(origin + "/desktop/meetings"));
+
+    for (const auto path : {"/login", "/login/email/start", "/login/email/verify", "/sign-up", "/sign-up/email/verify"}) {
+        for (const int status : {200, 400, 401, 403, 429, 503}) {
+            assert(policy.response(origin + path, {status}).decision == WebResponseDecision::interactiveForm);
+        }
+        assert(policy.response(origin + path, {0, false}).decision == WebResponseDecision::unavailable);
+    }
+    for (const auto path : {"/desktop/settings/account/email-link/start", "/desktop/settings/account/email-link/verify"}) {
+        for (const int status : {400, 429, 503}) {
+            assert(policy.response(origin + path, {status, true, "text/html; charset=utf-8"}).decision == WebResponseDecision::interactiveForm);
+            assert(policy.response(origin + path, {status, true, "application/json"}).decision != WebResponseDecision::interactiveForm);
+        }
+        assert(policy.response(origin + path, {401, true, "text/html"}).decision == WebResponseDecision::expiredSession);
+        assert(policy.response(origin + path, {200, true, "text/html", "reselect-space"}).decision == WebResponseDecision::workspaceReselection);
+    }
+    assert(policy.response(origin + "/billing", {401}).decision == WebResponseDecision::expiredSession);
+    assert(policy.response(origin + "/billing", {403}).decision == WebResponseDecision::accessDenied);
+    assert(policy.response(origin + "/billing", {200, true, "", "reselect-space"}).decision == WebResponseDecision::workspaceReselection);
+    assert(policy.response(origin + "/billing", {503}).decision == WebResponseDecision::unavailable);
+    assert(policy.response(origin + "/billing", {504}).decision == WebResponseDecision::timeout);
+    assert(policy.response(origin + "/desktop/settings/account/email-link/start", {429, true, "Text/HTML ; charset=utf-8"}).decision == WebResponseDecision::interactiveForm);
+    assert(policy.response(origin + "/desktop/settings/account/email-link/start", {503, false, "text/html"}).decision == WebResponseDecision::unavailable);
+    assert(policy.response(origin + "/api/v1/auth/callback/google", {400}).decision != WebResponseDecision::interactiveForm);
+    for (const int status : {401, 403}) {
+        assert(policy.response("https://bank.test/3ds", {status}, AuthContinuation::none, true).decision == WebResponseDecision::externalDocument);
+    }
+    for (const auto path : {"/billing", "/billing/checkout", "/billing/checkout/status/invoice-1", "/desktop/meetings/123"}) {
+        assert(policy.safeRecoveryUrl(origin + path + "?private=value#fragment", "GET") == origin + path);
+        assert(policy.safeRecoveryUrl(origin + path, "POST").empty());
+    }
+    for (const auto path : {"/billing/checkout/start", "/billing/subscription/cancel", "/billing/discounts/apply",
+                           "/billing/checkout/return", "/billing/checkout/status/invoice-1/continue", "/login",
+                           "/desktop/settings/account/email-link/verify", "/desktop/meetings/123/delete"}) {
+        assert(policy.safeRecoveryUrl(origin + path, "GET").empty());
+    }
+    assert(policy.safeRecoveryUrl("https://evil.test/billing", "GET").empty());
+    assert(policy.recoveryUrl(WebResponseDecision::expiredSession, billing, true) == origin + "/login?next=%2Fbilling%2Fcheckout");
+    assert(policy.recoveryUrl(WebResponseDecision::unavailable, "https://evil.test/", true) == origin + "/billing");
+    assert(policy.recoveryUrl(WebResponseDecision::unavailable, "https://evil.test/", false) == origin + "/desktop/meetings");
+    assert(policy.recoveryUrl(WebResponseDecision::accessDenied, billing, true) == origin + "/desktop/meetings");
+}
+
 int main() {
+    paymentAndResponseContract();
     using namespace graf::windows;
     WebViewRoutePolicy policy;
     assert(policy.evaluate("https://rec.2brain.pro/desktop/meetings").decision == RouteDecision::allow);

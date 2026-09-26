@@ -155,7 +155,7 @@ server path, x64 first with an explicit ARM64 gate
 
 | Gate | Status | Plan response |
 |---|---|---|
-| Capture-first Feature 200 integrity | PASS WITH EVIDENCE GATE | Separate Windows native stack uses WASAPI shared loopback + explicit mic; retired/virtual routing is not revived. Implementation is blocked until clock, dropout, endpoint and hardware evidence exists. |
+| Capture-first Feature 200 integrity | PASS WITH EVIDENCE GATE | Separate Windows native stack uses WASAPI shared loopback + explicit mic; retired/virtual routing is not revived. Claims of validated capture and external release are blocked until clock, dropout, endpoint and hardware evidence exists; implementation and isolated verification produce that evidence. |
 | Visible capture and user control | PASS | Constitution 7 excludes legal/notice prerequisites; native permissions, indicator/Stop, countdown, local three-state choice and verified targets remain required. |
 | Data boundary and secret discipline | PASS | Desktop uses GRAF APIs only; WebView receives bounded state, not files/tokens/handles; MediaScribe credentials remain server-side. |
 | Deletion truth and lifecycle accounting | PASS | Windows local package/queue/purge use existing custody and deletion semantics; no universal-erasure promise is added. |
@@ -274,7 +274,8 @@ worker/controller/MetadataSafeDiagnostics, без журнала содержи�
 ошибки освобождения, общей шкалы, таймаута и безопасной сериализации.
 Не менять формат устройства Windows, правила count/device или пределы дрейфа.
 
-Уточнение по результатам read-only измерения 2026-09-07: `GetBuffer`-
+Историческая гипотеза read-only измерения 2026-09-07 (не действующее правило;
+заменена уточнением §5 контракта от 2026-09-26): `GetBuffer`-
 `devicePosition` может быть в endpoint-единицах и не обязан совпадать с
 числом кадров engine-пакета при внутреннем преобразовании частоты. Worker
 обязан получить существующий `IAudioClock`, проверять его частоту и брать
@@ -525,6 +526,69 @@ open until Windows x64 MSBuild/UI, hardware, authenticated-cabinet, signed
 MSIX and clean-image evidence is captured in Parallels.
 
 ## Complexity Tracking
+
+## Уточнение полного паритета от 2026-09-26
+
+Пользователь подтвердил цель: все функции и логика текущего macOS, а не только
+первоначальный Windows MVP. Опорный master — `f5cca687a06dc57ad6ccbef840a0be897eaa6336`.
+Дорожка остаётся `high-risk-product`; изменения не ослабляют capture/privacy,
+не меняют серверную бизнес-логику и не означают разрешение публичного выпуска.
+Уточнения ниже реализуют FR-002 и отражены в Phase 15 tasks.md.
+
+1. **Поставка звука.** Обязателен настоящий backend из `Native/GrafAEC3/upstream.lock`.
+   MSBuild приложения и пакета завершает сборку ошибкой при отсутствии header,
+   статических библиотек или неверном pin/архитектуре. Portable tests сохраняют
+   test doubles, но не служат приёмкой backend. Путь к внешнему проверенному
+   source/build cache допустим. Скрипт проверяет exit code каждого native tool.
+   Конфигурация как на Mac: только AEC3, без high-pass, NS, AGC1/2 и transient
+   suppression. Минимальный локальный режим `--verify-audio-backend` выполняет
+   реальное создание и 10 ms reverse/near-end обработку, возвращает exit code,
+   не пишет звук, не включает устройства и не обращается в сеть.
+2. **Оплата.** Чистая policy рядом с `WebViewRoutePolicy` хранит одну сессию на
+   текущий host, с монотонным пределом 900 секунд. Вход только из доверенного
+   billing-документа к точному HTTPS provider из Mac allowlist: `api.yookassa.ru`,
+   `api.yookassa.test`, `yookassa.ru`, `yookassa.test`, `yoomoney.ru`.
+   Редирект после POST допустим; последующие HTTPS bank hops и payment frames
+   допустимы только внутри живой цепочки. Popup направляется в тот же контролируемый
+   WebView, не получает новый привилегированный host. Возврат к origin, timeout,
+   process/navigation failure, recreate и logout прекращают исключение.
+   Внешний документ не получает nonce, bootstrap, cookie extraction или native
+   команды. Общий route allowlist не расширяется на произвольный веб.
+3. **Вход.** Response policy сохраняет ожидаемые HTML-ошибки интерактивных
+   login/signup/email-форм, включая 400/429, до общей обработки ошибок HTTP.
+   Auth-документ не привилегирован. Recovery хранит только разрешённый GET-путь
+   кабинета (включая billing/detail), никогда внешний URL или повтор POST.
+   Настоящие ошибки cabinet 5xx по-прежнему выводят native recovery.
+4. **Напоминания.** `Shell` получает один нативный non-activating presenter и
+   тестируемую модель сроков/дедупликации, `NativeSettingsBridge` — сохраняемые
+   read/update/test. Источник событий — существующий account/calendar context,
+   не новый calendar provider. Перед Join/Record событие и аккаунт проверяются
+   заново. Карточка справа сверху живёт до более раннего из начала встречи и
+   120 секунд; тест — 6 секунд, короткая запись — 20 секунд. Замена/закрытие
+   не крадут фокус; кнопки доступны клавиатурой и screen reader. Logout очищает
+   account-bound модель, offline не подтверждает устаревшее событие. Вторая
+   запись запрещена. Системные toast permissions не блокируют локальную карточку.
+   Исторический T097 проверяет скрытие неработающих кнопок; после T104 тестовая
+   кнопка должна работать, а не оставаться скрытой ради старого снимка.
+5. **Атрибуция.** Штатная активация MSIX `grafrec://attribution` передаёт только
+   ограниченные поля текущего Mac `ProductAttributionHandoff`; один сохранённый
+   handoff живёт 90 дней. Повторная активация работающего экземпляра передаётся
+   ему, а не теряется за single-instance mutex. Bridge id: `graf_attr_` плюс
+   8–64 ASCII alphanumeric/underscore/hyphen; пять `utm_*` меток до 96 символов,
+   без секретоподобного содержимого, email/телефонов; landing path до 96 символов
+   из `/A-Za-z0-9_-`. Ни исходная ссылка, ни метки не попадают в diagnostics.
+   Единый sign-in builder для всех путей сохраняет validated next и добавляет
+   bounded fallback/ref; отсутствие/ошибка аналитики не мешает входу.
+6. **Очередь.** Постоянные allowlisted отказы сервера не превращаются в повторяемые
+   сетевые ошибки. Историческое имя файла `desktop-upload-queue.v2` сохраняется;
+   актуальная схема v3 с чтением v2. `not_retryable` не допускает Send/requeue,
+   но не лишает пользователя проверенного playback/delete.
+
+Проверки: сначала негативные/позитивные core tests, затем реальный x64 MSBuild,
+установленный MSIX, живые окна/вход/запись и matrix с точными SHA. Платёжные
+редиректы проверяются тестовыми ответами без реального списания денег.
+Физический x64/60 минут/чистая установка остаются отдельными открытыми условиями;
+Parallels ARM64 с x64 эмуляцией не выдаётся за их выполнение.
 
 No constitution violation is requested. The additional Windows native project,
 static AEC3 artifact and package validation are required because capture,

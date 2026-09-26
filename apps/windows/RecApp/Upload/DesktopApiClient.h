@@ -49,6 +49,34 @@ struct NotificationContext {
     int protocolVersion = 0;
 };
 
+// Only the calendar fields needed by the local card, never diagnostic data.
+struct CalendarReminderEvent {
+    std::string eventId;
+    double startsAt = 0;
+    double endsAt = 0;
+    bool canSurface = false;
+    bool titleAvailable = false;
+    std::string title;
+    bool meetingLinkPresent = false;
+    std::string meetingUrl;
+};
+
+struct CalendarReminderSnapshot {
+    std::string userId;
+    std::string workspaceId;
+    std::vector<CalendarReminderEvent> events;
+};
+
+struct DesktopHttpConfig;
+struct CalendarReminderResponse {
+    std::uint32_t status = 0;
+    std::optional<CalendarReminderSnapshot> snapshot;
+    std::optional<std::int64_t> authExpiresAt = std::nullopt;
+    // Call only after validating the preceding context's owner/workspace.
+    void inheritAuthExpiry(std::optional<std::int64_t> contextExpiry);
+    [[nodiscard]] std::optional<std::int64_t> renewedSessionExpiry(std::int64_t now) const;
+};
+
 // The account a deletion is requested for. macOS sends this pair as
 // `X-Graf-Expected-Actor`/`X-Graf-Expected-Workspace`, and the server compares it
 // with the confirmed session before it changes anything.
@@ -168,6 +196,11 @@ public:
     [[nodiscard]] static std::string meetingDeletionPath(std::string_view meetingId);
 
     [[nodiscard]] static std::optional<NotificationContext> decodeNotificationContext(std::string_view json);
+    static constexpr std::string_view calendarUpcomingPath = "/api/v1/desktop/calendar/upcoming";
+    [[nodiscard]] static std::optional<CalendarReminderSnapshot> decodeCalendarReminders(std::string_view json);
+    // Bounded read-only request; no redirects, cookie jar, or upload effects.
+    [[nodiscard]] static CalendarReminderResponse calendarReminders(const DesktopHttpConfig& config);
+    [[nodiscard]] static std::optional<std::int64_t> calendarAuthExpiryFromHeader(std::string_view raw);
     // Strict: every listed entry must be a complete, known shape, or the whole
     // answer is rejected. A partial list would hide a target the user selected.
     [[nodiscard]] static std::optional<std::vector<LifecycleEntry>> decodeLifecycleEntries(std::string_view json);

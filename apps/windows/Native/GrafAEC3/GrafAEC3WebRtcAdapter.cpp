@@ -3,28 +3,20 @@
 #include <array>
 #include <algorithm>
 
-#if defined(GRAF_AEC3_AVAILABLE)
 #include <api/audio/audio_processing.h>
 #include <api/scoped_refptr.h>
-#endif
 
 namespace graf::windows {
 
 struct GrafAEC3WebRtcAdapter::Impl {
-#if defined(GRAF_AEC3_AVAILABLE)
     rtc::scoped_refptr<webrtc::AudioProcessing> audioProcessing;
     webrtc::StreamConfig stream{48'000, 1};
-#endif
     bool ready = false;
 };
 
 std::unique_ptr<GrafAEC3WebRtcAdapter> GrafAEC3WebRtcAdapter::create() {
-#if defined(GRAF_AEC3_AVAILABLE)
     auto result = std::unique_ptr<GrafAEC3WebRtcAdapter>(new GrafAEC3WebRtcAdapter());
     return result->initialize() ? std::move(result) : nullptr;
-#else
-    return nullptr;
-#endif
 }
 
 GrafAEC3WebRtcAdapter::GrafAEC3WebRtcAdapter()
@@ -33,11 +25,16 @@ GrafAEC3WebRtcAdapter::GrafAEC3WebRtcAdapter()
 GrafAEC3WebRtcAdapter::~GrafAEC3WebRtcAdapter() = default;
 
 bool GrafAEC3WebRtcAdapter::initialize() noexcept {
-#if defined(GRAF_AEC3_AVAILABLE)
     try {
         webrtc::AudioProcessing::Config config;
         config.echo_canceller.enabled = true;
         config.echo_canceller.mobile_mode = false;
+        config.echo_canceller.enforce_high_pass_filtering = false;
+        config.high_pass_filter.enabled = false;
+        config.noise_suppression.enabled = false;
+        config.gain_controller1.enabled = false;
+        config.gain_controller2.enabled = false;
+        config.transient_suppression.enabled = false;
         webrtc::AudioProcessingBuilder builder;
         impl_->audioProcessing = builder.SetConfig(config).Create();
         if (impl_->audioProcessing == nullptr || impl_->audioProcessing->Initialize() != 0) return false;
@@ -54,7 +51,6 @@ bool GrafAEC3WebRtcAdapter::initialize() noexcept {
     } catch (...) {
         impl_->ready = false;
     }
-#endif
     return impl_->ready;
 }
 
@@ -65,7 +61,6 @@ bool GrafAEC3WebRtcAdapter::ready() const noexcept {
 bool GrafAEC3WebRtcAdapter::process(const float* renderReference,
                                     const float* microphone,
                                     float* cleanedMicrophone) noexcept {
-#if defined(GRAF_AEC3_AVAILABLE)
     if (!ready() || renderReference == nullptr || microphone == nullptr || cleanedMicrophone == nullptr) {
         return false;
     }
@@ -81,12 +76,6 @@ bool GrafAEC3WebRtcAdapter::process(const float* renderReference,
     float* cleanedChannels[] = {cleanedMicrophone};
     return impl_->audioProcessing->ProcessStream(microphoneChannels, impl_->stream, impl_->stream,
                                                  cleanedChannels) == 0;
-#else
-    (void)renderReference;
-    (void)microphone;
-    (void)cleanedMicrophone;
-    return false;
-#endif
 }
 
 } // namespace graf::windows

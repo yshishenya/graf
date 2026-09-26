@@ -36,6 +36,7 @@ set(GRAF_WINDOWS_TESTS
     "Tests/GrafWindowsContractTests/DesktopDeletionProtocolTests.cpp"
     "Tests/GrafWindowsContractTests/RecordingDeletionBridgeTests.cpp"
     "Tests/GrafWindowsContractTests/NativeSettingsBridgeTests.cpp"
+    "Tests/GrafWindowsContractTests/ProductAttributionHandoffTests.cpp"
     "Tests/GrafWindowsContractTests/AutomaticRecordingPromptTests.cpp"
     "Tests/GrafWindowsPackageTests/NativeRecordingOfflineWebViewTests.cpp"
     "Tests/GrafWindowsPackageTests/V5LocalRecordingWriterTests.cpp"
@@ -64,7 +65,7 @@ foreach(test_source IN LISTS GRAF_WINDOWS_TESTS)
         $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
     if(WIN32)
-        target_link_libraries("${test_name}" PRIVATE mfplat mfreadwrite mfuuid ole32 avrt advapi32 shell32 winhttp wintrust bcrypt)
+        target_link_libraries("${test_name}" PRIVATE mfplat mfreadwrite mfuuid ole32 avrt advapi32 shell32 winhttp wintrust bcrypt ws2_32)
     endif()
     add_test(NAME "${test_name}" COMMAND "${test_name}")
 endforeach()

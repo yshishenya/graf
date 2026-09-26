@@ -28,8 +28,8 @@ struct DesktopTransportResult {
     DesktopTransportStatus status = DesktopTransportStatus::retryableFailure;
     std::optional<UploadServerTruth> serverTruth;
     std::string safeReason = {};
-    // Server-owned retry classification from the custody projection. Empty means
-    // the server expressed no opinion, and the ordinary retry path applies.
+    // Server-owned retry classification from custody or an allowlisted HTTP 400
+    // source rejection. Empty keeps the ordinary retry path.
     std::string retryClass = {};
     // Server-requested pause, in seconds, from a Retry-After header on a 429.
     // Zero means the server asked for nothing and the ordinary schedule applies.
@@ -105,6 +105,26 @@ public:
     explicit DesktopHttpTransport(DesktopHttpConfig config = {});
 
     [[nodiscard]] DesktopTransportResult upload(const UploadCustodyItem& item) const;
+    struct UploadRequest {
+        std::string method;
+        std::string path;
+        std::string body;
+        bool jsonBody = true;
+        std::string idempotencyKey = {};
+        std::optional<std::uint64_t> byteOffset = std::nullopt;
+        std::string contentSha256 = {};
+    };
+    struct UploadResponse {
+        std::uint32_t status = 0;
+        std::string body;
+        bool transportFailed = false;
+        std::string retryAfter = {};
+        std::string authExpiresAt = {};
+    };
+    // Replace only the wire in portable tests; all upload/recovery decisions
+    // still run through the production sequence. The app uses WinHTTP above.
+    using UploadSend = std::function<UploadResponse(const DesktopHttpConfig&, const UploadRequest&)>;
+    [[nodiscard]] DesktopTransportResult upload(const UploadCustodyItem& item, const UploadSend& send) const;
     [[nodiscard]] std::optional<DesktopAccountIdentity> accountIdentity() const;
     struct IdentityResponse {
         std::uint32_t status = 0;

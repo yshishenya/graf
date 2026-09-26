@@ -110,9 +110,12 @@ WinUI 3 / C++/WinRT native shell
 
 The web page never receives a file path, audio buffer, bearer token, cookie,
 device handle, process handle, native object or arbitrary command. The native
-side does not rebuild the cabinet. The active bridge sends `native_ready` and
-bounded `local_recordings` display rows; it accepts only `request_app_quit` and
-typed `local_recording` requests. Capture/runtime/custody controls remain native.
+side does not rebuild the cabinet. The active bridge sends `native_ready`, typed
+settings/deletion replies and bounded `local_recordings` display rows with
+operations/recoveryRequired; it accepts only typed `request_app_quit`,
+`local_recording`, `app_appearance`, `native_settings` and `delete_selection`
+requests with command-specific route/schema/capability checks.
+Capture/runtime/custody authority remains native.
 The initial settings/diagnostics/repair/acknowledgement aliases and proposed
 generic state messages have no active consumers and are not retained as a
 compatibility surface. See `contracts/windows-native-web-bridge.md` §§3–5.
@@ -510,3 +513,20 @@ frequency `384000`; для microphone с `frames=487/488` clock delta был
 для packet continuity, сохраняя исходный device position для монотонности.
 Перебирать форматы, менять настройки Windows или ослаблять count gates не
 требуется.
+
+### Пересмотр гипотезы часов и границы будущего routing (2026-09-26)
+
+Предыдущее наблюдение VM не доказывает, что текущее показание IAudioClock —
+позиция начала конкретного GetBuffer-пакета. Действующее правило в контракте §5
+требует packet QPC и отдельную проверку непрерывности; гипотеза выше не даёт
+разрешения синтезировать метки по frameCount или отключать drift gates.
+Несовместимость устройства требует диагностики и открытого T094, не выдачи normal.
+
+Process loopback остаётся вне F200. До отдельной спецификации должны быть явно
+решены: техническое разрешение пользователя и видимый Stop; точная identity
+целевого приложения; включение/исключение дочерних процессов и смена PID;
+поведение защищённого/DRM звука без обхода; fallback при недоступности API,
+отказе target и потере разрешения. F200 не разрешает молчаливый переход между
+process-only и global capture; fallback и disclosure требуют отдельной приёмки.
+Это перечень будущих вопросов, не юридические prerequisites и не реализация
+process loopback, драйвера или скрытой записи в текущей фиче.

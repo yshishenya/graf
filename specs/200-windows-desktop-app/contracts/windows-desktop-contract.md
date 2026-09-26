@@ -161,6 +161,61 @@ identity. V1/global не читаются как разрешения и не у
 
 ## 5. Timeline and artifact contract
 
+Уточнение T107 для upload-классификации: в исходном серверном
+`ingest/meetings.py::validate_first_party_recording_source_mode` на `f5cca687a`
+коды `unsupported_recording_source_kind` и `invalid_recording_source_mode`
+при HTTP400 — постоянные `not_retryable`. Они сохраняются только как эти
+allowlisted коды, без title/detail тела ошибки. Send/requeue запрещены, checked
+playback/delete сохраняются. Неизвестный код не становится permanent по совпадению
+подстроки; действует существующая общая bounded retry/error policy.401/403
+относятся к auth/access recovery,429 — rate-limit retry, transient5xx/network —
+bounded retry; ни одна из этих ветвей не преобразуется в permanent source error.
+Одинаковое правило на create/part/finalize, после перезапуска причина сохраняется.
+
+### Действующее уточнение T094–T096 от 2026-09-26
+
+Это правило заменяет противоречащую гипотезу 2026-09-07 в плане/data model и
+исторические формулировки раундов 25/27 о продолжении после отказа источника.
+Результаты старых запусков не удаляются, но не являются разрешением такой логики.
+
+- Каждый пакет получает PTS из его `GetBuffer.qpcPosition` (100 ns), не из времени
+  callback, размера текущего пакета или текущего `IAudioClock::GetPosition`.
+  Device position первого кадра должен продолжать предыдущий packet frame count;
+  обратный ход, flags ошибки или необъяснённый разрыв прекращают trusted segment.
+  Дрейф проверяется на накопленном интервале по прежнему пределу 100 ppm + 1 ms
+  + один кадр. Наличие IAudioClock не отключает этот контроль.
+- IAudioClock имеет собственную фиксированную frequency, проверяется отдельно;
+  одинаковая текущая позиция при выгрузке накопившихся пакетов не является
+  ошибкой сама по себе и не доказывает непрерывность. Неудачный вызов/смена
+  frequency/обратный ход — отказ. Только `S_OK` означает точное измерение;
+  `S_FALSE` не становится доказательством корректного timestamp.
+- Отсутствие одного из двух готовых источников блокирует старт. Потеря любого
+  обязательного источника/clock/sink останавливает доверенный сегмент, сохраняет
+  лишь уже проверенный очищенный префикс с причиной. Ни raw microphone, ни
+  неподтверждённая тишина, ни unpaired render не становятся normal output.
+  Настоящий WASAPI SILENT-пакет означает ровно его frames с валидными метками,
+  но отсутствие пакета не означает тишину. Явная пауза пользователя — отдельное
+  состояние по существующему pause-контракту, не маскировка сбоя устройства.
+- Dispatcher: максимум 256 элементов, из них два зарезервированы для typed EOS.
+  После Stop новые данные не принимаются. Порядок: последние принятые данные,
+  два EOS, закрытие timeline, единственная финализация. Переполнение — отказ.
+  UI не ждёт sink; повторный poll проверяет fence. Целевой предел drain — 5 секунд
+  от Stop по монотонным часам; превышение показывает явный отказ завершения,
+  не запускает финализацию поверх работающего sink и не уничтожает его память.
+  Дальнейшее завершение ждёт безопасного fence; успешное сохранение не выдумывается.
+- Trace: отдельное in-memory кольцо максимум 64 metadata события на worker,
+  перезапись старейшего, монотонный sequence показывает потерю старых событий;
+  сброс при новой сессии/уничтожении. Содержимое аудио/пути/имена запрещены.
+  Packet QPC/device/clock допустимы только внутри ограниченной диагностики,
+  не в пользовательском экспорте или git. В экспорт идут только счётчики,
+  длительности, этап/HRESULT/reason, сводка не более 1024 байт. Полное кольцо
+  не пишется автоматически на диск и не отправляется в сеть.
+
+Основание различия пакетной/текущей позиции: Microsoft
+[GetBuffer](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudiocaptureclient-getbuffer)
+и [GetPosition](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock-getposition).
+Ошибки виртуализированных часов не исправляются ослаблением этих требований.
+
 ### Уточнение T085: общая шкала и ограниченная коррекция
 
 - Начало каждого пакета определяется абсолютным QPC WASAPI в 100-нс
@@ -305,7 +360,9 @@ actions. Raw input is never used as a hidden fallback.
 
 The Windows writer finalizes local package before any network call. The queue:
 
-- uses the existing `desktop-upload-queue.v2` ledger and item identity;
+- writes `desktop-upload-queue.v3`, reads v2/v3, preserving the historical
+  `desktop-upload-queue.v2` filename and item identity; unsupported versions are
+  quarantined, never overwritten by an empty ledger or downgraded on rollback;
 - writes atomically and quarantines malformed documents;
 - runs on launch, activation, auth change, network recovery, wake, scheduled
   retry and local finalization;

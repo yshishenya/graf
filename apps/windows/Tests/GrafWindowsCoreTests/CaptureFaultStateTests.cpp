@@ -62,6 +62,9 @@ struct CaptureSessionTestPeer {
     static bool microphoneFinished(const WindowsCaptureSessionController& controller) {
         return controller.microphoneWorker_->finished();
     }
+    static bool renderFinished(const WindowsCaptureSessionController& controller) {
+        return controller.renderWorker_->finished();
+    }
     static void begin(WindowsCaptureSessionController& controller) {
         assert(controller.session_.beginReadinessCheck().accepted());
         assert(controller.session_.markReady().accepted());
@@ -98,6 +101,32 @@ struct CaptureSessionTestPeer {
     }
     static std::uint8_t sourceEndMask(const WindowsCaptureSessionController& controller) {
         return controller.sourceEndsProcessed_.load();
+    }
+    static void startDispatcher(WindowsCaptureSessionController& controller) {
+        controller.dispatchFinished_.store(false);
+        controller.dispatchThread_ = std::thread([&controller] { controller.dispatchLoop(); });
+    }
+    static bool dispatcherFinished(const WindowsCaptureSessionController& controller) {
+        return controller.dispatchFinished_.load(std::memory_order_acquire);
+    }
+    static void drainDeadline(WindowsCaptureSessionController& controller,
+                              std::chrono::steady_clock::time_point deadline) {
+        controller.drainDeadline_ = deadline;
+    }
+    static void latchFault(WindowsCaptureSessionController& controller, ReasonCode reason) {
+        controller.latchFault(reason);
+    }
+    static ReasonCode firstFault(const WindowsCaptureSessionController& controller) {
+        return controller.captureFault_.load();
+    }
+    static bool enqueue(WindowsCaptureSessionController& controller, int sequence) {
+        auto batch = syntheticLifecycleBatch();
+        batch.ptsFrames = sequence;
+        return controller.enqueueBatch(std::move(batch));
+    }
+    static std::size_t pending(WindowsCaptureSessionController& controller) {
+        std::lock_guard<std::mutex> lock(controller.dispatchMutex_);
+        return controller.pendingBatches_.size();
     }
     static bool dispatcherIdle(WindowsCaptureSessionController& controller) {
         std::lock_guard<std::mutex> lock(controller.dispatchMutex_);
@@ -139,7 +168,7 @@ struct DeviceStage {
         while (running.load()) {
             assert(callback(graf::windows::syntheticLifecycleBatch()));
             ++callbacks;
-            std::this_thread::yield();
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         // A callback already in the device path when Stop won must be discarded.
         assert(callback(graf::windows::syntheticLifecycleBatch()));
@@ -356,6 +385,85 @@ int main() {
         waitUntil([&] { return worker.finished(); });
     }
 
+    // Only exact native clock measurements may publish audio. Positive S_FALSE
+    // still releases the acquired packet once and fails before touching audio.
+    for (const std::int32_t result : {1, -1}) {
+        WasapiCaptureWorker worker({"clock-result", "Synthetic", WasapiDataFlow::capture,
+                                    48'000, 1, true, true, 1}, false);
+        int released = 0, callbacks = 0;
+        CaptureSessionTestPeer::device(worker, [&](const auto&, auto&, const auto&) {
+            ClockMapper clock;
+            AudioNormalizer normalizer;
+            assert(!CaptureSessionTestPeer::packet(worker, clock, normalizer,
+                {100'000, 0, 48'000, 0, 480, 1'000, 384'000, result},
+                reinterpret_cast<const void*>(1), [&](std::uint32_t frames) {
+                    assert(frames == 480);
+                    ++released;
+                    return CaptureReleaseResult{true, 0};
+                }));
+        });
+        assert(worker.start([&](AudioBatch) { ++callbacks; return true; }) == CaptureWorkerError::none);
+        waitUntil([&] { return worker.finished(); });
+        assert(released == 1 && callbacks == 0 && !worker.ready());
+        assert(worker.lastError() == CaptureWorkerError::audioClockFailed);
+    }
+
+    // Trace storage wraps at 64 metadata events, sequence preserves evidence of
+    // overwritten events, and a new worker attempt resets both size and sequence.
+    {
+        WasapiCaptureWorker worker({"trace", "Synthetic", WasapiDataFlow::capture,
+                                    48'000, 1, true, true, 1}, false);
+        for (const int packets : {40, 1}) {
+            CaptureSessionTestPeer::device(worker, [&](const auto&, auto&, const auto&) {
+                ClockMapper clock;
+                AudioNormalizer normalizer;
+                for (int i = 0; i < packets; ++i) {
+                    assert(CaptureSessionTestPeer::packet(worker, clock, normalizer,
+                        {100'000ULL + i * 100'000ULL, i * 480ULL, 48'000,
+                         ClockObservation::silent, 480, 8'000, 384'000}, nullptr,
+                        [](std::uint32_t) { return CaptureReleaseResult{true, 0}; }));
+                }
+            });
+            assert(worker.start([](AudioBatch) { return true; }) == CaptureWorkerError::none);
+            waitUntil([&] { return worker.finished(); });
+            const auto trace = worker.clockDiagnostics();
+            assert(trace.traceCount == static_cast<std::uint32_t>(std::min(64, packets * 3)));
+            assert(trace.lastTrace.sequence == static_cast<std::uint64_t>(packets * 3));
+            assert(trace.lastTrace.stage == CaptureStage::callback);
+        }
+    }
+
+    // Completion is published only after cleanup, including exceptions. A new
+    // attempt must not expose the preceding attempt's completion timestamp.
+    {
+        WasapiCaptureWorker worker({"completion", "Synthetic", WasapiDataFlow::capture,
+                                    48'000, 1, true, true, 1}, false);
+        assert(worker.finishedAt() == std::chrono::steady_clock::time_point{});
+        auto previousCompletion = worker.finishedAt();
+        for (const bool throws : {false, true}) {
+            std::atomic_bool entered{false}, release{false};
+            CaptureSessionTestPeer::device(worker, [&](const auto&, auto&, const auto&) {
+                entered.store(true);
+                waitUntil([&] { return release.load(); });
+                if (throws) throw std::runtime_error("synthetic cleanup failure");
+            });
+            const auto beforeStart = std::chrono::steady_clock::now();
+            assert(worker.start([](AudioBatch) { return true; }) == CaptureWorkerError::none);
+            waitUntil([&] { return entered.load(); });
+            worker.stop();
+            assert(!worker.finished());
+            assert(worker.finishedAt() == std::chrono::steady_clock::time_point{});
+            const auto beforeRelease = std::chrono::steady_clock::now();
+            release.store(true);
+            waitUntil([&] { return worker.finished(); });
+            const auto completed = worker.finishedAt();
+            assert(completed >= beforeStart && completed >= beforeRelease && completed >= previousCompletion);
+            assert(completed <= std::chrono::steady_clock::now());
+            assert(worker.lastError() == (throws ? CaptureWorkerError::initializationFailed : CaptureWorkerError::none));
+            previousCompletion = completed;
+        }
+    }
+
     // Regression: real worker error must not skip the finalizer, including startup.
     ReadinessInputs ready;
     ready.microphonePermissionGranted = true;
@@ -373,7 +481,9 @@ int main() {
             return CaptureFinalization{false, reason};
         });
     startup.setEndpoints({}, {});
-    assert(startup.record(ready).state == SessionState::failed);
+    const auto startupFailure = startup.record(ready);
+    assert(startupFailure.state == SessionState::stopping || startupFailure.state == SessionState::failed);
+    waitUntil([&] { return startup.pollHealth().state == SessionState::failed; });
     assert(startup.stop().status == TransitionStatus::idempotent && startupFinalizations == 1);
 
     // Discard alone never signals ready: with no usable data the original
@@ -384,14 +494,10 @@ int main() {
         std::atomic<int> delivered{0};
         int finalized = 0;
         WindowsCaptureSessionController controller("discard-startup", [&](AudioBatch) {
-            // Ограниченная запись принимает звук живого источника: иначе
-            // встреча потерялась бы вместе с отказавшим.
             ++delivered;
             return true;
         }, [&](ReasonCode reason, RecordingStopReason) {
-            // Ограничение не является отказом захвата: живой источник писал
-            // встречу, а причина ограничения едет отдельно, в итоге записи.
-            assert(reason == ReasonCode::none);
+            assert(reason == (clockFailure ? ReasonCode::clockDiscontinuity : ReasonCode::renderEndpointUnavailable));
             ++finalized;
             return CaptureFinalization{false, reason};
         });
@@ -418,27 +524,18 @@ int main() {
         if (clockFailure) {
             fail.store(true);
             waitUntil([&] { return CaptureSessionTestPeer::microphoneFinished(controller); });
-            // Отказ часов микрофона ограничивает запись, а не обрывает её:
-            // системный звук продолжает писаться, встречу терять нельзя.
-            assert(controller.pollHealth().state == SessionState::degraded);
-            assert(controller.indicator().snapshot().state == SessionState::degraded);
-            // Остановка принимается сразу; финализация может завершиться в этом
-            // же вызове, поэтому проверяем факт остановки, а не момент времени.
-            assert(controller.stop().status == TransitionStatus::accepted);
         } else {
             CaptureSessionTestPeer::expireStartup(controller);
-            // Истёк срок запуска: микрофон жив, поэтому встреча не теряется —
-            // запись продолжается с микрофоном и помечается ограниченной.
-            assert(controller.pollHealth().state == SessionState::degraded);
-            assert(controller.stop().status == TransitionStatus::accepted);
         }
+        const auto stopping = controller.pollHealth();
+        assert(stopping.state == SessionState::stopping || stopping.state == SessionState::failed);
+        assert(CaptureSessionTestPeer::stopped(controller));
+        assert(delivered.load() == 0);
         waitUntil([&] { return controller.pollHealth().state == SessionState::failed; });
         const auto terminal = controller.pollHealth();
         assert(terminal.state == SessionState::failed && finalized == 1);
-        if (!clockFailure) {
-            // Причина ограничения называет источник, который не поднялся.
-            assert(controller.finalization().degradedReason == ReasonCode::renderEndpointUnavailable);
-        }
+        assert(controller.finalization().reason ==
+               (clockFailure ? ReasonCode::clockDiscontinuity : ReasonCode::renderEndpointUnavailable));
         const auto render = controller.clockDiagnostics(AudioSource::systemRender);
         const auto microphone = controller.clockDiagnostics(AudioSource::microphone);
         assert(render.startupDiscardedFrames == 480 && microphone.startupDiscardedFrames == 480);
@@ -468,9 +565,7 @@ int main() {
             WindowsDesktopSession competing("during-finalizer");
             assert(!competing.beginReadinessCheck().accepted());
             ++finalized;
-            // Ограничение по молчащему микрофону — не отказ захвата: системный
-            // звук писался, поэтому причина отказа пуста во всех трёх случаях.
-            assert(reason == ReasonCode::none);
+            assert(reason == (scenario == 2 ? ReasonCode::microphoneEndpointUnavailable : ReasonCode::none));
             return CaptureFinalization{scenario != 1, reason};
         });
         current = &controller;
@@ -497,13 +592,12 @@ int main() {
         const auto beforeStop = std::chrono::steady_clock::now();
         if (scenario == 2) {
             CaptureSessionTestPeer::expireStartup(controller);
-            // Системный звук уже идёт, микрофон молчит: встреча не теряется,
-            // запись продолжается ограниченной.
-            assert(controller.pollHealth().state == SessionState::degraded);
-            assert(controller.pollHealth().state == SessionState::degraded && finalized == 0);
+            assert(controller.pollHealth().state == SessionState::stopping);
+            assert(controller.pollHealth().state == SessionState::stopping && finalized == 0);
+            assert(delivered.load() == 0);
         }
         const auto stopped = controller.stop();
-        assert(stopped.status == TransitionStatus::accepted);
+        assert(stopped.status == (scenario == 2 ? TransitionStatus::idempotent : TransitionStatus::accepted));
         assert(std::chrono::steady_clock::now() - beforeStop < std::chrono::milliseconds(500));
         assert(controller.stop().status == TransitionStatus::idempotent);
         assert(controller.pollHealth().state == SessionState::stopping && finalized == 0);
@@ -522,13 +616,13 @@ int main() {
         render.allowCleanup.store(true);
         assert(controller.pollHealth().state == SessionState::stopping && finalized == 0);
         microphone.allowCleanup.store(true);
-        const auto expectedState = scenario == 1 ? SessionState::failed : SessionState::savedLocal;
+        const auto expectedState = scenario == 0 ? SessionState::savedLocal : SessionState::failed;
         waitUntil([&] { return controller.pollHealth().state == expectedState; });
         const auto terminal = controller.pollHealth();
         assert(terminal.state == expectedState);
         assert(CaptureSessionTestPeer::sourceEndMask(controller) == 3);
         if (scenario == 2) {
-            assert(controller.finalization().degradedReason == ReasonCode::microphoneEndpointUnavailable);
+            assert(controller.finalization().reason == ReasonCode::microphoneEndpointUnavailable);
         }
         assert(!controller.indicator().snapshot().visible && finalized == 1);
         assert(controller.stop().status == TransitionStatus::idempotent);
@@ -536,19 +630,15 @@ int main() {
         assert(competing.beginReadinessCheck().accepted());
     }
 
-    // Сбой микрофона не обрывает встречу: запись продолжается системным звуком,
-    // сессия становится ограниченной — так же ведёт себя macOS, где отказавшая
-    // дорожка помечается degraded, а запись сохраняется.
+    // Either mandatory source failing ends the trusted segment immediately.
     {
         DeviceStage render, microphone;
         int finalized = 0;
         WindowsCaptureSessionController controller("degraded-microphone", [](AudioBatch) { return true; },
             [&](ReasonCode reason, RecordingStopReason) {
-                // Отказа захвата нет: системный звук писался всё время, а
-                // ограничение по микрофону приходит отдельной причиной.
-                assert(reason == ReasonCode::none);
+                assert(reason == ReasonCode::microphoneEndpointUnavailable);
                 ++finalized;
-                return CaptureFinalization{true, reason};
+                return CaptureFinalization{false, reason, true};
             });
         render.allowStartup.store(true); microphone.allowStartup.store(true);
         render.allowCleanup.store(true); microphone.allowCleanup.store(true);
@@ -558,27 +648,19 @@ int main() {
         assert(controller.record(ready).state == SessionState::starting);
         waitUntil([&] { return render.initialized.load() && microphone.initialized.load(); });
         assert(controller.pollHealth().state == SessionState::recording);
-        // Микрофон отказывает на ходу: запись остаётся живой и ограниченной.
         CaptureSessionTestPeer::failMicrophoneWorker(controller);
-        assert(controller.pollHealth().state == SessionState::degraded);
-        assert(controller.pollHealth().state == SessionState::degraded && finalized == 0);
-        assert(controller.indicator().snapshot().visible);
-        assert(controller.indicator().snapshot().state == SessionState::degraded);
+        (void)controller.pollHealth();
+        assert(CaptureSessionTestPeer::stopped(controller));
         assert(CaptureSessionTestPeer::push(controller));
-        // Человек останавливает запись сам: она сохраняется, причина едет с ней.
-        assert(controller.stop().status == TransitionStatus::accepted);
+        assert(controller.stop().status == TransitionStatus::idempotent);
         render.allowCleanup.store(true);
-        waitUntil([&] { return controller.pollHealth().state == SessionState::savedLocal; });
+        waitUntil([&] { return controller.pollHealth().state == SessionState::failed; });
         assert(finalized == 1);
-        assert(controller.finalization().savedLocal);
-        // Причина ограничения едет отдельно от причины отказа: запись цела.
-        assert(controller.finalization().degradedReason == ReasonCode::microphoneEndpointUnavailable);
-        assert(controller.finalization().reason == ReasonCode::none);
+        assert(!controller.finalization().savedLocal && controller.finalization().trustedPrefixRetained);
+        assert(controller.finalization().reason == ReasonCode::microphoneEndpointUnavailable);
     }
 
-    // Отказ системного звука тоже не обрывает встречу: микрофон продолжает
-    // писать голос, а сессия помечается ограниченной — как в macOS, где
-    // `markDegraded(source:)` называет отказавший источник.
+    // The microphone must never continue unpaired after the render source fails.
     {
         DeviceStage render, microphone;
         std::atomic<int> delivered{0};
@@ -587,11 +669,9 @@ int main() {
             ++delivered;
             return true;
         }, [&](ReasonCode reason, RecordingStopReason) {
-            // Отказа захвата нет: микрофон писал всё время, ограничение едет
-            // отдельной причиной.
-            assert(reason == ReasonCode::none);
+            assert(reason == ReasonCode::renderEndpointUnavailable);
             ++finalized;
-            return CaptureFinalization{true, reason};
+            return CaptureFinalization{false, reason, true};
         });
         render.allowStartup.store(true); microphone.allowStartup.store(true);
         render.allowCleanup.store(true); microphone.allowCleanup.store(true);
@@ -602,22 +682,19 @@ int main() {
         waitUntil([&] { return render.initialized.load() && microphone.initialized.load(); });
         assert(controller.pollHealth().state == SessionState::recording);
         waitUntil([&] { return delivered.load() > 0; });
-        const auto deliveredBefore = delivered.load();
         CaptureSessionTestPeer::failRenderWorker(controller);
-        assert(controller.pollHealth().state == SessionState::degraded);
-        assert(controller.pollHealth().state == SessionState::degraded && finalized == 0);
-        assert(controller.indicator().snapshot().state == SessionState::degraded);
-        // Голос продолжает попадать в запись, хотя системный звук отказал.
-        waitUntil([&] { return delivered.load() > deliveredBefore; });
-        assert(controller.stop().status == TransitionStatus::accepted);
-        waitUntil([&] { return controller.pollHealth().state == SessionState::savedLocal; });
+        (void)controller.pollHealth();
+        assert(CaptureSessionTestPeer::stopped(controller));
+        assert(controller.stop().status == TransitionStatus::idempotent);
+        waitUntil([&] { return controller.pollHealth().state == SessionState::failed; });
         assert(finalized == 1);
-        assert(controller.finalization().degradedReason == ReasonCode::renderEndpointUnavailable);
-        assert(controller.finalization().reason == ReasonCode::none);
+        const auto stoppedAt = delivered.load();
+        assert(CaptureSessionTestPeer::push(controller) && delivered.load() == stoppedAt);
+        assert(!controller.finalization().savedLocal && controller.finalization().trustedPrefixRetained);
+        assert(controller.finalization().reason == ReasonCode::renderEndpointUnavailable);
     }
 
-    // Сбой микрофона на старте не отменяет системный звук: сессия становится
-    // ограниченной, а звук встречи пишется дальше.
+    // A failed startup never opens the sink, even if the other source is live.
     {
         DeviceStage render;
         std::atomic_bool failMicrophone{false};
@@ -627,9 +704,7 @@ int main() {
             ++delivered;
             return true;
         }, [&](ReasonCode reason, RecordingStopReason) {
-            // Сбой микрофона не отказ захвата: системный звук писался, а
-            // ограничение приходит отдельной причиной.
-            assert(reason == ReasonCode::none);
+            assert(reason == ReasonCode::microphoneEndpointUnavailable);
             ++finalized;
             return CaptureFinalization{true, reason};
         });
@@ -643,20 +718,262 @@ int main() {
         waitUntil([&] { return render.entered.load(); });
         failMicrophone.store(true);
         waitUntil([&] { return CaptureSessionTestPeer::microphoneFinished(controller); });
-        // Отказ микрофона не обрывает встречу и на старте: системный звук ещё
-        // поднимается, а сессия уже ограничена.
-        assert(controller.pollHealth().state == SessionState::degraded && finalized == 0);
-        assert(controller.indicator().snapshot().state == SessionState::degraded);
+        assert(controller.pollHealth().state == SessionState::stopping && finalized == 0);
+        assert(controller.indicator().snapshot().state == SessionState::stopping);
         render.allowStartup.store(true);
         waitUntil([&] { return render.initialized.load(); });
-        assert(controller.pollHealth().state == SessionState::degraded);
-        // Ограниченная запись принимает системный звук: иначе встреча потеряется.
-        waitUntil([&] { return delivered.load() > 0; });
+        assert(controller.pollHealth().state == SessionState::stopping);
+        assert(delivered.load() == 0);
         render.allowCleanup.store(true);
-        assert(controller.stop().status == TransitionStatus::accepted);
-        waitUntil([&] { return controller.pollHealth().state == SessionState::savedLocal; });
+        assert(controller.stop().status == TransitionStatus::idempotent);
+        waitUntil([&] { return controller.pollHealth().state == SessionState::failed; });
         assert(finalized == 1);
-        assert(controller.finalization().degradedReason == ReasonCode::microphoneEndpointUnavailable);
+        assert(controller.finalization().reason == ReasonCode::microphoneEndpointUnavailable);
+    }
+
+    // Exactly 254 data slots and two reserved typed EOS slots; accepted data
+    // drain FIFO before finalization. Overflow and sink failure cannot save as normal.
+    for (const int failure : {0, 1, 2, 3}) { // none, overflow, rejected/throwing sink
+        std::atomic_bool entered{false}, release{false};
+        std::vector<std::int64_t> delivered;
+        int finalized = 0;
+        WindowsCaptureSessionController* current = nullptr;
+        WindowsCaptureSessionController controller("bounded-dispatch", [&](AudioBatch batch) {
+            entered.store(true);
+            waitUntil([&] { return release.load(); });
+            delivered.push_back(batch.ptsFrames);
+            if (failure == 3) throw std::runtime_error("synthetic sink failure");
+            return failure != 2;
+        }, [&](ReasonCode reason, RecordingStopReason) {
+            assert(release.load());
+            assert(CaptureSessionTestPeer::sourceEndMask(*current) == 3);
+            assert(reason == (failure == 1 ? ReasonCode::queueOverflow :
+                             failure == 2 ? ReasonCode::clockDiscontinuity :
+                             failure == 3 ? ReasonCode::finalizationFailed : ReasonCode::none));
+            ++finalized;
+            return CaptureFinalization{true, ReasonCode::none};
+        });
+        current = &controller;
+        CaptureSessionTestPeer::begin(controller);
+        CaptureSessionTestPeer::startDispatcher(controller);
+        assert(CaptureSessionTestPeer::enqueue(controller, 0));
+        waitUntil([&] { return entered.load(); });
+        for (int sequence = 1; sequence <= 254; ++sequence)
+            assert(CaptureSessionTestPeer::enqueue(controller, sequence));
+        assert(CaptureSessionTestPeer::pending(controller) == 254);
+        if (failure == 1) assert(!CaptureSessionTestPeer::enqueue(controller, 255));
+        const auto before = std::chrono::steady_clock::now();
+        assert(controller.stop().state == SessionState::stopping);
+        assert(std::chrono::steady_clock::now() - before < std::chrono::milliseconds(500));
+        assert(CaptureSessionTestPeer::pending(controller) == 256);
+        assert(CaptureSessionTestPeer::enqueue(controller, 256)); // late data discarded
+        assert(CaptureSessionTestPeer::pending(controller) == 256);
+        assert(controller.stop().status == TransitionStatus::idempotent && finalized == 0);
+        release.store(true);
+        const auto expected = failure == 0 ? SessionState::savedLocal : SessionState::failed;
+        waitUntil([&] { return controller.pollHealth().state == expected; });
+        assert(finalized == 1);
+        assert(delivered.size() == (failure >= 2 ? 1U : 255U));
+        for (std::size_t i = 0; i < delivered.size(); ++i) assert(delivered[i] == static_cast<std::int64_t>(i));
+    }
+
+    // Completion time, not UI polling cadence, decides whether drain expired.
+    // Move only the deadline in these deterministic boundary cases; the existing
+    // real five-second test below still checks the production duration.
+    for (const bool late : {true, false}) for (const bool priorFault : {false, true}) {
+        std::atomic_bool entered{false}, release{false};
+        int finalized = 0;
+        WindowsCaptureSessionController* current = nullptr;
+        const auto expectedReason = late ? ReasonCode::finalizationFailed :
+            priorFault ? ReasonCode::clockDiscontinuity : ReasonCode::none;
+        WindowsCaptureSessionController controller("drain-between-polls", [&](AudioBatch) {
+            entered.store(true);
+            waitUntil([&] { return release.load(); });
+            return true;
+        }, [&](ReasonCode reason, RecordingStopReason) {
+            assert(reason == expectedReason);
+            assert(CaptureSessionTestPeer::sourceEndMask(*current) == 3);
+            ++finalized;
+            return CaptureFinalization{true, ReasonCode::none, true, late};
+        });
+        current = &controller;
+        CaptureSessionTestPeer::begin(controller);
+        CaptureSessionTestPeer::startDispatcher(controller);
+        assert(CaptureSessionTestPeer::enqueue(controller, 0));
+        waitUntil([&] { return entered.load(); });
+        if (priorFault) CaptureSessionTestPeer::latchFault(controller, ReasonCode::clockDiscontinuity);
+        assert(controller.stop().state == SessionState::stopping);
+        if (late) CaptureSessionTestPeer::drainDeadline(controller, std::chrono::steady_clock::now());
+        release.store(true);
+        // No health poll while the sink returns and both EOS cross the queue.
+        waitUntil([&] { return CaptureSessionTestPeer::dispatcherFinished(controller); });
+        if (!late) CaptureSessionTestPeer::drainDeadline(controller, std::chrono::steady_clock::now());
+        const auto terminal = controller.pollHealth();
+        assert(terminal.state == (expectedReason == ReasonCode::none ? SessionState::savedLocal : SessionState::failed));
+        assert(controller.finalization().reason == expectedReason && controller.finalization().trustedPrefixRetained);
+        assert(!controller.finalization().shortRecordingDiscarded);
+        assert(CaptureSessionTestPeer::firstFault(controller) ==
+               (priorFault ? ReasonCode::clockDiscontinuity : ReasonCode::none));
+        assert(controller.stop().status == TransitionStatus::idempotent);
+        assert(controller.pollHealth().status == TransitionStatus::idempotent && finalized == 1);
+    }
+
+    // EOS and dispatcher completion must not wait for a UI health poll or for
+    // device cleanup. Finalization still waits for both native completion fences.
+    // A worker completing before the deadline cannot fail just because UI polls
+    // later; either worker completing after it must fail even with an idle queue.
+    for (const int lateSource : {-1, 0, 1}) {
+        DeviceStage render, microphone;
+        render.allowStartup.store(true); microphone.allowStartup.store(true);
+        std::atomic<int> delivered{0};
+        int finalized = 0;
+        WindowsCaptureSessionController* current = nullptr;
+        WindowsCaptureSessionController controller("worker-drain-between-polls", [&](AudioBatch) {
+            ++delivered;
+            return true;
+        }, [&](ReasonCode reason, RecordingStopReason) {
+            assert(reason == (lateSource < 0 ? ReasonCode::none : ReasonCode::finalizationFailed));
+            assert(CaptureSessionTestPeer::finished(*current));
+            assert(CaptureSessionTestPeer::sourceEndMask(*current) == 3);
+            ++finalized;
+            return CaptureFinalization{true, ReasonCode::none, true};
+        });
+        current = &controller;
+        CaptureSessionTestPeer::devices(controller,
+            [&](const auto& running, auto& deviceReady, const auto& callback) { render.run(running, deviceReady, callback); },
+            [&](const auto& running, auto& deviceReady, const auto& callback) { microphone.run(running, deviceReady, callback); });
+        assert(controller.record(ready).state == SessionState::starting);
+        waitUntil([&] { return render.initialized.load() && microphone.initialized.load(); });
+        assert(controller.pollHealth().state == SessionState::recording);
+        waitUntil([&] { return delivered.load() > 0; });
+        assert(controller.stop().state == SessionState::stopping && finalized == 0);
+        waitUntil([&] { return render.cleaning.load() && microphone.cleaning.load(); });
+        // Neither worker has returned, yet all accepted data and EOS can drain.
+        waitUntil([&] { return CaptureSessionTestPeer::dispatcherFinished(controller); });
+        assert(CaptureSessionTestPeer::sourceEndMask(controller) == 3 && finalized == 0);
+        assert(!CaptureSessionTestPeer::finished(controller));
+        const auto beforeCleanup = delivered.load();
+        if (lateSource >= 0) {
+            auto& onTime = lateSource == 0 ? microphone : render;
+            onTime.allowCleanup.store(true);
+            waitUntil([&] { return lateSource == 0
+                ? CaptureSessionTestPeer::microphoneFinished(controller)
+                : CaptureSessionTestPeer::renderFinished(controller); });
+            CaptureSessionTestPeer::drainDeadline(controller, std::chrono::steady_clock::now());
+        }
+        render.allowCleanup.store(true); microphone.allowCleanup.store(true);
+        waitUntil([&] { return CaptureSessionTestPeer::finished(controller); });
+        if (lateSource < 0)
+            CaptureSessionTestPeer::drainDeadline(controller, std::chrono::steady_clock::now());
+        const auto terminal = controller.pollHealth();
+        assert(terminal.state == (lateSource < 0 ? SessionState::savedLocal : SessionState::failed));
+        assert(controller.finalization().trustedPrefixRetained && finalized == 1);
+        assert(delivered.load() == beforeCleanup);
+        assert(controller.stop().status == TransitionStatus::idempotent);
+        assert(controller.pollHealth().status == TransitionStatus::idempotent && finalized == 1);
+    }
+
+    // The direct adapter also records actual sink completion. Acquiring its
+    // fence on a later poll must neither hide a late sink nor blame a late UI.
+    for (const bool late : {true, false}) {
+        std::atomic_bool entered{false}, release{false};
+        int finalized = 0;
+        WindowsCaptureSessionController controller("direct-drain-between-polls", [&](AudioBatch) {
+            entered.store(true);
+            waitUntil([&] { return release.load(); });
+            return true;
+        }, [&](ReasonCode reason, RecordingStopReason) {
+            assert(reason == (late ? ReasonCode::finalizationFailed : ReasonCode::none));
+            ++finalized;
+            return CaptureFinalization{true, ReasonCode::none, true};
+        });
+        CaptureSessionTestPeer::begin(controller);
+        std::thread producer([&] { assert(CaptureSessionTestPeer::push(controller)); });
+        waitUntil([&] { return entered.load(); });
+        assert(controller.stop().state == SessionState::stopping && finalized == 0);
+        if (late) CaptureSessionTestPeer::drainDeadline(controller, std::chrono::steady_clock::now());
+        release.store(true);
+        producer.join();
+        if (!late) CaptureSessionTestPeer::drainDeadline(controller, std::chrono::steady_clock::now());
+        assert(controller.pollHealth().state == (late ? SessionState::failed : SessionState::savedLocal));
+        assert(controller.finalization().trustedPrefixRetained && finalized == 1);
+        assert(controller.stop().status == TransitionStatus::idempotent);
+        assert(controller.pollHealth().status == TransitionStatus::idempotent && finalized == 1);
+    }
+
+    // An observed timeout must survive an earlier source fault and an
+    // asynchronous finalizer; no result may relabel it as a normal save.
+    {
+        std::atomic_bool entered{false}, release{false};
+        int polls = 0;
+        bool complete = false;
+        WindowsCaptureSessionController controller("drain-timeout-sticky", [&](AudioBatch) {
+            entered.store(true);
+            waitUntil([&] { return release.load(); });
+            return true;
+        }, [&](ReasonCode reason, RecordingStopReason) -> std::optional<CaptureFinalization> {
+            assert(reason == ReasonCode::finalizationFailed && release.load());
+            ++polls;
+            if (!complete) return std::nullopt;
+            return CaptureFinalization{true, ReasonCode::clockDiscontinuity, true};
+        });
+        CaptureSessionTestPeer::begin(controller);
+        CaptureSessionTestPeer::startDispatcher(controller);
+        assert(CaptureSessionTestPeer::enqueue(controller, 0));
+        waitUntil([&] { return entered.load(); });
+        CaptureSessionTestPeer::latchFault(controller, ReasonCode::clockDiscontinuity);
+        assert(controller.stop().state == SessionState::stopping);
+        CaptureSessionTestPeer::drainDeadline(controller, std::chrono::steady_clock::now());
+        assert(controller.pollHealth().reason == ReasonCode::finalizationFailed && polls == 0);
+        release.store(true);
+        waitUntil([&] { return CaptureSessionTestPeer::dispatcherFinished(controller); });
+        assert(controller.pollHealth().state == SessionState::finalizing && polls == 1);
+        assert(controller.pollHealth().reason == ReasonCode::finalizationFailed && polls == 2);
+        complete = true;
+        assert(controller.pollHealth().state == SessionState::failed && polls == 3);
+        assert(controller.finalization().reason == ReasonCode::finalizationFailed);
+        assert(!controller.finalization().savedLocal && controller.finalization().trustedPrefixRetained);
+        assert(controller.pollHealth().status == TransitionStatus::idempotent && polls == 3);
+    }
+
+    // Five seconds is a visible failure deadline, not permission to detach a
+    // live sink or finalize over its memory. Exercise real monotonic elapsed time.
+    {
+        std::atomic_bool entered{false}, release{false};
+        int finalized = 0;
+        WindowsCaptureSessionController controller("drain-deadline", [&](AudioBatch) {
+            entered.store(true);
+            while (!release.load()) std::this_thread::yield();
+            return true;
+        }, [&](ReasonCode reason, RecordingStopReason) {
+            assert(release.load() && reason == ReasonCode::finalizationFailed);
+            ++finalized;
+            return CaptureFinalization{true, ReasonCode::none, true};
+        });
+        CaptureSessionTestPeer::begin(controller);
+        CaptureSessionTestPeer::startDispatcher(controller);
+        assert(CaptureSessionTestPeer::enqueue(controller, 0));
+        waitUntil([&] { return entered.load(); });
+        assert(controller.stop().state == SessionState::stopping);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(5'050);
+        while (std::chrono::steady_clock::now() < deadline) {
+            assert(controller.pollHealth().state == SessionState::stopping && finalized == 0);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        const auto before = std::chrono::steady_clock::now();
+        const auto pending = controller.pollHealth();
+        assert(std::chrono::steady_clock::now() - before < std::chrono::milliseconds(500));
+        assert(pending.state == SessionState::stopping && pending.reason == ReasonCode::finalizationFailed);
+        assert(controller.indicator().snapshot().visible);
+        assert(controller.indicator().snapshot().reason == ReasonCode::finalizationFailed);
+        assert(controller.finalization().reason == ReasonCode::finalizationFailed && finalized == 0);
+        WindowsDesktopSession competing("drain-still-owns-lease");
+        assert(!competing.beginReadinessCheck().accepted());
+        assert(controller.stop().status == TransitionStatus::idempotent);
+        release.store(true);
+        waitUntil([&] { return controller.pollHealth().state == SessionState::failed; });
+        assert(!controller.finalization().savedLocal && finalized == 1);
+        assert(competing.beginReadinessCheck().accepted());
     }
 
     // Stop must not block on an already-entered writer callback either. The
@@ -768,6 +1085,9 @@ int main() {
             assert(controller.indicator().snapshot().visible && dispatches == 1);
         }
         complete = true;
+        // Drain has already completed: its deadline must not time the separate
+        // writer job or convert a late UI result poll into capture failure.
+        CaptureSessionTestPeer::drainDeadline(controller, std::chrono::steady_clock::now());
         const auto terminal = controller.pollHealth();
         assert(terminal.state == (fail ? SessionState::failed : SessionState::savedLocal));
         assert(!controller.indicator().snapshot().visible && dispatches == 1);

@@ -30,16 +30,44 @@ void sourceClockRegressions() {
     assert(render.qpc100ns == epoch);
     assert(mic.qpc100ns - render.qpc100ns == 100'000);
 
-    // GetBuffer's devicePosition may use endpoint-frame units while the
-    // engine packet uses the mix rate. IAudioClock position is the shared
-    // stream clock for the packet count; qpc remains only the common origin.
-    ClockMapper resampledEndpoint;
-    assert(resampledEndpoint.observe({epoch, 0, 48'000, 0, 482, 0, 384'000}).valid);
-    const auto endpointPacket = resampledEndpoint.observe(
-        {epoch + 90'000, 448, 48'000, 0, 487, 3'896, 384'000});
-    assert(endpointPacket.valid && endpointPacket.qpc100ns == epoch + 101'458);
-    assert(resampledEndpoint.observe({epoch + 190'000, 896, 48'000, 0, 488,
-                                      7'800, 384'000}).valid);
+    // Each PTS is the packet QPC, even for variable packet lengths and when
+    // multiple queued packets see the same current IAudioClock position.
+    ClockMapper nativePackets;
+    assert(nativePackets.observe({epoch, 42, 48'000, 0, 240, 8'000, 384'000}).valid);
+    const auto shortPacket = nativePackets.observe(
+        {epoch + 50'123, 282, 48'000, 0, 960, 8'000, 384'000});
+    assert(shortPacket.valid && shortPacket.qpc100ns == epoch + 50'123);
+    const auto longPacket = nativePackets.observe(
+        {epoch + 250'000, 1'242, 48'000, 0, 120, 8'000, 384'000});
+    assert(longPacket.valid && longPacket.qpc100ns == epoch + 250'000);
+    // A current audio clock cannot excuse packet gaps, backwards/repeated QPC,
+    // changed frequency (including newly appearing/disappearing clocks), or drift.
+    const ClockObservation invalidPackets[] = {
+        {epoch + 100'000, 448, 48'000, 0, 480, 8'000, 384'000},
+        {epoch - 1, 480, 48'000, 0, 480, 8'000, 384'000},
+        {epoch, 480, 48'000, 0, 480, 8'000, 384'000},
+        {epoch + 100'000, 0, 48'000, 0, 480, 8'000, 384'000},
+        {epoch + 100'000, 480, 48'000, 0, 480, 7'999, 384'000},
+        {epoch + 100'000, 480, 48'000, 0, 480, 8'000, 48'000},
+        {epoch + 100'000, 480, 48'000, 0, 480, 8'000, 0},
+        {epoch + 150'000, 480, 48'000, 0, 480, 8'000, 384'000},
+        {epoch + 100'000, 480, 48'000, ClockObservation::timestampError, 480, 8'000, 384'000},
+        {epoch + 100'000, 480, 48'000, ClockObservation::dataDiscontinuity, 480, 8'000, 384'000},
+    };
+    for (const auto& invalid : invalidPackets) {
+        ClockMapper clock;
+        assert(clock.observe({epoch, 0, 48'000, 0, 480, 8'000, 384'000}).valid);
+        assert(!clock.observe(invalid).valid && !clock.healthy());
+        assert(!clock.observe({epoch + 200'000, 960, 48'000, 0, 480, 9'000, 384'000}).valid);
+    }
+    ClockMapper appearingClock;
+    assert(appearingClock.observe({epoch, 0, 48'000, 0, 480}).valid);
+    assert(!appearingClock.observe({epoch + 100'000, 480, 48'000, 0, 480, 8'000, 384'000}).valid);
+    ClockMapper startupClock;
+    assert(startupClock.observe({epoch, 0, 48'000, ClockObservation::dataDiscontinuity,
+                                 480, 8'000, 384'000}).discardStartup);
+    assert(startupClock.observe({epoch + 100'000, 480, 48'000, 0, 480, 7'999, 384'000}).fault ==
+           ClockFault::nonMonotonic);
     ClockMapper badAudioClock;
     assert(badAudioClock.observe({epoch, 0, 48'000, 0, 480, 0, 384'000}).valid);
     // GetPosition is a running stream clock rather than a packet boundary;
@@ -57,13 +85,14 @@ void sourceClockRegressions() {
     assert(rounded.observe({epoch + 200'000, 960, 48'000, 0, 480}).valid);
 
     // 60 minutes of metadata only: not the SC-003 audio/performance gate.
-    for (const int ppm : {-100, 0, 100, 1'000}) {
+    for (const auto frequency : {0ULL, 384'000ULL}) for (const int ppm : {-100, 0, 100, 1'000}) {
         ClockMapper drift;
         bool valid = true;
         for (std::uint64_t packet = 0; packet <= 360'000 && valid; ++packet) {
             const auto ticks = static_cast<std::uint64_t>(std::llround(
                 static_cast<double>(packet) * 100'000 / (1.0 + ppm * 0.000001)));
-            valid = drift.observe({epoch + ticks, packet * 480 + 900, 48'000, 0, 480}).valid;
+            valid = drift.observe({epoch + ticks, packet * 480 + 900, 48'000, 0, 480,
+                                   packet * 3'840, frequency}).valid;
         }
         assert(valid == (ppm != 1'000));
     }

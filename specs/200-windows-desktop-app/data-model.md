@@ -2,7 +2,11 @@
 
 Документ описывает продуктовые и межслойные сущности. Он не создаёт новую
 серверную таблицу: локальная модель должна проецироваться на существующий v5
-manifest и `desktop-upload-queue.v2`.
+manifest и локальный ledger: запись `desktop-upload-queue.v3`, чтение v2/v3,
+историческое имя файла `desktop-upload-queue.v2`. Неизвестная схема изолируется,
+не заменяется пустой очередью; откат приложения не должен перезаписывать v3
+старым писателем. Старые упоминания v2 ниже описывают совместимость/имя файла,
+а не разрешение потери операций удаления новой схемы.
 
 ## 1. WindowsDesktopSession
 
@@ -121,11 +125,14 @@ Invariants:
 - the timeline emits only canonical 480-sample pairs to AEC3.
 
 Для Windows worker `audio_clock_position` и `audio_clock_frequency` берутся
-из `IAudioClock::GetPosition/GetFrequency` и являются проверяемой шкалой
-непрерывности пакетов. `device_position_frames` сохраняется только как
-монотонная наблюдаемая метка: при endpoint/engine resampling её delta может
-отличаться от `source_frame_count`. `qpc_100ns` нужен для общей начальной
-привязки двух источников; производная PTS не зависит от задержки callback.
+из `IAudioClock::GetPosition/GetFrequency` как дополнительная проверка часов,
+не как timestamp начала пакета. PTS каждого пакета — его `GetBuffer.qpcPosition`
+в 100 ns; device position проверяет непрерывность отдельно. Повтор текущего
+IAudioClock при чтении нескольких накопившихся пакетов допустим только при
+самостоятельно корректных packet QPC/device/flags. Нельзя безусловно принимать
+пакет из-за наличия IAudioClock или синтезировать PTS суммированием frameCount.
+Действующие пределы/отказы — контракт §5 от 2026-09-26; код T094–T096 должен
+быть приведён к нему до приёмки.
 
 T085: device position is a per-stream integrity observation, never the common
 presentation origin. Source-normalization phase follows submitted samples;
@@ -254,10 +261,12 @@ Rules:
   changes;
 - native validates `Source`, exact origin, route kind, version, direction,
   message id, payload size and command-specific payload before action;
-- only `request_app_quit` and `local_recording` are accepted as requests;
+- only `request_app_quit`, `local_recording`, `app_appearance`,
+  `native_settings` and `delete_selection` are accepted as requests;
   their exact payloads and current-state checks are defined in the bridge
   contract; obsolete settings/diagnostics/repair/acknowledgement aliases fail;
-- web receives `native_ready` and bounded `local_recordings` display rows, never
+- web receives `native_ready`, typed settings replies, deletion outcomes and
+  bounded `local_recordings` display rows/operations/recoveryRequired, never
   file paths, tokens, device handles or raw samples;
 - unknown commands, stale nonce, duplicate id, oversized payload and invalid JSON
   are rejected with a bounded error and no side effect;

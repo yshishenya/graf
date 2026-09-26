@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -68,6 +69,10 @@ public:
     void stop() noexcept;
     [[nodiscard]] bool ready() const noexcept;
     [[nodiscard]] bool finished() const noexcept;
+    // UI-owner-thread view, synchronized by the same finished acquire fence.
+    // Most recent thread completion; zero while running or if none completed.
+    // Never a packet timestamp.
+    [[nodiscard]] std::chrono::steady_clock::time_point finishedAt() const noexcept;
     [[nodiscard]] bool running() const noexcept;
     [[nodiscard]] CaptureWorkerError lastError() const noexcept;
     [[nodiscard]] CaptureClockDiagnostics clockDiagnostics() const noexcept;

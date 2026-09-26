@@ -85,6 +85,7 @@
     <ClCompile Include="Storage\AtomicFileStore.cpp" />
     <ClCompile Include="Storage\Sha256.cpp" />
     <ClCompile Include="Upload\DesktopApiClient.cpp" />
+    <ClCompile Include="Upload\ProductAttributionHandoff.cpp" />
     <ClCompile Include="Upload\DesktopHttpTransport.cpp" />
     <ClCompile Include="Upload\DesktopUploadQueueService.cpp" />
     <ClCompile Include="Upload\DesktopUploadRecoveryScheduler.cpp" />
@@ -108,6 +109,8 @@
     <ClCompile Include="Shell\MicrophoneConsentKey.cpp" />
     <ClCompile Include="Shell\RecordingOutcomeText.cpp" />
     <ClCompile Include="Shell\RecordingNoticePresenter.cpp" />
+    <ClCompile Include="Shell\MeetingReminderModel.cpp" />
+    <ClCompile Include="Shell\MeetingReminderPresenter.cpp" />
     <ClCompile Include="Shell\WindowsTray.cpp" />
     <ClCompile Include="Web\WebView2Host.cpp" />
     <ClCompile Include="Web\RecordingDeletionBridge.cpp" />
@@ -134,7 +137,7 @@
       <PreprocessorDefinitions>GRAF_WINDOWS_APP_SDK;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>windowsapp.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;avrt.lib;advapi32.lib;shell32.lib;comdlg32.lib;gdi32.lib;winhttp.lib;wintrust.lib;bcrypt.lib;WebView2Loader.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>windowsapp.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;avrt.lib;advapi32.lib;shell32.lib;comdlg32.lib;gdi32.lib;winhttp.lib;wintrust.lib;bcrypt.lib;ws2_32.lib;WebView2Loader.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(GrafWebView2NativeRoot)\$(Platform);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalLibraryDirectories Condition="'$(GrafAEC3Available)' == 'true'">$(GrafAEC3BuildRoot)\webrtc\modules\audio_processing;$(GrafAEC3BuildRoot)\webrtc\api;$(GrafAEC3BuildRoot)\webrtc\common_audio;$(GrafAEC3BuildRoot)\webrtc\rtc_base;$(GrafAEC3BuildRoot)\webrtc\system_wrappers;$(GrafAEC3BuildRoot)\webrtc\modules\third_party\fft;$(GrafAEC3BuildRoot)\webrtc\third_party\pffft;$(GrafAEC3BuildRoot)\webrtc\third_party\rnnoise;$(GrafAEC3BuildRoot)\subprojects\abseil-cpp-20240722.0;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies Condition="'$(GrafAEC3Available)' == 'true'">$(GrafAEC3Library);libwebrtc_audio_processing_privatearch.a;liblibapi.a;libcommon_audio_sse2.a;libcommon_audio_avx.a;libcommon_audio.a;liblibbase.a;libsystem_wrappers.a;liblibfft.a;liblibpffft.a;liblibrnnoise.a;libabsl_base.a;libabsl_container.a;libabsl_crc.a;libabsl_debugging.a;libabsl_flags.a;libabsl_hash.a;libabsl_log.a;libabsl_numeric.a;libabsl_profiling.a;libabsl_random.a;libabsl_status.a;libabsl_strings.a;libabsl_synchronization.a;libabsl_time.a;libabsl_types.a;%(AdditionalDependencies)</AdditionalDependencies>
@@ -162,6 +165,14 @@
     </Content>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <!-- An app without the real backend can open its cabinet but can never record.
+       Portable test doubles belong to test targets, never to this executable. -->
+  <Target Name="ValidateGrafAEC3" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Error Condition="'$(Platform)' != 'x64'" Text="GRAF AEC3 has only validated x64 artifacts; ARM64 application builds are not supported yet." />
+    <Error Condition="'$(GrafAEC3Library)' != 'libwebrtc-audio-processing-2.a' and '$(GrafAEC3Library)' != 'libwebrtc-audio-processing-2.lib'" Text="GRAF AEC3 must link the standard library covered by build provenance." />
+    <Error Condition="'$(GrafAEC3Available)' != 'true' or !Exists('$(GrafAEC3Root)\webrtc\api\audio\audio_processing.h') or '$(GrafAEC3Library)' == '' or !Exists('$(GrafAEC3BuildRoot)\webrtc\modules\audio_processing\$(GrafAEC3Library)')" Text="GRAF requires the pinned AEC3 backend. Run scripts/build-graf-aec3.ps1 and set GrafAEC3Root/GrafAEC3BuildRoot to its verified source/build directories." />
+    <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\scripts\build-graf-aec3.ps1&quot; -SourceDirectory &quot;$(GrafAEC3Root)&quot; -BuildDirectory &quot;$(GrafAEC3BuildRoot)&quot; -Configuration &quot;$(Configuration)&quot; -Architecture &quot;$(Platform)&quot; -VerifyBuildArtifacts" />
+  </Target>
   <ItemGroup>
     <ResourceCompile Include="GrafWindowsApp.rc" />
   </ItemGroup>

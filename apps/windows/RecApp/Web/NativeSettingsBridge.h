@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../Shell/MeetingReminderModel.h"
+
 #include <optional>
 #include <string>
 #include <string_view>
@@ -19,9 +21,7 @@ namespace graf::windows::NativeSettingsBridge {
 // The automatic-recording page: the app stores these rules, so the page reads and
 // writes them through here.
 inline constexpr std::string_view kRecordingSettingsHandler = "grafRecordingSettings";
-// The notification page. Windows has no local meeting reminders, so this page is
-// answered with that truth and stays read-only rather than offering controls whose
-// promises nothing would keep.
+// Local cards do not require an OS toast permission.
 inline constexpr std::string_view kNotificationSettingsHandler = "grafNotificationSettings";
 
 // The actions the page sends. `read` is what it sends first and after every save;
@@ -55,10 +55,28 @@ struct Target {
 // is what lets it say something true instead.
 [[nodiscard]] std::string failureReply(std::string_view message);
 
-// The reply the notification page validates. It is a statement, not a preference
-// surface: the page disables its controls when `canEdit` is false, and the reason
-// is printed where the page shows the permission state.
-[[nodiscard]] std::string notificationSettingsReply(std::string_view permission);
+enum class NotificationAction { read, set, test, requestPermission, openSystemSettings };
+struct NotificationRequest {
+    NotificationAction action = NotificationAction::read;
+    std::string field;
+    bool booleanValue = false;
+    int offsetMinutes = 1;
+};
+// Inner request only; the host validates route, outer fields, requestId, document
+// nonce and replay before this parser. Invalid payloads have no effects.
+[[nodiscard]] std::optional<NotificationRequest> parseNotificationRequest(
+    std::string_view json, std::string_view currentNonce);
+struct NotificationPayload {
+    std::uint64_t requestId = 0;
+    NotificationRequest request;
+};
+// Pass the original payload JSON, not WinRT Stringify(), which loses duplicate
+// fields and the distinction between integer and floating-point tokens.
+[[nodiscard]] std::optional<NotificationPayload> parseNotificationPayload(
+    std::string_view json, std::string_view currentNonce);
+[[nodiscard]] bool applyNotificationSetting(NotificationPreferences& preferences, const NotificationRequest& request);
+[[nodiscard]] std::string notificationSettingsReply(const NotificationPreferences& preferences, bool canEdit,
+                                                    std::string_view message = {}, std::string_view error = {});
 
 // The paths whose documents may use the bridge, with no query and no fragment, the
 // same routes macOS bridges.

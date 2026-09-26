@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <algorithm>
 #include <random>
+#include <charconv>
 
 #if defined(_WIN32) && defined(GRAF_WINDOWS_APP_SDK)
 #include <winrt/Windows.Data.Json.h>
@@ -265,8 +266,7 @@ std::string settingsHandshakeValue() {
 } // namespace
 
 WebView2Host::WebView2Host(WebViewRoutePolicy policy)
-    : policy_(std::move(policy)), bridge_(policy_.trustedOrigin()),
-      retryUrl_(policy_.trustedOrigin() + "/desktop/meetings") {}
+    : policy_(std::move(policy)), bridge_(policy_.trustedOrigin()) {}
 
 WebView2Host::~WebView2Host() {
     runtimeHandler_ = {};
@@ -278,6 +278,7 @@ void WebView2Host::setRuntimeState(WebRuntimeState state) noexcept {
     if (state != WebRuntimeState::ready) nativeSettingsNonce_.clear();
     runtimeState_ = state;
     if (state != WebRuntimeState::ready) {
+        documentNonce_.clear();
         bridge_.invalidate();
         nativePublishLocalRecordings_ = {};
         nativeRunScript_ = {};
@@ -292,11 +293,222 @@ void WebView2Host::setRuntimeState(WebRuntimeState state) noexcept {
 
 void WebView2Host::fail(std::string_view stage, std::int32_t code) noexcept {
     authContinuation_ = AuthContinuation::none;
+    payment_.stop();
+    navigationId_ = 0;
+    resetDocumentResponse();
+    committedDocumentUrl_.clear();
     cancelDialog();
     char hex[16]{};
     std::snprintf(hex, sizeof(hex), "0x%08X", static_cast<unsigned>(code));
     failureDetail_ = std::string(stage) + " · " + hex;
     setRuntimeState(WebRuntimeState::unavailable);
+}
+
+std::uint64_t WebView2Host::monotonicMilliseconds() noexcept {
+#if defined(_WIN32) && defined(GRAF_WINDOWS_APP_SDK)
+    return GetTickCount64(); // Includes suspend; wall-clock changes cannot extend payment permission.
+#else
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count());
+#endif
+}
+
+std::string WebView2Host::recoveryUrl() const {
+    if (recoveryReason_ == WebResponseDecision::expiredSession || recoveryReason_ == WebResponseDecision::workspaceReselection)
+        return signInUrl();
+    return policy_.recoveryUrl(recoveryReason_, safeRecoveryUrl_, billingContext_);
+}
+
+std::string WebView2Host::signInUrl() const {
+    const auto plain = policy_.recoveryUrl(WebResponseDecision::expiredSession, safeRecoveryUrl_, billingContext_);
+    if (!signInUrlBuilder_) return plain;
+    try {
+        const auto decorated = signInUrlBuilder_(plain);
+        if (decorated == plain) return plain;
+        if (decorated.size() > 2048 || decorated.size() <= plain.size() ||
+            decorated.compare(0, plain.size(), plain) != 0 || decorated[plain.size()] != '&' ||
+            decorated.find('#') != std::string::npos || policy_.evaluate(decorated).kind != RouteKind::authRecovery) return plain;
+        auto fields = std::string_view(decorated).substr(plain.size() + 1);
+        while (!fields.empty()) {
+            const auto end = fields.find('&');
+            const auto field = fields.substr(0, end);
+            const auto key = field.substr(0, field.find('='));
+            if (key.empty() || key == "next" || key == "workspace_id") return plain;
+            for (const char c : key) {
+                if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')) return plain;
+            }
+            if (end == std::string_view::npos) break;
+            fields.remove_prefix(end + 1);
+        }
+        return decorated;
+    } catch (...) { return plain; } // Optional attribution must never prevent sign-in.
+}
+
+RouteEvaluation WebView2Host::beginDocumentNavigation(std::string_view url, std::uint64_t id,
+    bool redirected, std::uint64_t now, std::string_view method) {
+    if (runtimeState_ == WebRuntimeState::closed || id == 0) return {};
+    if (payment_.started() && !payment_.live(now)) {
+        payment_.stop();
+        if (!policy_.sharesOrigin(url)) {
+            fail("payment-expired", 0);
+            return {};
+        }
+    }
+    if (authContinuation_ != AuthContinuation::none && activeAuthContinuation() == AuthContinuation::none) {
+        fail("auth-expired", 0);
+        return {};
+    }
+    const auto source = redirected && id == navigationId_ ? navigationSourceUrl_ : committedDocumentUrl_;
+    const bool startsPayment = !payment_.started() && policy_.canStartPayment(source, url);
+    const auto route = policy_.evaluate(url, true, activeAuthContinuation(), payment_.live(now) || startsPayment);
+    if (route.decision != RouteDecision::allow) {
+        if (payment_.started() || redirected) fail("route", 0);
+        return route;
+    }
+    if (route.kind == RouteKind::nativeSettings || route.kind == RouteKind::artifactDownload) return route;
+    if (startsPayment) (void)payment_.begin(policy_, source, url, now);
+    const auto start = policy_.authContinuationForStart(url);
+    if (start != AuthContinuation::none && !redirected) {
+        payment_.stop();
+        authContinuation_ = start;
+        authStarted_ = std::chrono::steady_clock::now();
+        authNavigations_ = 0;
+    } else if (route.kind != RouteKind::authProvider && route.kind != RouteKind::authRecovery) {
+        authContinuation_ = AuthContinuation::none;
+    }
+    if (authContinuation_ != AuthContinuation::none) ++authNavigations_;
+    if (route.kind == RouteKind::authRecovery) payment_.stop();
+    if (route.kind == RouteKind::billing && !billingContext_) {
+        billingContext_ = true;
+        safeRecoveryUrl_ = policy_.trustedOrigin() + "/billing";
+    }
+    if (const auto safe = policy_.safeRecoveryUrl(url, method); !safe.empty()) safeRecoveryUrl_ = safe;
+    recoveryReason_ = WebResponseDecision::unavailable;
+    navigationSourceUrl_ = source;
+    requestedDocumentUrl_.clear();
+    navigationUrl_ = std::string(url);
+    navigationMethod_ = std::string(method);
+    resetDocumentResponse();
+    committedDocumentUrl_.clear();
+    cancelDialog();
+    ++documentGeneration_;
+    navigationId_ = id;
+    failureDetail_.clear();
+    setRuntimeState(WebRuntimeState::initializing);
+    return route;
+}
+
+bool WebView2Host::observeDocumentResponse(std::string_view url, std::uint64_t generation,
+    std::string_view method, const WebDocumentResponse& response) {
+    const auto withoutFragment = [](std::string_view value) { return value.substr(0, value.find('#')); };
+    if (navigationId_ == 0 || generation != documentGeneration_ ||
+        withoutFragment(url) != withoutFragment(navigationUrl_) || !policy_.sharesOrigin(url)) return false;
+    navigationMethod_ = std::string(method);
+    documentResponse_ = response;
+    if (const auto safe = policy_.safeRecoveryUrl(url, method); !safe.empty()) safeRecoveryUrl_ = safe;
+    return true;
+}
+
+void WebView2Host::resetDocumentResponse() noexcept {
+    documentResponse_.reset();
+    documentCompletion_.reset();
+    try { if (nativeStopResponseTimer_) nativeStopResponseTimer_(); } catch (...) {}
+}
+
+std::string WebView2Host::documentRequestTag(std::string_view url) const {
+    if (navigationId_ == 0 || !policy_.sharesOrigin(url) ||
+        url != std::string_view(navigationUrl_).substr(0, navigationUrl_.find('#'))) return {};
+    return std::to_string(documentGeneration_);
+}
+
+bool WebView2Host::observeDocumentResponseHeaders(std::string_view url, std::string_view tag,
+    std::string_view destination, std::string_view method, const WebDocumentResponse& response) {
+    if (destination != "document" || tag.empty()) return false;
+    std::uint64_t generation = 0;
+    const auto parsed = std::from_chars(tag.data(), tag.data() + tag.size(), generation);
+    if (parsed.ec != std::errc{} || parsed.ptr != tag.data() + tag.size()) return false;
+    return observeDocumentResponse(url, generation, method, response);
+}
+
+bool WebView2Host::observeDocumentCompletion(std::string_view url, std::uint64_t id,
+    int status, bool succeeded, bool httpErrorDocument, std::uint64_t now) {
+    if (runtimeState_ == WebRuntimeState::closed || id == 0 || id != navigationId_ || documentCompletion_) return false;
+    documentCompletion_ = DocumentCompletion{std::string(url), status, succeeded, httpErrorDocument, now};
+    return true;
+}
+
+WebResponseDecision WebView2Host::tryFinishDocumentNavigation(std::uint64_t now) {
+    if (navigationId_ == 0 || !documentCompletion_) return WebResponseDecision::ignore;
+    const auto completion = *documentCompletion_;
+    const bool httpDocument = completion.succeeded ||
+        (completion.httpErrorDocument && completion.status >= 400 && completion.status <= 599);
+    const bool sameDocument = std::string_view(completion.url).substr(0, completion.url.find('#')) ==
+        std::string_view(navigationUrl_).substr(0, navigationUrl_.find('#'));
+    // Own-origin forms need the response headers too (not only bridge pages):
+    // reselect-space and email-link MIME must survive either callback order.
+    if (httpDocument && sameDocument && policy_.sharesOrigin(completion.url)) {
+        if (now < completion.observedAt || now - completion.observedAt >= kResponseWaitMs) {
+            fail("response-metadata-timeout", 0);
+            return WebResponseDecision::unavailable;
+        }
+        if (!documentResponse_) return WebResponseDecision::ignore;
+    }
+    auto response = documentResponse_.value_or(WebDocumentResponse{});
+    response.status = completion.status;
+    response.transportSucceeded = httpDocument;
+    documentCompletion_.reset();
+    if (nativeStopResponseTimer_) nativeStopResponseTimer_();
+    return completeDocumentNavigation(completion.url, navigationId_, response, now);
+}
+
+RouteEvaluation WebView2Host::evaluatePopupNavigation(std::string_view url, std::uint64_t now) {
+    if (runtimeState_ == WebRuntimeState::closed) return {};
+    if (payment_.started() && !payment_.live(now)) { fail("payment-expired", 0); return {}; }
+    if (payment_.started() || policy_.evaluate(committedDocumentUrl_).kind == RouteKind::billing ||
+        policy_.evaluate(url).kind == RouteKind::billing) {
+        // The URI-only popup event proves neither GET nor preservation of POST.
+        fail("payment-popup-request-unavailable", static_cast<std::int32_t>(0x80004001u));
+        return {};
+    }
+    return policy_.evaluate(url, true, activeAuthContinuation());
+}
+
+WebResponseDecision WebView2Host::completeDocumentNavigation(std::string_view url, std::uint64_t id,
+    const WebDocumentResponse& response, std::uint64_t now) {
+    using D = WebResponseDecision;
+    if (runtimeState_ == WebRuntimeState::closed || id == 0 || id != navigationId_) return D::ignore;
+    if (url.substr(0, url.find('#')) != std::string_view(navigationUrl_).substr(0, navigationUrl_.find('#'))) {
+        fail("document-changed", 0);
+        return D::blocked;
+    }
+    navigationId_ = 0;
+    const auto result = policy_.response(url, response, activeAuthContinuation(), payment_.live(now)).decision;
+    payment_.loaded(policy_, url, now);
+    currentUrl_ = std::string(url);
+    recoveryReason_ = result;
+    if (result == D::externalDocument) {
+        committedDocumentUrl_ = std::string(url);
+        // HTTP failures at a bank/provider are not failures of GRAF's session.
+        if (response.status >= 400) payment_.stop();
+        setRuntimeState(WebRuntimeState::unprivileged);
+    } else if (result == D::interactiveForm) {
+        committedDocumentUrl_ = std::string(url);
+        const auto kind = policy_.evaluate(url).kind;
+        setRuntimeState(kind == RouteKind::authRecovery ? WebRuntimeState::authRequired : WebRuntimeState::unprivileged);
+    } else if (result == D::cabinet && policy_.allowsNativeBridge(url)) {
+        committedDocumentUrl_ = std::string(url);
+        authContinuation_ = AuthContinuation::none;
+        // The native completion handler alone creates a nonce/bridge afterwards.
+    } else if (result == D::expiredSession || result == D::workspaceReselection) {
+        payment_.stop();
+        authContinuation_ = AuthContinuation::none;
+        if (authSessionHandler_) authSessionHandler_({});
+        setRuntimeState(WebRuntimeState::authRequired);
+    } else {
+        fail(result == D::accessDenied ? "access-denied" : result == D::notFound ? "not-found" :
+            result == D::timeout ? "timeout" : "document", response.status);
+    }
+    return result;
 }
 
 AuthContinuation WebView2Host::activeAuthContinuation() const noexcept {
@@ -315,6 +527,11 @@ void WebView2Host::close() noexcept {
     ++documentGeneration_;
     navigationId_ = 0;
     authContinuation_ = AuthContinuation::none;
+    payment_.stop();
+    committedDocumentUrl_.clear();
+    navigationSourceUrl_.clear();
+    navigationUrl_.clear();
+    resetDocumentResponse();
     cancelDialog();
     try { if (nativeClose_) nativeClose_(); } catch (...) {}
     nativeNavigate_ = {};
@@ -328,6 +545,8 @@ void WebView2Host::close() noexcept {
     nativePublishLocalRecordings_ = {};
     nativeRunScript_ = {};
     nativeExtendAuthCookie_ = {};
+    nativeFinishDocument_ = {};
+    nativeStopResponseTimer_ = {};
     preferredColorScheme_ = {};
     setRuntimeState(WebRuntimeState::closed);
 }
@@ -337,8 +556,17 @@ RouteEvaluation WebView2Host::navigate(std::string url) {
     if (runtimeState_ != WebRuntimeState::closed && evaluation.decision == RouteDecision::allow) {
         // Native callers can request account/login recovery before a control is
         // ready. Keep the approved destination without inventing a loaded source.
-        if (evaluation.kind != RouteKind::nativeSettings && evaluation.kind != RouteKind::artifactDownload &&
-            evaluation.kind != RouteKind::authProvider) retryUrl_ = url;
+        if (const auto safe = policy_.safeRecoveryUrl(url); !safe.empty()) {
+            safeRecoveryUrl_ = safe;
+            billingContext_ = evaluation.kind == RouteKind::billing;
+            recoveryReason_ = WebResponseDecision::unavailable;
+            requestedDocumentUrl_ = url;
+        } else {
+            const auto pathEnd = url.find('?');
+            const auto entry = url.substr(0, pathEnd);
+            if (entry == policy_.trustedOrigin() + "/login" || entry == policy_.trustedOrigin() + "/sign-up")
+                requestedDocumentUrl_ = url;
+        }
 #if defined(_WIN32) && defined(GRAF_WINDOWS_APP_SDK)
         if (nativeNavigate_) nativeNavigate_(url);
 #endif
@@ -366,7 +594,7 @@ void WebView2Host::reload() {
         return;
     }
 #endif
-    if (!retryUrl_.empty()) (void)navigate(retryUrl_);
+    (void)navigate(requestedDocumentUrl_.empty() ? recoveryUrl() : requestedDocumentUrl_);
 }
 
 void WebView2Host::back() { if (canGoBack()) nativeBack_(); }
@@ -540,14 +768,16 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
     nativeExtendAuthCookie_ = [this, alive, dispatcher, control](std::string_view token, std::int64_t unixSeconds) {
         if (!alive->load() || token.empty() || unixSeconds <= 0) return;
         try {
-            if (!control.CoreWebView2()) return;
+            if (!control.CoreWebView2() || runtimeState_ != WebRuntimeState::ready ||
+                !policy_.allowsNativeBridge(utf8(control.CoreWebView2().Source()))) return;
             const auto generation = documentGeneration_;
             const auto expected = std::string(token);
             control.CoreWebView2().CookieManager().GetCookiesAsync(
                 winrt::to_hstring(policy_.trustedOrigin())).Completed(
                 [this, alive, dispatcher, control, generation, expected, unixSeconds](auto const& operation, auto const&) {
                     dispatcher.TryEnqueue([this, alive, control, generation, expected, unixSeconds, operation] {
-                        if (!alive->load() || generation != documentGeneration_) return;
+                        if (!alive->load() || generation != documentGeneration_ || runtimeState_ != WebRuntimeState::ready ||
+                            !policy_.allowsNativeBridge(utf8(control.CoreWebView2().Source()))) return;
                         try {
                             const auto now = std::chrono::duration_cast<std::chrono::seconds>(
                                 std::chrono::system_clock::now().time_since_epoch()).count();
@@ -576,16 +806,11 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
             // A download never becomes the privileged document or a retry URL.
             if (runtimeState_ == WebRuntimeState::ready && source == currentUrl_ &&
                 policy_.isAllowedDownload(url, source)) return;
-            if (authContinuation_ != AuthContinuation::none && activeAuthContinuation() == AuthContinuation::none) {
-                authContinuation_ = AuthContinuation::none;
-                args.Cancel(true);
-                fail("auth-expired", E_ACCESSDENIED);
-                return;
-            }
-            const auto evaluation = policy_.evaluate(url, true, activeAuthContinuation());
+            const auto evaluation = beginDocumentNavigation(url, args.NavigationId(), args.IsRedirected(),
+                monotonicMilliseconds(), ""); // Browser method is not exposed by NavigationStarting.
             if (evaluation.decision == RouteDecision::openExternal) {
                 args.Cancel(true);
-                if (args.IsUserInitiated() && !args.IsRedirected())
+                if (args.IsUserInitiated() && !args.IsRedirected() && runtimeState_ != WebRuntimeState::unavailable)
                     (void)::ShellExecuteW(nullptr, L"open", winrt::to_hstring(evaluation.normalizedUrl).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
             } else if (evaluation.kind == RouteKind::nativeSettings) {
                 args.Cancel(true);
@@ -598,21 +823,6 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                 }
             } else {
                 if (evaluation.kind == RouteKind::artifactDownload) { args.Cancel(true); return; }
-                const auto start = policy_.authContinuationForStart(url);
-                if (start != AuthContinuation::none && !args.IsRedirected()) {
-                    authContinuation_ = start;
-                    authStarted_ = std::chrono::steady_clock::now();
-                    authNavigations_ = 0;
-                } else if (evaluation.kind != RouteKind::authProvider && evaluation.kind != RouteKind::authRecovery) {
-                    authContinuation_ = AuthContinuation::none;
-                }
-                if (authContinuation_ != AuthContinuation::none) ++authNavigations_;
-                cancelDialog();
-                ++documentGeneration_;
-                navigationId_ = args.NavigationId();
-                if (evaluation.kind != RouteKind::authProvider) retryUrl_ = url;
-                failureDetail_.clear();
-                setRuntimeState(WebRuntimeState::initializing);
                 if (navigationHandler_) navigationHandler_(evaluation);
             }
         } catch (const winrt::hresult_error& error) {
@@ -632,11 +842,21 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
             }
             auto core = sender.CoreWebView2();
             if (!core) { fail("initialize", E_POINTER); return; }
+            const auto responseTimer = dispatcher.CreateTimer();
+            responseTimer.Interval(std::chrono::milliseconds(100));
+            responseTimer.IsRepeating(true);
+            nativeStopResponseTimer_ = [responseTimer] { responseTimer.Stop(); };
+            responseTimer.Tick([this, alive](auto const& timer, auto const&) {
+                if (!alive->load()) { timer.Stop(); return; }
+                const auto finish = nativeFinishDocument_;
+                if (finish) finish();
+                else timer.Stop();
+            });
             nativeNavigate_ = [core](std::string_view url) { core.Navigate(winrt::to_hstring(url)); };
             nativeReload_ = [this, core] {
                 // A failed first navigation may leave about:blank as Source.
                 // Retry the approved requested route without deleting user data.
-                core.Navigate(winrt::to_hstring(retryUrl_));
+                core.Navigate(winrt::to_hstring(requestedDocumentUrl_.empty() ? recoveryUrl() : requestedDocumentUrl_));
             };
             nativeBack_ = [core] { core.GoBack(); };
             nativeForward_ = [core] { core.GoForward(); };
@@ -664,7 +884,7 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                 if (!alive->load()) return;
                 try {
                     const auto source = utf8(core.Source());
-                    const auto route = policy_.evaluate(source, true, activeAuthContinuation());
+                    const auto route = policy_.evaluate(source, true, activeAuthContinuation(), payment_.live(monotonicMilliseconds()));
                     if (route.decision != RouteDecision::allow || route.kind == RouteKind::artifactDownload ||
                         route.kind == RouteKind::nativeSettings) {
                         currentUrl_.clear();
@@ -674,16 +894,55 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                     currentUrl_ = source;
                     // replaceState/hash changes do not replace the document.
                     // Keep its generation, nonce and replay counter intact.
-                    if (!args.IsNewDocument() && route.kind != RouteKind::authProvider) retryUrl_ = source;
+                    if (!args.IsNewDocument() && runtimeState_ == WebRuntimeState::ready) {
+                        if (!policy_.allowsNativeBridge(source)) { fail("source-authority", E_ACCESSDENIED); return; }
+                        // A history mutation must not turn a POST into a retryable GET.
+                        if (const auto safe = policy_.safeRecoveryUrl(source, navigationMethod_); !safe.empty()) {
+                            safeRecoveryUrl_ = safe;
+                        }
+                    }
                 } catch (...) { fail("source", E_FAIL); }
             });
             core.AddWebResourceRequestedFilter(winrt::to_hstring(policy_.trustedOrigin() + "/*"),
                 winrt::Microsoft::Web::WebView2::Core::CoreWebView2WebResourceContext::Document);
             core.WebResourceRequested([this, alive](auto const&, auto const& args) {
                 if (!alive->load()) return;
-                const auto request = args.Request();
-                if (policy_.evaluate(utf8(request.Uri())).decision == RouteDecision::allow) {
-                    request.Headers().SetHeader(L"X-GRAF-Client", L"desktop");
+                try {
+                    const auto request = args.Request();
+                    const auto url = utf8(request.Uri());
+                    if (!policy_.sharesOrigin(url)) return;
+                    if (policy_.evaluate(url).decision == RouteDecision::allow)
+                        request.Headers().SetHeader(L"X-GRAF-Client", L"desktop");
+                    request.Headers().RemoveHeader(L"X-GRAF-Desktop-Navigation");
+                    // Browser headers may be added after this event. Tag the
+                    // own-origin Document request now; reject frames using the
+                    // final browser-owned destination in ResponseReceived.
+                    const auto tag = documentRequestTag(url);
+                    if (!tag.empty()) request.Headers().SetHeader(L"X-GRAF-Desktop-Navigation", winrt::to_hstring(tag));
+                } catch (...) { fail("request-metadata", E_FAIL); }
+            });
+            core.WebResourceResponseReceived([this, alive](auto const&, auto const& args) {
+                if (!alive->load()) return;
+                try {
+                    const auto request = args.Request();
+                    const auto headers = request.Headers();
+                    if (!headers.Contains(L"Sec-Fetch-Dest") ||
+                        !headers.Contains(L"X-GRAF-Desktop-Navigation")) return;
+                    const auto tag = utf8(headers.GetHeader(L"X-GRAF-Desktop-Navigation"));
+                    const auto response = args.Response();
+                    const auto responseHeaders = response.Headers();
+                    WebDocumentResponse metadata;
+                    metadata.status = response.StatusCode();
+                    if (responseHeaders.Contains(L"Content-Type")) metadata.contentType = utf8(responseHeaders.GetHeader(L"Content-Type"));
+                    if (responseHeaders.Contains(L"X-GRAF-Cabinet-Recovery"))
+                        metadata.recoveryHeader = utf8(responseHeaders.GetHeader(L"X-GRAF-Cabinet-Recovery"));
+                    if (observeDocumentResponseHeaders(utf8(request.Uri()), tag,
+                        utf8(headers.GetHeader(L"Sec-Fetch-Dest")), utf8(request.Method()), metadata)) {
+                        const auto finish = nativeFinishDocument_;
+                        if (finish) finish();
+                    }
+                } catch (...) {
+                    // Missing correlated metadata never grants document authority.
                 }
             });
             core.ScriptDialogOpening([this, alive, dispatcher, control](auto const& core, auto const& args) {
@@ -691,7 +950,7 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                 using Kind = winrt::Microsoft::Web::WebView2::Core::CoreWebView2ScriptDialogKind;
                 if (!alive->load() || nativeCancelDialog_ || utf8(args.Uri()) != utf8(core.Source()) ||
                     utf8(core.Source()) != currentUrl_ ||
-                    policy_.evaluate(currentUrl_).decision != RouteDecision::allow ||
+                    !policy_.allowsNativeBridge(currentUrl_) ||
                     (args.Kind() != Kind::Confirm && args.Kind() != Kind::Alert)) return;
                 const auto deferral = args.GetDeferral();
                 const auto generation = documentGeneration_;
@@ -734,13 +993,19 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
             core.FrameNavigationStarting([this, alive](auto const&, auto const& args) {
                 if (!alive->load()) { args.Cancel(true); return; }
                 try {
-                    if (policy_.evaluate(utf8(args.Uri()), false).decision != RouteDecision::allow) args.Cancel(true);
+                    if (policy_.evaluate(utf8(args.Uri()), false, AuthContinuation::none,
+                        payment_.live(monotonicMilliseconds())).decision != RouteDecision::allow) args.Cancel(true);
                 } catch (...) { args.Cancel(true); }
             });
             core.NewWindowRequested([this, alive](auto const& core, auto const& args) {
                 args.Handled(true);
                 if (!alive->load()) return;
-                const auto evaluation = policy_.evaluate(utf8(args.Uri()), true, activeAuthContinuation());
+                const auto url = utf8(args.Uri());
+                // NewWindowRequested supplies no method/body. Navigate(Uri)
+                // would silently convert a payment POST to GET. Until a native
+                // same-view request-preserving adapter is proven, refuse it as
+                // required by contract §9; never report popup parity as passed.
+                const auto evaluation = evaluatePopupNavigation(url, monotonicMilliseconds());
                 if (evaluation.decision == RouteDecision::allow) {
                     // Keep provider popups in this profile, with the same policy
                     // rechecked by NavigationStarting. No generic new windows.
@@ -799,7 +1064,7 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                     if (rawJson.size() > kBridgeMaxSerializedBytes) return;
                     const auto sourceUrl = utf8(args.Source());
                     if (sourceUrl != utf8(core.Source()) || sourceUrl != currentUrl_ ||
-                        policy_.evaluate(sourceUrl).decision != RouteDecision::allow) {
+                        !policy_.allowsNativeBridge(sourceUrl)) {
                         // Страница ушла вперёд приложения: сообщение приходит из
                         // документа, который приложение ещё не считает текущим.
                         logBridgeEvent(sourceUrl != currentUrl_ ? "stale-document" : "source-rejected");
@@ -812,10 +1077,10 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                     }
                     const auto validation = bridge_.validate(*message);
                     if (validation != BridgeValidationError::none) {
-                        logBridgeEvent("validation-rejected " + message->command);
+                        logBridgeEvent("validation-rejected");
                         return;
                     }
-                    logBridgeEvent("accepted " + message->command);
+                    logBridgeEvent("accepted");
                     if (message->command == "native_settings") {
                         // A settings request is answered only for the page it
                         // belongs to, and only for the document that was handed
@@ -839,23 +1104,35 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                         const auto request = payload.GetNamedObject(L"request");
                         if (request.GetNamedNumber(L"version") != 1.0) return;
                         if (utf8(request.GetNamedString(L"nonce")) != nativeSettingsNonce_) return;
-                        const auto action = NativeSettingsBridge::actionFromToken(
-                            utf8(request.GetNamedString(L"action")));
-                        if (!action) return;
                         NativeSettingsRequest parsed;
                         parsed.handler = handler;
-                        parsed.action = std::string(NativeSettingsBridge::actionToken(*action));
-                        if (*action == NativeSettingsBridge::Action::read) {
-                            if (request.Size() != 3) return;
-                        } else if (*action == NativeSettingsBridge::Action::set) {
-                            if (request.Size() != 5) return;
-                            parsed.targetId = utf8(request.GetNamedString(L"targetID"));
-                            parsed.rule = utf8(request.GetNamedString(L"rule"));
-                            if (parsed.targetId.empty() || !NativeSettingsBridge::isRule(parsed.rule)) return;
+                        if (handler == NativeSettingsBridge::kNotificationSettingsHandler) {
+                            // Retain original JSON: WinRT Stringify collapses duplicate
+                            // fields and rewrites fractional numbers as integers.
+                            const auto rawEnvelope = DesktopApiClient::jsonObjectFields(rawJson);
+                            if (!rawEnvelope) return;
+                            const auto rawPayload = rawEnvelope->find("payload");
+                            if (rawPayload == rawEnvelope->end()) return;
+                            const auto notification = NativeSettingsBridge::parseNotificationPayload(rawPayload->second, nativeSettingsNonce_);
+                            if (notification) parsed.notification = notification->request;
+                            // Invalid current-document requests still receive an explicit
+                            // refusal from the owner, never a timed-out web promise.
                         } else {
-                            if (request.Size() != 4) return;
-                            parsed.rule = utf8(request.GetNamedString(L"rule"));
-                            if (!NativeSettingsBridge::isRule(parsed.rule)) return;
+                            const auto action = NativeSettingsBridge::actionFromToken(utf8(request.GetNamedString(L"action")));
+                            if (!action) return;
+                            parsed.action = std::string(NativeSettingsBridge::actionToken(*action));
+                            if (*action == NativeSettingsBridge::Action::read) {
+                                if (request.Size() != 3) return;
+                            } else if (*action == NativeSettingsBridge::Action::set) {
+                                if (request.Size() != 5) return;
+                                parsed.targetId = utf8(request.GetNamedString(L"targetID"));
+                                parsed.rule = utf8(request.GetNamedString(L"rule"));
+                                if (parsed.targetId.empty() || !NativeSettingsBridge::isRule(parsed.rule)) return;
+                            } else {
+                                if (request.Size() != 4) return;
+                                parsed.rule = utf8(request.GetNamedString(L"rule"));
+                                if (!NativeSettingsBridge::isRule(parsed.rule)) return;
+                            }
                         }
                         const auto answer = nativeSettingsHandler_(parsed);
                         // An empty answer is a refusal, and a refusal is sent:
@@ -883,10 +1160,10 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                         const auto payload = winrt::Windows::Data::Json::JsonObject::Parse(winrt::to_hstring(message->payloadJson));
                         if (payload.Size() != 1) return;
                         const auto theme = utf8(payload.GetNamedString(L"theme"));
-                        // Значение записывается в журнал: без него неотличимо,
-                        // не пришло объявление или пришло не то оформление.
+                        // Only the three validated theme names may reach the log.
+                        if (!isAllowedAppearance(theme)) return;
                         logBridgeEvent("appearance " + theme);
-                        if (isAllowedAppearance(theme) && appearanceHandler_) appearanceHandler_(theme);
+                        if (appearanceHandler_) appearanceHandler_(theme);
                     } else if (message->command == "request_app_quit") {
                         if (isAllowedQuitPayload(message->payloadJson) && quitHandler_) quitHandler_();
                     } else if (message->command == "local_recording") {
@@ -929,41 +1206,30 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                     // Malformed browser messages have no native side effects.
                 }
             });
-            core.NavigationCompleted([this, alive, dispatcher](auto const& core, auto const& args) {
-                if (!alive->load() || navigationId_ == 0 || args.NavigationId() != navigationId_) return;
-                navigationId_ = 0;
+            // Both native events and the nonblocking deadline use this one
+            // finalizer. No nonce/cookies/bootstrap before the two-event latch.
+            nativeFinishDocument_ = [this, alive, dispatcher, core] {
+                if (!alive->load() || navigationId_ == 0 || !documentCompletion_) return;
                 try {
-                    if (!args.IsSuccess()) {
-                        fail("network", static_cast<std::int32_t>(args.WebErrorStatus()));
-                        return;
-                    }
                     const auto source = utf8(core.Source());
-                    const auto route = policy_.evaluate(source, true, activeAuthContinuation());
-                    if (route.decision != RouteDecision::allow) { fail("document-origin", E_ACCESSDENIED); return; }
-                    currentUrl_ = source;
-                    if (route.kind == RouteKind::authProvider) {
-                        setRuntimeState(WebRuntimeState::authRequired);
-                        return; // Never read cookies or install a bridge in an OAuth provider document.
-                    }
-                    if (args.HttpStatusCode() == 401 || args.HttpStatusCode() == 403) {
-                        if (authSessionHandler_) authSessionHandler_({});
-                        setRuntimeState(WebRuntimeState::authRequired);
-                        if (route.kind != RouteKind::authRecovery) {
-                            core.Navigate(winrt::to_hstring(policy_.trustedOrigin() + "/login?next=/desktop/meetings"));
-                        }
+                    const auto& completedUrl = documentCompletion_->url;
+                    if (source.substr(0, source.find('#')) != completedUrl.substr(0, completedUrl.find('#'))) {
+                        fail("document-changed", E_ACCESSDENIED);
                         return;
                     }
-                    if (args.HttpStatusCode() >= 400) {
-                        fail("http", args.HttpStatusCode());
+                    const auto result = tryFinishDocumentNavigation(monotonicMilliseconds());
+                    if (result == WebResponseDecision::expiredSession || result == WebResponseDecision::workspaceReselection) {
+                        core.Navigate(winrt::to_hstring(recoveryUrl()));
                         return;
                     }
-                    if (route.kind == RouteKind::authRecovery) {
-                        setRuntimeState(WebRuntimeState::authRequired);
-                        if (authSessionHandler_) authSessionHandler_({});
+                    if (result != WebResponseDecision::cabinet) return;
+                    // Native acceptance must prove request/response correlation
+                    // on WebView2. Never ignore a possible recovery header and
+                    // install a bridge merely because NavigationCompleted says 200.
+                    if (!documentResponse_ || !policy_.allowsNativeBridge(source)) {
+                        fail("response-metadata", E_ACCESSDENIED);
                         return;
                     }
-                    authContinuation_ = AuthContinuation::none;
-                    retryUrl_ = source;
                     const auto generation = documentGeneration_;
                     const auto nonce = newNonce();
                     if (nonce.empty()) { fail("nonce", E_FAIL); return; }
@@ -978,7 +1244,7 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                             dispatcher.TryEnqueue([this, alive, core, generation, operation] {
                                 if (!alive->load() || generation != documentGeneration_ || runtimeState_ != WebRuntimeState::ready) return;
                                 try {
-                                    if (policy_.evaluate(utf8(core.Source())).decision != RouteDecision::allow) return;
+                                    if (!policy_.allowsNativeBridge(utf8(core.Source()))) return;
                                     std::string token;
                                     for (const auto& cookie : operation.GetResults()) {
                                         const auto name = utf8(cookie.Name());
@@ -995,7 +1261,7 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                         });
                     nativePublishLocalRecordings_ = [this, core, nonce, generation] {
                         if (generation != documentGeneration_ || runtimeState_ != WebRuntimeState::ready) return;
-                        if (utf8(core.Source()) != currentUrl_ || policy_.evaluate(currentUrl_).decision != RouteDecision::allow) return;
+                        if (utf8(core.Source()) != currentUrl_ || !policy_.allowsNativeBridge(currentUrl_)) return;
                         using namespace winrt::Windows::Data::Json;
                         JsonArray rows;
                         for (const auto& item : localRecordings_) {
@@ -1072,7 +1338,7 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                     nativeRunScript_ = [this, core, generation](std::string_view script) {
                         if (generation != documentGeneration_ || runtimeState_ != WebRuntimeState::ready) return;
                         if (utf8(core.Source()) != currentUrl_ ||
-                            policy_.evaluate(currentUrl_).decision != RouteDecision::allow) return;
+                            !policy_.allowsNativeBridge(currentUrl_)) return;
                         core.ExecuteScriptAsync(winrt::to_hstring(std::string(script)));
                     };
                     core.ExecuteScriptAsync(winrt::to_hstring(kDesktopBridgeScript)).Completed(
@@ -1081,7 +1347,7 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                                 if (!alive->load() || generation != documentGeneration_ ||
                                     runtimeState_ != WebRuntimeState::ready) return;
                                 try {
-                                    if (utf8(core.Source()) != currentUrl_ || policy_.evaluate(currentUrl_).decision != RouteDecision::allow) return;
+                                    if (utf8(core.Source()) != currentUrl_ || !policy_.allowsNativeBridge(currentUrl_)) return;
                                     (void)operation.GetResults();
                                     winrt::Windows::Data::Json::JsonObject ready;
                                     using Value = winrt::Windows::Data::Json::JsonValue;
@@ -1108,7 +1374,7 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                                                     runtimeState_ != WebRuntimeState::ready) return;
                                                 try {
                                                     if (utf8(core.Source()) != currentUrl_ ||
-                                                        policy_.evaluate(currentUrl_).decision != RouteDecision::allow) return;
+                                                        !policy_.allowsNativeBridge(currentUrl_)) return;
                                                     const auto theme = utf8(
                                                         winrt::Windows::Data::Json::JsonValue::Parse(read.GetResults()).GetString());
                                                     if (isAllowedAppearance(theme) && appearanceHandler_) appearanceHandler_(theme);
@@ -1145,8 +1411,24 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                 } catch (const winrt::hresult_error& error) {
                     fail("document", error.code().value);
                 } catch (...) { fail("document", E_FAIL); }
+            };
+            core.NavigationCompleted([this, alive, responseTimer](auto const& core, auto const& args) {
+                if (!alive->load() || navigationId_ == 0 || args.NavigationId() != navigationId_) return;
+                try {
+                    using Error = winrt::Microsoft::Web::WebView2::Core::CoreWebView2WebErrorStatus;
+                    const auto status = args.HttpStatusCode();
+                    const bool httpErrorDocument = args.WebErrorStatus() == Error::ErrorHttpInvalidServerResponse ||
+                        (status == 401 && args.WebErrorStatus() == Error::ValidAuthenticationCredentialsRequired);
+                    if (!observeDocumentCompletion(utf8(core.Source()), args.NavigationId(), status,
+                        args.IsSuccess(), httpErrorDocument, monotonicMilliseconds())) return;
+                    const auto finish = nativeFinishDocument_;
+                    if (finish) finish();
+                    if (alive->load() && args.NavigationId() == navigationId_ && documentCompletion_)
+                        responseTimer.Start();
+                } catch (const winrt::hresult_error& error) { fail("document", error.code().value); }
+                catch (...) { fail("document", E_FAIL); }
             });
-            core.Navigate(winrt::to_hstring(retryUrl_));
+            core.Navigate(winrt::to_hstring(requestedDocumentUrl_.empty() ? recoveryUrl() : requestedDocumentUrl_));
         } catch (const winrt::hresult_error& error) {
             fail("configure", error.code().value);
         } catch (...) { fail("configure", E_FAIL); }

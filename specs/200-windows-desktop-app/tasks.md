@@ -426,3 +426,26 @@ Windows-приложении, иначе «полная копия под Window
 | T098 | US2, FR-002, SC-002, план: живое оформление кабинета |
 | T099 | US2, SC-002, SC-009, план: оформление нативных окон |
 | T100 | US2, SC-002, SC-009, план: возврат окна из области уведомлений |
+
+## Phase 15: Convergence — полный паритет текущего macOS (2026-09-26)
+
+Проверенный срез: `166fa8be0304c1d21f822286c9827151f995fde4`, включая master
+`f5cca687a06dc57ad6ccbef840a0be897eaa6336`. Это продолжение FR-002/SC-002,
+не замена незакрытой аппаратной и сквозной приёмки. Задачи T094–T097 остаются
+открыты. Сначала T101; T102 и T103 выполняются последовательно в общем host;
+T104 включает T105 в общий presenter. T106 не должен задерживать вход.
+
+Актуальная цель US2 заменяет историческое ограничение двумя командами в Phase4:
+FR-006/bridge§5 разрешают пять typed-команд request_app_quit/local_recording/
+app_appearance/native_settings/delete_selection с отдельными проверками.
+Ответы — native_ready, bounded local_recordings/operations/recoveryRequired,
+typed replies настроек/удаления. Старые task IDs/отметки не переписываются.
+Ссылки на queue v2 означают историческое имя файла; текущая схема v3 с чтением v2.
+
+- [ ] T101 [US1] Запретить успешную сборку приложения/MSIX без настоящего закреплённого AEC3 в `apps/windows/RecApp/GrafWindowsApp.vcxproj` и `scripts/build-graf-aec3.ps1`; проверить pin, архитектуру, ошибки инструментов, отключение дополнительной обработки как в Mac и реальный native reverse-before-microphone вызов установленного EXE. Собрать и установить свежий пакет, записать package/EXE SHA и факт готовности записи; не считать fake/portable tests доказательством наличия backend. Связь с T094–T096, FR-009/FR-010/FR-020, SC-001/SC-003 (contradicts, CRITICAL).
+- [ ] T102 [US3] Перенести ограниченную платёжную сессию текущего Mac в `Web/WebViewRoutePolicy.*`, `Web/WebView2Host.*` с тестами policy/host: billing → разрешённый provider → HTTPS bank/frame/popup → cabinet, предел 15 минут, завершение на ошибке/возврате; ни одного native bridge/cookie extraction на внешней странице. Неподтверждённый начальный host, схема, просроченная сессия и подмена frame отвергаются. FR-002/FR-005/FR-006, SC-002 (partial, HIGH).
+- [ ] T103 [US3] Сохранить интерактивные auth HTML-ошибки 400/429 и разрешённые delivery-error формы, а также безопасное место возврата после входа (billing, meeting detail) в `Web/WebView2Host.*`/route policy. Не повторять POST оплаты, не открывать внешний next, не выдавать auth страницам native authority; genuine cabinet 5xx остаётся отказом. Добавить тесты response/recovery, выполнить живую проверку входа без раскрытия учётных данных. FR-002/FR-005/FR-006, SC-002 (partial, HIGH).
+- [ ] T104 [US2] Реализовать местные напоминания F274: сохраняемые настройки и read/update/test в `Web/NativeSettingsBridge.*`, нативная карточка в `Shell/`, подключение проверенного account/calendar context в `AppMain.cpp`. Повторно проверять событие перед действием, исключать повторные напоминания/вторую запись, очищать account-bound состояние при выходе; показывать независимо от системного разрешения, закрывать через min(120 секунд, начало встречи), тест — через 6 секунд без поглощения настоящего события. Покрыть перенос/отмену встречи, смену аккаунта, перезапуск и отсутствие сети. FR-002/FR-006/FR-015/FR-021, SC-002/SC-009 (missing, HIGH).
+- [ ] T105 [US2] Привести `Shell/RecordingNoticePresenter.*` и `ShortRecordingThresholdTests.cpp` к общей карточке Mac: справа сверху, без захвата фокуса, 20 секунд для короткой записи, ручное закрытие и замена без стопки. Проверить границы срока и доступность клавиатурой; использовать presenter T104. FR-002/FR-015, SC-002/SC-009 (partial, MEDIUM).
+- [ ] T106 [US3] Перенести F273 attribution handoff в Windows: валидировать только `grafrec://attribution`, сохранять один ограниченный по сроку набор разрешённых меток, использовать единый sign-in URL builder для первоначального/повторного входа; подключить штатную MSIX protocol activation без нового привилегированного моста. Пределы и 90 дней как в `ProductAttributionHandoff.swift`; malformed/expired/secret-like данные отклонять и не журналировать, неизвестную кампанию не объявлять известной; вход не зависит от аналитики. Тестировать parse/store/expiry/activation/recovery. FR-002/FR-005/FR-021, SC-002 (missing, MEDIUM).
+- [ ] T107 [US3] Сохранять разрешённые постоянные причины отказа загрузки F275 в `Upload/DesktopHttpTransport.*`, `DesktopUploadQueueService.*` и проекции действий `AppMain.cpp`; `not_retryable` не допускает ручной requeue после перезапуска, но сохраняет чтение/удаление. Тестировать отказ create/part/finalize и restart; нормальный Windows v5 остаётся совместимым. FR-002/FR-013/FR-014, SC-002 (partial, MEDIUM).

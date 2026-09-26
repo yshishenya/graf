@@ -154,8 +154,17 @@ void DesktopUploadRecoveryScheduler::apply(const UploadCustodyItem& item, const 
     if (queue_.quarantined()) return;
     if (result.retryAfterSeconds > 0) deferFor(result.retryAfterSeconds);
     if (result.authExpiresAt && sessionExpiryHandler_) sessionExpiryHandler_(*result.authExpiresAt);
-    if (result.serverTruth && result.serverTruth->localRecordingId == item.localRecordingId)
-        (void)queue_.reconcile(*result.serverTruth);
+    const auto* truth = result.serverTruth && result.serverTruth->localRecordingId == item.localRecordingId
+        ? &*result.serverTruth : nullptr;
+    if (result.status == DesktopTransportStatus::serverRejected && result.retryClass == "not_retryable") {
+        // Persist accepted bytes and the permanent refusal together. Separate
+        // reconcile/markBlocked writes expose uploading on crash or disk failure.
+        (void)queue_.markBlocked(item.localRecordingId,
+            DesktopUploadQueueService::isPermanentUploadReason(result.safeReason) ? result.safeReason : "not_retryable",
+            truth);
+        return;
+    }
+    if (truth) (void)queue_.reconcile(*truth);
     switch (result.status) {
     case DesktopTransportStatus::uploaded:
         (void)queue_.markUploaded(item.localRecordingId);
@@ -175,8 +184,6 @@ void DesktopUploadRecoveryScheduler::apply(const UploadCustodyItem& item, const 
             (void)queue_.markNeedsAuth(item.localRecordingId, "auth_required");
         else if (result.retryClass == "paused_until_admin_action")
             (void)queue_.markBlocked(item.localRecordingId, "needs_admin");
-        else if (result.retryClass == "not_retryable")
-            (void)queue_.markBlocked(item.localRecordingId, "not_retryable");
         else if (result.retryClass == "terminal")
             (void)queue_.markQuarantined(item.localRecordingId, "terminal_undelivered");
         else

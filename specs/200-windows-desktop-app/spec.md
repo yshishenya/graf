@@ -325,14 +325,21 @@ meeting-приложений с обратимой настройкой и ви�
   the configured origin. Unknown origins, arbitrary file URLs, local paths and
   native-only routes MUST be rejected or opened externally without mutating
   local state.
+  The only embedded external-navigation exception is the bounded, unprivileged
+  billing payment session defined in bridge contract §9: exact provider entry,
+  subsequent HTTPS bank chain, no native authority, and 900-second expiry.
+  This exception also qualifies the general external-origin rejection in US2;
+  it never authorizes external native messages or arbitrary initial navigation.
 - **FR-006**: Web-to-native requests MUST use a versioned JSON envelope,
   validate source origin, schema, session nonce, command and payload before
   acting, and MUST expose no generic host object or arbitrary script bridge.
   Native initialization uses the `native_ready` envelope. Native
-  `local_recordings` display messages use the separate `command/nonce/rows`
+  `local_recordings` display messages use the separate `command/nonce/rows/operations/recoveryRequired`
   shape, bound to the current approved document and nonce, and grant no native
-  authority. Only typed `request_app_quit` and `local_recording` requests are
-  accepted; no web acknowledgement establishes capture, upload or deletion truth.
+  authority. Only typed `request_app_quit`, `local_recording`, `app_appearance`,
+  `native_settings` and `delete_selection` requests are accepted, each on its
+  exact approved route with its own payload/capability checks; no web
+  acknowledgement establishes capture, upload or deletion truth.
 - **FR-007**: The Feature 200 baseline system track MUST use WASAPI shared-mode loopback on the
   current/default render endpoint and MUST NOT require `Stereo Mix`, a hardware
   loopback device, a virtual driver or exclusive mode.
@@ -356,7 +363,8 @@ meeting-приложений с обратимой настройкой и ви�
   application-data directory with user-only ACLs, temp-file plus atomic-rename
   finalization, bounded flush/error handling and no credentials, cookies, raw
   transcript or raw audio in diagnostics.
-- **FR-013**: The Windows queue MUST reuse `desktop-upload-queue.v2` semantics and
+- **FR-013**: The Windows queue MUST reuse the compatible v3 ledger with a v2
+  reader (the historical filename remains `desktop-upload-queue.v2`) and
   preserve immutable local identity, server truth, accepted ranges, retry records,
   retention and conflict state. It MUST quarantine malformed ledgers rather than
   replacing them with an empty queue.
@@ -413,11 +421,11 @@ meeting-приложений с обратимой настройкой и ви�
   output framing.
 - **LocalRecordingPackage**: user-scoped directory containing manifest, canonical
   ASR artifact, review playback artifact, hashes, byte counts and integrity state.
-- **UploadCustodyItem**: queue projection over the existing v2 ledger with local
+- **UploadCustodyItem**: queue projection over the compatible v3/v2 ledger with local
   identity, server truth, retry owner/action, accepted ranges and retention state.
 - **WebViewBridgeEnvelope**: version, message id, session nonce, origin-bound
   direction, request name and bounded payload. Used for web-to-native requests
-  and native initialization only; `local_recordings` has its separate display
+  and native initialization/typed replies; `local_recordings` has its separate display
   shape. Validation errors are internal refusal results, not web acknowledgements
   or proof of saving, uploading or deleting.
 - **VerifiedTargetIdentity**: exact Windows target evidence used by auto-record
@@ -500,7 +508,7 @@ Classification: remove
 пустой прежний рабочий каталог не позволял сохранять реальные per-app правила.
 Неиспользуемые значения HKCU не удаляются, пользовательские записи не затрагиваются.
 
-Действующие общие контракты v5 записей и v2 очереди сохраняются как текущий
+Действующие общие контракты v5 записей и совместимой v3/v2 очереди сохраняются как текущий
 продуктовый формат, не как запасная устаревшая реализация. Удаление серверных
 полей и API работающего macOS-клиента вне этого среза; Windows не расширяет их.
 Трассировка удаления и проверки: T080–T084, quickstart.md и validation-2026-09-06.md.

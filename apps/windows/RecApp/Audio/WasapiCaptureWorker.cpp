@@ -74,6 +74,7 @@ struct WasapiCaptureWorker::Impl {
     std::atomic_bool running{false};
     std::atomic_bool ready{false};
     std::atomic_bool finished{true};
+    std::chrono::steady_clock::time_point finishedAt{};
     std::atomic<CaptureWorkerError> error{CaptureWorkerError::none};
     std::atomic<ClockFault> clockFault{ClockFault::none};
     std::atomic<std::uint32_t> startupDiscardedFrames{0};
@@ -100,9 +101,9 @@ struct WasapiCaptureWorker::Impl {
         event.audioClockPosition = audioClockPosition;
         event.audioClockFrequency = audioClockFrequency;
         event.released = released;
-        const auto index = traceSize < maxTraceEvents
-            ? (traceStart + traceSize++) % maxTraceEvents
-            : (traceStart++ % maxTraceEvents);
+        const auto index = (traceStart + traceSize) % maxTraceEvents;
+        if (traceSize < maxTraceEvents) ++traceSize;
+        else traceStart = (traceStart + 1) % maxTraceEvents;
         trace[index] = event;
     }
 
@@ -205,11 +206,11 @@ struct WasapiCaptureWorker::Impl {
             const auto audioClockResult = client->GetService(IID_PPV_ARGS(&audioClock));
             recordTrace(CaptureStage::audioClock, static_cast<std::int32_t>(audioClockResult),
                         0, 0, 0, 0, 0, audioClockFrequency);
-            const auto frequencyResult = SUCCEEDED(audioClockResult)
+            const auto frequencyResult = audioClockResult == S_OK
                 ? audioClock->GetFrequency(&audioClockFrequency) : E_FAIL;
             recordTrace(CaptureStage::audioClock, static_cast<std::int32_t>(frequencyResult),
                         0, 0, 0, 0, 0, audioClockFrequency);
-            if (FAILED(audioClockResult) || FAILED(frequencyResult) || audioClockFrequency == 0) {
+            if (audioClockResult != S_OK || frequencyResult != S_OK || audioClockFrequency == 0) {
                 error.store(CaptureWorkerError::initializationFailed);
                 break;
             }
@@ -273,17 +274,9 @@ struct WasapiCaptureWorker::Impl {
                     const auto positionResult = audioClock->GetPosition(&audioClockPosition, nullptr);
                     recordTrace(CaptureStage::audioClock, static_cast<std::int32_t>(positionResult), flagsRead,
                                 count, devicePosition, qpcPosition, audioClockPosition, audioClockFrequency);
-                    if (FAILED(positionResult)) {
-                        error.store(CaptureWorkerError::audioClockFailed);
-                        const auto releaseResult = capture->ReleaseBuffer(count);
-                        recordTrace(CaptureStage::releaseBuffer, static_cast<std::int32_t>(releaseResult),
-                                    flagsRead, count, devicePosition, qpcPosition, audioClockPosition,
-                                    audioClockFrequency, SUCCEEDED(releaseResult));
-                        break;
-                    }
                     if (!owner.consumePacket(clockMapper, normalizer,
                             {qpcPosition, devicePosition, format->nSamplesPerSec, flagsRead, count,
-                             audioClockPosition, audioClockFrequency},
+                             audioClockPosition, audioClockFrequency, static_cast<std::int32_t>(positionResult)},
                             data, format->nChannels, pcmFormat.float32,
                             [&](std::uint32_t consumed) {
                                 const auto releaseResult = capture->ReleaseBuffer(consumed);
@@ -320,6 +313,11 @@ bool WasapiCaptureWorker::consumePacket(ClockMapper& mapper, AudioNormalizer& no
         return false;
     };
     if (impl_->error.load() != CaptureWorkerError::none) { (void)release(); return false; }
+    if (packet.audioClockResult != 0) {
+        impl_->error.store(CaptureWorkerError::audioClockFailed);
+        (void)release();
+        return false;
+    }
     if (packet.frameCount > impl_->config.maxBatchFrames || channels == 0 || channels > 32) {
         impl_->clockFault.store(ClockFault::invalidPacket);
         impl_->error.store(CaptureWorkerError::bufferOverflow);
@@ -428,6 +426,7 @@ CaptureWorkerError WasapiCaptureWorker::start(CaptureBatchCallback callback) {
         impl_->nextTraceSequence = 0;
     }
     impl_->ready.store(false);
+    impl_->finishedAt = {};
     impl_->running.store(true);
     impl_->finished.store(false);
     try {
@@ -439,11 +438,15 @@ CaptureWorkerError WasapiCaptureWorker::start(CaptureBatchCallback callback) {
                 }
             } catch (...) { impl_->error.store(CaptureWorkerError::initializationFailed); }
             impl_->running.store(false);
+            // run() has returned: native resources and the final callback are
+            // gone. Publish their actual completion, not a later UI poll time.
+            impl_->finishedAt = std::chrono::steady_clock::now();
             impl_->finished.store(true, std::memory_order_release);
         });
     } catch (...) {
         impl_->error.store(CaptureWorkerError::initializationFailed);
         impl_->running.store(false);
+        impl_->finishedAt = std::chrono::steady_clock::now();
         impl_->finished.store(true, std::memory_order_release);
         return CaptureWorkerError::initializationFailed;
     }
@@ -458,6 +461,10 @@ void WasapiCaptureWorker::stop() noexcept {
 bool WasapiCaptureWorker::ready() const noexcept { return impl_->ready.load() && impl_->running.load(); }
 
 bool WasapiCaptureWorker::finished() const noexcept { return impl_->finished.load(std::memory_order_acquire); }
+
+std::chrono::steady_clock::time_point WasapiCaptureWorker::finishedAt() const noexcept {
+    return finished() ? impl_->finishedAt : std::chrono::steady_clock::time_point{};
+}
 
 bool WasapiCaptureWorker::running() const noexcept { return impl_ != nullptr && impl_->running.load(); }
 

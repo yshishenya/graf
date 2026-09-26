@@ -26,6 +26,7 @@ namespace graf::windows {
 namespace {
 
 constexpr std::size_t kMaxPartBytes = 16 * 1024 * 1024;
+using HttpResponse = DesktopHttpTransport::UploadResponse;
 
 bool cancelled(const DesktopHttpConfig& config) {
     return config.cancellation && config.cancellation->load();
@@ -89,7 +90,6 @@ std::optional<std::uint64_t> jsonNumberField(std::string_view json, std::string_
     }
 }
 
-#ifdef _WIN32
 std::optional<std::uint64_t> jsonTrackNumber(std::string_view json, std::string_view track,
                                               std::string_view field) {
     const auto marker = std::string("\"") + std::string(track) + "\":{";
@@ -108,7 +108,6 @@ bool isSha256(std::string_view value) noexcept {
     }
     return true;
 }
-#endif
 
 bool isSafeIdentifier(std::string_view value) noexcept {
     if (value.empty() || value.size() > 300) return false;
@@ -119,8 +118,6 @@ bool isSafeIdentifier(std::string_view value) noexcept {
     }
     return true;
 }
-
-#ifdef _WIN32
 
 std::string readBoundedText(const std::filesystem::path& path, std::size_t maxBytes) {
     std::ifstream input(path, std::ios::binary);
@@ -184,6 +181,7 @@ std::optional<std::vector<LocalTrack>> packageTracks(const UploadCustodyItem& it
     };
 }
 
+#ifdef _WIN32
 std::wstring utf8ToWide(std::string_view value) {
     if (value.empty()) return {};
     const auto length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
@@ -195,14 +193,6 @@ std::wstring utf8ToWide(std::string_view value) {
     return result;
 }
 
-struct HttpResponse {
-    DWORD status = 0;
-    std::string body;
-    bool transportFailed = false;
-    std::string retryAfter;
-    std::string authExpiresAt;
-};
-
 // A response header that must be ASCII digits and nothing else. macOS reads the
 // same header with the same rule, so a decorated or localized value is not a
 // deadline on either platform.
@@ -213,19 +203,17 @@ std::optional<std::int64_t> parseEpochSeconds(std::string_view raw) {
     std::int64_t value = 0;
     for (const char character : raw) {
         if (character < '0' || character > '9') return std::nullopt;
-        value = value * 10 + (character - '0');
+        const auto digit = character - '0';
+        if (value > (std::numeric_limits<std::int64_t>::max() - digit) / 10) return std::nullopt;
+        value = value * 10 + digit;
     }
     return value;
 }
-
-#ifdef _WIN32
 
 struct ByteRange {
     std::uint64_t start = 0;
     std::uint64_t end = 0;
 };
-
-#endif
 
 std::optional<std::string_view> jsonObjectField(std::string_view json, std::string_view key) {
     const auto marker = std::string("\"") + std::string(key) + "\":";
@@ -402,6 +390,8 @@ HttpResponse request(const DesktopHttpConfig& config, std::wstring method, std::
     return result;
 }
 
+#endif
+
 DesktopTransportStatus mapResponse(const HttpResponse& response) {
     if (response.transportFailed || response.status == 408 || response.status == 429 || response.status >= 500) {
         return DesktopTransportStatus::retryableFailure;
@@ -410,7 +400,28 @@ DesktopTransportStatus mapResponse(const HttpResponse& response) {
     if (response.status < 200 || response.status >= 300) return DesktopTransportStatus::serverRejected;
     return DesktopTransportStatus::uploaded;
 }
-#endif
+
+DesktopTransportResult uploadResponse(const HttpResponse& response) {
+    DesktopTransportResult result{mapResponse(response), std::nullopt};
+    result.retryAfterSeconds = DesktopHttpTransport::rateLimitPauseSeconds(response.status, response.retryAfter);
+    result.authExpiresAt = parseEpochSeconds(response.authExpiresAt);
+    // Only these two root codes on a fully received HTTP 400 are permanent.
+    // Validate the whole bounded document; never retain title/detail or match a
+    // substring/nested/duplicate key as authority.
+    if (!response.transportFailed && response.status == 400) {
+        const auto fields = DesktopApiClient::jsonObjectFields(response.body);
+        if (fields) {
+            const auto code = fields->find("code");
+            if (code != fields->end() &&
+                (code->second == "\"unsupported_recording_source_kind\"" ||
+                 code->second == "\"invalid_recording_source_mode\"")) {
+                result.safeReason = std::string(code->second.substr(1, code->second.size() - 2));
+                result.retryClass = "not_retryable";
+            }
+        }
+    }
+    return result;
+}
 
 std::size_t trackIndex(std::string_view role) {
     if (role == "manifest") return 0;
@@ -429,7 +440,6 @@ std::optional<std::array<std::uint64_t, 3>> acceptedBytes(std::string_view json)
     return result;
 }
 
-#ifdef _WIN32
 std::optional<std::array<std::vector<ByteRange>, 3>> missingRanges(std::string_view json) {
     const auto object = jsonObjectField(json, "missing_ranges_by_track");
     if (!object) return std::nullopt;
@@ -457,7 +467,6 @@ std::optional<std::array<std::vector<ByteRange>, 3>> missingRanges(std::string_v
     }
     return result;
 }
-#endif
 
 std::optional<std::string> nestedStringField(std::string_view json, std::string_view objectKey,
                                              std::string_view field) {
@@ -565,51 +574,45 @@ std::optional<DesktopRemoteUploadState> DesktopHttpTransport::decodeSyncState(
 }
 
 namespace {
-#ifdef _WIN32
 
 bool isUnknownRecording(const HttpResponse& response) {
     return response.status == 404 && jsonStringField(response.body, "code") == std::optional<std::string>("recording_not_found");
 }
 
-DesktopTransportStatus uploadFile(const DesktopHttpConfig& config, const LocalTrack& track, std::string_view sessionId,
+DesktopTransportResult uploadFile(const DesktopHttpConfig& config, const DesktopHttpTransport::UploadSend& send,
+                                  const LocalTrack& track, std::string_view sessionId,
                                   const std::vector<ByteRange>& ranges,
-                                  std::array<std::uint64_t, 3>* accepted, std::uint32_t* retryAfter) {
+                                  std::array<std::uint64_t, 3>* accepted) {
     std::ifstream input(track.path, std::ios::binary);
-    if (!input) return DesktopTransportStatus::invalidPackage;
-    if (sha256File(track.path) != track.sha256) return DesktopTransportStatus::invalidPackage;
+    if (!input) return {DesktopTransportStatus::invalidPackage, std::nullopt};
+    if (sha256File(track.path) != track.sha256) return {DesktopTransportStatus::invalidPackage, std::nullopt};
     const auto partSize = std::clamp(config.partSizeBytes, std::size_t(64 * 1024), kMaxPartBytes);
     for (const auto range : ranges) {
         for (std::uint64_t offset = range.start; offset < range.end;) {
-            if (cancelled(config)) return DesktopTransportStatus::retryableFailure;
+            if (cancelled(config)) return {DesktopTransportStatus::retryableFailure, std::nullopt};
             const auto length = static_cast<std::size_t>(std::min<std::uint64_t>(partSize, range.end - offset));
             std::string data(length, '\0');
             input.clear();
             input.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
             input.read(data.data(), static_cast<std::streamsize>(data.size()));
-            if (input.gcount() != static_cast<std::streamsize>(data.size())) return DesktopTransportStatus::invalidPackage;
-            const auto path = L"/api/v1/upload-sessions/" + utf8ToWide(sessionId) + L"/tracks/" +
-                utf8ToWide(track.role) + L"/parts/" + std::to_wstring(offset / partSize);
-            const auto response = request(config, L"PUT", path, data, false, {}, offset, sha256(data));
-            const auto status = mapResponse(response);
-            if (status != DesktopTransportStatus::uploaded) {
-                if (retryAfter != nullptr) {
-                    *retryAfter = DesktopHttpTransport::rateLimitPauseSeconds(response.status, response.retryAfter);
-                }
-                return status;
-            }
+            if (input.gcount() != static_cast<std::streamsize>(data.size()))
+                return {DesktopTransportStatus::invalidPackage, std::nullopt};
+            const auto path = "/api/v1/upload-sessions/" + std::string(sessionId) + "/tracks/" +
+                track.role + "/parts/" + std::to_string(offset / partSize);
+            const auto response = send(config, {"PUT", path, data, false, {}, offset, sha256(data)});
+            const auto result = uploadResponse(response);
+            if (result.status != DesktopTransportStatus::uploaded) return result;
             const auto acceptedOffset = jsonNumberField(response.body, "byte_offset");
             const auto acceptedLength = jsonNumberField(response.body, "byte_length");
             if (!acceptedOffset || !acceptedLength || *acceptedOffset != offset || *acceptedLength != length) {
-                return DesktopTransportStatus::serverRejected;
+                return {DesktopTransportStatus::serverRejected, std::nullopt};
             }
             if (accepted != nullptr) (*accepted)[trackIndex(track.role)] += *acceptedLength;
             offset += length;
         }
     }
-    return DesktopTransportStatus::uploaded;
+    return {DesktopTransportStatus::uploaded, std::nullopt};
 }
-
-#endif
 
 } // namespace
 
@@ -861,18 +864,28 @@ std::string DesktopHttpTransport::replacementUploadSessionKey(
 }
 
 DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& item) const {
+#ifdef _WIN32
+    return upload(item, [](const DesktopHttpConfig& config, const UploadRequest& call) {
+        return request(config, utf8ToWide(call.method), utf8ToWide(call.path), call.body, call.jsonBody,
+                       call.idempotencyKey, call.byteOffset, call.contentSha256);
+    });
+#else
+    return upload(item, {});
+#endif
+}
+
+DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& item, const UploadSend& send) const {
     if (cancelled(config_)) return DesktopTransportResult{
         DesktopTransportStatus::retryableFailure, std::nullopt, {}, {}, 0, std::nullopt};
+    if (DesktopUploadQueueService::isPermanentUploadReason(item.safeReason))
+        return {DesktopTransportStatus::serverRejected, std::nullopt, item.safeReason, "not_retryable"};
     if (ownerBlockReason(item, std::nullopt) == "local_owner_unclaimed")
         return DesktopTransportResult{
             DesktopTransportStatus::authRequired, std::nullopt, "local_owner_unclaimed", {}, 0, std::nullopt};
     if (config_.sessionToken.empty()) return DesktopTransportResult{
         DesktopTransportStatus::authRequired, std::nullopt, {}, {}, 0, std::nullopt};
-#ifndef _WIN32
-    (void)item;
-    return DesktopTransportResult{
+    if (!send) return DesktopTransportResult{
         DesktopTransportStatus::unsupportedPlatform, std::nullopt, {}, {}, 0, std::nullopt};
-#else
     std::uint32_t durationSeconds = 0;
     std::uint64_t startedAtMs = 0;
     std::uint64_t stoppedAtMs = 0;
@@ -886,7 +899,10 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
     // Resolve with the same copied session used by every following request, and
     // prefer the snapshot the shell confirmed for it. This precedes sync-state
     // too: recording_not_found is not claim authority.
-    const auto account = resolveAccountIdentity(config_, requestIdentity);
+    const auto account = resolveAccountIdentity(config_, [&](const DesktopHttpConfig& config, std::string_view path) {
+        const auto response = send(config, {"GET", std::string(path), "", true});
+        return IdentityResponse{response.status, response.body, response.transportFailed};
+    });
     const auto block = ownerBlockReason(item, account.identity);
     if (!block.empty()) return {account.identity ? DesktopTransportStatus::authRequired : account.status,
                                std::nullopt, std::string(block)};
@@ -897,18 +913,15 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
     // the result and the scheduler holds the attempt until it elapses instead of
     // spending the retry budget on a request the server just refused.
     auto withTruth = [&truth](DesktopTransportStatus status, const HttpResponse* response = nullptr) {
-        DesktopTransportResult result{status, truth.meetingExists ? std::optional<UploadServerTruth>(truth) : std::nullopt};
-        if (response != nullptr) {
-            result.retryAfterSeconds = DesktopHttpTransport::rateLimitPauseSeconds(response->status, response->retryAfter);
-            result.authExpiresAt = parseEpochSeconds(response->authExpiresAt);
-        }
+        auto result = response ? uploadResponse(*response) : DesktopTransportResult{status, std::nullopt};
+        if (truth.meetingExists) result.serverTruth = truth;
         return result;
     };
 
     std::optional<DesktopRemoteUploadState> remote;
     const auto syncPath = std::string("/api/v1/desktop/recordings/") + item.directoryId +
         "/sync-state?local_media_revision_id=" + localRevision;
-    auto response = request(config_, L"GET", utf8ToWide(syncPath), "", true);
+    auto response = send(config_, {"GET", syncPath, "", true});
     if (isUnknownRecording(response)) {
         remote = std::nullopt;
     } else {
@@ -938,7 +951,7 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
         const auto createBody = DesktopApiClient::createMeetingBody(*meetingRequest);
         const auto meetingKey = DesktopApiClient::idempotencyKey("meeting", item.directoryId, item.sessionId);
         if (meetingKey.empty()) return withTruth(DesktopTransportStatus::invalidPackage);
-        response = request(config_, L"POST", L"/api/v1/meetings", createBody, true, meetingKey);
+        response = send(config_, {"POST", "/api/v1/meetings", createBody, true, meetingKey});
         const auto status = mapResponse(response);
         if (status != DesktopTransportStatus::uploaded) return withTruth(status, &response);
         const auto createdMeetingId = jsonStringField(response.body, "meeting_id");
@@ -974,8 +987,8 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
         const auto sessionBody = std::string("{\"expected_tracks\":") + expectedTracks +
             ",\"expected_track_sizes\":" + expectedSizes + ",\"manifest_sha256\":\"" +
             sessionRequest->manifestSha256 + "\"}";
-        response = request(config_, L"POST", utf8ToWide("/api/v1/meetings/" + meetingId + "/upload-sessions"),
-                           sessionBody, true, sessionKey);
+        response = send(config_, {"POST", "/api/v1/meetings/" + meetingId + "/upload-sessions",
+                                sessionBody, true, sessionKey});
         const auto status = mapResponse(response);
         if (status != DesktopTransportStatus::uploaded) return withTruth(status, &response);
         const auto createdSessionId = jsonStringField(response.body, "session_id");
@@ -989,23 +1002,20 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
         truth.uploadSessionExists = true;
     }
 
-    response = request(config_, L"GET", utf8ToWide("/api/v1/upload-sessions/" + serverSessionId + "/missing-ranges"), "", true);
+    response = send(config_, {"GET", "/api/v1/upload-sessions/" + serverSessionId + "/missing-ranges", "", true});
     auto status = mapResponse(response);
     if (status != DesktopTransportStatus::uploaded) return withTruth(status, &response);
     const auto ranges = missingRanges(response.body);
     if (!ranges) return withTruth(DesktopTransportStatus::serverRejected);
     for (const auto& track : *tracks) {
-        std::uint32_t pauseSeconds = 0;
-        status = uploadFile(config_, track, serverSessionId, (*ranges)[trackIndex(track.role)], &truth.acceptedBytes,
-                            &pauseSeconds);
-        if (status != DesktopTransportStatus::uploaded) {
-            auto result = withTruth(status);
-            result.retryAfterSeconds = pauseSeconds;
+        auto result = uploadFile(config_, send, track, serverSessionId, (*ranges)[trackIndex(track.role)], &truth.acceptedBytes);
+        if (result.status != DesktopTransportStatus::uploaded) {
+            if (truth.meetingExists) result.serverTruth = truth;
             return result;
         }
     }
 
-    response = request(config_, L"GET", utf8ToWide("/api/v1/upload-sessions/" + serverSessionId + "/missing-ranges"), "", true);
+    response = send(config_, {"GET", "/api/v1/upload-sessions/" + serverSessionId + "/missing-ranges", "", true});
     status = mapResponse(response);
     if (status != DesktopTransportStatus::uploaded) return withTruth(status, &response);
     const auto remaining = missingRanges(response.body);
@@ -1025,12 +1035,10 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
             ",\"byte_length\":" + std::to_string(track.bytes) + ",\"sha256\":\"" + track.sha256 + "\"}";
     }
     const auto finalizeBody = "{\"manifest_sha256\":\"" + (*tracks)[0].sha256 + "\",\"tracks\":[" + trackJson + "]}";
-    response = request(config_, L"POST", utf8ToWide("/api/v1/upload-sessions/" + serverSessionId + "/finalize"),
-                       finalizeBody, true);
+    response = send(config_, {"POST", "/api/v1/upload-sessions/" + serverSessionId + "/finalize", finalizeBody, true});
     status = mapResponse(response);
     if (status == DesktopTransportStatus::uploaded) truth.finalized = true;
     return withTruth(status, &response);
-#endif
 }
 
 } // namespace graf::windows

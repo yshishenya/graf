@@ -27,9 +27,6 @@ struct CaptureFinalization {
     // Feature 6796: the recording was deliberately not kept because it was
     // shorter than the product threshold. It is neither a save nor a failure.
     bool shortRecordingDiscarded = false;
-    // Запись сохранена, но один источник отказал: причина ограничения едет
-    // рядом с записью и не превращает её в отказ.
-    ReasonCode degradedReason = ReasonCode::none;
 };
 
 class WindowsCaptureSessionController final {
@@ -78,9 +75,6 @@ private:
     friend struct CaptureSessionTestPeer;
     [[nodiscard]] bool startWorkers();
     [[nodiscard]] ReasonCode captureFailureReason() const noexcept;
-    [[nodiscard]] bool sourceUsable(bool startupExpired) const noexcept;
-    [[nodiscard]] bool sourceDead(const WasapiCaptureWorker* worker, bool isMicrophone) const noexcept;
-    [[nodiscard]] bool sourceProducing(const WasapiCaptureWorker* worker, bool isMicrophone) const noexcept;
     void stopWorkers() noexcept;
     [[nodiscard]] bool enqueueBatch(AudioBatch batch);
     [[nodiscard]] bool enqueueSourceEnd(AudioSource source);
@@ -88,8 +82,9 @@ private:
     void requestDispatcherStop() noexcept;
     void joinDispatcher() noexcept;
     [[nodiscard]] TransitionResult finishStop();
+    void markDrainTimedOut();
     [[nodiscard]] bool handleBatch(AudioBatch batch);
-    [[nodiscard]] bool processBatch(AudioBatch batch);
+    [[nodiscard]] bool processBatch(AudioBatch batch, bool requireAccepting = false);
     void latchFault(ReasonCode reason) noexcept;
 
     WindowsDesktopSession session_;
@@ -105,21 +100,21 @@ private:
     RecordingStopReason stopReason_ = RecordingStopReason::interruption;
     bool pollingFinalizer_ = false; // UI-thread-only reentrancy guard.
     std::chrono::steady_clock::time_point startupDeadline_{};
+    std::chrono::steady_clock::time_point drainDeadline_{};
+    bool drainTimedOut_ = false; // UI-thread-only; independent of the first capture fault.
     std::atomic_bool acceptingBatches_{false};
     std::atomic<ReasonCode> captureFault_{ReasonCode::none};
-    // Сбой микрофона не обрывает запись: системный звук продолжает писаться, а
-    // причина остаётся, чтобы человек увидел ограничение и в итоге записи.
-    // macOS ведёт себя так же: дорожка помечается degraded, сессия сохраняется.
-    bool microphoneDegraded_ = false;
-    bool renderDegraded_ = false;
-    ReasonCode degradedReason_ = ReasonCode::none;
     std::mutex captureMutex_;
+    std::chrono::steady_clock::time_point sinkCompletedAt_{}; // Protected by captureMutex_.
     static constexpr std::size_t maxPendingBatches_ = 256;
     std::mutex dispatchMutex_;
     std::condition_variable dispatchCondition_;
     std::deque<DispatchItem> pendingBatches_;
     std::thread dispatchThread_;
     std::atomic_bool dispatchFinished_{true};
+    // Published by the release-store to dispatchFinished_, read only after its
+    // acquire fence. A late UI poll must not change the actual drain duration.
+    std::chrono::steady_clock::time_point dispatchCompletedAt_{};
     std::atomic_bool dispatchBusy_{false};
     bool dispatchStopRequested_ = false;
     bool sourceEndsEnqueued_ = false;
