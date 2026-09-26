@@ -40,6 +40,7 @@ final class MeetingDetectionCountdownTests: XCTestCase {
     }
 
     func testPromptDecisionPersistsOnlyExplicitButtonChoices() {
+        XCTAssertNil(MeetingDetectionPromptDecision(action: .skip, rememberChoice: false).persistedRule)
         XCTAssertEqual(
             MeetingDetectionPromptDecision(action: .start, rememberChoice: false).persistedRule,
             nil

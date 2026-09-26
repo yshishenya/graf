@@ -1,12 +1,13 @@
+import ipaddress
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import quote, unquote, urlsplit
 from uuid import UUID
 
 from pydantic import AliasChoices, AnyUrl, Field, PositiveInt, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 AUTH_SESSION_TTL_SECONDS = 30 * 86_400
 
@@ -111,6 +112,22 @@ class Settings(BaseSettings):
     product_analytics_enabled: bool = False
     product_analytics_validation_mode: str = "disabled"
     product_analytics_provider_mode: str = "disabled"
+    # Level 1 of feature 273: the anonymous page aggregate keeps no identifier,
+    # no device address and no link between visits, so it carries no personal
+    # data and needs no consent. FR-009 requires the count on every public page
+    # including visitors who gave no consent, and FR-012 needs it as the
+    # denominator of the consent share, so it is on by default while the optional
+    # levels stay off. Turning it off stops level 1 counting on public pages and
+    # on web registration steps (FR-048) without touching those optional levels.
+    product_analytics_anonymous_aggregate_enabled: bool = True
+    # Exact connection addresses or CIDR networks owned by operators and test
+    # stands. The request classifier reads the ASGI peer address only; forwarded
+    # headers are not trusted for this exclusion.
+    product_analytics_internal_hosts: Annotated[tuple[str, ...], NoDecode] = ()
+    # Public campaign attribution is best-effort, but its durable reference table
+    # must have a bounded admission rate even when callers send fresh labels.
+    product_analytics_visit_attribution_admission_limit: PositiveInt = Field(default=10_000)
+    product_analytics_visit_attribution_admission_window_seconds: PositiveInt = Field(default=3_600)
     product_analytics_posthog_enabled: bool = False
     product_analytics_posthog_host: AnyUrl | None = None
     product_analytics_posthog_project_key_file: Path | None = None
@@ -245,8 +262,7 @@ class Settings(BaseSettings):
     # Billing is fail-closed until the merchant, legal and receipt gates are
     # explicitly enabled in the deployment environment.
     billing_checkout_enabled: bool = False
-    # Read-only GET/list reconciliation can stay available during an emergency
-    # stop or checkout rollback. It never permits a provider money mutation.
+    # Read-only provider observation never permits a money mutation.
     billing_provider_observation_enabled: bool = False
     billing_yookassa_base_url: AnyUrl | None = None
     # YooKassa uses the same API host for test and production shops. Keep the
@@ -264,7 +280,6 @@ class Settings(BaseSettings):
     billing_receipt_vat_code: int | None = None
     billing_receipt_payment_subject: str = "service"
     billing_receipt_payment_mode: str = "full_payment"
-    billing_emergency_stop: bool = False
 
     yandex_client_id: str = "twobrain-yandex-client-id"
     vk_client_id: str = "twobrain-vk-client-id"
@@ -352,6 +367,38 @@ class Settings(BaseSettings):
                     "prompt_optimization_database_url must use the twobrain_rec_maintenance role"
                 )
         return value
+
+    @field_validator("product_analytics_internal_hosts", mode="before")
+    @classmethod
+    def parse_product_analytics_internal_hosts(cls, value: Any) -> tuple[str, ...]:
+        """Parse comma-separated operator addresses or CIDR networks safely."""
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            raw_values = value.replace("[", "").replace("]", "").replace('"', "").split(",")
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            raw_values = value
+        else:
+            raise ValueError("product_analytics_internal_hosts must be a list or comma-separated string")
+        normalized: list[str] = []
+        for raw in raw_values:
+            if not isinstance(raw, str):
+                raise ValueError("product_analytics_internal_hosts entries must be strings")
+            candidate = raw.strip()
+            if not candidate:
+                continue
+            try:
+                if "/" in candidate:
+                    candidate = str(ipaddress.ip_network(candidate, strict=False))
+                else:
+                    candidate = str(ipaddress.ip_address(candidate))
+            except ValueError as exc:
+                raise ValueError(
+                    f"product_analytics_internal_hosts contains an invalid address or network: {candidate}"
+                ) from exc
+            if candidate not in normalized:
+                normalized.append(candidate)
+        return tuple(normalized)
 
     @field_validator("public_analytics_validation_mode")
     @classmethod
@@ -617,17 +664,30 @@ class Settings(BaseSettings):
                     raise ValueError(
                         f"production billing secret must be at least 32 characters and non-placeholder: {field_name}"
                     )
+        if self.billing_yookassa_webhook_secret_file is None:
+            raise ValueError("enabled billing observation requires a webhook secret file")
+        webhook_path = self.billing_yookassa_webhook_secret_file
+        if not webhook_path.is_file() or not webhook_path.read_text(encoding="utf-8").strip():
+            raise ValueError("enabled billing requires a non-empty billing_yookassa_webhook_secret_file")
+        if self.env.lower() == "production":
+            value = webhook_path.read_text(encoding="utf-8").strip()
+            placeholder_values = {"replace-me", "changeme", "password", "secret", "default"}
+            if (
+                len(value) < 32
+                or value.lower() in placeholder_values
+                or value.lower().startswith("synthetic")
+            ):
+                raise ValueError(
+                    "production billing secret must be at least 32 characters and non-placeholder: "
+                    "billing_yookassa_webhook_secret_file"
+                )
         if not self.billing_checkout_enabled:
             return self
         if self.public_base_url is None or self.public_base_url.scheme != "https":
             raise ValueError("enabled billing requires an HTTPS public_base_url")
-        if (
-            self.billing_yookassa_webhook_secret_file is None
-            or self.billing_referral_secret_file is None
-        ):
-            raise ValueError("enabled billing requires webhook and referral secret files")
+        if self.billing_referral_secret_file is None:
+            raise ValueError("enabled billing requires a referral secret file")
         for field_name, path in (
-            ("billing_yookassa_webhook_secret_file", self.billing_yookassa_webhook_secret_file),
             ("billing_referral_secret_file", self.billing_referral_secret_file),
         ):
             if not path.is_file() or not path.read_text(encoding="utf-8").strip():
@@ -778,7 +838,9 @@ class Settings(BaseSettings):
                 else None
             ),
             "billing_yookassa_webhook_secret_file": (
-                self.billing_yookassa_webhook_secret_file if self.billing_checkout_enabled else None
+                self.billing_yookassa_webhook_secret_file
+                if self.billing_provider_observation_enabled or self.billing_checkout_enabled
+                else None
             ),
             "support_incident_github_token_file": self.support_incident_github_token_file,
             "product_analytics_posthog_project_key_file": self.product_analytics_posthog_project_key_file,

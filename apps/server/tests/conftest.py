@@ -403,3 +403,23 @@ def reset_process_context_vars() -> Iterator[None]:
     yield
     for variable, default in _REQUEST_CONTEXT_DEFAULTS:
         variable.set(default)
+
+
+@pytest.fixture(autouse=True)
+def reset_milestone_emission_guard() -> Iterator[None]:
+    """Keep the first-milestone ledger from leaking between tests.
+
+    The default guard is one process-wide ledger, which is exactly what
+    deduplicating a repeated milestone needs in production (FR-025). In a test
+    worker that same ledger would make the second test that submits one
+    pseudonymous identity's milestone see "duplicate" and skip provider delivery,
+    so a suite would pass or fail depending on collection order. Each test starts
+    from an empty ledger, which is the state a freshly started process has.
+    """
+
+    from twobrain_rec_server.product_analytics.milestones import default_milestone_guard
+
+    guard = default_milestone_guard()
+    guard.reset()
+    yield
+    guard.reset()

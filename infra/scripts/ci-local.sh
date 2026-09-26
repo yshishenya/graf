@@ -375,7 +375,20 @@ main() (
       # revision digest remains a lightweight identity anchor; build outputs
       # provide the artifact-level provenance required for release decisions.
       [[ -f "$repo_root/CHANGELOG.md" ]] && evidence_args+=(--artifact "changelog=$repo_root/CHANGELOG.md")
-      [[ -d "$repo_root/apps/macos/.build" ]] && evidence_args+=(--artifact "macos-build=$repo_root/apps/macos/.build")
+      # Feature 269: bind macOS evidence to the compiled products instead of the
+      # whole cache-like .build tree; intermediates and local installer caches
+      # are not CI products and made every run re-read gigabytes. Only products
+      # the package actually builds are listed: the .build tree persists between
+      # runs, so a leftover from an older checkout must not become evidence.
+      for entry in \
+        "macos-product-two-brain-rec-app:TwoBrainRecApp" \
+        "macos-product-contract-validation:ContractValidation" \
+        "macos-product-meeting-mute-truth:MeetingMuteTruthRuntimeProof" \
+        "macos-tests:TwoBrainRecMacOSPackageTests.xctest"; do
+        artifact_name="${entry%%:*}"
+        artifact_path="$repo_root/apps/macos/.build/debug/${entry#*:}"
+        [[ -e "$artifact_path" ]] && evidence_args+=(--artifact "$artifact_name=$artifact_path")
+      done
       [[ -n "$evidence_reason" ]] && evidence_args+=(--reason "$evidence_reason")
       [[ -n "$candidate_id" ]] && evidence_args+=(--candidate-id "$candidate_id")
       while IFS= read -r skipped; do

@@ -1,5 +1,27 @@
 #!/usr/bin/env python3
-"""Prepare two local release images and preserve exact rollback IDs under the deploy lock."""
+"""Prepare the two local release images for exactly one locked deploy attempt.
+
+State, in the git-private ``graf-release-images`` directory:
+
+    active.json             the attempt that owns the runtime right now
+    attempts/<id>/          one create-once deploy attempt
+        baseline.json       previous images and the containers seen before any build
+        previous.json       pinned override for those previous images
+        identity.json       release identity this attempt was prepared for
+        candidate.json      images for the exact source SHA (built or pulled)
+        override.json       pinned override for those candidate images
+        result.json         terminal outcome, create-once, only after verification
+        release-images.py   immutable copy of this helper, survives the rollback reset
+    images/<sha>-<platform>.json
+                            reusable build cache for one exact source SHA
+
+    prepare -> verify candidate -> finish deployed    successful upgrade
+    prepare -> verify previous  -> finish restored    rollback to the previous images
+    prepare -> finish unchanged                       the runtime was never touched
+
+``prepare`` refuses to run while ``active.json`` names an attempt without a
+terminal result: a half-finished deploy is recovered explicitly first.
+"""
 from __future__ import annotations
 
 import argparse
@@ -13,11 +35,38 @@ import tempfile
 
 SOURCE_LABEL = "org.2brain.graf.dev.source-sha"
 PROJECT = "twobrain-rec"
+MEDIA_WORKER = "rec-media-worker"
+# docker build targets that produce the application images.
+TARGETS = ("runtime", "media-runtime")
+# docker info reports uname architectures, docker image inspect reports Go ones.
+ARCHITECTURES = {"x86_64": "amd64", "aarch64": "arm64"}
+
+SOURCE_SHA = re.compile(r"[0-9a-f]{40}")
+ATTEMPT_ID = re.compile(r"[0-9a-f]{32}")
+SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
+SERVICE = re.compile(r"rec-[a-z0-9-]+")
+IMAGE_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@-]*")
+CANDIDATE_ID = re.compile(r"rc-[A-Za-z0-9-]{1,100}")
+
+# Both recorded sides of an attempt: the images that must be running and the
+# pinned override that keeps them pinned.
+SIDES = {
+    "candidate": dict(record="candidate.json", override="override.json"),
+    "previous": dict(record="baseline.json", override="previous.json"),
+}
+# A terminal result names the side the runtime is left on. Nothing else may
+# finish an attempt, and only a finished attempt may be replaced.
+RESULTS = {"deployed": "candidate", "unchanged": "previous", "restored": "previous"}
 
 
 def require(value, message):
     if not value:
         raise ValueError(message)
+
+
+def require_match(value, pattern, message):
+    require(isinstance(value, str) and pattern.fullmatch(value), message)
+    return value
 
 
 def command(*args, input=None):
@@ -28,26 +77,34 @@ def command(*args, input=None):
 
 
 def read(path):
-    return json.loads(path.read_text())
+    return json.loads(Path(path).read_text())
 
 
 def write(path, value):
+    """Persist JSON atomically.
+
+    A reader never sees a partial file. A ``result.json`` that could not be
+    acknowledged durably is removed again, so an unacknowledged result is never
+    read as a finished deployment. Other files keep what replaced them.
+    """
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     descriptor, temporary = tempfile.mkstemp(dir=path.parent)
+    replaced = False
     try:
         with os.fdopen(descriptor, "w") as handle:
             json.dump(value, handle, sort_keys=True)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+        replaced = True
         directory = os.open(path.parent, os.O_RDONLY)
         try:
             os.fsync(directory)
         finally:
             os.close(directory)
     except OSError:
-        # A result is never accepted after a failed persistence acknowledgement.
-        if path.name == "result.json" and not Path(temporary).exists():
+        if replaced and path.name == "result.json":
             path.unlink(missing_ok=True)
         raise
     finally:
@@ -59,21 +116,32 @@ def state_dir():
 
 
 def active(state):
-    name = read(state / "active.json")["attempt"]
-    require(re.fullmatch(r"[0-9a-f]{32}", name), "invalid attempt identity")
+    """The attempt that owns the runtime now, per the durable active pointer."""
+    name = require_match(read(state / "active.json")["attempt"], ATTEMPT_ID, "invalid attempt identity")
     return state / "attempts" / name
+
+
+def require_exact_source(expected, message="release source is not the exact clean checkout"):
+    """The checkout must be exactly this commit with no local change at all."""
+    require(command("git", "rev-parse", "HEAD") == expected
+            and not command("git", "status", "--porcelain", "--untracked-files=all"), message)
 
 
 def platform():
     system, arch = command("docker", "info", "--format", "{{.OSType}}/{{.Architecture}}").split("/")
-    arch = {"x86_64": "amd64", "aarch64": "arm64"}.get(arch, arch)
+    arch = ARCHITECTURES.get(arch, arch)
     require(system == "linux" and arch in {"amd64", "arm64"}, "unsupported Docker platform")
     return f"{system}/{arch}"
 
 
 def image(ref, target_platform, source=None):
+    """Inspect one image and refuse anything but the exact expected identity.
+
+    A digest ref must resolve to itself, the platform must match the target, and
+    an application image must also prove the source SHA in label and environment.
+    """
     info = json.loads(command("docker", "image", "inspect", ref))[0]
-    require(re.fullmatch(r"sha256:[0-9a-f]{64}", info["Id"]), "invalid image ID")
+    require_match(info["Id"], SHA256, "invalid image ID")
     require(not ref.startswith("sha256:") or info["Id"] == ref, "image ID mismatch")
     require(f"{info['Os']}/{info['Architecture']}" == target_platform, "image platform mismatch")
     if source is not None:
@@ -83,13 +151,14 @@ def image(ref, target_platform, source=None):
 
 
 def compose_config(source):
+    """The release services as resolved from that exact commit, without a checkout."""
     text = command("git", "show", f"{source}:infra/docker-compose.yml")
     config = json.loads(command("docker", "compose", "--project-directory", str(Path.cwd() / "infra"),
                                 "--profile", "operations", "-f", "-", "config", "--format", "json", input=text))
     require(config.get("name") == PROJECT, "unexpected Compose project")
     services = {}
     for name, service in config["services"].items():
-        require(re.fullmatch(r"rec-[a-z0-9-]+", name), "invalid Compose service")
+        require_match(name, SERVICE, "invalid Compose service")
         build = service.get("build")
         target = None
         if build:
@@ -97,126 +166,192 @@ def compose_config(source):
                     and Path(build["context"]).resolve() == Path.cwd().resolve()
                     and build.get("dockerfile") == "infra/server/Dockerfile", "unsupported release build configuration")
             target = build.get("target", "runtime")
-            require(target in {"runtime", "media-runtime"}, "unknown release target")
+            require(target in TARGETS, "unknown release target")
         ref = service.get("image") or f"{PROJECT}-{name}"
-        require(isinstance(ref, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/@-]*", ref), "invalid image ref")
+        require_match(ref, IMAGE_REF, "invalid image ref")
         services[name] = dict(ref=ref, target=target)
-    require(services and any(s["target"] for s in services.values()), "missing application services")
+    require(services and any(row["target"] for row in services.values()), "missing application services")
     return services
 
 
 def containers():
+    """Every non-one-off container of this Compose project, keyed by service."""
     ids = command("docker", "ps", "-aq", "--filter", f"label=com.docker.compose.project={PROJECT}").splitlines()
     if not ids:
         return {}
-    result = {}
+    observed = {}
     for row in json.loads(command("docker", "inspect", *ids)):
         labels = row["Config"].get("Labels", {})
         require(labels.get("com.docker.compose.project") == PROJECT, "container project mismatch")
         if labels.get("com.docker.compose.oneoff", "false").lower() == "true":
             continue
         name = labels.get("com.docker.compose.service")
-        require(name and name not in result, "missing/ambiguous container service")
-        result[name] = dict(id=row["Id"], image=row["Image"], running=row["State"]["Running"])
-    return result
+        require(name and name not in observed, "missing/ambiguous container service")
+        observed[name] = dict(id=row["Id"], image=row["Image"], running=row["State"]["Running"])
+    return observed
 
 
 def override(images):
+    """The pinned image override for one recorded side of an attempt."""
     return {"services": {name: {"image": row["image"], "pull_policy": "never"} for name, row in images.items()}}
 
 
 def validate_override(path):
+    """Refuse any override that is not exactly a mapping of service to pinned image."""
     value = read(path)
     require(set(value) == {"services"} and value["services"], "invalid image override")
     for name, row in value["services"].items():
-        require(re.fullmatch(r"rec-[a-z0-9-]+", name) and set(row) == {"image", "pull_policy"}
-                and re.fullmatch(r"sha256:[0-9a-f]{64}", row["image"])
-                and row["pull_policy"] == "never", "unsafe image override")
+        pinned = (isinstance(name, str) and SERVICE.fullmatch(name)
+                  and isinstance(row, dict) and set(row) == {"image", "pull_policy"}
+                  and isinstance(row["image"], str) and SHA256.fullmatch(row["image"])
+                  and row["pull_policy"] == "never")
+        require(pinned, "unsafe image override")
     return value
 
 
+def pinned_image(path, service):
+    """One pinned image ID out of a validated override."""
+    services = validate_override(path)["services"]
+    require(service in services, f"{service} is not part of this release override")
+    return services[service]["image"]
+
+
 def retain(images):
+    """Hold every image of a side under an immutable local tag.
+
+    A later build or pull can move the tag a recorded ID came from; the explicit
+    ``graf-release/retained`` tag keeps the exact image alive instead.
+    """
     for identity in {row["image"] for row in images.values()}:
         command("docker", "image", "tag", identity, f"graf-release/retained:{identity[7:]}")
 
 
-def prepare(args):
-    require(re.fullmatch(r"[0-9a-f]{40}", args.source_sha)
-            and re.fullmatch(r"[0-9a-f]{40}", args.previous_sha), "invalid source SHA")
-    require(re.fullmatch(r"rc-[A-Za-z0-9-]{1,100}", args.candidate_id), "invalid candidate ID")
-    require(re.fullmatch(r"[0-9a-f]{32}", args.attempt_id), "invalid attempt ID")
-    require(all(re.fullmatch(r"sha256:[0-9a-f]{64}", value)
-                for value in [args.decision_digest, args.full_digest]), "invalid release evidence identity")
-    require(command("git", "rev-parse", "HEAD") == args.source_sha, "checkout source mismatch")
-    require(not command("git", "status", "--porcelain", "--untracked-files=all"), "dirty release source")
-    state = state_dir()
-    state.mkdir(parents=True, exist_ok=True, mode=0o700)
-    prior = None
-    if (state / "active.json").exists():
-        prior = active(state)
-        require((prior / "result.json").is_file(), "unfinished deployment requires explicit recovery; baseline retained")
-        require(read(prior / "result.json")["result"] in {"deployed", "unchanged", "restored"}, "unknown deployment outcome")
-    target_platform = platform()
-    old, new = compose_config(args.previous_sha), compose_config(args.source_sha)
-    observed = containers()
-    require(observed.get("rec-api", {}).get("running") is True, "previous API is not running")
-    prior_images = {}
-    if prior:
-        prior_result = read(prior / "result.json")
-        prior_data = read(prior / ("candidate.json" if prior_result["result"] == "deployed" else "baseline.json"))
-        if prior_data["source_sha"] == args.previous_sha:
-            prior_images = prior_data["images"]
-    previous = {}
-    for service, row in old.items():
-        ref = observed.get(service, {}).get("image") or prior_images.get(service, {}).get("image") or row["ref"]
-        previous[service] = dict(row, image=image(ref, target_platform))
+def recorded_images(state, previous_sha):
+    """Images recorded by the completed attempt whose runtime this deploy replaces.
+
+    Only a finished attempt may be replaced, and its record may supply an image ID
+    only when it describes exactly this previous source SHA.
+    """
+    if not (state / "active.json").exists():
+        return {}
+    prior = active(state)
+    result_file = prior / "result.json"
+    require(result_file.is_file(), "unfinished deployment requires explicit recovery; baseline retained")
+    result = read(result_file).get("result")
+    require(result in RESULTS, "unknown deployment outcome")
+    data = read(prior / SIDES[RESULTS[result]]["record"])
+    return data["images"] if data["source_sha"] == previous_sha else {}
+
+
+def previous_image(service, row, observed, recorded, target_platform):
+    """One previous image: the live container, else a recorded ID, else the Compose ref."""
+    ref = observed.get(service, {}).get("image") or recorded.get(service, {}).get("image") or row["ref"]
+    return image(ref, target_platform)
+
+
+def candidate_image(service, row, previous, targets, target_platform, source_sha):
+    """One candidate image: built from this source SHA, reused, or pulled by exact ref."""
+    if row["target"]:
+        return image(targets[row["target"]], target_platform, source_sha)
+    if service in previous and row["ref"] == previous[service]["ref"]:
+        # An unchanged third-party ref reuses the exact ID already verified as previous.
+        return image(previous[service]["image"], target_platform)
+    # A changed third-party ref is pulled before downtime and pinned by its measured ID.
+    command("docker", "pull", "--platform", target_platform, row["ref"])
+    return image(row["ref"], target_platform)
+
+
+def build_targets(state, attempt, source_sha, target_platform):
+    """Both application images for this exact source SHA, reused or built.
+
+    Returns the target IDs and the cache file to publish once the checkout is
+    confirmed unchanged, or ``None`` when cached images were reused. Every cached
+    image is inspected again: a stale ID, platform, source label or environment
+    is a hard failure, never a silent rebuild.
+    """
+    cache = state / "images" / f"{source_sha}-{target_platform.replace('/', '-')}.json"
+    cached = read(cache) if cache.exists() else None
+    if cached:
+        require(cached.get("source_sha") == source_sha and cached.get("platform") == target_platform,
+                "cached image identity mismatch")
+        require(set(cached["targets"]) == set(TARGETS), "incomplete cached targets")
+        return {name: image(ref, target_platform, source_sha) for name, ref in cached["targets"].items()}, None
+    targets = {}
+    for target in TARGETS:
+        iidfile = attempt / f"{target}.iid"
+        command("docker", "build", "--platform", target_platform, "--target", target,
+                "--build-arg", f"GRAF_DEV_SOURCE_SHA={source_sha}", "--iidfile", str(iidfile),
+                "-f", "infra/server/Dockerfile", ".")
+        targets[target] = image(iidfile.read_text().strip(), target_platform, source_sha)
+    retain({target: dict(image=identity) for target, identity in targets.items()})
+    return targets, cache
+
+
+def claim_attempt(state, args, target_platform, previous, observed):
+    """Create the create-once attempt and make it the active one.
+
+    The baseline, the pinned previous override, the release identity and an
+    immutable copy of this helper are durable before ``active.json`` names the
+    attempt, so an active attempt always has a recorded baseline to recover from.
+    """
     attempt = state / "attempts" / args.attempt_id
     require(not attempt.exists(), "deployment attempt is create-once")
-    baseline = dict(schema_version=1, source_sha=args.previous_sha, platform=target_platform,
-                    images=previous, containers=observed)
-    write(attempt / "baseline.json", baseline)
+    write(attempt / "baseline.json", dict(schema_version=1, source_sha=args.previous_sha,
+                                          platform=target_platform, images=previous, containers=observed))
     write(attempt / "previous.json", override(previous))
     write(attempt / "identity.json", dict(source_sha=args.source_sha, candidate_id=args.candidate_id,
                                           decision_digest=args.decision_digest, full_digest=args.full_digest))
-    # Keep the helper across the existing rollback's source reset.
     helper = attempt / "release-images.py"
     with helper.open("xb") as handle:
+        # Keep the helper across the existing rollback's source reset.
         handle.write(Path(__file__).read_bytes())
         handle.flush()
         os.fsync(handle.fileno())
     # The deploy lock serializes attempts. A completed predecessor alone may be replaced.
     write(state / "active.json", dict(attempt=attempt.name))
+    return attempt
+
+
+def prepare(args):
+    """Claim one attempt: record the previous images, then resolve the candidate images."""
+    # The request must be exactly identified before any state is touched.
+    require_match(args.source_sha, SOURCE_SHA, "invalid source SHA")
+    require_match(args.previous_sha, SOURCE_SHA, "invalid source SHA")
+    require_match(args.candidate_id, CANDIDATE_ID, "invalid candidate ID")
+    require_match(args.attempt_id, ATTEMPT_ID, "invalid attempt ID")
+    for digest_value in (args.decision_digest, args.full_digest):
+        require_match(digest_value, SHA256, "invalid release evidence identity")
+    require_exact_source(args.source_sha)
+
+    # A finished attempt may be replaced; an attempt without a result must not be.
+    state = state_dir()
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    recorded = recorded_images(state, args.previous_sha)
+
+    # Both sides are resolved before anything is claimed: nothing that can still
+    # reject this release may leave an unfinished attempt behind.
+    target_platform = platform()
+    previous_config, candidate_config = compose_config(args.previous_sha), compose_config(args.source_sha)
+    observed = containers()
+    require(observed.get("rec-api", {}).get("running") is True, "previous API is not running")
+    # Previous identities come from the running runtime, never from a moving tag.
+    previous = {service: dict(row, image=previous_image(service, row, observed, recorded, target_platform))
+                for service, row in previous_config.items()}
+
+    attempt = claim_attempt(state, args, target_platform, previous, observed)
+    # Hold every previous ID before the first build can move a tag it came from.
     retain(previous)
-    cache = state / "images" / f"{args.source_sha}-{target_platform.replace('/', '-')}.json"
-    cached = read(cache) if cache.exists() else None
-    if cached:
-        require(cached.get("source_sha") == args.source_sha and cached.get("platform") == target_platform,
-                "cached image identity mismatch")
-        require(set(cached["targets"]) == {"runtime", "media-runtime"}, "incomplete cached targets")
-        targets = {name: image(ref, target_platform, args.source_sha) for name, ref in cached["targets"].items()}
-    else:
-        targets = {}
-        for target in ("runtime", "media-runtime"):
-            iidfile = attempt / f"{target}.iid"
-            command("docker", "build", "--platform", target_platform, "--target", target,
-                    "--build-arg", f"GRAF_DEV_SOURCE_SHA={args.source_sha}", "--iidfile", str(iidfile),
-                    "-f", "infra/server/Dockerfile", ".")
-            targets[target] = image(iidfile.read_text().strip(), target_platform, args.source_sha)
-        retain({name: {"image": identity} for name, identity in targets.items()})
-    candidate = {}
-    for service, row in new.items():
-        if row["target"]:
-            ref = targets[row["target"]]
-        elif service in previous and row["ref"] == previous[service]["ref"]:
-            ref = previous[service]["image"]
-        else:
-            command("docker", "pull", "--platform", target_platform, row["ref"])
-            ref = row["ref"]
-        candidate[service] = dict(row, image=image(ref, target_platform, args.source_sha if row["target"] else None))
+
+    # Candidate identities: built, reused, or pulled before downtime.
+    targets, cache = build_targets(state, attempt, args.source_sha, target_platform)
+    candidate = {service: dict(row, image=candidate_image(service, row, previous, targets,
+                                                          target_platform, args.source_sha))
+                 for service, row in candidate_config.items()}
     retain(candidate)
-    require(command("git", "rev-parse", "HEAD") == args.source_sha
-            and not command("git", "status", "--porcelain", "--untracked-files=all"), "release source changed during preparation")
-    if cached is None:
+
+    # Neither a moved checkout nor a changed tree may publish a reusable cache.
+    require_exact_source(args.source_sha, "release source changed during preparation")
+    if cache is not None:
         write(cache, dict(source_sha=args.source_sha, platform=target_platform, targets=targets))
     write(attempt / "candidate.json", dict(schema_version=1, source_sha=args.source_sha,
                                            platform=target_platform, images=candidate))
@@ -225,7 +360,8 @@ def prepare(args):
 
 
 def verify(attempt, side, services=()):
-    data = read(attempt / ("candidate.json" if side == "candidate" else "baseline.json"))
+    """Prove the running runtime uses exactly the images recorded for one side."""
+    data = read(attempt / SIDES[side]["record"])
     require(data["platform"] == platform(), "Docker platform changed")
     current = containers()
     names = set(services) or {name for name, row in current.items() if row["running"]}
@@ -237,6 +373,8 @@ def verify(attempt, side, services=()):
 
 
 def finish(state, result, attempt_id):
+    """Write the one terminal result of this attempt, and only after verification."""
+    require(result in RESULTS, "unknown deployment outcome")
     attempt = active(state)
     require(attempt.name == attempt_id, "cannot finish another deployment attempt")
     require(not (attempt / "result.json").exists(), "deployment result is create-once")
@@ -244,30 +382,33 @@ def finish(state, result, attempt_id):
     if result == "unchanged":
         require(containers() == baseline["containers"], "runtime changed during preparation")
     else:
-        side = "candidate" if result == "deployed" else "previous"
-        current = verify(attempt, side)
+        current = verify(attempt, RESULTS[result])
         required = {name for name, row in baseline["containers"].items() if row["running"]}
         if result == "restored":
-            required.discard("rec-media-worker")  # Existing safe-processing rollback deliberately disables media.
+            required.discard(MEDIA_WORKER)  # Existing safe-processing rollback deliberately disables media.
         else:
-            required.add("rec-media-worker")
-        require(required <= {name for name, row in current.items() if row["running"]}, "recovered runtime is incomplete")
+            required.add(MEDIA_WORKER)
+        require(required <= {name for name, row in current.items() if row["running"]},
+                "recovered runtime is incomplete")
     write(attempt / "result.json", dict(result=result))
     # Keep active.json: only this durable result permits the next locked attempt.
 
 
 def current_override():
+    """The pinned override of the runtime that is live now, or None before the first deploy."""
     state = state_dir()
     if not (state / "active.json").exists():
         return None  # First transition: the existing standalone Compose contract still applies.
     attempt = active(state)
+    # An attempt without a result has no live release to describe; reading it must fail.
     result = read(attempt / "result.json")["result"]
-    require(result in {"deployed", "unchanged", "restored"}, "unfinished deployment requires recovery")
-    candidate = result == "deployed"
-    data = read(attempt / ("candidate.json" if candidate else "baseline.json"))
-    require(data["source_sha"] == command("git", "rev-parse", "HEAD"), "standalone source differs from deployed images")
-    verify(attempt, "candidate" if candidate else "previous")
-    path = attempt / ("override.json" if candidate else "previous.json")
+    require(result in RESULTS, "unfinished deployment requires recovery")
+    side = RESULTS[result]
+    data = read(attempt / SIDES[side]["record"])
+    require(data["source_sha"] == command("git", "rev-parse", "HEAD"),
+            "standalone source differs from deployed images")
+    verify(attempt, side)
+    path = attempt / SIDES[side]["override"]
     validate_override(path)
     return path
 
@@ -280,13 +421,13 @@ def main():
         prepare_args.add_argument("--" + field, required=True)
     prepare_args.add_argument("--attempt-id", required=True)
     verify_args = commands.add_parser("verify")
-    verify_args.add_argument("side", choices=("candidate", "previous"))
+    verify_args.add_argument("side", choices=tuple(SIDES))
     verify_args.add_argument("services", nargs="*")
     finish_args = commands.add_parser("finish")
-    finish_args.add_argument("result", choices=("deployed", "unchanged", "restored"))
+    finish_args.add_argument("result", choices=tuple(RESULTS))
     finish_args.add_argument("--attempt-id", required=True)
     image_args = commands.add_parser("image")
-    image_args.add_argument("side", choices=("candidate", "previous"))
+    image_args.add_argument("side", choices=tuple(SIDES))
     image_args.add_argument("service")
     override_args = commands.add_parser("validate-override")
     override_args.add_argument("path", type=Path)
@@ -300,7 +441,12 @@ def main():
             validate_override(args.path)
         elif args.operation == "current-override":
             path = current_override()
-            print((validate_override(path)["services"][args.service]["image"] if args.service else path) if path else "")
+            if path is None:
+                print("")
+            elif args.service:
+                print(pinned_image(path, args.service))
+            else:
+                print(path)
         else:
             state = state_dir()
             attempt = active(state)
@@ -309,10 +455,10 @@ def main():
             elif args.operation == "finish":
                 finish(state, args.result, args.attempt_id)
             else:
-                path = attempt / ("override.json" if args.side == "candidate" else "previous.json")
-                print(validate_override(path)["services"][args.service]["image"])
-    except (OSError, ValueError, KeyError, TypeError):
-        print("release-images: preparation/identity/state check failed; active baseline retained", file=sys.stderr)
+                print(pinned_image(attempt / SIDES[args.side]["override"], args.service))
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        print(f"release-images: {args.operation} refused: {error}; "
+              "no unverified image is published and any recorded baseline is retained", file=sys.stderr)
         return 1
     return 0
 

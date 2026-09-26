@@ -230,8 +230,7 @@ async def _seed_processed_rows(
                 .order_by(TrackArtifact.track_role)
             )
         ).all()
-        mic = next(artifact for artifact in artifacts if artifact.track_role == TrackRole.MICROPHONE.value)
-        system = next(artifact for artifact in artifacts if artifact.track_role == TrackRole.SYSTEM.value)
+        source = next(artifact for artifact in artifacts if artifact.track_role == TrackRole.MEDIA.value)
         media_revision = await db.scalar(
             select(MediaRevision).where(
                 MediaRevision.workspace_id == WORKSPACE_ID,
@@ -260,8 +259,8 @@ async def _seed_processed_rows(
             processing_workflow_id=workflow.id,
             external_job_id=external_job_id,
             status=MediaScribeJobStatus.READY.value,
-            mic_track_artifact_id=mic.id,
-            incoming_track_artifact_id=system.id,
+            request_mode="single_track",
+            source_track_artifact_id=source.id,
             submitted_at=datetime.now(UTC) - timedelta(minutes=7),
             ready_at=datetime.now(UTC) - timedelta(minutes=3),
         )
@@ -305,8 +304,8 @@ async def _seed_processed_rows(
                         start_seconds=Decimal("0.000"),
                         end_seconds=Decimal("12.500"),
                         text=SAFE_TRANSCRIPT_TEXT,
-                        source_role="mic",
-                        source_role_original="microphone",
+                        source_role="mixed",
+                        source_role_original="mixed",
                     ),
                     TranscriptSegment(
                         processing_result_id=result.id,
@@ -316,8 +315,8 @@ async def _seed_processed_rows(
                         start_seconds=Decimal("12.500"),
                         end_seconds=Decimal("28.000"),
                         text=SAFE_SECOND_TRANSCRIPT_TEXT,
-                        source_role="incoming",
-                        source_role_original="system",
+                        source_role="mixed",
+                        source_role_original="mixed",
                     ),
                 ]
             )
@@ -333,7 +332,7 @@ async def _seed_processed_rows(
                         end_seconds=Decimal("12.500"),
                         speaker_label="Speaker 1",
                         text=SAFE_TRANSCRIPT_TEXT,
-                        source_role="mic",
+                        source_role="mixed",
                     ),
                     DiarizationSegment(
                         processing_result_id=result.id,
@@ -344,7 +343,7 @@ async def _seed_processed_rows(
                         end_seconds=Decimal("28.000"),
                         speaker_label="Speaker 2",
                         text=SAFE_SECOND_TRANSCRIPT_TEXT,
-                        source_role="incoming",
+                        source_role="mixed",
                     ),
                 ]
             )

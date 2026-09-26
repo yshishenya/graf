@@ -259,10 +259,16 @@ trap cleanup_on_exit EXIT
 infra/scripts/validate-production-config.sh
 infra/scripts/verify-rec-migration.sh --execute
 
-"${compose[@]}" exec -T rec-api \
-  python scripts/create_test_artifact.py \
-  --out "$SMOKE_ARTIFACT_DIR" \
-  --duration-seconds "${TWOBRAIN_SMOKE_DURATION_SECONDS:-3}" >"$SMOKE_ARTIFACT_JSON"
+# Only media-runtime contains ffmpeg. Its generator uses writable TMPDIR and
+# removes its private temporary directory even when the pipe fails. The API
+# accepts only a bounded tar of three allowlisted regular files. pipefail keeps
+# either side's failure ahead of auth creation and upload.
+"${compose[@]}" exec -T rec-media-worker \
+  python scripts/create_test_artifact.py --stream \
+  --duration-seconds "${TWOBRAIN_SMOKE_DURATION_SECONDS:-3}" | \
+  "${compose[@]}" exec -T rec-api \
+    python scripts/create_test_artifact.py --receive \
+    --out "$SMOKE_ARTIFACT_DIR" >"$SMOKE_ARTIFACT_JSON"
 
 "${compose[@]}" exec -T rec-api \
   sh -eu -c '
@@ -315,6 +321,7 @@ if [[ "$OUTCOME_SMOKE_ENABLED" == "true" ]]; then
     python scripts/seed_smoke_outcome.py \
     --run-id "$RUN_ID" \
     --meeting-id "$SMOKE_MEETING_ID" \
+    --media-revision-id "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["media_revision_id"])' "$SMOKE_UPLOAD_JSON")" \
     --execute >"$SMOKE_OUTCOME_SEED_JSON"
 
   "${compose[@]}" exec -T rec-api \

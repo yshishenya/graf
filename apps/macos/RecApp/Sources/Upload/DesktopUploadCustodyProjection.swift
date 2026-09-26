@@ -239,6 +239,19 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
             )
         }
 
+        if item.hasUnsupportedRecordingSource && !item.state.isTerminal {
+            return Rule(
+                custodyState: .cannotSend,
+                owner: .support,
+                retryClass: .notRetryable,
+                normalUserAction: .none,
+                displayPriority: 2,
+                reviewAvailable: false,
+                retentionDeadline: item.retentionDeadline,
+                copyKey: "custody.cannot_send"
+            )
+        }
+
         if isQualityWarning(item.failureReason) {
             return Rule(
                 custodyState: .serverUnknownLocalSaved,

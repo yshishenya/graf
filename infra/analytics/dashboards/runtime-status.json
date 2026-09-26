@@ -1,0 +1,125 @@
+{
+  "schema": "graf.analytics.report-runtime-status.v1",
+  "feature": "273-paid-traffic-analytics",
+  "checked_surface": {
+    "kind": "server_product_analytics_api",
+    "endpoint": "GET /api/v1/product-analytics/reports",
+    "implementation": "apps/server/src/twobrain_rec_server/product_analytics/report_surface.py",
+    "response_schema": "graf-product-analytics-report-surface-v1",
+    "authentication": "required"
+  },
+  "status": "partially_applied",
+  "summary": "Серверная поверхность уже выдаёт честные данные для R07 и R11. Остальные определения отчётов подготовлены, но их применение к PostHog и Метрике остаётся действием оператора.",
+  "server_surface": {
+    "status": "implemented",
+    "implemented_reports": ["R07", "R11"],
+    "report_keys": {
+      "R07": "cost_per_result",
+      "R11": "consent_share"
+    },
+    "owners": {
+      "R07": "growth analytics operator",
+      "R11": "privacy/security reviewer"
+    },
+    "response_fields": [
+      "schema",
+      "owners",
+      "reports",
+      "consent_share",
+      "cost_per_result",
+      "aggregate_state",
+      "counts_state",
+      "minimum_bucket_size",
+      "caveats",
+      "blocked_reasons"
+    ],
+    "honesty_guarantees": [
+      "Недоступный агрегат уровня 1 возвращается как состояние пробела, а не как ноль.",
+      "Отсутствующий или неполный расход не даёт стоимости результата.",
+      "Ноль результатов не превращается в нулевую стоимость.",
+      "Доля согласия не публикуется при недоступном или слишком маленьком знаменателе.",
+      "Ответ содержит владельцев, источники и обязательные оговорки для чтения результата."
+    ],
+    "operator_inputs": [
+      "TWOBRAIN_PRODUCT_ANALYTICS_REPORT_COUNTS_FILE",
+      "TWOBRAIN_PRODUCT_ANALYTICS_AD_CABINET_EXPORT_FILE"
+    ],
+    "unavailable_inputs_are": "нет данных с blocked_reason, а не 0"
+  },
+  "definition_only_reports": {
+    "status": "definition_prepared_operator_apply_required",
+    "report_ids": [
+      "R01",
+      "R02",
+      "R03",
+      "R04",
+      "R05",
+      "R06",
+      "R08",
+      "R09",
+      "R10",
+      "R12",
+      "R13",
+      "R14"
+    ],
+    "posthog": {
+      "status": "definition_prepared_operator_apply_required",
+      "provider_delivery_status": "provider_delivery_disabled",
+      "operator_action": "Создать дашборды по posthog/dashboards.json после разрешения доставки событий и проверки формы Insights API."
+    },
+    "yandex": {
+      "status": "definition_prepared_operator_apply_required",
+      "operator_action": "Создать отчёты по yandex/reports.json, подставив рабочий идентификатор счётчика и цели только во время применения."
+    }
+  },
+  "requirements": {
+    "FR-040": {
+      "status": "definition_prepared_operator_apply_required",
+      "server_reports": [],
+      "definition_reports": ["R01", "R02", "R03", "R04", "R05", "R06", "R08", "R09", "R10", "R12", "R13", "R14"],
+      "operator_action": "Применить определения провайдеров и подтвердить свежесть и доставку."
+    },
+    "FR-041": {
+      "status": "partially_implemented",
+      "server_reports": ["R07"],
+      "definition_reports": ["R07", "R08"],
+      "operator_action": "Загружать ежедневную выгрузку расхода кабинета и контролировать полноту периода."
+    },
+    "FR-042": {
+      "status": "partially_implemented",
+      "server_reports": ["R07", "R11"],
+      "definition_reports": ["R01", "R02", "R03", "R04", "R05", "R06", "R07", "R08", "R09", "R10", "R11", "R12", "R13", "R14"],
+      "operator_action": "Применить определения провайдеров; серверная поверхность уже возвращает владельцев и оговорки для R07 и R11."
+    },
+    "FR-043": {
+      "status": "definition_prepared_operator_apply_required",
+      "server_reports": ["R07"],
+      "definition_reports": ["R04", "R05", "R07"],
+      "operator_action": "При применении оставить нажатие, состоявшееся скачивание, запуск и первую ценность отдельными показателями."
+    }
+  },
+  "operator_required": true,
+  "no_live_provider_connection": true,
+  "operator_evidence": {
+    "schema": "graf.analytics.operator-evidence.v1",
+    "mode": "metadata_only",
+    "receipts": [
+      {
+        "kind": "dashboard",
+        "status": "partially_applied",
+        "receipt": null
+      },
+      {
+        "kind": "rollback",
+        "status": "metadata_only_not_executed",
+        "receipt": null
+      },
+      {
+        "kind": "alert",
+        "status": "metadata_only_not_executed",
+        "receipt": null
+      }
+    ]
+  },
+  "checked_by": "automated_contract_test_product_analytics_report_runtime_status"
+}

@@ -14,6 +14,9 @@ from twobrain_rec_server.product_analytics.forbidden_fields import (
     assert_no_forbidden_fields,
     assert_no_security_credential_fields,
 )
+from twobrain_rec_server.product_analytics.provider_delivery_gate import (
+    resolve_provider_delivery_gate,
+)
 from twobrain_rec_server.product_analytics.provider_secrets import (
     ProviderSecretError,
     read_secret_file,
@@ -60,6 +63,8 @@ class PostHogClientWrapper:
         project_key_present: bool,
         validation_mode: str,
         live_delivery_allowed: bool,
+        settings: Settings | None = None,
+        environ: Mapping[str, str] | None = None,
         transport: ProviderTransport | None = None,
         timeout_seconds: float = 5.0,
     ) -> None:
@@ -69,11 +74,18 @@ class PostHogClientWrapper:
         self.project_key_present = project_key_present
         self.validation_mode = validation_mode
         self.live_delivery_allowed = live_delivery_allowed
+        self.settings = settings
+        self.environ = environ
         self.transport = transport or _default_json_transport
         self.timeout_seconds = timeout_seconds
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> PostHogClientWrapper:
+    def from_settings(
+        cls,
+        settings: Settings,
+        *,
+        environ: Mapping[str, str] | None = None,
+    ) -> PostHogClientWrapper:
         project_key_status = secret_file_status(
             settings.product_analytics_posthog_project_key_file,
             logical_name="POSTHOG_PROJECT_KEY",
@@ -85,6 +97,8 @@ class PostHogClientWrapper:
             project_key_present=project_key_status.present,
             validation_mode=settings.product_analytics_validation_mode,
             live_delivery_allowed=settings.product_analytics_live_provider_delivery_allowed(),
+            settings=settings,
+            environ=environ,
         )
 
     def capture(self, event: ProductActivationEvent) -> ProviderDeliveryResult:
@@ -153,6 +167,26 @@ class PostHogClientWrapper:
                 "live_safe_blocked",
                 "Live PostHog delivery requires explicit production rollout approval",
                 retryable=True,
+            )
+        if self.settings is None:
+            return ProviderDeliveryResult(
+                "posthog",
+                "live_safe_blocked",
+                "Live PostHog delivery requires a resolved readiness gate",
+                retryable=True,
+            )
+        delivery_gate = resolve_provider_delivery_gate(
+            self.settings,
+            provider="posthog",
+            environ=self.environ,
+        )
+        if not delivery_gate.allowed:
+            return ProviderDeliveryResult(
+                "posthog",
+                "live_safe_blocked",
+                "Live PostHog delivery is blocked by rollout readiness",
+                retryable=True,
+                metadata={"blockers": list(delivery_gate.blockers)},
             )
         try:
             project_key = read_secret_file(self.project_key_file, logical_name="POSTHOG_PROJECT_KEY").value

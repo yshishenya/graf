@@ -45,12 +45,14 @@ from twobrain_rec_server.cabinet.web_routes.settings import router
 from twobrain_rec_server.cabinet.web_routes.spaces import router as spaces_router
 
 
-def test_feature_159_login_copy_is_truthful_without_removing_explicit_signup_routes() -> None:
+def test_feature_272_login_copy_is_truthful_without_removing_explicit_signup_routes() -> None:
     login = render_login_page(workspace_id=UUID(int=1), providers=[])
     signup = render_signup_page(workspace_id=UUID(int=1), providers=[], mode="email")
     routes = {route.path for route in auth_router.routes if isinstance(route, APIRoute)}
 
-    assert "Обычный вход не создает аккаунт автоматически." in login
+    assert "Если аккаунта GRAF еще нет, он создастся автоматически." in login
+    assert "не создает аккаунт" not in login
+    assert "отдельную ссылку регистрации" not in login
     assert "Зарегистрироваться" not in login
     assert 'action="/sign-up/email/start"' in signup
     assert "/sign-up" in routes

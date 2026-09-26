@@ -168,7 +168,7 @@ final class DesktopNotificationControlTests: XCTestCase {
 
     func testNotificationClickUsesCurrentPermittedUnexpiredMeetingURL() {
         let now = Date(timeIntervalSince1970: 1000)
-        let old = DesktopCalendarPromptEvent(eventId: "event", startsAt: now, endsAt: now.addingTimeInterval(3600), openMeetingURL: URL(string: "https://example.test/old"))
+        let old = DesktopCalendarPromptEvent(eventId: "event", startsAt: now, endsAt: now.addingTimeInterval(3600), meetingLinkPresent: true, openMeetingURL: URL(string: "https://example.test/old"))
         var current = old
         current.openMeetingURL = URL(string: "https://example.test/current")
         XCTAssertEqual(DesktopNotificationPresenter.currentMeetingURL(for: old, events: [current], now: now), current.openMeetingURL)
@@ -248,14 +248,14 @@ final class DesktopNotificationControlTests: XCTestCase {
             owner: "owner", expires: .distantFuture, scheduledFor: moved.startsAt, now: now.addingTimeInterval(7200)))
     }
 
-    func testRecordingSuppressesOnlyItsCalendarOccurrence() {
+    func testRecordingSuppressesEveryCalendarOccurrence() {
         let now = Date(timeIntervalSince1970: 1000)
         let event = DesktopCalendarPromptEvent(eventId: "other-meeting", startsAt: now, endsAt: now.addingTimeInterval(3600))
         var snapshot = DesktopControlSnapshot()
         snapshot.stopping = true
-        XCTAssertTrue(DesktopNotificationPresenter.shouldRemind(event, snapshot: snapshot, now: now), "Manual recording keeps calendar reminders")
+        XCTAssertFalse(DesktopNotificationPresenter.shouldRemind(event, snapshot: snapshot, now: now), "переход записи не должен предлагать вторую запись")
         snapshot.calendarContextEventID = "recorded-meeting"
-        XCTAssertTrue(DesktopNotificationPresenter.shouldRemind(event, snapshot: snapshot, now: now))
+        XCTAssertFalse(DesktopNotificationPresenter.shouldRemind(event, snapshot: snapshot, now: now))
         snapshot.calendarContextEventID = event.eventId
         XCTAssertFalse(DesktopNotificationPresenter.shouldRemind(event, snapshot: snapshot, now: now))
         snapshot.stopping = false

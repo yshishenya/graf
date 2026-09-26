@@ -184,7 +184,7 @@ class MediaScribeJob(Base):
         ForeignKey("track_artifacts.id")
     )
     source_track_artifact_id: Mapped[UUID | None] = mapped_column(ForeignKey("track_artifacts.id"))
-    request_mode: Mapped[str] = mapped_column(String(64), default="dual_track")
+    request_mode: Mapped[str] = mapped_column(String(64), default="single_track")
     diarize: Mapped[bool] = mapped_column(Boolean, default=True)
     summarize: Mapped[bool] = mapped_column(Boolean, default=False)
     speaker_count_mode: Mapped[str | None] = mapped_column(String(32))

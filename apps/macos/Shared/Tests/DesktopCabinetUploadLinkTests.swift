@@ -185,29 +185,15 @@ final class DesktopCabinetUploadLinkTests: XCTestCase {
         serverTruth: ServerTruthFingerprint,
         syncConflictState: DesktopSyncConflictState = .none
     ) -> DesktopUploadQueueItem {
-        let profile = ArtifactCompletenessProfile(
-            schemaVersion: LocalRecordingManifest.legacySchemaVersion,
-            manifestPresent: true,
-            microphonePresent: true,
-            systemAudioPresent: true,
-            manifestSha256: String(repeating: "a", count: 64),
-            microphoneSha256: String(repeating: "b", count: 64),
-            systemAudioSha256: String(repeating: "c", count: 64),
-            manifestSizeBytes: 64,
-            microphoneSizeBytes: 128,
-            systemAudioSizeBytes: 128,
-            durationSeconds: 1,
-            trackCompleteness: [],
-            isUploadable: true
-        )
+        let profile = custodyFixtureProfile()
         return DesktopUploadQueueItem(
             id: "upload-\(state.rawValue)-\(meetingId ?? serverTruth.meetingId ?? "none")",
             sessionId: "session-033",
             directoryId: "directory-033",
             directoryPath: "/tmp/upload-033",
             manifestPath: "/tmp/upload-033/manifest.json",
-            microphonePath: "/tmp/upload-033/mic.wav",
-            systemAudioPath: "/tmp/upload-033/incoming.wav",
+            microphonePath: "/tmp/upload-033/meeting-transcription.wav",
+            systemAudioPath: "/tmp/upload-033/meeting-review.m4a",
             state: state,
             retryMode: .terminal,
             retentionDeadline: Date(timeIntervalSince1970: 100),

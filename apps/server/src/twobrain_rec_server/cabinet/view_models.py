@@ -2666,6 +2666,7 @@ def reason_label(reason_code: str | None) -> str | None:
     if reason_code is None:
         return None
     return {
+        "unsupported_recording_source": "Запись сохранена в старом формате. Повторная отправка на расшифровку недоступна; сохраненные результаты и удаление записи остаются доступны.",
         "no_recognizable_speech": "MediaScribe обработал запись, но расшифровка не создана: распознаваемая речь не найдена.",
         "invalid_audio_payload": "Файл записи не является декодируемым аудио или поврежден.",
         "mediascribe_validation_failed": "Сервис транскрипции отклонил файл: проверьте формат и повторите обработку.",

@@ -6,6 +6,7 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.admin.queries import AdminWorkspaceContext
+from twobrain_rec_server.billing.operations import INITIAL_CHECKOUT_OBSERVATION_EXPIRED
 from twobrain_rec_server.db.models import (
     AdminAuditEvent,
     BillingNotificationDelivery,
@@ -351,7 +352,8 @@ async def _billing_metrics(db: AsyncSession, *, workspace_id) -> dict[str, int]:
     )
     return {
         "unknown_operations": operation_states.get("unknown", 0)
-        + operation_states.get("provider_key_expired", 0),
+        + operation_states.get("provider_key_expired", 0)
+        + operation_states.get(INITIAL_CHECKOUT_OBSERVATION_EXPIRED, 0),
         "notification_failures": notification_failures,
         "storage_reserved_bytes": max(0, reserved_bytes),
         "observed_refunds": observed_refunds,

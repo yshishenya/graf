@@ -98,14 +98,16 @@ def test_one_hour_synthetic_recording_orchestration_stays_under_budget(client) -
     assert benchmark == {"imported": True, "workflow_count": 1, "job_count": 1, "result_count": 1}
     assert finalize_to_visible_seconds < 60
     assert total_product_owned_seconds < 180
+    media = next(track for track in finalized["tracks"] if track["track_role"] == "media")
     expected_submission = {
-            "mic_size": 16,
-            "incoming_size": 24,
-            "mic_sha256": finalized["tracks"][1]["sha256"],
-            "incoming_sha256": finalized["tracks"][2]["sha256"],
-            "diarize": True,
-            "summarize": False,
-        }
+        "request_mode": "single_track",
+        "media_size": media["byte_length"],
+        "media_sha256": media["sha256"],
+        "media_content_type": "audio/wav",
+        "media_filename": "meeting-transcription.wav",
+        "diarize": True,
+        "summarize": False,
+    }
     assert len(fake_mediascribe.submissions) == 1
     assert {
         key: fake_mediascribe.submissions[0][key] for key in expected_submission

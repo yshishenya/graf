@@ -2,7 +2,7 @@
 
 Feature: `096-product-analytics-provider-rollout`
 
-Status: `ready_not_executed`
+Status: `metadata_only_not_executed`
 
 This rollback runbook is safe to commit. It contains no live provider IDs,
 tokens, cookies, visitor identifiers, payload rows, screenshots, meeting
@@ -12,11 +12,10 @@ content, transcript text, audio, signed URLs, or private local paths.
 
 Rollback reduces measurement. It must not break normal GRAF product workflows.
 
-Expected allowed impact:
-
-- analytics measurement gap;
-- dashboard caveat;
-- provider delivery gap.
+The order is fixed by FR-032: measurement is switched off first, the product
+keeps serving. The guard may only disable the measurement scope, and only
+analytics-scope reasons may trigger an automatic rollback, so a site traffic
+spike cannot switch measurement off by itself.
 
 Rollback must preserve:
 
@@ -25,6 +24,10 @@ Rollback must preserve:
 - recording/upload/review flows;
 - deletion/export/account/legal flows;
 - telemetry gate truth.
+
+A rehearsed rollback is the evidence FR-045 asks for; what counts as rehearsal
+evidence, and which steps still need an operator, is in
+`product-analytics-launch-approval.md`.
 
 ## Rollback Targets
 
@@ -44,19 +47,28 @@ Rollback must preserve:
 
 ## Rollback Script
 
-Dry-run command:
+Metadata-only command (the only mode used by smoke and tests):
 
 ```sh
-infra/scripts/rollback-product-analytics-providers.sh --target all
+infra/scripts/rollback-product-analytics-providers.sh --metadata-only --target all
 ```
 
-The script is safe by default:
+The script is safe by default and fail-closed:
 
-- default mode is `rollback_execution=dry_run_no_state_change`;
-- output is metadata-only;
+- default mode is `rollback_execution=metadata_only_no_state_change`;
+- `--dry-run` remains a compatibility alias for `--metadata-only`;
+- output is metadata-only and never changes provider state;
 - secret values are never printed;
 - product impact is always `measurement_gap_only`;
 - normal product workflows must remain available.
+
+`--execute` does not itself implement a provider rollback. It is an explicit
+operator boundary and exits nonzero unless both
+`TWOBRAIN_ALLOW_PROVIDER_ROLLBACK_EXECUTE=1` and an absolute executable
+`TWOBRAIN_PROVIDER_ROLLBACK_EXECUTOR_HOOK` are configured. Only that operator
+hook may perform live provider mutation; the script passes `--target <target>`
+to it, suppresses hook output, and blocks on a missing or failed hook. Tests and
+smoke never configure or invoke this hook, so they cannot mutate a live provider.
 
 The script records these switches for operators:
 
@@ -69,9 +81,6 @@ The script records these switches for operators:
 - `TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_OFFLINE_ENABLED=false`
 - `TWOBRAIN_PRODUCT_ANALYTICS_VALIDATION_MODE=disabled`
 
-`--execute` is intentionally guarded by
-`TWOBRAIN_ALLOW_PROVIDER_ROLLBACK_EXECUTE=1` so an operator cannot mutate
-provider state by accidentally running the script from a local review shell.
 
 ## Metadata-Only Evidence
 
@@ -95,18 +104,21 @@ Forbidden:
 ## Operator Sequence
 
 1. Confirm the rollback target and reason.
-2. Run the rollback script in dry-run mode and record the metadata output.
-3. Disable the relevant runtime flag or provider route only after operator
-   approval.
-4. Stop or detach the PostHog stack only when the rollback target includes the
-   stack/domain path.
-5. Run `infra/scripts/cd-remote.sh --dry-run` after runtime switch changes.
-6. Run provider smoke in rollback mode.
-7. Run page validation for browser surfaces when web-direct/Yandex/replay is
+2. Run the metadata-only command and record its output:
+   `infra/scripts/rollback-product-analytics-providers.sh --metadata-only --target all`.
+3. Obtain the separate operator approval and configure the operator-owned
+   executor hook; never treat metadata-only output as live evidence.
+4. If a live rollback is approved, run `--execute` with both explicit approval
+   and the absolute executable hook. A missing or failed hook is a blocker.
+5. Stop or detach the PostHog stack only when the operator hook's target includes
+   the stack/domain path.
+6. Run `infra/scripts/cd-remote.sh --dry-run` after runtime switch changes.
+7. Run provider smoke in rollback mode.
+8. Run page validation for browser surfaces when web-direct/Yandex/replay is
    involved.
-8. Confirm GRAF health.
-9. Record a metadata-only delivery gap and dashboard caveat.
-10. Leave provider secrets out of logs and evidence.
+9. Confirm GRAF health.
+10. Record a metadata-only delivery gap and dashboard caveat.
+11. Leave provider secrets out of logs and evidence.
 
 ## Move-Out Failure
 
@@ -129,4 +141,6 @@ Restoration after rollback requires:
 - dashboard caveat update;
 - implementation evidence update.
 
-Restoration does not approve paid campaign launch.
+Restoration does not approve paid campaign launch. The launch gate is computed
+from the approval records, not from the rollback state
+(`product-analytics-launch-approval.md`).

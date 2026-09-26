@@ -91,10 +91,20 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         self.baseURL = DesktopCabinetConfiguration(baseURL: baseURL).baseURL
     }
 
+    /// The normalized cabinet origin every route decision is measured against.
+    public var cabinetBaseURL: URL { baseURL }
+
+    /// Same-origin check reused by payment-chain tracking so that "back inside
+    /// the cabinet" means exactly what the route policy means by it.
+    public func sharesSessionOrigin(with url: URL) -> Bool {
+        sameOrigin(url)
+    }
+
     public func decision(
         for url: URL,
         allowExternalAuthProvider: Bool = false,
-        allowExternalPaymentProvider: Bool = false
+        allowExternalPaymentProvider: Bool = false,
+        allowExternalPaymentProviderHandoff: Bool = false
     ) -> DesktopCabinetRouteDecision {
         guard let scheme = url.scheme?.lowercased() else {
             return block(path: url.path, kind: .unsupported, reason: .invalidURL, message: "This meeting route cannot be opened.")
@@ -122,7 +132,11 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                     userMessage: "Auth provider"
                 )
             }
-            return externalDecision(for: url, allowExternalPaymentProvider: allowExternalPaymentProvider)
+            return externalDecision(
+                for: url,
+                allowExternalPaymentProvider: allowExternalPaymentProvider,
+                allowExternalPaymentProviderHandoff: allowExternalPaymentProviderHandoff
+            )
         }
 
         let path = normalizedPath(url.path)
@@ -432,13 +446,27 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
 
     private func externalDecision(
         for url: URL,
-        allowExternalPaymentProvider: Bool
+        allowExternalPaymentProvider: Bool,
+        allowExternalPaymentProviderHandoff: Bool
     ) -> DesktopCabinetRouteDecision {
         guard url.scheme?.lowercased() == "https" else {
             return block(path: normalizedPath(url.path), kind: .external, reason: .blockedUnknownRoute, message: "External links must use HTTPS.")
         }
         let host = url.host?.lowercased() ?? ""
-        if allowExternalPaymentProvider && Self.allowedPaymentProviderHosts.contains(host) {
+        if allowExternalPaymentProvider {
+            // A live confirmation chain may leave the provider for the
+            // cardholder's bank. This broad allowance is valid only after the
+            // provider handoff has already been accepted, never merely because
+            // the current document is a cabinet billing page.
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: normalizedPath(url.path), kind: .external),
+                decision: .allow,
+                reason: .openExternalSafeLink,
+                userMessage: "Платежная страница"
+            )
+        }
+        if allowExternalPaymentProviderHandoff,
+           DesktopCabinetPaymentNavigation.allowedProviderHosts.contains(host) {
             return DesktopCabinetRouteDecision(
                 route: DesktopCabinetRoute(path: normalizedPath(url.path), kind: .external),
                 decision: .allow,
@@ -717,14 +745,6 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         }
         return components.count == 3 && components[1] == "invoices" && isSafePathComponent(components[2])
     }
-
-    private static let allowedPaymentProviderHosts: Set<String> = [
-        "api.yookassa.ru",
-        "api.yookassa.test",
-        "yookassa.ru",
-        "yookassa.test",
-        "yoomoney.ru"
-    ]
 
     private func isBrowserOwnedAccountRoute(_ components: [String]) -> Bool {
         components == ["referrals"] || components == ["account", "referrals"]

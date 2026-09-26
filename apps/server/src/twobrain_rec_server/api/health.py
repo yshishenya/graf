@@ -95,11 +95,10 @@ async def readiness_checks(request: Request) -> tuple[str, dict[str, str]]:
             "configuration_invalid",
         ),
         # Billing is an operational launch diagnostic, not an infrastructure
-        # dependency: a disabled checkout or emergency stop must not make the
-        # general API readiness probe fail.
+        # dependency: a disabled checkout must not make the general API
+        # readiness probe fail.
         "billing_mutations": billing_readiness_status(
             checkout_enabled=bool(settings.billing_checkout_enabled),
-            emergency_stop=bool(settings.billing_emergency_stop),
         ),
     }
     non_blocking_statuses = {
@@ -112,7 +111,6 @@ async def readiness_checks(request: Request) -> tuple[str, dict[str, str]]:
         "enabled",
         "configuration_invalid",
         "ready",
-        "emergency_stop",
     }
     status = "ready" if all(v in non_blocking_statuses for v in checks.values()) else "not_ready"
     return status, checks

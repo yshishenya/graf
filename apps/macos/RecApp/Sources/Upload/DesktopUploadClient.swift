@@ -632,6 +632,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         }
         try await onProgress(ServerTruthFingerprint(meetingId: meeting.meeting_id))
         await linkCalendarContextIfNeeded(item, meetingId: meeting.meeting_id)
+        try await onProgress(ServerTruthFingerprint(meetingId: meeting.meeting_id))
 
         let uploadSession: UploadSessionResponse
         let newSessionExpectedRoles: Set<DesktopUploadTransportRole>?
@@ -680,6 +681,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         )
         try await onProgress(await progressState.snapshot())
         for descriptor in descriptors {
+            try await onProgress(await progressState.snapshot())
             let uploaded = try await uploadFile(
                 descriptor: descriptor,
                 sessionId: uploadSession.session_id,
@@ -698,10 +700,12 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             )
         }
 
+        try await onProgress(await progressState.snapshot())
         let missing = try await missingRanges(sessionId: uploadSession.session_id)
         if !missing.missing_ranges_by_track.isEmpty {
             for descriptor in descriptors {
                 for range in missing.missing_ranges_by_track[descriptor.transportRole.rawValue] ?? [] {
+                    try await onProgress(await progressState.snapshot())
                     let uploaded = try await uploadRange(
                         descriptor: descriptor,
                         sessionId: uploadSession.session_id,
@@ -716,11 +720,13 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             }
         }
 
+        try await onProgress(await progressState.snapshot())
         let missingAfterRetry = try await missingRanges(sessionId: uploadSession.session_id)
         if !missingAfterRetry.missing_ranges_by_track.isEmpty {
             throw DesktopUploadClientError.serverStillMissingRanges
         }
 
+        try await onProgress(await progressState.snapshot())
         let finalize = try await finalizeUpload(
             item: item,
             sessionId: uploadSession.session_id,
@@ -1050,112 +1056,57 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         for item: DesktopUploadQueueItem,
         expectedRoles: Set<DesktopUploadTransportRole>? = nil
     ) -> [DesktopUploadFileDescriptor] {
-        if isV5SchemaDeclared(by: item) {
-            guard item.isV5Package else { return [] }
-            let tracksByRole = Dictionary(
-                uniqueKeysWithValues: item.artifactProfile.trackCompleteness.map {
-                    ($0.transportRole, $0)
-                }
-            )
-            let v5Descriptors: [DesktopUploadFileDescriptor] = [
-                descriptor(
-                    role: .manifest,
-                    track: tracksByRole[.manifest],
-                    url: URL(fileURLWithPath: item.manifestPath),
-                    codec: "json",
-                    sampleRateHz: 1,
-                    channelCount: 1,
-                    fallbackDurationSeconds: 1
-                ),
-                descriptor(
-                    role: .media,
-                    track: tracksByRole[.media],
-                    url: URL(fileURLWithPath: item.transcriptionAudioPath),
-                    codec: "wav-pcm-s16le",
-                    sampleRateHz: 16_000,
-                    channelCount: 1,
-                    fallbackDurationSeconds: item.artifactProfile.durationSeconds
-                ),
-                descriptor(
-                    role: .playback,
-                    track: tracksByRole[.playback],
-                    url: URL(fileURLWithPath: item.reviewAudioPath),
-                    codec: "m4a-aac-lc",
-                    sampleRateHz: 48_000,
-                    channelCount: 1,
-                    fallbackDurationSeconds: item.artifactProfile.durationSeconds
-                )
-            ].compactMap { $0 }
-            guard v5Descriptors.count == 3 else { return [] }
-            guard let expectedRoles, !expectedRoles.isEmpty else { return v5Descriptors }
-            return v5Descriptors.filter { expectedRoles.contains($0.transportRole) }
-        }
-
-        var descriptors = [
-            DesktopUploadFileDescriptor(
-                transportRole: .microphone,
-                url: URL(fileURLWithPath: item.microphonePath),
-                byteCount: item.artifactProfile.microphoneSizeBytes,
-                sha256: item.artifactProfile.microphoneSha256,
-                codec: "wav-pcm-s16le",
-                sampleRateHz: 16_000,
-                channelCount: 1,
-                durationSeconds: item.artifactProfile.durationSeconds
-            ),
-            DesktopUploadFileDescriptor(
-                transportRole: .system,
-                url: URL(fileURLWithPath: item.systemAudioPath),
-                byteCount: item.artifactProfile.systemAudioSizeBytes,
-                sha256: item.artifactProfile.systemAudioSha256,
-                codec: "wav-pcm-s16le",
-                sampleRateHz: 16_000,
-                channelCount: 1,
-                durationSeconds: item.artifactProfile.durationSeconds
-            ),
-            DesktopUploadFileDescriptor(
-                transportRole: .manifest,
+        guard item.isUploadEligible else { return [] }
+        let tracksByRole = Dictionary(
+            uniqueKeysWithValues: item.artifactProfile.trackCompleteness.map {
+                ($0.transportRole, $0)
+            }
+        )
+        let v5Descriptors: [DesktopUploadFileDescriptor] = [
+            descriptor(
+                role: .manifest,
+                track: tracksByRole[.manifest],
                 url: URL(fileURLWithPath: item.manifestPath),
-                byteCount: item.artifactProfile.manifestSizeBytes,
-                sha256: item.artifactProfile.manifestSha256,
                 codec: "json",
                 sampleRateHz: 1,
                 channelCount: 1,
-                durationSeconds: 1
-            )
-        ]
-        if let playback = item.artifactProfile.trackCompleteness.first(where: { $0.transportRole == .playback && $0.uploadable }) {
-            descriptors.append(DesktopUploadFileDescriptor(
-                transportRole: .playback,
-                url: URL(fileURLWithPath: item.directoryPath).appendingPathComponent(playback.fileName),
-                byteCount: playback.byteCount,
-                sha256: playback.sha256,
+                fallbackDurationSeconds: 1
+            ),
+            descriptor(
+                role: .media,
+                track: tracksByRole[.media],
+                url: URL(fileURLWithPath: item.transcriptionAudioPath),
+                codec: "wav-pcm-s16le",
+                sampleRateHz: 16_000,
+                channelCount: 1,
+                fallbackDurationSeconds: item.artifactProfile.durationSeconds
+            ),
+            descriptor(
+                role: .playback,
+                track: tracksByRole[.playback],
+                url: URL(fileURLWithPath: item.reviewAudioPath),
                 codec: "m4a-aac-lc",
                 sampleRateHz: 48_000,
                 channelCount: 1,
-                durationSeconds: playback.durationSeconds ?? item.artifactProfile.durationSeconds
-            ))
-        }
-        guard let expectedRoles, !expectedRoles.isEmpty else { return descriptors }
-        return descriptors.filter { expectedRoles.contains($0.transportRole) }
+                fallbackDurationSeconds: item.artifactProfile.durationSeconds
+            )
+        ].compactMap { $0 }
+        guard v5Descriptors.count == 3 else { return [] }
+        guard let expectedRoles, !expectedRoles.isEmpty else { return v5Descriptors }
+        return v5Descriptors.filter { expectedRoles.contains($0.transportRole) }
     }
 
     static func uploadSessionFileDescriptors(for item: DesktopUploadQueueItem) -> [DesktopUploadFileDescriptor] {
-        if item.isV5Package {
-            return uploadFileDescriptors(for: item)
-        }
-        return uploadFileDescriptors(for: item).filter { descriptor in
-            descriptor.transportRole != .playback ||
-                localFileSize(descriptor.url) == descriptor.byteCount
-        }
+        uploadFileDescriptors(for: item)
     }
 
-    public static func createMeetingPayload(for item: DesktopUploadQueueItem) -> DesktopCreateMeetingPayload {
-        let isV5 = isV5SchemaDeclared(by: item)
+    public static func createMeetingPayload(for item: DesktopUploadQueueItem) throws -> DesktopCreateMeetingPayload {
+        try validatePackageForUpload(item)
         return DesktopCreateMeetingPayload(
             local_recording_id: item.directoryId,
             local_media_revision_id: item.localMediaRevisionId,
-            source_kind: isV5 ? "initial_mixed_recording" : "initial_recording",
-            media_scribe_source_mode: isV5 ? "single_wav_v1" : "dual",
+            source_kind: "initial_mixed_recording",
+            media_scribe_source_mode: "single_wav_v1",
             title: item.recordingMetadata?.title,
             title_source: item.recordingMetadata?.titleSource,
             calendar_match_attempt_id: item.calendarMatchAttemptId,
@@ -1192,10 +1143,6 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         )
         request.setValue(Self.idempotencyKey(item: item, scope: "upload-session"), forHTTPHeaderField: "Idempotency-Key")
         return try await perform(request)
-    }
-
-    private static func localFileSize(_ url: URL) -> Int64? {
-        (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value
     }
 
     private static func descriptor(
@@ -1353,13 +1300,8 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         }
     }
 
-    private static func isV5SchemaDeclared(by item: DesktopUploadQueueItem) -> Bool {
-        item.artifactProfile.schemaVersion == LocalRecordingManifest.schemaVersion
-    }
-
     private static func validatePackageForUpload(_ item: DesktopUploadQueueItem) throws {
-        guard item.artifactProfile.isUploadable,
-              !(isV5SchemaDeclared(by: item) && !item.isV5Package)
+        guard item.isUploadEligible
         else {
             throw DesktopUploadClientError.invalidArtifactPackage
         }
@@ -1373,7 +1315,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         guard !descriptors.isEmpty else {
             throw DesktopUploadClientError.invalidArtifactPackage
         }
-        guard item.isV5Package else { return }
+        try validatePackageForUpload(item)
         let requiredRoles: Set<DesktopUploadTransportRole> = [.manifest, .media, .playback]
         let actualRoles = Set(descriptors.map(\.transportRole))
         let hasCompatibleExpectedRoles = expectedRoles.map {

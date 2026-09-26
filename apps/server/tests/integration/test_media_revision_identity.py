@@ -147,12 +147,12 @@ def test_upload_session_reuses_revision_identity_with_idempotency(client: TestCl
     first = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=headers,
-        json={"expected_tracks": ["manifest", "microphone", "system"]},
+        json={"expected_tracks": ["manifest", "media", "playback"]},
     )
     second = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=headers,
-        json={"expected_tracks": ["manifest", "microphone", "system"]},
+        json={"expected_tracks": ["manifest", "media", "playback"]},
     )
 
     assert first.status_code == 200
@@ -186,7 +186,7 @@ def test_finalize_persists_accepted_media_revision_fingerprint(client: TestClien
     session_response = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers() | {"Idempotency-Key": "session-finalize-key"},
-        json={"expected_tracks": ["manifest", "microphone", "system"]},
+        json={"expected_tracks": ["manifest", "media", "playback"]},
     )
     session = session_response.json()
     for track in fixture.expected_tracks:

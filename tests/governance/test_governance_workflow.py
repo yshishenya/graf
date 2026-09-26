@@ -309,7 +309,7 @@ def test_actual_media_resource_preparation(tmp_path, workflow_name, tools_state)
     import yaml
 
     workflow = yaml.load((ROOT / f".github/workflows/{workflow_name}.yml").read_text(), Loader=yaml.BaseLoader)
-    job = workflow["jobs"]["server-full" if workflow_name == "release-full" else "governance-fast"]
+    job = workflow["jobs"]["server-parallel" if workflow_name == "release-full" else "governance-fast"]
     step = next(step for step in job["steps"] if "browser" in step.get("name", "").lower() and "resources" in step["name"])
     runner = tmp_path / "infra/scripts/ci-local.sh"
     runner.parent.mkdir(parents=True)

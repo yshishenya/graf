@@ -1,5 +1,5 @@
 import Foundation
-import TwoBrainRecAppCore
+@testable import TwoBrainRecAppCore
 
 #if canImport(XCTest)
 import XCTest
@@ -268,11 +268,94 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertTrue(EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: .meetingList))
     }
 
+    func testExternalPaymentPagesDoNotReplaceSwiftUIRequestIdentity() {
+        XCTAssertFalse(EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: .external))
+    }
+
     func testBlocksNonHTTPSProviderLegsEvenWhenAuthContinuationIsActive() throws {
         let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
         let insecureProvider = try XCTUnwrap(URL(string: "http://id.future-provider.example/authorize?state=state"))
 
         XCTAssertEqual(policy.decision(for: insecureProvider, allowExternalAuthProvider: true).decision, .blockWithMessage)
+    }
+
+    func testAllowsExternalPaymentHopsOnlyWhileAConfirmationChainIsLive() throws {
+        let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+        let checkout = try XCTUnwrap(URL(string: "https://rec.2brain.dev/billing/checkout"))
+        let targetSources: [String] = [
+            "https://yookassa.ru/checkout/abc",
+            "https://yookassa.test/checkout/abc",
+            "https://yoomoney.ru/checkout/abc",
+            "https://3ds.issuer-bank-one.example/acs/challenge",
+            "https://acs.another-bank.example/3ds2/auth"
+        ]
+        let provider = try XCTUnwrap(URL(string: targetSources[0]))
+        let evil = try XCTUnwrap(URL(string: "https://evil.example/checkout/abc"))
+        let bank = try XCTUnwrap(URL(string: "https://3ds.issuer-bank-one.example/acs/challenge"))
+
+        // A billing document may hand off only to an exact provider host. It
+        // must not become a blanket allowance for arbitrary external HTTPS.
+        var chain = DesktopCabinetPaymentNavigation(sessionOrigin: policy.cabinetBaseURL)
+        XCTAssertFalse(chain.isActive)
+        XCTAssertEqual(
+            policy.decision(
+                for: provider,
+                allowExternalPaymentProviderHandoff: true
+            ).decision,
+            .allow
+        )
+        XCTAssertEqual(
+            policy.decision(
+                for: evil,
+                allowExternalPaymentProviderHandoff: true
+            ).decision,
+            .blockWithMessage
+        )
+        chain = chain.begin(isBillingCheckoutDocument: true, destination: provider)
+        XCTAssertTrue(chain.isActive)
+
+        // After the exact provider handoff, bank domains may be arbitrary for
+        // the duration of the bounded confirmation chain.
+        for target in targetSources {
+            let url = try XCTUnwrap(URL(string: target))
+            let decision = policy.decision(
+                for: url,
+                allowExternalPaymentProvider: chain.externalProviderNavigationAllowed()
+            )
+            XCTAssertEqual(decision.decision, .allow, target)
+            XCTAssertEqual(decision.route.kind, .external, target)
+            XCTAssertEqual(decision.reason, .openExternalSafeLink, target)
+        }
+
+        // Nothing about the open chain loosens same-origin routing or other
+        // external policy, and a stopped chain restores the strict sandbox.
+        XCTAssertEqual(policy.decision(for: checkout).decision, .allow)
+        XCTAssertEqual(policy.cabinetBaseURL, try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+        let stopped = policy.decision(
+            for: bank,
+            allowExternalPaymentProvider: chain.stopped().externalProviderNavigationAllowed()
+        )
+        XCTAssertEqual(stopped.decision, .blockWithMessage)
+        XCTAssertEqual(stopped.reason, .blockedUnknownRoute)
+    }
+
+    func testPaymentChainScopeIsTheCabinetOriginOnly() throws {
+        let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+
+        XCTAssertTrue(policy.sharesSessionOrigin(with: try XCTUnwrap(URL(string: "https://rec.2brain.dev/billing"))))
+        XCTAssertTrue(policy.sharesSessionOrigin(with: try XCTUnwrap(URL(string: "https://rec.2brain.dev:443/billing"))))
+        for foreign in [
+            "https://yookassa.ru/checkout/abc",
+            "https://rec.2brain.dev.evil.example/billing",
+            "http://rec.2brain.dev/billing",
+            "https://rec.2brain.dev:8443/billing",
+            "https://other.2brain.dev/billing"
+        ] {
+            XCTAssertFalse(
+                policy.sharesSessionOrigin(with: try XCTUnwrap(URL(string: foreign))),
+                foreign
+            )
+        }
     }
 
     func testBlocksFutureGovernanceAndNativeCaptureRoutes() throws {
@@ -471,6 +554,40 @@ final class DesktopCabinetRoutePolicyTests: XCTestCase {
         XCTAssertFalse(decision.userMessage.localizedCaseInsensitiveContains("stop recording"))
         XCTAssertFalse(decision.userMessage.contains("/Users/"))
         XCTAssertTrue(decision.userMessage.contains("app shell"))
+    }
+
+    func testLivePaymentChainAllowsCrossOriginThreeDSSubframesOnlyWhileLive() throws {
+        let policy = DesktopCabinetRoutePolicy(baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev")))
+        let now = Date()
+        let provider = try XCTUnwrap(URL(string: "https://yookassa.ru/checkout/abc"))
+        let bank = try XCTUnwrap(URL(string: "https://3ds.issuer-bank.example/acs/challenge"))
+        let insecureBank = try XCTUnwrap(URL(string: "http://3ds.issuer-bank.example/acs/challenge"))
+        let chain = DesktopCabinetPaymentNavigation(sessionOrigin: policy.cabinetBaseURL)
+            .begin(isBillingCheckoutDocument: true, destination: provider, now: now)
+
+        XCTAssertTrue(
+            EmbeddedCabinetWebView.Coordinator.allowsPaymentSubframeNavigation(
+                to: bank, routePolicy: policy, paymentNavigation: chain, now: now.addingTimeInterval(60)
+            )
+        )
+        XCTAssertFalse(
+            EmbeddedCabinetWebView.Coordinator.allowsPaymentSubframeNavigation(
+                to: insecureBank, routePolicy: policy, paymentNavigation: chain, now: now.addingTimeInterval(60)
+            )
+        )
+        XCTAssertFalse(
+            EmbeddedCabinetWebView.Coordinator.allowsPaymentSubframeNavigation(
+                to: bank, routePolicy: policy, paymentNavigation: chain.stopped(), now: now.addingTimeInterval(60)
+            )
+        )
+        XCTAssertFalse(
+            EmbeddedCabinetWebView.Coordinator.allowsPaymentSubframeNavigation(
+                to: bank,
+                routePolicy: policy,
+                paymentNavigation: chain,
+                now: now.addingTimeInterval(DesktopCabinetPaymentNavigation.defaultTimeLimit)
+            )
+        )
     }
 
     private func url(_ path: String) throws -> URL {

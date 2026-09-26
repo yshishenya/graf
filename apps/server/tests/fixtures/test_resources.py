@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ def pytest_addoption(parser):
     parser.addoption("--graf-report-file", help="Write safe phase timing metadata")
     parser.addoption("--graf-collection-file", help="Write the selected resource/Full phase inventory")
     parser.addoption("--graf-phase-file", help="Execute one exact phase from the selected inventory")
+    parser.addoption("--graf-phase-shard", help="Execute one index/total slice of the selected phase")
     parser.addoption("--graf-partition-preflight", action="store_true", help="Reject conflicting effective xdist options before collection")
 
 
@@ -33,6 +35,7 @@ def pytest_load_initial_conftests(early_config):
         "tx": [], "px": [], "maxprocesses": None, "maxworkerrestart": None,
         "maxschedchunk": None, "loadscopereorder": True, "rsyncdir": [], "rsyncignore": [],
         "testrunuid": None, "usepdb": False, "trace": False, "graf_phase_file": None,
+        "graf_phase_shard": None,
     }
     if any(getattr(options, name, default) != default for name, default in defaults.items()):
         raise pytest.UsageError("partitioned owns xdist settings; use GRAF_TEST_WORKERS")
@@ -66,6 +69,19 @@ def phase_for(item):
     return "performance" if item.get_closest_marker("serial_performance") else "parallel"
 
 
+def selected_shard(value):
+    """Parse an optional index/total slice declaration for one exact phase."""
+    if value in (None, ""):
+        return None
+    match = re.fullmatch(r"(\d+)/(\d+)", str(value))
+    if match is None:
+        raise pytest.UsageError("invalid selected test shard")
+    index, total = int(match.group(1)), int(match.group(2))
+    if total < 2 or index >= total:
+        raise pytest.UsageError("invalid selected test shard")
+    return index, total
+
+
 @pytest.hookimpl(specname="pytest_collection_modifyitems", trylast=True)
 def pytest_partition_collection(items, config):
     phase_file = config.getoption("--graf-phase-file")
@@ -81,11 +97,25 @@ def pytest_partition_collection(items, config):
             or any(not isinstance(node, str) or not node for node in expected)
             or len(set(expected)) != len(expected)):
         raise pytest.UsageError("invalid or empty selected test phase")
-    selected = [item for item in items if phase_for(item) == phase]
-    observed = [item.nodeid for item in selected]
-    if len(observed) != len(expected) or set(observed) != set(expected):
-        raise pytest.UsageError("selected test phase differs from the original collection")
-    config.hook.pytest_deselected(items=[item for item in items if phase_for(item) != phase])
+    phase_items = [item for item in items if phase_for(item) == phase]
+    observed = sorted(item.nodeid for item in phase_items)
+    shard = selected_shard(config.getoption("--graf-phase-shard"))
+    if shard is None:
+        # The whole phase must run: any missing or repeated case is a defect.
+        if observed != sorted(expected):
+            raise pytest.UsageError("selected test phase differs from the original collection")
+        selected = phase_items
+    else:
+        # A part must execute exactly nodeids[index::total] of this collection.
+        # Losing or duplicating a case still fails here, and the aggregating job
+        # proves that the parts cover the full parallel set.
+        index, total = shard
+        if observed[index::total] != sorted(expected):
+            raise pytest.UsageError("selected test shard differs from the original collection")
+        wanted = set(expected)
+        selected = [item for item in phase_items if item.nodeid in wanted]
+    kept = {id(item) for item in selected}
+    config.hook.pytest_deselected(items=[item for item in items if id(item) not in kept])
     items[:] = selected
 
 

@@ -19,18 +19,18 @@ def test_finalize_without_required_tracks_returns_truthful_failure(client) -> No
     data = deterministic_wav_bytes(64)
     digest = sha256(data).hexdigest()
     client.put(
-        f"/api/v1/upload-sessions/{session['session_id']}/tracks/microphone/parts/0",
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/media/parts/0",
         headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
         content=data,
     )
     response = client.post(
         f"/api/v1/upload-sessions/{session['session_id']}/finalize",
         headers=auth_headers(),
-        json={"manifest_sha256": "a" * 64, "tracks": [track_descriptor("microphone", 64)]},
+        json={"manifest_sha256": "a" * 64, "tracks": [track_descriptor("media", 64)]},
     )
     assert response.status_code == 422
     assert response.json()["code"] == "request_validation_error"
-    assert "microphone" not in response.text
+    assert "media" not in response.text
 
 
 def test_desktop_sync_exposes_review_ready_state_for_processed_upload(client) -> None:

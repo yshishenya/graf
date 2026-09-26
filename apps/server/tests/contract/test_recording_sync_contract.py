@@ -51,4 +51,4 @@ def test_ingest_responses_include_media_revision_identity(client: TestClient) ->
 
     assert meeting["local_media_revision_id"] == fixture.local_media_revision_id
     assert meeting["media_revision"]["revision_number"] == 1
-    assert meeting["media_revision"]["source_kind"] == "initial_recording"
+    assert meeting["media_revision"]["source_kind"] == "initial_mixed_recording"

@@ -129,6 +129,12 @@ growth or release confusion.
 - [X] T040 Re-run `$speckit-converge` append-only after T041–T039; leave any missing remote/operator gate open with a Russian status comment on issue #6276 (Issue #6497).
 - [X] T041 [US3] Pin candidate, compensation and rollback Compose services to immutable image IDs recorded by the selected manifest, require those IDs in the direct runtime entrypoint, block before stopping the active runtime when an image is missing/mismatched, verify actual container image IDs after startup, and add regression coverage in `scripts/dev-harness.py`, `infra/docker-compose.dev.yml`, `infra/scripts/start-dev-runtime.sh`, `infra/dev/manifest.schema.json`, `tests/governance/test_dev_rollback.py`, `tests/governance/test_dev_runtime.py`, `tests/governance/test_dev_compose_contract.py` and `tests/governance/test_graf_local_adapter.py` (Issue #6411).
 
+## Phase 7: Follow-up install-state hardening
+
+**Purpose**: Make a lost installed app visible instead of silent, and resolve the Dev app destination in one place.
+
+- [X] T042 [US3] Report the installed Dev app as `app.path` and `app.installed` in every `status` outcome, add a `warnings` entry naming the path when the app is absent, normalize empty and reject invalid destination overrides, resolve every lifecycle site through one destination helper, and cover active, blocked, recovery and transition states in `tests/governance/test_dev_harness.py` with the contract, stand instructions and operator guidance updated (Issue #7213).
+
 ## Dependencies & Execution Order
 
 ```text

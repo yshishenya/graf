@@ -145,32 +145,38 @@ fi
 
 mkdir -p "$INSTALL_PARENT"
 STAGED_DESTINATION="$INSTALL_PARENT/.GRAF Dev.app.new.$$"
-BACKUP_DESTINATION="$INSTALL_PARENT/.GRAF Dev.app.previous.$$"
-rm -rf "$STAGED_DESTINATION" "$BACKUP_DESTINATION"
+rm -rf "$STAGED_DESTINATION"
 ditto --norsrc --noextattr --noqtn "$CANDIDATE" "$STAGED_DESTINATION"
 assert_app_stopped
 
+DESTINATION_WAS_PRESENT=false
 if [ -e "$DESTINATION" ]; then
-  mv "$DESTINATION" "$BACKUP_DESTINATION"
-fi
-if ! mv "$STAGED_DESTINATION" "$DESTINATION"; then
-  if [ -e "$BACKUP_DESTINATION" ]; then
-    mv "$BACKUP_DESTINATION" "$DESTINATION"
+  DESTINATION_WAS_PRESENT=true
+  if ! swift "$APP_LIFECYCLE" swap "$STAGED_DESTINATION" "$DESTINATION"; then
+    fail "atomic replacement failed; installed Dev app was left unchanged"
   fi
-  fail "atomic replacement failed; previous Dev app was restored when possible"
+else
+  if ! mv "$STAGED_DESTINATION" "$DESTINATION"; then
+    fail "initial Dev app installation failed"
+  fi
 fi
 touch "$DESTINATION"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 if [ -x "$LSREGISTER" ]; then
   if ! "$LSREGISTER" -f "$DESTINATION" >/dev/null 2>&1; then
-    rm -rf "$DESTINATION"
-    if [ -e "$BACKUP_DESTINATION" ]; then
-      mv "$BACKUP_DESTINATION" "$DESTINATION" ||
-        fail "LaunchServices registration failed and previous Dev app could not be restored"
+    if [ -e "$STAGED_DESTINATION" ]; then
+      swift "$APP_LIFECYCLE" swap "$STAGED_DESTINATION" "$DESTINATION" ||
+        fail "LaunchServices registration failed; installed Dev app was left unchanged"
+      rm -rf "$STAGED_DESTINATION"
+    elif [ "$DESTINATION_WAS_PRESENT" = false ] && [ -e "$DESTINATION" ]; then
+      mv "$DESTINATION" "$STAGED_DESTINATION" ||
+        fail "LaunchServices registration failed; initial Dev app remains for recovery"
+      rm -rf "$STAGED_DESTINATION" ||
+        fail "LaunchServices registration failed; initial Dev app cleanup failed"
     fi
-    fail "LaunchServices registration failed; previous Dev app was restored when possible"
+    fail "LaunchServices registration failed; previous Dev app was restored"
   fi
 fi
-rm -rf "$BACKUP_DESTINATION"
+rm -rf "$STAGED_DESTINATION"
 
 printf '%s\n' "$DESTINATION"

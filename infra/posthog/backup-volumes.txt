@@ -1,0 +1,26 @@
+# Volume classes that the PostHog analytics backup set must cover.
+#
+# One class per line. An exact name matches one volume. A name containing `*`
+# matches every volume with that prefix. A trailing `?` marks an optional class
+# that may be absent when the reviewed runtime does not use it; required
+# classes must resolve to at least one volume, otherwise the backup fails and
+# the readiness claim stays blocked (FR-033, FR-053).
+#
+# Keep this list aligned with the volume table in `backup-restore.md` before
+# readiness can pass. Every class that is present in the running runtime must be
+# archived: a class missing from this file is not protected.
+
+graf-posthog_postgres-data
+graf-posthog_clickhouse-data
+graf-posthog_objectstorage?
+graf-posthog_seaweedfs?
+graf-posthog_redis7-data?
+graf-posthog_redis-data?
+graf-posthog_kafka-data?
+graf-posthog_redpanda-data?
+graf-posthog_zookeeper-data?
+graf-posthog_zookeeper-datalog?
+graf-posthog_zookeeper-logs?
+graf-posthog_caddy-data?
+graf-posthog_caddy-config?
+graf-posthog_posthog-media?

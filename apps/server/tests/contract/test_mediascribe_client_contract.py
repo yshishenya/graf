@@ -24,7 +24,7 @@ def test_mediascribe_client_maps_unreadable_secret_file_to_safe_blocked_config(t
 
 
 @pytest.mark.asyncio
-async def test_mediascribe_client_submits_only_dual_track_fields_and_server_key() -> None:
+async def test_mediascribe_client_submits_only_single_file_and_server_key() -> None:
     captured: dict[str, object] = {}
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -32,8 +32,8 @@ async def test_mediascribe_client_submits_only_dual_track_fields_and_server_key(
         captured["api_key"] = request.headers.get("x-api-key")
         captured["idempotency_key"] = request.headers.get("idempotency-key")
         body = await request.aread()
-        assert b'name="mic_file"' in body
-        assert b'name="incoming_file"' in body
+        assert b'name="file"' in body
+        assert b'name="incoming_file"' not in body
         assert b'name="mixed_file"' not in body
         return httpx.Response(200, json={"id": "job_contract", "status": "uploaded"})
 
@@ -42,15 +42,14 @@ async def test_mediascribe_client_submits_only_dual_track_fields_and_server_key(
         api_key="server-side-key",
         transport=httpx.MockTransport(handler),
     )
-    response = await client.submit_dual_track(
-        mic_file=BytesIO(b"mic"),
-        incoming_file=BytesIO(b"incoming"),
+    response = await client.submit_single_track(
+        media_file=BytesIO(b"media"),
         diarize=True,
         summarize=False,
         idempotency_key="job-contract-key",
     )
     assert captured == {
-        "path": "/v1/audio/transcriptions/dual-track",
+        "path": "/v1/audio/transcriptions",
         "api_key": "server-side-key",
         "idempotency_key": "job-contract-key",
     }
@@ -201,9 +200,8 @@ async def test_mediascribe_client_maps_malformed_success_payloads_to_safe_retrya
     )
 
     with pytest.raises(MediaScribeClientError) as exc:
-        await client.submit_dual_track(
-            mic_file=BytesIO(b"mic"),
-            incoming_file=BytesIO(b"incoming"),
+        await client.submit_single_track(
+            media_file=BytesIO(b"media"),
             diarize=True,
             summarize=False,
         )

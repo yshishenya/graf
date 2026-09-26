@@ -2,59 +2,43 @@ import Foundation
 import XCTest
 
 final class AppLifecycleWindowRegressionTests: XCTestCase {
-    func testPromptGeometryUsesRealLayout() throws {
+    func testPromptGeometryUsesSharedCardLayout() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent("RecApp/Sources/Notifications/DesktopNotificationCardPresenter.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains("public static let windowWidth: CGFloat = 448"))
+        XCTAssertTrue(source.contains("public static let cardWidth: CGFloat = 420"))
+        XCTAssertTrue(source.contains("public static let topInset: CGFloat = 39"))
+        XCTAssertTrue(source.contains("public func presentRecordingPrompt("))
+        XCTAssertTrue(source.contains("onClose: onDismiss"))
+    }
+
+    func testMainWindowReadinessMarkerFollowsVisibilityAttempt() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let source = try String(contentsOf: root.appendingPathComponent("RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
-        var methods = ""
-        for name in ["meetingDetectionPromptFrame", "clamp"] {
-            let regex = try NSRegularExpression(pattern: "(?m)^    private func " + name + "\\([\\s\\S]*?^    \\}")
-            let match = try XCTUnwrap(regex.firstMatch(in: source, range: NSRange(source.startIndex..., in: source)))
-            let range = try XCTUnwrap(Range(match.range, in: source))
-            methods += String(source[range]).replacingOccurrences(of: "private func", with: "func") + "\n"
-        }
-        let marginLine = try XCTUnwrap(source.split(separator: "\n").first { $0.contains("static let meetingDetectionPromptVisibleMargin:") })
-        let script = """
-        import AppKit
-        struct Layout {
-        \(marginLine)
-        \(methods)
-        }
-        let layout = Layout()
-        let size = NSSize(width: 320, height: 192)
-        let normal = NSRect(x: 0, y: 25, width: 1800, height: 1100)
-        let fallback = layout.meetingDetectionPromptFrame(windowSize: size, visibleFrame: normal)
-        assert(fallback.size == size)
-        assert(fallback.maxX == normal.maxX - 22 && fallback.maxY == normal.maxY - 22)
-        let anchor = NSRect(x: 1000, y: 1125, width: 24, height: 24)
-        let anchored = layout.meetingDetectionPromptFrame(windowSize: size, visibleFrame: normal, anchorFrame: anchor)
-        assert(anchored.midX == anchor.midX)
-        for screen in [normal, NSRect(x: -1920, y: -1080, width: 1920, height: 1040),
-                       NSRect(x: -240, y: 50, width: 240, height: 160),
-                       NSRect(x: 0, y: 0, width: 30, height: 20)] {
-            for target in [nil, NSRect(x: screen.minX, y: screen.maxY, width: 24, height: 24),
-                           NSRect(x: screen.maxX - 24, y: screen.maxY, width: 24, height: 24)] as [NSRect?] {
-                let frame = layout.meetingDetectionPromptFrame(windowSize: size, visibleFrame: screen, anchorFrame: target)
-                assert(screen.contains(frame) && frame.width > 0 && frame.height > 0)
-                assert(frame == layout.meetingDetectionPromptFrame(windowSize: size, visibleFrame: screen, anchorFrame: target))
-            }
-        }
-        """
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appendingPathComponent("prompt-layout.swift")
-        try script.write(to: file, atomically: true, encoding: .utf8)
-        let output = Pipe()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = ["swift", "-swift-version", "5", file.path]
-        process.standardOutput = output
-        process.standardError = output
-        try process.run()
-        let result = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        XCTAssertEqual(process.terminationStatus, 0, String(decoding: result, as: UTF8.self))
+        let methodStart = try XCTUnwrap(source.range(of: "    private func presentMainWindow(reason: String)"))
+        let methodEnd = try XCTUnwrap(source.range(of: "    private func configureMainWindowCollectionBehavior", range: methodStart.upperBound..<source.endIndex))
+        let method = String(source[methodStart.lowerBound..<methodEnd.lowerBound])
+        let newWindowBranch = try XCTUnwrap(method.range(of: "        let window = NSWindow("))
+        let branch = String(method[newWindowBranch.lowerBound..<method.endIndex])
+        let show = try XCTUnwrap(branch.range(of: "window.makeKeyAndOrderFront(nil)"))
+        let order = try XCTUnwrap(branch.range(of: "window.orderFrontRegardless()"))
+        let activate = try XCTUnwrap(branch.range(of: "NSApp.activate(ignoringOtherApps: true)"))
+        let readinessCall = try XCTUnwrap(branch.range(of: "logMainWindowPresented(reason: reason, window: window, reused: false)"))
+        XCTAssertLessThan(show.lowerBound, readinessCall.lowerBound)
+        XCTAssertLessThan(order.lowerBound, readinessCall.lowerBound)
+        XCTAssertLessThan(activate.lowerBound, readinessCall.lowerBound)
+        let reusedBranch = String(method[..<newWindowBranch.lowerBound])
+        let reusedReadinessCall = try XCTUnwrap(reusedBranch.range(of: "logMainWindowPresented(reason: reason, window: mainWindow, reused: true)"))
+        let reusedActivate = try XCTUnwrap(reusedBranch.range(of: "NSApp.activate(ignoringOtherApps: true)"))
+        XCTAssertLessThan(reusedActivate.lowerBound, reusedReadinessCall.lowerBound)
+        let helperStart = try XCTUnwrap(method.range(of: "    private func logMainWindowPresented"))
+        let helper = String(method[helperStart.lowerBound..<method.endIndex])
+        let visibilityGuard = try XCTUnwrap(helper.range(of: "guard window.isVisible else"))
+        let helperMarker = try XCTUnwrap(helper.range(of: "event: \"app_main_window_presented\""))
+        XCTAssertLessThan(visibilityGuard.lowerBound, helperMarker.lowerBound)
+        XCTAssertTrue(helper.contains("event: \"app_main_window_presentation_failed\""))
     }
 
     func testReopenAndActivationPreserveSelectedWindow() throws {

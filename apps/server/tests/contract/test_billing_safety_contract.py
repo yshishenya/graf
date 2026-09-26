@@ -1,17 +1,17 @@
 from pathlib import Path
 
 from twobrain_rec_server.billing.monitoring import BillingMetricSnapshot
-from twobrain_rec_server.billing.operations import BillingEmergencyStop, require_billing_enabled
+from twobrain_rec_server.billing.operations import BillingCheckoutDisabled, require_billing_enabled
 from twobrain_rec_server.observability.redaction import redact_mapping
 
 
-def test_emergency_stop_blocks_provider_mutations() -> None:
+def test_disabled_checkout_blocks_provider_mutations() -> None:
     try:
-        require_billing_enabled(checkout_enabled=True, emergency_stop=True)
-    except BillingEmergencyStop:
+        require_billing_enabled(checkout_enabled=False)
+    except BillingCheckoutDisabled:
         pass
     else:
-        raise AssertionError("emergency stop must block checkout and renewal mutations")
+        raise AssertionError("a disabled checkout must block checkout and renewal mutations")
 
 
 def test_money_mutations_keep_provider_boundary_and_no_launch_gate_dependency() -> None:
@@ -66,7 +66,6 @@ def test_runbook_keeps_review_accessibility_and_stop_procedure_explicit() -> Non
     for owner in ("product", "finance/accounting", "legal", "security/qa"):
         assert owner in runbook
     assert "accessibility" in runbook
-    assert "emergency stop" in runbook
     spec = (Path(__file__).parents[4] / "specs/140-user-account-billing/spec.md").read_text(encoding="utf-8")
     assert "four-eyes" in spec
     assert "approver and executor" in spec

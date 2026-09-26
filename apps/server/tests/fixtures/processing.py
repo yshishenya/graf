@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
-from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
+from tests.fixtures.artifacts import track_descriptor
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.db.models import PlaybackNormalizationJob
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
@@ -69,39 +69,13 @@ def create_finalized_meeting(
     duration_seconds: int = 60,
     archive_audio: bool = True,
 ) -> dict[str, object]:
-    meeting_response = client.post(
-        "/api/v1/meetings",
-        headers=auth_headers(),
-        json={"local_recording_id": local_recording_id, "duration_seconds": duration_seconds},
+    """Create a supported single-source recording with caller-owned policy."""
+    return create_finalized_mixed_recording(
+        client,
+        local_recording_id,
+        duration_seconds=duration_seconds,
+        archive_audio=archive_audio,
     )
-    assert meeting_response.status_code == 200
-    meeting = meeting_response.json()
-    session_response = client.post(
-        f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
-        headers=auth_headers(),
-        json={"expected_tracks": ["manifest", "microphone", "system"]},
-    )
-    assert session_response.status_code == 200
-    session = session_response.json()
-    tracks: list[dict[str, object]] = []
-    for role, size in [("manifest", 8), ("microphone", 16), ("system", 24)]:
-        data = deterministic_wav_bytes(size)
-        digest = sha256(data).hexdigest()
-        response = client.put(
-            f"/api/v1/upload-sessions/{session['session_id']}/tracks/{role}/parts/0",
-            headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
-            content=data,
-        )
-        assert response.status_code == 200
-        tracks.append(track_descriptor(role, size) | {"sha256": digest, "byte_length": size})
-    finalize = client.post(
-        f"/api/v1/upload-sessions/{session['session_id']}/finalize",
-        headers=auth_headers(),
-        json={"manifest_sha256": tracks[0]["sha256"], "tracks": tracks, "archive_audio": archive_audio},
-    )
-    assert finalize.status_code == 200
-    finalized = finalize.json()
-    return {"finalize": finalized, "meeting": finalized["meeting"], "session": session, "tracks": tracks}
 
 
 def create_finalized_mixed_recording(
@@ -110,6 +84,8 @@ def create_finalized_mixed_recording(
     *,
     media_bytes: bytes | None = None,
     playback_bytes: bytes | None = None,
+    duration_seconds: int = 1,
+    archive_audio: bool = True,
 ) -> dict[str, object]:
     """Create an accepted metadata-only v5 package for processing tests.
 
@@ -124,7 +100,7 @@ def create_finalized_mixed_recording(
         headers=auth_headers(),
         json={
             "local_recording_id": local_recording_id,
-            "duration_seconds": 1,
+            "duration_seconds": duration_seconds,
             "source_kind": "initial_mixed_recording",
             "media_scribe_source_mode": "single_wav_v1",
         },
@@ -146,11 +122,6 @@ def create_finalized_mixed_recording(
         if playback_bytes is not None
         else b"synthetic-playback-metadata-only",
     }
-    descriptors = {
-        "manifest": ("json", 1, 1),
-        "media": ("wav-pcm-s16le", 16_000, 1),
-        "playback": ("m4a-aac-lc", 48_000, 1),
-    }
     tracks: list[dict[str, object]] = []
     for role in ["manifest", "media", "playback"]:
         data = artifacts[role]
@@ -161,23 +132,14 @@ def create_finalized_mixed_recording(
             content=data,
         )
         assert upload.status_code == 200
-        codec, sample_rate_hz, channel_count = descriptors[role]
         tracks.append(
-            {
-                "track_role": role,
-                "codec": codec,
-                "sample_rate_hz": sample_rate_hz,
-                "channel_count": channel_count,
-                "duration_seconds": 1,
-                "byte_length": len(data),
-                "sha256": digest,
-            }
+            track_descriptor(role, data=data, duration_seconds=duration_seconds)
         )
 
     finalize = client.post(
         f"/api/v1/upload-sessions/{session['session_id']}/finalize",
         headers=auth_headers(),
-        json={"manifest_sha256": tracks[0]["sha256"], "tracks": tracks},
+        json={"manifest_sha256": tracks[0]["sha256"], "tracks": tracks, "archive_audio": archive_audio},
     )
     assert finalize.status_code == 200
     finalized = finalize.json()

@@ -263,7 +263,7 @@ final class HistoricalRecordingPackageCompatibilityTests: XCTestCase {
         XCTAssertTrue(decoded.isHistoricCompatibilityPackage)
     }
 
-    func testHistoricalPackageRemainsUploadableOnlyThroughCompatibilityQueue() throws {
+    func testHistoricalPackageRemainsReadableButCannotUploadThroughQueue() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("historical-upload-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -283,13 +283,15 @@ final class HistoricalRecordingPackageCompatibilityTests: XCTestCase {
 
         let item = try XCTUnwrap(queue.scanAndEnqueueCompletedRecordings().first)
         let descriptors = DesktopUploadClient.uploadFileDescriptors(for: item)
-        let payload = DesktopUploadClient.createMeetingPayload(for: item)
+        XCTAssertThrowsError(try DesktopUploadClient.createMeetingPayload(for: item))
 
         XCTAssertFalse(item.isV5Package)
-        XCTAssertTrue(item.artifactProfile.isUploadable)
-        XCTAssertEqual(descriptors.map(\.transportRole), [.microphone, .system, .manifest])
-        XCTAssertEqual(payload.source_kind, "initial_recording")
-        XCTAssertEqual(payload.media_scribe_source_mode, "dual")
+        XCTAssertFalse(item.artifactProfile.isUploadable)
+        XCTAssertEqual(item.state, .blocked)
+        XCTAssertEqual(item.failureReason, "unsupported_recording_source")
+        XCTAssertTrue(descriptors.isEmpty)
+        XCTAssertFalse(try queue.retry(itemId: item.id).artifactProfile.isUploadable)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("mic.wav").path))
     }
 }
 

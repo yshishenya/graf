@@ -10,6 +10,7 @@ COMPOSE_PATH = REPO_ROOT / "infra/docker-compose.yml"
 DEV_COMPOSE_PATH = REPO_ROOT / "infra/docker-compose.dev.yml"
 ENV_TEMPLATE_PATH = REPO_ROOT / "infra/env/rec.production.env.example"
 DOCKERFILE_PATH = REPO_ROOT / "infra/server/Dockerfile"
+NGINX_PATH = REPO_ROOT / "infra/nginx/rec.2brain.pro.conf"
 CONSTRAINTS_PATH = REPO_ROOT / "apps/server/constraints.txt"
 UV_LOCK_PATH = REPO_ROOT / "apps/server/uv.lock"
 
@@ -55,6 +56,9 @@ def test_production_compose_api_has_healthcheck_and_localhost_bind_policy() -> N
     api = _compose()["services"]["rec-api"]
 
     assert api["ports"] == ["127.0.0.1:18081:8080"]
+    assert api["environment"]["TWOBRAIN_PRODUCT_ANALYTICS_INTERNAL_HOSTS"] == (
+        "${TWOBRAIN_PRODUCT_ANALYTICS_INTERNAL_HOSTS:-}"
+    )
     assert "healthcheck" in api
     healthcheck = " ".join(api["healthcheck"]["test"])
     assert "/api/v1/health/ready" in healthcheck
@@ -118,10 +122,22 @@ def test_runtime_image_uses_runtime_dependencies_and_constraints() -> None:
     assert "sqlalchemy==" in constraints
 
 
-def test_runtime_image_disables_uvicorn_access_logs() -> None:
+def test_runtime_image_uses_loopback_only_sanitized_forwarded_headers() -> None:
     dockerfile = DOCKERFILE_PATH.read_text()
 
     assert '"--no-access-log"' in dockerfile
+    assert '"--proxy-headers"' in dockerfile
+    assert '"--forwarded-allow-ips", "127.0.0.1"' in dockerfile
+    assert dockerfile.index('"--proxy-headers"') < dockerfile.index('"--forwarded-allow-ips", "127.0.0.1"')
+
+
+def test_nginx_sanitizes_forwarded_client_chain_before_loopback_proxy() -> None:
+    nginx = NGINX_PATH.read_text()
+
+    assert "proxy_pass http://127.0.0.1:18081;" in nginx
+    assert "proxy_set_header X-Forwarded-For $remote_addr;" in nginx
+    assert "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;" not in nginx
+    assert "proxy_set_header X-Real-IP $remote_addr;" in nginx
 
 
 def test_runtime_image_copy_sources_exist_in_repository() -> None:
@@ -310,6 +326,14 @@ def test_prompt_optimization_worker_is_operations_only_and_isolated_from_recordi
         secret["source"] for secret in processing["secrets"]
     }
     assert "TWOBRAIN_PROMPT_OPTIMIZATION_DATABASE_URL" not in processing["environment"]
+
+
+def test_production_env_template_declares_internal_analytics_hosts_contract() -> None:
+    env_text = ENV_TEMPLATE_PATH.read_text()
+
+    assert "TWOBRAIN_PRODUCT_ANALYTICS_INTERNAL_HOSTS=" in env_text
+    assert "ASGI peer address" in env_text
+    assert "nginx overwrites X-Forwarded-For" in env_text
 
 
 def test_production_env_template_does_not_broadcast_service_specific_secret_files() -> None:
@@ -724,3 +748,11 @@ def test_remote_cd_normalizes_billing_secret_paths_and_fails_closed_on_placehold
     assert "compose_secret_file twobrain_billing_referral_secret" in script
     assert "billing_secret_sources_valid" in script
     assert "billing_enabled_compose_uses_disabled_secret_placeholder" in script
+    assert (
+        'if [[ "${TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED:-false}" == "true" \\\n  || "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then\n'
+        '  export TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE=' in script
+    )
+    assert (
+        'if [[ "${TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED:-false}" == "true" \\\n  || "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then\n'
+        '  [[ -n "$billing_webhook_secret_source"' in script
+    )

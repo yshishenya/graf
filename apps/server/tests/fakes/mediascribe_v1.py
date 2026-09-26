@@ -36,7 +36,6 @@ class MediaScribeV1Fixture:
 
         if request.method == "POST" and request.url.path in {
             "/v1/audio/transcriptions",
-            "/v1/audio/transcriptions/dual-track",
         }:
             key = request.headers.get("Idempotency-Key", "fixture-key")
             if key not in self.submissions:
@@ -54,7 +53,6 @@ class MediaScribeV1Fixture:
                 json={
                     "api_contract_version": "v1",
                     "supported_media_extensions": ["wav"],
-                    "dual_track_supported": True,
                     "max_active_jobs_global": 4,
                     "max_active_jobs_per_user": 2,
                     "max_job_attempts": 3,

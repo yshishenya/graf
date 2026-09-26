@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
+import contextlib
 import datetime as dt
 import hashlib
 import importlib.util
@@ -163,7 +165,23 @@ def api(repository, endpoint, *, pages_key=None):
     return [row for page in value for row in (page[pages_key] if pages_key else page)] if pages_key is not None else value
 
 
-def artifact(repository, run, workflow, *, optional=False):
+# Downloads are reused only inside one verification; outside one, every call
+# reads GitHub again so a stale archive can never be trusted.
+_ACTIVE_CACHE = None
+
+
+@contextlib.contextmanager
+def artifact_cache():
+    global _ACTIVE_CACHE
+    previous = _ACTIVE_CACHE
+    _ACTIVE_CACHE = {}
+    try:
+        yield
+    finally:
+        _ACTIVE_CACHE = previous
+
+
+def download_artifact(repository, run, workflow, *, optional=False):
     names = {"governance-fast": f"graf-governance-fast-evidence-{run['id']}-{run['run_attempt']}",
              "code-scope": f"graf-code-scope-{run['id']}-{run['run_attempt']}",
              "macos-pr": f"graf-native-scope-{run['id']}-{run['run_attempt']}",
@@ -186,6 +204,64 @@ def artifact(repository, run, workflow, *, optional=False):
         files = [item for item in archive.infolist() if Path(item.filename).name == filename]
         require(len(files) == 1 and files[0].file_size <= 1_000_000, "missing/oversized/ambiguous proof")
         return json.loads(archive.read(files[0]))
+
+
+def artifact(repository, run, workflow, *, optional=False):
+    """Return one workflow proof archive, downloading each archive at most once.
+
+    A release train verifies every included pull request, and each one needs up
+    to four independent archives.  Downloading them one after another spent most
+    of the release wall time waiting on the network, so `prefetch_artifacts`
+    fetches them at the same time and this function serves the cached result to
+    the sequential validation that follows.
+
+    The cache exists only while one verification runs: `verify` and `reuse` open
+    it, so a later verification always re-reads GitHub state instead of trusting
+    a download made earlier in the same process.
+    """
+    key = (run["id"], workflow)
+    cache = _ACTIVE_CACHE
+    if cache is not None and key in cache:
+        value = cache[key]
+        if isinstance(value, BaseException):
+            raise value
+        return value
+    value = download_artifact(repository, run, workflow, optional=optional)
+    if cache is not None:
+        cache[key] = value
+    return value
+
+
+def prefetch_artifacts(repository, jobs):
+    """Download independent proof archives at the same time.
+
+    `jobs` holds (run, workflow) pairs.  A failed download is cached and
+    re-raised by `artifact`, so verification still fails with the same message
+    it produced while downloads were sequential.  Archives are fetched strictly
+    except the optional scope archive, which may legitimately be absent.
+    """
+    cache = _ACTIVE_CACHE
+    if cache is None:
+        return
+    pending = {}
+    for run, workflow in jobs:
+        key = (run["id"], workflow)
+        if key not in cache:
+            pending[key] = (run, workflow)
+    if not pending:
+        return
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(pending))) as pool:
+        futures = {
+            pool.submit(download_artifact, repository, run, workflow,
+                        optional=workflow == "code-scope"): key
+            for key, (run, workflow) in pending.items()
+        }
+        for future in concurrent.futures.as_completed(futures):
+            key = futures[future]
+            try:
+                cache[key] = future.result()
+            except BaseException as error:  # re-raised by artifact()
+                cache[key] = error
 
 
 def workflow_runs(repository, workflow, pr):
@@ -248,6 +324,10 @@ def current_gate(repository, workflow, pr, base):
 
 _RELEASE_PREP_FRAGMENT = re.compile(
     r"changes/releases/(v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*)/F[0-9]+\.yaml"
+)
+_RELEASE_PREP_UNRELEASED_FRAGMENT = re.compile(r"changes/unreleased/F([0-9]+)\.yaml")
+_RELEASE_PREP_ARCHIVED_FRAGMENT = re.compile(
+    r"changes/releases/(v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*)/F([0-9]+)\.yaml"
 )
 _RELEASE_PREP_SUBJECT = re.compile(r"(?:release|релиз|выпуск|заметк)", re.IGNORECASE)
 _CLOSEOUT_SUBJECT = re.compile(r"^docs\(closeout\):\s+", re.IGNORECASE)
@@ -314,11 +394,107 @@ def metadata_only_release_prep(commit, published_version=None):
         if not _RELEASE_PREP_SUBJECT.search(subject):
             return False
         rows = subprocess.check_output(
-            ["git", "diff-tree", "--no-commit-id", "--name-status", "-r", parents[1], commit],
+            ["git", "diff-tree", "--no-commit-id", "--name-status", "-r", "-M", parents[1], commit],
             stderr=subprocess.DEVNULL,
         ).decode("utf-8").splitlines()
     except (UnicodeDecodeError, subprocess.CalledProcessError):
         return False
+    rename_rows = []
+    for row in rows:
+        fields = row.split("\t")
+        if len(fields) == 3 and fields[0] == "R100":
+            rename_rows.append((fields[1], fields[2]))
+    if rename_rows:
+        if len(rows) != len(rename_rows) + 1 or not any(
+            row.split("\t") == ["M", "CHANGELOG.md"] for row in rows
+        ):
+            return False
+        parent = parents[1]
+
+        def blob(revision, path):
+            return subprocess.check_output(
+                ["git", "show", f"{revision}:{path}"], stderr=subprocess.DEVNULL,
+            ).decode("utf-8")
+
+        try:
+            before_changelog = blob(parent, "CHANGELOG.md")
+            after_changelog = blob(commit, "CHANGELOG.md")
+            before_heading = _RELEASE_HEADING.search(before_changelog)
+            after_heading = _RELEASE_HEADING.search(after_changelog)
+            before_headings = _RELEASE_HEADING.findall(before_changelog)
+            after_headings = _RELEASE_HEADING.findall(after_changelog)
+            if (
+                before_heading is None
+                or after_heading is None
+                or len(after_headings) != len(before_headings) + 1
+                or after_headings[1:] != before_headings
+                or after_heading.start() != after_changelog.find(f"## [{after_headings[0]}]")
+            ):
+                return False
+            latest = after_headings[0]
+            if published_version is not None:
+                published_key = _calver_key(published_version)
+                latest_key = _calver_key(f"v{latest}")
+                if published_key is None or latest_key is None or latest_key <= published_key:
+                    return False
+            section_start = after_heading.start()
+            next_heading = _RELEASE_HEADING.search(after_changelog, section_start + 1)
+            section_end = next_heading.start() if next_heading else len(after_changelog)
+            if (
+                after_changelog[:section_start] != before_changelog[:before_heading.start()]
+                or after_changelog[section_end:] != before_changelog[before_heading.start():]
+            ):
+                return False
+            section = after_changelog[section_start:section_end]
+            marker_lines = _RELEASE_MARKER.findall(section)
+            if len(marker_lines) != 1 or not re.search(r"[А-Яа-яЁё]", section):
+                return False
+            changed = subprocess.check_output(
+                ["git", "diff", "--unified=0", parent, commit, "--", "CHANGELOG.md"],
+                stderr=subprocess.DEVNULL,
+            ).decode("utf-8")
+        except (UnicodeDecodeError, ValueError, subprocess.CalledProcessError):
+            return False
+
+        fragment_ids = set()
+        versions = set()
+        for old_path, new_path in rename_rows:
+            old_match = _RELEASE_PREP_UNRELEASED_FRAGMENT.fullmatch(old_path)
+            new_match = _RELEASE_PREP_ARCHIVED_FRAGMENT.fullmatch(new_path)
+            if old_match is None or new_match is None:
+                return False
+            if new_match.group(2) != old_match.group(1):
+                return False
+            versions.add(new_match.group(1))
+            try:
+                before, after = blob(parent, old_path), blob(commit, new_path)
+            except (UnicodeDecodeError, subprocess.CalledProcessError):
+                return False
+            if before != after:
+                return False
+            feature_id = _valid_release_fragment(
+                after, new_path, f"v{latest}", expected_feature=old_match.group(1)
+            )
+            if feature_id is None:
+                return False
+            fragment_ids.add(feature_id)
+            changed += subprocess.check_output(
+                ["git", "diff", "--unified=0", parent, commit, "--", old_path, new_path],
+                stderr=subprocess.DEVNULL,
+            ).decode("utf-8")
+
+        marker_ids = {
+            feature_id
+            for marker in marker_lines
+            for feature_id in re.findall(r"\bF([0-9]+)\b", marker)
+        }
+        if not fragment_ids or versions != {f"v{latest}"} or marker_ids != fragment_ids:
+            return False
+        return not any(
+            _sensitive_release_text(line[1:])
+            for line in changed.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        )
     paths = []
     fragments = []
     for row in rows:
@@ -471,6 +647,7 @@ def code_snapshot(pr, repository):
     return {key: value for key, value in snapshot.items() if key not in {"metadata_digest", "api_base_sha"}}
 
 
+@artifact_cache()
 def reuse(repository, event, workflow, run_id, attempt, *, wait_seconds=0):
     require(re.fullmatch(r"[\w.-]+/[\w.-]+", repository), "invalid repository")
     require(workflow in {"governance-fast", "macos-pr"} and 0 <= wait_seconds <= 2640,
@@ -512,6 +689,7 @@ def reuse(repository, event, workflow, run_id, attempt, *, wait_seconds=0):
         return dict(reference(*source), workflow=workflow, target_sha=scope["target_sha"], base_sha=scope["base_sha"])
 
 
+@artifact_cache()
 def verify(repository, number, *, expected_sha=None, code_run_id=None):
     require(re.fullmatch(r"[\w.-]+/[\w.-]+", repository) and type(number) is int and number > 0, "invalid repository/PR")
     pr = api(repository, f"pulls/{number}")
@@ -530,6 +708,12 @@ def verify(repository, number, *, expected_sha=None, code_run_id=None):
             and utc(foundation["merged_at"]) < utc(policy["activated_at"]), "unverified policy foundation")
     workflows = ["governance-fast"] if old else ["governance-fast", "macos-pr", "pr-metadata"]
     bundles = {name: current_run(repository, name, pr, base) for name in workflows}
+    jobs = []
+    for name in workflows:
+        jobs.append((bundles[name][0], name))
+        if name != "pr-metadata":
+            jobs.append((bundles[name][0], "code-scope" if name == "governance-fast" else "macos-pr"))
+    prefetch_artifacts(repository, jobs)
     gates = {name: current_gate(repository, name, pr, base) for name in workflows}
     if code_run_id is not None:
         require(str(bundles["governance-fast"][0]["id"]) == str(code_run_id), "referenced code run is no longer current")
@@ -581,15 +765,26 @@ def verify_source(repository, source_sha, *, included_prs=None):
             break
     require(base is not None, "previous published release ancestor is unavailable")
     commits = metadata._git("rev-list", "--first-parent", f"{base}..{source_sha}").splitlines()
-    covered, results = set(), []
+    candidates, results = [], []
+    covered = set()
+    deferred_prs = set()
     metadata_kinds = set()
     for commit in commits:
-        if commit in covered:
-            continue
         prs = api(repository, f"commits/{commit}/pulls?per_page=100", pages_key="")
+        all_matches = [pr for pr in prs if pr.get("merged_at")
+                       and pr.get("base", {}).get("ref") == "master"]
         matches = [pr for pr in prs if pr.get("merged_at") and pr.get("merge_commit_sha") == commit
                    and pr.get("base", {}).get("ref") == "master"]
         if not matches:
+            if all_matches:
+                require(len(all_matches) == 1 and isinstance(all_matches[0].get("number"), int),
+                        "release commit maps to multiple merged pull requests")
+                # Fast-forward merges expose the PR's individual commits on
+                # the first-parent range before the tip commit that GitHub
+                # records as merge_commit_sha. Defer those commits and verify
+                # the PR exactly once when its merge commit is reached.
+                deferred_prs.add(all_matches[0]["number"])
+                continue
             kind = (
                 "release-prep"
                 if metadata_only_release_prep(commit, published_version=base_release_tag)
@@ -604,10 +799,32 @@ def verify_source(repository, source_sha, *, included_prs=None):
             metadata_kinds.add(kind)
             continue
         require(len(matches) == 1, "release contains source without a unique merged PR")
-        proof = verify(repository, matches[0]["number"])
-        require(proof["merge_commit_sha"] == commit, "release PR merge identity changed")
-        covered.update(metadata._git("rev-list", "--first-parent", f"{proof['base_sha']}..{commit}").splitlines())
-        results.append(proof)
+        candidates.append((commit, matches[0]["number"]))
+
+    candidate_prs = {number for _commit, number in candidates}
+    require(deferred_prs <= candidate_prs,
+            "release contains source without a unique merged PR")
+
+    # PR checks are independent once the exact first-parent release range has
+    # been derived. Keep the concurrency bounded, but do not serialize network
+    # proof downloads behind the slowest PR. Results are consumed in release
+    # order so the manifest remains deterministic.
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(8, len(candidates) or 1)
+    ) as pool:
+        futures = [pool.submit(verify, repository, number) for _commit, number in candidates]
+        for (commit, _number), future in zip(candidates, futures):
+            # A squash/rebase range can expose more than one commit for the
+            # same PR. The first verified merge commit covers the remainder;
+            # preserve that old exact-range rule while allowing the independent
+            # futures to run concurrently.
+            if commit in covered:
+                continue
+            proof = future.result()
+            require(proof["merge_commit_sha"] == commit, "release PR merge identity changed")
+            proof["release_source_sha"] = source_sha
+            covered.update(metadata._git("rev-list", "--first-parent", f"{proof['base_sha']}..{commit}").splitlines())
+            results.append(proof)
     numbers = sorted(proof["pr_number"] for proof in results)
     if included_prs is not None:
         require(sorted(included_prs) == numbers, "train PR set differs from the published-release range")
@@ -653,8 +870,12 @@ def main():
             require(args.included_prs is None, "included PRs require release source")
             result = verify(args.repository, args.pr, expected_sha=args.expected_sha, code_run_id=args.code_run_id)
         print(json.dumps(result, sort_keys=True))
-    except (OSError, ValueError, TypeError, KeyError, AttributeError, zipfile.BadZipFile, subprocess.CalledProcessError):
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, zipfile.BadZipFile, subprocess.CalledProcessError) as error:
+        # A bare "could not be verified" hides whether the proof is missing, the
+        # network hiccuped, or the train and the release range disagree.  The
+        # reason costs nothing and is what makes the failure actionable.
         print("pr-checks: current complete GitHub proof could not be verified", file=sys.stderr)
+        print(f"pr-checks: reason: {type(error).__name__}: {error}", file=sys.stderr)
         return 1
     return 0
 

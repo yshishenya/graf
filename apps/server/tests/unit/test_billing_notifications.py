@@ -92,3 +92,41 @@ def test_refused_late_success_copy_requires_static_support_contact() -> None:
     assert "после отключения продления" in title
     assert "billing@example.test" in body
     assert "не включен" in body
+
+
+def test_renewal_attempt_failure_copy_states_the_access_end_date() -> None:
+    event = build_notification(
+        event_id="renewal:invoice-1:attempt-failed",
+        kind=BillingNotification.RENEWAL_ATTEMPT_FAILED,
+        payload={
+            "invoice": "INV-RNW-1",
+            "access_until": "10.08.2026 03:00",
+            "action_path": "/billing/subscription",
+            "email": "private@example.test",
+        },
+    )
+
+    assert event.safe_payload == {
+        "invoice": "INV-RNW-1",
+        "access_until": "10.08.2026 03:00",
+        "action_path": "/billing/subscription",
+    }
+    title, body = notification_copy(event)
+    assert "не прошло" in title
+    assert "Доступ отключится 10.08.2026 03:00 МСК" in body
+    assert "INV-RNW-1" in body
+    assert "private@example.test" not in body
+
+
+def test_renewal_attempt_failure_is_mandatory_and_drops_an_unusable_date() -> None:
+    outbox = NotificationOutbox()
+    event = build_notification(
+        event_id="renewal:1:attempt-failed",
+        kind=BillingNotification.RENEWAL_ATTEMPT_FAILED,
+        payload={"invoice": "INV-1", "access_until": "скоро"},
+    )
+
+    assert event.safe_payload == {"invoice": "INV-1"}
+    assert outbox.enqueue(event, recipient_id="user-1", marketing_allowed=False) is not None
+    _, body = notification_copy(event)
+    assert "в конце оплаченного периода" in body

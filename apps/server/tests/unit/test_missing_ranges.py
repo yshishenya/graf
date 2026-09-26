@@ -24,8 +24,8 @@ def session() -> UploadSessionRecord:
 
 def test_accepted_bytes_by_track_sums_parts() -> None:
     upload_session = session()
-    upload_session.parts[(TrackRole.MICROPHONE, 0)] = UploadPartRecord(
-        track_role=TrackRole.MICROPHONE,
+    upload_session.parts[(TrackRole.MEDIA, 0)] = UploadPartRecord(
+        track_role=TrackRole.MEDIA,
         part_number=0,
         byte_offset=0,
         byte_length=10,
@@ -33,8 +33,8 @@ def test_accepted_bytes_by_track_sums_parts() -> None:
         object_key="x",
         data=b"a" * 10,
     )
-    upload_session.parts[(TrackRole.MICROPHONE, 1)] = UploadPartRecord(
-        track_role=TrackRole.MICROPHONE,
+    upload_session.parts[(TrackRole.MEDIA, 1)] = UploadPartRecord(
+        track_role=TrackRole.MEDIA,
         part_number=1,
         byte_offset=10,
         byte_length=5,
@@ -42,13 +42,13 @@ def test_accepted_bytes_by_track_sums_parts() -> None:
         object_key="x",
         data=b"b" * 5,
     )
-    assert accepted_bytes_by_track(upload_session)[TrackRole.MICROPHONE] == 15
+    assert accepted_bytes_by_track(upload_session)[TrackRole.MEDIA] == 15
 
 
 def test_missing_ranges_returns_remaining_tail() -> None:
     upload_session = session()
-    upload_session.parts[(TrackRole.SYSTEM, 0)] = UploadPartRecord(
-        track_role=TrackRole.SYSTEM,
+    upload_session.parts[(TrackRole.PLAYBACK, 0)] = UploadPartRecord(
+        track_role=TrackRole.PLAYBACK,
         part_number=0,
         byte_offset=0,
         byte_length=4,
@@ -56,6 +56,6 @@ def test_missing_ranges_returns_remaining_tail() -> None:
         object_key="x",
         data=b"a" * 4,
     )
-    assert missing_ranges_for_expected_sizes(upload_session, {TrackRole.SYSTEM: 10}) == {
-        TrackRole.SYSTEM: [(4, 10)]
+    assert missing_ranges_for_expected_sizes(upload_session, {TrackRole.PLAYBACK: 10}) == {
+        TrackRole.PLAYBACK: [(4, 10)]
     }

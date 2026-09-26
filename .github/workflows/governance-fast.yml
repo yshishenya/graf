@@ -262,6 +262,26 @@ jobs:
             fi
           done <<< "$paths"
 
+      - name: Validate provider page measurement only for server changes
+        if: needs.scope.outputs.text_only == 'false'
+        shell: bash
+        env:
+          GRAF_CI_BASE_REF: ${{ steps.identity.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          # Page-class measurement policy lives in the server package, and the
+          # check fails when a class silently changes provider behavior. It is
+          # cheap next to the fast lane, so it runs first and reports the exact
+          # page class instead of a late generic verdict.
+          source infra/scripts/ci-local.sh
+          paths="$(changed_files)"
+          while IFS= read -r path; do
+            if [[ "$(classify_path "$path")" == server ]]; then
+              infra/scripts/validate-product-analytics-provider-pages.sh
+              break
+            fi
+          done <<< "$paths"
+
       - name: Run bounded fast lane
         if: needs.scope.outputs.text_only == 'false'
         id: fast_lane

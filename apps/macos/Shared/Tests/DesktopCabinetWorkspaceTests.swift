@@ -558,6 +558,49 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         )
     }
 
+    func testRecoveryKeepsTheBillingRouteSoPaymentStateStaysVisible() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
+            rawBaseURL: "https://rec.2brain.dev",
+            headers: [:]
+        ))
+        let checkoutReturn = try XCTUnwrap(URL(string: "https://rec.2brain.dev/billing/checkout/return"))
+        let billing = try XCTUnwrap(URL(string: "https://rec.2brain.dev/billing"))
+
+        XCTAssertEqual(
+            DesktopCabinetWorkspace.recoveryTarget(
+                for: .blockedRoute,
+                currentRoute: checkoutReturn,
+                initialRoute: nil,
+                configuration: configuration
+            ),
+            .embedded(checkoutReturn)
+        )
+        XCTAssertEqual(
+            DesktopCabinetWorkspace.recoveryTarget(
+                for: .offline,
+                currentRoute: billing,
+                initialRoute: nil,
+                configuration: configuration
+            ),
+            .embedded(billing)
+        )
+        XCTAssertEqual(
+            DesktopCabinetWorkspace.recoveryTarget(
+                for: .blockedRoute,
+                currentRoute: try XCTUnwrap(URL(string: "https://yookassa.ru/checkout/abc")),
+                initialRoute: nil,
+                configuration: configuration
+            ),
+            .embedded(configuration.meetingsURL()),
+            "A provider page must never become the recovered cabinet document"
+        )
+        XCTAssertEqual(
+            EmbeddedCabinetWebView.finishedState(for: .billing),
+            .ready,
+            "The cabinet reports the current subscription state after payment"
+        )
+    }
+
     func testRecoveryKeepsCalendarSettingsRouteAcrossAuthAndBlockedStates() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
             rawBaseURL: "https://rec.2brain.dev",

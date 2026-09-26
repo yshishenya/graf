@@ -36,8 +36,18 @@ def test_processing_pickup_blocks_invalid_meeting_states(client) -> None:
 
     assert asyncio.run(reason_code()) == "blocked_invalid_meeting_state"
 
+    # A rejected pickup creates a workflow row, not a historical recording.
+    repeated = client.post(
+        "/api/v1/internal/processing/pickup",
+        headers=auth_headers(),
+        json={"meeting_id": meeting["meeting_id"]},
+    )
+    assert repeated.status_code == 202
+    assert repeated.json()["blocked_count"] == 1
+    assert asyncio.run(reason_code()) == "blocked_invalid_meeting_state"
 
-def test_processing_pickup_blocks_missing_dual_track_artifacts(client) -> None:
+
+def test_processing_pickup_blocks_missing_single_source_artifact(client) -> None:
     client.app.state.temporal_client = FakeTemporalClient()
     finalized = create_finalized_meeting(client, "pickup-missing-artifact")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
@@ -47,7 +57,7 @@ def test_processing_pickup_blocks_missing_dual_track_artifacts(client) -> None:
             system = await db.scalar(
                 select(TrackArtifact).where(
                     TrackArtifact.meeting_id == meeting_id,
-                    TrackArtifact.track_role == "system",
+                    TrackArtifact.track_role == "media",
                 )
             )
             await db.delete(system)

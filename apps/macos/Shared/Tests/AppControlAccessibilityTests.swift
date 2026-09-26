@@ -216,7 +216,6 @@ final class AppControlAccessibilityTests: XCTestCase {
             "apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift",
             "apps/macos/RecApp/Sources/Capture/CaptureStatusItem.swift",
             "apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift",
-            "apps/macos/RecApp/App/TwoBrainRecApp.swift",
         ]
 
         for path in paths {

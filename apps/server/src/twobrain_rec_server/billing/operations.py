@@ -10,7 +10,7 @@ class OperationOutcome(StrEnum):
     UNKNOWN = "unknown"
 
 
-class BillingEmergencyStop(RuntimeError):
+class BillingCheckoutDisabled(RuntimeError):
     pass
 
 
@@ -28,9 +28,13 @@ CHECKOUT_BLOCKING_STATES = frozenset(
         "method_required",
         "reconciliation_gap",
         "manual_resolution",
-        "provider_key_expired",
     }
 )
+
+# A provider-key expiry is a terminal local observation outcome, not a provider
+# cancellation. It must not block a fresh initial checkout, while the provider
+# id (when known) remains available for late GET/webhook reconciliation.
+INITIAL_CHECKOUT_OBSERVATION_EXPIRED = "observation_expired"
 
 
 def blocks_new_checkout(operation_state: str) -> bool:
@@ -38,11 +42,9 @@ def blocks_new_checkout(operation_state: str) -> bool:
     return operation_state in CHECKOUT_BLOCKING_STATES
 
 
-def require_billing_enabled(*, checkout_enabled: bool, emergency_stop: bool) -> None:
-    if emergency_stop:
-        raise BillingEmergencyStop("billing operations are temporarily stopped")
+def require_billing_enabled(*, checkout_enabled: bool) -> None:
     if not checkout_enabled:
-        raise BillingEmergencyStop("billing checkout is disabled")
+        raise BillingCheckoutDisabled("billing checkout is disabled")
 
 
 def classify_provider_outcome(

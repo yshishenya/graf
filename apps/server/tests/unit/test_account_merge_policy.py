@@ -28,6 +28,9 @@ USER_IDENTITY_FK_DISPOSITIONS = {
     ("calendar_audit_events", "actor_user_id"): "historical_only",
     ("calendar_settings_preferences", "owner_user_id"): "transfer_or_deduplicate",
     ("calendar_sources", "owner_user_id"): "blocking",
+    # The campaign attribute belongs to the customer and follows the surviving
+    # account; the uniqueness per account turns a collision into a dedupe.
+    ("client_acquisition_attributes", "account_id"): "transfer_or_deduplicate",
     ("export_packages", "requested_by_user_id"): "blocking",
     ("external_identities", "user_id"): "transfer_or_deduplicate",
     ("fair_use_reviews", "subject_user_id"): "lineage_aware",

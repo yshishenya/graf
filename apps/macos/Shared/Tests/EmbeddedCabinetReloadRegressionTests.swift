@@ -68,6 +68,8 @@ final class EmbeddedCabinetReloadRegressionTests: XCTestCase {
             return view.subviews.compactMap { webView(in: $0) }.first
         }
         let web = try XCTUnwrap(webView(in: host))
+        XCTAssertTrue(web.configuration.preferences.tabFocusesLinks,
+            "Tab navigation must reach cabinet links as well as form controls")
         for _ in 0..<100 {
             if controller.canReload { break }
             try await Task.sleep(for: .milliseconds(40))

@@ -19,13 +19,13 @@ def test_upload_part_writes_bytes_to_storage_not_process_session_state(client) -
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"system": 16}},
+        json={"expected_track_sizes": {"playback": 16}},
     ).json()
     data = deterministic_wav_bytes(16)
     digest = sha256(data).hexdigest()
 
     response = client.put(
-        f"/api/v1/upload-sessions/{session['session_id']}/tracks/system/parts/0",
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/playback/parts/0",
         headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
         content=data,
     )
@@ -64,13 +64,13 @@ def test_upload_part_sync_storage_fallback_runs_off_event_loop(client) -> None:
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"system": 4}},
+        json={"expected_track_sizes": {"playback": 4}},
     ).json()
     data = deterministic_wav_bytes(4)
     digest = sha256(data).hexdigest()
 
     response = client.put(
-        f"/api/v1/upload-sessions/{session['session_id']}/tracks/system/parts/0",
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/playback/parts/0",
         headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
         content=data,
     )
@@ -87,14 +87,14 @@ def test_upload_part_rejects_unbounded_part_number_before_storage_write(client) 
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"system": 4}},
+        json={"expected_track_sizes": {"playback": 4}},
     ).json()
     data = deterministic_wav_bytes(4)
     digest = sha256(data).hexdigest()
     oversized_part_number = "9" * 800
 
     response = client.put(
-        f"/api/v1/upload-sessions/{session['session_id']}/tracks/system/parts/{oversized_part_number}",
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/playback/parts/{oversized_part_number}",
         headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
         content=data,
     )
@@ -113,13 +113,13 @@ def test_upload_part_creates_temporary_cleanup_accounting(client) -> None:
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"system": 4}},
+        json={"expected_track_sizes": {"playback": 4}},
     ).json()
     data = deterministic_wav_bytes(4)
     digest = sha256(data).hexdigest()
 
     response = client.put(
-        f"/api/v1/upload-sessions/{session['session_id']}/tracks/system/parts/0",
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/playback/parts/0",
         headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
         content=data,
     )
@@ -149,7 +149,7 @@ def test_upload_part_marks_orphaned_cleanup_accounting_after_persistence_failure
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"system": 4}},
+        json={"expected_track_sizes": {"playback": 4}},
     ).json()
     data = deterministic_wav_bytes(4)
     digest = sha256(data).hexdigest()
@@ -163,7 +163,7 @@ def test_upload_part_marks_orphaned_cleanup_accounting_after_persistence_failure
     )
 
     response = client.put(
-        f"/api/v1/upload-sessions/{session['session_id']}/tracks/system/parts/0",
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/playback/parts/0",
         headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
         content=data,
     )
@@ -211,7 +211,7 @@ def test_upload_part_closes_stream_when_temporary_cleanup_accounting_fails(clien
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"system": 4}},
+        json={"expected_track_sizes": {"playback": 4}},
     ).json()
     data = deterministic_wav_bytes(4)
     digest = sha256(data).hexdigest()
@@ -225,7 +225,7 @@ def test_upload_part_closes_stream_when_temporary_cleanup_accounting_fails(clien
     )
 
     response = client.put(
-        f"/api/v1/upload-sessions/{session['session_id']}/tracks/system/parts/0",
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/playback/parts/0",
         headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
         content=data,
     )
@@ -259,7 +259,7 @@ def test_upload_part_preserves_safe_error_when_orphan_accounting_fails(client, m
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"system": 4}},
+        json={"expected_track_sizes": {"playback": 4}},
     ).json()
     data = deterministic_wav_bytes(4)
     digest = sha256(data).hexdigest()
@@ -280,7 +280,7 @@ def test_upload_part_preserves_safe_error_when_orphan_accounting_fails(client, m
     )
 
     response = client.put(
-        f"/api/v1/upload-sessions/{session['session_id']}/tracks/system/parts/0",
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/playback/parts/0",
         headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
         content=data,
     )

@@ -29,6 +29,8 @@ dev_state="$(./infra/scripts/dev-harness.sh status --json | jq -r '.state_dir')"
 ./infra/scripts/dev-harness.sh smoke --json --live
 ./infra/scripts/dev-harness.sh rollback --dry-run
 ./infra/scripts/dev-harness.sh rehydrate --manifest <path>
+./infra/scripts/dev-harness.sh prune --dry-run
+./infra/scripts/dev-harness.sh prune
 ./infra/scripts/dev-harness.sh reset-data --confirm-dev-reset --dry-run
 ```
 
@@ -51,8 +53,9 @@ backend, собирает полный набор образов с label exact 
 Для двух датированных образов MinIO используется
 `docker compose pull --policy missing`: уже загруженные версии используются
 повторно, отсутствующие требуют успешной загрузки. Postgres/Temporal продолжают
-загружаться как раньше. Image ID всех компонентов измеряются и архивируются;
-проверки точного SHA, подписи, блокировки и установки сохраняются.
+загружаться как раньше. Image ID всех компонентов измеряются; архив образов
+создаётся позже — при `promote`, только для целевого отката (см.
+[Политика хранения](#политика-хранения-локальных-артефактов)).
 
 `promote --live` использует только `start-dev-runtime.sh`: Compose namespace
 `graf-dev` поднимает Postgres, MinIO, Temporal, migration, API и оба worker.
@@ -93,6 +96,21 @@ compensation fails, metadata-only `rollback-required.json` makes terminal
 `rollback_required` visible through `status`, including a first promotion with
 no previous active manifest.
 
+`status` also reports the installed application as `app.path` and
+`app.installed` in active, blocked, rollback-required and unfinished-transition
+responses. If `/Applications/GRAF Dev.app` is absent, it adds a `warnings` entry
+naming that path. The warning names the applicable recovery action for an
+unfinished transition, rollback-required manifest, active manifest, or missing
+active manifest. An empty `GRAF_DEV_INSTALL_PATH` override uses the default
+`/Applications/GRAF Dev.app`; other invalid overrides are rejected and never
+silently resolve to the current directory. Do not trust a running
+process instead of this field: the lifecycle helper identifies the app by bundle
+path, so an app whose bundle was removed keeps running and still answers
+`running`. Restore it with `promote` of the unchanged active manifest from its
+exact-SHA checkout; the verified bundle of the active manifest stays in
+`artifacts/<manifest-id>/GRAF Dev.app`. Never repair the installation by copying
+a bundle by hand.
+
 `rollback` selects the manifest's parent unless an explicit manifest ID is
 provided. `reset-data` is intentionally limited to metadata-only Dev state and
 requires `--confirm-dev-reset`; it never removes production or application
@@ -105,9 +123,56 @@ both identities still match; a legacy runtime record without `start_token` is
 treated as unowned and fails closed, so remove/repair it manually after
 confirming that no Dev backend is running.
 
-Each live build stores a machine-local `runtime-images.tar` beside its app
-artifact. `rehydrate` reloads that archive under the shared lock and verifies
-every manifest image ID and source label; it never rebuilds or substitutes a
-missing rollback image.
+Each live `promote` stores exactly one machine-local `runtime-images.tar` — for
+the rollback target (the previous active manifest) — beside that manifest's app
+bundle. `build` no longer creates an archive and removes its intermediate
+`build/` directory after a successful build. `rehydrate` reloads the retained
+archive under the shared lock and verifies every manifest image ID and source
+label; it never rebuilds or substitutes a missing rollback image. A manifest
+outside the retention policy cannot be rehydrated: rebuild a new candidate.
+
+## Политика хранения локальных артефактов
+
+На диске постоянно хранятся только:
+
+- приложение активного манифеста (будущий целевой откат);
+- архив образов и приложение целевого манифеста отката (`parent_manifest_id`).
+
+Всё остальное удаляется автоматически после успешных `build`, `promote` и
+`rollback`: наборы артефактов старых кандидатов, их immutable-теги
+`graf-dev-immutable:*`, каталоги сборки, снапшоты завершённых переходов схемы и
+остаточные копии приложения `transactions/previous-*.app`. Глобальные
+`docker system prune` / `image prune -a` не используются.
+
+Ручная уборка без сборки:
+
+```sh
+./infra/scripts/dev-harness.sh prune --dry-run    # отчёт без изменений
+./infra/scripts/dev-harness.sh prune              # применить политику
+```
+
+`prune` берёт общий state lock, печатает машиночитаемую квитанцию и дописывает
+её в `prune-history.jsonl` в состоянии стенда. Операция запрещена при
+незавершённом переходе схемы или состоянии `rollback_required`; удаления
+ограничены каталогом состояния Dev.
+
+Порядок восстановления сохранённого отката:
+
+Восстановление выполняется из рабочей копии того SHA, на который делается откат.
+Проверка точного соответствия сравнивает манифест цели с текущей рабочей копией,
+поэтому из копии активного манифеста восстановление всегда отвергается — это
+ожидаемое поведение защиты, а не сбой.
+
+```sh
+state="$(./infra/scripts/dev-harness.sh status --json | jq -r '.state_dir')"
+manifest="$state/manifests/dev-<sha12>.json"
+sha="$(jq -r '.source_sha' "$manifest")"
+git switch --detach "$sha"   # рабочая копия цели отката, дерево должно быть чистым
+./infra/scripts/dev-harness.sh rehydrate --manifest "$manifest"
+./infra/scripts/dev-harness.sh rollback --dry-run
+```
+
+Откат за пределы удержанного поколения возможен только пересборкой из исходников
+точного SHA: старые образы и архивы политикой не хранятся.
 
 The full field contract is [manifest.schema.json](manifest.schema.json).

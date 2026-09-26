@@ -1,7 +1,35 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any
+
+RETENTION_STORAGES = (
+    "clickhouse_posthog",
+    "graf_postgres",
+    "graf_files",
+    "yandex_provider",
+)
+RETENTION_ENFORCEMENTS = (
+    "clickhouse_row_ttl",
+    "scheduled_purge",
+    "manual_process",
+    "provider_controlled",
+)
+# Storages GRAF owns must carry an automatic enforcement. A GRAF-controlled
+# category without one would silently become "keep forever", which FR-050
+# forbids. ``graf_files`` is deliberately outside this set: exported report
+# files may already have left GRAF storage, so only a manual process is honest.
+GRAF_CONTROLLED_STORAGES = frozenset({"clickhouse_posthog", "graf_postgres"})
+AUTOMATIC_ENFORCEMENTS = frozenset({"clickhouse_row_ttl", "scheduled_purge"})
+
+
+class AnalyticsRetentionConfigurationError(ValueError):
+    """Raised when a retention category has no explicit, enforceable term.
+
+    FR-050: a missing term is a configuration error, never an implicit
+    "retain indefinitely".
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -12,6 +40,36 @@ class AnalyticsRetentionRule:
     delete_on_user_request: str
     provider_delete_method: str
     deletion_truth: str
+    storage: str = "graf_postgres"
+    enforcement: str = "scheduled_purge"
+
+    def __post_init__(self) -> None:
+        if self.minimum_retention_days is None or self.minimum_retention_days < 1:
+            raise AnalyticsRetentionConfigurationError(
+                f"analytics retention category {self.category!r} has no retention term"
+            )
+        if self.maximum_retention_days is not None and (
+            self.maximum_retention_days < self.minimum_retention_days
+        ):
+            raise AnalyticsRetentionConfigurationError(
+                f"analytics retention category {self.category!r} has a maximum below its minimum"
+            )
+        if self.storage not in RETENTION_STORAGES:
+            raise AnalyticsRetentionConfigurationError(
+                f"analytics retention category {self.category!r} has an unknown storage"
+            )
+        if self.enforcement not in RETENTION_ENFORCEMENTS:
+            raise AnalyticsRetentionConfigurationError(
+                f"analytics retention category {self.category!r} has an unknown enforcement"
+            )
+        if (
+            self.storage in GRAF_CONTROLLED_STORAGES
+            and self.enforcement not in AUTOMATIC_ENFORCEMENTS
+        ):
+            raise AnalyticsRetentionConfigurationError(
+                f"analytics retention category {self.category!r} is GRAF-controlled "
+                "but has no automatic enforcement"
+            )
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -21,7 +79,13 @@ class AnalyticsRetentionRule:
             "delete_on_user_request": self.delete_on_user_request,
             "provider_delete_method": self.provider_delete_method,
             "deletion_truth": self.deletion_truth,
+            "storage": self.storage,
+            "enforcement": self.enforcement,
         }
+
+    def enforced_retention_days(self) -> int:
+        """Return the term that is actually applied to stored rows."""
+        return self.maximum_retention_days or self.minimum_retention_days
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,14 +122,21 @@ RETENTION_RULES: tuple[AnalyticsRetentionRule, ...] = (
         "graf_controlled",
         "purge bridge row/token hash in GRAF storage",
         "Campaign link can be removed; aggregate reports may remain.",
+        "graf_postgres",
+        "scheduled_purge",
     ),
+    # Level 2 and level 3 measurement events live in ClickHouse inside PostHog.
+    # FR-036 and contracts/operations.md set one term for all of them: 365 days,
+    # applied as a ClickHouse row TTL (T017).
     AnalyticsRetentionRule(
         "posthog_product_events",
-        90,
-        90,
+        365,
+        365,
         "provider_supported",
         "PostHog person/event deletion for stable pseudonymous identity where supported",
-        "Raw GRAF identity is not present; aggregate cohorts may remain.",
+        "Raw GRAF identity is not present in the aggregate; level 1 counters stay outside PostHog.",
+        "clickhouse_posthog",
+        "clickhouse_row_ttl",
     ),
     AnalyticsRetentionRule(
         "posthog_session_replay",
@@ -74,6 +145,8 @@ RETENTION_RULES: tuple[AnalyticsRetentionRule, ...] = (
         "provider_supported",
         "PostHog recording deletion for stable pseudonymous identity/session where supported",
         "Replay must be masked; aggregate replay metrics may remain.",
+        "clickhouse_posthog",
+        "clickhouse_row_ttl",
     ),
     AnalyticsRetentionRule(
         "yandex_page_events",
@@ -82,6 +155,8 @@ RETENTION_RULES: tuple[AnalyticsRetentionRule, ...] = (
         "manual_process",
         "Yandex counter/user-data deletion process where available",
         "GRAF must not promise universal erasure from Yandex aggregate reports.",
+        "yandex_provider",
+        "provider_controlled",
     ),
     AnalyticsRetentionRule(
         "yandex_webvisor",
@@ -90,6 +165,8 @@ RETENTION_RULES: tuple[AnalyticsRetentionRule, ...] = (
         "manual_process",
         "Yandex Webvisor/session deletion process where available",
         "Unapproved page classes keep Webvisor off.",
+        "yandex_provider",
+        "provider_controlled",
     ),
     AnalyticsRetentionRule(
         "yandex_offline_conversions",
@@ -98,6 +175,8 @@ RETENTION_RULES: tuple[AnalyticsRetentionRule, ...] = (
         "manual_process",
         "remove queued uploads in GRAF; request/provider process for uploaded conversions",
         "Uploaded ad conversions may remain in aggregate ad reports.",
+        "yandex_provider",
+        "provider_controlled",
     ),
     AnalyticsRetentionRule(
         "delivery_gap",
@@ -106,6 +185,8 @@ RETENTION_RULES: tuple[AnalyticsRetentionRule, ...] = (
         "graf_controlled",
         "purge safe gap row in GRAF storage",
         "Gaps contain only safe buckets and caveats.",
+        "graf_postgres",
+        "scheduled_purge",
     ),
     AnalyticsRetentionRule(
         "exported_report",
@@ -114,6 +195,42 @@ RETENTION_RULES: tuple[AnalyticsRetentionRule, ...] = (
         "manual_process",
         "delete/redact exported report files controlled by GRAF",
         "Reports outside GRAF control are outside direct erasure control.",
+        "graf_files",
+        "manual_process",
+    ),
+    # Level 1: the anonymous page aggregate carries no identifier, so it is kept
+    # long enough to compare campaigns across years (36 months, FR-036).
+    AnalyticsRetentionRule(
+        "anonymous_page_aggregate",
+        1095,
+        1095,
+        "graf_controlled",
+        "delete aggregate buckets older than the retention term in GRAF storage",
+        "Buckets contain only coarse dimensions and visit counters; nothing to erase per person.",
+        "graf_postgres",
+        "scheduled_purge",
+    ),
+    # Level 2: campaign attribute copied onto the client record at registration.
+    AnalyticsRetentionRule(
+        "client_acquisition_attribute",
+        1095,
+        1095,
+        "graf_controlled",
+        "delete or anonymise the acquisition attribute with its account record",
+        "The attribute is part of the client record; deletion follows account deletion.",
+        "graf_postgres",
+        "scheduled_purge",
+    ),
+    # Level 2: the visit attribution row is useless after its 90-day window.
+    AnalyticsRetentionRule(
+        "visit_attribution",
+        90,
+        90,
+        "graf_controlled",
+        "delete expired visit attribution rows in GRAF storage",
+        "The row is not a tracking identifier and carries no reporting value after its window.",
+        "graf_postgres",
+        "scheduled_purge",
     ),
 )
 
@@ -232,4 +349,51 @@ def retention_rule(category: str) -> AnalyticsRetentionRule:
     for rule in RETENTION_RULES:
         if rule.category == category:
             return rule
-    raise ValueError(f"unknown analytics retention category: {category}")
+    raise AnalyticsRetentionConfigurationError(
+        f"unknown analytics retention category: {category}"
+    )
+
+
+def retention_days_for_category(category: str) -> int:
+    """Return the enforced term, or fail closed for an unknown category.
+
+    FR-050: a category without a term must never fall back to "retain
+    indefinitely"; readiness must be blocked instead.
+    """
+    rules = [rule for rule in RETENTION_RULES if rule.category == category]
+    if not rules:
+        raise AnalyticsRetentionConfigurationError(
+            f"analytics retention category has no configured term: {category}"
+        )
+    return rules[0].enforced_retention_days()
+
+
+def retention_deadline(rule: AnalyticsRetentionRule, *, since: datetime) -> datetime:
+    """The moment by which the rule's term has certainly passed.
+
+    FR-048 asks for data that lost its legal basis to be deleted or anonymised
+    "within the term the retention rules set". The term lives in exactly one
+    place — :func:`enforced_retention_days` — so this helper only adds it to the
+    moment the basis was lost instead of introducing a second number.
+    """
+
+    return since + timedelta(days=rule.enforced_retention_days())
+
+
+def validate_retention_rules(
+    rules: tuple[AnalyticsRetentionRule, ...] = RETENTION_RULES,
+) -> tuple[str, ...]:
+    """Return the configured categories; every rule validates on construction."""
+    if not rules:
+        raise AnalyticsRetentionConfigurationError("analytics retention rules are empty")
+    categories = tuple(rule.category for rule in rules)
+    if len(set(categories)) != len(categories):
+        raise AnalyticsRetentionConfigurationError(
+            "analytics retention categories must be unique"
+        )
+    return categories
+
+
+# Import-time gate: a category that lost its term (or its enforcement) must fail
+# fast instead of silently keeping data forever.
+validate_retention_rules()

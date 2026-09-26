@@ -14,7 +14,7 @@ from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.artifacts import deterministic_wav_bytes
 from tests.fixtures.playback_normalization import synthetic_pcm_wav_bytes
-from tests.fixtures.processing import apply_job_worker_scope
+from tests.fixtures.processing import apply_job_worker_scope, deterministic_canonical_wav_bytes
 from tests.integration.test_playback_normalization_finalize import (
     _accept_first_party_recording,
 )
@@ -59,22 +59,22 @@ class FakeNormalizationPipeline:
             source_count=1,
         )
 
-    async def derive_dual_source(
+    async def derive_single_source(
         self,
-        microphone_path: Path,
-        system_path: Path,
+        source_path: Path,
         output_path: Path,
+        *,
+        tolerant_first: bool = False,
+        expected_duration_seconds: int | None = None,
     ) -> NormalizedOutput:
-        self.calls.append("dual_source")
-        assert microphone_path.read_bytes() == b"microphone-source"
-        assert system_path.read_bytes() == b"system-source"
-        body = b"canonical-dual-source-mix"
+        self.calls.append("single_source")
+        assert source_path.read_bytes() == deterministic_canonical_wav_bytes()
+        body = b"canonical-single-source-transcode"
         output_path.write_bytes(body)
         return _normalized_output(
             body,
-            derivation_kind="dual_source_mix_transcode",
-            source_count=2,
-            selected_stream_index=None,
+            derivation_kind="single_source_transcode",
+            source_count=1,
         )
 
 
@@ -132,7 +132,7 @@ def _normalized_output(
     [
         ("copy", ["candidate"], "uploaded_candidate"),
         ("remux", ["candidate"], "lossless_faststart_remux"),
-        ("invalid", ["candidate", "dual_source"], "dual_source_mix_transcode"),
+        ("invalid", ["candidate", "single_source"], "single_source_transcode"),
     ],
 )
 def test_first_party_workflow_uses_candidate_then_deterministic_source_fallback(
@@ -332,7 +332,8 @@ def test_manual_media_job_uses_the_accepted_media_artifact_and_publishes_canonic
     assert list(work_directory.iterdir()) == []
 
 
-def test_real_ffmpeg_pipeline_builds_validated_dual_source_playback(tmp_path: Path) -> None:
+def test_real_ffmpeg_pipeline_builds_historical_dual_source_playback(tmp_path: Path) -> None:
+    # Retained pre-v5 audio remains playable; no transcription submission occurs.
     ffmpeg = shutil.which("ffmpeg")
     ffprobe = shutil.which("ffprobe")
     if ffmpeg is None or ffprobe is None:

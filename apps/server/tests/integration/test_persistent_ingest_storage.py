@@ -9,6 +9,7 @@ from tests.fixtures.artifacts import deterministic_wav_bytes, track_descriptor
 from twobrain_rec_server.db.models import (
     IngestAuditEvent,
     ManifestSnapshot,
+    MediaRevision,
     Meeting,
     ProcessingPlaceholder,
     TrackArtifact,
@@ -30,7 +31,7 @@ def test_ingest_metadata_is_persisted_to_database(client) -> None:
     session_response = client.post(
         f"/api/v1/meetings/{meeting_id}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"manifest": 8, "microphone": 8, "system": 8}},
+        json={"expected_track_sizes": {"manifest": 8, "media": 8, "playback": 8}},
     )
     assert session_response.status_code == 200
     session_id = session_response.json()["session_id"]
@@ -38,7 +39,7 @@ def test_ingest_metadata_is_persisted_to_database(client) -> None:
     data = deterministic_wav_bytes(8)
     digest = sha256(data).hexdigest()
     part_response = client.put(
-        f"/api/v1/upload-sessions/{session_id}/tracks/system/parts/0",
+        f"/api/v1/upload-sessions/{session_id}/tracks/playback/parts/0",
         headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
         content=data,
     )
@@ -134,7 +135,7 @@ def test_upload_session_persists_expected_roles_separately_from_expected_sizes(c
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
         json={
-            "expected_tracks": ["manifest", "microphone", "system"],
+            "expected_tracks": ["manifest", "media", "playback"],
             "expected_track_sizes": {"manifest": 8},
         },
     )
@@ -148,7 +149,7 @@ def test_upload_session_persists_expected_roles_separately_from_expected_sizes(c
             return session.expected_track_roles, session.expected_track_sizes
 
     roles, sizes = client.portal.call(persisted_expectations)
-    assert roles == ["manifest", "microphone", "system"]
+    assert roles == ["manifest", "media", "playback"]
     assert sizes == {"manifest": 8}
 
 
@@ -181,11 +182,11 @@ def test_finalize_creates_track_artifact_metadata(client) -> None:
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"manifest": 8, "microphone": 9, "system": 10}},
+        json={"expected_track_sizes": {"manifest": 8, "media": 9, "playback": 10}},
     ).json()
 
     tracks = []
-    for size, role in [(8, "manifest"), (9, "microphone"), (10, "system")]:
+    for size, role in [(8, "manifest"), (9, "media"), (10, "playback")]:
         data = deterministic_wav_bytes(size)
         digest = sha256(data).hexdigest()
         response = client.put(
@@ -221,7 +222,7 @@ def test_finalize_creates_track_artifact_metadata(client) -> None:
 
     artifacts, snapshot = client.portal.call(finalized_metadata)
     artifacts_by_role = {artifact.track_role: artifact for artifact in artifacts}
-    assert set(artifacts_by_role) == {"manifest", "microphone", "system"}
+    assert set(artifacts_by_role) == {"manifest", "media", "playback"}
     for track in tracks:
         artifact = artifacts_by_role[str(track["track_role"])]
         assert artifact.codec == track["codec"]
@@ -237,8 +238,8 @@ def test_finalize_creates_track_artifact_metadata(client) -> None:
     assert snapshot.manifest_json["tracks"] == tracks
     assert {track["track_role"] for track in snapshot.manifest_json["tracks"]} == {
         "manifest",
-        "microphone",
-        "system",
+        "media",
+        "playback",
     }
     assert all("sha256" in track and "byte_length" in track for track in snapshot.manifest_json["tracks"])
 
@@ -257,11 +258,11 @@ def test_finalize_persists_processing_and_lifecycle_fields(client) -> None:
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"manifest": 8, "microphone": 9, "system": 10}},
+        json={"expected_track_sizes": {"manifest": 8, "media": 9, "playback": 10}},
     ).json()
 
     tracks = []
-    for size, role in [(8, "manifest"), (9, "microphone"), (10, "system")]:
+    for size, role in [(8, "manifest"), (9, "media"), (10, "playback")]:
         data = deterministic_wav_bytes(size)
         digest = sha256(data).hexdigest()
         response = client.put(
@@ -309,13 +310,13 @@ def test_upload_session_status_can_be_loaded_after_process_store_reset(client) -
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"system": 16}},
+        json={"expected_track_sizes": {"playback": 16}},
     ).json()
     data = deterministic_wav_bytes(4)
     digest = sha256(data).hexdigest()
     assert (
         client.put(
-            f"/api/v1/upload-sessions/{session['session_id']}/tracks/system/parts/0",
+            f"/api/v1/upload-sessions/{session['session_id']}/tracks/playback/parts/0",
             headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
             content=data,
         ).status_code
@@ -331,11 +332,11 @@ def test_upload_session_status_can_be_loaded_after_process_store_reset(client) -
     )
 
     assert status.status_code == 200
-    assert status.json()["accepted_bytes_by_track"] == {"system": 4}
-    assert missing.json()["missing_ranges_by_track"] == {"system": [{"start": 4, "end": 16}]}
+    assert status.json()["accepted_bytes_by_track"] == {"playback": 4}
+    assert missing.json()["missing_ranges_by_track"] == {"playback": [{"start": 4, "end": 16}]}
 
 
-def test_legacy_empty_expected_roles_rehydrate_to_required_upload_roles(client) -> None:
+def test_historical_empty_expected_roles_remain_readable_but_cannot_upload(client) -> None:
     meeting = client.post(
         "/api/v1/meetings",
         headers=auth_headers(),
@@ -344,7 +345,7 @@ def test_legacy_empty_expected_roles_rehydrate_to_required_upload_roles(client) 
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"microphone": 16}},
+        json={"expected_track_sizes": {"media": 16}},
     ).json()
 
     async def clear_expected_roles() -> None:
@@ -352,6 +353,8 @@ def test_legacy_empty_expected_roles_rehydrate_to_required_upload_roles(client) 
             model = await db.get(UploadSession, UUID(session["session_id"]))
             assert model is not None
             model.expected_track_roles = []
+            revision = await db.get(MediaRevision, model.media_revision_id)
+            revision.source_kind = "initial_recording"
             await db.commit()
 
     client.portal.call(clear_expected_roles)
@@ -360,12 +363,16 @@ def test_legacy_empty_expected_roles_rehydrate_to_required_upload_roles(client) 
     digest = sha256(data).hexdigest()
 
     response = client.put(
-        f"/api/v1/upload-sessions/{session['session_id']}/tracks/microphone/parts/0",
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/media/parts/0",
         headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
         content=data,
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 400
+    assert response.json()["code"] == "unsupported_recording_source_kind"
+    read = client.get(f"/api/v1/upload-sessions/{session['session_id']}", headers=auth_headers())
+    assert read.status_code == 200
+    assert read.json()["expected_tracks"] == ["manifest", "microphone", "system"]
 
 
 def test_finalize_can_reload_upload_session_after_process_store_reset(client) -> None:
@@ -377,11 +384,11 @@ def test_finalize_can_reload_upload_session_after_process_store_reset(client) ->
     session = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"manifest": 8, "microphone": 9, "system": 10}},
+        json={"expected_track_sizes": {"manifest": 8, "media": 9, "playback": 10}},
     ).json()
 
     tracks = []
-    for size, role in [(8, "manifest"), (9, "microphone"), (10, "system")]:
+    for size, role in [(8, "manifest"), (9, "media"), (10, "playback")]:
         data = deterministic_wav_bytes(size)
         digest = sha256(data).hexdigest()
         response = client.put(

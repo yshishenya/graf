@@ -3,9 +3,8 @@
 ## Preconditions
 
 - Run from the repository root on `codex/199-billing-acquiring-promo`.
-- Keep `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` and
-  `TWOBRAIN_BILLING_EMERGENCY_STOP=true` during local/production preparation
-  unless the Feature 140 runbook approval exists.
+- Keep `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` during local/production
+  preparation unless the Feature 140 runbook approval exists.
 - Use synthetic/local database data only; never paste a real promo code, payment
   identifier, email, card data or provider response into evidence.
 

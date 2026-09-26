@@ -211,6 +211,7 @@ public enum TranscriptionReadinessState: String, Codable, Sendable {
     }
 }
 
+// Historical wire values are retained for decoding saved manifests, never new upload requests.
 public enum MediaScribeTrackField: String, Codable, Sendable {
     case micFile = "mic_file"
     case incomingFile = "incoming_file"

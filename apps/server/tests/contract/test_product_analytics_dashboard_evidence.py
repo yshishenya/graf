@@ -19,7 +19,7 @@ def test_dashboard_evidence_records_metadata_only_owners_caveats_and_blockers() 
         "No content-bearing provider exports",
         "paid campaign launch remains blocked",
         "product rollout readiness remains blocked",
-        "rollback_status=ready_not_executed",
+        "rollback_status=metadata_only_not_executed",
     )
     for fragment in required_fragments:
         assert fragment in evidence

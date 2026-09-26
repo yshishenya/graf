@@ -878,8 +878,7 @@ def test_worker_restart_projects_external_job_before_polling(client) -> None:
             job = await store.upsert_mediascribe_job(
                 db,
                 workflow=workflow,
-                mic_artifact=source.mic_artifact,
-                incoming_artifact=source.incoming_artifact,
+
                 source_artifact=source.source_artifact,
                 request_mode=source.request_mode,
                 source_fingerprint=workflow.source_fingerprint,
@@ -980,8 +979,7 @@ def test_active_submission_claim_is_not_replayed_after_restart(client, monkeypat
             job = await store.upsert_mediascribe_job(
                 db,
                 workflow=workflow,
-                mic_artifact=source.mic_artifact,
-                incoming_artifact=source.incoming_artifact,
+
                 source_artifact=source.source_artifact,
                 request_mode=source.request_mode,
                 source_fingerprint=workflow.source_fingerprint,
@@ -1037,8 +1035,7 @@ def test_null_submission_claim_timestamp_is_treated_as_stale(client) -> None:
             job = await store.upsert_mediascribe_job(
                 db,
                 workflow=workflow,
-                mic_artifact=source.mic_artifact,
-                incoming_artifact=source.incoming_artifact,
+
                 source_artifact=source.source_artifact,
                 request_mode=source.request_mode,
                 source_fingerprint=workflow.source_fingerprint,
@@ -1077,8 +1074,7 @@ def test_stale_mediascribe_poll_cannot_regress_ready_job(client) -> None:
             job = await store.upsert_mediascribe_job(
                 db=first_db,
                 workflow=workflow,
-                mic_artifact=source.mic_artifact,
-                incoming_artifact=source.incoming_artifact,
+
                 source_artifact=source.source_artifact,
                 request_mode=source.request_mode,
                 source_fingerprint=workflow.source_fingerprint,
@@ -1139,8 +1135,7 @@ def test_concurrent_job_upsert_reuses_one_deterministic_lineage_row(client) -> N
                 return await store.upsert_mediascribe_job(
                     db,
                     workflow=workflow,
-                    mic_artifact=source.mic_artifact,
-                    incoming_artifact=source.incoming_artifact,
+
                     source_artifact=source.source_artifact,
                     request_mode=source.request_mode,
                     source_fingerprint=workflow.source_fingerprint,

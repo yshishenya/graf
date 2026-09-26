@@ -33,6 +33,7 @@ ALLOWED_PROCESSING_TRANSITIONS = {
     ProcessingStatus.NOT_SUBMITTED: {
         ProcessingStatus.STARTING,
         ProcessingStatus.BLOCKED,
+        ProcessingStatus.FAILED_TERMINAL,
         ProcessingStatus.CANCELED,
     },
     # A freshly admitted user retry can reach the Temporal activity before

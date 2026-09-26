@@ -46,4 +46,8 @@ LABEL org.2brain.graf.dev.source-sha="${GRAF_DEV_SOURCE_SHA}"
 ENV GRAF_DEV_SOURCE_SHA=${GRAF_DEV_SOURCE_SHA}
 USER twobrain
 EXPOSE 8080
-CMD ["uvicorn", "twobrain_rec_server.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080", "--no-access-log"]
+# The only trusted proxy is the host nginx bound to loopback: it overwrites
+# X-Forwarded-For with $remote_addr before forwarding to 127.0.0.1:18081.
+# Never widen this to '*' or a container network: that would let an external
+# caller spoof the operator/internal classification through forwarded headers.
+CMD ["uvicorn", "twobrain_rec_server.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080", "--no-access-log", "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1"]

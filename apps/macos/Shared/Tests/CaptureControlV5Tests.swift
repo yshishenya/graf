@@ -553,10 +553,12 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("if registryWasUnavailable, meetingDetectionLogStream != nil"))
         XCTAssertTrue(source.contains("restartMeetingDetectionObservation(reason: \"registry_recovered\")"))
         XCTAssertTrue(source.contains("outcome: .retryable(reason: \"current_prompt_decision_blocked\")"))
+        XCTAssertTrue(source.contains("DesktopNotificationPresenter.shared.reconcileCard()"))
+        XCTAssertTrue(source.contains("if outcome != .accepted"))
         XCTAssertTrue(source.contains("recordMeetingDetectionConsumerOutcome(bundleID: prompt.bundleID, outcome: outcome)"))
         XCTAssertTrue(source.contains("reason: .userSkipped"))
         XCTAssertTrue(source.contains("outcome: .terminal(reason: reason.rawValue)"))
-        XCTAssertTrue(source.contains("rememberChoice: rememberChoice"))
+        XCTAssertTrue(source.contains("rememberChoice: shouldPersistChoice"))
         XCTAssertTrue(source.contains("MeetingDetectionPromptDecision(action: .skip"))
         XCTAssertTrue(source.contains("meeting_detection.detector_offer"))
         XCTAssertTrue(source.contains("recordingStartFailureIsRetryable(error)"))
@@ -584,33 +586,22 @@ final class CaptureControlTests: XCTestCase {
         )
 
         XCTAssertTrue(source.contains("presentMeetingDetectionPrompt(prompt)"))
-        XCTAssertTrue(source.contains("MeetingDetectionPromptPanel("))
-        XCTAssertTrue(source.contains("window.level = .statusBar"))
-        XCTAssertTrue(source.contains("window.hidesOnDeactivate = false"))
-        XCTAssertTrue(source.contains("meetingDetectionPromptWindowSize = NSSize(width: 320, height: 192)"))
-        XCTAssertTrue(source.contains("window.setContentSize(promptWindowSize)"))
-        XCTAssertTrue(source.contains("meetingDetectionPromptScreen()"))
-        XCTAssertTrue(source.contains("NSEvent.mouseLocation"))
-        XCTAssertTrue(source.contains("NSMouseInRect(mouseLocation, $0.frame, false)"))
-        XCTAssertTrue(source.contains("visibleFrame.insetBy"))
-        // Anchor/clamping execute in AppLifecycleWindowRegressionTests; T031 no longer centers the panel.
-        XCTAssertTrue(source.contains("window.setFrame(frame, display: true)"))
-        XCTAssertTrue(source.contains("orderFrontRegardless()"))
-        XCTAssertFalse(source.contains("Task { @MainActor [weak window]"))
+        XCTAssertTrue(source.contains("DesktopNotificationPresenter.shared.presentRecordingPrompt("))
+        XCTAssertFalse(source.contains("MeetingDetectionPromptPanel("))
+        XCTAssertFalse(source.contains("MeetingDetectionPromptView"))
+        XCTAssertTrue(source.contains("meetingDetectionPromptStartedAt"))
+        XCTAssertTrue(source.contains("meetingDetectionPromptRememberChoice"))
+        XCTAssertTrue(source.contains("twoBrainRecDismissMeetingDetectionPrompt"))
+        // Положение в правом верхнем углу: та же ширина и тот же верх, что у
+        // карточки уведомления. Точные координаты считает
+        // AppLifecycleWindowRegressionTests на настоящем коде раскладки.
         XCTAssertTrue(source.contains("meeting_detection.prompt_presented"))
         XCTAssertTrue(source.contains("meeting_detection.prompt_accepted"))
-        XCTAssertTrue(source.contains("TimelineView(.periodic"))
-        XCTAssertTrue(source.contains("private static let countdownSeconds: TimeInterval = 8"))
-        XCTAssertTrue(source.contains("autoStartTask"))
-        XCTAssertTrue(source.contains("Записать встречу?"))
-        XCTAssertTrue(source.contains("resolveDismiss(reason: .userSkipped)"))
-        XCTAssertTrue(source.contains("resolveStart(reason: .promptTimeout)"))
         XCTAssertTrue(source.contains("MeetingDetectionPromptDecision("))
         XCTAssertTrue(source.contains("persistedRule"))
-        XCTAssertTrue(source.contains("Toggle(\"Запомнить выбор\""))
-        XCTAssertTrue(source.contains("accessibilityHint(\"Сохранить решение для приложения"))
-        XCTAssertTrue(source.contains("Не записывать"))
-        XCTAssertTrue(source.contains("accessibilityLabel(\"Записать\")"))
+        XCTAssertTrue(source.contains("onRememberChoiceChanged:"))
+        XCTAssertTrue(source.contains("onDismiss:"))
+        XCTAssertTrue(source.contains("onTick:"))
         XCTAssertFalse(source.contains("timeout_without_authorization"))
         XCTAssertFalse(source.contains("Режим: аудиозапись встречи"))
         XCTAssertFalse(source.contains("Источники: системный звук и микрофон"))
@@ -618,15 +609,16 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("autoRecordEligible"))
         XCTAssertTrue(source.contains("autoRecordOptIn"))
         XCTAssertTrue(source.contains("saveMeetingDetectionRule(rule, targetID: prompt.targetID)"))
-        XCTAssertTrue(source.contains("do {\n                    try await Task.sleep"))
-        XCTAssertTrue(source.contains("catch {\n                    return"))
-        XCTAssertTrue(source.contains("guard !Task.isCancelled else { return }"))
+        XCTAssertTrue(source.contains("let shouldPersistChoice = rememberChoice && reason == .userSkipped"))
+        XCTAssertTrue(source.contains("onTick:"))
+        XCTAssertTrue(source.contains("elapsed < 8"))
+        XCTAssertTrue(source.contains("reason: .promptTimeout"))
         XCTAssertTrue(source.contains("var didHandleRecordingTrigger = false"))
         XCTAssertTrue(source.contains("meetingDetectionPrompt == nil"))
         XCTAssertTrue(source.contains("meetingDetectionTriggerInProgress"))
         XCTAssertTrue(source.contains("didHandleRecordingTrigger = true"))
         XCTAssertTrue(source.contains("meetingDetectionPrompt?.bundleID == bundleID"))
-        XCTAssertTrue(source.contains(".onDisappear"))
+        XCTAssertTrue(source.contains("meetingDetectionPromptStartedAt = nil"))
         XCTAssertFalse(source.contains(".sheet(item: $meetingDetectionPrompt)"))
     }
 
@@ -912,7 +904,7 @@ final class CaptureControlTests: XCTestCase {
             id: "uploading",
             state: .uploading,
             updatedAt: Date(timeIntervalSince1970: 21),
-            serverTruth: ServerTruthFingerprint(acceptedBytesByTrack: ["microphone": 64])
+            serverTruth: ServerTruthFingerprint(acceptedBytesByTrack: ["media": 64])
         )
 
         let queuedSummary = try XCTUnwrap(DesktopUploadCustodySummary.summary(for: [queued]))
@@ -936,8 +928,8 @@ final class CaptureControlTests: XCTestCase {
             updatedAt: Date(timeIntervalSince1970: 23),
             serverTruth: ServerTruthFingerprint(
                 acceptedBytesByTrack: [
-                    "microphone": 64,
-                    "system": 96
+                    "media": 64,
+                    "playback": 96
                 ]
             )
         )
@@ -948,8 +940,8 @@ final class CaptureControlTests: XCTestCase {
             serverTruth: ServerTruthFingerprint(
                 acceptedBytesByTrack: [
                     "manifest": 64,
-                    "microphone": 128,
-                    "system": 128
+                    "media": 128,
+                    "playback": 128
                 ]
             )
         )
@@ -988,8 +980,8 @@ final class CaptureControlTests: XCTestCase {
             serverTruth: ServerTruthFingerprint(
                 acceptedBytesByTrack: [
                     "manifest": 64,
-                    "microphone": 128,
-                    "system": 128
+                    "media": 128,
+                    "playback": 128
                 ]
             )
         )
@@ -997,7 +989,7 @@ final class CaptureControlTests: XCTestCase {
             id: "accessible-partial",
             state: .uploading,
             updatedAt: Date(timeIntervalSince1970: 29),
-            serverTruth: ServerTruthFingerprint(acceptedBytesByTrack: ["microphone": 64])
+            serverTruth: ServerTruthFingerprint(acceptedBytesByTrack: ["media": 64])
         )
 
         XCTAssertEqual(
@@ -1152,7 +1144,7 @@ final class CaptureControlTests: XCTestCase {
             id: "deleted-conflict",
             state: .blocked,
             updatedAt: Date(timeIntervalSince1970: 20),
-            failureReason: "/Users/test/private/package/mic.wav",
+            failureReason: "/Users/test/private/package/meeting-transcription.wav",
             retryMode: .manualOnly,
             syncConflictState: .serverMeetingDeleted
         )
@@ -1229,29 +1221,19 @@ final class CaptureControlTests: XCTestCase {
         serverTruth: ServerTruthFingerprint = ServerTruthFingerprint(),
         syncConflictState: DesktopSyncConflictState = .none
     ) -> DesktopUploadQueueItem {
-        let profile = ArtifactCompletenessProfile(
-            schemaVersion: LocalRecordingManifest.legacySchemaVersion,
-            manifestPresent: true,
-            microphonePresent: true,
-            systemAudioPresent: true,
-            manifestSha256: String(repeating: "a", count: 64),
-            microphoneSha256: String(repeating: "b", count: 64),
-            systemAudioSha256: String(repeating: "c", count: 64),
-            manifestSizeBytes: 64,
-            microphoneSizeBytes: 128,
-            systemAudioSizeBytes: 128,
-            durationSeconds: 1,
-            trackCompleteness: [],
-            isUploadable: true
-        )
+        var profile = custodyFixtureProfile()
+        profile.manifestSizeBytes = 64
+        profile.trackCompleteness[0].byteCount = 64
+        profile.trackCompleteness[1].byteCount = 128
+        profile.trackCompleteness[2].byteCount = 128
         return DesktopUploadQueueItem(
             id: id,
             sessionId: "session-\(id)",
             directoryId: "directory-\(id)",
             directoryPath: "/tmp/\(id)",
             manifestPath: "/tmp/\(id)/manifest.json",
-            microphonePath: "/tmp/\(id)/mic.wav",
-            systemAudioPath: "/tmp/\(id)/incoming.wav",
+            microphonePath: "/tmp/\(id)/meeting-transcription.wav",
+            systemAudioPath: "/tmp/\(id)/meeting-review.m4a",
             state: state,
             failureReason: failureReason,
             retryMode: retryMode,

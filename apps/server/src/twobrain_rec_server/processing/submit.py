@@ -58,6 +58,7 @@ from twobrain_rec_server.processing.reasons import (
     MEDIASCRIBE_SUBMISSION_IN_PROGRESS,
     NO_RECOGNIZABLE_SPEECH,
     PROCESSING_TEMP_STORAGE_UNAVAILABLE,
+    UNSUPPORTED_RECORDING_SOURCE,
 )
 from twobrain_rec_server.processing.recovery import schedule_retry, schedule_retry_with_settings
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
@@ -481,6 +482,8 @@ async def submit_to_mediascribe(
                 reason_code="submission_recovered",
             )
         return SubmitProcessingResult(job=existing_job, submitted=False)
+    if await store.retire_unsupported_processing(db, workflow=workflow, job=existing_job):
+        raise RuntimeError(UNSUPPORTED_RECORDING_SOURCE)
     if (
         existing_job is not None
         and existing_job.status == MediaScribeJobStatus.BLOCKED.value
@@ -589,8 +592,6 @@ async def submit_to_mediascribe(
         job = await store.upsert_mediascribe_job(
             db,
             workflow=workflow,
-            mic_artifact=source.mic_artifact,
-            incoming_artifact=source.incoming_artifact,
             source_artifact=source.source_artifact,
             request_mode=source.request_mode,
             source_fingerprint=workflow.source_fingerprint,
@@ -635,115 +636,67 @@ async def submit_to_mediascribe(
         with tempfile.TemporaryDirectory(prefix="twobrain-rec-mediascribe-") as temp_dir:
             temp_path = Path(temp_dir)
             _ensure_temp_capacity(temp_path, source.byte_length)
-            if source.request_mode == "single_track":
-                media_artifact = source.source_artifact
-                if media_artifact is None:
-                    raise ArtifactStagingError("source_artifact_missing")
-                is_manual_canonical = source.source_kind == "manual_upload"
-                media_path = temp_path / (
-                    "meeting-transcription.wav"
-                    if source.is_v5_mixed_recording
-                    else "manual-media.m4a"
-                    if is_manual_canonical
-                    else "source-media.bin"
-                )
-                await _stage_artifact(
-                    storage,
-                    media_artifact.storage_object_key,
-                    media_path,
-                    expected_bytes=media_artifact.byte_length,
-                    expected_sha256=media_artifact.sha256,
-                )
-                if source.is_v5_mixed_recording:
-                    _verify_v5_canonical_wav(media_path)
-                await _ensure_processing_fence(
-                    db,
-                    workflow,
-                    mediascribe_job_id=job.id,
-                    submission_claim_token=claim_token,
-                    manual_canonical_artifact_id=(
-                        media_artifact.id if is_manual_canonical else None
-                    ),
-                )
-                # Release the meeting fence before provider I/O. The claim and
-                # idempotency key are durable; the post-egress fence below
-                # rechecks lifecycle before persisting the opaque job ID.
-                await db.commit()
-                with media_path.open("rb") as media_file:
-                    result = await _await_provider_egress(
-                        _complete_provider_submission(
-                            db=db,
-                            settings=settings,
-                            workflow=workflow,
-                            job=job,
-                            claim_token=claim_token,
-                            provider_operation=mediascribe_client.submit_single_track(
-                                media_file=media_file,
-                                media_content_type="audio/wav"
-                                if source.is_v5_mixed_recording
-                                else "audio/mp4"
-                                if is_manual_canonical
-                                else media_artifact.codec,
-                                media_filename="meeting-transcription.wav"
-                                if source.is_v5_mixed_recording
-                                else "manual-media.m4a"
-                                if is_manual_canonical
-                                else None,
-                                diarize=bool(job.diarize),
-                                summarize=bool(job.summarize),
-                                num_speakers=job.num_speakers,
-                                speaker_count_mode=job.speaker_count_mode,
-                                idempotency_key=job.idempotency_key,
-                            ),
-                        )
+            media_artifact = source.source_artifact
+            if media_artifact is None:
+                raise ArtifactStagingError("source_artifact_missing")
+            is_manual_canonical = source.source_kind == "manual_upload"
+            media_path = temp_path / (
+                "meeting-transcription.wav"
+                if source.is_v5_mixed_recording
+                else "manual-media.m4a"
+                if is_manual_canonical
+                else "source-media.bin"
+            )
+            await _stage_artifact(
+                storage,
+                media_artifact.storage_object_key,
+                media_path,
+                expected_bytes=media_artifact.byte_length,
+                expected_sha256=media_artifact.sha256,
+            )
+            if source.is_v5_mixed_recording:
+                _verify_v5_canonical_wav(media_path)
+            await _ensure_processing_fence(
+                db,
+                workflow,
+                mediascribe_job_id=job.id,
+                submission_claim_token=claim_token,
+                manual_canonical_artifact_id=(
+                    media_artifact.id if is_manual_canonical else None
+                ),
+            )
+            # Release the meeting fence before provider I/O. The claim and
+            # idempotency key are durable; the post-egress fence below
+            # rechecks lifecycle before persisting the opaque job ID.
+            await db.commit()
+            with media_path.open("rb") as media_file:
+                result = await _await_provider_egress(
+                    _complete_provider_submission(
+                        db=db,
+                        settings=settings,
+                        workflow=workflow,
+                        job=job,
+                        claim_token=claim_token,
+                        provider_operation=mediascribe_client.submit_single_track(
+                            media_file=media_file,
+                            media_content_type="audio/wav"
+                            if source.is_v5_mixed_recording
+                            else "audio/mp4"
+                            if is_manual_canonical
+                            else media_artifact.codec,
+                            media_filename="meeting-transcription.wav"
+                            if source.is_v5_mixed_recording
+                            else "manual-media.m4a"
+                            if is_manual_canonical
+                            else None,
+                            diarize=bool(job.diarize),
+                            summarize=bool(job.summarize),
+                            num_speakers=job.num_speakers,
+                            speaker_count_mode=job.speaker_count_mode,
+                            idempotency_key=job.idempotency_key,
+                        ),
                     )
-            else:
-                mic = source.mic_artifact
-                incoming = source.incoming_artifact
-                if mic is None or incoming is None:
-                    raise ArtifactStagingError("track_artifact_missing")
-                mic_path = temp_path / "microphone.wav"
-                incoming_path = temp_path / "incoming.wav"
-                await _stage_artifact(
-                    storage,
-                    mic.storage_object_key,
-                    mic_path,
-                    expected_bytes=mic.byte_length,
-                    expected_sha256=mic.sha256,
                 )
-                await _stage_artifact(
-                    storage,
-                    incoming.storage_object_key,
-                    incoming_path,
-                    expected_bytes=incoming.byte_length,
-                    expected_sha256=incoming.sha256,
-                )
-                await _ensure_processing_fence(
-                    db,
-                    workflow,
-                    mediascribe_job_id=job.id,
-                    submission_claim_token=claim_token,
-                )
-                await db.commit()
-                with mic_path.open("rb") as mic_file, incoming_path.open("rb") as incoming_file:
-                    result = await _await_provider_egress(
-                        _complete_provider_submission(
-                            db=db,
-                            settings=settings,
-                            workflow=workflow,
-                            job=job,
-                            claim_token=claim_token,
-                            provider_operation=mediascribe_client.submit_dual_track(
-                                mic_file=mic_file,
-                                incoming_file=incoming_file,
-                                diarize=bool(job.diarize),
-                                summarize=bool(job.summarize),
-                                num_speakers=job.num_speakers,
-                                speaker_count_mode=job.speaker_count_mode,
-                                idempotency_key=job.idempotency_key,
-                            ),
-                        )
-                    )
     except ProcessingLifecycleBlocked as exc:
         await store.release_mediascribe_submission_claim(db, job=job, claim_token=claim_token)
         await _cancel_stale_processing(db, workflow=workflow, reason=exc)

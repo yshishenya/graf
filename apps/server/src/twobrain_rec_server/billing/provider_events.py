@@ -38,6 +38,8 @@ def redacted_event_metadata(event: ProviderEvent) -> dict[str, str]:
     }
     if event.workspace_id is not None:
         metadata["workspace_id"] = str(event.workspace_id)
+    if event.operation_id is not None:
+        metadata["operation_id"] = str(event.operation_id)
     return metadata
 
 
@@ -49,6 +51,9 @@ class ProviderEvent:
     occurred_at: datetime
     payload_hash: str
     workspace_id: UUID | None = None
+    # Our own operation id, echoed back by the provider. It is the recovery key
+    # that still identifies the charge when the create-payment response was lost.
+    operation_id: UUID | None = None
 
 
 def parse_provider_event(payload: dict[str, Any]) -> ProviderEvent:
@@ -73,12 +78,20 @@ def parse_provider_event(payload: dict[str, Any]) -> ProviderEvent:
     if occurred_at.tzinfo is None:
         occurred_at = occurred_at.replace(tzinfo=UTC)
     workspace_id: UUID | None = None
+    operation_id: UUID | None = None
     metadata = payload["object"].get("metadata", {})
     if isinstance(metadata, dict) and metadata.get("workspace_id"):
         try:
             workspace_id = UUID(str(metadata["workspace_id"]))
         except (ValueError, TypeError):
             raise ProviderEventError("provider workspace metadata is malformed") from None
+    if isinstance(metadata, dict) and metadata.get("operation_id"):
+        # A malformed operation id is not fatal: it is only a recovery hint, and
+        # the workspace lookup above still resolves the notification.
+        try:
+            operation_id = UUID(str(metadata["operation_id"]))
+        except (ValueError, TypeError):
+            operation_id = None
     provider_object = payload["object"]
     raw_amount = provider_object.get("amount")
     safe_amount = {
@@ -98,7 +111,15 @@ def parse_provider_event(payload: dict[str, Any]) -> ProviderEvent:
         "amount": safe_amount,
     }
     digest = sha256(repr(sorted(safe_payload.items())).encode()).hexdigest()
-    return ProviderEvent(event_id, event_type, object_id, occurred_at, digest, workspace_id)
+    return ProviderEvent(
+        event_id,
+        event_type,
+        object_id,
+        occurred_at,
+        digest,
+        workspace_id,
+        operation_id,
+    )
 
 
 class WebhookInbox:

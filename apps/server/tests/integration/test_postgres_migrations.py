@@ -192,6 +192,17 @@ def test_production_share_head_upgrades_to_regeneration_merge(
                 versions = (
                     await connection.scalars(text("select version_num from alembic_version"))
                 ).all()
+                source_defaults = {
+                    (row.table_name, row.column_name): row.column_default
+                    for row in await connection.execute(text(
+                        "select table_name, column_name, column_default "
+                        "from information_schema.columns where table_schema = 'public' "
+                        "and ((table_name = 'mediascribe_jobs' and column_name = 'request_mode') "
+                        "or (table_name = 'media_revisions' and column_name = 'source_kind'))"
+                    ))
+                }
+                assert "single_track" in source_defaults[("mediascribe_jobs", "request_mode")]
+                assert "initial_mixed_recording" in source_defaults[("media_revisions", "source_kind")]
                 tables = set(
                     (
                         await connection.scalars(
@@ -248,7 +259,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         promotion_counter_function,
         promotion_counter_config,
     ) = asyncio.run(inspect_schema())
-    assert versions == ["0092_recording_origin_cancel"]
+    assert versions == ["0099_single_source_revision"]
     assert "public.promotion_campaigns" in promotion_counter_function
     assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {
@@ -261,6 +272,10 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         "processing_workflows": {"purpose", "source_fingerprint", "deletion_epoch_at_start"},
         "processing_results": {"processing_workflow_id", "deletion_epoch_at_start"},
         "mediascribe_jobs": {
+            # Historical rows remain readable/deletable after default changes.
+            "mic_track_artifact_id",
+            "incoming_track_artifact_id",
+            "source_track_artifact_id",
             "idempotency_key",
             "source_fingerprint",
             "deletion_epoch_at_start",
@@ -1023,3 +1038,70 @@ def test_clean_database_migrates_and_accepts_seeded_identity_request(
     assert ready.status_code == 200
     assert meeting.status_code == 200
     assert "/api/v1/meetings/{meeting_id}/processing" in openapi.json()["paths"]
+
+
+def test_product_analytics_migrations_downgrade_cleanly(
+    postgres_clean_database_url: str,
+    monkeypatch,
+) -> None:
+    """Feature 273 has to be removable, not only deployable.
+
+    Rollback is a release requirement of its own (FR-045): a migration that
+    cannot be undone turns a measurement problem into a stuck database. All
+    migrations of the feature therefore have to drop exactly what they created
+    and leave the preceding billing catalog intact.
+    """
+
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
+    get_settings.cache_clear()
+    alembic_config = Config(str(ROOT / "apps/server/alembic.ini"))
+    alembic_config.set_main_option(
+        "script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations")
+    )
+
+    command.upgrade(alembic_config, "0097_public_attribution_index")
+    command.downgrade(alembic_config, "0093_billing_catalog_seed")
+
+    async def inspect_schema() -> tuple[list[str], set[str], set[str]]:
+        engine = create_async_engine(postgres_clean_database_url)
+        try:
+            async with engine.connect() as connection:
+                versions = list(
+                    (
+                        await connection.scalars(text("select version_num from alembic_version"))
+                    ).all()
+                )
+                tables = set(
+                    (
+                        await connection.scalars(
+                            text("select tablename from pg_tables where schemaname = 'public'")
+                        )
+                    ).all()
+                )
+                columns = set(
+                    (
+                        await connection.scalars(
+                            text(
+                                "select column_name from information_schema.columns "
+                                "where table_schema = 'public' "
+                                "and table_name = 'client_acquisition_attributes'"
+                            )
+                        )
+                    ).all()
+                )
+                return versions, tables, columns
+        finally:
+            await engine.dispose()
+
+    versions, tables, columns = asyncio.run(inspect_schema())
+
+    get_settings.cache_clear()
+    assert versions == ["0093_billing_catalog_seed"]
+    assert "anonymous_page_aggregate_buckets" not in tables
+    assert "public_visit_attributions" not in tables
+    assert "client_acquisition_attributes" not in tables
+    # Откат обязан убрать и колонку идентификатора моста (FR-045).
+    assert "graf_attribution_id" not in columns
+    # The downgrade of feature 273 must not reach into the preceding billing
+    # migration, so a rollback of measurement cannot break the catalog.
+    assert "meetings" in tables

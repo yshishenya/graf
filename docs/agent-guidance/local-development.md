@@ -15,6 +15,19 @@ bundle ID `pro.2brain.graf.dev`. Автоматические тесты без 
 существующей блокировкой. Сборочные артефакты и резервная копия для отката
 допустимы внутри harness; самостоятельно регистрировать или запускать их нельзя.
 
+В том же `status` смотри поле `app`: оно присутствует при обычном активном,
+заблокированном, требующем отката и незавершённом переходе схемы состоянии; там
+указаны путь приложения и признак `installed`. Если приложение пропало, `status`
+добавляет предупреждение с путём и подходящим действием для восстановления:
+переход схемы, rollback-required manifest, active manifest или отсутствие active
+manifest. Пустой `GRAF_DEV_INSTALL_PATH` использует стандартный путь
+`/Applications/GRAF Dev.app`, неправильный путь не принимается. Не полагайся
+вместо этого на признак запущенного процесса: приложение опознаётся по
+пути пакета и потому продолжает отвечать `running` даже
+после исчезновения пакета. Восстановление выполняет `promote` неизменного
+активного manifest из его точной копии SHA; готовый проверенный пакет лежит
+внутри стенда. Копировать пакет в `/Applications` вручную нельзя.
+
 Сохраняй путь, bundle ID, signing identity, designated requirement и entitlements.
 Не меняй подпись на ad hoc, не сбрасывай TCC, не редактируй plist/launcher
 установленного приложения вручную. При dirty checkout сначала заверши доступные
@@ -72,6 +85,24 @@ worker pollers still start and are readiness-testable; an actual processing
 activity fails closed with `blocked_config` and makes no provider request until
 an operator supplies the server-side provider configuration. This exception is
 development/test-only; production provider configuration remains mandatory.
+
+## Уборка локальных артефактов
+
+На диске постоянно хранятся только архив образов целевого отката и приложения
+активного и целевого манифестов. Каталог сборки удаляется сразу после успешной
+сборки; старые наборы кандидатов, их immutable-теги, снапшоты завершённых
+переходов схемы и остаточные `previous-*.app` удаляются автоматически после
+успешных `build`/`promote`/`rollback`. Для ручной уборки используй
+`infra/scripts/dev-harness.sh prune` (сначала `--dry-run`); квитанции копятся в
+`prune-history.jsonl`.
+
+Не удаляй вручную `active-manifest.json`, журнал `schema-transition.json`,
+архив целевого манифеста и снапшоты незавершённого перехода: `prune` сам
+отказывается работать при незавершённом переходе или `rollback_required`.
+Глобальные `docker system prune` и `docker image prune -a` не используются —
+они могут удалить образы активного стенда. Машинные настройки (исключения
+резервного копирования, чистка Docker Desktop) выполняются оператором вне
+репозитория и не являются частью кода стенда.
 
 ## Имена совместимости
 

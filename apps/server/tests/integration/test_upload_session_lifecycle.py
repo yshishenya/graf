@@ -52,7 +52,7 @@ def _create_upload_session(
         headers=auth_headers(),
         json={
             "expected_track_sizes": expected_track_sizes
-            or {"manifest": 8, "microphone": 9, "system": 10}
+            or {"manifest": 8, "media": 9, "playback": 10}
         },
     )
     assert response.status_code == 200
@@ -61,7 +61,7 @@ def _create_upload_session(
 
 def _upload_tracks(client, session_id: str) -> list[dict[str, object]]:
     tracks = []
-    for size, role in [(8, "manifest"), (9, "microphone"), (10, "system")]:
+    for size, role in [(8, "manifest"), (9, "media"), (10, "playback")]:
         data = deterministic_wav_bytes(size)
         digest = sha256(data).hexdigest()
         response = client.put(
@@ -89,7 +89,7 @@ def test_one_active_upload_session_per_meeting(client) -> None:
     second = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"manifest": 8, "microphone": 9, "system": 10}},
+        json={"expected_track_sizes": {"manifest": 8, "media": 9, "playback": 10}},
     )
 
     assert first["status"] == "pending"
@@ -116,7 +116,7 @@ def test_concurrent_legacy_session_creation_has_one_winner(client) -> None:
                         tenant_scope=scope,
                         db=db,
                         meeting_id=UUID(meeting["meeting_id"]),
-                        expected_track_sizes={"manifest": 8, "microphone": 9, "system": 10},
+                        expected_track_sizes={"manifest": 8, "media": 9, "playback": 10},
                     )
                     await db.commit()
                     return "ok", str(session.id)
@@ -220,7 +220,7 @@ def test_create_upload_session_rejects_deleting_meeting(client) -> None:
     response = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"manifest": 8, "microphone": 9, "system": 10}},
+        json={"expected_track_sizes": {"manifest": 8, "media": 9, "playback": 10}},
     )
 
     assert response.status_code == 409
@@ -240,7 +240,7 @@ def test_upload_part_rejects_session_after_meeting_deletion_starts(client) -> No
     digest = sha256(data).hexdigest()
 
     response = client.put(
-        f"/api/v1/upload-sessions/{session['session_id']}/tracks/system/parts/0",
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/playback/parts/0",
         headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
         content=data,
     )
@@ -318,7 +318,7 @@ def test_upload_part_reloads_terminal_session_status_from_db(client) -> None:
     data = deterministic_wav_bytes(4)
     digest = sha256(data).hexdigest()
     response = client.put(
-        f"/api/v1/upload-sessions/{session['session_id']}/tracks/system/parts/0",
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/playback/parts/0",
         headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
         content=data,
     )
@@ -392,12 +392,12 @@ def test_upload_session_idempotency_key_replays_matching_request(client) -> None
     first = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=headers,
-        json={"expected_track_sizes": {"system": 4}},
+        json={"expected_track_sizes": {"playback": 4}},
     )
     replay = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=headers,
-        json={"expected_track_sizes": {"system": 4}},
+        json={"expected_track_sizes": {"playback": 4}},
     )
 
     assert first.status_code == 200
@@ -411,12 +411,12 @@ def test_upload_session_idempotency_key_conflict_is_rejected(client) -> None:
     first = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=headers,
-        json={"expected_track_sizes": {"system": 4}},
+        json={"expected_track_sizes": {"playback": 4}},
     )
     conflict = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=headers,
-        json={"expected_track_sizes": {"system": 5}},
+        json={"expected_track_sizes": {"playback": 5}},
     )
 
     assert first.status_code == 200
@@ -443,7 +443,7 @@ def test_expired_session_rejects_upload_finalize_and_abort(client) -> None:
     data = deterministic_wav_bytes(4)
     digest = sha256(data).hexdigest()
     upload = client.put(
-        f"/api/v1/upload-sessions/{session['session_id']}/tracks/system/parts/0",
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/playback/parts/0",
         headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
         content=data,
     )
@@ -454,8 +454,8 @@ def test_expired_session_rejects_upload_finalize_and_abort(client) -> None:
             "manifest_sha256": "a" * 64,
             "tracks": [
                 track_descriptor("manifest", 8) | {"sha256": "a" * 64},
-                track_descriptor("microphone", 9),
-                track_descriptor("system", 10),
+                track_descriptor("media", 9),
+                track_descriptor("playback", 10),
             ],
         },
     )
@@ -484,7 +484,7 @@ def test_terminal_sessions_reject_additional_mutations_and_persist_finalized_at(
     data = deterministic_wav_bytes(4)
     digest = sha256(data).hexdigest()
     upload = client.put(
-        f"/api/v1/upload-sessions/{session['session_id']}/tracks/system/parts/1",
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/playback/parts/1",
         headers=auth_headers() | {"X-Byte-Offset": "10", "X-Content-SHA256": digest},
         content=data,
     )

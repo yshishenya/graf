@@ -47,8 +47,11 @@ for this slice.
 ## Volume Expectations
 
 Postgres and MinIO volumes are Rec-owned deployment assets. They are included in
-backup and restore rehearsal scope before migration or first smoke can claim
-`infra_smoke_ready`.
+backup scope before migration or first smoke can claim `infra_smoke_ready`, and
+in the restore rehearsal that runs weekly through
+`.github/workflows/backup-restore-rehearsal.yml`
+(`infra/scripts/rehearse-restore-scheduled.sh --execute`) rather than inside
+every release.
 
 Encryption expectation: use host/container-platform supported encryption where
 available. If the production-like host cannot provide encryption, record the
@@ -70,7 +73,8 @@ Production deployment actions run on `2brain.dev` under `/opt/projects/2brain-re
 
 - backup-before-migration;
 - migration verification;
-- restore/rollback rehearsal into temporary targets;
+- restore/rollback rehearsal into temporary targets, weekly instead of during a
+  release;
 - first production smoke through `https://rec.2brain.pro`;
 - smoke cleanup and evidence capture.
 

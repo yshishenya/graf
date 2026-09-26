@@ -20,37 +20,6 @@ class FakeMediaScribeClient:
     submissions: list[dict[str, object]] = field(default_factory=list)
     poll_count: int = 0
 
-    async def submit_dual_track(
-        self,
-        *,
-        mic_file: BinaryIO,
-        incoming_file: BinaryIO,
-        diarize: bool,
-        summarize: bool,
-        num_speakers: int | None = None,
-        speaker_count_mode: str | None = None,
-        idempotency_key: str | None = None,
-    ) -> MediaScribeSubmitResponse:
-        mic_size, mic_hash = _stream_digest(mic_file)
-        incoming_size, incoming_hash = _stream_digest(incoming_file)
-        self.submissions.append(
-            {
-                "mic_size": mic_size,
-                "incoming_size": incoming_size,
-                "mic_sha256": mic_hash,
-                "incoming_sha256": incoming_hash,
-                "diarize": diarize,
-                "summarize": summarize,
-                "num_speakers": num_speakers,
-                "speaker_count_mode": speaker_count_mode,
-                "idempotency_key": idempotency_key,
-            }
-        )
-        return MediaScribeSubmitResponse(
-            external_job_id=self.external_job_id,
-            status=self.status_sequence[0],
-        )
-
     async def submit_single_track(
         self,
         *,

@@ -148,8 +148,8 @@ private enum TwoBrainRecAppMain {
 @MainActor
 private struct ContentView: View {
     private let meetingDetectionRegistryRefreshIntervalNanoseconds: UInt64 = 3_600_000_000_000
-    private static let meetingDetectionPromptWindowSize = NSSize(width: 320, height: 192)
-    private static let meetingDetectionPromptVisibleMargin: CGFloat = 22
+    // Вопрос о записи показывается той же карточкой, что и остальные полезные
+    // уведомления; отдельного плавающего окна для него нет.
 
     @ObservedObject private var appUpdateController: AppUpdateController
     @State private var captureController = CaptureSessionController()
@@ -172,7 +172,7 @@ private struct ContentView: View {
     @State private var selectedRecordingMicrophoneDeviceId: String?
     @State private var recordingMicrophoneSelection: RecordingMicrophoneSelection?
     @State private var activeMicrophoneSampleSource: AppOwnedMicrophoneSampleSource?
-    @State private var recordingNotice = DesktopRecordingNoticePresenter()
+    @State private var recordingNotice = DesktopRecordingNoticePresenter(presenter: DesktopNotificationPresenter.shared)
     @State private var desktopUploadQueueService = DesktopUploadQueueService()
     @State private var deletionSyncInProgress = false
     @State private var recordingDeletionOperations: [RecordingDeletionOperation] = []
@@ -201,7 +201,8 @@ private struct ContentView: View {
     @State private var meetingDetectionAdvanceTask: Task<Void, Never>?
     @State private var meetingDetectionStatus = MeetingDetectionStatus.notStarted
     @State private var meetingDetectionPrompt: MeetingDetectionPrompt?
-    @State private var meetingDetectionPromptWindow: NSWindow?
+    @State private var meetingDetectionPromptRememberChoice = false
+    @State private var meetingDetectionPromptStartedAt: Date?
     @State private var liveRecordingLevels = LiveRecordingLevels.inactive
     @State private var localRecordingActive = false
     @State private var levelsPollInProgress = false
@@ -221,6 +222,8 @@ private struct ContentView: View {
     @State private var desktopCabinetConfiguration = DesktopCabinetConfiguration.configuredFromEnvironment()
     @State private var desktopCabinetState: DesktopCabinetState = DesktopCabinetConfiguration.configuredFromEnvironment() == nil ? .notConfigured : .loading
     @State private var selectedCabinetRoute: URL?
+    @State private var activationReporter = ProductActivationAnalyticsReporter.configured()
+    @State private var attributionHandoffs = ProductAttributionHandoffStore()
     @State private var supportIncidentBridge = EmbeddedCabinetSupportIncidentBridge()
     @State private var permissionOnboardingStatus = DesktopPermissionOnboardingStatus.unknown
     @AppStorage("permissionOnboarding.active") private var permissionOnboardingPresented = false
@@ -447,6 +450,14 @@ private struct ContentView: View {
             startMeetingDetectionIfNeeded()
             appUpdateController.updateProtectedWork(protectedUpdateWork)
             syncControlPanel()
+            // Первый запуск приложения: веха отправляется из настоящего пути,
+            // когда пользователь уже принял раскрытие о телеметрии (FR-021).
+            Task {
+                await activationReporter.noteFirstLaunch(
+                    appVersion: currentApplicationVersion,
+                    installChannel: currentInstallChannel
+                )
+            }
         }
         .onChange(of: trayRecordingState, initial: true) { _, state in
             (NSApp.delegate as? AppLifecycleDelegate)?.updateTrayRecordingState(state)
@@ -457,6 +468,9 @@ private struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecMeetingDetectionSettingsDidChange)) { _ in
             reloadMeetingDetectionSettings()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDismissMeetingDetectionPrompt)) { _ in
+            dismissMeetingDetectionPrompt()
         }
         .task {
             while !Task.isCancelled {
@@ -512,7 +526,16 @@ private struct ContentView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopCabinetDidShowMeetingDetail)) { event in
+            reportFirstResultViewed(meetingId: event.userInfo?["meetingId"] as? String)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAttributionHandoffDidArrive)) { _ in
+            openCabinetSignInWithAttributionHandoff(reason: "attribution_handoff")
+        }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange)) { _ in
+            // Аккаунт подключён: саму веху отправляет серверная авторизация,
+            // приложение запоминает связь и передаёт метки кампании во вход.
+            activationReporter.noteAccountConnected()
             invalidateMeetingDetectionRegistryForAuthChange()
             desktopUploadQueueService.setDeletionScope(nil)
             uploadQueueItems = (try? desktopUploadQueueService.loadItems()) ?? []
@@ -642,6 +665,71 @@ private struct ContentView: View {
 
     private var currentApplicationIdentityDetail: String {
         "appName=\(currentApplicationDisplayName) bundleID=\(Bundle.main.bundleIdentifier ?? "unknown")"
+    }
+
+    private var currentApplicationVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+    }
+
+    /// Канал установки: сборка из установщика или локальная сборка разработчика.
+    private var currentInstallChannel: String {
+        Bundle.main.bundleURL.path.hasPrefix("/Applications/") ? "developer_id" : "local_build"
+    }
+
+    /// Первый просмотр результата и первая ценность (FR-021).
+    ///
+    /// Событие отправляется тогда, когда пользователь действительно открыл
+    /// результат во встроенном кабинете, а не тогда, когда он нажал кнопку.
+    private func reportFirstResultViewed(meetingId: String?) {
+        guard let meetingId, !meetingId.isEmpty,
+              let item = uploadQueueItems.first(where: {
+                  $0.serverTruth.meetingId == meetingId || $0.meetingId == meetingId
+              })
+        else {
+            return
+        }
+        let projection = DesktopUploadCustodyProjection(item: item)
+        let transcriptAvailable = item.serverTruth.transcriptAvailable == true
+        Task {
+            await activationReporter.noteFirstResultViewed(
+                resultState: projection.reviewAvailable ? "ready" : "processing",
+                surface: "embedded_cabinet_meeting_detail",
+                usefulOutputPresent: transcriptAvailable
+            )
+            guard projection.reviewAvailable, transcriptAvailable else { return }
+            await activationReporter.noteFirstValueSessionCompleted(usefulResultType: "transcript")
+        }
+    }
+
+    /// Открывает вход в кабинете вместе с метками кампании (FR-022).
+    ///
+    /// Этот же путь используют все входы в кабинет: и первый, и повторный вход
+    /// из раздела поддержки. Маршрут собирает `DesktopCabinetWorkspace.signInRoute`,
+    /// поэтому метки не могут потеряться на одном из входов.
+    private func openCabinetSignInWithAttributionHandoff(reason: String) {
+        guard let configuration = desktopCabinetConfiguration else { return }
+        let handoff = attributionHandoffs.current()
+        if let handoff {
+            AppLog.writeRaw(
+                event: "attribution.handoff_applied",
+                detail: "reason=\(reason) campaignKnown=\(handoff.campaignKnown) bridgePresent=\(handoff.bridgeID != nil)"
+            )
+        }
+        selectedCabinetRoute = DesktopCabinetWorkspace.signInRoute(
+            configuration: configuration,
+            handoff: handoff
+        )
+    }
+
+    /// Грубая длительность записи: точное значение в веху не попадает.
+    static func durationBucket(seconds: TimeInterval) -> String {
+        switch seconds {
+        case ..<60: return "under_1m"
+        case ..<600: return "1m_to_10m"
+        case ..<1_800: return "10m_to_30m"
+        case ..<3_600: return "30m_to_60m"
+        default: return "over_60m"
+        }
     }
 
     private var effectivePermissionOnboardingStatus: DesktopPermissionOnboardingStatus {
@@ -1516,56 +1604,68 @@ private struct ContentView: View {
 
     @MainActor
     private func presentMeetingDetectionPrompt(_ prompt: MeetingDetectionPrompt) {
-        dismissMeetingDetectionPromptWindow()
-        let promptWindowSize = Self.meetingDetectionPromptWindowSize
-
-        let window = MeetingDetectionPromptPanel(
-            contentRect: NSRect(origin: .zero, size: promptWindowSize),
-            styleMask: [.borderless, .fullSizeContentView, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        window.level = .statusBar
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
-        window.backgroundColor = .clear
-        window.isOpaque = false
-        window.hasShadow = true
-        window.hidesOnDeactivate = false
-        window.isReleasedWhenClosed = false
-        window.isMovableByWindowBackground = false
-        window.identifier = NSUserInterfaceItemIdentifier("graf-meeting-detection-prompt")
-        let hostingController = NSHostingController(
-            rootView: MeetingDetectionPromptView(
-                prompt: prompt,
-                isStartDisabled: recordingStartInProgress || recordingStopInProgress || calendarPromptRecordingIsActive,
-                onStart: { autoRecordOptIn, reason in
-                    acceptMeetingDetectionPrompt(
-                        prompt,
-                        autoRecordOptIn: autoRecordOptIn,
-                        reason: reason
-                    )
-                },
-                onDismiss: { rememberChoice, reason in
-                    dismissMeetingDetectionPrompt(
-                        prompt,
-                        rememberChoice: rememberChoice,
-                        reason: reason
-                    )
-                }
-            )
-        )
-        hostingController.view.frame = NSRect(origin: .zero, size: promptWindowSize)
-        window.contentViewController = hostingController
-        window.setContentSize(promptWindowSize)
-        positionMeetingDetectionPromptWindow(window)
-        meetingDetectionPromptWindow = window
+        meetingDetectionPromptRememberChoice = false
+        meetingDetectionPromptStartedAt = Date()
+        renderMeetingDetectionPrompt(prompt)
         AppLog.writeRaw(
             event: "meeting_detection.prompt_presented",
             detail: "targetId=\(prompt.targetID) bundleID=\(prompt.bundleID)"
         )
-        window.orderFrontRegardless()
-        window.contentView?.layoutSubtreeIfNeeded()
-        positionMeetingDetectionPromptWindow(window)
+    }
+
+    @MainActor
+    private func renderMeetingDetectionPrompt(_ prompt: MeetingDetectionPrompt) {
+        guard let startedAt = meetingDetectionPromptStartedAt else { return }
+        let elapsed = Date().timeIntervalSince(startedAt)
+        guard elapsed < 8 else { return }
+        let remainingDuration = max(0, 8 - elapsed)
+        _ = DesktopNotificationPresenter.shared.presentRecordingPrompt(
+            displayName: prompt.displayName,
+            remainingSeconds: max(0, Int(ceil(8 - elapsed))),
+            progress: min(max(elapsed / 8, 0), 1),
+            rememberChoice: meetingDetectionPromptRememberChoice,
+            duration: remainingDuration,
+            onStart: { [self] in
+                guard let prompt = self.meetingDetectionPrompt else { return }
+                self.acceptMeetingDetectionPrompt(
+                    prompt,
+                    autoRecordOptIn: self.meetingDetectionPromptRememberChoice,
+                    reason: .promptButton
+                )
+            },
+            onDismiss: { [self] in
+                guard let prompt = self.meetingDetectionPrompt else { return }
+                self.dismissMeetingDetectionPrompt(prompt, rememberChoice: false, reason: .userSkipped)
+            },
+            onRememberChoiceChanged: { [self] value in
+                self.meetingDetectionPromptRememberChoice = value
+                guard let prompt = self.meetingDetectionPrompt else { return }
+                self.renderMeetingDetectionPrompt(prompt)
+            },
+            onTick: { [self] in
+                guard let prompt = self.meetingDetectionPrompt,
+                      let startedAt = self.meetingDetectionPromptStartedAt else { return nil }
+                let elapsed = Date().timeIntervalSince(startedAt)
+                return .recordingPrompt(
+                    displayName: prompt.displayName,
+                    remainingSeconds: max(0, Int(ceil(8 - elapsed))),
+                    progress: min(max(elapsed / 8, 0), 1),
+                    rememberChoice: self.meetingDetectionPromptRememberChoice
+                )
+            },
+            onExpire: { [self] in
+                guard let prompt = self.meetingDetectionPrompt else { return }
+                self.acceptMeetingDetectionPrompt(
+                    prompt,
+                    autoRecordOptIn: self.meetingDetectionPromptRememberChoice,
+                    reason: .promptTimeout
+                )
+            },
+            onSkip: { [self] rememberChoice in
+                guard let prompt = self.meetingDetectionPrompt else { return }
+                self.dismissMeetingDetectionPrompt(prompt, rememberChoice: rememberChoice, reason: .userSkipped)
+            }
+        )
     }
 
     @MainActor
@@ -1577,7 +1677,9 @@ private struct ContentView: View {
             )
         }
         meetingDetectionPrompt = nil
-        dismissMeetingDetectionPromptWindow()
+        meetingDetectionPromptStartedAt = nil
+        meetingDetectionPromptRememberChoice = false
+        DesktopNotificationPresenter.shared.dismissRecordingPrompt()
     }
 
     @MainActor
@@ -1586,7 +1688,8 @@ private struct ContentView: View {
         rememberChoice: Bool = false,
         reason: MeetingDetectionPromptDismissReason = .userSkipped
     ) {
-        let decision = MeetingDetectionPromptDecision(action: .skip, rememberChoice: rememberChoice)
+        let shouldPersistChoice = rememberChoice && reason == .userSkipped
+        let decision = MeetingDetectionPromptDecision(action: .skip, rememberChoice: shouldPersistChoice)
         if let rule = decision.persistedRule {
             if !saveMeetingDetectionRule(rule, targetID: prompt.targetID) {
                 meetingDetectionStatus = .notSaved
@@ -1597,60 +1700,6 @@ private struct ContentView: View {
             outcome: .terminal(reason: reason.rawValue)
         )
         dismissMeetingDetectionPrompt()
-    }
-
-    @MainActor
-    private func dismissMeetingDetectionPromptWindow() {
-        meetingDetectionPromptWindow?.close()
-        meetingDetectionPromptWindow = nil
-    }
-
-    @MainActor
-    private func positionMeetingDetectionPromptWindow(_ window: NSWindow) {
-        guard let screen = meetingDetectionPromptScreen() else {
-            window.center()
-            return
-        }
-        let frame = meetingDetectionPromptFrame(
-            windowSize: Self.meetingDetectionPromptWindowSize,
-            visibleFrame: screen.visibleFrame,
-            anchorFrame: (NSApp.delegate as? AppLifecycleDelegate)?.meetingDetectionPromptAnchor(on: screen)
-        )
-        window.setFrame(frame, display: true)
-    }
-
-    @MainActor
-    private func meetingDetectionPromptScreen() -> NSScreen? {
-        let mouseLocation = NSEvent.mouseLocation
-        if let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) }) {
-            return screen
-        }
-        return NSApp.keyWindow?.screen
-            ?? NSApp.mainWindow?.screen
-            ?? NSScreen.main
-            ?? NSScreen.screens.first
-    }
-
-    private func meetingDetectionPromptFrame(windowSize: NSSize, visibleFrame: NSRect, anchorFrame: NSRect? = nil) -> NSRect {
-        let margin = Self.meetingDetectionPromptVisibleMargin
-        let horizontalMargin = min(margin, max(0, visibleFrame.width / 2 - 1))
-        let verticalMargin = min(margin, max(0, visibleFrame.height / 2 - 1))
-        let safeFrame = visibleFrame.insetBy(dx: horizontalMargin, dy: verticalMargin)
-        let width = min(windowSize.width, max(1, safeFrame.width))
-        let height = min(windowSize.height, max(1, safeFrame.height))
-        let maxX = safeFrame.maxX - width
-        let maxY = safeFrame.maxY - height
-        return NSRect(
-            x: clamp(anchorFrame.map { $0.midX - width / 2 } ?? maxX, lower: safeFrame.minX, upper: maxX),
-            y: clamp(anchorFrame.map { $0.minY - height - 8 } ?? maxY, lower: safeFrame.minY, upper: maxY),
-            width: width,
-            height: height
-        )
-    }
-
-    private func clamp(_ value: CGFloat, lower: CGFloat, upper: CGFloat) -> CGFloat {
-        guard upper >= lower else { return lower }
-        return min(max(value, lower), upper)
     }
 
     @MainActor
@@ -1672,6 +1721,17 @@ private struct ContentView: View {
                 meetingDetectionStatus = .notSaved
             }
         }
+        if autoRecordOptIn {
+            // Пользователь включил авто-запись: веха отправляется из этого пути.
+            Task {
+                await activationReporter.noteAutorecordEnabled(
+                    policyState: "enabled",
+                    previousState: "disabled",
+                    source: reason == .promptButton ? "prompt_button" : "prompt_timeout",
+                    surface: "meeting_detection_prompt"
+                )
+            }
+        }
         dismissMeetingDetectionPrompt()
         Task {
             guard let decision = currentMeetingDetectionStartDecision(
@@ -1685,12 +1745,16 @@ private struct ContentView: View {
                     bundleID: prompt.bundleID,
                     outcome: .retryable(reason: "current_prompt_decision_blocked")
                 )
+                DesktopNotificationPresenter.shared.reconcileCard()
                 return
             }
             let outcome = await startManualRecording(
                 meetingDetectionTarget: decision
             )
             recordMeetingDetectionConsumerOutcome(bundleID: prompt.bundleID, outcome: outcome)
+            if outcome != .accepted {
+                DesktopNotificationPresenter.shared.reconcileCard()
+            }
         }
     }
 
@@ -2377,6 +2441,20 @@ private struct ContentView: View {
                 event: AuditEventName.recordingStopped.rawValue,
                 detail: "sessionId=\(stopped.id) reason=\(stopped.stopReason?.rawValue ?? "none") localRecordingStatus=\(manifest.status.rawValue)"
             )
+            // Первая завершённая запись: веха отправляется из этого пути.
+            let recordingSeconds: TimeInterval = {
+                guard let startedAt = stopped.startedAt, let stoppedAt = stopped.stoppedAt else { return 0 }
+                return stoppedAt.timeIntervalSince(startedAt)
+            }()
+            let manifestStatus = manifest.status.rawValue
+            Task {
+                await activationReporter.noteFirstRecordingCompleted(
+                    durationBucket: Self.durationBucket(seconds: recordingSeconds),
+                    captureMode: "system_audio_and_microphone",
+                    completionState: manifestStatus,
+                    resultPendingState: manifest.status == .saved ? "upload_pending" : "degraded"
+                )
+            }
         } catch {
             let failureCategory = recordingStopFailureCategory(for: error)
             if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
@@ -2602,8 +2680,11 @@ private struct ContentView: View {
 
     @MainActor
     private func openSupportSignIn() {
-        guard let configuration = desktopCabinetConfiguration else { return }
-        selectedCabinetRoute = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+        guard desktopCabinetConfiguration != nil else { return }
+        // Повторный вход открывает тот же маршрут с метками, что и первый
+        // (FR-022): иначе кампания теряется ровно на том входе, которым
+        // приложение связывает аккаунт.
+        openCabinetSignInWithAttributionHandoff(reason: "support_sign_in")
         desktopCabinetState = .loading
     }
 
@@ -3033,196 +3114,6 @@ private enum MeetingDetectionPromptDismissReason: String, Sendable {
     case userSkipped = "user_skipped"
 }
 
-private final class MeetingDetectionPromptPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
-}
-
-private struct MeetingPromptKeyboardNavigation: ViewModifier {
-    var isEnabled = true
-    let onSpace: () -> Void
-
-    func body(content: Content) -> some View {
-        if NSApp.isFullKeyboardAccessEnabled {
-            content
-        } else {
-            content
-                .focusable(isEnabled, interactions: .edit)
-                .onKeyPress(.space, phases: .down) { _ in
-                    onSpace()
-                    return .handled
-                }
-        }
-    }
-}
-
-private struct MeetingDetectionPromptView: View {
-    private static let countdownSeconds: TimeInterval = 8
-
-    let prompt: MeetingDetectionPrompt
-    let isStartDisabled: Bool
-    let onStart: (Bool, MeetingDetectionStartReason) -> Void
-    let onDismiss: (Bool, MeetingDetectionPromptDismissReason) -> Void
-
-    @State private var autoRecordOptIn = false
-    @State private var appearedAt = Date()
-    @State private var countdown = MeetingDetectionCountdown(startedAt: Date())
-    @State private var autoStartTask: Task<Void, Never>?
-
-    var body: some View {
-        GeometryReader { geometry in
-            ScrollView(.vertical) {
-                VStack(spacing: 0) {
-                    Text("GRAF")
-                        .font(.system(size: 11, weight: .bold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 5)
-                        .background(DesktopDesignTokens.surface)
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "record.circle")
-                                .font(.system(size: 25))
-                                .foregroundStyle(DesktopMeetingShellChrome.shellAccentColor)
-                                .accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Записать встречу?")
-                                    .font(.headline)
-                                Text("Встреча в \(prompt.displayName)")
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .fixedSize(horizontal: false, vertical: true)
-                        }
-                        Toggle("Запомнить выбор", isOn: $autoRecordOptIn)
-                            .toggleStyle(.checkbox)
-                            .modifier(MeetingPromptKeyboardNavigation { autoRecordOptIn.toggle() })
-                            .accessibilityHint("Сохранить решение для приложения \(prompt.displayName)")
-
-                        let layout = geometry.size.width < 300
-                            ? AnyLayout(VStackLayout(spacing: 8))
-                            : AnyLayout(HStackLayout(spacing: 8))
-                        layout {
-                            Button("Не записывать") {
-                                resolveDismiss(reason: .userSkipped)
-                            }
-                            .buttonStyle(.plain)
-                            .keyboardShortcut(.cancelAction)
-                            .modifier(MeetingPromptKeyboardNavigation {
-                                resolveDismiss(reason: .userSkipped)
-                            })
-                            .frame(maxWidth: .infinity, minHeight: 34)
-                            .background(DesktopDesignTokens.surface, in: RoundedRectangle(cornerRadius: 7))
-
-                            TimelineView(.periodic(from: appearedAt, by: 0.05)) { context in
-                                countdownButton(
-                                    progress: progress(at: context.date),
-                                    remainingSeconds: countdown.remainingWholeSeconds(at: context.date)
-                                )
-                            }
-                        }
-                    }
-                    .padding(12)
-                }
-                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
-            }
-        }
-        .background(DesktopDesignTokens.panel, in: RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.dialog))
-        .clipShape(RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.dialog))
-        .overlay(
-            RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.dialog)
-                .stroke(DesktopDesignTokens.line, lineWidth: 1)
-        )
-        .onAppear {
-            appearedAt = Date()
-            countdown = MeetingDetectionCountdown(startedAt: appearedAt)
-            autoStartTask?.cancel()
-            autoStartTask = Task {
-                do {
-                    try await Task.sleep(nanoseconds: UInt64(Self.countdownSeconds * 1_000_000_000))
-                } catch {
-                    return
-                }
-                await MainActor.run {
-                    guard !Task.isCancelled else { return }
-                    resolveStart(reason: .promptTimeout)
-                }
-            }
-        }
-        .onDisappear {
-            _ = countdown.cancel()
-            autoStartTask?.cancel()
-            autoStartTask = nil
-        }
-    }
-
-    private func countdownButton(progress: CGFloat, remainingSeconds: Int) -> some View {
-        Button {
-            resolveStart(reason: .promptButton)
-        } label: {
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(
-                            isStartDisabled
-                                ? DesktopDesignTokens.surface3
-                                : DesktopDesignTokens.accentSolid
-                        )
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(DesktopDesignTokens.accentForeground.opacity(0.22))
-                        .frame(width: proxy.size.width * progress)
-                    Text(
-                        isStartDisabled
-                            ? "Запись пока недоступна"
-                            : "Записать · \(remainingSeconds) с"
-                    )
-                        .font(.callout)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(isStartDisabled ? DesktopDesignTokens.muted : DesktopDesignTokens.accentForeground)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 4)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-            .frame(height: isStartDisabled ? 44 : 34)
-        }
-        .buttonStyle(.plain)
-        .disabled(isStartDisabled)
-        .keyboardShortcut(.defaultAction)
-        .modifier(MeetingPromptKeyboardNavigation(isEnabled: !isStartDisabled) {
-            resolveStart(reason: .promptButton)
-        })
-        .accessibilityLabel("Записать")
-        .accessibilityValue(
-            isStartDisabled
-                ? "Запись пока недоступна"
-                : "Запись начнется автоматически через \(remainingSeconds) секунд"
-        )
-    }
-
-    private func progress(at date: Date) -> CGFloat {
-        guard !isStartDisabled else { return 0 }
-        return min(max(CGFloat(date.timeIntervalSince(appearedAt) / Self.countdownSeconds), 0), 1)
-    }
-
-    private func resolveStart(reason: MeetingDetectionStartReason) {
-        guard let resolvedReason = countdown.resolveStart(
-            reason: reason,
-            at: Date(),
-            startIsTemporarilyDisabled: isStartDisabled
-        )
-        else { return }
-        autoStartTask?.cancel()
-        onStart(autoRecordOptIn, resolvedReason)
-    }
-
-    private func resolveDismiss(reason: MeetingDetectionPromptDismissReason) {
-        guard countdown.cancel() else { return }
-        autoStartTask?.cancel()
-        onDismiss(autoRecordOptIn, reason)
-    }
-}
-
 @MainActor
 private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, NSWindowDelegate {
     private var mainWindow: NSWindow?
@@ -3235,10 +3126,6 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     private var terminationReplyPending = false
     private var settingsExitPending = false
     private var relaunchAfterTermination = false
-
-    func meetingDetectionPromptAnchor(on screen: NSScreen) -> NSRect? {
-        calendarTrayController?.visibleStatusItemFrame(on: screen)
-    }
 
     override init() {
         appUpdateController = AppUpdateController { event, detail in
@@ -3339,7 +3226,33 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         return true
     }
 
+    /// Ссылка со страницы загрузки: метки кампании попадают в приложение (FR-022).
+    func application(_: NSApplication, open urls: [URL]) {
+        for url in urls {
+            let store = ProductAttributionHandoffStore()
+            // Разбор и запись живут в хранилище, поэтому тот же путь проверяем
+            // тестом; здесь остаются только журнал и показ окна.
+            guard let handoff = store.handleOpenURL(url) else {
+                AppLog.writeRaw(event: "attribution.handoff_rejected", detail: "scheme=\(url.scheme ?? "unknown")")
+                continue
+            }
+            AppLog.writeRaw(
+                event: "attribution.handoff_received",
+                detail: "scheme=\(handoff.bridgeID != nil ? "bridge" : "labels_only") campaignKnown=\(handoff.campaignKnown)"
+            )
+            presentMainWindow(reason: "attribution_handoff")
+            NotificationCenter.default.post(
+                name: .twoBrainRecDesktopAttributionHandoffDidArrive,
+                object: nil
+            )
+        }
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        // Карточка не должна переживать закрытие окна GRAF: она принадлежит
+        // текущему процессу и не может оставаться самостоятельным баннером.
+        DesktopNotificationPresenter.shared.dismissAllCards()
+        NotificationCenter.default.post(name: .twoBrainRecDismissMeetingDetectionPrompt, object: nil)
         guard !settingsExitPending else { return false }
         settingsExitPending = true
         Task { [weak self, weak sender] in
@@ -3351,6 +3264,10 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     }
 
     func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
+        // Карточка живёт в отдельной панели и иначе остаётся поверх экрана,
+        // пока асинхронное завершение приложения ещё не закончено.
+        DesktopNotificationPresenter.shared.dismissAllCards()
+        NotificationCenter.default.post(name: .twoBrainRecDismissMeetingDetectionPrompt, object: nil)
         guard !terminationReplyPending else { return .terminateLater }
         guard !settingsExitPending else { return .terminateCancel }
         terminationReplyPending = true
@@ -3451,10 +3368,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
             mainWindow.makeKeyAndOrderFront(nil)
             mainWindow.orderFrontRegardless()
             NSApp.activate(ignoringOtherApps: true)
-            AppLog.writeRaw(
-                event: "app_main_window_presented",
-                detail: "reason=\(reason) reused=true"
-            )
+            logMainWindowPresented(reason: reason, window: mainWindow, reused: true)
             return
         }
 
@@ -3479,13 +3393,24 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         )
         window.center()
         mainWindow = window
-        AppLog.writeRaw(
-            event: "app_main_window_presented",
-            detail: "reason=\(reason) reused=false"
-        )
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
+        logMainWindowPresented(reason: reason, window: window, reused: false)
+    }
+
+    private func logMainWindowPresented(reason: String, window: NSWindow, reused: Bool) {
+        guard window.isVisible else {
+            AppLog.writeRaw(
+                event: "app_main_window_presentation_failed",
+                detail: "reason=\(reason) reused=\(reused) visible=false"
+            )
+            return
+        }
+        AppLog.writeRaw(
+            event: "app_main_window_presented",
+            detail: "reason=\(reason) reused=\(reused) visible=true"
+        )
     }
 
     private func configureMainWindowCollectionBehavior(_ window: NSWindow) {
@@ -3642,6 +3567,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
 }
 
 private extension Notification.Name {
+    static let twoBrainRecDismissMeetingDetectionPrompt = Notification.Name("pro.2brain.graf.dismissMeetingDetectionPrompt")
     static let twoBrainRecApplicationShouldTerminate = Notification.Name("pro.2brain.graf.applicationShouldTerminate")
     static let twoBrainRecApplicationTerminationCleanupFinished = Notification.Name("pro.2brain.graf.applicationTerminationCleanupFinished")
     static let twoBrainRecOpenSettings = Notification.Name("pro.2brain.graf.openSettings")

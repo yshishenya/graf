@@ -1,0 +1,80 @@
+# GRAF analytics alert rules and their named owners (FR-055).
+#
+# One line per rule. The code is the exact value the guard, the backup task, the
+# restore verification task, the retention task or the alert channel check
+# emits. A rule without an owner role is a configuration error.
+#
+# The concrete named owner is never committed: this repository keeps roles and
+# statuses only. The operator names the person in the out-of-git environment
+# file, for example:
+#
+#   GRAF_ANALYTICS_ALERT_OWNER_INFRA_OPERATOR=<named owner>
+#   GRAF_ANALYTICS_ALERT_OWNER_ANALYTICS_OPERATOR=<named owner>
+#   GRAF_ANALYTICS_ALERT_OWNER_PRODUCT_OWNER=<named owner>
+#
+# When the environment does not name the owner, the alert still goes out and
+# carries `alert_owner_unnamed` so the gap is visible in the channel and in
+# journald.
+#
+# Format:
+#   rule code=<code> scope=<analytics|host|backup|restore|retention|alerting> \
+#        owner_role=<role> severity=<critical|warning> escalate_after_minutes=<n> \
+#        requirement=<FR-030|FR-031|FR-032|FR-033|FR-035|FR-036|FR-051|FR-056>
+
+# Analytics scope: fires first, may disable measurement only (FR-031, FR-032).
+rule code=analytics_node_unavailable scope=analytics owner_role=analytics_operator severity=critical escalate_after_minutes=15 requirement=FR-030
+rule code=analytics_storage scope=analytics owner_role=analytics_operator severity=critical escalate_after_minutes=15 requirement=FR-031
+rule code=analytics_delivery_lag scope=analytics owner_role=analytics_operator severity=critical escalate_after_minutes=15 requirement=FR-031
+rule code=analytics_delivery_lag_unavailable scope=analytics owner_role=analytics_operator severity=warning escalate_after_minutes=60 requirement=FR-031
+rule code=analytics_queue_depth scope=analytics owner_role=analytics_operator severity=critical escalate_after_minutes=15 requirement=FR-031
+rule code=analytics_queue_growth scope=analytics owner_role=analytics_operator severity=warning escalate_after_minutes=30 requirement=FR-031
+rule code=analytics_queue_metric_unavailable scope=analytics owner_role=analytics_operator severity=warning escalate_after_minutes=60 requirement=FR-031
+rule code=container_limits_missing scope=analytics owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-032
+rule code=container_oom scope=analytics owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-032
+rule code=container_restarts scope=analytics owner_role=infra_operator severity=warning escalate_after_minutes=30 requirement=FR-032
+rule code=docker_unavailable scope=analytics owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-030
+rule code=posthog_containers_missing scope=analytics owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-030
+rule code=docker_inspect_unavailable scope=analytics owner_role=infra_operator severity=warning escalate_after_minutes=30 requirement=FR-030
+rule code=restart_metric_unavailable scope=analytics owner_role=infra_operator severity=warning escalate_after_minutes=60 requirement=FR-030
+rule code=restart_state_unavailable scope=analytics owner_role=infra_operator severity=warning escalate_after_minutes=60 requirement=FR-030
+rule code=restart_history_unavailable scope=analytics owner_role=infra_operator severity=warning escalate_after_minutes=60 requirement=FR-030
+
+# Host scope: alert only, measurement is never disabled from here (FR-031).
+rule code=host_load scope=host owner_role=infra_operator severity=warning escalate_after_minutes=30 requirement=FR-031
+rule code=host_memory scope=host owner_role=infra_operator severity=warning escalate_after_minutes=30 requirement=FR-031
+rule code=host_disk scope=host owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-031
+rule code=host_product_probe_unavailable scope=host owner_role=product_owner severity=critical escalate_after_minutes=15 requirement=FR-030
+rule code=host_load_unavailable scope=host owner_role=infra_operator severity=warning escalate_after_minutes=60 requirement=FR-030
+rule code=host_memory_unavailable scope=host owner_role=infra_operator severity=warning escalate_after_minutes=60 requirement=FR-030
+rule code=host_disk_unavailable scope=host owner_role=infra_operator severity=warning escalate_after_minutes=60 requirement=FR-030
+rule code=host_clock_unavailable scope=host owner_role=infra_operator severity=warning escalate_after_minutes=60 requirement=FR-030
+
+# Backup and restore (FR-033, FR-035, FR-051, FR-052).
+rule code=backup_failed scope=backup owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-051
+rule code=backup_stale scope=backup owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-034
+rule code=backup_missing scope=backup owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-034
+rule code=backup_state_unavailable scope=backup owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-034
+rule code=backup_offsite_missing scope=backup owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-052
+rule code=backup_offsite_copy_missing scope=backup owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-052
+rule code=backup_copy_count_below_minimum scope=backup owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-052
+rule code=restore_verification_failed scope=restore owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-035
+rule code=restore_verification_missing scope=restore owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-035
+rule code=restore_verification_stale scope=restore owner_role=infra_operator severity=warning escalate_after_minutes=60 requirement=FR-035
+
+# Retention enforcement (FR-036, FR-050).
+rule code=retention_enforcement_failed scope=retention owner_role=analytics_operator severity=critical escalate_after_minutes=15 requirement=FR-036
+rule code=retention_state_unavailable scope=retention owner_role=analytics_operator severity=critical escalate_after_minutes=15 requirement=FR-050
+rule code=retention_category_missing scope=retention owner_role=analytics_operator severity=critical escalate_after_minutes=15 requirement=FR-050
+rule code=retention_term_missing scope=retention owner_role=analytics_operator severity=critical escalate_after_minutes=15 requirement=FR-050
+rule code=retention_term_below_required scope=retention owner_role=analytics_operator severity=critical escalate_after_minutes=15 requirement=FR-050
+rule code=retention_enforcement_unverified scope=retention owner_role=analytics_operator severity=warning escalate_after_minutes=60 requirement=FR-036
+
+# The alert path itself (FR-056).
+rule code=guard_state_missing scope=alerting owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-030
+rule code=guard_state_stale scope=alerting owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-030
+rule code=alert_delivery_failed scope=alerting owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-056
+rule code=alert_channel_unavailable scope=alerting owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-056
+rule code=last_delivery_missing scope=alerting owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-056
+rule code=last_delivery_stale scope=alerting owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-056
+rule code=alert_owner_unnamed scope=alerting owner_role=infra_operator severity=warning escalate_after_minutes=60 requirement=FR-055
+rule code=analytics_degradation_drill scope=alerting owner_role=analytics_operator severity=warning escalate_after_minutes=60 requirement=FR-030

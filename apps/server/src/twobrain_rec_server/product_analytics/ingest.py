@@ -14,6 +14,11 @@ from twobrain_rec_server.product_analytics.events import (
     ProductActivationEvent,
     build_activation_event,
 )
+from twobrain_rec_server.product_analytics.milestones import (
+    MILESTONE_STATUS_DUPLICATE,
+    default_milestone_guard,
+    is_first_milestone_event,
+)
 from twobrain_rec_server.product_analytics.posthog_client import ProviderDeliveryResult
 from twobrain_rec_server.product_analytics.router import ParallelMeasurementRouter
 from twobrain_rec_server.product_analytics.telemetry_gate import analytics_collection_allowed
@@ -58,6 +63,22 @@ class ProductAnalyticsIngestService:
             occurred_at=_parse_occurred_at(payload.get("occurred_at")),
             properties=payload.get("properties") if isinstance(payload.get("properties"), Mapping) else {},
         )
+        if is_first_milestone_event(event.event_name):
+            # The decision is made before any provider sees the event, so a
+            # repeated submission of one milestone is acknowledged and counted
+            # once (FR-025). The app keeps its own durable copy of the same rule.
+            acceptance = default_milestone_guard().accept(
+                stable_pseudonymous_user_id=event.stable_pseudonymous_user_id,
+                event_name=event.event_name,
+            )
+            if acceptance.duplicate:
+                return ProductAnalyticsIngestResult(
+                    True,
+                    MILESTONE_STATUS_DUPLICATE,
+                    event,
+                    [],
+                    None,
+                )
         provider_results = self.measurement_router.dispatch(event)
         return ProductAnalyticsIngestResult(
             True,

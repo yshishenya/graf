@@ -262,20 +262,6 @@ async def grant_confirmed_payment(
         current_owner_id=owner.user_id,
     )
     paid_at = paid_at.astimezone(UTC)
-    paid_through = _add_paid_interval(paid_at, cycle)
-    db.add(
-        BillingEntitlementGrant(
-            workspace_id=workspace_id,
-            invoice_id=invoice.id,
-            provider_payment_id=provider_payment_id,
-            plan_code=plan_code,
-            cycle=cycle,
-            starts_at=paid_at,
-            ends_at=paid_through,
-            amount_minor=amount_minor,
-            currency=currency,
-        )
-    )
     subscription = await db.scalar(
         select(WorkspaceSubscription)
         .where(WorkspaceSubscription.workspace_id == workspace_id)
@@ -284,6 +270,26 @@ async def grant_confirmed_payment(
     if subscription is None:
         subscription = WorkspaceSubscription(workspace_id=workspace_id)
         db.add(subscription)
+    # A payment made before the current period ends extends that period instead
+    # of restarting it, so the paid remainder never burns: paying a year ahead
+    # or switching month to year keeps every already paid day.
+    period_start = paid_at
+    if subscription.paid_through is not None:
+        period_start = max(period_start, subscription.paid_through.astimezone(UTC))
+    paid_through = _add_paid_interval(period_start, cycle)
+    db.add(
+        BillingEntitlementGrant(
+            workspace_id=workspace_id,
+            invoice_id=invoice.id,
+            provider_payment_id=provider_payment_id,
+            plan_code=plan_code,
+            cycle=cycle,
+            starts_at=period_start,
+            ends_at=paid_through,
+            amount_minor=amount_minor,
+            currency=currency,
+        )
+    )
     subscription.billing_owner_id = owner.user_id
     subscription.state = "personal"
     subscription.plan_code = "personal"
@@ -540,6 +546,10 @@ async def grant_confirmed_renewal(
         await db.flush()
         return "refused"
     starts_at = grant_starts_at.astimezone(UTC)
+    if subscription.paid_through is not None:
+        # A renewal charged inside the reminder window completes the current
+        # period instead of shortening the access already paid for.
+        starts_at = max(starts_at, subscription.paid_through.astimezone(UTC))
     ends_at = _add_paid_interval(starts_at, cycle)
     db.add(
         BillingEntitlementGrant(

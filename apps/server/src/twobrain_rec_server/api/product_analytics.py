@@ -3,13 +3,18 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import Problem
+from twobrain_rec_server.auth.context import AuthenticatedPrincipal
+from twobrain_rec_server.auth.dependencies import get_principal
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.product_analytics.event_catalog import (
+    anonymous_aggregate_signal_names,
+    anonymous_aggregate_signals_payload,
     catalog_payload,
     yandex_offline_conversion_event_names,
 )
@@ -35,6 +40,7 @@ from twobrain_rec_server.product_analytics.posthog_client import PostHogClientWr
 from twobrain_rec_server.product_analytics.provider_config import ProductAnalyticsProviderConfig
 from twobrain_rec_server.product_analytics.provider_readiness import build_provider_readiness
 from twobrain_rec_server.product_analytics.readiness import build_rollout_readiness_report
+from twobrain_rec_server.product_analytics.report_surface import build_product_report_surface
 from twobrain_rec_server.product_analytics.retention import (
     provider_lifecycle_records,
     retention_rules,
@@ -56,7 +62,12 @@ class ProductAnalyticsEventRequest(BaseModel):
 
 
 class PostHogAutocaptureEventRequest(BaseModel):
-    distinct_id: str | None = Field(default=None, max_length=120)
+    # Required, never defaulted. Inventing a shared identifier for unidentified
+    # visitors would create one long-lived identifier reused by everybody and
+    # would merge unrelated visits into a single person, which FR-010 forbids.
+    # Visitors who never established a pseudonymous identity are accounted for
+    # by the anonymous server-side aggregate instead.
+    distinct_id: str = Field(min_length=1, max_length=120)
     event_type: Literal["ready", "pageview", "click"] = "pageview"
     consent_state: Literal["accepted_all", "customized"]
     page_class: str = Field(min_length=1, max_length=80)
@@ -99,6 +110,20 @@ def _settings_from_request(request: Request) -> Settings:
     return getattr(request.app.state, "settings", None) or get_settings()
 
 
+async def get_product_analytics_report_session(request: Request):
+    """Сессия только для чтения отчёта: агрегат уровня 1 не привязан к арендатору."""
+    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
+    if sessionmaker is None:
+        yield None
+        return
+    async with sessionmaker() as session:
+        yield session
+
+
+PrincipalDependency = Depends(get_principal)
+ReportDbDependency = Depends(get_product_analytics_report_session)
+
+
 @router.get("/catalog")
 async def product_analytics_catalog(request: Request) -> dict[str, Any]:
     settings = _settings_from_request(request)
@@ -107,6 +132,8 @@ async def product_analytics_catalog(request: Request) -> dict[str, Any]:
         "validation_mode": settings.product_analytics_validation_mode,
         "provider_mode": settings.product_analytics_provider_mode,
         "events": catalog_payload(),
+        "anonymous_aggregate_signals": anonymous_aggregate_signals_payload(),
+        "anonymous_aggregate_signal_names": list(anonymous_aggregate_signal_names()),
         "yandex_offline_conversion_events": list(yandex_offline_conversion_event_names()),
         "page_classes": [policy.as_dict() for policy in page_class_policies()],
         "retention": [rule.as_dict() for rule in retention_rules()],
@@ -115,6 +142,28 @@ async def product_analytics_catalog(request: Request) -> dict[str, Any]:
         "providers": build_provider_readiness(settings).as_dict(),
         "rollout_readiness": build_rollout_readiness_report(settings).as_dict(),
     }
+
+
+@router.get("/reports")
+async def product_analytics_reports(
+    request: Request,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = ReportDbDependency,
+) -> dict[str, Any]:
+    """Отчётная поверхность продукта: доля согласия и стоимость результата.
+
+    Требование FR-012 закрыто здесь: доля согласия считается кодом продукта из
+    обезличенного счёта уровня 1 и числа согласившихся визитов, а не вписывается
+    оператором. FR-041 закрыт здесь же: расход кабинета соединяется с
+    конверсиями по кампании кодом продукта.
+
+    Поверхность закрыта аутентификацией, потому что стоимость активации по
+    кампании — это расход рекламного бюджета, а не публичная цифра. Доля
+    согласия сама по себе не является коммерческой тайной, но она считается
+    вместе с той же поверхностью и по тем же источникам.
+    """
+    del principal  # зависимость нужна как проверка доступа, значение не читается
+    return await build_product_report_surface(db)
 
 
 @router.get("/telemetry-gate/disclosure")
@@ -216,13 +265,16 @@ async def product_analytics_posthog_web_capture(
             title="PostHog autocapture field rejected",
             detail="Autocapture fields must use the approved stable catalogs.",
         )
-    distinct_id = body.distinct_id or "graf_pseudo_browser_anonymous"
+    distinct_id = body.distinct_id
     if not is_safe_pseudonymous_id(distinct_id):
         raise ProblemDetail(
             status=400,
             code="posthog_autocapture_identity_rejected",
             title="PostHog autocapture identity rejected",
-            detail="Autocapture distinct_id must be a GRAF pseudonymous analytics identity.",
+            detail=(
+                "Autocapture distinct_id must be a GRAF pseudonymous analytics identity. "
+                "An unidentified visitor has no provider identity and is measured by the anonymous aggregate."
+            ),
         )
     if body.workspace_pseudonym and not is_safe_pseudonymous_id(body.workspace_pseudonym):
         raise ProblemDetail(

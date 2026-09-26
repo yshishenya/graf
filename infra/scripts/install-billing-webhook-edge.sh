@@ -40,7 +40,7 @@ site_target=$site_target
 limit_target=$limit_target
 secret_target=$secret_target
 secret_validation=pass
-planned_checks=backup,install,nginx_test,reload,negative_probe,health,automatic_rollback
+planned_checks=backup,install,nginx_test,reload,negative_probe,secret_match_probe,health,automatic_rollback
 EOF
   exit 0
 fi
@@ -116,6 +116,33 @@ edge_status="$(curl -ksS -o /dev/null -w '%{http_code}' \
 test_edge_status="$(curl -ksS -o /dev/null -w '%{http_code}' \
   -H 'Content-Type: application/json' -d '{}' \
   https://rec.2brain.pro:8443/api/v1/billing/providers/yookassa/webhook/test || true)"
+
+# Positive control: send the secret that was just written into the edge config
+# straight to the backend. The backend compares it with the secret it actually
+# loaded, so a matching answer proves the two halves agree. The body is a valid
+# notification without workspace metadata, which the backend answers with 503
+# once the secret is accepted; 401 means the secrets differ. The header travels
+# in a curl config file so the secret never appears in the process list.
+probe_body='{"type":"notification","event":"payment.succeeded","object":{"id":"edge-secret-probe","created_at":"2026-01-01T00:00:00Z"}}'
+printf 'header = "X-Billing-Webhook-Secret: %s"\n' "$webhook_secret" > "$stage_dir/probe.curl"
+chmod 0600 "$stage_dir/probe.curl"
+probe_secret() {
+  curl -sS -K "$stage_dir/probe.curl" -o /dev/null -w '%{http_code}' \
+    -H 'Content-Type: application/json' -d "$probe_body" \
+    "http://127.0.0.1:18081/api/v1/billing/providers/yookassa/webhook/$1" || true
+}
+secret_probe_production="$(probe_secret production)"
+secret_probe_test="$(probe_secret test)"
+if [[ "$secret_probe_production" != "503" && "$secret_probe_test" != "503" ]]; then
+  rollback
+  echo "billing_webhook_edge_result=blocked"
+  echo "reason=edge_secret_does_not_match_application"
+  echo "secret_probe_production=$secret_probe_production"
+  echo "secret_probe_test=$secret_probe_test"
+  echo "rollback=attempted"
+  exit 1
+fi
+
 if [[ "$health_status" != "200" || "$direct_status" != "401" || "$edge_status" != "403" || "$test_edge_status" != "403" ]]; then
   rollback
   echo "billing_webhook_edge_result=blocked"
@@ -131,6 +158,8 @@ fi
 echo "billing_webhook_edge_result=pass"
 echo "backup_reference=$backup_dir"
 echo "secret_validation=pass"
+echo "secret_probe_production=$secret_probe_production"
+echo "secret_probe_test=$secret_probe_test"
 echo "health_status=$health_status"
 echo "direct_backend_status=$direct_status"
 echo "untrusted_edge_status=$edge_status"

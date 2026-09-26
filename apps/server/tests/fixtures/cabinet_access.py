@@ -349,11 +349,11 @@ async def _add_retained_playback_m4a(client: TestClient, meeting_id: UUID, body:
 
 
 async def _replace_retained_audio_with_test_wav(client: TestClient, meeting_id: UUID) -> None:
-    mic_bytes = _wav_bytes([1000, 1000, 0, 0])
-    incoming_bytes = _wav_bytes([0, 0, 2000, 2000])
     by_role = {
-        TrackRole.MICROPHONE.value: mic_bytes,
-        TrackRole.SYSTEM.value: incoming_bytes,
+        TrackRole.MEDIA.value: _wav_bytes([1000, 1000, 2000, 2000]),
+        # Retained pre-v5 rows only; this helper never creates or uploads a pair.
+        TrackRole.MICROPHONE.value: _wav_bytes([1000, 1000, 0, 0]),
+        TrackRole.SYSTEM.value: _wav_bytes([0, 0, 2000, 2000]),
     }
     storage = client.app_state["storage"]
     async with client.app_state["sessionmaker"]() as db:
@@ -372,7 +372,9 @@ async def _replace_retained_audio_with_test_wav(client: TestClient, meeting_id: 
             if data is None:
                 continue
             storage.put_bytes(artifact.storage_object_key, data)
-            artifact.codec = "pcm_s16le"
+            artifact.codec = (
+                "wav-pcm-s16le" if artifact.track_role == TrackRole.MEDIA.value else "pcm_s16le"
+            )
             artifact.sample_rate_hz = 16_000
             artifact.channel_count = 1
             artifact.duration_seconds = 1

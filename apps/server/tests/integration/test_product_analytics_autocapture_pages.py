@@ -36,10 +36,12 @@ def _product_provider_config(html: str) -> dict:
 
 
 def test_public_cabinet_and_admin_templates_include_provider_config_and_private_attrs() -> None:
-    public_partial = (
-        REPO_ROOT
-        / "apps/server/src/twobrain_rec_server/public/templates/public/_product_analytics_provider.html"
-    ).read_text(encoding="utf-8")
+    # The public partial ``_product_analytics_provider.html`` was removed by
+    # feature 273 (T034): nothing included it, its job is done by
+    # ``public/_analytics.html``, and the public pages must not carry the product
+    # provider config at all — asserted by
+    # ``test_rendered_public_pages_exclude_product_provider_and_product_pages_include_it``
+    # below. The product surfaces keep their own first-party config script.
     cabinet_base = (
         REPO_ROOT / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/base.html"
     ).read_text(encoding="utf-8")
@@ -47,12 +49,10 @@ def test_public_cabinet_and_admin_templates_include_provider_config_and_private_
         REPO_ROOT / "apps/server/src/twobrain_rec_server/admin/templates/admin/base.html"
     ).read_text(encoding="utf-8")
 
-    for template in (public_partial, cabinet_base, admin_base):
+    for template in (cabinet_base, admin_base):
         assert "graf-product-analytics-provider-config" in template
         assert "analytics.js" in template
-    assert "public_static_asset_url('analytics.js')" in cabinet_base
-    assert "public_static_asset_url('analytics.js')" in admin_base
-    for template in (cabinet_base, admin_base):
+        assert "public_static_asset_url('analytics.js')" in template
         assert 'data-graf-analytics-private="true"' in template
         assert 'data-ph-mask="true"' in template
         assert 'data-ym-hide-content="true"' in template
@@ -115,8 +115,12 @@ def test_rendered_public_pages_exclude_product_provider_and_product_pages_includ
         config = _product_provider_config(response.text)
         assert config["page_class"] == expected_page_class
         assert config["posthog"]["enabled"] is True
-        assert config["posthog"]["distinct_id"] == "graf_pseudo_browser_anonymous"
+        # T033: an anonymous browser has no analytics identity. The shared
+        # placeholder is gone, so unrelated visitors are never reported as one
+        # person; the controller sends nothing until a real pseudonym arrives.
+        assert config["posthog"]["distinct_id"] is None
         assert config["posthog"]["identity_state"] == "anonymous"
+        assert config["posthog"]["identity_rule"] == "no_stable_identifier_before_authentication"
         assert "/static/public/analytics.js" in response.text
         assert response.text.count("/static/public/analytics.js") == 1
 

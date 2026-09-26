@@ -14,6 +14,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fakes.fake_temporal import FakeTemporalClient
+from tests.fixtures.artifacts import track_descriptor
 from tests.fixtures.processing import apply_job_worker_scope
 from twobrain_rec_server.db.models import (
     PlaybackNormalizationAttempt,
@@ -22,8 +24,10 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.normalization.media import (
     FORMAT_WHITELIST,
+    MAX_DECODE_PROGRESS_BYTES,
     build_full_decode_command,
     inspect_bmff,
+    parse_full_decode_progress,
     run_bounded_process,
 )
 from twobrain_rec_server.normalization.service import (
@@ -46,7 +50,7 @@ class AuthorizedSources:
 @dataclass(frozen=True, slots=True)
 class PreparedSources:
     microphone: bytes
-    system: bytes
+    media: bytes
     canonical_m4a: bytes
     non_faststart_m4a: bytes
 
@@ -243,11 +247,20 @@ def _prepare_scenario_sources(
 ) -> PreparedSources:
     microphone = work_directory / "scenario-microphone.wav"
     system = work_directory / "scenario-system.wav"
+    media = work_directory / "scenario-transcription.wav"
     extracted_m4a = work_directory / "scenario-source.m4a"
     canonical_m4a = work_directory / "scenario-canonical.m4a"
     non_faststart_m4a = work_directory / "scenario-non-faststart.m4a"
     _extract_wav_working_copy(ffmpeg, copied.microphone, microphone)
     _extract_wav_working_copy(ffmpeg, copied.system, system)
+    # Model local capture mixing before upload; the server receives only v5.
+    _run_setup_ffmpeg([
+        *_ffmpeg_input_arguments(ffmpeg, microphone),
+        "-i", str(system),
+        "-filter_complex", "[0:a:0][1:a:0]amix=inputs=2:duration=longest[mixed]",
+        "-map", "[mixed]", "-ar", "16000", "-ac", "1",
+        "-c:a", "pcm_s16le", "-f", "wav", str(media),
+    ])
     _extract_m4a_working_copy(ffmpeg, copied.playback, extracted_m4a)
     normalized = asyncio.run(pipeline.derive_single_source(extracted_m4a, canonical_m4a))
     assert normalized.full_decode_passed is True
@@ -258,23 +271,14 @@ def _prepare_scenario_sources(
     assert inspect_bmff(non_faststart_m4a).moov_before_mdat is False
     return PreparedSources(
         microphone=microphone.read_bytes(),
-        system=system.read_bytes(),
+        media=media.read_bytes(),
         canonical_m4a=canonical_m4a.read_bytes(),
         non_faststart_m4a=non_faststart_m4a.read_bytes(),
     )
 
 
 def _descriptor(role: str, data: bytes) -> dict[str, object]:
-    is_playback = role == "playback"
-    return {
-        "track_role": role,
-        "codec": "m4a-aac-lc" if is_playback else "pcm_s16le",
-        "sample_rate_hz": 48_000 if is_playback else 16_000,
-        "channel_count": 1,
-        "duration_seconds": WORKING_COPY_DURATION_SECONDS,
-        "byte_length": len(data),
-        "sha256": sha256(data).hexdigest(),
-    }
+    return track_descriptor(role, data=data, duration_seconds=WORKING_COPY_DURATION_SECONDS)
 
 
 def _accept_first_party(
@@ -290,17 +294,17 @@ def _accept_first_party(
         json={
             "local_recording_id": f"test-rec-{alias}",
             "duration_seconds": WORKING_COPY_DURATION_SECONDS,
+            "source_kind": "initial_mixed_recording",
+            "media_scribe_source_mode": "single_wav_v1",
         },
     )
     assert meeting_response.status_code == 200
     meeting = meeting_response.json()
     payloads = {
         "manifest": b'{"schema":"test-rec-working-copy"}',
-        "microphone": sources.microphone,
-        "system": sources.system,
+        "media": sources.media,
+        "playback": candidate if candidate is not None else b"invalid-playback-candidate",
     }
-    if candidate is not None:
-        payloads["playback"] = candidate
     session_response = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
@@ -417,13 +421,15 @@ def _full_decode(ffmpeg: str, canonical_path: Path) -> None:
         run_bounded_process(
             build_full_decode_command(ffmpeg, canonical_path, stream_index=0),
             timeout_seconds=30,
-            stdout_limit_bytes=0,
+            stdout_limit_bytes=MAX_DECODE_PROGRESS_BYTES,
             stderr_limit_bytes=1024 * 1024,
             allowed_executables=(ffmpeg,),
             cwd=canonical_path.parent,
         )
     )
     assert result.return_code == 0
+    receipt = parse_full_decode_progress(result.stdout)
+    assert 0 < receipt.duration_seconds <= WORKING_COPY_DURATION_SECONDS + 1
 
 
 def _run_scenario(
@@ -485,6 +491,10 @@ def test_authorized_test_rec_converts_automatically_and_leaves_no_residue(
     ffprobe = shutil.which("ffprobe")
     if ffmpeg is None or ffprobe is None:
         pytest.fail("FFmpeg and ffprobe are required for this media test; install ffmpeg and ensure both tools are on PATH", pytrace=False)
+
+    client.app.state.settings.playback_normalization_enabled = True
+    client.app.state.settings.playback_normalization_automatic_dispatch_enabled = True
+    client.app.state.temporal_client = FakeTemporalClient()
 
     original_sources = _authorized_sources(source_root)
     working_root = tmp_path / "feature-099-test-rec"
@@ -551,15 +561,15 @@ def test_authorized_test_rec_converts_automatically_and_leaves_no_residue(
 
         fallback_id = _accept_first_party(
             client,
-            alias="dual-source-fallback",
+            alias="single-source-fallback",
             sources=prepared,
             candidate=None,
         )
         result, _ = _run_scenario(
             client,
-            alias="dual-source-fallback",
+            alias="single-source-fallback",
             meeting_id=fallback_id,
-            expected_derivation="dual_source_mix_transcode",
+            expected_derivation="single_source_transcode",
             work_directory=job_work_root,
             pipeline=pipeline,
             ffmpeg=ffmpeg,
@@ -577,7 +587,8 @@ def test_authorized_test_rec_converts_automatically_and_leaves_no_residue(
             client,
             alias="manual-m4a",
             meeting_id=manual_m4a_id,
-            expected_derivation="source_byte_copy",
+            # Manual uploads always use tolerant source preparation, even M4A.
+            expected_derivation="single_source_transcode",
             work_directory=job_work_root,
             pipeline=pipeline,
             ffmpeg=ffmpeg,
@@ -613,7 +624,7 @@ def test_authorized_test_rec_converts_automatically_and_leaves_no_residue(
         assert [scenario.alias for scenario in scenarios] == [
             "candidate-copy",
             "candidate-remux",
-            "dual-source-fallback",
+            "single-source-fallback",
             "manual-m4a",
             "manual-wav",
         ]

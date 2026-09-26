@@ -61,13 +61,28 @@
             <p class="platform-description">
               Для Mac с Apple Silicon или Intel и macOS 14.5 или новее.
             </p>
-            <a
-              class="primary-cta platform-download-action"
-              href="{{ public_static_asset_url('downloads/graf.pkg') }}"
-              download
-              data-analytics-cta="download_page_installer"
-              data-analytics-target="installer_package"
-            >Скачать универсальный установщик ГРАФ</a>
+            <div class="platform-download-actions">
+              <a
+                class="primary-cta platform-download-action"
+                href="{{ public_static_asset_url('downloads/graf.pkg') }}"
+                download
+                data-analytics-cta="download_page_installer"
+                data-analytics-target="installer_package"
+              >Скачать универсальный установщик ГРАФ</a>
+              {# Передача атрибуции: приложение открывается со ссылкой на кампанию
+                 визита, потому что вход и регистрация проходят внутри него. #}
+              {% set bridge = public_analytics.product_activation_bridge if public_analytics else None %}
+              {% if bridge and bridge.app_handoff_url %}
+              <a
+                class="button button-ghost platform-download-handoff"
+                href="{{ bridge.app_handoff_url }}"
+                data-analytics-cta="download_page_open_app"
+                data-analytics-target="desktop_app"
+                data-graf-attribution-id="{{ bridge.graf_attribution_id }}"
+                data-graf-attribution-reliability="{{ bridge.attribution_reliability }}"
+              >Открыть приложение</a>
+              {% endif %}
+            </div>
           </article>
 
           <article class="platform-download" data-platform="windows" data-platform-status="planned">

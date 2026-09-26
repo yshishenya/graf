@@ -40,7 +40,7 @@ public enum DesktopUploadFollowUpReason {
 
 private extension LocalRecordingManifest {
     var isServerUploadEligible: Bool {
-        shortRecordingDiscarded != true &&
+        isV5Package && shortRecordingDiscarded != true &&
             Self.sessionStatusAllowsUpload(status, failureReason: failureReason) &&
             !externalEgressStarted &&
             !transcriptionStarted &&
@@ -586,7 +586,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 document.updatedAt = clock()
                 try saveDocumentOnQueue(document)
             }
-            return document.items.filter { !isShortRecordingDiscarded($0) }.sortedForDisplay()
+            return document.items.map { normalizeRetiredItem($0, in: document, now: clock()) }
+                .filter { !isShortRecordingDiscarded($0) }.sortedForDisplay()
         }
     }
 
@@ -629,7 +630,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             document.items = document.items.sortedForDisplay()
             document.updatedAt = now
             try saveDocumentOnQueue(document)
-            return savedItem
+            return normalizeRetiredItem(savedItem, in: document, now: now)
         }
     }
 
@@ -669,7 +670,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             document.items = document.items.sortedForDisplay()
             document.updatedAt = now
             try saveDocumentOnQueue(document)
-            return item
+            return normalizeRetiredItem(item, in: document, now: now)
         }
     }
 
@@ -712,18 +713,19 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     @discardableResult
     public func retry(itemId: String) throws -> DesktopUploadQueueItem {
         try updateItem(itemId: itemId) { item, now in
+            guard !item.hasUnsupportedRecordingSource else { return item.retiringUnsupportedUpload(at: now) }
             guard !item.lifecycleBlocksContent else { return item }
             let blockedFailureReason = item.failureReason ?? "local_artifacts_not_uploadable"
             var next = item.withTransition(
-                to: item.artifactProfile.isUploadable ? .queued : .blocked,
+                to: item.isUploadEligible ? .queued : .blocked,
                 now: now,
-                failureCategory: item.artifactProfile.isUploadable ? UploadFailureCategory.none : .localResource,
-                failureReason: item.artifactProfile.isUploadable ? nil : blockedFailureReason,
-                retryMode: item.artifactProfile.isUploadable ? .automatic : .manualOnly,
-                nextRetryAt: item.artifactProfile.isUploadable ? now : nil,
-                syncConflictState: item.artifactProfile.isUploadable ? DesktopSyncConflictState.none : .localFilesMissing,
+                failureCategory: item.isUploadEligible ? UploadFailureCategory.none : .localResource,
+                failureReason: item.isUploadEligible ? nil : blockedFailureReason,
+                retryMode: item.isUploadEligible ? .automatic : .manualOnly,
+                nextRetryAt: item.isUploadEligible ? now : nil,
+                syncConflictState: item.isUploadEligible ? DesktopSyncConflictState.none : .localFilesMissing,
                 retentionDecision: RetentionDecision(
-                    decision: item.artifactProfile.isUploadable ? .retain : .manualOnly,
+                    decision: item.isUploadEligible ? .retain : .manualOnly,
                     decidedAt: now,
                     reason: "manual_retry_requested",
                     localArtifactsRetained: true,
@@ -968,7 +970,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             return projected.filter { item in
                 guard item.ownerScope != nil, item.state != .saving, !isShortRecordingDiscarded(item),
                       !item.state.isTerminal, !item.lifecycleBlocksContent,
-                      item.retryMode == .automatic, item.artifactProfile.isUploadable else { return false }
+                      item.retryMode == .automatic, item.isUploadEligible else { return false }
                 return (item.nextRetryAt ?? now) <= now
             }
         }
@@ -991,7 +993,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             .filter {
                 !$0.state.isTerminal &&
                     $0.retryMode == .automatic &&
-                    $0.artifactProfile.isUploadable &&
+                    $0.isUploadEligible &&
                     ($0.nextRetryAt ?? now) > now
             }
             .compactMap(\.nextRetryAt)
@@ -1296,8 +1298,10 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         guard matching.count <= 1, matching.allSatisfy({ item in
             item.id == id && item.sessionId == manifest.sessionId && item.directoryId == manifest.directoryId &&
                 matchesPath(item.directoryPath, directory) && matchesPath(item.manifestPath, manifestURL) &&
-                matchesPath(item.microphonePath, directory.appendingPathComponent("mic.wav")) &&
-                matchesPath(item.systemAudioPath, directory.appendingPathComponent("incoming.wav")) &&
+                ((item.microphonePath == "metadata-only" && item.systemAudioPath == "metadata-only") ||
+                 // Older v5 queue entries stored these unused paths. Keep their cleanup readable.
+                 (matchesPath(item.microphonePath, directory.appendingPathComponent("mic.wav")) &&
+                  matchesPath(item.systemAudioPath, directory.appendingPathComponent("incoming.wav")))) &&
                 item.state == .saving && item.attemptCount == 0 && item.serverCreationAttempted == false &&
                 item.meetingId == nil && item.mediaRevisionId == nil && item.uploadSessionId == nil &&
                 item.serverTruth == ServerTruthFingerprint() && item.retryRecords.isEmpty &&
@@ -1432,7 +1436,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         let generation = queue.sync { deletionScopeGeneration }
         let started = try updateItem(itemId: item.id, expectedGeneration: generation) { current, now in
             guard current.state != .saving, !current.state.isTerminal,
-                  current.retryMode == .automatic, current.artifactProfile.isUploadable,
+                  current.retryMode == .automatic, current.isUploadEligible,
                   !isShortRecordingDiscarded(current), !current.lifecycleBlocksContent else { return current }
             var next = current.withTransition(
                 to: .uploading,
@@ -1455,12 +1459,13 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             )
             return next
         }
-        guard started.state == .uploading, !isShortRecordingDiscarded(started),
+        guard started.state == .uploading, started.isUploadEligible, !isShortRecordingDiscarded(started),
               !started.lifecycleBlocksContent else { return }
         try await publishProgress(onProgress)
 
         do {
-            let reconciled = try await reconcileBeforeUpload(started, client: client)
+            let current = try currentUploadItem(itemId: started.id, generation: generation)
+            let reconciled = try await reconcileBeforeUpload(current, client: client)
             try await publishProgress(onProgress)
             guard reconciled.syncConflictState == .none, !reconciled.lifecycleBlocksContent else {
                 return
@@ -1468,9 +1473,11 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             guard reconciled.state != .uploaded else {
                 return
             }
-            let result = try await client.upload(reconciled) { [self] reportedProgress in
+            let eligible = try currentUploadItem(itemId: started.id, generation: generation)
+            let result = try await client.upload(eligible) { [self] reportedProgress in
+                _ = try currentUploadItem(itemId: started.id, generation: generation)
                 let currentProgress = try updateItem(itemId: reconciled.id, expectedGeneration: generation) { current, now in
-                    guard current.state == .uploading else {
+                    guard current.state == .uploading, current.isUploadEligible else {
                         return current
                     }
                     return current.withTransition(
@@ -1481,8 +1488,11 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 }
                 guard !currentProgress.lifecycleBlocksContent, queue.sync(execute: { deletionScopeGeneration == generation }) else { throw CancellationError() }
                 try await publishProgress(onProgress)
+                _ = try currentUploadItem(itemId: started.id, generation: generation)
             }
             _ = try updateItem(itemId: started.id, expectedGeneration: generation) { current, now in
+                guard current.state == .uploading, current.retryMode == .automatic,
+                      current.isUploadEligible, !current.lifecycleBlocksContent else { return current }
                 var next = current.withTransition(
                     to: result.state,
                     now: now,
@@ -1517,6 +1527,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             let category = (error as? DesktopUploadClientError)?.failureCategory ?? .network
             let reason = String(describing: error)
             _ = try updateItem(itemId: started.id, expectedGeneration: generation) { current, now in
+                guard current.state == .uploading, current.retryMode == .automatic,
+                      current.isUploadEligible, !current.lifecycleBlocksContent else { return current }
                 let nextRetry = nextRetryDate(
                     attemptCount: current.attemptCount,
                     now: now,
@@ -1559,6 +1571,21 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
     }
 
+    /// Re-read after every suspension: a scan, cancellation or lifecycle update
+    /// can revoke eligibility while a prior snapshot is in flight.
+    private func currentUploadItem(itemId: String, generation: Int) throws -> DesktopUploadQueueItem {
+        try queue.sync {
+            let document = try loadDocumentOnQueue()
+            guard generation == deletionScopeGeneration,
+                  let stored = document.items.first(where: { $0.id == itemId }) else { throw CancellationError() }
+            let current = projectLifecycle(stored, in: document)
+            guard current.state == .uploading, current.retryMode == .automatic,
+                  current.isUploadEligible, !current.lifecycleBlocksContent,
+                  !isShortRecordingDiscarded(current) else { throw CancellationError() }
+            return current
+        }
+    }
+
     private func publishProgress(_ observer: ProgressObserver) async throws {
         await observer(try loadItems())
     }
@@ -1572,6 +1599,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             return item
         }
         return try updateItem(itemId: item.id, expectedGeneration: generation) { current, now in
+            guard current.state == .uploading, current.retryMode == .automatic,
+                  current.isUploadEligible else { return current }
             var next = current
             next.serverTruth = reconciliation.serverTruth
             next.meetingId = reconciliation.serverTruth.meetingId ?? next.meetingId
@@ -1721,8 +1750,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             guard expectedGeneration == nil || expectedGeneration == deletionScopeGeneration else { return current }
             let proposed = update(current, now)
             // Some reconciliation paths assign fields directly rather than withTransition.
-            let updated = !current.lifecycleAccessAvailable || current.deletionOperation?.blocksContent == true ||
+            let fenced = !current.lifecycleAccessAvailable || current.deletionOperation?.blocksContent == true ||
                 (current.hasConfirmedDeletion && !proposed.hasConfirmedDeletion) ? current : proposed
+            let updated = normalizeRetiredItem(fenced, in: document, now: now)
             document.items[index] = updated
             document.items = document.items.sortedForDisplay()
             document.updatedAt = now
@@ -1786,8 +1816,10 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             localMediaRevisionId: DesktopUploadQueueItem.initialMediaRevisionId(directoryId: manifest.directoryId),
             directoryPath: directoryURL.path,
             manifestPath: manifestURL.path,
-            microphonePath: microphoneURL.path,
-            systemAudioPath: systemAudioURL.path,
+            // Required decoder fields survive for old queues, but new packages
+            // never claim to produce separate microphone/system files.
+            microphonePath: manifest.isV5Package ? "metadata-only" : microphoneURL.path,
+            systemAudioPath: manifest.isV5Package ? "metadata-only" : systemAudioURL.path,
             state: state,
             failureCategory: failureCategory,
             failureReason: profile.isUploadable ? nil : Self.blockedFailureReason(
@@ -2173,6 +2205,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         manifest: LocalRecordingManifest,
         profile: ArtifactCompletenessProfile
     ) -> String {
+        if !manifest.isV5Package { return DesktopUploadQueueItem.unsupportedRecordingSourceReason }
         if manifest.captureFailureCode == "recording_recovery_not_possible" {
             return "recording_recovery_not_possible"
         }
@@ -2186,9 +2219,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         if manifest.permissions?.allowsAcceptedRecording != true {
             return LocalRecordingFailureReason.permissionDenied.rawValue
         }
-        let requiredRoles: Set<DesktopUploadTransportRole> = profile.isV5Package
-            ? [.manifest, .media, .playback]
-            : [.manifest, .microphone, .system]
+        let requiredRoles: Set<DesktopUploadTransportRole> = [.manifest, .media, .playback]
         let presentRoles = Set(
             profile.trackCompleteness
                 .filter(\.present)
@@ -2330,12 +2361,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 durationSeconds: reviewAudio.durationSeconds
             ))
         }
-        let manifestRoles = Set(manifest.tracks.compactMap { DesktopUploadTransportRole.role(forLocalTrackRole: $0.role) })
-        let hasRequiredManifestRoles = manifestRoles.isSuperset(of: [.microphone, .system])
-        let uploadable = manifest.isServerUploadEligible &&
-            hasRequiredManifestRoles &&
-            [microphoneTrack, systemTrack, manifestTrack].allSatisfy(\.uploadable)
-        let qualityWarningReason = uploadable ? Self.qualityWarningReason(for: manifest) : nil
+        // Inventory only: keep historical paths/bytes for reading and purge.
+        // These tracks can never authorize an upload, regardless of old quality metadata.
         return ArtifactCompletenessProfile(
             schemaVersion: manifest.schemaVersion,
             manifestPresent: manifestTrack.present,
@@ -2349,8 +2376,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             systemAudioSizeBytes: systemAudioSize,
             durationSeconds: sessionDurationSeconds,
             trackCompleteness: tracks,
-            isUploadable: uploadable,
-            qualityWarningReason: qualityWarningReason
+            isUploadable: false,
+            qualityWarningReason: nil
         )
     }
 
@@ -2414,6 +2441,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
         var needsSave = needsSchemaMigration
         loaded.items = loaded.items.map { item in
+            let normalized = normalizeRetiredItem(item, in: loaded, now: now)
+            if normalized != item { needsSave = true }
+            let item = normalized
             guard let submission = item.supportIncidentSubmission,
                   submission.state == .sending
             else {
@@ -2440,9 +2470,21 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     }
 
     private func saveDocumentOnQueue(_ document: DesktopUploadQueueDocument) throws {
+        var document = document
+        document.items = document.items.map { normalizeRetiredItem($0, in: document, now: clock()) }
         let data = try JSONEncoder.uploadQueueEncoder.encode(document)
         try LocalCustodyFileProtection.write(data, to: queueURL)
         self.document = document
+    }
+
+    private func normalizeRetiredItem(_ item: DesktopUploadQueueItem, in document: DesktopUploadQueueDocument, now: Date) -> DesktopUploadQueueItem {
+        guard item.hasUnsupportedRecordingSource else { return item }
+        var normalized = projectLifecycle(item, in: document).retiringUnsupportedUpload(at: now)
+        // Access/operation projections are ephemeral; do not manufacture a
+        // persisted difference simply because no owner is currently signed in.
+        normalized.lifecycleAccessAvailable = item.lifecycleAccessAvailable
+        normalized.deletionOperation = item.deletionOperation
+        return normalized
     }
 
     private func quarantineMalformedQueueDocument(data: Data, now: Date) throws {
@@ -2458,7 +2500,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     private func malformedQueueDocumentItem(now: Date) -> DesktopUploadQueueItem {
         let profile = ArtifactCompletenessProfile(
-            schemaVersion: LocalRecordingManifest.legacySchemaVersion,
+            schemaVersion: LocalRecordingManifest.schemaVersion,
             manifestPresent: false,
             microphonePresent: false,
             systemAudioPresent: false,
@@ -2614,8 +2656,8 @@ public struct DesktopUploadQueueSummary: Equatable, Sendable {
         switch reason {
         case "local_recording_package_not_uploadable", "local_artifacts_not_uploadable":
             return "нужна ручная проверка локальной записи"
-        case LocalRecordingFailureReason.historicalPackage.rawValue:
-            return "сохраненная ранее запись будет отправлена в режиме совместимости"
+        case DesktopUploadQueueItem.unsupportedRecordingSourceReason, LocalRecordingFailureReason.historicalPackage.rawValue:
+            return "отправка записи старого формата больше не поддерживается; локальная копия сохранена"
         case LocalRecordingFailureReason.silentInput.rawValue:
             return "микрофон был слишком тихим или пустым; отправим как есть"
         case LocalRecordingFailureReason.permissionDenied.rawValue:

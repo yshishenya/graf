@@ -51,8 +51,8 @@ def test_one_hour_transcript_wait_projection_does_not_block_review_budget(client
                         start_seconds=start,
                         end_seconds=end,
                         text=f"Синтетический фрагмент {sequence}: обсудили тему и следующие шаги.",
-                        source_role="mic" if sequence % 2 == 0 else "incoming",
-                        source_role_original="microphone" if sequence % 2 == 0 else "system",
+                        source_role="mixed",
+                        source_role_original="mixed",
                     )
                 )
             result.segment_count = 360

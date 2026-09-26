@@ -31,9 +31,9 @@ from twobrain_rec_server.calendar.worker import run_calendar_sync_reconciler
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
 from twobrain_rec_server.observability.logging import configure_logging, request_logging_middleware
+from twobrain_rec_server.public.downloads import PublicStaticFilesWithInstallerDeliveries
 from twobrain_rec_server.public.templates import (
     PUBLIC_STATIC_URL,
-    VersionedPublicStaticFiles,
     public_static_dir,
 )
 from twobrain_rec_server.public.web import router as public_web_router
@@ -94,7 +94,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.mount(CABINET_STATIC_URL, StaticFiles(directory=cabinet_static_dir()), name="cabinet_static")
     app.mount(
         PUBLIC_STATIC_URL,
-        VersionedPublicStaticFiles(directory=public_static_dir()),
+        PublicStaticFilesWithInstallerDeliveries(directory=public_static_dir()),
         name="public_static",
     )
     app.include_router(public_web_router)

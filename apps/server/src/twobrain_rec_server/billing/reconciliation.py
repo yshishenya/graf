@@ -52,6 +52,9 @@ class PaymentObservation:
     status: Literal["pending", "waiting_for_capture", "succeeded", "canceled"]
     provider_created_at: datetime
     receipt_registration: ReceiptRegistration | None = None
+    # Our own operation id, echoed by the provider. It lets a payment be matched
+    # even when the create-payment response never reached us.
+    operation_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +104,49 @@ def extract_payment_observation(
         status=_payment_status(payload.get("status")),
         provider_created_at=_timestamp(payload.get("created_at"), required=True),
         receipt_registration=_receipt_registration(payload.get("receipt_registration")),
+        operation_id=_operation_id(payload.get("metadata")),
     )
+
+
+def validate_renewal_payment(
+    payment: Mapping[str, Any], *, operation: BillingOperation, invoice: BillingInvoice
+) -> str:
+    """Bind authoritative provider truth to the exact local renewal invoice."""
+    if (
+        operation.kind != "renewal"
+        or invoice.operation_id != operation.id
+        or invoice.workspace_id != operation.workspace_id
+    ):
+        raise ProviderObservationError("renewal invoice binding does not match")
+    if not operation.provider_id or payment.get("id") != operation.provider_id:
+        raise ProviderObservationError("provider payment reference does not match")
+    metadata = payment.get("metadata")
+    if not isinstance(metadata, Mapping):
+        raise ProviderObservationError("provider payment metadata is missing")
+    if metadata.get("workspace_id") != str(operation.workspace_id):
+        raise ProviderObservationError("provider payment workspace does not match")
+    if metadata.get("operation_id") != str(operation.id):
+        raise ProviderObservationError("provider payment operation does not match")
+    amount_minor, currency = _money(payment.get("amount"))
+    if amount_minor != invoice.amount_minor or currency != invoice.currency:
+        raise ProviderObservationError("provider payment amount does not match")
+    status = payment.get("status")
+    if not isinstance(status, str) or not status:
+        raise ProviderObservationError("provider payment status is missing")
+    return status
+
+
+def _operation_id(metadata: object) -> UUID | None:
+    """Read our operation id from provider metadata, ignoring anything malformed."""
+    if not isinstance(metadata, Mapping):
+        return None
+    raw = metadata.get("operation_id")
+    if not raw:
+        return None
+    try:
+        return UUID(str(raw))
+    except (ValueError, TypeError):
+        return None
 
 
 def saved_bank_card_confirmed(payload: Mapping[str, Any]) -> bool:

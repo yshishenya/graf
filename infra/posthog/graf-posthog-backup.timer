@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the GRAF PostHog analytics backup every day
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+Unit=graf-posthog-backup.service
+
+[Install]
+WantedBy=timers.target

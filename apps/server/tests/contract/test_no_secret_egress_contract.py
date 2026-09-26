@@ -24,9 +24,10 @@ def test_ingest_responses_do_not_expose_storage_or_processing_credentials(client
     data = deterministic_wav_bytes(32)
     digest = sha256(data).hexdigest()
     response = client.put(
-        f"/api/v1/upload-sessions/{session['session_id']}/tracks/microphone/parts/0",
+        f"/api/v1/upload-sessions/{session['session_id']}/tracks/media/parts/0",
         headers=auth_headers() | {"X-Byte-Offset": "0", "X-Content-SHA256": digest},
         content=data,
     )
+    assert response.status_code == 200
     assert "object_key" not in response.text
     assert "credential" not in response.text.lower()

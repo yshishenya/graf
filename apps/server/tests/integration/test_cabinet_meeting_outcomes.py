@@ -822,8 +822,8 @@ def test_web_and_embedded_keep_previous_outcomes_visible_after_result_replacemen
                 processing_workflow_id=workflow_b.id,
                 external_job_id="customer-visible-result-b-job",
                 status="ready",
-                mic_track_artifact_id=job_a.mic_track_artifact_id,
-                incoming_track_artifact_id=job_a.incoming_track_artifact_id,
+                request_mode="single_track",
+                source_track_artifact_id=job_a.source_track_artifact_id,
             )
             db.add(job_b)
             await db.flush()
@@ -856,8 +856,8 @@ def test_web_and_embedded_keep_previous_outcomes_visible_after_result_replacemen
                         start_seconds=Decimal("0"),
                         end_seconds=Decimal("1"),
                         text=result_b_text,
-                        source_role="mic",
-                        source_role_original="microphone",
+                        source_role="mixed",
+                        source_role_original="mixed",
                     ),
                     DiarizationSegment(
                         processing_result_id=result_b.id,
@@ -868,7 +868,7 @@ def test_web_and_embedded_keep_previous_outcomes_visible_after_result_replacemen
                         end_seconds=Decimal("1"),
                         speaker_label="Speaker B",
                         text=result_b_text,
-                        source_role="mic",
+                        source_role="mixed",
                     ),
                 ]
             )

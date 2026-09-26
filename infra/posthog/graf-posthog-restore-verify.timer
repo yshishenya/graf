@@ -1,0 +1,12 @@
+[Unit]
+Description=Verify a GRAF PostHog analytics restore twice a month
+
+[Timer]
+# Twice a month keeps the newest successful verification well inside the
+# 30-day objective of SC-010 even when one run fails.
+OnCalendar=*-*-01,15 04:30:00
+Persistent=true
+Unit=graf-posthog-restore-verify.service
+
+[Install]
+WantedBy=timers.target

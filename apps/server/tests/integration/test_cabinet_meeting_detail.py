@@ -68,10 +68,10 @@ def test_cabinet_ready_detail_returns_ordered_transcript_speakers_and_provenance
         SAFE_SECOND_TRANSCRIPT_TEXT,
     ]
     assert [segment["source_role"] for segment in payload["transcript"]["segments"]] == [
-        "local_microphone",
-        "incoming_system",
+        "canonical_mixed",
+        "canonical_mixed",
     ]
-    assert payload["provenance"]["source_roles"] == ["local_microphone", "incoming_system"]
+    assert payload["provenance"]["source_roles"] == ["canonical_mixed"]
     assert payload["provenance"]["processing_dependency"] == "mediascribe"
     assert payload["playback"]["available"] is True
     audio_artifact = next(

@@ -99,6 +99,21 @@ fi
 
 cd "$(dirname "$0")/../.."
 
+fetch_origin_retry() {
+  local attempt delay=3
+  for attempt in 1 2 3 4 5; do
+    if git fetch "$@"; then
+      [[ "$attempt" -gt 1 ]] && printf 'deploy_fetch_attempts=%s\n' "$attempt"
+      return 0
+    fi
+    printf 'deploy: git fetch attempt %s of 5 failed; retrying in %ss\n' "$attempt" "$delay" >&2
+    sleep "$delay"
+    delay=$((delay * 2))
+  done
+  printf 'deploy: git fetch failed after 5 attempts\n' >&2
+  return 1
+}
+
 if [[ "$MODE" == "execute" ]]; then
   if ! WORKTREE_STATUS="$(git status --porcelain --untracked-files=all)"; then
     echo "deploy_result=blocked"
@@ -120,7 +135,7 @@ if [[ "$MODE" == "execute" ]]; then
     exit 1
   fi
 
-  git fetch origin "$BRANCH"
+  fetch_origin_retry origin "$BRANCH"
   EXPECTED_SHA="$(git rev-parse HEAD)"
   ORIGIN_SHA="$(git rev-parse "origin/$BRANCH")"
   if [[ "$EXPECTED_SHA" != "$ORIGIN_SHA" ]]; then
@@ -226,7 +241,7 @@ posthog_stack_contract=infra/posthog/docker-compose.posthog.yml
 posthog_stack_runtime_source=official_posthog_hobby_generated_compose_required
 posthog_stack_execute=requires_explicit_release_approval
 candidate_gates=$([[ -n "$CANDIDATE_PATH" ]] && echo passed || echo not_supplied)
-steps=clean_worktree,branch_sync,pinned_sha,local_ci,remote_fetch,backup,restore_rehearsal,runtime_secret_group,runtime_service_secret_permissions,runtime_db_secret_provision,media_storage_secret_provision,compose_config_secret_scan,migration_head,runtime_db_role_bootstrap,runtime_db_identity,initial_dispatch_closed,temporal_readiness,processing_worker_readiness,image_capability,profile_contract,media_worker_readiness_control,production_smoke,automatic_dispatch_open,guarded_rollback,runtime_secret_env_scan,public_health,automatic_retry_post_deploy,backfill_inventory_post_deploy,range_playback_post_deploy,normalization_cleanup_post_deploy,candidate_validation,authoritative_full_evidence_validation
+steps=clean_worktree,branch_sync,pinned_sha,local_ci,remote_fetch,backup,runtime_secret_group,runtime_service_secret_permissions,runtime_db_secret_provision,media_storage_secret_provision,compose_config_secret_scan,migration_head,runtime_db_role_bootstrap,runtime_db_identity,initial_dispatch_closed,temporal_readiness,processing_worker_readiness,image_capability,profile_contract,media_worker_readiness_control,production_smoke,automatic_dispatch_open,guarded_rollback,runtime_secret_env_scan,public_health,automatic_retry_post_deploy,backfill_inventory_post_deploy,range_playback_post_deploy,normalization_cleanup_post_deploy,candidate_validation,authoritative_full_evidence_validation
 EOF
   exit 0
 fi
@@ -246,7 +261,7 @@ elif [[ "$SKIP_LOCAL_CI" != "1" ]]; then
     exit 1
   fi
   POST_CI_SHA="$(git rev-parse HEAD)"
-  git fetch origin "$BRANCH"
+  fetch_origin_retry origin "$BRANCH"
   POST_CI_ORIGIN_SHA="$(git rev-parse "origin/$BRANCH")"
   if [[ "$POST_CI_SHA" != "$EXPECTED_SHA" || "$POST_CI_ORIGIN_SHA" != "$EXPECTED_SHA" ]]; then
     echo "deploy_result=blocked"
@@ -285,7 +300,21 @@ if [ -n "$unexpected_worktree_status" ]; then
   exit 1
 fi
 
-git fetch origin "$branch"
+fetch_remote_origin_retry() {
+  local attempt delay=3
+  for attempt in 1 2 3 4 5; do
+    if git fetch origin "$branch"; then
+      [[ "$attempt" -gt 1 ]] && echo "deploy_remote_fetch_attempts=$attempt"
+      return 0
+    fi
+    echo "deploy: remote git fetch attempt $attempt of 5 failed; retrying in ${delay}s" >&2
+    sleep "$delay"
+    delay=$((delay * 2))
+  done
+  echo "deploy: remote git fetch failed after 5 attempts" >&2
+  return 1
+}
+fetch_remote_origin_retry
 origin_sha="$(git rev-parse "origin/$branch")"
 if [ "$origin_sha" != "$expected_sha" ]; then
   echo "deploy_result=blocked"

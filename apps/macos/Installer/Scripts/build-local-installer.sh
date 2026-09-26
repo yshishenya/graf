@@ -309,6 +309,17 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
   <string>$VERSION</string>
   <key>CFBundleVersion</key>
   <string>$VERSION</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>pro.2brain.graf.attribution</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>grafrec</string>
+      </array>
+    </dict>
+  </array>
   <key>LSMinimumSystemVersion</key>
   <string>14.5</string>
   <key>NSHighResolutionCapable</key>

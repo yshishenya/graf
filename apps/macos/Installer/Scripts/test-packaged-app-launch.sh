@@ -37,7 +37,7 @@ make_app() {
 
 [ -x "$VALIDATOR" ] || fail "validator is missing or not executable"
 
-living_app=$(make_app living 'printf "%s\\n" "timestamp event=app_launch_finished detail=fixture" >> "$GRAF_LOG_DIRECTORY/graf.log"; sleep 30')
+living_app=$(make_app living 'printf "%s\\n" "timestamp event=app_launch_finished detail=fixture" "timestamp event=app_main_window_presented detail=reason=launch reused=false" >> "$GRAF_LOG_DIRECTORY/graf.log"; sleep 30')
 "$VALIDATOR" "$living_app" 5 >/dev/null || fail "living direct child was rejected"
 
 exiting_app=$(make_app exiting 'exit 17')
@@ -55,6 +55,11 @@ kill -0 "$CHILD_PID" 2>/dev/null || fail "validator terminated an unrelated proc
 not_ready_app=$(make_app not-ready 'sleep 30')
 if "$VALIDATOR" "$not_ready_app" 5 >/dev/null 2>&1; then
   fail "candidate without startup readiness was accepted"
+fi
+
+no_window_app=$(make_app no-window 'printf "%s\\n" "timestamp event=app_launch_finished detail=fixture" >> "$GRAF_LOG_DIRECTORY/graf.log"; sleep 30')
+if "$VALIDATOR" "$no_window_app" 5 >/dev/null 2>&1; then
+  fail "candidate that never presented its main window was accepted"
 fi
 
 malformed_app="$TEMP_ROOT/malformed/GRAF.app"

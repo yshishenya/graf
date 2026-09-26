@@ -22,6 +22,5 @@ def test_billing_metric_snapshot_is_counter_only_and_aggregates() -> None:
 
 
 def test_billing_readiness_status_is_bounded_and_health_safe() -> None:
-    assert billing_readiness_status(checkout_enabled=False, emergency_stop=False) == "disabled"
-    assert billing_readiness_status(checkout_enabled=True, emergency_stop=True) == "emergency_stop"
-    assert billing_readiness_status(checkout_enabled=True, emergency_stop=False) == "ready"
+    assert billing_readiness_status(checkout_enabled=False) == "disabled"
+    assert billing_readiness_status(checkout_enabled=True) == "ready"

@@ -183,14 +183,12 @@ def test_unknown_submission_replays_the_same_idempotency_key(client) -> None:
                 status=ProcessingStatus.BLOCKED_UNKNOWN,
                 source_fingerprint=source_fingerprint,
             )
-            microphone = await _track_artifact(db, workspace_id, meeting_id, "microphone")
-            incoming = await _track_artifact(db, workspace_id, meeting_id, "system")
+            microphone = await _track_artifact(db, workspace_id, meeting_id, "media")
             job = await store.upsert_mediascribe_job(
                 db,
                 workflow=workflow,
-                mic_artifact=microphone,
-                incoming_artifact=incoming,
-                request_mode="dual_track",
+                source_artifact=microphone,
+                request_mode="single_track",
                 source_fingerprint=source_fingerprint,
             )
             original_key = job.idempotency_key or ""
@@ -236,9 +234,8 @@ def test_submission_claim_loss_persists_provider_id_with_blocked_projection(clie
             job = await store.upsert_mediascribe_job(
                 db,
                 workflow=workflow,
-                mic_artifact=await _track_artifact(db, workspace_id, meeting_id, "microphone"),
-                incoming_artifact=await _track_artifact(db, workspace_id, meeting_id, "system"),
-                request_mode="dual_track",
+                source_artifact=await _track_artifact(db, workspace_id, meeting_id, "media"),
+                request_mode="single_track",
             )
             job.status = MediaScribeJobStatus.SUBMITTING.value
             job.submission_claim_token = "new-owner"
@@ -288,13 +285,13 @@ def test_submit_does_not_reuse_external_job_from_parallel_workflow_lineage(clien
             microphone = await db.scalar(
                 select(TrackArtifact).where(
                     TrackArtifact.media_revision_id == media_revision_id,
-                    TrackArtifact.track_role == "microphone",
+                    TrackArtifact.track_role == "media",
                 )
             )
             incoming = await db.scalar(
                 select(TrackArtifact).where(
                     TrackArtifact.media_revision_id == media_revision_id,
-                    TrackArtifact.track_role == "system",
+                    TrackArtifact.track_role == "media",
                 )
             )
             assert revision is not None and microphone is not None and incoming is not None
@@ -321,9 +318,8 @@ def test_submit_does_not_reuse_external_job_from_parallel_workflow_lineage(clien
                     source_fingerprint=source_fingerprint,
                     external_job_id="job-parallel-lineage",
                     status=MediaScribeJobStatus.READY.value,
-                    request_mode="dual_track",
-                    mic_track_artifact_id=microphone.id,
-                    incoming_track_artifact_id=incoming.id,
+                    request_mode="single_track",
+                    source_track_artifact_id=microphone.id,
                 )
             )
             await db.commit()
@@ -415,7 +411,7 @@ def test_submit_retains_external_job_id_when_final_fence_loses_race(client, monk
     assert error_message == "meeting_deleting"
 
 
-def test_submit_blocks_large_track_pair_before_loading_audio_bytes(client) -> None:
+def test_submit_blocks_large_single_source_before_loading_audio_bytes(client) -> None:
     finalized = create_finalized_meeting(client, "mediascribe-large-track-pair")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
@@ -766,7 +762,7 @@ def test_failed_pre_egress_job_conflict_terminalizes_transient_workflow(client) 
             microphone = await db.scalar(
                 select(TrackArtifact).where(
                     TrackArtifact.media_revision_id == media_revision_id,
-                    TrackArtifact.track_role == "microphone",
+                    TrackArtifact.track_role == "media",
                 )
             )
             assert microphone is not None
@@ -775,6 +771,7 @@ def test_failed_pre_egress_job_conflict_terminalizes_transient_workflow(client) 
                 workflow=workflow,
                 source_artifact=microphone,
                 request_mode="single_track",
+                diarize=False,
             )
             stale_job.status = MediaScribeJobStatus.FAILED.value
             await db.commit()
@@ -866,7 +863,7 @@ def test_processing_source_requires_accepted_revision_and_matching_authoritative
             microphone = await db.scalar(
                 select(TrackArtifact).where(
                     TrackArtifact.media_revision_id == media_revision_id,
-                    TrackArtifact.track_role == "microphone",
+                    TrackArtifact.track_role == "media",
                 )
             )
             assert microphone is not None
@@ -882,7 +879,7 @@ def test_processing_source_requires_accepted_revision_and_matching_authoritative
 
     accepted, pending, mismatched = asyncio.run(exercise_boundary())
     assert accepted is not None
-    assert accepted.request_mode == "dual_track"
+    assert accepted.request_mode == "single_track"
     assert pending is None
     assert mismatched is None
 
@@ -924,7 +921,7 @@ def test_reprocess_revision_uses_its_single_media_source_for_submission(client) 
     assert submission_count == 1
 
 
-def test_first_party_mediascribe_ignores_competing_media_and_playback_derivatives(
+def test_first_party_mediascribe_ignores_historical_tracks_and_playback_derivatives(
     client,
 ) -> None:
     client.app.state.temporal_client = FakeTemporalClient()
@@ -939,7 +936,7 @@ def test_first_party_mediascribe_ignores_competing_media_and_playback_derivative
     async def seed_and_submit():
         async with client.app_state["sessionmaker"]() as db:
             for role, body in (
-                ("media", rogue_media),
+                ("microphone", rogue_media),
                 ("playback", playback_derivative),
             ):
                 artifact_id = uuid4()
@@ -982,16 +979,12 @@ def test_first_party_mediascribe_ignores_competing_media_and_playback_derivative
 
     submitted = asyncio.run(seed_and_submit())
     expected_by_role = {track["track_role"]: track for track in finalized["tracks"]}
-    assert submitted.job.request_mode == "dual_track"
-    assert submitted.job.source_track_artifact_id is None
-    assert submitted.job.mic_track_artifact_id is not None
-    assert submitted.job.incoming_track_artifact_id is not None
+    assert submitted.job.request_mode == "single_track"
+    assert submitted.job.source_track_artifact_id is not None
+    assert submitted.job.mic_track_artifact_id is None
+    assert submitted.job.incoming_track_artifact_id is None
     assert len(fake_client.submissions) == 1
-    assert fake_client.submissions[0]["mic_sha256"] == expected_by_role["microphone"]["sha256"]
-    assert (
-        fake_client.submissions[0]["incoming_sha256"]
-        == expected_by_role["system"]["sha256"]
-    )
+    assert fake_client.submissions[0]["media_sha256"] == expected_by_role["media"]["sha256"]
 
 
 def test_mediascribe_staging_rejects_same_size_source_object_digest_mismatch(client) -> None:
@@ -1006,7 +999,7 @@ def test_mediascribe_staging_rejects_same_size_source_object_digest_mismatch(cli
             microphone = await db.scalar(
                 select(TrackArtifact).where(
                     TrackArtifact.media_revision_id == media_revision_id,
-                    TrackArtifact.track_role == "microphone",
+                    TrackArtifact.track_role == "media",
                 )
             )
             assert microphone is not None

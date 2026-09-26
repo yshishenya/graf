@@ -1,8 +1,5 @@
 from datetime import UTC, datetime, timedelta
 
-import pytest
-
-from twobrain_rec_server.billing.operations import BillingEmergencyStop, require_billing_enabled
 from twobrain_rec_server.billing.renewal_resolution import (
     RenewalResolution,
     resolve_renewal_resolution,
@@ -55,8 +52,3 @@ def test_late_success_without_refusal_restores_paid_access_once() -> None:
     )
     assert decision.resolution is RenewalResolution.LATE_SUCCESS_RESTORED
     assert decision.plan_code == "personal"
-
-
-def test_emergency_stop_blocks_renewal_mutation() -> None:
-    with pytest.raises(BillingEmergencyStop):
-        require_billing_enabled(checkout_enabled=True, emergency_stop=True)

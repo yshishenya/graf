@@ -944,14 +944,14 @@ func validateDesktopUploadQueueContract() throws {
     let profile = ArtifactCompletenessProfile(
         schemaVersion: LocalRecordingManifest.schemaVersion,
         manifestPresent: true,
-        microphonePresent: true,
-        systemAudioPresent: true,
+        microphonePresent: false,
+        systemAudioPresent: false,
         manifestSha256: String(repeating: "a", count: 64),
-        microphoneSha256: String(repeating: "b", count: 64),
-        systemAudioSha256: String(repeating: "c", count: 64),
+        microphoneSha256: nil,
+        systemAudioSha256: nil,
         manifestSizeBytes: 128,
-        microphoneSizeBytes: 256,
-        systemAudioSizeBytes: 512,
+        microphoneSizeBytes: 0,
+        systemAudioSizeBytes: 0,
         durationSeconds: 1,
         trackCompleteness: [
             UploadTrackCompleteness(
@@ -1001,6 +1001,21 @@ func validateDesktopUploadQueueContract() throws {
             policyReference: "server_truth.finalized"
         )
     )
+    for schema in ["local-recording-manifest.v3", "local-recording-manifest.v4"] {
+        var historical = terminal
+        historical.state = .queued
+        historical.retryMode = .automatic
+        historical.artifactProfile.schemaVersion = schema
+        let retired = historical.retiringUnsupportedUpload(at: Date(timeIntervalSince1970: 2))
+        try require(!retired.isUploadEligible && !retired.artifactProfile.isUploadable,
+                    "Historical persisted flags must not authorize upload")
+        try require(retired.state == .blocked && retired.retryMode == .manualOnly,
+                    "Historical pending items must be blocked without automatic retry")
+        try require(DesktopUploadClient.uploadFileDescriptors(for: historical).isEmpty,
+                    "Historical roles must never become upload descriptors")
+        try require(retired.manifestPath == historical.manifestPath && retired.id == historical.id,
+                    "Retirement must preserve identities and local paths for read/delete")
+    }
     try require(
         terminal.withTransition(to: .retrying, now: Date(timeIntervalSince1970: 2)).state == .uploaded,
         "Desktop upload terminal truth must not regress to retrying"

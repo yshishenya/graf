@@ -9,6 +9,7 @@ from time import perf_counter
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
 
+import pytest
 from sqlalchemy import func, select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
@@ -1862,6 +1863,7 @@ def test_calendar_settings_manual_sync_results_cover_safe_states_and_audit(clien
     assert "raw_provider_payload" not in str(events)
 
 
+@pytest.mark.serial_performance
 def test_calendar_settings_cached_projection_and_sync_ack_p95(client) -> None:
     sessionmaker = client.app_state["sessionmaker"]
 

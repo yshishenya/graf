@@ -63,15 +63,6 @@ class FailingPipeline:
         del source_path
         return self._fail(output_path)
 
-    async def derive_dual_source(
-        self,
-        microphone_path: Path,
-        system_path: Path,
-        output_path: Path,
-    ):
-        del microphone_path, system_path
-        return self._fail(output_path)
-
     async def derive_single_source(
         self,
         source_path: Path,
@@ -93,15 +84,6 @@ class FailingPipeline:
 class InvalidReceiptPipeline:
     async def derive_candidate(self, source_path: Path, output_path: Path):
         del source_path
-        return self._invalid(output_path)
-
-    async def derive_dual_source(
-        self,
-        microphone_path: Path,
-        system_path: Path,
-        output_path: Path,
-    ) -> NormalizedOutput:
-        del microphone_path, system_path
         return self._invalid(output_path)
 
     async def derive_single_source(
@@ -143,15 +125,6 @@ class ValidReceiptPipeline:
         del source_path
         return self._valid(output_path)
 
-    async def derive_dual_source(
-        self,
-        microphone_path: Path,
-        system_path: Path,
-        output_path: Path,
-    ) -> NormalizedOutput:
-        del microphone_path, system_path
-        return self._valid(output_path)
-
     async def derive_single_source(
         self,
         source_path: Path,
@@ -168,10 +141,10 @@ class ValidReceiptPipeline:
         body = b"complete-validated-canonical-output"
         output_path.write_bytes(body)
         return NormalizedOutput(
-            derivation_kind="dual_source_mix_transcode",
-            selected_stream_index=None,
-            source_stream_count=2,
-            source_audio_stream_count=2,
+            derivation_kind="single_source_transcode",
+            selected_stream_index=0,
+            source_stream_count=1,
+            source_audio_stream_count=1,
             source_duration_ms=60_000,
             output_duration_ms=60_000,
             output_byte_length=len(body),

@@ -16,6 +16,7 @@ from twobrain_rec_server.domain.statuses import TrackRole, UploadSessionStatus
 from twobrain_rec_server.ingest import store as store_module
 from twobrain_rec_server.ingest.audit import record_audit_event
 from twobrain_rec_server.ingest.lifecycle_guards import ensure_upload_session_mutable
+from twobrain_rec_server.ingest.manifest import ensure_supported_upload_source
 from twobrain_rec_server.ingest.policy import IngestLimitViolation, validate_track_bytes
 from twobrain_rec_server.ingest.state_machine import ensure_can_accept_part
 from twobrain_rec_server.ingest.store import (
@@ -207,6 +208,7 @@ async def accept_part(
         # acquired after storage I/O, so a slow upload cannot hold lifecycle
         # rows; the final lock rechecks status and the part idempotency race.
         session = await get_session_for_tenant(session_id, tenant_scope, db)
+        ensure_supported_upload_source(session.media_revision_source_kind, [*session.expected_track_roles, track_role])
         await ensure_upload_session_mutable(db=db, session=session, event_type="expired")
     except Exception:
         close_upload_stream()
@@ -388,6 +390,21 @@ async def accept_part(
             raise ProblemDetail(
                 status=404, code="upload_session_not_found", title="Upload session not found"
             )
+        try:
+            ensure_supported_upload_source(
+                persisted_session.media_revision_source_kind,
+                [*persisted_session.expected_track_roles, track_role],
+            )
+        except ProblemDetail:
+            try:
+                await _delete_or_record_uploaded_object(
+                    storage=storage, object_key=object_key, db=db,
+                    workspace_id=tenant_scope.workspace_id, meeting_id=meeting.id,
+                    reason="part_rejected_after_source_validation",
+                )
+            finally:
+                close_upload_stream()
+            raise
         if persisted_session.status not in {
             UploadSessionStatus.PENDING.value,
             UploadSessionStatus.UPLOADING.value,

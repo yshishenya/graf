@@ -238,7 +238,7 @@ def test_candidate_duration_limit_falls_back_before_decode_or_output(tmp_path: P
     assert not output.exists()
 
 
-def test_dual_source_duration_limit_is_terminal_before_decode_or_output(
+def test_historical_dual_source_duration_limit_is_terminal_before_decode_or_output(
     tmp_path: Path,
 ) -> None:
     microphone = tmp_path / "duration-limit-microphone.media"
@@ -519,7 +519,8 @@ def _generate_silent_then_default_tone(path: Path) -> None:
     )
 
 
-def test_dual_mix_uses_each_selected_global_stream_index(tmp_path: Path) -> None:
+def test_historical_dual_mix_uses_each_selected_global_stream_index(tmp_path: Path) -> None:
+    # Playback compatibility for saved pre-v5 artifacts, never ASR submission.
     microphone = tmp_path / "microphone.mkv"
     system = tmp_path / "system.mkv"
     output = tmp_path / "dual-output.m4a"

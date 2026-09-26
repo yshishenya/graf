@@ -6,9 +6,23 @@ import io
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from urllib import error, parse, request
 
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.product_analytics.advertising_transfer import (
+    RECIPIENT_YANDEX_METRICA,
+    TRANSFER_PURPOSE_OFFLINE_CONVERSIONS,
+    AdvertisingTransferDecision,
+    AdvertisingTransferRegister,
+    OptionalMeasurementConsent,
+    VisitorDisclosure,
+    build_visitor_disclosure,
+    evaluate_advertising_transfer,
+    optional_measurement_consent_from_event,
+    read_advertising_transfer_register,
+    revocation_trace_lines,
+)
 from twobrain_rec_server.product_analytics.event_catalog import YANDEX_OFFLINE_CONVERSION_EVENTS
 from twobrain_rec_server.product_analytics.events import ProductActivationEvent
 from twobrain_rec_server.product_analytics.posthog_client import (
@@ -16,11 +30,29 @@ from twobrain_rec_server.product_analytics.posthog_client import (
     ProviderTransport,
     ProviderTransportResponse,
 )
+from twobrain_rec_server.product_analytics.provider_delivery_gate import (
+    resolve_provider_delivery_gate,
+)
 from twobrain_rec_server.product_analytics.provider_secrets import (
     ProviderSecretError,
     read_secret_file,
     secret_file_status,
 )
+
+# The recipient and the purpose of this transfer, spelled out so the gate and
+# the provider client cannot disagree about what is being sent (FR-028).
+YANDEX_OFFLINE_TRANSFER_RECIPIENT = RECIPIENT_YANDEX_METRICA
+YANDEX_OFFLINE_TRANSFER_PURPOSE = TRANSFER_PURPOSE_OFFLINE_CONVERSIONS
+
+# The visitor-facing consent copy of the site, read from the packaged templates
+# when the caller does not hand over the rendered pages. A missing file leaves
+# the page absent, and an absent page cannot disclose anything.
+PUBLIC_CONSENT_PAGE_FILES: Mapping[str, str] = {
+    "analytics_consent": "analytics_consent.html",
+    "cookies": "cookies.html",
+    "privacy": "privacy.html",
+    "terms": "terms.html",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +136,74 @@ def _dedupe_identity_material(event: ProductActivationEvent, identity_kind: str)
     return f"{identity_kind}:runtime_identity_pending"
 
 
+def _transfer_metadata(
+    decision: AdvertisingTransferDecision,
+    transfer_ref: str,
+) -> dict[str, Any]:
+    """Metadata of a refused transfer: named blockers and nothing personal.
+
+    The refused transfer keeps the same opaque reference the provider would have
+    received, so a retry of the very same data is recognisable and is refused
+    again instead of being sent (FR-049). When the refusal comes from a
+    revocation, the trace lines are returned too, so the caller can persist the
+    evidence that the withdrawal reached the recipient.
+    """
+
+    metadata: dict[str, Any] = {
+        "blockers": list(decision.blockers),
+        "transfer_ref": transfer_ref,
+        "recipient": decision.recipient,
+        "purpose": decision.purpose,
+        "transfer_facts": dict(decision.facts),
+    }
+    if decision.revocation_trace is not None:
+        metadata["revocation_trace"] = dict(decision.revocation_trace)
+        metadata["revocation_state_lines"] = list(
+            revocation_trace_lines(decision.revocation_trace)
+        )
+    return metadata
+
+
+def yandex_offline_transfer_ref(event: ProductActivationEvent) -> str:
+    """The opaque reference of one transfer.
+
+    It is the same value the provider receives as the purchase id, so a refused
+    transfer and a delivered one are recognisably the same piece of data without
+    naming a visitor (FR-049).
+    """
+
+    try:
+        identity_kind, _ = _identity_source_for_event(event)
+    except ValueError:
+        identity_kind = "unresolved"
+    return _dedupe_key(event, identity_kind)
+
+
+def packaged_visitor_disclosure_pages() -> dict[str, str]:
+    """Read the consent copy the site publishes from the packaged templates.
+
+    The pages are what the visitor actually reads, which is the only honest
+    source for "the transfer was disclosed". A template that cannot be read
+    contributes nothing, and an incomplete disclosure blocks the transfer
+    instead of being assumed.
+    """
+
+    from twobrain_rec_server.templates import package_path
+
+    try:
+        root = Path(package_path("twobrain_rec_server.public", "templates", "public"))
+    except (ImportError, OSError, ModuleNotFoundError):
+        return {}
+    pages: dict[str, str] = {}
+    for surface, filename in PUBLIC_CONSENT_PAGE_FILES.items():
+        path = root / filename
+        try:
+            pages[surface] = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue
+    return pages
+
+
 class YandexOfflineConversionExporter:
     def __init__(
         self,
@@ -114,6 +214,11 @@ class YandexOfflineConversionExporter:
         oauth_file_present: bool,
         validation_mode: str,
         live_delivery_allowed: bool,
+        transfer_register: AdvertisingTransferRegister | None = None,
+        visitor_disclosure: VisitorDisclosure | None = None,
+        disclosure_revision: str | None = None,
+        settings: Settings | None = None,
+        environ: Mapping[str, str] | None = None,
         transport: ProviderTransport | None = None,
         timeout_seconds: float = 8.0,
     ) -> None:
@@ -123,15 +228,30 @@ class YandexOfflineConversionExporter:
         self.oauth_file_present = oauth_file_present
         self.validation_mode = validation_mode
         self.live_delivery_allowed = live_delivery_allowed
+        # FR-028: the recorded basis and the disclosure the visitor saw are the
+        # two conditions of the transfer. Without them the exporter has nothing
+        # to transfer under, so both default to "absent".
+        self.transfer_register = transfer_register
+        self.visitor_disclosure = visitor_disclosure
+        self.disclosure_revision = disclosure_revision
+        self.settings = settings
+        self.environ = environ
         self.transport = transport or _default_multipart_transport
         self.timeout_seconds = timeout_seconds
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> YandexOfflineConversionExporter:
+    def from_settings(
+        cls,
+        settings: Settings,
+        *,
+        environ: Mapping[str, str] | None = None,
+        site_pages: Mapping[str, str] | None = None,
+    ) -> YandexOfflineConversionExporter:
         oauth_status = secret_file_status(
             settings.product_analytics_yandex_oauth_token_file,
             logical_name="YANDEX_OAUTH_TOKEN",
         )
+        pages = packaged_visitor_disclosure_pages() if site_pages is None else dict(site_pages)
         return cls(
             enabled=settings.product_analytics_yandex_offline_enabled,
             counter_id=settings.product_analytics_yandex_counter_id,
@@ -139,9 +259,59 @@ class YandexOfflineConversionExporter:
             oauth_file_present=oauth_status.present,
             validation_mode=settings.product_analytics_validation_mode,
             live_delivery_allowed=settings.product_analytics_live_provider_delivery_allowed(),
+            transfer_register=read_advertising_transfer_register(environ),
+            visitor_disclosure=build_visitor_disclosure(pages),
+            disclosure_revision=settings.public_analytics_consent_copy_version,
+            settings=settings,
+            environ=environ,
         )
 
-    def export(self, event: ProductActivationEvent) -> ProviderDeliveryResult:
+    def transfer_decision(
+        self,
+        event: ProductActivationEvent,
+        *,
+        visitor_consent: OptionalMeasurementConsent | None = None,
+    ) -> AdvertisingTransferDecision:
+        """Ask the transfer gate about one event (FR-028, FR-029, FR-049).
+
+        The transfer of a visitor's data is a level 3 action, so it happens only
+        with that visitor's ``advertising_attribution`` decision. That decision
+        belongs to the request that carried it, so the caller hands it over
+        explicitly; the event's own categories are used only when the event
+        carries them, and an absent decision is a refusal, never a permission.
+        Nothing here reads a provider flag.
+        """
+
+        register = self.transfer_register
+        consent = (
+            visitor_consent
+            if visitor_consent is not None
+            else optional_measurement_consent_from_event(event)
+        )
+        return evaluate_advertising_transfer(
+            purpose=YANDEX_OFFLINE_TRANSFER_PURPOSE,
+            recipient=YANDEX_OFFLINE_TRANSFER_RECIPIENT,
+            basis=(
+                register.basis(
+                    purpose=YANDEX_OFFLINE_TRANSFER_PURPOSE,
+                    recipient=YANDEX_OFFLINE_TRANSFER_RECIPIENT,
+                )
+                if register is not None
+                else None
+            ),
+            disclosure=self.visitor_disclosure,
+            measurement_consent=consent,
+            register=register,
+            transfer_ref=yandex_offline_transfer_ref(event),
+            expected_disclosure_revision=self.disclosure_revision,
+        )
+
+    def export(
+        self,
+        event: ProductActivationEvent,
+        *,
+        visitor_consent: OptionalMeasurementConsent | None = None,
+    ) -> ProviderDeliveryResult:
         if not is_yandex_offline_event_allowed(event.event_name):
             return ProviderDeliveryResult("yandex_offline", "not_applicable", "Event is not in Yandex offline subset")
         if not self.enabled:
@@ -155,12 +325,51 @@ class YandexOfflineConversionExporter:
         row = build_yandex_offline_conversion(event)
         if self.validation_mode == "provider_smoke":
             return ProviderDeliveryResult("yandex_offline", "dry_run", "Provider smoke mode does not upload conversions")
-        if self.validation_mode != "live_safe" or not self.live_delivery_allowed:
+        if self.validation_mode != "live_safe":
             return ProviderDeliveryResult(
                 "yandex_offline",
                 "live_safe_blocked",
                 "Live Yandex offline upload requires explicit rollout approval",
                 retryable=True,
+            )
+        # FR-028/FR-049: no confirmed basis, no visitor disclosure or a revoked
+        # recipient means no transfer at all, and no secret is read and no
+        # request is built before that is settled.
+        decision = self.transfer_decision(event, visitor_consent=visitor_consent)
+        if not decision.allowed:
+            return ProviderDeliveryResult(
+                "yandex_offline",
+                decision.status,
+                "Yandex offline conversion transfer is not authorised",
+                retryable=False,
+                metadata=_transfer_metadata(decision, row.dedupe_key),
+            )
+        if not self.live_delivery_allowed:
+            return ProviderDeliveryResult(
+                "yandex_offline",
+                "live_safe_blocked",
+                "Live Yandex offline upload requires explicit rollout approval",
+                retryable=True,
+            )
+        if self.settings is None:
+            return ProviderDeliveryResult(
+                "yandex_offline",
+                "live_safe_blocked",
+                "Live Yandex offline upload requires a resolved readiness gate",
+                retryable=True,
+            )
+        delivery_gate = resolve_provider_delivery_gate(
+            self.settings,
+            provider="yandex_offline",
+            environ=self.environ,
+        )
+        if not delivery_gate.allowed:
+            return ProviderDeliveryResult(
+                "yandex_offline",
+                "live_safe_blocked",
+                "Live Yandex offline upload is blocked by rollout readiness",
+                retryable=True,
+                metadata={"blockers": list(delivery_gate.blockers)},
             )
         try:
             oauth_token = read_secret_file(self.oauth_token_file, logical_name="YANDEX_OAUTH_TOKEN").value

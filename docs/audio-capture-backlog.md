@@ -81,7 +81,7 @@ those speakers. The current v5 product path does not try to remove that sound
 with AEC or post-stop cleanup. Instead, it writes a single continuous canonical
 timeline so the recorded conversation is transcribed once without aligning or
 merging two independent ASR results. The authoritative current contract is
-`docs/integrations/mediascribe-dual-track-api.md`.
+`docs/integrations/mediascribe-api.md`.
 
 The following research was written for the retired dual-artifact approach and
 must be read as historical evidence, not as requirements or a backlog promise.

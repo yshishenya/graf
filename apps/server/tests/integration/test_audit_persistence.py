@@ -37,11 +37,13 @@ def test_ingest_audit_events_preserve_operation_order_content_and_redaction(clie
         headers=auth_headers(),
         json={"local_recording_id": "audit-order-content", "duration_seconds": 60},
     ).json()
-    session = client.post(
+    session_response = client.post(
         f"/api/v1/meetings/{meeting['meeting_id']}/upload-sessions",
         headers=auth_headers(),
-        json={"expected_track_sizes": {"system": 4}},
-    ).json()
+        json={"expected_track_sizes": {"media": 4}},
+    )
+    assert session_response.status_code == 200
+    session = session_response.json()
     redacted_event = record_audit_event(
         event_type="manual_redaction_probe",
         workspace_id=WORKSPACE_ID,

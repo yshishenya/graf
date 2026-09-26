@@ -808,8 +808,10 @@ class CreateMeetingRequest(BaseModel):
     local_media_revision_id: (
         Annotated[SafeClientText, Field(min_length=1, max_length=300)] | None
     ) = None
-    source_kind: MediaRevisionSourceKind = MediaRevisionSourceKind.INITIAL_RECORDING
-    media_scribe_source_mode: Literal["dual", "single_wav_v1"] = "dual"
+    source_kind: Literal[MediaRevisionSourceKind.INITIAL_MIXED_RECORDING] = (
+        MediaRevisionSourceKind.INITIAL_MIXED_RECORDING
+    )
+    media_scribe_source_mode: Literal["single_wav_v1"] = "single_wav_v1"
     title: Annotated[SafeClientText, Field(max_length=500)] | None = None
     title_source: DesktopMeetingTitleSource | None = None
     calendar_match_attempt_id: UUID | None = None
@@ -840,7 +842,7 @@ class MeetingResponse(BaseModel):
 
 class CreateUploadSessionRequest(BaseModel):
     expected_tracks: list[TrackRole] = Field(
-        default_factory=lambda: [TrackRole.MANIFEST, TrackRole.MICROPHONE, TrackRole.SYSTEM]
+        default_factory=lambda: [TrackRole.MANIFEST, TrackRole.MEDIA, TrackRole.PLAYBACK]
     )
     expected_track_sizes: dict[TrackRole, int] = Field(default_factory=dict)
     manifest_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")

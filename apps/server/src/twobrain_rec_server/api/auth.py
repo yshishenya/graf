@@ -1,9 +1,13 @@
+import logging
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlencode, urlsplit
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
@@ -51,7 +55,7 @@ from twobrain_rec_server.billing.catalog import FREE_STORAGE_BYTES
 from twobrain_rec_server.billing.entitlements import effective_plan_code
 from twobrain_rec_server.billing.storage import project_active_playback_storage
 from twobrain_rec_server.cabinet.auth_return import resolve_browser_auth_return_path
-from twobrain_rec_server.config import Settings
+from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import (
     AuthCallbackState,
     AuthSession,
@@ -72,9 +76,44 @@ from twobrain_rec_server.db.tenant_context import (
     WorkspaceAuthContext,
     apply_tenant_context,
 )
+from twobrain_rec_server.product_analytics.acquisition import (
+    KNOWN_VISIT_ATTRIBUTION_STATUSES,
+    MAX_VISIT_ATTRIBUTION_REFS,
+    VisitAttribution,
+    build_client_acquisition_attribute_from_visit_attribution,
+    build_client_acquisition_attribute_from_visits,
+    is_within_attribution_window,
+    load_visit_attributions_by_refs,
+    record_client_acquisition_attribute_safely,
+    resolve_last_non_direct_source,
+)
+from twobrain_rec_server.product_analytics.attribution import (
+    ATTRIBUTION_RELIABILITY_UNKNOWN,
+    CAMPAIGN_CONTEXT_FIELDS,
+    AttributionHandoff,
+    default_attribution_bridge_registry,
+    normalize_attribution_reliability,
+    resolve_attribution_handoff,
+)
 from twobrain_rec_server.product_analytics.events import build_activation_event
+from twobrain_rec_server.product_analytics.identity import build_safe_identity
+from twobrain_rec_server.product_analytics.ingest import (
+    ProductAnalyticsIngestResult,
+    ProductAnalyticsIngestService,
+)
+from twobrain_rec_server.product_analytics.milestones import (
+    milestone_attribution_properties,
+)
+from twobrain_rec_server.public.analytics import read_public_visit_attribution
 
 BROWSER_AUTH_STATE_COOKIE_NAME = "__Host-twobrain_rec_browser_auth_state"
+ACCOUNT_CONNECTED_AUTH_METHOD_CATEGORY = "oauth_provider"
+# The embedded cabinet connects an account by an emailed code. It is a different
+# way in, so it must not be recorded as an external provider: the whole point of
+# ``auth_method_category`` is to tell the ways in apart (FR-021).
+EMAIL_CODE_AUTH_METHOD_CATEGORY = "email_code"
+
+logger = logging.getLogger(__name__)
 
 
 class _ProviderEntry(BaseModel):
@@ -248,21 +287,367 @@ def build_account_connected_product_analytics_payload(
     stable_pseudonymous_user_id: str,
     auth_method_category: str,
     bridge_present: bool,
-    attribution_reliability: str = "campaign_linked_reliable",
+    attribution_reliability: str = ATTRIBUTION_RELIABILITY_UNKNOWN,
     elapsed_bucket: str | None = None,
+    campaign_context: Mapping[str, Any] | None = None,
 ) -> dict[str, object]:
+    """The account-connected milestone, sent from the real authorization path.
+
+    The event carries the campaign of the visit as well as the level of the link
+    (FR-018, FR-023). The default reliability is ``unknown``: a caller that knows
+    nothing about the campaign must not claim a link, and an event without labels
+    says so explicitly instead of reading as a direct entry (FR-024).
+    """
+    level = normalize_attribution_reliability(attribution_reliability) or ATTRIBUTION_RELIABILITY_UNKNOWN
     event = build_activation_event(
         "desktop_account_connected",
         stable_pseudonymous_user_id=stable_pseudonymous_user_id,
         properties={
             "auth_method_category": auth_method_category,
             "account_connection_state": "connected",
-            "bridge_present": bridge_present,
-            "attribution_reliability": attribution_reliability,
+            # One builder produces the whole attribution part of the event, so
+            # the labels, the explicit state and the level can never disagree.
+            **milestone_attribution_properties(
+                attribution_reliability=level,
+                bridge_present=bridge_present,
+                campaign_context=campaign_context,
+            ),
             **({"elapsed_bucket": elapsed_bucket} if elapsed_bucket else {}),
         },
     )
     return event.as_payload()
+
+
+_HANDOFF_REQUEST_FIELDS = (
+    "bridge",
+    "graf_attribution_ref",
+    "fallback",
+    "graf_attribution_fallback",
+    "landing_path",
+    "attribution_ref",
+    *CAMPAIGN_CONTEXT_FIELDS,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedAttributionSnapshot:
+    """One auth-time selection shared by acquisition and the milestone."""
+
+    attribution: dict[str, Any]
+    visits: tuple[VisitAttribution, ...]
+    selected_visit: VisitAttribution | None
+    handoff: AttributionHandoff | None
+
+
+def _request_attribution_snapshot(
+    request: Request,
+    *,
+    now: datetime | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build the one current request snapshot shared by every auth path.
+
+    The browser cookie is session-scoped.  Its timestamp is checked here before
+    labels are handed to the conversion event, so a stale cookie cannot become a
+    90-day cross-session history by accident.  Bridge resolution remains the
+    short-lived (72-hour) app fallback and is still allowed when the browser has
+    no cookie.
+    """
+    moment = now or datetime.now(UTC)
+    attribution = read_public_visit_attribution(request, now=moment)
+    raw: dict[str, Any] = dict(getattr(request, "query_params", None) or {})
+    values = {field: raw.get(field) for field in _HANDOFF_REQUEST_FIELDS}
+    status = str(attribution.get("attribution_status") or "missing").strip().lower()
+    first_seen_raw = attribution.get("first_seen_at")
+    first_seen: datetime | None = None
+    if isinstance(first_seen_raw, str):
+        try:
+            first_seen = datetime.fromisoformat(first_seen_raw.replace("Z", "+00:00"))
+        except ValueError:
+            first_seen = None
+    if first_seen is not None:
+        if first_seen.tzinfo is None:
+            first_seen = first_seen.replace(tzinfo=UTC)
+        else:
+            first_seen = first_seen.astimezone(UTC)
+    if (
+        status in KNOWN_VISIT_ATTRIBUTION_STATUSES
+        and first_seen is not None
+        and is_within_attribution_window(first_seen, now=moment)
+    ):
+        for field in CAMPAIGN_CONTEXT_FIELDS:
+            if attribution.get(field) is not None:
+                values[field] = attribution[field]
+        if attribution.get("landing_path") is not None:
+            values["landing_path"] = attribution["landing_path"]
+    else:
+        # A browser cookie is untrusted input. It can help the public aggregate
+        # describe this request, but it is never an authentication capability;
+        # only an exact durable row or a live process bridge may attach labels to
+        # a registered account.
+        for field in CAMPAIGN_CONTEXT_FIELDS:
+            values[field] = None
+        values["landing_path"] = None
+    return values, attribution
+
+
+async def _durable_attribution_snapshot(
+    request: Request,
+    *,
+    db: AsyncSession | None,
+    now: datetime,
+) -> _ResolvedAttributionSnapshot:
+    """Resolve exact session refs and select one last non-direct visit.
+
+    Cookie JSON and raw query campaign labels are client-controlled. Authentication
+    loads only the exact opaque refs supplied by the session ring (plus the
+    compatibility current ref) and applies the one shared attribution rule to the
+    returned rows. A missing or forged ref is an ordinary attribution gap.
+    """
+    _, cookie_attribution = _request_attribution_snapshot(request, now=now)
+    query_params = getattr(request, "query_params", None) or {}
+    query_ref = query_params.get("attribution_ref")
+    # Keep the bound at the authentication boundary as well as in the SQL
+    # loader.  This prevents a forged/oversized cookie or mock loader from
+    # turning an auth request into an unbounded lookup; current/query refs have
+    # deterministic precedence and duplicates are removed without trusting labels.
+    refs: list[Any] = []
+    seen_refs: set[str] = set()
+    for candidate in (
+        query_ref,
+        cookie_attribution.get("attribution_ref"),
+        *(cookie_attribution.get("attribution_refs") or ()),
+    ):
+        if not isinstance(candidate, str) or not candidate or candidate in seen_refs:
+            continue
+        seen_refs.add(candidate)
+        refs.append(candidate)
+        if len(refs) >= MAX_VISIT_ATTRIBUTION_REFS:
+            break
+    visits = await load_visit_attributions_by_refs(db, refs, now=now)
+    selected = resolve_last_non_direct_source(visits, now=now)
+    if selected is None:
+        handoff = await _bridge_handoff_for_request(request, now=now)
+        return _ResolvedAttributionSnapshot({}, visits, None, handoff)
+    values = {
+        "attribution_ref": selected.attribution_ref,
+        "utm_source": selected.source,
+        "utm_medium": selected.medium,
+        "utm_campaign": selected.campaign,
+        "utm_content": selected.content,
+        "utm_term": selected.term,
+        "yclid": selected.yclid,
+        "landing_path": selected.landing_path,
+        "first_seen_at": selected.first_seen_at.isoformat(),
+        "attribution_status": "saved",
+    }
+    handoff = AttributionHandoff(
+        graf_attribution_id=None,
+        campaign_context={
+            "utm_source": selected.source,
+            "utm_medium": selected.medium,
+            "utm_campaign": selected.campaign,
+            "utm_id": None,
+            "utm_content": selected.content,
+            "utm_term": selected.term,
+        },
+        fallback_recovered=False,
+        landing_path=selected.landing_path,
+    )
+    return _ResolvedAttributionSnapshot(values, visits, selected, handoff)
+
+
+async def _bridge_handoff_for_request(
+    request: Request,
+    *,
+    now: datetime,
+) -> AttributionHandoff | None:
+    """Resolve only the short-lived server-owned app bridge on a miss."""
+    return attribution_handoff_for_request(request, now=now)
+
+
+async def resolve_attribution_snapshot_for_request_async(
+    request: Request,
+    *,
+    db: AsyncSession | None,
+    now: datetime | None = None,
+) -> _ResolvedAttributionSnapshot:
+    """Resolve one selected visit for the whole auth completion path."""
+    return await _durable_attribution_snapshot(request, db=db, now=now or datetime.now(UTC))
+
+
+async def attribution_handoff_for_request_async(
+    request: Request,
+    *,
+    db: AsyncSession | None,
+    now: datetime | None = None,
+    snapshot: _ResolvedAttributionSnapshot | None = None,
+) -> AttributionHandoff | None:
+    """Return the handoff from the one durable selection used by auth."""
+    resolved = snapshot or await _durable_attribution_snapshot(
+        request, db=db, now=now or datetime.now(UTC)
+    )
+    return resolved.handoff
+
+
+def attribution_handoff_for_request(
+    request: Request,
+    *,
+    now: datetime | None = None,
+) -> AttributionHandoff | None:
+    """Resolve only the server-owned bridge for a synchronous auth milestone.
+
+    Cookie JSON and raw query campaign labels are client-controlled. The
+    synchronous milestone path has no database session, so it may use only the
+    short-lived process bridge; browser-cookie attribution is resolved by the
+    asynchronous durable path before the route schedules this milestone.
+    """
+    raw = dict(getattr(request, "query_params", None) or {})
+    # Campaign labels and paths in an app URL are caller-controlled.  Keep the
+    # URL shape backward-compatible, but resolve only the exact server-owned
+    # bridge identifier; raw labels must never create attribution on their own.
+    values = {
+        field: raw.get(field)
+        for field in (
+            "bridge",
+            "graf_attribution_ref",
+            "fallback",
+            "graf_attribution_fallback",
+        )
+    }
+    handoff = resolve_attribution_handoff(
+        values,
+        registry=default_attribution_bridge_registry(),
+        now=now,
+    )
+    if handoff is None:
+        return None
+    if handoff.graf_attribution_id is None and not handoff.campaign_known():
+        return None
+    return handoff
+
+
+async def capture_client_acquisition_attribute(
+    request: Request,
+    *,
+    db: AsyncSession | None,
+    account_id: UUID,
+    now: datetime | None = None,
+    snapshot: _ResolvedAttributionSnapshot | None = None,
+) -> bool:
+    """Write the first acquisition attribute from the current auth request.
+
+    This is shared by email login/registration and OAuth callbacks.  It uses the
+    same session cookie/bridge snapshot as the milestone, keeps the 90-day check
+    in the acquisition builder, and never lets measurement failure break auth.
+    """
+    moment = now or datetime.now(UTC)
+    try:
+        resolved = snapshot or await _durable_attribution_snapshot(request, db=db, now=moment)
+        attribution = resolved.attribution
+        handoff = resolved.handoff
+        if resolved.selected_visit is not None:
+            attribute = build_client_acquisition_attribute_from_visits(
+                account_id=account_id,
+                visits=[resolved.selected_visit],
+                captured_at=moment,
+                now=moment,
+                linked_automatically=True,
+            )
+        else:
+            # A bridge is already server-resolved and may be the only source in
+            # an embedded app sign-in. Merge its owned campaign context into the
+            # builder input; never use the unsigned cookie fallback.
+            bridge_attribution = {
+                **(attribution or {}),
+                **(handoff.campaign_context if handoff is not None else {}),
+                "landing_path": handoff.landing_path if handoff is not None else None,
+                "attribution_status": "saved" if handoff and handoff.campaign_known() else "missing",
+            }
+            attribute = build_client_acquisition_attribute_from_visit_attribution(
+                account_id=account_id,
+                attribution=bridge_attribution,
+                graf_attribution_id=handoff.graf_attribution_id if handoff else None,
+                captured_at=moment,
+                now=moment,
+            )
+        settings = getattr(getattr(request, "app", None), "state", None)
+        settings = getattr(settings, "settings", None)
+        return await record_client_acquisition_attribute_safely(
+            db,
+            attribute,
+            settings=settings,
+        )
+    except Exception as exc:  # noqa: BLE001 - auth must succeed
+        logger.warning(
+            "client acquisition attribute was not captured: error=%s",
+            exc.__class__.__name__,
+        )
+        return False
+
+
+def record_account_connected_milestone(
+    *,
+    settings: Settings,
+    user_id: UUID,
+    provider: str,
+    handoff: AttributionHandoff | None,
+    auth_method_category: str = ACCOUNT_CONNECTED_AUTH_METHOD_CATEGORY,
+) -> ProductAnalyticsIngestResult | None:
+    """Send the milestone built above (FR-021).
+
+    Measurement never breaks account connection: a failure of the analytics
+    service is swallowed here, after the account itself is already stored.
+    """
+    if not settings.product_analytics_enabled:
+        return None
+    identity = build_safe_identity(user_source_id=str(user_id))
+    payload = build_account_connected_product_analytics_payload(
+        stable_pseudonymous_user_id=identity.stable_pseudonymous_user_id,
+        auth_method_category=auth_method_category,
+        bridge_present=handoff is not None,
+        attribution_reliability=(handoff.reliability(account_connected=True) if handoff else ATTRIBUTION_RELIABILITY_UNKNOWN),
+        campaign_context=handoff.campaign_context if handoff else None,
+    )
+    try:
+        return ProductAnalyticsIngestService(settings).ingest(payload)
+    except Exception:
+        logger.warning(
+            "product analytics account-connected milestone was not delivered",
+            extra={"provider": provider},
+            exc_info=True,
+        )
+        return None
+
+
+def schedule_account_connected_milestone(
+    background_tasks: BackgroundTasks,
+    request: Request,
+    *,
+    user_id: UUID,
+    provider: str,
+    handoff: AttributionHandoff | None = None,
+    auth_method_category: str = ACCOUNT_CONNECTED_AUTH_METHOD_CATEGORY,
+) -> None:
+    """Deliver the milestone after the response, never inside the login request.
+
+    Routes with a database session pass the already-resolved durable/bridge
+    handoff. The synchronous bridge-only fallback is retained for callers that
+    cannot safely perform a database lookup, but unsigned cookie labels are never
+    read here.
+    """
+    settings = getattr(request.app.state, "settings", None) or get_settings()
+    if not settings.product_analytics_enabled:
+        return
+    if handoff is None:
+        handoff = attribution_handoff_for_request(request)
+    background_tasks.add_task(
+        record_account_connected_milestone,
+        settings=settings,
+        user_id=user_id,
+        provider=provider,
+        handoff=handoff,
+        auth_method_category=auth_method_category,
+    )
 
 
 def _parse_uuid(value: str | None, header_name: str) -> UUID:
@@ -1008,6 +1393,7 @@ async def confirm_provider_link_flow(
 async def callback(
     request: Request,
     response: Response,
+    background_tasks: BackgroundTasks,
     provider: str,
     state: str | None = Query(default=None, description="Callback state"),
     db: AsyncSession | None = AuthDbDependency,
@@ -1162,7 +1548,33 @@ async def callback(
             user_id=profile.user_id,
             auth_session_id=profile.auth_session_id,
         )
+    # FR-021: capture before the final transaction commit. The acquisition
+    # writer deliberately uses the caller's transaction (commit=False), so
+    # placing it after the auth commit would close the session with the new row
+    # still uncommitted and silently lose OAuth registration attribution.
+    resolved_handoff = None
+    if profile.registered:
+        attribution_snapshot = await resolve_attribution_snapshot_for_request_async(request, db=db)
+        await capture_client_acquisition_attribute(
+            request,
+            db=db,
+            account_id=profile.user_id,
+            snapshot=attribution_snapshot,
+        )
+        resolved_handoff = await attribution_handoff_for_request_async(
+            request,
+            db=db,
+            snapshot=attribution_snapshot,
+        )
     await db.commit()
+    # The milestone is delivered after the response and never blocks sign-in.
+    schedule_account_connected_milestone(
+        background_tasks,
+        request,
+        user_id=profile.user_id,
+        provider=provider,
+        handoff=resolved_handoff,
+    )
     payload = AuthCallbackResponse(
         user_id=profile.user_id,
         workspace_id=profile.workspace_id,

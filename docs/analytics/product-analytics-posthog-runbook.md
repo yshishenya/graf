@@ -370,6 +370,158 @@ the operator approval. The contract test checks the thresholds, metadata-only
 logging, fail-closed switches, secure install path, zero-restart execution, and
 one-minute timer; it does not constitute a production timer receipt.
 
+## Threshold Scopes: Analytics First, Host Second
+
+Feature `273-paid-traffic-analytics` splits the guard thresholds into two
+independent scopes (FR-031, FR-032, SC-012). The split lives in
+`infra/scripts/posthog-runtime-guard.sh` and is configured through
+`infra/posthog/runtime-guard.env.example`. Every value below defaults to the
+previously hard-coded threshold, so removing a line keeps production behaviour.
+The analytics scope is evaluated first and may disable measurement only. The
+host scope alerts only and never disables measurement automatically, so a
+traffic spike on the public site cannot stop measurement by itself.
+
+Analytics scope — these reasons may disable measurement:
+
+| Reason code | Condition | Threshold variable | Default |
+| --- | --- | --- | --- |
+| `analytics_node_unavailable` | Node availability: failed analytics probes | `GRAF_POSTHOG_GUARD_ANALYTICS_HEALTH_FAILURES` | `1` (one failed analytics probe) |
+| `analytics_storage` | Analytics storage free space below the review floor | `GRAF_POSTHOG_GUARD_ANALYTICS_DISK_FREE_PERCENT` | `20` (`<20 %` free) |
+| `analytics_delivery_lag` | Delivery lag at or above the limit | `GRAF_POSTHOG_GUARD_ANALYTICS_LAG_SECONDS` | `900` (`>=900 s`) |
+| `analytics_queue_depth` | Ingest queue backlog at or above the limit | `GRAF_POSTHOG_GUARD_ANALYTICS_QUEUE_DEPTH` | `100000` (`>=100000`) |
+| `analytics_queue_growth` | Ingest queue growth at or above the limit | `GRAF_POSTHOG_GUARD_ANALYTICS_QUEUE_GROWTH_PER_MIN` | `5000` (`>=5000` per minute) |
+| `container_limits_missing` | Analytics container CPU/memory limits missing | — | any missing limit |
+| `container_oom` | Container OOM-killed | — | more than `0` |
+| `container_restarts` | Container restarts in the last 10 minutes | — | more than `2` |
+
+Host scope — these reasons alert only and never disable measurement:
+
+| Reason code | Condition | Threshold variable | Default |
+| --- | --- | --- | --- |
+| `host_load` | Host 1-minute load average at or above the limit | `GRAF_POSTHOG_GUARD_HOST_LOAD` | `11` (`>=11`) |
+| `host_memory` | Host available memory below the limit | `GRAF_POSTHOG_GUARD_HOST_MEMORY_MIB` | `16384` (`<16384 MiB`) |
+| `host_disk` | Host disk free space below the limit | `GRAF_POSTHOG_GUARD_HOST_DISK_FREE_PERCENT` | `10` (`<10 %`) |
+| `host_product_probe_unavailable` | GRAF product readiness probe failing | `GRAF_POSTHOG_GUARD_HOST_HEALTH_FAILURES` | `2` (2 consecutive minutes) |
+
+`GRAF_POSTHOG_GUARD_AUTO_ROLLBACK=1` with `GRAF_POSTHOG_GUARD_DRY_RUN=0` may now
+disable measurement only for analytics-scope reasons. Host-scope reasons never
+disable measurement, never edit the provider switches, and only raise an alert.
+This is the rule that keeps SC-012 true: a fivefold traffic spike does not turn
+measurement off and does not affect product availability.
+
+Unreadable analytics probes are reported as an analytics alert, not as a silent
+pass: `analytics_delivery_lag_unavailable` when the delivery-lag probe cannot be
+read and `analytics_queue_metric_unavailable` when the queue metric cannot be
+read. Both are alert-only while `GRAF_POSTHOG_GUARD_ANALYTICS_STRICT_METRICS=0`.
+Set `GRAF_POSTHOG_GUARD_ANALYTICS_STRICT_METRICS=1` only after the first
+production receipt proves the probes are readable; from then on a broken probe
+disables measurement instead of passing silently.
+
+The same `*_unavailable` shape covers every other unreadable probe, and none of
+them disables measurement by itself: `docker_unavailable` and
+`docker_inspect_unavailable` when the container runtime cannot be queried,
+`posthog_containers_missing` when no analytics container is running,
+`restart_metric_unavailable`, `restart_history_unavailable` and
+`restart_state_unavailable` for the restart counters, and
+`host_load_unavailable`, `host_memory_unavailable`, `host_disk_unavailable` and
+`host_clock_unavailable` for the host sensors. A report that lists an
+`*_unavailable` code means the guard could not verify that probe, so the
+threshold behind it is unproven for that minute rather than satisfied.
+
+The alert path adds its own codes when the notification itself is the problem:
+`alert_channel_unavailable` when the channel probe fails, `guard_state_missing`
+and `guard_state_stale` when the guard state file is absent or older than
+`GRAF_ANALYTICS_ALERT_STATE_MAX_AGE_MINUTES`, `alert_delivery_failed` when
+delivery fails on every transport, and `alert_owner_unnamed` when the fired rule
+resolves to a role that the environment does not name. The complete machine-
+readable inventory of every code, its scope, severity, owner role and escalation
+window is `infra/posthog/alert-rules.txt`.
+
+The analytics thresholds are justified by a measured baseline, not by a guess:
+the absolute volume per storage class, the growth per day, and the growth per
+1000 events are recorded in `docs/analytics/product-analytics-capacity-baseline.md`.
+Until that measurement is executed and filed, every baseline row stays
+`pending operator receipt`.
+
+Each run writes a metadata-only state file to
+`$GRAF_POSTHOG_GUARD_STATE_DIR/alert-state`, default
+`/var/lib/graf-posthog-runtime-guard/alert-state`. It carries no visitor or user
+data and no secrets:
+
+| State key | Meaning |
+| --- | --- |
+| `alert_state_version` | State schema version |
+| `recorded_at`, `recorded_at_epoch` | When the sample was written |
+| `result` | `pass` or `alert` |
+| `breach_scope` | `analytics`, `host`, or `analytics+host` |
+| `analytics_scope`, `host_scope` | Per-scope `pass`/`alert` verdict |
+| `analytics_breaches`, `host_breaches` | Breach codes observed in each scope |
+| `analytics_disable_reasons` | Analytics breach codes that may disable measurement |
+| `measurement_action` | `not_requested`, `blocked_dry_run`, `disabled`, or `failed` |
+| `load_1m`, `memory_mib`, `disk_free_percent` | Host metrics |
+| `delivery_lag_seconds`, `queue_depth`, `queue_growth_per_min` | Analytics metrics |
+| `container_count`, `oom_count`, `restart_count` | Container metrics |
+| `health_failures`, `analytics_health_failures` | Consecutive probe failures per scope |
+| `product_impact` | `measurement_gap_only` |
+
+The external alert path is `infra/scripts/alert-analytics-degradation.sh`
+(Telegram), with a delivery deadline of at most 15 minutes from the start of a
+degradation (SC-009). The systemd timers are
+`infra/posthog/graf-analytics-degradation-alert.timer` (every 5 minutes) and
+`infra/posthog/graf-analytics-alert-channel-check.timer` (every 15 minutes,
+independent channel-outage detection, FR-056). Like the guard, these units are
+installed and enabled as a release/deploy step, not by a local smoke run. The
+training alert that proves the deadline is
+`infra/scripts/alert-analytics-degradation.sh --drill`. No production drill
+exists yet, so the SC-009 delivery receipt is `pending operator receipt`.
+
+## Alert Rules And Named Owners
+
+FR-055 requires a named owner for every alert rule, and FR-054 forbids visitor
+and user data in the alert body. The machine-readable rule inventory is
+`infra/posthog/alert-rules.txt`. It is line-oriented, with one `rule` line per
+rule, and its header states the format:
+
+```text
+rule code=<code> scope=<analytics|host|backup|restore|retention|alerting> \
+     owner_role=<role> severity=<critical|warning> escalate_after_minutes=<n> \
+     requirement=<FR-030|FR-031|FR-032|FR-033|FR-035|FR-036|FR-051|FR-056>
+```
+
+Field meaning:
+
+| Field | Meaning |
+| --- | --- |
+| `code` | The exact rule code the guard, the backup task, the restore verification task, the retention task, or the alert channel check emits |
+| `scope` | `analytics` or `host` for the guard rules; `backup`, `restore`, `retention`, or `alerting` for the scheduled tasks and the alert path itself |
+| `owner_role` | The responsible role, for example `analytics_operator`, `infra_operator`, or `product_owner` |
+| `severity` | `critical` or `warning` |
+| `escalate_after_minutes` | How long the rule may stay unacknowledged before escalation |
+| `requirement` | The requirement the rule implements |
+
+The file groups rules by scope: analytics rules that may disable measurement,
+host rules that never disable measurement, backup and restore rules, retention
+rules, and the alert-path rules used for independent channel-outage detection.
+A rule without an owner role is a configuration error.
+
+The committed file is installed as a root-owned configuration file on the
+analytics server (`/etc/graf-analytics-alert-rules.txt`, overridable through
+`GRAF_ANALYTICS_ALERT_RULES_FILE`). The alert script reads the owner role for a
+fired rule code from it, resolves the role to a named owner from the
+environment, and reports `alert_owner_unnamed` when the role has no name. A
+checkout whose alert script cannot read the rules file treats every rule as
+`unassigned`, which is why the file must be installed and kept in sync with the
+repository before readiness is claimed.
+
+The concrete named owner is never committed. This repository records roles and
+statuses only, so the operator names the responsible person in the out-of-git
+environment file (`GRAF_ANALYTICS_ALERT_OWNER_INFRA_OPERATOR`,
+`GRAF_ANALYTICS_ALERT_OWNER_ANALYTICS_OPERATOR`,
+`GRAF_ANALYTICS_ALERT_OWNER_PRODUCT_OWNER`). When the environment does not name
+the owner, the alert still goes out and carries `alert_owner_unnamed`, so the
+gap is visible in the channel and in journald instead of passing silently. No
+owner assignment receipt exists yet: it is `pending operator receipt`.
+
 ## RBAC And Audit Model
 
 Committed evidence may use roles and statuses only, not personal names or
@@ -404,6 +556,48 @@ shared Postal contour and PostHog recorded successful message delivery. The
 invite remains pending until the invitee accepts it and enables MFA; this does
 not by itself close the independent RBAC/audit gate.
 
+### Two Operators And Mandatory Second Factor
+
+FR-037 requires at least two analytics operators and a mandatory second factor.
+
+- Access requires at least two analytics operators holding an accepted
+  membership. One accepted operator plus one pending invitation is one operator,
+  not two.
+- The second factor (TOTP) is mandatory. It must be enrolled before any provider
+  access is used, not after: an account that has not enrolled TOTP may not read
+  dashboards, change project settings, create exports, or review audit events.
+- An invitation that is not accepted does not count as a second operator, does
+  not close the RBAC/audit gate, and does not allow provider delivery to be
+  turned on.
+- Until two accepted operators with enrolled TOTP exist, the owner-only access
+  boundary stays open, analytics readiness stays blocked, and GRAF provider
+  delivery stays fail-closed. The 2026-07-21 receipt above records exactly that
+  state, and this rule keeps it in force.
+
+### Operator Change And Access Revocation Procedure
+
+FR-060 requires access to be revocable, not only grantable. An access change
+follows this order and is recorded before provider delivery resumes:
+
+1. Revoke the membership on the same day as the role change. Do not leave an
+   unused privileged account for a later cleanup.
+2. Rotate every provider credential the removed operator could read, so the old
+   credential cannot be reused after the membership is gone.
+3. Review the provider audit log for the removal window and confirm that no
+   action after the revocation belongs to the removed operator.
+4. Keep GRAF provider delivery fail-closed until the review is recorded. A
+   revocation that has not been reviewed is not a finished revocation.
+5. Record a metadata-only receipt: roles, statuses, and dates only. Never record
+   personal names, emails, account identifiers, credential values, or provider
+   payloads here or in any other committed evidence.
+
+A periodic access review is required even when nothing changed. The review
+confirms the accepted operator count, TOTP enrollment status, that removed
+access is actually revoked and not merely intended, and that the installed guard
+copy on the server still matches the reviewed repository revision (FR-038). The
+review interval is an owner decision recorded with the receipt; access review
+and operator-change receipts remain `pending operator receipt` until then.
+
 ## Backup And Restore
 
 The detailed procedure lives in `infra/posthog/backup-restore.md`.
@@ -433,6 +627,161 @@ Backup retention:
   baseline unless a later legal/security rule requires a shorter category;
 - never commit backup archives or content-bearing exports;
 - record restore rehearsal status before live readiness claims.
+
+### Scheduled Backup, Restore Verification, And Retention
+
+Feature `273-paid-traffic-analytics` adds the automation that turns the manual
+procedure above into a scheduled, evidence-producing path (FR-033, FR-035,
+FR-036, FR-051, FR-052).
+
+| Artifact | Schedule | State file | Contract |
+| --- | --- | --- | --- |
+| `infra/scripts/backup-posthog.sh` | daily systemd timer `graf-posthog-backup.timer`, `OnCalendar=*-*-* 02:30:00` | `/var/lib/graf-posthog-backup/backup-state` | At least two retained copies; exactly one offsite copy is required per run through `GRAF_POSTHOG_OFFSITE_COMMAND`; a run without the offsite copy is a failure, not a partial success |
+| `infra/scripts/verify-posthog-restore.sh` | systemd timer `graf-posthog-restore-verify.timer`, days 1 and 15, `OnCalendar=*-*-01,15 04:30:00` | `/var/lib/graf-posthog-backup/restore-state` | Restores into an isolated target and records metadata-only evidence: command names, pass/fail status, duration class, blocker codes |
+| `infra/scripts/enforce-product-analytics-retention.sh` | daily systemd timer `graf-posthog-retention-enforce.timer`, `OnCalendar=*-*-* 03:15:00` | `/var/lib/graf-posthog-retention/retention-state` | Enforces every approved local retention category and records the outcome per category |
+| `infra/scripts/apply-posthog-event-ttl.sh` | operator step whenever the term changes | — | Applies and verifies `infra/posthog/clickhouse-retention.sql`; the term is `POSTHOG_EVENT_RETENTION_DAYS`, default `365` |
+
+The retention task has a deliberately narrow deletion boundary. Its PostgreSQL
+statements target only the tables declared by the product-analytics SQLAlchemy
+models and Alembic migrations: `anonymous_page_aggregate_buckets` by
+`bucket_date`, `public_visit_attributions` by `expires_at`, and
+`client_acquisition_attributes` by `captured_at`. It verifies every table and
+age column before issuing any `DELETE`; if any mapping, table, column, or
+retention state is missing, the run fails closed and deletes nothing. The
+ClickHouse path reads system metadata to verify the `sharded_events` TTL but does
+not delete provider-held rows. Billing provider-event metadata in
+`billing_webhook_events.metadata_json` is outside this product-analytics purge
+scope; no provider-held data is claimed deleted by this task.
+
+The committed units run the installed copies in `/usr/local/libexec` and read
+root-owned environment files (`/etc/graf-posthog-backup.env`,
+`/etc/graf-posthog-retention.env`). The installed names differ from the
+repository names, so the two cannot be confused by accident:
+
+| Unit | Installed script | Repository source | Environment file |
+| --- | --- | --- | --- |
+| `graf-posthog-backup.{service,timer}` | `/usr/local/libexec/graf-posthog-backup.sh` | `infra/scripts/backup-posthog.sh` | `/etc/graf-posthog-backup.env` |
+| `graf-posthog-restore-verify.{service,timer}` | `/usr/local/libexec/graf-posthog-restore-verify.sh` | `infra/scripts/verify-posthog-restore.sh` | `/etc/graf-posthog-backup.env` |
+| `graf-posthog-retention-enforce.{service,timer}` | `/usr/local/libexec/graf-posthog-retention-enforce.sh` | `infra/scripts/enforce-product-analytics-retention.sh` | `/etc/graf-posthog-retention.env` |
+| `graf-analytics-degradation-alert.{service,timer}` | `/usr/local/libexec/graf-analytics-degradation-alert.sh` | `infra/scripts/alert-analytics-degradation.sh` | `/etc/graf-analytics-alert.env`, `/etc/graf-posthog-runtime-guard.env`, `/etc/graf-posthog-backup.env` |
+| `graf-analytics-alert-channel-check.{service,timer}` | `/usr/local/libexec/graf-analytics-degradation-alert.sh --check-channel` | `infra/scripts/alert-analytics-degradation.sh` | `/etc/graf-analytics-alert.env`, `/etc/graf-posthog-runtime-guard.env` |
+| `graf-posthog-runtime-guard.{service,timer}` | `/usr/local/libexec/graf-posthog-runtime-guard.sh` | `infra/scripts/posthog-runtime-guard.sh` | `/etc/graf-posthog-runtime-guard.env` |
+
+Install each source with `install -o root -g root -m 0755`, install the unit
+files with mode `0644`, install the environment files with mode `0600`, then run
+`systemctl daemon-reload`. The alert channel check is the same installed script
+with `--check-channel`, which is why the two alert units share one file. The
+alert units also read the guard and backup environment files because they need
+the same state-file paths the guard and the backup task write.
+
+systemd evaluates `OnCalendar` in the
+server timezone: keep the analytics server on UTC so `02:30`, `04:30`, and
+`03:15` are UTC times, and record the timezone with each receipt.
+
+Retention categories enforced by the scheduled task:
+
+| Category | Term | Storage | Mechanism |
+| --- | --- | --- | --- |
+| `measurement_events` | `365` days | ClickHouse | Row TTL |
+| `anonymous_aggregate` | `1095` days | PostgreSQL | Scheduled task |
+| `visit_attribution` | `90` days | PostgreSQL | Scheduled task |
+| `acquisition_attribute` | `1095` days | PostgreSQL | Scheduled task |
+
+Every deletion is logged with a row count and nothing else: no visitor data, no
+user data, no event content, no account identifiers. A category with no
+retention term is a configuration error, never "keep indefinitely" (FR-050), and
+the task must fail loudly rather than delete by guesswork.
+
+The ClickHouse category is enforced as a row TTL rather than a delete loop, so
+it has its own step:
+
+```sh
+infra/scripts/apply-posthog-event-ttl.sh --dry-run
+infra/scripts/apply-posthog-event-ttl.sh --execute
+```
+
+The statement in `infra/posthog/clickhouse-retention.sql` targets
+`sharded_events`, the MergeTree table every insert path reaches; `events` and
+`writable_events` are distributed tables and cannot carry a TTL. The committed
+Compose file is a metadata-only handoff for the generated PostHog runtime, so it
+declares the required term in its `x-graf-clickhouse-retention` block instead of
+enforcing it as a service setting; the DDL above is the enforcement. The daily
+retention task reads the enforced TTL back and fails with
+`clickhouse_ttl_not_enforced` when it is missing or shorter than the approved
+term, and the readiness claim stays blocked in that case.
+
+A failed backup raises an alert (FR-051); a failed restore verification blocks
+the analytics readiness claim (FR-035, FR-051). These timers are installed and
+enabled as a release/deploy step, not by a local smoke run. Scheduled backup,
+restore-verification, retention-enforcement, TTL application, and
+first-offsite-upload receipts are all `pending operator receipt` until they run
+on the analytics server.
+
+## Analytics Readiness Blockers
+
+Analytics readiness is blocked by the blockers reported in the
+`analytics_operations` block of `GET /api/v1/product-analytics/catalog`, under
+`providers.analytics_operations.blockers` (FR-034, FR-050, FR-051, FR-053). A
+blocker list is part of the readiness claim: it cannot be overridden by a
+technical flag, it blocks the claim itself once live provider delivery is
+claimed, and a readiness verdict that ignores a reported blocker is a
+configuration error rather than a ready state.
+
+| Blocker code | Meaning |
+| --- | --- |
+| `backup_state_unavailable` | The backup state file is missing or unreadable |
+| `backup_missing` | No stored analytics backup copy exists |
+| `backup_stale` | The newest copy is older than the recovery-point objective |
+| `backup_offsite_copy_missing` | Fewer than the minimum number of copies live outside the measured server |
+| `backup_copy_count_below_minimum` | Fewer than the minimum number of stored copies are present |
+| `restore_verification_missing` | No successful restore verification is recorded |
+| `restore_verification_stale` | The last successful verification is older than the verification objective |
+| `restore_verification_failed` | The last verification attempt failed |
+| `retention_state_unavailable` | The retention state file is missing or unreadable |
+| `retention_category_missing:<category>` | A required retention category is absent from configuration |
+| `retention_term_missing:<category>` | A configured category has no retention term (FR-050) |
+| `retention_term_below_required:<category>` | A configured term is shorter than the required term for the category |
+| `retention_enforcement_unverified:<category>` | The category has a term but no recorded enforcement |
+
+Defaults for every threshold above:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `GRAF_POSTHOG_BACKUP_MAX_AGE_HOURS` | `26` | Newest backup copy not older than 26 hours |
+| `GRAF_POSTHOG_RESTORE_MAX_AGE_DAYS` | `30` | Successful restore verification not older than 30 days (SC-010) |
+| `GRAF_POSTHOG_BACKUP_MIN_COPIES` | `2` | At least two stored copies |
+| `GRAF_POSTHOG_BACKUP_MIN_OFFSITE_COPIES` | `1` | At least one offsite copy |
+
+The blocker list carries codes and counts only. It must never expose payload
+data, provider secrets, private host paths, or personal data, and the readiness
+state remains `blocked` until the underlying condition is fixed and verified.
+
+## Storage Capacity And Growth Measurement
+
+The analytics scope thresholds in this runbook (queue growth, storage fill) are
+only defensible against a measured baseline, so the load check required by
+FR-039 and the growth rate required by SC-012 are recorded in
+`docs/analytics/product-analytics-capacity-baseline.md`.
+
+```sh
+infra/scripts/measure-posthog-storage-growth.sh --window-hours 24
+infra/scripts/measure-posthog-storage-growth.sh --status
+```
+
+| What | Where |
+| --- | --- |
+| Measurement script | `infra/scripts/measure-posthog-storage-growth.sh` |
+| Committed result table | `docs/analytics/product-analytics-capacity-baseline.md` |
+| Stored sample for the next comparison | `/var/lib/graf-posthog-storage/storage-growth-state` |
+| Analytics storage guardrail | `GRAF_POSTHOG_GUARD_ANALYTICS_DISK_FREE_PERCENT`, default `20` |
+
+The script reports storage sizes and event counts only; it never reads event
+content, and it does not change retention, configuration, or the running stack.
+Run it twice with at least 24 hours of ordinary traffic between the runs: the
+second run then records `growth_basis=previous_sample`, which is the only
+measured baseline. A results table whose cells still read
+`pending operator receipt` means the load check has not been performed and the
+baseline may not be quoted as evidence.
 
 ## Move-Out Procedure
 

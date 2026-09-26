@@ -558,29 +558,15 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         serverTruth: ServerTruthFingerprint = ServerTruthFingerprint(),
         createdAt: Date
     ) -> DesktopUploadQueueItem {
-        let profile = ArtifactCompletenessProfile(
-            schemaVersion: LocalRecordingManifest.legacySchemaVersion,
-            manifestPresent: true,
-            microphonePresent: true,
-            systemAudioPresent: true,
-            manifestSha256: String(repeating: "a", count: 64),
-            microphoneSha256: String(repeating: "b", count: 64),
-            systemAudioSha256: String(repeating: "c", count: 64),
-            manifestSizeBytes: 128,
-            microphoneSizeBytes: 100,
-            systemAudioSizeBytes: 100,
-            durationSeconds: 60,
-            trackCompleteness: [],
-            isUploadable: true
-        )
+        let profile = custodyFixtureProfile()
         return DesktopUploadQueueItem(
             id: id,
             sessionId: "session-\(id)",
             directoryId: "directory-\(id)",
             directoryPath: "/tmp/directory-\(id)",
             manifestPath: "/tmp/directory-\(id)/manifest.json",
-            microphonePath: "/tmp/directory-\(id)/mic.wav",
-            systemAudioPath: "/tmp/directory-\(id)/incoming.wav",
+            microphonePath: "/tmp/directory-\(id)/meeting-transcription.wav",
+            systemAudioPath: "/tmp/directory-\(id)/meeting-review.m4a",
             state: state,
             retryMode: retryMode,
             retentionDeadline: Date(timeIntervalSince1970: 2_000),

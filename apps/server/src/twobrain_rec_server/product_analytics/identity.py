@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from twobrain_rec_server.product_analytics.forbidden_fields import assert_no_forbidden_fields
 
 PSEUDONYM_PREFIX = "graf_pseudo_"
-ANONYMOUS_BROWSER_PSEUDONYM = "graf_pseudo_browser_anonymous"
 SAFE_PSEUDONYMOUS_ID_RE = re.compile(
     r"^graf_pseudo_(?:user|workspace|account|bridge)_[0-9a-f]{8,64}$"
 )
@@ -63,4 +62,12 @@ def build_safe_identity(
 
 
 def is_safe_pseudonymous_id(value: str) -> bool:
-    return value == ANONYMOUS_BROWSER_PSEUDONYM or bool(SAFE_PSEUDONYMOUS_ID_RE.fullmatch(value))
+    """Whether the value is a per-person GRAF pseudonym.
+
+    There is deliberately no shared anonymous identifier: one identifier reused
+    by every unidentified visitor would be both long-lived and a link between
+    unrelated visits (FR-010). A visitor without a pseudonymous identity is
+    measured by the anonymous aggregate instead of being sent to a provider.
+    """
+
+    return bool(SAFE_PSEUDONYMOUS_ID_RE.fullmatch(value))

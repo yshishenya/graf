@@ -40,7 +40,7 @@ def test_provider_config_defaults_are_disabled_but_096_policy_is_declared() -> N
     assert config.yandex.offline_enabled is False
     assert config.yandex.future_page_default == "blocked"
     assert config.live_provider_delivery_allowed is False
-    assert config.approval_states["campaign_readiness"] == "blocked_by_096"
+    assert config.configuration_flags["campaign_readiness"] == "blocked_by_096"
     assert config.campaign_launch_allowed is False
 
 
@@ -74,7 +74,7 @@ def test_provider_config_exposes_metadata_only_runtime_summary(tmp_path: Path) -
     assert summary["posthog"]["autocapture_scope"] == "all_browser_rendered_pages"
     assert summary["yandex"]["counter_id"] == "configured_redacted"
     assert summary["live_provider_delivery_allowed"] is False
-    assert summary["approval_states"]["campaign_readiness"] == "blocked_by_096"
+    assert summary["configuration_flags"]["campaign_readiness"] == "blocked_by_096"
 
 
 def test_provider_modes_and_rollback_modes_are_restricted() -> None:

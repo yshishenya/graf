@@ -10,7 +10,10 @@ only. A successful run can at most support `infra_smoke_ready`.
 - `health`: halt and inspect Rec API, Postgres, MinIO, and reverse proxy state.
 - `migration`: restore from the latest verified backup reference before retry.
 - `backup`: block rollout until backup evidence exists.
-- `restore_rehearsal`: block rollout until restore rehearsal passes.
+- `restore_rehearsal`: block rollout until restore rehearsal passes. The
+  rehearsal runs weekly (`.github/workflows/backup-restore-rehearsal.yml`,
+  `infra/scripts/rehearse-restore-scheduled.sh --execute`), not inside every
+  release, so a failed or missing recent rehearsal is this trigger.
 - `storage`: halt and inspect Postgres/MinIO volume availability.
 - `disk_full`: halt and free or expand disk before accepting smoke artifacts.
 - `unsafe_exposure`: halt and remove public exposure for internal-only services.

@@ -102,7 +102,7 @@ def test_desktop_sync_state_exposes_structured_custody_for_058() -> None:
         "media_revision": {"media_revision_id": str(uuid4())},
         "upload_session": {
             "status": UploadSessionStatus.FINALIZED,
-            "accepted_bytes_by_track": {"microphone": 120},
+            "accepted_bytes_by_track": {"media": 120},
         },
         "processing": {"status": ProcessingStatus.PENDING_PROCESSING},
         "review": {"available": True, "status": "processing"},

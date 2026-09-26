@@ -14,6 +14,11 @@
   window.__GRAF_ANALYTICS_CONTROLLER_LOADED__ = true;
 
   var YANDEX_TAG_URL = "https://mc.yandex.ru/metrika/tag.js";
+  // The external counter keeps the two surfaces the published cookies policy
+  // names. A page outside this list — the pages with a credential form in
+  // particular — is measured through the first-party relay only, so the visitor's
+  // decision never loads a third-party script there.
+  var EXTERNAL_COUNTER_SURFACES = ["public_landing", "public_download"];
   var productConfigElement = document.getElementById("graf-product-analytics-provider-config");
   var publicConfigElement = document.getElementById("graf-public-analytics-config");
 
@@ -53,6 +58,8 @@
   var productYandexFailure = false;
   var productAutocaptureStarted = false;
   var productCaptureBlocked = false;
+  var publicProviderCaptureBlocked = false;
+  var publicProviderCaptureFailure = false;
 
   (publicConfig && publicConfig.event_catalog ? publicConfig.event_catalog : []).forEach(function (event) {
     if (event && event.event_name) {
@@ -242,17 +249,26 @@
   }
 
   function isPublicPageAllowed(pageConfig) {
+    // Measurement by consent covers every public surface; the field list of the
+    // relay stays closed, so a measured auth page still carries no form value.
     return Boolean(
       pageConfig &&
-        ["public_landing", "public_download"].indexOf(pageConfig.surface) !== -1 &&
-        (!pageConfig.yandex_state || pageConfig.yandex_state === "approved_page_view_event"),
+        typeof pageConfig.surface === "string" &&
+        pageConfig.surface.indexOf("public_") === 0,
     );
   }
 
   function isYandexPageAllowed(pageConfig) {
+    // Two different counters pass through here: the product counter carries an
+    // inventory state instead of a surface, and the public counter carries a
+    // surface. Each keeps its own gate, and the public one also honours the
+    // scope the server published, so narrowing the scope on the server is enough
+    // and the browser fails closed on either signal.
     return Boolean(
       pageConfig &&
-        (!pageConfig.surface || ["public_landing", "public_download"].indexOf(pageConfig.surface) !== -1) &&
+        (!pageConfig.surface ||
+          EXTERNAL_COUNTER_SURFACES.indexOf(pageConfig.surface) !== -1) &&
+        pageConfig.external_counter_allowed !== false &&
         (!pageConfig.yandex_state || pageConfig.yandex_state === "approved_page_view_event"),
     );
   }
@@ -286,7 +302,14 @@
   }
 
   function ensurePublicYandexProvider() {
-    if (!publicConfig || !publicConfig.enabled || !isPublicPageAllowed(publicConfig)) {
+    if (
+      !publicConfig ||
+      !publicConfig.enabled ||
+      !isPublicPageAllowed(publicConfig) ||
+      !isYandexPageAllowed(publicConfig)
+    ) {
+      // A surface outside the counter scope is still measured, but only through
+      // the first-party relay: the external script stays off it.
       api.providerBlocked = true;
       return false;
     }
@@ -350,6 +373,121 @@
     return true;
   }
 
+  function publicCaptureEndpoint() {
+    if (!publicConfig || typeof publicConfig.posthog_capture_endpoint !== "string") {
+      return null;
+    }
+    var endpoint = publicConfig.posthog_capture_endpoint;
+    if (endpoint.indexOf("/") !== 0 || endpoint.indexOf("//") !== -1 || endpoint.indexOf("@") !== -1) {
+      return null;
+    }
+    return endpoint;
+  }
+
+  function publicViewId() {
+    var storageKey = "graf_public_analytics_view_id";
+    var pattern = /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{7,119}$/;
+    try {
+      var existing = window.sessionStorage ? window.sessionStorage.getItem(storageKey) : null;
+      if (typeof existing === "string" && pattern.test(existing)) {
+        return existing;
+      }
+      if (!window.crypto || typeof window.crypto.getRandomValues !== "function") {
+        return null;
+      }
+      var alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+      var bytes = new Uint8Array(16);
+      window.crypto.getRandomValues(bytes);
+      var suffix = "";
+      for (var index = 0; index < bytes.length; index += 1) {
+        suffix += alphabet[bytes[index] % alphabet.length];
+      }
+      var viewId = "graf_public_view_" + suffix;
+      if (window.sessionStorage) {
+        window.sessionStorage.setItem(storageKey, viewId);
+      }
+      return viewId;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function publicRelayPayload(eventName, payload) {
+    if (!publicConfig || !publicConfig.page_path) {
+      return null;
+    }
+    var viewId = publicViewId();
+    if (!viewId) {
+      return null;
+    }
+    var body = {
+      event_name: eventName,
+      page_path: publicConfig.page_path,
+      surface: publicConfig.surface,
+      view_id: viewId,
+      consent_state: currentConsentState,
+      consent_categories: currentCategories.slice(),
+    };
+    if (
+      payload &&
+      payload.campaign_attribution &&
+      hasCategory(currentCategories, "advertising_attribution")
+    ) {
+      body.campaign_attribution = payload.campaign_attribution;
+    }
+    [
+      "section_id",
+      "cta_location",
+      "target_kind",
+      "product_tab",
+      "pricing_cycle",
+      "faq_item",
+    ].forEach(function (field) {
+      if (payload && payload[field]) {
+        body[field] = payload[field];
+      }
+    });
+    return body;
+  }
+
+  // Consented public page events go to the ordinary first-party relay and never
+  // to an external script: no provider library is loaded, no project key reaches
+  // the page, and a failed call stays invisible to the visitor.
+  function sendPublicProviderEvent(eventName, payload) {
+    if (!publicConfig || !eventName || !canUseAnalytics() || publicProviderCaptureBlocked) {
+      return false;
+    }
+    var endpoint = publicCaptureEndpoint();
+    var body = publicRelayPayload(eventName, payload);
+    if (!endpoint || !body) {
+      return false;
+    }
+    var serialized = JSON.stringify(body);
+    var sent = false;
+    try {
+      if (navigator.sendBeacon) {
+        sent = navigator.sendBeacon(endpoint, new Blob([serialized], { type: "application/json" }));
+      }
+      if (!sent && window.fetch) {
+        window.fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: serialized,
+          credentials: "omit",
+          keepalive: true,
+        }).catch(function () {});
+        sent = true;
+      }
+    } catch (_) {
+      publicProviderCaptureFailure = true;
+      return false;
+    }
+    if (!sent) {
+      publicProviderCaptureFailure = true;
+    }
+    return sent;
+  }
+
   function enableYandexCounter(counterId) {
     if (!counterId) {
       return false;
@@ -362,6 +500,7 @@
 
   function disableOptionalProviders() {
     consentBlocked = true;
+    publicProviderCaptureBlocked = true;
     if (publicConfig) {
       disableYandexCounter(publicConfig.yandex_metrica_id);
       api.providerBlocked = true;
@@ -377,6 +516,7 @@
 
   function enableOptionalProviders() {
     consentBlocked = false;
+    publicProviderCaptureBlocked = false;
     productCaptureBlocked = false;
     if (publicConfig && !publicProviderFailure) {
       api.providerBlocked = false;
@@ -605,6 +745,14 @@
       return false;
     }
     var analytics = ensureProductAnalyticsApi();
+    // An anonymous browser carries no analytics identity. A shared placeholder
+    // would report unrelated visitors as one person, so the controller sends
+    // nothing at all until an authenticated pseudonym arrives (T033, FR-007).
+    var distinctId = stableToken(providerConfig.posthog.distinct_id, 120);
+    if (!distinctId) {
+      analytics.autocaptureBlockedReason = "identity_unavailable";
+      return false;
+    }
     productAutocaptureStarted = true;
     analytics.autocaptureEnabled = true;
     analytics.pageClass = providerConfig.page_class;
@@ -623,7 +771,7 @@
       var tagName = stableToken(fields && fields.tag_name, 24);
       var role = stableToken(fields && fields.role, 80);
       var payload = {
-        distinct_id: stableToken(providerConfig.posthog.distinct_id, 120),
+        distinct_id: distinctId,
         event_type: eventType,
         device_class: stableToken(providerConfig.posthog.device_class, 80),
         identity_state: stableToken(providerConfig.posthog.identity_state, 80),
@@ -700,18 +848,26 @@
 
   function dispatchEvent(eventName, fields) {
     var payload = buildEventPayload(eventName, fields);
-    if (
-      !payload ||
-      !canUseAnalytics() ||
-      !api.providerLoaded ||
-      api.providerBlocked ||
-      !window.ym ||
-      !publicConfig ||
-      !publicConfig.yandex_metrica_id
-    ) {
+    if (!payload || !canUseAnalytics()) {
       return false;
     }
-    window.ym(publicConfig.yandex_metrica_id, "reachGoal", eventName, payload);
+    var sent = false;
+    if (sendPublicProviderEvent(eventName, payload)) {
+      sent = true;
+    }
+    if (
+      api.providerLoaded &&
+      !api.providerBlocked &&
+      window.ym &&
+      publicConfig &&
+      publicConfig.yandex_metrica_id
+    ) {
+      window.ym(publicConfig.yandex_metrica_id, "reachGoal", eventName, payload);
+      sent = true;
+    }
+    if (!sent) {
+      return false;
+    }
     api.sentEvents.push(payload);
     return true;
   }
@@ -743,9 +899,19 @@
   }
 
   function pageViewEventName() {
-    return publicConfig && publicConfig.surface === "public_download"
-      ? "public_download_viewed"
-      : "public_landing_viewed";
+    if (!publicConfig) {
+      return "public_landing_viewed";
+    }
+    if (publicConfig.surface === "public_download") {
+      return "public_download_viewed";
+    }
+    if (publicConfig.surface === "public_signup") {
+      return "public_signup_viewed";
+    }
+    if (publicConfig.surface === "public_login") {
+      return "public_login_viewed";
+    }
+    return "public_landing_viewed";
   }
 
   function eventNameForCta(targetKind) {
@@ -826,13 +992,18 @@
   }
 
   function startPublicTracking() {
-    if (!publicConfig || !ensurePublicYandexProvider()) {
+    if (!publicConfig || !isPublicPageAllowed(publicConfig) || !canUseAnalytics()) {
       return false;
     }
-    dispatchOnce(pageViewEventName(), {});
+    // The page view is reported through the first-party relay, and the external
+    // counter is started only on the surfaces the published scope names. A
+    // blocked or unavailable counter therefore costs a measurement gap, not the
+    // consented measurement of the page.
+    ensurePublicYandexProvider();
+    var sent = dispatchOnce(pageViewEventName(), {});
     bindClickTracking();
     observeSections();
-    return true;
+    return sent || api.providerLoaded;
   }
 
   function startGrantedProviders() {
@@ -855,91 +1026,108 @@
       return false;
     }
     api.consentReady = true;
-    try {
-      window.CookieConsent.run({
-        autoShow: true,
-        cookie: {
-          expiresAfterDays: 180,
-          name: config.consent_storage_key || "graf_public_cookie_consent",
-          path: "/",
-          sameSite: "Lax",
-          secure: window.location.protocol === "https:",
-          useLocalStorage: true,
-        },
-        categories: {
-          necessary: { enabled: true, readOnly: true },
-          analytics: {},
-          advertising_attribution: {},
-          behavior_replay: {},
-        },
-        language: {
-          default: "ru",
-          translations: {
-            ru: {
-              consentModal: {
-                acceptAllBtn: "Разрешить все",
-                acceptNecessaryBtn: "Только необходимые",
-                description:
-                  "ГРАФ использует необходимые технологии для работы сайта. " +
-                  "Аналитика, рекламная атрибуция и поведенческая запись включаются " +
-                  "только после вашего выбора.",
-                footer:
-                  '<a href="/privacy">Конфиденциальность</a>' +
-                  '<a href="/cookies">Cookies</a>' +
-                  '<a href="/analytics-consent">Об аналитике</a>',
-                showPreferencesBtn: "Настроить",
-                title: "Аналитика и cookies",
-              },
-              preferencesModal: {
-                acceptAllBtn: "Разрешить все",
-                acceptNecessaryBtn: "Только необходимые",
-                closeIconLabel: "Закрыть настройки",
-                savePreferencesBtn: "Сохранить выбор",
-                sections: [
-                  {
-                    description:
-                      "Нужны для работы сайта и сохранения вашего выбора. " +
-                      "Не включают необязательный сбор.",
-                    linkedCategory: "necessary",
-                    title: "Необходимые",
-                  },
-                  {
-                    description:
-                      "Разрешает безопасные просмотры и цели публичных страниц, " +
-                      "а также обезличенные продуктовые события во внутренних разделах " +
-                      "после существующего gate. Не отправляем email, телефоны, " +
-                      "тексты, записи, файлы, токены или платежные сведения.",
-                    linkedCategory: "analytics",
-                    title: "Аналитика",
-                  },
-                  {
-                    description:
-                      "Разрешает безопасные UTM-метки и категорию источника перехода. " +
-                      "Полный URL, query, hash и произвольный текст не передаются.",
-                    linkedCategory: "advertising_attribution",
-                    title: "Рекламная атрибуция",
-                  },
-                  {
-                    description:
-                      "Разрешает техническое воспроизведение поведения — движения " +
-                      "указателя, кликов, прокрутки и состояния интерфейса — только на " +
-                      "публичных страницах / и /download. Внутренние страницы, встречи, " +
-                      "формы, аудио и экран не записываются.",
-                    linkedCategory: "behavior_replay",
-                    title: "Поведенческая запись",
-                  },
-                ],
-                title: "Настройки аналитики",
-              },
+    // FR-004: refusal is not harder than consent. Both decisions are the same
+    // kind of button of the same modal, the refusal button is declared here next
+    // to the acceptance button so the pair cannot drift, and both decisions
+    // arrive through the same onConsent handler below.
+    var acceptAllBtn = "Разрешить все";
+    var acceptNecessaryBtn = "Только необходимые";
+    var options = {
+      autoShow: true,
+      cookie: {
+        expiresAfterDays: 180,
+        name: config.consent_storage_key || "graf_public_cookie_consent",
+        path: "/",
+        sameSite: "Lax",
+        secure: window.location.protocol === "https:",
+        useLocalStorage: true,
+      },
+      categories: {
+        necessary: { enabled: true, readOnly: true },
+        analytics: {},
+        advertising_attribution: {},
+        behavior_replay: {},
+      },
+      language: {
+        default: "ru",
+        translations: {
+          ru: {
+            consentModal: {
+              acceptAllBtn: acceptAllBtn,
+              acceptNecessaryBtn: acceptNecessaryBtn,
+              // FR-005: the visitor reads what is measured with consent, what
+              // is measured anonymously without it, and how to refuse. The
+              // claims are exact sentences because the copy comparison checks
+              // them as statements, not as stems.
+              description:
+                "ГРАФ использует необходимые технологии для работы сайта. " +
+                "Аналитика, рекламная атрибуция и поведенческая запись включаются " +
+                "только после вашего выбора. " +
+                "Обезличенный счет ведется без согласия. " +
+                "Отказаться можно кнопкой «Только необходимые» или снять " +
+                "отдельные разрешения в настройках cookies.",
+              footer:
+                '<a href="/privacy">Конфиденциальность</a>' +
+                '<a href="/cookies">Cookies</a>' +
+                '<a href="/analytics-consent">Об аналитике</a>',
+              showPreferencesBtn: "Настроить",
+              title: "Аналитика и cookies",
+            },
+            preferencesModal: {
+              acceptAllBtn: acceptAllBtn,
+              acceptNecessaryBtn: acceptNecessaryBtn,
+              closeIconLabel: "Закрыть настройки",
+              savePreferencesBtn: "Сохранить выбор",
+              sections: [
+                {
+                  description:
+                    "Нужны для работы сайта и сохранения вашего выбора. " +
+                    "Не включают необязательный сбор.",
+                  linkedCategory: "necessary",
+                  title: "Необходимые",
+                },
+                {
+                  description:
+                    "Разрешает безопасные просмотры и цели публичных страниц, " +
+                    "а также обезличенные продуктовые события во внутренних разделах " +
+                    "после существующего gate. Не отправляем email, телефоны, " +
+                    "тексты, записи, файлы, токены или платежные сведения.",
+                  linkedCategory: "analytics",
+                  title: "Аналитика",
+                },
+                {
+                  description:
+                    "Разрешает безопасные UTM-метки и категорию источника перехода. " +
+                    "Полный URL, query, hash и произвольный текст не передаются.",
+                  linkedCategory: "advertising_attribution",
+                  title: "Рекламная атрибуция",
+                },
+                {
+                  description:
+                    "Разрешает техническое воспроизведение поведения — движения " +
+                    "указателя, кликов, прокрутки и состояния интерфейса — только на " +
+                    "публичных страницах / и /download. Внутренние страницы, встречи, " +
+                    "формы, аудио и экран не записываются.",
+                  linkedCategory: "behavior_replay",
+                  title: "Поведенческая запись",
+                },
+              ],
+              title: "Настройки аналитики",
             },
           },
         },
-        mode: "opt-in",
-        onChange: handleConsent,
-        onConsent: handleConsent,
-        onFirstConsent: handleConsent,
-        revision: consentRevision(),
-      });
+      },
+      mode: "opt-in",
+      onChange: handleConsent,
+      onConsent: handleConsent,
+      onFirstConsent: handleConsent,
+      revision: consentRevision(),
+    };
+    // The options stay readable so a test can render the real modal from the
+    // real configuration instead of a hand-written copy of it (FR-004).
+    api.consentOptions = options;
+    try {
+      window.CookieConsent.run(options);
     } catch (_) {
       api.consentReady = false;
       return false;
@@ -950,6 +1138,7 @@
   var api = {
     buildEventPayload: buildEventPayload,
     config: Object.freeze(publicConfig || {}),
+    consentOptions: null,
     consentReady: false,
     currentCategories: [],
     currentConsentState: currentConsentState,
@@ -965,7 +1154,14 @@
     providerLoaded: false,
     sentEvents: [],
     startGrantedTracking: startPublicTracking,
-    version: "266-us5",
+    providerCaptureState: function () {
+      return {
+        blocked: publicProviderCaptureBlocked,
+        failure: publicProviderCaptureFailure,
+        endpoint: publicCaptureEndpoint(),
+      };
+    },
+    version: "273-us2",
   };
 
   if (publicConfig) {
