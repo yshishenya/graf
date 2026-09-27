@@ -25,12 +25,15 @@ from twobrain_rec_server.billing.renewal_charge import (
 from twobrain_rec_server.billing.yookassa import YooKassaProviderError
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
+    BillingAcceptanceBudget,
     BillingAuditEvent,
     BillingInvoice,
     BillingNotificationDelivery,
     BillingOperation,
     BillingPaymentMethod,
     BillingPlanVersion,
+    BillingStorageEntitlementGrant,
+    TimeCreditLedgerEntry,
     Workspace,
     WorkspaceMembership,
     WorkspaceSubscription,
@@ -68,12 +71,27 @@ class FakeDb:
 
     async def scalar(self, _query: object) -> object:
         descriptions = getattr(_query, "column_descriptions", ())
+        if (
+            descriptions
+            and descriptions[0].get("entity") is BillingInvoice
+            and "JOIN billing_entitlement_grants" in str(_query)
+        ):
+            return None
+        if descriptions and descriptions[0].get("entity") in {
+            BillingAcceptanceBudget,
+            BillingStorageEntitlementGrant,
+            TimeCreditLedgerEntry,
+        }:
+            return None
         if descriptions and descriptions[0].get("entity") is WorkspaceMembership:
             return self.membership
         return next(self._values)
 
     async def get(self, model: object, _key: object) -> object | None:
         return self.workspace if model is Workspace else None
+
+    async def refresh(self, _row, **_kwargs) -> None:
+        return None
 
     async def flush(self) -> None:
         return None
@@ -218,7 +236,7 @@ def _planning_catalog() -> BillingPlanVersion:
         cycle="month",
         amount_minor=79_000,
         currency="RUB",
-        storage_bytes=2_000_000_000,
+        storage_bytes=5_000_000_000,
         processing_mode="unlimited",
         enabled_for_checkout=True,
         policy_snapshot={"offer_version": "personal-v7"},
@@ -273,8 +291,7 @@ def test_renewal_key_and_invoice_reference_are_stable_and_bounded() -> None:
 def test_renewal_attempts_land_72_48_and_24_hours_before_the_boundary() -> None:
     assert RENEWAL_ATTEMPT_COUNT == 3
     assert [
-        renewal_attempt_due_at(paid_through=PAID_THROUGH, attempt=attempt)
-        for attempt in (1, 2, 3)
+        renewal_attempt_due_at(paid_through=PAID_THROUGH, attempt=attempt) for attempt in (1, 2, 3)
     ] == [
         PAID_THROUGH - timedelta(hours=72),
         PAID_THROUGH - timedelta(hours=48),
@@ -331,12 +348,12 @@ async def test_planner_persists_approved_catalog_and_receipt_snapshot() -> None:
         cycle="month",
         amount_minor=79_000,
         currency="RUB",
-        storage_bytes=2_000_000_000,
+        storage_bytes=5_000_000_000,
         processing_mode="unlimited",
         enabled_for_checkout=True,
         policy_snapshot={"offer_version": "personal-v7"},
     )
-    db = PlanningDb([subscription, None, catalog, UUID(int=1), "billing@2brain.pro", None])
+    db = PlanningDb([subscription, None, catalog, UUID(int=1), "billing@2brain.pro", None, None])
 
     planned = await plan_due_renewals(db, now=datetime(2026, 8, 8, tzinfo=UTC))
 
@@ -349,7 +366,7 @@ async def test_planner_persists_approved_catalog_and_receipt_snapshot() -> None:
         "cycle": "month",
         "amount_minor": 79_000,
         "currency": "RUB",
-        "storage_bytes": 2_000_000_000,
+        "storage_bytes": 5_000_000_000,
         "processing_mode": "unlimited",
         "offer_version": "personal-v7",
         "policy_snapshot": {"offer_version": "personal-v7"},
@@ -385,25 +402,33 @@ async def test_planner_skips_renewal_while_initial_checkout_is_unresolved() -> N
 
 
 @pytest.mark.asyncio
-async def test_planner_opens_the_first_attempt_at_once_for_a_late_window() -> None:
+async def test_planner_skips_old_windows_and_opens_only_the_current_attempt() -> None:
     late = PAID_THROUGH - timedelta(hours=2)
     db = PlanningDb(
-        [_planning_subscription(), None, _planning_catalog(), UUID(int=1), "billing@2brain.pro", None]
+        [
+            _planning_subscription(),
+            None,
+            _planning_catalog(),
+            UUID(int=1),
+            "billing@2brain.pro",
+            None,
+            None,
+            None,
+        ]
     )
 
     # The subscription enters the reminder window two hours before its period
-    # ends: the first attempt moment is already in the past and its provider
-    # window opens now instead of being over before the first charge.
+    # ends: only the third window remains. Earlier windows must never be charged.
     planned = await plan_due_renewals(db, now=late)
 
     assert len(planned) == 1
     operation = next(row for row in db.added if isinstance(row, BillingOperation))
-    assert operation.request_snapshot["renewal_attempt"] == 1
-    assert operation.idempotency_key.endswith(":a1")
-    assert operation.provider_key_expires_at == late + RENEWAL_PROVIDER_WINDOW
+    assert operation.request_snapshot["renewal_attempt"] == 3
+    assert operation.idempotency_key.endswith(":a3")
+    assert operation.provider_key_expires_at == PAID_THROUGH
     assert operation.provider_key_expires_at > late
     invoice = next(row for row in db.added if isinstance(row, BillingInvoice))
-    assert invoice.plan_snapshot["renewal_attempt"] == 1
+    assert invoice.plan_snapshot["renewal_attempt"] == 3
     assert invoice.operation_id == operation.id
 
 
@@ -415,9 +440,7 @@ async def test_planner_waits_for_the_next_attempt_moment(provider_id: str | None
     common = [subscription, None, _planning_catalog(), UUID(int=1), "billing@2brain.pro"]
 
     too_early = PlanningDb([*common, resolved_first])
-    assert (
-        await plan_due_renewals(too_early, now=PAID_THROUGH - timedelta(hours=50))
-    ) == ()
+    assert (await plan_due_renewals(too_early, now=PAID_THROUGH - timedelta(hours=50))) == ()
     assert not [row for row in too_early.added if isinstance(row, BillingOperation)]
 
     on_time = PlanningDb([*common, resolved_first, None])
@@ -430,9 +453,7 @@ async def test_planner_waits_for_the_next_attempt_moment(provider_id: str | None
     # An attempt planned exactly on its moment reserves exactly one window.
     assert second.provider_key_expires_at == PAID_THROUGH - timedelta(hours=24)
     repeated = PlanningDb([*common, resolved_first, second])
-    assert await plan_due_renewals(repeated, now=PAID_THROUGH - timedelta(hours=47)) == (
-        second.id,
-    )
+    assert await plan_due_renewals(repeated, now=PAID_THROUGH - timedelta(hours=47)) == (second.id,)
     assert repeated.added == []
 
     # The last attempt never reaches past the paid-through boundary.
@@ -448,12 +469,14 @@ async def test_planner_waits_for_the_next_attempt_moment(provider_id: str | None
     third = next(row for row in last.added if isinstance(row, BillingOperation))
     assert third.request_snapshot["renewal_attempt"] == 3
     assert third.provider_key_expires_at == PAID_THROUGH
-    exhausted = PlanningDb([
-        *common,
-        resolved_first,
-        _stored_attempt(attempt=2, state="canceled", provider_id=provider_id),
-        _stored_attempt(attempt=3, state="canceled", provider_id=provider_id),
-    ])
+    exhausted = PlanningDb(
+        [
+            *common,
+            resolved_first,
+            _stored_attempt(attempt=2, state="canceled", provider_id=provider_id),
+            _stored_attempt(attempt=3, state="canceled", provider_id=provider_id),
+        ]
+    )
     assert await plan_due_renewals(exhausted, now=PAID_THROUGH - timedelta(hours=1)) == ()
     assert exhausted.added == []
 
@@ -464,8 +487,14 @@ async def test_planner_waits_for_the_next_attempt_moment(provider_id: str | None
     [
         (state, provider_id)
         for state in (
-            "unknown", "processing", "sent", "provider_key_expired",
-            "manual_resolution", "reconciliation_gap", "succeeded", "succeeded_refused",
+            "unknown",
+            "processing",
+            "sent",
+            "provider_key_expired",
+            "manual_resolution",
+            "reconciliation_gap",
+            "succeeded",
+            "succeeded_refused",
         )
         for provider_id in (None, "pay-attempt-1")
     ],
@@ -608,9 +637,7 @@ async def test_candidate_query_uses_the_moment_of_each_attempt() -> None:
         db = CandidateDb(operation)
         due_at = renewal_attempt_due_at(paid_through=PAID_THROUGH, attempt=attempt)
 
-        assert await pending_renewal_charge_candidates(
-            db, now=due_at - timedelta(minutes=1)
-        ) == ()
+        assert await pending_renewal_charge_candidates(db, now=due_at - timedelta(minutes=1)) == ()
         assert await pending_renewal_charge_candidates(db, now=due_at) == (
             (operation.id, operation.workspace_id),
         )
@@ -806,7 +833,7 @@ async def test_charge_rejects_boolean_authority_version_before_decrypt_or_provid
         settings,
         operation_id=OPERATION_ID,
         workspace_id=WORKSPACE_ID,
-        now=PAID_THROUGH,
+        now=_attempt_charge_moment(1),
     )
 
     assert result.status == "manual_resolution"
@@ -831,8 +858,7 @@ async def test_charge_waits_for_its_own_attempt_moment(monkeypatch, tmp_path: Pa
         settings,
         operation_id=OPERATION_ID,
         workspace_id=WORKSPACE_ID,
-        now=renewal_attempt_due_at(paid_through=PAID_THROUGH, attempt=1)
-        - timedelta(hours=1),
+        now=renewal_attempt_due_at(paid_through=PAID_THROUGH, attempt=1) - timedelta(hours=1),
     )
 
     assert result.status == "scheduled"
@@ -887,9 +913,7 @@ async def test_missing_saved_method_resolves_attempt_and_allows_next_window(
         now=PAID_THROUGH - timedelta(hours=48),
     )
     assert len(planned) == 1
-    next_operation = next(
-        row for row in planning_db.added if isinstance(row, BillingOperation)
-    )
+    next_operation = next(row for row in planning_db.added if isinstance(row, BillingOperation))
     assert next_operation.request_snapshot["renewal_attempt"] == 2
 
 
@@ -935,7 +959,10 @@ async def test_rate_limit_retries_same_attempt_and_key_without_decline_notice(
     for _ in range(2):
         db = FakeDb([subscription, operation, invoice, method, None])
         result = await charge_renewal_operation(
-            db, settings, operation_id=OPERATION_ID, workspace_id=WORKSPACE_ID,
+            db,
+            settings,
+            operation_id=OPERATION_ID,
+            workspace_id=WORKSPACE_ID,
             now=_attempt_charge_moment(attempt),
         )
         assert result.status == operation.state == "scheduled"
@@ -949,10 +976,13 @@ async def test_rate_limit_retries_same_attempt_and_key_without_decline_notice(
     assert {call["idempotence_key"] for call in provider.calls} == {original_key}
     # The existing provider-key deadline bounds even repeated rate limiting.
     result = await charge_renewal_operation(
-        FakeDb([subscription, operation, invoice, method]), settings,
-        operation_id=OPERATION_ID, workspace_id=WORKSPACE_ID, now=original_deadline,
+        FakeDb([subscription, operation, invoice, method]),
+        settings,
+        operation_id=OPERATION_ID,
+        workspace_id=WORKSPACE_ID,
+        now=original_deadline,
     )
-    assert result.status == "manual_resolution"
+    assert result.status == "canceled"
     assert len(provider.calls) == 2
 
 
@@ -1037,8 +1067,14 @@ def _canceled_payment() -> dict[str, object]:
     return {
         "id": "pay-renewal-1",
         "status": "canceled",
+        "test": False,
+        "recipient": {"account_id": "shop-1"},
         "amount": {"value": "790.00", "currency": "RUB"},
-        "metadata": {"workspace_id": str(WORKSPACE_ID), "operation_id": str(OPERATION_ID)},
+        "metadata": {
+            "workspace_id": str(WORKSPACE_ID),
+            "operation_id": str(OPERATION_ID),
+            "invoice_number": "INV-RNW-33333333333343338333",
+        },
     }
 
 
@@ -1057,7 +1093,10 @@ async def test_unbound_canceled_response_stays_unknown_without_next_attempt_or_n
     )
     db = FakeDb([subscription, operation, invoice, method])
     result = await charge_renewal_operation(
-        db, settings, operation_id=OPERATION_ID, workspace_id=WORKSPACE_ID,
+        db,
+        settings,
+        operation_id=OPERATION_ID,
+        workspace_id=WORKSPACE_ID,
         now=_attempt_charge_moment(1),
     )
     assert result.status == operation.state == invoice.status == "unknown"
@@ -1094,7 +1133,10 @@ async def test_schedule_change_cancels_stale_operation_without_provider_call(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("drift", ["none", "period", "owner", "authority", "succeeded", "succeeded_refused", "invoice_succeeded"])
+@pytest.mark.parametrize(
+    "drift",
+    ["none", "period", "owner", "authority", "succeeded", "succeeded_refused", "invoice_succeeded"],
+)
 async def test_late_decline_never_changes_new_authority_or_success(
     tmp_path: Path, drift: str
 ) -> None:
@@ -1121,7 +1163,10 @@ async def test_late_decline_never_changes_new_authority_or_success(
     db = FakeDb([None])
     for _ in range(2):
         await record_renewal_decline(
-            db, subscription=subscription, operation=operation, invoice=invoice,
+            db,
+            subscription=subscription,
+            operation=operation,
+            invoice=invoice,
             now=PAID_THROUGH + timedelta(seconds=1),
         )
     assert subscription.paid_through == paid_through

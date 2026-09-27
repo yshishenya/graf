@@ -12,13 +12,29 @@ CatalogCycle = Literal["none", "month", "year"]
 FREE_PROCESSING_SECONDS = 18_000
 FREE_STORAGE_BYTES = 250_000_000
 TRIAL_STORAGE_BYTES = 500_000_000
-PERSONAL_STORAGE_BYTES = 2_000_000_000
-ADDON_CAPACITY_BYTES = (
-    5_000_000_000,
-    20_000_000_000,
-    100_000_000_000,
-    500_000_000_000,
+PERSONAL_STORAGE_BYTES = 5_000_000_000
+STORAGE_PACKAGE_BYTES = 5_000_000_000
+MAX_STORAGE_PACKAGES = 99
+STORAGE_PACKAGE_MONTHLY_MINOR = 25_000
+STORAGE_PACKAGE_ANNUAL_MINOR = 250_000
+ADDON_CAPACITY_BYTES = tuple(
+    PERSONAL_STORAGE_BYTES + n * STORAGE_PACKAGE_BYTES for n in range(1, MAX_STORAGE_PACKAGES + 1)
 )
+
+
+def storage_package_capacity(package_count: int) -> int:
+    if type(package_count) is not int or not 0 <= package_count <= MAX_STORAGE_PACKAGES:
+        raise ValueError("Количество пакетов должно быть целым числом от 0 до 99")
+    return PERSONAL_STORAGE_BYTES + package_count * STORAGE_PACKAGE_BYTES
+
+
+def storage_package_count(capacity_bytes: int) -> int:
+    if type(capacity_bytes) is not int or capacity_bytes < PERSONAL_STORAGE_BYTES:
+        raise ValueError("Неверный объём хранения")
+    count, remainder = divmod(capacity_bytes - PERSONAL_STORAGE_BYTES, STORAGE_PACKAGE_BYTES)
+    if remainder or count > MAX_STORAGE_PACKAGES:
+        raise ValueError("Неверный объём хранения")
+    return count
 
 
 class CatalogNotApproved(ValueError):

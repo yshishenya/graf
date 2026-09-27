@@ -40,7 +40,16 @@ from twobrain_rec_server.billing.payment_methods import (
     read_billing_encryption_key,
 )
 from twobrain_rec_server.billing.provider_events import validate_provider_identifier
-from twobrain_rec_server.billing.reconciliation import validate_renewal_payment
+from twobrain_rec_server.billing.purchases import (
+    PurchaseError,
+    compose_personal_catalog,
+    reserve_acceptance_budget,
+    settle_acceptance_budget,
+    storage_price_is_accepted,
+    storage_price_snapshot,
+)
+from twobrain_rec_server.billing.reconciliation import ProviderScope, validate_purchase_payment
+from twobrain_rec_server.billing.storage import lock_storage_workspace
 from twobrain_rec_server.billing.yookassa import (
     YooKassaClient,
     YooKassaConfigurationError,
@@ -95,9 +104,8 @@ def renewal_attempt_due_at(*, paid_through: datetime, attempt: int) -> datetime:
     """Return the moment one renewal attempt may start.
 
     Attempt ``1`` lands ``RENEWAL_REMINDER_HOURS`` before the paid-through
-    boundary, every next attempt one interval later.  A subscription that
-    enters the reminder window late does not wait for a future moment: the
-    earlier attempt is already due and is charged by the next pass.
+    boundary, every next attempt one interval later. Each window lasts 24 hours;
+    missed windows are skipped and never produce a catch-up series of payments.
     """
     if attempt not in RENEWAL_ATTEMPTS:
         raise ValueError("renewal attempt number is invalid")
@@ -116,6 +124,25 @@ def renewal_attempt_of(operation: BillingOperation) -> int:
     if isinstance(attempt, int) and not isinstance(attempt, bool) and attempt in RENEWAL_ATTEMPTS:
         return attempt
     return RENEWAL_ATTEMPT_COUNT
+
+
+def next_renewal_attempt(
+    *,
+    paid_through: datetime,
+    now: datetime,
+    resolved_attempts: set[int],
+    unresolved: bool,
+) -> datetime | None:
+    """The same non-catch-up windows drive both the scheduler and user copy."""
+    if unresolved:
+        return None
+    current = _utc(now)
+    for attempt in RENEWAL_ATTEMPTS:
+        due = renewal_attempt_due_at(paid_through=paid_through, attempt=attempt)
+        if current >= due + RENEWAL_ATTEMPT_INTERVAL or attempt in resolved_attempts:
+            continue
+        return max(current, due)
+    return None
 
 
 def renewal_operation_key(
@@ -177,12 +204,14 @@ def _snapshot(
     )
     return {
         "plan_code": "personal",
+        "purchase_purpose": "renewal",
         "cycle": subscription.cycle,
         "list_amount_minor": catalog.amount_minor,
         "payable_amount_minor": catalog.amount_minor,
         "currency": catalog.currency,
         "catalog_snapshot": catalog.as_dict(),
-        "storage_capacity_bytes": subscription.capacity_bytes,
+        "storage_capacity_bytes": catalog.storage_bytes,
+        "selection_version": subscription.next_capacity_version or 0,
         "billing_actor_user_id": str(subscription.billing_owner_id)
         if subscription.billing_owner_id
         else None,
@@ -197,7 +226,7 @@ async def plan_due_renewals(
     *,
     now: datetime | None = None,
     limit: int = 100,
-    provider_floor_minor: int = 1,
+    provider_floor_minor: int = 100,
 ) -> tuple[UUID, ...]:
     """Persist one renewal operation/invoice for each due subscription.
 
@@ -233,15 +262,22 @@ async def plan_due_renewals(
         )
         .order_by(WorkspaceSubscription.paid_through, WorkspaceSubscription.workspace_id)
         .limit(limit)
-        .with_for_update(skip_locked=True)
     )
     planned: list[UUID] = []
     for subscription in await db.scalars(query):
+        await lock_storage_workspace(db, subscription.workspace_id)
+        await db.refresh(subscription, with_for_update=True)
+        if (
+            not subscription.recurring_allowed
+            or not subscription.paid_through
+            or subscription.paid_through <= current
+        ):
+            continue
         initial_checkout = await db.scalar(
             select(BillingOperation.id)
             .where(
                 BillingOperation.workspace_id == subscription.workspace_id,
-                BillingOperation.kind == "initial_checkout",
+                BillingOperation.kind.in_(("initial_checkout", "storage_upgrade", "early_renewal")),
                 BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
             )
             .with_for_update()
@@ -250,6 +286,15 @@ async def plan_due_renewals(
         if initial_checkout is not None:
             continue
         catalog = await _approved_catalog(db, cycle=subscription.cycle, now=current)
+        storage_price = None
+        if catalog is not None:
+            try:
+                catalog, storage_price = await compose_personal_catalog(
+                    db, base=catalog, subscription=subscription, now=current
+                )
+            except PurchaseError:
+                subscription.renewal_resolution = "catalog_not_approved"
+                continue
         if (
             catalog is None
             or catalog.amount_minor is None
@@ -264,6 +309,9 @@ async def plan_due_renewals(
                 and catalog.amount_minor < provider_floor_minor
                 else "catalog_not_approved"
             )
+            continue
+        if not storage_price_is_accepted(subscription, storage_price):
+            subscription.renewal_resolution = "price_changed"
             continue
         default_method = await db.scalar(
             select(BillingPaymentMethod)
@@ -318,6 +366,14 @@ async def plan_due_renewals(
                 )
                 .with_for_update()
             )
+            if current >= due_at + RENEWAL_ATTEMPT_INTERVAL:
+                if (
+                    existing is not None
+                    and existing.state != "canceled"
+                    and not (existing.state == "scheduled" and existing.provider_id is None)
+                ):
+                    break  # An older unknown payment still may succeed.
+                continue  # No charge for a missed window.
             if existing is not None:
                 if (
                     existing.provider_id is None
@@ -346,6 +402,7 @@ async def plan_due_renewals(
         attempt, key, due_at = selected
         operation_id = uuid5(NAMESPACE_URL, f"graf:renewal-operation:{key}")
         snapshot = _snapshot(subscription=subscription, catalog=catalog)
+        snapshot["storage_price_snapshot"] = storage_price_snapshot(storage_price)
         snapshot["renewal_attempt"] = attempt
         method_label = getattr(default_method, "masked_label", None)
         if isinstance(method_label, str) and method_label:
@@ -359,10 +416,7 @@ async def plan_due_renewals(
             # The attempt opens its own provider window when it is launched, so
             # an attempt planned inside the reminder window is chargeable right
             # away. Nothing reaches further than one window past the boundary.
-            provider_key_expires_at=min(
-                max(due_at, current) + RENEWAL_PROVIDER_WINDOW,
-                _utc(subscription.paid_through) + RENEWAL_PROVIDER_WINDOW,
-            ),
+            provider_key_expires_at=due_at + RENEWAL_ATTEMPT_INTERVAL,
             request_snapshot=snapshot,
         )
         db.add(operation)
@@ -631,8 +685,14 @@ async def record_renewal_decline(
         or (subscription is not None and subscription.workspace_id != operation.workspace_id)
     ):
         raise ValueError("renewal decline binding does not match")
-    if operation.state in {"canceled", "succeeded", "succeeded_refused"} or invoice.status == "succeeded":
+    if (
+        operation.state in {"canceled", "succeeded", "succeeded_refused"}
+        or invoice.status == "succeeded"
+    ):
         return
+    await settle_acceptance_budget(
+        db, workspace_id=operation.workspace_id, operation_id=operation.id, succeeded=False
+    )
     operation.state = "canceled"
     invoice.status = "canceled"
     snapshot = operation.request_snapshot
@@ -661,8 +721,11 @@ async def record_renewal_decline(
     else:
         subscription.renewal_resolution = "attempt_failed"
     _record_charge_audit(
-        db, subscription=subscription, operation=operation,
-        outcome="canceled", reason_code=reason_code,
+        db,
+        subscription=subscription,
+        operation=operation,
+        outcome="canceled",
+        reason_code=reason_code,
     )
     await _enqueue_renewal_attempt_failure(db, subscription=subscription, invoice=invoice)
 
@@ -678,6 +741,7 @@ async def charge_renewal_operation(
     """Send one saved-method payment while holding the subscription authority lock."""
     current = _utc(now or datetime.now(UTC))
     await db.rollback()
+    await lock_storage_workspace(db, workspace_id)
     subscription = await db.scalar(
         select(WorkspaceSubscription)
         .where(WorkspaceSubscription.workspace_id == workspace_id)
@@ -721,6 +785,23 @@ async def charge_renewal_operation(
         )
         .with_for_update()
     )
+    dispatched = False
+
+    async def refresh_after_dispatch():
+        if not dispatched:
+            return None
+        await lock_storage_workspace(db, workspace_id)
+        await db.refresh(subscription, with_for_update=True)
+        await db.refresh(operation, with_for_update=True)
+        await db.refresh(invoice, with_for_update=True)
+        if (
+            operation.state in {"succeeded", "succeeded_refused", "canceled", "reconciliation_gap"}
+            or invoice.status == "succeeded"
+        ):
+            await db.commit()
+            return RenewalChargeResult(operation_id, operation.state, operation.provider_id)
+        return None
+
     try:
         billing_actor_id = UUID(str(operation.request_snapshot.get("billing_actor_user_id")))
     except (TypeError, ValueError):
@@ -773,6 +854,12 @@ async def charge_renewal_operation(
         # renewal without a paid period cannot be charged at all.
         await db.rollback()
         return RenewalChargeResult(operation_id, "scheduled")
+    if current >= due_at + RENEWAL_ATTEMPT_INTERVAL:
+        operation.state = "canceled"
+        invoice.status = "canceled"
+        subscription.renewal_resolution = "window_missed"
+        await db.commit()
+        return RenewalChargeResult(operation_id, "canceled")
     if (
         operation.provider_key_expires_at is None
         or _utc(operation.provider_key_expires_at) <= current
@@ -793,6 +880,26 @@ async def charge_renewal_operation(
         )
         await db.commit()
         return RenewalChargeResult(operation_id, "manual_resolution")
+    if operation.state == "scheduled" and operation.request_snapshot.get("storage_price_snapshot"):
+        current_base = await _approved_catalog(db, cycle=subscription.cycle, now=current)
+        try:
+            if current_base is None:
+                raise PurchaseError("Цена недоступна")
+            _, current_storage = await compose_personal_catalog(
+                db, base=current_base, subscription=subscription, now=current
+            )
+            accepted = storage_price_is_accepted(subscription, current_storage)
+            accepted = accepted and storage_price_snapshot(
+                current_storage
+            ) == operation.request_snapshot.get("storage_price_snapshot")
+        except PurchaseError:
+            accepted = False
+        if not accepted:
+            operation.state = "canceled"
+            invoice.status = "canceled"
+            subscription.renewal_resolution = "price_changed"
+            await db.commit()
+            return RenewalChargeResult(operation_id, "canceled")
     try:
         require_billing_enabled(
             checkout_enabled=bool(settings.billing_checkout_enabled),
@@ -838,11 +945,28 @@ async def charge_renewal_operation(
             method.encrypted_provider_ref,
             key,
         )
-        if invoice.amount_minor <= 0 or invoice.currency != "RUB":
+        if (
+            invoice.amount_minor < max(100, settings.billing_provider_floor_minor)
+            or invoice.currency != "RUB"
+        ):
             raise ValueError("renewal invoice is invalid")
         provider_environment(settings.billing_yookassa_environment)
+        await reserve_acceptance_budget(
+            db,
+            workspace_id=workspace_id,
+            operation_id=operation.id,
+            amount_minor=invoice.amount_minor,
+            now=current,
+        )
+        operation.request_snapshot = {
+            **operation.request_snapshot,
+            "purchase_schema": 2,
+            "provider_environment": settings.billing_yookassa_environment,
+            "provider_shop_id": settings.billing_yookassa_shop_id,
+        }
         operation.state = "processing"
-        await db.flush()
+        await db.commit()  # Persist the budget and send marker before network I/O.
+        dispatched = True
         async with YooKassaClient(settings) as provider:
             receipt = build_receipt_payload(
                 receipt_contact=invoice.receipt_contact_snapshot,
@@ -867,6 +991,16 @@ async def charge_renewal_operation(
                 payment_method_id=provider_ref,
                 receipt=receipt,
             )
+        await lock_storage_workspace(db, workspace_id)
+        await db.refresh(subscription, with_for_update=True)
+        await db.refresh(operation, with_for_update=True)
+        await db.refresh(invoice, with_for_update=True)
+        if (
+            operation.state in {"succeeded", "succeeded_refused", "canceled", "reconciliation_gap"}
+            or invoice.status == "succeeded"
+        ):
+            await db.commit()
+            return RenewalChargeResult(operation_id, operation.state, operation.provider_id)
         provider_id = payment.get("id")
         if not isinstance(provider_id, str):
             raise YooKassaProviderError("provider payment reference is missing")
@@ -874,11 +1008,23 @@ async def charge_renewal_operation(
         operation.provider_id = provider_id
         if payment.get("status") == "canceled":
             try:
-                validate_renewal_payment(payment, operation=operation, invoice=invoice)
+                validate_purchase_payment(
+                    payment,
+                    operation=operation,
+                    invoice=invoice,
+                    scope=ProviderScope(
+                        environment=settings.billing_yookassa_environment,
+                        shop_id=settings.billing_yookassa_shop_id,
+                    ),
+                )
             except ValueError as exc:
                 raise YooKassaProviderError("provider payment binding is invalid") from exc
             await record_renewal_decline(
-                db, subscription=subscription, operation=operation, invoice=invoice, now=current,
+                db,
+                subscription=subscription,
+                operation=operation,
+                invoice=invoice,
+                now=current,
             )
             await db.commit()
             return RenewalChargeResult(operation_id, operation.state, provider_id)
@@ -910,6 +1056,9 @@ async def charge_renewal_operation(
         await db.commit()
         return RenewalChargeResult(operation_id, "canceled")
     except YooKassaProviderError as exc:
+        completed = await refresh_after_dispatch()
+        if completed is not None:
+            return completed
         if exc.status_code == 429:
             # The minute-based reconciler retries this operation with its
             # original key; the persisted key deadline still bounds retries.
@@ -917,14 +1066,21 @@ async def charge_renewal_operation(
             invoice.status = "pending"
             subscription.renewal_resolution = "pending"
             _record_charge_audit(
-                db, subscription=subscription, operation=operation,
-                outcome="scheduled", reason_code="provider_rate_limited",
+                db,
+                subscription=subscription,
+                operation=operation,
+                outcome="scheduled",
+                reason_code="provider_rate_limited",
             )
             await db.commit()
             return RenewalChargeResult(operation_id, "scheduled")
         if exc.status_code is not None and 400 <= exc.status_code < 500:
             await record_renewal_decline(
-                db, subscription=subscription, operation=operation, invoice=invoice, now=current,
+                db,
+                subscription=subscription,
+                operation=operation,
+                invoice=invoice,
+                now=current,
             )
             await db.commit()
             return RenewalChargeResult(operation_id, "canceled")
@@ -941,6 +1097,9 @@ async def charge_renewal_operation(
         await db.commit()
         return RenewalChargeResult(operation_id, "unknown")
     except (httpx.HTTPError, YooKassaConfigurationError):
+        completed = await refresh_after_dispatch()
+        if completed is not None:
+            return completed
         operation.state = "unknown"
         invoice.status = "unknown"
         subscription.renewal_resolution = "pending"
@@ -954,6 +1113,9 @@ async def charge_renewal_operation(
         await db.commit()
         return RenewalChargeResult(operation_id, "unknown")
     except (ValueError, TypeError):
+        completed = await refresh_after_dispatch()
+        if completed is not None:
+            return completed
         operation.state = "manual_resolution"
         invoice.status = "manual_resolution"
         subscription.renewal_resolution = "method_required"

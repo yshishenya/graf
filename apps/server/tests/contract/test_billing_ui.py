@@ -60,7 +60,7 @@ def test_new_money_mutations_block_initial_checkout_and_renewal_operations() -> 
         )
     )
 
-    assert "kind = 'initial_checkout'" in statement
+    assert "kind IN ('initial_checkout', 'storage_upgrade', 'early_renewal')" in statement
     for state in (
         "scheduled",
         "provider_pending",
@@ -103,19 +103,15 @@ async def test_cabinet_catalog_uses_the_same_guard_as_the_public_offer() -> None
         "plan_code": "personal",
         "version": 1,
         "currency": "RUB",
-        "storage_bytes": 2_000_000_000,
+        "storage_bytes": 5_000_000_000,
         "processing_mode": "unlimited",
         "enabled_for_checkout": True,
         "policy_snapshot": {"offer_version": PUBLIC_APPROVED_OFFER_VERSION},
         "effective_from": datetime(2026, 8, 1, tzinfo=UTC),
     }
     approved_rows = [
-        BillingPlanVersion(
-            cycle="month", amount_minor=PUBLIC_MONTHLY_AMOUNT_MINOR, **common
-        ),
-        BillingPlanVersion(
-            cycle="year", amount_minor=PUBLIC_ANNUAL_AMOUNT_MINOR, **common
-        ),
+        BillingPlanVersion(cycle="month", amount_minor=PUBLIC_MONTHLY_AMOUNT_MINOR, **common),
+        BillingPlanVersion(cycle="year", amount_minor=PUBLIC_ANNUAL_AMOUNT_MINOR, **common),
     ]
     approved = await billing_routes._approved_personal_catalog(
         CatalogSession(approved_rows),
@@ -296,6 +292,17 @@ async def test_plans_default_to_current_personal_cycle_without_mislabeling_other
 async def test_scheduled_renewal_uses_persisted_invoice_amount(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        billing_routes, "effective_paid_storage", AsyncMock(return_value=5_000_000_000)
+    )
+    monkeypatch.setattr(
+        billing_routes, "_next_renewal_label", AsyncMock(return_value="в ближайшее время")
+    )
+
+    async def base_composition(_db, *, base, **_kwargs):
+        return base, None
+
+    monkeypatch.setattr(billing_routes, "compose_personal_catalog", base_composition)
     principal = SimpleNamespace(user_id=UUID(int=1), session_id=None, auth_via_session=False)
     subscription = SimpleNamespace(
         plan_code="personal",
@@ -303,7 +310,7 @@ async def test_scheduled_renewal_uses_persisted_invoice_amount(
         paid_through=datetime.now(UTC) + timedelta(days=1),
         trial_ends_at=None,
         renewal_resolution=None,
-        capacity_bytes=2_000_000_000,
+        capacity_bytes=5_000_000_000,
         cycle="month",
         billing_owner_id=principal.user_id,
         recurring_allowed=True,
@@ -402,7 +409,7 @@ async def test_checkout_page_only_offers_authorized_persisted_continuation(
 
     class FakeSession:
         def __init__(self) -> None:
-            self.results = iter((blocker, None))
+            self.results = iter((blocker, None, None))
 
         async def scalar(self, _statement: object) -> object:
             return next(self.results)
@@ -519,6 +526,7 @@ def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> N
         result=None,
         method_available=True,
         next_charge_amount_label="790 ₽",
+        resume_quote_id="synthetic-resume-quote",
     )
     usage_html = render_template(
         "cabinet/pages/billing_usage_content.html",
@@ -531,8 +539,8 @@ def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> N
         processing_unlimited=True,
         storage_used=0,
         storage_reserved=0,
-        storage_available=2_000_000_000,
-        storage_capacity=2_000_000_000,
+        storage_available=5_000_000_000,
+        storage_capacity=5_000_000_000,
         storage_threshold="normal",
         storage_threshold_label="В норме",
         billing_owner=True,
@@ -603,10 +611,19 @@ def test_billing_notices_and_list_statuses_use_one_toned_component() -> None:
         "border-radius: var(--radius-card); background: var(--surface-2); color: var(--text); }"
     ) in css
     assert '.notice[role="alert"],' in css
-    assert ".notice.notice--warning { color: var(--amber); border-color: var(--warning-border); background: var(--warning-surface); }" in css
-    assert ".notice.notice--success { color: var(--green); border-color: var(--success-border); background: var(--success-surface); }" in css
+    assert (
+        ".notice.notice--warning { color: var(--amber); border-color: var(--warning-border); background: var(--warning-surface); }"
+        in css
+    )
+    assert (
+        ".notice.notice--success { color: var(--green); border-color: var(--success-border); background: var(--success-surface); }"
+        in css
+    )
     assert ".notice + .notice { margin-top: 8px; }" in css
-    assert ".meeting-status,\n.meeting-content-readiness,\n.meeting-result-count { color: var(--muted); font-size: var(--font-size-helper); }" in css
+    assert (
+        ".meeting-status,\n.meeting-content-readiness,\n.meeting-result-count { color: var(--muted); font-size: var(--font-size-helper); }"
+        in css
+    )
     assert '.meeting-status[data-status-kind="failed"],' in css
     assert '.meeting-content-readiness[data-processing-retry-class="terminal"]' in css
     assert '.meeting-status[data-status-kind="limited"],' in css
@@ -623,6 +640,7 @@ def test_checkout_requires_explicit_recurring_consent_copy() -> None:
         plan=plan_descriptor("personal"),
         billing_enabled=True,
         checkout_idempotency_key="synthetic-key",
+        checkout_quote_id="synthetic-quote",
         checkout_result="consent_required",
         monthly_price_label="790 ₽",
         annual_price_label="7 900 ₽",
@@ -649,6 +667,7 @@ def test_checkout_offer_consent_error_is_explicit() -> None:
         plan=plan_descriptor("personal"),
         billing_enabled=True,
         checkout_idempotency_key="synthetic-key",
+        checkout_quote_id="synthetic-quote",
         checkout_result="offer_required",
         monthly_price_label="790 ₽",
         annual_price_label="7 900 ₽",
@@ -744,7 +763,7 @@ def test_payment_method_and_storage_surfaces_keep_safe_boundaries() -> None:
     storage_html = render_template(
         "cabinet/pages/billing_storage_content.html",
         **common,
-        current_capacity=2_000_000_000,
+        current_capacity=5_000_000_000,
         current_capacity_label="2 GB",
         addon_options=(5_000_000_000, 20_000_000_000),
         capacity_labels=("5 GB", "20 GB"),
@@ -753,9 +772,9 @@ def test_payment_method_and_storage_surfaces_keep_safe_boundaries() -> None:
     )
     assert "•••• 4242" in method_html
     assert "Данные карты не проходят через GRAF" in method_html
-    assert "meeting-review.m4a" in storage_html
-    assert "Исходный WAV" in storage_html
-    assert "Увеличить до 5 GB" in storage_html
+    assert "Лимит расходуют сохранённые записи встреч" in storage_html
+    assert "Файлы не удаляются" in storage_html
+    assert "Рассчитать" not in storage_html  # No catalog was supplied to this fixture.
     assert "5000000000 байт" not in storage_html
 
 
@@ -1210,6 +1229,7 @@ def test_checkout_keeps_coupon_collapsed_until_promo_interaction() -> None:
         billing_enabled=True,
         catalog_ready=True,
         checkout_idempotency_key="synthetic-key",
+        checkout_quote_id="synthetic-quote",
         monthly_price_label="790 ₽",
         annual_price_label="7 900 ₽",
         checkout_result=None,
@@ -1487,6 +1507,7 @@ def test_checkout_hides_publishable_price_when_store_is_disabled() -> None:
         plan=plan_descriptor("personal"),
         billing_enabled=False,
         checkout_idempotency_key="synthetic-key",
+        checkout_quote_id="synthetic-quote",
         checkout_result=None,
     )
     assert "Оплата пока недоступна" in html

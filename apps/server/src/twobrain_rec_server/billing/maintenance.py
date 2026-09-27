@@ -19,6 +19,7 @@ from twobrain_rec_server.billing.operations import (
     INITIAL_CHECKOUT_OBSERVATION_EXPIRED,
 )
 from twobrain_rec_server.billing.promotions import expire_promo_reservations
+from twobrain_rec_server.billing.purchases import effective_paid_storage
 from twobrain_rec_server.billing.referral_rewards import mature_pending_credits
 from twobrain_rec_server.billing.storage import (
     project_active_playback_storage,
@@ -86,6 +87,10 @@ async def _reconcile_storage_addon_operations(
     projected = scheduled = gaps = 0
     for operation in await db.scalars(query):
         snapshot = operation.request_snapshot or {}
+        if snapshot.get("purchase_schema") == 2:
+            # New operations have immutable, bounded storage grants. The old
+            # cache-only projector must never reinterpret their success.
+            continue
         target = snapshot.get("addon_capacity_bytes", snapshot.get("capacity_bytes"))
         effective_at = _snapshot_datetime(snapshot.get("effective_at"))
         ends_at = _snapshot_datetime(snapshot.get("ends_at"))
@@ -210,8 +215,13 @@ async def reconcile_billing_maintenance(
     abandoned_query = (
         select(BillingOperation)
         .where(
-            BillingOperation.kind == "initial_checkout",
+            BillingOperation.kind.in_(("initial_checkout", "storage_upgrade", "early_renewal")),
             BillingOperation.state.in_(initial_expiry_states),
+            ~and_(
+                func.coalesce(BillingOperation.request_snapshot["purchase_schema"].as_integer(), 0)
+                == 2,
+                BillingOperation.state.in_(("manual_resolution", "reconciliation_gap")),
+            ),
             or_(
                 BillingOperation.provider_key_expires_at <= current,
                 and_(
@@ -225,9 +235,7 @@ async def reconcile_billing_maintenance(
         .with_for_update()
     )
     if workspace_id is not None:
-        abandoned_query = abandoned_query.where(
-            BillingOperation.workspace_id == workspace_id
-        )
+        abandoned_query = abandoned_query.where(BillingOperation.workspace_id == workspace_id)
     abandoned = await db.scalars(abandoned_query)
     abandoned_operations = 0
     expired_provider_observations = 0
@@ -238,6 +246,14 @@ async def reconcile_billing_maintenance(
             .where(BillingInvoice.operation_id == operation.id)
             .with_for_update()
         )
+        if (operation.request_snapshot or {}).get("purchase_schema") == 2:
+            # An expired local key does not prove that a sent POST failed.
+            # Keep every reservation and block overlapping purchases until
+            # authoritative GET/registry reconciliation resolves this payment.
+            operation.state = "manual_resolution"
+            if invoice is not None and invoice.status != "succeeded":
+                invoice.status = "unknown"
+            continue
         if getattr(operation, "provider_id", None) is None:
             operation.state = "canceled"
             if invoice is not None and invoice.status != "succeeded":
@@ -316,23 +332,34 @@ async def reconcile_billing_maintenance(
     if workspace_id is not None:
         query = query.where(WorkspaceSubscription.workspace_id == workspace_id)
     subscription_workspace_ids = set(await db.scalars(query))
-    reservation_query = select(StorageReservation.workspace_id).where(StorageReservation.state == "active").distinct()
+    reservation_query = (
+        select(StorageReservation.workspace_id)
+        .where(StorageReservation.state == "active")
+        .distinct()
+    )
     if workspace_id is not None:
         reservation_query = reservation_query.where(StorageReservation.workspace_id == workspace_id)
     subscription_workspace_ids.update(await db.scalars(reservation_query))
     released_reservations = 0
     storage_projections_checked = 0
     storage_addons_checked = 0
-    for current_workspace_id in sorted(subscription_workspace_ids, key=str)[:MAINTENANCE_BATCH_LIMIT]:
+    for current_workspace_id in sorted(subscription_workspace_ids, key=str)[
+        :MAINTENANCE_BATCH_LIMIT
+    ]:
         released_reservations += await release_expired_storage_reservations(
             db,
             workspace_id=current_workspace_id,
             now=current,
         )
         subscription = await db.scalar(
-            select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == current_workspace_id)
+            select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == current_workspace_id
+            )
         )
         if subscription is not None:
+            subscription.capacity_bytes = await effective_paid_storage(
+                db, subscription=subscription, now=current
+            )
             await project_active_playback_storage(
                 db,
                 workspace_id=current_workspace_id,

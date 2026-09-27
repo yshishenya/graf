@@ -53,6 +53,7 @@ from twobrain_rec_server.auth.sessions import (
 )
 from twobrain_rec_server.billing.catalog import FREE_STORAGE_BYTES
 from twobrain_rec_server.billing.entitlements import effective_plan_code
+from twobrain_rec_server.billing.purchases import effective_paid_storage
 from twobrain_rec_server.billing.storage import project_active_playback_storage
 from twobrain_rec_server.cabinet.auth_return import resolve_browser_auth_return_path
 from twobrain_rec_server.config import Settings, get_settings
@@ -298,7 +299,10 @@ def build_account_connected_product_analytics_payload(
     nothing about the campaign must not claim a link, and an event without labels
     says so explicitly instead of reading as a direct entry (FR-024).
     """
-    level = normalize_attribution_reliability(attribution_reliability) or ATTRIBUTION_RELIABILITY_UNKNOWN
+    level = (
+        normalize_attribution_reliability(attribution_reliability)
+        or ATTRIBUTION_RELIABILITY_UNKNOWN
+    )
     event = build_activation_event(
         "desktop_account_connected",
         stable_pseudonymous_user_id=stable_pseudonymous_user_id,
@@ -561,7 +565,9 @@ async def capture_client_acquisition_attribute(
                 **(attribution or {}),
                 **(handoff.campaign_context if handoff is not None else {}),
                 "landing_path": handoff.landing_path if handoff is not None else None,
-                "attribution_status": "saved" if handoff and handoff.campaign_known() else "missing",
+                "attribution_status": "saved"
+                if handoff and handoff.campaign_known()
+                else "missing",
             }
             attribute = build_client_acquisition_attribute_from_visit_attribution(
                 account_id=account_id,
@@ -605,7 +611,11 @@ def record_account_connected_milestone(
         stable_pseudonymous_user_id=identity.stable_pseudonymous_user_id,
         auth_method_category=auth_method_category,
         bridge_present=handoff is not None,
-        attribution_reliability=(handoff.reliability(account_connected=True) if handoff else ATTRIBUTION_RELIABILITY_UNKNOWN),
+        attribution_reliability=(
+            handoff.reliability(account_connected=True)
+            if handoff
+            else ATTRIBUTION_RELIABILITY_UNKNOWN
+        ),
         campaign_context=handoff.campaign_context if handoff else None,
     )
     try:
@@ -893,8 +903,7 @@ def _browser_callback_error_redirect(
     error_code: str,
 ) -> RedirectResponse | None:
     callback_is_browser_bound = (
-        callback_state is not None
-        and callback_state.expected_state != callback_state.state_nonce
+        callback_state is not None and callback_state.expected_state != callback_state.state_nonce
     )
     requested_redirect = _safe_browser_return_path(
         callback_state.requested_redirect if callback_is_browser_bound else None
@@ -1156,9 +1165,7 @@ async def start_provider_flow(
         request,
         db,
         workspace_id=workspace_id,
-        scopes=(
-            ("provider_start_ip", _request_client_ip(request) or "unknown"),
-        ),
+        scopes=(("provider_start_ip", _request_client_ip(request) or "unknown"),),
     )
     if rate_limit_response is not None:
         return rate_limit_response
@@ -1431,9 +1438,7 @@ async def callback(
         request,
         db,
         workspace_id=auth_bootstrap_workspace_id,
-        scopes=(
-            ("provider_callback_ip", _request_client_ip(request) or "unknown"),
-        ),
+        scopes=(("provider_callback_ip", _request_client_ip(request) or "unknown"),),
     )
     if rate_limit_response is not None:
         return rate_limit_response
@@ -1683,27 +1688,40 @@ async def register_device(
         raise ProblemDetail(status=409, code="duplicate_device", title="Device already exists")
     auth_session = None
     if principal.auth_via_session and principal.session_id is not None:
-        auth_session = await db.scalar(select(AuthSession).where(
-            AuthSession.id == principal.session_id,
-            AuthSession.user_id == principal.user_id,
-            AuthSession.workspace_id == workspace_id,
-            AuthSession.status == "active",
-        ).with_for_update().execution_options(populate_existing=True))
+        auth_session = await db.scalar(
+            select(AuthSession)
+            .where(
+                AuthSession.id == principal.session_id,
+                AuthSession.user_id == principal.user_id,
+                AuthSession.workspace_id == workspace_id,
+                AuthSession.status == "active",
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         if auth_session is None:
-            raise ProblemDetail(status=401, code="auth_session_invalid", title="Session is unavailable")
+            raise ProblemDetail(
+                status=401, code="auth_session_invalid", title="Session is unavailable"
+            )
         allowed, attached_device = await resolve_session_device(db, auth_session)
         if not allowed:
-            raise ProblemDetail(status=403, code="device_untrusted", title="Device binding is unavailable")
-        if attached_device is not None and (
-            existing is None or existing.id != attached_device.id
-        ):
-            raise ProblemDetail(status=409, code="auth_session_mismatched", title="Session already has a device")
+            raise ProblemDetail(
+                status=403, code="device_untrusted", title="Device binding is unavailable"
+            )
+        if attached_device is not None and (existing is None or existing.id != attached_device.id):
+            raise ProblemDetail(
+                status=409, code="auth_session_mismatched", title="Session already has a device"
+            )
     device = existing
     if device is None:
         device = RegisteredDevice(
-            workspace_id=workspace_id, user_id=principal.user_id,
-            device_public_id=payload.device_public_id, platform=payload.platform,
-            client_version=payload.client_version, status="active", registration_state="approved",
+            workspace_id=workspace_id,
+            user_id=principal.user_id,
+            device_public_id=payload.device_public_id,
+            platform=payload.platform,
+            client_version=payload.client_version,
+            status="active",
+            registration_state="approved",
         )
         db.add(device)
         await db.flush()
@@ -1711,15 +1729,24 @@ async def register_device(
         device.platform = payload.platform
         device.client_version = payload.client_version
         if auth_session is not None:
-            binding = await db.scalar(select(AuthSessionDeviceBinding).where(
-                AuthSessionDeviceBinding.auth_session_id == auth_session.id,
-                AuthSessionDeviceBinding.registered_device_id == device.id,
-            ))
+            binding = await db.scalar(
+                select(AuthSessionDeviceBinding).where(
+                    AuthSessionDeviceBinding.auth_session_id == auth_session.id,
+                    AuthSessionDeviceBinding.registered_device_id == device.id,
+                )
+            )
             if binding is not None and binding.device_state != "trusted":
-                raise ProblemDetail(status=403, code="device_untrusted", title="Device binding is unavailable")
+                raise ProblemDetail(
+                    status=403, code="device_untrusted", title="Device binding is unavailable"
+                )
             if binding is None:
-                db.add(AuthSessionDeviceBinding(auth_session_id=auth_session.id,
-                    registered_device_id=device.id, device_state="trusted"))
+                db.add(
+                    AuthSessionDeviceBinding(
+                        auth_session_id=auth_session.id,
+                        registered_device_id=device.id,
+                        device_state="trusted",
+                    )
+                )
             auth_session.device_id = device.id
     await db.flush()
     await _record_auth_audit(
@@ -1922,7 +1949,7 @@ async def get_me(
         trial_ends_at=subscription.trial_ends_at if subscription is not None else None,
     )
     capacity = (
-        subscription.capacity_bytes
+        await effective_paid_storage(db, subscription=subscription, now=now)
         if subscription is not None and plan_code in {"trial", "personal"}
         else FREE_STORAGE_BYTES
     )

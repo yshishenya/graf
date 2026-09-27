@@ -27,12 +27,16 @@ from twobrain_rec_server.auth.sessions import (
     resolve_session_device,
 )
 from twobrain_rec_server.billing.catalog import (
+    ADDON_CAPACITY_BYTES,
     FREE_PROCESSING_SECONDS,
     FREE_STORAGE_BYTES,
+    PERSONAL_STORAGE_BYTES,
     CatalogNotApproved,
     classify_free_processing,
     classify_storage_threshold,
     plan_descriptor,
+    storage_package_capacity,
+    storage_package_count,
     validate_plan_version,
 )
 from twobrain_rec_server.billing.checkout import (
@@ -40,8 +44,10 @@ from twobrain_rec_server.billing.checkout import (
     build_checkout_intent,
     checkout_preview,
 )
-from twobrain_rec_server.billing.entitlements import effective_plan_code
-from twobrain_rec_server.billing.history import mask_payment_method
+from twobrain_rec_server.billing.entitlements import _add_paid_interval, effective_plan_code
+from twobrain_rec_server.billing.events import enqueue_billing_notification
+from twobrain_rec_server.billing.history import mask_payment_method, purchase_purpose_label
+from twobrain_rec_server.billing.notifications import BillingNotification
 from twobrain_rec_server.billing.operations import (
     CHECKOUT_BLOCKING_STATES,
     INITIAL_CHECKOUT_OBSERVATION_EXPIRED,
@@ -58,6 +64,22 @@ from twobrain_rec_server.billing.promotions import (
     promo_code_hash,
 )
 from twobrain_rec_server.billing.provider_events import validate_provider_identifier
+from twobrain_rec_server.billing.purchases import (
+    PurchaseError,
+    accept_storage_price,
+    calculate_storage_purchase,
+    checkout_quote_snapshot,
+    compose_personal_catalog,
+    create_purchase_quote,
+    effective_paid_storage,
+    reserve_acceptance_budget,
+    storage_catalog,
+    storage_period_timeline,
+    storage_price_snapshot,
+    utc,
+    validate_acceptance_campaign,
+    validate_purchase_quote,
+)
 from twobrain_rec_server.billing.receipts import (
     ReceiptState,
     receipt_label,
@@ -65,7 +87,7 @@ from twobrain_rec_server.billing.receipts import (
 )
 from twobrain_rec_server.billing.referrals import referral_token_hash, validate_referral_token
 from twobrain_rec_server.billing.refund_email import build_refund_mailto
-from twobrain_rec_server.billing.renewal_charge import renewal_attempt_due_at
+from twobrain_rec_server.billing.renewal_charge import next_renewal_attempt, renewal_attempt_of
 from twobrain_rec_server.billing.storage import (
     StorageProjection,
     lock_storage_workspace,
@@ -117,6 +139,7 @@ from twobrain_rec_server.db.models import (
     BillingOperation,
     BillingPaymentMethod,
     BillingPlanVersion,
+    BillingPurchaseQuote,
     ExternalIdentity,
     FreeUsageWindow,
     PromotionCampaign,
@@ -213,7 +236,9 @@ async def billing_browser_handoff(
         AuthSessionLookupContext(session_token_hash=hash_token(session_token)),
     )
     auth_session = await db.scalar(
-        select(AuthSession).where(AuthSession.session_token_hash == hash_token(session_token)).with_for_update()
+        select(AuthSession)
+        .where(AuthSession.session_token_hash == hash_token(session_token))
+        .with_for_update()
     )
     if auth_session is None or auth_session.status != "active" or auth_session.expires_at <= now:
         await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state))
@@ -226,27 +251,44 @@ async def billing_browser_handoff(
     user = await db.get(UserIdentity, auth_session.user_id)
     valid_owner = user is not None and user.status == "active"
     if valid_owner:
-        await apply_tenant_context(db, WorkspaceAuthContext(
-            organization_id=user.organization_id, workspace_id=auth_session.workspace_id,
-            user_id=user.id, context_kind="auth_bootstrap",
-        ))
+        await apply_tenant_context(
+            db,
+            WorkspaceAuthContext(
+                organization_id=user.organization_id,
+                workspace_id=auth_session.workspace_id,
+                user_id=user.id,
+                context_kind="auth_bootstrap",
+            ),
+        )
         workspace = await db.get(Workspace, auth_session.workspace_id)
-        membership = await db.scalar(select(WorkspaceMembership).where(
-            WorkspaceMembership.workspace_id == auth_session.workspace_id,
-            WorkspaceMembership.user_id == user.id,
-        ))
+        membership = await db.scalar(
+            select(WorkspaceMembership).where(
+                WorkspaceMembership.workspace_id == auth_session.workspace_id,
+                WorkspaceMembership.user_id == user.id,
+            )
+        )
         valid_owner = (
-            workspace is not None and workspace.organization_id == user.organization_id
+            workspace is not None
+            and workspace.organization_id == user.organization_id
             and workspace.id != request.app.state.settings.web_login_workspace_id
-            and membership is not None and membership.status == "active"
-            and (workspace.kind != "personal" or (
-                workspace.owner_user_id == user.id and membership.role == "owner"))
+            and membership is not None
+            and membership.status == "active"
+            and (
+                workspace.kind != "personal"
+                or (workspace.owner_user_id == user.id and membership.role == "owner")
+            )
         )
     if valid_owner:
-        await apply_tenant_context(db, TenantDatabaseContext(
-            organization_id=user.organization_id, workspace_id=auth_session.workspace_id,
-            user_id=user.id, auth_session_id=auth_session.id, device_id=auth_session.device_id,
-        ))
+        await apply_tenant_context(
+            db,
+            TenantDatabaseContext(
+                organization_id=user.organization_id,
+                workspace_id=auth_session.workspace_id,
+                user_id=user.id,
+                auth_session_id=auth_session.id,
+                device_id=auth_session.device_id,
+            ),
+        )
         valid_owner, source_device = await resolve_session_device(db, auth_session)
         valid_owner = valid_owner and source_device is not None
     if not valid_owner:
@@ -257,16 +299,31 @@ async def billing_browser_handoff(
         await db.commit()
         return fallback
     device = await create_login_device(
-        db, user_id=user.id, workspace_id=auth_session.workspace_id,
-        user_agent=request.headers.get("user-agent"), browser_only=True, now=now,
+        db,
+        user_id=user.id,
+        workspace_id=auth_session.workspace_id,
+        user_agent=request.headers.get("user-agent"),
+        browser_only=True,
+        now=now,
     )
     issued = await issue_auth_session(
-        db, user_id=user.id, workspace_id=auth_session.workspace_id, device_id=device.id,
-        provider=auth_session.provider, claims_fingerprint=auth_session.claims_fingerprint,
-        now=now, expires_at=auth_session.expires_at,
+        db,
+        user_id=user.id,
+        workspace_id=auth_session.workspace_id,
+        device_id=device.id,
+        provider=auth_session.provider,
+        claims_fingerprint=auth_session.claims_fingerprint,
+        now=now,
+        expires_at=auth_session.expires_at,
     )
-    db.add(AuthSessionDeviceBinding(auth_session_id=issued.id,
-        registered_device_id=device.id, device_state="trusted", last_heartbeat_at=now))
+    db.add(
+        AuthSessionDeviceBinding(
+            auth_session_id=issued.id,
+            registered_device_id=device.id,
+            device_state="trusted",
+            last_heartbeat_at=now,
+        )
+    )
     await db.flush()
     await apply_tenant_context(db, AuthCallbackLookupContext(state_nonce=state))
     callback_state.used_at = now
@@ -325,8 +382,6 @@ def _checkout_result_redirect(
     return response
 
 
-
-
 def billing_checkout_return_url(request: Request, *, safe_invoice_number: str | None = None) -> str:
     """Build a canonical HTTPS callback URL; never trust the inbound Host header."""
     configured = getattr(request.app.state.settings, "public_base_url", None)
@@ -366,7 +421,7 @@ def _blocking_payment_operation_query(workspace_id: UUID):
             BillingOperation.workspace_id == workspace_id,
             # Renewal operations are reconciled against their own paid-through
             # cutoff and must never make a fresh initial checkout wait forever.
-            BillingOperation.kind == "initial_checkout",
+            BillingOperation.kind.in_(("initial_checkout", "storage_upgrade", "early_renewal")),
             BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
         )
         .order_by(BillingOperation.created_at.desc(), BillingOperation.id.desc())
@@ -380,6 +435,7 @@ def _initial_checkout_can_continue(
 ) -> bool:
     return (
         operation.kind == "initial_checkout"
+        and operation.request_snapshot.get("purchase_schema") != 2
         and operation.provider_id is None
         and operation.state in {"scheduled", "manual_resolution", "unknown"}
         and operation.provider_key_expires_at is not None
@@ -433,6 +489,13 @@ def _record_initial_checkout_failure(
     *,
     now: datetime | None = None,
 ) -> None:
+    if invoice.status == "succeeded" or operation.state in {
+        "succeeded",
+        "succeeded_refused",
+        "canceled",
+        "reconciliation_gap",
+    }:
+        return
     current = now or datetime.now(UTC)
     snapshot = (
         dict(operation.request_snapshot) if isinstance(operation.request_snapshot, dict) else {}
@@ -442,7 +505,9 @@ def _record_initial_checkout_failure(
     if operation.provider_id is not None:
         operation.state = "unknown"
         invoice.status = "unknown"
-    elif provider_key_is_expired(expires_at=operation.provider_key_expires_at, now=current):
+    elif snapshot.get("purchase_schema") != 2 and provider_key_is_expired(
+        expires_at=operation.provider_key_expires_at, now=current
+    ):
         operation.state = "canceled"
         invoice.status = "canceled"
     else:
@@ -514,6 +579,16 @@ def _bind_initial_checkout_payment(
     payment: Mapping[str, object],
 ) -> str | None:
     provider_id = validate_provider_identifier(payment.get("id"))
+    if operation.provider_id not in {None, provider_id}:
+        raise ValueError("provider payment binding changed")
+    # A webhook can win the race while the original POST is still in flight.
+    if invoice.status == "succeeded" or operation.state in {
+        "succeeded",
+        "succeeded_refused",
+        "canceled",
+        "reconciliation_gap",
+    }:
+        return None
     confirmation = payment.get("confirmation")
     confirmation_url = (
         confirmation.get("confirmation_url") if isinstance(confirmation, Mapping) else None
@@ -838,6 +913,7 @@ async def _load_checkout_promo(
     cycle: str,
     now: datetime,
     lock: bool = False,
+    purpose: str = "initial_checkout",
 ) -> tuple[PromoCode, PromotionCampaign]:
     """Load and validate one campaign for preview or the final invoice."""
     normalized = normalize_promo(raw_code)
@@ -850,6 +926,17 @@ async def _load_checkout_promo(
     campaign = await db.scalar(query)
     if campaign is None:
         raise PromoError("Промокод не распознан")
+    policy = campaign.policy_snapshot or {}
+    # Legacy public promotions apply only to the original tariff checkout.
+    purposes = policy.get("purposes", ["initial_checkout"])
+    if not isinstance(purposes, list) or purpose not in purposes:
+        raise PromoError("Промокод не подходит для этой покупки")
+    if policy.get("workspace_id") not in {None, str(workspace_id)}:
+        raise PromoError("Промокод недоступен для этого пространства")
+    try:
+        await validate_acceptance_campaign(db, policy=policy, workspace_id=workspace_id, now=now)
+    except PurchaseError as exc:
+        raise PromoError(str(exc)) from exc
     used = await db.scalar(
         select(func.count(PromotionRedemption.id)).where(
             PromotionRedemption.workspace_id == workspace_id,
@@ -1129,8 +1216,8 @@ async def billing_overview_page(
         }
     )
     effective_capacity = (
-        subscription.capacity_bytes
-        if subscription is not None and plan_code in {"trial", "personal"}
+        await effective_paid_storage(db, subscription=subscription, now=now)
+        if db is not None and subscription is not None and plan_code in {"trial", "personal"}
         else FREE_STORAGE_BYTES
     )
     storage_used = 0
@@ -1302,18 +1389,7 @@ async def billing_overview_page(
         and subscription.paid_through > now
     ):
         if subscription.recurring_allowed:
-            # Списание за следующий период начинается заранее, а не в последний
-            # день оплаченного периода, поэтому в кабинете показываем момент
-            # первой попытки. Иначе надпись обещала бы дату, в которую деньги
-            # уже списаны.
-            first_attempt_at = renewal_attempt_due_at(
-                paid_through=subscription.paid_through, attempt=1
-            )
-            recurring_next_charge_label = (
-                "в ближайшее время"
-                if first_attempt_at <= now
-                else _billing_datetime_label(first_attempt_at)
-            )
+            recurring_next_charge_label = await _next_renewal_label(db, subscription, now=now)
             snapshot = (
                 latest_invoice.plan_snapshot
                 if latest_invoice and isinstance(latest_invoice.plan_snapshot, dict)
@@ -1331,11 +1407,19 @@ async def billing_overview_page(
                 and latest_operation.state == "scheduled"
                 else None
             )
+            next_catalog = approved_catalog.get(cycle)
+            if next_catalog is not None:
+                try:
+                    next_catalog, _ = await compose_personal_catalog(
+                        db, base=next_catalog, subscription=subscription, now=now
+                    )
+                except PurchaseError:
+                    next_catalog = None
             recurring_next_charge_amount_label = _billing_amount_label(
                 scheduled_renewal_invoice.amount_minor
                 if scheduled_renewal_invoice is not None
-                else approved_catalog[cycle].amount_minor
-                if cycle in approved_catalog
+                else next_catalog.amount_minor
+                if next_catalog is not None
                 else None,
                 scheduled_renewal_invoice.currency
                 if scheduled_renewal_invoice is not None
@@ -1785,22 +1869,40 @@ async def billing_checkout_status_page(
     operation_state = operation.state if operation is not None else None
     settings = request.app.state.settings
     operation_actor = (
-        operation.request_snapshot.get("billing_actor_user_id")
-        if operation is not None
-        else None
+        operation.request_snapshot.get("billing_actor_user_id") if operation is not None else None
     )
     actor_matches = operation_actor in {None, str(principal.user_id)}
     can_continue_payment = bool(
         operation is not None
         and settings.billing_checkout_enabled
         and actor_matches
-        and _initial_checkout_can_continue(operation)
+        and (
+            _initial_checkout_can_continue(operation)
+            or (
+                operation.kind == "storage_upgrade"
+                and operation.state == "provider_pending"
+                and is_allowed_confirmation_url(operation.request_snapshot.get("confirmation_url"))
+            )
+        )
     )
     can_refresh_payment = bool(
         operation is not None
-        and operation.provider_id is not None
-        and operation.kind == "initial_checkout"
-        and operation.state in {"provider_pending", "unknown", INITIAL_CHECKOUT_OBSERVATION_EXPIRED}
+        and (
+            operation.provider_id is not None
+            or operation.request_snapshot.get("purchase_schema") == 2
+        )
+        and operation.kind in {"initial_checkout", "storage_upgrade", "early_renewal", "renewal"}
+        and operation.state
+        in {
+            "processing",
+            "sent",
+            "provider_pending",
+            "unknown",
+            "manual_resolution",
+            "reconciliation_gap",
+            "provider_key_expired",
+            INITIAL_CHECKOUT_OBSERVATION_EXPIRED,
+        }
     )
     content = _page_shell(
         "Статус платежа",
@@ -1820,6 +1922,18 @@ async def billing_checkout_status_page(
         amount_label=_billing_amount_label(invoice.amount_minor, invoice.currency)
         or "Сумма недоступна",
         operation_state=operation_state,
+        retry_payment_url=(
+            "/billing/storage"
+            if operation and operation.kind == "storage_upgrade"
+            else "/billing/subscription"
+            if operation and operation.kind == "early_renewal"
+            else "/billing/checkout"
+        ),
+        support_email=settings.billing_support_email,
+        purchase_purpose_label=purchase_purpose_label(invoice.plan_snapshot or {}),
+        service_gap=(operation.request_snapshot or {}).get("reconciliation_detail")
+        if operation
+        else None,
         operation_state_label=_operation_state_label(operation_state),
         billing_enabled=bool(settings.billing_checkout_enabled),
         can_continue_payment=can_continue_payment,
@@ -1950,6 +2064,19 @@ async def continue_billing_checkout(
         )
         .with_for_update()
     )
+    if operation is not None and operation.kind == "storage_upgrade":
+        if (
+            operation.request_snapshot.get("billing_actor_user_id") != str(principal.user_id)
+            or not request.app.state.settings.billing_checkout_enabled
+        ):
+            return RedirectResponse(
+                _checkout_status_location(invoice.safe_number, result="unavailable"),
+                status_code=303,
+            )
+        url = operation.request_snapshot.get("confirmation_url")
+        if operation.state == "provider_pending" and is_allowed_confirmation_url(url):
+            return RedirectResponse(url, status_code=303)
+        return RedirectResponse(_checkout_status_location(invoice.safe_number), status_code=303)
     if operation is None or operation.kind != "initial_checkout":
         return RedirectResponse(
             _checkout_status_location(safe_number, result="unavailable"),
@@ -1986,6 +2113,10 @@ async def continue_billing_checkout(
             else _checkout_status_location(safe_number, result="unchanged"),
             status_code=303,
         )
+    if operation.request_snapshot.get("purchase_schema") == 2:
+        return RedirectResponse(
+            _checkout_status_location(safe_number, result="unchanged"), status_code=303
+        )
     if provider_key_is_expired(expires_at=operation.provider_key_expires_at):
         operation.state = "canceled"
         invoice.status = "canceled"
@@ -2010,6 +2141,9 @@ async def continue_billing_checkout(
             invoice=invoice,
             return_url=return_url,
         )
+        await lock_storage_workspace(db, tenant_scope.workspace_id)
+        await db.refresh(operation, with_for_update=True)
+        await db.refresh(invoice, with_for_update=True)
         confirmation_url = _bind_initial_checkout_payment(operation, invoice, payment)
         if subscription is not None and subscription.billing_owner_id != principal.user_id:
             subscription.billing_owner_id = principal.user_id
@@ -2239,7 +2373,7 @@ async def billing_usage_page(
     )
     trial_eligible = trial_state == "eligible"
     if subscription is not None and plan_code in {"trial", "personal"}:
-        capacity = subscription.capacity_bytes
+        capacity = await effective_paid_storage(db, subscription=subscription, now=now)
     if db is not None:
         projection = await project_active_playback_storage(
             db,
@@ -2324,38 +2458,80 @@ async def billing_subscription_page(
         and subscription.paid_through is not None
         and subscription.paid_through > now
     )
-    # Первая попытка списания за следующий период начинается заранее, поэтому
-    # показываем её момент, а не конец оплаченного периода.
-    next_charge_label = None
-    if active and subscription is not None and subscription.recurring_allowed:
-        first_attempt_at = renewal_attempt_due_at(
-            paid_through=subscription.paid_through, attempt=1
-        )
-        next_charge_label = (
-            "в ближайшее время"
-            if first_attempt_at <= now
-            else _billing_datetime_label(first_attempt_at)
-        )
+    next_charge_label = (
+        await _next_renewal_label(db, subscription, now=now) if active and db is not None else None
+    )
+    resume_charge_label = (
+        await _next_renewal_label(db, subscription, now=now, for_resume=True)
+        if active and db is not None
+        else None
+    )
     method_available = False
+    payment_method_label = None
+    resume_quote_id = None
+    pending_charge_amount_label = None
     next_charge_amount_label = None
     if db is not None and subscription is not None:
-        method_available = (
-            await db.scalar(
-                select(BillingPaymentMethod.id).where(
-                    BillingPaymentMethod.workspace_id == tenant_scope.workspace_id,
-                    BillingPaymentMethod.owner_user_id == principal.user_id,
-                    BillingPaymentMethod.is_default.is_(True),
-                    BillingPaymentMethod.state == "active",
-                    BillingPaymentMethod.verified_at.is_not(None),
-                )
+        payment_method_label = await db.scalar(
+            select(BillingPaymentMethod.masked_label).where(
+                BillingPaymentMethod.workspace_id == tenant_scope.workspace_id,
+                BillingPaymentMethod.owner_user_id == principal.user_id,
+                BillingPaymentMethod.is_default.is_(True),
+                BillingPaymentMethod.state == "active",
+                BillingPaymentMethod.verified_at.is_not(None),
             )
-            is not None
         )
+        method_available = payment_method_label is not None
         approved_catalog = await _approved_personal_catalog(db, now=now)
         cycle_catalog = approved_catalog.get(subscription.cycle)
+        if cycle_catalog is not None:
+            try:
+                cycle_catalog, _ = await compose_personal_catalog(
+                    db, base=cycle_catalog, subscription=subscription, now=now
+                )
+            except PurchaseError:
+                cycle_catalog = None
         next_charge_amount_label = _billing_amount_label(
             cycle_catalog.amount_minor if cycle_catalog is not None else None
         )
+        pending_invoice = await db.scalar(
+            select(BillingInvoice)
+            .join(BillingOperation, BillingOperation.id == BillingInvoice.operation_id)
+            .where(
+                BillingInvoice.workspace_id == tenant_scope.workspace_id,
+                BillingOperation.kind.in_(("renewal", "early_renewal")),
+                BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
+            )
+            .order_by(BillingInvoice.created_at.desc())
+            .limit(1)
+        )
+        if pending_invoice is not None:
+            pending_charge_amount_label = _billing_amount_label(
+                pending_invoice.amount_minor, pending_invoice.currency
+            )
+
+    if (
+        db is not None
+        and active
+        and subscription is not None
+        and not subscription.recurring_allowed
+        and method_available
+    ):
+        try:
+            resume_snapshot = await _resume_renewal_snapshot(db, subscription=subscription, now=now)
+            bound = await create_purchase_quote(
+                db,
+                workspace_id=tenant_scope.workspace_id,
+                owner_user_id=principal.user_id,
+                purpose="resume_renewal",
+                subscription=subscription,
+                snapshot=resume_snapshot,
+                now=now,
+            )
+            resume_quote_id = str(bound.id)
+            await db.commit()
+        except PurchaseError:
+            await db.rollback()
     content = _page_shell(
         "Управление подпиской",
         embedded=_is_embedded_request(request),
@@ -2373,8 +2549,18 @@ async def billing_subscription_page(
         if active and subscription is not None
         else None,
         next_charge_label=next_charge_label,
+        resume_charge_label=resume_charge_label,
+        resume_quote_id=resume_quote_id,
         method_available=method_available,
+        payment_method_label=mask_payment_method(payment_method_label),
         next_charge_amount_label=next_charge_amount_label,
+        pending_charge_amount_label=pending_charge_amount_label,
+        subscription_cycle_label="год"
+        if subscription and subscription.cycle == "year"
+        else "месяц",
+        next_capacity_label=_capacity_label(subscription.next_capacity_bytes)
+        if subscription and subscription.next_capacity_bytes
+        else None,
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         subscription_plan_label=(
             plan_descriptor(
@@ -2547,10 +2733,32 @@ async def billing_storage_page(
         else "free"
     )
     current_capacity = (
-        subscription.capacity_bytes
+        await effective_paid_storage(db, subscription=subscription, now=now)
         if subscription is not None and effective_plan in {"trial", "personal"}
         else FREE_STORAGE_BYTES
     )
+    storage_prices = await storage_catalog(db, now=now)
+    base = (await _approved_personal_catalog(db, now=now)).get(
+        subscription.cycle if subscription else "month"
+    )
+    options = []
+    if base is not None:
+        for capacity in (PERSONAL_STORAGE_BYTES, *ADDON_CAPACITY_BYTES):
+            price = storage_prices.get((capacity, subscription.cycle if subscription else "month"))
+            if capacity != PERSONAL_STORAGE_BYTES and price is None:
+                continue
+            options.append(
+                {
+                    "capacity": capacity,
+                    "package_count": storage_package_count(capacity),
+                    "label": _capacity_label(capacity),
+                    "addon_label": _billing_price_label(price.amount_minor if price else 0),
+                    "total_label": _billing_price_label(
+                        base.amount_minor + (price.amount_minor if price else 0)
+                    ),
+                    "cycle_label": "месяц" if base.cycle == "month" else "год",
+                }
+            )
     content = _page_shell(
         "Увеличение хранилища",
         embedded=_is_embedded_request(request),
@@ -2564,11 +2772,30 @@ async def billing_storage_page(
         content_template="cabinet/pages/billing_storage_content.html",
         current_capacity=current_capacity,
         current_capacity_label=_capacity_label(current_capacity),
-        addon_options=(5_000_000_000, 20_000_000_000, 100_000_000_000, 500_000_000_000),
-        capacity_labels=tuple(
-            _capacity_label(value)
-            for value in (5_000_000_000, 20_000_000_000, 100_000_000_000, 500_000_000_000)
-        ),
+        storage_options=options,
+        selected_package_count=storage_package_count(
+            max(PERSONAL_STORAGE_BYTES, subscription.next_capacity_bytes or current_capacity)
+        )
+        if subscription
+        else 0,
+        storage_timeline=[
+            {
+                "start": _billing_datetime_label(item["starts_at"]),
+                "end": _billing_datetime_label(item["ends_at"]),
+                "capacity": _capacity_label(item["capacity_bytes"]),
+                "bonus": item["bonus"],
+            }
+            for item in await storage_period_timeline(db, subscription=subscription, now=now)
+        ]
+        if subscription and effective_plan == "personal"
+        else [],
+        next_capacity_label=_capacity_label(subscription.next_capacity_bytes)
+        if subscription and subscription.next_capacity_bytes
+        else None,
+        selection_version=subscription.next_capacity_version if subscription else 0,
+        paid_through_label=_billing_datetime_label(subscription.paid_through)
+        if subscription
+        else None,
         eligible=effective_plan == "personal",
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         result=request.query_params.get("result"),
@@ -2582,6 +2809,7 @@ async def _billing_owner_subscription(
     tenant_scope: TenantScope,
     principal: AuthenticatedPrincipal,
 ) -> WorkspaceSubscription | None:
+    await lock_storage_workspace(db, tenant_scope.workspace_id)
     workspace = await db.get(Workspace, tenant_scope.workspace_id)
     if (
         workspace is None
@@ -2650,6 +2878,9 @@ async def cancel_billing_subscription(
     except ValueError:
         await db.rollback()
         return RedirectResponse("/billing/subscription?result=conflict", status_code=303)
+    await _cancel_unsent_renewals(
+        db, workspace_id=tenant_scope.workspace_id, reason="authority_cancelled"
+    )
     subscription.recurring_allowed = changed.recurring_allowed
     subscription.recurring_authority_version = changed.authority_version
     subscription.application_version += 1
@@ -2671,6 +2902,15 @@ async def cancel_billing_subscription(
             },
         )
     )
+    await enqueue_billing_notification(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        recipient_id=principal.user_id,
+        event_id=f"subscription:{tenant_scope.workspace_id}:authority:{changed.authority_version}",
+        kind=BillingNotification.AUTORENEWAL_DISABLED,
+        payload={"action_path": "/billing/subscription"},
+        marketing_allowed=False,
+    )
     await db.commit()
     return RedirectResponse("/billing/subscription?result=cancelled", status_code=303)
 
@@ -2684,6 +2924,7 @@ async def resume_billing_subscription(
     db: AsyncSession | None = WebDbDependency,
     expected_authority_version: int | None = Form(default=None, ge=0),
     resume_consent: bool = Form(default=False),
+    resume_quote_id: str = Form(default="", max_length=64),
 ) -> RedirectResponse:
     if db is None or not principal.auth_via_session:
         return RedirectResponse("/billing/subscription?result=unavailable", status_code=303)
@@ -2715,6 +2956,23 @@ async def resume_billing_subscription(
         await db.rollback()
         return RedirectResponse("/billing/subscription?result=method_required", status_code=303)
     try:
+        now = datetime.now(UTC)
+        resume_quote = await validate_purchase_quote(
+            db,
+            quote_id=UUID(resume_quote_id),
+            workspace_id=tenant_scope.workspace_id,
+            owner_user_id=principal.user_id,
+            purpose="resume_renewal",
+            subscription=subscription,
+            now=now,
+            expected_snapshot=await _resume_renewal_snapshot(
+                db, subscription=subscription, now=now
+            ),
+        )
+    except ValueError:
+        await db.rollback()
+        return RedirectResponse("/billing/subscription?result=conflict", status_code=303)
+    try:
         changed = resume_auto_renewal(
             SubscriptionControl(
                 subscription.paid_through,
@@ -2727,6 +2985,8 @@ async def resume_billing_subscription(
     except ValueError:
         await db.rollback()
         return RedirectResponse("/billing/subscription?result=unavailable", status_code=303)
+    accept_storage_price(subscription, resume_quote.snapshot.get("storage_price_snapshot"))
+    subscription.renewal_resolution = None
     subscription.recurring_allowed = changed.recurring_allowed
     subscription.recurring_authority_version = changed.authority_version
     subscription.application_version += 1
@@ -2741,6 +3001,15 @@ async def resume_billing_subscription(
             reason_code="owner_confirmed",
             metadata_json={"authority_version": changed.authority_version},
         )
+    )
+    await enqueue_billing_notification(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        recipient_id=principal.user_id,
+        event_id=f"subscription:{tenant_scope.workspace_id}:authority:{changed.authority_version}",
+        kind=BillingNotification.AUTORENEWAL_ENABLED,
+        payload={"action_path": "/billing/subscription"},
+        marketing_allowed=False,
     )
     await db.commit()
     return RedirectResponse("/billing/subscription?result=resumed", status_code=303)
@@ -2781,7 +3050,9 @@ async def billing_checkout_page(
         continuation_candidate if is_allowed_confirmation_url(continuation_candidate) else None
     )
     checkout_promo_code = getattr(
-        request.state, "billing_checkout_promo_code", request.cookies.get(_CHECKOUT_PROMO_COOKIE, "")
+        request.state,
+        "billing_checkout_promo_code",
+        request.cookies.get(_CHECKOUT_PROMO_COOKIE, ""),
     )
     checkout_cycle = getattr(
         request.state, "billing_checkout_cycle", request.query_params.get("cycle", "month")
@@ -2803,7 +3074,38 @@ async def billing_checkout_page(
         if db is not None
         else None
     )
-    catalog = await _approved_personal_catalog(db, now=datetime.now(UTC))
+    now = datetime.now(UTC)
+    subscription = (
+        await db.scalar(
+            select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
+            )
+        )
+        if db is not None
+        else None
+    )
+    catalog = await _approved_personal_catalog(db, now=now)
+    base_catalog = dict(catalog)
+    storage_prices = {}
+    composition_error = None
+    if db is not None:
+        try:
+            for catalog_cycle, base in base_catalog.items():
+                (
+                    catalog[catalog_cycle],
+                    storage_prices[catalog_cycle],
+                ) = await compose_personal_catalog(
+                    db,
+                    base=base,
+                    subscription=subscription,
+                    now=now,
+                )
+        except PurchaseError as exc:
+            catalog = {}
+            composition_error = str(exc)
+    quote_id = None
+    period_label = None
+    next_attempt_label = None
     monthly_catalog = catalog.get("month")
     annual_catalog = catalog.get("year")
     catalog_ready = monthly_catalog is not None and annual_catalog is not None
@@ -2818,7 +3120,7 @@ async def billing_checkout_page(
         else PUBLIC_APPROVED_OFFER_VERSION
     )
     checkout_preview_data: dict[str, str] | None = None
-    promo_preview_error: str | None = None
+    promo_preview_error: str | None = composition_error
     selected_catalog = catalog.get(checkout_cycle)
     if (
         not checkout_blocked
@@ -2848,18 +3150,54 @@ async def billing_checkout_page(
                 promo=promo,
                 referral_candidate=referral_candidate,
             )
-            checkout_preview_data = checkout_preview_labels(
-                checkout_preview(
-                    plan_code="personal",
-                    cycle=checkout_cycle,
+            preview = checkout_preview(
+                plan_code="personal",
+                cycle=checkout_cycle,
+                promo=chosen,
+                provider_floor_minor=settings.billing_provider_floor_minor,
+                catalog_snapshot=selected_catalog,
+            )
+            bound_quote = await create_purchase_quote(
+                db,
+                workspace_id=tenant_scope.workspace_id,
+                owner_user_id=principal.user_id,
+                purpose="initial_checkout",
+                subscription=subscription,
+                now=now,
+                snapshot=checkout_quote_snapshot(
+                    catalog=selected_catalog,
+                    storage_price=storage_prices.get(checkout_cycle),
+                    preview=preview,
                     promo=chosen,
-                    provider_floor_minor=settings.billing_provider_floor_minor,
-                    catalog_snapshot=selected_catalog,
+                    discount_source=discount_source,
                 ),
+            )
+            quote_id = str(bound_quote.id)
+            await db.commit()
+            period_start = (
+                max(now, subscription.paid_through)
+                if subscription and subscription.paid_through
+                else now
+            )
+            period_end = _add_paid_interval(period_start, checkout_cycle)
+            period_label = (
+                f"{format_user_datetime(period_start, show_zone=True)} — {format_user_datetime(period_end, show_zone=True)}"
+                if period_start > now
+                else "Месяц после подтверждения оплаты"
+                if checkout_cycle == "month"
+                else "Год после подтверждения оплаты"
+            )
+            next_attempt_label = (
+                format_user_datetime(period_end - timedelta(hours=72), show_zone=True)
+                if period_start > now
+                else "За 3 дня до конца оплаченного периода; точная дата появится после оплаты"
+            )
+            checkout_preview_data = checkout_preview_labels(
+                preview,
                 discount_percent=chosen.discount_percent if chosen is not None else None,
                 discount_source=discount_source,
             )
-        except PromoError as exc:
+        except (PromoError, PurchaseError) as exc:
             promo_preview_error = str(exc)
         except ValueError:
             promo_preview_error = "Промокод временно недоступен. Проверьте код позже."
@@ -2885,6 +3223,17 @@ async def billing_checkout_page(
         catalog_ready=catalog_ready,
         catalog_storage_label=_capacity_label(catalog_storage),
         offer_version_label=offer_version,
+        checkout_quote_id=quote_id,
+        checkout_base_price_label=_billing_price_label(base_catalog[checkout_cycle].amount_minor)
+        if checkout_cycle in base_catalog
+        else None,
+        checkout_storage_price_label=_billing_price_label(
+            storage_prices[checkout_cycle].amount_minor
+        )
+        if storage_prices.get(checkout_cycle)
+        else None,
+        checkout_period_label=period_label,
+        checkout_next_attempt_label=next_attempt_label,
         checkout_idempotency_key=f"web-{principal.user_id}-{uuid4().hex}",
         checkout_result=checkout_result,
         checkout_blocked=checkout_blocked,
@@ -2985,6 +3334,7 @@ async def start_billing_checkout(
     db: AsyncSession | None = WebDbDependency,
     cycle: str = Form(default="month", max_length=16),
     idempotency_key: str = Form(default="", max_length=240),
+    quote_id: str = Form(default="", max_length=64),
     offer_consent: bool = Form(default=False),
     recurring_consent: bool = Form(default=False),
     offer_version: str = Form(default="", max_length=64),
@@ -3005,6 +3355,7 @@ async def start_billing_checkout(
     if limited is not None:
         return limited
     try:
+        await lock_storage_workspace(db, tenant_scope.workspace_id)
         workspace = await db.scalar(
             select(Workspace).where(Workspace.id == tenant_scope.workspace_id).with_for_update()
         )
@@ -3094,11 +3445,20 @@ async def start_billing_checkout(
             request.state.billing_checkout_cycle = cycle
             request.state.billing_checkout_promo_code = promo_code or ""
             response = await billing_checkout_page(
-                request, tenant_scope=tenant_scope, principal=principal, db=db,
+                request,
+                tenant_scope=tenant_scope,
+                principal=principal,
+                db=db,
             )
             response.status_code = 409
             return response
 
+        catalog_snapshot, storage_price = await compose_personal_catalog(
+            db,
+            base=catalog_snapshot,
+            subscription=subscription,
+            now=now,
+        )
         promo: PromoCode | None = None
         promo_campaign: PromotionCampaign | None = None
         if promo_code and promo_code.strip():
@@ -3131,7 +3491,7 @@ async def start_billing_checkout(
         # lower payable amount and keep configured-promo first for deterministic
         # tie handling; the DB reservation is created only for the winner.
         try:
-            chosen, _ = _choose_checkout_discount(
+            chosen, discount_source = _choose_checkout_discount(
                 amount_minor=catalog_snapshot.amount_minor or 0,
                 cycle=cycle,
                 provider_floor_minor=settings.billing_provider_floor_minor,
@@ -3184,6 +3544,36 @@ async def start_billing_checkout(
             provider_floor_minor=settings.billing_provider_floor_minor,
             catalog_snapshot=catalog_snapshot,
         )
+        try:
+            bound_quote = await validate_purchase_quote(
+                db,
+                quote_id=UUID(quote_id),
+                workspace_id=tenant_scope.workspace_id,
+                owner_user_id=principal.user_id,
+                purpose="initial_checkout",
+                subscription=subscription,
+                now=now,
+                expected_snapshot=checkout_quote_snapshot(
+                    catalog=catalog_snapshot,
+                    storage_price=storage_price,
+                    preview=preview,
+                    promo=promo,
+                    discount_source=discount_source,
+                ),
+            )
+        except (PurchaseError, ValueError):
+            await db.rollback()
+            request.state.billing_checkout_result = "quote_changed"
+            request.state.billing_checkout_cycle = cycle
+            request.state.billing_checkout_promo_code = promo_code or ""
+            response = await billing_checkout_page(
+                request,
+                tenant_scope=tenant_scope,
+                principal=principal,
+                db=db,
+            )
+            response.status_code = 409
+            return response
         unresolved_payment = await db.scalar(
             _blocking_payment_operation_query(tenant_scope.workspace_id).with_for_update()
         )
@@ -3204,13 +3594,15 @@ async def start_billing_checkout(
         intent = build_checkout_intent(
             workspace_id=tenant_scope.workspace_id, idempotency_key=key, preview=preview
         )
+        if subscription is not None:
+            accept_storage_price(subscription, storage_price_snapshot(storage_price))
         consent_at = datetime.now(UTC).isoformat()
         operation = BillingOperation(
             id=intent.operation_id,
             workspace_id=tenant_scope.workspace_id,
             kind="initial_checkout",
             idempotency_key=intent.idempotency_key,
-            state="scheduled",
+            state="processing",
             provider_key_expires_at=datetime.now(UTC) + timedelta(hours=24),
             request_snapshot={
                 "plan_code": preview.plan_code,
@@ -3224,6 +3616,16 @@ async def start_billing_checkout(
                 if referral_discount
                 else ("promo" if promo is not None else None),
                 "catalog_snapshot": catalog_snapshot.as_dict(),
+                "storage_price_snapshot": storage_price_snapshot(storage_price),
+                "quote_id": str(bound_quote.id),
+                "purchase_schema": 2,
+                "purchase_purpose": "initial_checkout",
+                "provider_shop_id": settings.billing_yookassa_shop_id,
+                "provider_environment": settings.billing_yookassa_environment,
+                "recurring_authority_version": subscription.recurring_authority_version
+                if subscription
+                else 0,
+                "selection_version": subscription.next_capacity_version if subscription else 0,
                 "offer_consent": True,
                 "recurring_consent": True,
                 "consent_at": consent_at,
@@ -3257,6 +3659,16 @@ async def start_billing_checkout(
                 if referral_discount
                 else ("promo" if promo is not None else None),
                 "catalog_snapshot": catalog_snapshot.as_dict(),
+                "storage_price_snapshot": storage_price_snapshot(storage_price),
+                "quote_id": str(bound_quote.id),
+                "purchase_schema": 2,
+                "purchase_purpose": "initial_checkout",
+                "provider_shop_id": settings.billing_yookassa_shop_id,
+                "provider_environment": settings.billing_yookassa_environment,
+                "recurring_authority_version": subscription.recurring_authority_version
+                if subscription
+                else 0,
+                "selection_version": subscription.next_capacity_version if subscription else 0,
                 "offer_consent": True,
                 "recurring_consent": True,
                 "consent_at": consent_at,
@@ -3304,6 +3716,18 @@ async def start_billing_checkout(
                 redemption.expires_at = datetime.now(UTC) + timedelta(minutes=15)
                 redemption.released_at = None
                 redemption.redeemed_at = None
+        if subscription is not None and subscription.billing_owner_id != principal.user_id:
+            # An owner who replaced the designated billing owner must make a
+            # fresh hosted payment before future renewals can use this account.
+            subscription.billing_owner_id = principal.user_id
+        bound_quote.consumed_operation_id = operation.id
+        await reserve_acceptance_budget(
+            db,
+            workspace_id=tenant_scope.workspace_id,
+            operation_id=operation.id,
+            amount_minor=invoice.amount_minor,
+            now=now,
+        )
         await db.commit()
         return_url = billing_checkout_return_url(request, safe_invoice_number=intent.invoice_number)
         payment = await _create_initial_checkout_payment(
@@ -3312,11 +3736,10 @@ async def start_billing_checkout(
             invoice=invoice,
             return_url=return_url,
         )
+        await lock_storage_workspace(db, tenant_scope.workspace_id)
+        await db.refresh(operation, with_for_update=True)
+        await db.refresh(invoice, with_for_update=True)
         confirmation_url = _bind_initial_checkout_payment(operation, invoice, payment)
-        if subscription is not None and subscription.billing_owner_id != principal.user_id:
-            # An owner who replaced the designated billing owner must make a
-            # fresh hosted payment before future renewals can use this account.
-            subscription.billing_owner_id = principal.user_id
         await db.commit()
         return RedirectResponse(
             confirmation_url
@@ -3364,6 +3787,7 @@ async def start_billing_checkout(
     ) as exc:
         await db.rollback()
         if "intent" in locals():
+            await lock_storage_workspace(db, tenant_scope.workspace_id)
             unresolved = await db.scalar(
                 select(BillingOperation)
                 .where(
@@ -3449,6 +3873,17 @@ async def billing_history_page(
                     "status": invoice.status,
                     "status_label": _invoice_status_label(invoice.status),
                     "cycle_label": "Год" if snapshot.get("cycle") == "year" else "Месяц",
+                    "purpose_label": purchase_purpose_label(snapshot),
+                    "service_label": "Оплата подтверждена; услуга требует сверки"
+                    if snapshot.get("service_resolution")
+                    else None,
+                    "service_period_label": (
+                        _billing_datetime_label(snapshot.get("service_starts_at"))
+                        + " — "
+                        + _billing_datetime_label(snapshot.get("service_ends_at"))
+                    )
+                    if snapshot.get("service_starts_at") and snapshot.get("service_ends_at")
+                    else None,
                     "discount_label": (
                         f"Скидка {snapshot.get('discount_percent')}%"
                         if isinstance(snapshot.get("discount_percent"), int)
@@ -3547,6 +3982,17 @@ async def billing_invoice_detail_page(
             or "Сумма недоступна",
             "status": invoice.status,
             "cycle_label": "Год" if snapshot.get("cycle") == "year" else "Месяц",
+            "purpose_label": purchase_purpose_label(snapshot),
+            "service_label": "Оплата подтверждена; услуга требует сверки"
+            if snapshot.get("service_resolution")
+            else None,
+            "service_period_label": (
+                _billing_datetime_label(snapshot.get("service_starts_at"))
+                + " — "
+                + _billing_datetime_label(snapshot.get("service_ends_at"))
+            )
+            if snapshot.get("service_starts_at") and snapshot.get("service_ends_at")
+            else None,
             "status_label": _invoice_status_label(invoice.status),
             "discount_label": (
                 f"Скидка {snapshot.get('discount_percent')}%"
@@ -3566,3 +4012,800 @@ async def billing_invoice_detail_page(
         support_email=support_email,
     )
     return cabinet_html_response(content)
+
+
+async def _purchase_error_page(request, tenant_scope, principal, db, message, *, status_code=409):
+    content = _page_shell(
+        "Подтверждение покупки",
+        embedded=_is_embedded_request(request),
+        profile=await get_account_profile_view(db, tenant_scope) if db is not None else None,
+        active_nav="settings",
+        settings_active="billing",
+        csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
+        content_template="cabinet/pages/billing_purchase_content.html",
+        support_email=request.app.state.settings.billing_support_email,
+        purchase=None,
+        purchase_error=message,
+    )
+    return cabinet_html_response(content, status_code=status_code)
+
+
+async def _render_purchase_quote(request, tenant_scope, principal, db, bound_quote):
+    value = bound_quote.snapshot
+    next_storage_price = (
+        value.get("next_storage_price") or value.get("storage_price_snapshot") or {}
+    )
+    next_storage_amount = next_storage_price.get("amount_minor", 0)
+    content = _page_shell(
+        "Подтверждение покупки",
+        embedded=_is_embedded_request(request),
+        profile=await get_account_profile_view(db, tenant_scope),
+        active_nav="settings",
+        settings_active="billing",
+        csrf_token=_csrf_token_for_principal(request, principal, tenant_scope=tenant_scope),
+        content_template="cabinet/pages/billing_purchase_content.html",
+        support_email=request.app.state.settings.billing_support_email,
+        purchase_error=None,
+        purchase={
+            "quote_id": str(bound_quote.id),
+            "purpose": bound_quote.purpose,
+            "title": "Изменение объёма хранения"
+            if bound_quote.purpose != "early_renewal"
+            else "Досрочное продление",
+            "capacity_label": _capacity_label(value["target_capacity_bytes"]),
+            "package_count": storage_package_count(value["target_capacity_bytes"]),
+            "list_label": _billing_price_label(value["list_amount_minor"]),
+            "payable_label": _billing_price_label(value["payable_amount_minor"]),
+            "discount_label": _billing_price_label(
+                value["list_amount_minor"] - value["payable_amount_minor"]
+            ),
+            "next_label": _billing_price_label(value["next_amount_minor"]),
+            "base_label": _billing_price_label(value["next_amount_minor"] - next_storage_amount),
+            "storage_label": _billing_price_label(next_storage_amount),
+            "current_capacity_label": _capacity_label(value["current_capacity_bytes"])
+            if value.get("current_capacity_bytes")
+            else None,
+            "cycle_label": "месяц" if value["cycle"] == "month" else "год",
+            "period_label": value["period_label"],
+            "next_attempt_label": value.get("next_attempt_label"),
+            "timeline": [
+                {
+                    "start": _billing_datetime_label(item["starts_at"]),
+                    "end": _billing_datetime_label(item["ends_at"]),
+                    "capacity": _capacity_label(item["capacity_bytes"]),
+                    "bonus": item["bonus"],
+                }
+                for item in value.get("capacity_timeline", [])
+            ],
+            "recurring_allowed": value["recurring_allowed"],
+            "method_label": value.get("payment_method_label"),
+            "deferred": bound_quote.purpose == "storage_schedule",
+        },
+    )
+    return cabinet_html_response(content)
+
+
+@router.post("/billing/storage/preview", response_class=HTMLResponse, include_in_schema=False)
+async def preview_storage_purchase(
+    request: Request,
+    _csrf: None = WebCSRFDependency,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+    package_count: int = Form(ge=0, le=99),
+    promo_code: str = Form(default="", max_length=48),
+):
+    capacity_bytes = storage_package_capacity(package_count)
+    if db is None:
+        return await _purchase_error_page(
+            request, tenant_scope, principal, db, "Оплата временно недоступна"
+        )
+    try:
+        require_billing_enabled(
+            checkout_enabled=request.app.state.settings.billing_checkout_enabled
+        )
+        if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
+            return RedirectResponse("/billing?result=owner_only", status_code=303)
+        subscription = await db.scalar(
+            select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == tenant_scope.workspace_id,
+            )
+        )
+        if subscription is None:
+            raise PurchaseError("Сначала подключите тариф «Личный»")
+        now = datetime.now(UTC)
+        promo, campaign = None, None
+        if promo_code.strip():
+            promo, campaign = await _load_checkout_promo(
+                db,
+                workspace_id=tenant_scope.workspace_id,
+                raw_code=promo_code,
+                cycle=subscription.cycle,
+                now=now,
+                purpose="storage_upgrade",
+            )
+        calculation = await calculate_storage_purchase(
+            db,
+            subscription=subscription,
+            target_capacity_bytes=capacity_bytes,
+            now=now,
+            discount_percent=promo.discount_percent if promo else 0,
+            provider_floor_minor=request.app.state.settings.billing_provider_floor_minor,
+        )
+        prices = await storage_catalog(db, now=now)
+        price = prices.get((capacity_bytes, subscription.cycle))
+        base = (await _approved_personal_catalog(db, now=now)).get(subscription.cycle)
+        if base is None or (capacity_bytes != PERSONAL_STORAGE_BYTES and price is None):
+            raise PurchaseError("Цена временно недоступна")
+        purpose = "storage_schedule" if calculation.deferred_to_renewal else "storage_upgrade"
+        snapshot = {
+            "plan_code": "personal",
+            "cycle": subscription.cycle,
+            "list_amount_minor": calculation.list_amount_minor,
+            "payable_amount_minor": calculation.payable_amount_minor,
+            "target_capacity_bytes": capacity_bytes,
+            "current_capacity_bytes": await effective_paid_storage(
+                db, subscription=subscription, now=now
+            ),
+            "storage_segments": [item.as_dict() for item in calculation.segments],
+            "capacity_timeline": await storage_period_timeline(
+                db, subscription=subscription, now=now, upgraded_segments=calculation.segments
+            ),
+            "next_amount_minor": base.amount_minor + (price.amount_minor if price else 0),
+            "next_storage_price": storage_price_snapshot(price),
+            "base_catalog_snapshot": base.as_dict(),
+            "selection_version": subscription.next_capacity_version,
+            "period_label": (
+                "Со следующего неоплаченного периода: "
+                if purpose == "storage_schedule"
+                else "С подтверждения оплаты до "
+            )
+            + format_user_datetime(subscription.paid_through, show_zone=True),
+            "ends_at": utc(subscription.paid_through).isoformat(),
+            "next_attempt_label": await _next_renewal_label(db, subscription, now=now),
+            "recurring_allowed": bool(subscription.recurring_allowed),
+            "promo_code_hash": promo_code_hash(promo.code) if promo else None,
+            "campaign_id": str(campaign.id) if campaign else None,
+            "campaign_version": promo.campaign_version if promo else None,
+            "discount_percent": promo.discount_percent if promo else None,
+        }
+        bound = await create_purchase_quote(
+            db,
+            workspace_id=tenant_scope.workspace_id,
+            owner_user_id=principal.user_id,
+            purpose=purpose,
+            subscription=subscription,
+            snapshot=snapshot,
+            now=now,
+        )
+        await db.commit()
+        return await _render_purchase_quote(request, tenant_scope, principal, db, bound)
+    except (PurchaseError, PromoError, BillingCheckoutDisabled) as exc:
+        await db.rollback()
+        return await _purchase_error_page(request, tenant_scope, principal, db, str(exc))
+
+
+@router.post(
+    "/billing/subscription/early-preview", response_class=HTMLResponse, include_in_schema=False
+)
+async def preview_early_renewal(
+    request: Request,
+    _csrf: None = WebCSRFDependency,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+    promo_code: str = Form(default="", max_length=48),
+):
+    if db is None:
+        return await _purchase_error_page(
+            request, tenant_scope, principal, db, "Оплата временно недоступна"
+        )
+    try:
+        require_billing_enabled(
+            checkout_enabled=request.app.state.settings.billing_checkout_enabled
+        )
+        if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
+            return RedirectResponse("/billing?result=owner_only", status_code=303)
+        subscription = await db.scalar(
+            select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == tenant_scope.workspace_id,
+            )
+        )
+        now = datetime.now(UTC)
+        if (
+            subscription is None
+            or subscription.plan_code != "personal"
+            or not subscription.paid_through
+            or subscription.paid_through <= now
+        ):
+            raise PurchaseError("Для досрочного продления нужна действующая подписка")
+        method = await db.scalar(
+            select(BillingPaymentMethod).where(
+                BillingPaymentMethod.workspace_id == tenant_scope.workspace_id,
+                BillingPaymentMethod.owner_user_id == principal.user_id,
+                BillingPaymentMethod.state == "active",
+                BillingPaymentMethod.is_default.is_(True),
+                BillingPaymentMethod.verified_at.is_not(None),
+            )
+        )
+        if method is None:
+            raise PurchaseError("Сохранённая карта недоступна. Откройте обычную оплату тарифа")
+        base = (await _approved_personal_catalog(db, now=now)).get(subscription.cycle)
+        if base is None:
+            raise PurchaseError("Цена временно недоступна")
+        catalog, price = await compose_personal_catalog(
+            db, base=base, subscription=subscription, now=now
+        )
+        promo, campaign = None, None
+        if promo_code.strip():
+            promo, campaign = await _load_checkout_promo(
+                db,
+                workspace_id=tenant_scope.workspace_id,
+                raw_code=promo_code,
+                cycle=subscription.cycle,
+                now=now,
+                purpose="early_renewal",
+            )
+        preview = checkout_preview(
+            plan_code="personal",
+            cycle=subscription.cycle,
+            promo=promo,
+            provider_floor_minor=request.app.state.settings.billing_provider_floor_minor,
+            catalog_snapshot=catalog,
+        )
+        snapshot = checkout_quote_snapshot(
+            catalog=catalog,
+            storage_price=price,
+            preview=preview,
+            promo=promo,
+            discount_source="promo" if promo else None,
+        )
+        snapshot.update(
+            {
+                "plan_code": "personal",
+                "target_capacity_bytes": catalog.storage_bytes,
+                "next_amount_minor": catalog.amount_minor,
+                "period_label": format_user_datetime(subscription.paid_through, show_zone=True)
+                + " — "
+                + format_user_datetime(
+                    _add_paid_interval(subscription.paid_through, subscription.cycle),
+                    show_zone=True,
+                ),
+                "ends_at": utc(subscription.paid_through).isoformat(),
+                "next_attempt_label": _billing_datetime_label(
+                    _add_paid_interval(subscription.paid_through, subscription.cycle)
+                    - timedelta(hours=72)
+                )
+                if subscription.recurring_allowed
+                else "не запланирована",
+                "recurring_allowed": bool(subscription.recurring_allowed),
+                "recurring_authority_version": subscription.recurring_authority_version,
+                "selection_version": subscription.next_capacity_version,
+                "payment_method_id": str(method.id),
+                "payment_method_label": method.masked_label,
+                "campaign_id": str(campaign.id) if campaign else None,
+            }
+        )
+        bound = await create_purchase_quote(
+            db,
+            workspace_id=tenant_scope.workspace_id,
+            owner_user_id=principal.user_id,
+            purpose="early_renewal",
+            subscription=subscription,
+            snapshot=snapshot,
+            now=now,
+        )
+        await db.commit()
+        return await _render_purchase_quote(request, tenant_scope, principal, db, bound)
+    except (PurchaseError, PromoError, BillingCheckoutDisabled) as exc:
+        await db.rollback()
+        return await _purchase_error_page(request, tenant_scope, principal, db, str(exc))
+
+
+async def _reserve_purchase_promo(db, *, quote_snapshot, workspace_id, invoice, operation, now):
+    campaign_id = quote_snapshot.get("campaign_id")
+    if not campaign_id:
+        return
+    campaign = await db.scalar(
+        select(PromotionCampaign).where(PromotionCampaign.id == UUID(campaign_id)).with_for_update()
+    )
+    if (
+        campaign is None
+        or not campaign.enabled
+        or campaign.code_hash != quote_snapshot.get("promo_code_hash")
+        or campaign.campaign_version != quote_snapshot.get("campaign_version")
+        or campaign.discount_percent != quote_snapshot.get("discount_percent")
+    ):
+        raise PurchaseError("Промокод изменился. Проверьте расчёт заново")
+    policy = campaign.policy_snapshot or {}
+    if operation.kind not in policy.get("purposes", ["initial_checkout"]) or policy.get(
+        "workspace_id"
+    ) not in {None, str(workspace_id)}:
+        raise PurchaseError("Промокод недоступен для этой покупки")
+    await validate_acceptance_campaign(db, policy=policy, workspace_id=workspace_id, now=now)
+    if (
+        campaign.plan_code != "personal"
+        or campaign.cycle not in {None, quote_snapshot["cycle"]}
+        or (campaign.starts_at and campaign.starts_at > now)
+        or (campaign.ends_at and campaign.ends_at <= now)
+        or campaign.redeemed_count + campaign.reserved_count >= campaign.max_redemptions
+    ):
+        raise PurchaseError("Промокод больше недоступен")
+    redemption = await db.scalar(
+        select(PromotionRedemption)
+        .where(
+            PromotionRedemption.workspace_id == workspace_id,
+            PromotionRedemption.campaign_id == campaign.id,
+        )
+        .with_for_update()
+    )
+    if redemption is not None and redemption.state not in {"released", "expired"}:
+        raise PurchaseError("Промокод уже использован или ожидает результата платежа")
+    if redemption is None:
+        redemption = PromotionRedemption(workspace_id=workspace_id, campaign_id=campaign.id)
+        db.add(redemption)
+    redemption.invoice_id = invoice.id
+    redemption.reservation_key = operation.idempotency_key
+    redemption.code_hash = campaign.code_hash
+    redemption.list_amount_minor = quote_snapshot["list_amount_minor"]
+    redemption.payable_amount_minor = invoice.amount_minor
+    redemption.discount_percent = campaign.discount_percent
+    redemption.state = "reserved"
+    redemption.expires_at = now + timedelta(minutes=15)
+    redemption.released_at = redemption.redeemed_at = None
+
+
+@router.post("/billing/purchases/confirm", response_class=HTMLResponse, include_in_schema=False)
+async def confirm_billing_purchase(
+    request: Request,
+    _csrf: None = WebCSRFDependency,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+    quote_id: str = Form(max_length=64),
+    purchase_consent: bool = Form(default=False),
+):
+    if db is None:
+        return await _purchase_error_page(
+            request, tenant_scope, principal, db, "Оплата временно недоступна"
+        )
+    limited = await _billing_rate_limited_response(
+        request, tenant_scope=tenant_scope, principal=principal, action="billing_checkout_start"
+    )
+    if limited is not None:
+        return limited
+    settings = request.app.state.settings
+    operation, invoice = None, None
+    dispatched = False
+    try:
+        require_billing_enabled(checkout_enabled=settings.billing_checkout_enabled)
+        await lock_storage_workspace(db, tenant_scope.workspace_id)
+        subscription = await _billing_owner_subscription(
+            db, tenant_scope=tenant_scope, principal=principal
+        )
+        if subscription is None:
+            raise PurchaseError("Изменять подписку может только владелец")
+        if not purchase_consent:
+            raise PurchaseError("Подтвердите сумму и условия покупки")
+        bound = await db.scalar(
+            select(BillingPurchaseQuote)
+            .where(
+                BillingPurchaseQuote.id == UUID(quote_id),
+                BillingPurchaseQuote.workspace_id == tenant_scope.workspace_id,
+                BillingPurchaseQuote.owner_user_id == principal.user_id,
+            )
+            .with_for_update()
+        )
+        if bound is None or bound.purpose not in {
+            "storage_upgrade",
+            "storage_schedule",
+            "early_renewal",
+        }:
+            raise PurchaseError("Расчёт недоступен. Откройте новую покупку")
+        if bound.consumed_operation_id:
+            previous_invoice = await db.scalar(
+                select(BillingInvoice).where(
+                    BillingInvoice.operation_id == bound.consumed_operation_id
+                )
+            )
+            return RedirectResponse(
+                _checkout_status_location(previous_invoice.safe_number)
+                if previous_invoice
+                else "/billing/storage?result=scheduled",
+                status_code=303,
+            )
+        now = datetime.now(UTC)
+        bound = await validate_purchase_quote(
+            db,
+            quote_id=bound.id,
+            workspace_id=tenant_scope.workspace_id,
+            owner_user_id=principal.user_id,
+            purpose=bound.purpose,
+            subscription=subscription,
+            now=now,
+        )
+        value = bound.snapshot
+        if utc(datetime.fromisoformat(value["ends_at"])) <= now:
+            raise PurchaseError("Оплаченный период закончился. Откройте новый расчёт")
+        base = (await _approved_personal_catalog(db, now=now)).get(value["cycle"])
+        if base is None:
+            raise PurchaseError("Цена временно недоступна")
+        prices = await storage_catalog(db, now=now)
+        if bound.purpose == "early_renewal":
+            catalog, price = await compose_personal_catalog(
+                db, base=base, subscription=subscription, now=now
+            )
+            if value.get("catalog_snapshot") != catalog.as_dict() or value.get(
+                "storage_price_snapshot"
+            ) != storage_price_snapshot(price):
+                raise PurchaseError("Цена изменилась. Проверьте расчёт заново")
+        else:
+            price = prices.get((value["target_capacity_bytes"], value["cycle"]))
+            if (
+                value["next_storage_price"] != storage_price_snapshot(price)
+                or value["base_catalog_snapshot"] != base.as_dict()
+            ):
+                raise PurchaseError("Цена изменилась. Проверьте расчёт заново")
+            for segment in value["storage_segments"]:
+                current_price = prices.get((segment["capacity_bytes"], segment["cycle"]))
+                if current_price is None or str(current_price.id) != segment["catalog_version_id"]:
+                    raise PurchaseError("Цена изменилась. Проверьте расчёт заново")
+        if bound.purpose == "early_renewal":
+            await _cancel_unsent_renewals(
+                db, workspace_id=tenant_scope.workspace_id, reason="early_renewal_selected"
+            )
+        blocker = await db.scalar(
+            select(BillingOperation)
+            .where(
+                BillingOperation.workspace_id == tenant_scope.workspace_id,
+                BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
+            )
+            .limit(1)
+            .with_for_update()
+        )
+        if blocker is not None:
+            raise PurchaseError("Дождитесь результата предыдущего платежа в истории")
+        accept_storage_price(
+            subscription, value.get("next_storage_price") or value.get("storage_price_snapshot")
+        )
+        if bound.purpose == "storage_schedule":
+            subscription.renewal_resolution = None
+            subscription.next_capacity_bytes = value["target_capacity_bytes"]
+            subscription.next_capacity_version = (subscription.next_capacity_version or 0) + 1
+            subscription.application_version = (subscription.application_version or 0) + 1
+            # Immutable no-money audit operation also consumes this quote exactly once.
+            operation = BillingOperation(
+                workspace_id=tenant_scope.workspace_id,
+                kind="storage_schedule",
+                idempotency_key=f"purchase:{bound.id}",
+                state="succeeded",
+                request_snapshot=value,
+            )
+            db.add(operation)
+            await db.flush()
+            bound.consumed_operation_id = operation.id
+            await _notify_storage_selection(db, subscription=subscription)
+            await db.commit()
+            return RedirectResponse("/billing/storage?result=scheduled", status_code=303)
+        receipt_contact = await db.scalar(
+            select(ExternalIdentity.email)
+            .where(
+                ExternalIdentity.user_id == principal.user_id,
+                ExternalIdentity.is_active.is_(True),
+                ExternalIdentity.is_verified.is_(True),
+                ExternalIdentity.email.is_not(None),
+            )
+            .order_by(ExternalIdentity.created_at)
+            .limit(1)
+        )
+        if not receipt_contact:
+            raise PurchaseError("Подтвердите адрес электронной почты для чека")
+        provider_ref = None
+        if bound.purpose == "early_renewal":
+            from twobrain_rec_server.billing.payment_methods import (
+                open_provider_reference,
+                read_billing_encryption_key,
+            )
+
+            method = await db.scalar(
+                select(BillingPaymentMethod)
+                .where(
+                    BillingPaymentMethod.id == UUID(value["payment_method_id"]),
+                    BillingPaymentMethod.workspace_id == tenant_scope.workspace_id,
+                    BillingPaymentMethod.owner_user_id == principal.user_id,
+                    BillingPaymentMethod.is_default.is_(True),
+                    BillingPaymentMethod.state == "active",
+                    BillingPaymentMethod.verified_at.is_not(None),
+                )
+                .with_for_update()
+            )
+            key = read_billing_encryption_key(settings.credential_encryption_key_file)
+            if method is None or key is None or method.key_version != "billing-v1":
+                raise PurchaseError("Сохранённая карта недоступна")
+            provider_ref = open_provider_reference(method.encrypted_provider_ref, key)
+        snapshot = {
+            **value,
+            "purchase_schema": 2,
+            "purchase_purpose": bound.purpose,
+            "billing_actor_user_id": str(principal.user_id),
+            "provider_shop_id": settings.billing_yookassa_shop_id,
+            "provider_environment": provider_environment(settings.billing_yookassa_environment),
+            "one_time_consent_at": now.isoformat(),
+            "quote_id": str(bound.id),
+        }
+        operation = BillingOperation(
+            workspace_id=tenant_scope.workspace_id,
+            kind=bound.purpose,
+            idempotency_key=f"purchase:{bound.id}",
+            state="processing",
+            provider_key_expires_at=now + timedelta(hours=24),
+            request_snapshot=snapshot,
+        )
+        db.add(operation)
+        await db.flush()
+        invoice = BillingInvoice(
+            workspace_id=tenant_scope.workspace_id,
+            operation_id=operation.id,
+            safe_number=f"INV-{uuid4().hex.upper()}",
+            amount_minor=value["payable_amount_minor"],
+            currency="RUB",
+            status="pending",
+            plan_snapshot=snapshot,
+            receipt_contact_snapshot=receipt_contact,
+        )
+        db.add(invoice)
+        await db.flush()
+        await _reserve_purchase_promo(
+            db,
+            quote_snapshot=value,
+            workspace_id=tenant_scope.workspace_id,
+            invoice=invoice,
+            operation=operation,
+            now=now,
+        )
+        await reserve_acceptance_budget(
+            db,
+            workspace_id=tenant_scope.workspace_id,
+            operation_id=operation.id,
+            amount_minor=invoice.amount_minor,
+            now=now,
+        )
+        description = (
+            "GRAF: хранение, всего "
+            if bound.purpose == "storage_upgrade"
+            else "GRAF Личный и хранение, всего "
+        ) + _capacity_label(value["target_capacity_bytes"])
+        receipt = build_receipt_payload(
+            receipt_contact=receipt_contact,
+            amount_minor=invoice.amount_minor,
+            currency="RUB",
+            description=description,
+            tax_system_code=settings.billing_receipt_tax_system_code,
+            vat_code=settings.billing_receipt_vat_code,
+            payment_subject=settings.billing_receipt_payment_subject,
+            payment_mode=settings.billing_receipt_payment_mode,
+        )
+        return_url = billing_checkout_return_url(request, safe_invoice_number=invoice.safe_number)
+        bound.consumed_operation_id = operation.id
+        await db.commit()  # Budget, promo, invoice and consent precede the only POST.
+        dispatched = True
+        async with YooKassaClient(settings) as provider:
+            payment = await provider.create_payment(
+                amount_minor=invoice.amount_minor,
+                currency="RUB",
+                description=description,
+                idempotence_key=operation.idempotency_key,
+                metadata={
+                    "workspace_id": str(tenant_scope.workspace_id),
+                    "operation_id": str(operation.id),
+                    "invoice_number": invoice.safe_number,
+                    **({"return_url": return_url} if provider_ref is None else {}),
+                },
+                payment_method_id=provider_ref,
+                save_payment_method=False,
+                receipt=receipt,
+            )
+        await lock_storage_workspace(db, tenant_scope.workspace_id)
+        await db.refresh(operation, with_for_update=True)
+        await db.refresh(invoice, with_for_update=True)
+        url = _bind_initial_checkout_payment(operation, invoice, payment)
+        await db.commit()
+        return RedirectResponse(
+            url or _checkout_status_location(invoice.safe_number), status_code=303
+        )
+    except (
+        ValueError,
+        BillingCheckoutDisabled,
+        YooKassaConfigurationError,
+        YooKassaProviderError,
+        httpx.HTTPError,
+        IntegrityError,
+    ) as exc:
+        await db.rollback()
+        if dispatched:
+            await lock_storage_workspace(db, tenant_scope.workspace_id)
+            # Never repeat POST after an ambiguous response. GET/webhook resolves it.
+            bound = await db.scalar(
+                select(BillingPurchaseQuote).where(
+                    BillingPurchaseQuote.id == UUID(quote_id),
+                    BillingPurchaseQuote.workspace_id == tenant_scope.workspace_id,
+                )
+            )
+            if bound and bound.consumed_operation_id:
+                saved = await db.scalar(
+                    select(BillingOperation)
+                    .where(BillingOperation.id == bound.consumed_operation_id)
+                    .with_for_update()
+                )
+                saved_invoice = await db.scalar(
+                    select(BillingInvoice)
+                    .where(BillingInvoice.operation_id == bound.consumed_operation_id)
+                    .with_for_update()
+                )
+                if saved and saved_invoice:
+                    _record_initial_checkout_failure(saved, saved_invoice, exc)
+                    await db.commit()
+                    return RedirectResponse(
+                        _checkout_status_location(saved_invoice.safe_number), status_code=303
+                    )
+        message = (
+            str(exc)
+            if isinstance(exc, (PurchaseError, PromoError))
+            else "Покупка не создана. Проверьте условия и повторите расчёт"
+        )
+        return await _purchase_error_page(request, tenant_scope, principal, db, message)
+
+
+@router.post("/billing/storage/cancel-selection", include_in_schema=False)
+async def cancel_storage_selection(
+    request: Request,
+    _csrf: None = WebCSRFDependency,
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession | None = WebDbDependency,
+    selection_version: int = Form(ge=0),
+):
+    if db is None:
+        return await _purchase_error_page(
+            request, tenant_scope, principal, db, "Управление временно недоступно"
+        )
+    await lock_storage_workspace(db, tenant_scope.workspace_id)
+    subscription = await _billing_owner_subscription(
+        db, tenant_scope=tenant_scope, principal=principal
+    )
+    if subscription is None:
+        return RedirectResponse("/billing?result=owner_only", status_code=303)
+    blocker = await db.scalar(
+        select(BillingOperation.id)
+        .where(
+            BillingOperation.workspace_id == tenant_scope.workspace_id,
+            BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
+        )
+        .limit(1)
+    )
+    if blocker is not None:
+        await db.rollback()
+        return await _purchase_error_page(
+            request,
+            tenant_scope,
+            principal,
+            db,
+            "Сначала дождитесь результата предыдущего платежа в истории",
+        )
+    if subscription.next_capacity_version != selection_version:
+        await db.rollback()
+        return await _purchase_error_page(
+            request, tenant_scope, principal, db, "Объём уже изменился. Проверьте текущий выбор"
+        )
+    subscription.next_capacity_bytes = None
+    subscription.next_capacity_version += 1
+    subscription.application_version += 1
+    await _notify_storage_selection(db, subscription=subscription)
+    await db.commit()
+    return RedirectResponse("/billing/storage?result=schedule_canceled", status_code=303)
+
+
+async def _next_renewal_label(db, subscription, *, now, for_resume=False):
+    if subscription is None or subscription.paid_through is None:
+        return "не запланировано"
+    if not subscription.recurring_allowed and not for_resume:
+        return "не запланировано"
+    if subscription.renewal_resolution == "price_changed" and not for_resume:
+        return "приостановлено: подтвердите новые условия хранилища"
+    operations = list(
+        await db.scalars(
+            select(BillingOperation).where(
+                BillingOperation.workspace_id == subscription.workspace_id,
+                BillingOperation.kind == "renewal",
+                BillingOperation.request_snapshot["paid_through_at"].as_string()
+                == utc(subscription.paid_through).isoformat(),
+            )
+        )
+    )
+    unresolved = any(
+        item.state not in {"canceled", "succeeded", "scheduled"} for item in operations
+    )
+    if unresolved:
+        return "проверяем результат предыдущего списания; нового платежа не будет до завершения проверки"
+    next_at = next_renewal_attempt(
+        paid_through=subscription.paid_through,
+        now=now,
+        resolved_attempts={
+            renewal_attempt_of(item)
+            for item in operations
+            if item.state in {"canceled", "succeeded"}
+        },
+        unresolved=False,
+    )
+    if next_at is None:
+        return "попытки в этом периоде завершены; доступна ручная оплата"
+    if next_at <= now:
+        return (
+            "после подтверждения возобновления, в ближайшее время"
+            if for_resume
+            else "в ближайшее время"
+        )
+    return _billing_datetime_label(next_at)
+
+
+async def _resume_renewal_snapshot(db, *, subscription, now):
+    base = (await _approved_personal_catalog(db, now=now)).get(subscription.cycle)
+    if base is None:
+        raise PurchaseError("Цена продления временно недоступна")
+    catalog, storage_price = await compose_personal_catalog(
+        db, base=base, subscription=subscription, now=now
+    )
+    method = await db.scalar(
+        select(BillingPaymentMethod.id).where(
+            BillingPaymentMethod.workspace_id == subscription.workspace_id,
+            BillingPaymentMethod.owner_user_id == subscription.billing_owner_id,
+            BillingPaymentMethod.is_default.is_(True),
+            BillingPaymentMethod.state == "active",
+            BillingPaymentMethod.verified_at.is_not(None),
+        )
+    )
+    if method is None:
+        raise PurchaseError("Нужна подтверждённая сохранённая карта")
+    return {
+        "catalog_snapshot": catalog.as_dict(),
+        "storage_price_snapshot": storage_price_snapshot(storage_price),
+        "payment_method_id": str(method),
+        "next_attempt_label": await _next_renewal_label(db, subscription, now=now, for_resume=True),
+    }
+
+
+async def _cancel_unsent_renewals(db, *, workspace_id, reason):
+    """Caller holds the workspace advisory lock; in-flight operations are preserved."""
+    scheduled = await db.scalars(
+        select(BillingOperation)
+        .where(
+            BillingOperation.workspace_id == workspace_id,
+            BillingOperation.kind == "renewal",
+            BillingOperation.state == "scheduled",
+            BillingOperation.provider_id.is_(None),
+        )
+        .with_for_update()
+    )
+    for pending in scheduled:
+        pending.state = "canceled"
+        pending.request_snapshot = {**pending.request_snapshot, "cancel_reason": reason}
+        pending_invoice = await db.scalar(
+            select(BillingInvoice)
+            .where(BillingInvoice.operation_id == pending.id)
+            .with_for_update()
+        )
+        if pending_invoice is not None:
+            pending_invoice.status = "canceled"
+
+
+async def _notify_storage_selection(db, *, subscription):
+    if subscription.billing_owner_id is not None:
+        await enqueue_billing_notification(
+            db,
+            workspace_id=subscription.workspace_id,
+            recipient_id=subscription.billing_owner_id,
+            event_id=f"storage:{subscription.workspace_id}:selection:{subscription.next_capacity_version}",
+            kind=BillingNotification.STORAGE_SELECTION_CHANGED,
+            payload={"action_path": "/billing/storage"},
+            marketing_allowed=False,
+        )

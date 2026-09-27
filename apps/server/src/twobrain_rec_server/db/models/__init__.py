@@ -7,6 +7,8 @@ from twobrain_rec_server.db.models.admin import (
     WorkspaceUsageDaily,
 )
 from twobrain_rec_server.db.models.billing import (
+    BillingAcceptanceBudget,
+    BillingAcceptanceReservation,
     BillingAuditEvent,
     BillingEntitlementGrant,
     BillingInvoice,
@@ -15,6 +17,9 @@ from twobrain_rec_server.db.models.billing import (
     BillingOperation,
     BillingPaymentMethod,
     BillingPlanVersion,
+    BillingPurchaseQuote,
+    BillingStorageEntitlementGrant,
+    BillingStoragePriceVersion,
     BillingWebhookEvent,
     FairUseReviewRecord,
     FreeUsageWindow,
@@ -141,7 +146,14 @@ from twobrain_rec_server.db.models.product_analytics import (
 from twobrain_rec_server.db.models.support import SupportIncident, SupportIncidentRateLimitBucket
 
 __all__ = [
-    "MeetingComment", "MeetingCommentMention", "MeetingCommentReaction",
+    "BillingStoragePriceVersion",
+    "BillingStorageEntitlementGrant",
+    "BillingPurchaseQuote",
+    "BillingAcceptanceBudget",
+    "BillingAcceptanceReservation",
+    "MeetingComment",
+    "MeetingCommentMention",
+    "MeetingCommentReaction",
     "ServerNotification",
     "AdminAuditEvent",
     "AccountClosureRequest",

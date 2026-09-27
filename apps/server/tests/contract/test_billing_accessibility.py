@@ -15,26 +15,79 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
     from twobrain_rec_server.billing.catalog import plan_descriptor
 
     context = dict(
-        plan=plan_descriptor("personal"), billing_enabled=True, catalog_ready=True,
-        checkout_idempotency_key="synthetic", monthly_price_label="1 000 ₽",
-        annual_price_label="10 000 ₽", csrf_token="synthetic", embedded=False,
+        plan=plan_descriptor("personal"),
+        billing_enabled=True,
+        catalog_ready=True,
+        checkout_idempotency_key="synthetic",
+        checkout_quote_id="synthetic-quote",
+        monthly_price_label="1 000 ₽",
+        annual_price_label="10 000 ₽",
+        csrf_token="synthetic",
+        embedded=False,
     )
-    pages = {name: render_template(
-        "cabinet/pages/billing_checkout_content.html", **context, checkout_result=result,
-    ) for name, result in (("checkout", None), ("error", "offer_changed"))}
+    pages = {
+        name: render_template(
+            "cabinet/pages/billing_checkout_content.html",
+            **context,
+            checkout_result=result,
+        )
+        for name, result in (("checkout", None), ("error", "offer_changed"))
+    }
     for result in (None, "refreshed", "unchanged"):
         pages[f"status-{result}"] = render_template(
             "cabinet/pages/billing_operation_status_content.html",
-            embedded=False, invoice={"safe_number": "INV-SYNTHETIC"},
-            amount_label="1 000 ₽", operation_state="unknown",
-            operation_state_label="Уточняем статус", updated_at_label="20.09.2026",
-            status_result=result, can_refresh_payment=True,
+            embedded=False,
+            invoice={"safe_number": "INV-SYNTHETIC"},
+            amount_label="1 000 ₽",
+            operation_state="unknown",
+            operation_state_label="Уточняем статус",
+            updated_at_label="20.09.2026",
+            status_result=result,
+            can_refresh_payment=True,
         )
+    for purpose in ("storage_upgrade", "early_renewal", "storage_schedule"):
+        pages[purpose] = render_template(
+            "cabinet/pages/billing_purchase_content.html",
+            csrf_token="synthetic",
+            purchase_error=None,
+            purchase={
+                "quote_id": "synthetic-quote",
+                "purpose": purpose,
+                "title": "Подтверждение покупки",
+                "capacity_label": "500 ГБ",
+                "list_label": "257 500 ₽",
+                "payable_label": "2 575 ₽",
+                "discount_label": "254 925 ₽",
+                "next_label": "257 500 ₽",
+                "base_label": "10 000 ₽",
+                "storage_label": "247 500 ₽",
+                "current_capacity_label": "5 ГБ",
+                "next_attempt_label": "не запланирована",
+                "cycle_label": "год",
+                "period_label": "26.09.2026 — 26.09.2027",
+                "recurring_allowed": False,
+                "method_label": "•••• 4242" if purpose == "early_renewal" else None,
+                "deferred": purpose == "storage_schedule",
+            },
+        )
+    pages["packages"] = render_template(
+        "cabinet/pages/billing_storage_content.html",
+        csrf_token="synthetic", eligible=True, billing_enabled=True,
+        current_capacity_label="10 ГБ", selected_package_count=1,
+        storage_options=[{
+            "package_count": n, "capacity": (n + 1) * 5_000_000_000,
+            "label": f"{(n + 1) * 5} ГБ", "addon_label": f"{250 * n} ₽",
+            "total_label": f"{1000 + 250 * n} ₽", "cycle_label": "месяц",
+        } for n in range(100)],
+    )
     fixture = tmp_path / "billing-pages.json"
     fixture.write_text(json.dumps(pages), encoding="utf-8")
     script = Path(__file__).parents[1] / "browser/billing-accessibility.test.cjs"
     result = subprocess.run(
-        ["node", str(script), str(fixture)], capture_output=True, text=True, timeout=90,
+        ["node", str(script), str(fixture)],
+        capture_output=True,
+        text=True,
+        timeout=90,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -70,7 +123,9 @@ def test_every_billing_screen_keeps_payment_help_or_history_after_the_primary_pa
             assert "Нужна помощь с оплатой?" not in html
             continue
         assert "Нужна помощь с оплатой?" in html
-        destination = "#billing-help" if name == "billing_history_content.html" else "/billing/history"
+        destination = (
+            "#billing-help" if name == "billing_history_content.html" else "/billing/history"
+        )
         assert f'href="{destination}"' in html
         assert html.index("Нужна помощь с оплатой?") > html.index("</section>")
 
@@ -78,51 +133,81 @@ def test_every_billing_screen_keeps_payment_help_or_history_after_the_primary_pa
 def test_non_payer_billing_surfaces_keep_quota_state_without_usage_values() -> None:
     from twobrain_rec_server.billing.catalog import plan_descriptor
 
-    values = {name: "private-" + name for name in (
-        "processing_used_label", "processing_remaining_label",
-        "storage_used_label", "storage_reserved_label", "storage_available_label",
-    )}
-    context = dict(embedded=False, settings_navigation=[], settings_active="billing",
-                   plan=plan_descriptor("free"), plan_code="free", meetings_href="/meetings",
-                   processing_threshold="approaching", processing_reset_at_label="later",
-                   free_processing_limit_label="300 минут", storage_capacity_label="2 ГБ", **values)
+    values = {
+        name: "private-" + name
+        for name in (
+            "processing_used_label",
+            "processing_remaining_label",
+            "storage_used_label",
+            "storage_reserved_label",
+            "storage_available_label",
+        )
+    }
+    context = dict(
+        embedded=False,
+        settings_navigation=[],
+        settings_active="billing",
+        plan=plan_descriptor("free"),
+        plan_code="free",
+        meetings_href="/meetings",
+        processing_threshold="approaching",
+        processing_reset_at_label="later",
+        free_processing_limit_label="300 минут",
+        storage_capacity_label="5 ГБ",
+        **values,
+    )
     for role in (None, "member", "corporate_owner", "owner"):
         for plan_code in ("personal", "free"):
             for threshold in ("normal", "approaching", "exhausted"):
-                context.update(plan_code=plan_code, plan=plan_descriptor(plan_code),
-                               processing_threshold=threshold, processing_unlimited=plan_code != "free",
-                               storage_threshold="full")
+                context.update(
+                    plan_code=plan_code,
+                    plan=plan_descriptor(plan_code),
+                    processing_threshold=threshold,
+                    processing_unlimited=plan_code != "free",
+                    storage_threshold="full",
+                )
                 for page in ("billing_overview_content.html", "billing_usage_content.html"):
-                    html = render_template("cabinet/pages/" + page, billing_role=role,
-                                           billing_owner=False, **context)
+                    html = render_template(
+                        "cabinet/pages/" + page, billing_role=role, billing_owner=False, **context
+                    )
                     assert all(value not in html for value in values.values())
-                    assert "2 ГБ" in html
+                    assert "5 ГБ" in html
                     if plan_code == "free":
                         assert "300 минут" in html
                     assert ("Дождитесь сброса later" in html) == (
                         plan_code == "free" and threshold != "normal"
                     )
                     if page == "billing_usage_content.html":
-                        assert ("Без лимита по минутам и встречам" in html) == (plan_code == "personal")
+                        assert ("Без лимита по минутам и встречам" in html) == (
+                            plan_code == "personal"
+                        )
                         assert "Архив заполнен: новое аудио не сохраняется" in html
                         assert 'href="/meetings">Управлять архивом</a>' in html
                         assert ("?archive_audio=false#manual-upload" in html) == (
                             plan_code == "personal" or threshold != "exhausted"
                         )
                     if plan_code == "free" and threshold == "exhausted":
-                        assert "новая обработка, в том числе без сохранения аудио, недоступна" in html
+                        assert (
+                            "новая обработка, в том числе без сохранения аудио, недоступна" in html
+                        )
     for payer in (False, True):
         unavailable = render_template(
-            "cabinet/pages/billing_usage_content.html", billing_owner=payer,
-            usage_projection_state="unavailable", **context,
+            "cabinet/pages/billing_usage_content.html",
+            billing_owner=payer,
+            usage_projection_state="unavailable",
+            **context,
         )
         assert "Данные использования недоступны" in unavailable
         assert "Количественные данные хранилища временно недоступны" in unavailable
         assert "доступны плательщику" not in unavailable and "видит плательщик" not in unavailable
         assert all(value not in unavailable for value in values.values())
-        assert "2 ГБ" not in unavailable and "300 минут" not in unavailable
-    owner = render_template("cabinet/pages/billing_overview_content.html",
-                            billing_role="owner", billing_owner=True, **context)
+        assert "5 ГБ" not in unavailable and "300 минут" not in unavailable
+    owner = render_template(
+        "cabinet/pages/billing_overview_content.html",
+        billing_role="owner",
+        billing_owner=True,
+        **context,
+    )
     assert values["processing_used_label"] in owner
     assert values["storage_used_label"] in owner
 
@@ -170,7 +255,7 @@ def test_plans_and_checkout_use_named_period_navigation_and_native_coupon_disclo
     assert 'name="cycle" value="month"' in checkout
     assert 'name="cycle" value="year"' in checkout
     assert '<details class="billing-coupon"' in checkout
-    assert '<summary' in checkout
+    assert "<summary" in checkout
     assert checkout.count("data-billing-primary") == 1
 
 
@@ -183,7 +268,10 @@ def test_billing_css_scopes_reflow_and_forced_color_contracts() -> None:
     assert ".billing-checkout-card" in css
     assert "@media (max-width: 760px)" in css
     assert "@media (forced-colors: active)" in css
-    assert '.billing-period-switch :is(a, button)[aria-current="true"] { outline: 2px solid Highlight;' in css
+    assert (
+        '.billing-period-switch :is(a, button)[aria-current="true"] { outline: 2px solid Highlight;'
+        in css
+    )
 
 
 def test_checkout_renders_server_calculated_promo_amounts() -> None:
@@ -201,6 +289,7 @@ def test_checkout_renders_server_calculated_promo_amounts() -> None:
         billing_enabled=True,
         catalog_ready=True,
         checkout_idempotency_key="synthetic-key",
+        checkout_quote_id="synthetic-quote",
         monthly_price_label="790 ₽",
         annual_price_label="7 900 ₽",
         checkout_result="promo_applied",
@@ -215,10 +304,10 @@ def test_checkout_renders_server_calculated_promo_amounts() -> None:
         },
         promo_preview_error=None,
     )
-    assert "Стоимость тарифа" in html
+    assert "Стоимость покупки" in html
     assert "−79 ₽ (10%)" in html
     assert "711 ₽" in html
-    assert 'Оплатить 711 ₽ в ЮKassa — месяц' in html
+    assert "Оплатить 711 ₽ в ЮKassa — месяц" in html
     assert 'action="/billing/checkout/preview"' in html
     assert 'name="promo_code" value="SAVE10"' in html
     assert 'name="cycle" value="year"' in html
@@ -240,6 +329,7 @@ def test_checkout_promo_error_preserves_safe_input_and_associates_error() -> Non
         plan=plan_descriptor("personal"),
         billing_enabled=True,
         checkout_idempotency_key="synthetic-key",
+        checkout_quote_id="synthetic-quote",
         checkout_result="promo_invalid",
         checkout_promo_code="WELCOME10",
     )
@@ -272,7 +362,7 @@ def test_payment_method_delete_and_discount_actions_have_csrf_and_labels() -> No
     assert 'action="/billing/payment-method/delete" method="post"' in method
     assert "Удалить способ оплаты" in method
     assert 'action="/billing/discounts/apply" method="post"' in discounts
-    assert 'checkout_promo_active|default(False)' in discounts
+    assert "checkout_promo_active|default(False)" in discounts
     assert "Применить" in discounts
     assert "Удалить" in discounts
 
@@ -288,9 +378,9 @@ def test_cabinet_css_declares_reflow_focus_and_reduced_motion_guards() -> None:
 
 
 def test_billing_copy_controls_have_a_keyboard_safe_browser_handler() -> None:
-    script = (ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js").read_text(
-        encoding="utf-8"
-    )
+    script = (
+        ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
+    ).read_text(encoding="utf-8")
     assert 'querySelectorAll("[data-copy-value], [data-copy-target]")' in script
     assert 'role", "status"' in script
     assert 'document.execCommand("copy")' in script
@@ -319,16 +409,23 @@ def test_manual_upload_exposes_explicit_archive_choice_and_transmits_it() -> Non
 
 
 def test_no_archive_upgrade_cta_opens_manual_upload_with_archive_disabled() -> None:
-    script = (ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js").read_text(
-        encoding="utf-8"
-    )
+    script = (
+        ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
+    ).read_text(encoding="utf-8")
     for embedded in (False, True):
         usage = render_template(
-            "cabinet/pages/billing_usage_content.html", embedded=embedded,
-            processing_threshold="normal", processing_unlimited=True,
-            processing_used_label="0 минут", storage_used=0, storage_reserved=0,
-            storage_available=0, storage_capacity=250_000_000, storage_threshold="full",
-            storage_threshold_label="Архив заполнен", billing_owner=True,
+            "cabinet/pages/billing_usage_content.html",
+            embedded=embedded,
+            processing_threshold="normal",
+            processing_unlimited=True,
+            processing_used_label="0 минут",
+            storage_used=0,
+            storage_reserved=0,
+            storage_available=0,
+            storage_capacity=250_000_000,
+            storage_threshold="full",
+            storage_threshold_label="Архив заполнен",
+            billing_owner=True,
         )
         prefix = "/desktop" if embedded else ""
         assert f'href="{prefix}/meetings?archive_audio=false#manual-upload"' in usage

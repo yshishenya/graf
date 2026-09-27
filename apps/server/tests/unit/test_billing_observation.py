@@ -21,6 +21,18 @@ from twobrain_rec_server.db.models import (
 )
 
 
+def _isolate_payment_application(monkeypatch):
+    # These tests check scanning, lock order and transaction boundaries.
+    # Financial validation is covered separately with the real PostgreSQL path.
+    async def apply(db, settings, *, operation, payload, scope, **kwargs):
+        observation = webhook_reconciliation.extract_payment_observation(payload, scope=scope)
+        if observation.status == "succeeded":
+            return await webhook_reconciliation.grant_confirmed_payment(db)
+        return observation.status
+
+    monkeypatch.setattr(webhook_reconciliation, "apply_confirmed_purchase", apply)
+
+
 class _Rows:
     def __init__(self, values):
         self.values = values
@@ -106,6 +118,7 @@ def test_checkout_keeps_provider_observation_enabled(monkeypatch, tmp_path: Path
 def test_terminal_initial_observation_is_polled_only_by_explicit_operation_refresh(
     monkeypatch, tmp_path: Path
 ) -> None:
+    _isolate_payment_application(monkeypatch)
     secret = tmp_path / "yookassa-secret"
     secret.write_text("test", encoding="utf-8")
     settings = Settings(
@@ -157,7 +170,12 @@ def test_terminal_initial_observation_is_polled_only_by_explicit_operation_refre
             return workspace
 
     db = ExplicitDb([])
-    assert asyncio.run(webhook_reconciliation.reconcile_pending_initial_checkout_operations(db, settings))["processed"] == 0
+    assert (
+        asyncio.run(
+            webhook_reconciliation.reconcile_pending_initial_checkout_operations(db, settings)
+        )["processed"]
+        == 0
+    )
     assert calls == []
     db = ExplicitDb([operation])
     result = asyncio.run(
@@ -172,6 +190,7 @@ def test_terminal_initial_observation_is_polled_only_by_explicit_operation_refre
 def test_observation_only_polls_known_payment_without_enabling_checkout(
     monkeypatch, tmp_path: Path
 ) -> None:
+    _isolate_payment_application(monkeypatch)
     secret = tmp_path / "yookassa-secret"
     secret.write_text("test", encoding="utf-8")
     settings = Settings(
@@ -308,6 +327,7 @@ def test_observation_only_cannot_authorize_provider_payment() -> None:
 def test_initial_reconciliation_locks_workspace_before_operation(
     monkeypatch, tmp_path: Path
 ) -> None:
+    _isolate_payment_application(monkeypatch)
     workspace_id = UUID("20000000-0000-4000-8000-000000000002")
     operation = SimpleNamespace(
         id=UUID("10000000-0000-4000-8000-000000000001"),
@@ -378,7 +398,9 @@ def test_initial_reconciliation_locks_workspace_before_operation(
     )
     monkeypatch.setattr(webhook_reconciliation, "saved_bank_card_confirmed", lambda _payload: False)
     monkeypatch.setattr(webhook_reconciliation, "extract_saved_bank_card", lambda _payload: None)
-    monkeypatch.setattr(webhook_reconciliation, "extract_payment_method_label", lambda _payload: None)
+    monkeypatch.setattr(
+        webhook_reconciliation, "extract_payment_method_label", lambda _payload: None
+    )
     monkeypatch.setattr(webhook_reconciliation, "read_billing_encryption_key", lambda _path: None)
     secret = tmp_path / "provider-secret"
     secret.write_text("synthetic", encoding="utf-8")
@@ -410,6 +432,7 @@ def test_initial_reconciliation_locks_workspace_before_operation(
 def test_background_initial_reconciliation_commits_between_candidates(
     monkeypatch, tmp_path: Path
 ) -> None:
+    _isolate_payment_application(monkeypatch)
     workspace_id = UUID("20000000-0000-4000-8000-000000000002")
     operations = [
         SimpleNamespace(
@@ -519,6 +542,7 @@ def test_background_initial_reconciliation_commits_between_candidates(
 def test_background_initial_reconciliation_keeps_candidate_keys_after_rollback(
     monkeypatch, tmp_path: Path
 ) -> None:
+    _isolate_payment_application(monkeypatch)
     workspace_id = UUID("20000000-0000-4000-8000-000000000002")
     operations = [
         SimpleNamespace(

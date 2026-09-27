@@ -36,8 +36,7 @@ class ProviderScope:
 
     def __post_init__(self) -> None:
         if not 1 <= len(self.environment) <= 32 or not all(
-            char.isascii() and (char.isalnum() or char in "-_")
-            for char in self.environment
+            char.isascii() and (char.isalnum() or char in "-_") for char in self.environment
         ):
             raise ProviderObservationError("provider environment is invalid")
         _provider_id(self.shop_id)
@@ -55,6 +54,7 @@ class PaymentObservation:
     # Our own operation id, echoed by the provider. It lets a payment be matched
     # even when the create-payment response never reached us.
     operation_id: UUID | None = None
+    captured_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +105,7 @@ def extract_payment_observation(
         provider_created_at=_timestamp(payload.get("created_at"), required=True),
         receipt_registration=_receipt_registration(payload.get("receipt_registration")),
         operation_id=_operation_id(payload.get("metadata")),
+        captured_at=_timestamp(payload.get("captured_at"), required=False),
     )
 
 
@@ -136,6 +137,53 @@ def validate_renewal_payment(
     return status
 
 
+def validate_purchase_payment(
+    payment: Mapping[str, Any],
+    *,
+    operation: BillingOperation,
+    invoice: BillingInvoice,
+    scope: ProviderScope,
+) -> str:
+    """Verify a GET result before any money, promo or service projection.
+
+    Old operations did not persist a shop binding. They can only be observed
+    through the configured shop; present metadata is still checked. Every new
+    schema-2 purchase must carry the complete immutable binding.
+    """
+    if invoice.operation_id != operation.id or invoice.workspace_id != operation.workspace_id:
+        raise ProviderObservationError("purchase invoice binding does not match")
+    if not operation.provider_id or payment.get("id") != operation.provider_id:
+        raise ProviderObservationError("provider payment reference does not match")
+    amount, currency = _money(payment.get("amount"))
+    if amount != invoice.amount_minor or currency != invoice.currency:
+        raise ProviderObservationError("provider payment amount does not match")
+    strict = operation.request_snapshot.get("purchase_schema") == 2
+    metadata = payment.get("metadata")
+    if strict or metadata is not None:
+        if not isinstance(metadata, Mapping):
+            raise ProviderObservationError("provider metadata is missing")
+        for key, expected in {
+            "workspace_id": str(operation.workspace_id),
+            "operation_id": str(operation.id),
+            "invoice_number": invoice.safe_number,
+        }.items():
+            if (strict or key in metadata) and metadata.get(key) != expected:
+                raise ProviderObservationError("provider metadata binding does not match")
+    recipient = payment.get("recipient")
+    if (strict or recipient is not None) and (
+        not isinstance(recipient, Mapping) or recipient.get("account_id") != scope.shop_id
+    ):
+        raise ProviderObservationError("provider shop does not match")
+    if (strict or "test" in payment) and payment.get("test") is not (scope.environment == "test"):
+        raise ProviderObservationError("provider environment does not match")
+    if strict and (
+        operation.request_snapshot.get("provider_shop_id") != scope.shop_id
+        or operation.request_snapshot.get("provider_environment") != scope.environment
+    ):
+        raise ProviderObservationError("operation shop binding does not match")
+    return _payment_status(payment.get("status"))
+
+
 def _operation_id(metadata: object) -> UUID | None:
     """Read our operation id from provider metadata, ignoring anything malformed."""
     if not isinstance(metadata, Mapping):
@@ -152,7 +200,11 @@ def _operation_id(metadata: object) -> UUID | None:
 def saved_bank_card_confirmed(payload: Mapping[str, Any]) -> bool:
     """Return only the safe capability bit; provider method identifiers never enter the ledger."""
     method = payload.get("payment_method")
-    return isinstance(method, Mapping) and method.get("type") == "bank_card" and method.get("saved") is True
+    return (
+        isinstance(method, Mapping)
+        and method.get("type") == "bank_card"
+        and method.get("saved") is True
+    )
 
 
 def extract_refund_observation(
@@ -336,7 +388,9 @@ def merge_receipt_observation_snapshot(
         "environment": observation.scope.environment,
         "shop_id": observation.scope.shop_id,
         "status": observation.status,
-        "registered_at": observation.registered_at.isoformat() if observation.registered_at else None,
+        "registered_at": observation.registered_at.isoformat()
+        if observation.registered_at
+        else None,
         "source": source,
         "observed_at": seen_at.isoformat(),
     }
@@ -431,7 +485,10 @@ async def record_observed_refund(
     """Persist a provider-confirmed refund observation without product mutation."""
     operation = await db.scalar(
         select(BillingOperation)
-        .where(BillingOperation.workspace_id == workspace_id, BillingOperation.provider_id == observation.provider_payment_id)
+        .where(
+            BillingOperation.workspace_id == workspace_id,
+            BillingOperation.provider_id == observation.provider_payment_id,
+        )
         .with_for_update()
     )
     if operation is None:
@@ -448,14 +505,19 @@ async def record_observed_refund(
     ):
         return "conflict"
     existing = await db.scalar(
-        select(ObservedProviderRefund).where(
+        select(ObservedProviderRefund)
+        .where(
             ObservedProviderRefund.workspace_id == workspace_id,
             ObservedProviderRefund.shop_environment == observation.scope.environment,
             ObservedProviderRefund.provider_refund_id == observation.provider_refund_id,
-        ).with_for_update()
+        )
+        .with_for_update()
     )
     if existing is not None:
-        if existing.amount_minor != observation.amount_minor or existing.currency != observation.currency:
+        if (
+            existing.amount_minor != observation.amount_minor
+            or existing.currency != observation.currency
+        ):
             return "conflict"
         return "duplicate"
     refunded_total = await db.scalar(

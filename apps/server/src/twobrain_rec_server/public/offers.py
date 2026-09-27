@@ -8,10 +8,13 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.catalog import (
+    ADDON_CAPACITY_BYTES,
+    PERSONAL_STORAGE_BYTES,
     CatalogNotApproved,
     PlanCatalogSnapshot,
     validate_plan_version,
 )
+from twobrain_rec_server.billing.purchases import storage_catalog
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import BillingPlanVersion
 
@@ -21,7 +24,7 @@ PUBLIC_TRIAL_DAYS = 7
 # This revision is the one published by the current /offer legal page. A
 # catalog row with exact prices but another revision must not enable public
 # sale claims for this release.
-PUBLIC_APPROVED_OFFER_VERSION = "personal-2026-08-21"
+PUBLIC_APPROVED_OFFER_VERSION = "personal-2026-09-27"
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +40,7 @@ class PublicOfferView:
     annual_monthly_equivalent_label: str | None = None
     offer_version: str | None = None
     trial_days: int = PUBLIC_TRIAL_DAYS
+    storage_options: tuple[dict[str, str], ...] = ()
 
 
 def unavailable_public_offer() -> PublicOfferView:
@@ -91,6 +95,24 @@ async def build_public_offer_view(
     if not matches_approved_public_catalog(month, year):
         return unavailable_public_offer()
 
+    try:
+        storage_prices = await storage_catalog(db, now=current)
+    except (OSError, SQLAlchemyError):
+        storage_prices = {}
+    storage_options = []
+    for capacity in ADDON_CAPACITY_BYTES[:1]:
+        monthly = storage_prices.get((capacity, "month"))
+        annual = storage_prices.get((capacity, "year"))
+        if monthly is not None and annual is not None:
+            storage_options.append(
+                {
+                    "capacity_label": f"{capacity // 1_000_000_000} ГБ",
+                    "monthly_addon_label": _rubles_label(monthly.amount_minor),
+                    "annual_addon_label": _rubles_label(annual.amount_minor),
+                    "monthly_total_label": _rubles_label(month.amount_minor + monthly.amount_minor),
+                    "annual_total_label": _rubles_label(year.amount_minor + annual.amount_minor),
+                }
+            )
     saving_minor = PUBLIC_MONTHLY_AMOUNT_MINOR * 12 - PUBLIC_ANNUAL_AMOUNT_MINOR
     # A test shop must never look like a shop that takes money right now.
     sale_ready = bool(
@@ -109,6 +131,7 @@ async def build_public_offer_view(
         annual_saving_label=_rubles_label(saving_minor),
         annual_monthly_equivalent_label=_rubles_label(PUBLIC_ANNUAL_AMOUNT_MINOR // 12),
         offer_version=month.offer_version,
+        storage_options=tuple(storage_options),
     )
 
 
@@ -130,7 +153,7 @@ def matches_approved_public_catalog(
         and month.amount_minor == PUBLIC_MONTHLY_AMOUNT_MINOR
         and year.amount_minor == PUBLIC_ANNUAL_AMOUNT_MINOR
         and month.currency == year.currency == "RUB"
-        and month.storage_bytes == year.storage_bytes
+        and month.storage_bytes == year.storage_bytes == PERSONAL_STORAGE_BYTES
         and month.processing_mode == year.processing_mode == "unlimited"
         and month.offer_version == year.offer_version
         and month.offer_version == PUBLIC_APPROVED_OFFER_VERSION

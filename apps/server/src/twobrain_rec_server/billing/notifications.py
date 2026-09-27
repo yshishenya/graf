@@ -17,6 +17,10 @@ class BillingNotification(StrEnum):
     TRIAL_EXPIRED = "trial_expired"
     PAYMENT_SUCCEEDED = "payment_succeeded"
     PAYMENT_FAILED = "payment_failed"
+    SERVICE_RECONCILIATION = "service_reconciliation"
+    AUTORENEWAL_DISABLED = "autorenewal_disabled"
+    AUTORENEWAL_ENABLED = "autorenewal_enabled"
+    STORAGE_SELECTION_CHANGED = "storage_selection_changed"
     STORAGE_THRESHOLD = "storage_threshold"
     RECEIPT_AVAILABLE = "receipt_available"
     REFERRAL_CREDIT = "referral_credit"
@@ -34,6 +38,10 @@ MANDATORY_NOTIFICATION_KINDS = frozenset(
         BillingNotification.TRIAL_EXPIRED,
         BillingNotification.PAYMENT_SUCCEEDED,
         BillingNotification.PAYMENT_FAILED,
+        BillingNotification.SERVICE_RECONCILIATION,
+        BillingNotification.AUTORENEWAL_DISABLED,
+        BillingNotification.AUTORENEWAL_ENABLED,
+        BillingNotification.STORAGE_SELECTION_CHANGED,
         BillingNotification.RECEIPT_AVAILABLE,
         BillingNotification.RENEWAL_UNKNOWN,
         BillingNotification.RENEWAL_ATTEMPT_FAILED,
@@ -79,7 +87,11 @@ class NotificationOutbox:
     ) -> NotificationDelivery | None:
         if not recipient_id.strip() or channel not in {"email", "in_app"}:
             raise ValueError("notification recipient or channel is invalid")
-        if channel == "email" and not marketing_allowed and event.kind not in MANDATORY_NOTIFICATION_KINDS:
+        if (
+            channel == "email"
+            and not marketing_allowed
+            and event.kind not in MANDATORY_NOTIFICATION_KINDS
+        ):
             return None
         key = (event.event_id, recipient_id, channel)
         existing = self._rows.get(key)
@@ -89,7 +101,9 @@ class NotificationOutbox:
         self._rows[key] = row
         return row
 
-    def mark_delivered(self, *, event_id: str, recipient_id: str, channel: str) -> NotificationDelivery:
+    def mark_delivered(
+        self, *, event_id: str, recipient_id: str, channel: str
+    ) -> NotificationDelivery:
         key = (event_id, recipient_id, channel)
         row = self._rows[key]
         delivered = NotificationDelivery(
@@ -142,7 +156,11 @@ class DurableNotificationOutbox:
     ) -> BillingNotificationDelivery | None:
         if channel not in {"email", "in_app"}:
             raise ValueError("notification channel is invalid")
-        if channel == "email" and not marketing_allowed and event.kind not in MANDATORY_NOTIFICATION_KINDS:
+        if (
+            channel == "email"
+            and not marketing_allowed
+            and event.kind not in MANDATORY_NOTIFICATION_KINDS
+        ):
             return None
         row = await db.scalar(
             select(BillingNotificationDelivery)
@@ -250,41 +268,96 @@ def notification_copy(
         else " Обратитесь в поддержку через историю платежей."
     )
     copy = {
-        BillingNotification.TRIAL_ENDING: ("Пробный период скоро закончится", "Выберите тариф, чтобы сохранить платную обработку."),
-        BillingNotification.TRIAL_EXPIRED: ("Пробный период закончился", "Платный режим отключен. Выберите тариф, чтобы продолжить."),
-        BillingNotification.PAYMENT_SUCCEEDED: ("Платеж подтвержден", f"Оплата прошла успешно.{suffix}"),
-        BillingNotification.PAYMENT_FAILED: ("Не удалось продлить подписку", "Платный доступ завершен, выбран бесплатный тариф."),
-        BillingNotification.STORAGE_THRESHOLD: ("Заканчивается место", "Проверьте использование хранилища или увеличьте его емкость."),
-        BillingNotification.RECEIPT_AVAILABLE: ("Чек доступен", "Откройте историю платежей, чтобы посмотреть чек."),
-        BillingNotification.REFERRAL_CREDIT: ("Начислен реферальный бонус", "Дополнительные дни применены к вашему оплачиваемому периоду."),
-        BillingNotification.RENEWAL_UNKNOWN: ("Проверяем продление", "Статус платежа пока неизвестен. Новое списание не создаем."),
+        BillingNotification.TRIAL_ENDING: (
+            "Пробный период скоро закончится",
+            "Выберите тариф, чтобы сохранить платную обработку.",
+        ),
+        BillingNotification.TRIAL_EXPIRED: (
+            "Пробный период закончился",
+            "Платный режим отключен. Выберите тариф, чтобы продолжить.",
+        ),
+        BillingNotification.SERVICE_RECONCILIATION: (
+            "Проверяем предоставление оплаченной услуги",
+            f"Оплата подтверждена, но срок покупки уже закончился. Платёж передан на финансовую сверку. Подробности и помощь — в истории платежей.{suffix}",
+        ),
+        BillingNotification.AUTORENEWAL_DISABLED: (
+            "Автопродление отключено",
+            "Новые автоматические списания отключены. Оплаченный доступ сохранён. Если платёж уже отправлен, его результат продолжает проверяться в истории.",
+        ),
+        BillingNotification.AUTORENEWAL_ENABLED: (
+            "Автопродление включено",
+            "Вы разрешили следующие автоматические списания. Сумма, дата ближайшей попытки и отмена доступны в управлении подпиской.",
+        ),
+        BillingNotification.STORAGE_SELECTION_CHANGED: (
+            "Выбор объёма обновлён",
+            "Изменён выбор хранилища для следующего ещё не оплаченного периода. Текущий оплаченный объём сохранён. Проверьте объём, дату и полную цену в кабинете.",
+        ),
+        BillingNotification.PAYMENT_SUCCEEDED: (
+            "Платеж подтвержден",
+            f"Оплата прошла успешно.{suffix}",
+        ),
+        BillingNotification.PAYMENT_FAILED: (
+            "Не удалось продлить подписку",
+            "Платный доступ завершен, выбран бесплатный тариф.",
+        ),
+        BillingNotification.STORAGE_THRESHOLD: (
+            "Заканчивается место",
+            "Проверьте использование хранилища или увеличьте его емкость.",
+        ),
+        BillingNotification.RECEIPT_AVAILABLE: (
+            "Чек доступен",
+            "Откройте историю платежей, чтобы посмотреть чек.",
+        ),
+        BillingNotification.REFERRAL_CREDIT: (
+            "Начислен реферальный бонус",
+            "Дополнительные дни применены к вашему оплачиваемому периоду.",
+        ),
+        BillingNotification.RENEWAL_UNKNOWN: (
+            "Проверяем продление",
+            "Статус платежа пока неизвестен. Новое списание не создаем.",
+        ),
         BillingNotification.RENEWAL_ATTEMPT_FAILED: (
             "Списание не прошло",
             f"Оплата за продление не прошла.{suffix} "
             f"Доступ отключится {renewal_access_until} МСК. "
             "Проверьте карту в кабинете, чтобы продлить подписку.",
         ),
-        BillingNotification.RENEWAL_LATE_SUCCESS: ("Продление подтверждено поздно", "Мы восстановили оплаченный период. Проверьте дату следующего списания."),
+        BillingNotification.RENEWAL_LATE_SUCCESS: (
+            "Продление подтверждено поздно",
+            "Мы восстановили оплаченный период. Проверьте дату следующего списания.",
+        ),
         BillingNotification.RENEWAL_LATE_SUCCESS_REFUSED: (
             "Платеж подтвержден после отключения продления",
             "Платный период не включен, потому что разрешение на продление было отозвано."
             + support_instruction,
         ),
-        BillingNotification.RENEWAL_MANUAL_RESUME: ("Подписку можно возобновить", "Продление не подтверждено. Если хотите снова включить автопродление, откройте управление подпиской."),
+        BillingNotification.RENEWAL_MANUAL_RESUME: (
+            "Подписку можно возобновить",
+            "Продление не подтверждено. Если хотите снова включить автопродление, откройте управление подпиской.",
+        ),
         BillingNotification.FAIR_USE_REVIEW: (
             "Проверяем использование",
             f"Функция «{fair_use_capability}» временно может быть ограничена. "
             f"Причина: {fair_use_reason}. Срок проверки: {fair_use_deadline} МСК. "
             "Откройте кабинет, чтобы подать апелляцию или обратиться в поддержку.",
         ),
-        BillingNotification.ACCOUNT_CLOSE: ("Закрытие аккаунта", "Проверьте запланированную дату и последствия удаления данных в кабинете."),
+        BillingNotification.ACCOUNT_CLOSE: (
+            "Закрытие аккаунта",
+            "Проверьте запланированную дату и последствия удаления данных в кабинете.",
+        ),
     }
     return copy[event.kind]
 
 
-def build_notification(*, event_id: str, kind: BillingNotification, payload: dict[str, object]) -> NotificationEvent:
+def build_notification(
+    *, event_id: str, kind: BillingNotification, payload: dict[str, object]
+) -> NotificationEvent:
     allowed_keys = {
+        BillingNotification.AUTORENEWAL_DISABLED: set(),
+        BillingNotification.AUTORENEWAL_ENABLED: set(),
+        BillingNotification.STORAGE_SELECTION_CHANGED: set(),
         BillingNotification.PAYMENT_SUCCEEDED: {"invoice"},
+        BillingNotification.SERVICE_RECONCILIATION: {"invoice"},
         BillingNotification.PAYMENT_FAILED: {"invoice"},
         BillingNotification.RECEIPT_AVAILABLE: {"invoice"},
         BillingNotification.RENEWAL_UNKNOWN: {"invoice"},

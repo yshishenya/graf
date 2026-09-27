@@ -38,7 +38,7 @@ def test_checkout_preview_labels_show_discount_and_full_next_period_amount() -> 
             cycle="month",
             amount_minor=79_000,
             currency="RUB",
-            storage_bytes=2_000_000_000,
+            storage_bytes=5_000_000_000,
             processing_mode="unlimited",
             offer_version="test-v1",
             policy_snapshot={},

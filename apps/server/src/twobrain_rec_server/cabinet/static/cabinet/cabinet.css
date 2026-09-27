@@ -6324,3 +6324,7 @@ html[data-theme="dark"] .app-shell[data-active-nav="settings"] {
 .deletion-index .empty-state { min-height: 120px; }
 .report-band > * { margin: 0; }
 .report-band > h3 { font-size: var(--font-size-section); font-weight: 600; line-height: var(--line-height-tight); }
+
+.billing-package-controls { display: flex; align-items: center; gap: .5rem; max-width: 100%; }
+.billing-package-controls select { flex: 1; min-width: 0; max-width: 100%; min-height: 44px; }
+.billing-package-controls button { flex-shrink: 0; min-width: 44px; min-height: 44px; }

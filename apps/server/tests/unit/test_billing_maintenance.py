@@ -42,13 +42,18 @@ def test_billing_maintenance_returns_only_safe_counters(monkeypatch) -> None:
     async def no_reservations(_db, *, workspace_id, now):
         return 4
 
-    monkeypatch.setattr("twobrain_rec_server.billing.maintenance.expire_promo_reservations", no_promos)
-    monkeypatch.setattr("twobrain_rec_server.billing.maintenance.mature_pending_credits", no_credits)
-    monkeypatch.setattr("twobrain_rec_server.billing.maintenance.release_expired_storage_reservations", no_reservations)
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.maintenance.expire_promo_reservations", no_promos
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.maintenance.mature_pending_credits", no_credits
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.maintenance.release_expired_storage_reservations",
+        no_reservations,
+    )
     result = asyncio.run(
-        reconcile_billing_maintenance(
-            _FakeDb(), now=datetime(2026, 8, 7, tzinfo=UTC)
-        )
+        reconcile_billing_maintenance(_FakeDb(), now=datetime(2026, 8, 7, tzinfo=UTC))
     )
     assert result == {
         "expired_promos": 2,
@@ -103,6 +108,8 @@ def test_billing_maintenance_classifies_stuck_operation_and_projects_addon(monke
                 SimpleNamespace(
                     capacity_bytes=20_000_000_000,
                     plan_code="personal",
+                    workspace_id=workspace_id,
+                    paid_through=datetime(2026, 9, 1, tzinfo=UTC),
                     application_version=2,
                 ),
                 5,
@@ -132,10 +139,23 @@ def test_billing_maintenance_classifies_stuck_operation_and_projects_addon(monke
     async def project(_db, *, workspace_id, capacity_bytes):
         return SimpleNamespace(used_bytes=0, capacity_bytes=capacity_bytes)
 
-    monkeypatch.setattr("twobrain_rec_server.billing.maintenance.expire_promo_reservations", no_promos)
-    monkeypatch.setattr("twobrain_rec_server.billing.maintenance.mature_pending_credits", no_credits)
-    monkeypatch.setattr("twobrain_rec_server.billing.maintenance.release_expired_storage_reservations", release)
-    monkeypatch.setattr("twobrain_rec_server.billing.maintenance.project_active_playback_storage", project)
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.maintenance.expire_promo_reservations", no_promos
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.maintenance.mature_pending_credits", no_credits
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.maintenance.release_expired_storage_reservations", release
+    )
+
+    async def capacity(_db, *, subscription, now):
+        return subscription.capacity_bytes
+
+    monkeypatch.setattr("twobrain_rec_server.billing.maintenance.effective_paid_storage", capacity)
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.maintenance.project_active_playback_storage", project
+    )
     db = RowsDb()
     result = asyncio.run(reconcile_billing_maintenance(db, now=datetime(2026, 8, 7, tzinfo=UTC)))
     assert operation.state == "unknown"
@@ -155,6 +175,7 @@ def test_billing_maintenance_cancels_operation_whose_provider_key_has_expired(mo
     operation = SimpleNamespace(
         id=UUID("33333333-3333-4333-8333-333333333333"),
         state="manual_resolution",
+        request_snapshot={},
         updated_at=None,
         workspace_id=workspace_id,
         kind="initial_checkout",
@@ -188,9 +209,15 @@ def test_billing_maintenance_cancels_operation_whose_provider_key_has_expired(mo
     async def release(_db, *, workspace_id, now):
         return 0
 
-    monkeypatch.setattr("twobrain_rec_server.billing.maintenance.expire_promo_reservations", no_promos)
-    monkeypatch.setattr("twobrain_rec_server.billing.maintenance.mature_pending_credits", no_credits)
-    monkeypatch.setattr("twobrain_rec_server.billing.maintenance.release_expired_storage_reservations", release)
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.maintenance.expire_promo_reservations", no_promos
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.maintenance.mature_pending_credits", no_credits
+    )
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.maintenance.release_expired_storage_reservations", release
+    )
     db = RowsDb()
     result = asyncio.run(reconcile_billing_maintenance(db, now=datetime(2026, 8, 7, tzinfo=UTC)))
 
