@@ -1296,7 +1296,8 @@ def test_plan_comparison_keeps_server_selected_cycle_and_real_checkout_links() -
     assert "7 900 ₽" in html
 
 
-def test_plan_comparison_does_not_label_another_cycle_as_connected() -> None:
+@pytest.mark.parametrize("enabled,pending,owner", [(True, False, True), (False, False, True), (True, True, True), (True, False, False)])
+def test_plan_comparison_does_not_label_another_cycle_as_connected(enabled, pending, owner) -> None:
     html = render_template(
         "cabinet/pages/billing_plans_content.html",
         embedded=False,
@@ -1319,16 +1320,16 @@ def test_plan_comparison_does_not_label_another_cycle_as_connected() -> None:
         ),
         selected_cycle="year",
         current_plan_code="personal",
-        billing_owner=True,
-        billing_enabled=True,
+        billing_owner=owner,
+        billing_enabled=enabled,
         catalog_ready=True,
-        operation_pending=False,
+        operation_pending=pending,
         trial_state="already",
     )
 
     assert "Другой период оплаты" in html
     assert "Подключен сейчас" not in html
-    assert 'href="/billing/checkout' not in html
+    assert ('href="/billing/checkout?cycle=year"' in html) == (enabled and not pending and owner)
 
 
 def test_plan_comparison_explains_pending_and_disabled_checkout_states() -> None:

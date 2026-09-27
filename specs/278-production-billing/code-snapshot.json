@@ -2,7 +2,7 @@
   "schema_version": 1,
   "base_sha": "f5cca687a06dc57ad6ccbef840a0be897eaa6336",
   "kind": "source-and-tests-before-authorized-commit",
-  "created_at": "2026-09-27T22:18:57.142775+00:00",
+  "created_at": "2026-09-27T22:25:36.503932+00:00",
   "files": [
     {
       "path": "apps/server/scripts/manage_promo_campaign.py",
@@ -85,8 +85,12 @@
       "sha256": "dd4c4ce0bf6788fcb8cfae6a48ecbbf4cda8c4abe5b908454d812fefdbf4b334"
     },
     {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_payment_method_content.html",
+      "sha256": "4ea5041945b2c03549c370cc6facb07aa9568833b377b423c59226ea14d376a5"
+    },
+    {
       "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_plans_content.html",
-      "sha256": "22c0325d86435a47a3a649571cb087b54eb7d001e36528037233bda7c9987e38"
+      "sha256": "c58e6c3a060e397afef566d1d758dd437de163b351bc0ced46d8859680c80e24"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_purchase_content.html",
@@ -162,7 +166,7 @@
     },
     {
       "path": "apps/server/tests/contract/test_billing_ui.py",
-      "sha256": "214d79829ae57452f54732a1958eb1b39ea03c8e7e013761fcfd8ba3f292231d"
+      "sha256": "ca7ebb58504da2ff90f65a792e3464a1cbeaae5a9d145de7395a26cf6f4a1db4"
     },
     {
       "path": "apps/server/tests/contract/test_checkout.py",
