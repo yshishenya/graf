@@ -272,13 +272,6 @@ final class DesktopNotificationAccessibilityTests: XCTestCase {
         defer { presenter.dismiss() }
         var received: [DesktopNotificationCardAction] = []
         var closed = 0
-        func key(_ window: NSWindow, code: UInt16, text: String,
-                 modifiers: NSEvent.ModifierFlags = []) throws -> NSEvent {
-            try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
-                modifierFlags: modifiers, timestamp: 0, windowNumber: window.windowNumber,
-                context: nil, characters: text, charactersIgnoringModifiers: text,
-                isARepeat: false, keyCode: code))
-        }
         XCTAssertTrue(presenter.present(F277CardTestSupport.prompt(),
             onAction: { received.append($0) }, onClose: { closed += 1 }))
         let window = try XCTUnwrap(presenter.window)
@@ -408,6 +401,107 @@ final class DesktopNotificationAccessibilityTests: XCTestCase {
         XCTAssertFalse(presenter.isVisible)
         XCTAssertEqual(expiry, 0)
         XCTAssertTrue(fixture.announcements.isEmpty)
+    }
+
+    func testKeyboardScrollSurvivesTickAndTabReachesAction() async throws {
+        try F277CardTestSupport.requireScreen()
+        try await F277CardTestSupport.requireFocusHost()
+        let fixture = F277CardFixture()
+        fixture.screens = [NotificationCardScreen(id: 1,
+            frame: NSRect(x: 0, y: 0, width: 300, height: 350),
+            visibleFrame: NSRect(x: 0, y: 0, width: 300, height: 350), isMain: true)]
+        let presenter = fixture.presenter()
+        defer { presenter.dismiss() }
+        let content = DesktopNotificationCardContent.problem(title: "Проверка",
+            message: String(repeating: "Длинный доступный текст. ", count: 70),
+            actionTitle: "Открыть запись", sessionID: "synthetic")
+        let updated = DesktopNotificationCardContent.problem(title: "Обновлено",
+            message: String(repeating: "Длинный доступный текст. ", count: 70),
+            actionTitle: "Открыть запись", sessionID: "synthetic")
+        XCTAssertTrue(presenter.present(content, onAction: { _ in }, onTick: { updated }))
+        try await F277CardTestSupport.requestFocus(presenter)
+        let window = try XCTUnwrap(presenter.window)
+        let (view, _) = try F277CardTestSupport.fitted(presenter)
+        let scroll = try XCTUnwrap(F277CardTestSupport.descendants(view).compactMap { $0 as? NSScrollView }.first)
+        XCTAssertTrue(scroll.hasVerticalScroller)
+        XCTAssertTrue(window.firstResponder === (try F277CardTestSupport.close(view)))
+        window.sendEvent(try key(window, code: 48, text: "\t"))
+        XCTAssertTrue(window.firstResponder === scroll,
+            "Tab must focus scroll, got \(String(describing: window.firstResponder))")
+        let initialY = scroll.contentView.bounds.minY
+        window.sendEvent(try key(window, code: 125, text: "\u{f701}", modifiers: .function))
+        let lineY = scroll.contentView.bounds.minY
+        XCTAssertGreaterThan(lineY, initialY)
+        window.sendEvent(try key(window, code: 121, text: "\u{f72d}", modifiers: .function))
+        let pageY = scroll.contentView.bounds.minY
+        XCTAssertGreaterThan(pageY, lineY)
+        fixture.now.addTimeInterval(1); presenter.refresh()
+        let title = try XCTUnwrap(F277CardTestSupport.descendants(view).compactMap { $0 as? NSTextField }
+            .first { $0.identifier?.rawValue == "graf.notification.title" })
+        XCTAssertEqual(title.stringValue, "Обновлено")
+        XCTAssertTrue(presenter.window === window)
+        XCTAssertTrue(window.isKeyWindow)
+        XCTAssertTrue(window.firstResponder === scroll)
+        XCTAssertEqual(scroll.contentView.bounds.minY, pageY, accuracy: 0.5)
+        let expectedAction = try XCTUnwrap(F277CardTestSupport.actions(view).first)
+        window.sendEvent(try key(window, code: 48, text: "\t"))
+        XCTAssertTrue(window.firstResponder === expectedAction,
+            "Tab must leave scroll for action; got \(String(describing: window.firstResponder)), next=\(String(describing: scroll.nextKeyView))")
+        window.sendEvent(try key(window, code: 48, text: "\t", modifiers: .shift))
+        XCTAssertTrue(window.firstResponder === scroll)
+        window.sendEvent(try key(window, code: 48, text: "\t", modifiers: .shift))
+        XCTAssertTrue(window.firstResponder === (try F277CardTestSupport.close(view)))
+    }
+
+    func testEscapeRestoresPreviousWindowAndCallbackReplacementKeepsItsFocus() async throws {
+        try F277CardTestSupport.requireScreen()
+        try await F277CardTestSupport.requireFocusHost()
+        let previous = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 240, height: 120),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        defer { previous.orderOut(nil) }
+        let previousFocused = try await F277CardTestSupport.awaitAppKitState({ NSApp.isActive && previous.isKeyWindow }, perform: {
+            NSApp.activate(); previous.makeKeyAndOrderFront(nil)
+        })
+        XCTAssertTrue(previousFocused)
+        let presenter = F277CardFixture().presenter()
+        defer { presenter.dismiss() }
+        var closes = 0
+        XCTAssertTrue(presenter.present(F277CardTestSupport.prompt(), onAction: { _ in }, onClose: { closes += 1 }))
+        try await F277CardTestSupport.requestFocus(presenter)
+        let first = try XCTUnwrap(presenter.window)
+        XCTAssertFalse(previous.isKeyWindow)
+        first.sendEvent(try key(first, code: 53, text: "\u{1b}"))
+        let restored = try await F277CardTestSupport.awaitAppKitState { previous.isKeyWindow && NSApp.keyWindow === previous }
+        XCTAssertTrue(restored)
+        XCTAssertEqual(closes, 1)
+        XCTAssertNil(presenter.window)
+
+        XCTAssertTrue(presenter.present(F277CardTestSupport.prompt(), onAction: { _ in }, onClose: {
+            closes += 1
+            XCTAssertTrue(presenter.present(.preview(title: "Следующее", message: "Сообщение"), onAction: { _ in }))
+            XCTAssertTrue(presenter.focus())
+        }))
+        try await F277CardTestSupport.requestFocus(presenter)
+        let old = try XCTUnwrap(presenter.window)
+        old.sendEvent(try key(old, code: 53, text: "\u{1b}"))
+        let replacement = try XCTUnwrap(presenter.window)
+        XCTAssertFalse(old === replacement)
+        let focused = try await F277CardTestSupport.awaitAppKitState { replacement.isKeyWindow && NSApp.keyWindow === replacement }
+        XCTAssertTrue(focused)
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertTrue(replacement.isKeyWindow)
+        XCTAssertFalse(previous.isKeyWindow)
+        XCTAssertEqual(closes, 2)
+        let (replacementView, _) = try F277CardTestSupport.fitted(presenter)
+        XCTAssertTrue(replacement.firstResponder === (try F277CardTestSupport.close(replacementView)))
+    }
+
+    private func key(_ window: NSWindow, code: UInt16, text: String,
+                     modifiers: NSEvent.ModifierFlags = []) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero,
+            modifierFlags: modifiers, timestamp: 0, windowNumber: window.windowNumber,
+            context: nil, characters: text, charactersIgnoringModifiers: text,
+            isARepeat: false, keyCode: code))
     }
 
     private func contrast(_ first: NSColor, _ second: NSColor) throws -> CGFloat {

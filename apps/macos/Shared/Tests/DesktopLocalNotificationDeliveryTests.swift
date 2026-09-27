@@ -400,16 +400,77 @@ final class DesktopLocalNotificationDeliveryTests: XCTestCase {
         let p = f.presenter()
         defer { p.dismissAllCards() }
         XCTAssertTrue(f.prompt(p))
-        var oldExpiry = 0, newExpiry = 0
-        XCTAssertFalse(p.presentShortRecording(onExpire: { oldExpiry += 1 }))
+        XCTAssertFalse(p.presentShortRecording())
         f.now = f.now.addingTimeInterval(1)
-        XCTAssertFalse(p.presentShortRecording(onExpire: { newExpiry += 1 }))
+        XCTAssertFalse(p.presentShortRecording())
         XCTAssertEqual(p.card.presentedContent?.identifier, "graf.card.recording-prompt")
         try notificationClose(p)
         XCTAssertEqual(p.card.presentedContent, .shortRecording)
-        f.now = f.now.addingTimeInterval(20); p.card.refresh()
-        XCTAssertEqual(oldExpiry, 0); XCTAssertEqual(newExpiry, 1)
+        f.now = f.now.addingTimeInterval(19.999); p.card.refresh()
+        XCTAssertEqual(p.card.presentedContent, .shortRecording)
+        f.now = f.now.addingTimeInterval(0.001); p.card.refresh()
+        XCTAssertNil(p.card.presentedContent)
+        p.reconcileCard(now: f.now)
+        XCTAssertNil(p.card.presentedContent)
         XCTAssertEqual(p.history.count, 2)
+    }
+
+    func testNewestShortSurvivesOlderCandidatesWaitingDeadlineAndDoesNotReplay() async throws {
+        let f = try notificationFixture(self)
+        let p = f.presenter()
+        defer { p.dismissAllCards() }
+        let arrival = f.now
+        let problem = f.item(); f.bind(problem)
+        await p.updateSnapshot(f.snapshot([problem]))?.value
+        XCTAssertEqual(p.card.presentedContent?.identifier, "graf.card.problem")
+        XCTAssertFalse(p.presentShortRecording())
+        f.now = arrival.addingTimeInterval(1)
+        XCTAssertFalse(p.presentShortRecording())
+        // The first result's waiting window has ended; only the second is fresh.
+        f.now = arrival.addingTimeInterval(20.5)
+        p.card.refresh()
+        XCTAssertEqual(p.card.presentedContent, .shortRecording)
+        try notificationClose(p)
+        p.reconcileCard(now: f.now)
+        XCTAssertNil(p.card.presentedContent)
+        f.now = arrival.addingTimeInterval(60); p.card.refresh(); p.reconcileCard(now: f.now)
+        XCTAssertNil(p.card.presentedContent)
+        XCTAssertEqual(p.history.map(\.kind), [.shortRecording, .shortRecording, .problem])
+    }
+
+    func testPendingShortReconciliationDoesNotExtendOriginalWaitingWindow() async throws {
+        let f = try notificationFixture(self)
+        let p = f.presenter()
+        defer { p.dismissAllCards() }
+        let arrival = f.now
+        let problem = f.item(); f.bind(problem)
+        await p.updateSnapshot(f.snapshot([problem]))?.value
+        XCTAssertFalse(p.presentShortRecording())
+        for second in 1...19 {
+            f.now = arrival.addingTimeInterval(Double(second))
+            p.reconcileCard(now: f.now)
+            XCTAssertEqual(p.card.presentedContent?.identifier, "graf.card.problem")
+        }
+        f.now = arrival.addingTimeInterval(20); p.card.refresh()
+        XCTAssertNil(p.card.presentedContent)
+        p.reconcileCard(now: f.now)
+        XCTAssertNil(p.card.presentedContent)
+        XCTAssertEqual(p.history.map(\.kind), [.shortRecording, .problem])
+    }
+
+    func testPreviewExpiresAtSixSecondsWithoutHistoryOrReplay() throws {
+        let f = try notificationFixture(self)
+        let p = f.presenter()
+        defer { p.dismissAllCards() }
+        let arrival = f.now
+        XCTAssertTrue(p.presentPreview(title: "Проверка", message: "Сообщение"))
+        f.now = arrival.addingTimeInterval(5.999); p.card.refresh()
+        XCTAssertEqual(p.card.presentedContent, .preview(title: "Проверка", message: "Сообщение"))
+        f.now = arrival.addingTimeInterval(6); p.card.refresh()
+        XCTAssertNil(p.card.presentedContent)
+        p.reconcileCard(now: f.now)
+        XCTAssertNil(p.card.presentedContent)
+        XCTAssertTrue(p.history.isEmpty)
     }
 
     func testUnshownShortExpiresTwentySecondsAfterArrival() throws {

@@ -55,6 +55,14 @@ retry с нулём transport calls. Проверить отказ принят�
 
 ## Closeout
 
+Для T030–T032 дополнительно запускать профильный набор
+`DesktopNotificationAccessibilityTests|DesktopNotificationCompactTests|DesktopNotificationPromptLifecycleTests`
+отдельно от общего. Проверять реальные Down/PageDown/Tab/Shift-Tab, изменённый
+заголовок после tick, прежнюю координату прокрутки и возврат ключевого окна
+после Escape. Обычное контрольное окно должно сначала получить фокус средствами
+AppKit; отказ среды фиксировать как skip, не как успешную проверку карточки.
+Не заменять физическую клавиатуру и VoiceOver этим автоматическим набором.
+
 Reviewerchecklists — качество требований, не результат runtime. Analyze0CRITICAL/0HIGH. Послекода `$speckit-converge`, newtasks appendonly. PR exactSHA/base проверять `scripts/validate-pr-checks.py`. Tasks/issues закрывать поevidence. Historicaldocs неизменны, currentstatus/changelogfragment обновить. Полныйrelease отдельно.
 
 ### Воспроизводимая ручная проверка вопроса в Телемосте

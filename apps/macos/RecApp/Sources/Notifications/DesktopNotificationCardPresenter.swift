@@ -495,12 +495,14 @@ private final class DesktopNotificationCardPanel: NSPanel {
     override func cancelOperation(_ sender: Any?) { if isKeyWindow { closeAction?() } }
     override func selectNextKeyView(_ sender: Any?) {
         guard explicitFocus, let current = firstResponder as? NSView,
-              let next = current.nextKeyView else { super.selectNextKeyView(sender); return }
+              let view = contentView as? DesktopNotificationCardView,
+              let next = view.keyView(relativeTo: current, backwards: false) else { super.selectNextKeyView(sender); return }
         makeFirstResponder(next)
     }
     override func selectPreviousKeyView(_ sender: Any?) {
         guard explicitFocus, let current = firstResponder as? NSView,
-              let previous = current.previousKeyView else { super.selectPreviousKeyView(sender); return }
+              let view = contentView as? DesktopNotificationCardView,
+              let previous = view.keyView(relativeTo: current, backwards: true) else { super.selectPreviousKeyView(sender); return }
         makeFirstResponder(previous)
     }
     override func sendEvent(_ event: NSEvent) {
@@ -711,11 +713,22 @@ public final class DesktopNotificationCardView: NSView {
     }
     // AppKit can reset nextKeyView while installing a content view. Reapply only
     // links after attachment/layout; never replace controls or the first responder.
-    func configureKeyLoop() {
+    private var keyboardControls: [NSView] {
         var controls: [NSView] = [close]
         if textScroll.hasVerticalScroller { controls.append(textScroll) }
         if !remember.isHidden { controls.append(remember) }
         controls.append(contentsOf: actionButtons)
+        return controls
+    }
+    // NSScrollView inserts its clip view into nextKeyView. Use the same semantic
+    // order for explicit Tab navigation, without focusing noninteractive internals.
+    func keyView(relativeTo current: NSView, backwards: Bool) -> NSView? {
+        let controls = keyboardControls
+        guard let index = controls.firstIndex(where: { $0 === current }) else { return nil }
+        return controls[(index + (backwards ? controls.count - 1 : 1)) % controls.count]
+    }
+    func configureKeyLoop() {
+        let controls = keyboardControls
         for (index, control) in controls.enumerated() { control.nextKeyView = controls[(index + 1) % controls.count] }
     }
     override public func viewDidMoveToWindow() {
@@ -754,6 +767,9 @@ private final class NotificationCardFlippedView: NSView { override var isFlipped
 
 private final class NotificationCardScrollView: NSScrollView {
     override var acceptsFirstResponder: Bool { true }
+    // Own keyboard scrolling here: NSScrollView's default focus handoff to the
+    // non-editable document can leave the panel itself as first responder.
+    override func becomeFirstResponder() -> Bool { true }
     override func keyDown(with event: NSEvent) {
         let step: CGFloat
         switch event.keyCode {

@@ -1050,3 +1050,95 @@ Issue sync выполнен только после analyze: remote `yshishenya/
 метками. Прежние issues не закрывались и не редактировались. Pre-hook canon
 ensure PASS без изменения файлов; post-hook canon validate PASS (300 issues).
 Реализация Phase11 ещё не начата; код и установленный GRAF не менялись.
+
+## Phase 11 — реализация T030–T032 (2026-09-27, после 8c57fd04b)
+
+Lane: существующий `high-risk-product`; независимый повтор требований дал
+26/26 custom + 5/5 built-in, 32 уникальных задачи, отсутствие нерешённых
+CRITICAL/HIGH/MEDIUM. Три live issues #7339/#7340/#7341 проверены OPEN.
+Изменения ограничены ранее согласованными задачами; installed Dev не менялся.
+
+### Что удалено и чем заменены проверки
+
+- T030: удалены `MeetingDetectionCountdown`, неиспользуемое вычисляемое свойство
+  `MeetingDetectionPromptDecision.startReason` и недостижимый `prompt_timeout`
+  внутри `persistedRule == .always`. Живые reason enum, persistedRule,
+  обработчики записи и восемь секунд сохранены. До удаления пять перенесённых
+  тестов прошли на настоящих presenter/card: 7.999/8, повторное нажатие,
+  сохранённая старая кнопка, закрытие и отсутствие позднего старта.
+- Изменение допуска в обе стороны после показа проверяется для кнопки и
+  истечения с рабочим `RecordingPrerequisiteGate`. Обработчик связывания в этом
+  тесте принадлежит тесту: это НЕ выполнение executable-handler TwoBrainRecApp
+  и НЕ запуск аудио. Стандартный countdown presenter не заменяет проверку
+  переданного приложением onTick; прежние Policy/RecordingLifecycle сохранены.
+- Retirement guard получил 27 тестов. До изменения guard:24 FAILED/3 PASS;
+  после:78 PASS включая текущее дерево. Обнаруживаются объявления старого
+  типа и свойство в модели/расширениях; похожие живые имена, комментарии,
+  строки, параметры и локальные переменные не запрещаются. Проверка
+  лексическая, не полный анализатор Swift и не доказательство достижимости.
+- T031: удалены duration/onExpire short/preview и поля ShortCandidate.
+  Сохранены20 секунд ожидания от события,20 секунд показа от фактического
+  появления и6 секунд preview. Общий Envelope.onExpire для prompt сохранён.
+  Проверяются реальное исчезновение/закрытие, отсутствие повтора, новейший
+  кандидат после истечения старого, исходный срок ожидания и нейтральная история.
+
+### T032: обнаруженная ошибка и исправление
+
+Исходный новый тест: Escape/возврат окна PASS; прокрутка RED,5 assertions.
+После Tab firstResponder становился самой панелью; Down/PageDown оставляли y=0.
+Принятие фокуса самой NotificationCardScrollView исправило прокрутку, но оставило
+1 RED: следующий Tab попадал во внутренний NSClipView. Это наблюдалось в
+firstResponder/nextKeyView, а не предполагалось по геометрии.
+
+Исправление: scroll явно принимает фокус, computed keyboardControls задаёт
+единственный порядок для links и явного Tab/Shift-Tab. Нет второго сохранённого
+списка, новых активаций, сроков или изменений capture. Финальный тест проверяет
+реальные Down/PageDown, новый заголовок в NSTextField после tick, прежние окно,
+фокус и scroll position, действие и обратный обход. Отдельно настоящее
+контрольное окно восстанавливается после Escape; новая карточка из onClose
+получает и сохраняет key focus. Это не заменяет native-willClose и ручной VO.
+
+Независимые code reviews T030/T031 без замечаний. В T032 reviewer нашёл пробел:
+неизменный текст onTick не доказывал обновление. Он устранён изменяемым заголовком
+и проверкой NSTextField; повторное review финального diff без P1/P2.
+
+### Выполненные команды и результаты
+
+Все команды из feature worktree, один владелец Swift build. Фильтры:
+
+```sh
+swift test --package-path apps/macos --filter MeetingDetectionCountdownTests
+swift test --package-path apps/macos --filter 'MeetingDetectionCountdownTests|DesktopNotificationPromptLifecycleTests|MeetingDetectionPolicyTests|MeetingDetectionRecordingLifecycleTests|RecordingPrerequisiteGateTests'
+swift test --package-path apps/macos --filter DesktopLocalNotificationDeliveryTests
+swift test --package-path apps/macos --filter 'ShortRecording|DesktopLocalNotificationDeliveryTests|DesktopNotificationHistoryTests|DesktopNotificationPromptLifecycleTests|EmbeddedCabinetNotification'
+swift test --package-path apps/macos --filter 'DesktopNotificationAccessibilityTests|DesktopNotificationCompactTests|DesktopNotificationPromptLifecycleTests'
+```
+
+Результаты по порядку:5 PASS до удаления;68 PASS после T030;35 PASS перед
+удалением API T031;76 PASS после;41 PASS после исправления T032,0 skips/0 failures.
+
+Общий фильтр, с GRAF_CARD_SNAPSHOT_DIR в отдельном временном каталоге:
+
+```sh
+swift test --package-path apps/macos --filter 'RecordingStartAcceptanceTests|DesktopUploadQueueTests|DesktopUploadClientTests|LocalRecordingWriter|CaptureRecovery|CaptureControlTests|CaptureIndicatorTests|RecordingDeletion|DesktopNotification|DesktopLocalNotification|EmbeddedCabinetNotification|MeetingDetectionCountdownTests|MeetingDetectionPolicyTests|MeetingDetectionRecordingLifecycleTests|ShortRecording|AppControlAccessibility|DesktopCabinetRoutePolicy|DesktopCalendarReminderTests|CabinetSidebarRuntimeTests|DesktopCabinetWorkspaceTests'
+swift build --package-path apps/macos --product TwoBrainRecApp
+swift build --package-path apps/macos --product ContractValidation
+apps/macos/.build/debug/ContractValidation
+python3 scripts/check_notification_retirement.py
+apps/server/.venv/bin/python -m pytest -q -o addopts= apps/server/tests/contract/test_desktop_notification_retirement.py
+```
+
+После T030 общий574 PASS,0 skips/0 failures,31.078s. После всех изменений:
+579 выбранных,572 PASS/7 SKIP/0 failures,44.443s. Повтор только профильных41:
+34 PASS/7 SKIP/0 failures,17.975s. Оба поздних запуска получили отказ фокуса
+обычного контрольного окна до создания карточки: пять Accessibility и два
+PromptLifecycle. Это ограничение среды не убрано из тестов и не считается PASS;
+ранний41/41 с тем же финальным кодом сохранён как отдельное доказательство.
+Полный T019/T020 не закрыт этими результатами.
+
+Обе сборки и ContractValidation PASS; retirement0violations; pytest78 PASS,
+2.51s,0 skips. Существующие предупреждения preconcurrency/устаревших AX-методов
+и два предупреждения pytest не подавлялись. T030–T032 отмечены как локально
+реализованные и проверенные в их границах; GitHub остаётся OPEN до PR/приёмки.
+T019–T022 и общий повтор converge ещё не завершены. Не выполнены новая установка
+через harness, полная ручная матрица, exact-SHA PR checks, merge или release.

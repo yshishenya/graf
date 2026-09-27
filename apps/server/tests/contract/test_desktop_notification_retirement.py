@@ -212,3 +212,81 @@ def test_gate_still_checks_executable_string_interpolation(clean_desktop, litera
     path.parent.mkdir(parents=True)
     path.write_text(f"let text = {literal}", encoding="utf-8")
     assert any("UNMutableNotificationContent" in error for error in GATE.violations(clean_desktop))
+
+
+@pytest.mark.parametrize("directory", ["RecApp/Sources/Notifications", "Shared/Sources", "Shared/Tests"])
+@pytest.mark.parametrize("declaration", [
+    "struct MeetingDetectionCountdown {}",
+    "final class MeetingDetectionCountdown {}",
+    "enum MeetingDetectionCountdown {}",
+    "actor MeetingDetectionCountdown {}",
+    "extension MeetingDetectionCountdown {}",
+])
+def test_gate_rejects_retired_countdown_declaration(clean_desktop, directory, declaration):
+    path = clean_desktop / f"apps/macos/{directory}/Countdown.swift"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("// synthetic declaration\n" + declaration, encoding="utf-8")
+    errors = GATE.violations(clean_desktop)
+    assert len(errors) == 1
+    assert f"{directory}/Countdown.swift:2:" in errors[0]
+    assert "MeetingDetectionCountdown" in errors[0]
+
+
+@pytest.mark.parametrize("declaration", [
+    "struct MeetingDetectionPromptDecision: Sendable",
+    "extension MeetingDetectionPromptDecision",
+    "extension TwoBrainRecShared.MeetingDetectionPromptDecision",
+])
+@pytest.mark.parametrize("member", [
+    "public var startReason: MeetingDetectionStartReason? { nil }",
+    "public let startReason: MeetingDetectionStartReason? = nil",
+    "public var `startReason`: MeetingDetectionStartReason? { nil }",
+])
+def test_gate_rejects_retired_prompt_start_reason(clean_desktop, declaration, member):
+    path = clean_desktop / "apps/macos/Shared/Sources/Decision.swift"
+    path.parent.mkdir(parents=True)
+    path.write_text(f"{declaration} {{\n    {member}\n}}", encoding="utf-8")
+    errors = GATE.violations(clean_desktop)
+    assert len(errors) == 1
+    assert "Shared/Sources/Decision.swift:2:" in errors[0]
+    assert "MeetingDetectionPromptDecision.startReason" in errors[0]
+
+
+@pytest.mark.parametrize("directory", ["RecApp/Sources/Notifications", "Shared/Sources", "Shared/Tests"])
+def test_gate_preserves_live_countdown_names_and_scoped_start_reason(clean_desktop, directory):
+    path = clean_desktop / f"apps/macos/{directory}/LiveDecision.swift"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(r'''
+// struct MeetingDetectionCountdown {}
+/* extension MeetingDetectionPromptDecision { var startReason: Int { 0 } } */
+let evidence = "struct MeetingDetectionCountdown {}"
+let raw = #"extension MeetingDetectionPromptDecision { let startReason = 0 }"#
+let multiline = """
+struct MeetingDetectionCountdown {}
+struct MeetingDetectionPromptDecision { var startReason: Int { 0 } }
+"""
+enum MeetingDetectionStartReason { case promptButton, promptTimeout }
+struct MeetingDetectionCountdownState { var startReason: MeetingDetectionStartReason }
+final class MeetingDetectionCountdownTests {}
+struct MeetingDetectionPromptDecision {
+    var persistedRule: String? { nil }
+    var startReasonDescription: String { "" }
+    func resolve(startReason: MeetingDetectionStartReason) {
+        let startReason = startReason
+        let MeetingDetectionCountdown = 8
+    }
+    var current: Int { let startReason = 0; return startReason }
+    struct Nested { var value: Int }
+}
+extension MeetingDetectionPromptDecision {
+    func diagnostic() { var startReason = 0 }
+}
+extension MeetingDetectionPromptDecision.Nested { var startReasonCopy: Int { startReason } }
+extension MeetingDetectionPromptDecision.Nested {
+    var startReason: Int { 0 }
+}
+extension OtherDecision { var startReason: Int { 0 } }
+struct MeetingDetectionPromptDecisionState { let startReason = 0 }
+func resolve(startReason: MeetingDetectionStartReason) {}
+''', encoding="utf-8")
+    assert GATE.violations(clean_desktop) == []
