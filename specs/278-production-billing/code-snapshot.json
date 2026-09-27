@@ -2,7 +2,7 @@
   "schema_version": 1,
   "base_sha": "f5cca687a06dc57ad6ccbef840a0be897eaa6336",
   "kind": "source-and-tests-before-authorized-commit",
-  "created_at": "2026-09-27T23:00:39.354597+00:00",
+  "created_at": "2026-09-27T23:16:54.205922+00:00",
   "files": [
     {
       "path": "apps/server/scripts/manage_promo_campaign.py",
@@ -201,6 +201,10 @@
       "sha256": "3f3e29b61819db55db93e4cad9983ab430f5f17202d89ffecdc274c53d3e32a0"
     },
     {
+      "path": "apps/server/tests/integration/test_compose_hardening.py",
+      "sha256": "d7565a8c99554ca8d84f18f0f507025a44eef0d768642f39ef03b534d478ec82"
+    },
+    {
       "path": "apps/server/tests/integration/test_postgres_migrations.py",
       "sha256": "27dba9ca627c4fd0fa2e054ab6e1615e8649c12e6717d60f5078677149cb9b74"
     },
@@ -282,7 +286,11 @@
     },
     {
       "path": "infra/docker-compose.yml",
-      "sha256": "40a05fabc050168caabc6673008d864fe6708b28c993ac5aea425549da87bc19"
+      "sha256": "a99309d89aa9c1978f4f47e307527f234ff3d8f185d3f4d844617b7cc7cd840c"
+    },
+    {
+      "path": "infra/env/rec.production.env.example",
+      "sha256": "cda1595c6d1b5895212fd95df2c5f397b4d5096396cdf043d0a809b7f0abfcac"
     }
   ]
 }
