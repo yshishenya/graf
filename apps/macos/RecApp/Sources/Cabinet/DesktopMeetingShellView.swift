@@ -325,10 +325,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 attentionExpansionDismissed = false
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .grafOpenLocalRecordingControls)) { _ in
-            inspectorExpanded = true
-            attentionExpansionDismissed = false
-        }
         .accessibilityIdentifier("desktop-meeting-shell")
     }
 

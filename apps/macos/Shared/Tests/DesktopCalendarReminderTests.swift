@@ -599,6 +599,27 @@ final class DesktopCalendarReminderTests: XCTestCase {
         XCTAssertEqual(model.recordingState, .recording)
     }
 
+    func testTrayAuthInvalidationRejectsPendingProjectionSynchronously() async {
+        let loader = CalendarTrayControlledLoader()
+        let model = CalendarTrayModel { try await loader.load() }
+        let tray = CalendarTrayController(model: model, onOpenSettings: {}, onOpenMeetings: {},
+            onStartRecording: {}, onStopRecording: {}, onMuteMicrophone: {},
+            onUnmuteMicrophone: {}, onQuit: {})
+        var projections: [DesktopCalendarPromptResponse?] = []
+        model.onProjection = { projections.append($0) }
+        let pending = Task { await model.refresh() }
+        await loader.waitForRequestCount(1)
+        tray.invalidateAuthContext()
+        XCTAssertEqual(projections.count, 1, "Invalidation must finish without yielding to queued responses")
+        XCTAssertNil(projections.first!)
+        await loader.complete(request: 0, with: DesktopCalendarPromptResponse(
+            events: [makeEvent(eventId: "previous-account", startsAt: date(120), endsAt: date(180))]
+        ))
+        await pending.value
+        XCTAssertEqual(projections.count, 1, "A response from the previous account must not reach notifications")
+        XCTAssertTrue(model.events.isEmpty)
+    }
+
     func testCalendarTrayStaysCompactWithoutConfirmedEventsAndRecoversAfterFailures() async {
         let loader = CalendarTrayControlledLoader()
         let model = CalendarTrayModel { try await loader.load() }
@@ -756,7 +777,8 @@ final class DesktopCalendarReminderTests: XCTestCase {
                                           onQuit: { quits += 1 })
         tray.rebuildMenu()
         XCTAssertEqual(tray.menu.items.filter { !$0.isSeparatorItem }.map(\.title),
-                       ["Начать запись", "Открыть GRAF", "Настройки…", "Выйти из GRAF"])
+                       ["Начать запись", "Перейти к уведомлению", "Последние уведомления",
+                        "Открыть GRAF", "Настройки…", "Выйти из GRAF"])
         XCTAssertEqual(tray.menu.minimumWidth, 240)
         XCTAssertTrue(tray.menu.items.allSatisfy { $0.view == nil }, "Native rows retain keyboard, theme and outside-click behavior")
         tray.menu.performActionForItem(at: 0)

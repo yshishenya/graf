@@ -237,7 +237,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         // Legacy ownership needs positive server evidence for the already known meeting ID.
         let candidates = try loadItems().filter { $0.ownerScope == nil && $0.isLocalUnbound != true && $0.meetingId != nil }
         for item in candidates {
-            guard let reconciled = try await scopedClient.reconcile(item),
+            let serverTruth = if let native = scopedClient as? DesktopUploadClient {
+                try await native.reconcileServerTruth(item)
+            } else {
+                try await scopedClient.reconcile(item)
+            }
+            guard let reconciled = serverTruth,
                   reconciled.serverTruth.meetingId == item.meetingId,
                   reconciled.serverTruth.accessState == "owner" else { continue }
             try queue.sync {
@@ -715,6 +720,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         try updateItem(itemId: itemId) { item, now in
             guard !item.hasUnsupportedRecordingSource else { return item.retiringUnsupportedUpload(at: now) }
             guard !item.lifecycleBlocksContent else { return item }
+            guard RecordingStartAcceptanceGate.allows(item) else {
+                return Self.refusingUnacceptedStart(item, now: now)
+            }
             let blockedFailureReason = item.failureReason ?? "local_artifacts_not_uploadable"
             var next = item.withTransition(
                 to: item.isUploadEligible ? .queued : .blocked,
@@ -1130,7 +1138,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     ) async throws -> [DesktopUploadQueueItem] {
         var purgeable: [DesktopUploadQueueItem] = []
         for item in items {
-            guard let reconciliation = try await client.reconcile(item) else {
+            let serverTruth = if let native = client as? DesktopUploadClient {
+                try await native.reconcileServerTruth(item)
+            } else {
+                try await client.reconcile(item)
+            }
+            guard let reconciliation = serverTruth else {
                 continue
             }
             let reconciled = try applyLocalPurgeReconciliation(itemId: item.id, reconciliation: reconciliation)
@@ -1434,11 +1447,17 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         onProgress: @escaping ProgressObserver
     ) async throws {
         let generation = queue.sync { deletionScopeGeneration }
+        guard RecordingStartAcceptanceGate.allows(item) else {
+            _ = try updateItem(itemId: item.id, expectedGeneration: generation) { current, now in
+                Self.refusingUnacceptedStart(current, now: now)
+            }
+            return
+        }
         let started = try updateItem(itemId: item.id, expectedGeneration: generation) { current, now in
             guard current.state != .saving, !current.state.isTerminal,
                   current.retryMode == .automatic, current.isUploadEligible,
                   !isShortRecordingDiscarded(current), !current.lifecycleBlocksContent else { return current }
-            var next = current.withTransition(
+            return current.withTransition(
                 to: .uploading,
                 now: now,
                 failureCategory: UploadFailureCategory.none,
@@ -1446,26 +1465,25 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 retryMode: .automatic,
                 nextRetryAt: nil
             )
-            next.serverCreationAttempted = true
-            next.attemptCount += 1
-            next.retryRecords.append(
-                RetryRecord(
-                    attemptNumber: next.attemptCount,
-                    startedAt: now,
-                    stateBefore: current.state,
-                    stateAfter: .uploading,
-                    failureCategory: .none
-                )
-            )
-            return next
         }
         guard started.state == .uploading, started.isUploadEligible, !isShortRecordingDiscarded(started),
               !started.lifecycleBlocksContent else { return }
         try await publishProgress(onProgress)
 
         do {
+            let attemptClient: any DesktopUploadClientProtocol
+            if let native = client as? DesktopUploadClient {
+                attemptClient = native.checkingRecordingStartAcceptance(for: started) { [self] in
+                    try recordUploadAttempt(started: started, stateBefore: item.state, generation: generation)
+                }
+            } else {
+                // Protocol test clients are themselves the observable transport boundary.
+                _ = try currentUploadItem(itemId: started.id, generation: generation)
+                try recordUploadAttempt(started: started, stateBefore: item.state, generation: generation)
+                attemptClient = client
+            }
             let current = try currentUploadItem(itemId: started.id, generation: generation)
-            let reconciled = try await reconcileBeforeUpload(current, client: client)
+            let reconciled = try await reconcileBeforeUpload(current, client: attemptClient)
             try await publishProgress(onProgress)
             guard reconciled.syncConflictState == .none, !reconciled.lifecycleBlocksContent else {
                 return
@@ -1474,7 +1492,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 return
             }
             let eligible = try currentUploadItem(itemId: started.id, generation: generation)
-            let result = try await client.upload(eligible) { [self] reportedProgress in
+            let result = try await attemptClient.upload(eligible) { [self] reportedProgress in
                 _ = try currentUploadItem(itemId: started.id, generation: generation)
                 let currentProgress = try updateItem(itemId: reconciled.id, expectedGeneration: generation) { current, now in
                     guard current.state == .uploading, current.isUploadEligible else {
@@ -1490,6 +1508,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 try await publishProgress(onProgress)
                 _ = try currentUploadItem(itemId: started.id, generation: generation)
             }
+            _ = try currentUploadItem(itemId: started.id, generation: generation)
             _ = try updateItem(itemId: started.id, expectedGeneration: generation) { current, now in
                 guard current.state == .uploading, current.retryMode == .automatic,
                       current.isUploadEligible, !current.lifecycleBlocksContent else { return current }
@@ -1521,6 +1540,11 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                     )
                 )
                 return next
+            }
+            try await publishProgress(onProgress)
+        } catch is RecordingStartAcceptanceGate.Refusal {
+            _ = try updateItem(itemId: started.id, expectedGeneration: generation) { current, now in
+                Self.refusingUnacceptedStart(current, now: now)
             }
             try await publishProgress(onProgress)
         } catch {
@@ -1571,6 +1595,37 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
     }
 
+    /// Count once, immediately before a transport request, after its live local admission.
+    private func recordUploadAttempt(
+        started: DesktopUploadQueueItem, stateBefore: UploadItemState, generation: Int
+    ) throws {
+        try queue.sync {
+            var document = try loadDocumentOnQueue()
+            guard generation == deletionScopeGeneration,
+                  let index = document.items.firstIndex(where: { $0.id == started.id }) else { throw CancellationError() }
+            var current = projectLifecycle(document.items[index], in: document)
+            guard current.state == .uploading, current.retryMode == .automatic,
+                  current.isUploadEligible, !current.lifecycleBlocksContent,
+                  !isShortRecordingDiscarded(current) else { throw CancellationError() }
+            try RecordingStartAcceptanceGate.check(current)
+            guard current.attemptCount == started.attemptCount else { return }
+            let now = clock()
+            current.serverCreationAttempted = true
+            current.attemptCount += 1
+            current.retryRecords.append(RetryRecord(attemptNumber: current.attemptCount,
+                startedAt: now, stateBefore: stateBefore, stateAfter: .uploading, failureCategory: .none))
+            document.items[index] = current
+            document.updatedAt = now
+            try saveDocumentOnQueue(document)
+        }
+    }
+
+    private static func refusingUnacceptedStart(_ item: DesktopUploadQueueItem, now: Date) -> DesktopUploadQueueItem {
+        guard !item.state.isTerminal, !item.lifecycleBlocksContent else { return item }
+        return item.withTransition(to: .blocked, now: now, failureCategory: .localResource,
+            failureReason: "recording_start_not_accepted", retryMode: .manualOnly, nextRetryAt: nil)
+    }
+
     /// Re-read after every suspension: a scan, cancellation or lifecycle update
     /// can revoke eligibility while a prior snapshot is in flight.
     private func currentUploadItem(itemId: String, generation: Int) throws -> DesktopUploadQueueItem {
@@ -1582,6 +1637,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             guard current.state == .uploading, current.retryMode == .automatic,
                   current.isUploadEligible, !current.lifecycleBlocksContent,
                   !isShortRecordingDiscarded(current) else { throw CancellationError() }
+            try RecordingStartAcceptanceGate.check(current)
             return current
         }
     }
@@ -1595,7 +1651,10 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         client: DesktopUploadClientProtocol
     ) async throws -> DesktopUploadQueueItem {
         let generation = queue.sync { deletionScopeGeneration }
-        guard let reconciliation = try await client.reconcile(item) else {
+        try RecordingStartAcceptanceGate.check(item)
+        let result = try await client.reconcile(item)
+        try RecordingStartAcceptanceGate.check(item)
+        guard let reconciliation = result else {
             return item
         }
         return try updateItem(itemId: item.id, expectedGeneration: generation) { current, now in
@@ -1670,7 +1729,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
         for item in candidates {
             do {
-                guard let reconciliation = try await client.reconcile(item) else {
+                let serverTruth = if let native = client as? DesktopUploadClient {
+                    try await native.reconcileServerTruth(item)
+                } else {
+                    try await client.reconcile(item)
+                }
+                guard let reconciliation = serverTruth else {
                     continue
                 }
                 try applyUploadedReconciliation(itemId: item.id, reconciliation: reconciliation, generation: generation)
@@ -1781,7 +1845,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             throw DesktopUploadQueueServiceError.manifestMissing(manifestURL)
         }
 
-        let profile = Self.artifactProfile(
+        var profile = Self.artifactProfile(
             manifest: manifest,
             manifestURL: manifestURL,
             microphoneURL: microphoneURL,
@@ -1789,6 +1853,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             reviewAudioURL: directoryURL.appendingPathComponent("meeting-review.m4a"),
             transcriptionURL: transcriptionURL
         )
+        do {
+            try RecordingStartAcceptanceGate.check(manifestURL: manifestURL,
+                sessionId: manifest.sessionId, directoryId: manifest.directoryId)
+        } catch {
+            profile.isUploadable = false
+        }
         let state: UploadItemState = profile.isUploadable ? .queued : .blocked
         let failureCategory: UploadFailureCategory = profile.isUploadable
             ? .none
