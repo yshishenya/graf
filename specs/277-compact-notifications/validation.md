@@ -712,3 +712,156 @@ issues по feature:277 и task ID не нашёл владельца T029; пр
 Независимое ревью точного однострочного diff не выявило замечаний: сохраняются
 Start/Skip/remember/token/deadline и все календарные действия. Проверяющий
 не выполнял тесты/сборку; ожидание проверки выполнением остаётся.
+
+### Проверка сборки T029 без вмешательства в ручное испытание — 2026-09-27
+
+На HEAD `9eb9d8ac7fcbbd5c4cddb329a06b07e2d4f3be3f` с указанной выше
+однострочной правкой T029 повторно выполнена компиляция без запуска GUI:
+
+- `swift build --package-path apps/macos --product TwoBrainRecApp` — PASS,
+  1.98s. Компилятор сообщил предупреждения о неэффективном
+  `@preconcurrency` у существующих соответствий протоколам WebKit.
+- `swift build --package-path apps/macos --product ContractValidation` —
+  PASS, 0.98s.
+- `apps/macos/.build/debug/ContractValidation` — PASS. Это консольная
+  проверка контрактов с подставными реализациями захвата, не запуск приложения
+  и не доказательство поведения кнопок установленной карточки.
+- `python3 scripts/check_notification_retirement.py` — PASS, 0 нарушений;
+  `git diff --check` — PASS.
+
+Предыдущая сессия сборки больше не была доступна для получения результата;
+перед повторной проверкой работающих процессов компилятора не обнаружено.
+Приведённые результаты относятся к новому завершённому запуску, не к
+предположению о результате утраченной сессии.
+
+Окна не переключались, AppKit-тесты не запускались, установленный GRAF Dev
+не обновлялся. В узкой выборке журнала по Телемосту новых событий после
+19:02:00 UTC не обнаружено; ручное нажатие «Не записывать» не подтверждено.
+Профильные AppKit-тесты T029 и ручные условия остаются открытыми.
+
+### Повторная проверка отказа в Телемосте и T029 — 2026-09-27
+
+Пользователь вновь разрешил агенту управлять окнами. Harness status подтвердил
+установленный `/Applications/GRAF Dev.app`, активный `dev-49766da1f17c`.
+Приложение не обновлялось. Созданы два пустых тестовых звонка без приглашений.
+
+- Первая попытка: `prompt_presented` 19:25:05 UTC → `prompt_accepted`
+  19:25:11, `reason=prompt_button`, `autoRecordOptIn=false`. Пользователь
+  отдельно подтвердил случайное нажатие «Записать». В UI затем показаны
+  остановка с `render_reference_missing`, доступная кнопка начала записи и
+  частично сохранённая локальная запись. Эта попытка не доказывает отказ.
+- Повторная попытка: `prompt_presented` 19:26:33 UTC. После команды
+  Cmd+Option+N дерево доступности показало отдельную карточку с оставшимися
+  шестью секундами, «Не записывать», закрытием и выключенным флажком
+  «Запомнить выбор для Yandex Telemost». Агент направил действие на найденную
+  кнопку отказа. Инструмент также выдал предупреждение об изменении окна;
+  один только ответ инструмента не считается доказательством щелчка.
+- Независимая проверка журнала: в 19:26:36 — `consumer_outcome`,
+  `result=rejected`, `reason=user_skipped`, `retryable=false`, затем
+  `prompt_dismissed`. До выхода из вызова, существенно позже восьмисекундного
+  срока, нового `prompt_accepted` не появилось; UI показывал «Начать запись»
+  и «Встреча обнаружена». Правило Yandex Telemost в настройках прочитано как
+  «Спрашивать»; настройки не менялись. Выход подтверждён главным экраном
+  Телемоста с «Новый звонок».
+- Это подтверждает установленный путь отказа без сохранения выбора и без
+  позднего принятия по таймеру. Использовались явная команда фокуса и действие
+  через дерево доступности: физический первый щелчок по неактивной карточке
+  и фактическое озвучивание VoiceOver этим не доказаны.
+
+После завершения звонков на текущем исходнике с правкой T029 выполнено:
+
+`swift test --package-path apps/macos --filter
+'DesktopNotificationCardTests|DesktopNotificationPromptLifecycleTests|DesktopLocalNotificationDeliveryTests'`
+
+Результат: 61 тест, 58 PASS, 1 SKIP, 2 FAILED (4 сообщения об ошибках),
+6.185s, exit 1. Delivery: 32 PASS; Card: 13 PASS и 1 SKIP; Lifecycle:
+13 PASS и 2 FAILED. Экспорт снимков пропущен, поскольку
+`GRAF_CARD_SNAPSHOT_DIR` не задан. Журнал: `/tmp/graf-f277-t029-focused.log`.
+
+Оба сбоя возникли в `F277CardTestSupport.requireFocusHost` до проверки
+карточки: не удалось восстановить неактивность после обычного окна-пробы,
+затем не удалось установить исходное неактивное состояние. Упавшие тесты:
+`testKeyFocusHoldAndHoverOverlapResumeOnlyAfterBothEnd` и
+`testPromptAndMeetingDeadlinesIgnoreHoverAndKeyFocus`.
+Их отдельный повтор в новом процессе через тот же `swift test --filter`
+с двумя полными именами класса/метода воспроизвёл оба сбоя: 2 FAILED,
+4 сообщения об ошибках, 4.212s, exit 1. Журнал:
+`/tmp/graf-f277-t029-focus-recheck.log`.
+
+Сбои подготовки среды не доказывают дефект карточки, но и не являются PASS.
+Код проверки не ослаблялся. T029 и общая приёмка остаются открытыми до
+разрешения проверки фокуса; ручной отказ не заменяет остальные условия.
+
+### T019: проверка и исправление подготовки фокуса — 2026-09-27
+
+Lane: существующий `high-risk-product` срез, тестовая регрессия T019
+(открытая #7303), не новое поведение продукта. Независимый reviewer подтвердил
+26/26 требований и актуальный analyze для 29 задач; дополнительные требования
+или задачи не понадобились. Реализация затрагивает только подготовку AppKit
+в `DesktopNotificationCompactTests.swift` и более строгие предусловия в
+`DesktopNotificationAccessibilityTests.swift`. Установленное приложение,
+продуктовые сроки, правила записи и обработчик фокуса не менялись.
+
+Первый эксперимент перенёс три `deactivate()` в `perform` существующего
+цикла AppKit. Три проверки дали 2 PASS / 1 FAILED (5.053s); одиночный
+повтор оставшегося теста дал PASS (1.754s). Это не полное исправление:
+сбой подготовки зависел от состояния процесса. Журналы:
+`/tmp/graf-f277-focus-loop-probe.log`, `/tmp/graf-f277-focus-loop-single.log`.
+
+Окончательный кандидат использует подготовку собственного тестового процесса
+до показа карточки: `hide` → наблюдаемое `!isActive && isHidden` →
+`unhideWithoutActivation` → наблюдаемое `!isActive && !isHidden`.
+Обе операции выполняются в цикле событий; при ошибке скрытое состояние
+снимается без активации, FAIL сохраняется. Не запускаются и не выбираются
+чужие приложения; macOS сама может передать фокус при скрытии тестового
+процесса. Обычное контрольное окно убирается до повторной подготовки.
+Непосредственно перед `presenter.focus()` усилены проверки: приложение
+неактивно и не скрыто, карточка видима и не key. Нет новых skips, увеличения
+сроков, подставных уведомлений активации или принудительного успеха карточки.
+
+Основание: Apple рекомендует заменять прямой `deactivate` и указывает, что
+скрытие подразумевает деактивацию; `unhideWithoutActivation` восстанавливает
+окна без активации владельца:
+[cooperative activation](https://developer.apple.com/documentation/appkit/passing-control-from-one-app-to-another-with-cooperative-activation),
+[unhideWithoutActivation](https://developer.apple.com/documentation/appkit/nsapplication/unhidewithoutactivation()).
+
+- Пять зависимых от фокуса тестов вместе: 5 PASS, 0 SKIP/FAIL, 1.317s.
+  `/tmp/graf-f277-focus-hide-probe.log`.
+- Отрицательный контроль: только в тесте explicitInactive временно заменены
+  `requestActivation` и `requestKeyWindow` на no-op. Первый отдельный запуск
+  пропущен независимой пробой обычного окна (1 SKIP, 2.168s), поэтому не
+  доказал чувствительность. Второй запуск включал обычный положительный
+  тест фокуса: он прошёл, изменённый тест упал на пяти проверках реального
+  результата (active/key/first responder), не на подготовке. 1 PASS,
+  1 FAILED, 0 SKIP, 3.780s. Журналы:
+  `/tmp/graf-f277-focus-negative-control.log` и
+  `/tmp/graf-f277-focus-negative-calibrated.log`. Временная подмена удалена;
+  восстановлен исходный `F277CardFixture().presenter()`.
+- Card + Delivery с включённым экспортом синтетических снимков: 46 PASS,
+  0 SKIP/FAIL, 1.545s; `/tmp/graf-f277-t029-card-delivery.log`. Это отдельный
+  объём проверки, не замена не прошедшим ранее фокусным сценариям.
+
+Итоговый общий запуск после удаления временной подмены:
+
+```sh
+notification_render_dir=$(mktemp -d /tmp/graf-f277-final-renders.XXXXXX)
+GRAF_CARD_SNAPSHOT_DIR="$notification_render_dir" swift test --package-path apps/macos --filter 'RecordingStartAcceptanceTests|DesktopUploadQueueTests|DesktopUploadClientTests|LocalRecordingWriter|CaptureRecovery|CaptureControlTests|CaptureIndicatorTests|RecordingDeletion|DesktopNotification|DesktopLocalNotification|EmbeddedCabinetNotification|MeetingDetectionCountdownTests|MeetingDetectionPolicyTests|MeetingDetectionRecordingLifecycleTests|ShortRecording|AppControlAccessibility|DesktopCabinetRoutePolicy|DesktopCalendarReminderTests|CabinetSidebarRuntimeTests|DesktopCabinetWorkspaceTests'
+```
+
+**574 PASS, 0 SKIP, 0 FAIL**, 30.455s, exit 0. Число строк `Test Case ...
+passed` дополнительно сверено: 574; строк skipped/error/failed нет.
+Журнал `/tmp/graf-f277-final-regression.log`. Измерение подтверждения запуска:
+0.000569708s, ниже целевых 100ms на этом синтетическом запуске.
+
+Независимое ревью точного изменения двух тестовых файлов — без замечаний.
+Проверяющий подтвердил наблюдение состояния, сохранённые проверки actual
+active/key/first responder, отсутствие новых skips и удаление временной
+подмены. Ограничение: аварийный defer снимает скрытие без ожидания завершения,
+но исходная ошибка при этом остаётся FAIL. Сам общий запуск выполнил MAIN.
+Retirement guard: PASS, 0 нарушений; governance: OK; git diff --check: PASS.
+
+T029 отмечена выполненной локально: её исходник, сборки, профильные проверки
+в общем наборе и независимое ревью подтверждены. #7338 остаётся открытой до
+PR-подтверждения. T019/T020/T021/T022 целиком не закрыты: оставшиеся проверки
+quickstart, ручные условия и exact-SHA/base PR gates не заменяются этим
+нативным набором. Новая установка GRAF Dev и выпуск не выполнялись.

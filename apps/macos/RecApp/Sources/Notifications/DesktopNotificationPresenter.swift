@@ -541,7 +541,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
         retire(envelope)
         if envelope.kind == .recordingPrompt {
             switch action {
-            case .record, .joinAndRecord: envelope.onStart?()
+            case .record: envelope.onStart?()
             case .skipRecordingPrompt: envelope.onSkip?(envelope.remember)
             default: break
             }

@@ -158,8 +158,11 @@ T001 → T002 → независимые тестовые ветви T003/T006/T
 Это очистка недостижимого случая, не изменение календарных действий,
 восьмисекундного отсчёта, правил записи или разрешений.
 
-- [ ] T029 [US2] Удалить только `.joinAndRecord` из ветки `.recordingPrompt` метода `handleAction` в `apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift`: карточка вопроса создаёт только `.record`, `.skipRecordingPrompt` и переключение флажка. Само календарное действие `.joinAndRecord` и его обработку в ветке `.meeting` сохранить. Проверить реальные наборы действий и вызов Start/Skip у карточки вопроса в `apps/macos/Shared/Tests/DesktopNotificationCardTests.swift` и `apps/macos/Shared/Tests/DesktopNotificationPromptLifecycleTests.swift`, календарный путь — в `apps/macos/Shared/Tests/DesktopLocalNotificationDeliveryTests.swift`; затем профильные тесты, сборка и повторная проверка удаления. По FR-021/SC-006 и plan: один действующий обработчик без невыдаваемых действий (partial, LOW). До реализации синхронизировать GitHub issue и проверить применимость reviewer-owned checklist; не менять установку во время ручного теста пользователя.
+- [X] T029 [US2] Удалить только `.joinAndRecord` из ветки `.recordingPrompt` метода `handleAction` в `apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift`: карточка вопроса создаёт только `.record`, `.skipRecordingPrompt` и переключение флажка. Само календарное действие `.joinAndRecord` и его обработку в ветке `.meeting` сохранить. Проверить реальные наборы действий и вызов Start/Skip у карточки вопроса в `apps/macos/Shared/Tests/DesktopNotificationCardTests.swift` и `apps/macos/Shared/Tests/DesktopNotificationPromptLifecycleTests.swift`, календарный путь — в `apps/macos/Shared/Tests/DesktopLocalNotificationDeliveryTests.swift`; затем профильные тесты, сборка и повторная проверка удаления. По FR-021/SC-006 и plan: один действующий обработчик без невыдаваемых действий (partial, LOW). До реализации синхронизировать GitHub issue и проверить применимость reviewer-owned checklist; не менять установку во время ручного теста пользователя.
 
 Владелец T029: [#7338](https://github.com/yshishenya/graf/issues/7338).
-Предшествующие T001–T028 сохраняют своих открытых владельцев; результат
-реализации и закрытие T029 ещё не заявлены.
+Предшествующие T001–T028 сохраняют своих открытых владельцев. T029 выполнена
+локально: сборки и ContractValidation, retirement guard, независимое ревью и
+общий набор 574 PASS / 0 SKIP / 0 FAIL; подробности в validation.md.
+Issue #7338 остаётся открытой до требуемого PR-подтверждения; установка
+GRAF Dev этой правкой пока не обновлялась. Общая приёмка T019–T022 открыта.

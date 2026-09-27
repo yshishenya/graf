@@ -84,6 +84,27 @@ enum F277CardTestSupport {
         XCTAssertTrue(focused, "Ожидается настоящий key window: active=\(NSApp.isActive), running=\(NSApp.isRunning), policy=\(NSApp.activationPolicy().rawValue), canKey=\(window.canBecomeKey)", file: file, line: line)
     }
 
+    /// Prepare a visible, inactive host before creating the card under test.
+    /// AppKit owns deactivation; hiding then unhiding without activation avoids
+    /// relying on deactivate() across bounded NSApplication event-loop runs.
+    static func requireInactiveHost(file: StaticString = #filePath, line: UInt = #line) async throws {
+        defer { if NSApp.isHidden { NSApp.unhideWithoutActivation() } }
+        let hidden = try await awaitAppKitState({ !NSApp.isActive && NSApp.isHidden }, perform: {
+            NSApp.hide(nil)
+        })
+        guard hidden else {
+            XCTFail("Could not hide and deactivate the AppKit test host", file: file, line: line)
+            throw CocoaError(.validationMissingMandatoryProperty)
+        }
+        let visibleInactive = try await awaitAppKitState({ !NSApp.isActive && !NSApp.isHidden }, perform: {
+            NSApp.unhideWithoutActivation()
+        })
+        guard visibleInactive else {
+            XCTFail("Could not restore a visible inactive AppKit test host", file: file, line: line)
+            throw CocoaError(.validationMissingMandatoryProperty)
+        }
+    }
+
     /// Probe the test host independently of notification code. macOS may deny
     /// cooperative activation even to a normal window in an unbundled XCTest
     /// process. A skip here is missing GUI evidence, never product acceptance.
@@ -94,12 +115,7 @@ enum F277CardTestSupport {
             XCTFail("AppKit test host did not finish launching", file: file, line: line)
             throw CocoaError(.validationMissingMandatoryProperty)
         }
-        NSApp.deactivate()
-        let initiallyInactive = try await awaitAppKitState { !NSApp.isActive }
-        guard initiallyInactive else {
-            XCTFail("Could not establish an inactive AppKit test host", file: file, line: line)
-            throw CocoaError(.validationMissingMandatoryProperty)
-        }
+        try await requireInactiveHost(file: file, line: line)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 240, height: 120),
             styleMask: [.titled], backing: .buffered, defer: false)
         defer { window.orderOut(nil) }
@@ -111,12 +127,7 @@ enum F277CardTestSupport {
         try XCTSkipIf(!focused,
             "Тестовая среда не подтвердила фокус обычного AppKit-окна без карточки; причина требует проверки в GRAF Dev",
             file: file, line: line)
-        NSApp.deactivate()
-        let restoredInactive = try await awaitAppKitState { !NSApp.isActive }
-        guard restoredInactive else {
-            XCTFail("Could not restore inactive state after the independent host probe", file: file, line: line)
-            throw CocoaError(.validationMissingMandatoryProperty)
-        }
+        try await requireInactiveHost(file: file, line: line)
     }
 
     static func fitted(_ presenter: DesktopNotificationCardPresenter) throws -> (NSView, CardBackgroundView) {
