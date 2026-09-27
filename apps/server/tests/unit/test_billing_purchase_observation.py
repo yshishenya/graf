@@ -183,3 +183,30 @@ async def test_reference_recovery_never_guesses_or_releases_unresolved_money(mod
                 scope=ProviderScope(environment="production", shop_id="123"),
             )
     assert operation.provider_id is None and provider.calls <= 3
+
+
+@pytest.mark.parametrize("status_code", [400, 401, 403, 404, 405, 415, 429, 409, 500, None])
+@pytest.mark.parametrize("provider_id", [None, "synthetic-payment"])
+def test_creation_rejection_never_discards_known_payment_or_ambiguous_result(
+    status_code, provider_id
+):
+    from twobrain_rec_server.billing.yookassa import YooKassaProviderError
+    from twobrain_rec_server.cabinet.web_routes.billing import _record_initial_checkout_failure
+
+    operation = BillingOperation(
+        state="processing", provider_id=provider_id, request_snapshot={"purchase_schema": 2}
+    )
+    invoice = BillingInvoice(status="pending")
+    _record_initial_checkout_failure(
+        operation, invoice, YooKassaProviderError("synthetic", status_code=status_code)
+    )
+    expected = (
+        "unknown"
+        if provider_id
+        else (
+            "canceled"
+            if status_code in {400, 401, 403, 404, 405, 415, 429}
+            else "manual_resolution"
+        )
+    )
+    assert operation.state == invoice.status == expected

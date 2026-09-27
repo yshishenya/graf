@@ -117,25 +117,38 @@ async def test_paid_bonus_gets_base_floor_without_overwriting_snapshot(snapshot,
 async def test_scheduled_renewal_rechecks_package_terms_before_any_provider_call(
     monkeypatch, tmp_path, change
 ):
+    from dataclasses import replace
+
     from tests.unit.test_renewal_charge import (
         OPERATION_ID,
         WORKSPACE_ID,
         FakeDb,
         FakeProvider,
         _attempt_charge_moment,
+        _planning_catalog,
         _rows,
         _settings,
     )
     from twobrain_rec_server.billing import renewal_charge as renewal
+    from twobrain_rec_server.billing.catalog import validate_plan_version
 
     settings = _settings(tmp_path)
     subscription, operation, invoice, method = _rows(tmp_path, attempt=1)
     price = BillingStoragePriceVersion(
-        id=uuid4(), version=2, capacity_bytes=10_000_000_000, cycle="month",
-        amount_minor=25000, currency="RUB", policy_snapshot={"package_count": 1},
+        id=uuid4(),
+        version=2,
+        capacity_bytes=10_000_000_000,
+        cycle="month",
+        amount_minor=25000,
+        currency="RUB",
+        policy_snapshot={"package_count": 1},
     )
+    base_catalog = validate_plan_version(_planning_catalog())
     operation.request_snapshot = {
         **operation.request_snapshot,
+        "catalog_snapshot": replace(
+            base_catalog, amount_minor=104000, storage_bytes=10000000000
+        ).as_dict(),
         "storage_price_snapshot": storage_price_snapshot(price),
     }
     if change == "catalog_changed":
@@ -143,18 +156,24 @@ async def test_scheduled_renewal_rechecks_package_terms_before_any_provider_call
         price.amount_minor = 30000
 
     async def base(*_args, **_kwargs):
-        return object()
+        return base_catalog
 
     async def compose(*_args, **_kwargs):
-        return object(), price
+        return replace(
+            base_catalog,
+            amount_minor=base_catalog.amount_minor + price.amount_minor,
+            storage_bytes=price.capacity_bytes,
+        ), price
 
     provider = FakeProvider({"id": "must-not-be-called"})
     monkeypatch.setattr(renewal, "_approved_catalog", base)
     monkeypatch.setattr(renewal, "compose_personal_catalog", compose)
     monkeypatch.setattr(renewal, "YooKassaClient", lambda _settings: provider)
     result = await renewal.charge_renewal_operation(
-        FakeDb([subscription, operation, invoice, method]), settings,
-        operation_id=OPERATION_ID, workspace_id=WORKSPACE_ID,
+        FakeDb([subscription, operation, invoice, method]),
+        settings,
+        operation_id=OPERATION_ID,
+        workspace_id=WORKSPACE_ID,
         now=_attempt_charge_moment(1),
     )
     assert result.status == operation.state == invoice.status == "canceled"

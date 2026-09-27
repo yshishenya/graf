@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.catalog import ADDON_CAPACITY_BYTES, PERSONAL_STORAGE_BYTES
@@ -451,6 +451,38 @@ async def create_purchase_quote(
     # Copy JSON values so later mutation of a view model cannot change this offer.
     saved = json.loads(json.dumps(snapshot))
     saved["subscription_key"] = subscription_quote_key(subscription)
+    # Keep consumed financial evidence; reclaim only expired unused offers,
+    # in a bounded batch within the current workspace and owner.
+    stale_ids = list(
+        await db.scalars(
+            select(BillingPurchaseQuote.id)
+            .where(
+                BillingPurchaseQuote.workspace_id == workspace_id,
+                BillingPurchaseQuote.owner_user_id == owner_user_id,
+                BillingPurchaseQuote.consumed_operation_id.is_(None),
+                BillingPurchaseQuote.expires_at <= utc(now),
+            )
+            .order_by(BillingPurchaseQuote.expires_at)
+            .limit(100)
+            .with_for_update(skip_locked=True)
+        )
+    )
+    if stale_ids:
+        await db.execute(delete(BillingPurchaseQuote).where(BillingPurchaseQuote.id.in_(stale_ids)))
+    for existing in await db.scalars(
+        select(BillingPurchaseQuote)
+        .where(
+            BillingPurchaseQuote.workspace_id == workspace_id,
+            BillingPurchaseQuote.owner_user_id == owner_user_id,
+            BillingPurchaseQuote.purpose == purpose,
+            BillingPurchaseQuote.consumed_operation_id.is_(None),
+            BillingPurchaseQuote.expires_at > utc(now),
+        )
+        .order_by(BillingPurchaseQuote.created_at.desc())
+        .limit(10)
+    ):
+        if existing.snapshot == saved:
+            return existing
     quote = BillingPurchaseQuote(
         workspace_id=workspace_id,
         owner_user_id=owner_user_id,
@@ -571,6 +603,24 @@ def accept_storage_price(subscription, snapshot: dict | None) -> None:
     }
 
 
+def accept_base_price(
+    subscription, catalog_snapshot: dict, storage_snapshot: dict | None = None
+) -> None:
+    """Persist explicit agreement to the base component alongside storage terms."""
+    snapshot = dict(catalog_snapshot)
+    if storage_snapshot:
+        snapshot["amount_minor"] -= storage_snapshot["amount_minor"]
+        snapshot["storage_bytes"] = PERSONAL_STORAGE_BYTES
+    subscription.storage_price_consents = {
+        **(subscription.storage_price_consents or {}),
+        f"base:{snapshot['cycle']}": snapshot,
+    }
+
+
+def base_price_is_accepted(subscription, base) -> bool:
+    return (subscription.storage_price_consents or {}).get(f"base:{base.cycle}") == base.as_dict()
+
+
 def storage_price_is_accepted(subscription, price) -> bool:
     if price is None:
         return True
@@ -647,7 +697,11 @@ async def grant_confirmed_storage(db: AsyncSession, *, operation, invoice, now: 
         .limit(1)
     )
     if existing:
-        return "duplicate"
+        return (
+            "service_expired"
+            if invoice.plan_snapshot.get("service_resolution") == "storage_period_expired"
+            else "duplicate"
+        )
     subscription = await db.scalar(
         select(WorkspaceSubscription)
         .where(
@@ -661,7 +715,38 @@ async def grant_confirmed_storage(db: AsyncSession, *, operation, invoice, now: 
         operation.state = "reconciliation_gap"
         return "snapshot_invalid"
     current = utc(now)
-    if max(utc(datetime.fromisoformat(item["ends_at"])) for item in segments) <= current:
+    expired_indices = [
+        index
+        for index, segment in enumerate(segments)
+        if utc(datetime.fromisoformat(segment["ends_at"])) <= current
+    ]
+    valid_segments = [
+        segment for index, segment in enumerate(segments) if index not in expired_indices
+    ]
+    for segment in valid_segments:
+        db.add(
+            BillingStorageEntitlementGrant(
+                workspace_id=operation.workspace_id,
+                invoice_id=invoice.id,
+                base_grant_id=UUID(segment["base_grant_id"]),
+                capacity_bytes=segment["capacity_bytes"],
+                starts_at=utc(datetime.fromisoformat(segment["starts_at"])),
+                ends_at=utc(datetime.fromisoformat(segment["ends_at"])),
+                catalog_version_id=UUID(segment["catalog_version_id"]),
+                full_period_amount_minor=segment["full_period_amount_minor"],
+            )
+        )
+    await db.flush()
+    if valid_segments:
+        # A delayed old payment must not overwrite a later deliberate selection.
+        if snapshot.get("selection_version") == subscription.next_capacity_version:
+            subscription.next_capacity_bytes = snapshot["target_capacity_bytes"]
+            subscription.next_capacity_version += 1
+        subscription.capacity_bytes = await effective_paid_storage(
+            db, subscription=subscription, now=current
+        )
+        subscription.application_version = (subscription.application_version or 0) + 1
+    if expired_indices:
         invoice.status = "succeeded"
         operation.state = "reconciliation_gap"
         invoice.plan_snapshot = {
@@ -673,6 +758,7 @@ async def grant_confirmed_storage(db: AsyncSession, *, operation, invoice, now: 
             "reconciliation_detail": snapshot.get("reconciliation_detail")
             or {
                 "code": "storage_period_expired",
+                "expired_segment_indices": expired_indices,
                 "incident_owner": "billing_operator",
                 "financial_operator": "finance_operator",
                 "detected_at": current.isoformat(),
@@ -695,28 +781,6 @@ async def grant_confirmed_storage(db: AsyncSession, *, operation, invoice, now: 
             )
         await db.flush()
         return "service_expired"
-    for segment in segments:
-        db.add(
-            BillingStorageEntitlementGrant(
-                workspace_id=operation.workspace_id,
-                invoice_id=invoice.id,
-                base_grant_id=UUID(segment["base_grant_id"]),
-                capacity_bytes=segment["capacity_bytes"],
-                starts_at=utc(datetime.fromisoformat(segment["starts_at"])),
-                ends_at=utc(datetime.fromisoformat(segment["ends_at"])),
-                catalog_version_id=UUID(segment["catalog_version_id"]),
-                full_period_amount_minor=segment["full_period_amount_minor"],
-            )
-        )
-    await db.flush()
-    # A delayed old payment must not overwrite a later deliberate selection.
-    if snapshot.get("selection_version") == subscription.next_capacity_version:
-        subscription.next_capacity_bytes = snapshot["target_capacity_bytes"]
-        subscription.next_capacity_version += 1
-    subscription.capacity_bytes = await effective_paid_storage(
-        db, subscription=subscription, now=current
-    )
-    subscription.application_version = (subscription.application_version or 0) + 1
     invoice.status = "succeeded"
     operation.state = "succeeded"
     await redeem_invoice_promo(db, invoice_id=invoice.id, now=current)
@@ -781,8 +845,7 @@ async def calculate_storage_purchase(
     # A future bonus keeps its original capacity. Do not sell an upgrade on
     # both sides of that gap while promising continuous increased storage.
     if any(
-        utc(item.applied_start) < utc(subscription.paid_through)
-        and utc(item.applied_end) > current
+        utc(item.applied_start) < utc(subscription.paid_through) and utc(item.applied_end) > current
         for item in credits
     ):
         return StoragePurchaseCalculation(

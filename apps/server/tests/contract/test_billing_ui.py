@@ -60,7 +60,7 @@ def test_new_money_mutations_block_initial_checkout_and_renewal_operations() -> 
         )
     )
 
-    assert "kind IN ('initial_checkout', 'storage_upgrade', 'early_renewal')" in statement
+    assert "kind IN ('initial_checkout', 'storage_upgrade', 'early_renewal', 'renewal')" in statement
     for state in (
         "scheduled",
         "provider_pending",
@@ -74,7 +74,9 @@ def test_new_money_mutations_block_initial_checkout_and_renewal_operations() -> 
         assert f"'{state}'" in statement
     assert "'provider_key_expired'" not in statement
     assert "CASE WHEN" not in statement
-    assert "kind = 'renewal'" not in statement
+    assert "NOT (billing_operations.kind = 'renewal'" in statement
+    assert "billing_operations.state = 'scheduled'" in statement
+    assert "billing_operations.provider_id IS NULL" in statement
     assert "billing_operations.created_at DESC" in statement
     assert _operation_state_label("observation_expired") == "Срок проверки платежа истек"
 
@@ -527,6 +529,7 @@ def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> N
         method_available=True,
         next_charge_amount_label="790 ₽",
         resume_quote_id="synthetic-resume-quote",
+        billing_enabled=True,
     )
     usage_html = render_template(
         "cabinet/pages/billing_usage_content.html",

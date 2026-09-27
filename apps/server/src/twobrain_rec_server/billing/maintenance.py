@@ -98,7 +98,7 @@ async def _reconcile_storage_addon_operations(
         if (
             isinstance(target, bool)
             or not isinstance(target, int)
-            or target not in ADDON_CAPACITY_BYTES
+            or target not in (PERSONAL_STORAGE_BYTES, *ADDON_CAPACITY_BYTES)
             or effective_at is None
             or ends_at is None
             or snapshot_cycle not in {"month", "year"}

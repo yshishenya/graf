@@ -66,6 +66,10 @@ class FakeDb:
             status="active",
         )
 
+    async def scalars(self, query):
+        # The dispatch revalidates the current catalog before a first POST.
+        return [_planning_catalog()]
+
     async def rollback(self) -> None:
         self.rollbacks += 1
 
@@ -208,6 +212,12 @@ def _rows(
         is_default=True,
         verified_at=datetime(2026, 8, 1, tzinfo=UTC),
     )
+    from twobrain_rec_server.billing.catalog import validate_plan_version
+    from twobrain_rec_server.billing.purchases import accept_base_price
+
+    catalog = validate_plan_version(_planning_catalog()).as_dict()
+    accept_base_price(subscription, catalog)
+    operation.request_snapshot = {**operation.request_snapshot, "catalog_snapshot": catalog}
     return subscription, operation, invoice, method
 
 
@@ -217,7 +227,7 @@ def _attempt_charge_moment(attempt: int) -> datetime:
 
 
 def _planning_subscription() -> WorkspaceSubscription:
-    return WorkspaceSubscription(
+    subscription = WorkspaceSubscription(
         workspace_id=WORKSPACE_ID,
         billing_owner_id=OWNER_ID,
         state="personal",
@@ -227,6 +237,12 @@ def _planning_subscription() -> WorkspaceSubscription:
         recurring_allowed=True,
         recurring_authority_version=4,
     )
+
+    from twobrain_rec_server.billing.catalog import validate_plan_version
+    from twobrain_rec_server.billing.purchases import accept_base_price
+
+    accept_base_price(subscription, validate_plan_version(_planning_catalog()).as_dict())
+    return subscription
 
 
 def _planning_catalog() -> BillingPlanVersion:
@@ -353,6 +369,10 @@ async def test_planner_persists_approved_catalog_and_receipt_snapshot() -> None:
         enabled_for_checkout=True,
         policy_snapshot={"offer_version": "personal-v7"},
     )
+    from twobrain_rec_server.billing.catalog import validate_plan_version
+    from twobrain_rec_server.billing.purchases import accept_base_price
+
+    accept_base_price(subscription, validate_plan_version(catalog).as_dict())
     db = PlanningDb([subscription, None, catalog, UUID(int=1), "billing@2brain.pro", None, None])
 
     planned = await plan_due_renewals(db, now=datetime(2026, 8, 8, tzinfo=UTC))
@@ -1188,3 +1208,81 @@ async def test_late_decline_never_changes_new_authority_or_success(
             assert (operation.state, invoice.status) == (original_state, original_invoice)
         else:
             assert operation.state == invoice.status == "canceled"
+
+
+@pytest.mark.asyncio
+async def test_base_price_change_requires_fresh_confirmation_before_planning():
+    from twobrain_rec_server.billing.catalog import validate_plan_version
+    from twobrain_rec_server.billing.purchases import accept_base_price
+
+    subscription = _planning_subscription()
+    catalog = _planning_catalog()
+    accept_base_price(subscription, validate_plan_version(catalog).as_dict())
+    catalog.amount_minor += 1000
+    db = PlanningDb([subscription, None, catalog])
+    assert await plan_due_renewals(db, now=PAID_THROUGH - timedelta(hours=48)) == ()
+    assert subscription.renewal_resolution == "price_changed"
+    assert db.added == []
+
+
+@pytest.mark.asyncio
+async def test_last_window_resume_after_unsent_cancel_has_one_fresh_authority_operation():
+    subscription = _planning_subscription()
+    subscription.recurring_authority_version = 6
+    canceled = _stored_attempt(attempt=3, state="canceled")
+    canceled.request_snapshot = {
+        **canceled.request_snapshot,
+        "cancel_reason": "authority_cancelled",
+    }
+    db = PlanningDb(
+        [
+            subscription,
+            None,
+            _planning_catalog(),
+            UUID(int=1),
+            "billing@2brain.pro",
+            None,
+            None,
+            canceled,
+            None,
+        ]
+    )
+    # First two windows are missed, the last one was canceled before POST.
+    result = await plan_due_renewals(db, now=PAID_THROUGH - timedelta(hours=12))
+    assert len(result) == 1
+    operation = next(row for row in db.added if isinstance(row, BillingOperation))
+    assert operation.request_snapshot["renewal_attempt"] == 3
+    assert operation.request_snapshot["recurring_authority_version"] == 6
+    assert operation.idempotency_key.endswith(":authority:6")
+    assert canceled.state == "canceled" and canceled.provider_id is None
+
+
+@pytest.mark.asyncio
+async def test_changed_base_price_after_planning_never_reaches_provider(monkeypatch, tmp_path):
+    from twobrain_rec_server.billing.catalog import validate_plan_version
+
+    settings = _settings(tmp_path)
+    subscription, operation, invoice, method = _rows(tmp_path)
+    provider = FakeProvider({"id": "must-not-be-created"})
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.renewal_charge.YooKassaClient", lambda settings: provider
+    )
+
+    async def changed_catalog(db, *, cycle, now):
+        catalog = _planning_catalog()
+        catalog.amount_minor += 1000
+        return validate_plan_version(catalog, now=now)
+
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.renewal_charge._approved_catalog", changed_catalog
+    )
+    result = await charge_renewal_operation(
+        FakeDb([subscription, operation, invoice, method]),
+        settings,
+        operation_id=operation.id,
+        workspace_id=WORKSPACE_ID,
+        now=_attempt_charge_moment(3),
+    )
+    assert result.status == "canceled"
+    assert subscription.renewal_resolution == "price_changed"
+    assert not provider.calls

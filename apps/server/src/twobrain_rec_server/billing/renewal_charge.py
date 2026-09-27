@@ -43,6 +43,7 @@ from twobrain_rec_server.billing.payment_methods import (
 from twobrain_rec_server.billing.provider_events import validate_provider_identifier
 from twobrain_rec_server.billing.purchases import (
     PurchaseError,
+    base_price_is_accepted,
     compose_personal_catalog,
     reserve_acceptance_budget,
     settle_acceptance_budget,
@@ -125,6 +126,14 @@ def renewal_attempt_of(operation: BillingOperation) -> int:
     if isinstance(attempt, int) and not isinstance(attempt, bool) and attempt in RENEWAL_ATTEMPTS:
         return attempt
     return RENEWAL_ATTEMPT_COUNT
+
+
+def renewal_canceled_before_dispatch(operation) -> bool:
+    return (
+        operation.state == "canceled"
+        and operation.provider_id is None
+        and (operation.request_snapshot or {}).get("cancel_reason") == "authority_cancelled"
+    )
 
 
 def next_renewal_attempt(
@@ -290,6 +299,7 @@ async def plan_due_renewals(
         if initial_checkout is not None:
             continue
         catalog = await _approved_catalog(db, cycle=subscription.cycle, now=current)
+        base_catalog = catalog
         storage_price = None
         if catalog is not None:
             try:
@@ -314,7 +324,9 @@ async def plan_due_renewals(
                 else "catalog_not_approved"
             )
             continue
-        if not storage_price_is_accepted(subscription, storage_price):
+        if not base_price_is_accepted(subscription, base_catalog) or not storage_price_is_accepted(
+            subscription, storage_price
+        ):
             subscription.renewal_resolution = "price_changed"
             continue
         default_method = await db.scalar(
@@ -370,6 +382,19 @@ async def plan_due_renewals(
                 )
                 .with_for_update()
             )
+            if existing is not None and renewal_canceled_before_dispatch(existing):
+                # A revoked, never-sent mandate did not use a bank attempt.
+                # A fresh explicit mandate gets a distinct immutable operation.
+                key = f"{key}:authority:{subscription.recurring_authority_version}"
+                existing = await db.scalar(
+                    select(BillingOperation)
+                    .where(
+                        BillingOperation.workspace_id == subscription.workspace_id,
+                        BillingOperation.kind == "renewal",
+                        BillingOperation.idempotency_key == key,
+                    )
+                    .with_for_update()
+                )
             if current >= due_at + RENEWAL_ATTEMPT_INTERVAL:
                 if (
                     existing is not None
@@ -884,15 +909,19 @@ async def charge_renewal_operation(
         )
         await db.commit()
         return RenewalChargeResult(operation_id, "manual_resolution")
-    if operation.state == "scheduled" and operation.request_snapshot.get("storage_price_snapshot"):
+    if operation.state == "scheduled":
         current_base = await _approved_catalog(db, cycle=subscription.cycle, now=current)
         try:
             if current_base is None:
                 raise PurchaseError("Цена недоступна")
-            _, current_storage = await compose_personal_catalog(
+            current_catalog, current_storage = await compose_personal_catalog(
                 db, base=current_base, subscription=subscription, now=current
             )
-            accepted = storage_price_is_accepted(subscription, current_storage)
+            accepted = base_price_is_accepted(subscription, current_base)
+            accepted = accepted and current_catalog.as_dict() == operation.request_snapshot.get(
+                "catalog_snapshot"
+            )
+            accepted = accepted and storage_price_is_accepted(subscription, current_storage)
             accepted = accepted and storage_price_snapshot(
                 current_storage
             ) == operation.request_snapshot.get("storage_price_snapshot")

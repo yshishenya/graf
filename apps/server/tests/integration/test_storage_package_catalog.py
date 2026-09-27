@@ -68,9 +68,7 @@ def test_new_catalog_preserves_legacy_price_and_blocks_unaccepted_renewal(
             sub = await db.scalar(
                 select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == workspace)
             )
-            assert sub.renewal_resolution == (
-                "price_changed" if legacy_gb > 5 else "method_required"
-            )
+            assert sub.renewal_resolution == "price_changed"
             assert sub.capacity_bytes == legacy_gb * 1_000_000_000 and sub.recurring_allowed is True
             await db.commit()
 

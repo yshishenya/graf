@@ -176,3 +176,53 @@ def test_last_promo_use_is_reserved_once_by_concurrent_transactions(client):
             assert len(reservations) == 1 and reservations[0].state == "reserved"
 
     asyncio.run(scenario())
+
+
+def test_quote_cleanup_is_bounded_and_preserves_consumed_financial_evidence(client):
+    from sqlalchemy import func
+
+    from twobrain_rec_server.db.models import BillingOperation, BillingPurchaseQuote
+
+    async def run():
+        async with client.app_state["sessionmaker"]() as db:
+            now = datetime.now(UTC)
+            op = BillingOperation(
+                workspace_id=WORKSPACE_ID,
+                kind="initial_checkout",
+                state="succeeded",
+                idempotency_key=str(uuid4()),
+                request_snapshot={},
+            )
+            db.add(op)
+            await db.flush()
+            consumed_id = uuid4()
+            for index in range(102):
+                db.add(
+                    BillingPurchaseQuote(
+                        id=consumed_id if index == 0 else uuid4(),
+                        workspace_id=WORKSPACE_ID,
+                        owner_user_id=USER_ID,
+                        purpose="initial_checkout",
+                        subscription_version=0,
+                        selection_version=0,
+                        snapshot={"synthetic": index},
+                        created_at=now - timedelta(days=2),
+                        expires_at=now - timedelta(days=1),
+                        consumed_operation_id=op.id if index == 0 else None,
+                    )
+                )
+            await db.flush()
+            await create_purchase_quote(
+                db,
+                workspace_id=WORKSPACE_ID,
+                owner_user_id=USER_ID,
+                purpose="initial_checkout",
+                subscription=None,
+                snapshot={"synthetic": "new"},
+                now=now,
+            )
+            assert await db.get(BillingPurchaseQuote, consumed_id) is not None
+            assert await db.scalar(select(func.count()).select_from(BillingPurchaseQuote)) == 3
+            await db.commit()
+
+    asyncio.run(run())
