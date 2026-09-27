@@ -968,6 +968,12 @@ async def charge_renewal_operation(
             "provider_environment": settings.billing_yookassa_environment,
             "provider_shop_id": settings.billing_yookassa_shop_id,
         }
+        invoice.plan_snapshot = {
+            **(invoice.plan_snapshot or {}),
+            "purchase_schema": 2,
+            "provider_environment": settings.billing_yookassa_environment,
+            "provider_shop_id": settings.billing_yookassa_shop_id,
+        }
         operation.state = "processing"
         await db.commit()  # Persist the budget and send marker before network I/O.
         dispatched = True

@@ -712,6 +712,7 @@ async def test_charge_uses_saved_method_and_authority_snapshot(monkeypatch, tmp_
     )
 
     assert result.status == "sent"
+    assert invoice.plan_snapshot["purchase_schema"] == 2
     assert result.provider_id == "pay-renewal-1"
     assert operation.state == "sent"
     assert operation.provider_id == "pay-renewal-1"

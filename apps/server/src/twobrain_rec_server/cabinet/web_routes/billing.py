@@ -3984,6 +3984,20 @@ async def billing_invoice_detail_page(
             "status": invoice.status,
             "cycle_label": "Год" if snapshot.get("cycle") == "year" else "Месяц",
             "purpose_label": purchase_purpose_label(snapshot),
+            "capacity_label": _capacity_label(snapshot["target_capacity_bytes"])
+            if isinstance(snapshot.get("target_capacity_bytes"), int)
+            else None,
+            "storage_intervals": [
+                {
+                    "start": _billing_datetime_label(item["starts_at"]),
+                    "end": _billing_datetime_label(item["ends_at"]),
+                    "capacity": _capacity_label(item["capacity_bytes"]),
+                }
+                for item in snapshot.get("storage_segments", [])
+                if isinstance(item, dict)
+                and item.get("starts_at") and item.get("ends_at")
+                and isinstance(item.get("capacity_bytes"), int)
+            ],
             "service_label": "Оплата подтверждена; услуга требует сверки"
             if snapshot.get("service_resolution")
             else None,
@@ -4133,6 +4147,10 @@ async def preview_storage_purchase(
             discount_percent=promo.discount_percent if promo else 0,
             provider_floor_minor=request.app.state.settings.billing_provider_floor_minor,
         )
+        if promo and promo.cycle is not None and any(
+            item.cycle != promo.cycle for item in calculation.segments
+        ):
+            raise PromoError("Промокод не подходит ко всем оплачиваемым периодам")
         prices = await storage_catalog(db, now=now)
         price = prices.get((capacity_bytes, subscription.cycle))
         base = (await _approved_personal_catalog(db, now=now)).get(subscription.cycle)
@@ -4332,6 +4350,11 @@ async def _reserve_purchase_promo(db, *, quote_snapshot, workspace_id, invoice, 
         or campaign.redeemed_count + campaign.reserved_count >= campaign.max_redemptions
     ):
         raise PurchaseError("Промокод больше недоступен")
+    if campaign.cycle is not None and any(
+        item.get("cycle") != campaign.cycle
+        for item in quote_snapshot.get("storage_segments", [])
+    ):
+        raise PurchaseError("Промокод не подходит ко всем оплачиваемым периодам")
     redemption = await db.scalar(
         select(PromotionRedemption)
         .where(

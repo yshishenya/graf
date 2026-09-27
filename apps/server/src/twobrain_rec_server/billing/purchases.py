@@ -778,7 +778,13 @@ async def calculate_storage_purchase(
             .order_by(TimeCreditLedgerEntry.applied_start)
         )
     )
-    if any(utc(item.applied_start) <= current < utc(item.applied_end) for item in credits):
+    # A future bonus keeps its original capacity. Do not sell an upgrade on
+    # both sides of that gap while promising continuous increased storage.
+    if any(
+        utc(item.applied_start) < utc(subscription.paid_through)
+        and utc(item.applied_end) > current
+        for item in credits
+    ):
         return StoragePurchaseCalculation(
             0, 0, (), utc(subscription.paid_through), target_capacity_bytes, True
         )

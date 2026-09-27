@@ -54,7 +54,7 @@ def billing_checkout_allowed(settings: Settings, workspace_id: UUID) -> bool:
 
 def require_billing_enabled(*, checkout_enabled: bool) -> None:
     if not checkout_enabled:
-        raise BillingCheckoutDisabled("billing checkout is disabled")
+        raise BillingCheckoutDisabled("Оплата временно недоступна")
 
 
 def classify_provider_outcome(
