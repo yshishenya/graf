@@ -166,3 +166,35 @@ T001 → T002 → независимые тестовые ветви T003/T006/T
 общий набор 574 PASS / 0 SKIP / 0 FAIL; подробности в validation.md.
 Issue #7338 остаётся открытой до требуемого PR-подтверждения; установка
 GRAF Dev этой правкой пока не обновлялась. Общая приёмка T019–T022 открыта.
+
+## Phase 11: Convergence
+
+Повторная сверка действующих путей и потребителей выявила оставшиеся
+неиспользуемые элементы и два пробела поведенческих проверок доступности.
+Основание — FR-009/019/021/022, SC-002/004/006 и существующие T006/T017/T019;
+новая политика записи или расширение обработки аудио не вводятся. Все три
+задачи выполняются до окончательной приёмки T019–T022. До реализации нужны
+актуальные analyze, владельцы GitHub и независимый reviewer checklist gate.
+
+- [ ] T030 [US2] Удалить используемую только тестами модель `MeetingDetectionCountdown` и вычисляемое свойство `MeetingDetectionPromptDecision.startReason` из `apps/macos/Shared/Sources/MeetingDetection/MeetingDetectionModels.swift`. Сначала перенести три проверки границы 7.999/8 секунд, однократного старта/отмены и временно недоступного Start из `apps/macos/Shared/Tests/MeetingDetectionCountdownTests.swift` на действующий presenter/coordinator с реальными обработчиками и управляемыми часами, не на новый тестовый двойник. Сам набор, различение `MeetingDetectionStartReason` и проверки живого `persistedRule` сохранить. В `apps/macos/RecApp/App/TwoBrainRecApp.swift` у вехи внутри `persistedRule == .always` оставить единственный достижимый источник `prompt_button`. Дополнить `scripts/check_notification_retirement.py` и `apps/server/tests/contract/test_desktop_notification_retirement.py` отрицательными проверками возврата удалённой модели/свойства без запрета живых сходных имён. Не менять восемь секунд, три правила, capture gates, таймер рабочего пути и сохранение решения. После переноса выполнить Countdown/PromptLifecycle/Policy/RecordingLifecycle и общий F277 набор, сборку и retirement guard. По FR-009/010/020–022, SC-002/006, plan: один действующий путь без неиспользуемых моделей (partial, MEDIUM).
+- [ ] T031 [US1] Упростить только API короткого сообщения и предпросмотра в `apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift`: убрать непереопределяемые `duration` у `presentShortRecording`/`presentPreview`, неиспользуемые рабочими потребителями `onExpire` у этих двух методов и связанные поля `ShortCandidate`, сохранив фиксированные 20/6 секунд, последний ожидающий short до20 секунд и общий `Envelope.onExpire`, необходимый вопросу записи. Перенести тесты callback-двойника short в `apps/macos/Shared/Tests/DesktopLocalNotificationDeliveryTests.swift` на наблюдаемые рабочие результаты: последний актуальный кандидат, исходное окно ожидания, реальное истечение/закрытие и отсутствие устаревшего повторного показа. Сохранить проверки истории, quiet и настоящего preview; не удалять общие lifecycle hooks, часы и границы проверяемости карточки. Сверить все Swift-потребители, выполнить ShortRecording/Delivery/History/PromptLifecycle/Bridge и общий набор, build и retirement guard. По FR-012/021/022/025, SC-006 и plan: убрать API без действующих потребителей, не сохранить его ради старых тестов (partial, LOW).
+- [ ] T032 [US4] Дополнить `apps/macos/Shared/Tests/DesktopNotificationAccessibilityTests.swift` исполняемыми проверками клавиатурной прокрутки и восстановления фокуса: явный focus → Tab до длинного текста → Down/PageDown действительно меняет `contentView.bounds.origin.y` → tick сохраняет фокус/позицию → Tab достигает действия; собственное контрольное окно → focus карточки → Escape возвращает прежнее окно, а новая карточка из callback не теряет фокус из-за старого восстановления. Использовать существующие `F277CardFixture`/`F277CardTestSupport` и реальные AppKit firstResponder/keyWindow, не принудительные подставные уведомления или безусловный PASS. Если выявлена регрессия, сначала сохранить RED и исправить только соответствующий scroll/focus lifecycle в `apps/macos/RecApp/Sources/Notifications/DesktopNotificationCardPresenter.swift`; сроки, запись и чужие приложения не менять. Указать skips/ограничения среды, выполнить профильный и общий наборы; ручные VoiceOver/first physical click/fullscreen/2экрана остаются T020. По FR-019, SC-004, UI contract «Клавиатура»/«Lifecycle» и plan validation: существующие проверки геометрии/получения фокуса не доказывают эти два поведения (partial, MEDIUM).
+
+Зависимости: T030 → T031 → T032 → повтор T019/converge. MAIN владеет Swift
+`.build` и пересекающимися тестами; независимые агенты выполняют только review.
+Неподтверждённое расхождение живого WKWebView остаётся T013/T020, а не поводом
+для произвольной правки CSS. Прежние задачи и их критерии не переопределяются.
+
+Уточнение T030 по reviewer A11-01: «временно недоступный Start» не является
+новым состоянием карточки. Вместо `startIsTemporarilyDisabled` удаляемой
+модели проверяется актуальный допуск записи на границе события start/timeout
+в действующем обработчике: истечение само по себе не разрешает запись,
+текущие capture gates обязательны. Не добавлять disabled Start, параметр
+или API карточки ради старого теста. Граница 7.999/8 секунд и однократные
+start/cancel проверяются на действующем presenter/coordinator.
+
+Владельцы Phase 11: T030 — [#7339](https://github.com/yshishenya/graf/issues/7339),
+T031 — [#7340](https://github.com/yshishenya/graf/issues/7340),
+T032 — [#7341](https://github.com/yshishenya/graf/issues/7341).
+Все открыты; прежние 29 задач сохраняют своих владельцев. Independent
+requirements/analyze gate после уточнения: `scope-review.md`, Phase 11 PASS.
