@@ -1,5 +1,5 @@
 import Foundation
-import TwoBrainRecAppCore
+@testable import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
@@ -312,7 +312,7 @@ final class CaptureControlTests: XCTestCase {
             indicator: .hidden,
             canStop: false
         )
-        XCTAssertFalse(CaptureControlView.shouldShowLocalRecordingStatus(
+        XCTAssertTrue(CaptureControlView.shouldShowLocalRecordingStatus(
             "Локальная запись сохранена",
             for: savedSession
         ))
@@ -388,7 +388,7 @@ final class CaptureControlTests: XCTestCase {
             CaptureStatusItem.statusLabel(
                 for: makePresentationSession(state: .stopped, indicator: .hidden, canStop: false)
             ),
-            "Сохранено на Mac"
+            "Запись остановлена"
         )
         XCTAssertEqual(
             CaptureControlView.readinessSummary(
@@ -410,7 +410,7 @@ final class CaptureControlTests: XCTestCase {
                 blockedReason: nil,
                 localRecordingStatus: nil
             ),
-            "Сохранено на Mac"
+            "Запись остановлена"
         )
         XCTAssertEqual(
             CaptureControlView.primaryStatus(
@@ -420,6 +420,36 @@ final class CaptureControlTests: XCTestCase {
             ),
             "Сохранено на Mac"
         )
+    }
+
+    func testFailedRecordingSummaryRequiresAttentionWithoutClaimingDataLoss() {
+        XCTAssertEqual(CaptureControlView.localRecordingSummary(for: "Запись завершилась с ошибкой"),
+                       "Нужна помощь")
+    }
+
+    func testFailedRecordingKeepsWarningWithOrWithoutPlayableFragment() {
+        for hasFragment in [false, true] {
+            let status = SystemAudioStatusLabels.localRecordingStatus(.failed)
+            XCTAssertEqual(status, "Запись завершилась с ошибкой")
+            XCTAssertEqual(CaptureControlView.localRecordingStatusIcon(for: status), "exclamationmark.triangle.fill")
+            XCTAssertEqual(CaptureControlView.localRecordingStatusStyle(for: status), DesktopDesignTokens.amber)
+            XCTAssertEqual(CaptureControlView.primaryStatus(
+                for: makePresentationSession(state: .stopped, indicator: .hidden, canStop: false),
+                blockedReason: nil, localRecordingStatus: status), "Нужна помощь")
+            XCTAssertTrue(CaptureControlView.shouldShowLocalRecordingStatus(status, for: nil))
+            let detail = SystemAudioStatusLabels.captureFailureDetail(
+                failureCode: "render_reference_missing", hasPlayableFragment: hasFragment)
+            XCTAssertEqual(detail, hasFragment
+                ? "Запись остановлена: render_reference_missing. Уже очищенная часть сохранена локально."
+                : "Запись остановлена: render_reference_missing. Сохраненного очищенного фрагмента нет.")
+        }
+    }
+
+    func testLocalRecordingLabelsPreserveOtherResults() {
+        XCTAssertEqual(SystemAudioStatusLabels.localRecordingStatus(.active), "Локальная запись идет")
+        XCTAssertEqual(SystemAudioStatusLabels.localRecordingStatus(.saved), "Локальная запись сохранена")
+        XCTAssertEqual(SystemAudioStatusLabels.localRecordingStatus(.degraded), "Локальная запись сохранена с ограничениями")
+        XCTAssertEqual(SystemAudioStatusLabels.localRecordingStatus(.blocked), "Локальная запись заблокирована")
     }
 
     func testCaptureMetersAreVisibleOnlyWhileRecordingLevelsAreActive() throws {
@@ -611,7 +641,8 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("saveMeetingDetectionRule(rule, targetID: prompt.targetID)"))
         XCTAssertTrue(source.contains("let shouldPersistChoice = rememberChoice && reason == .userSkipped"))
         XCTAssertTrue(source.contains("onTick:"))
-        XCTAssertTrue(source.contains("elapsed < 8"))
+        XCTAssertTrue(source.contains("remainingSeconds: max(0, Int(ceil(8 - elapsed)))"))
+        XCTAssertTrue(source.contains("onExpire:"))
         XCTAssertTrue(source.contains("reason: .promptTimeout"))
         XCTAssertTrue(source.contains("var didHandleRecordingTrigger = false"))
         XCTAssertTrue(source.contains("meetingDetectionPrompt == nil"))

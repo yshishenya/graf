@@ -2979,9 +2979,9 @@ private struct ContentView: View {
               let item = items.first(where: { $0.sessionId == sessionID }),
               (try? desktopUploadQueueService.localPlaybackURL(itemId: item.id)) != nil
         else {
-            return "Запись остановлена: \(failureCode). Сохраненного очищенного фрагмента нет."
+            return SystemAudioStatusLabels.captureFailureDetail(failureCode: failureCode, hasPlayableFragment: false)
         }
-        return "Запись остановлена: \(failureCode). Уже очищенная часть сохранена локально."
+        return SystemAudioStatusLabels.captureFailureDetail(failureCode: failureCode, hasPlayableFragment: true)
     }
 
     private func recordingBlockerText(for snapshot: RecordingPrerequisiteSnapshot) -> String {
@@ -3051,18 +3051,7 @@ private struct ContentView: View {
             }
             return nil
         }
-        switch manifest.status {
-        case .saved:
-            return "Локальная запись сохранена"
-        case .degraded:
-            return "Локальная запись сохранена с ограничениями"
-        case .blocked:
-            return "Локальная запись заблокирована"
-        case .failed:
-            return "Локальная запись не сохранена"
-        case .active:
-            return "Локальная запись идет"
-        }
+        return SystemAudioStatusLabels.localRecordingStatus(manifest.status)
     }
 
     private var meetingMuteTruthWarningText: String? {

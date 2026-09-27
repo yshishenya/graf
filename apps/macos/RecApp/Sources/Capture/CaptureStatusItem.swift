@@ -107,7 +107,7 @@ public struct CaptureStatusItem: View {
 
     private func iconName(for session: CaptureSession) -> String {
         if session.state == .stopped || session.state == .finalized {
-            return "checkmark.circle.fill"
+            return "stop.circle"
         }
         return iconName(for: session.visibleIndicatorState)
     }
@@ -146,7 +146,7 @@ public struct CaptureStatusItem: View {
 
     private func color(for session: CaptureSession) -> Color {
         if session.state == .stopped || session.state == .finalized {
-            return DesktopDesignTokens.green
+            return DesktopDesignTokens.muted
         }
         return color(for: session.visibleIndicatorState)
     }
@@ -176,12 +176,10 @@ public struct CaptureStatusItem: View {
             return "Запись с ограничением"
         case .stopping:
             return "Сохраняем запись…"
-        case .stopped:
-            return "Сохранено на Mac"
+        case .stopped, .finalized:
+            return SystemAudioStatusLabels.recordingStopped
         case .failed:
             return "Нужна помощь"
-        case .finalized:
-            return "Сохранено на Mac"
         }
     }
 
