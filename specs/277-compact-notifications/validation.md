@@ -1357,3 +1357,80 @@ T015 оставлена открытой: функциональные History/A
 «сначала добавить проверки» для истории недостаточно; ретроспективный
 прогон не может подтвердить неизвестную хронологию. Этот пробел в доказательствах
 процесса не заявлен дефектом работающей истории. T019–T022 также открыты.
+
+### Итоговый автоматический проход T019 — 2026-09-28
+
+Исходники: чистый `8ed528260414a5d0dd8ddc4e1b301b372c6364d8`, код продукта
+не менялся после `51bcff6b1`. Один владелец Swift-сборок; настоящие окна
+GRAF/Телемоста не управлялись, новых встреч и установок не было.
+Общий целевой набор (это не все тесты репозитория):
+
+```sh
+notification_render_dir=$(mktemp -d /tmp/graf-f277-complete-renders.XXXXXX)
+GRAF_CARD_SNAPSHOT_DIR="$notification_render_dir" swift test --package-path apps/macos --filter 'RecordingStartAcceptanceTests|DesktopUploadQueueTests|DesktopUploadClientTests|LocalRecordingWriter|CaptureRecovery|CaptureControlTests|CaptureIndicatorTests|RecordingDeletion|DesktopNotification|DesktopLocalNotification|EmbeddedCabinetNotification|MeetingDetectionCountdownTests|MeetingDetectionPolicyTests|MeetingDetectionRecordingLifecycleTests|ShortRecording|AppControlAccessibility|DesktopCabinetRoutePolicy|DesktopCalendarReminderTests|CabinetSidebarRuntimeTests|DesktopCabinetWorkspaceTests'
+```
+
+579 выбрано: **577 PASS, 2 SKIP, 0 FAIL**, exit0, 43.809s;
+окончание 2026-09-28 00:57:46.555 по местному времени. Пропущены только
+`testEscapeRestoresPreviousWindowAndCallbackReplacementKeepsItsFocus` и
+`testExplicitFocusAndKeyLoopReachCloseCheckboxAndActions`: независимое обычное
+AppKit-окно не получило фокус до создания карточки. Это отказ подготовки
+окружения, не успешное выполнение этих двух проверок в общем запуске.
+Они ранее прошли в отдельном 41/41 на том же коде; оба результата сохранены
+раздельно, условия SKIP и проверки не ослаблялись. Измеренное подтверждение
+старта в целевом тесте: `start_acceptance_commit_duration=0.000900125 seconds`.
+
+Остальные команды из quickstart выполнены в этом же проходе:
+
+| Команда | Результат |
+|---|---|
+| `swift build --package-path apps/macos --product TwoBrainRecApp` | PASS, 3.80s |
+| `swift build --package-path apps/macos --product ContractValidation` | PASS, 0.30s |
+| `apps/macos/.build/debug/ContractValidation` | PASS |
+| `python3 scripts/check_notification_retirement.py` | PASS, 0 нарушений |
+| `node apps/server/tests/browser/settings-consistency.test.cjs --notification-contract` | 37 PASS, 0 FAIL/SKIP |
+| `apps/server/.venv/bin/python -m pytest -q -o addopts= apps/server/tests/contract/test_desktop_notification_retirement.py` | 78 PASS, 2 предупреждения, 2.84s |
+| `bash apps/server/scripts/run_local_postgres_tests.sh --focused -q tests/integration/test_settings_ia_flow.py` | 7 PASS, 2 предупреждения, 13.02s; временный контейнер удалён штатным runner |
+| `infra/scripts/ci-local.sh --plan` | dirty=false, cabinet-shell/settings, coverage=partial |
+| `infra/scripts/ci-local.sh --focused` | 112 PASS, 2 предупреждения, 3.07s; partial diagnostic, не PR receipt |
+
+Дополнительно настоящий существующий `settings-combobox.test.cjs` запущен
+в headless Chromium и WebKit с имеющейся зависимостью Playwright:
+
+```sh
+NODE_PATH=/Users/yshishenya/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules node apps/server/tests/browser/settings-combobox.test.cjs
+NODE_PATH=/Users/yshishenya/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules BROWSER=webkit node apps/server/tests/browser/settings-combobox.test.cjs
+```
+
+Оба PASS, exit0: настройки, явный выбор, клавиши/IME, disabled/reset,
+обновление каталога, 600 вариантов, узкая компоновка. Это синтетические
+страницы, не дополнительная ручная проверка установленного GRAF.
+Новых зависимостей не устанавливалось. Прежние предупреждения Swift
+preconcurrency/AX и pytest fixture/Starlette не подавлялись.
+Временные журналы имеют общий префикс `/tmp/graf-f277-complete-`:
+`native.log`, `node.log`, `retirement.log`, `app-build.log`,
+`contract-build.log`, `contract.log`, `settings-ia.log`, `ci-plan.log`,
+`ci-focused.log`, `combobox-chromium.log`, `combobox-webkit.log`.
+
+T019 отмечена как выполненный локальный проход: требуемые команды выполнены,
+результаты/причины SKIP записаны, новых подтверждённых регрессий нет.
+Это не утверждение 579 PASS и не замена открытых T020/T022, физической
+проверки двух пропущенных сценариев или exact-SHA/base GitHub gates.
+
+### Уточнение отклонения T015 по первичному журналу — 2026-09-28
+
+Узкое чтение журнала текущей задачи и её субагента установило последовательность
+2026-09-26 UTC: попытка patch в 18:52:17 отклонена; успешный patch в 18:57:01
+добавил реализацию истории (`appendHistory`, insert newest-first, ограничение50,
+очистка контекста); успешный Add File `DesktopNotificationHistoryTests.swift`
+выполнен в 19:03:35. Проверены результаты самих вызовов, не только их намерения.
+Таким образом, требование T015 «сначала добавить проверки» для истории
+**не соблюдено**, а не просто не подтверждено итоговым отчётом.
+Полные журналы/содержимое переписки в репозиторий не копировались.
+
+Функциональные HistoryTests проходят, но это не исправляет исторический
+порядок действий. T015 пока остаётся открытой; пользователю задан вопрос
+о явном принятии документированного отклонения процесса без ослабления
+функциональных требований и без закрытия отдельной ручной приёмки.
+Без ответа принятие отклонения не предполагается. Производственный код,
+спецификация поведения и критерии доступности не менялись.
