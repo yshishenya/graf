@@ -275,7 +275,7 @@ def test_explicit_base_only_renewal_projects_five_gb_despite_old_capacity_cache(
 
 
 @pytest.mark.parametrize("purpose", ["initial_checkout", "storage_upgrade"])
-@pytest.mark.parametrize("http_status", [400, 401, 403, 429, 500])
+@pytest.mark.parametrize("http_status", [400, 401, 403, 429, 500, "setup", "secret_io"])
 def test_rejected_creation_releases_reservations_but_unknown_result_keeps_them(
     client, monkeypatch, tmp_path, purpose, http_status
 ):
@@ -299,11 +299,16 @@ def test_rejected_creation_releases_reservations_but_unknown_result_keeps_them(
         calls.append(request.method)
         return httpx.Response(http_status, json={"type": "error", "code": "synthetic"})
 
-    monkeypatch.setattr(
-        routes,
-        "YooKassaClient",
-        lambda settings: YooKassaClient(settings, transport=httpx.MockTransport(reject)),
-    )
+    def provider_factory(settings):
+        from twobrain_rec_server.billing.yookassa import YooKassaConfigurationError
+        if http_status in {"setup", "secret_io"}:
+            calls.append("setup")
+            if http_status == "secret_io":
+                raise PermissionError("synthetic secret unavailable")
+            raise YooKassaConfigurationError("synthetic setup failure")
+        return YooKassaClient(settings, transport=httpx.MockTransport(reject))
+
+    monkeypatch.setattr(routes, "YooKassaClient", provider_factory)
     if purpose == "initial_checkout":
         preview_path = "/billing/checkout/preview"
         preview_data = {"cycle": "month", "promo_code": "SYNTHFIRST"}
@@ -325,7 +330,7 @@ def test_rejected_creation_releases_reservations_but_unknown_result_keeps_them(
     for _ in range(2):
         response = client.post(post_path, headers=headers, data=post_data, follow_redirects=False)
         assert response.status_code == 303
-    assert calls == ["POST"]
+    assert calls == (["setup"] if http_status in {"setup", "secret_io"} else ["POST"])
 
     async def state():
         async with client.app_state["sessionmaker"]() as db:
@@ -630,3 +635,28 @@ def test_checkout_refresh_reuses_quote_and_removes_only_unconsumed_expired_rows(
             assert await db.get(BillingPurchaseQuote, __import__("uuid").UUID(first)) is None
 
     asyncio.run(removed())
+
+
+@pytest.mark.parametrize("snapshot", [
+    {"purpose": "initial_checkout", "catalog_snapshot": {"storage_bytes": 15_000_000_000}},
+    {"purpose": "initial_checkout", "storage_price_snapshot": {"capacity_bytes": 15_000_000_000}},
+    {"purpose": "renewal", "storage_capacity_bytes": 15_000_000_000},
+])
+def test_composite_subscription_invoice_displays_purchased_capacity(client, tmp_path, snapshot):
+    _configure_billing(client, tmp_path)
+    workspace, headers = _prepare_owner_session(client)
+
+    async def seed():
+        async with client.app_state["sessionmaker"]() as db:
+            operation = BillingOperation(workspace_id=workspace, kind=snapshot["purpose"],
+                state="succeeded", idempotency_key=str(uuid4()), request_snapshot=snapshot)
+            db.add(operation)
+            await db.flush()
+            db.add(BillingInvoice(workspace_id=workspace, operation_id=operation.id,
+                safe_number="INV-COMPOSITE-CAPACITY", amount_minor=150000, currency="RUB",
+                status="succeeded", plan_snapshot={"cycle": "month", **snapshot}))
+            await db.commit()
+    asyncio.run(seed())
+    response = client.get("/billing/invoices/INV-COMPOSITE-CAPACITY", headers=headers)
+    assert response.status_code == 200
+    assert "15 GB" in response.text

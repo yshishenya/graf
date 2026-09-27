@@ -2,7 +2,7 @@
   "schema_version": 1,
   "base_sha": "f5cca687a06dc57ad6ccbef840a0be897eaa6336",
   "kind": "source-and-tests-before-authorized-commit",
-  "created_at": "2026-09-27T23:16:54.205922+00:00",
+  "created_at": "2026-09-27T23:53:18.352727+00:00",
   "files": [
     {
       "path": "apps/server/scripts/manage_promo_campaign.py",
@@ -50,7 +50,7 @@
     },
     {
       "path": "apps/server/src/twobrain_rec_server/billing/renewal_charge.py",
-      "sha256": "ceefa3610287b97762594b8d6ded6f258e308bf453f47349a05df7255c8e0652"
+      "sha256": "b29c815cf461734a01f32178a71921a11df89af46e7ad2dc1d40e0604593965a"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/billing/webhook_reconciliation.py",
@@ -102,11 +102,11 @@
     },
     {
       "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_subscription_content.html",
-      "sha256": "298bb620e3a4bc572da9979324511d12b2d263e3374e0d1a5de17df27e038a35"
+      "sha256": "53b3323f4872243e61e1497eff90ee4fa08cf2807cdfa2b5063ebf9f96cc60bb"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py",
-      "sha256": "59553a7ec98b002c784f1ddba3496dce0b37e0cf25bb952bda66132e4b580ff2"
+      "sha256": "88d79194e0286a150057c24023bc0e4c7bc7970263ab311ac501d6067ca824c0"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/config.py",
@@ -194,7 +194,7 @@
     },
     {
       "path": "apps/server/tests/integration/test_billing_review_regressions.py",
-      "sha256": "807551c487b57d67877addae4e03c9dbc0e9894d362034938e6156390dc6ecc2"
+      "sha256": "ff49952b7bdb31adea2946ddd0b5a9441725169c505b6bb1934251f829bfaa0c"
     },
     {
       "path": "apps/server/tests/integration/test_billing_usability.py",
@@ -278,7 +278,7 @@
     },
     {
       "path": "apps/server/tests/unit/test_renewal_charge.py",
-      "sha256": "0419821af1f101df641e0fe0c009784597d73ce212e6b215a110e1e5165d66e5"
+      "sha256": "a943076dbea99789891dfd2d8c49b35d8b7b4a4d9a6daaf268069c6d23c9bbfd"
     },
     {
       "path": "apps/server/tests/unit/test_storage_packages.py",

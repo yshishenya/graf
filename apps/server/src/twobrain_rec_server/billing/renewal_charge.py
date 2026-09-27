@@ -132,7 +132,9 @@ def renewal_canceled_before_dispatch(operation) -> bool:
     return (
         operation.state == "canceled"
         and operation.provider_id is None
-        and (operation.request_snapshot or {}).get("cancel_reason") == "authority_cancelled"
+        and (operation.request_snapshot or {}).get("cancel_reason") in {
+            "authority_cancelled", "acceptance_budget", "provider_unavailable"
+        }
     )
 
 
@@ -382,7 +384,11 @@ async def plan_due_renewals(
                 )
                 .with_for_update()
             )
-            if existing is not None and renewal_canceled_before_dispatch(existing):
+            if (
+                existing is not None
+                and renewal_canceled_before_dispatch(existing)
+                and existing.request_snapshot.get("cancel_reason") == "authority_cancelled"
+            ):
                 # A revoked, never-sent mandate did not use a bank attempt.
                 # A fresh explicit mandate gets a distinct immutable operation.
                 key = f"{key}:authority:{subscription.recurring_authority_version}"
@@ -395,6 +401,39 @@ async def plan_due_renewals(
                     )
                     .with_for_update()
                 )
+            if (
+                existing is not None
+                and renewal_canceled_before_dispatch(existing)
+                and existing.request_snapshot.get("cancel_reason") in {
+                    "acceptance_budget", "provider_unavailable"
+                }
+            ):
+                # Repeated local failures do not use a bank attempt. Find the
+                # latest immutable successor under the workspace lock instead
+                # of exhausting the single authority-version successor.
+                root_key = renewal_operation_key(
+                    workspace_id=subscription.workspace_id,
+                    paid_through=subscription.paid_through,
+                    attempt=attempt,
+                )
+                latest = await db.scalar(
+                    select(BillingOperation)
+                    .where(
+                        BillingOperation.workspace_id == subscription.workspace_id,
+                        BillingOperation.kind == "renewal",
+                        BillingOperation.idempotency_key.startswith(root_key + ":"),
+                    )
+                    .order_by(BillingOperation.created_at.desc(), BillingOperation.id.desc())
+                    .with_for_update()
+                    .limit(1)
+                )
+                existing = latest or existing
+                if (
+                    renewal_canceled_before_dispatch(existing)
+                    and current < due_at + RENEWAL_ATTEMPT_INTERVAL
+                ):
+                    key = f"{root_key}:retry:{existing.id}"
+                    existing = None
             if current >= due_at + RENEWAL_ATTEMPT_INTERVAL:
                 if (
                     existing is not None
@@ -831,6 +870,20 @@ async def charge_renewal_operation(
             return RenewalChargeResult(operation_id, operation.state, operation.provider_id)
         return None
 
+    async def cancel_before_dispatch(reason: str) -> RenewalChargeResult:
+        operation.state = invoice.status = "canceled"
+        operation.request_snapshot = {**operation.request_snapshot, "cancel_reason": reason}
+        subscription.renewal_resolution = reason
+        await settle_acceptance_budget(
+            db, workspace_id=workspace_id, operation_id=operation.id, succeeded=False
+        )
+        _record_charge_audit(
+            db, subscription=subscription, operation=operation,
+            outcome="canceled", reason_code=reason,
+        )
+        await db.commit()
+        return RenewalChargeResult(operation_id, "canceled")
+
     try:
         billing_actor_id = UUID(str(operation.request_snapshot.get("billing_actor_user_id")))
     except (TypeError, ValueError):
@@ -984,13 +1037,16 @@ async def charge_renewal_operation(
         ):
             raise ValueError("renewal invoice is invalid")
         provider_environment(settings.billing_yookassa_environment)
-        await reserve_acceptance_budget(
-            db,
-            workspace_id=workspace_id,
-            operation_id=operation.id,
-            amount_minor=invoice.amount_minor,
-            now=current,
-        )
+        try:
+            await reserve_acceptance_budget(
+                db,
+                workspace_id=workspace_id,
+                operation_id=operation.id,
+                amount_minor=invoice.amount_minor,
+                now=current,
+            )
+        except PurchaseError:
+            return await cancel_before_dispatch("acceptance_budget")
         operation.request_snapshot = {
             **operation.request_snapshot,
             "purchase_schema": 2,
@@ -1004,8 +1060,6 @@ async def charge_renewal_operation(
             "provider_shop_id": settings.billing_yookassa_shop_id,
         }
         operation.state = "processing"
-        await db.commit()  # Persist the budget and send marker before network I/O.
-        dispatched = True
         async with YooKassaClient(settings) as provider:
             receipt = build_receipt_payload(
                 receipt_contact=invoice.receipt_contact_snapshot,
@@ -1017,6 +1071,8 @@ async def charge_renewal_operation(
                 payment_subject=settings.billing_receipt_payment_subject,
                 payment_mode=settings.billing_receipt_payment_mode,
             )
+            await db.commit()  # Persist budget and send marker before the POST.
+            dispatched = True
             payment = await provider.create_payment(
                 amount_minor=invoice.amount_minor,
                 currency=invoice.currency,
@@ -1135,7 +1191,9 @@ async def charge_renewal_operation(
         )
         await db.commit()
         return RenewalChargeResult(operation_id, "unknown")
-    except (httpx.HTTPError, YooKassaConfigurationError):
+    except (httpx.HTTPError, YooKassaConfigurationError, OSError):
+        if not dispatched:
+            return await cancel_before_dispatch("provider_unavailable")
         completed = await refresh_after_dispatch()
         if completed is not None:
             return completed

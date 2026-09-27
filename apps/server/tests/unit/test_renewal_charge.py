@@ -1286,3 +1286,141 @@ async def test_changed_base_price_after_planning_never_reaches_provider(monkeypa
     assert result.status == "canceled"
     assert subscription.renewal_resolution == "price_changed"
     assert not provider.calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cause", ["budget", "provider_setup", "secret_io"])
+async def test_unsent_renewal_refusal_preserves_method_and_bank_attempt(monkeypatch, tmp_path, cause):
+    from twobrain_rec_server.billing import renewal_charge as renewal
+    from twobrain_rec_server.billing.purchases import PurchaseError
+    from twobrain_rec_server.billing.yookassa import YooKassaConfigurationError
+    settings = _settings(tmp_path)
+    subscription, operation, invoice, method = _rows(tmp_path, attempt=3)
+    provider = FakeProvider({"id": "must-not-send"})
+    settlements = []
+
+    async def reserve(*args, **kwargs):
+        if cause == "budget":
+            raise PurchaseError("Проверочное окно оплаты закрыто")
+
+    async def settle(*args, **kwargs):
+        settlements.append(kwargs["succeeded"])
+
+    def construct(_settings):
+        if cause == "provider_setup":
+            raise YooKassaConfigurationError("synthetic setup failure")
+        if cause == "secret_io":
+            raise PermissionError("synthetic secret unavailable")
+        return provider
+
+    monkeypatch.setattr(renewal, "reserve_acceptance_budget", reserve)
+    monkeypatch.setattr(renewal, "settle_acceptance_budget", settle)
+    monkeypatch.setattr(renewal, "YooKassaClient", construct)
+    db = FakeDb([subscription, operation, invoice, method])
+    result = await charge_renewal_operation(db, settings, operation_id=OPERATION_ID,
+        workspace_id=WORKSPACE_ID, now=_attempt_charge_moment(3))
+    assert result.status == operation.state == invoice.status == "canceled"
+    assert renewal.renewal_canceled_before_dispatch(operation)
+    assert subscription.renewal_resolution == (
+        "acceptance_budget" if cause == "budget" else "provider_unavailable")
+    assert subscription.recurring_allowed and subscription.recurring_authority_version == 4
+    assert provider.calls == []
+    assert settlements == [False]
+    assert not any(isinstance(row, BillingNotificationDelivery) for row in db.added)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cause", ["budget", "provider_setup"])
+async def test_two_local_renewal_failures_recover_in_last_window_without_new_consent(
+    monkeypatch, tmp_path, cause
+):
+    from twobrain_rec_server.billing import renewal_charge as renewal
+    from twobrain_rec_server.billing.purchases import PurchaseError
+    from twobrain_rec_server.billing.yookassa import YooKassaConfigurationError
+    settings = _settings(tmp_path)
+    subscription, root_operation, invoice, method = _rows(tmp_path, attempt=3)
+    provider = FakeProvider({"id": "payment-after-recovery", "status": "pending"})
+    preparation = 0
+
+    async def reserve(*args, **kwargs):
+        nonlocal preparation
+        preparation += 1
+        if cause == "budget" and preparation <= 2:
+            raise PurchaseError("Проверочное окно оплаты закрыто")
+
+    async def settle(*args, **kwargs):
+        return None
+
+    def construct(_settings):
+        if cause == "provider_setup" and preparation <= 2:
+            raise YooKassaConfigurationError("synthetic setup unavailable")
+        return provider
+
+    monkeypatch.setattr(renewal, "reserve_acceptance_budget", reserve)
+    monkeypatch.setattr(renewal, "settle_acceptance_budget", settle)
+    monkeypatch.setattr(renewal, "YooKassaClient", construct)
+    current = PAID_THROUGH - timedelta(hours=12)
+    operation = root_operation
+    previous = []
+    for index in range(3):
+        result = await charge_renewal_operation(
+            FakeDb([subscription, operation, invoice, method]), settings,
+            operation_id=operation.id, workspace_id=WORKSPACE_ID, now=current,
+        )
+        if index == 2:
+            assert result.status == "sent"
+            break
+        assert result.status == "canceled"
+        previous.append(operation)
+        planning = PlanningDb([
+            subscription, None, _planning_catalog(), method, "billing@example.test",
+            None, None, root_operation,
+            operation if index else None,
+        ])
+        planned = await plan_due_renewals(planning, now=current)
+        assert len(planned) == 1
+        operation = next(row for row in planning.added if isinstance(row, BillingOperation))
+        invoice = next(row for row in planning.added if isinstance(row, BillingInvoice))
+    assert len(provider.calls) == 1
+    assert len({row.id for row in [*previous, operation]}) == 3
+    assert all(row.state == "canceled" and row.provider_id is None for row in previous)
+    assert subscription.recurring_authority_version == 4 and subscription.recurring_allowed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["unknown", "sent", "processing", "succeeded"])
+async def test_local_retry_never_ignores_a_later_dispatched_successor(state):
+    root = _stored_attempt(attempt=3, state="canceled")
+    root.request_snapshot = {**root.request_snapshot, "cancel_reason": "provider_unavailable"}
+    latest = _stored_attempt(attempt=3, state=state)
+    db = PlanningDb([
+        _planning_subscription(), None, _planning_catalog(), UUID(int=1), "billing@example.test",
+        None, None, root, latest,
+    ])
+    assert await plan_due_renewals(db, now=PAID_THROUGH - timedelta(hours=12)) == ()
+    assert not any(isinstance(row, BillingOperation) for row in db.added)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["unknown", "sent", "processing", "succeeded"])
+async def test_local_retry_from_previous_window_blocks_next_bank_attempt(state):
+    root = _stored_attempt(attempt=1, state="canceled")
+    root.request_snapshot = {**root.request_snapshot, "cancel_reason": "provider_unavailable"}
+    latest = _stored_attempt(attempt=1, state=state)
+    class WindowDb(PlanningDb):
+        async def scalar(self, query):
+            descriptions = getattr(query, "column_descriptions", ())
+            params = query.compile().params
+            if (descriptions and descriptions[0].get("entity") is BillingOperation
+                    and "idempotency_key_1" in params):
+                if "LIKE" in str(query):
+                    return latest
+                key = params["idempotency_key_1"]
+                return root if key.endswith(":a1") else None
+            return await super().scalar(query)
+
+    db = WindowDb([
+        _planning_subscription(), None, _planning_catalog(), UUID(int=1), "billing@example.test",
+    ])
+    assert await plan_due_renewals(db, now=PAID_THROUGH - timedelta(hours=40)) == ()
+    assert not any(isinstance(row, BillingOperation) for row in db.added)

@@ -495,6 +495,7 @@ def _record_initial_checkout_failure(
     exc: BaseException,
     *,
     now: datetime | None = None,
+    dispatch_started: bool = True,
 ) -> None:
     if invoice.status == "succeeded" or operation.state in {
         "succeeded",
@@ -514,8 +515,11 @@ def _record_initial_checkout_failure(
         invoice.status = "unknown"
     elif (
         snapshot.get("purchase_schema") == 2
-        and isinstance(exc, YooKassaProviderError)
-        and exc.status_code in {400, 401, 403, 404, 405, 415, 429}
+        and (
+            not dispatch_started
+            or (isinstance(exc, YooKassaProviderError)
+                and exc.status_code in {400, 401, 403, 404, 405, 415, 429})
+        )
     ):
         # These documented responses reject creation. A timeout, 5xx or
         # unrecognized status has no such proof and must remain unresolved.
@@ -531,14 +535,21 @@ def _record_initial_checkout_failure(
         invoice.status = "manual_resolution"
 
 
-async def _persist_initial_checkout_failure(db, operation, invoice, exc) -> None:
-    _record_initial_checkout_failure(operation, invoice, exc)
+async def _persist_initial_checkout_failure(
+    db, operation, invoice, exc, *, dispatch_started: bool = True
+) -> None:
+    _record_initial_checkout_failure(
+        operation, invoice, exc, dispatch_started=dispatch_started
+    )
     if (
         operation.state == invoice.status == "canceled"
         and operation.request_snapshot.get("purchase_schema") == 2
         and operation.provider_id is None
-        and isinstance(exc, YooKassaProviderError)
-        and exc.status_code in {400, 401, 403, 404, 405, 415, 429}
+        and (
+            not dispatch_started
+            or (isinstance(exc, YooKassaProviderError)
+                and exc.status_code in {400, 401, 403, 404, 405, 415, 429})
+        )
     ):
         await release_invoice_promo(db, invoice_id=invoice.id, now=datetime.now(UTC))
         await settle_acceptance_budget(
@@ -552,6 +563,7 @@ async def _create_initial_checkout_payment(
     operation: BillingOperation,
     invoice: BillingInvoice,
     return_url: str,
+    dispatch_state: dict[str, bool] | None = None,
 ) -> dict[str, object]:
     snapshot = operation.request_snapshot
     if (
@@ -588,6 +600,8 @@ async def _create_initial_checkout_payment(
         payment_mode=str(receipt_config.get("payment_mode", settings.billing_receipt_payment_mode)),
     )
     async with YooKassaClient(settings) as provider:
+        if dispatch_state is not None:
+            dispatch_state["started"] = True
         return await provider.create_payment(
             amount_minor=invoice.amount_minor,
             currency=invoice.currency,
@@ -3400,6 +3414,7 @@ async def start_billing_checkout(
     )
     if limited is not None:
         return limited
+    dispatch_state = {"started": False}
     try:
         await lock_storage_workspace(db, tenant_scope.workspace_id)
         workspace = await db.scalar(
@@ -3788,6 +3803,7 @@ async def start_billing_checkout(
             operation=operation,
             invoice=invoice,
             return_url=return_url,
+            dispatch_state=dispatch_state,
         )
         await lock_storage_workspace(db, tenant_scope.workspace_id)
         await db.refresh(operation, with_for_update=True)
@@ -3837,6 +3853,7 @@ async def start_billing_checkout(
         YooKassaConfigurationError,
         YooKassaProviderError,
         httpx.HTTPError,
+        OSError,
     ) as exc:
         await db.rollback()
         if "intent" in locals():
@@ -3856,7 +3873,10 @@ async def start_billing_checkout(
                     .with_for_update()
                 )
                 if invoice is not None:
-                    await _persist_initial_checkout_failure(db, unresolved, invoice, exc)
+                    await _persist_initial_checkout_failure(
+                        db, unresolved, invoice, exc,
+                        dispatch_started=dispatch_state["started"],
+                    )
                     await db.commit()
                     return RedirectResponse(
                         _checkout_status_location(
@@ -3972,6 +3992,20 @@ async def billing_history_page(
     return cabinet_html_response(content)
 
 
+def _invoice_capacity_label(snapshot: Mapping[str, object]) -> str | None:
+    storage = snapshot.get("storage_price_snapshot")
+    catalog = snapshot.get("catalog_snapshot")
+    for value in (
+        snapshot.get("target_capacity_bytes"),
+        snapshot.get("storage_capacity_bytes"),
+        storage.get("capacity_bytes") if isinstance(storage, Mapping) else None,
+        catalog.get("storage_bytes") if isinstance(catalog, Mapping) else None,
+    ):
+        if type(value) is int and value > 0:
+            return _capacity_label(value)
+    return None
+
+
 @router.get("/billing/invoices/{safe_number}", response_class=HTMLResponse, include_in_schema=False)
 async def billing_invoice_detail_page(
     safe_number: str,
@@ -4036,9 +4070,7 @@ async def billing_invoice_detail_page(
             "status": invoice.status,
             "cycle_label": "Год" if snapshot.get("cycle") == "year" else "Месяц",
             "purpose_label": purchase_purpose_label(snapshot),
-            "capacity_label": _capacity_label(snapshot["target_capacity_bytes"])
-            if isinstance(snapshot.get("target_capacity_bytes"), int)
-            else None,
+            "capacity_label": _invoice_capacity_label(snapshot),
             "storage_intervals": [
                 {
                     "start": _billing_datetime_label(item["starts_at"]),
@@ -4453,6 +4485,7 @@ async def confirm_billing_purchase(
     settings = request.app.state.settings
     operation, invoice = None, None
     dispatched = False
+    persisted = False
     try:
         require_billing_enabled(checkout_enabled=billing_checkout_allowed(settings, tenant_scope.workspace_id))
         await lock_storage_workspace(db, tenant_scope.workspace_id)
@@ -4665,8 +4698,9 @@ async def confirm_billing_purchase(
         return_url = billing_checkout_return_url(request, safe_invoice_number=invoice.safe_number)
         bound.consumed_operation_id = operation.id
         await db.commit()  # Budget, promo, invoice and consent precede the only POST.
-        dispatched = True
+        persisted = True
         async with YooKassaClient(settings) as provider:
+            dispatched = True
             payment = await provider.create_payment(
                 amount_minor=invoice.amount_minor,
                 currency="RUB",
@@ -4696,10 +4730,11 @@ async def confirm_billing_purchase(
         YooKassaConfigurationError,
         YooKassaProviderError,
         httpx.HTTPError,
+        OSError,
         IntegrityError,
     ) as exc:
         await db.rollback()
-        if dispatched:
+        if persisted:
             await lock_storage_workspace(db, tenant_scope.workspace_id)
             # Never repeat POST after an ambiguous response. GET/webhook resolves it.
             bound = await db.scalar(
@@ -4720,7 +4755,9 @@ async def confirm_billing_purchase(
                     .with_for_update()
                 )
                 if saved and saved_invoice:
-                    await _persist_initial_checkout_failure(db, saved, saved_invoice, exc)
+                    await _persist_initial_checkout_failure(
+                        db, saved, saved_invoice, exc, dispatch_started=dispatched
+                    )
                     await db.commit()
                     return RedirectResponse(
                         _checkout_status_location(saved_invoice.safe_number), status_code=303

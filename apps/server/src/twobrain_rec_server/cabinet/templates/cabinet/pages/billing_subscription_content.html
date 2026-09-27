@@ -19,6 +19,8 @@
         {% if subscription and subscription.renewal_resolution|default(None) == "price_changed" %}<p class="notice" role="status">Цена подписки или дополнительного места изменилась. Автоматический платёж не отправлен. Уже оплаченный объём сохранён. <a href="/billing/storage">Проверить полную цену и подтвердить новые условия</a>.</p>{% endif %}
         {% if subscription and (subscription.renewal_resolution|default(None)) in ["pending", "unknown"] %}
         <p class="notice notice--warning" role="status" aria-live="polite">Проверяем результат последнего списания. Нового платежа не создаем. Доступ остается действующим до оплаченной даты.</p>
+        {% elif subscription and (subscription.renewal_resolution|default(None)) in ["acceptance_budget", "provider_unavailable"] %}
+        <p class="notice notice--warning" role="status">Автоматический платёж не отправлен. Оформление временно недоступно. Уже оплаченный срок сохранён. <a href="/billing/history#billing-help">Обратиться в поддержку</a>.</p>
         {% elif subscription and subscription.renewal_resolution|default(None) == "provider_key_expired" %}
         <p class="notice notice--warning" role="status" aria-live="polite">Срок проверки списания истек. Позднее подтверждение будет учтено; до новой оплаты доступ не продлевается.</p>
         {% elif subscription and subscription.renewal_resolution|default(None) == "late_success" %}
