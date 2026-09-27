@@ -30,6 +30,14 @@ enum class WebRuntimeState {
     closed,
 };
 
+enum class WebProcessFailure {
+    browserExited,
+    renderExited,
+    renderUnresponsive,
+    frameRenderExited,
+    automaticallyRecoverable,
+};
+
 struct WebViewLocalRecordingRow {
     std::string id;
     // The identifier the server knows for this local copy. The cabinet sends back
@@ -127,6 +135,7 @@ public:
     [[nodiscard]] RouteEvaluation navigate(std::string url);
     void close() noexcept;
     void reload();
+    void handleProcessFailure(WebProcessFailure failure, std::int32_t exitCode) noexcept;
     void back();
     void forward();
     [[nodiscard]] bool canGoBack() const;

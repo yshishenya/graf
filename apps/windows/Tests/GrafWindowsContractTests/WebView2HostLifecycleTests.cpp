@@ -157,7 +157,51 @@ void testDocumentResponseLatch() {
     }
 }
 
+void testProcessFailureRecovery() {
+    using namespace graf::windows;
+    const auto url = std::string(kTrusted) + "/desktop/meetings";
+    for (const auto state : {WebRuntimeState::ready, WebRuntimeState::initializing,
+                            WebRuntimeState::authRequired, WebRuntimeState::unprivileged}) {
+        WebView2Host host;
+        host.setRuntimeState(state);
+        int changes = 0;
+        host.setRuntimeHandler([&](auto) { ++changes; });
+        host.handleProcessFailure(WebProcessFailure::automaticallyRecoverable, 123);
+        assert(host.runtimeState() == state && changes == 0);
+        assert(host.failureDetail().empty());
+    }
+    // A GPU restart during navigation must not discard the real response latch.
+    {
+        WebView2Host host;
+        (void)host.beginDocumentNavigation(url, 1, false, 0, "");
+        const auto tag = host.documentRequestTag(url);
+        host.handleProcessFailure(WebProcessFailure::automaticallyRecoverable, 0);
+        assert(host.observeDocumentCompletion(url, 1, 200, true, false, 1));
+        assert(host.observeDocumentResponseHeaders(url, tag, "document", "GET", {200}));
+        assert(host.tryFinishDocumentNavigation(2) == WebResponseDecision::cabinet);
+    }
+    for (const auto failure : {WebProcessFailure::browserExited, WebProcessFailure::renderExited,
+                              WebProcessFailure::renderUnresponsive, WebProcessFailure::frameRenderExited}) {
+        WebView2Host host;
+        (void)host.beginDocumentNavigation(url, 1, false, 0, "");
+        const auto tag = host.documentRequestTag(url);
+        int recreations = 0;
+        host.setRecreateHandler([&] { ++recreations; });
+        host.handleProcessFailure(failure, static_cast<std::int32_t>(0xC0000005u));
+        assert(host.runtimeState() == WebRuntimeState::unavailable);
+        assert(host.failureDetail().find("0xC0000005") != std::string::npos);
+        assert(!host.observeDocumentResponseHeaders(url, tag, "document", "GET", {200}));
+        assert(!host.observeDocumentCompletion(url, 1, 200, true, false, 1));
+        host.reload();
+        assert(recreations == (failure == WebProcessFailure::browserExited ? 1 : 0));
+        host.close();
+        host.handleProcessFailure(failure, 0);
+        assert(host.runtimeState() == WebRuntimeState::closed);
+    }
+}
+
 int main() {
+    testProcessFailureRecovery();
     testDocumentResponseLatch();
     {
         // WebView2's popup event does not carry a reusable request body. Both a

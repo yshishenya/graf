@@ -7036,19 +7036,49 @@
       };
       const disclosures = Array.from(menu.querySelectorAll(".sidebar-profile-menu__disclosure"));
       const syncDisclosurePosition = (details) => {
-        details.classList.remove("is-flipped", "is-inline");
-        if (!details.open) return;
         const submenu = details.querySelector("[data-profile-menu-submenu]");
         if (!(submenu instanceof HTMLElement)) return;
+        const hidePanel = () => {
+          if (submenu.matches(":popover-open")) submenu.hidePopover();
+          submenu.removeAttribute("popover");
+        };
+        if (!details.open || menu.hidden) {
+          hidePanel();
+          details.classList.remove("is-inline");
+          return;
+        }
         window.requestAnimationFrame(() => {
-          if (!details.open || !details.isConnected) return;
+          if (!details.open || !details.isConnected || menu.hidden) return;
+          const inline = () => { hidePanel(); details.classList.toggle("is-inline", true); };
+          if (window.innerWidth <= 520 || mobileNav?.contains(root)
+              || typeof submenu.showPopover !== "function") {
+            inline();
+            return;
+          }
+          details.classList.remove("is-inline");
+          // A nested top-layer panel escapes the scrollable parent's clipping.
+          submenu.popover = "manual";
+          if (!submenu.matches(":popover-open")) submenu.showPopover();
+          const anchor = details.querySelector("summary").getBoundingClientRect();
           const rect = submenu.getBoundingClientRect();
-          details.classList.toggle("is-flipped", rect.right > window.innerWidth - 8);
-          const placed = submenu.getBoundingClientRect();
-          details.classList.toggle("is-inline", placed.left < 8 || placed.right > window.innerWidth - 8
-            || placed.top < 8 || placed.bottom > window.innerHeight - 8);
+          let left = anchor.right + 8;
+          if (left + rect.width > window.innerWidth - 8) left = anchor.left - rect.width - 8;
+          if (left < 8) { inline(); return; }
+          const bounds = menu.getBoundingClientRect();
+          if (anchor.bottom <= bounds.top || anchor.top >= bounds.bottom) {
+            details.open = false;
+            hidePanel();
+            return;
+          }
+          const scale = submenu.offsetWidth ? rect.width / submenu.offsetWidth : 1;
+          const top = Math.max(8, Math.min(anchor.top - 4, window.innerHeight - rect.height - 8));
+          submenu.style.setProperty("--profile-submenu-left", `${left / scale}px`);
+          submenu.style.setProperty("--profile-submenu-top", `${top / scale}px`);
         });
       };
+      menu.addEventListener("scroll", () => disclosures.forEach((details) => {
+        if (details.querySelector("[data-profile-menu-submenu]:popover-open")) syncDisclosurePosition(details);
+      }));
       let hoveredDisclosure = null;
       let disclosureCloseTimer;
       const closeDisclosures = (except = null) => {
@@ -7087,6 +7117,12 @@
           if (details.open) closeDisclosures(details);
           syncDisclosurePosition(details);
         });
+        const submenu = details.querySelector("[data-profile-menu-submenu]");
+        if (submenu && typeof ResizeObserver === "function") {
+          new ResizeObserver(() => {
+            if (details.open && submenu.matches(":popover-open")) syncDisclosurePosition(details);
+          }).observe(submenu);
+        }
       });
       const setOpen = (open, restoreFocus = false) => {
         if (open) {

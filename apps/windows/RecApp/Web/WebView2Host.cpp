@@ -597,6 +597,26 @@ void WebView2Host::reload() {
     (void)navigate(requestedDocumentUrl_.empty() ? recoveryUrl() : requestedDocumentUrl_);
 }
 
+void WebView2Host::handleProcessFailure(WebProcessFailure failure, std::int32_t exitCode) noexcept {
+    // GPU/utility failures are recovered by WebView2 without replacing the
+    // document. Invalidating its bridge here strands an otherwise live cabinet.
+    if (runtimeState_ == WebRuntimeState::closed ||
+        failure == WebProcessFailure::automaticallyRecoverable) return;
+    const char* stage = "webview-process";
+    switch (failure) {
+    case WebProcessFailure::browserExited:
+        recreateRequired_ = true;
+        stage = "browser-process-exited";
+        break;
+    case WebProcessFailure::renderExited: stage = "render-process-exited"; break;
+    case WebProcessFailure::renderUnresponsive: stage = "render-process-unresponsive"; break;
+    case WebProcessFailure::frameRenderExited: stage = "frame-render-process-exited"; break;
+    case WebProcessFailure::automaticallyRecoverable: return;
+    }
+    ++documentGeneration_;
+    fail(stage, exitCode);
+}
+
 void WebView2Host::back() { if (canGoBack()) nativeBack_(); }
 void WebView2Host::forward() { if (canGoForward()) nativeForward_(); }
 bool WebView2Host::canGoBack() const {
@@ -1017,10 +1037,23 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
             core.ProcessFailed([this, alive](auto const&, auto const& args) {
                 if (!alive->load()) return;
                 using Kind = winrt::Microsoft::Web::WebView2::Core::CoreWebView2ProcessFailedKind;
-                if (args.ProcessFailedKind() == Kind::BrowserProcessExited) recreateRequired_ = true;
-                ++documentGeneration_;
-                navigationId_ = 0;
-                fail("browser-process", E_FAIL);
+                const auto kind = args.ProcessFailedKind();
+                std::int32_t exitCode = E_FAIL;
+                try { exitCode = args.ExitCode(); } catch (...) {}
+                // Numeric metadata only: never log descriptions, frames or URLs.
+                char event[96]{};
+                std::snprintf(event, sizeof(event), "process-failed kind=%d exit=0x%08X",
+                    static_cast<int>(kind), static_cast<unsigned>(exitCode));
+                logBridgeEvent(event);
+                auto failure = WebProcessFailure::automaticallyRecoverable;
+                switch (kind) {
+                case Kind::BrowserProcessExited: failure = WebProcessFailure::browserExited; break;
+                case Kind::RenderProcessExited: failure = WebProcessFailure::renderExited; break;
+                case Kind::RenderProcessUnresponsive: failure = WebProcessFailure::renderUnresponsive; break;
+                case Kind::FrameRenderProcessExited: failure = WebProcessFailure::frameRenderExited; break;
+                default: break; // GPU, utility and other auxiliary processes recover themselves.
+                }
+                handleProcessFailure(failure, exitCode);
             });
             core.DownloadStarting([this, alive, dispatcher](auto const& core, auto const& args) {
                 if (!alive->load()) { args.Cancel(true); return; }
