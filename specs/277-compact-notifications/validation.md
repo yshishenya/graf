@@ -865,3 +865,78 @@ T029 отмечена выполненной локально: её исходн
 PR-подтверждения. T019/T020/T021/T022 целиком не закрыты: оставшиеся проверки
 quickstart, ручные условия и exact-SHA/base PR gates не заменяются этим
 нативным набором. Новая установка GRAF Dev и выпуск не выполнялись.
+
+### T019/T020 — повтор настроек на 27bab9 и незакрытое визуальное расхождение
+
+2026-09-27 основной агент повторил проверки на чистом
+`27bab9dfd953cbbdce24f5f5dceb6d0f6eb25c20`. Это продолжение активной
+high-risk-product F277; данный шаг меняет только документ с результатами,
+не поведение продукта. Основная рабочая копия с подготовкой выпуска не затронута.
+
+| Команда из корня F277 | Результат |
+|---|---|
+| `infra/scripts/ci-local.sh --plan` | Чистая рабочая копия; cabinet-shell/settings; частичный диагностический набор, не PR receipt |
+| `node apps/server/tests/browser/settings-consistency.test.cjs --notification-contract` | 37 PASS, 0 FAIL/SKIP, 70.48225ms |
+| `apps/server/.venv/bin/python -m pytest -q -o addopts= apps/server/tests/contract/test_desktop_notification_retirement.py` | 51 PASS, 1.80s |
+| `infra/scripts/ci-local.sh --focused` | 112 PASS, 2.85s тестов, 6.65s всего; coverage partial |
+| `bash apps/server/scripts/run_local_postgres_tests.sh --focused -q tests/integration/test_settings_ia_flow.py` | 7 PASS, 8.42s; отдельный тестовый контейнер PostgreSQL удалён штатным runner |
+
+В трёх Python-наборах по два известных предупреждения о повторном импорте
+pytest fixture и устаревающей интеграции Starlette/httpx; ошибок нет.
+Журналы: `/tmp/graf-f277-27bab9-node.log`,
+`/tmp/graf-f277-27bab9-retirement.log`,
+`/tmp/graf-f277-27bab9-ci-focused.log`,
+`/tmp/graf-f277-27bab9-settings-ia.log`.
+
+Полный существующий `settings-combobox.test.cjs` повторён отдельно в Chromium
+и WebKit: оба PASS, exit 0. Команды:
+
+```sh
+NODE_PATH=/Users/yshishenya/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules node apps/server/tests/browser/settings-combobox.test.cjs
+NODE_PATH=/Users/yshishenya/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules BROWSER=webkit node apps/server/tests/browser/settings-combobox.test.cjs
+```
+
+Журналы `/tmp/graf-f277-27bab9-combobox-chromium.log` и
+`/tmp/graf-f277-27bab9-combobox-webkit.log`. Browser plugin not available:
+использованы существующие зависимости и браузерные проверки проекта, без
+новых установок. Это синтетические страницы, не установленный WKWebView.
+
+**T020 остаётся незакрытой.** В установленном `/Applications/GRAF Dev.app`
+(активный manifest `dev-49766da1f17c`, не новый HEAD) страница
+`/desktop/settings/notifications` показывает три локальных переключателя
+серым цветом с ползунком слева, тогда как AX одновременно сообщает `on`
+для «Напоминать о встречах», «Показывать названия встреч» и «Звук уведомлений».
+«Тихий режим» передаёт `off` и выглядит выключенным. Серверные переключатели
+писем/подсказок передают `on` и выглядят включёнными. Расхождение повторено
+после сворачивания правой панели, штатного обновления страницы и прокрутки;
+прокрутка действительно меняет снимок. Настройки пользователя не менялись.
+Запись в интерфейсе остановлена. Этот результат не доказывает причину
+несоответствия и не заменяет проверку DOM/computed styles в живом WKWebView.
+
+Дополнительный временный пробник вне репозитория
+`/tmp/graf-f277-switch-render.lbg8bj/probe.cjs` загрузил реальный Jinja-макрос
+и локальный фрагмент страницы, полный `cabinet.css`, `settings-autosave.js`
+и `cabinet.js`. Все сетевые запросы блокируются; bridge и аккаунт синтетические.
+На 800×600 в Chromium и WebKit подтверждены:
+
+- исходные три `checked=true`, `:checked=true`, включённые поля;
+- фон включённого переключателя `rgb(112, 86, 233)`, сдвиг ползунка 16px;
+- тихий режим исходно выключен; нажатие включает состояние и оформление;
+- начальный `data-state="normal"` строки не мешает оформлению `:checked`;
+- только ожидаемые bridge-действия `read` и `set`, ошибок страницы/консоли нет.
+
+Основной агент просмотрел `webkit-initial.png`: три фиолетовых переключателя
+с ползунком справа и один серый слева соответствуют вычисленным стилям.
+Пробник не воспроизводит целый документ и установленный WebKit, поэтому не
+опровергает живое наблюдение. Никакая правка CSS по предположению не внесена.
+
+Read-only GET трёх общедоступных ресурсов локального сервера вернул HTTP 200;
+содержимое каждого побайтно совпало с HEAD и установленным SHA49766da1f17c:
+`cabinet.css` — `240833d27260`, `cabinet.js` — `cedf5121437a`,
+`settings-autosave.js` — `6175466793e8` (первые12 знаков SHA256).
+Это проверка ответов сервера, не содержимого кэша живого WKWebView.
+GET страницы без сессии возвращает 303; сессия не извлекалась, обход авторизации
+не выполнялся. Независимый read-only аудит не нашёл подтверждённой причины;
+рекомендуется сопоставить `.checked`, `:checked`, вычисленные стили, AX и
+изображение именно в одном живом документе. T013/T019/T020 и итоговая визуальная
+приёмка не закрываются по зелёным синтетическим проверкам.
