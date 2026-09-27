@@ -1735,7 +1735,7 @@ private struct ContentView: View {
                 await activationReporter.noteAutorecordEnabled(
                     policyState: "enabled",
                     previousState: "disabled",
-                    source: reason == .promptButton ? "prompt_button" : "prompt_timeout",
+                    source: "prompt_button",
                     surface: "meeting_detection_prompt"
                 )
             }

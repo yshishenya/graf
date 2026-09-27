@@ -19,6 +19,7 @@ CSS = "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css"
 SWIFT_TREES = ("apps/macos/RecApp", "apps/macos/Shared/Sources", "apps/macos/Shared/Tests")
 GLOBAL_SWIFT = (
     r"\bDesktopRecordingNoticePresenter\b",
+    r"\b(?:struct|class|enum|actor|extension)\s+MeetingDetectionCountdown\b",
     r"\bonOpenNotificationSettings\b",
     r"\blastRecordingNotice\b",
     r"\bRecordingNoticeState\b",
@@ -122,11 +123,11 @@ def swift_code(source: str) -> str:
 def direct_type_members(source: str, kind: str, name: str):
     """Yield declaration text with nested bodies/arguments masked, preserving offsets.
 
-    Scope the guard to these two types, not identically named diagnostic fields,
+    Scope the guard to the named type, not identically named diagnostic fields,
     actual settings/permission methods, or local variables inside methods.
     """
     masked = swift_code(source)
-    for declaration in re.finditer(rf"\b{kind}\s+{name}\b[^{{]*\{{", masked):
+    for declaration in re.finditer(rf"\b{kind}\s+{name}\b(?!\s*\.)[^{{]*\{{", masked):
         start = declaration.end()
         braces, arguments = 1, 0
         body = []
@@ -159,6 +160,15 @@ def retired_control_members(source: str):
                 yield start + member.start(1), "DesktopControlSnapshot." + member.group(1)
 
 
+def retired_prompt_members(source: str):
+    # Include direct extensions of the shared model, not extensions of its nested
+    # types. Nested bodies/arguments are masked so locals/parameters stay legal.
+    name = r"(?:TwoBrainRecShared\s*\.\s*)?MeetingDetectionPromptDecision"
+    for start, body in direct_type_members(source, "(?:struct|extension)", name):
+        for member in re.finditer(r"\b(?:var|let)\s+`?(startReason)\b`?", body):
+            yield start + member.start(1), "MeetingDetectionPromptDecision.startReason"
+
+
 def violations(root: Path = ROOT) -> list[str]:
     errors: list[str] = []
     if (root / REMOVED).exists():
@@ -182,6 +192,9 @@ def violations(root: Path = ROOT) -> list[str]:
         for offset, name in retired_control_members(source):
             line = source.count("\n", 0, offset) + 1
             errors.append(f"{relative}:{line}: retired control member {name}")
+        for offset, name in retired_prompt_members(source):
+            line = source.count("\n", 0, offset) + 1
+            errors.append(f"{relative}:{line}: retired prompt member {name}")
     helper = root / RETIREMENT
     presenter = sources / "Sources/Notifications/DesktopNotificationPresenter.swift"
     if not helper.is_file():

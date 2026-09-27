@@ -98,8 +98,6 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
     private struct ShortCandidate {
         let id: String
         let queuedUntil: Date
-        let duration: TimeInterval
-        let onExpire: (() -> Void)?
     }
     private final class Envelope {
         let token = UUID()
@@ -401,8 +399,8 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
         if let short = pendingShort, active == nil || active!.kind.rawValue < Kind.shortRecording.rawValue {
             pendingShort = nil
             let envelope = Envelope(epoch: authEpoch, identity: short.id, kind: .shortRecording,
-                                    deadline: now.addingTimeInterval(short.duration), content: .shortRecording)
-            envelope.onExpire = short.onExpire
+                                    deadline: now.addingTimeInterval(DesktopNotificationCardPresenter.noticeDisplayDuration),
+                                    content: .shortRecording)
             _ = show(envelope)
         }
         guard active == nil || active!.kind == .preview else { return }
@@ -578,24 +576,21 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
         return show(envelope)
     }
     @discardableResult
-    public func presentShortRecording(duration: TimeInterval = DesktopNotificationCardPresenter.noticeDisplayDuration,
-                                      onExpire: (() -> Void)? = nil) -> Bool {
+    public func presentShortRecording() -> Bool {
         let now = clock()
         appendHistory(.shortRecording, now: now)
         guard !preferences.quiet, isPresentationAvailable else { return false }
         let id = UUID().uuidString
-        pendingShort = ShortCandidate(id: id, queuedUntil: now.addingTimeInterval(20), duration: duration, onExpire: onExpire)
+        pendingShort = ShortCandidate(id: id, queuedUntil: now.addingTimeInterval(20))
         reconcileCard(now: now)
         return active?.identity == id && card.isVisible
     }
     @discardableResult
-    public func presentPreview(title: String, message: String,
-                               duration: TimeInterval = DesktopNotificationCardPresenter.previewDisplayDuration,
-                               onExpire: (() -> Void)? = nil) -> Bool {
+    public func presentPreview(title: String, message: String) -> Bool {
         guard active == nil, isPresentationAvailable else { return false }
         let envelope = Envelope(epoch: authEpoch, identity: UUID().uuidString, kind: .preview,
-            deadline: clock().addingTimeInterval(duration), content: .preview(title: title, message: message))
-        envelope.onExpire = onExpire
+            deadline: clock().addingTimeInterval(DesktopNotificationCardPresenter.previewDisplayDuration),
+            content: .preview(title: title, message: message))
         return show(envelope)
     }
     public func testNotification(isCurrent: () -> Bool = { true }) async {
