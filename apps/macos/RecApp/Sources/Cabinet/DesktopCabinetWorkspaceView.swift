@@ -17,7 +17,6 @@ public struct DesktopCabinetWorkspaceView: View {
     private let showsAppUpdateBadge: Bool
     private let onCheckForUpdates: EmbeddedCabinetWebView.CheckForUpdatesAction
     private let onOpenMeetingDetectionSettings: EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction
-    private let onOpenNotificationSettings: EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction
     private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
     private let recoveryRequired: Bool
     private let deletionOperations: [RecordingDeletionOperation]
@@ -40,7 +39,6 @@ public struct DesktopCabinetWorkspaceView: View {
         showsAppUpdateBadge: Bool = false,
         onCheckForUpdates: @escaping EmbeddedCabinetWebView.CheckForUpdatesAction = {},
         onOpenMeetingDetectionSettings: @escaping EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction = {},
-        onOpenNotificationSettings: @escaping EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction = {},
         supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge? = nil,
         localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = [],
         deletionOperations: [RecordingDeletionOperation] = [],
@@ -58,7 +56,6 @@ public struct DesktopCabinetWorkspaceView: View {
         self.showsAppUpdateBadge = showsAppUpdateBadge
         self.onCheckForUpdates = onCheckForUpdates
         self.onOpenMeetingDetectionSettings = onOpenMeetingDetectionSettings
-        self.onOpenNotificationSettings = onOpenNotificationSettings
         self.supportIncidentBridge = supportIncidentBridge
         self.localRecordingRows = localRecordingRows
         self.deletionOperations = deletionOperations
@@ -138,7 +135,6 @@ public struct DesktopCabinetWorkspaceView: View {
                 showsAppUpdateBadge: showsAppUpdateBadge,
                 onCheckForUpdates: onCheckForUpdates,
                 onOpenMeetingDetectionSettings: onOpenMeetingDetectionSettings,
-                onOpenNotificationSettings: onOpenNotificationSettings,
                 supportIncidentBridge: supportIncidentBridge,
                 localRecordingRows: localRecordingRows,
                 deletionOperations: deletionOperations,

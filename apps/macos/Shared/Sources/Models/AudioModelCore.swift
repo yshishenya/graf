@@ -639,6 +639,11 @@ public struct EchoProcessingHealth: Codable, Equatable, Sendable {
     }
 }
 
+public enum LocalRecordingStartAcceptance: String, Codable, Sendable {
+    case pending
+    case accepted
+}
+
 public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     public static let schemaVersion = "local-recording-manifest.v5"
     public static let canonicalMixProfileVersion = "canonical-mix.v1"
@@ -650,6 +655,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
 
     /// Durable local-only decision; absent in historical packages.
     public var shortRecordingDiscarded: Bool? = nil
+    /// nil preserves the pre-existing admission rules for historical packages.
+    public var startAcceptance: LocalRecordingStartAcceptance? = nil
     public var schemaVersion: String
     public var sessionId: String
     public var createdAt: Date
@@ -776,7 +783,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
     }
 
     public var isComplete: Bool {
-        guard status == .saved,
+        guard startAcceptance != .pending,
+              status == .saved,
               transcriptionReadiness == .ready,
               !externalEgressStarted,
               !transcriptionStarted,

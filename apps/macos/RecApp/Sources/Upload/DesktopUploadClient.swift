@@ -320,6 +320,19 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     private let authSessionTokenProvider: @Sendable (URL) -> String?
     private let requestExecutor: @Sendable (URLRequest) async throws -> (Data, URLResponse)
     private let sessionRenewalHandler: @Sendable (URLRequest, URLResponse, UInt64) async -> Void
+    private var recordingStartAcceptanceItem: DesktopUploadQueueItem?
+    private var beforeRecordingRequest: (@Sendable () throws -> Void)?
+
+    /// A value copy confines the gate and queue accounting to this recording's requests.
+    func checkingRecordingStartAcceptance(
+        for item: DesktopUploadQueueItem,
+        beforeRequest: (@Sendable () throws -> Void)? = nil
+    ) -> Self {
+        var client = self
+        client.recordingStartAcceptanceItem = item
+        if let beforeRequest { client.beforeRecordingRequest = beforeRequest }
+        return client
+    }
 
     public init(
         baseURL: URL,
@@ -611,6 +624,8 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             return try await scoped(to: scope).upload(item, onProgress: onProgress)
         }
         try Self.validatePackageForUpload(item)
+        try RecordingStartAcceptanceGate.check(item)
+        let client = checkingRecordingStartAcceptance(for: item)
         let initialSessionDescriptors = Self.uploadSessionFileDescriptors(for: item)
         try Self.validateDescriptorSet(initialSessionDescriptors, for: item)
         try await onProgress(item.serverTruth)
@@ -628,20 +643,20 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
                 processing_status: "not_submitted"
             )
         } else {
-            try await createMeeting(item)
+            try await client.createMeeting(item)
         }
         try await onProgress(ServerTruthFingerprint(meetingId: meeting.meeting_id))
-        await linkCalendarContextIfNeeded(item, meetingId: meeting.meeting_id)
+        await client.linkCalendarContextIfNeeded(item, meetingId: meeting.meeting_id)
         try await onProgress(ServerTruthFingerprint(meetingId: meeting.meeting_id))
 
         let uploadSession: UploadSessionResponse
         let newSessionExpectedRoles: Set<DesktopUploadTransportRole>?
         if let sessionId = item.uploadSessionId {
-            uploadSession = try await getUploadSession(sessionId: sessionId)
+            uploadSession = try await client.getUploadSession(sessionId: sessionId)
             newSessionExpectedRoles = nil
         } else {
             try ensureLocalFilesExist(initialSessionDescriptors)
-            uploadSession = try await createUploadSession(
+            uploadSession = try await client.createUploadSession(
                 item,
                 meetingId: meeting.meeting_id,
                 descriptors: initialSessionDescriptors
@@ -682,7 +697,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         try await onProgress(await progressState.snapshot())
         for descriptor in descriptors {
             try await onProgress(await progressState.snapshot())
-            let uploaded = try await uploadFile(
+            let uploaded = try await client.uploadFile(
                 descriptor: descriptor,
                 sessionId: uploadSession.session_id,
                 alreadyAcceptedBytes: acceptedBytes[descriptor.transportRole.rawValue, default: 0],
@@ -701,12 +716,12 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         }
 
         try await onProgress(await progressState.snapshot())
-        let missing = try await missingRanges(sessionId: uploadSession.session_id)
+        let missing = try await client.missingRanges(sessionId: uploadSession.session_id)
         if !missing.missing_ranges_by_track.isEmpty {
             for descriptor in descriptors {
                 for range in missing.missing_ranges_by_track[descriptor.transportRole.rawValue] ?? [] {
                     try await onProgress(await progressState.snapshot())
-                    let uploaded = try await uploadRange(
+                    let uploaded = try await client.uploadRange(
                         descriptor: descriptor,
                         sessionId: uploadSession.session_id,
                         range: range
@@ -721,13 +736,13 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         }
 
         try await onProgress(await progressState.snapshot())
-        let missingAfterRetry = try await missingRanges(sessionId: uploadSession.session_id)
+        let missingAfterRetry = try await client.missingRanges(sessionId: uploadSession.session_id)
         if !missingAfterRetry.missing_ranges_by_track.isEmpty {
             throw DesktopUploadClientError.serverStillMissingRanges
         }
 
         try await onProgress(await progressState.snapshot())
-        let finalize = try await finalizeUpload(
+        let finalize = try await client.finalizeUpload(
             item: item,
             sessionId: uploadSession.session_id,
             meetingId: meeting.meeting_id,
@@ -793,8 +808,11 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         var scopedHeaders = headers
         scopedHeaders["X-Graf-Expected-Actor"] = scope.actorUserID
         scopedHeaders["X-Graf-Expected-Workspace"] = scope.workspaceID
-        return Self(baseURL: baseURL, headers: scopedHeaders, partSizeBytes: partSizeBytes,
+        var client = Self(baseURL: baseURL, headers: scopedHeaders, partSizeBytes: partSizeBytes,
                     authSessionTokenProvider: authSessionTokenProvider, requestExecutor: requestExecutor, sessionRenewalHandler: sessionRenewalHandler)
+        client.recordingStartAcceptanceItem = recordingStartAcceptanceItem
+        client.beforeRecordingRequest = beforeRecordingRequest
+        return client
     }
 
     public func requestRecordingDeletion(_ operation: RecordingDeletionOperation) async throws -> RecordingDeletionReceipt {
@@ -860,9 +878,16 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     }
 
     public func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? {
+        try RecordingStartAcceptanceGate.check(item)
+        return try await checkingRecordingStartAcceptance(for: item).reconcileServerTruth(item)
+    }
+
+    /// Read-only server truth for ownership, completed uploads and deletion cleanup.
+    /// These flows may legitimately outlive the local package; this does not admit an upload.
+    func reconcileServerTruth(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? {
         if let scope = item.ownerScope,
            headers["X-Graf-Expected-Actor"] != scope.actorUserID || headers["X-Graf-Expected-Workspace"] != scope.workspaceID {
-            return try await scoped(to: scope).reconcile(item)
+            return try await scoped(to: scope).reconcileServerTruth(item)
         }
         let request = try request(
             path: "/api/v1/desktop/recordings/\(item.directoryId)/sync-state",
@@ -1375,9 +1400,13 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     }
 
     private func execute(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        if let item = recordingStartAcceptanceItem { try RecordingStartAcceptanceGate.check(item) }
         let generation = await DesktopCabinetSessionBridge.generation
+        if let item = recordingStartAcceptanceItem { try RecordingStartAcceptanceGate.check(item) }
+        try beforeRecordingRequest?()
         let result = try await requestExecutor(request)
         await sessionRenewalHandler(request, result.1, generation)
+        if let item = recordingStartAcceptanceItem { try RecordingStartAcceptanceGate.check(item) }
         return result
     }
 
@@ -1386,6 +1415,10 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         let response: URLResponse
         do {
             (data, response) = try await execute(request)
+        } catch let refusal as RecordingStartAcceptanceGate.Refusal {
+            throw refusal
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw DesktopUploadClientError.httpStatus(503, "network_unavailable")
         }

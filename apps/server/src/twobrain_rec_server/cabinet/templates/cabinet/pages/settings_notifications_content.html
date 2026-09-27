@@ -12,14 +12,13 @@
         <div data-local-notification-settings>
           <fieldset data-local-notification-controls disabled>
             <legend class="sr-only">Уведомления на этом Mac</legend>
-            <p class="muted" data-local-notification-permission>Проверяем разрешение macOS…</p>
+            <p class="muted">Карточки уведомлений работают, пока GRAF запущен.</p>
             {{ ui.switch("mac-reminders", "Напоминать о встречах", local_notification_field="reminders") }}
             <label class="settings-control-row"><span class="settings-control-row__title">Когда напоминать</span><select data-settings-combobox data-local-notification-field="offsetMinutes"><option value="0">В момент начала</option><option value="1">За минуту</option><option value="5">За 5 минут</option></select></label>
             {{ ui.switch("mac-showTitles", "Показывать названия встреч", local_notification_field="showTitles") }}
             {{ ui.switch("mac-sound", "Звук уведомлений", local_notification_field="sound", hint="Во время записи звук выключен.", hint_id="notification-sound-help") }}
+            {{ ui.switch("mac-quiet", "Тихий режим", local_notification_field="quiet", hint="Отключает необязательные сообщения и звук. Запрос начала записи, индикатор записи и кнопка остановки остаются доступны.", hint_id="notification-quiet-help") }}
             <div class="settings-actions">
-              <button class="button quiet" type="button" data-local-notification-action="requestPermission" hidden>Разрешить уведомления</button>
-              <button class="button quiet" type="button" data-local-notification-action="openSystemSettings">Настройки macOS</button>
               <button class="button quiet" type="button" data-local-notification-action="test">Проверить уведомление</button>
             </div>
           </fieldset>

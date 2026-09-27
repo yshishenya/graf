@@ -5,20 +5,11 @@ import Foundation
 import XCTest
 
 final class DesktopCabinetRoutePolicyTests: XCTestCase {
-    func testNativeNotificationSettingsRequireExactTrustedMainFrame() throws {
+    func testRetiredNotificationSettingsRouteIsRejectedWithoutAlias() throws {
         let policy = DesktopCabinetRoutePolicy(baseURL: try url("/"))
-        let target = try url("/desktop/settings/notifications/mac")
-        let source = try url("/desktop/settings/notifications")
-        XCTAssertEqual(policy.decision(for: target).route.kind, .notificationSettings)
-        XCTAssertTrue(policy.allowsNativeSettings(from: source, sourceIsMainFrame: true, targetIsMainFrame: true, sessionReady: true))
-        XCTAssertFalse(policy.allowsNativeSettings(from: source, sourceIsMainFrame: false, targetIsMainFrame: true, sessionReady: true))
-        XCTAssertFalse(policy.allowsNativeSettings(from: source, sourceIsMainFrame: true, targetIsMainFrame: false, sessionReady: true))
-        XCTAssertFalse(policy.allowsNativeSettings(from: source, sourceIsMainFrame: true, targetIsMainFrame: true, sessionReady: false))
-        for invalid in ["https://foreign.example/desktop/settings", "https://rec.2brain.dev:444/desktop/settings", "https://user@rec.2brain.dev/desktop/settings", "https://rec.2brain.dev/login"] {
-            XCTAssertFalse(policy.allowsNativeSettings(from: URL(string: invalid), sourceIsMainFrame: true, targetIsMainFrame: true, sessionReady: true))
-        }
-        for path in ["/desktop/settings/notifications/mac?x=1", "/desktop/settings/notifications/mac#x", "/desktop/settings/notifications/mac/", "/desktop/settings/notifications/%6dac", "/desktop/settings/notifications/../notifications/mac", "/desktop/settings/notifications%2fmac"] {
-            XCTAssertNotEqual(policy.decision(for: try url(path)).route.kind, .notificationSettings, path)
+        XCTAssertEqual(policy.decision(for: try url("/desktop/settings/notifications")).decision, .allow)
+        for path in ["/desktop/settings/notifications/mac", "/desktop/settings/notifications/mac?x=1", "/desktop/settings/notifications/mac#x", "/desktop/settings/notifications/mac/", "/desktop/settings/notifications/%6dac", "/desktop/settings/notifications/../notifications/mac", "/desktop/settings/notifications%2fmac"] {
+            XCTAssertEqual(policy.decision(for: try url(path)).decision, .blockWithMessage, path)
         }
     }
 

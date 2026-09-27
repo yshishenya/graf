@@ -4,6 +4,16 @@ import TwoBrainRecShared
 public enum MeetingDetectionAppModule {
     public static let applicationSupportDirectoryName = "MeetingDetection"
 
+    /// A stop observed during a suspended start cancels that start permanently,
+    /// even if the same application becomes active again before it resumes.
+    public static func allowsPendingStart(
+        decisionIsCurrent: Bool,
+        bundleID: String,
+        pendingStopBundleID: String?
+    ) -> Bool {
+        decisionIsCurrent && pendingStopBundleID != bundleID
+    }
+
     public static var bundledTargetRegistryURL: URL? {
         if Bundle.main.bundleURL.pathExtension.lowercased() == "app" {
             return packagedTargetRegistryURL(resourceURL: Bundle.main.resourceURL)

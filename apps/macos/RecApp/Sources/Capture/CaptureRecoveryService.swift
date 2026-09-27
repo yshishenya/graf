@@ -161,6 +161,19 @@ public final class CaptureRecoveryService {
         manifestURL: URL,
         manifestService: LocalRecordingManifestService
     ) -> LocalRecordingRecoveryOutcome {
+        if activeManifest.startAcceptance == .pending {
+            var blocked = activeManifest
+            blocked.status = .blocked
+            blocked.transcriptionReadiness = .failed
+            blocked.failureReason = .permissionDenied
+            blocked.scopeApproval = nil
+            blocked.captureFailureCode = "recording_start_not_accepted"
+            // Failure leaves the original durable pending checkpoint. Do not
+            // repair, rename or remove its audio, even when it is valid.
+            try? manifestService.write(blocked, to: manifestURL)
+            return LocalRecordingRecoveryOutcome(directoryId: blocked.directoryId,
+                disposition: .damaged, manifest: blocked)
+        }
         do {
             let transcriptionURL = try recoverTranscriptionAudio(in: directoryURL)
             let reviewURL = try recoverReviewAudio(
@@ -183,7 +196,7 @@ public final class CaptureRecoveryService {
                 stoppedAt: stoppedAt,
                 startedAt: activeManifest.startedAt
             )
-            let manifest = manifestService.v5Manifest(
+            var manifest = manifestService.v5Manifest(
                 sessionId: activeManifest.sessionId,
                 directoryId: activeManifest.directoryId,
                 startedAt: activeManifest.startedAt,
@@ -203,6 +216,7 @@ public final class CaptureRecoveryService {
                     processedFrameCount: tracks.first(where: { $0.role == .reviewPlayback })?.frameCount ?? 0
                 )
             )
+            manifest.startAcceptance = activeManifest.startAcceptance
             try manifestService.write(manifest, to: manifestURL)
             removeRecoveryPartials(in: directoryURL)
             return LocalRecordingRecoveryOutcome(

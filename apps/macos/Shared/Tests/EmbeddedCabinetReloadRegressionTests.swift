@@ -46,7 +46,7 @@ final class EmbeddedCabinetReloadRegressionTests: XCTestCase {
             fallbackRequest: request,
             notificationPresenter: DesktopNotificationPresenter(
                 store: .init(defaults: UserDefaults(suiteName: UUID().uuidString)!),
-                model: DesktopControlModel(), status: { .denied }), navigationController: controller)
+                model: DesktopControlModel()), navigationController: controller)
         }
         let host = NSHostingView(rootView: makeView(request))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),

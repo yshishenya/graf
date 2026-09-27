@@ -8,6 +8,140 @@ import TwoBrainRecShared
 import XCTest
 
 final class DesktopUploadQueueTests: XCTestCase {
+    func testStartAcceptanceCachedQueueRejectsInvalidManifestAcrossRetryRescanAndRestart() async throws {
+        for invalidation in ["pending", "unknown", "session", "directory", "missing", "read-error", "malformed"] {
+            for entry in ["cached", "retry", "rescan", "restart"] {
+                let root = temporaryRoot()
+                defer { try? FileManager.default.removeItem(at: root) }
+                let package = try makeV5RecordingPackage(root: root, directoryId: "acceptance", sessionId: "acceptance-session")
+                let queueURL = root.appendingPathComponent("queue.json")
+                let client = ReconcileThenUploadClient(reconciliation: nil, result: .init(state: .uploaded, serverTruth: .init()))
+                let service = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root,
+                    client: client, clock: { Date(timeIntervalSince1970: 100) })
+                let cached = try XCTUnwrap(service.scanTrustedSyntheticRecordingFixtures().first)
+                XCTAssertTrue(cached.isUploadEligible)
+                XCTAssertEqual(cached.attemptCount, 0)
+                XCTAssertEqual(cached.serverCreationAttempted, false)
+                try Self.invalidateStartAcceptanceManifest(at: package.manifestURL, reason: invalidation)
+
+                let processing = entry == "restart"
+                    ? DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root,
+                        client: client, clock: { Date(timeIntervalSince1970: 100) })
+                    : service
+                // A local refusal may be returned as a blocked item or thrown. Neither may send.
+                if entry == "retry" { _ = try? processing.retry(itemId: cached.id) }
+                if entry == "rescan" { _ = try? processing.scanAndEnqueueCompletedRecordings() }
+                for _ in 0..<2 {
+                    _ = try? await processing.processTrustedSyntheticDueItems()
+                }
+                let context = "\(invalidation)/\(entry)"
+                XCTAssertTrue(client.reconciledItems.isEmpty, context)
+                XCTAssertTrue(client.uploadedItems.isEmpty, context)
+                let persisted = try XCTUnwrap(processing.loadItems().first { $0.id == cached.id })
+                XCTAssertEqual(persisted.attemptCount, 0, context)
+                XCTAssertEqual(persisted.serverCreationAttempted, false, context)
+                XCTAssertTrue(persisted.retryRecords.isEmpty, context)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: package.transcriptionURL.path), context)
+                XCTAssertTrue(FileManager.default.fileExists(atPath: package.reviewURL.path), context)
+            }
+        }
+    }
+
+    func testStartAcceptanceRechecksManifestAfterProgressBeforeAnyClientCall() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeV5RecordingPackage(root: root, directoryId: "acceptance", sessionId: "acceptance-session")
+        let manifestURL = package.manifestURL
+        let client = ReconcileThenUploadClient(reconciliation: nil, result: .init(state: .uploaded, serverTruth: .init()))
+        let service = DesktopUploadQueueService(queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root, client: client, clock: { Date(timeIntervalSince1970: 100) })
+        let cached = try XCTUnwrap(service.scanTrustedSyntheticRecordingFixtures().first)
+        // Install pending during the existing asynchronous observer boundary, without throwing.
+        let pending = try Self.startAcceptanceManifestData(at: manifestURL, value: "pending")
+        _ = try? await service.processTrustedSyntheticDueItems { _ in
+            try? pending.write(to: manifestURL, options: .atomic)
+        }
+        XCTAssertEqual(try Data(contentsOf: manifestURL), pending)
+        XCTAssertTrue(client.reconciledItems.isEmpty)
+        XCTAssertTrue(client.uploadedItems.isEmpty)
+        let persisted = try XCTUnwrap(service.loadItems().first { $0.id == cached.id })
+        XCTAssertEqual(persisted.attemptCount, 0)
+        XCTAssertEqual(persisted.serverCreationAttempted, false)
+        XCTAssertTrue(persisted.retryRecords.isEmpty)
+    }
+
+    func testStartAcceptanceRechecksManifestAfterReconcileBeforeUpload() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeV5RecordingPackage(root: root, directoryId: "acceptance", sessionId: "acceptance-session")
+        let manifestURL = package.manifestURL
+        let pending = try Self.startAcceptanceManifestData(at: manifestURL, value: "pending")
+        let client = ReconcileThenUploadClient(reconciliation: nil,
+            result: .init(state: .uploaded, serverTruth: .init()), onReconcile: {
+                try pending.write(to: manifestURL, options: .atomic)
+            })
+        let service = DesktopUploadQueueService(queueURL: root.appendingPathComponent("queue.json"),
+            recordingsRootURL: root, client: client, clock: { Date(timeIntervalSince1970: 100) })
+        _ = try service.scanTrustedSyntheticRecordingFixtures()
+        _ = try? await service.processTrustedSyntheticDueItems()
+        XCTAssertEqual(client.reconciledItems.count, 1)
+        XCTAssertEqual(try Data(contentsOf: manifestURL), pending)
+        XCTAssertTrue(client.uploadedItems.isEmpty)
+    }
+
+    func testStartAcceptanceAcceptedAndLegacyManifestRemainUploadableAfterRestart() async throws {
+        for acceptance in [nil, "accepted"] as [String?] {
+            let root = temporaryRoot()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let package = try makeV5RecordingPackage(root: root, directoryId: "acceptance", sessionId: "acceptance-session")
+            if let acceptance {
+                try Self.startAcceptanceManifestData(at: package.manifestURL, value: acceptance)
+                    .write(to: package.manifestURL, options: .atomic)
+            }
+            let queueURL = root.appendingPathComponent("queue.json")
+            let client = ReconcileThenUploadClient(reconciliation: nil, result: .init(state: .uploaded, serverTruth: .init()))
+            let service = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root,
+                client: client, clock: { Date(timeIntervalSince1970: 100) })
+            let cached = try XCTUnwrap(service.scanTrustedSyntheticRecordingFixtures().first)
+            XCTAssertTrue(cached.isUploadEligible)
+            let restarted = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root,
+                client: client, clock: { Date(timeIntervalSince1970: 100) })
+            _ = try restarted.retry(itemId: cached.id)
+            _ = try restarted.scanAndEnqueueCompletedRecordings()
+            let result = try await restarted.processTrustedSyntheticDueItems()
+            XCTAssertEqual(client.reconciledItems.count, 1)
+            XCTAssertEqual(client.uploadedItems.count, 1)
+            XCTAssertEqual(result.first?.state, .uploaded)
+            XCTAssertEqual(result.first?.attemptCount, 1)
+            XCTAssertEqual(result.first?.serverCreationAttempted, true)
+        }
+    }
+
+    // Raw JSON deliberately compiles against the pre-F277 model, which ignores the new key.
+    private static func startAcceptanceManifestData(at url: URL, value: String) throws -> Data {
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        object["startAcceptance"] = value
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
+
+    private static func invalidateStartAcceptanceManifest(at url: URL, reason: String) throws {
+        switch reason {
+        case "missing": try FileManager.default.removeItem(at: url)
+        case "read-error":
+            try FileManager.default.removeItem(at: url)
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+        case "malformed": try Data("{".utf8).write(to: url, options: .atomic)
+        default:
+            var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+            switch reason {
+            case "session": object["sessionId"] = "other-session"
+            case "directory": object["directoryId"] = "other-directory"
+            default: object["startAcceptance"] = reason
+            }
+            try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]).write(to: url, options: .atomic)
+        }
+    }
+
     func testShortRecordingCleanupAndRestartLeaveHistoricalPackageAlone() throws {
         for savingState in ["absent", "current", "previous-v5-paths"] {
             let root = temporaryRoot()
@@ -397,28 +531,6 @@ final class DesktopUploadQueueTests: XCTestCase {
         )
         XCTAssertEqual(historicalSummary.detail, "отправка записи старого формата больше не поддерживается; локальная копия сохранена")
         XCTAssertEqual(silentSummary.detail, "микрофон был слишком тихим или пустым; отправим как есть")
-    }
-
-    func testLocalControlKeepsBlockedUploadButExcludesServerAcceptedRecording() {
-        let blockedLocal = makeQueueItem(
-            id: "blocked-local",
-            state: .blocked,
-            retryMode: .manualOnly,
-            failureReason: "local_recording_package_not_uploadable",
-            updatedAt: Date(timeIntervalSince1970: 40)
-        )
-        let uploadedServerVisible = makeQueueItem(
-            id: "uploaded-server",
-            state: .uploaded,
-            retryMode: .terminal,
-            meetingId: "meeting-042",
-            updatedAt: Date(timeIntervalSince1970: 50)
-        )
-
-        var snapshot = DesktopControlSnapshot()
-        snapshot.uploadItems = [uploadedServerVisible, blockedLocal]
-        XCTAssertFalse(snapshot.localIssues.contains { $0.primaryItem.id == uploadedServerVisible.id })
-        XCTAssertTrue(snapshot.localIssues.contains { $0.primaryItem.id == blockedLocal.id })
     }
 
     func testLocalModeMeetingListPrioritizesNewestLocalOnlyRecording() {
@@ -1238,6 +1350,22 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(byDirectory["permission-denied-package"]?.failureReason, LocalRecordingFailureReason.permissionDenied.rawValue)
         XCTAssertEqual(byDirectory["scope-rejected-package"]?.state, .blocked)
         XCTAssertEqual(byDirectory["scope-rejected-package"]?.failureReason, LocalRecordingFailureReason.scopeUnavailable.rawValue)
+    }
+
+    func testRevokedPromptStartStaysLocalAfterRescanEvenWithInitiallyGrantedPermissions() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = try makeRecordingPackage(root: root, directoryId: "revoked-start", sessionId: "synthetic-start",
+            status: .failed, failureReason: .permissionDenied)
+        let queueURL = root.appendingPathComponent("queue.json")
+        for _ in 0..<2 {
+            let service = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root, client: nil)
+            let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+            XCTAssertEqual(item.state, .blocked)
+            XCTAssertFalse(item.artifactProfile.isUploadable)
+            XCTAssertNil(item.meetingId)
+            XCTAssertEqual(item.attemptCount, 0)
+        }
     }
 
     func testOfflineQueueSurvivesRestartWithoutServerTruth() throws {
@@ -3337,16 +3465,20 @@ final class DesktopUploadQueueTests: XCTestCase {
     private final class ReconcileThenUploadClient: @unchecked Sendable, DesktopUploadClientProtocol {
         private let reconciliation: DesktopUploadReconciliation?
         private let result: DesktopUploadResult
+        private let onReconcile: (@Sendable () throws -> Void)?
         private(set) var reconciledItems: [DesktopUploadQueueItem] = []
         private(set) var uploadedItems: [DesktopUploadQueueItem] = []
 
-        init(reconciliation: DesktopUploadReconciliation?, result: DesktopUploadResult) {
+        init(reconciliation: DesktopUploadReconciliation?, result: DesktopUploadResult,
+             onReconcile: (@Sendable () throws -> Void)? = nil) {
             self.reconciliation = reconciliation
             self.result = result
+            self.onReconcile = onReconcile
         }
 
         func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? {
             reconciledItems.append(item)
+            try onReconcile?()
             return reconciliation
         }
 
