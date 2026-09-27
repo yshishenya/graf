@@ -177,9 +177,7 @@ final class DesktopNotificationAccessibilityTests: XCTestCase {
         XCTAssertTrue(launched)
         let presenter = F277CardFixture().presenter()
         defer { presenter.dismiss() }
-        NSApp.deactivate()
-        let inactive = try await F277CardTestSupport.awaitAppKitState { !NSApp.isActive }
-        XCTAssertTrue(inactive)
+        try await F277CardTestSupport.requireInactiveHost()
         XCTAssertFalse(NSApp.isActive, "Начальное состояние должно быть действительно неактивным")
         let policy = NSApp.activationPolicy()
         XCTAssertTrue(presenter.present(F277CardTestSupport.prompt(), onAction: { _ in }))
@@ -189,6 +187,10 @@ final class DesktopNotificationAccessibilityTests: XCTestCase {
         XCTAssertFalse(NSApp.isActive, "Автоматический показ не активирует GRAF")
         XCTAssertFalse(window.isKeyWindow)
         let pumped = try await F277CardTestSupport.awaitAppKitState({ NSApp.isActive && window.isKeyWindow }, timeout: 3, perform: {
+            XCTAssertFalse(NSApp.isActive, "Приложение не должно активироваться до явной команды")
+            XCTAssertFalse(NSApp.isHidden, "Проверяется видимое, а не скрытое приложение")
+            XCTAssertTrue(window.isVisible)
+            XCTAssertFalse(window.isKeyWindow, "Панель не должна получать фокус до явной команды")
             XCTAssertTrue(presenter.focus(), "Явная команда должна передать фокус настоящей панели")
         })
         XCTAssertTrue(pumped)
