@@ -780,6 +780,26 @@ public enum SystemAudioCPUGateEvaluator {
 public enum SystemAudioStatusLabels {
     public static let captureRegion = "Управление записью"
     public static let recordingIdle = "Запись не идет"
+    public static let recordingStopped = "Запись остановлена"
+    public static let recordingFailed = "Запись завершилась с ошибкой"
+
+    public static func localRecordingStatus(_ status: LocalRecordingSessionStatus) -> String {
+        switch status {
+        case .saved: return "Локальная запись сохранена"
+        case .degraded: return "Локальная запись сохранена с ограничениями"
+        case .blocked: return "Локальная запись заблокирована"
+        case .failed: return recordingFailed
+        case .active: return "Локальная запись идет"
+        }
+    }
+
+    public static func captureFailureDetail(failureCode: String, hasPlayableFragment: Bool) -> String {
+        let result = hasPlayableFragment
+            ? "Уже очищенная часть сохранена локально."
+            : "Сохраненного очищенного фрагмента нет."
+        return "Запись остановлена: \(failureCode). \(result)"
+    }
+
     public static let recordButtonTitle = "Начать запись"
     public static let recordButtonAccessibilityLabel = "Начать запись системного звука"
     public static let stopButtonTitle = "Остановить запись"

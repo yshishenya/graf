@@ -1,5 +1,6 @@
 import AppKit
 import XCTest
+import TwoBrainRecShared
 @testable import TwoBrainRecAppCore
 
 final class ShortRecordingNoticeTests: XCTestCase {
@@ -21,8 +22,24 @@ final class ShortRecordingNoticeTests: XCTestCase {
         XCTAssertEqual(DesktopNotificationCardPresenter.noticeDisplayDuration, 20)
         XCTAssertEqual(presenter.card.presentedContent, .shortRecording)
         XCTAssertTrue(presenter.history.contains { $0.kind == .shortRecording })
+        // This is the same stopped + absent-manifest presentation used after discard.
+        let controller = CaptureSessionController(
+            clock: { Date(timeIntervalSince1970: 20) },
+            idFactory: { "synthetic-short" },
+            policySnapshotProvider: { "synthetic" }
+        )
+        _ = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
+        _ = try controller.markReady()
+        _ = try controller.start()
+        _ = try controller.markCapturing()
+        _ = try controller.requestStop(reason: .userRequested)
+        let stopped = try controller.completeStop()
+        XCTAssertEqual(CaptureStatusItem.statusLabel(for: stopped), "Запись остановлена")
+        XCTAssertEqual(CaptureControlView.primaryStatus(for: stopped, blockedReason: nil,
+                                                       localRecordingStatus: nil), "Запись остановлена")
         presenter.dismissShortRecording()
         XCTAssertFalse(window.isVisible)
         XCTAssertNil(presenter.card.window)
+        XCTAssertTrue(presenter.history.contains { $0.kind == .shortRecording })
     }
 }

@@ -150,7 +150,9 @@ final class AppControlAccessibilityTests: XCTestCase {
             ).count - 1,
             3
         )
-        XCTAssertTrue(source.contains("checkmark.circle.fill"))
+        XCTAssertTrue(source.contains("stop.circle"))
+        XCTAssertFalse(source.contains("checkmark.circle.fill"), "Остановка не доказывает сохранение")
+        XCTAssertTrue(source.contains("SystemAudioStatusLabels.recordingStopped"))
         XCTAssertTrue(source.contains("session.state == .stopped || session.state == .finalized"))
         XCTAssertFalse(source.contains("SystemAudioAccessibilityIdentifier.recordingSource"))
         XCTAssertTrue(shellSource.contains("CaptureStatusItem.sourceIndicatorLabel(for: session)"))

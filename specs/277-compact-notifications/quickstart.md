@@ -7,7 +7,7 @@
 ## Команды из корня
 
 ```sh
-swift test --package-path apps/macos --filter 'DesktopNotification|DesktopLocalNotification|EmbeddedCabinetNotification|MeetingDetectionCountdownTests|MeetingDetectionPolicyTests|MeetingDetectionRecordingLifecycleTests|CaptureControlV5Tests|ShortRecording|AppControlAccessibility|DesktopCabinetRoutePolicy|DesktopCalendarReminderTests|DesktopUploadQueueTests/testRevokedPromptStart'
+swift test --package-path apps/macos --filter 'DesktopNotification|DesktopLocalNotification|EmbeddedCabinetNotification|MeetingDetectionCountdownTests|MeetingDetectionPolicyTests|MeetingDetectionRecordingLifecycleTests|CaptureControlTests|CaptureIndicatorTests|ShortRecording|AppControlAccessibility|DesktopCabinetRoutePolicy|DesktopCalendarReminderTests|DesktopUploadQueueTests/testRevokedPromptStart|DesktopUploadQueueTests/testV5CaptureFailure'
 swift build --package-path apps/macos --product TwoBrainRecApp
 swift build --package-path apps/macos --product ContractValidation
 apps/macos/.build/debug/ContractValidation
@@ -27,7 +27,7 @@ Tests:5variants, measurement44–52/380, optionalfields/largetext, buttons/check
 Дополнение FR-026–028 (до общей матрицы):
 
 ```sh
-swift test --package-path apps/macos --filter 'RecordingStartAcceptanceTests|DesktopUploadQueueTests|DesktopUploadClientTests|LocalRecordingWriter|CaptureRecovery|CaptureControlV5Tests|MeetingDetectionRecordingLifecycleTests'
+swift test --package-path apps/macos --filter 'RecordingStartAcceptanceTests|DesktopUploadQueueTests|DesktopUploadClientTests|LocalRecordingWriter|CaptureRecovery|CaptureControlTests|CaptureIndicatorTests|MeetingDetectionRecordingLifecycleTests'
 ```
 
 Новые проверки должны реально писать/читать manifest: первоначальный отказ

@@ -255,10 +255,10 @@ public struct CaptureControlView: View {
             if let localRecordingStatus,
                Self.shouldShowLocalRecordingStatus(localRecordingStatus, for: session) {
                 StatusNoteView(
-                    icon: localRecordingStatusIcon,
+                    icon: Self.localRecordingStatusIcon(for: localRecordingStatus),
                     title: Self.localRecordingSummary(for: localRecordingStatus),
                     detail: localRecordingStatusDetail,
-                    iconColor: localRecordingStatusStyle
+                    iconColor: Self.localRecordingStatusStyle(for: localRecordingStatus)
                 )
                     .accessibilityLabel(localRecordingStatus)
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.localRecordingStatus)
@@ -405,6 +405,7 @@ public struct CaptureControlView: View {
     }
 
     public static func localRecordingSummary(for status: String) -> String {
+        if status == SystemAudioStatusLabels.recordingFailed { return "Нужна помощь" }
         let normalized = status.lowercased()
         if normalized.contains("не сохран") || normalized.contains("заблок") {
             return "Нужна помощь"
@@ -442,7 +443,7 @@ public struct CaptureControlView: View {
         case .stopping:
             return "Сохраняем запись…"
         case .stopped, .finalized:
-            return "Сохранено на Mac"
+            return SystemAudioStatusLabels.recordingStopped
         case .failed:
             return "Нужна помощь"
         }
@@ -496,8 +497,10 @@ public struct CaptureControlView: View {
         colorSchemeContrast == .increased ? DesktopDesignTokens.text : DesktopDesignTokens.muted
     }
 
-    private var localRecordingStatusIcon: String {
-        guard let localRecordingStatus else { return "waveform.path.badge.plus" }
+    static func localRecordingStatusIcon(for localRecordingStatus: String) -> String {
+        if localRecordingStatus == SystemAudioStatusLabels.recordingFailed {
+            return "exclamationmark.triangle.fill"
+        }
         if localRecordingStatus.localizedCaseInsensitiveContains("blocked") ||
             localRecordingStatus.localizedCaseInsensitiveContains("permission") ||
             localRecordingStatus.localizedCaseInsensitiveContains("заблок") ||
@@ -511,8 +514,10 @@ public struct CaptureControlView: View {
         return "waveform.path.badge.plus"
     }
 
-    private var localRecordingStatusStyle: Color {
-        guard let localRecordingStatus else { return DesktopDesignTokens.muted }
+    static func localRecordingStatusStyle(for localRecordingStatus: String) -> Color {
+        if localRecordingStatus == SystemAudioStatusLabels.recordingFailed {
+            return DesktopDesignTokens.amber
+        }
         if localRecordingStatus.localizedCaseInsensitiveContains("blocked") ||
             localRecordingStatus.localizedCaseInsensitiveContains("permission") ||
             localRecordingStatus.localizedCaseInsensitiveContains("degraded") ||
