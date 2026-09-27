@@ -1570,3 +1570,64 @@ T020/T021/T022 пока не помечаются полностью завер�
 а не заменяет пользовательскими словами автоматические/контекстные тесты.
 Изменения — только документы (`docs-only` внутри F277 `high-risk-product`);
 новых встреч/записей, изменений кода/настроек или установки агент не выполнял.
+
+## Исправление подтверждённых сбоев PR #7351 — 2026-09-28
+
+Lane: существующая F277 `high-risk-product`, T019 / #7303 и T022 / #7276.
+Предыдущий проход дал новые проверенные причины отказа, а не только повтор
+статуса. HEAD до исправления: `29141c332ab88f81395e40464083bb041d970836`.
+
+- `governance-fast` run36359095808: отсутствовал `## Legacy Impact` в spec.
+  Добавлен раздел `Classification: remove`, описывающий уже согласованные
+  FR-014/021/023/027 и cleanup-map; новых исключений совместимости нет.
+  Повторный локальный validate-legacy-impact — OK. Ошибки времени отчёта
+  неуспешного CI не обходились; корректность отчёта подтвердит новый CI.
+- `macos-pr` run36359095794 повторил ошибку Swift 6.0.3 на CalendarTray.swift:179:
+  `sending 'self' risks causing data races`. В callback слабая ссылка
+  раскрывается в неизменяемую ссылку до `MainActor.assumeIsolated`.
+  Синхронная отмена прежнего контекста остаётся до Task refresh; событие,
+  регистрация, очередь main и правила доступа не изменяются.
+- Локальный компилятор: Apple Swift 6.3.3. Его успешный результат не заменяет
+  компиляцию Swift 6.0.3 в GitHub. Code/Security review Codex для старого
+  `29141c332` завершились без опубликованных замечаний; это не review нового SHA.
+- Независимый reviewer: 26/26 custom + 5/5 built-in, analyze0/0/0,
+  code-review ограниченного финального diff PASS, подробности в scope-review.
+
+Проверки проводились автоматическими тестами worktree, без установки/запуска
+нового приложения и без реальных встреч. Сначала добавлялся тест настоящего
+NotificationCenter callback; два узких теста и профиль77 прошли. Reviewer
+обнаружил, что новый тест запускал периодические ресурсы без очистки. Он
+полностью удалён, файл тестов совпадает с HEAD; API только ради теста не добавлен.
+Прежний тест синхронной отмены/отклонения pending ответа сохранён, но проверяет
+прямой метод, а не регистрацию наблюдателя. Промежуточные77 не выдаются за
+финальный набор.
+
+Промежуточный неполный фильтр (488 тестов, с удалённым впоследствии тестом)
+завершился exit1: один клавиатурный тест дал три assertions при отказе
+получения key window (`active=false, running=false`), экспорт изображений
+пропущен без GRAF_CARD_SNAPSHOT_DIR. Это не PASS; окончательный запуск ниже
+использовал полный прежний фильтр и каталог экспорта, без изменения тестов
+фокуса/условий пропуска и без снятия проверок. Прямой причинной связи сбоя
+фокуса с удалённым тестом не утверждаем.
+
+Окончательная команда:
+
+```sh
+notification_render_dir=$(mktemp -d /tmp/graf-f277-ci-fix-renders.XXXXXX)
+GRAF_CARD_SNAPSHOT_DIR="$notification_render_dir" swift test --package-path apps/macos --filter 'RecordingStartAcceptanceTests|DesktopUploadQueueTests|DesktopUploadClientTests|LocalRecordingWriter|CaptureRecovery|CaptureControlTests|CaptureIndicatorTests|RecordingDeletion|DesktopNotification|DesktopLocalNotification|EmbeddedCabinetNotification|MeetingDetectionCountdownTests|MeetingDetectionPolicyTests|MeetingDetectionRecordingLifecycleTests|ShortRecording|AppControlAccessibility|DesktopCabinetRoutePolicy|DesktopCalendarReminderTests|CabinetSidebarRuntimeTests|DesktopCabinetWorkspaceTests'
+```
+
+Результат: **579 PASS, 0 SKIP, 0 FAIL**, exit0, 35.656s; окончание
+2026-09-28 02:49:00.972 местного времени. Подтверждение запуска0.001379083s.
+Журнал `/tmp/graf-f277-ci-fix-final.log`. Старые результаты не переписаны.
+
+Также PASS: `swift build --package-path apps/macos --product TwoBrainRecApp`,
+сборка и запуск ContractValidation, `scripts/check_notification_retirement.py`
+(0 violations), `scripts/validate-legacy-impact.py --feature
+specs/277-compact-notifications/spec.md`, `scripts/check-development-process.py`,
+`scripts/check_spec_kit_governance.py`, `git diff --check`.
+Локальный ignored feature pointer приведён к текущему HEAD после обнаружения
+старого source_sha; ветка, область владения и риск сохранены, валидатор не менялся.
+Hooks before/after implement отключены. Установленный GRAF Dev остаётся51bcff6b1;
+ручную приёмку и долг второго монитора это исправление не переписывает.
+Окончательная приёмка T021/T022 требует новых точных GitHub SHA/base результатов.

@@ -176,8 +176,9 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
             ) { [weak self] _ in
                 // The observer runs on the main queue. Revoke outstanding
                 // calendar responses before any queued request can resume.
-                MainActor.assumeIsolated { self?.invalidateAuthContext() }
-                Task { @MainActor in self?.refreshNow() }
+                guard let self else { return }
+                MainActor.assumeIsolated { self.invalidateAuthContext() }
+                Task { @MainActor in self.refreshNow() }
             }),
             (NSWorkspace.shared.notificationCenter, NSWorkspace.shared.notificationCenter.addObserver(
                 forName: NSWorkspace.didWakeNotification,
