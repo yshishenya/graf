@@ -150,3 +150,16 @@ T001 → T002 → независимые тестовые ветви T003/T006/T
 Уточнение адреса T028 по `rg`: существующий `SystemAudioStatusLabels` объявлен в `apps/macos/Shared/Sources/Models/SystemAudioCaptureCoreModels.swift`, а отдельного `RecApp/Sources/Capture/SystemAudioStatusLabels.swift` нет. Использовать существующий тип в Shared; новый одноимённый файл/тип не создавать. Меняется только чистое преобразование статуса в подпись, не модель данных.
 
 Владелец T027 и T028: [#7337](https://github.com/yshishenya/graf/issues/7337). Обе задачи перечислены в `Spec tasks` и `Spec Kit task IDs`; issue остаётся открытой до реализации, проверки и PR. Никакие прежние issues не закрыты.
+
+## Phase 10: Convergence
+
+Независимый целевой просмотр оставшихся цепочек уведомлений выявил один
+низкорисковый остаток FR-021; прежняя общая приёмка остаётся открытой.
+Это очистка недостижимого случая, не изменение календарных действий,
+восьмисекундного отсчёта, правил записи или разрешений.
+
+- [ ] T029 [US2] Удалить только `.joinAndRecord` из ветки `.recordingPrompt` метода `handleAction` в `apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift`: карточка вопроса создаёт только `.record`, `.skipRecordingPrompt` и переключение флажка. Само календарное действие `.joinAndRecord` и его обработку в ветке `.meeting` сохранить. Проверить реальные наборы действий и вызов Start/Skip у карточки вопроса в `apps/macos/Shared/Tests/DesktopNotificationCardTests.swift` и `apps/macos/Shared/Tests/DesktopNotificationPromptLifecycleTests.swift`, календарный путь — в `apps/macos/Shared/Tests/DesktopLocalNotificationDeliveryTests.swift`; затем профильные тесты, сборка и повторная проверка удаления. По FR-021/SC-006 и plan: один действующий обработчик без невыдаваемых действий (partial, LOW). До реализации синхронизировать GitHub issue и проверить применимость reviewer-owned checklist; не менять установку во время ручного теста пользователя.
+
+Владелец T029: [#7338](https://github.com/yshishenya/graf/issues/7338).
+Предшествующие T001–T028 сохраняют своих открытых владельцев; результат
+реализации и закрытие T029 ещё не заявлены.
