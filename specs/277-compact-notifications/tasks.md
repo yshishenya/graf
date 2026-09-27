@@ -49,11 +49,17 @@
 **Goal**: клавиатура без перехвата фокуса и нейтральная ограниченная история результатов.
 **Independent test**: явный focus/Tab/ShiftTab/Space/Return/Escape, стабильное AX-дерево при tick, 20/6s hover/focus hold отдельно от8s, history/context/privacy.
 
-- [ ] T015 [P] [US4] Сначала добавить проверки bounded history и lifecycle экрана/фокуса в `apps/macos/Shared/Tests/DesktopNotificationHistoryTests.swift` и `apps/macos/Shared/Tests/DesktopNotificationAccessibilityTests.swift` (FR-006/012/017–020, SC-004/007).
+- [X] T015 [P] [US4] Сначала добавить проверки bounded history и lifecycle экрана/фокуса в `apps/macos/Shared/Tests/DesktopNotificationHistoryTests.swift` и `apps/macos/Shared/Tests/DesktopNotificationAccessibilityTests.swift` (FR-006/012/017–020, SC-004/007).
 - [X] T016 [US4] Реализовать history в `apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift` и пункты существующего меню в `apps/macos/RecApp/Sources/Calendar/CalendarTray.swift`: до50 entries newest-first, только UUID/Date/closed enum/нейтральный текст, память запуска/контекста, без meetingname/sessionpath/URL/participant/transcript/audio/replayaction, preview/tick не входят; очищать при смене контекста (после T010/T015).
 - [X] T017 [US4] Реализовать в `apps/macos/RecApp/Sources/Notifications/DesktopNotificationCardPresenter.swift` явный focus, first click, устойчивый AX, hold20/6s без изменения8s/calendar deadline, сохранение screenID, fullscreen/visibleFrame, перенос отключённого экрана без reset, доступную прокрутку и отказ невозможного размещения без перекрытия Stop; связать focus и сведения о собственном Stop в `apps/macos/RecApp/App/TwoBrainRecApp.swift` (после T007/T008/T015).
 
 ## Phase 7: Cleanup and validation
+
+Примечание к T015 (2026-09-28): проверки истории фактически добавлены после
+реализации. Владелец явно принял это документированное отклонение; локальная
+отметка означает готовую реализацию и проходящие тесты с принятым отклонением,
+а не соблюдение прежнего порядка. Подробности и исходная хронология сохранены
+в `validation.md`. GitHub issue остаётся открытой до проверки закрытия через PR.
 
 - [X] T018 Удалить остатки и обновить действующие проверки по `specs/277-compact-notifications/cleanup-map.md`, включая `apps/macos/Shared/Tests/DesktopNotificationCardTests.swift`; добавить `scripts/check_notification_retirement.py` и его негативные тесты `apps/server/tests/contract/test_desktop_notification_retirement.py`, запретив старые scheduling/delegate/permission/wrapper/route и разрешив только выполняемый cleanup helper. Historical specs, server inbox/billing, CalendarPromptView и notificationContext сохраняются (FR-021–024, SC-006).
 - [X] T019 Выполнить все focused native/WebKit/browser/pytest проверки и builds/ContractValidation из `specs/277-compact-notifications/quickstart.md`; записать реальные результаты, число тестов, причины skips и точные команды в `specs/277-compact-notifications/validation.md`; исправить регрессии (после T005/T008/T014/T016/T017/T018).
