@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
+from uuid import UUID
+
+from twobrain_rec_server.config import Settings
 
 
 class OperationOutcome(StrEnum):
@@ -40,6 +43,13 @@ INITIAL_CHECKOUT_OBSERVATION_EXPIRED = "observation_expired"
 def blocks_new_checkout(operation_state: str) -> bool:
     """Unknown payment truth must reconcile before another charge is allowed."""
     return operation_state in CHECKOUT_BLOCKING_STATES
+
+
+def billing_checkout_allowed(settings: Settings, workspace_id: UUID) -> bool:
+    allowed = getattr(settings, "billing_checkout_workspace_ids", None)
+    return bool(settings.billing_checkout_enabled) and (
+        allowed is None or workspace_id in allowed
+    )
 
 
 def require_billing_enabled(*, checkout_enabled: bool) -> None:

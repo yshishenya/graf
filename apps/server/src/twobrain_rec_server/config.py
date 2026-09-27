@@ -262,6 +262,7 @@ class Settings(BaseSettings):
     # Billing is fail-closed until the merchant, legal and receipt gates are
     # explicitly enabled in the deployment environment.
     billing_checkout_enabled: bool = False
+    billing_checkout_workspace_ids: frozenset[UUID] | None = None
     # Read-only provider observation never permits a money mutation.
     billing_provider_observation_enabled: bool = False
     billing_yookassa_base_url: AnyUrl | None = None

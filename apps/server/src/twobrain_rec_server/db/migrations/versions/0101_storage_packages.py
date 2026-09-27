@@ -7,8 +7,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import insert
 
-revision = "0101_storage_packages"
-down_revision = "0100_billing_purchases"
+revision: str = "0101_storage_packages"
+down_revision: str | None = "0100_billing_purchases"
 branch_labels = None
 depends_on = None
 OFFER_VERSION = "personal-2026-09-27"

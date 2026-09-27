@@ -25,6 +25,9 @@ USER_IDENTITY_FK_DISPOSITIONS = {
     ("billing_notification_deliveries", "recipient_id"): "historical_only",
     ("billing_notification_preferences", "user_id"): "transfer_or_deduplicate",
     ("billing_payment_methods", "owner_user_id"): "blocking",
+    # Quotes bind the original actor and expire; account merge must not rewrite
+    # immutable purchase consent or authorize the survivor to consume it.
+    ("billing_purchase_quotes", "owner_user_id"): "historical_only",
     ("calendar_audit_events", "actor_user_id"): "historical_only",
     ("calendar_settings_preferences", "owner_user_id"): "transfer_or_deduplicate",
     ("calendar_sources", "owner_user_id"): "blocking",

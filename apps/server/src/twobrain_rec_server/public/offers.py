@@ -117,6 +117,7 @@ async def build_public_offer_view(
     # A test shop must never look like a shop that takes money right now.
     sale_ready = bool(
         settings.billing_checkout_enabled
+        and getattr(settings, "billing_checkout_workspace_ids", None) is None
         and settings.billing_yookassa_shop_id
         and settings.billing_yookassa_environment == "production"
     )

@@ -33,6 +33,7 @@ from twobrain_rec_server.billing.notifications import BillingNotification
 from twobrain_rec_server.billing.operations import (
     CHECKOUT_BLOCKING_STATES,
     BillingCheckoutDisabled,
+    billing_checkout_allowed,
     require_billing_enabled,
 )
 from twobrain_rec_server.billing.payment_methods import (
@@ -227,6 +228,7 @@ async def plan_due_renewals(
     now: datetime | None = None,
     limit: int = 100,
     provider_floor_minor: int = 100,
+    allowed_workspace_ids: frozenset[UUID] | None = None,
 ) -> tuple[UUID, ...]:
     """Persist one renewal operation/invoice for each due subscription.
 
@@ -263,6 +265,8 @@ async def plan_due_renewals(
         .order_by(WorkspaceSubscription.paid_through, WorkspaceSubscription.workspace_id)
         .limit(limit)
     )
+    if allowed_workspace_ids is not None:
+        query = query.where(WorkspaceSubscription.workspace_id.in_(allowed_workspace_ids))
     planned: list[UUID] = []
     for subscription in await db.scalars(query):
         await lock_storage_workspace(db, subscription.workspace_id)
@@ -902,7 +906,7 @@ async def charge_renewal_operation(
             return RenewalChargeResult(operation_id, "canceled")
     try:
         require_billing_enabled(
-            checkout_enabled=bool(settings.billing_checkout_enabled),
+            checkout_enabled=billing_checkout_allowed(settings, workspace_id),
         )
         expected_version = operation.request_snapshot.get("recurring_authority_version")
         if (

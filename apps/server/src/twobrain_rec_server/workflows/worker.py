@@ -535,6 +535,7 @@ async def run_billing_renewal_reconciler(settings: Any, temporal_client: object)
                         db,
                         now=now,
                         provider_floor_minor=settings.billing_provider_floor_minor,
+                        allowed_workspace_ids=settings.billing_checkout_workspace_ids,
                     )
                     await db.commit()
                 async with sessionmaker() as db:

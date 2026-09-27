@@ -52,6 +52,7 @@ from twobrain_rec_server.billing.operations import (
     CHECKOUT_BLOCKING_STATES,
     INITIAL_CHECKOUT_OBSERVATION_EXPIRED,
     BillingCheckoutDisabled,
+    billing_checkout_allowed,
     provider_key_is_expired,
     require_billing_enabled,
 )
@@ -1497,7 +1498,7 @@ async def billing_overview_page(
         processing_threshold_label=_processing_threshold_label(
             classify_free_processing(committed_seconds=processing_used + processing_reserved)
         ),
-        billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
+        billing_enabled=billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id),
         catalog_ready=("month" in approved_catalog and "year" in approved_catalog),
         trial_result=trial_result,
         trial_preview_starts_at_label=_billing_datetime_label(now),
@@ -1646,7 +1647,7 @@ async def billing_plans_page(
         billing_owner=billing_owner,
         operation_pending=operation_pending,
         trial_state=trial_state,
-        billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
+        billing_enabled=billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id),
         trial_preview_starts_at_label=_billing_datetime_label(now),
         trial_preview_ends_at_label=_billing_datetime_label(now + timedelta(days=TRIAL_DAYS)),
         catalog_ready=catalog_ready,
@@ -1729,7 +1730,7 @@ async def billing_discounts_page(
         active_promotions=active_promotions,
         redemptions=redemptions,
         billing_owner=billing_owner,
-        billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
+        billing_enabled=billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id),
         checkout_promo_active=bool(request.cookies.get(_CHECKOUT_PROMO_COOKIE)),
         result=request.query_params.get("result"),
     )
@@ -1874,7 +1875,7 @@ async def billing_checkout_status_page(
     actor_matches = operation_actor in {None, str(principal.user_id)}
     can_continue_payment = bool(
         operation is not None
-        and settings.billing_checkout_enabled
+        and billing_checkout_allowed(settings, tenant_scope.workspace_id)
         and actor_matches
         and (
             _initial_checkout_can_continue(operation)
@@ -1935,7 +1936,7 @@ async def billing_checkout_status_page(
         if operation
         else None,
         operation_state_label=_operation_state_label(operation_state),
-        billing_enabled=bool(settings.billing_checkout_enabled),
+        billing_enabled=billing_checkout_allowed(settings, tenant_scope.workspace_id),
         can_continue_payment=can_continue_payment,
         can_refresh_payment=can_refresh_payment,
         updated_at_label=_billing_datetime_label(
@@ -2067,7 +2068,7 @@ async def continue_billing_checkout(
     if operation is not None and operation.kind == "storage_upgrade":
         if (
             operation.request_snapshot.get("billing_actor_user_id") != str(principal.user_id)
-            or not request.app.state.settings.billing_checkout_enabled
+            or not billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id)
         ):
             return RedirectResponse(
                 _checkout_status_location(invoice.safe_number, result="unavailable"),
@@ -2091,7 +2092,7 @@ async def continue_billing_checkout(
     settings = request.app.state.settings
     try:
         require_billing_enabled(
-            checkout_enabled=bool(settings.billing_checkout_enabled),
+            checkout_enabled=billing_checkout_allowed(settings, tenant_scope.workspace_id),
         )
     except BillingCheckoutDisabled:
         return RedirectResponse(
@@ -2414,7 +2415,7 @@ async def billing_usage_page(
         trial_eligible=trial_eligible,
         billing_owner=billing_owner,
         billing_role=role,
-        billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
+        billing_enabled=billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id),
         processing_unlimited=plan_code in {"trial", "personal"},
         storage_used=projection.used_bytes,
         storage_used_label=_capacity_label(projection.used_bytes),
@@ -2561,7 +2562,7 @@ async def billing_subscription_page(
         next_capacity_label=_capacity_label(subscription.next_capacity_bytes)
         if subscription and subscription.next_capacity_bytes
         else None,
-        billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
+        billing_enabled=billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id),
         subscription_plan_label=(
             plan_descriptor(
                 effective_plan_code(
@@ -2626,7 +2627,7 @@ async def billing_payment_method_page(
         paid_until_label=_billing_datetime_label(subscription.paid_through)
         if subscription is not None
         else None,
-        billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
+        billing_enabled=billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id),
         result=request.query_params.get("result"),
     )
     return cabinet_html_response(content)
@@ -2797,7 +2798,7 @@ async def billing_storage_page(
         if subscription
         else None,
         eligible=effective_plan == "personal",
-        billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
+        billing_enabled=billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id),
         result=request.query_params.get("result"),
     )
     return cabinet_html_response(content)
@@ -3043,7 +3044,7 @@ async def billing_checkout_page(
         and blocking_operation.state == "provider_pending"
         and blocking_operation.request_snapshot.get("billing_actor_user_id")
         in {None, str(principal.user_id)}
-        and settings.billing_checkout_enabled
+        and billing_checkout_allowed(settings, tenant_scope.workspace_id)
         else None
     )
     checkout_continuation_url = (
@@ -3124,7 +3125,7 @@ async def billing_checkout_page(
     selected_catalog = catalog.get(checkout_cycle)
     if (
         not checkout_blocked
-        and bool(settings.billing_checkout_enabled)
+        and billing_checkout_allowed(settings, tenant_scope.workspace_id)
         and selected_catalog is not None
     ):
         try:
@@ -3215,7 +3216,7 @@ async def billing_checkout_page(
             tenant_scope=tenant_scope,
         ),
         content_template="cabinet/pages/billing_checkout_content.html",
-        billing_enabled=bool(settings.billing_checkout_enabled),
+        billing_enabled=billing_checkout_allowed(settings, tenant_scope.workspace_id),
         plan=descriptor,
         monthly_price_label=_billing_price_label(monthly_amount),
         annual_price_label=_billing_price_label(annual_amount),
@@ -3262,7 +3263,7 @@ async def preview_billing_checkout(
 ) -> RedirectResponse:
     """Validate a promo and show its price without reserving or charging."""
     settings = request.app.state.settings
-    if db is None or not settings.billing_checkout_enabled:
+    if db is None or not billing_checkout_allowed(settings, tenant_scope.workspace_id):
         return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
     if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
         return RedirectResponse("/billing?result=owner_only", status_code=303)
@@ -3392,7 +3393,7 @@ async def start_billing_checkout(
             .order_by(ExternalIdentity.created_at.asc())
         )
         require_billing_enabled(
-            checkout_enabled=bool(settings.billing_checkout_enabled),
+            checkout_enabled=billing_checkout_allowed(settings, tenant_scope.workspace_id),
         )
         key = idempotency_key.strip()
         if not key:
@@ -4102,7 +4103,7 @@ async def preview_storage_purchase(
         )
     try:
         require_billing_enabled(
-            checkout_enabled=request.app.state.settings.billing_checkout_enabled
+            checkout_enabled=billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id)
         )
         if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
             return RedirectResponse("/billing?result=owner_only", status_code=303)
@@ -4202,7 +4203,7 @@ async def preview_early_renewal(
         )
     try:
         require_billing_enabled(
-            checkout_enabled=request.app.state.settings.billing_checkout_enabled
+            checkout_enabled=billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id)
         )
         if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
             return RedirectResponse("/billing?result=owner_only", status_code=303)
@@ -4378,7 +4379,7 @@ async def confirm_billing_purchase(
     operation, invoice = None, None
     dispatched = False
     try:
-        require_billing_enabled(checkout_enabled=settings.billing_checkout_enabled)
+        require_billing_enabled(checkout_enabled=billing_checkout_allowed(settings, tenant_scope.workspace_id))
         await lock_storage_workspace(db, tenant_scope.workspace_id)
         subscription = await _billing_owner_subscription(
             db, tenant_scope=tenant_scope, principal=principal

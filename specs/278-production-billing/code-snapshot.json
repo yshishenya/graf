@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "base_sha": "f5cca687a06dc57ad6ccbef840a0be897eaa6336",
-  "kind": "uncommitted-source-and-tests",
-  "created_at": "2026-09-27T21:17:52.191954+00:00",
+  "kind": "source-and-tests-before-authorized-commit",
+  "created_at": "2026-09-27T22:02:36.047105+00:00",
   "files": [
     {
       "path": "apps/server/scripts/manage_promo_campaign.py",
@@ -33,6 +33,10 @@
       "sha256": "cf7d7a181ea48dcd16b2c3085b0a0b063de75b0dcb9c60ae214e043f5eea08cb"
     },
     {
+      "path": "apps/server/src/twobrain_rec_server/billing/operations.py",
+      "sha256": "41e632c15e54040871b7d72e8e5d28b17ea2770863e40ebd4185f2cb5835c8b0"
+    },
+    {
       "path": "apps/server/src/twobrain_rec_server/billing/purchases.py",
       "sha256": "e03a430821dd65be1ee6f0c8fe6e7ac40a8252103b36b6aaf310e69d60569e37"
     },
@@ -46,7 +50,7 @@
     },
     {
       "path": "apps/server/src/twobrain_rec_server/billing/renewal_charge.py",
-      "sha256": "f1f13e02aab20d88407b94e7d1bf595d4d80a7af3a31943b43052160da69641a"
+      "sha256": "b58be64f171de19dc5244727dc6fa2966470420963f7e7b0335e884420f74726"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/billing/webhook_reconciliation.py",
@@ -98,19 +102,19 @@
     },
     {
       "path": "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py",
-      "sha256": "8068b33896c1c1ad0e45756ba36b9213bbe3bc75633c0e83cb9f82399662b42b"
+      "sha256": "a3f28ac4cd00031495be59ff2d5817f9b504b2350e8ab6700cbce9c73b8df858"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/config.py",
-      "sha256": "f1671f46e154602c1ddc54cd7909f55ba5a864e79603e43e93532b43d3a5954d"
+      "sha256": "5730b80443aeba2e347be0ae285a735852da7e7626d6a4b9e3cf206a12008dba"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/db/migrations/versions/0100_billing_purchases.py",
-      "sha256": "e5d85aa20d8c418a0e0436e536b998dba6ba70bb80c90fc7810f99b01c160772"
+      "sha256": "00de85b46bafe0110ef548939030e939a92c865159a543314dcf4628a89be5de"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/db/migrations/versions/0101_storage_packages.py",
-      "sha256": "74d4c8dcc0e1bd9c2aa0c3fec6060789d5b012c1dc7a1fda5d0a264b1d814f44"
+      "sha256": "25b7da8c78a371b2cd21705e1bf6d743eb5ceb0b8a193f0ad2ba53b6b5bcb1b2"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/db/models/__init__.py",
@@ -126,7 +130,7 @@
     },
     {
       "path": "apps/server/src/twobrain_rec_server/public/offers.py",
-      "sha256": "8fe9248103f7658963215a676527c89d4ab2d56aa34595325cbd29688996750f"
+      "sha256": "835c4d9894d152186ded74f76b7bc03387c0e6a1072b9a6b594bbcc1e767adc2"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/public/templates/public/landing.html",
@@ -138,7 +142,7 @@
     },
     {
       "path": "apps/server/src/twobrain_rec_server/workflows/worker.py",
-      "sha256": "64a498ea8f744251d2de5b32a2444222061f654274562aba627f3e8ad31d8053"
+      "sha256": "79a8fa7278179e5924f8333b095ea1dd14883d1a4c2689850d2f66b481e5c21b"
     },
     {
       "path": "apps/server/tests/browser/billing-accessibility.test.cjs",
@@ -169,6 +173,10 @@
       "sha256": "e49e49ccbf959a8e609c54b5d404566415913085e7d571afcac69e630709d92b"
     },
     {
+      "path": "apps/server/tests/integration/test_billing_canary.py",
+      "sha256": "3b60218a70651fe3ceca65ee1064ef876ace6c0ba4a0f238f41c167505d0c8cc"
+    },
+    {
       "path": "apps/server/tests/integration/test_billing_purchase_journey.py",
       "sha256": "cd7ba29d9721af5ebf0720a5ad328d096365a397aa4ef1d1997f69705703f3c2"
     },
@@ -181,6 +189,14 @@
       "sha256": "84a59b135bf3a99940dd737cb56cf342973fb78dbeedf425ed5efa1251483359"
     },
     {
+      "path": "apps/server/tests/integration/test_billing_usability.py",
+      "sha256": "3f3e29b61819db55db93e4cad9983ab430f5f17202d89ffecdc274c53d3e32a0"
+    },
+    {
+      "path": "apps/server/tests/integration/test_postgres_migrations.py",
+      "sha256": "27dba9ca627c4fd0fa2e054ab6e1615e8649c12e6717d60f5078677149cb9b74"
+    },
+    {
       "path": "apps/server/tests/integration/test_promo_checkout.py",
       "sha256": "f66237a659886d4fe674a1ac7818eb8738edbd0d37e8a5347702d17daa917046"
     },
@@ -191,6 +207,14 @@
     {
       "path": "apps/server/tests/integration/test_storage_quota.py",
       "sha256": "8b2961c972403b88313130ce4b8d6c261e784fd42041485f7d7d9bc7ac5d4b80"
+    },
+    {
+      "path": "apps/server/tests/unit/test_account_merge_policy.py",
+      "sha256": "029e90dd9ef813d859a8aa931151ea36120a22e78cb8c82c1a04966928e4d760"
+    },
+    {
+      "path": "apps/server/tests/unit/test_billing_canary.py",
+      "sha256": "31b1ece911688ed53f7a4080d17f744e6f587a1a0a7602dbdb75ca807f5f3f9c"
     },
     {
       "path": "apps/server/tests/unit/test_billing_domain.py",
@@ -229,6 +253,10 @@
       "sha256": "9ee595381362af11e02d7643e59d7138bd538a319d246ab0d8964c5712bcef84"
     },
     {
+      "path": "apps/server/tests/unit/test_playback_normalization_worker.py",
+      "sha256": "4c6a4974aaf52717c9998d1a746c391204d67a6164297024e556244941d33ecd"
+    },
+    {
       "path": "apps/server/tests/unit/test_promo_campaign_cli.py",
       "sha256": "2204a35b4e6afb0f47d1589a2ecb8ae8449db887edf586a365b6a50584b1eef3"
     },
@@ -243,6 +271,10 @@
     {
       "path": "apps/server/tests/unit/test_storage_packages.py",
       "sha256": "7e850d7e2eb7deccd3ad550f6653950a12a62f107e294e79d6a3705fe71e945f"
+    },
+    {
+      "path": "infra/docker-compose.yml",
+      "sha256": "40a05fabc050168caabc6673008d864fe6708b28c993ac5aea425549da87bc19"
     }
   ],
   "digest_algorithm": "sha256 of canonical JSON files array (sort_keys=True, separators=comma/colon)",
