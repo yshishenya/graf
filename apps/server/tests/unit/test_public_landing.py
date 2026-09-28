@@ -490,6 +490,8 @@ def test_public_legal_copy_matches_product_and_analytics_truth(client) -> None:
     assert "Вебвизор" in analytics
     assert "Вебвизор" in cookies
     assert "Платежный интерфейс временно недоступен" in offer
+    assert PUBLIC_APPROVED_OFFER_VERSION == "personal-2026-09-27"
+    assert "Редакция от 27 сентября 2026 года" in offer
 
 
 @pytest.mark.anyio

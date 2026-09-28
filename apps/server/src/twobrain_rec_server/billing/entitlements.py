@@ -297,6 +297,7 @@ async def grant_confirmed_payment(
     )
     db.add(grant)
     await append_purchased_storage(db, grant=grant, snapshot=snapshot)
+    _consume_applied_storage_selection(subscription, snapshot)
     invoice.plan_snapshot = {
         **(invoice.plan_snapshot or {}),
         "service_starts_at": grant.starts_at.isoformat(),
@@ -466,6 +467,22 @@ async def _record_paid_service_gap(db, *, operation, invoice, reason, recipient_
         )
 
 
+def _consume_applied_storage_selection(subscription, snapshot: dict) -> None:
+    """A paid period replaces only the matching pending choice, never a newer one."""
+    version = snapshot.get("selection_version")
+    capacity = (snapshot.get("catalog_snapshot") or {}).get("storage_bytes")
+    if (
+        snapshot.get("purchase_schema") == 2
+        and type(version) is int
+        and version == subscription.next_capacity_version
+        and subscription.next_capacity_bytes is not None
+        and type(capacity) is int
+        and capacity == subscription.next_capacity_bytes
+    ):
+        subscription.next_capacity_bytes = None
+        subscription.next_capacity_version += 1
+
+
 async def grant_confirmed_renewal(
     db: AsyncSession,
     *,
@@ -617,6 +634,7 @@ async def grant_confirmed_renewal(
     )
     db.add(grant)
     await append_purchased_storage(db, grant=grant, snapshot=snapshot)
+    _consume_applied_storage_selection(subscription, snapshot)
     invoice.plan_snapshot = {
         **(invoice.plan_snapshot or {}),
         "service_starts_at": grant.starts_at.isoformat(),

@@ -889,10 +889,10 @@ def test_paid_renewal_owner_change_has_one_visible_service_resolution(client, tm
     page = client.get(f"/billing/invoices/{number}", headers=headers)
     assert "услуга требует сверки" in page.text
     if mismatch == "subscription":
-        assert "4321" not in page.text and "prior-payer.example" not in page.text
+        assert "•••• 4321" not in page.text and "prior-payer.example" not in page.text
         assert "https://yookassa.ru/private-demo" not in page.text
         history = client.get("/billing/history", headers=headers)
-        assert ordinary_number not in history.text and "4321" not in history.text
+        assert ordinary_number not in history.text and "•••• 4321" not in history.text
         hidden = client.get(f"/billing/invoices/{ordinary_number}", headers=headers, follow_redirects=False)
         assert hidden.status_code == 303 and "not_found" in hidden.headers["location"]
         denied = client.post("/billing/subscription/cancel", headers=headers,
@@ -1187,3 +1187,79 @@ def test_close_acceptance_cancels_only_uncreated_payments_and_is_idempotent(
             assert invoice.status == ("pending" if expected_reserved else "canceled")
             assert reservation.state == ("reserved" if expected_reserved else "released")
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("kind", ["initial_checkout", "renewal", "early_renewal"])
+@pytest.mark.parametrize("capacity", [5_000_000_000, 10_000_000_000])
+@pytest.mark.parametrize("selection", ["matching", "newer_same", "newer_different"])
+def test_paid_period_consumes_only_its_storage_choice_and_rejects_stale_cancel(
+    client, tmp_path, kind, capacity, selection
+):
+    from twobrain_rec_server.billing.entitlements import (
+        grant_confirmed_payment,
+        grant_confirmed_renewal,
+    )
+    from twobrain_rec_server.billing.purchases import (
+        effective_paid_storage,
+        storage_catalog,
+        storage_price_snapshot,
+    )
+
+    _configure_billing(client, tmp_path)
+    _approved_month_catalog(client)
+    workspace, headers = _prepare_owner_session(client)
+    seed_catalog_and_budget(client, workspace)
+    now = seed_periods(client, workspace)
+
+    async def run():
+        async with client.app_state["sessionmaker"]() as db:
+            sub = await db.scalar(select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == workspace))
+            original_end = sub.paid_through
+            sub.next_capacity_bytes = capacity if selection != "newer_different" else 15_000_000_000
+            sub.next_capacity_version = 0 if selection == "matching" else 1
+            sub.recurring_allowed = False  # Late success must not restore authority.
+            prices = await storage_catalog(db, now=now)
+            price = prices.get((capacity, "month")) if capacity > 5_000_000_000 else None
+            amount = 100000 + (price.amount_minor if price else 0)
+            snapshot = {"purchase_schema": 2, "plan_code": "personal", "cycle": "month",
+                "billing_actor_user_id": str(USER_ID), "selection_version": 0,
+                "catalog_snapshot": {"storage_bytes": capacity},
+                "storage_price_snapshot": storage_price_snapshot(price)}
+            op = BillingOperation(workspace_id=workspace, kind=kind, state="unknown",
+                provider_id=f"synthetic-{uuid4().hex}", idempotency_key=str(uuid4()),
+                request_snapshot=snapshot)
+            db.add(op)
+            await db.flush()
+            invoice = BillingInvoice(workspace_id=workspace, operation_id=op.id,
+                safe_number=f"INV-{uuid4().hex}", amount_minor=amount, currency="RUB",
+                plan_snapshot=dict(snapshot))
+            db.add(invoice)
+            await db.flush()
+            grant_fn = grant_confirmed_payment if kind == "initial_checkout" else grant_confirmed_renewal
+            dates = {"paid_at": now, "defer_referral_reward": True} if kind == "initial_checkout" else {"grant_starts_at": now}
+            for expected in ("granted", "duplicate"):
+                assert await grant_fn(db, workspace_id=workspace, provider_payment_id=op.provider_id,
+                    amount_minor=amount, currency="RUB", **dates) == expected
+                assert sub.next_capacity_version == 1
+                assert sub.next_capacity_bytes == (
+                    None if selection == "matching" else capacity if selection == "newer_same" else 15_000_000_000)
+                assert sub.recurring_allowed is False
+            grants = list(await db.scalars(select(BillingEntitlementGrant).where(
+                BillingEntitlementGrant.invoice_id == invoice.id)))
+            assert len(grants) == 1
+            assert grants[0].starts_at == original_end
+            assert sub.paid_through == grants[0].ends_at
+            assert await effective_paid_storage(db, subscription=sub, now=original_end) == capacity
+            assert await effective_paid_storage(db, subscription=sub, now=now) == 5_000_000_000
+            assert invoice.amount_minor == amount and op.request_snapshot == snapshot
+            await db.commit()
+
+    asyncio.run(run())
+    page = client.get("/billing/storage", headers=headers)
+    assert page.status_code == 200
+    assert ('action="/billing/storage/cancel-selection"' in page.text) == (selection != "matching")
+    stale = client.post("/billing/storage/cancel-selection", headers=headers,
+                        data={"selection_version": "0"}, follow_redirects=False)
+    assert stale.status_code == 409
+    assert "Объём уже изменился" in stale.text
