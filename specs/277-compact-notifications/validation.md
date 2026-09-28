@@ -1693,3 +1693,64 @@ Retirement guard0violations, process/governance и diffcheck — PASS.
 аудио/сеансы пользователя не использовались, PR не сливался. Требуется полный
 GitHub CI следующего SHA; текущий неуспешный run не объявляется исправленным
 по одним локальным результатам. Физический второй монитор остаётся долгом.
+
+## Итог полного нативного CI — 2026-09-28
+
+Проверен source SHA `e996d25b84557c08301c7563cefa16402631dec7`, база PR
+`f5cca687a06dc57ad6ccbef840a0be897eaa6336`. Запуск
+[macos-pr 36361150674](https://github.com/yshishenya/graf/actions/runs/36361150674)
+завершён SUCCESS. Swift build, полный XCTest и ContractValidation — PASS.
+XCTest: **1139 выбрано,1137 PASS,2 SKIP,0 FAIL**,124.560s;
+окончание2026-09-28 00:17:07 UTC.
+
+Пропущены только два экспорта изображений:
+
+- DesktopNotificationCardTests.testCardSurfacesCanBeCapturedForReferenceComparison:
+  GRAF_CARD_SNAPSHOT_DIR не задан; экспорт не запрошен.
+- SystemAudioPermissionUXTests.testRenderSyntheticPermissionStates:
+  GRAF_PERMISSION_PREVIEW_DIR не задан.
+
+Семь клавиатурных сценариев, пропущенных локально из-за контрольного окна,
+в полном CI не пропущены. Это подтверждает их на другом тестовом хосте,
+но не превращает исторический локальный результат580/7 в587 PASS.
+Ранее экспортированные20 AppKit-представлений и принятые пользовательские
+VoiceOver/fullscreen/first-click/сон/блокировка сохраняются как отдельные
+виды доказательств. Физический второй монитор T020/#7305 явно отложен
+владельцем, не проверен и не закрывается этим запуском.
+
+Этот раздел фиксирует результат проверенного исходного кода. Само добавление
+отчёта не является разрешением слияния или выпуска: окончательная проверка
+актуальных SHA/base трёх PR-гейтов выполняется отдельно через
+scripts/validate-pr-checks.py. При последующих изменениях только документов
+не приписывать прежнему запуску новый SHA.
+
+Итоговый независимый аудит Russell сохранён append-only в `scope-review.md`:
+28 FR +8 SC +15 сценариев приёмки +7 архитектурных обязательств, новых
+обязательных доработок рабочего кода0. Исправления тестов e996 отдельно
+проверены Laplace. T021 отмечена по этому результату и обновлённым документам,
+с явно принятым исключением физических двух мониторов T020/#7305. Обязательные
+условия T022 и состояния GitHub issues не объявлены завершёнными. Локальные
+проверки только документации: spec-kit-governance, development-process и
+git diff --check — PASS; новые сборки приложения ради текста не запускались.
+
+### Проверка всей совокупности PR-гейтов исходного кода
+
+После завершения общего CI выполнена штатная команда:
+
+```sh
+python3 scripts/validate-pr-checks.py --repository yshishenya/graf --pr 7351
+```
+
+Exit0; подтверждены target SHA `e996d25b84557c08301c7563cefa16402631dec7`
+и checked base `f5cca687a06dc57ad6ccbef840a0be897eaa6336`:
+
+- [governance-fast: PASS](https://github.com/yshishenya/graf/actions/runs/36361150695), attempt1.
+- [macos-pr: PASS](https://github.com/yshishenya/graf/actions/runs/36361150674), attempt1.
+- [pr-metadata: PASS](https://github.com/yshishenya/graf/actions/runs/36361163162), attempt1.
+
+Валидатор проверил proof artifacts, точную идентичность SHA/base и актуальное
+описание PR, не только зелёные значки. `merge_commit_sha:null`: PR не слит.
+Следующий коммит сохраняет только итоговые документы и отметку T021. Его
+обязательные проверки будут проверены отдельно; будущий результат хранится
+в GitHub PR, чтобы не создавать бесконечную цепочку коммитов ради SHA отчёта.
+Публичного выпуска и production-действий нет.
