@@ -137,3 +137,14 @@
 Непосредственно прочитан итог `/tmp/f279-swift.log`: **98 tests, 0 failures**. Включены оба `NativeCalendarJoinTests`: смена сессии/параллельный повтор/новая попытка и отказ resolver без cached fallback. Также теперь непосредственно подтверждён PASS `CalendarJoinIsolationTests.testPageCannotMessageBridgeOrSynthesizeJoin` (настоящий WKWebView).
 
 Это локальное evidence тестов Swift, не запуск установленного GRAF Dev и не подтверждение Telemost/Zoom/Teams через macOS. Ручные/native/exact-SHA/release ворота сохраняют прежний отдельный статус. Reviewer не менял T009, его GitHub issue или код. Custom checklist качества требований остаётся UX 8/8 и security 8/8.
+
+
+## Узкое ревью выбора приложения Teams/Zoom
+
+Дата: 2026-09-28. **PASS по исходникам исправления; новых блокирующих замечаний не найдено.** Просмотрены текущие изменения `CalendarMeetingOpener.swift` и `NativeCalendarJoinTests`.
+
+Для Teams допускаются только bundle ID `com.microsoft.teams2` / `com.microsoft.teams`, для Zoom — `us.zoom.xos`; выбор URL приложения выполняется через `urlForApplication(withBundleIdentifier:)`. Custom scheme передаётся найденному приложению явно через `open(_:withApplicationAt:configuration:)`. Прежний поиск любого обработчика схемы `urlForApplication(toOpen:)` удалён из этого пути, поэтому регистрация `msteams` у Parallels proxy сама по себе больше не выбирает native-адресата. Если известное приложение не найдено, используется исходный проверенный HTTPS URL. Прямой путь Телемост по bundle ID сохранён. Ошибка запуска выбранного приложения возвращается как неуспех, без одновременного второго запуска браузера.
+
+Проверки host/path в nativeCandidate сохранены. Новый тест проверяет соответствие Teams/Zoom известным bundle ID, отказ подменённому домену и отсутствие native-кандидата для Zoom personal URL. Этот unit-тест проверяет политику выбора, но не реальное состояние Launch Services и не открытие установленного приложения.
+
+На момент чтения `/tmp/f279-swift.log` новый запуск ещё компилировал набор; прежние 98 PASS не приписываются текущему изменению. Итог новой проверки и повторное открытие Teams-ссылки из установленного GRAF Dev должен подтвердить основной агент. Сообщённая им проверка Телемост/Zoom/Meet не заменяет проверку изменённого Teams-пути. Reviewer не запускал приложения и не менял код/commit/runtime. Качество требований остаётся UX 8/8, security 8/8.

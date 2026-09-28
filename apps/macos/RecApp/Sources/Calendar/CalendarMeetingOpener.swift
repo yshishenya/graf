@@ -37,6 +37,14 @@ public enum CalendarMeetingOpener {
         return nil
     }
 
+    static func nativeApplicationIdentifiers(for url: URL) -> [String] {
+        switch nativeCandidate(for: url)?.scheme {
+        case "msteams": return ["com.microsoft.teams2", "com.microsoft.teams"]
+        case "zoommtg": return ["us.zoom.xos"]
+        default: return []
+        }
+    }
+
     @MainActor private static var eventOpening = false
 
     @MainActor
@@ -83,8 +91,15 @@ public enum CalendarMeetingOpener {
                 }
             }
         }
-        if let native = nativeCandidate(for: safe), workspace.urlForApplication(toOpen: native) != nil {
-            return workspace.open(native)
+        // A registered scheme can point at a removed app or a Parallels proxy.
+        // Address the supported native application explicitly; otherwise retain HTTPS.
+        if let native = nativeCandidate(for: safe),
+           let app = nativeApplicationIdentifiers(for: safe).compactMap({ workspace.urlForApplication(withBundleIdentifier: $0) }).first {
+            return await withCheckedContinuation { continuation in
+                workspace.open([native], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+                    continuation.resume(returning: error == nil)
+                }
+            }
         }
         return workspace.open(safe)
     }

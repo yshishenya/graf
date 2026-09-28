@@ -152,6 +152,13 @@ final class NativeCalendarJoinTests: XCTestCase {
         XCTAssertEqual(opens, 1)
     }
 
+    func testNativeLaunchSelectsKnownMacAppInsteadOfArbitrarySchemeHandler() {
+        XCTAssertEqual(CalendarMeetingOpener.nativeApplicationIdentifiers(for: URL(string: "https://teams.microsoft.com/l/meetup-join/synthetic")!), ["com.microsoft.teams2", "com.microsoft.teams"])
+        XCTAssertEqual(CalendarMeetingOpener.nativeApplicationIdentifiers(for: URL(string: "https://zoom.us/j/12345678901")!), ["us.zoom.xos"])
+        XCTAssertEqual(CalendarMeetingOpener.nativeApplicationIdentifiers(for: URL(string: "https://teams.microsoft.com.evil.test/l/meetup-join/synthetic")!), [])
+        XCTAssertEqual(CalendarMeetingOpener.nativeApplicationIdentifiers(for: URL(string: "https://zoom.us/my/personal")!), [])
+    }
+
     func testUnavailableNativeEventDoesNotOpenCachedLink() async {
         let result = await CalendarMeetingOpener.resolveAndOpen(eventID: UUID(),
             resolve: { _ in throw URLError(.resourceUnavailable) }, isCurrent: { true },
