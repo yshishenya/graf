@@ -262,6 +262,7 @@ class Settings(BaseSettings):
     # Billing is fail-closed until the merchant, legal and receipt gates are
     # explicitly enabled in the deployment environment.
     billing_checkout_enabled: bool = False
+    billing_checkout_workspace_ids: frozenset[UUID] | None = None
     # Read-only provider observation never permits a money mutation.
     billing_provider_observation_enabled: bool = False
     billing_yookassa_base_url: AnyUrl | None = None
@@ -272,7 +273,7 @@ class Settings(BaseSettings):
     billing_yookassa_secret_file: Path | None = None
     billing_yookassa_webhook_secret_file: Path | None = None
     billing_referral_secret_file: Path | None = None
-    billing_provider_floor_minor: int = 1
+    billing_provider_floor_minor: int = 100
     billing_support_email: str | None = None
     # Fiscal receipt mapping is deliberately explicit: an unknown 54-ФЗ/VAT
     # setup must keep checkout fail-closed instead of guessing a legal default.
@@ -379,7 +380,9 @@ class Settings(BaseSettings):
         elif isinstance(value, (list, tuple, set, frozenset)):
             raw_values = value
         else:
-            raise ValueError("product_analytics_internal_hosts must be a list or comma-separated string")
+            raise ValueError(
+                "product_analytics_internal_hosts must be a list or comma-separated string"
+            )
         normalized: list[str] = []
         for raw in raw_values:
             if not isinstance(raw, str):
@@ -527,14 +530,16 @@ class Settings(BaseSettings):
     def validate_processing_recovery_safety(self) -> "Settings":
         if self.processing_enabled and not self.mediascribe_diarize:
             raise ValueError("enabled processing requires MediaScribe diarization")
-        if self.processing_recovery_min_delay_seconds > self.processing_recovery_default_delay_seconds:
-            raise ValueError(
-                "processing recovery minimum delay must not exceed the default delay"
-            )
-        if self.processing_recovery_default_delay_seconds > self.processing_recovery_max_delay_seconds:
-            raise ValueError(
-                "processing recovery default delay must not exceed the maximum delay"
-            )
+        if (
+            self.processing_recovery_min_delay_seconds
+            > self.processing_recovery_default_delay_seconds
+        ):
+            raise ValueError("processing recovery minimum delay must not exceed the default delay")
+        if (
+            self.processing_recovery_default_delay_seconds
+            > self.processing_recovery_max_delay_seconds
+        ):
+            raise ValueError("processing recovery default delay must not exceed the maximum delay")
         if self.processing_recovery_max_attempts < 1:
             raise ValueError("processing recovery must allow at least one attempt")
         return self
@@ -668,7 +673,9 @@ class Settings(BaseSettings):
             raise ValueError("enabled billing observation requires a webhook secret file")
         webhook_path = self.billing_yookassa_webhook_secret_file
         if not webhook_path.is_file() or not webhook_path.read_text(encoding="utf-8").strip():
-            raise ValueError("enabled billing requires a non-empty billing_yookassa_webhook_secret_file")
+            raise ValueError(
+                "enabled billing requires a non-empty billing_yookassa_webhook_secret_file"
+            )
         if self.env.lower() == "production":
             value = webhook_path.read_text(encoding="utf-8").strip()
             placeholder_values = {"replace-me", "changeme", "password", "secret", "default"}
@@ -709,8 +716,8 @@ class Settings(BaseSettings):
             or not _is_valid_email_address(self.billing_support_email)
         ):
             raise ValueError("enabled billing requires a safe support email")
-        if self.billing_provider_floor_minor <= 0:
-            raise ValueError("billing provider floor must be positive")
+        if self.billing_provider_floor_minor < 100:
+            raise ValueError("billing provider floor must be at least 100 minor units")
         if self.billing_receipt_tax_system_code not in {1, 2, 3, 4, 5, 6}:
             raise ValueError("enabled billing requires an approved receipt tax system code")
         if self.billing_receipt_vat_code not in {1, 2, 3, 4, 5, 6}:

@@ -21,6 +21,8 @@ class _OfferDb:
         self._catalog_rows = catalog_rows
 
     async def scalars(self, _query):
+        if "billing_storage_price_versions" in str(_query):
+            return []
         return self._catalog_rows
 
 
@@ -54,7 +56,7 @@ def _public_catalog_rows(*, annual_amount_minor: int = 1_000_000):
         "plan_code": "personal",
         "version": 1,
         "currency": "RUB",
-        "storage_bytes": 2_000_000_000,
+        "storage_bytes": 5_000_000_000,
         "processing_mode": "unlimited",
         "enabled_for_checkout": True,
         "policy_snapshot": {"offer_version": PUBLIC_APPROVED_OFFER_VERSION},
@@ -104,7 +106,7 @@ async def test_public_offer_uses_latest_effective_catalog_version() -> None:
     common = {
         "plan_code": "personal",
         "currency": "RUB",
-        "storage_bytes": 2_000_000_000,
+        "storage_bytes": 5_000_000_000,
         "processing_mode": "unlimited",
         "enabled_for_checkout": True,
         "policy_snapshot": {"offer_version": PUBLIC_APPROVED_OFFER_VERSION},
@@ -238,13 +240,11 @@ def test_public_landing_explains_google_calendar_data_use() -> None:
     structured_data = [json.loads(document) for document in parser.documents]
     faq = next(document for document in structured_data if document["@type"] == "FAQPage")
     google_calendar = next(
-        item
-        for item in faq["mainEntity"]
-        if item["name"] == "Как ГРАФ использует Google Calendar?"
+        item for item in faq["mainEntity"] if item["name"] == "Как ГРАФ использует Google Calendar?"
     )
-    assert "только в тех календарях, которые вы выбрали" in google_calendar[
-        "acceptedAnswer"
-    ]["text"]
+    assert (
+        "только в тех календарях, которые вы выбрали" in google_calendar["acceptedAnswer"]["text"]
+    )
 
 
 def test_public_landing_uses_fingerprinted_local_assets(client) -> None:
@@ -490,6 +490,8 @@ def test_public_legal_copy_matches_product_and_analytics_truth(client) -> None:
     assert "Вебвизор" in analytics
     assert "Вебвизор" in cookies
     assert "Платежный интерфейс временно недоступен" in offer
+    assert PUBLIC_APPROVED_OFFER_VERSION == "personal-2026-09-27"
+    assert "Редакция от 27 сентября 2026 года" in offer
 
 
 @pytest.mark.anyio
@@ -515,3 +517,38 @@ async def test_sale_ready_requires_a_live_production_shop() -> None:
     live_offer = await build_public_offer_view(_OfferDb(_public_catalog_rows()), live_shop)
 
     assert live_offer.sale_ready is True
+
+
+@pytest.mark.anyio
+async def test_public_storage_price_is_the_same_versioned_total_as_checkout():
+    from twobrain_rec_server.db.models import BillingStoragePriceVersion
+
+    class Db(_OfferDb):
+        async def scalars(self, query):
+            if "billing_storage_price_versions" in str(query):
+                return [
+                    BillingStoragePriceVersion(
+                        id=None,
+                        version=1,
+                        capacity_bytes=10_000_000_000,
+                        cycle=cycle,
+                        amount_minor=amount,
+                        currency="RUB",
+                    )
+                    for cycle, amount in [("month", 25000), ("year", 250000)]
+                ]
+            return await super().scalars(query)
+
+    offer = await build_public_offer_view(
+        Db(_public_catalog_rows()), Settings.model_construct(billing_checkout_enabled=False)
+    )
+    assert offer.storage_options == (
+        {
+            "capacity_label": "10 ГБ",
+            "monthly_addon_label": "250 ₽",
+            "annual_addon_label": "2 500 ₽",
+            "monthly_total_label": "1 250 ₽",
+            "annual_total_label": "12 500 ₽",
+        },
+    )
+    assert not offer.sale_ready

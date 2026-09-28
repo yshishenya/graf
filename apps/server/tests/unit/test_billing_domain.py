@@ -35,8 +35,8 @@ from twobrain_rec_server.cabinet.web_routes.billing import (
 def test_catalog_uses_exact_launch_capacities_and_thresholds() -> None:
     assert storage_capacity_bytes("free") == 250_000_000
     assert storage_capacity_bytes("trial") == 500_000_000
-    assert storage_capacity_bytes("personal") == 2_000_000_000
-    assert all(value > 2_000_000_000 for value in ADDON_CAPACITY_BYTES)
+    assert storage_capacity_bytes("personal") == 5_000_000_000
+    assert all(value > 5_000_000_000 for value in ADDON_CAPACITY_BYTES)
     assert classify_storage_threshold(used_bytes=800, capacity_bytes=1_000) == "80%"
     assert classify_storage_threshold(used_bytes=950, capacity_bytes=1_000) == "95%"
     assert classify_storage_threshold(used_bytes=1_000, capacity_bytes=1_000) == "full"

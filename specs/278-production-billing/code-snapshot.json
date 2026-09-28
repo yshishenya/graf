@@ -1,0 +1,304 @@
+{
+  "schema_version": 1,
+  "base_sha": "f5cca687a06dc57ad6ccbef840a0be897eaa6336",
+  "kind": "source-and-tests-before-authorized-commit",
+  "created_at": "2026-09-28T02:18:02.344679+00:00",
+  "files": [
+    {
+      "path": "apps/server/scripts/manage_promo_campaign.py",
+      "sha256": "992b51b7ed5a3522799797906a11d76dd2ea453a8db0bbe9817d5e14c5460431"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/api/auth.py",
+      "sha256": "b269f09067d2c10c4d2af2737884dab04c96520901ddc25c07715b5141a540f1"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/billing/catalog.py",
+      "sha256": "2f43b632d7672cc3a21feed529fa9667391cb1fc6790b474e520bc32075e875b"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/billing/entitlements.py",
+      "sha256": "cf4cfd276a1d8b05f24c9a73798e732a79a85cba2053451bb450862c3aa10121"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/billing/history.py",
+      "sha256": "9d58d8551814c0b29c03d32e252395e62cfd602e81ab19e1af8c591ecf322c53"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/billing/maintenance.py",
+      "sha256": "342912bc2cf2d1aaad3f751c137ab21db31b2f023549c8082ce4d36242d12328"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/billing/notifications.py",
+      "sha256": "767eb4265eb4760575b43bfea7d61c77773c4309140b2070b8bccd768461295a"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/billing/operations.py",
+      "sha256": "f121492003d242d148703b559692c201571aec18bd792dae87878c524a4a844a"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/billing/purchases.py",
+      "sha256": "30570a337cfd34f3b6db34010946570524319dcba3a47bb78966a230be3b5453"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/billing/reconciliation.py",
+      "sha256": "56549e38984e6698d57814f10615037d94feb124abd249c266f00d94fa532b83"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/billing/referral_rewards.py",
+      "sha256": "11815fe057e520f8c298c6f9daf16b725b517e77757fd0c0cfcf38e135c8dfa1"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/billing/renewal_charge.py",
+      "sha256": "4322d7a4be80aa1ed6f0ba9020839cc37d0f9043b57106f34b7c7a28a9603810"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/billing/webhook_reconciliation.py",
+      "sha256": "15b7b220c202b5582487823a6796f9b12863addc63971d3a4dc2f0e30b4b47b8"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/billing/yookassa.py",
+      "sha256": "349dc1702f0aaf823de2f3bbd31f91ac3d37162efc02081fed1b95945f4514aa"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css",
+      "sha256": "270856a165600fb39bfb8b0725e2bc406d843579d6d92c38217f5941cd35aed2"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js",
+      "sha256": "77af48054f0d57f02588e97e1114272766503d407edbf5c28f3bc361b8649c7f"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html",
+      "sha256": "9dbb4845ee2b5496e51e8d134dcaf55d46a65935b3f49565b6172cf07dfe9705"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_history_content.html",
+      "sha256": "8b3b3798fbfadd46e6910adc790ceefad4efcb0f1e09df15410aed5cd6f186e0"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_invoice_content.html",
+      "sha256": "02ce8a1bf4047c05c7110008fc58a591a00edbb1845d94110efa7b30cc1057a1"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_operation_status_content.html",
+      "sha256": "dd4c4ce0bf6788fcb8cfae6a48ecbbf4cda8c4abe5b908454d812fefdbf4b334"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_payment_method_content.html",
+      "sha256": "4ea5041945b2c03549c370cc6facb07aa9568833b377b423c59226ea14d376a5"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_plans_content.html",
+      "sha256": "c58e6c3a060e397afef566d1d758dd437de163b351bc0ced46d8859680c80e24"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_purchase_content.html",
+      "sha256": "b6e6e31f16dce5a05d8e0dbd8c025650d5f76718579b12c07d8ffe064db839ae"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_storage_content.html",
+      "sha256": "fb8c6a1c23d0684333158c7de3f91d8019becc0a0e8c2fcfdf16f5b8ad064210"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_subscription_content.html",
+      "sha256": "53b3323f4872243e61e1497eff90ee4fa08cf2807cdfa2b5063ebf9f96cc60bb"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py",
+      "sha256": "6891dbc7c7f7fe6a54322f68cbb7b293c40284e7519cb5520fdfba17ac8fc2b9"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/config.py",
+      "sha256": "5730b80443aeba2e347be0ae285a735852da7e7626d6a4b9e3cf206a12008dba"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/db/migrations/versions/0100_billing_purchases.py",
+      "sha256": "00de85b46bafe0110ef548939030e939a92c865159a543314dcf4628a89be5de"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/db/migrations/versions/0101_storage_packages.py",
+      "sha256": "25b7da8c78a371b2cd21705e1bf6d743eb5ceb0b8a193f0ad2ba53b6b5bcb1b2"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/db/models/__init__.py",
+      "sha256": "96a96428a59059e32499814d1ca1459f339ddf89b3e5d60e6754b1671752ff1d"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/db/models/billing.py",
+      "sha256": "146c5c83debc274027de8e6630c7389a6a16c6ba018b48e446fd78b4f07f24bb"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/normalization/service.py",
+      "sha256": "67d53be4a19ee512b63e89b8377f999e399eab81f6f06e023ff4e2893e50f3f0"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/public/offers.py",
+      "sha256": "835c4d9894d152186ded74f76b7bc03387c0e6a1072b9a6b594bbcc1e767adc2"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/public/templates/public/landing.html",
+      "sha256": "0b2cb9797e57b618ce2e4517c235c746b82026def82c4558258649314ed3ae86"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/public/templates/public/offer.html",
+      "sha256": "0c37d1f799be30447c7277e78fe147d63c9b593de3cfef78046e1623e5079b69"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/workflows/worker.py",
+      "sha256": "79a8fa7278179e5924f8333b095ea1dd14883d1a4c2689850d2f66b481e5c21b"
+    },
+    {
+      "path": "apps/server/tests/browser/billing-accessibility.test.cjs",
+      "sha256": "e5535332e0213761896a6f44a405052f70574b95a6560c7643904cb68a09735b"
+    },
+    {
+      "path": "apps/server/tests/contract/test_billing_accessibility.py",
+      "sha256": "3530a3cf1d2965e5688a4c9f00f6381f85873b3ced45476b88c60209df6c7fd3"
+    },
+    {
+      "path": "apps/server/tests/contract/test_billing_catalog_seed_contract.py",
+      "sha256": "130ef00d78314a7e0b5c740a0a6e45377374d105759952c9f076dbe62edd61f5"
+    },
+    {
+      "path": "apps/server/tests/contract/test_billing_purchase_ui.py",
+      "sha256": "51b60b610ea3b74a7f84c62c2c74aabaa60318270d23ca46b084c2459a3e5b7a"
+    },
+    {
+      "path": "apps/server/tests/contract/test_billing_ui.py",
+      "sha256": "ba7738da7b235aec54cb1df020ec7281f969c2651eabec7f965c35d30ea83363"
+    },
+    {
+      "path": "apps/server/tests/contract/test_checkout.py",
+      "sha256": "ca1a75f523e664a59d9fc832a18a74067f68c7e2294c5d423a2a588187e30b1f"
+    },
+    {
+      "path": "apps/server/tests/contract/test_storage_addon.py",
+      "sha256": "e49e49ccbf959a8e609c54b5d404566415913085e7d571afcac69e630709d92b"
+    },
+    {
+      "path": "apps/server/tests/integration/test_billing_canary.py",
+      "sha256": "3f5546e130ec119303106a7c6c8825be1002ca631a5874b2e24536b07c954054"
+    },
+    {
+      "path": "apps/server/tests/integration/test_billing_purchase_journey.py",
+      "sha256": "cd7ba29d9721af5ebf0720a5ad328d096365a397aa4ef1d1997f69705703f3c2"
+    },
+    {
+      "path": "apps/server/tests/integration/test_billing_purchase_quotes.py",
+      "sha256": "7b577ba053f7fe5943e8ec97d78716071c740b262d7df18f0a17a98f69114a08"
+    },
+    {
+      "path": "apps/server/tests/integration/test_billing_purchase_storage.py",
+      "sha256": "84a59b135bf3a99940dd737cb56cf342973fb78dbeedf425ed5efa1251483359"
+    },
+    {
+      "path": "apps/server/tests/integration/test_billing_review_regressions.py",
+      "sha256": "bea24c8123310cb4d100adc848201be4672d62e9e1f08b5393d13f3cfa5cc706"
+    },
+    {
+      "path": "apps/server/tests/integration/test_billing_usability.py",
+      "sha256": "3f3e29b61819db55db93e4cad9983ab430f5f17202d89ffecdc274c53d3e32a0"
+    },
+    {
+      "path": "apps/server/tests/integration/test_compose_hardening.py",
+      "sha256": "d7565a8c99554ca8d84f18f0f507025a44eef0d768642f39ef03b534d478ec82"
+    },
+    {
+      "path": "apps/server/tests/integration/test_postgres_migrations.py",
+      "sha256": "27dba9ca627c4fd0fa2e054ab6e1615e8649c12e6717d60f5078677149cb9b74"
+    },
+    {
+      "path": "apps/server/tests/integration/test_promo_checkout.py",
+      "sha256": "f66237a659886d4fe674a1ac7818eb8738edbd0d37e8a5347702d17daa917046"
+    },
+    {
+      "path": "apps/server/tests/integration/test_storage_package_catalog.py",
+      "sha256": "d471d04bb036e93abf70a20575629e8e038cf72e19074fb5452fbf03ef7e945c"
+    },
+    {
+      "path": "apps/server/tests/integration/test_storage_quota.py",
+      "sha256": "8b2961c972403b88313130ce4b8d6c261e784fd42041485f7d7d9bc7ac5d4b80"
+    },
+    {
+      "path": "apps/server/tests/unit/test_account_merge_policy.py",
+      "sha256": "029e90dd9ef813d859a8aa931151ea36120a22e78cb8c82c1a04966928e4d760"
+    },
+    {
+      "path": "apps/server/tests/unit/test_billing_canary.py",
+      "sha256": "27e10a576c03c8d1be983ca0a2b5f524df2fbebcad6d7be722c9325779c72022"
+    },
+    {
+      "path": "apps/server/tests/unit/test_billing_domain.py",
+      "sha256": "e3af31ec00cfd737d6747bd5ac24b4968eeede28b6f0060e448c76a8f0ce419b"
+    },
+    {
+      "path": "apps/server/tests/unit/test_billing_entitlements.py",
+      "sha256": "818bfcc3734dec5cce54ceb12e19976f7125ddbeba8c7b2d7eada5adcea70136"
+    },
+    {
+      "path": "apps/server/tests/unit/test_billing_lifecycle.py",
+      "sha256": "1735e82f7845b1d8955114eb39897ba39bf04b63d84b88b4ac94b88f291ec177"
+    },
+    {
+      "path": "apps/server/tests/unit/test_billing_maintenance.py",
+      "sha256": "e73dc2e5392493ba23f66ffc683b002efbcaa8c3f4a1ab09a4b6909697e68a9c"
+    },
+    {
+      "path": "apps/server/tests/unit/test_billing_money_path_e2e.py",
+      "sha256": "2dac43137c24c118bf540df9a703b2072d8021cdce1a8aa614eee1400e883a9a"
+    },
+    {
+      "path": "apps/server/tests/unit/test_billing_observation.py",
+      "sha256": "cb50aa628ddce9f2d95a88bc74618b0a4f6bbfd8e0704c1152ee9e71e5676ce6"
+    },
+    {
+      "path": "apps/server/tests/unit/test_billing_purchase_observation.py",
+      "sha256": "fb71e4811f102b014a555be7739924cf548b4bfd7ddab9b24e900ba32d60d5dc"
+    },
+    {
+      "path": "apps/server/tests/unit/test_billing_purchases.py",
+      "sha256": "ca2a46a08913a80b01d6083045ea91f98ed6eb6ab357745e510fe05701ef24d5"
+    },
+    {
+      "path": "apps/server/tests/unit/test_billing_renewal_workflow.py",
+      "sha256": "9ee595381362af11e02d7643e59d7138bd538a319d246ab0d8964c5712bcef84"
+    },
+    {
+      "path": "apps/server/tests/unit/test_playback_normalization_worker.py",
+      "sha256": "4c6a4974aaf52717c9998d1a746c391204d67a6164297024e556244941d33ecd"
+    },
+    {
+      "path": "apps/server/tests/unit/test_promo_campaign_cli.py",
+      "sha256": "2204a35b4e6afb0f47d1589a2ecb8ae8449db887edf586a365b6a50584b1eef3"
+    },
+    {
+      "path": "apps/server/tests/unit/test_public_landing.py",
+      "sha256": "6cf894bc8aa12b1bd025f6e9f97f5e14422981237075187dd9f5acf2d7b6cfdb"
+    },
+    {
+      "path": "apps/server/tests/unit/test_renewal_charge.py",
+      "sha256": "1d60adc58658dfc3440a3393cf84d0f8422e47df05eddc8ee7d5e4d59663f3dd"
+    },
+    {
+      "path": "apps/server/tests/unit/test_storage_packages.py",
+      "sha256": "f795fb13d63b20c375645dae452f36afd7c6d8b72c40188f783abbdf1e620cff"
+    },
+    {
+      "path": "infra/docker-compose.yml",
+      "sha256": "a99309d89aa9c1978f4f47e307527f234ff3d8f185d3f4d844617b7cc7cd840c"
+    },
+    {
+      "path": "infra/env/rec.production.env.example",
+      "sha256": "cda1595c6d1b5895212fd95df2c5f397b4d5096396cdf043d0a809b7f0abfcac"
+    },
+    {
+      "path": "scripts/dev-harness.py",
+      "sha256": "b23eddeb435140b4cbe6bebaede4a0095f889428eb8b0082df3d2fd7f737469a"
+    },
+    {
+      "path": "tests/governance/test_graf_local_adapter.py",
+      "sha256": "84c635561c4995d03ffae86c057202187c8a38900c4630b1a37f3587762217cc"
+    }
+  ]
+}

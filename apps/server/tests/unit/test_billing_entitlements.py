@@ -5,9 +5,12 @@ import pytest
 
 import twobrain_rec_server.billing.entitlements as entitlements
 from twobrain_rec_server.db.models import (
+    BillingAcceptanceBudget,
     BillingEntitlementGrant,
     BillingInvoice,
     BillingOperation,
+    BillingStorageEntitlementGrant,
+    TimeCreditLedgerEntry,
     Workspace,
     WorkspaceMembership,
     WorkspaceSubscription,
@@ -22,9 +25,29 @@ INVOICE_ID = UUID("55555555-5555-4555-8555-555555555555")
 class _FakeDb:
     def __init__(self, values: list[object]) -> None:
         self._values = iter(values)
+        self.invoices = [item for item in values if isinstance(item, BillingInvoice)]
         self.added: list[object] = []
 
     async def scalar(self, _query: object) -> object:
+        entity = _query.column_descriptions[0].get("entity")
+        if entity is BillingInvoice and "JOIN billing_entitlement_grants" in str(_query):
+            return self.invoices[0] if self.invoices else None
+        if entity is BillingStorageEntitlementGrant:
+            grants = [
+                item for item in self.added if isinstance(item, BillingStorageEntitlementGrant)
+            ]
+            if "max(" in str(_query):
+                return max(
+                    (
+                        item.capacity_bytes
+                        for item in grants
+                        if item.starts_at <= datetime(2026, 8, 20, 9, tzinfo=UTC) < item.ends_at
+                    ),
+                    default=None,
+                )
+            return grants[0].id if grants else None
+        if entity in {BillingAcceptanceBudget, TimeCreditLedgerEntry}:
+            return None
         return next(self._values)
 
     def add(self, value: object) -> None:
@@ -32,6 +55,16 @@ class _FakeDb:
 
     async def flush(self) -> None:
         return None
+
+
+@pytest.fixture(autouse=True)
+def stable_observation_clock(monkeypatch):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 8, 20, 9, tzinfo=UTC)
+
+    monkeypatch.setattr(entitlements, "datetime", Clock)
 
 
 @pytest.mark.anyio

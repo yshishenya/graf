@@ -29,7 +29,12 @@
           </ul>
           <div class="billing-plan-card__action">
             {% if item.code == "personal" and item.is_current %}<span class="muted">Подключен сейчас{% if not billing_owner %}; оплатой управляет текущий плательщик{% endif %}</span>
-            {% elif item.code == "personal" and current_plan_code|default(None) == "personal" %}<span class="muted">Другой период оплаты; текущие условия не изменятся без отдельного подтверждения.</span>
+            {% elif item.code == "personal" and current_plan_code|default(None) == "personal" %}
+              <p class="muted">Другой период оплаты. Оплаченный остаток сохранится; новый период начнётся после него. Сумма и условия будут показаны перед подтверждением.</p>
+              {% if operation_pending|default(False) %}<span class="muted">Платеж проверяется; новая оплата будет доступна после проверки.</span>
+              {% elif billing_owner and billing_enabled and item.catalog_ready %}<a class="button" href="/billing/checkout?cycle={{ selected_cycle }}">{% if selected_cycle == "year" %}Рассчитать оплату за год{% else %}Рассчитать оплату за месяц{% endif %}</a>
+              {% elif not billing_owner %}<span class="muted">Оплатой управляет текущий плательщик.</span>
+              {% else %}<span class="muted">Оплата временно недоступна.</span>{% endif %}
             {% elif item.code == "personal" and operation_pending|default(False) %}<span class="muted">Платеж проверяется; новую оплату пока не предлагаем.</span>
             {% elif item.is_current and billing_owner %}<span class="muted">Подключен сейчас</span>
             {% elif item.code == "personal" and (billing_owner or billing_role|default(None) == "owner") and billing_enabled and item.catalog_ready %}<a class="button" href="/billing/checkout?cycle={{ selected_cycle }}">Выбрать «Личный»</a>
@@ -55,7 +60,7 @@
       </section>
 
       <section class="billing-section billing-row-section" aria-labelledby="billing-plan-boundary-title">
-        <div><h2 id="billing-plan-boundary-title">Важно о хранении</h2><p>Платная обработка не ограничена по времени, но архив имеет конечную емкость. Дополнительное место оплачивается отдельно, когда доступно его подключение.</p></div>
+        <div><h2 id="billing-plan-boundary-title">Важно о хранении</h2><p>Платная обработка не ограничена по времени, но архив имеет конечную емкость. В «Личный» включено 5 ГБ. В разделе «Хранилище» можно добавить пакеты по 5 ГБ и проверить точную доплату перед покупкой.</p></div>
         {% if billing_owner %}<a class="button quiet" href="/billing/storage">Настроить хранилище</a>{% endif %}
       </section>
       {% if support_email|default(None) %}<p class="billing-help"><a class="button quiet" href="mailto:{{ support_email|e }}">Связаться с нами</a></p>{% endif %}

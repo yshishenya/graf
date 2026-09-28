@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
+from uuid import UUID
+
+from twobrain_rec_server.config import Settings
 
 
 class OperationOutcome(StrEnum):
@@ -42,9 +45,16 @@ def blocks_new_checkout(operation_state: str) -> bool:
     return operation_state in CHECKOUT_BLOCKING_STATES
 
 
+def billing_checkout_allowed(settings: Settings, workspace_id: UUID) -> bool:
+    allowed = getattr(settings, "billing_checkout_workspace_ids", None)
+    return bool(settings.billing_checkout_enabled) and (
+        allowed is None or workspace_id in allowed
+    )
+
+
 def require_billing_enabled(*, checkout_enabled: bool) -> None:
     if not checkout_enabled:
-        raise BillingCheckoutDisabled("billing checkout is disabled")
+        raise BillingCheckoutDisabled("Оплата временно недоступна")
 
 
 def classify_provider_outcome(

@@ -756,3 +756,16 @@ def test_remote_cd_normalizes_billing_secret_paths_and_fails_closed_on_placehold
         'if [[ "${TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED:-false}" == "true" \\\n  || "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" ]]; then\n'
         '  [[ -n "$billing_webhook_secret_source"' in script
     )
+
+
+def test_billing_card_minimum_is_one_ruble_and_operator_configurable_for_all_writers() -> None:
+    defaults = dict(
+        line.split("=", 1) for line in ENV_TEMPLATE_PATH.read_text().splitlines()
+        if line and not line.startswith("#") and "=" in line
+    )
+    assert int(defaults["TWOBRAIN_BILLING_PROVIDER_FLOOR_MINOR"]) >= 100
+    for service_name in ("rec-api", "rec-processing-worker", "rec-maintenance"):
+        environment = _compose()["services"][service_name]["environment"]
+        assert environment["TWOBRAIN_BILLING_PROVIDER_FLOOR_MINOR"] == (
+            "${TWOBRAIN_BILLING_PROVIDER_FLOOR_MINOR:-100}"
+        )

@@ -30,7 +30,8 @@ from twobrain_rec_server.billing.notifications import (
     notification_copy,
 )
 from twobrain_rec_server.billing.operations import provider_key_is_expired
-from twobrain_rec_server.billing.reconciliation import validate_renewal_payment
+from twobrain_rec_server.billing.purchases import settle_acceptance_budget
+from twobrain_rec_server.billing.reconciliation import ProviderScope, validate_purchase_payment
 from twobrain_rec_server.billing.renewal_charge import (
     charge_renewal_operation,
     pending_renewal_charge_candidates,
@@ -40,6 +41,7 @@ from twobrain_rec_server.billing.renewal_charge import (
 )
 from twobrain_rec_server.billing.storage import lock_storage_workspace
 from twobrain_rec_server.billing.webhook_reconciliation import (
+    apply_confirmed_purchase,
     reconcile_pending_initial_checkout_operations,
     reconcile_pending_webhook_events,
 )
@@ -159,7 +161,10 @@ def _processing_mediascribe_client(settings: Any) -> MediaScribeClient | None:
     try:
         return MediaScribeClient.from_settings(settings, reuse_connections=True)
     except MediaScribeClientError as exc:
-        if settings.env.lower() not in {"development", "test"} or exc.reason_code != "blocked_config":
+        if (
+            settings.env.lower() not in {"development", "test"}
+            or exc.reason_code != "blocked_config"
+        ):
             raise
         logger.warning("processing worker started with MediaScribe provider unconfigured")
         return None
@@ -530,6 +535,7 @@ async def run_billing_renewal_reconciler(settings: Any, temporal_client: object)
                         db,
                         now=now,
                         provider_floor_minor=settings.billing_provider_floor_minor,
+                        allowed_workspace_ids=settings.billing_checkout_workspace_ids,
                     )
                     await db.commit()
                 async with sessionmaker() as db:
@@ -1036,9 +1042,7 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
         async with sessionmaker() as db:
             await apply_tenant_context(db, context)
             await lock_storage_workspace(db, workspace_id)
-            await db.scalar(
-                select(Workspace).where(Workspace.id == workspace_id).with_for_update()
-            )
+            await db.scalar(select(Workspace).where(Workspace.id == workspace_id).with_for_update())
             subscription = await db.scalar(
                 select(WorkspaceSubscription)
                 .where(WorkspaceSubscription.workspace_id == workspace_id)
@@ -1063,10 +1067,12 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
             if operation.state in BILLING_RENEWAL_TERMINAL_STATES:
                 return {"operation_id": str(operation_id), "status": operation.state}
             invoice = await db.scalar(
-                select(BillingInvoice).where(
+                select(BillingInvoice)
+                .where(
                     BillingInvoice.operation_id == operation_id,
                     BillingInvoice.workspace_id == workspace_id,
-                ).with_for_update()
+                )
+                .with_for_update()
             )
             if invoice is None or operation.provider_id != provider_id:
                 raise ApplicationError(
@@ -1075,10 +1081,14 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
                     non_retryable=True,
                 )
             try:
-                provider_status = validate_renewal_payment(
+                provider_status = validate_purchase_payment(
                     payment,
                     operation=operation,
                     invoice=invoice,
+                    scope=ProviderScope(
+                        environment=settings.billing_yookassa_environment,
+                        shop_id=settings.billing_yookassa_shop_id,
+                    ),
                 )
             except ValueError as exc:
                 raise ApplicationError(
@@ -1094,7 +1104,22 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
             )
             previous_state = operation.state
 
-            if provider_status == "succeeded":
+            if operation.request_snapshot.get("purchase_schema") == 2 and provider_status in {
+                "succeeded",
+                "canceled",
+            }:
+                # All new purchases share receipt, budget and entitlement application.
+                await apply_confirmed_purchase(
+                    db,
+                    settings,
+                    operation=operation,
+                    payload=payment,
+                    scope=ProviderScope(
+                        environment=settings.billing_yookassa_environment,
+                        shop_id=settings.billing_yookassa_shop_id,
+                    ),
+                )
+            elif provider_status == "succeeded":
                 grant_starts_at = now
                 if (
                     not key_expired
@@ -1137,11 +1162,26 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
                             )
                         )
             elif provider_status in {"canceled", "cancelled"}:
+                await settle_acceptance_budget(
+                    db, workspace_id=workspace_id, operation_id=operation.id, succeeded=False
+                )
                 await record_renewal_decline(
-                    db, subscription=subscription, operation=operation, invoice=invoice, now=now,
+                    db,
+                    subscription=subscription,
+                    operation=operation,
+                    invoice=invoice,
+                    now=now,
                 )
             else:
-                operation.state = "provider_key_expired" if key_expired else "unknown"
+                operation.state = (
+                    (
+                        "manual_resolution"
+                        if operation.request_snapshot.get("purchase_schema") == 2
+                        else "provider_key_expired"
+                    )
+                    if key_expired
+                    else "unknown"
+                )
                 if subscription is not None:
                     subscription.renewal_resolution = (
                         "provider_key_expired" if key_expired else "pending"
@@ -1255,6 +1295,7 @@ async def run_deletion_purge_reconciler(settings: Any, temporal_client: object) 
                         limit=20,
                     )
                     from twobrain_rec_server.notifications.inbox import purge_expired
+
                     await purge_expired(db)
                     if settings.retention_source_audio_days is not None:
                         await reconcile_source_retention_purges(

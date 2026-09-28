@@ -9146,3 +9146,31 @@
   load();
   consumeOpenedNotice();
 })();
+
+// Storage packages use server-rendered prices; this only previews the selected option.
+(() => {
+  const setup = () => {
+    document.querySelectorAll('[data-storage-packages]').forEach(root => {
+      if (root.dataset.ready) return;
+      root.dataset.ready = 'true';
+      const select = root.querySelector('select');
+      const output = document.getElementById('storage-package-summary');
+      const buttons = root.querySelectorAll('[data-package-step]');
+      const render = () => {
+        if (output) output.textContent = select.selectedOptions[0]?.dataset.summary || 'Цена временно недоступна.';
+        buttons.forEach(button => {
+          button.hidden = false;
+          button.disabled = !select.options.length || (Number(button.dataset.packageStep) < 0 ? select.selectedIndex <= 0 : select.selectedIndex >= select.options.length - 1);
+        });
+      };
+      select.addEventListener('change', render);
+      buttons.forEach(button => button.addEventListener('click', () => {
+        select.selectedIndex = Math.max(0, Math.min(select.options.length - 1, select.selectedIndex + Number(button.dataset.packageStep)));
+        render();
+      }));
+      render();
+    });
+  };
+  setup();
+  document.addEventListener('htmx:afterSwap', setup);
+})();

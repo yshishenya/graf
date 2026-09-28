@@ -9,6 +9,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -23,7 +24,9 @@ from twobrain_rec_server.db.base import Base
 
 class BillingPlanVersion(Base):
     __tablename__ = "billing_plan_versions"
-    __table_args__ = (UniqueConstraint("plan_code", "version", name="uq_billing_plan_versions_code_version"),)
+    __table_args__ = (
+        UniqueConstraint("plan_code", "version", name="uq_billing_plan_versions_code_version"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     plan_code: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -72,7 +75,9 @@ class PromotionRedemption(Base):
             "reservation_key",
             name="uq_promotion_redemptions_workspace_reservation_key",
         ),
-        UniqueConstraint("workspace_id", "campaign_id", name="uq_promotion_redemptions_workspace_campaign"),
+        UniqueConstraint(
+            "workspace_id", "campaign_id", name="uq_promotion_redemptions_workspace_campaign"
+        ),
         Index("ix_promotion_redemptions_invoice", "invoice_id"),
     )
 
@@ -86,7 +91,9 @@ class PromotionRedemption(Base):
     payable_amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
     discount_percent: Mapped[int] = mapped_column(Integer, nullable=False)
     state: Mapped[str] = mapped_column(String(24), nullable=False, default="reserved")
-    reserved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reserved_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -108,7 +115,14 @@ class WorkspaceSubscription(Base):
     recurring_authority_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     renewal_resolution: Mapped[str | None] = mapped_column(String(40))
     application_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    storage_price_consents: Mapped[dict | None] = mapped_column(JSON)
+    next_capacity_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    next_capacity_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class TrialActivation(Base):
@@ -126,7 +140,10 @@ class TrialActivation(Base):
 
 class BillingInvoice(Base):
     __tablename__ = "billing_invoices"
-    __table_args__ = (UniqueConstraint("workspace_id", "operation_id", name="uq_billing_invoices_operation"),)
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "operation_id", name="uq_billing_invoices_operation"),
+        UniqueConstraint("workspace_id", "id", name="uq_billing_invoices_workspace_id"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
@@ -143,8 +160,11 @@ class BillingInvoice(Base):
 class BillingEntitlementGrant(Base):
     __tablename__ = "billing_entitlement_grants"
     __table_args__ = (
+        UniqueConstraint("workspace_id", "id", name="uq_billing_grants_workspace_id"),
         UniqueConstraint("workspace_id", "invoice_id", name="uq_billing_entitlement_grant_invoice"),
-        Index("ix_billing_entitlement_grants_workspace_period", "workspace_id", "starts_at", "ends_at"),
+        Index(
+            "ix_billing_entitlement_grants_workspace_period", "workspace_id", "starts_at", "ends_at"
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -163,7 +183,10 @@ class BillingEntitlementGrant(Base):
 
 class BillingOperation(Base):
     __tablename__ = "billing_operations"
-    __table_args__ = (UniqueConstraint("workspace_id", "idempotency_key", name="uq_billing_operations_key"),)
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "idempotency_key", name="uq_billing_operations_key"),
+        UniqueConstraint("workspace_id", "id", name="uq_billing_operations_workspace_id"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
@@ -174,7 +197,9 @@ class BillingOperation(Base):
     provider_key_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     request_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class BillingPaymentMethod(Base):
@@ -195,7 +220,11 @@ class BillingPaymentMethod(Base):
 
 class ObservedProviderRefund(Base):
     __tablename__ = "observed_provider_refunds"
-    __table_args__ = (UniqueConstraint("shop_environment", "provider_refund_id", name="uq_observed_refunds_provider"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "shop_environment", "provider_refund_id", name="uq_observed_refunds_provider"
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
@@ -206,12 +235,18 @@ class ObservedProviderRefund(Base):
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="RUB")
     source: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="succeeded")
-    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class FreeUsageWindow(Base):
     __tablename__ = "free_usage_windows"
-    __table_args__ = (UniqueConstraint("workspace_id", "window_start", name="uq_free_usage_windows_workspace_window"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "window_start", name="uq_free_usage_windows_workspace_window"
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
@@ -225,7 +260,9 @@ class FreeUsageWindow(Base):
 
 class UsageReservation(Base):
     __tablename__ = "usage_reservations"
-    __table_args__ = (UniqueConstraint("workspace_id", "idempotency_key", name="uq_usage_reservations_key"),)
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "idempotency_key", name="uq_usage_reservations_key"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
@@ -239,11 +276,22 @@ class UsageReservation(Base):
 
 class UsageLedgerEntry(Base):
     __tablename__ = "usage_ledger_entries"
-    __table_args__ = (Index("ix_usage_ledger_entries_source_range", "workspace_id", "source_id", "start_second", "end_second", unique=True),)
+    __table_args__ = (
+        Index(
+            "ix_usage_ledger_entries_source_range",
+            "workspace_id",
+            "source_id",
+            "start_second",
+            "end_second",
+            unique=True,
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
-    reservation_id: Mapped[UUID] = mapped_column(ForeignKey("usage_reservations.id"), nullable=False)
+    reservation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("usage_reservations.id"), nullable=False
+    )
     source_id: Mapped[str] = mapped_column(String(240), nullable=False)
     start_second: Mapped[int] = mapped_column(Integer, nullable=False)
     end_second: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -253,7 +301,9 @@ class UsageLedgerEntry(Base):
 
 class StorageReservation(Base):
     __tablename__ = "storage_reservations"
-    __table_args__ = (UniqueConstraint("workspace_id", "idempotency_key", name="uq_storage_reservations_key"),)
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "idempotency_key", name="uq_storage_reservations_key"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
@@ -267,6 +317,7 @@ class StorageReservation(Base):
 
 class TimeCreditLedgerEntry(Base):
     __tablename__ = "time_credit_ledger_entries"
+    capacity_snapshot_bytes: Mapped[int | None] = mapped_column(BigInteger)
     __table_args__ = (
         UniqueConstraint("workspace_id", "source_ref", name="uq_time_credit_source"),
         Index("ix_time_credit_referral_attribution", "referral_attribution_id"),
@@ -274,7 +325,9 @@ class TimeCreditLedgerEntry(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
-    referral_attribution_id: Mapped[UUID | None] = mapped_column(ForeignKey("referral_attributions.id"))
+    referral_attribution_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("referral_attributions.id")
+    )
     source_ref: Mapped[str] = mapped_column(String(240), nullable=False)
     days: Mapped[int] = mapped_column(Integer, nullable=False)
     state: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
@@ -287,7 +340,9 @@ class TimeCreditLedgerEntry(Base):
 
 class BillingAuditEvent(Base):
     __tablename__ = "billing_audit_events"
-    __table_args__ = (Index("ix_billing_audit_events_workspace_created", "workspace_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_billing_audit_events_workspace_created", "workspace_id", "created_at"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
@@ -337,7 +392,9 @@ class BillingNotificationPreference(Base):
     optional_email_enabled: Mapped[bool] = mapped_column(nullable=False, default=True)
     optional_in_app_enabled: Mapped[bool] = mapped_column(nullable=False, default=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class FairUseReviewRecord(Base):
@@ -388,12 +445,18 @@ class FairUseReviewRecord(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolution_code: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class BillingWebhookEvent(Base):
     __tablename__ = "billing_webhook_events"
-    __table_args__ = (UniqueConstraint("workspace_id", "provider_event_id", name="uq_billing_webhook_provider_event"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "provider_event_id", name="uq_billing_webhook_provider_event"
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
@@ -404,7 +467,9 @@ class BillingWebhookEvent(Base):
     payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     state: Mapped[str] = mapped_column(String(32), nullable=False, default="accepted")
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class ReferralLink(Base):
@@ -429,7 +494,9 @@ class ReferralLink(Base):
 class ReferralAttribution(Base):
     __tablename__ = "referral_attributions"
     __table_args__ = (
-        UniqueConstraint("referral_link_id", "invitee_user_id", name="uq_referral_attributions_link_invitee"),
+        UniqueConstraint(
+            "referral_link_id", "invitee_user_id", name="uq_referral_attributions_link_invitee"
+        ),
         Index("ix_referral_attributions_workspace_state", "workspace_id", "state"),
         Index("ix_referral_attributions_link_state", "referral_link_id", "state"),
         Index(
@@ -451,3 +518,142 @@ class ReferralAttribution(Base):
     bound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     state: Mapped[str] = mapped_column(String(32), nullable=False, default="issued")
     risk_signal: Mapped[str | None] = mapped_column(String(120))
+
+
+class BillingStoragePriceVersion(Base):
+    __tablename__ = "billing_storage_price_versions"
+    __table_args__ = (
+        UniqueConstraint("capacity_bytes", "cycle", "version", name="uq_storage_price_version"),
+        CheckConstraint(
+            "capacity_bytes BETWEEN 5000000000 AND 500000000000 AND capacity_bytes % 5000000000 = 0",
+            name="storage_price_capacity",
+        ),
+        CheckConstraint(
+            "cycle IN ('month', 'year') AND amount_minor > 0 AND currency = 'RUB' AND version > 0",
+            name="storage_price_money",
+        ),
+        CheckConstraint(
+            "effective_until IS NULL OR effective_until > effective_from",
+            name="storage_price_window",
+        ),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    capacity_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    cycle: Mapped[str] = mapped_column(String(16), nullable=False)
+    amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="RUB")
+    enabled_for_checkout: Mapped[bool] = mapped_column(nullable=False, default=False)
+    effective_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    effective_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    policy_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+
+class BillingStorageEntitlementGrant(Base):
+    __tablename__ = "billing_storage_entitlement_grants"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id", "invoice_id", "base_grant_id", name="uq_storage_grant_invoice_period"
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "invoice_id"], ["billing_invoices.workspace_id", "billing_invoices.id"]
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "base_grant_id"],
+            ["billing_entitlement_grants.workspace_id", "billing_entitlement_grants.id"],
+        ),
+        CheckConstraint(
+            "ends_at > starts_at AND full_period_amount_minor > 0",
+            name="storage_grant_period_money",
+        ),
+        CheckConstraint(
+            "capacity_bytes BETWEEN 5000000000 AND 500000000000 AND capacity_bytes % 5000000000 = 0",
+            name="storage_grant_capacity",
+        ),
+        Index("ix_storage_grants_workspace_period", "workspace_id", "starts_at", "ends_at"),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    invoice_id: Mapped[UUID] = mapped_column(nullable=False)
+    base_grant_id: Mapped[UUID] = mapped_column(nullable=False)
+    capacity_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    catalog_version_id: Mapped[UUID] = mapped_column(
+        ForeignKey("billing_storage_price_versions.id"), nullable=False
+    )
+    full_period_amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class BillingPurchaseQuote(Base):
+    __tablename__ = "billing_purchase_quotes"
+    __table_args__ = (
+        CheckConstraint(
+            "purpose IN ('initial_checkout', 'storage_upgrade', 'early_renewal', 'storage_schedule', 'resume_renewal')",
+            name="purchase_quote_purpose",
+        ),
+        CheckConstraint("expires_at > created_at", name="purchase_quote_window"),
+        UniqueConstraint("consumed_operation_id", name="uq_purchase_quote_operation"),
+        ForeignKeyConstraint(
+            ["workspace_id", "consumed_operation_id"],
+            ["billing_operations.workspace_id", "billing_operations.id"],
+        ),
+        Index("ix_purchase_quotes_workspace_expiry", "workspace_id", "expires_at"),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    owner_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False)
+    subscription_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    selection_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_operation_id: Mapped[UUID | None] = mapped_column()
+
+
+class BillingAcceptanceBudget(Base):
+    __tablename__ = "billing_acceptance_budgets"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", name="uq_acceptance_budget_workspace"),
+        UniqueConstraint("workspace_id", "id", name="uq_acceptance_budget_workspace_id"),
+        CheckConstraint(
+            "limit_minor > 0 AND limit_minor <= 20000 AND reserved_minor >= 0 AND spent_minor >= 0 AND reserved_minor + spent_minor <= limit_minor",
+            name="acceptance_budget_limit",
+        ),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    limit_minor: Mapped[int] = mapped_column(Integer, nullable=False)
+    reserved_minor: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    spent_minor: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    enabled: Mapped[bool] = mapped_column(nullable=False, default=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class BillingAcceptanceReservation(Base):
+    __tablename__ = "billing_acceptance_reservations"
+    __table_args__ = (
+        UniqueConstraint("operation_id", name="uq_acceptance_reservation_operation"),
+        ForeignKeyConstraint(
+            ["workspace_id", "budget_id"],
+            ["billing_acceptance_budgets.workspace_id", "billing_acceptance_budgets.id"],
+        ),
+        ForeignKeyConstraint(
+            ["workspace_id", "operation_id"],
+            ["billing_operations.workspace_id", "billing_operations.id"],
+        ),
+        CheckConstraint(
+            "amount_minor > 0 AND state IN ('reserved', 'spent', 'released')",
+            name="acceptance_reservation_state",
+        ),
+    )
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    budget_id: Mapped[UUID] = mapped_column(nullable=False)
+    operation_id: Mapped[UUID] = mapped_column(nullable=False)
+    amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="reserved")

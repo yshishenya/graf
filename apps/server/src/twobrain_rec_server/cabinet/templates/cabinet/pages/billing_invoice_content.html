@@ -6,6 +6,15 @@
       <section class="settings-section cabinet-card" aria-labelledby="invoice-detail-title">
         <h2 id="invoice-detail-title">{{ invoice.safe_number }}</h2>
         <dl class="settings-definition-list">
+          <div><dt>За что платёж</dt><dd>{{ invoice.purpose_label|default("Оплата тарифа") }}</dd></div>
+          {% if invoice.service_label|default(None) %}<div><dt>Предоставление услуги</dt><dd>{{ invoice.service_label }}. Напишите в поддержку с номером этого платежа.</dd></div>{% endif %}
+          {% if invoice.service_period_label|default(None) %}<div><dt>Оплаченный срок</dt><dd>{{ invoice.service_period_label }}</dd></div>{% endif %}
+          {% if invoice.capacity_label|default(None) %}<div><dt>Общий объём хранения</dt><dd>{{ invoice.capacity_label }}</dd></div>{% endif %}
+          {% if invoice.storage_intervals|default([]) %}
+          <div><dt>Оплаченные интервалы хранения</dt><dd><ul>
+            {% for period in invoice.storage_intervals %}<li>{{ period.start }} — {{ period.end }}: {{ period.capacity }}</li>{% endfor %}
+          </ul></dd></div>
+          {% endif %}
           <div><dt>Сумма</dt><dd>{{ invoice.amount_label }}</dd></div>
           <div><dt>Период</dt><dd>{{ invoice.cycle_label }}</dd></div>
           <div><dt>Статус</dt><dd>{{ invoice.status_label|default("Статус уточняется") }}</dd></div>

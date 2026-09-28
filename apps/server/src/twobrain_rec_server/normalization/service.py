@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.catalog import FREE_STORAGE_BYTES
 from twobrain_rec_server.billing.entitlements import effective_plan_code
+from twobrain_rec_server.billing.purchases import effective_paid_storage
 from twobrain_rec_server.billing.source_lifecycle import (
     clear_source_playback_verification,
     mark_source_playback_verified,
@@ -774,7 +775,8 @@ def _validate_authoritative_source_duration(
 ) -> None:
     # Desktop declares whole seconds rounded up from the audio frame count.
     if (
-        rounded_up and not manual_upload
+        rounded_up
+        and not manual_upload
         and source_duration_ms > 0
         and (source_duration_ms + 999) // 1000 == expected_duration_seconds
     ):
@@ -1679,9 +1681,7 @@ async def _reserve_playback_storage(
         return None
     await lock_storage_workspace(db, job.workspace_id)
     subscription = await db.scalar(
-        select(WorkspaceSubscription).where(
-            WorkspaceSubscription.workspace_id == job.workspace_id
-        )
+        select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == job.workspace_id)
     )
     effective_plan = (
         effective_plan_code(
@@ -1700,7 +1700,7 @@ async def _reserve_playback_storage(
         reservation_key=f"normalization:{attempt.id}",
         declared_bytes=declared_bytes,
         capacity_bytes=(
-            subscription.capacity_bytes
+            await effective_paid_storage(db, subscription=subscription, now=now)
             if subscription is not None and effective_plan in {"trial", "personal"}
             else FREE_STORAGE_BYTES
         ),
@@ -2248,9 +2248,7 @@ async def cleanup_normalization_attempt(
         meeting_id=refreshed.meeting_id,
         media_revision_id=refreshed.media_revision_id,
         event_type="playback_normalization_temp_cleaned",
-        metadata={
-            "cleanup_result": "already_missing" if object_existed is False else "deleted"
-        },
+        metadata={"cleanup_result": "already_missing" if object_existed is False else "deleted"},
         created_at=current_time,
     )
     await db.commit()
@@ -2779,9 +2777,7 @@ async def _execute_normalization_job(
             rounded_up=(
                 prepared.job.source_kind == MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value
             ),
-            manual_upload=(
-                prepared.job.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
-            ),
+            manual_upload=(prepared.job.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value),
         )
         await _ensure_normalized_output_matches_file(output_path, output)
 

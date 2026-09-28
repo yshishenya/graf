@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.billing.audit import metadata_only
 from twobrain_rec_server.billing.catalog import (
     FREE_PROCESSING_SECONDS,
+    PERSONAL_STORAGE_BYTES,
     PlanCode,
     storage_capacity_bytes,
 )
@@ -22,6 +23,11 @@ from twobrain_rec_server.billing.payment_methods import (
     validate_payment_method_key_version,
 )
 from twobrain_rec_server.billing.promotions import redeem_invoice_promo
+from twobrain_rec_server.billing.purchases import (
+    append_purchased_storage,
+    effective_paid_storage,
+    settle_acceptance_budget,
+)
 from twobrain_rec_server.billing.receipts import ReceiptRegistration, merge_receipt_registration
 from twobrain_rec_server.billing.referral_rewards import create_pending_credit
 from twobrain_rec_server.billing.storage import lock_storage_workspace
@@ -144,6 +150,7 @@ async def grant_confirmed_payment(
     amount_minor: int,
     currency: str,
     paid_at: datetime,
+    grant_starts_at: datetime | None = None,
     recurring_method_confirmed: bool = False,
     saved_payment_method: SavedPaymentMethod | None = None,
     payment_method_key: bytes | None = None,
@@ -273,33 +280,50 @@ async def grant_confirmed_payment(
     # A payment made before the current period ends extends that period instead
     # of restarting it, so the paid remainder never burns: paying a year ahead
     # or switching month to year keeps every already paid day.
-    period_start = paid_at
+    period_start = (grant_starts_at or paid_at).astimezone(UTC)
     if subscription.paid_through is not None:
         period_start = max(period_start, subscription.paid_through.astimezone(UTC))
     paid_through = _add_paid_interval(period_start, cycle)
-    db.add(
-        BillingEntitlementGrant(
-            workspace_id=workspace_id,
-            invoice_id=invoice.id,
-            provider_payment_id=provider_payment_id,
-            plan_code=plan_code,
-            cycle=cycle,
-            starts_at=period_start,
-            ends_at=paid_through,
-            amount_minor=amount_minor,
-            currency=currency,
-        )
+    grant = BillingEntitlementGrant(
+        workspace_id=workspace_id,
+        invoice_id=invoice.id,
+        provider_payment_id=provider_payment_id,
+        plan_code=plan_code,
+        cycle=cycle,
+        starts_at=period_start,
+        ends_at=paid_through,
+        amount_minor=amount_minor,
+        currency=currency,
     )
+    db.add(grant)
+    await append_purchased_storage(db, grant=grant, snapshot=snapshot)
+    _consume_applied_storage_selection(subscription, snapshot)
+    invoice.plan_snapshot = {
+        **(invoice.plan_snapshot or {}),
+        "service_starts_at": grant.starts_at.isoformat(),
+        "service_ends_at": grant.ends_at.isoformat(),
+    }
     subscription.billing_owner_id = owner.user_id
     subscription.state = "personal"
     subscription.plan_code = "personal"
     subscription.cycle = cycle
-    subscription.capacity_bytes = _snapshot_storage_capacity(
-        snapshot,
-        fallback=storage_capacity_bytes("personal"),
-    )
     subscription.paid_through = paid_through
-    subscription.billing_anchor = paid_at
+    # Older accepted payments carried their storage entitlement only in the
+    # base catalog snapshot. Preserve that right until it can be reconciled.
+    if snapshot.get("purchase_schema") != 2 and period_start <= datetime.now(UTC):
+        legacy_capacity = (snapshot.get("catalog_snapshot") or {}).get("storage_bytes")
+        if type(legacy_capacity) is int and legacy_capacity > PERSONAL_STORAGE_BYTES:
+            subscription.capacity_bytes = max(
+                subscription.capacity_bytes or PERSONAL_STORAGE_BYTES, legacy_capacity
+            )
+    subscription.capacity_bytes = await effective_paid_storage(
+        db, subscription=subscription, now=datetime.now(UTC)
+    )
+    subscription.billing_anchor = period_start
+    authority_unchanged = snapshot.get(
+        "recurring_authority_version", subscription.recurring_authority_version or 0
+    ) == (subscription.recurring_authority_version or 0)
+    recurring_actor_matches = recurring_actor_matches and authority_unchanged
     if (
         saved_payment_method is not None
         and payment_method_key is not None
@@ -331,14 +355,17 @@ async def grant_confirmed_payment(
                 verified_at=paid_at,
             )
         )
-    subscription.recurring_allowed = (
-        bool(snapshot.get("recurring_consent"))
-        and recurring_actor_matches
-        and recurring_method_confirmed
-        and saved_payment_method is not None
-        and payment_method_key is not None
-    )
-    subscription.recurring_authority_version = (subscription.recurring_authority_version or 0) + 1
+    if authority_unchanged:
+        subscription.recurring_allowed = (
+            bool(snapshot.get("recurring_consent"))
+            and recurring_actor_matches
+            and recurring_method_confirmed
+            and saved_payment_method is not None
+            and payment_method_key is not None
+        )
+        subscription.recurring_authority_version = (
+            subscription.recurring_authority_version or 0
+        ) + 1
     subscription.application_version = (subscription.application_version or 0) + 1
     invoice.status = "succeeded"
     if payment_method_label and "payment_method_label" not in invoice.plan_snapshot:
@@ -402,8 +429,58 @@ async def grant_confirmed_payment(
             },
             marketing_allowed=False,
         )
+    await settle_acceptance_budget(
+        db, workspace_id=workspace_id, operation_id=operation.id, succeeded=True
+    )
     await db.flush()
     return "granted"
+
+
+async def _record_paid_service_gap(db, *, operation, invoice, reason, recipient_id):
+    """Keep paid money visible when the current owner cannot receive its service."""
+    current = datetime.now(UTC)
+    invoice.status = "succeeded"
+    invoice.plan_snapshot = {**(invoice.plan_snapshot or {}), "service_resolution": reason}
+    operation.request_snapshot = {
+        **operation.request_snapshot,
+        "reconciliation_detail": operation.request_snapshot.get("reconciliation_detail") or {
+            "code": reason,
+            "incident_owner": "billing_operator",
+            "financial_operator": "finance_operator",
+            "detected_at": current.isoformat(),
+            "review_by": (current + timedelta(hours=24)).isoformat(),
+        },
+    }
+    if operation.request_snapshot.get("purchase_schema") == 2:
+        await redeem_invoice_promo(db, invoice_id=invoice.id, now=current)
+        await settle_acceptance_budget(
+            db, workspace_id=operation.workspace_id, operation_id=operation.id, succeeded=True
+        )
+    if recipient_id is not None:
+        await enqueue_billing_notification(
+            db, workspace_id=operation.workspace_id, recipient_id=recipient_id,
+            event_id=f"payment:{invoice.id}:service_gap",
+            kind=BillingNotification.SERVICE_RECONCILIATION,
+            payload={"invoice": invoice.safe_number,
+                     "action_path": f"/billing/invoices/{invoice.safe_number}"},
+            marketing_allowed=False,
+        )
+
+
+def _consume_applied_storage_selection(subscription, snapshot: dict) -> None:
+    """A paid period replaces only the matching pending choice, never a newer one."""
+    version = snapshot.get("selection_version")
+    capacity = (snapshot.get("catalog_snapshot") or {}).get("storage_bytes")
+    if (
+        snapshot.get("purchase_schema") == 2
+        and type(version) is int
+        and version == subscription.next_capacity_version
+        and subscription.next_capacity_bytes is not None
+        and type(capacity) is int
+        and capacity == subscription.next_capacity_bytes
+    ):
+        subscription.next_capacity_bytes = None
+        subscription.next_capacity_version += 1
 
 
 async def grant_confirmed_renewal(
@@ -433,7 +510,7 @@ async def grant_confirmed_renewal(
         .where(
             BillingOperation.workspace_id == workspace_id,
             BillingOperation.provider_id == provider_payment_id,
-            BillingOperation.kind == "renewal",
+            BillingOperation.kind.in_(("renewal", "early_renewal")),
         )
         .with_for_update()
     )
@@ -447,7 +524,10 @@ async def grant_confirmed_renewal(
         return "amount_mismatch"
     if operation.state == "succeeded_refused":
         return "duplicate"
-    if operation.state in {"manual_resolution", "reconciliation_gap"}:
+    if (
+        operation.state in {"manual_resolution", "reconciliation_gap"}
+        and operation.request_snapshot.get("purchase_schema") != 2
+    ):
         return "reconciliation_blocked"
     existing = await db.scalar(
         select(BillingEntitlementGrant)
@@ -492,6 +572,10 @@ async def grant_confirmed_renewal(
                 subscription.recurring_authority_version or 0
             ) + 1
         subscription.renewal_resolution = "workspace_scope_invalid"
+        await _record_paid_service_gap(
+            db, operation=operation, invoice=invoice, reason="workspace_scope_invalid",
+            recipient_id=owner.user_id if owner is not None else None,
+        )
         db.add(
             BillingAuditEvent(
                 workspace_id=workspace_id,
@@ -517,61 +601,51 @@ async def grant_confirmed_renewal(
         and not isinstance(expected_authority, bool)
         and expected_authority == subscription.recurring_authority_version
     )
-    if not authority_matches:
-        operation.state = "succeeded_refused"
+    if not recurring_actor_matches_current_owner(
+        snapshot_actor=snapshot.get("billing_actor_user_id"),
+        current_owner_id=owner.user_id,
+    ):
+        operation.state = "reconciliation_gap"
         invoice.status = "succeeded"
-        subscription.renewal_resolution = "late_success_refused"
-        db.add(
-            BillingAuditEvent(
-                workspace_id=workspace_id,
-                actor_user_id=subscription.billing_owner_id,
-                action="renewal_success_refused",
-                target_kind="billing_operation",
-                target_ref=invoice.safe_number,
-                outcome="blocked",
-                reason_code="recurring_authority_changed",
-                metadata_json={},
-            )
+        await _record_paid_service_gap(
+            db, operation=operation, invoice=invoice, reason="owner_changed",
+            recipient_id=owner.user_id,
         )
-        if subscription.billing_owner_id is not None:
-            await enqueue_billing_notification(
-                db,
-                workspace_id=workspace_id,
-                recipient_id=subscription.billing_owner_id,
-                event_id=f"renewal:{invoice.id}:late_success_refused",
-                kind=BillingNotification.RENEWAL_LATE_SUCCESS_REFUSED,
-                payload={"invoice": invoice.safe_number, "action_path": "/billing/history"},
-                marketing_allowed=False,
-            )
-        await db.flush()
-        return "refused"
+        return "owner_changed"
+    # Late success after cancellation still delivers the paid period. Never
+    # restore recurring_allowed or replace a card from this old authority.
     starts_at = grant_starts_at.astimezone(UTC)
     if subscription.paid_through is not None:
         # A renewal charged inside the reminder window completes the current
         # period instead of shortening the access already paid for.
         starts_at = max(starts_at, subscription.paid_through.astimezone(UTC))
     ends_at = _add_paid_interval(starts_at, cycle)
-    db.add(
-        BillingEntitlementGrant(
-            workspace_id=workspace_id,
-            invoice_id=invoice.id,
-            provider_payment_id=provider_payment_id,
-            plan_code="personal",
-            cycle=cycle,
-            starts_at=starts_at,
-            ends_at=ends_at,
-            amount_minor=amount_minor,
-            currency=currency,
-            source="renewal_provider_confirmed",
-        )
+    grant = BillingEntitlementGrant(
+        workspace_id=workspace_id,
+        invoice_id=invoice.id,
+        provider_payment_id=provider_payment_id,
+        plan_code="personal",
+        cycle=cycle,
+        starts_at=starts_at,
+        ends_at=ends_at,
+        amount_minor=amount_minor,
+        currency=currency,
+        source="renewal_provider_confirmed",
     )
+    db.add(grant)
+    await append_purchased_storage(db, grant=grant, snapshot=snapshot)
+    _consume_applied_storage_selection(subscription, snapshot)
+    invoice.plan_snapshot = {
+        **(invoice.plan_snapshot or {}),
+        "service_starts_at": grant.starts_at.isoformat(),
+        "service_ends_at": grant.ends_at.isoformat(),
+    }
     subscription.state = "personal"
     subscription.plan_code = "personal"
     subscription.cycle = cycle
     subscription.paid_through = ends_at
-    subscription.capacity_bytes = _snapshot_storage_capacity(
-        snapshot,
-        fallback=subscription.capacity_bytes or storage_capacity_bytes("personal"),
+    subscription.capacity_bytes = await effective_paid_storage(
+        db, subscription=subscription, now=datetime.now(UTC)
     )
     subscription.renewal_resolution = "succeeded"
     subscription.application_version = (subscription.application_version or 0) + 1
@@ -585,9 +659,27 @@ async def grant_confirmed_renewal(
             target_kind="billing_invoice",
             target_ref=invoice.safe_number,
             outcome="success",
-            reason_code="provider_get_confirmed",
+            reason_code="provider_get_confirmed"
+            if authority_matches
+            else "late_success_authority_preserved",
             metadata_json=metadata_only({"amount_minor": str(amount_minor), "currency": currency}),
         )
+    )
+    await redeem_invoice_promo(db, invoice_id=invoice.id, now=grant_starts_at)
+    await enqueue_billing_notification(
+        db,
+        workspace_id=workspace_id,
+        recipient_id=owner.user_id,
+        event_id=f"payment:{invoice.id}:succeeded",
+        kind=BillingNotification.PAYMENT_SUCCEEDED,
+        payload={
+            "invoice": invoice.safe_number,
+            "action_path": f"/billing/invoices/{invoice.safe_number}",
+        },
+        marketing_allowed=False,
+    )
+    await settle_acceptance_budget(
+        db, workspace_id=workspace_id, operation_id=operation.id, succeeded=True
     )
     await db.flush()
     return "granted"

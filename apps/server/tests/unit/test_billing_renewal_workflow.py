@@ -8,6 +8,7 @@ import pytest
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+import twobrain_rec_server.billing.entitlements as entitlements
 from twobrain_rec_server.billing.entitlements import grant_confirmed_renewal
 from twobrain_rec_server.billing.reconciliation import validate_renewal_payment
 from twobrain_rec_server.config import Settings
@@ -55,6 +56,20 @@ def _active_owner() -> WorkspaceMembership:
         role="owner",
         status="active",
     )
+
+
+@pytest.fixture(autouse=True)
+def isolate_renewal_projection(monkeypatch):
+    async def no_effect(*args, **kwargs):
+        return None
+
+    async def capacity(_db, *, subscription, now):
+        return subscription.capacity_bytes or 5_000_000_000
+
+    monkeypatch.setattr(entitlements, "redeem_invoice_promo", no_effect)
+    monkeypatch.setattr(entitlements, "settle_acceptance_budget", no_effect)
+    monkeypatch.setattr(entitlements, "enqueue_billing_notification", no_effect)
+    monkeypatch.setattr(entitlements, "effective_paid_storage", capacity)
 
 
 @pytest.mark.anyio
@@ -182,7 +197,9 @@ async def test_late_success_after_provider_key_expiry_restores_access_without_re
 
 
 @pytest.mark.anyio
-async def test_late_success_after_refusal_is_recorded_and_notified_once() -> None:
+async def test_late_success_after_cancellation_grants_paid_access_without_reenabling_recurring() -> (
+    None
+):
     class FakeDb:
         def __init__(self, values):
             self.values = iter(values)
@@ -227,8 +244,19 @@ async def test_late_success_after_refusal_is_recorded_and_notified_once() -> Non
         recurring_authority_version=5,
     )
     db = FakeDb(
-        [_personal_workspace(), subscription, operation, invoice, None, _active_owner(), None,
-         _personal_workspace(), subscription, operation, invoice]
+        [
+            _personal_workspace(),
+            subscription,
+            operation,
+            invoice,
+            None,
+            _active_owner(),
+            _personal_workspace(),
+            subscription,
+            operation,
+            invoice,
+            object(),
+        ]
     )
 
     first = await grant_confirmed_renewal(
@@ -248,21 +276,19 @@ async def test_late_success_after_refusal_is_recorded_and_notified_once() -> Non
         grant_starts_at=datetime(2026, 8, 7, tzinfo=UTC),
     )
 
-    assert first == "refused"
+    assert first == "granted"
     assert duplicate == "duplicate"
-    assert operation.state == "succeeded_refused"
-    assert subscription.plan_code == "free"
-    assert sum(getattr(row, "action", None) == "renewal_success_refused" for row in db.added) == 1
-    deliveries = [
-        row
-        for row in db.added
-        if getattr(row, "template_key", None) == "renewal_late_success_refused"
-    ]
-    assert len(deliveries) == 1
-    assert deliveries[0].safe_payload == {
-        "invoice": "INV-RENEWAL-REFUSED",
-        "action_path": "/billing/history",
-    }
+    assert operation.state == "succeeded"
+    assert subscription.plan_code == "personal"
+    assert subscription.recurring_allowed is False
+    assert subscription.recurring_authority_version == 5
+    assert (
+        sum(
+            getattr(row, "action", None) == "entitlement.grant_confirmed_renewal"
+            for row in db.added
+        )
+        == 1
+    )
 
 
 @pytest.mark.anyio
@@ -368,11 +394,11 @@ def test_renewal_retry_repeats_only_authoritative_observation() -> None:
     webhook_source = inspect.getsource(
         __import__(
             "twobrain_rec_server.billing.webhook_reconciliation",
-            fromlist=["_reconcile_event"],
-        )._reconcile_event
+            fromlist=["apply_confirmed_purchase"],
+        ).apply_confirmed_purchase
     )
     assert 'operation.state == "provider_key_expired"' in webhook_source
-    assert "else observation.provider_created_at" in webhook_source
+    assert "observation.captured_at or observation.provider_created_at" in webhook_source
 
 
 @pytest.mark.anyio

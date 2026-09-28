@@ -990,3 +990,44 @@ def test_transition_cannot_change_persistent_formats(tmp_path, field):
         target["components"][field]["digest"] = "sha256:" + "f" * 64
     with pytest.raises(dev_harness.HarnessError, match="matching database schema"):
         dev_harness.GrafLocalAdapter._assert_transition_compatible(old, target)
+
+
+def test_cold_start_can_finish_after_ninety_seconds_without_skipping_service_checks(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    candidate = manifest(tmp_path, "a" * 40)
+    clock = [0.0]
+    checked = []
+    monkeypatch.setattr(dev_harness.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(dev_harness.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+
+    def live_probe(*_args, **_kwargs):
+        clock[0] += 30
+        return 200
+
+    def ready(service, _env):
+        checked.append(service)
+        return "pass" if clock[0] >= 120 else "fail"
+
+    monkeypatch.setattr(adapter, "_wait_http", live_probe)
+    monkeypatch.setattr(adapter, "_compose_service_ready", ready)
+    adapter._wait_runtime_ready(candidate, {"GRAF_DEV_SOURCE_SHA": candidate["source_sha"]})
+    assert 90 < clock[0] < 180
+    assert checked[-len(dev_harness.RUNTIME_READY_SERVICES):] == list(dev_harness.RUNTIME_READY_SERVICES)
+
+
+def test_cold_start_still_fails_when_one_service_never_reaches_exact_readiness(monkeypatch, tmp_path):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+    candidate = manifest(tmp_path, "a" * 40)
+    clock = [0.0]
+    monkeypatch.setattr(dev_harness.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(dev_harness.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+
+    def live_probe(*_args, **_kwargs):
+        clock[0] += 30
+        return 200
+
+    monkeypatch.setattr(adapter, "_wait_http", live_probe)
+    monkeypatch.setattr(adapter, "_compose_service_ready", lambda service, _env: "fail" if service == "rec-media-worker" else "pass")
+    with pytest.raises(dev_harness.HarnessError, match="exact-SHA service readiness"):
+        adapter._wait_runtime_ready(candidate, {"GRAF_DEV_SOURCE_SHA": candidate["source_sha"]})
+    assert 180 <= clock[0] < 185

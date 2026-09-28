@@ -89,7 +89,7 @@ def test_operation_status_does_not_offer_checkout_when_billing_is_disabled() -> 
     assert "billing_enabled|default(False)" in template
     assert "Проверить статус" in template
     assert "Проверить в ЮKassa" not in template
-    assert "billing_enabled=bool(request.app.state.settings.billing_checkout_enabled)" in route
+    assert "billing_enabled=billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id)" in route
 
 
 def test_status_refresh_defers_cross_workspace_referral_reward() -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -122,7 +123,9 @@ def read_webhook_secret(path: Path | None) -> str:
 class YooKassaClient:
     """Allowlisted payment/observation adapter; refund mutation is impossible."""
 
-    def __init__(self, settings: Settings, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(
+        self, settings: Settings, *, transport: httpx.AsyncBaseTransport | None = None
+    ) -> None:
         if settings.billing_yookassa_base_url is None or not settings.billing_yookassa_shop_id:
             raise YooKassaConfigurationError("YooKassa is not configured")
         self._base_url = str(settings.billing_yookassa_base_url).rstrip("/")
@@ -194,7 +197,27 @@ class YooKassaClient:
         return await self._request("POST", "/v3/payments", payload, idempotence_key=idempotence_key)
 
     async def get_payment(self, payment_id: str) -> dict[str, Any]:
-        return await self._request("GET", f"/v3/payments/{validate_provider_identifier(payment_id)}")
+        return await self._request(
+            "GET", f"/v3/payments/{validate_provider_identifier(payment_id)}"
+        )
+
+    async def list_payments(
+        self, *, created_from: datetime, created_until: datetime, cursor: str | None = None
+    ) -> dict[str, Any]:
+        if (
+            created_from.tzinfo is None
+            or created_until.tzinfo is None
+            or created_from > created_until
+        ):
+            raise ValueError("invalid payment observation window")
+        params = {
+            "created_at.gte": created_from.astimezone(UTC).isoformat(),
+            "created_at.lte": created_until.astimezone(UTC).isoformat(),
+            "limit": "100",
+        }
+        if cursor:
+            params["cursor"] = cursor
+        return await self._request("GET", "/v3/payments", params=params)
 
     async def list_refunds(
         self,
@@ -215,7 +238,9 @@ class YooKassaClient:
         return await self._request("GET", "/v3/refunds", params=params or None)
 
     async def get_receipt(self, receipt_id: str) -> dict[str, Any]:
-        return await self._request("GET", f"/v3/receipts/{validate_provider_identifier(receipt_id)}")
+        return await self._request(
+            "GET", f"/v3/receipts/{validate_provider_identifier(receipt_id)}"
+        )
 
     async def _request(
         self,
@@ -231,7 +256,9 @@ class YooKassaClient:
             if idempotence_key is not None
             else {}
         )
-        response = await self._http.request(method, path, json=payload, headers=headers, params=params)
+        response = await self._http.request(
+            method, path, json=payload, headers=headers, params=params
+        )
         if response.status_code >= 400:
             raise YooKassaProviderError(
                 f"YooKassa request failed: {response.status_code}",
