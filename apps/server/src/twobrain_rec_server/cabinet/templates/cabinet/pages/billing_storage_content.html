@@ -10,15 +10,15 @@
         {% if result|default(None) == "unavailable" %}<p class="notice notice--error" role="alert">Данные хранилища временно недоступны. Объемы и платные действия скрыты; обновите страницу позже.</p>
         {% else %}
         <p><strong>{{ current_capacity_label|default("емкость уточняется") }}</strong> доступно сейчас.</p>
-        <p class="muted">Лимит расходуют сохранённые записи встреч. Удалить ненужные записи и скачать свои файлы можно в разделе использования.</p>
+        <p class="muted">Лимит расходуют сохраненные записи встреч. Удалить ненужные записи и скачать свои файлы можно в разделе использования.</p>
         {% if eligible and billing_enabled %}
-        {% if result|default(None) == "scheduled" %}<p role="status" class="notice">Объём следующего периода сохранён. Сейчас списания не было.</p>{% endif %}
-        {% if result|default(None) == "schedule_canceled" %}<p role="status" class="notice">Отложенный выбор отменён.</p>{% endif %}
+        {% if result|default(None) == "scheduled" %}<p role="status" class="notice">Объем следующего периода сохранен. Сейчас списания не было.</p>{% endif %}
+        {% if result|default(None) == "schedule_canceled" %}<p role="status" class="notice">Отложенный выбор отменен.</p>{% endif %}
         {% if next_capacity_label|default(None) %}<p>Следующий неоплаченный период после {{ paid_through_label }}: {{ next_capacity_label }} всего.</p>
-        <form action="/billing/storage/cancel-selection" method="post">{{ sections.csrf_field(csrf_token) }}<input type="hidden" name="selection_version" value="{{ selection_version }}"><button class="button quiet" type="submit">Отменить выбор следующего объёма</button></form>{% endif %}
+        <form action="/billing/storage/cancel-selection" method="post">{{ sections.csrf_field(csrf_token) }}<input type="hidden" name="selection_version" value="{{ selection_version }}"><button class="button quiet" type="submit">Отменить выбор следующего объема</button></form>{% endif %}
         {% if storage_timeline|default([]) %}<h3>Уже оплаченные периоды</h3><ul>{% for period in storage_timeline %}<li>{{ period.start }} — {{ period.end }}: {{ period.capacity }} всего{% if period.bonus %} · бонусный срок{% endif %}</li>{% endfor %}</ul>{% endif %}
-        <h3>Общий объём хранения</h3>
-        <p>В тариф включено 5 ГБ. Дополнительные пакеты продлеваются вместе с подпиской. Объём не накапливается ежемесячно. Указана доплата за полный период; за оставшееся время сумма будет рассчитана перед подтверждением.</p>
+        <h3>Общий объем хранения</h3>
+        <p>В тариф включено 5 ГБ. Дополнительные пакеты продлеваются вместе с подпиской. Объем не накапливается ежемесячно. Указана доплата за полный период; за оставшееся время сумма будет рассчитана перед подтверждением.</p>
         <form action="/billing/storage/preview" method="post" class="billing-checkout-form">
           {{ sections.csrf_field(csrf_token|default(None)) }}
           <label for="storage-packages">Дополнительные пакеты по 5 ГБ</label>
@@ -29,7 +29,7 @@
             </select>
             <button class="button quiet" type="button" data-package-step="1" aria-label="Добавить один пакет 5 ГБ" hidden>+</button>
           </div>
-          <p id="storage-package-summary" aria-live="polite" aria-atomic="true">Цена полного периода указана в выбранном варианте. Ноль пакетов оставляет включённые 5 ГБ.</p>
+          <p id="storage-package-summary" aria-live="polite" aria-atomic="true">Цена полного периода указана в выбранном варианте. Ноль пакетов оставляет включенные 5 ГБ.</p>
           <label for="storage-promo">Промокод, если есть</label><input id="storage-promo" name="promo_code" maxlength="48" autocomplete="off">
           {% if storage_options|default([]) %}<button class="button" type="submit">Рассчитать и проверить условия</button>{% else %}<p role="status">Цена временно недоступна. Попробуйте позже.</p>{% endif %}
         </form>

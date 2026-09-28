@@ -7,8 +7,8 @@
       {% if purchase %}
       {% if purchase.package_count is defined %}<p>Включено 5 ГБ. Дополнительных пакетов по 5 ГБ: <strong>{{ purchase.package_count }}</strong>. Всего: <strong>{{ purchase.capacity_label }}</strong>.</p>{% endif %}
       <dl class="billing-order-summary">
-        {% if purchase.current_capacity_label|default(None) %}<div><dt>Объём сейчас</dt><dd>{{ purchase.current_capacity_label }} всего</dd></div>{% endif %}
-        <div><dt>Общий объём хранения</dt><dd>{{ purchase.capacity_label }} всего</dd></div>
+        {% if purchase.current_capacity_label|default(None) %}<div><dt>Объем сейчас</dt><dd>{{ purchase.current_capacity_label }} всего</dd></div>{% endif %}
+        <div><dt>Общий объем хранения</dt><dd>{{ purchase.capacity_label }} всего</dd></div>
         <div><dt>Срок</dt><dd>{{ purchase.period_label }}</dd></div>
         <div><dt>Стоимость без скидки</dt><dd>{{ purchase.list_label }}</dd></div>
         <div><dt>Разовая скидка</dt><dd>{{ purchase.discount_label }}</dd></div>
@@ -17,22 +17,22 @@
         <div><dt>Следующий полный период: тариф и хранение</dt><dd>{{ purchase.next_label }} за {{ purchase.cycle_label }}</dd></div>
         {% if purchase.next_attempt_label|default(None) %}<div><dt>Следующая автоматическая попытка после этой покупки</dt><dd>{{ purchase.next_attempt_label }}</dd></div>{% endif %}
         <div><dt>Автопродление</dt><dd>{{ "Включено" if purchase.recurring_allowed else "Отключено — автоматического списания не будет" }}</dd></div>
-        {% if purchase.method_label %}<div><dt>Разовое списание с сохранённой карты</dt><dd>{{ purchase.method_label }}</dd></div>{% endif %}
+        {% if purchase.method_label %}<div><dt>Разовое списание с сохраненной карты</dt><dd>{{ purchase.method_label }}</dd></div>{% endif %}
       </dl>
-      {% if purchase.timeline|default([]) %}<h2>Объём по периодам</h2><ul>{% for period in purchase.timeline %}<li>{{ period.start }} — {{ period.end }}: <strong>{{ period.capacity }} всего</strong>{% if period.bonus %} · бонусный срок{% endif %}</li>{% endfor %}</ul><p>После всех оплаченных периодов: {{ purchase.capacity_label }} всего, {{ purchase.next_label }} за {{ purchase.cycle_label }} при следующей оплате.</p>{% endif %}
-      {% if purchase.deferred %}<p>Сейчас ничего не списывается. Новый объём применится при оплате следующего неоплаченного периода. До этого сохранится уже оплаченный объём. Файлы автоматически не удаляются.</p>
-      {% elif purchase.purpose == "storage_upgrade" %}<p>Это доплата за оставшееся время уже оплаченных периодов. Если в будущем уже оплачен больший объём, он сохранится до конца своего периода. Подписка не продлевается. Скидка действует только на эту оплату.</p>
+      {% if purchase.timeline|default([]) %}<h2>Объем по периодам</h2><ul>{% for period in purchase.timeline %}<li>{{ period.start }} — {{ period.end }}: <strong>{{ period.capacity }} всего</strong>{% if period.bonus %} · бонусный срок{% endif %}</li>{% endfor %}</ul><p>После всех оплаченных периодов: {{ purchase.capacity_label }} всего, {{ purchase.next_label }} за {{ purchase.cycle_label }} при следующей оплате.</p>{% endif %}
+      {% if purchase.deferred %}<p>Сейчас ничего не списывается. Новый объем применится при оплате следующего неоплаченного периода. До этого сохранится уже оплаченный объем. Файлы автоматически не удаляются.</p>
+      {% elif purchase.purpose == "storage_upgrade" %}<p>Это доплата за оставшееся время уже оплаченных периодов. Если в будущем уже оплачен больший объем, он сохранится до конца своего периода. Подписка не продлевается. Скидка действует только на эту оплату.</p>
       {% else %}<p>Полный {{ purchase.cycle_label }} добавится после уже оплаченного времени. Скидка действует только на эту оплату.</p>{% endif %}
       <p>Эта покупка не включает автопродление, если оно отключено. Управлять им можно в разделе «Подписка».</p>
       <form action="/billing/purchases/confirm" method="post" class="billing-checkout-form">
         {{ sections.csrf_field(csrf_token) }}
         <input type="hidden" name="quote_id" value="{{ purchase.quote_id }}">
-        <label class="billing-consent"><input type="checkbox" name="purchase_consent" value="true" required> <span>Подтверждаю общий объём, срок, показанную полную цену следующего периода и {% if purchase.deferred %}цену следующего периода{% else %}разовую оплату {{ purchase.payable_label }}{% endif %} по <a href="/offer" target="_blank" rel="noopener">оферте</a>.</span></label>
-        <button type="submit" class="button">{% if purchase.deferred %}Сохранить выбор без списания{% else %}Оплатить {{ purchase.payable_label }}{% if purchase.method_label %} с сохранённой карты{% else %} в ЮKassa{% endif %}{% endif %}</button>
+        <label class="billing-consent"><input type="checkbox" name="purchase_consent" value="true" required> <span>Подтверждаю общий объем, срок, показанную полную цену следующего периода и {% if purchase.deferred %}цену следующего периода{% else %}разовую оплату {{ purchase.payable_label }}{% endif %} по <a href="/offer" target="_blank" rel="noopener">оферте</a>.</span></label>
+        <button type="submit" class="button">{% if purchase.deferred %}Сохранить выбор без списания{% else %}Оплатить {{ purchase.payable_label }}{% if purchase.method_label %} с сохраненной карты{% else %} в ЮKassa{% endif %}{% endif %}</button>
       </form>
       {% endif %}
     </section>
     {% if support_email|default(None) %}<p class="billing-help"><a href="mailto:{{ support_email }}">Задать вопрос об оплате</a></p>{% endif %}
-    <div class="billing-page__footer"><a class="button quiet" href="/billing/storage">К объёму хранения</a><a class="button quiet" href="/billing/subscription">К подписке</a><a href="/billing/history">История платежей и помощь</a></div>
+    <div class="billing-page__footer"><a class="button quiet" href="/billing/storage">К объему хранения</a><a class="button quiet" href="/billing/subscription">К подписке</a><a href="/billing/history">История платежей и помощь</a></div>
   </div></div>
 </main>
