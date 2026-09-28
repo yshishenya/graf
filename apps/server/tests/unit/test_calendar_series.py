@@ -98,3 +98,16 @@ def test_overview_cursor_keeps_signed_window_without_weakening_scope_or_expiry()
         decode_overview_cursor(invalid, scope, "test-secret", now=101)
     with pytest.raises(ValueError):
         decode_cursor(cursor, scope, "test-secret", now=101)
+
+
+def test_meeting_host_policy_matches_shared_native_corpus():
+    import json
+    from pathlib import Path
+
+    from twobrain_rec_server.calendar.conference_links import safe_open_meeting_url
+
+    cases = json.loads(
+        (Path(__file__).parent.parent / "fixtures/calendar_join_host_policy.json").read_text()
+    )
+    for case in cases:
+        assert (safe_open_meeting_url(case["url"]) is not None) == case["allowed"], case["url"]

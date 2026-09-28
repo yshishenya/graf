@@ -20,7 +20,12 @@ from twobrain_rec_server.auth.account_merge import (
     preview_merge_intent,
 )
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
-from twobrain_rec_server.auth.dependencies import is_web_cookie_session
+from twobrain_rec_server.auth.dependencies import (
+    auth_session_cookie_name,
+    auth_session_cookie_secure,
+    is_web_cookie_session,
+)
+from twobrain_rec_server.auth.session_epoch import rotate_browser_session_epoch
 from twobrain_rec_server.cabinet.rendering import (
     account_merge_provider_label,
     render_account_merge_page,
@@ -474,12 +479,13 @@ async def _confirm(
         status_code=303,
     )
     response.delete_cookie(
-        key="__Host-twobrain_rec_owner_session",
+        key=auth_session_cookie_name(request),
         path="/",
-        secure=True,
+        secure=auth_session_cookie_secure(request),
         httponly=True,
         samesite="lax",
     )
+    rotate_browser_session_epoch(response, secure=auth_session_cookie_secure(request))
     return response
 
 

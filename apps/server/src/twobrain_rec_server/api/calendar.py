@@ -471,6 +471,11 @@ async def _resolve_join_target(event_id, request, tenant_scope, db):
     return event, url
 
 
+@router.post(
+    "/calendar/events/{event_id}/join-target",
+    response_model=CalendarJoinTargetResponse,
+    dependencies=[PrincipalDependency, WebCSRFDependency],
+)
 @router.get(
     "/calendar/events/{event_id}/join-target",
     response_model=CalendarJoinTargetResponse,

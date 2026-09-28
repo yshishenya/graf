@@ -30,6 +30,7 @@ from twobrain_rec_server.auth.provider_links import (
 )
 from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
 from twobrain_rec_server.auth.redirects import safe_first_party_path
+from twobrain_rec_server.auth.session_epoch import rotate_browser_session_epoch
 from twobrain_rec_server.auth.sessions import (
     fingerprint_identity,
     revoke_auth_sessions,
@@ -1146,6 +1147,7 @@ async def _unlink_provider_action(
             httponly=True,
             samesite="lax",
         )
+        rotate_browser_session_epoch(response, secure=auth_session_cookie_secure(request))
         return response
     return RedirectResponse(
         result_path + "success",

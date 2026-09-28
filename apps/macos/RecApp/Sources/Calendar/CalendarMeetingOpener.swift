@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 #if canImport(AppKit)
 import AppKit
 #endif
@@ -11,10 +16,52 @@ public enum CalendarMeetingOpener {
               parts.scheme?.lowercased() == "https", let host = parts.host, !host.isEmpty,
               parts.user == nil, parts.password == nil, parts.port.map({ (0...65535).contains($0) }) ?? true else { return nil }
         let normalizedHost = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
-        guard normalizedHost.contains("."), !normalizedHost.contains(":"),
-              !normalizedHost.hasSuffix(".localhost"), !normalizedHost.hasSuffix(".local"),
-              !normalizedHost.allSatisfy({ $0.isNumber || $0 == "." }) else { return nil }
+        guard isAllowedMeetingHost(normalizedHost) else { return nil }
         return url
+    }
+
+    // Mirrors the server's Python 3.13 ipaddress.is_global policy. Shared URL fixtures
+    // guard parity, including globally reachable exceptions and IPv4-mapped IPv6.
+    private static func isAllowedMeetingHost(_ host: String) -> Bool {
+        guard host != "localhost", !host.hasSuffix(".localhost") else { return false }
+        let literal = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+            .split(separator: "%", maxSplits: 1).first.map(String.init) ?? host
+        let family = literal.contains(":") ? AF_INET6 : AF_INET
+        guard let bytes = addressBytes(literal, family: family) else { return true } // DNS name
+        if family == AF_INET6 && bytes.prefix(10).allSatisfy({ $0 == 0 }) && bytes[10] == 255 && bytes[11] == 255 {
+            return isAllowedMeetingHost(bytes.suffix(4).map(String.init).joined(separator: "."))
+        }
+        let denied: [String]
+        let exceptions: [String]
+        if family == AF_INET {
+            denied = ["0.0.0.0/8", "10.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24", "192.0.0.170/31", "192.0.2.0/24", "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4", "255.255.255.255/32", "100.64.0.0/10"]
+            exceptions = ["192.0.0.9/32", "192.0.0.10/32"]
+        } else {
+            denied = ["::1/128", "::/128", "::ffff:0.0.0.0/96", "64:ff9b:1::/48", "100::/64", "2001::/23", "2001:db8::/32", "2002::/16", "3fff::/20", "fc00::/7", "fe80::/10"]
+            exceptions = ["2001:1::1/128", "2001:1::2/128", "2001:3::/32", "2001:4:112::/48", "2001:20::/28", "2001:30::/28"]
+        }
+        func matches(_ cidr: String) -> Bool {
+            let parts = cidr.split(separator: "/")
+            guard let prefix = Int(parts[1]), let network = addressBytes(String(parts[0]), family: family) else { return false }
+            return (0..<prefix).allSatisfy { bit in
+                let mask = UInt8(1 << (7 - bit % 8))
+                return (bytes[bit / 8] & mask) == (network[bit / 8] & mask)
+            }
+        }
+        return exceptions.contains(where: matches) || !denied.contains(where: matches)
+    }
+
+    private static func addressBytes(_ literal: String, family: Int32) -> [UInt8]? {
+        if family == AF_INET {
+            // Darwin inet_pton accepts leading-zero decimal components; browsers
+            // use inet_aton's octal/hex/abbreviated interpretation instead.
+            var address = in_addr()
+            guard inet_aton(literal, &address) == 1 else { return nil }
+            return withUnsafeBytes(of: address) { Array($0) }
+        }
+        var bytes = [UInt8](repeating: 0, count: 16)
+        let result = bytes.withUnsafeMutableBytes { inet_pton(family, literal, $0.baseAddress) }
+        return result == 1 ? bytes : nil
     }
 
     public static func nativeCandidate(for url: URL) -> URL? {

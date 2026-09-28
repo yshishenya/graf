@@ -3,6 +3,8 @@
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const text = (tag, value) => { const node=document.createElement(tag); node.textContent=value; return node; };
   let pendingJoin=null;
+  // These random generation markers confer no authority and contain no identity.
+  const sessionEpoch=()=>document.cookie.split(';').map(value=>value.trim()).filter(value=>value.startsWith('__Host-graf_session_epoch=') || value.startsWith('graf_dev_session_epoch=')).sort().join(';');
   function joinFeedback(eventId,message,busy=false) {
     document.querySelectorAll(`[data-calendar-join="${eventId}"]`).forEach(button=>{
       let status=button.parentElement.querySelector('[data-calendar-join-status]');
@@ -30,6 +32,9 @@
     // Reserve the tab during trusted input; async window.open can be blocked.
     const popup=window.open('about:blank','_blank');
     if(!popup) {joinFeedback(eventId,'Разрешите открытие новой вкладки и повторите попытку.');return;}
+    const epoch=sessionEpoch();
+    const csrf=document.querySelector('meta[name="csrf-token"]')?.content || '';
+    const currentAction=()=>[...document.querySelectorAll(`[data-calendar-join="${eventId}"]`)].some(node=>!node.closest('[inert],[hidden]'));
     const operation={eventId,popup,controller:new AbortController()};pendingJoin=operation;
     joinFeedback(eventId,'Открываем…',true);
     const timer=setTimeout(()=>operation.controller.abort(),15000);
@@ -38,9 +43,15 @@
       const referrer=popup.document.createElement('meta');referrer.name='referrer';referrer.content='no-referrer';popup.document.head.append(referrer);
       const response=await fetch(`/api/v1/calendar/events/${eventId}/join-target`,{credentials:'same-origin',cache:'no-store',redirect:'error',signal:operation.controller.signal,headers:{Accept:'application/json'}});
       if(!response.ok) throw new Error('unavailable');
-      const result=await response.json(),target=new URL(result.https_url);
-      if(result.event_id?.toLowerCase()!==eventId.toLowerCase() || target.protocol!=='https:' || target.username || target.password || !target.hostname.includes('.')) throw new Error('invalid target');
-      if(pendingJoin!==operation || operation.controller.signal.aborted || !button.isConnected || popup.closed) throw new Error('cancelled');
+      await response.json();
+      if(pendingJoin!==operation || operation.controller.signal.aborted || sessionEpoch()!==epoch || !csrf || !currentAction() || popup.closed) throw new Error('cancelled');
+      // A fresh request binds the handoff to the original page session, including
+      // account changes in another tab while the initial resolver was in flight.
+      const confirmed=await fetch(`/api/v1/calendar/events/${eventId}/join-target`,{method:'POST',credentials:'same-origin',cache:'no-store',redirect:'error',signal:operation.controller.signal,headers:{Accept:'application/json','X-CSRF-Token':csrf}});
+      if(!confirmed.ok) throw new Error('session changed');
+      const result=await confirmed.json(),target=new URL(result.https_url);
+      if(result.event_id?.toLowerCase()!==eventId.toLowerCase() || target.protocol!=='https:' || target.username || target.password || !target.hostname) throw new Error('invalid target');
+      if(pendingJoin!==operation || operation.controller.signal.aborted || sessionEpoch()!==epoch || !currentAction() || popup.closed) throw new Error('cancelled');
       const destination=popup.document.createElement('a');destination.href=target.href;destination.rel='noreferrer';destination.referrerPolicy='no-referrer';popup.document.body.append(destination);destination.click();
       pendingJoin=null;
       joinFeedback(eventId,'Ссылка открыта в новой вкладке');

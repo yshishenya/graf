@@ -42,3 +42,6 @@ Reviewer-owned. Автор реализации не меняет checkbox; эт
 
 
 Третья группа PR-замечаний проверена 2026-09-29: eligibility обычных дат при сохранении отменённых, prompt-specific guard через resolver/native/browser recovery, standalone local error с единственным безопасным popup — RESOLVED по исходникам и локальным проверкам. Swift 120/0, server 16 PASS, browser PASS с фактической проверкой отсутствия Referer/opener и двойного запуска. Подробности и границы в `../review-report.md`; требования **8 checked / 0 unchecked**.
+
+
+Четвёртая группа PR-замечаний проверена 2026-09-29: новое действие того же UUID после обновления DOM, общий корпус политики hostname (141 пример), fresh POST с session-bound CSRF и несекретный marker против смены сессии во время позднего ответа — RESOLVED в границах исходников/локальных проверок. Swift 121/0, расширенный серверный набор 143 PASS, browser-epoch PASS. Подробности, покрытие двух issuer/трёх clear-путей cookie и границы доказательств — в последнем разделе `../review-report.md`. Качество требований сохраняется **8 checked / 0 unchecked**.

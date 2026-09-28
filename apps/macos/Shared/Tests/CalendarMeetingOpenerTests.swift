@@ -3,6 +3,17 @@ import XCTest
 import TwoBrainRecShared
 
 final class CalendarMeetingOpenerTests: XCTestCase {
+    func testMeetingHostPolicyMatchesSharedServerCorpus() throws {
+        struct HostCase: Decodable { let url: String; let allowed: Bool }
+        var apps = URL(fileURLWithPath: #filePath)
+        for _ in 0..<4 { apps.deleteLastPathComponent() }
+        let fixture = apps.appendingPathComponent("server/tests/fixtures/calendar_join_host_policy.json")
+        let cases = try JSONDecoder().decode([HostCase].self, from: Data(contentsOf: fixture))
+        for item in cases {
+            XCTAssertEqual(CalendarMeetingOpener.validatedHTTPS(item.url) != nil, item.allowed, item.url)
+        }
+    }
+
     func testValidHTTPSPortsRemainBrowserTargets() throws {
         for raw in ["https://meet.example.test:8443/join", "https://zoom.us:444/j/123456789", "https://teams.microsoft.com:8443/l/meetup-join/synthetic", "https://telemost.yandex.ru:8443/j/synthetic"] {
             let url = try XCTUnwrap(CalendarMeetingOpener.validatedHTTPS(raw))

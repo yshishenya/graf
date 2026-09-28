@@ -641,3 +641,53 @@ def test_history_applies_eligibility_to_active_dates_but_keeps_minimal_cancellat
     response = client.get(url, headers=auth_headers())
     assert response.status_code == 200, response.text
     assert {row["event_id"] for row in response.json()["occurrences"]} == set(ids)
+
+
+def test_browser_join_confirmation_rechecks_original_page_session_and_revocation(client):
+    from functools import partial
+
+    from tests.integration.test_web_owner_session_context import _seed_owner_review_session
+    from twobrain_rec_server.auth.csrf import issue_csrf_token
+    from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
+    from twobrain_rec_server.db.models import AuthSession
+
+    event, _, _ = seed_series(client)
+    url = f"/api/v1/calendar/events/{event}/join-target"
+    original = client.portal.call(
+        partial(_seed_owner_review_session, client, token="f279-original-session")
+    )
+    replacement = client.portal.call(
+        partial(_seed_owner_review_session, client, token="f279-new-session")
+    )
+    csrf = issue_csrf_token(session_id=original.id, secret=client.app.state.web_csrf_secret)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, "f279-original-session")
+    assert client.get(url).status_code == 200
+    assert client.post(url).status_code == 403
+    confirmed = client.post(url, headers={"X-CSRF-Token": csrf})
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.headers["cache-control"] == "no-store"
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, "f279-new-session")
+    assert client.get(url).status_code == 200  # Same owner, different session still has access.
+    stale = client.post(url, headers={"X-CSRF-Token": csrf})
+    assert stale.status_code == 403
+    assert "https_url" not in stale.text
+    # Logout must rotate a marker even for an older session that never had one.
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, "f279-original-session")
+    logged_out = client.post("/logout", headers={"X-CSRF-Token": csrf}, follow_redirects=False)
+    assert logged_out.status_code == 303, logged_out.text
+    assert len(logged_out.cookies["__Host-graf_session_epoch"]) == 32
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, "f279-new-session")
+
+    async def revoke():
+        async with client.app_state["sessionmaker"]() as db:
+            row = await db.get(AuthSession, replacement.id)
+            row.status = "revoked"
+            await db.commit()
+
+    client.portal.call(revoke)
+    current_csrf = issue_csrf_token(
+        session_id=replacement.id, secret=client.app.state.web_csrf_secret
+    )
+    rejected = client.post(url, headers={"X-CSRF-Token": current_csrf})
+    assert rejected.status_code == 401
+    assert "https_url" not in rejected.text

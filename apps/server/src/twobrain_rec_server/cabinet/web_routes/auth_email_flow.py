@@ -24,6 +24,7 @@ from twobrain_rec_server.auth.dependencies import (
     auth_session_cookie_secure,
 )
 from twobrain_rec_server.auth.rate_limit import auth_rate_limit_attempt_count
+from twobrain_rec_server.auth.session_epoch import rotate_browser_session_epoch
 from twobrain_rec_server.auth.sessions import (
     callback_expiry,
     create_login_device,
@@ -1190,6 +1191,7 @@ def _set_browser_auth_cookie(
         httponly=True,
         samesite="lax",
     )
+    rotate_browser_session_epoch(response, secure=auth_session_cookie_secure(request), max_age=max_age)
 
 
 def _normalize_email(value: str) -> str | None:
