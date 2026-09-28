@@ -1472,3 +1472,41 @@ SHA этим разделом не удостоверяются. Отметка 
 не изменены; новых задач нет. По просьбе владельца добавлен только этот
 раздел scope-review.md: code-reviewer и ограниченная сверка speckit-converge,
 без повторения исторического аудита, commits или изменений других файлов.
+
+### T034 — ревью исправления высоты HUD после CI, 2026-09-28
+
+Независимо проверены окончательные изменения DesktopMeetingShellView.swift
+и DesktopNotificationProtectedConsumerTests.swift относительно f6b5ff9f6:
+3 добавленные строки production и расширение теста. **Новых findings 0
+(CRITICAL/HIGH/MEDIUM/LOW 0/0/0/0); code/test review PASS для дальнейшей
+валидации**, не разрешение на слияние. Граница прежняя: T034/#7353,
+FR-019/SC-004 в части защиты indicator/Stop и UI lifecycle; новые требования,
+задачи и изменения критериев checklist не нужны.
+
+После установки только нового accessory controller восстанавливается высота
+host до существующих 44 pt, с сохранением фактической host.frame.width.
+Исходная установка frame, inner HUD 32 pt и fullScreenMinHeight сохранены.
+Нет новых constraints, sizingOptions, изменений translatesAutoresizingMask,
+таймеров или политики записи. Временные диагностические flag/prints удалены.
+Тест проверяет настоящие bounds.height=44, затем resize окна на -80 pt:
+accessory следует ширине, сохраняет 44 pt, Stop измеряется повторно.
+Строгие AX containment, столкновение, Stop callback и window/deadline
+проверки не ослаблены; маркер и допуск не расширены.
+
+Непосредственно прочитан предоставленный MAIN журнал
+/tmp/graf-f277-t034-hud-final-focused.log: **52 PASS / 0 SKIP / 0 FAIL,
+3.496 s**, окончание 06:27:02 по времени журнала (03:27:02 UTC по MAIN).
+Состав: 24 AppControlAccessibility + 18 ShellWebBoundary + 3 consumer +
+7 registry. Успешны также новые проверки высоты/resize. Исходники проверял
+reviewer; тесты запускал MAIN, reviewer только прочитал результаты.
+
+Предыдущий CI **f6b5ff9f6, run 36372731762**: Swift 6.0.3 build PASS,
+1153 теста, 2 SKIP, 2 assertion failures в одном titlebar consumer test
+(AX Stop 33 pt против защищённого HUD 28 pt). Этот сбой не отменён локальным
+результатом: **нового доказательства macOS 14 / Swift 6.0.3 ещё нет**.
+Локальная ошибка высоты 36 вместо 44 устранена и проверена после resize;
+точная межверсионная причина и устранение CI-сбоя требуют нового CI на
+исправленном SHA. Текущие App build/ContractValidation ещё выполняются
+по сообщению MAIN, их результат здесь не удостоверяется. Добавлен только
+этот раздел; tasks/checklists/source/GitHub/commits reviewer не менял,
+tests/build/app не запускал, общий GRAF Dev F278 не трогал.
