@@ -131,7 +131,7 @@ def quote_storage_purchase(
     if not active:
         raise PurchaseError("Оплаченный период закончился")
     horizon = utc(active[-1].ends_at)
-    if bonus_interval or target_capacity_bytes <= active[0].capacity_bytes:
+    if bonus_interval or all(target_capacity_bytes <= item.capacity_bytes for item in active):
         return StoragePurchaseCalculation(0, 0, (), horizon, target_capacity_bytes, True)
     quoted = []
     for item in active:
@@ -824,10 +824,23 @@ async def calculate_storage_purchase(
         raise PurchaseError("Для увеличения места нужен действующий тариф «Личный»")
     if target_capacity_bytes not in (PERSONAL_STORAGE_BYTES, *ADDON_CAPACITY_BYTES):
         raise PurchaseError("Этот объём недоступен")
-    # Selecting the same or a smaller future capacity never sells the current
-    # interval. This also lets legacy owners accept a new renewal price without
-    # fabricating a historical storage grant or altering their paid rights.
-    if target_capacity_bytes <= await effective_paid_storage(
+    grants = list(
+        await db.scalars(
+            select(BillingEntitlementGrant)
+            .where(
+                BillingEntitlementGrant.workspace_id == subscription.workspace_id,
+                BillingEntitlementGrant.ends_at > current,
+            )
+            .order_by(BillingEntitlementGrant.starts_at)
+        )
+    )
+    # Same/smaller capacity can be selected without repricing an old current
+    # grant. Future prepaid periods still need their own capacity comparison.
+    no_future_increase = (
+        not any(utc(grant.starts_at) > current for grant in grants)
+        or target_capacity_bytes == PERSONAL_STORAGE_BYTES
+    )
+    if no_future_increase and target_capacity_bytes <= await effective_paid_storage(
         db, subscription=subscription, now=current
     ):
         return StoragePurchaseCalculation(
@@ -854,16 +867,6 @@ async def calculate_storage_purchase(
             0, 0, (), utc(subscription.paid_through), target_capacity_bytes, True
         )
     catalog = await storage_catalog(db, now=current)
-    grants = list(
-        await db.scalars(
-            select(BillingEntitlementGrant)
-            .where(
-                BillingEntitlementGrant.workspace_id == subscription.workspace_id,
-                BillingEntitlementGrant.ends_at > current,
-            )
-            .order_by(BillingEntitlementGrant.starts_at)
-        )
-    )
     if not grants or utc(grants[0].starts_at) > current:
         raise PurchaseError("Оплаченные периоды требуют сверки. Обратитесь в поддержку")
     segments = []
@@ -889,20 +892,23 @@ async def calculate_storage_purchase(
             .limit(1)
         )
         capacity = storage.capacity_bytes if storage else PERSONAL_STORAGE_BYTES
-        if (
-            storage is not None
-            and storage.capacity_bytes > PERSONAL_STORAGE_BYTES
-            and (storage.catalog_version_id is None or storage.full_period_amount_minor <= 0)
+        if storage is None and utc(grant.starts_at) <= current:
+            capacity = await effective_paid_storage(db, subscription=subscription, now=current)
+        if target_capacity_bytes <= capacity:
+            # No part of this interval is being sold. Preserve its paid rights
+            # without requiring a price solely to schedule a smaller capacity.
+            segments.append(StorageSegment(
+                grant.id, utc(grant.starts_at), utc(grant.ends_at), grant.cycle,
+                capacity, 0, 0, grant.id,
+            ))
+            continue
+        if storage is not None and storage.capacity_bytes > PERSONAL_STORAGE_BYTES and (
+            storage.catalog_version_id is None or storage.full_period_amount_minor <= 0
         ):
             raise PurchaseError(
                 "Цена ранее оплаченного объёма требует сверки. Обратитесь в поддержку"
             )
-        if (
-            storage is None
-            and utc(grant.starts_at) <= current
-            and await effective_paid_storage(db, subscription=subscription, now=current)
-            > PERSONAL_STORAGE_BYTES
-        ):
+        if storage is None and capacity > PERSONAL_STORAGE_BYTES:
             raise PurchaseError("Ранее оплаченный объём требует сверки. Обратитесь в поддержку")
         target_price = catalog.get((target_capacity_bytes, grant.cycle))
         if target_capacity_bytes != PERSONAL_STORAGE_BYTES and target_price is None:

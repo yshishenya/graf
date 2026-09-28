@@ -2,7 +2,7 @@
   "schema_version": 1,
   "base_sha": "f5cca687a06dc57ad6ccbef840a0be897eaa6336",
   "kind": "source-and-tests-before-authorized-commit",
-  "created_at": "2026-09-28T00:22:48.773091+00:00",
+  "created_at": "2026-09-28T00:59:40.548089+00:00",
   "files": [
     {
       "path": "apps/server/scripts/manage_promo_campaign.py",
@@ -38,7 +38,7 @@
     },
     {
       "path": "apps/server/src/twobrain_rec_server/billing/purchases.py",
-      "sha256": "df606ade8069d626eb2c30728942564ef9ee7d90b40702f66ffaf9217055199d"
+      "sha256": "7d1fb2d407e47b3c28d168d5d2ad1a2e4385fd7fd88c2795d0ef9925d1f9d804"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/billing/reconciliation.py",
@@ -50,7 +50,7 @@
     },
     {
       "path": "apps/server/src/twobrain_rec_server/billing/renewal_charge.py",
-      "sha256": "37f26f9bf100cd95316200e6a908101c6706ad00153cfd8403f6ac93b0876a66"
+      "sha256": "e2580213f47ca8884a2ff701a3686e462be0de3efec297ebdd156cf7fb7c2504"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/billing/webhook_reconciliation.py",
@@ -106,7 +106,7 @@
     },
     {
       "path": "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py",
-      "sha256": "f4546b9f09fdc8c5c75f7b879db7b517a50397db4fbe7203e48d27d6d30a1006"
+      "sha256": "c2198f93d52b36689830620f5a53171efe83fc0cc4e7ee83d85e897aa101498b"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/config.py",
@@ -194,7 +194,7 @@
     },
     {
       "path": "apps/server/tests/integration/test_billing_review_regressions.py",
-      "sha256": "4e88306789687dffb8a5cc09e7c3990348682c54151dbe8bf460d776cbc78c79"
+      "sha256": "4fb4df420b8df9ff4dff54cf20b355bf7723bb32737badb6d97e7e47b7b5aa90"
     },
     {
       "path": "apps/server/tests/integration/test_billing_usability.py",
@@ -246,7 +246,7 @@
     },
     {
       "path": "apps/server/tests/unit/test_billing_money_path_e2e.py",
-      "sha256": "5ddb99b9ba1b767f1bb0f7f2cee738c2164f40763b64697df1c06091f47eee0a"
+      "sha256": "2dac43137c24c118bf540df9a703b2072d8021cdce1a8aa614eee1400e883a9a"
     },
     {
       "path": "apps/server/tests/unit/test_billing_observation.py",
@@ -258,7 +258,7 @@
     },
     {
       "path": "apps/server/tests/unit/test_billing_purchases.py",
-      "sha256": "eb1cf545919748a090cb83216d81c265271fa47181bf663ac6c420dc01599035"
+      "sha256": "ca2a46a08913a80b01d6083045ea91f98ed6eb6ab357745e510fe05701ef24d5"
     },
     {
       "path": "apps/server/tests/unit/test_billing_renewal_workflow.py",
@@ -278,7 +278,7 @@
     },
     {
       "path": "apps/server/tests/unit/test_renewal_charge.py",
-      "sha256": "539b730bacacc698ead78ef1c1546b68a4fca2e31b3457e0efbffb671ea9a204"
+      "sha256": "e63aad865ab24d70bee35e6c3f3c7474503a74a2a882305f6e591d93bef2d8ed"
     },
     {
       "path": "apps/server/tests/unit/test_storage_packages.py",

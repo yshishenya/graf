@@ -184,3 +184,18 @@ def test_renewal_window_skips_missed_attempts_without_catchup():
     assert next_renewal_attempt(
         paid_through=end, now=end - timedelta(hours=60), resolved_attempts={1}, unresolved=False
     ) == end - timedelta(hours=48)
+
+
+@pytest.mark.parametrize("current_capacity", [20 * GB, 100 * GB])
+def test_equal_current_target_still_prices_lower_prepaid_future_capacity(current_capacity):
+    future = segment(start=END, end=datetime(2026, 11, 1, tzinfo=UTC),
+                     capacity=5 * GB, old=0, new=75000)
+    quote = quote_storage_purchase(
+        segments=[segment(capacity=current_capacity, old=75000, new=75000), future],
+        target_capacity_bytes=20 * GB, now=START + timedelta(days=15),
+    )
+    assert not quote.deferred_to_renewal
+    assert quote.payable_amount_minor == 75000
+    assert len(quote.segments) == 1
+    assert quote.segments[0].base_grant_id == future.base_grant_id
+    assert quote.segments[0].starts_at == END

@@ -355,6 +355,12 @@ def _deliver_webhook(client, body: dict):
 
 def _open_checkout(client, monkeypatch, tmp_path: Path, provider: _FakeYooKassa, key: str):
     """Configure test billing, seed the owner session and open one hosted checkout."""
+    class ReconciliationClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return PAID_AT.astimezone(tz or UTC)
+
+    monkeypatch.setattr(webhook_reconciliation, "datetime", ReconciliationClock)
     _configure_billing(client, tmp_path)
     transport = httpx.MockTransport(provider.handle)
     factory = lambda settings: YooKassaClient(settings, transport=transport)  # noqa: E731

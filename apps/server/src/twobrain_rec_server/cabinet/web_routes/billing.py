@@ -3911,20 +3911,22 @@ async def billing_history_page(
                 WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
             )
         )
-    if not _can_manage_billing(
-        role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
-        subscription=subscription,
-        principal=principal,
-    ):
+    role = await _billing_role(db, tenant_scope=tenant_scope, principal=principal)
+    can_manage = _can_manage_billing(role=role, subscription=subscription, principal=principal)
+    if role != "owner":
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     invoices: list[dict[str, object]] = []
     if db is not None:
-        rows = await db.scalars(
-            select(BillingInvoice)
-            .where(BillingInvoice.workspace_id == tenant_scope.workspace_id)
-            .order_by(BillingInvoice.created_at.desc())
-            .limit(100)
+        query = select(BillingInvoice).where(
+            BillingInvoice.workspace_id == tenant_scope.workspace_id
         )
+        if not can_manage:
+            query = query.where(
+                BillingInvoice.plan_snapshot["service_resolution"].as_string().in_(
+                    ("owner_changed", "workspace_scope_invalid")
+                )
+            )
+        rows = await db.scalars(query.order_by(BillingInvoice.created_at.desc()).limit(100))
         for invoice in rows:
             snapshot = invoice.plan_snapshot if isinstance(invoice.plan_snapshot, dict) else {}
             receipt_state = _receipt_registration_state(snapshot.get("receipt_registration"))
@@ -3964,10 +3966,10 @@ async def billing_history_page(
                     ),
                     "payment_method_label": mask_payment_method(
                         snapshot.get("payment_method_label")
-                        if isinstance(snapshot.get("payment_method_label"), str)
+                        if can_manage and isinstance(snapshot.get("payment_method_label"), str)
                         else None
                     ),
-                    "receipt_label": receipt_label(receipt_state),
+                    "receipt_label": receipt_label(receipt_state) if can_manage else "Чек доступен плательщику",
                     "detail_url": f"/billing/invoices/{invoice.safe_number}",
                     "refund_mailto": refund_mailto,
                 }
@@ -4021,11 +4023,9 @@ async def billing_invoice_detail_page(
                 WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
             )
         )
-    if not _can_manage_billing(
-        role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
-        subscription=subscription,
-        principal=principal,
-    ):
+    role = await _billing_role(db, tenant_scope=tenant_scope, principal=principal)
+    can_manage = _can_manage_billing(role=role, subscription=subscription, principal=principal)
+    if role != "owner":
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     invoice = None
     if db is not None:
@@ -4038,9 +4038,16 @@ async def billing_invoice_detail_page(
     if invoice is None:
         return RedirectResponse("/billing/history?result=not_found", status_code=303)
     snapshot = invoice.plan_snapshot if isinstance(invoice.plan_snapshot, dict) else {}
+    if not can_manage and snapshot.get("service_resolution") not in {
+        "owner_changed", "workspace_scope_invalid"
+    }:
+        return RedirectResponse("/billing/history?result=not_found", status_code=303)
+    # The current owner receives service-gap notices even when the payer's
+    # mandate belongs to the previous owner. This view grants no payment
+    # authority and never exposes the previous payer's receipt or card.
     receipt_state = _receipt_registration_state(snapshot.get("receipt_registration"))
     receipt_url = snapshot.get("receipt_url") if receipt_state is ReceiptState.AVAILABLE else None
-    if not is_allowed_confirmation_url(receipt_url):
+    if not can_manage or not is_allowed_confirmation_url(receipt_url):
         receipt_url = None
     refund_mailto = None
     support_email = request.app.state.settings.billing_support_email
@@ -4100,11 +4107,11 @@ async def billing_invoice_detail_page(
             ),
             "payment_method_label": mask_payment_method(
                 snapshot.get("payment_method_label")
-                if isinstance(snapshot.get("payment_method_label"), str)
+                if can_manage and isinstance(snapshot.get("payment_method_label"), str)
                 else None
             ),
-            "receipt_contact_label": _masked_receipt_contact(invoice.receipt_contact_snapshot),
-            "receipt_label": receipt_label(receipt_state),
+            "receipt_contact_label": _masked_receipt_contact(invoice.receipt_contact_snapshot) if can_manage else None,
+            "receipt_label": receipt_label(receipt_state) if can_manage else "Чек доступен плательщику",
             "receipt_url": receipt_url,
             "refund_mailto": refund_mailto,
         },

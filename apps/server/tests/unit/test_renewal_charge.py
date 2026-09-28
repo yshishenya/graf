@@ -1433,3 +1433,59 @@ async def test_local_retry_from_previous_window_blocks_next_bank_attempt(state):
     ])
     assert await plan_due_renewals(db, now=PAID_THROUGH - timedelta(hours=40)) == ()
     assert not any(isinstance(row, BillingOperation) for row in db.added)
+
+
+@pytest.mark.asyncio
+async def test_planner_pages_past_unaccepted_prices_without_consuming_action_limit():
+    from twobrain_rec_server.billing.catalog import validate_plan_version
+    from twobrain_rec_server.billing.purchases import accept_base_price
+
+    subscriptions = [_planning_subscription() for _ in range(3)]
+    for number, subscription in enumerate(subscriptions, 1):
+        subscription.workspace_id = UUID(int=number)
+    for subscription in subscriptions[:2]:
+        subscription.storage_price_consents = {}
+
+    class PagedDb(FakeDb):
+        def __init__(self):
+            super().__init__([])
+            self.pages = 0
+
+        async def scalars(self, query):
+            entity = query.column_descriptions[0].get("entity")
+            if entity is BillingOperation:
+                return []
+            if entity is BillingPlanVersion:
+                return [_planning_catalog()]
+            assert entity is WorkspaceSubscription
+            params = query.compile().params
+            assert 1 in params.values()  # bounded fetch page
+            if self.pages:
+                assert "(workspace_subscriptions.paid_through, workspace_subscriptions.workspace_id) >" in str(query)
+                assert UUID(int=self.pages) in params.values()
+            result = subscriptions[self.pages:self.pages + 1]
+            self.pages += 1
+            return result
+
+        async def scalar(self, query):
+            entity = query.column_descriptions[0].get("entity")
+            if entity is BillingPlanVersion:
+                return _planning_catalog()
+            if entity is BillingPaymentMethod:
+                return UUID(int=10)
+            if entity is BillingInvoice:
+                return None if "JOIN billing_entitlement_grants" in str(query) else "billing@example.test"
+            return None
+
+    db = PagedDb()
+    result = await plan_due_renewals(db, now=PAID_THROUGH - timedelta(hours=70), limit=1)
+    assert len(result) == 1 and db.pages == 3
+    operation = next(row for row in db.added if isinstance(row, BillingOperation))
+    assert operation.workspace_id == subscriptions[2].workspace_id
+    assert all(row.renewal_resolution == "price_changed" for row in subscriptions[:2])
+
+    # A later explicit acceptance makes a previously skipped row eligible again.
+    accept_base_price(subscriptions[0], validate_plan_version(_planning_catalog()).as_dict())
+    resumed = PagedDb()
+    assert len(await plan_due_renewals(resumed, now=PAID_THROUGH - timedelta(hours=70), limit=1)) == 1
+    assert resumed.pages == 1

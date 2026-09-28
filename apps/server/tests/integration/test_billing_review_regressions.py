@@ -801,6 +801,8 @@ def test_paid_renewal_owner_change_has_one_visible_service_resolution(client, tm
         BillingAcceptanceReservation,
         BillingNotificationDelivery,
         PromotionRedemption,
+        UserIdentity,
+        Workspace,
     )
 
     _configure_billing(client, tmp_path)
@@ -812,8 +814,12 @@ def test_paid_renewal_owner_change_has_one_visible_service_resolution(client, tm
             # Current workspace owner remains the authenticated owner; the paid
             # operation or stale subscription refers to a different authority.
             prior_owner = uuid4()
+            space = await db.get(Workspace, workspace)
+            db.add(UserIdentity(id=prior_owner, organization_id=space.organization_id,
+                                external_subject=f"synthetic-{prior_owner}"))
+            await db.flush()
             sub = WorkspaceSubscription(workspace_id=workspace,
-                                        billing_owner_id=USER_ID if mismatch == "payer" else None,
+                                        billing_owner_id=USER_ID if mismatch == "payer" else prior_owner,
                                         state="free", plan_code="free", recurring_allowed=False)
             db.add(sub)
             op = BillingOperation(workspace_id=workspace, kind=kind, state="unknown",
@@ -825,7 +831,11 @@ def test_paid_renewal_owner_change_has_one_visible_service_resolution(client, tm
             await db.flush()
             invoice = BillingInvoice(workspace_id=workspace, operation_id=op.id,
                                      safe_number=f"INV-{uuid4().hex}", amount_minor=1000,
-                                     currency="RUB", plan_snapshot=dict(op.request_snapshot))
+                                     currency="RUB", receipt_contact_snapshot="prior-payer@prior-payer.example",
+                                     plan_snapshot={**op.request_snapshot,
+                                         "payment_method_label": "•••• 4321",
+                                         "receipt_registration": "succeeded",
+                                         "receipt_url": "https://yookassa.ru/private-demo"})
             db.add(invoice)
             await db.flush()
             await reserve_acceptance_budget(db, workspace_id=workspace, operation_id=op.id,
@@ -862,11 +872,41 @@ def test_paid_renewal_owner_change_has_one_visible_service_resolution(client, tm
             assert redemption.state == "redeemed"
             await db.refresh(campaign)
             assert campaign.reserved_count == 0 and campaign.redeemed_count == 1
+            ordinary_op = BillingOperation(workspace_id=workspace, kind="renewal", state="succeeded",
+                idempotency_key=str(uuid4()), request_snapshot={})
+            db.add(ordinary_op)
+            await db.flush()
+            ordinary = BillingInvoice(workspace_id=workspace, operation_id=ordinary_op.id,
+                safe_number=f"INV-{uuid4().hex}", amount_minor=1000, currency="RUB",
+                status="succeeded", plan_snapshot={})
+            db.add(ordinary)
+            sub.paid_through = datetime.now(UTC) + timedelta(days=15)
+            sub.recurring_allowed = True
             await db.commit()
-            return invoice.safe_number
-    number = asyncio.run(run())
+            return invoice.safe_number, ordinary.safe_number, prior_owner, sub.recurring_authority_version
+    number, ordinary_number, prior_owner, authority = asyncio.run(run())
     assert "Оплата подтверждена; услуга требует сверки" in client.get("/billing/history", headers=headers).text
-    assert "услуга требует сверки" in client.get(f"/billing/invoices/{number}", headers=headers).text
+    page = client.get(f"/billing/invoices/{number}", headers=headers)
+    assert "услуга требует сверки" in page.text
+    if mismatch == "subscription":
+        assert "4321" not in page.text and "prior-payer.example" not in page.text
+        assert "https://yookassa.ru/private-demo" not in page.text
+        history = client.get("/billing/history", headers=headers)
+        assert ordinary_number not in history.text and "4321" not in history.text
+        hidden = client.get(f"/billing/invoices/{ordinary_number}", headers=headers, follow_redirects=False)
+        assert hidden.status_code == 303 and "not_found" in hidden.headers["location"]
+        denied = client.post("/billing/subscription/cancel", headers=headers,
+                             data={"expected_authority_version": authority}, follow_redirects=False)
+        assert denied.status_code == 303 and "unavailable" in denied.headers["location"]
+
+        async def verify_authority():
+            async with client.app_state["sessionmaker"]() as db:
+                subscription = await db.scalar(select(WorkspaceSubscription).where(
+                    WorkspaceSubscription.workspace_id == workspace))
+                assert subscription.billing_owner_id == prior_owner
+                assert subscription.recurring_allowed is True
+                assert subscription.recurring_authority_version == authority
+        asyncio.run(verify_authority())
 
 
 def test_cutoff_waits_for_payment_and_rechecks_the_extended_period(client, tmp_path, monkeypatch):
@@ -939,4 +979,84 @@ def test_cutoff_waits_for_payment_and_rechecks_the_extended_period(client, tmp_p
                 if not cutoff.done():
                     cutoff.cancel()
                     await asyncio.gather(cutoff, return_exceptions=True)
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("current_capacity", [20_000_000_000, 100_000_000_000])
+def test_storage_purchase_prices_lower_future_period_when_current_capacity_is_sufficient(
+    client, tmp_path, current_capacity
+):
+    from twobrain_rec_server.billing.purchases import storage_catalog
+    from twobrain_rec_server.db.models import BillingStorageEntitlementGrant
+
+    _configure_billing(client, tmp_path)
+    workspace, _ = _prepare_owner_session(client)
+    seed_catalog_and_budget(client, workspace)
+    now = seed_periods(client, workspace)
+
+    async def run():
+        async with client.app_state["sessionmaker"]() as db:
+            sub = await db.scalar(select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == workspace))
+            grants = list(await db.scalars(select(BillingEntitlementGrant).where(
+                BillingEntitlementGrant.workspace_id == workspace).order_by(BillingEntitlementGrant.starts_at)))
+            catalog = await storage_catalog(db, now=now)
+            current_price = catalog[(current_capacity, "month")]
+            db.add(BillingStorageEntitlementGrant(workspace_id=workspace,
+                invoice_id=grants[0].invoice_id, base_grant_id=grants[0].id,
+                starts_at=grants[0].starts_at, ends_at=grants[0].ends_at,
+                capacity_bytes=current_capacity, catalog_version_id=current_price.id,
+                full_period_amount_minor=current_price.amount_minor))
+            sub.capacity_bytes = current_capacity
+            await db.flush()
+            quote = await calculate_storage_purchase(db, subscription=sub,
+                target_capacity_bytes=20_000_000_000, now=now)
+            assert not quote.deferred_to_renewal
+            assert quote.payable_amount_minor == catalog[(20_000_000_000, "month")].amount_minor
+            assert len(quote.segments) == 1
+            assert quote.segments[0].base_grant_id == grants[1].id
+            assert quote.segments[0].starts_at == grants[1].starts_at
+            assert sub.capacity_bytes == current_capacity
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("future_capacity", [5_000_000_000, 100_000_000_000])
+def test_legacy_current_capacity_does_not_require_a_price_unless_it_is_increased(
+    client, tmp_path, future_capacity
+):
+    from twobrain_rec_server.billing.purchases import PurchaseError, storage_catalog
+    from twobrain_rec_server.db.models import BillingStorageEntitlementGrant
+
+    _configure_billing(client, tmp_path)
+    workspace, _ = _prepare_owner_session(client)
+    seed_catalog_and_budget(client, workspace)
+    now = seed_periods(client, workspace)
+
+    async def run():
+        async with client.app_state["sessionmaker"]() as db:
+            sub = await db.scalar(select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == workspace))
+            grants = list(await db.scalars(select(BillingEntitlementGrant).where(
+                BillingEntitlementGrant.workspace_id == workspace).order_by(BillingEntitlementGrant.starts_at)))
+            invoice = await db.get(BillingInvoice, grants[0].invoice_id)
+            invoice.plan_snapshot = {"catalog_snapshot": {"storage_bytes": 100_000_000_000}}
+            sub.capacity_bytes = 100_000_000_000
+            catalog = await storage_catalog(db, now=now)
+            if future_capacity > 5_000_000_000:
+                price = catalog[(future_capacity, "month")]
+                db.add(BillingStorageEntitlementGrant(workspace_id=workspace,
+                    invoice_id=grants[1].invoice_id, base_grant_id=grants[1].id,
+                    starts_at=grants[1].starts_at, ends_at=grants[1].ends_at,
+                    capacity_bytes=future_capacity, catalog_version_id=price.id,
+                    full_period_amount_minor=price.amount_minor))
+            await db.flush()
+            quote = await calculate_storage_purchase(db, subscription=sub,
+                target_capacity_bytes=20_000_000_000, now=now)
+            assert quote.deferred_to_renewal == (future_capacity >= 20_000_000_000)
+            assert quote.payable_amount_minor == (0 if future_capacity >= 20_000_000_000
+                else catalog[(20_000_000_000, "month")].amount_minor)
+            assert sub.capacity_bytes == 100_000_000_000
+            with pytest.raises(PurchaseError, match="Ранее оплаченный объём требует сверки"):
+                await calculate_storage_purchase(db, subscription=sub,
+                    target_capacity_bytes=200_000_000_000, now=now)
     asyncio.run(run())

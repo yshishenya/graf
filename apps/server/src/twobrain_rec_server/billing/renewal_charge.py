@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.audit import metadata_only
@@ -279,7 +279,30 @@ async def plan_due_renewals(
     if allowed_workspace_ids is not None:
         query = query.where(WorkspaceSubscription.workspace_id.in_(allowed_workspace_ids))
     planned: list[UUID] = []
-    for subscription in await db.scalars(query):
+
+    async def due_subscriptions():
+        # Skipped subscriptions must not consume the action budget or hide
+        # later due rows. Capture the cursor before refreshing mutable rows.
+        cursor = None
+        while len(planned) < limit:
+            page_query = query
+            if cursor is not None:
+                page_query = page_query.where(
+                    tuple_(WorkspaceSubscription.paid_through, WorkspaceSubscription.workspace_id)
+                    > cursor
+                )
+            page = list(await db.scalars(page_query))
+            if not page:
+                return
+            cursor = (page[-1].paid_through, page[-1].workspace_id)
+            for row in page:
+                if len(planned) >= limit:
+                    return
+                yield row
+            if len(page) < limit:
+                return
+
+    async for subscription in due_subscriptions():
         await lock_storage_workspace(db, subscription.workspace_id)
         await db.refresh(subscription, with_for_update=True)
         if (
