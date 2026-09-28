@@ -23,6 +23,12 @@ public enum GrafTrayRecordingState: Equatable, Sendable {
     }
 }
 
+public enum CalendarProjectionUpdate: Equatable, Sendable {
+    case confirmed(DesktopCalendarPromptResponse)
+    case temporarilyUnavailable
+    case invalidated
+}
+
 /// The menu-bar surface intentionally owns only a short-lived safe projection.
 /// Server truth remains authoritative; no calendar event is persisted locally.
 @MainActor
@@ -37,11 +43,11 @@ public final class CalendarTrayModel {
     private let load: @Sendable () async throws -> DesktopCalendarPromptResponse
     private var refreshGeneration = 0
     public var onAuthInvalidated: (() -> Void)?
-    public var onProjection: ((DesktopCalendarPromptResponse?) -> Void)?
+    public var onProjection: ((CalendarProjectionUpdate) -> Void)?
     public func invalidate() {
         refreshGeneration += 1
         events = []
-        onProjection?(nil)
+        onProjection?(.invalidated)
         onAuthInvalidated?()
     }
 
@@ -63,16 +69,30 @@ public final class CalendarTrayModel {
                 .sorted { $0.startsAt == $1.startsAt ? $0.eventId < $1.eventId : $0.startsAt < $1.startsAt }
                 .prefix(12)
                 .map { $0 }
-            onProjection?(response)
-        } catch let error as DesktopUploadClientError {
-            guard generation == refreshGeneration else { return }
-            events = []
-            onProjection?(nil)
-            if error.failureCategory == .authSession { invalidate() }
+            onProjection?(.confirmed(response))
         } catch {
             guard generation == refreshGeneration else { return }
             events = []
-            onProjection?(nil)
+            if let error = error as? DesktopUploadClientError {
+                if error.failureCategory == .authSession {
+                    invalidate(); return
+                }
+                if case let .httpStatus(status, _) = error {
+                    if status == 401 || status == 403 { invalidate(); return }
+                    if status == 408 || status == 429 || (500...599).contains(status) {
+                        onProjection?(.temporarilyUnavailable); return
+                    }
+                }
+            }
+            if let error = error as? URLError {
+                switch error.code {
+                case .timedOut, .notConnectedToInternet, .networkConnectionLost,
+                     .cannotFindHost, .dnsLookupFailed, .cannotConnectToHost:
+                    onProjection?(.temporarilyUnavailable); return
+                default: break
+                }
+            }
+            onProjection?(.invalidated)
         }
     }
 }
@@ -94,6 +114,9 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
     private let onMuteMicrophone: () -> Void
     private let onUnmuteMicrophone: () -> Void
     private let onQuit: () -> Void
+    private let notificationHistory: () -> [DesktopNotificationHistoryEntry]
+    private let canFocusNotification: () -> Bool
+    private let onFocusNotification: () -> Void
     let recordingLight = GrafRecordingLightView(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
     private var refreshTask: Task<Void, Never>?
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
@@ -107,12 +130,18 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         onMuteMicrophone: @escaping () -> Void,
         onUnmuteMicrophone: @escaping () -> Void,
         onQuit: @escaping () -> Void,
-        onUpdate: @escaping () -> Void = {}
+        onUpdate: @escaping () -> Void = {},
+        notificationHistory: @escaping () -> [DesktopNotificationHistoryEntry] = { [] },
+        canFocusNotification: @escaping () -> Bool = { false },
+        onFocusNotification: @escaping () -> Void = {}
     ) {
         self.model = model
         self.onOpenSettings = onOpenSettings
         self.onOpenMeetings = onOpenMeetings
         self.onUpdate = onUpdate
+        self.notificationHistory = notificationHistory
+        self.canFocusNotification = canFocusNotification
+        self.onFocusNotification = onFocusNotification
         self.onStartRecording = onStartRecording
         self.onStopRecording = onStopRecording
         self.onMuteMicrophone = onMuteMicrophone
@@ -165,7 +194,11 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor in self?.model.invalidate(); self?.refreshNow() }
+                // The observer runs on the main queue. Revoke outstanding
+                // calendar responses before any queued request can resume.
+                guard let self else { return }
+                MainActor.assumeIsolated { self.invalidateAuthContext() }
+                Task { @MainActor in self.refreshNow() }
             }),
             (NSWorkspace.shared.notificationCenter, NSWorkspace.shared.notificationCenter.addObserver(
                 forName: NSWorkspace.didWakeNotification,
@@ -192,6 +225,11 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         return screen.frame.contains(frame) ? frame : nil
     }
 
+    func invalidateAuthContext() {
+        model.invalidate()
+        invalidateNotificationHistory()
+    }
+
     public func showMenu() {
         // Finish the invoking menu first, without holding the main dispatch queue
         // through NSMenu's nested event loop (capture cleanup and dismissal need it).
@@ -209,6 +247,14 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
 
     public func menuNeedsUpdate(_ menu: NSMenu) {
         rebuildMenu()
+    }
+
+    /// Clear the already-built submenu synchronously, before an account switch
+    /// publishes its new state. The menu must not retain the previous context.
+    public func invalidateNotificationHistory() {
+        menu.items.first { $0.identifier?.rawValue == "graf.menu.notification-history" }?.submenu?.removeAllItems()
+        menu.items.first { $0.identifier?.rawValue == "graf.menu.notification-focus" }?.isEnabled = false
+        if menuIsOpen { menu.cancelTracking() }
     }
 
     public func menuWillOpen(_ menu: NSMenu) {
@@ -273,6 +319,35 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
             }
             menu.addItem(.separator())
         }
+        let focusItem = addItem("Перейти к уведомлению", action: #selector(focusNotification), id: "graf.menu.notification-focus")
+        focusItem.isEnabled = canFocusNotification()
+        let historyItem = addItem("Последние уведомления", id: "graf.menu.notification-history")
+        let historyMenu = NSMenu(title: "Последние уведомления")
+        historyMenu.autoenablesItems = false
+        let entries = notificationHistory().prefix(50)
+        if entries.isEmpty {
+            let empty = NSMenuItem(title: "Пока нет уведомлений", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            historyMenu.addItem(empty)
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .none
+            formatter.timeStyle = .short
+            formatter.timeZone = DesktopUserTimeContext.shared.timeZone
+            for entry in entries {
+                let title = formatter.string(from: entry.occurredAt) + " · " + entry.message
+                let item = NSMenuItem(title: Self.truncatedMenuTitle(title, maxWidth: 380), action: nil, keyEquivalent: "")
+                item.toolTip = title
+                item.setAccessibilityLabel(title)
+                // Read-only, but keyboard navigation and VoiceOver must still
+                // reach every result. No represented action can be replayed.
+                item.isEnabled = true
+                historyMenu.addItem(item)
+            }
+        }
+        historyItem.submenu = historyMenu
+        historyItem.isEnabled = true
+        menu.addItem(.separator())
         addItem("Открыть GRAF", action: #selector(openMeetings), id: "graf.menu.open")
         addItem("Настройки…", action: #selector(openSettings), id: "graf.menu.settings")
         if model.appUpdatePresentation.showsSidebarBadge,
@@ -443,6 +518,7 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
     }
 
     @objc private func openSettings() { onOpenSettings() }
+    @objc private func focusNotification() { onFocusNotification() }
     @objc private func quitApp() { onQuit() }
     @objc private func openMeetings() { onOpenMeetings() }
 

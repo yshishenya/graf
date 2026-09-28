@@ -6169,7 +6169,6 @@ html:not([data-cabinet-js="ready"]) .detail-page-main:not([data-processing-repla
 .settings-search { display: grid; gap: 8px; margin-block: 16px; }
 .settings-search input { width: 100%; min-height: 36px; }
 [data-local-notification-controls] { border: 0; margin: 0; padding: 0; min-width: 0; }
-[data-local-notification-permission] { padding-block: 16px; }
 :is(.settings-page, .calendar-settings) .settings-control-row[hidden] { display: none; }
 @media (max-width: 540px) {
   :is(.settings-page, .calendar-settings) .settings-control-row:has(select) { grid-template-columns: minmax(0, 1fr); gap: 8px; }

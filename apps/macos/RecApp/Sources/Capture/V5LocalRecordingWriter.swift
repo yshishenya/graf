@@ -81,7 +81,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         microphoneSelection: RecordingMicrophoneSelection? = nil,
         targetMuteCapability: TargetMuteCapability? = nil,
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence] = [],
-        limitationCopyShownAt: Date? = nil
+        limitationCopyShownAt: Date? = nil,
+        requiresStartAcceptance: Bool = false
     ) throws -> LocalRecordingDirectory {
         return try queue.sync {
             try startOnQueue(
@@ -92,7 +93,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 microphoneSelection: microphoneSelection,
                 targetMuteCapability: targetMuteCapability,
                 meetingMuteTruthEvidence: meetingMuteTruthEvidence,
-                limitationCopyShownAt: limitationCopyShownAt
+                limitationCopyShownAt: limitationCopyShownAt,
+                requiresStartAcceptance: requiresStartAcceptance
             )
         }
     }
@@ -105,7 +107,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         microphoneSelection: RecordingMicrophoneSelection? = nil,
         targetMuteCapability: TargetMuteCapability? = nil,
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence] = [],
-        limitationCopyShownAt: Date? = nil
+        limitationCopyShownAt: Date? = nil,
+        requiresStartAcceptance: Bool = false
     ) async throws -> LocalRecordingDirectory {
         return try await withCheckedThrowingContinuation { continuation in
             queue.async {
@@ -118,7 +121,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                         microphoneSelection: microphoneSelection,
                         targetMuteCapability: targetMuteCapability,
                         meetingMuteTruthEvidence: meetingMuteTruthEvidence,
-                        limitationCopyShownAt: limitationCopyShownAt
+                        limitationCopyShownAt: limitationCopyShownAt,
+                        requiresStartAcceptance: requiresStartAcceptance
                     ))
                 } catch {
                     continuation.resume(throwing: error)
@@ -129,6 +133,27 @@ public final class LocalRecordingWriter: @unchecked Sendable {
 
     public func pausePrivacy(startedAt: Date = Date()) throws {
         try queue.sync { try pausePrivacyOnQueue(startedAt: startedAt) }
+    }
+
+    /// Deliberately synchronous: callers can validate their MainActor decision
+    /// and commit the same session without a new cancellation suspension.
+    public func acceptStart(sessionId: String) throws {
+        try queue.sync {
+            guard let active, active.sessionId == sessionId else {
+                throw LocalRecordingWriterError.notRecording
+            }
+            guard active.startAcceptance == .pending else { return }
+            var manifest = try manifestService.read(from: active.directory.manifestURL)
+            guard manifest.sessionId == sessionId,
+                  manifest.directoryId == active.directory.directoryId,
+                  manifest.status == .active, manifest.startAcceptance == .pending else {
+                throw LocalRecordingWriterError.notRecording
+            }
+            manifest.startAcceptance = .accepted
+            manifest.scopeApproval = active.scopeApproval
+            try manifestService.write(manifest, to: active.directory.manifestURL)
+            active.startAcceptance = .accepted
+        }
     }
 
     public func pausePrivacyAsync(startedAt: Date = Date()) async throws {
@@ -207,7 +232,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         microphoneSelection: RecordingMicrophoneSelection?,
         targetMuteCapability: TargetMuteCapability?,
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence],
-        limitationCopyShownAt: Date?
+        limitationCopyShownAt: Date?,
+        requiresStartAcceptance: Bool
     ) throws -> LocalRecordingDirectory {
         guard active == nil else { throw LocalRecordingWriterError.alreadyRecording }
         lastFinalizedManifest = nil
@@ -229,20 +255,19 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             let timeline = RecordingAudioTimeline(diagnosticLogger: diagnosticLogger, echoProcessor: echoProcessor) { [canonicalWriter] chunk in
                 try canonicalWriter.append(chunk)
             }
-            try manifestService.write(
-                manifestService.activeV5Manifest(
+            var initialManifest = manifestService.activeV5Manifest(
                     sessionId: sessionId,
                     directoryId: directory.directoryId,
                     startedAt: startedAt,
-                    scopeApproval: scopeApproval,
+                    scopeApproval: requiresStartAcceptance ? nil : scopeApproval,
                     permissions: permissions,
                     microphoneSelection: microphoneSelection,
                     targetMuteCapability: targetMuteCapability,
                     meetingMuteTruthEvidence: meetingMuteTruthEvidence,
                     limitationCopyShownAt: limitationCopyShownAt
-                ),
-                to: directory.manifestURL
-            )
+                )
+            initialManifest.startAcceptance = requiresStartAcceptance ? .pending : .accepted
+            try manifestService.write(initialManifest, to: directory.manifestURL)
             let timer = DispatchSource.makeTimerSource(queue: queue)
             let active = V5ActiveRecording(
                 sessionId: sessionId,
@@ -260,7 +285,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 targetMuteCapability: targetMuteCapability,
                 meetingMuteTruthEvidence: meetingMuteTruthEvidence,
                 limitationCopyShownAt: limitationCopyShownAt,
-                recordMicrophone: recordMicrophone
+                recordMicrophone: recordMicrophone,
+                startAcceptance: initialManifest.startAcceptance ?? .pending
             )
             if recordMicrophone && microphoneSource == nil {
                 active.recordFailure(.deviceUnavailable)
@@ -373,7 +399,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             stoppedAt: stoppedAt,
             tracks: tracks,
             failureReason: failureReason != .none ? failureReason : active.terminalFailureReason ?? resolvedFailure,
-            scopeApproval: active.scopeApproval,
+            scopeApproval: active.startAcceptance == .accepted ? active.scopeApproval : nil,
             permissions: active.permissions,
             microphoneSelection: active.microphoneSelection,
             microphoneStream: microphoneStream,
@@ -390,6 +416,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 artifactAvailable: artifact != nil
             )
         )
+        manifest.startAcceptance = active.startAcceptance
         interruptionLock.withLock {
             manifest.applyShortRecordingPolicy(stopReason: interruptionRequested ? nil : stopReason)
         }
@@ -864,6 +891,7 @@ private final class V5ActiveRecording {
     let meetingMuteTruthEvidence: [MeetingMuteTruthEvidence]
     let limitationCopyShownAt: Date?
     let recordMicrophone: Bool
+    var startAcceptance: LocalRecordingStartAcceptance
     var timer: DispatchSourceTimer?
     var terminalFailureReason: LocalRecordingFailureReason?
     var terminalFailureCode: String?
@@ -894,7 +922,8 @@ private final class V5ActiveRecording {
         targetMuteCapability: TargetMuteCapability?,
         meetingMuteTruthEvidence: [MeetingMuteTruthEvidence],
         limitationCopyShownAt: Date?,
-        recordMicrophone: Bool
+        recordMicrophone: Bool,
+        startAcceptance: LocalRecordingStartAcceptance
     ) {
         self.sessionId = sessionId
         self.startedAt = startedAt
@@ -912,6 +941,7 @@ private final class V5ActiveRecording {
         self.meetingMuteTruthEvidence = meetingMuteTruthEvidence
         self.limitationCopyShownAt = limitationCopyShownAt
         self.recordMicrophone = recordMicrophone
+        self.startAcceptance = startAcceptance
     }
 
     func recordFailure(_ reason: LocalRecordingFailureReason, code: String? = nil) {

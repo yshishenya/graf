@@ -150,7 +150,9 @@ final class AppControlAccessibilityTests: XCTestCase {
             ).count - 1,
             3
         )
-        XCTAssertTrue(source.contains("checkmark.circle.fill"))
+        XCTAssertTrue(source.contains("stop.circle"))
+        XCTAssertFalse(source.contains("checkmark.circle.fill"), "Остановка не доказывает сохранение")
+        XCTAssertTrue(source.contains("SystemAudioStatusLabels.recordingStopped"))
         XCTAssertTrue(source.contains("session.state == .stopped || session.state == .finalized"))
         XCTAssertFalse(source.contains("SystemAudioAccessibilityIdentifier.recordingSource"))
         XCTAssertTrue(shellSource.contains("CaptureStatusItem.sourceIndicatorLabel(for: session)"))
@@ -546,8 +548,8 @@ final class AppControlAccessibilityTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("[.meetingDetectionSettings, .notificationSettings].contains(decision.route.kind)"))
-        XCTAssertTrue(source.contains("if decision.route.kind == .notificationSettings { onOpenNotificationSettings() }"))
+        XCTAssertTrue(source.contains("decision.route.kind == .meetingDetectionSettings"))
+        XCTAssertFalse(source.contains("onOpenNotificationSettings"))
         XCTAssertTrue(source.contains("navigationController.cancelPendingNavigation(webView: webView)"))
         XCTAssertTrue(source.contains("onOpenMeetingDetectionSettings()"))
         XCTAssertTrue(source.contains("decisionHandler(.cancel)"))
@@ -582,34 +584,60 @@ final class AppControlAccessibilityTests: XCTestCase {
     func testNotificationControlsKeepLifecycleAndSettingsRoutesAfterIntegration() throws {
         let root = try Self.repositoryRoot()
         let app = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+        func section(_ source: String, from start: String, to end: String) throws -> String {
+            let opening = try XCTUnwrap(source.range(of: start), "Missing route boundary: \(start)")
+            let closing = try XCTUnwrap(source.range(of: end, range: opening.upperBound..<source.endIndex),
+                                       "Missing route boundary: \(end)")
+            return String(source[opening.upperBound..<closing.lowerBound])
+        }
         let warning = try XCTUnwrap(app.components(separatedBy: "private var meetingMuteTruthWarningText").last)
             .components(separatedBy: "\n    }").first ?? ""
         XCTAssertTrue(warning.contains("localRecordingActive || recordingStopInProgress"))
         XCTAssertFalse(warning.contains("localRecordingManifest"), "Historical truth must not keep an active-capture warning visible")
-        let actions = try XCTUnwrap(app.components(separatedBy: "private func syncControlPanel()").last)
-            .components(separatedBy: "private var protectedUpdateWork").first ?? ""
-        XCTAssertTrue(actions.contains("openLocalRecordingSettings()"))
-        XCTAssertTrue(actions.contains("presentPermissionSetup()"))
+        let actions = try section(app, from: "private func syncControlPanel()", to: "private var trayRecordingState")
+        let recordingRoute = try section(actions, from: "case .localRecording(let sessionID):",
+                                         to: "DesktopControlModel.shared.update(controlPanelSnapshot)")
+        XCTAssertTrue(recordingRoute.contains("guard captureSession?.id == sessionID || uploadQueueItems.contains(where: { $0.sessionId == sessionID }) else { return }"))
+        XCTAssertTrue(recordingRoute.contains("DesktopControlModel.shared.showRecording(sessionID)"))
+        XCTAssertTrue(recordingRoute.contains("openMeetingsFromTray()"))
+        for retiredCase in ["case .settings:", "case .localRecordings:", "case .permissions:"] {
+            XCTAssertFalse(actions.contains(retiredCase), "Settings and permissions no longer belong to the notification dispatcher")
+        }
         XCTAssertFalse(actions.contains("permissionOnboardingPresented = true"))
+
+        // These live capture controls own settings/permission recovery after T018.
+        let capture = try section(app, from: "CaptureControlView(",
+                                  to: ".accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.captureRegion)")
+        let settingsRoute = try section(capture, from: "onMeetingDetectionSettings: {", to: "onPermissionRecovery: {")
+        XCTAssertTrue(settingsRoute.contains("(NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()"))
+        let permissionRoute = try section(capture, from: "onPermissionRecovery: {", to: "}")
+        XCTAssertTrue(permissionRoute.contains("presentPermissionSetup()"))
+        XCTAssertFalse(permissionRoute.contains("permissionOnboardingPresented = true"), "Recovery must use the guarded entry point")
+        XCTAssertTrue(app.contains("func openLocalRecordingSettings() { openSettingsSection(\"recording\") }"))
+        let permissionSetup = try section(app, from: "private func presentPermissionSetup()", to: "private func refreshPermissionOnboarding(")
+        XCTAssertTrue(permissionSetup.contains("guard !protectedUpdateWork.isProtected else { return }"))
+        XCTAssertTrue(permissionSetup.contains("refreshPermissionOnboardingWithFunctionalProbe"))
+
+        let captureView = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/Capture/CaptureControlViewCore.swift"), encoding: .utf8)
+        XCTAssertTrue(captureView.contains("Button(action: onMeetingDetectionSettings)"))
+        XCTAssertTrue(captureView.contains("Button(action: readinessStatus.isReady ? onRecord : onPermissionRecovery)"))
+        XCTAssertTrue(captureView.contains("Button(\"Настроить доступы\", action: onPermissionRecovery)"))
         let settings = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionSettingsView.swift"), encoding: .utf8)
         XCTAssertFalse(settings.contains(".frame(width: Self.windowSize.width, height: Self.windowSize.height)"))
     }
 
-    func testNotificationSettingsKeepSystemPermissionActionsAvailableWithoutSignIn() throws {
+    func testNotificationSettingsUseOnlyCustomDeliveryAndPreserveSignInBoundary() throws {
         let source = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift"),
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("Button(\"Включить уведомления на этом Mac\")"))
-        XCTAssertTrue(source.contains("Button(\"Открыть настройки macOS\")"))
+        XCTAssertFalse(source.contains("requestPermission"))
+        XCTAssertFalse(source.contains("openSystemSettings"))
+        XCTAssertTrue(source.contains("preference(\\.quiet)"))
         XCTAssertTrue(source.contains("Войдите в GRAF, чтобы сохранить настройки для своего аккаунта."))
-        XCTAssertTrue(source.contains(".disabled(presenter.owner.isEmpty)"))
-        XCTAssertFalse(
-            source.contains(".padding(24)\n        .disabled(presenter.owner.isEmpty)"),
-            "Системные действия macOS должны работать до входа, disabled остается только у серверных настроек"
-        )
+        XCTAssertTrue(source.contains(".disabled(!presenter.canEdit)"))
     }
 
     private static func repositoryRoot() throws -> URL {

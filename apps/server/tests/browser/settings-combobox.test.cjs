@@ -248,10 +248,14 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
     await window.summaryReady;
     return new Response(JSON.stringify({actor:'actor',workspace:'space',personal:[],can_manage_default:canManageDefault,default_template_key:'brief',template_key:window.savedDefault?.template_key}),{status:200,headers:{'Content-Type':'application/json'}});
    };
-   window.prefs={reminders:true,offsetMinutes:1,showTitles:false,sound:false};
+   window.prefs={reminders:true,offsetMinutes:1,showTitles:false,sound:false,quiet:false};
    window.webkit={messageHandlers:{grafNotificationSettings:{postMessage:async data=>{
+    if(data.version!==2)throw Error('Обновите окно настроек');
+    if(!['read','test','set'].includes(data.action))throw Error('Неизвестное действие');
+    const keys=data.action==='set'?['action','field','nonce','value','version']:['action','nonce','version'];
+    if(JSON.stringify(Object.keys(data).sort())!==JSON.stringify(keys))throw Error('Лишние поля');
     if(data.action==='set'){notificationWrites.push(data);prefs[data.field]=data.value;}
-    return {version:1,preferences:prefs,canEdit:true,canRequestPermission:false,permission:'Разрешено'};
+    return {version:2,preferences:prefs,canEdit:true,message:''};
    }}}};
   },canManageDefault);
   await extra.addScriptTag({path:path.join(assets,'settings-autosave.js')});
@@ -284,6 +288,10 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   await modal.getByRole('button',{name:'Отмена',exact:true}).click();
   assert.equal(await modal.isVisible(),false);
   const offset=extra.getByRole('combobox',{name:'Когда напоминать',exact:true});
+  const quiet=extra.getByRole('switch',{name:'Тихий режим',exact:true});
+  assert.equal(await quiet.isChecked(),false,'Quiet defaults to off');
+  assert.equal(await extra.locator('[data-local-notification-permission]').count(),0);
+  assert.equal(await extra.locator('[data-local-notification-action="requestPermission"],[data-local-notification-action="openSystemSettings"]').count(),0);
   // Settle scrolling before typing: viewport movement intentionally cancels open menus.
   await offset.scrollIntoViewIfNeeded();
   await extra.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
@@ -291,6 +299,10 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   await offset.press('ArrowDown'); await offset.press('Enter');
   await extra.waitForFunction(()=>prefs.offsetMinutes===5);
   assert.equal(await extra.evaluate(()=>notificationWrites.length),1);
+  await quiet.check();
+  await extra.waitForFunction(()=>prefs.quiet===true&&!GRAFSettings.pending());
+  assert.equal(await extra.evaluate(()=>notificationWrites.at(-1).field),'quiet');
+  assert.equal(await extra.evaluate(()=>notificationWrites.at(-1).version),2);
   await extra.getByRole('switch',{name:'Напоминать о встречах',exact:true}).uncheck();
   await extra.waitForFunction(()=>document.querySelector('input[aria-label="Когда напоминать"]').disabled);
   await extra.getByRole('switch',{name:'Напоминать о встречах',exact:true}).check();

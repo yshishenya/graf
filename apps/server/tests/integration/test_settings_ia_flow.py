@@ -3,6 +3,29 @@ import re
 from tests.contract.test_ingest_openapi_contract import auth_headers
 
 
+def test_notification_settings_expose_only_local_version_two_controls(client) -> None:
+    for path in ("/settings/notifications", "/desktop/settings/notifications"):
+        response = client.get(path, headers=auth_headers())
+        assert response.status_code == 200
+        html = response.text
+        assert "Письма и подсказки" in html
+        assert "Открыть историю уведомлений" in html
+        assert "data-local-notification-permission" not in html
+        assert 'data-local-notification-action="requestPermission"' not in html
+        assert 'data-local-notification-action="openSystemSettings"' not in html
+        fields = re.findall(r'data-local-notification-field="([^"]+)"', html)
+        actions = re.findall(r'data-local-notification-action="([^"]+)"', html)
+        if path.startswith("/desktop/"):
+            assert sorted(fields) == ["offsetMinutes", "quiet", "reminders", "showTitles", "sound"]
+            assert actions == ["test"]
+            assert "Тихий режим" in html
+            assert "пока GRAF запущен" in html
+            assert "индикатор записи" in html
+        else:
+            assert fields == []
+            assert actions == []
+
+
 def test_settings_overview_and_categories_are_reachable_in_browser_and_embedded_modes(
     client,
 ) -> None:

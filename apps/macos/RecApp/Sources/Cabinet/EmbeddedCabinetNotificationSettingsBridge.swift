@@ -1,4 +1,3 @@
-import AppKit
 import Combine
 import Foundation
 import WebKit
@@ -79,14 +78,14 @@ final class EmbeddedCabinetNotificationSettingsBridge: NSObject, @preconcurrency
               let object = body as? [String: Any],
               let data = try? JSONSerialization.data(withJSONObject: object),
               let request = try? JSONDecoder().decode(Request.self, from: data),
-              request.version == 1, request.nonce == nonce else { return nil }
+              request.version == 2, request.nonce == nonce else { return nil }
         var keys: Set<String> = ["version", "nonce", "action"]
         switch request.action {
-        case "read", "requestPermission", "openSystemSettings", "test": break
+        case "read", "test": break
         case "set":
             keys.formUnion(["field", "value"])
             switch (request.field, request.value) {
-            case ("reminders", .bool), ("showTitles", .bool), ("sound", .bool): break
+            case ("reminders", .bool), ("showTitles", .bool), ("sound", .bool), ("quiet", .bool): break
             case ("offsetMinutes", .minutes(let minutes)) where [0, 1, 5].contains(minutes): break
             default: return nil
             }
@@ -96,32 +95,45 @@ final class EmbeddedCabinetNotificationSettingsBridge: NSObject, @preconcurrency
     }
     func response(to request: Request, epoch: Int, isCurrent: () -> Bool = { true }) async throws -> [String: Any] {
         guard epoch == presenter.authEpoch, isCurrent() else { throw CocoaError(.userCancelled) }
+        guard request.version == 2 else { throw CocoaError(.validationMissingMandatoryProperty) }
+        if request.action == "read" || request.action == "test" {
+            guard request.field == nil, request.value == nil else { throw CocoaError(.validationMissingMandatoryProperty) }
+        }
         var error: String?
         switch request.action {
-        case "read": await presenter.refreshPermission()
+        case "read": break
         case "set":
             var value = presenter.preferences
             switch (request.field, request.value) {
             case ("reminders", .bool(let flag)): value.reminders = flag
             case ("showTitles", .bool(let flag)): value.showTitles = flag
             case ("sound", .bool(let flag)): value.sound = flag
+            case ("quiet", .bool(let flag)): value.quiet = flag
             case ("offsetMinutes", .minutes(let minutes)) where [0, 1, 5].contains(minutes): value.offsetMinutes = minutes
             default: throw CocoaError(.validationMissingMandatoryProperty)
             }
-            if !presenter.save(value) { error = presenter.message }
-        case "requestPermission": await presenter.enable(isCurrent: isCurrent)
-        case "test": await presenter.test(isCurrent: isCurrent)
-        case "openSystemSettings":
-            guard !presenter.owner.isEmpty else { throw CocoaError(.userCancelled) }
-            NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.notifications")!)
+            guard presenter.canEdit else {
+                return snapshot(error: "Настройки недоступны. Обновите окно настроек после входа в GRAF.")
+            }
+            presenter.draft = value
+            if !presenter.saveDraft() {
+                error = presenter.message.isEmpty ? "Не удалось сохранить настройки этого Mac." : presenter.message
+            }
+        case "test":
+            guard presenter.canEdit else {
+                return snapshot(error: "Проверка недоступна. Обновите окно настроек после входа в GRAF.")
+            }
+            await presenter.testNotification(isCurrent: isCurrent)
         default: throw CocoaError(.validationMissingMandatoryProperty)
         }
         guard epoch == presenter.authEpoch, isCurrent() else { throw CocoaError(.userCancelled) }
+        return snapshot(error: error)
+    }
+    private func snapshot(error: String? = nil) -> [String: Any] {
         let value = presenter.preferences
-        var result: [String: Any] = ["version": 1,
-            "preferences": ["reminders": value.reminders, "offsetMinutes": value.offsetMinutes, "showTitles": value.showTitles, "sound": value.sound],
-            "permission": presenter.permissionText, "canRequestPermission": presenter.canRequestPermission,
-            "canEdit": !presenter.owner.isEmpty, "message": presenter.message]
+        var result: [String: Any] = ["version": 2,
+            "preferences": ["reminders": value.reminders, "offsetMinutes": value.offsetMinutes, "showTitles": value.showTitles, "sound": value.sound, "quiet": value.quiet],
+            "canEdit": presenter.canEdit, "message": presenter.message]
         if let error { result["error"] = error }
         return result
     }
@@ -131,7 +143,7 @@ final class EmbeddedCabinetNotificationSettingsBridge: NSObject, @preconcurrency
               let request = Self.allowedRequest(message.body, sourceURL: message.frameInfo.documentRequestURL,
                 currentURL: webView.url, isMainFrame: message.frameInfo.isMainFrame, isLoading: webView.isLoading,
                 nonce: nonce, routePolicy: routePolicy) else {
-            replyHandler(nil, "Обновите страницу настроек после входа в GRAF."); return
+            replyHandler(nil, "Обновите окно настроек после входа в GRAF."); return
         }
         Task { @MainActor [weak self, weak webView] in
             guard let self else { replyHandler(nil, "Настройки закрыты."); return }

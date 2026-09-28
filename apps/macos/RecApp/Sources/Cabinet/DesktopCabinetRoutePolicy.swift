@@ -9,7 +9,6 @@ public enum DesktopCabinetRouteKind: String, Equatable, Sendable {
     case settings
     case calendarSettings
     case meetingDetectionSettings
-    case notificationSettings
     case billing
     case admin
     case authLogin
@@ -48,7 +47,6 @@ public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case allowedSettings = "allowed_settings"
     case allowedCalendarSettings = "allowed_calendar_settings"
     case allowedMeetingDetectionSettings = "allowed_meeting_detection_settings"
-    case allowedNotificationSettings = "allowed_notification_settings"
     case allowedBilling = "allowed_billing"
     case allowedAuthLogin = "allowed_auth_login"
     case allowedAuthSignup = "allowed_auth_signup"
@@ -272,15 +270,6 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 decision: .allow,
                 reason: .allowedCalendarSettings,
                 userMessage: "Calendar settings"
-            )
-        }
-        if let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
-           parts.percentEncodedPath == "/desktop/settings/notifications/mac",
-           parts.query == nil, parts.fragment == nil {
-            return DesktopCabinetRouteDecision(
-                route: DesktopCabinetRoute(path: path, kind: .notificationSettings),
-                decision: .allow, reason: .allowedNotificationSettings,
-                userMessage: "Notification settings on this Mac"
             )
         }
         if isMeetingDetectionSettingsRoute(components) {

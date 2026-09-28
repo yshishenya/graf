@@ -16,6 +16,7 @@ final class DesktopUploadRetirementTests: XCTestCase {
             item.directoryPath = package.path
             item.manifestPath = package.appendingPathComponent("manifest.json").path
             item.ownerScope = try retirementScope()
+            try writeAcceptedRetirementManifest(for: item)
             let historical = LocalRecordingManifest(schemaVersion: "local-recording-manifest.v4",
                 sessionId: item.sessionId, createdAt: Date(timeIntervalSince1970: 10),
                 startedAt: Date(timeIntervalSince1970: 10), stoppedAt: Date(timeIntervalSince1970: 80),
@@ -201,9 +202,15 @@ final class DesktopUploadRetirementTests: XCTestCase {
         for path in [historical.manifestPath, historical.microphonePath, historical.systemAudioPath] {
             try Data("synthetic".utf8).write(to: URL(fileURLWithPath: path))
         }
-        var current = retirementFixture(schema: LocalRecordingManifest.schemaVersion)
-        current.id = "v5"
+        var current = retirementFixture(schema: LocalRecordingManifest.schemaVersion, id: "v5")
+        let currentPackage = root.appendingPathComponent("current")
+        try FileManager.default.createDirectory(at: currentPackage, withIntermediateDirectories: true)
+        current.directoryPath = currentPackage.path
+        current.manifestPath = currentPackage.appendingPathComponent("manifest.json").path
+        current.microphonePath = currentPackage.appendingPathComponent("meeting-transcription.wav").path
+        current.systemAudioPath = currentPackage.appendingPathComponent("meeting-review.m4a").path
         current.ownerScope = try retirementScope()
+        try writeAcceptedRetirementManifest(for: current)
         let file = root.appendingPathComponent("queue.json")
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(DesktopUploadQueueDocument(updatedAt: Date(), items: [historical, current])).write(to: file)
@@ -246,8 +253,8 @@ private func retirementScope() throws -> RecordingDeletionScope {
 }
 
 /// Historical values exist only to prove persisted-data compatibility and rejection.
-private func retirementFixture(schema: String) -> DesktopUploadQueueItem {
-    var item = custodyFixtureQueueItem(id: "historical")
+private func retirementFixture(schema: String, id: String = "historical") -> DesktopUploadQueueItem {
+    var item = custodyFixtureQueueItem(id: id)
     item.artifactProfile.schemaVersion = schema
     item.artifactProfile.isUploadable = true // stale persisted eligibility must never authorize upload
     let current = schema == LocalRecordingManifest.schemaVersion
@@ -257,6 +264,20 @@ private func retirementFixture(schema: String) -> DesktopUploadQueueItem {
         UploadTrackCompleteness(transportRole: current ? .playback : .system, fileName: current ? "meeting-review.m4a" : "incoming.wav", present: true, byteCount: 512, sha256: String(repeating: "c", count: 64))
     ]
     return item
+}
+
+/// These tests exercise queue transitions with a transport spy, not media
+/// validation. The live start-admission gate still requires a real manifest;
+/// persisted eligibility alone must never bypass it.
+private func writeAcceptedRetirementManifest(for item: DesktopUploadQueueItem) throws {
+    let startedAt = Date(timeIntervalSince1970: 10)
+    var manifest = LocalRecordingManifest(schemaVersion: LocalRecordingManifest.schemaVersion,
+        sessionId: item.sessionId, createdAt: startedAt, startedAt: startedAt,
+        stoppedAt: startedAt.addingTimeInterval(60), status: .saved,
+        directoryId: item.directoryId, mediaScribeSourceMode: "single_wav_v1",
+        canonicalMixProfile: LocalRecordingManifest.canonicalMixProfileVersion, tracks: [])
+    manifest.startAcceptance = .accepted
+    try LocalRecordingManifestService().write(manifest, to: URL(fileURLWithPath: item.manifestPath))
 }
 
 private actor RetirementUploadSpy: DesktopUploadClientProtocol {

@@ -1,6 +1,5 @@
 import Foundation
 import WebKit
-import UserNotifications
 import XCTest
 @testable import TwoBrainRecAppCore
 
@@ -8,11 +7,30 @@ import XCTest
 final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
     private static var retainedViews: [WKWebView] = []
 
+    func testNativeFallbackKeepsTheFivePreferenceContractWithoutSystemPermissionUI() throws {
+        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: repo.appendingPathComponent("apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift"), encoding: .utf8)
+        let declaration = try XCTUnwrap(source.range(of: "public struct DesktopNotificationsSettingsView: View"))
+        let fallback = String(source[declaration.lowerBound...])
+        for field in ["reminders", "offsetMinutes", "showTitles", "sound", "quiet"] {
+            XCTAssertTrue(fallback.contains(".\(field)"), "Native fallback must expose \(field)")
+        }
+        for label in ["Тихий режим", "Проверить уведомление", "Когда напоминать"] {
+            XCTAssertTrue(fallback.contains(label), "Native fallback must retain \(label)")
+        }
+        for api in ["saveDraft", "testNotification", "canEdit"] {
+            XCTAssertTrue(fallback.contains(api), "Native fallback must use \(api)")
+        }
+        for retired in ["permissionText", "canRequestPermission", "refreshPermission", "requestPermission", "openSystemSettings", "x-apple.systempreferences", "Timer.publish"] {
+            XCTAssertFalse(fallback.contains(retired), "Retired permission UI/polling: \(retired)")
+        }
+    }
+
     func testActualWebKitEditsConfirmedFieldsAndClearsOnAccountChange() async throws {
         let suite = "F260-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel(), status: { .denied })
+        let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel())
         presenter.updateContext(user: "a", workspace: "w")
         let url = URL(string: "https://graf.test/desktop/settings/notifications")!
         let bridge = EmbeddedCabinetNotificationSettingsBridge(routePolicy: .init(baseURL: url), presenter: presenter)
@@ -27,12 +45,12 @@ final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
         let html = """
         <div data-local-notification-settings>
           <fieldset data-local-notification-controls disabled>
-            <p data-local-notification-permission></p>
             <input type="checkbox" data-local-notification-field="reminders">
             <select data-settings-combobox aria-label="Когда напоминать" data-local-notification-field="offsetMinutes"><option value="0">Сейчас</option><option value="1">За минуту</option><option value="5">За 5 минут</option></select>
             <input type="checkbox" data-local-notification-field="showTitles">
             <input type="checkbox" data-local-notification-field="sound">
-            <button data-local-notification-action="requestPermission"></button>
+            <input type="checkbox" data-local-notification-field="quiet">
+            <button data-local-notification-action="test">Проверить уведомление</button>
           </fieldset>
           <p data-local-notification-status></p><button data-local-notification-retry></button><a data-local-notification-reload></a>
         </div>
@@ -49,7 +67,13 @@ final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
         XCTAssertEqual(flushed as? Bool, true)
         XCTAssertTrue(presenter.preferences.sound)
         XCTAssertFalse(presenter.preferences.showTitles)
-        var value = presenter.preferences; value.showTitles = true; presenter.save(value)
+        _ = try await web.evaluateJavaScript("const quiet=document.querySelector('[data-local-notification-field=quiet]');quiet.checked=true;quiet.dispatchEvent(new Event('change',{bubbles:true}));")
+        let quietFlushed = try await web.callAsyncJavaScript("return await GRAFSettings.flushAll()", arguments: [:], in: nil, contentWorld: .page)
+        XCTAssertEqual(quietFlushed as? Bool, true)
+        let snapshot = try await bridge.response(to: .init(version: 2, nonce: "n", action: "read", field: nil, value: nil), epoch: presenter.authEpoch)
+        XCTAssertEqual((snapshot["preferences"] as? [String: Any])?["quiet"] as? Bool, true)
+        var value = presenter.preferences; value.showTitles = true; presenter.draft = value
+        XCTAssertTrue(presenter.saveDraft())
         try await wait("document.querySelector('[data-local-notification-field=showTitles]').checked", web)
         let focus = try await web.evaluateJavaScript("document.activeElement.dataset.localNotificationField")
         XCTAssertEqual(focus as? String, "sound")
@@ -65,7 +89,7 @@ final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
         let gate = NotificationSettingsGate()
         let user = UUID(), workspace = UUID()
         let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel(),
-            status: { .denied }, contextProvider: {
+            contextProvider: {
                 await gate.wait()
                 return DesktopNotificationContext(user_id: user, workspace_id: workspace, recording_deletion_protocol_version: nil)
             })
@@ -126,18 +150,30 @@ final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
     }
 
     private func wait(_ condition: String, _ web: WKWebView) async throws {
+        var lastJSError: (domain: String, code: Int)?
+        var lastBooleanResult: Bool?
+        var lastIsLoading = web.isLoading
         for _ in 0..<100 {
-            if (try? await web.evaluateJavaScript(condition)) as? Bool == true { return }
+            do {
+                lastBooleanResult = try await web.evaluateJavaScript(condition) as? Bool
+                if lastBooleanResult == true { return }
+            } catch {
+                let jsError = error as NSError
+                lastJSError = (domain: jsError.domain, code: jsError.code)
+            }
+            lastIsLoading = web.isLoading
             try await Task.sleep(for: .milliseconds(50))
         }
-        XCTFail("Condition timed out: \(condition)")
-        throw CocoaError(.fileReadUnknown)
+        let jsErrorSummary = lastJSError.map { "domain=\($0.domain), code=\($0.code)" } ?? "none"
+        let booleanSummary = lastBooleanResult.map { String($0) } ?? "nil"
+        // XCTUnwrap records one failure and aborts the test with XCTest's own error.
+        _ = try XCTUnwrap(nil as Bool?, "Condition timed out after 100 attempts at 50 ms: \(condition); lastJSError=\(jsErrorSummary); lastBooleanResult=\(booleanSummary); isLoading=\(lastIsLoading)")
     }
 
     func testBoundaryRejectsUntrustedDocumentsAndMalformedPatches() {
         let url = URL(string: "https://graf.test/desktop/settings/notifications")!
         let policy = DesktopCabinetRoutePolicy(baseURL: url)
-        let valid: [String: Any] = ["version": 1, "nonce": "current", "action": "set", "field": "sound", "value": true]
+        let valid: [String: Any] = ["version": 2, "nonce": "current", "action": "set", "field": "sound", "value": true]
         func allowed(_ body: [String: Any], _ source: URL? = nil, _ main: Bool = true, _ loading: Bool = false, _ nonce: String? = "current") -> Bool {
             EmbeddedCabinetNotificationSettingsBridge.allowedRequest(body, sourceURL: source ?? url, currentURL: url, isMainFrame: main, isLoading: loading, nonce: nonce, routePolicy: policy) != nil
         }
@@ -146,60 +182,117 @@ final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
             XCTAssertFalse(allowed(valid, URL(string: path)), path)
         }
         XCTAssertFalse(allowed(valid, nil, false)); XCTAssertFalse(allowed(valid, nil, true, true)); XCTAssertFalse(allowed(valid, nil, true, false, "old"))
-        for patch in [["value": "true"], ["value": 1], ["field": "owner"], ["extra": true], ["version": true], ["field": "offsetMinutes", "value": 2], ["field": "offsetMinutes", "value": true]] as [[String: Any]] {
+        for patch in [["value": "true"], ["value": 1], ["field": "owner"], ["extra": true], ["version": true], ["version": 1], ["version": 3], ["field": "offsetMinutes", "value": 2], ["field": "offsetMinutes", "value": true]] as [[String: Any]] {
             XCTAssertFalse(allowed(valid.merging(patch) { _, new in new }))
         }
-        XCTAssertTrue(allowed(valid.merging(["field": "offsetMinutes", "value": 5]) { _, new in new }))
+        for field in ["reminders", "showTitles", "sound", "quiet"] {
+            for value in [true, false] {
+                XCTAssertTrue(allowed(valid.merging(["field": field, "value": value]) { _, new in new }))
+            }
+        }
+        for minutes in [0, 1, 5] {
+            XCTAssertTrue(allowed(valid.merging(["field": "offsetMinutes", "value": minutes]) { _, new in new }))
+        }
+        for action in ["read", "test"] {
+            let request: [String: Any] = ["version": 2, "nonce": "current", "action": action]
+            XCTAssertTrue(allowed(request))
+            for extra in [["field": "quiet"], ["value": false], ["extra": NSNull()]] as [[String: Any]] {
+                XCTAssertFalse(allowed(request.merging(extra) { _, new in new }), "\(action) rejects extra fields")
+            }
+        }
+        for action in ["requestPermission", "openSystemSettings", "permission", "unknown"] {
+            XCTAssertFalse(allowed(["version": 2, "nonce": "current", "action": action]))
+        }
+        XCTAssertNil(EmbeddedCabinetNotificationSettingsBridge.allowedRequest(valid, sourceURL: url,
+            currentURL: URL(string: "https://other.test/desktop/settings/notifications"), isMainFrame: true,
+            isLoading: false, nonce: "current", routePolicy: policy))
+        XCTAssertFalse(allowed(valid, nil, true, false, nil))
     }
 
     func testPatchUsesCurrentPreferencesAndRejectsOldAuthEpoch() async throws {
         let suite = "F260-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel(), status: { .denied })
+        let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel())
         presenter.updateContext(user: "a", workspace: "w")
         let epoch = presenter.authEpoch
         let bridge = EmbeddedCabinetNotificationSettingsBridge(routePolicy: .init(baseURL: URL(string: "https://graf.test")!), presenter: presenter)
         var value = presenter.preferences; value.showTitles = true
-        XCTAssertTrue(presenter.save(value))
-        let request = EmbeddedCabinetNotificationSettingsBridge.Request(version: 1, nonce: "n", action: "set", field: "sound", value: .bool(false))
+        presenter.draft = value
+        XCTAssertTrue(presenter.saveDraft())
+        let request = EmbeddedCabinetNotificationSettingsBridge.Request(version: 2, nonce: "n", action: "set", field: "sound", value: .bool(false))
         _ = try await bridge.response(to: request, epoch: epoch)
         XCTAssertTrue(presenter.preferences.showTitles); XCTAssertFalse(presenter.preferences.sound)
+        let quiet = EmbeddedCabinetNotificationSettingsBridge.Request(version: 2, nonce: "n", action: "set", field: "quiet", value: .bool(true))
+        _ = try await bridge.response(to: quiet, epoch: epoch)
+        XCTAssertTrue(presenter.preferences.quiet)
+        XCTAssertTrue(presenter.preferences.showTitles)
+        for minutes in [0, 1, 5] {
+            let offset = EmbeddedCabinetNotificationSettingsBridge.Request(version: 2, nonce: "n", action: "set", field: "offsetMinutes", value: .minutes(minutes))
+            _ = try await bridge.response(to: offset, epoch: epoch)
+            XCTAssertEqual(presenter.preferences.offsetMinutes, minutes)
+            XCTAssertTrue(presenter.preferences.quiet)
+        }
         presenter.updateContext(user: "b", workspace: "w"); presenter.updateContext(user: "a", workspace: "w")
         do { _ = try await bridge.response(to: request, epoch: epoch); XCTFail("Old epoch accepted") } catch {}
+        XCTAssertTrue(presenter.preferences.quiet, "The current owner retains its saved preference")
         presenter.invalidate()
-        XCTAssertFalse(presenter.save(value))
+        presenter.draft = value
+        XCTAssertFalse(presenter.saveDraft())
     }
 
-    // Выход из аккаунта во время запроса разрешения не оставляет следов. Проверка
-    // показа теперь намеренно не ждёт разрешение macOS: она синхронно показывает
-    // безопасную карточку, а выход из аккаунта должен убрать её тем же lifecycle.
-    func testLogoutWhilePermissionOrTestIsPendingHasNoLateEffects() async throws {
-        let suite = "F260-\(UUID().uuidString)"
+    func testPreviewUsesTheRealCardWithoutChangingPreferencesAndLogoutRemovesIt() async throws {
+        let suite = "F277-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let gate = NotificationSettingsGate()
-        var sent: [String] = [], removed: [String] = []
-        let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel(),
-            status: { await gate.wait(); return .authorized },
-            submit: { request in sent.append(request.identifier) },
-            remove: { removed.append(contentsOf: $0 ?? sent) },
-            requestPermission: { await gate.wait(); return true })
+        let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel())
         presenter.updateContext(user: "a", workspace: "w")
-        let permission = Task { await presenter.enable() }
-        await gate.untilWaiting()
+        defer { presenter.invalidate() }
+        let bridge = EmbeddedCabinetNotificationSettingsBridge(routePolicy: .init(baseURL: URL(string: "https://graf.test")!), presenter: presenter)
+        let before = presenter.preferences
+        let result = try await bridge.response(to: .init(version: 2, nonce: "n", action: "test", field: nil, value: nil), epoch: presenter.authEpoch)
+        XCTAssertTrue(presenter.card.isVisible, "Preview must use the actual notification component")
+        XCTAssertEqual(presenter.preferences, before)
+        XCTAssertFalse((result["message"] as? String ?? "").isEmpty)
         presenter.invalidate()
-        gate.release()
-        await permission.value
-        XCTAssertEqual(presenter.message, "")
-        XCTAssertTrue(sent.allSatisfy { removed.contains($0) })
-        XCTAssertFalse(presenter.card.isVisible, "карточка не появляется после выхода")
+        XCTAssertFalse(presenter.card.isVisible)
+    }
 
-        await presenter.test()
-        XCTAssertTrue(presenter.card.isVisible)
+    func testVersionTwoResponseHasFivePreferencesAndNoSystemPermissionState() async throws {
+        let suite = "F277-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel())
+        presenter.updateContext(user: "a", workspace: "w")
+        let bridge = EmbeddedCabinetNotificationSettingsBridge(routePolicy: .init(baseURL: URL(string: "https://graf.test")!), presenter: presenter)
+        let read = EmbeddedCabinetNotificationSettingsBridge.Request(version: 2, nonce: "n", action: "read", field: nil, value: nil)
+        let result = try await bridge.response(to: read, epoch: presenter.authEpoch)
+        XCTAssertEqual(result["version"] as? Int, 2)
+        XCTAssertEqual(Set(result.keys), ["version", "preferences", "canEdit", "message"])
+        let prefs = try XCTUnwrap(result["preferences"] as? [String: Any])
+        XCTAssertEqual(Set(prefs.keys), ["reminders", "offsetMinutes", "showTitles", "sound", "quiet"])
+        XCTAssertEqual(prefs["quiet"] as? Bool, false)
+        XCTAssertEqual(result["canEdit"] as? Bool, true)
+        XCTAssertNotNil(result["message"] as? String)
+        let before = presenter.preferences
+        for action in ["set", "test"] {
+            let old = EmbeddedCabinetNotificationSettingsBridge.Request(version: 1, nonce: "n", action: action, field: action == "set" ? "sound" : nil, value: action == "set" ? .bool(true) : nil)
+            do { _ = try await bridge.response(to: old, epoch: presenter.authEpoch); XCTFail("Version 1 accepted") } catch {}
+            XCTAssertEqual(presenter.preferences, before)
+            XCTAssertFalse(presenter.card.isVisible)
+        }
+        let preview = EmbeddedCabinetNotificationSettingsBridge.Request(version: 2, nonce: "n", action: "test", field: nil, value: nil)
+        do { _ = try await bridge.response(to: preview, epoch: presenter.authEpoch, isCurrent: { false }); XCTFail("Old document accepted") } catch {}
+        XCTAssertFalse(presenter.card.isVisible)
+        let epoch = presenter.authEpoch
         presenter.invalidate()
-        XCTAssertEqual(presenter.message, "")
-        XCTAssertFalse(presenter.card.isVisible, "предпросмотр убирается при выходе")
+        do { _ = try await bridge.response(to: preview, epoch: epoch); XCTFail("Old epoch accepted") } catch {}
+        let unavailable = try await bridge.response(to: read, epoch: presenter.authEpoch)
+        XCTAssertEqual(unavailable["canEdit"] as? Bool, false)
+        let save = EmbeddedCabinetNotificationSettingsBridge.Request(version: 2, nonce: "n", action: "set", field: "quiet", value: .bool(true))
+        let failed = try await bridge.response(to: save, epoch: presenter.authEpoch)
+        XCTAssertFalse((failed["error"] as? String ?? "").isEmpty, "Unavailable save must not claim success")
+        XCTAssertFalse(presenter.card.isVisible)
     }
 }
 

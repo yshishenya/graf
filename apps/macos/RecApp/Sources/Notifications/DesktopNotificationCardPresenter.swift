@@ -1,53 +1,20 @@
 import AppKit
 import Foundation
 
-/// Собственная карточка GRAF поверх других окон: единая поверхность для
-/// напоминания о встрече, вопроса о записи, проблемы сохранения или отправки,
-/// короткой записи и безопасного предпросмотра из настроек.
-///
-/// Наблюдаемый эталон: карточка-напоминание Krisp 3.16.8 шириной 448 точек в
-/// правом верхнем углу рабочей области, содержимое 420 точек со скруглением 16,
-/// заголовок 14/20 полужирным, пояснение 14/20 обычным, кнопка действия высотой
-/// не меньше 40 точек со скруглением 10. Карточка не зависит от разрешения
-/// `UNUserNotificationCenter` и от режима «Не беспокоить».
 public enum DesktopNotificationCardAction: Equatable, Sendable {
-    case join
-    case joinAndRecord
-    case record
-    case openCalendar
-    case openSettings
-    case stopRecording
+    case join, joinAndRecord, record
     case openRecording(String)
     case skipRecordingPrompt
     case toggleRecordingPromptRemember(Bool)
 }
 
-/// Содержимое карточки без AppKit: пригодно для проверок логики показа.
+/// Semantic content only. Decisions, event identity and priority belong to the owner.
 public enum DesktopNotificationCardContent: Equatable, Sendable {
     case meeting(title: String, startText: String, hasJoinLink: Bool)
-    case recordingPrompt(displayName: String, remainingSeconds: Int, progress: Double, rememberChoice: Bool)
+    case recordingPrompt(displayName: String, remainingSeconds: Int, rememberChoice: Bool)
     case problem(title: String, message: String, actionTitle: String, sessionID: String?)
-    /// Безопасное предварительное сообщение из настроек, не являющееся реальным событием.
     case preview(title: String, message: String)
-    case shortRecording(title: String, message: String)
-
-    public var accessibilitySummary: String {
-        switch self {
-        case let .meeting(title, startText, hasJoinLink):
-            let join = hasJoinLink ? "Есть ссылка на встречу." : "Ссылки на встречу нет."
-            return "Напоминание о встрече. \(title). Начало \(startText). \(join)"
-        case let .recordingPrompt(displayName, remainingSeconds, progress, rememberChoice):
-            let remember = rememberChoice ? "Выбор сохранён." : "Выбор не сохранён."
-            let remainingPercent = Int(((1 - min(max(progress, 0), 1)) * 100).rounded())
-            return "Вопрос о записи. Встреча в \(displayName). Записать через \(remainingSeconds) секунд. Осталось \(remainingPercent) процентов. \(remember)"
-        case let .problem(title, message, actionTitle, _):
-            return "\(title). \(message). Действие: \(actionTitle)."
-        case let .preview(title, message), let .shortRecording(title, message):
-            // Точка в конце сообщения не удваивается.
-            let body = message.hasSuffix(".") ? message : message + "."
-            return "\(title). \(body)"
-        }
-    }
+    case shortRecording
 
     public var identifier: String {
         switch self {
@@ -58,798 +25,904 @@ public enum DesktopNotificationCardContent: Equatable, Sendable {
         case .shortRecording: return "graf.card.short-recording"
         }
     }
+    fileprivate var text: (title: String, message: String) {
+        switch self {
+        case let .meeting(title, startText, _): return (title, startText)
+        case let .recordingPrompt(name, seconds, _):
+            let count = max(0, seconds)
+            let ending: String
+            if (11...14).contains(count % 100) { ending = "секунд" }
+            else if count % 10 == 1 { ending = "секунду" }
+            else if (2...4).contains(count % 10) { ending = "секунды" }
+            else { ending = "секунд" }
+            return ("Встреча в \(name)", "Запись начнётся через \(count) \(ending)")
+        case let .problem(title, message, _, _), let .preview(title, message): return (title, message)
+        case .shortRecording: return ("", "Запись не сохранена — короче 30 секунд")
+        }
+    }
+    public var accessibilitySummary: String {
+        [text.title, text.message].filter { !$0.isEmpty }
+            .map { $0.hasSuffix(".") ? $0 : $0 + "." }.joined(separator: " ")
+    }
+    fileprivate var actions: [(title: String, action: DesktopNotificationCardAction, primary: Bool)] {
+        switch self {
+        case let .meeting(_, _, linked):
+            return linked ? [("Подключиться", .join, false), ("Подключиться и начать запись", .joinAndRecord, true)]
+                : [("Начать запись", .record, true)]
+        case .recordingPrompt: return [("Не записывать", .skipRecordingPrompt, false), ("Записать", .record, true)]
+        case let .problem(_, _, title, session):
+            guard !title.isEmpty, let session else { return [] }
+            return [(title, .openRecording(session), true)]
+        case .preview, .shortRecording: return []
+        }
+    }
+    fileprivate var checkboxTitle: String? {
+        if case let .recordingPrompt(name, _, _) = self { return "Запомнить выбор для \(name)" }
+        return nil
+    }
+    fileprivate var remembers: Bool {
+        if case let .recordingPrompt(_, _, value) = self { return value }
+        return false
+    }
+    fileprivate var allowsHold: Bool {
+        switch self {
+        case .preview, .problem, .shortRecording: return true
+        case .meeting, .recordingPrompt: return false
+        }
+    }
+    fileprivate var iconName: String? {
+        switch self {
+        case .meeting: return "calendar"
+        case .recordingPrompt: return "record.circle"
+        case .problem: return "exclamationmark.triangle"
+        case .preview: return "bell"
+        case .shortRecording: return nil
+        }
+    }
 }
 
-/// Показ карточки в окне поверх других окон. Все побочные эффекты снимаются
-/// вместе с окном, поэтому остановка и выход из аккаунта не оставляют карточек.
+struct NotificationCardScreen: Equatable {
+    var id: UInt32
+    var frame: NSRect
+    var visibleFrame: NSRect
+    var isMain: Bool = false
+}
+
+@MainActor
+struct NotificationCardEnvironment {
+    var now: () -> Date = Date.init
+    var screens: () -> [NotificationCardScreen] = {
+        NSScreen.screens.compactMap { screen in
+            guard let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
+            return NotificationCardScreen(id: id.uint32Value, frame: screen.frame,
+                                          visibleFrame: screen.visibleFrame, isMain: screen === NSScreen.main)
+        }
+    }
+    var mouseLocation: () -> NSPoint = { NSEvent.mouseLocation }
+    // AppKit may complete, delay, or deny an explicit activation request.
+    // Keep that OS boundary injectable without substituting key-window state.
+    var requestActivation: () -> Void = { NSApp.activate() }
+    var requestKeyWindow: (NSWindow) -> Void = { $0.makeKeyAndOrderFront(nil) }
+    var announce: (NSWindow, String) -> Void = { window, text in
+        NSAccessibility.post(element: window, notification: .announcementRequested,
+                             userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+    }
+    var automaticallyTicks = true
+    var fontScale: CGFloat = 1
+}
+
+/// Owns exactly one panel and ticker. Never starts recording or requests permissions.
 @MainActor
 public final class DesktopNotificationCardPresenter {
-    public static let cardWidth: CGFloat = 420
-    public static let windowWidth: CGFloat = 448
-    public static let horizontalMargin: CGFloat = 10
-    public static let topInset: CGFloat = 39
-    public static let bottomPadding: CGFloat = 12
-    public static let cornerRadius: CGFloat = 16
-    /// Высота кнопки действия: карточка эталона 82 точки при полях 10 и тексте
-    /// в две строки по 20 точек.
-    public static let buttonHeight: CGFloat = 40
-    /// Поле карточки сверху.
-    public static let topPadding: CGFloat = 10
-    /// Поле карточки слева и справа внутри окна.
-    public static let contentInset: CGFloat = 16
-    /// Наблюдаемая высота карточки эталона.
-    public static let cardHeight: CGFloat = 82
-    /// Наблюдаемая высота окна карточки эталона.
-    public static let windowHeight: CGFloat = 104
-    /// Предпросмотр из настроек живёт шесть секунд.
+    public static let cardWidth: CGFloat = 380
+    public static let horizontalMargin: CGFloat = 14
+    public static let topPadding: CGFloat = 14
+    public static let bottomPadding: CGFloat = 14
     public static let previewDisplayDuration: TimeInterval = 6
-    /// Вопрос о записи живёт восемь секунд.
     public static let recordingPromptDisplayDuration: TimeInterval = 8
-    /// Проблема сохранения и короткая запись живут двадцать секунд.
     public static let noticeDisplayDuration: TimeInterval = 20
 
-    private var panel: NSPanel?
+    // Each live control owns one registration. Providers capture their views weakly;
+    // dismissing a card must not discard controls needed by the next card.
+    private var protectedRegions: [UUID: () -> NSRect?] = [:]
+    private var protectedPlacementScheduled = false
+    var protectedFrames: [NSRect] {
+        protectedRegions.values.compactMap { $0() }.filter { !$0.isEmpty }
+    }
+
+    func registerProtectedRegion(id: UUID, frame: @escaping () -> NSRect?) {
+        protectedRegions[id] = frame
+        scheduleProtectedPlacement()
+    }
+
+    func unregisterProtectedRegion(id: UUID) {
+        guard protectedRegions.removeValue(forKey: id) != nil else { return }
+        scheduleProtectedPlacement()
+    }
+
+    func scheduleProtectedPlacement() {
+        guard !protectedPlacementScheduled else { return }
+        protectedPlacementScheduled = true
+        // Common modes include scroll/resize tracking. No polling, new timer or
+        // deadline: this is one coalesced response to actual geometry changes.
+        RunLoop.main.perform(inModes: [.common]) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.protectedPlacementScheduled = false
+                self.reposition()
+            }
+        }
+    }
+    public var isVisible: Bool { panel?.isVisible == true }
+    public private(set) var presentedContent: DesktopNotificationCardContent?
+    var window: NSWindow? { panel }
+    private(set) var selectedScreenID: UInt32?
+    private(set) var deadline: Date?
+
+    private let environment: NotificationCardEnvironment
+    private var panel: DesktopNotificationCardPanel?
     private var ticker: Task<Void, Never>?
-    private var onExpire: (() -> Void)?
-    /// Знак закрытия показанной карточки и сторож нажатий: пока приложение не
-    /// впереди, первое нажатие до окна не доходит.
-    private weak var closeControl: NSButton?
-    private var clickMonitor: Any?
-    private var content: DesktopNotificationCardContent?
+    private var generation = 0
     private var onAction: ((DesktopNotificationCardAction) -> Void)?
     private var onTick: (() -> DesktopNotificationCardContent?)?
-    private var onCloseAction: (() -> Void)?
-    private var dismissAfter: Date?
-    private var expiryGeneration = 0
-    private var screenObserver: NSObjectProtocol?
+    private var onExpire: (() -> Void)?
+    private var onClose: (() -> Void)?
+    private var onInvalidated: (() -> Void)?
+    private var hovered = false
+    private var focused = false
+    private var holdStarted: Date?
+    private var lastTickAt: Date?
+    private weak var previousKeyWindow: NSWindow?
+    private var previousApplication: NSRunningApplication?
+    private var observations: NotificationCardObservations?
+    private var focusRequestID = 0
+    private var pendingFocus: (generation: Int, requestID: Int)?
+    private var focusObservations: NotificationCardObservations?
+    private var focusTimeout: DispatchWorkItem?
 
-    public init() {}
+    public convenience init() { self.init(environment: .init()) }
+    init(environment: NotificationCardEnvironment) { self.environment = environment }
+    deinit { ticker?.cancel() }
 
-    public var isVisible: Bool { panel != nil }
-    public var presentedContent: DesktopNotificationCardContent? { content }
-
-    /// Высота окна: наблюдаемая для одной строки действий, больше — когда
-    /// действия вынесены во вторую строку.
-    static func windowHeight(for content: DesktopNotificationCardContent) -> CGFloat {
-        surfaceHeight(for: content)
-    }
-
-    /// Высота карточки внутри поверхности. Одна строка действий — наблюдаемые
-    /// 82 точки. Две строки — строка текста, зазор и строка действий.
-    static func rootHeight(for content: DesktopNotificationCardContent) -> CGFloat {
-        DesktopNotificationCardView.measuredRootHeight(for: content)
-    }
-
-    /// Полная высота поверхности: карточка плюс наблюдаемые поля.
-    static func surfaceHeight(for content: DesktopNotificationCardContent) -> CGFloat {
-        rootHeight(for: content) + topPadding + bottomPadding
-    }
-
-    /// Безопасный предварительный просмотр карточки без привязки к реальному
-    /// событию и без изменения состояния согласователя.
-    public func presentPreview(title: String,
-                               message: String,
-                               duration: TimeInterval = DesktopNotificationCardPresenter.previewDisplayDuration,
-                               onExpire: (() -> Void)? = nil) {
-        present(.preview(title: title, message: message),
-                dismissAfter: Date().addingTimeInterval(duration),
-                onAction: { _ in },
-                onExpire: onExpire)
-    }
-
-    public func presentPreview(title: String,
-                               message: String,
-                               expiresAt: Date,
-                               onExpire: (() -> Void)? = nil) {
-        present(.preview(title: title, message: message),
-                dismissAfter: expiresAt,
-                onAction: { _ in },
-                onExpire: onExpire)
-    }
-
-    public func presentShortRecording(title: String,
-                                      message: String,
-                                      duration: TimeInterval = DesktopRecordingNoticePresenter.displayDuration,
-                                      onExpire: (() -> Void)? = nil) {
-        present(.shortRecording(title: title, message: message),
-                dismissAfter: Date().addingTimeInterval(duration),
-                onAction: { _ in },
-                onExpire: onExpire)
-    }
-
-    public func presentRecordingPrompt(
-        displayName: String,
-        remainingSeconds: Int,
-        progress: Double,
-        rememberChoice: Bool = false,
-        duration: TimeInterval = DesktopNotificationCardPresenter.recordingPromptDisplayDuration,
-        onStart: @escaping () -> Void,
-        onDismiss: @escaping () -> Void,
-        onRememberChoiceChanged: @escaping (Bool) -> Void,
-        onTick: (() -> DesktopNotificationCardContent?)? = nil,
-        onExpire: (() -> Void)? = nil,
-        onSkip: ((Bool) -> Void)? = nil
-    ) {
-        present(
-            .recordingPrompt(
-                displayName: displayName,
-                remainingSeconds: remainingSeconds,
-                progress: progress,
-                rememberChoice: rememberChoice
-            ),
-            dismissAfter: Date().addingTimeInterval(duration),
-            onAction: { action in
-                switch action {
-                case .joinAndRecord, .record: onStart()
-                case .skipRecordingPrompt: onSkip?(rememberChoice)
-                case .toggleRecordingPromptRemember(let value): onRememberChoiceChanged(value)
-                default: break
-                }
-            },
-            onTick: onTick,
-            onExpire: onExpire,
-            onClose: onDismiss
-        )
-    }
-
-    /// Показывает карточку. Повторный вызов с другим содержимым заменяет его,
-    /// не создавая второго окна.
+    @discardableResult
     public func present(_ content: DesktopNotificationCardContent,
                         dismissAfter: Date? = nil,
                         onAction: @escaping (DesktopNotificationCardAction) -> Void,
                         onTick: (() -> DesktopNotificationCardContent?)? = nil,
                         onExpire: (() -> Void)? = nil,
-                        onClose: (() -> Void)? = nil) {
-        ticker?.cancel()
-        ticker = nil
-        expiryGeneration += 1
-        self.onAction = onAction
-        self.onTick = onTick
-        self.onExpire = onExpire
-        self.onCloseAction = onClose
-        self.dismissAfter = dismissAfter
-        self.content = content
-        // Окно создаётся заново под новое содержимое: размер окна не зависит от
-        // кадра предыдущего сообщения. Одновременно на экране всегда ровно одно
-        // окно уведомления GRAF.
-        stopClickMonitor()
-        panel?.orderOut(nil)
-        let surface = NSSize(width: Self.windowWidth, height: Self.surfaceHeight(for: content))
-        let window = makePanel(surface: surface)
-        panel = window
-        let view = DesktopNotificationCardView(
-            content: content,
-            rootHeight: Self.rootHeight(for: content),
-            onAction: { [weak self] action in self?.onAction?(action) },
-            onClose: { [weak self] in self?.onCloseAction?(); self?.dismiss() }
-        )
-        window.contentView = view
-        closeControl = view.closeButton
-        window.contentView?.frame = NSRect(origin: .zero, size: surface)
-        window.orderFrontRegardless()
-        position(window)
-        window.contentView?.layoutSubtreeIfNeeded()
-        startClickMonitor(for: window)
-        announce(content.accessibilitySummary)
-        startTickerIfNeeded()
-    }
-
-    /// Убирает карточку без применения автоматического решения. Это путь для
-    /// закрытия пользователем, выхода из аккаунта и замены карточки.
-    public func dismiss() {
-        clearCard()
-    }
-
-    /// Завершает карточку по её сроку и ровно один раз вызывает `onExpire`.
-    private func expire() {
-        guard let deadline = dismissAfter, Date() >= deadline else {
-            dismiss()
-            return
+                        onClose: (() -> Void)? = nil,
+                        onInvalidated: (() -> Void)? = nil) -> Bool {
+        let requestedAt = environment.now()
+        guard dismissAfter.map({ $0 > requestedAt }) ?? true,
+              let screen = initialScreen(), let placement = placement(content, screen: screen) else { return false }
+        if panel != nil {
+            invalidate()
+            // A callback may have installed another event; never dismiss its window.
+            guard panel == nil else { return false }
         }
-        let callback = onExpire
-        clearCard()
-        callback?()
-    }
-
-    private func clearCard() {
-        stopClickMonitor()
-        closeControl = nil
-        ticker?.cancel()
-        ticker = nil
-        onTick = nil
-        onExpire = nil
-        expiryGeneration += 1
-        onCloseAction = nil
-        dismissAfter = nil
-        content = nil
-        panel?.orderOut(nil)
-        panel = nil
-    }
-
-    /// Показанное окно карточки: нужно для измерений и проверок поверхности.
-    var window: NSWindow? { panel }
-
-    /// Обновляет показанное содержимое без пересоздания окна.
-    public func refresh() {
-        guard let onTick else {
-            if let deadline = dismissAfter, Date() >= deadline {
-                expire()
-            }
-            return
-        }
-        guard let next = onTick() else {
-            if dismissAfter != nil { dismiss() }
-            return
-        }
-        guard next != content else { return }
-        present(next, dismissAfter: dismissAfter, onAction: onAction ?? { _ in },
-                onTick: onTick, onExpire: onExpire, onClose: onCloseAction)
-    }
-
-    /// Нажатие на знак закрытия, пока приложение не впереди, окно не получает:
-    /// система отдаёт первое нажатие активации. Сторож перехватывает его и
-    /// передаёт знаку закрытия, иначе карточку нельзя закрыть мышью.
-    private func startClickMonitor(for window: NSWindow) {
-        stopClickMonitor()
-        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self, weak window] event in
-            guard let self, let window, event.window === window else { return event }
-            return self.handleCardClick(at: event.locationInWindow) ? nil : event
-        }
-    }
-
-    /// Нажатие в области знака закрытия закрывает карточку и не передаётся
-    /// дальше. Нажатие мимо знака остаётся обычным нажатием окна.
-    @discardableResult
-    func handleCardClick(at pointInWindow: NSPoint) -> Bool {
-        guard let close = closeControl,
-              let content = panel?.contentView else { return false }
-        let point = content.convert(pointInWindow, from: nil)
-        guard let hit = content.hitTest(point), hit === close || hit.isDescendant(of: close) else {
-            return false
-        }
-        close.performClick(nil)
-        return true
-    }
-
-    private func stopClickMonitor() {
-        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
-        clickMonitor = nil
-    }
-
-    private func startTickerIfNeeded() {
-        guard ticker == nil, onTick != nil || dismissAfter != nil else { return }
-        let generation = expiryGeneration
-        ticker = Task { [weak self] in
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(1)) } catch { return }
-                guard let self, self.expiryGeneration == generation else { return }
-                if let deadline = self.dismissAfter, Date() >= deadline {
-                    self.expire()
-                    return
-                }
-                self.refresh()
-            }
-        }
-    }
-
-    private func makePanel(surface: NSSize) -> NSPanel {
-        let window = DesktopNotificationCardPanel(
-            contentRect: NSRect(origin: .zero, size: surface),
-            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false
-        )
+        generation += 1
+        let token = generation
+        let window = DesktopNotificationCardPanel(contentRect: placement.frame,
+            styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         window.level = .statusBar
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         window.hidesOnDeactivate = false
         window.isReleasedWhenClosed = false
-        window.backgroundColor = .clear
         window.isOpaque = false
-        window.hasShadow = false
-        window.identifier = NSUserInterfaceItemIdentifier("graf-notification-card")
+        window.backgroundColor = .clear
+        window.hasShadow = true
         window.isMovable = false
-        return window
+        window.becomesKeyOnlyIfNeeded = true
+        window.autorecalculatesKeyViewLoop = false
+        window.identifier = NSUserInterfaceItemIdentifier("graf-notification-card")
+        let view = DesktopNotificationCardView(content: content, width: placement.width,
+            height: placement.height, scale: environment.fontScale,
+            onAction: { [weak self] action in self?.act(action, token: token) },
+            onClose: { [weak self] in self?.close(token: token) },
+            onHover: { [weak self] value in self?.setHovered(value, token: token) })
+        window.contentView = view
+        window.closeAction = { [weak self] in self?.close(token: token) }
+        window.focusChanged = { [weak self] value in self?.setFocused(value, token: token) }
+        self.onAction = onAction; self.onTick = onTick; self.onExpire = onExpire
+        self.onClose = onClose; self.onInvalidated = onInvalidated
+        presentedContent = content
+        selectedScreenID = screen.id
+        panel = window
+        window.setFrame(placement.frame, display: false)
+        view.layoutSubtreeIfNeeded()
+        window.orderFrontRegardless()
+        guard window.isVisible else { clear(); return false }
+        let visibleAt = environment.now()
+        view.configureKeyLoop()
+        // The prompt's budget starts only when the panel is actually visible.
+        if case .recordingPrompt = content {
+            deadline = visibleAt.addingTimeInterval(Self.recordingPromptDisplayDuration)
+        } else { deadline = dismissAfter }
+        lastTickAt = visibleAt
+        reconcileHold()
+        observeLifecycle(token: token)
+        environment.announce(window, content.accessibilitySummary)
+        startTicker(token: token)
+        return true
     }
 
-    /// Держит карточку в рабочей области выбранного экрана и не перекрывает
-    /// строку меню: правый край с отступом 0 точек, верх — на `topInset` ниже
-    /// рабочей области (наблюдаемые координаты эталона: ширина экрана минус 448).
-    func position(_ window: NSWindow) {
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main
-        guard let screen else { return }
-        let visible = screen.visibleFrame
-        let height = max(window.frame.height, 64)
-        let x = max(visible.minX, visible.maxX - Self.windowWidth)
-        let y = max(visible.minY, visible.maxY - height - Self.topInset)
-        window.setFrame(NSRect(x: x, y: y, width: Self.windowWidth, height: height), display: true)
+    /// Update the same event only. Changes of domain identity require explicit invalidation.
+    @discardableResult
+    public func update(_ content: DesktopNotificationCardContent) -> Bool {
+        guard let old = presentedContent, old.identifier == content.identifier,
+              let view = panel?.contentView as? DesktopNotificationCardView else { return false }
+        guard let screen = currentScreen(), let placement = placement(content, screen: screen) else {
+            invalidate(); return false
+        }
+        presentedContent = content
+        selectedScreenID = screen.id
+        view.update(content, width: placement.width, height: placement.height)
+        panel?.setFrame(placement.frame, display: true)
+        return true
     }
 
-    private func announce(_ text: String) {
-        guard let panel else { return }
-        NSAccessibility.post(element: panel, notification: .announcementRequested, userInfo: [
-            .announcement: text,
-            .priority: NSAccessibilityPriorityLevel.high.rawValue
-        ])
+    public func dismiss() { clear() }
+
+    public func invalidate() {
+        guard panel != nil else { return }
+        let callback = onInvalidated
+        clear()
+        callback?()
     }
+
+    /// Call after the registered Stop marker or its window changes frame/visibility.
+    public func reposition() {
+        guard let content = presentedContent else { return }
+        _ = update(content)
+    }
+
+    /// Accepts an explicit focus request. Activation is asynchronous: true does
+    /// not guarantee that macOS has already made the panel key (or will allow it).
+    @discardableResult
+    public func focus() -> Bool {
+        guard let panel, panel.isVisible, NSApp.activationPolicy() != .prohibited else { return false }
+        if !panel.explicitFocus {
+            previousKeyWindow = NSApp.keyWindow
+            previousApplication = NSWorkspace.shared.frontmostApplication
+        }
+        cancelPendingFocus()
+        panel.explicitFocus = true
+        focusRequestID += 1
+        let requestID = focusRequestID
+        let token = generation
+        pendingFocus = (token, requestID)
+        let observer = NotificationCardObservations()
+        observer.add(NotificationCenter.default, name: NSApplication.didBecomeActiveNotification) { [weak self] in
+            self?.completeFocus(token: token, requestID: requestID)
+        }
+        focusObservations = observer
+        // Denied activation must not leave a request that steals focus on an
+        // unrelated later activation. This is a one-shot cancellation, not polling.
+        let timeout = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.pendingFocus?.generation == token,
+                      self.pendingFocus?.requestID == requestID else { return }
+                self.cancelPendingFocus()
+            }
+        }
+        focusTimeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: timeout)
+        if !NSApp.isActive { environment.requestActivation() }
+        // Selecting the eligible panel can itself complete AppKit activation.
+        // Do not make isActive a prerequisite: that creates a circular wait for
+        // apps whose only visible window is this nonactivating panel.
+        completeFocus(token: token, requestID: requestID)
+        // One deferred attempt also covers an already-active app while its tray
+        // menu is unwinding. All later activation work is notification-driven.
+        DispatchQueue.main.async { [weak self] in self?.completeFocus(token: token, requestID: requestID) }
+        return true
+    }
+
+    private func completeFocus(token: Int, requestID: Int) {
+        guard generation == token, pendingFocus?.generation == token,
+              pendingFocus?.requestID == requestID else { return }
+        guard let panel, panel.isVisible, panel.explicitFocus,
+              let view = panel.contentView as? DesktopNotificationCardView else {
+            cancelPendingFocus(); return
+        }
+        view.configureKeyLoop()
+        environment.requestKeyWindow(panel)
+        guard generation == token, self.panel === panel, panel.isKeyWindow else { return }
+        view.configureKeyLoop()
+        guard panel.makeFirstResponder(view.closeButton) else { cancelPendingFocus(); return }
+        cancelPendingFocus()
+        setFocused(true, token: token)
+    }
+
+    private func cancelPendingFocus() {
+        pendingFocus = nil
+        focusObservations = nil
+        focusTimeout?.cancel(); focusTimeout = nil
+        if panel?.isKeyWindow != true { panel?.explicitFocus = false }
+    }
+
+    public func refresh() {
+        guard panel != nil else { return }
+        guard panel?.isVisible == true else { invalidate(); return }
+        let token = generation
+        let now = environment.now()
+        if case .recordingPrompt? = presentedContent, let lastTickAt {
+            let gap = now.timeIntervalSince(lastTickAt)
+            // A delayed tick after sleep/lock must not win a race with the lifecycle observer.
+            guard gap >= 0, gap <= 2.5 else { invalidate(); return }
+        }
+        lastTickAt = now
+        if holdStarted == nil, let deadline, environment.now() >= deadline {
+            let callback = onExpire
+            clear()
+            callback?()
+            return
+        }
+        guard let onTick else { return }
+        let next = onTick()
+        guard generation == token, panel != nil else { return }
+        guard let next else { invalidate(); return }
+        _ = update(next)
+    }
+
+    private func act(_ action: DesktopNotificationCardAction, token: Int) {
+        guard token == generation, panel != nil else { return }
+        if case let .toggleRecordingPromptRemember(value) = action {
+            guard case let .recordingPrompt(name, seconds, _)? = presentedContent else { return }
+            guard update(.recordingPrompt(displayName: name, remainingSeconds: seconds, rememberChoice: value)) else { return }
+            onAction?(action)
+            return
+        }
+        let callback = onAction
+        clear()
+        callback?(action)
+    }
+
+    private func close(token: Int) {
+        guard generation == token, panel != nil else { return }
+        let callback = onClose
+        clear()
+        callback?()
+    }
+
+    private func clear() {
+        let old = panel
+        let restore = old?.isKeyWindow == true && old?.explicitFocus == true
+        let previousWindow = previousKeyWindow
+        let previousApp = previousApplication
+        cancelPendingFocus()
+        generation += 1
+        let clearedGeneration = generation
+        ticker?.cancel(); ticker = nil
+        observations = nil
+        panel = nil; presentedContent = nil; selectedScreenID = nil; deadline = nil
+        onAction = nil; onTick = nil; onExpire = nil; onClose = nil; onInvalidated = nil
+        hovered = false; focused = false; holdStarted = nil; lastTickAt = nil
+        previousKeyWindow = nil; previousApplication = nil
+        old?.closeAction = nil; old?.focusChanged = nil
+        // A card's native window is single-use. Clear its full-screen behavior
+        // before close() orders it out; clearing after orderOut() can leave the
+        // native panel retained. The next card keeps its own Spaces settings.
+        old?.collectionBehavior = []
+        old?.close()
+        old?.contentView = nil
+        // A native willClose observer may have installed (and even dismissed)
+        // another card. Never restore an older focus context across that event.
+        if restore, generation == clearedGeneration, panel == nil {
+            if let previousWindow, previousWindow.isVisible { previousWindow.makeKey() }
+            else if let previousApp, previousApp.processIdentifier != ProcessInfo.processInfo.processIdentifier {
+                previousApp.activate(options: [])
+            }
+        }
+    }
+
+    private func startTicker(token: Int) {
+        guard environment.automaticallyTicks, deadline != nil || onTick != nil else { return }
+        ticker = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                guard let self, self.generation == token else { return }
+                self.refresh()
+            }
+        }
+    }
+    func setHovered(_ value: Bool) { setHovered(value, token: generation) }
+    private func setHovered(_ value: Bool, token: Int) {
+        guard generation == token, panel != nil else { return }
+        hovered = value; reconcileHold()
+    }
+    private func setFocused(_ value: Bool, token: Int) {
+        guard generation == token, panel != nil else { return }
+        focused = value; reconcileHold()
+    }
+    private func reconcileHold() {
+        guard presentedContent?.allowsHold == true, let deadline else { return }
+        let now = environment.now()
+        if hovered || focused {
+            if holdStarted == nil {
+                if now >= deadline { refresh() }
+                else { holdStarted = now }
+            }
+        } else if let started = holdStarted {
+            self.deadline = deadline.addingTimeInterval(max(0, now.timeIntervalSince(started)))
+            holdStarted = nil
+        }
+    }
+
+    private func initialScreen() -> NotificationCardScreen? {
+        let screens = environment.screens()
+        return screens.first { $0.frame.contains(environment.mouseLocation()) } ?? screens.first { $0.isMain } ?? screens.first
+    }
+    private func currentScreen() -> NotificationCardScreen? {
+        let screens = environment.screens()
+        return screens.first { $0.id == selectedScreenID } ?? screens.first { $0.isMain } ?? screens.first
+    }
+    private struct Placement { var frame: NSRect; var width: CGFloat; var height: CGFloat }
+    private func placement(_ content: DesktopNotificationCardContent, screen: NotificationCardScreen) -> Placement? {
+        let allowed = screen.visibleFrame.insetBy(dx: 8, dy: 8)
+        let width = min(Self.cardWidth, allowed.width - Self.horizontalMargin * 2)
+        guard width >= 220 else { return nil }
+        let layout = DesktopNotificationCardView.measure(content, width: width, scale: environment.fontScale)
+        let surfaceWidth = width + Self.horizontalMargin * 2
+        let x = allowed.maxX - surfaceWidth
+        var top = allowed.maxY
+        let protected = protectedFrames
+        for _ in 0...protected.count {
+            let available = top - allowed.minY - Self.topPadding - Self.bottomPadding
+            guard available >= layout.minimumHeight else { return nil }
+            let height = min(layout.height, available)
+            let frame = NSRect(x: x, y: top - height - Self.topPadding - Self.bottomPadding,
+                               width: surfaceWidth, height: height + Self.topPadding + Self.bottomPadding)
+            if let collision = protected.filter({ frame.intersects($0) }).min(by: { $0.minY < $1.minY }) {
+                top = min(top, collision.minY - 8)
+                continue
+            }
+            guard allowed.contains(frame) else { return nil }
+            return Placement(frame: frame, width: width, height: height)
+        }
+        return nil
+    }
+
+    private func observeLifecycle(token: Int) {
+        let observations = NotificationCardObservations()
+        observations.add(NotificationCenter.default, name: NSApplication.didChangeScreenParametersNotification) { [weak self] in
+            guard let self, self.generation == token else { return }
+            self.reposition()
+        }
+        observations.add(NSWorkspace.shared.notificationCenter, name: NSWorkspace.willSleepNotification) { [weak self] in
+            guard let self, self.generation == token else { return }
+            self.invalidate()
+        }
+        observations.add(NSWorkspace.shared.notificationCenter, name: NSWorkspace.sessionDidResignActiveNotification) { [weak self] in
+            guard let self, self.generation == token else { return }
+            self.invalidate()
+        }
+        self.observations = observations
+    }
+
 }
 
-/// Знак закрытия: собственный размер 20 на 20 точек. Обычная кнопка AppKit
-/// растягивается по высоте строки, поэтому размер задаётся здесь.
-private final class NotificationCardCloseButton: NSButton {
-    private static let side: CGFloat = 20
-
-    override var intrinsicContentSize: NSSize {
-        NSSize(width: Self.side, height: Self.side)
+private final class NotificationCardObservations {
+    private var tokens: [(NotificationCenter, NSObjectProtocol)] = []
+    @MainActor func add(_ center: NotificationCenter, name: Notification.Name,
+                        handler: @escaping @MainActor @Sendable () -> Void) {
+        let token = center.addObserver(forName: name, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { handler() }
+        }
+        tokens.append((center, token))
     }
+    deinit { for (center, token) in tokens { center.removeObserver(token) } }
 }
 
 private final class DesktopNotificationCardPanel: NSPanel {
-    // Карточка не должна забирать фокус у приложения, где идёт встреча.
-    override var canBecomeKey: Bool { false }
+    var explicitFocus = false
+    var closeAction: (() -> Void)?
+    var focusChanged: ((Bool) -> Void)?
+    override var canBecomeKey: Bool { explicitFocus }
     override var canBecomeMain: Bool { false }
+    override func becomeKey() { super.becomeKey(); focusChanged?(true) }
+    override func resignKey() { super.resignKey(); focusChanged?(false) }
+    override func cancelOperation(_ sender: Any?) { if isKeyWindow { closeAction?() } }
+    override func selectNextKeyView(_ sender: Any?) {
+        guard explicitFocus, let current = firstResponder as? NSView,
+              let view = contentView as? DesktopNotificationCardView,
+              let next = view.keyView(relativeTo: current, backwards: false) else { super.selectNextKeyView(sender); return }
+        makeFirstResponder(next)
+    }
+    override func selectPreviousKeyView(_ sender: Any?) {
+        guard explicitFocus, let current = firstResponder as? NSView,
+              let view = contentView as? DesktopNotificationCardView,
+              let previous = view.keyView(relativeTo: current, backwards: true) else { super.selectPreviousKeyView(sender); return }
+        makeFirstResponder(previous)
+    }
+    override func sendEvent(_ event: NSEvent) {
+        // Keep the card's explicit keyboard contract independent of the user's
+        // system-wide Full Keyboard Access preference and NSButton cell handling.
+        if isKeyWindow, event.type == .keyDown,
+           event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+           [48, 53, 36, 76, 49].contains(event.keyCode) {
+            keyDown(with: event)
+            return
+        }
+        super.sendEvent(event)
+    }
+    override func keyDown(with event: NSEvent) {
+        guard isKeyWindow else { return }
+        if event.keyCode == 53 { closeAction?(); return }
+        if event.keyCode == 48 {
+            if event.modifierFlags.contains(.shift) { selectPreviousKeyView(nil) }
+            else { selectNextKeyView(nil) }
+            return
+        }
+        if [36, 76, 49].contains(event.keyCode), let button = firstResponder as? NSButton {
+            button.performClick(nil); return
+        }
+        super.keyDown(with: event)
+    }
 }
 
-/// Содержимое карточки. Рисуется кодом GRAF: чужие ресурсы не используются.
-/// Поверхность открыта приложению: вопрос о записи показывается той же
-/// карточкой, чтобы все сообщения выглядели одинаково.
+/// Frame-based layout preserves the native controls and their AX identity across ticks.
 public final class DesktopNotificationCardView: NSView {
-    /// Знак закрытия: нужен сторожу нажатий, пока приложение не впереди.
-    var closeButton: NSButton? { close }
-    private var close: NSButton?
-
-    private let content: DesktopNotificationCardContent
-    private let rootHeight: CGFloat
+    private let card = CardBackgroundView(cornerRadius: 12)
+    private let close = NotificationCardCloseButton()
+    private let textScroll = NotificationCardScrollView()
+    private let textDocument = NotificationCardFlippedView()
+    private let icon = NSImageView()
+    private let titleLabel = NSTextField(wrappingLabelWithString: "")
+    private let messageLabel = NSTextField(wrappingLabelWithString: "")
+    private let remember = NotificationCardCheckbox(checkboxWithTitle: "", target: nil, action: nil)
+    private var actionButtons: [NotificationCardButton] = []
+    private var content: DesktopNotificationCardContent
+    private let scale: CGFloat
     private let onAction: (DesktopNotificationCardAction) -> Void
     private let onClose: () -> Void
-    private var buttons: [(NSButton, DesktopNotificationCardAction)] = []
+    private let onHover: (Bool) -> Void
+    private var tracking: NSTrackingArea?
+    var closeButton: NSButton? { close }
+    override public var isFlipped: Bool { true }
 
-    init(content: DesktopNotificationCardContent,
-         rootHeight: CGFloat,
+    init(content: DesktopNotificationCardContent, width: CGFloat, height: CGFloat, scale: CGFloat,
          onAction: @escaping (DesktopNotificationCardAction) -> Void,
-         onClose: @escaping () -> Void) {
-        self.content = content
-        self.rootHeight = rootHeight
-        self.onAction = onAction
-        self.onClose = onClose
-        super.init(frame: .zero)
-        wantsLayer = true
-        build()
+         onClose: @escaping () -> Void, onHover: @escaping (Bool) -> Void) {
+        self.content = content; self.scale = scale
+        self.onAction = onAction; self.onClose = onClose; self.onHover = onHover
+        super.init(frame: NSRect(x: 0, y: 0, width: width + 28, height: height + 28))
+        addSubview(card); addSubview(close)
+        close.target = self; close.action = #selector(closeTapped)
+        textScroll.drawsBackground = false
+        textScroll.borderType = .noBorder
+        textScroll.autohidesScrollers = true
+        textScroll.documentView = textDocument
+        card.addSubview(textScroll); card.addSubview(remember)
+        remember.target = self; remember.action = #selector(rememberChanged)
+        remember.setAccessibilityElement(true)
+        remember.setAccessibilityRole(.checkBox)
+        textDocument.addSubview(icon); textDocument.addSubview(titleLabel); textDocument.addSubview(messageLabel)
+        titleLabel.identifier = NSUserInterfaceItemIdentifier("graf.notification.title")
+        messageLabel.identifier = NSUserInterfaceItemIdentifier("graf.notification.message")
+        for label in [titleLabel, messageLabel] {
+            label.isSelectable = false
+            label.usesSingleLineMode = false
+            label.maximumNumberOfLines = 0
+            label.lineBreakMode = .byWordWrapping
+        }
+        update(content, width: width, height: height)
     }
-
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
 
-    private static let closeLeading: CGFloat = 14
-    private static let headerLeading: CGFloat = 50
-    private static let headerTrailing: CGFloat = 14
-    private static let iconWidth: CGFloat = 24
-    private static let headerSpacing: CGFloat = 8
-    private static let rowSpacing: CGFloat = 10
-    private static let verticalInset: CGFloat = 16
-
-    static func titleFont() -> NSFont {
-        let preferred = NSFont.preferredFont(forTextStyle: .headline)
-        return .systemFont(ofSize: max(14, preferred.pointSize), weight: .semibold)
+    struct Measurement {
+        var height: CGFloat
+        var textHeight: CGFloat
+        var checkboxHeight: CGFloat
+        var buttonHeights: [CGFloat]
+        var verticalActions: Bool
+        var controlsHeight: CGFloat
+        var minimumHeight: CGFloat { 24 + min(textHeight, 40) + controlsHeight }
     }
-
-    static func messageFont() -> NSFont {
-        let preferred = NSFont.preferredFont(forTextStyle: .body)
-        return .systemFont(ofSize: max(14, preferred.pointSize))
+    static func titleFont() -> NSFont { .systemFont(ofSize: max(14, NSFont.preferredFont(forTextStyle: .headline).pointSize), weight: .semibold) }
+    static func messageFont() -> NSFont { .systemFont(ofSize: max(14, NSFont.preferredFont(forTextStyle: .body).pointSize)) }
+    static func actionFont(weight: NSFont.Weight) -> NSFont { .systemFont(ofSize: max(13, NSFont.preferredFont(forTextStyle: .callout).pointSize), weight: weight) }
+    static func scaled(_ font: NSFont, by scale: CGFloat) -> NSFont {
+        NSFontManager.shared.convert(font, toSize: font.pointSize * max(1, scale))
     }
-
-    static func actionFont(weight: NSFont.Weight) -> NSFont {
-        let preferred = NSFont.preferredFont(forTextStyle: .callout)
-        return .systemFont(ofSize: max(13, preferred.pointSize), weight: weight)
-    }
-
-    private static func text(for content: DesktopNotificationCardContent) -> (title: String, message: String) {
-        switch content {
-        case let .meeting(title, startText, _): return (title, startText)
-        case let .recordingPrompt(displayName, remainingSeconds, progress, _):
-            let percent = Int((min(max(progress, 0), 1) * 100).rounded())
-            return ("Записать встречу?", "Встреча в \(displayName) · Записать через \(remainingSeconds) с · \(percent)%")
-        case let .problem(title, message, _, _): return (title, message)
-        case let .preview(title, message), let .shortRecording(title, message): return (title, message)
-        }
-    }
-
-    private static func actionTitles(for content: DesktopNotificationCardContent) -> [String] {
-        switch content {
-        case let .meeting(_, _, hasJoinLink):
-            return hasJoinLink ? ["Подключиться и начать запись", "Подключиться"] : ["Начать запись"]
-        case .recordingPrompt: return ["Записать", "Не записывать"]
-        case let .problem(_, _, actionTitle, _): return [actionTitle]
-        case .preview, .shortRecording: return []
-        }
-    }
-
-    private static func measuredWidth(_ text: String, font: NSFont) -> CGFloat {
-        ceil((text as NSString).size(withAttributes: [.font: font]).width)
-    }
-
     static func measuredHeight(_ text: String, font: NSFont, width: CGFloat) -> CGFloat {
-        let rect = (text as NSString).boundingRect(
-            with: NSSize(width: max(1, width), height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: font]
-        )
-        return max(ceil(rect.height), ceil(font.pointSize * 1.35))
+        guard !text.isEmpty else { return 0 }
+        let paragraph = NSMutableParagraphStyle(); paragraph.lineBreakMode = .byWordWrapping
+        let rect = (text as NSString).boundingRect(with: NSSize(width: max(1, width), height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: [.font: font, .paragraphStyle: paragraph])
+        return max(ceil(rect.height), ceil(font.ascender - font.descender + font.leading))
     }
-
-    private static var baseTextWidth: CGFloat {
-        DesktopNotificationCardPresenter.cardWidth - headerLeading - headerTrailing - iconWidth - headerSpacing
+    static func labelHeight(_ text: String, font: NSFont, width: CGFloat) -> CGFloat {
+        guard !text.isEmpty else { return 0 }
+        // Measure the same AppKit cell that draws the label. NSString's bounding
+        // rect has no NSTextFieldCell insets; at a wrap boundary it can report
+        // one line where the actual cell needs two (large prompt countdown).
+        let label = NSTextField(wrappingLabelWithString: text)
+        label.font = font
+        label.isSelectable = false
+        label.usesSingleLineMode = false
+        label.maximumNumberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        let cellHeight = label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0,
+            width: max(1, width), height: .greatestFiniteMagnitude)).height ?? 0
+        return max(ceil(cellHeight), ceil(font.ascender - font.descender + font.leading))
     }
-
-    static func textWidth(for content: DesktopNotificationCardContent, secondRow: Bool) -> CGFloat {
-        let base = baseTextWidth
-        guard !secondRow, let action = actionTitles(for: content).first else { return base }
-        let actionWidth = measuredWidth(action, font: actionFont(weight: .semibold)) + 30
-        return max(104, base - actionWidth - headerSpacing)
-    }
-
-    static func usesSecondRow(for content: DesktopNotificationCardContent) -> Bool {
-        let actions = actionTitles(for: content)
-        guard !actions.isEmpty else { return false }
-        guard actions.count <= 1 else { return true }
-        let width = textWidth(for: content, secondRow: false)
-        let values = text(for: content)
-        return measuredWidth(values.title, font: titleFont()) > width
-            || measuredWidth(values.message, font: messageFont()) > width
-    }
-
-    static func rowCount(for content: DesktopNotificationCardContent) -> Int {
-        usesSecondRow(for: content) ? 2 : 1
-    }
-
-    static func headerHeight(for content: DesktopNotificationCardContent, secondRow: Bool) -> CGFloat {
-        let width = textWidth(for: content, secondRow: secondRow)
-        let values = text(for: content)
-        let textHeight = measuredHeight(values.title, font: titleFont(), width: width)
-            + 2
-            + measuredHeight(values.message, font: messageFont(), width: width)
-        return max(iconWidth, textHeight)
-    }
-
-    static func measuredRootHeight(for content: DesktopNotificationCardContent) -> CGFloat {
-        let secondRow = usesSecondRow(for: content)
-        let header = headerHeight(for: content, secondRow: secondRow)
-        guard secondRow else {
-            return max(DesktopNotificationCardPresenter.cardHeight, header + 24)
+    static func measure(_ content: DesktopNotificationCardContent, width: CGFloat, scale: CGFloat) -> Measurement {
+        // Keep even iconless text outside the 28pt corner hit region.
+        let textWidth = width - 24 - (content.iconName == nil ? 4 : 26)
+        let values = content.text
+        let title = labelHeight(values.title, font: scaled(titleFont(), by: scale), width: textWidth)
+        let message = labelHeight(values.message, font: scaled(messageFont(), by: scale), width: textWidth)
+        let textHeight = max(content.iconName == nil ? 0 : 22, title + message + (title > 0 && message > 0 ? 2 : 0))
+        let checkboxHeight = content.checkboxTitle.map {
+            max(20, measuredHeight($0, font: scaled(actionFont(weight: .regular), by: scale), width: width - 48))
+        } ?? 0
+        let font = scaled(actionFont(weight: .semibold), by: scale)
+        let widths = content.actions.map { ceil(($0.title as NSString).size(withAttributes: [.font: font]).width) + 24 }
+        let vertical = widths.reduce(0, +) + CGFloat(max(0, widths.count - 1)) * 8 > width - 24
+        let heights = content.actions.enumerated().map { index, item in
+            max(32, measuredHeight(item.title, font: font, width: (vertical ? width - 24 : widths[index]) - 24) + 12)
         }
-        return verticalInset + header + rowSpacing + DesktopNotificationCardPresenter.buttonHeight + verticalInset
+        let actionsHeight = vertical ? heights.reduce(0, +) + CGFloat(max(0, heights.count - 1)) * 8 : heights.max() ?? 0
+        let controls = (checkboxHeight > 0 ? 8 + checkboxHeight : 0) + (actionsHeight > 0 ? 8 + actionsHeight : 0)
+        return Measurement(height: max(44, 24 + textHeight + controls), textHeight: textHeight,
+            checkboxHeight: checkboxHeight, buttonHeights: heights, verticalActions: vertical, controlsHeight: controls)
     }
 
-    public static func cardBackground(dark: Bool) -> NSColor {
-        dark ? NSColor(srgbRed: 28/255, green: 31/255, blue: 32/255, alpha: 0.92)
-             : NSColor(srgbRed: 254/255, green: 254/255, blue: 254/255, alpha: 0.97)
-    }
-
-    public static func cardBorder(dark: Bool) -> NSColor {
-        dark ? NSColor(srgbRed: 71/255, green: 74/255, blue: 76/255, alpha: 1)
-             : NSColor(srgbRed: 210/255, green: 211/255, blue: 212/255, alpha: 1)
-    }
-
-    public static func primaryText(dark: Bool) -> NSColor {
-        dark ? NSColor(srgbRed: 254/255, green: 254/255, blue: 254/255, alpha: 1)
-             : NSColor(srgbRed: 36/255, green: 39/255, blue: 41/255, alpha: 1)
-    }
-
-    public static func secondaryText(dark: Bool) -> NSColor {
-        dark ? NSColor(srgbRed: 190/255, green: 192/255, blue: 194/255, alpha: 1)
-             : NSColor(srgbRed: 108/255, green: 110/255, blue: 112/255, alpha: 1)
-    }
-
-    public static func accent(dark: Bool) -> NSColor {
-        dark ? NSColor(srgbRed: 97/255, green: 78/255, blue: 250/255, alpha: 1)
-             : NSColor(srgbRed: 97/255, green: 78/255, blue: 250/255, alpha: 1)
-    }
-
-    private var isDark: Bool {
-        effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-    }
-
-    private func build() {
-        let card = CardBackgroundView(cornerRadius: DesktopNotificationCardPresenter.cornerRadius)
-        card.translatesAutoresizingMaskIntoConstraints = false
-        // Ширина карточки наблюдаемая: 420 точек внутри окна 448 точек.
-        card.widthAnchor.constraint(equalToConstant: DesktopNotificationCardPresenter.cardWidth).isActive = true
-        addSubview(card)
-
-        let close = NotificationCardCloseButton(title: "", target: self, action: #selector(closeTapped))
-        self.close = close
-        close.isBordered = false
-        close.bezelStyle = .regularSquare
-        close.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Закрыть уведомление")
-        close.imagePosition = .imageOnly
-        close.contentTintColor = Self.secondaryText(dark: isDark)
-        close.translatesAutoresizingMaskIntoConstraints = false
-        close.toolTip = "Закрыть уведомление"
-        close.setAccessibilityLabel("Закрыть уведомление")
-        addSubview(close)
-
-
-        let header = NSStackView()
-        header.orientation = .horizontal
-        header.alignment = .centerY
-        header.spacing = 8
-        header.translatesAutoresizingMaskIntoConstraints = false
-        // Строка не сжимается по высоте: карточка держит наблюдаемые размеры.
-        header.setContentCompressionResistancePriority(.required, for: .vertical)
-        header.setContentHuggingPriority(.required, for: .vertical)
-        card.addSubview(header)
-
-        let icon = NSImageView()
-        icon.image = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)
-        icon.contentTintColor = Self.accent(dark: isDark)
-        icon.symbolConfiguration = .init(pointSize: 20, weight: .medium)
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.widthAnchor.constraint(equalToConstant: 24).isActive = true
-        icon.heightAnchor.constraint(equalToConstant: 24).isActive = true
-
-        let text = NSStackView()
-        text.orientation = .vertical
-        text.alignment = .leading
-        text.spacing = 2
-        text.translatesAutoresizingMaskIntoConstraints = false
-        let titleLabel = label(title, font: Self.titleFont(),
-                               color: Self.primaryText(dark: isDark))
-        let messageLabel = label(message, font: Self.messageFont(),
-                                 color: Self.secondaryText(dark: isDark))
-        text.addArrangedSubview(titleLabel)
-        text.addArrangedSubview(messageLabel)
-        // Текст уступает место действиям лишь настолько, насколько нужно:
-        // сообщение не обрезается многоточием.
-        text.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        text.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        header.addArrangedSubview(icon)
-        header.addArrangedSubview(text)
-
-        // Строка действий. С одним действием она помещается рядом с текстом,
-        // как в наблюдаемом эталоне. Двум действиям нужна отдельная строка:
-        // подписи эталона длиннее латинских, а ширина карточки наблюдаемая —
-        // 420 точек.
-        let actions = NSStackView()
-        actions.orientation = .horizontal
-        actions.alignment = .centerY
-        actions.spacing = 8
-        actions.translatesAutoresizingMaskIntoConstraints = false
-        actions.setContentCompressionResistancePriority(.required, for: .vertical)
-        actions.setContentHuggingPriority(.required, for: .vertical)
-        let usesSecondRow = Self.usesSecondRow(for: content)
-        // Одно действие или ни одного: строка помещается рядом с текстом, если
-        // текст помещается. Длинное содержимое получает отдельную строку.
-        if !usesSecondRow {
-            header.addArrangedSubview(actions)
-        } else {
-            card.addSubview(actions)
+    func update(_ next: DesktopNotificationCardContent, width: CGFloat, height: CGFloat) {
+        let changedActions = content.actions.map(\.action) != next.actions.map(\.action)
+            || content.actions.map(\.title) != next.actions.map(\.title)
+        content = next
+        let measured = Self.measure(next, width: width, scale: scale)
+        frame.size = NSSize(width: width + 28, height: height + 28)
+        card.frame = NSRect(x: 14, y: 14, width: width, height: height)
+        close.frame = NSRect(x: 0, y: 0, width: 28, height: 28)
+        let visibleTextHeight = max(1, height - 24 - measured.controlsHeight)
+        let scrolls = measured.textHeight > visibleTextHeight + 0.5
+        textScroll.frame = NSRect(x: 12, y: 12, width: width - 24, height: visibleTextHeight)
+        textScroll.hasVerticalScroller = scrolls
+        textScroll.scrollerStyle = .overlay
+        textScroll.setAccessibilityLabel("Текст уведомления")
+        let documentWidth = width - 24 - (scrolls ? 16 : 0)
+        let textX: CGFloat = next.iconName == nil ? 4 : 26
+        let values = next.text
+        let titleFont = Self.scaled(Self.titleFont(), by: scale)
+        let messageFont = Self.scaled(Self.messageFont(), by: scale)
+        let titleHeight = Self.labelHeight(values.title, font: titleFont, width: documentWidth - textX)
+        let bodyHeight = Self.labelHeight(values.message, font: messageFont, width: documentWidth - textX)
+        let bodyY = titleHeight + (titleHeight > 0 && bodyHeight > 0 ? 2 : 0)
+        textDocument.frame = NSRect(x: 0, y: 0, width: documentWidth, height: max(visibleTextHeight, bodyY + bodyHeight))
+        titleLabel.stringValue = values.title; titleLabel.font = titleFont; titleLabel.isHidden = values.title.isEmpty
+        messageLabel.stringValue = values.message; messageLabel.font = messageFont; messageLabel.isHidden = values.message.isEmpty
+        titleLabel.frame = NSRect(x: textX, y: 0, width: documentWidth - textX, height: titleHeight)
+        messageLabel.frame = NSRect(x: textX, y: bodyY, width: documentWidth - textX, height: bodyHeight)
+        icon.isHidden = next.iconName == nil
+        icon.image = next.iconName.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
+        icon.symbolConfiguration = .init(pointSize: 18, weight: .medium)
+        icon.frame = NSRect(x: 0, y: 4, width: 18, height: 18)
+        icon.setAccessibilityElement(false)
+        var y = 12 + visibleTextHeight
+        remember.isHidden = next.checkboxTitle == nil
+        remember.title = next.checkboxTitle ?? ""
+        remember.font = Self.scaled(Self.actionFont(weight: .regular), by: scale)
+        remember.cell?.wraps = true; remember.cell?.lineBreakMode = .byWordWrapping
+        remember.setAccessibilityLabel(next.checkboxTitle)
+        remember.state = next.remembers ? .on : .off
+        remember.setAccessibilityValue(NSNumber(value: next.remembers))
+        if measured.checkboxHeight > 0 {
+            y += 8
+            remember.frame = NSRect(x: 12, y: y, width: width - 24, height: measured.checkboxHeight)
+            y += measured.checkboxHeight
         }
-        for (buttonTitle, action, isPrimary) in actionButtons {
-            let button = NotificationCardButton(title: buttonTitle) { [weak self] in self?.onAction(action) }
-            button.isPrimary = isPrimary
-            button.translatesAutoresizingMaskIntoConstraints = false
-            button.heightAnchor.constraint(greaterThanOrEqualToConstant: DesktopNotificationCardPresenter.buttonHeight).isActive = true
-            actions.addArrangedSubview(button)
-            buttons.append((button, action))
-        }
-        if case let .recordingPrompt(_, _, _, rememberChoice) = content {
-            let remember = NSButton(checkboxWithTitle: "Запомнить выбор", target: self,
-                                    action: #selector(rememberChoiceChanged(_:)))
-            remember.state = rememberChoice ? .on : .off
-            remember.font = Self.actionFont(weight: .regular)
-            remember.setAccessibilityLabel("Запомнить выбор")
-            remember.translatesAutoresizingMaskIntoConstraints = false
-            actions.addArrangedSubview(remember)
-        }
-
-        // Наблюдаемый эталон: одна строка со значком, текстом и действиями,
-        // поля карточки 10 точек сверху и снизу, 14 точек по бокам.
-        let constraints: [NSLayoutConstraint] = [
-            card.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DesktopNotificationCardPresenter.horizontalMargin),
-            card.trailingAnchor.constraint(equalTo: leadingAnchor,
-                                           constant: DesktopNotificationCardPresenter.horizontalMargin
-                                               + DesktopNotificationCardPresenter.cardWidth),
-            heightAnchor.constraint(equalToConstant: rootHeight
-                + DesktopNotificationCardPresenter.topPadding
-                + DesktopNotificationCardPresenter.bottomPadding),
-            card.topAnchor.constraint(equalTo: topAnchor, constant: DesktopNotificationCardPresenter.topPadding),
-            // Ниже карточки остаётся наблюдаемый запас: окно 104 точки при
-            // карточке 82 точки.
-            card.bottomAnchor.constraint(equalTo: bottomAnchor,
-                                         constant: -DesktopNotificationCardPresenter.bottomPadding),
-            // Крестик стандартного уведомления находится в левом верхнем углу;
-            // содержимое начинается после его зоны и не пересекается с ней.
-            close.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
-            close.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: Self.closeLeading),
-            header.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: Self.headerLeading),
-            header.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -Self.headerTrailing),
-            text.widthAnchor.constraint(equalToConstant: Self.textWidth(for: content, secondRow: usesSecondRow)),
-            titleLabel.widthAnchor.constraint(equalToConstant: Self.textWidth(for: content, secondRow: usesSecondRow)),
-            messageLabel.widthAnchor.constraint(equalToConstant: Self.textWidth(for: content, secondRow: usesSecondRow)),
-            titleLabel.heightAnchor.constraint(equalToConstant: Self.measuredHeight(title, font: Self.titleFont(), width: Self.textWidth(for: content, secondRow: usesSecondRow))),
-            messageLabel.heightAnchor.constraint(equalToConstant: Self.measuredHeight(message, font: Self.messageFont(), width: Self.textWidth(for: content, secondRow: usesSecondRow))),
-            header.heightAnchor.constraint(equalToConstant: Self.headerHeight(for: content, secondRow: usesSecondRow)),
-            card.heightAnchor.constraint(equalToConstant: rootHeight)
-        ]
-
-        var all = constraints
-        if usesSecondRow {
-            // Первая строка: значок и текст. Вторая строка: действия.
-            all += [
-                header.topAnchor.constraint(equalTo: card.topAnchor, constant: DesktopNotificationCardPresenter.contentInset),
-                actions.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: DesktopNotificationCardPresenter.contentInset),
-                actions.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -DesktopNotificationCardPresenter.contentInset),
-                actions.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 10),
-                actions.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -DesktopNotificationCardPresenter.contentInset)
-            ]
-        } else {
-            // Одно действие: наблюдаемые размеры карточки эталона и строка по центру.
-            all += [
-                header.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-                actions.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -20)
-            ]
-        }
-        NSLayoutConstraint.activate(all)
-    }
-
-    private var iconName: String {
-        switch content {
-        case .meeting: return "calendar"
-        case .recordingPrompt: return "record.circle"
-        case .problem: return "exclamationmark.triangle"
-        case .preview: return "bell"
-        case .shortRecording: return "exclamationmark.triangle"
-        }
-    }
-
-    private var title: String {
-        switch content {
-        case let .meeting(title, _, _): return title
-        case .recordingPrompt: return "Записать встречу?"
-        case let .problem(title, _, _, _): return title
-        case let .preview(title, _), let .shortRecording(title, _): return title
-        }
-    }
-
-    private var message: String {
-        switch content {
-        case let .meeting(_, startText, _): return startText
-        case let .recordingPrompt(displayName, remainingSeconds, progress, _):
-            let percent = Int((min(max(progress, 0), 1) * 100).rounded())
-            return "Встреча в \(displayName) · Записать через \(remainingSeconds) с · \(percent)%"
-        case let .problem(_, message, _, _): return message
-        case let .preview(_, message), let .shortRecording(_, message): return message
-        }
-    }
-
-    private var actionButtons: [(String, DesktopNotificationCardAction, Bool)] {
-        switch content {
-        case let .meeting(_, _, hasJoinLink):
-            var items: [(String, DesktopNotificationCardAction, Bool)] = []
-            // Подписи короткие: две длинные русские подписи выдавливают текст
-            // встречи из строки шириной 420 точек.
-            if hasJoinLink {
-                items.append(("Подключиться и начать запись", .joinAndRecord, true))
-                items.append(("Подключиться", .join, false))
-            } else {
-                items.append(("Начать запись", .record, true))
+        if changedActions || actionButtons.count != next.actions.count {
+            for button in actionButtons { button.removeFromSuperview() }
+            actionButtons = next.actions.map { item in
+                let button = NotificationCardButton(title: item.title) { [weak self] in self?.onAction(item.action) }
+                button.isPrimary = item.primary
+                card.addSubview(button)
+                return button
             }
-            return items
-        case .recordingPrompt:
-            return [
-                ("Записать", .record, true),
-                ("Не записывать", .skipRecordingPrompt, false)
-            ]
-        case let .problem(_, _, actionTitle, sessionID):
-            return [(actionTitle, sessionID.map { .openRecording($0) } ?? .openCalendar, true)]
-        case .preview, .shortRecording:
-            return []
         }
+        if !actionButtons.isEmpty {
+            y += 8
+            let font = Self.scaled(Self.actionFont(weight: .semibold), by: scale)
+            let widths = next.actions.map { ceil(($0.title as NSString).size(withAttributes: [.font: font]).width) + 24 }
+            var x = width - 12 - widths.reduce(0, +) - CGFloat(max(0, widths.count - 1)) * 8
+            for (index, button) in actionButtons.enumerated() {
+                button.fontScale = scale
+                let buttonHeight = measured.verticalActions ? measured.buttonHeights[index] : measured.buttonHeights.max() ?? 32
+                button.frame = NSRect(x: measured.verticalActions ? 12 : x, y: y,
+                    width: measured.verticalActions ? width - 24 : widths[index], height: buttonHeight)
+                if measured.verticalActions { y += buttonHeight + 8 } else { x += widths[index] + 8 }
+            }
+        }
+        configureKeyLoop()
+        applyStyle()
+        needsLayout = true
     }
-
-    private func label(_ text: String, font: NSFont, color: NSColor) -> NSTextField {
-        let field = NSTextField(labelWithString: text)
-        field.font = font
-        field.textColor = color
-        field.translatesAutoresizingMaskIntoConstraints = false
-        field.usesSingleLineMode = false
-        field.lineBreakMode = .byWordWrapping
-        field.maximumNumberOfLines = 0
-        return field
+    // AppKit can reset nextKeyView while installing a content view. Reapply only
+    // links after attachment/layout; never replace controls or the first responder.
+    private var keyboardControls: [NSView] {
+        var controls: [NSView] = [close]
+        if textScroll.hasVerticalScroller { controls.append(textScroll) }
+        if !remember.isHidden { controls.append(remember) }
+        controls.append(contentsOf: actionButtons)
+        return controls
     }
-
+    // NSScrollView inserts its clip view into nextKeyView. Use the same semantic
+    // order for explicit Tab navigation, without focusing noninteractive internals.
+    func keyView(relativeTo current: NSView, backwards: Bool) -> NSView? {
+        let controls = keyboardControls
+        guard let index = controls.firstIndex(where: { $0 === current }) else { return nil }
+        return controls[(index + (backwards ? controls.count - 1 : 1)) % controls.count]
+    }
+    func configureKeyLoop() {
+        let controls = keyboardControls
+        for (index, control) in controls.enumerated() { control.nextKeyView = controls[(index + 1) % controls.count] }
+    }
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        configureKeyLoop()
+    }
+    override public func layout() {
+        super.layout()
+        configureKeyLoop()
+    }
+    override public func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(area); tracking = area
+    }
+    override public func mouseEntered(with event: NSEvent) { onHover(true) }
+    override public func mouseExited(with event: NSEvent) { onHover(false) }
+    override public func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); applyStyle() }
+    private func applyStyle() {
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        titleLabel.textColor = Self.primaryText(dark: dark)
+        messageLabel.textColor = Self.secondaryText(dark: dark)
+        icon.contentTintColor = Self.primaryText(dark: dark)
+    }
+    public static func cardBackground(dark: Bool) -> NSColor { dark ? NSColor(white: 0.12, alpha: 1) : .white }
+    public static func cardBorder(dark: Bool) -> NSColor { NSColor(white: dark ? 0.58 : 0.45, alpha: 1) }
+    public static func primaryText(dark: Bool) -> NSColor { NSColor(white: dark ? 0.98 : 0.12, alpha: 1) }
+    public static func secondaryText(dark: Bool) -> NSColor { NSColor(white: dark ? 0.80 : 0.36, alpha: 1) }
+    public static func accent(dark: Bool) -> NSColor { NSColor(srgbRed: 0.38, green: 0.30, blue: 0.90, alpha: 1) }
     @objc private func closeTapped() { onClose() }
+    @objc private func rememberChanged() { onAction(.toggleRecordingPromptRemember(remember.state == .on)) }
+}
 
-    @objc private func rememberChoiceChanged(_ sender: NSButton) {
-        onAction(.toggleRecordingPromptRemember(sender.state == .on))
+private final class NotificationCardFlippedView: NSView { override var isFlipped: Bool { true } }
+
+private final class NotificationCardScrollView: NSScrollView {
+    override var acceptsFirstResponder: Bool { true }
+    // Own keyboard scrolling here: NSScrollView's default focus handoff to the
+    // non-editable document can leave the panel itself as first responder.
+    override func becomeFirstResponder() -> Bool { true }
+    override func keyDown(with event: NSEvent) {
+        let step: CGFloat
+        switch event.keyCode {
+        case 125: step = 24
+        case 126: step = -24
+        case 121: step = contentView.bounds.height
+        case 116: step = -contentView.bounds.height
+        default: super.keyDown(with: event); return
+        }
+        let limit = max(0, (documentView?.bounds.height ?? 0) - contentView.bounds.height)
+        contentView.scroll(to: NSPoint(x: 0, y: min(limit, max(0, contentView.bounds.minY + step))))
+        reflectScrolledClipView(contentView)
     }
 }
 
 final class CardBackgroundView: NSView {
     private let cornerRadius: CGFloat
+    override var isFlipped: Bool { true }
     init(cornerRadius: CGFloat) {
         self.cornerRadius = cornerRadius
         super.init(frame: .zero)
         wantsLayer = true
-        // Слой настраивается сразу: карточка может быть измерена до первого показа.
         applyStyle()
     }
-
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
-
     override func updateLayer() { applyStyle() }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyStyle()
-    }
-
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); applyStyle() }
     private func applyStyle() {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        // Always opaque: reduced transparency requires no additional material.
         layer?.backgroundColor = DesktopNotificationCardView.cardBackground(dark: dark).cgColor
         layer?.borderColor = DesktopNotificationCardView.cardBorder(dark: dark).cgColor
-        layer?.borderWidth = 1
-        layer?.cornerRadius = cornerRadius
-        layer?.masksToBounds = true
+        layer?.borderWidth = 1; layer?.cornerRadius = cornerRadius
+    }
+}
+
+final class NotificationCardCheckbox: NSButton {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+    override var needsPanelToBecomeKey: Bool { false }
+    var indicatorFrame: NSRect { cell?.imageRect(forBounds: bounds) ?? .zero }
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard state == .off, !indicatorFrame.isEmpty else { return }
+        // Keep the native switch cell, title, state, hit target and AX behavior.
+        // Its unselected fill alone is too close to the card in both themes.
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let outline = NSBezierPath(roundedRect: indicatorFrame.insetBy(dx: 0.75, dy: 0.75),
+                                  xRadius: 4, yRadius: 4)
+        DesktopNotificationCardView.cardBorder(dark: dark).setStroke()
+        outline.lineWidth = 1.5
+        outline.stroke()
+    }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+}
+
+private final class NotificationCardCloseButton: NSButton {
+    init() {
+        super.init(frame: .zero)
+        isBordered = false
+        imagePosition = .imageOnly
+        image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))
+        setAccessibilityLabel("Закрыть уведомление")
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        toolTip = "Закрыть уведомление"
+        focusRingType = .exterior
+    }
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+    override var needsPanelToBecomeKey: Bool { false }
+    override func draw(_ dirtyRect: NSRect) {
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let circle = NSBezierPath(ovalIn: bounds.insetBy(dx: 5, dy: 5))
+        DesktopNotificationCardView.cardBackground(dark: dark).setFill(); circle.fill()
+        DesktopNotificationCardView.cardBorder(dark: dark).setStroke(); circle.lineWidth = 1; circle.stroke()
+        super.draw(dirtyRect)
     }
 }
 
 final class NotificationCardButton: NSButton {
-    var isPrimary = false {
-        didSet { applyStyle() }
-    }
+    var isPrimary = false { didSet { applyStyle() } }
+    var fontScale: CGFloat = 1 { didSet { applyStyle() } }
     private let handler: () -> Void
-
     init(title: String, handler: @escaping () -> Void) {
         self.handler = handler
         super.init(frame: .zero)
-        self.title = title
-        self.target = self
-        self.action = #selector(fire)
-        bezelStyle = .regularSquare
-        isBordered = false
-        wantsLayer = true
-        font = DesktopNotificationCardView.actionFont(weight: .semibold)
+        self.title = title; target = self; action = #selector(fire)
+        bezelStyle = .regularSquare; isBordered = false; wantsLayer = true
+        focusRingType = .exterior
+        cell?.wraps = true; cell?.lineBreakMode = .byWordWrapping
         setAccessibilityLabel(title)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
         applyStyle()
     }
-
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
-
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var acceptsFirstResponder: Bool { true }
+    override var needsPanelToBecomeKey: Bool { false }
     override func updateLayer() { applyStyle() }
-
+    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); applyStyle() }
     private func applyStyle() {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        layer?.cornerRadius = 10
+        layer?.cornerRadius = 8
         layer?.borderWidth = 1
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        if isPrimary {
-            layer?.backgroundColor = DesktopNotificationCardView.accent(dark: dark).cgColor
-            layer?.borderColor = NSColor.clear.cgColor
-            attributedTitle = NSAttributedString(string: title, attributes: [
-                .foregroundColor: NSColor.white,
-                .font: DesktopNotificationCardView.actionFont(weight: .semibold),
-                .paragraphStyle: paragraph
-            ])
-        } else {
-            layer?.backgroundColor = NSColor.clear.cgColor
-            layer?.borderColor = DesktopNotificationCardView.cardBorder(dark: dark).cgColor
-            attributedTitle = NSAttributedString(string: title, attributes: [
-                .foregroundColor: DesktopNotificationCardView.primaryText(dark: dark),
-                .font: DesktopNotificationCardView.actionFont(weight: .medium),
-                .paragraphStyle: paragraph
-            ])
-        }
-        // Наблюдаемый эталон: поля кнопки 15 точек по бокам вокруг текста.
-        widthConstraint?.isActive = false
-        let text = (title as NSString).size(withAttributes: [.font: DesktopNotificationCardView.actionFont(weight: .semibold)]).width
-        let width = widthAnchor.constraint(equalToConstant: ceil(text) + 30)
-        width.isActive = true
-        widthConstraint = width
+        layer?.backgroundColor = (isPrimary ? DesktopNotificationCardView.accent(dark: dark) : DesktopNotificationCardView.cardBackground(dark: dark)).cgColor
+        layer?.borderColor = (isPrimary ? DesktopNotificationCardView.accent(dark: dark) : DesktopNotificationCardView.cardBorder(dark: dark)).cgColor
+        let paragraph = NSMutableParagraphStyle(); paragraph.alignment = .center; paragraph.lineBreakMode = .byWordWrapping
+        let font = DesktopNotificationCardView.scaled(DesktopNotificationCardView.actionFont(weight: .semibold), by: fontScale)
+        self.font = font
+        attributedTitle = NSAttributedString(string: title, attributes: [
+            .font: font, .foregroundColor: isPrimary ? NSColor.white : DesktopNotificationCardView.primaryText(dark: dark),
+            .paragraphStyle: paragraph
+        ])
     }
-
-    private var widthConstraint: NSLayoutConstraint?
-
     @objc private func fire() { handler() }
 }

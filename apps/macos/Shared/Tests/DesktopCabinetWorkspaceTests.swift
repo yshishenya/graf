@@ -46,7 +46,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             cabinetState: .constant(.expiredSession), fallbackRequest: request,
             notificationPresenter: DesktopNotificationPresenter(
                 store: .init(defaults: UserDefaults(suiteName: UUID().uuidString)!),
-                model: DesktopControlModel(), status: { .denied }),
+                model: DesktopControlModel()),
             navigationController: EmbeddedCabinetNavigationController()
         )
         let host = NSHostingView(rootView: cabinet)

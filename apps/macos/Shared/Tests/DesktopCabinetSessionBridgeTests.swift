@@ -481,7 +481,7 @@ final class DesktopCabinetSessionBridgeTests: XCTestCase {
             showsAppUpdateBadge: false, onCheckForUpdates: {}, onOpenMeetingDetectionSettings: {},
             supportIncidentBridge: nil, notificationPresenter: DesktopNotificationPresenter(
                 store: .init(defaults: UserDefaults(suiteName: UUID().uuidString)!),
-                model: DesktopControlModel(), status: { .denied }), navigationController: navigation)
+                model: DesktopControlModel()), navigationController: navigation)
     }
 
     private func response(url: URL? = nil, status: Int = 200, expiry: String) -> HTTPURLResponse {

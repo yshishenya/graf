@@ -553,6 +553,11 @@ final class DesktopCalendarReminderTests: XCTestCase {
     func testCalendarTrayModelIgnoresAnOlderRefreshThatFinishesLast() async {
         let loader = CalendarTrayControlledLoader()
         let model = CalendarTrayModel { try await loader.load() }
+        var projections: [CalendarProjectionUpdate] = []
+        model.onProjection = { projections.append($0) }
+        let newest = DesktopCalendarPromptResponse(
+            events: [makeEvent(eventId: "new", startsAt: date(120), endsAt: date(180))]
+        )
 
         let first = Task { await model.refresh() }
         await loader.waitForRequestCount(1)
@@ -561,9 +566,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
 
         await loader.complete(
             request: 1,
-            with: DesktopCalendarPromptResponse(
-                events: [makeEvent(eventId: "new", startsAt: date(120), endsAt: date(180))]
-            )
+            with: newest
         )
         await second.value
         await loader.complete(
@@ -575,12 +578,13 @@ final class DesktopCalendarReminderTests: XCTestCase {
         await first.value
 
         XCTAssertEqual(model.events.map(\.eventId), ["new"])
+        XCTAssertEqual(projections, [.confirmed(newest)])
     }
 
     func testCalendarProjectionInvalidationRejectsPendingResponseAndKeepsCaptureState() async {
         let loader = CalendarTrayControlledLoader()
         let model = CalendarTrayModel { try await loader.load() }
-        var projections: [DesktopCalendarPromptResponse?] = []
+        var projections: [CalendarProjectionUpdate] = []
         var invalidations = 0
         model.onProjection = { projections.append($0) }
         model.onAuthInvalidated = { invalidations += 1 }
@@ -588,15 +592,197 @@ final class DesktopCalendarReminderTests: XCTestCase {
         let pending = Task { await model.refresh() }
         await loader.waitForRequestCount(1)
         model.invalidate()
+        XCTAssertEqual(projections, [.invalidated], "Context invalidation must publish synchronously")
+        XCTAssertEqual(invalidations, 1)
         await loader.complete(request: 0, with: DesktopCalendarPromptResponse(
             events: [makeEvent(eventId: "old-account", startsAt: date(120), endsAt: date(180))]
         ))
         await pending.value
-        XCTAssertEqual(projections.count, 1)
-        XCTAssertNil(projections[0])
+        XCTAssertEqual(projections, [.invalidated])
         XCTAssertEqual(invalidations, 1)
         XCTAssertTrue(model.events.isEmpty)
         XCTAssertEqual(model.recordingState, .recording)
+    }
+
+    func testTrayAuthInvalidationRejectsPendingProjectionSynchronously() async {
+        let loader = CalendarTrayControlledLoader()
+        let model = CalendarTrayModel { try await loader.load() }
+        let tray = CalendarTrayController(model: model, onOpenSettings: {}, onOpenMeetings: {},
+            onStartRecording: {}, onStopRecording: {}, onMuteMicrophone: {},
+            onUnmuteMicrophone: {}, onQuit: {})
+        var projections: [CalendarProjectionUpdate] = []
+        model.onProjection = { projections.append($0) }
+        let pending = Task { await model.refresh() }
+        await loader.waitForRequestCount(1)
+        tray.invalidateAuthContext()
+        XCTAssertEqual(projections, [.invalidated], "Invalidation must finish without yielding to queued responses")
+        await loader.complete(request: 0, with: DesktopCalendarPromptResponse(
+            events: [makeEvent(eventId: "previous-account", startsAt: date(120), endsAt: date(180))]
+        ))
+        await pending.value
+        XCTAssertEqual(projections, [.invalidated], "A response from the previous account must not reach notifications")
+        XCTAssertTrue(model.events.isEmpty)
+    }
+
+    func testCalendarProjectionClassifiesRetryableHTTPFailuresAsTemporarilyUnavailable() async {
+        for status in [408, 429, 500, 503, 599] {
+            await assertCalendarFailure(
+                DesktopUploadClientError.httpStatus(status, "synthetic_unavailable"),
+                projects: .temporarilyUnavailable,
+                invalidatesAuth: false,
+                context: "HTTP \(status)"
+            )
+        }
+    }
+
+    func testCalendarProjectionClassifiesAllowlistedNetworkFailuresAsTemporarilyUnavailable() async {
+        let codes: [URLError.Code] = [
+            .timedOut, .notConnectedToInternet, .networkConnectionLost,
+            .cannotFindHost, .dnsLookupFailed, .cannotConnectToHost
+        ]
+        for code in codes {
+            await assertCalendarFailure(
+                URLError(code), projects: .temporarilyUnavailable, invalidatesAuth: false,
+                context: "URLError \(code.rawValue)"
+            )
+        }
+    }
+
+    func testCalendarProjectionAuthClassificationOverridesRetryableStatusAndMisleadingNetworkCode() async {
+        for code in ["auth_required", "session_expired", "tenant_context_missing",
+                     "tenant_scope_denied", "meeting_scope_denied", "device_scope_denied"] {
+            let error = DesktopUploadClientError.httpStatus(500, code)
+            XCTAssertEqual(error.failureCategory, .authSession)
+            await assertCalendarFailure(
+                error, projects: .invalidated, invalidatesAuth: true, context: "HTTP 500 / \(code)"
+            )
+        }
+        for status in [401, 403] {
+            for code in ["synthetic_denied", "network_unavailable"] {
+                let error = DesktopUploadClientError.httpStatus(status, code)
+                if code == "network_unavailable" {
+                    XCTAssertEqual(error.failureCategory, .network,
+                                   "Exercise the explicit status guard, not only authSession classification")
+                }
+                await assertCalendarFailure(
+                    error, projects: .invalidated, invalidatesAuth: true,
+                    context: "HTTP \(status) / \(code)"
+                )
+            }
+        }
+    }
+
+    func testCalendarProjectionUnknownMalformedAndCancelledFailuresInvalidateWithoutAuthCallback() async {
+        let failures: [(String, any Error)] = [
+            ("unknown", CalendarProjectionTestError.unknown),
+            ("HTTP 400", DesktopUploadClientError.httpStatus(400, "bad_request")),
+            ("HTTP 400 with network code", DesktopUploadClientError.httpStatus(400, "network_unavailable")),
+            ("HTTP outside 5xx", DesktopUploadClientError.httpStatus(600, "network_unavailable")),
+            ("invalid response", DesktopUploadClientError.invalidResponse),
+            ("task cancellation", CancellationError()),
+            ("URL cancellation", URLError(.cancelled)),
+            ("bad URL", URLError(.badURL)),
+            ("TLS failure", URLError(.secureConnectionFailed))
+        ]
+        for (context, error) in failures {
+            await assertCalendarFailure(
+                error, projects: .invalidated, invalidatesAuth: false, context: context
+            )
+        }
+    }
+
+    func testCalendarProjectionConfirmedEmptyResponseIsNotAnErrorOrAuthInvalidation() async {
+        let loader = CalendarTrayControlledLoader()
+        let model = CalendarTrayModel { try await loader.load() }
+        var projections: [CalendarProjectionUpdate] = []
+        var authInvalidations = 0
+        model.onProjection = { projections.append($0) }
+        model.onAuthInvalidated = { authInvalidations += 1 }
+        let populated = DesktopCalendarPromptResponse(
+            events: [makeEvent(startsAt: date(120), endsAt: date(180))]
+        )
+        let empty = DesktopCalendarPromptResponse(events: [], showUpcomingTime: false, showUpcomingTitle: false)
+        for (index, response) in [populated, empty].enumerated() {
+            let refresh = Task { await model.refresh() }
+            await loader.waitForRequestCount(index + 1)
+            await loader.complete(request: index, with: response)
+            await refresh.value
+        }
+        XCTAssertEqual(projections, [.confirmed(populated), .confirmed(empty)])
+        XCTAssertTrue(model.events.isEmpty)
+        XCTAssertFalse(model.showUpcomingTime)
+        XCTAssertFalse(model.showUpcomingTitle)
+        XCTAssertEqual(authInvalidations, 0)
+    }
+
+    func testCalendarProjectionIgnoresLateFailureAfterNewerSuccessIncludingAuthErrors() async {
+        let failures: [any Error] = [
+            DesktopUploadClientError.httpStatus(503, "unavailable"),
+            URLError(.notConnectedToInternet),
+            DesktopUploadClientError.httpStatus(401, "network_unavailable"),
+            DesktopUploadClientError.httpStatus(500, "auth_required"),
+            CalendarProjectionTestError.unknown
+        ]
+        for error in failures {
+            let loader = CalendarTrayControlledLoader()
+            let model = CalendarTrayModel { try await loader.load() }
+            var projections: [CalendarProjectionUpdate] = []
+            var authInvalidations = 0
+            model.onProjection = { projections.append($0) }
+            model.onAuthInvalidated = { authInvalidations += 1 }
+            model.recordingState = .recording
+            let older = Task { await model.refresh() }
+            await loader.waitForRequestCount(1)
+            let newer = Task { await model.refresh() }
+            await loader.waitForRequestCount(2)
+            let confirmed = DesktopCalendarPromptResponse(
+                events: [makeEvent(eventId: "current", startsAt: date(120), endsAt: date(180))],
+                showUpcomingTime: false, showUpcomingTitle: false
+            )
+            await loader.complete(request: 1, with: confirmed)
+            await newer.value
+            await loader.fail(request: 0, with: error)
+            await older.value
+
+            XCTAssertEqual(projections, [.confirmed(confirmed)], "Late failure: \(error)")
+            XCTAssertEqual(model.events, confirmed.events, "Late failure must not clear the newer menu projection")
+            XCTAssertFalse(model.showUpcomingTime)
+            XCTAssertFalse(model.showUpcomingTitle)
+            XCTAssertEqual(authInvalidations, 0, "An obsolete auth failure must not invalidate the current context")
+            XCTAssertEqual(model.recordingState, .recording)
+        }
+    }
+
+    func testCalendarProjectionIgnoresPendingFailureAfterExplicitInvalidation() async {
+        let failures: [any Error] = [
+            DesktopUploadClientError.httpStatus(503, "unavailable"),
+            URLError(.timedOut),
+            DesktopUploadClientError.httpStatus(403, "network_unavailable"),
+            DesktopUploadClientError.httpStatus(500, "auth_required"),
+            DesktopUploadClientError.invalidResponse,
+            CancellationError()
+        ]
+        for error in failures {
+            let loader = CalendarTrayControlledLoader()
+            let model = CalendarTrayModel { try await loader.load() }
+            var projections: [CalendarProjectionUpdate] = []
+            var authInvalidations = 0
+            model.onProjection = { projections.append($0) }
+            model.onAuthInvalidated = { authInvalidations += 1 }
+            model.recordingState = .paused
+            let pending = Task { await model.refresh() }
+            await loader.waitForRequestCount(1)
+            model.invalidate()
+            XCTAssertEqual(projections, [.invalidated], "Invalidation must be synchronous")
+            XCTAssertEqual(authInvalidations, 1)
+            await loader.fail(request: 0, with: error)
+            await pending.value
+
+            XCTAssertEqual(projections, [.invalidated], "Late failure must not publish after invalidation: \(error)")
+            XCTAssertEqual(authInvalidations, 1, "Obsolete failures must not invalidate auth again")
+            XCTAssertTrue(model.events.isEmpty)
+            XCTAssertEqual(model.recordingState, .paused)
+        }
     }
 
     func testCalendarTrayStaysCompactWithoutConfirmedEventsAndRecoversAfterFailures() async {
@@ -756,7 +942,8 @@ final class DesktopCalendarReminderTests: XCTestCase {
                                           onQuit: { quits += 1 })
         tray.rebuildMenu()
         XCTAssertEqual(tray.menu.items.filter { !$0.isSeparatorItem }.map(\.title),
-                       ["Начать запись", "Открыть GRAF", "Настройки…", "Выйти из GRAF"])
+                       ["Начать запись", "Перейти к уведомлению", "Последние уведомления",
+                        "Открыть GRAF", "Настройки…", "Выйти из GRAF"])
         XCTAssertEqual(tray.menu.minimumWidth, 240)
         XCTAssertTrue(tray.menu.items.allSatisfy { $0.view == nil }, "Native rows retain keyboard, theme and outside-click behavior")
         tray.menu.performActionForItem(at: 0)
@@ -938,6 +1125,55 @@ final class DesktopCalendarReminderTests: XCTestCase {
         XCTAssertEqual(SystemAudioAccessibilityIdentifier.calendarPrompt, "systemAudio.calendar.prompt")
     }
 
+    private func assertCalendarFailure(
+        _ error: any Error,
+        projects expected: CalendarProjectionUpdate,
+        invalidatesAuth: Bool,
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        let loader = CalendarTrayControlledLoader()
+        let model = CalendarTrayModel { try await loader.load() }
+        let tray = CalendarTrayController(
+            model: model, onOpenSettings: {}, onOpenMeetings: {},
+            onStartRecording: {}, onStopRecording: {}, onMuteMicrophone: {},
+            onUnmuteMicrophone: {}, onQuit: {}
+        )
+        var projections: [CalendarProjectionUpdate] = []
+        var authInvalidations = 0
+        model.onProjection = { projections.append($0) }
+        model.onAuthInvalidated = { authInvalidations += 1 }
+        model.recordingState = .recording
+        let confirmed = DesktopCalendarPromptResponse(
+            events: [makeEvent(eventId: "confirmed-before-error", startsAt: date(120), endsAt: date(180))]
+        )
+        let success = Task { await model.refresh() }
+        await loader.waitForRequestCount(1)
+        await loader.complete(request: 0, with: confirmed)
+        await success.value
+        XCTAssertEqual(projections, [.confirmed(confirmed)], context, file: file, line: line)
+        XCTAssertEqual(model.events, confirmed.events, context, file: file, line: line)
+        XCTAssertEqual(authInvalidations, 0, context, file: file, line: line)
+        tray.rebuildMenu()
+        XCTAssertEqual(tray.menu.items.filter { $0.identifier?.rawValue == "graf.menu.event" }.count,
+                       1, "\(context): populate the real menu before failing", file: file, line: line)
+
+        let failure = Task { await model.refresh() }
+        await loader.waitForRequestCount(2)
+        XCTAssertEqual(model.events, confirmed.events, "\(context): refresh has not completed", file: file, line: line)
+        await loader.fail(request: 1, with: error)
+        await failure.value
+
+        XCTAssertEqual(projections, [.confirmed(confirmed), expected], context, file: file, line: line)
+        XCTAssertEqual(authInvalidations, invalidatesAuth ? 1 : 0, context, file: file, line: line)
+        XCTAssertTrue(model.events.isEmpty, "\(context): no stale calendar events after any error", file: file, line: line)
+        XCTAssertEqual(model.recordingState, .recording, context, file: file, line: line)
+        tray.rebuildMenu()
+        XCTAssertFalse(tray.menu.items.contains { $0.identifier?.rawValue == "graf.menu.event" },
+                       "\(context): no stale event commands in the real menu", file: file, line: line)
+    }
+
     private func makeEvent(
         eventId: String = "event",
         startsAt: Date,
@@ -966,6 +1202,10 @@ final class DesktopCalendarReminderTests: XCTestCase {
         Date(timeIntervalSince1970: seconds)
     }
 
+}
+
+private enum CalendarProjectionTestError: Error {
+    case unknown
 }
 
 private actor CalendarTrayControlledLoader {
