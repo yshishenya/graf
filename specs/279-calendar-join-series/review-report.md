@@ -273,3 +273,27 @@ Reviewer изменил только reviewer-owned отчёт и примеча
 - `/tmp/f279-review2-browser.log`: **PASS** production JS/UI; terminal cancelled→retry, прежние regression и 30 замеров SC-007 после 3 warmup. Join max 16.4 ms, series p95 34.3 ms. Указанный SHA — исходный HEAD 8ee05 при незакоммиченных проверяемых изменениях, не будущий commit.
 
 Повторно прочитаны reviewer-owned checklist: **UX 8 checked / 0 unchecked; security 8 checked / 0 unchecked; всего 16/16**. Их markers качества требований остаются прежними. Открытых локальных замечаний во второй группе не осталось; окончательный commit, exact-SHA CI/checked base и GRAF Dev после изменений подтверждает основной агент отдельно. Код, tasks, спецификации, GitHub, commits и окружение reviewer не менял; изменены только этот отчёт и примечания двух checklist.
+
+
+## Независимое ревью третьей группы замечаний PR #7363
+
+Дата: 2026-09-29. Прочитаны три actual GitHub review comments и diff поверх `a720af75e44e5465f7439f8b9c8f26ce0499ca80`. **Все три замечания RESOLVED в границах исходников и локальных проверок; новых конкретных дефектов в рассмотренных изменениях не найдено.**
+
+1. **Eligibility обычных дат истории.** `filtered_events(history=True)` больше не возвращается до вычисления eligibility. Исключение метаданных применено только к `source_status=cancelled` либо `source_deleted_at != None`. Owner/workspace/source/selection/all-day/privacy остаются в прежних предикатах. Новый настоящий API regression скрывает активный экземпляр без участников/ссылки/места, сохраняет обе минимальные отменённые/удалённые даты, затем возвращает активный экземпляр после явного включения соответствующих настроек. Предыдущая проверка доступных записей отменённой даты сохранена.
+2. **Актуальность уведомления после await.** `ContentView` передаёт свою prompt-specific closure в `openEvent(eventID, isCurrent:)`. Внутри она соединена логическим AND с проверками session generation/token/origin; именно эта общая closure передаётся в `resolveAndOpen`, native `open` и `recoverInBrowser`. Поэтому смена/закрытие уведомления проверяется после исходного resolver и после отдельного browser recovery. Прежние delayed-resolver и stale recovery тесты проверяют поведение общего guard, а две строки production-проводки просмотрены непосредственно. Новый искусственный product seam или тест, зеркалящий исходник, для этой узкой проводки не требуется; это не объявляется полным ContentView end-to-end тестом.
+3. **Локальная ошибка в обычном браузере.** FR-003/007 и browser contract применимы к standalone cabinet. Новый page handler использует trusted click, свежий JSON join-target с same-origin credentials/no-store/redirect:error, проверяет event ID/HTTPS, отображает состояние у всех копий действия и держит одну операцию. Пустая вкладка резервируется во время клика, `opener` немедленно обнуляется; ошибка/timeout/pagehide закрывает принадлежащую операции вкладку и возвращает локальный повтор. Успех выполняет переход через ссылку внутри этой вкладки с `rel=noreferrer` и `referrerPolicy=no-referrer`. Это финальное исправление после обнаруженной тестом передачи Referer у `location.replace`; успешный результат не приписывается прежнему варианту.
+
+### Разделение browser/native и доказательства
+
+Native listener теперь выполняется в capture-фазе и вызывает preventDefault; page handler в bubble-фазе игнорирует уже обработанное событие. Это не зависит от порядка регистрации. До native injection признак `GRAFDesktop/` обеспечивает локальное сообщение о загрузке без web popup; он используется только как выбор маршрута, не как авторизация. Именованный WKContentWorld, trusted input и native проверки полномочий сохраняются.
+
+Прочитан новый browser сценарий и завершившийся `/tmp/f279-review3-browser.log`: **PASS**. Проверены stale 404→закрытие пустой вкладки/локальный повтор; двойное нажатие; успешная синтетическая HTTPS-навигация с сохранением query/fragment; реальный `window.opener == null`; отсутствие Referer, X-Auth-Session и cookie в наблюдаемом внешнем запросе; сохранение страницы GRAF; отмена по pagehide; early desktop guard. Совместный native/page маршрут проверен с обычным UA и injected production native documentScript: **0 standalone resolver requests, 0 дополнительных popup**. Внешний адрес перехвачен локальным тестом, не является участием в звонке.
+
+Непосредственно прочитанные остальные результаты:
+
+- `/tmp/f279-review3-swift.log`: **120 tests / 0 failures**, после изменений native capture и caller guard.
+- `/tmp/f279-review3-server.log`: **16 passed / 2 warnings**, PostgreSQL focused phase PASS.
+- Browser SC-007: 30 измерений после 3 warmup, Join max **16.1 ms**, series p95 **33.5 ms**. SHA в выводе — исходный HEAD a720 при незакоммиченных проверяемых изменениях.
+- Уточнение предыдущей группы: совместный `/tmp/f279-review2-server-final.log` непосредственно прочитан и содержит **15 passed / 2 warnings** (11 contract + 4 unit). Это единый итог вместо раздельных пересекающихся 14+4, а не дополнительный набор к 16 текущего прохода.
+
+Reviewer-owned checklist перечитаны: **UX 8 checked / 0 unchecked; security 8 checked / 0 unchecked; всего 16/16**. Требования и факт runtime-проверок не смешаны. Открытых локальных дефектов этой третьей группы не осталось. Окончательный SHA/checked base/CI и штатная установленная Dev-приёмка остаются отдельными evidence. Reviewer менял только этот отчёт и примечания двух checklist; код, tasks, другие спецификации, GitHub, commits и приложения не менялись.

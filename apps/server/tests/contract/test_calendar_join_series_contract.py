@@ -578,3 +578,66 @@ def test_overview_cursor_preserves_issued_window_and_representative_across_midni
     assert [row["event_id"] for row in second.json()["cards"]] == [second_id]
     assert second.json()["coverage_range"] == first.json()["coverage_range"]
     assert second.json()["next_cursor"] is None
+
+
+def test_history_applies_eligibility_to_active_dates_but_keeps_minimal_cancellations(client):
+    import asyncio
+    from datetime import UTC, datetime
+
+    from sqlalchemy import select
+
+    from tests.contract.test_ingest_openapi_contract import auth_headers
+    from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
+    from twobrain_rec_server.db.models import CalendarEventSnapshot, CalendarSettingsPreference
+
+    seed_series(client)
+    cards = client.get("/api/v1/calendar/overview", headers=auth_headers()).json()["cards"]
+    url = f"/api/v1/calendar/series/{cards[0]['series_key']}/occurrences"
+
+    async def remove_metadata():
+        async with client.app_state["sessionmaker"]() as db:
+            rows = list(
+                (
+                    await db.scalars(
+                        select(CalendarEventSnapshot)
+                        .where(CalendarEventSnapshot.recurring_series_id == "synthetic-weekly")
+                        .order_by(CalendarEventSnapshot.starts_at)
+                    )
+                ).all()
+            )
+            for row in rows[:3]:
+                row.conference_summary_json = {
+                    "participant_count": 0,
+                    "meeting_link_present": False,
+                }
+                row.provider_extras_json = {}
+                row.location = None
+                row.open_meeting_available = False
+            rows[1].source_status = "cancelled"
+            rows[2].source_deleted_at = datetime.now(UTC)
+            await db.commit()
+            return [str(row.id) for row in rows]
+
+    ids = asyncio.run(remove_metadata())
+    response = client.get(url, headers=auth_headers())
+    assert response.status_code == 200, response.text
+    rows = response.json()["occurrences"]
+    assert {row["event_id"] for row in rows} == set(ids[1:])
+    assert all(row["cancelled"] for row in rows if row["event_id"] in ids[1:3])
+
+    async def include_empty_events():
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                CalendarSettingsPreference(
+                    workspace_id=WORKSPACE_ID,
+                    owner_user_id=USER_ID,
+                    include_events_without_participants=True,
+                    include_events_without_link_or_location=True,
+                )
+            )
+            await db.commit()
+
+    asyncio.run(include_empty_events())
+    response = client.get(url, headers=auth_headers())
+    assert response.status_code == 200, response.text
+    assert {row["event_id"] for row in response.json()["occurrences"]} == set(ids)

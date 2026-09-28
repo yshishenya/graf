@@ -96,13 +96,6 @@ def filtered_events(scope, preference, *, include_cancelled=False, history=False
         Event.safe_to_show_in_list.is_(False),
         Event.privacy_class.in_(["free_busy", "free_busy_only"]),
     )
-    # Historical dates remain useful after provider cancellation removes join metadata.
-    if history:
-        return (
-            query
-            if preference and preference.include_private_free_busy_prompt_candidates
-            else query.where(~private)
-        )
     count = func.coalesce(
         Event.conference_summary_json["participant_count"].as_string(),
         Event.provider_extras_json["participant_count"].as_string(),
@@ -122,6 +115,11 @@ def filtered_events(scope, preference, *, include_cancelled=False, history=False
         and preference.include_events_without_link_or_location
     ):
         eligible = True
+    if history:
+        # Only cancelled dates may lack metadata removed by the provider.
+        eligible = or_(
+            eligible, Event.source_status == "cancelled", Event.source_deleted_at.is_not(None)
+        )
     if preference and preference.include_private_free_busy_prompt_candidates:
         return query.where(or_(private, eligible))
     return query.where(~private, eligible)

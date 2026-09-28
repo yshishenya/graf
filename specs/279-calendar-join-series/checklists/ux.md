@@ -39,3 +39,6 @@ Reviewer-owned. Автор реализации не меняет checkbox; эт
 
 
 Вторая группа PR-замечаний независимо проверена 2026-09-29: ранний readiness cancel, явный menu retry, стабильный signed overview anchor через UTC midnight, видимый reminder pending — RESOLVED в границах исходников/локальных тестов. Swift 120/0, server 14 PASS, дополнительный cursor unit 4 PASS (пересекающийся набор), browser PASS. Полные доказательства и границы в последнем разделе `../review-report.md`; требования **8 checked / 0 unchecked**.
+
+
+Третья группа PR-замечаний проверена 2026-09-29: eligibility обычных дат при сохранении отменённых, prompt-specific guard через resolver/native/browser recovery, standalone local error с единственным безопасным popup — RESOLVED по исходникам и локальным проверкам. Swift 120/0, server 16 PASS, browser PASS с фактической проверкой отсутствия Referer/opener и двойного запуска. Подробности и границы в `../review-report.md`; требования **8 checked / 0 unchecked**.

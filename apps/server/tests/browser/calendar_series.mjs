@@ -30,10 +30,12 @@ let holdNext=false;
 let delayedResponse;
 const selectedID=html.match(/data-calendar-join="([0-9a-f-]+)"/)[1];
 let requests=0;
+let joinRequests=0,joinResponse;
 const server=createServer((req,res)=>{
   if(req.url.startsWith('/static/cabinet/')) {
     try {const name=path.basename(req.url.split('?')[0]);res.setHeader('Content-Type',name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':'application/octet-stream');res.end(readFileSync(path.join(serverRoot,'src/twobrain_rec_server/cabinet/static/cabinet',name)));}catch{res.writeHead(404);res.end();}return;
   }
+  if(req.url.endsWith('/join-target')) {joinRequests++;joinResponse=res;return;}
   if(req.url.startsWith('/api/v1/calendar/series/')) {
     requests++;res.setHeader('Content-Type','application/json');
     if(holdNext) {holdNext=false;delayedResponse=res;return;}
@@ -92,6 +94,7 @@ try {
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
  await page.screenshot({path:'/tmp/f279-calendar-series.png',fullPage:true});
  assert.deepEqual(errors,[]);
+ assert.equal(joinRequests,0);assert.equal(page.context().pages().length,1);
  // Failure remains local and can be retried.
  failure=true;await page.reload();await page.locator('.calendar-series summary').click();
  await page.waitForFunction(()=>document.querySelector('[data-calendar-series-status]').textContent.includes('Не удалось'));
@@ -169,5 +172,42 @@ try {
  assert.equal(timing.series.samples,samples);
  assert.ok(timing.join.max_ms<=200,`Join feedback maximum ${timing.join.max_ms}ms exceeds 200ms`);
  assert.ok(timing.series.p95_ms<=500,`Series p95 ${timing.series.p95_ms}ms exceeds 500ms`);
+ // Standalone browser uses the same production asset with fresh JSON resolution.
+ const webContext=await browser.newContext();
+ const web=await webContext.newPage();
+ const original=`http://127.0.0.1:${server.address().port}/meetings`;
+ await web.goto(original);
+ let popups=0;web.on('popup',()=>popups++);
+ const webJoin=web.locator('[data-calendar-join]').first();
+ const firstPopup=web.waitForEvent('popup');await webJoin.click();const failedTab=await firstPopup;
+ await web.waitForFunction(()=>document.querySelector('[data-calendar-join]').getAttribute('aria-disabled')==='true');
+ await webJoin.click({force:true});assert.equal(joinRequests,1);assert.equal(popups,1);
+ const closed=failedTab.waitForEvent('close');joinResponse.writeHead(404,{'Content-Type':'application/json'});joinResponse.end('{}');await closed;
+ await web.waitForFunction(()=>document.querySelector('[data-calendar-join-status]').textContent.includes('Не удалось открыть'));
+ assert.equal(web.url(),original);assert.equal(await webJoin.getAttribute('aria-disabled'),null);
+ let externalHeaders;
+ await webContext.route('https://meet.example.test/**',async route=>{externalHeaders=route.request().headers();await route.fulfill({contentType:'text/html',body:'<p>Synthetic conference</p>'});});
+ const nextPopup=web.waitForEvent('popup');await webJoin.click();const joinedTab=await nextPopup;
+ while(joinRequests<2) await new Promise(resolve=>setTimeout(resolve,5));
+ joinResponse.writeHead(200,{'Content-Type':'application/json'});joinResponse.end(JSON.stringify({event_id:selectedID,https_url:'https://meet.example.test/join?pwd=synthetic#context'}));
+ await joinedTab.waitForURL('https://meet.example.test/join?pwd=synthetic#context');
+ assert.equal(await joinedTab.evaluate(()=>window.opener),null);
+ assert.equal(externalHeaders.referer,undefined);assert.equal(externalHeaders['x-auth-session'],undefined);assert.equal(externalHeaders.cookie,undefined);
+ assert.equal(web.url(),original);assert.equal(popups,2);
+ // Closing the cabinet cancels only the reserved tab and cannot open a late result.
+ const cancelledPopup=web.waitForEvent('popup');await webJoin.click();const cancelledTab=await cancelledPopup;
+ while(joinRequests<3) await new Promise(resolve=>setTimeout(resolve,5));
+ const abandonedResponse=joinResponse;
+ const cancelledClose=cancelledTab.waitForEvent('close');await web.goto(original+'?new-document');await cancelledClose;
+ abandonedResponse.end('{}');
+ await webContext.close();
+ // Before isolated-world injection a desktop click cannot leak into browser routing.
+ const desktopContext=await browser.newContext({userAgent:'Synthetic GRAFDesktop/1.0'});
+ const earlyDesktop=await desktopContext.newPage();await earlyDesktop.goto(original);
+ await earlyDesktop.locator('[data-calendar-join]').first().click();
+ assert.match(await earlyDesktop.locator('[data-calendar-join-status]').first().textContent(),/Календарь загружается/);
+ assert.equal(joinRequests,3);assert.equal(desktopContext.pages().length,1);
+ await desktopContext.close();
+ console.log('PASS: standalone stale 404 stays local, explicit retry, duplicate suppression, single HTTPS popup without opener/referrer/auth, pagehide cancellation, desktop pre-injection guard');
  console.log('PASS: production series UI, keyboard, pagination 12 dates, inline retry, real calendar refresh focus, stale failure isolation, narrow viewport, exact native script double-click/retry/no-navigation');
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}

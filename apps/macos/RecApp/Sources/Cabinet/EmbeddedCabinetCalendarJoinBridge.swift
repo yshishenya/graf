@@ -89,7 +89,7 @@ final class EmbeddedCabinetCalendarJoinBridge {
         const requestId = crypto.randomUUID();
         pending.set(requestId, {eventId,state:'resolving'}); render(pending.get(requestId));
         window.webkit.messageHandlers.grafCalendarJoin.postMessage({action:'joinCalendarEvent',eventId,requestId});
-      });
+      }, true);
     })();
     """#
 }

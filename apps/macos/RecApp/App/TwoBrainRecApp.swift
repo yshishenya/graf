@@ -927,7 +927,7 @@ private struct ContentView: View {
         let actions = DesktopCalendarPromptActions(
             openURL: { _ in
                 guard isCurrent(), let eventID = prompt.eventId else { return false }
-                return await CalendarMeetingOpener.openEvent(eventID)
+                return await CalendarMeetingOpener.openEvent(eventID, isCurrent: isCurrent)
             },
             startRecording: { decisionIntent, eventId in
                 Task {

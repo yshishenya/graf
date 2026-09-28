@@ -66,13 +66,13 @@ public enum CalendarMeetingOpener {
 
     #if canImport(AppKit)
     @MainActor
-    public static func openEvent(_ id: String) async -> Bool {
+    public static func openEvent(_ id: String, isCurrent callerIsCurrent: @escaping () -> Bool = { true }) async -> Bool {
         guard let eventID = UUID(uuidString: id), let client = DesktopUploadClient.configuredFromEnvironment() else { return false }
         let generation = DesktopCabinetSessionBridge.generation
         let origin = client.baseOrigin
         let token = DesktopUploadClient.defaultAuthSessionToken(for: origin)
         let isCurrent = {
-                DesktopCabinetSessionBridge.isCurrentSession(generation)
+                callerIsCurrent() && DesktopCabinetSessionBridge.isCurrentSession(generation)
                     && DesktopUploadClient.defaultAuthSessionToken(for: origin) == token
                     && DesktopUploadClient.configuredFromEnvironment()?.baseOrigin == origin
         }

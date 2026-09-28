@@ -2,6 +2,55 @@
   const state = new WeakMap();
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const text = (tag, value) => { const node=document.createElement(tag); node.textContent=value; return node; };
+  let pendingJoin=null;
+  function joinFeedback(eventId,message,busy=false) {
+    document.querySelectorAll(`[data-calendar-join="${eventId}"]`).forEach(button=>{
+      let status=button.parentElement.querySelector('[data-calendar-join-status]');
+      if(!status) {status=text('span','');status.dataset.calendarJoinStatus='';status.setAttribute('role','status');button.after(status);}
+      if(status.textContent!==message) status.textContent=message;
+      if(busy) button.setAttribute('aria-disabled','true');else button.removeAttribute('aria-disabled');
+    });
+  }
+  function cancelJoin() {
+    const operation=pendingJoin;if(!operation) return;
+    pendingJoin=null;operation.controller.abort();operation.popup?.close();
+    joinFeedback(operation.eventId,'Действие отменено. Повторите попытку.');
+  }
+  window.addEventListener('pagehide',cancelJoin);
+  new MutationObserver(()=>{if(pendingJoin) joinFeedback(pendingJoin.eventId,'Открываем…',true);}).observe(document.documentElement,{childList:true,subtree:true});
+  document.addEventListener('click',async event=>{
+    const button=event.target.closest?.('[data-calendar-join]');
+    // The isolated native capture listener owns desktop joins, including pending clicks.
+    if(!button || event.defaultPrevented || !event.isTrusted) return;
+    event.preventDefault();
+    const eventId=button.dataset.calendarJoin;if(!uuid.test(eventId) || pendingJoin) return;
+    if(navigator.userAgent.includes('GRAFDesktop/')) {
+      joinFeedback(eventId,'Календарь загружается. Повторите попытку.');return;
+    }
+    // Reserve the tab during trusted input; async window.open can be blocked.
+    const popup=window.open('about:blank','_blank');
+    if(!popup) {joinFeedback(eventId,'Разрешите открытие новой вкладки и повторите попытку.');return;}
+    const operation={eventId,popup,controller:new AbortController()};pendingJoin=operation;
+    joinFeedback(eventId,'Открываем…',true);
+    const timer=setTimeout(()=>operation.controller.abort(),15000);
+    try {
+      popup.opener=null;
+      const referrer=popup.document.createElement('meta');referrer.name='referrer';referrer.content='no-referrer';popup.document.head.append(referrer);
+      const response=await fetch(`/api/v1/calendar/events/${eventId}/join-target`,{credentials:'same-origin',cache:'no-store',redirect:'error',signal:operation.controller.signal,headers:{Accept:'application/json'}});
+      if(!response.ok) throw new Error('unavailable');
+      const result=await response.json(),target=new URL(result.https_url);
+      if(result.event_id?.toLowerCase()!==eventId.toLowerCase() || target.protocol!=='https:' || target.username || target.password || !target.hostname.includes('.')) throw new Error('invalid target');
+      if(pendingJoin!==operation || operation.controller.signal.aborted || !button.isConnected || popup.closed) throw new Error('cancelled');
+      const destination=popup.document.createElement('a');destination.href=target.href;destination.rel='noreferrer';destination.referrerPolicy='no-referrer';popup.document.body.append(destination);destination.click();
+      pendingJoin=null;
+      joinFeedback(eventId,'Ссылка открыта в новой вкладке');
+    } catch {
+      popup.close();
+      if(pendingJoin===operation) joinFeedback(eventId,'Не удалось открыть встречу. Повторите подключение или обновите календарь.');
+    } finally {
+      clearTimeout(timer);if(pendingJoin===operation) pendingJoin=null;
+    }
+  });
   function rowFor(event) {
     const row=document.createElement('article');row.className='calendar-series__occurrence';row.dataset.eventId=event.event_id;
     row.append(text('strong',event.title));
