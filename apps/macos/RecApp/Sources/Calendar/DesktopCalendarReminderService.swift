@@ -8,6 +8,15 @@ public struct DesktopCalendarReminderService: Sendable {
         self.dismissedPromptIDs = dismissedPromptIDs
     }
 
+    public static func pendingJoinPrompt(_ prompt: DesktopCalendarPrompt) -> DesktopCalendarPrompt {
+        guard prompt.kind == .join else { return prompt }
+        var pending = prompt
+        pending.message = "Открываем встречу…"
+        pending.primaryActionTitle = "Открываем…"
+        pending.accessibilityLabel = "Открываем встречу. Дождитесь результата."
+        return pending
+    }
+
     /// A short retry window survives transport failures, never a changed session or definitive response.
     public static func shouldRetainFailedJoin(
         prompt: DesktopCalendarPrompt?, failedPromptID: String?, failedAt: Date?,

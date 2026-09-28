@@ -532,7 +532,7 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         guard let id = sender.representedObject as? String,
               let event = model.events.first(where: { $0.eventId == id }),
               safeMeetingLink(for: event) != nil else { return }
-        Task { await CalendarMeetingOpener.openEvent(id) }
+        Task { await CalendarMeetingOpener.openEventFromMenu(id) }
     }
 }
 

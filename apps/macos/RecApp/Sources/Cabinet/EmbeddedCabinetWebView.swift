@@ -2081,12 +2081,17 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             didReceive message: WKScriptMessage
         ) {
             if message.name == EmbeddedCabinetCalendarJoinBridge.handlerName {
-                guard isActive, cabinetState == .ready, message.frameInfo.isMainFrame,
-                      let webView = message.webView, !webView.isLoading, navigationController.isAttached(to: webView),
+                guard message.frameInfo.isMainFrame,
+                      let webView = message.webView, navigationController.isAttached(to: webView),
                       let sourceURL = message.frameInfo.documentRequestURL, sourceURL == webView.url,
                       routePolicy.decision(for: sourceURL).decision == .allow,
                       routePolicy.decision(for: sourceURL).route.kind == .meetingList,
                       let join = EmbeddedCabinetCalendarJoinBridge.Request.parse(message.body) else { return }
+                guard EmbeddedCabinetCalendarJoinBridge.checkReadiness(
+                    isReady: isActive && cabinetState == .ready && !webView.isLoading,
+                    reject: {
+                        webView.evaluateJavaScript("window.GRAFCalendarJoin?.reply('\(join.requestID.uuidString.lowercased())', 'cancelled')", in: nil, in: EmbeddedCabinetCalendarJoinBridge.contentWorld, completionHandler: { _ in })
+                    }) else { return }
                 let generation = DesktopCabinetSessionBridge.generation
                 let revision = userTimeDocumentRevision
                 let boundary = navigationController.sessionBoundaryID

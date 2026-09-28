@@ -22,6 +22,12 @@ final class EmbeddedCabinetCalendarJoinBridge {
     private var task: Task<Void, Never>?
     private var activeID: UUID?
 
+    /// A trusted request is already pending in the isolated page script and needs a terminal reply.
+    static func checkReadiness(isReady: Bool, reject: () -> Void) -> Bool {
+        guard isReady else { reject(); return false }
+        return true
+    }
+
     func invalidate() { activeID = nil; task?.cancel(); task = nil }
 
     func join(_ request: Request,

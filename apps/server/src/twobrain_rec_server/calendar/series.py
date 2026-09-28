@@ -180,7 +180,7 @@ def encode_cursor(context, last, secret, *, now=None):
     return raw + "." + sig
 
 
-def decode_cursor(cursor, context, secret, *, now=None):
+def _decode_cursor_payload(cursor, secret, *, now=None):
     try:
         if len(cursor) > 2048 or not cursor.isascii():
             raise ValueError()
@@ -196,18 +196,44 @@ def decode_cursor(cursor, context, secret, *, now=None):
             )
         )
         payload = json.loads(cipher.decrypt(raw.encode()))
-        if (
-            payload["v"] != 1
-            or payload["context"] != context
-            or payload["exp"] <= int(time.time() if now is None else now)
-        ):
+        if not isinstance(payload, dict) or not isinstance(payload.get("context"), dict):
+            raise ValueError()
+        if payload["v"] != 1 or payload["exp"] <= int(time.time() if now is None else now):
             raise ValueError()
         start, event_id = payload["last"]
         if datetime.fromisoformat(start).tzinfo is None:
             raise ValueError()
         UUID(event_id)
-        return start, event_id
+        return payload
     except (ValueError, KeyError, TypeError, UnicodeError, InvalidToken) as error:
+        raise ValueError("invalid_calendar_cursor") from error
+
+
+def decode_cursor(cursor, context, secret, *, now=None):
+    payload = _decode_cursor_payload(cursor, secret, now=now)
+    if payload["context"] != context:
+        raise ValueError("invalid_calendar_cursor")
+    return tuple(payload["last"])
+
+
+def decode_overview_cursor(cursor, context, secret, *, now=None):
+    """Restore only the authenticated issued window; authorization still runs on every page."""
+    payload = _decode_cursor_payload(cursor, secret, now=now)
+    try:
+        saved = payload["context"]
+        if set(saved) != set(context) | {"anchor", "from", "to"} or any(
+            saved[key] != value for key, value in context.items()
+        ):
+            raise ValueError()
+        anchor = datetime.fromisoformat(saved["anchor"])
+        if (
+            anchor.tzinfo is None
+            or saved["from"] != anchor.date().isoformat()
+            or saved["to"] != (anchor + timedelta(days=30)).date().isoformat()
+        ):
+            raise ValueError()
+        return anchor, tuple(payload["last"]), saved
+    except (ValueError, KeyError, TypeError) as error:
         raise ValueError("invalid_calendar_cursor") from error
 
 

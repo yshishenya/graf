@@ -30,6 +30,26 @@ final class CalendarMeetingOpenerTests: XCTestCase {
 
 @MainActor
 final class EmbeddedCabinetCalendarJoinBridgeTests: XCTestCase {
+    func testTrustedReadinessRejectionEndsRequestAndAllowsNextJoin() async {
+        let bridge = EmbeddedCabinetCalendarJoinBridge()
+        var states: [String] = []
+        var resolves = 0
+        func attempt(ready: Bool) {
+            guard EmbeddedCabinetCalendarJoinBridge.checkReadiness(isReady: ready,
+                reject: { states.append("cancelled") }) else { return }
+            bridge.join(.init(eventID: UUID(), requestID: UUID()),
+                resolve: { _ in URL(string: "https://example.test/meeting")! }, isCurrent: { true },
+                open: { _ in resolves += 1; return true }, reply: { states.append($0) })
+        }
+        attempt(ready: false)
+        XCTAssertEqual(states, ["cancelled"])
+        XCTAssertEqual(resolves, 0)
+        attempt(ready: true)
+        for _ in 0..<100 where !states.contains("handed_off") { await Task.yield() }
+        XCTAssertEqual(states, ["cancelled", "resolving", "opening", "handed_off"])
+        XCTAssertEqual(resolves, 1)
+    }
+
     func testPayloadRejectsURLAndExtraFields() {
         let payload=["action":"joinCalendarEvent","eventId":UUID().uuidString,"requestId":UUID().uuidString]
         XCTAssertNotNil(EmbeddedCabinetCalendarJoinBridge.Request.parse(payload))
@@ -220,6 +240,45 @@ final class NativeCalendarJoinTests: XCTestCase {
         XCTAssertTrue(manifest.isComplete)
         XCTAssertEqual(manifest.tracks.first { $0.role == .mixedMeetingAudio }?.frameCount, 6_400)
         XCTAssertFalse(writer.isRecording)
+    }
+
+    func testMenuFailureRequiresExplicitFreshRetryAndRejectsStaleSession() async {
+        var attempts = 0
+        var prompts = 0
+        let result = await CalendarMeetingOpener.retryFailedJoin(attempt: {
+            attempts += 1; return attempts == 2
+        }, isCurrent: { true }, confirmRetry: { prompts += 1; return true })
+        XCTAssertTrue(result)
+        XCTAssertEqual(attempts, 2)
+        XCTAssertEqual(prompts, 1)
+        for signOutAt in 0...1 {
+            var current = true
+            var count = 0
+            let cancelled = await CalendarMeetingOpener.retryFailedJoin(attempt: {
+                count += 1
+                if signOutAt == 0 { current = false }
+                return false
+            }, isCurrent: { current }, confirmRetry: {
+                current = false; return true
+            })
+            XCTAssertFalse(cancelled)
+            XCTAssertEqual(count, 1)
+        }
+    }
+
+    func testPendingJoinPresentationPreservesChoicesAndDoesNotAffectRecord() {
+        let choice = DesktopCalendarPromptChoice(id: "choice", eventId: "event", title: "Synthetic")
+        var prompt = DesktopCalendarPrompt(id: "synthetic", kind: .join, eventId: nil,
+            title: "Synthetic", message: "Select", primaryActionTitle: "Join", accessibilityLabel: "Join",
+            choices: [choice])
+        let pending = DesktopCalendarReminderService.pendingJoinPrompt(prompt)
+        XCTAssertEqual(pending.primaryActionTitle, "Открываем…")
+        XCTAssertTrue(pending.message.contains("Открываем"))
+        XCTAssertTrue(pending.accessibilityLabel.contains("Открываем"))
+        XCTAssertEqual(pending.choices, prompt.choices)
+        XCTAssertEqual(pending.id, prompt.id)
+        prompt.kind = .record
+        XCTAssertEqual(DesktopCalendarReminderService.pendingJoinPrompt(prompt), prompt)
     }
 
     func testBrowserRecoveryRequiresActionAndFreshAuthorizedTarget() async {

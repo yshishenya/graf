@@ -515,3 +515,66 @@ def test_default_history_includes_overview_thirtieth_day_and_excludes_day31(clie
     )
     assert explicit.status_code == 200, explicit.text
     assert explicit.json()["occurrences"] == []
+
+
+def test_overview_cursor_preserves_issued_window_and_representative_across_midnight(
+    client, monkeypatch
+):
+    import asyncio
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import select
+
+    from tests.contract.test_ingest_openapi_contract import auth_headers
+    from twobrain_rec_server.api import calendar as calendar_api
+    from twobrain_rec_server.db.models import CalendarEventSnapshot
+
+    issued = datetime(2026, 9, 28, 23, 59, 59, tzinfo=UTC)
+
+    class FrozenDateTime(datetime):
+        value = issued
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.value
+
+    monkeypatch.setattr(calendar_api, "datetime", FrozenDateTime)
+    seed_series(client)
+
+    async def move():
+        async with client.app_state["sessionmaker"]() as db:
+            rows = list(
+                await db.scalars(
+                    select(CalendarEventSnapshot).order_by(CalendarEventSnapshot.provider_event_id)
+                )
+            )
+            for row in rows:
+                row.source_status = "cancelled"
+            a, b, other = rows[:3]
+            for row in (a, b, other):
+                row.source_status = "confirmed"
+            a.recurring_series_id = b.recurring_series_id = "midnight-series"
+            a.starts_at = issued - timedelta(minutes=1)
+            a.ends_at = issued + timedelta(milliseconds=500)
+            b.starts_at = issued + timedelta(seconds=1)
+            b.ends_at = issued + timedelta(hours=1)
+            other.recurring_series_id = "other-series"
+            other.starts_at = issued + timedelta(seconds=2)
+            other.ends_at = issued + timedelta(hours=1)
+            await db.commit()
+            return str(a.id), str(other.id)
+
+    first_id, second_id = asyncio.run(move())
+    first = client.get("/api/v1/calendar/overview?limit=1", headers=auth_headers())
+    assert first.status_code == 200, first.text
+    assert first.json()["cards"][0]["event_id"] == first_id
+    cursor = first.json()["next_cursor"]
+    assert cursor
+    FrozenDateTime.value = issued + timedelta(seconds=3)
+    second = client.get(
+        "/api/v1/calendar/overview", params={"cursor": cursor}, headers=auth_headers()
+    )
+    assert second.status_code == 200, second.text
+    assert [row["event_id"] for row in second.json()["cards"]] == [second_id]
+    assert second.json()["coverage_range"] == first.json()["coverage_range"]
+    assert second.json()["next_cursor"] is None

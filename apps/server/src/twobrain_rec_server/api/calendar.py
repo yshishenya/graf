@@ -746,7 +746,11 @@ async def calendar_overview(
 ):
     from fastapi.responses import JSONResponse
 
-    from twobrain_rec_server.calendar.series import decode_cursor, encode_cursor, overview_events
+    from twobrain_rec_server.calendar.series import (
+        decode_overview_cursor,
+        encode_cursor,
+        overview_events,
+    )
 
     session = require_db(db)
     preference = await _calendar_settings_preference_or_default(session, tenant_scope)
@@ -756,12 +760,19 @@ async def calendar_overview(
         "session": str(tenant_scope.auth_session_id or tenant_scope.device_id),
         "workspace": str(tenant_scope.workspace_id),
         "series": "overview",
-        "from": now.date().isoformat(),
-        "to": (now + timedelta(days=30)).date().isoformat(),
     }
     secret = request.app.state.settings.web_csrf_secret
     try:
-        after = decode_cursor(cursor, context, secret) if cursor else None
+        if cursor:
+            now, after, context = decode_overview_cursor(cursor, context, secret)
+        else:
+            after = None
+            context = {
+                **context,
+                "anchor": now.isoformat(),
+                "from": now.date().isoformat(),
+                "to": (now + timedelta(days=30)).date().isoformat(),
+            }
     except ValueError as error:
         raise ProblemDetail(
             status=422, code="invalid_calendar_cursor", title="Invalid calendar cursor"

@@ -36,3 +36,6 @@ Reviewer-owned. Автор реализации не меняет checkbox; эт
 
 
 Независимое повторное ревью четырёх PR-замечаний: day30/history, явное browser recovery, async reminder retry с ограниченным сохранением при offline, допустимые HTTPS-порты — исправлены по исходникам/локальным тестам. Swift 117/0; server focused 13 PASS. Итог и границы app-build/runtime evidence записаны в последнем разделе `../review-report.md`; markers качества требований сохраняются **8 checked / 0 unchecked**.
+
+
+Вторая группа PR-замечаний независимо проверена 2026-09-29: ранний readiness cancel, явный menu retry, стабильный signed overview anchor через UTC midnight, видимый reminder pending — RESOLVED в границах исходников/локальных тестов. Swift 120/0, server 14 PASS, дополнительный cursor unit 4 PASS (пересекающийся набор), browser PASS. Полные доказательства и границы в последнем разделе `../review-report.md`; требования **8 checked / 0 unchecked**.

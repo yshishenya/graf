@@ -57,8 +57,8 @@ try {
  await button.click();await button.click({force:true});
  assert.equal(await page.evaluate(()=>window.joinMessages.length),1);
  assert.equal(await button.getAttribute('aria-disabled'),'true');
- await page.evaluate(()=>window.GRAFCalendarJoin.reply(window.joinMessages[0].requestId,'failed'));
- assert.match(await page.locator('[data-calendar-join-status]').first().textContent(),/Не удалось/);
+ await page.evaluate(()=>window.GRAFCalendarJoin.reply(window.joinMessages[0].requestId,'cancelled'));
+ assert.match(await page.locator('[data-calendar-join-status]').first().textContent(),/Действие отменено/);
  await button.click();assert.equal(await page.evaluate(()=>window.joinMessages.length),2);
  await page.evaluate(()=>window.GRAFCalendarJoin.reply(window.joinMessages[1].requestId,'handed_off'));
  assert.match(page.url(),/desktop\/meetings$/);

@@ -47,6 +47,7 @@ public enum CalendarMeetingOpener {
     }
 
     @MainActor private static var eventOpening = false
+    @MainActor private static var menuOpening = false
 
     @MainActor
     static func resolveAndOpen(eventID: UUID,
@@ -80,6 +81,33 @@ public enum CalendarMeetingOpener {
             isCurrent: isCurrent, open: { await Self.open($0,
                 resolveFallback: { try await client.calendarJoinTarget(eventID: eventID) },
                 isCurrent: isCurrent) })
+    }
+
+    @MainActor
+    static func retryFailedJoin(attempt: () async -> Bool, isCurrent: () -> Bool,
+                                confirmRetry: () async -> Bool) async -> Bool {
+        while !Task.isCancelled && isCurrent() {
+            if await attempt() { return true }
+            guard !Task.isCancelled, isCurrent(), await confirmRetry() else { return false }
+        }
+        return false
+    }
+
+    @MainActor
+    public static func openEventFromMenu(_ id: String) async {
+        guard !menuOpening else { return }
+        menuOpening = true
+        defer { menuOpening = false }
+        let generation = DesktopCabinetSessionBridge.generation
+        _ = await retryFailedJoin(attempt: { await openEvent(id) },
+            isCurrent: { DesktopCabinetSessionBridge.isCurrentSession(generation) }, confirmRetry: {
+                let alert = NSAlert()
+                alert.messageText = "Не удалось открыть встречу"
+                alert.informativeText = "Проверьте подключение и повторите попытку. Если событие изменилось, обновите календарь."
+                alert.addButton(withTitle: "Повторить подключение")
+                alert.addButton(withTitle: "Отмена")
+                return alert.runModal() == .alertFirstButtonReturn
+            })
     }
 
     /// Browser recovery is a separate explicit user action, with fresh authorization.

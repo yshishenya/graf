@@ -10,6 +10,7 @@ from tests.fixtures.calendar_settings import (
 )
 from twobrain_rec_server.calendar.series import (
     decode_cursor,
+    decode_overview_cursor,
     encode_cursor,
     representative,
     series_key,
@@ -73,3 +74,27 @@ def test_cursor_is_bound_expiring_and_tamper_resistant():
     ]:
         with pytest.raises(ValueError):
             decode_cursor(token, ctx, "test-secret", now=t)
+
+
+def test_overview_cursor_keeps_signed_window_without_weakening_scope_or_expiry():
+    scope = {"owner": "o", "session": "session", "workspace": "w", "series": "overview"}
+    context = {
+        **scope,
+        "anchor": NOW.isoformat(),
+        "from": NOW.date().isoformat(),
+        "to": (NOW + timedelta(days=30)).date().isoformat(),
+    }
+    last = (NOW.isoformat(), str(UUID(int=1)))
+    cursor = encode_cursor(context, last, "test-secret", now=100)
+    anchor, decoded, saved = decode_overview_cursor(cursor, scope, "test-secret", now=101)
+    assert anchor == NOW and decoded == last and saved == context
+    for key in scope:
+        with pytest.raises(ValueError):
+            decode_overview_cursor(cursor, {**scope, key: "other"}, "test-secret", now=101)
+    with pytest.raises(ValueError):
+        decode_overview_cursor(cursor, scope, "test-secret", now=3701)
+    invalid = encode_cursor({**context, "to": "2028-01-01"}, last, "test-secret", now=100)
+    with pytest.raises(ValueError):
+        decode_overview_cursor(invalid, scope, "test-secret", now=101)
+    with pytest.raises(ValueError):
+        decode_cursor(cursor, scope, "test-secret", now=101)
