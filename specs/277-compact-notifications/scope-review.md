@@ -783,3 +783,225 @@ analyze 0 CRITICAL / 0 HIGH / 0 MEDIUM сохраняются. Принятие 
 Рецензент добавил только этот раздел отчёта, без изменения прежней истории,
 кода, тестов, spec/plan/tasks/checklists, Git или GitHub. Сборки и тесты
 в этом проходе не запускались.
+
+## Итоговый независимый аудит требований — 2026-09-28, e996d25b8
+
+Это сохранение уже выполненного независимого аудита Russell, ранее выданного
+в сообщении, а не новый запуск converge или повторный масштабный аудит.
+По прямому поручению владельца добавлен только настоящий раздел в конец
+`scope-review.md`; прежняя история не переписана. Класс текущей правки —
+`docs-only / mechanical`, оформление доказательств без изменения поведения.
+Сама F277 сохраняет класс `high-risk-product`.
+
+Перед записью проверены HEAD
+`e996d25b84557c08301c7563cefa16402631dec7` и чистое рабочее дерево.
+Относительно проверенного `b850b975f1902c511240133949e6080fb95a9b19`
+изменены только два тестовых файла, quickstart, validation и current-product-status;
+рабочий код идентичен. Исправления трёх регрессий T019 отдельно проверены
+Laplace; настоящий отчёт не заменяет и не повторяет его проверку изменений.
+
+**Итог: рассмотрены 28/28 FR, 8/8 SC, 15/15 приёмочных сценариев и 7/7
+архитектурных обязательств. Новых обязательных доработок рабочего кода — 0.**
+Это оценка реализации и её доказательств, не объявление всех задач, PR,
+слияния или аппаратных проверок завершёнными. Отсутствие находок основано
+на просмотре поведения и потребителей, а не только имён, маркеров или
+отметок `[X]`.
+
+### Область и обозначения источников
+
+Основание намерения: `spec.md` (28 FR, 8 SC, US1–US4), `plan.md:35`
+(семь архитектурных пунктов), `tasks.md`, `quickstart.md`, актуальные
+`review-report.md`, предыдущие разделы этого отчёта и `validation.md`.
+При исходном аудите прочитаны AGENTS, обязательные guidance, конституция,
+продуктовая основа и текущий статус. Ниже номера строк относятся к
+`e996d25b8`; рабочие исходники совпадают с `b850b975f`.
+
+Для компактности точные ссылки записаны как «обозначение:строка»:
+
+| Обозначение | Путь от корня репозитория |
+| --- | --- |
+| Card | `apps/macos/RecApp/Sources/Notifications/DesktopNotificationCardPresenter.swift` |
+| Presenter | `apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift` |
+| Prefs | `apps/macos/RecApp/Sources/Notifications/DesktopNotificationPreferences.swift` |
+| Retirement | `apps/macos/RecApp/Sources/Notifications/DesktopNotificationRetirement.swift` |
+| Bridge | `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetNotificationSettingsBridge.swift` |
+| Route | `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetRoutePolicy.swift` |
+| App | `apps/macos/RecApp/App/TwoBrainRecApp.swift` |
+| Tray | `apps/macos/RecApp/Sources/Calendar/CalendarTray.swift` |
+| Writer | `apps/macos/RecApp/Sources/Capture/V5LocalRecordingWriter.swift` |
+| Manifest | `apps/macos/RecApp/Sources/Capture/LocalRecordingManifestService.swift` |
+| Recovery | `apps/macos/RecApp/Sources/Capture/CaptureRecoveryService.swift` |
+| Gate | `apps/macos/RecApp/Sources/Upload/RecordingStartAcceptanceGate.swift` |
+| Queue | `apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift` |
+| Client | `apps/macos/RecApp/Sources/Upload/DesktopUploadClient.swift` |
+
+Имена тестов в следующих таблицах — файлы `.swift` в
+`apps/macos/Shared/Tests/`; после двоеточия указан номер строки.
+«Покрыто» означает найденную реализацию и соответствующие проверки,
+с отдельными пределами доказательств в конце раздела.
+
+### 28 функциональных требований
+
+| Требование | Реализация и доказательство |
+| --- | --- |
+| FR-001 | Пять видов используют одну поверхность и ширину 380 pt: Card:117,159; `DesktopNotificationCompactTests:194` проверяет все пять, не только константу. |
+| FR-002 | Крестик накладывается слева сверху, не резервирует колонку, область нажатия больше символа; Card:643,833; `DesktopNotificationCompactTests:239`, `DesktopNotificationAccessibilityTests:53` проверяют геометрию и первый щелчок. |
+| FR-003 | Измеряются только присутствующие строки, флажок отделён от действий: Card:621,643; `DesktopNotificationCompactTests:226,286`. |
+| FR-004 | Действия после текста, второстепенное перед основным, при тесноте вертикальное размещение: Card:47,621; `DesktopNotificationCompactTests:257`. |
+| FR-005 | Одна утверждённая фраза короткой записи, без действий и пустого заголовка: Card:40,621; `DesktopNotificationCompactTests:213` проверяет текст и высоту. |
+| FR-006 | Системные масштабируемые шрифты, обе темы и контраст, без тяжёлого свечения и анимационного перехода: Card:593,751; `DesktopNotificationAccessibilityTests:81,91`, `DesktopNotificationCompactTests:305`. |
+| FR-007 | Один активный конверт события и одна панель; обновление сохраняет поверхность: Presenter:363, Card:221; `DesktopNotificationCardTests:157`. |
+| FR-008 | Актуальный вопрос защищён от вытеснения, после него очередь пересматривается: Presenter:363; `DesktopLocalNotificationDeliveryTests:319,337,398`. |
+| FR-009 | Восемь секунд после видимого показа, без продления от обновления, невидимый/задержанный вопрос отменяется; capture gates повторно проверяются: Card:205,314, App:1743,2059; `MeetingDetectionCountdownTests:17,94`, `DesktopNotificationPromptLifecycleTests:104,324`. |
+| FR-010 | Флажок исходно выключен и относится к приложению; правило сохраняют только явные start/skip: App:1605,1694,1714; `MeetingDetectionCountdownTests:72`, `DesktopNotificationAccessibilityTests:32`. |
+| FR-011 | Close отменяет текущее предложение, не сохраняет правило и не исправляет проблему: Presenter:488, App:1623; `DesktopNotificationPromptLifecycleTests:268`. |
+| FR-012 | Сроки 20/6 секунд, удержание информационных карточек без изменения восьмисекундного отсчёта: Card:121,408; `DesktopNotificationPromptLifecycleTests:7,42,74`, `DesktopLocalNotificationDeliveryTests:461`. |
+| FR-013 | 0/1/5 минут, абсолютный срок не более 120 секунд и не позднее окончания встречи: Presenter:317,320; `DesktopLocalNotificationDeliveryTests:282,306`. |
+| FR-014 | Единственный оставшийся UserNotifications-путь удаляет собственные pending/delivered запросы; подключён к настоящему presenter, без scheduling/permission/delegate: Retirement:9, Presenter:137; проверки удаления и действующих потребителей в `DesktopNotificationAppIntegrationTests:13,69`. |
+| FR-015 | Пять локальных полей, честный текст без требования системного разрешения, чтение прежних полезных значений: Prefs:4,13, Bridge:72,132, Presenter:674; `DesktopNotificationControlTests:124,154,167`, `EmbeddedCabinetNotificationSettingsBridgeTests:261`. |
+| FR-016 | Тихий режим подавляет необязательный показ/звук, но не вопрос, индикатор или Stop: Presenter:248,363,467; `DesktopLocalNotificationDeliveryTests:383`. |
+| FR-017 | Названия скрыты по умолчанию; история содержит закрытый набор нейтральных типов, очищается при смене контекста: Prefs:4, Presenter:36,193,332; `DesktopNotificationHistoryTests:30,73`. |
+| FR-018 | До 50 результатов в памяти текущего запуска/контекста, без повторного исполнения; нерешённая проблема остаётся у записи: Presenter:287,308, Tray:307; `DesktopNotificationHistoryTests:8,51,90`. |
+| FR-019 | Неактивирующая панель, явный переход, локальный Escape/Tab, стабильные элементы и одно объявление: Card:176,207,252,495,643; `DesktopNotificationAccessibilityTests:134,149,268,406,456`. Локальные SKIP и успешный новый CI разделены ниже. |
+| FR-020 | Проверяются token/context/deadline, завершение предшествует callback; ссылка повторно разрешается по актуальной встрече и безопасной схеме: Presenter:344,521,621,632; `DesktopNotificationPromptLifecycleTests:225,285`, `DesktopLocalNotificationDeliveryTests:622,653`, `DesktopNotificationLinkPolicyTests:27`. |
+| FR-021 | Отдельная старая карточка, callback-цепочка, неиспользуемые модели/параметры и прежние тестовые ожидания удалены; просмотрены потребители, не только поиск имён. `DesktopNotificationAppIntegrationTests:13,40`; оставшийся старый тест AppLifecycle исправлен в T019 на реальную F277-карточку. |
+| FR-022 | Действующие тесты/документация описывают новый контракт; `scripts/check_notification_retirement.py` и отрицательные проверки препятствуют возврату старых путей. `DesktopNotificationAppIntegrationTests:69`; общий фильтр `quickstart.md:10` включает обе ранее пропущенные группы. |
+| FR-023 | Очистка изолирована и действительно вызывается; односторонний перенос нужных отметок без резервного показа и двусторонних псевдонимов: Retirement:9, Presenter:137, Prefs:62,71,82; `DesktopNotificationControlTests:77`. |
+| FR-024 | Нет обещания автоматического Focus или невидимости в чужой демонстрации; явно указан запущенный процесс, нового фонового сервиса нет: Presenter:705 и действующая страница настроек. |
+| FR-025 | Проверка использует настоящий компонент, не пишет настройки/сервер, не запускает запись и не вытесняет вопрос: Presenter:589,596; `EmbeddedCabinetNotificationSettingsBridgeTests:244`. |
+| FR-026 | Pending без scopeApproval сохраняется до таймера writer; принятие той же активной сессии записывается до изменения памяти; между окончательной проверкой и принятием нет await: Writer:140,258, App:2059, Manifest:199; `RecordingStartAcceptanceTests:85,103,136,149`. |
+| FR-027 | Pending не ремонтируется в разрешённую запись; scan/retry/upload/reconcile повторно читают manifest и проверяют идентичности, отсутствие/ошибка/неизвестное значение запрещают отправку: Recovery:164, Gate:17, Queue:723,1450,1654,1857, Client:627,881,1403; `DesktopUploadQueueV5Tests:11,50,73,92`, `DesktopUploadClientTests:9,52,69,123,150`. |
+| FR-028 | Добавлено сохранение на принятии, не на аудиотакте; обработка сэмплов/частоты/выравнивание не изменены, отменённый фрагмент не получает команды разрешения: Writer:140,402,419; `RecordingStartAcceptanceTests:160,184,203,217`, регрессии capture/Stop. Время подтверждения записано отдельно от успешности. |
+
+### 8 критериев успеха
+
+| Критерий | Вывод и связь с доказательствами |
+| --- | --- |
+| SC-001 | Пять одинаковых базовых ширин; короткая карточка 44–52 pt, не выше 52 и более чем на 35% ниже прежних 82: `DesktopNotificationCompactTests:194,213`. |
+| SC-002 | Матрица start/skip/close/timeout × remember и ноль действий старых callbacks: `MeetingDetectionCountdownTests:17,42,72,94`, `DesktopNotificationPromptLifecycleTests:225,268,285`; FR-009–011/020. |
+| SC-003 | Не более одной карточки, ноль новых системных уведомлений; сохранённые отметки препятствуют повтору после закрытия/перезапуска: Presenter:363, Prefs:82, Retirement:9, `DesktopLocalNotificationDeliveryTests:109,126`. |
+| SC-004 | Обе темы, большой текст, клавиатура и VoiceOver: `DesktopNotificationCompactTests:305`, `DesktopNotificationAccessibilityTests:81,134,149,268,406`; принятая ручная приёмка и новый CI. Второй физический монитор остаётся исключением T020, а не доказанным модельными тестами. |
+| SC-005 | 0/1/5, абсолютный срок, отсутствие повтора после закрытия и отказ устаревших действий: `DesktopLocalNotificationDeliveryTests:109,282,306,622`; FR-013/020. |
+| SC-006 | Проверены удаления, живые потребители и отсутствие оставленных заглушек; исправленные T019 входят в новый полный native CI. Лексическая проверка удаления сама по себе не считается доказательством достижимости. |
+| SC-007 | История сохраняет существенный результат даже при неудаче размещения; тихий режим не меняет решение записи: `DesktopNotificationHistoryTests:8,90`, `DesktopLocalNotificationDeliveryTests:383`; FR-016–018. |
+| SC-008 | Ошибки первоначального/подтверждающего/финального сохранения, restart/scan/retry, отрицательные транспортные проверки и положительные accepted/manual/исторические v5 пути: `RecordingStartAcceptanceTests:103,111,136,160,184`, `DesktopUploadQueueV5Tests:11,92`, `DesktopUploadClientTests:9,52`. Измерение принятия в последнем локальном наборе 0.00053725s, отдельно от результата проверок. |
+
+### 15 приёмочных сценариев
+
+| Сценарий | Проверенный результат и опорные требования |
+| --- | --- |
+| US1/AC1 | Единственная фраза короткой записи без заголовка-дубля/действий; FR-003/005, `DesktopNotificationCompactTests:213`. |
+| US1/AC2 | Закрытие первым щелчком при неактивном GRAF; FR-002, `DesktopNotificationAccessibilityTests:53`, принятая физическая ручная проверка. |
+| US1/AC3 | Длинное/увеличенное содержимое доступно без уменьшения шрифта; FR-004/006/019, `DesktopNotificationCompactTests:305`, `DesktopNotificationAccessibilityTests:358,406`. |
+| US2/AC1 | Приложение, секунды, отдельный флажок и обе кнопки; FR-003/009/010, `DesktopNotificationCompactTests:286`. |
+| US2/AC2 | Только start/skip с remember сохраняют Всегда/Никогда; close/timeout не сохраняют; FR-010/011, `MeetingDetectionCountdownTests:72`. |
+| US2/AC3 | Один разрешённый запуск после восьми видимых секунд; FR-009/020, `MeetingDetectionCountdownTests:17,94`, `DesktopLocalNotificationDeliveryTests:589`. |
+| US2/AC4 | Старое решение после скрытия/отмены/смены контекста не запускает запись; FR-009/020, `DesktopNotificationPromptLifecycleTests:133,285`, `DesktopLocalNotificationDeliveryTests:653`. |
+| US2/AC5 | Утративший актуальность запуск остаётся запрещён после сбоя завершения и восстановления; FR-026/027, `RecordingStartAcceptanceTests:56,111`, `DesktopUploadQueueV5Tests:11`. |
+| US2/AC6 | Принятый запуск сохраняет остановку/восстановление/отправку; ошибка принятия не считается успехом; FR-026–028, `RecordingStartAcceptanceTests:136,160,184`, `DesktopUploadClientTests:52`. |
+| US3/AC1 | Выбранное время собственного напоминания без прежнего 15-минутного/системного дубля; FR-013/014, `DesktopLocalNotificationDeliveryTests:282`. |
+| US3/AC2 | Старые системные запросы очищены, новые не планируются, разрешение не запрашивается; FR-014/023, Retirement:9, Presenter:137. |
+| US3/AC3 | Тихий режим без необязательного показа/звука, управление записью доступно; FR-016, `DesktopLocalNotificationDeliveryTests:383,521`. |
+| US4/AC1 | Нет самопроизвольного захвата фокуса, есть явный переход и обход элементов; FR-019, Card:176,252, `DesktopNotificationAccessibilityTests:149,173`. |
+| US4/AC2 | Escape действует только в карточке и как крестик; FR-011/019, Card:495, `DesktopNotificationAccessibilityTests:268,456`. |
+| US4/AC3 | Нейтральный повторный доступ без частного содержимого и исполнения старого предложения; FR-017/018/020, `DesktopNotificationHistoryTests:8,73`, `DesktopNotificationTrayTests:8`. |
+
+### 7 архитектурных обязательств plan.md:35
+
+| Пункт | Вывод и опорные места |
+| --- | --- |
+| A1 — поверхность | Card:159,221,252,621,643: одна AppKit-панель, измерение, обновление без пересоздания, первый щелчок/фокус/объявление; view не запускает запись и не хранит правила. |
+| A2 — координатор | Presenter:193,210,308,317,363,521: контекст, дедупликация/приоритеты/сроки, настройки, история, звук/quiet и актуальность callback находятся в одном координаторе. |
+| A3 — retirement | Retirement:9, Presenter:137, Prefs:51,62,82,135: изолированная выполняемая очистка собственного bundle и ограниченная односторонняя миграция; owner binding сохранён, резервного показа/dual-write нет. |
+| A4 — настройки | Bridge:72,96,132,140 и `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js:6178`: один контракт v2, main-frame/origin/route/nonce/epoch, последовательные сохранения; template сохраняет отдельные серверные настройки. Старый протокол не поддерживается параллельно. |
+| A5 — app/tray | App:1605,2467,3247 и Tray:302,307: прямой общий presenter, явный переход и нейтральная история. Индикатор/Stop — отдельное обязательное управление, не временная карточка. |
+| A6 — маршрут | Route:585 допускает обычный одноуровневый notifications, не старый `/desktop/settings/notifications/mac`; цепочка onOpenNotificationSettings удалена. `DesktopNotificationAppIntegrationTests:40` проверяет потребителей. |
+| A7 — живые исключения | `apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionSettingsView.swift:303` использует актуальный DesktopNotificationsSettingsView (Presenter:674). CalendarPromptView и Client:876 notificationContext остаются живыми средствами управления/контекста, не старым всплывающим каналом. |
+
+Оставшийся `joinAndRecord` не является мёртвым кодом: Card:50 создаёт это
+действие у встречи, Presenter:548 обрабатывает его. Удалён недостижимый
+вариант в вопросе автозаписи, а не работающая команда встречи. Единственный
+`UserNotifications` обоснован выполняемой очисткой Retirement:9.
+`reconcileServerTruth` (Client:887) сохраняет служебное чтение GET после
+удаления локального пакета; оно не разрешает отправку без manifest.
+
+### Доказательства и независимые ограничения
+
+1. Установленный `/Applications/GRAF Dev.app`, на котором владелец принял
+   ручные сценарии, соответствует `51bcff6b1`, а не объявляется сборкой e996.
+   Разница рабочего кода до b850 — исправление совместимости компиляции
+   CalendarTray:179: `guard let self`, синхронный `assumeIsolated`, затем
+   Task. Отмена контекста не перенесена за асинхронную границу. Между b850
+   и e996 рабочего изменения нет. Поэтому ручные доказательства сохраняются
+   с этой явной границей, без заявления о повторной установке/приёмке e996.
+2. Тест CalendarTray вызывает invalidateAuthContext напрямую: он доказывает
+   синхронное отклонение старой проекции, но не регистрацию observer и
+   доставку реального NotificationCenter-события. Последние проверены чтением
+   исходника, не объявляются новым выполненным интеграционным тестом.
+3. Предыдущие 579 PASS / 0 SKIP / 0 FAIL на b850 остаются отдельным фактом.
+   Исправленные регрессии T019: 8 PASS / 0 SKIP / 0 FAIL. Расширенный локальный
+   набор: **587 выбрано, 580 PASS / 7 SKIP / 0 FAIL**, не «587 PASS».
+   Отдельный профиль: 41 выбрано, 34 PASS / 7 SKIP / 0 FAIL. Семь пропусков
+   вызваны отказом фокуса независимого контрольного окна; их условия и
+   assertions не ослаблены. Это не успешность пропущенных сценариев.
+4. При оформлении отчёта независимо прочитаны метаданные и журнал
+   [native CI 36361150674](https://github.com/yshishenya/graf/actions/runs/36361150674):
+   SUCCESS на точном e996, **1139 выбрано, 1137 PASS / 2 SKIP / 0 FAIL**;
+   ContractValidation: PASS. Два SKIP — только необязательный экспорт
+   изображений без GRAF_CARD_SNAPSHOT_DIR и GRAF_PERMISSION_PREVIEW_DIR.
+   Фокусные/клавиатурные проверки не пропущены: журнал содержит PASS, в том
+   числе для key loop, keyboard actions и keyboard scroll. Новое доказательство
+   закрывает соответствующий пробел исполнения assertions в CI, но не
+   переписывает локальные семь SKIP и не заменяет физический второй монитор.
+5. Новый native CI — полный набор macOS этой PR-проверки, **не** repository
+   `release-full`. Исходный неуспешный 36360051114 остаётся неуспешным
+   историческим прогоном; исправление подтверждает новый запуск на e996.
+6. Положительный accepted manifest с tracks=[] в retirement-тестах допустим
+   для подставного транспорта, проверяющего переходы очереди; это не проверка
+   полноты медиа или настоящей отправки. Отрицательная защита missing manifest
+   не изменена: Gate:17, `DesktopUploadQueueV5Tests:11`, `DesktopUploadClientTests:9`.
+7. Сохранение manifest проверяет границу сбоя процесса, не гарантирует
+   переживание обрыва питания/отказа накопителя. Новых изменений аудиообработки
+   нет; часовой benchmark в этом аудите не выполнялся и не заявляется.
+
+### Остаток, T021 и условия T022
+
+Счётчики уже проведённого независимого аудита: 58 пунктов рассмотрено
+(28 FR + 8 SC + 15 AC + 7 архитектурных); новых обязательных code gaps — 0;
+новых missing / partial / contradicts / unrequested в рабочей реализации —
+0 / 0 / 0 / 0; новых задач для реализации — 0. Неисполненные внешние условия
+ниже не скрываются этими нулевыми счётчиками.
+
+По содержанию реализации и независимого ревью **T021 допускает завершение
+с явно принятым аппаратным исключением**, без объявления завершёнными всех
+задач. Владелец принял ручные проверки, включая lock без предложения,
+sleep/fullscreen/VoiceOver/actions; повторять их этот отчёт не требует.
+Физическая проверка второго монитора и отключения выбранного экрана по
+прямому решению владельца остаётся открытым долгом **T020 / #7305** до
+появления оборудования. Модельные тесты экрана не подменяют этот долг.
+Отклонение порядка tests-first для T015 явно принято владельцем; это не
+ретроактивное утверждение, что исходный порядок был соблюдён.
+
+Допустимая формулировка завершения T021: «Реализация и итоговое сопоставление
+требований завершены; новых обязательных доработок не выявлено. Ручная
+приёмка принята владельцем. Второй физический монитор и его отключение
+исключены из текущего завершения по решению владельца и остаются в T020/#7305».
+Настоящий раздел сам не меняет отметку T021 или состояние issue и не
+объявляет «Converged — all tasks complete».
+
+Для **T022 / PR #7351** требуется завершить и проверить всю совокупность
+`governance-fast`, `macos-pr`, `pr-metadata` для итогового SHA и проверенной
+базы через `scripts/validate-pr-checks.py`, затем сверить задачи и live issues
+с доказательствами закрытия. При оформлении независимо прочитан
+[governance 36361150695](https://github.com/yshishenya/graf/actions/runs/36361150695):
+`in_progress`, conclusion отсутствует, head e996. Поэтому **exact-SHA/base
+gates и готовность к слиянию не объявлены**. После будущего коммита только
+документации применимость прежнего code proof также устанавливает штатный
+валидатор, а не предположение рецензента. Аппаратный долг нельзя закрывать
+попутно с PR; публикация релиза и production вне этого поручения.
+
+В этом оформлении рецензент изменил только `scope-review.md`, добавлением
+в конец. Код, tasks, reviewer checklists, Git-история, PR и issues не
+изменялись. Новые задачи/пустая фаза convergence не создавались. Тесты,
+сборки, приложение и ручные сценарии не запускались; новые CI-доказательства
+прочитаны из уже завершённого внешнего запуска.
