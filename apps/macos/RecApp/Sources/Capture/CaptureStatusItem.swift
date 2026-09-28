@@ -33,6 +33,7 @@ public struct CaptureStatusItem: View {
         }
     }
 
+    @MainActor
     @ViewBuilder
     private func statusSurface(for session: CaptureSession) -> some View {
         let canStop = Self.shouldEnableStopButton(for: session, stopDisabled: stopDisabled)
