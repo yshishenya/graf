@@ -75,10 +75,14 @@
       join.href=`/api/v1/calendar/events/${event.event_id}/open`;join.target='_blank';join.rel='noopener noreferrer';row.append(join);
     }
     const feedback=text('span','');feedback.dataset.calendarJoinStatus='';feedback.setAttribute('role','status');row.append(feedback);
-    if(!(event.recordings || []).length) row.append(text('span','Нет доступной записи'));
+    if(!event.recordings_partial && !(event.recordings || []).length) row.append(text('span','Нет доступной записи'));
     for(const recording of event.recordings || []) {
       if(!uuid.test(recording.meeting_id)) continue;
       const link=text('a','Открыть запись');link.href=`${location.pathname.startsWith('/desktop/')?'/desktop':''}/meetings/${recording.meeting_id}`;row.append(link);
+    }
+    if(event.recordings_partial) {
+      row.append(text('span','Здесь показана ограниченная выборка записей.'));
+      const all=text('a','Все доступные записи');all.href=`${location.pathname.startsWith('/desktop/')?'/desktop':''}/meetings`;row.append(all);
     }
     return row;
   }

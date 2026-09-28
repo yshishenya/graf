@@ -15,9 +15,13 @@ public enum CalendarMeetingOpener {
               let url = URL(string: raw), let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
               parts.scheme?.lowercased() == "https", let host = parts.host, !host.isEmpty,
               parts.user == nil, parts.password == nil, parts.port.map({ (0...65535).contains($0) }) ?? true else { return nil }
-        let normalizedHost = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        let normalizedHost = normalizedHost(host)
         guard isAllowedMeetingHost(normalizedHost) else { return nil }
         return url
+    }
+
+    private static func normalizedHost(_ host: String) -> String {
+        host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
     }
 
     // Mirrors the server's Python 3.13 ipaddress.is_global policy. Shared URL fixtures
@@ -66,8 +70,10 @@ public enum CalendarMeetingOpener {
 
     public static func nativeCandidate(for url: URL) -> URL? {
         guard validatedHTTPS(url.absoluteString) != nil,
-              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false), let host = parts.host?.lowercased(),
+              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false), let rawHost = parts.host,
               parts.port == nil || parts.port == 443 else { return nil }
+        let host = normalizedHost(rawHost)
+        parts.host = host
         if host == "teams.microsoft.com", parts.path.hasPrefix("/l/meetup-join/") {
             parts.scheme = "msteams"
             return parts.url
@@ -86,6 +92,10 @@ public enum CalendarMeetingOpener {
     }
 
     static func nativeApplicationIdentifiers(for url: URL) -> [String] {
+        guard validatedHTTPS(url.absoluteString) != nil, url.port == nil || url.port == 443 else { return [] }
+        if url.host.map(normalizedHost) == "telemost.yandex.ru", url.path.hasPrefix("/j/") {
+            return ["ru.yandex.desktop.telemost"]
+        }
         switch nativeCandidate(for: url)?.scheme {
         case "msteams": return ["com.microsoft.teams2", "com.microsoft.teams"]
         case "zoommtg": return ["us.zoom.xos"]
@@ -180,16 +190,9 @@ public enum CalendarMeetingOpener {
         let workspace = NSWorkspace.shared
         var application: URL?
         var target = safe
-        // Nonstandard HTTPS ports belong to the browser, not custom native schemes.
-        if safe.port == nil || safe.port == 443 {
-            if safe.host?.lowercased() == "telemost.yandex.ru", safe.path.hasPrefix("/j/") {
-                application = workspace.urlForApplication(withBundleIdentifier: "ru.yandex.desktop.telemost")
-            } else if let native = nativeCandidate(for: safe) {
-                application = nativeApplicationIdentifiers(for: safe)
-                    .compactMap { workspace.urlForApplication(withBundleIdentifier: $0) }.first
-                if application != nil { target = native }
-            }
-        }
+        application = nativeApplicationIdentifiers(for: safe)
+            .compactMap { workspace.urlForApplication(withBundleIdentifier: $0) }.first
+        if application != nil, let native = nativeCandidate(for: safe) { target = native }
         guard let application else { return workspace.open(safe) }
         let opened: Bool = await withCheckedContinuation { continuation in
             workspace.open([target], withApplicationAt: application, configuration: NSWorkspace.OpenConfiguration()) { _, error in

@@ -311,6 +311,7 @@ class CalendarSeriesEvent(BaseModel):
     cancelled: bool
     open_meeting_available: bool
     recordings: list[CalendarSeriesRecording] = Field(default_factory=list)
+    recordings_partial: bool = False
 
 
 class CalendarOverviewResponse(BaseModel):

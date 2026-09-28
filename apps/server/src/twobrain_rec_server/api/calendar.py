@@ -885,6 +885,7 @@ async def calendar_series_occurrences(
         {
             **_series_event_payload(e, tenant_scope, preference, key),
             "recordings": records.get(e.id, []),
+            "recordings_partial": records_partial,
         }
         for e in events
     ]
@@ -899,10 +900,13 @@ async def calendar_series_occurrences(
             "next_cursor": next_cursor,
             "coverage_range": {"from": start.isoformat(), "to": end.isoformat()},
             "partial": more or records_partial,
-            "coverage_note": "Показаны сохранённые доступные даты. Полная история календаря может быть недоступна.",
+            "coverage_note": "Показаны сохранённые доступные даты и ограниченная выборка записей. Все доступные записи можно открыть в общем списке встреч. Полная история календаря может быть недоступна.",
         },
         headers={"Cache-Control": "no-store"},
     )
+
+
+SERIES_RECORDING_CANDIDATE_LIMIT = 200
 
 
 async def _series_recordings(db, scope, event_ids):
@@ -925,7 +929,8 @@ async def _series_recordings(db, scope, event_ids):
                 Meeting.deleted_at.is_(None),
                 Meeting.deletion_state == "none",
             )
-            .order_by(Meeting.started_at, Meeting.id)
+            .order_by(Meeting.started_at.desc(), Meeting.id)
+            .limit(SERIES_RECORDING_CANDIDATE_LIMIT)
         )
     )
     from twobrain_rec_server.cabinet.read_prefetch import clear_read_prefetch
@@ -948,4 +953,6 @@ async def _series_recordings(db, scope, event_ids):
                     result.setdefault(event_id, []).append({"meeting_id": str(meeting.id)})
     finally:
         clear_read_prefetch(db)
-    return result, False
+    # Do not derive this public flag from the number of hidden candidates. This
+    # endpoint always offers a bounded preview; the meeting list is authoritative.
+    return result, True

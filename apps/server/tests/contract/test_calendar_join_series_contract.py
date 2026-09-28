@@ -691,3 +691,80 @@ def test_browser_join_confirmation_rechecks_original_page_session_and_revocation
     rejected = client.post(url, headers={"X-CSRF-Token": current_csrf})
     assert rejected.status_code == 401
     assert "https_url" not in rejected.text
+
+
+def test_series_recording_preview_bounds_acl_work_without_revealing_hidden_counts(
+    client, monkeypatch
+):
+    import asyncio
+    from datetime import UTC, datetime, timedelta
+    from uuid import UUID, uuid4
+
+    from tests.contract.test_ingest_openapi_contract import auth_headers
+    from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
+    from tests.fixtures.admin import DEFAULT_MEMBER_USER_ID, seed_default_workspace_admin_roles
+    from twobrain_rec_server.api.calendar import SERIES_RECORDING_CANDIDATE_LIMIT
+    from twobrain_rec_server.cabinet import access
+    from twobrain_rec_server.db.models import Meeting, RecordingCalendarContextLink
+
+    event_id, _, _ = seed_series(client)
+    owned, hidden = [], []
+
+    async def seed():
+        async with client.app_state["sessionmaker"]() as db:
+            await seed_default_workspace_admin_roles(db)
+            now = datetime.now(UTC)
+            for n in range(SERIES_RECORDING_CANDIDATE_LIMIT + 8):
+                denied = n >= SERIES_RECORDING_CANDIDATE_LIMIT + 5
+                meeting_id = uuid4()
+                (hidden if denied else owned).append(str(meeting_id))
+                db.add(
+                    Meeting(
+                        id=meeting_id,
+                        workspace_id=WORKSPACE_ID,
+                        created_by_user_id=DEFAULT_MEMBER_USER_ID if denied else USER_ID,
+                        device_id=DEVICE_ID,
+                        local_recording_id=f"f279-bounded-{n}",
+                        duration_seconds=90,
+                        visibility="owner_only",
+                        started_at=now + timedelta(seconds=n),
+                    )
+                )
+                await db.flush()
+                db.add(
+                    RecordingCalendarContextLink(
+                        workspace_id=WORKSPACE_ID,
+                        meeting_id=meeting_id,
+                        calendar_event_snapshot_id=UUID(event_id),
+                        context_state="matched_user",
+                    )
+                )
+            await db.commit()
+
+    asyncio.run(seed())
+    original = access.decide_meeting_access
+    checked = []
+
+    async def counted(db, meeting, **kwargs):
+        checked.append(meeting.id)
+        return await original(db, meeting, **kwargs)
+
+    monkeypatch.setattr(access, "decide_meeting_access", counted)
+    key = client.get("/api/v1/calendar/overview", headers=auth_headers()).json()["cards"][0][
+        "series_key"
+    ]
+    response = client.get(f"/api/v1/calendar/series/{key}/occurrences", headers=auth_headers())
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    rows = payload["occurrences"]
+    records = [record["meeting_id"] for row in rows for record in row["recordings"]]
+    assert len(checked) == SERIES_RECORDING_CANDIDATE_LIMIT
+    assert len(records) == SERIES_RECORDING_CANDIDATE_LIMIT - len(hidden)
+    assert set(records) <= set(owned)
+    assert all(value not in response.text for value in hidden)
+    assert payload["partial"] is True
+    # The same fixed incomplete-preview contract applies to empty occurrences;
+    # it must not disclose whether omitted or invisible candidates exist.
+    assert all(row["recordings_partial"] is True for row in rows)
+    assert any(not row["recordings"] for row in rows)
+    assert all("recording_count" not in row for row in rows)

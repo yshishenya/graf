@@ -1,7 +1,6 @@
 import AppKit
 import Combine
 import Foundation
-import Network
 import SwiftUI
 import TwoBrainRecShared
 
@@ -71,7 +70,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
     private let contextProvider: (@MainActor () async throws -> DesktopNotificationContext)?
     private let clock: () -> Date
     private let playSound: () -> Void
-    private let openMeetingURL: (URL) -> Void
+    private let openMeetingEvent: @MainActor (String, @escaping () -> Bool) async -> Bool
     private var context = ""
     private var legacyContext = ""
     private var serverOrigin: String
@@ -109,6 +108,8 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
         var content: DesktopNotificationCardContent
         var event: DesktopCalendarPromptEvent?
         var retainsCalendarProjection = false
+        var joinState: DesktopNotificationJoinState = .idle
+        var joinTask: Task<Void, Never>?
         var sessionID: String?
         var onStart: (() -> Void)?
         var onDismiss: (() -> Void)?
@@ -128,11 +129,13 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
     init(store: DesktopNotificationPreferencesStore, model: DesktopControlModel,
          contextProvider: (@MainActor () async throws -> DesktopNotificationContext)? = nil,
          clock: @escaping () -> Date = Date.init, playSound: @escaping () -> Void = { NSSound.beep() },
-         openMeetingURL: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) },
+         openMeetingEvent: @escaping @MainActor (String, @escaping () -> Bool) async -> Bool = {
+             await CalendarMeetingOpener.openEvent($0, isCurrent: $1)
+         },
          serverOrigin: String = "", card: DesktopNotificationCardPresenter = .init()) {
         self.store = store; self.model = model; self.contextProvider = contextProvider
         self.clock = clock; self.playSound = playSound; self.serverOrigin = Self.normalizedOrigin(serverOrigin)
-        self.openMeetingURL = openMeetingURL
+        self.openMeetingEvent = openMeetingEvent
         self.card = card
         super.init()
         store.beginCalendarRetirement(at: clock())
@@ -353,12 +356,12 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
             && now < cardDeadline(for: event, offsetMinutes: offsetMinutes)
     }
     static func meetingCardContent(event: DesktopCalendarPromptEvent, preferences: DesktopNotificationPreferences,
-                                   timeZone: TimeZone = .current) -> DesktopNotificationCardContent {
+                                   timeZone: TimeZone = .current, joinState: DesktopNotificationJoinState = .idle) -> DesktopNotificationCardContent {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ru_RU"); formatter.timeZone = timeZone; formatter.dateFormat = "HH:mm"
         return .meeting(title: preferences.showTitles ? event.safeDisplayTitle() : "Встреча в календаре",
                         startText: "Начало в \(formatter.string(from: event.startsAt))",
-                        hasJoinLink: event.meetingLinkPresent && safeMeetingURL(event.openMeetingURL) != nil)
+                        hasJoinLink: event.meetingLinkPresent && safeMeetingURL(event.openMeetingURL) != nil, joinState: joinState)
     }
     private func meetingEligible(_ event: DesktopCalendarPromptEvent, now: Date) -> Bool {
         !owner.isEmpty && preferences.reminders && !preferences.quiet
@@ -401,7 +404,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
             else if current.kind == .meeting, let event = calendarEvents.first(where: {
                 Self.reminderID($0, context: context) == current.identity
             }) {
-                let content = Self.meetingCardContent(event: event, preferences: preferences)
+                let content = Self.meetingCardContent(event: event, preferences: preferences, joinState: current.joinState)
                 current.content = content
                 if !card.update(content) { invalidateEnvelope(current) }
             }
@@ -501,6 +504,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
     private func retire(_ envelope: Envelope) {
         guard active?.token == envelope.token else { return }
         active = nil
+        envelope.joinTask?.cancel(); envelope.joinTask = nil
         if envelope.kind == .meeting {
             terminalMeetings[envelope.identity] = max(envelope.deadline, envelope.event?.endsAt ?? envelope.deadline)
             if envelope.retainsCalendarProjection { calendarEvents.removeAll() }
@@ -567,8 +571,29 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
             envelope.onRemember?(value)
             return
         }
-        let meetingURL = envelope.event.flatMap {
-            Self.currentMeetingURL(for: $0, events: calendarEvents, now: clock())
+        if envelope.kind == .meeting, action == .join || action == .joinAndRecord {
+            guard envelope.joinState != .opening, let event = envelope.event,
+                  Self.currentMeetingURL(for: event, events: calendarEvents, now: clock()) != nil else { return }
+            envelope.joinState = .opening
+            reconcileCard(now: clock())
+            let presentation = presentationEpoch
+            let isCurrent = { [weak self, weak envelope] in
+                guard let self, let envelope else { return false }
+                return self.active?.token == token && self.presentationEpoch == presentation
+                    && self.card.isVisible && self.isCurrent(envelope, now: self.clock())
+            }
+            envelope.joinTask = Task { [weak self, weak envelope] in
+                guard let self, let envelope else { return }
+                let opened = await self.openMeetingEvent(event.eventId, isCurrent)
+                guard !Task.isCancelled, isCurrent() else { return }
+                envelope.joinTask = nil
+                if opened {
+                    self.retire(envelope)
+                    if action == .joinAndRecord { self.model.send(.start) }
+                } else { envelope.joinState = .failed }
+                self.reconcileCard(now: self.clock())
+            }
+            return
         }
         retire(envelope)
         if envelope.kind == .recordingPrompt {
@@ -579,11 +604,6 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
             }
         } else if envelope.kind == .meeting {
             switch action {
-            case .join, .joinAndRecord:
-                if let url = meetingURL {
-                    openMeetingURL(url)
-                    if action == .joinAndRecord { model.send(.start) }
-                }
             case .record: model.send(.start)
             default: break
             }
@@ -664,24 +684,8 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
         return safeMeetingURL(event.openMeetingURL)
     }
     private static func safeMeetingURL(_ url: URL?) -> URL? {
-        guard let url, url.scheme?.lowercased() == "https", let host = url.host, !host.isEmpty,
-              url.user == nil, url.password == nil, url.fragment == nil else { return nil }
-        let normalized = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".[]"))
-        guard normalized != "localhost", !normalized.hasSuffix(".localhost") else { return nil }
-        if let address = IPv4Address(normalized) {
-            let bytes = address.rawValue
-            guard bytes[0] != 10, bytes[0] != 127, bytes[0] != 0,
-                  !(bytes[0] == 172 && (16...31).contains(bytes[1])),
-                  !(bytes[0] == 192 && bytes[1] == 168),
-                  !(bytes[0] == 169 && bytes[1] == 254) else { return nil }
-        }
-        if let address = IPv6Address(normalized) {
-            let bytes = [UInt8](address.rawValue)
-            guard !bytes.dropLast().allSatisfy({ $0 == 0 }), bytes[0] & 0xfe != 0xfc,
-                  !(bytes[0] == 0xfe && bytes[1] & 0xc0 == 0x80) else { return nil }
-            guard !(bytes.prefix(10).allSatisfy { $0 == 0 } && bytes[10] == 0xff && bytes[11] == 0xff) else { return nil }
-        }
-        return url
+        guard let url, url.fragment == nil else { return nil }
+        return CalendarMeetingOpener.validatedHTTPS(url.absoluteString)
     }
 }
 

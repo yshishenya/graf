@@ -51,7 +51,7 @@ const server=createServer((req,res)=>{
     const second=req.url.includes('cursor=second');
     if(second&&invalidCursor){invalidCursor=false;res.writeHead(422);res.end('{}');return;}
     const offset=second?5:0;
-    res.end(JSON.stringify({occurrences:Array.from({length:second?7:5},(_,n)=>({event_id:offset+n===0?selectedID:`00000000-0000-0000-0000-${String(offset+n+1).padStart(12,'0')}`,title:'Планирование команды',starts_at:new Date(Date.UTC(2026,9,1+offset+n,10)).toISOString(),all_day:false,cancelled:revised&&n===0,open_meeting_available:!(revised&&n===0),recordings:(!revised&&n===0)?[{meeting_id:'00000000-0000-0000-0000-000000000099'}]:[]})),next_cursor:second?null:'second',coverage_range:{from:'2026-04-01T00:00:00Z',to:'2026-11-01T00:00:00Z'},coverage_note:'Показаны сохранённые доступные даты.'}));return;
+    res.end(JSON.stringify({occurrences:Array.from({length:second?7:5},(_,n)=>({event_id:offset+n===0?selectedID:`00000000-0000-0000-0000-${String(offset+n+1).padStart(12,'0')}`,title:'Планирование команды',starts_at:new Date(Date.UTC(2026,9,1+offset+n,10)).toISOString(),all_day:false,cancelled:revised&&n===0,open_meeting_available:!(revised&&n===0),recordings_partial:true,recordings:(!revised&&n===0)?[{meeting_id:'00000000-0000-0000-0000-000000000099'}]:[]})),next_cursor:second?null:'second',coverage_range:{from:'2026-04-01T00:00:00Z',to:'2026-11-01T00:00:00Z'},coverage_note:'Показаны сохранённые доступные даты.'}));return;
   }
   res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html);
 });
@@ -77,6 +77,9 @@ try {
  await page.locator('[data-calendar-series-more]').click();
  await page.waitForFunction(()=>document.querySelectorAll('.calendar-series__occurrence').length===12);
  assert.equal(requests,2);
+ assert.equal(await page.locator('.calendar-series__occurrence a[href="/desktop/meetings"]').count(),12);
+ assert.equal(await page.getByText('Нет доступной записи',{exact:true}).count(),0);
+ assert.equal(await page.getByText('Здесь показана ограниченная выборка записей.',{exact:true}).count(),12);
  assert.equal(await page.locator('.calendar-series__occurrence a[href$="/00000000-0000-0000-0000-000000000099"]').count(),2);
  const rowJoin=page.locator('.calendar-series__occurrence [data-calendar-join]').first();
  await rowJoin.click();

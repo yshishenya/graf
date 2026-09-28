@@ -45,3 +45,6 @@ Reviewer-owned. Автор реализации не меняет checkbox; эт
 
 
 Четвёртая группа PR-замечаний проверена 2026-09-29: новое действие того же UUID после обновления DOM, общий корпус политики hostname (141 пример), fresh POST с session-bound CSRF и несекретный marker против смены сессии во время позднего ответа — RESOLVED в границах исходников/локальных проверок. Swift 121/0, расширенный серверный набор 143 PASS, browser-epoch PASS. Подробности, покрытие двух issuer/трёх clear-путей cookie и границы доказательств — в последнем разделе `../review-report.md`. Качество требований сохраняется **8 checked / 0 unchecked**.
+
+
+Пятая группа PR-замечаний проверена 2026-09-29: нормализация выбора native приложения, свежий resolver отдельной notification card с pending/error/cancellation, ограничение preview записей 200 кандидатами до ACL и нейтральный переход к общему списку — RESOLVED. Повторно проверены все production calendar entrypoints; notification host policy делегирована общей и проверена на 141 примере. Итоговый Swift: 269 tests / 8 skipped / 0 failures; server 144 PASS; browser PASS. Причины skips и границы runtime/SHA доказательств приведены в последнем разделе `../review-report.md`. Требования **8 checked / 0 unchecked**.

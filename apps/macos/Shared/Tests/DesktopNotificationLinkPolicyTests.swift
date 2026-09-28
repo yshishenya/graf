@@ -32,7 +32,7 @@ final class DesktopNotificationLinkPolicyTests: XCTestCase {
                       "https://[fe80::1]/room", "https://example.test/room#fragment",
                       "https://synthetic@example.test/room"] {
             let meeting = event(url: try XCTUnwrap(URL(string: value)))
-            guard case let .meeting(_, _, hasJoinLink) = DesktopNotificationPresenter.meetingCardContent(event: meeting, preferences: .init()) else {
+            guard case let .meeting(_, _, hasJoinLink, _) = DesktopNotificationPresenter.meetingCardContent(event: meeting, preferences: .init()) else {
                 return XCTFail("Expected calendar content")
             }
             XCTAssertFalse(hasJoinLink, value)
@@ -40,9 +40,22 @@ final class DesktopNotificationLinkPolicyTests: XCTestCase {
         }
     }
 
+    func testNotificationUsesSharedMeetingHostPolicy() throws {
+        struct HostCase: Decodable { let url: String; let allowed: Bool }
+        var apps = URL(fileURLWithPath: #filePath)
+        for _ in 0..<4 { apps.deleteLastPathComponent() }
+        let cases = try JSONDecoder().decode([HostCase].self, from: Data(contentsOf:
+            apps.appendingPathComponent("server/tests/fixtures/calendar_join_host_policy.json")))
+        for item in cases {
+            let meeting = event(url: URL(string: item.url))
+            let expected = item.allowed && meeting.openMeetingURL?.fragment == nil
+            XCTAssertEqual(DesktopNotificationPresenter.currentMeetingURL(for: meeting, events: [meeting], now: now) != nil, expected, item.url)
+        }
+    }
+
     func testNoJoinActionWithoutConfirmedLinkEvenIfPayloadContainsURL() {
         let meeting = event(url: URL(string: "https://meet.example.test/room"), linkPresent: false)
-        guard case let .meeting(_, _, hasJoinLink) = DesktopNotificationPresenter.meetingCardContent(event: meeting, preferences: .init()) else {
+        guard case let .meeting(_, _, hasJoinLink, _) = DesktopNotificationPresenter.meetingCardContent(event: meeting, preferences: .init()) else {
             return XCTFail("Expected calendar content")
         }
         XCTAssertFalse(hasJoinLink)

@@ -3,6 +3,27 @@ import XCTest
 import TwoBrainRecShared
 
 final class CalendarMeetingOpenerTests: XCTestCase {
+    func testServiceRoutingNormalizesTrailingDotWithoutMatchingLookalikes() throws {
+        for (host, path, identifiers, scheme) in [
+            ("zoom.us", "/j/12345678901", ["us.zoom.xos"], "zoommtg"),
+            ("us02web.zoom.us", "/j/12345678901", ["us.zoom.xos"], "zoommtg"),
+            ("teams.microsoft.com", "/l/meetup-join/synthetic", ["com.microsoft.teams2", "com.microsoft.teams"], "msteams"),
+            ("telemost.yandex.ru", "/j/synthetic", ["ru.yandex.desktop.telemost"], "")
+        ] {
+            let url = try XCTUnwrap(URL(string: "https://\(host.uppercased()).\(path)?pwd=synthetic%2Bpass#fragment"))
+            XCTAssertEqual(CalendarMeetingOpener.nativeApplicationIdentifiers(for: url), identifiers)
+            if !scheme.isEmpty {
+                let native = try XCTUnwrap(CalendarMeetingOpener.nativeCandidate(for: url))
+                XCTAssertEqual(native.host, host)
+                XCTAssertEqual(native.scheme, scheme)
+                XCTAssertEqual(native.fragment, "fragment")
+                XCTAssertEqual(URLComponents(url: native, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "pwd" }?.value, "synthetic+pass")
+            }
+            XCTAssertEqual(CalendarMeetingOpener.nativeApplicationIdentifiers(for: URL(string: "https://\(host).evil.test.\(path)")!), [])
+            XCTAssertEqual(CalendarMeetingOpener.nativeApplicationIdentifiers(for: URL(string: "https://\(host).:8443\(path)")!), [])
+        }
+    }
+
     func testMeetingHostPolicyMatchesSharedServerCorpus() throws {
         struct HostCase: Decodable { let url: String; let allowed: Bool }
         var apps = URL(fileURLWithPath: #filePath)
