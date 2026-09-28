@@ -37,7 +37,7 @@
 
 ## Phase 6: Validation
 
-- [ ] T008 Выполнить converge и проверки из specs/279-calendar-join-series/quickstart.md, добавить changes/unreleased/F279.yaml и обновить validation.md; независимое ревью происхождения/доступа, server+Swift+browser suite, затем GRAF Dev через dev-harness после согласованного commit. Зафиксировать реально проверенную совместимость приложений; exact-SHA CI/merge/release отдельно, не закрывать issues без evidence. FR-001–020, SC-001–007.
+- [X] T008 Выполнить converge и проверки из specs/279-calendar-join-series/quickstart.md, добавить changes/unreleased/F279.yaml и обновить validation.md; независимое ревью происхождения/доступа, server+Swift+browser suite, затем GRAF Dev через dev-harness после согласованного commit. Зафиксировать реально проверенную совместимость приложений; exact-SHA CI/merge/release отдельно, не закрывать issues без evidence. FR-001–020, SC-001–007.
 
 ## Dependencies and execution
 
@@ -70,10 +70,13 @@ macOS, Python 3.13.3; apps/server/.venv создан через uv sync --frozen
 
 ## Состояние проверки реализации
 
-T002–T005, T007 и T009 подтверждены исходниками, независимым ревью и автоматическими наборами (validation.md). Их GitHub issues остаются открытыми до совокупной приёмки и слитого PR. T001/T006/T010 подтверждены завершающей матрицей и тестами; VoiceOver отдельно принят пользователем. T008 остаётся для повторного GRAF Dev после обновления базы и текущих GitHub checks. Это не утверждение готовности релиза.
+T002–T005, T007 и T009 подтверждены исходниками, независимым ревью и автоматическими наборами (validation.md). Их GitHub issues остаются открытыми до совокупной приёмки и слитого PR. T001/T006/T010 подтверждены завершающей матрицей и тестами; VoiceOver отдельно принят пользователем. T008 подтверждена повторным GRAF Dev на обновлённой базе; окончательные GitHub checks проверяются отдельно на PR SHA. Это не утверждение готовности релиза.
 
 Повторный analyze после T009: задача связана с FR-001/004/006 и существующим #7360; новых противоречий/непокрытых обязательных требований нет. Converge повторно проверил новый resolver для всех изменённых точек входа; оставшиеся пункты — приёмка, не недостающие участки реализации.
 
 ## Phase 8: Convergence — завершение приёмки
 
 - [X] T010 Завершить доказательства S07/C02/SC-007: API-регрессия отзыва доступа и удаления записи внутри доступной серии; неизменность активной записи при успешном/ошибочном/устаревшем Join; воспроизводимый замер trusted click и раскрытия серии в локальном production browser harness. Пути: apps/server/tests/contract/test_calendar_join_series_contract.py, apps/macos/Shared/Tests/CalendarMeetingOpenerTests.swift, apps/server/tests/browser/calendar_series.mjs. FR-014/020, SC-005/007 (partial evidence). Владелец: https://github.com/yshishenya/graf/issues/7362.
+
+
+Все T001–T010 выполнены локально. Повторный build/promote/live smoke и UI выполнены на `547315475621e365a29e269e67331346a47a248c`. Последующий документационный commit не меняет продуктовый код. До merge issues остаются открытыми; release-full выполняется один раз на замороженном post-merge кандидате.
