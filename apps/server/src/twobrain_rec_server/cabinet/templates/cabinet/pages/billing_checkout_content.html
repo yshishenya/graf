@@ -28,7 +28,7 @@
         {% elif promo_preview_error|default(None) %}<p id="billing-checkout-error" role="alert" class="notice notice--error">{{ promo_preview_error }}</p>
         {% elif checkout_result == "owner_only" %}<p class="notice notice--error" role="alert">Оплатить тариф может только владелец пространства.</p>
         {% elif checkout_result == "offer_required" %}<p class="notice notice--warning" role="alert">Откройте и примите оферту версии {{ offer_version_label|default("personal-2026-09-27") }}.</p>
-        {% elif checkout_result == "quote_changed" %}<p class="notice notice--warning" role="alert">Расчёт изменился или устарел. Проверьте сумму, срок и подтвердите покупку заново. Списания не было.</p>
+        {% elif checkout_result == "quote_changed" %}<p class="notice notice--warning" role="alert">Расчет изменился или устарел. Проверьте сумму, срок и подтвердите покупку заново. Списания не было.</p>
         {% elif checkout_result == "offer_changed" %}<p class="notice notice--warning" role="alert">Условия оплаты изменились. Проверьте итог и заново примите оферту. Новая оплата не создана.</p>
         {% elif checkout_result == "consent_required" %}<p class="notice notice--warning" role="alert">Подтвердите согласие на регулярное списание или отмените оплату.</p>
         {% elif checkout_result == "catalog_not_approved" %}<p class="notice notice--warning" role="alert">Оплата временно недоступна. Попробуйте позже.</p>
@@ -37,7 +37,7 @@
 
         {% if checkout_available and not checkout_blocked %}<dl class="billing-order-summary">
           {% if checkout_base_price_label|default(None) %}<div><dt>Тариф «Личный» · 5 ГБ включено</dt><dd>{{ checkout_base_price_label }}</dd></div>{% endif %}
-          {% if checkout_storage_price_label|default(None) %}<div><dt>Увеличение общего объёма до {{ catalog_storage_label }}</dt><dd>{{ checkout_storage_price_label }}</dd></div>{% endif %}
+          {% if checkout_storage_price_label|default(None) %}<div><dt>Увеличение общего объема до {{ catalog_storage_label }}</dt><dd>{{ checkout_storage_price_label }}</dd></div>{% endif %}
           {% if checkout_period_label|default(None) %}<div><dt>Оплачиваемый период</dt><dd>{{ checkout_period_label }}</dd></div>{% endif %}
           {% if checkout_preview|default(None) %}<div><dt>Стоимость покупки</dt><dd>{{ checkout_preview.list_amount_label }}</dd></div><div><dt>Скидка</dt><dd>{{ checkout_preview.discount_label }}</dd></div>{% endif %}
           <div class="billing-order-summary__total"><dt>К оплате сегодня</dt><dd><strong>{{ selected_price_label }}</strong></dd></div>

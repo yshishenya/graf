@@ -775,7 +775,7 @@ def test_payment_method_and_storage_surfaces_keep_safe_boundaries() -> None:
     )
     assert "•••• 4242" in method_html
     assert "Данные карты не проходят через GRAF" in method_html
-    assert "Лимит расходуют сохранённые записи встреч" in storage_html
+    assert "Лимит расходуют сохраненные записи встреч" in storage_html
     assert "Файлы не удаляются" in storage_html
     assert "Рассчитать" not in storage_html  # No catalog was supplied to this fixture.
     assert "5000000000 байт" not in storage_html

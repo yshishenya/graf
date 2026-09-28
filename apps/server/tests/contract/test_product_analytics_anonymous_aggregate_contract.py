@@ -49,7 +49,9 @@ ACQUISITION_TABLE = "client_acquisition_attributes"
 NOW = datetime(2026, 9, 18, 12, 0, tzinfo=UTC)
 
 
-def _run_alembic(database_url: str, *, downgrade_to: str | None = None) -> None:
+def _run_alembic(
+    database_url: str, *, upgrade_to: str, downgrade_to: str | None = None
+) -> None:
     previous_url = os.environ.get("TWOBRAIN_DATABASE_URL")
     try:
         os.environ["TWOBRAIN_DATABASE_URL"] = database_url
@@ -59,7 +61,7 @@ def _run_alembic(database_url: str, *, downgrade_to: str | None = None) -> None:
             "script_location", str(SERVER_ROOT / "src/twobrain_rec_server/db/migrations")
         )
         if downgrade_to is None:
-            command.upgrade(config, "head")
+            command.upgrade(config, upgrade_to)
         else:
             command.downgrade(config, downgrade_to)
     finally:
@@ -151,21 +153,28 @@ def aggregate_database_url(postgres_schema_database_url: str) -> str:
 
 
 def test_measurement_migrations_apply_and_roll_back(
-    postgres_schema_database_url: str,
+    postgres_clean_database_url: str,
 ) -> None:
-    present = asyncio.run(_table_names(postgres_schema_database_url))
+    # Exercise only the analytics migration range in a fresh disposable database.
+    # Never roll a head schema back across append-only financial history.
+    database_url = postgres_clean_database_url
+    analytics_head = "0097_public_attribution_index"
+    _run_alembic(database_url, upgrade_to=analytics_head)
+    present = asyncio.run(_table_names(database_url))
     assert {AGGREGATE_TABLE, VISIT_TABLE, ACQUISITION_TABLE} <= present
 
-    try:
-        _run_alembic(postgres_schema_database_url, downgrade_to="0092_recording_origin_cancel")
-        rolled_back = asyncio.run(_table_names(postgres_schema_database_url))
-        assert AGGREGATE_TABLE not in rolled_back
-        assert VISIT_TABLE not in rolled_back
-        assert ACQUISITION_TABLE not in rolled_back
-    finally:
-        _run_alembic(postgres_schema_database_url)
+    _run_alembic(
+        database_url,
+        upgrade_to=analytics_head,
+        downgrade_to="0093_billing_catalog_seed",
+    )
+    rolled_back = asyncio.run(_table_names(database_url))
+    assert AGGREGATE_TABLE not in rolled_back
+    assert VISIT_TABLE not in rolled_back
+    assert ACQUISITION_TABLE not in rolled_back
 
-    restored = asyncio.run(_table_names(postgres_schema_database_url))
+    _run_alembic(database_url, upgrade_to=analytics_head)
+    restored = asyncio.run(_table_names(database_url))
     assert {AGGREGATE_TABLE, VISIT_TABLE, ACQUISITION_TABLE} <= restored
 
 
