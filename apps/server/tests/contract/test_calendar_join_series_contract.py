@@ -768,3 +768,46 @@ def test_series_recording_preview_bounds_acl_work_without_revealing_hidden_count
     assert all(row["recordings_partial"] is True for row in rows)
     assert any(not row["recordings"] for row in rows)
     assert all("recording_count" not in row for row in rows)
+
+
+def test_occurrence_cursor_restores_default_window_across_midnight(client, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from tests.contract.test_ingest_openapi_contract import auth_headers
+    from twobrain_rec_server.api import calendar as calendar_api
+
+    issued = datetime.now(UTC).replace(hour=23, minute=59, second=59, microsecond=0)
+
+    class FrozenDateTime(datetime):
+        value = issued
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.value
+
+    monkeypatch.setattr(calendar_api, "datetime", FrozenDateTime)
+    seed_series(client)
+    key = client.get("/api/v1/calendar/overview", headers=auth_headers()).json()["cards"][0][
+        "series_key"
+    ]
+    url = f"/api/v1/calendar/series/{key}/occurrences"
+    first = client.get(url, params={"limit": 5}, headers=auth_headers())
+    assert first.status_code == 200, first.text
+    payload = first.json()
+    cursor, window = payload["next_cursor"], payload["coverage_range"]
+    assert cursor
+    FrozenDateTime.value = issued + timedelta(seconds=3)
+    for bounds in [{}, window, {"from": window["from"]}, {"to": window["to"]}]:
+        second = client.get(url, params={"cursor": cursor, **bounds}, headers=auth_headers())
+        assert second.status_code == 200, second.text
+        assert second.json()["coverage_range"] == window
+        assert len(second.json()["occurrences"]) == 7
+        assert {row["event_id"] for row in payload["occurrences"]}.isdisjoint(
+            row["event_id"] for row in second.json()["occurrences"]
+        )
+    for bound in ["from", "to"]:
+        different = (datetime.fromisoformat(window[bound]) + timedelta(days=1)).isoformat()
+        response = client.get(
+            url, params={"cursor": cursor, bound: different}, headers=auth_headers()
+        )
+        assert response.status_code == 422

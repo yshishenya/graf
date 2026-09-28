@@ -82,6 +82,74 @@ final class EmbeddedCabinetCalendarJoinBridgeTests: XCTestCase {
         XCTAssertEqual(resolves, 1)
     }
 
+    func testCabinetAndOtherNativeEntriesShareOneJoinOperation() async {
+        let url = URL(string: "https://meet.google.com/abc-defg-hij")!
+        for cabinetFirst in [true, false] {
+            let bridge = EmbeddedCabinetCalendarJoinBridge()
+            let pending = JoinPendingResolver()
+            var states: [String] = []
+            var opens = 0
+            var native: Task<Bool, Never>?
+            if cabinetFirst {
+                bridge.join(.init(eventID: UUID(), requestID: UUID()),
+                    resolve: { _ in try await pending.resolve() }, isCurrent: { true },
+                    open: { _ in opens += 1; return true }, reply: { states.append($0) })
+            } else {
+                native = Task {
+                    await CalendarMeetingOpener.resolveAndOpen(eventID: UUID(),
+                        resolve: { _ in try await pending.resolve() }, isCurrent: { true },
+                        open: { _ in opens += 1; return true })
+                }
+            }
+            while !(await pending.started) { await Task.yield() }
+            if cabinetFirst {
+                let duplicate = await CalendarMeetingOpener.resolveAndOpen(eventID: UUID(),
+                    resolve: { _ in XCTFail("A second native resolver must not run"); return url },
+                    isCurrent: { true }, open: { _ in XCTFail("Duplicate handoff"); return true })
+                XCTAssertFalse(duplicate)
+            } else {
+                bridge.join(.init(eventID: UUID(), requestID: UUID()),
+                    resolve: { _ in XCTFail("A second cabinet resolver must not run"); return url },
+                    isCurrent: { true }, open: { _ in XCTFail("Duplicate handoff"); return true },
+                    reply: { states.append($0) })
+                for _ in 0..<100 where states.last != "failed" { await Task.yield() }
+                XCTAssertEqual(states, ["resolving", "failed"])
+            }
+            await pending.finish()
+            if let native { let result = await native.value; XCTAssertTrue(result) }
+            for _ in 0..<100 where opens == 0 { await Task.yield() }
+            XCTAssertEqual(opens, 1)
+            if cabinetFirst { XCTAssertEqual(states, ["resolving", "opening", "handed_off"]) }
+            states.removeAll()
+            bridge.join(.init(eventID: UUID(), requestID: UUID()), resolve: { _ in url },
+                isCurrent: { true }, open: { _ in opens += 1; return true }, reply: { states.append($0) })
+            for _ in 0..<100 where states.last != "handed_off" { await Task.yield() }
+            XCTAssertEqual(states, ["resolving", "opening", "handed_off"])
+            XCTAssertEqual(opens, 2)
+        }
+    }
+
+    func testCancelledOrFailedCabinetJoinReleasesSharedOperation() async {
+        for cancelled in [false, true] {
+            let bridge = EmbeddedCabinetCalendarJoinBridge()
+            let pending = JoinPendingResolver()
+            var states: [String] = []
+            bridge.join(.init(eventID: UUID(), requestID: UUID()), resolve: { _ in
+                _ = try await pending.resolve()
+                throw URLError(.resourceUnavailable)
+            }, isCurrent: { true }, open: { _ in XCTFail("No handoff"); return true }, reply: { states.append($0) })
+            while !(await pending.started) { await Task.yield() }
+            if cancelled { bridge.invalidate() }
+            await pending.finish()
+            for _ in 0..<100 { await Task.yield() }
+            XCTAssertEqual(states, cancelled ? ["resolving"] : ["resolving", "failed"])
+            let retry = await CalendarMeetingOpener.resolveAndOpen(eventID: UUID(),
+                resolve: { _ in URL(string: "https://meet.google.com/abc-defg-hij")! },
+                isCurrent: { true }, open: { _ in true })
+            XCTAssertTrue(retry)
+        }
+    }
+
     func testPayloadRejectsURLAndExtraFields() {
         let payload=["action":"joinCalendarEvent","eventId":UUID().uuidString,"requestId":UUID().uuidString]
         XCTAssertNotNil(EmbeddedCabinetCalendarJoinBridge.Request.parse(payload))

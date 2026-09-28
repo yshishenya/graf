@@ -111,3 +111,34 @@ def test_meeting_host_policy_matches_shared_native_corpus():
     )
     for case in cases:
         assert (safe_open_meeting_url(case["url"]) is not None) == case["allowed"], case["url"]
+
+
+def test_occurrence_cursor_restores_window_and_preserves_scope_and_expiry():
+    from twobrain_rec_server.calendar.series import decode_occurrence_cursor
+
+    scope = {"owner": "o", "session": "session", "workspace": "w", "series": "series"}
+    end = NOW + timedelta(days=30)
+    context = {**scope, "from": NOW.isoformat(), "to": end.isoformat()}
+    last = (NOW.isoformat(), str(UUID(int=1)))
+    cursor = encode_cursor(context, last, "test-secret", now=100)
+    assert decode_occurrence_cursor(cursor, scope, "test-secret", now=101) == (
+        NOW,
+        end,
+        last,
+        context,
+    )
+    for key in scope:
+        with pytest.raises(ValueError):
+            decode_occurrence_cursor(cursor, {**scope, key: "other"}, "test-secret", now=101)
+    for token, instant in [(cursor + "x", 101), (cursor, 3700), ("x" * 2049, 101)]:
+        with pytest.raises(ValueError):
+            decode_occurrence_cursor(token, scope, "test-secret", now=instant)
+    for changed in [
+        {**context, "extra": "x"},
+        {**context, "from": NOW.replace(tzinfo=None).isoformat()},
+        {**context, "to": NOW.isoformat()},
+        {**context, "to": (NOW + timedelta(days=367)).isoformat()},
+    ]:
+        invalid = encode_cursor(changed, last, "test-secret", now=100)
+        with pytest.raises(ValueError):
+            decode_occurrence_cursor(invalid, scope, "test-secret", now=101)

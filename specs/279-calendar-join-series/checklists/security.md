@@ -43,3 +43,6 @@ Reviewer-owned. Автор реализации не меняет checkbox; эт
 
 
 Пятая группа PR-замечаний проверена 2026-09-29: нормализация выбора native приложения, свежий resolver отдельной notification card с pending/error/cancellation, ограничение preview записей 200 кандидатами до ACL и нейтральный переход к общему списку — RESOLVED. Повторно проверены все production calendar entrypoints; notification host policy делегирована общей и проверена на 141 примере. Итоговый Swift: 269 tests / 8 skipped / 0 failures; server 144 PASS; browser PASS. Причины skips и границы runtime/SHA доказательств приведены в последнем разделе `../review-report.md`. Требования **8 checked / 0 unchecked**.
+
+
+Шестая группа PR-замечаний проверена 2026-09-29: история восстанавливает подписанный диапазон из cursor через полночь с сохранением scope/TTL/explicit-bound проверок; кабинет использует общую native Join операцию с остальными поверхностями. Оба исправления RESOLVED, новые регрессии PASS. Swift 271 tests / 8 skipped / 0 failures; server 146 PASS. Причины прежних skips и границы SHA/runtime — в последнем разделе `../review-report.md`. Требования **8 checked / 0 unchecked**.

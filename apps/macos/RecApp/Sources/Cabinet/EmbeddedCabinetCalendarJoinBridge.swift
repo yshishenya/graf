@@ -41,18 +41,12 @@ final class EmbeddedCabinetCalendarJoinBridge {
         task = Task { [weak self] in
             guard let self else { return }
             defer { if self.activeID == request.requestID { self.activeID = nil; self.task = nil } }
-            do {
-                let url = try await resolve(request.eventID)
-                guard !Task.isCancelled, self.activeID == request.requestID, isCurrent(),
-                      CalendarMeetingOpener.validatedHTTPS(url.absoluteString) != nil else { reply("cancelled"); return }
-                reply("opening")
-                let opened = await open(url)
-                guard !Task.isCancelled, self.activeID == request.requestID, isCurrent() else { return }
-                reply(opened ? "handed_off" : "failed")
-            } catch {
-                guard !Task.isCancelled, self.activeID == request.requestID else { return }
-                reply(isCurrent() ? "failed" : "cancelled")
-            }
+            let opened = await CalendarMeetingOpener.resolveAndOpen(eventID: request.eventID,
+                resolve: resolve,
+                isCurrent: { self.activeID == request.requestID && isCurrent() },
+                open: { url in reply("opening"); return await open(url) })
+            guard !Task.isCancelled, self.activeID == request.requestID else { return }
+            reply(isCurrent() ? (opened ? "handed_off" : "failed") : "cancelled")
         }
     }
 

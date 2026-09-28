@@ -823,39 +823,46 @@ async def calendar_series_occurrences(
 
     from twobrain_rec_server.calendar.series import (
         authorized_events,
-        decode_cursor,
+        decode_occurrence_cursor,
         encode_cursor,
         series_key_expression,
         series_occurrences,
     )
 
     session = require_db(db)
-    # Stable half-open day boundaries include the overview's entire thirtieth day.
-    today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    start, end = starts_from or today - timedelta(days=180), starts_to or today + timedelta(days=31)
-    if (
-        start.tzinfo is None
-        or end.tzinfo is None
-        or not timedelta(0) < end - start <= timedelta(days=366)
-    ):
-        raise ProblemDetail(
-            status=422, code="invalid_calendar_range", title="Invalid calendar range"
-        )
     context = {
         "owner": str(tenant_scope.user_id),
         "session": str(tenant_scope.auth_session_id or tenant_scope.device_id),
         "workspace": str(tenant_scope.workspace_id),
         "series": series_key,
-        "from": start.isoformat(),
-        "to": end.isoformat(),
     }
     secret = request.app.state.settings.web_csrf_secret
-    try:
-        after = decode_cursor(cursor, context, secret) if cursor else None
-    except ValueError as error:
-        raise ProblemDetail(
-            status=422, code="invalid_calendar_cursor", title="Invalid calendar cursor"
-        ) from error
+    after = None
+    if cursor:
+        try:
+            start, end, after, context = decode_occurrence_cursor(
+                cursor, context, secret, starts_from=starts_from, starts_to=starts_to
+            )
+        except ValueError as error:
+            raise ProblemDetail(
+                status=422, code="invalid_calendar_cursor", title="Invalid calendar cursor"
+            ) from error
+    else:
+        # Stable half-open day boundaries include the overview's entire thirtieth day.
+        today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        start, end = (
+            starts_from or today - timedelta(days=180),
+            starts_to or today + timedelta(days=31),
+        )
+        if (
+            start.tzinfo is None
+            or end.tzinfo is None
+            or not timedelta(0) < end - start <= timedelta(days=366)
+        ):
+            raise ProblemDetail(
+                status=422, code="invalid_calendar_range", title="Invalid calendar range"
+            )
+        context = {**context, "from": start.isoformat(), "to": end.isoformat()}
     if not re.fullmatch(r"v2-[0-9a-f]{64}", series_key):
         raise ProblemDetail(
             status=404, code="calendar_series_unavailable", title="Calendar series unavailable"

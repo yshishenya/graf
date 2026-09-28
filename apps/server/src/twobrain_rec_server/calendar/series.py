@@ -235,6 +235,31 @@ def decode_overview_cursor(cursor, context, secret, *, now=None):
         raise ValueError("invalid_calendar_cursor") from error
 
 
+def decode_occurrence_cursor(
+    cursor, context, secret, *, starts_from=None, starts_to=None, now=None
+):
+    """Restore the signed history window and verify any explicitly repeated bounds."""
+    payload = _decode_cursor_payload(cursor, secret, now=now)
+    try:
+        saved = payload["context"]
+        if set(saved) != set(context) | {"from", "to"} or any(
+            saved[key] != value for key, value in context.items()
+        ):
+            raise ValueError()
+        start, end = datetime.fromisoformat(saved["from"]), datetime.fromisoformat(saved["to"])
+        if (
+            start.tzinfo is None
+            or end.tzinfo is None
+            or not timedelta(0) < end - start <= timedelta(days=366)
+            or (starts_from is not None and starts_from != start)
+            or (starts_to is not None and starts_to != end)
+        ):
+            raise ValueError()
+        return start, end, tuple(payload["last"]), saved
+    except (ValueError, KeyError, TypeError) as error:
+        raise ValueError("invalid_calendar_cursor") from error
+
+
 async def series_occurrences(db, scope, preference, key, start, end, *, limit=20, after=None):
     query = filtered_events(scope, preference, include_cancelled=True, history=True).where(
         Event.recurring_series_id.is_not(None),
