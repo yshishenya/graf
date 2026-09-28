@@ -814,9 +814,9 @@ async def calendar_series_occurrences(
     )
 
     session = require_db(db)
-    # Day boundaries make the default range stable between paginated requests.
+    # Stable half-open day boundaries include the overview's entire thirtieth day.
     today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-    start, end = starts_from or today - timedelta(days=180), starts_to or today + timedelta(days=30)
+    start, end = starts_from or today - timedelta(days=180), starts_to or today + timedelta(days=31)
     if (
         start.tzinfo is None
         or end.tzinfo is None

@@ -65,3 +65,11 @@ python3 scripts/check_spec_kit_governance.py
 - C02: `NativeCalendarJoinTests.testProductionPromptJoinKeepsSyntheticRecordingContinuous` использует один production-диспетчер Record/Join. Record запускает настоящие CaptureSessionController и LocalRecordingWriter с двумя Buffered-источниками (синтетический сигнал и нули); Join проходит production resolver при success/failure/stale. Проверяются неизменные session/context, один start, доступная Stop, активный writer и полный итоговый аудиопакет. Это проверка композиции без доступа к устройствам; аппаратный захват не заявляется.
 - SC-007: `calendar_series.mjs` измеряет production renderer/JS на локальном Chromium, viewport 1100×850, 3 прогрева + 30 образцов. От trusted click до видимого статуса/готовых строк и двух requestAnimationFrame; p95 — nearest rank ceil(n×0.95). Максимум Join ≤200 мс, p95 серии ≤500 мс. Локальный ответ API включён, внешняя сеть/native-запуск исключены. Версии ОС/Chromium и SHA печатаются тестом. Native-WK p95 спецификацией не требуется; настоящий GRAF Dev проверяется отдельно через UI.
 - VoiceOver: принят по прямому подтверждению пользователя, повторно не запускать.
+
+
+## Регрессии замечаний PR
+
+- J08: ошибка native-запуска → явный выбор браузера → новый resolver → актуальный HTTPS в системном браузере. Отмена выбора, отзыв доступа, смена сессии после выбора/запроса не открывают URL.
+- J09: разрешённый HTTPS на 8443 сохраняет порт; для Zoom/Teams/Телемост не преобразуется в native URI.
+- J10: отложенное подключение из напоминания не закрывает его до ответа; failure сохраняет повтор, success закрывает; текущая запись неизменна.
+- S11: all-day и обычный повтор на тридцатый день присутствуют в обзоре и истории; полночь дня +31 исключена; пользовательский to остаётся исключительным.

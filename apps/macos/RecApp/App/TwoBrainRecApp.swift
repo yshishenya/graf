@@ -185,6 +185,10 @@ private struct ContentView: View {
     @State private var uploadQueueItems: [DesktopUploadQueueItem] = []
     @State private var desktopCalendarReminderService = DesktopCalendarReminderService()
     @State private var desktopCalendarPrompt: DesktopCalendarPrompt?
+    @State private var desktopCalendarJoinInProgress = false
+    @State private var desktopCalendarJoinFailedID: String?
+    @State private var desktopCalendarJoinFailedAt: Date?
+    @State private var desktopCalendarJoinFailedGeneration: UInt64?
     @State private var desktopCalendarRefreshInProgress = false
     @State private var activeCalendarContextEventId: String?
     @State private var activeCalendarMatchAttemptId: String?
@@ -861,17 +865,29 @@ private struct ContentView: View {
         }
 
         desktopCalendarRefreshInProgress = true
+        let generation = DesktopCabinetSessionBridge.generation
         defer { desktopCalendarRefreshInProgress = false }
 
         do {
             let response = try await client.listDesktopCalendarUpcoming()
+            guard DesktopCabinetSessionBridge.isCurrentSession(generation) else { return }
             desktopCalendarPrompt = desktopCalendarReminderService.activePrompt(
                 from: response.events,
                 now: Date(),
                 isRecordingActive: calendarPromptRecordingIsActive
             )
+            if let prompt = desktopCalendarPrompt, prompt.id == desktopCalendarJoinFailedID,
+               desktopCalendarJoinFailedGeneration == generation {
+                showCalendarJoinFailure(prompt, renewRetryWindow: false)
+            }
         } catch {
-            desktopCalendarPrompt = nil
+            let keepRetry = DesktopCalendarReminderService.shouldRetainFailedJoin(
+                prompt: desktopCalendarPrompt, failedPromptID: desktopCalendarJoinFailedID,
+                failedAt: desktopCalendarJoinFailedAt,
+                isCurrentSession: DesktopCabinetSessionBridge.isCurrentSession(generation)
+                    && desktopCalendarJoinFailedGeneration == generation,
+                error: error)
+            if !keepRetry { desktopCalendarPrompt = nil }
             AppLog.writeRaw(
                 event: "calendar.prompt_unavailable",
                 detail: "reason=\(reason) error=calendar_unavailable"
@@ -881,10 +897,20 @@ private struct ContentView: View {
 
     @MainActor
     private func handleCalendarPromptPrimary(_ prompt: DesktopCalendarPrompt) {
+        guard !desktopCalendarJoinInProgress else { return }
+        desktopCalendarJoinInProgress = true
+        let generation = DesktopCabinetSessionBridge.generation
+        let displayedPrompt = desktopCalendarPrompt
+        let isCurrent = {
+            DesktopCabinetSessionBridge.isCurrentSession(generation)
+                && desktopCalendarPrompt?.id == displayedPrompt?.id
+                && desktopCalendarPrompt?.eventId == displayedPrompt?.eventId
+                && desktopCalendarPrompt != nil
+        }
         let actions = DesktopCalendarPromptActions(
             openURL: { _ in
-                guard let eventID = prompt.eventId else { return }
-                Task { await CalendarMeetingOpener.openEvent(eventID) }
+                guard isCurrent(), let eventID = prompt.eventId else { return false }
+                return await CalendarMeetingOpener.openEvent(eventID)
             },
             startRecording: { decisionIntent, eventId in
                 Task {
@@ -895,14 +921,36 @@ private struct ContentView: View {
                 }
             },
             dismiss: { dismissed in
+                guard isCurrent() else { return }
                 dismissCalendarPrompt(dismissed)
             }
         )
-        actions.performPrimaryAction(for: prompt)
+        Task {
+            defer { desktopCalendarJoinInProgress = false }
+            if !(await actions.performPrimaryAction(for: prompt)), isCurrent() {
+                showCalendarJoinFailure(prompt)
+            }
+        }
+    }
+
+    @MainActor
+    private func showCalendarJoinFailure(_ prompt: DesktopCalendarPrompt, renewRetryWindow: Bool = true) {
+        guard desktopCalendarPrompt?.id == prompt.id else { return }
+        if renewRetryWindow {
+            desktopCalendarJoinFailedAt = Date()
+        }
+        desktopCalendarJoinFailedID = prompt.id
+        desktopCalendarJoinFailedGeneration = DesktopCabinetSessionBridge.generation
+        desktopCalendarPrompt?.message = "Не удалось открыть встречу. Проверьте подключение и повторите попытку. Если событие изменилось, обновите календарь."
+        desktopCalendarPrompt?.primaryActionTitle = "Повторить подключение"
+        desktopCalendarPrompt?.accessibilityLabel = "Не удалось открыть встречу. Повторить подключение."
     }
 
     @MainActor
     private func dismissCalendarPrompt(_ prompt: DesktopCalendarPrompt) {
+        desktopCalendarJoinFailedID = nil
+        desktopCalendarJoinFailedAt = nil
+        desktopCalendarJoinFailedGeneration = nil
         desktopCalendarReminderService.dismiss(prompt)
         if desktopCalendarPrompt?.id == prompt.id {
             desktopCalendarPrompt = nil

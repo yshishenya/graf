@@ -3,8 +3,17 @@ import XCTest
 import TwoBrainRecShared
 
 final class CalendarMeetingOpenerTests: XCTestCase {
+    func testValidHTTPSPortsRemainBrowserTargets() throws {
+        for raw in ["https://meet.example.test:8443/join", "https://zoom.us:444/j/123456789", "https://teams.microsoft.com:8443/l/meetup-join/synthetic", "https://telemost.yandex.ru:8443/j/synthetic"] {
+            let url = try XCTUnwrap(CalendarMeetingOpener.validatedHTTPS(raw))
+            XCTAssertEqual(url.absoluteString, raw)
+            XCTAssertNil(CalendarMeetingOpener.nativeCandidate(for: url))
+        }
+        XCTAssertNil(CalendarMeetingOpener.validatedHTTPS("https://meet.example.test:65536/join"))
+    }
+
     func testRejectsUnsafeURLsAndPreservesPassword() throws {
-        for raw in ["http://zoom.us/j/123456789", "https://a:b@zoom.us/j/123456789", "file:///tmp/test", "https://zoom.us:444/j/123456789", "https://zoom.us/\n"] {
+        for raw in ["http://zoom.us/j/123456789", "https://a:b@zoom.us/j/123456789", "file:///tmp/test", "https://zoom.us/\n"] {
             XCTAssertNil(CalendarMeetingOpener.validatedHTTPS(raw))
         }
         let original=try XCTUnwrap(URL(string:"https://us02web.zoom.us/j/12345678901?pwd=synthetic%2Bpass#fragment"))
@@ -159,6 +168,7 @@ final class NativeCalendarJoinTests: XCTestCase {
                     return safeURL
                 }, isCurrent: { current }, open: { _ in opens += 1; return true })
             }
+            return await joinTask!.value
         }, startRecording: { intent, selectedID in
             starts += 1
             do {
@@ -174,7 +184,7 @@ final class NativeCalendarJoinTests: XCTestCase {
         var prompt = DesktopCalendarPrompt(id: "f279-prompt", kind: .record, eventId: eventID.uuidString,
             title: "Synthetic", message: "", primaryActionTitle: "Record", accessibilityLabel: "Synthetic", openMeetingURL: safeURL)
         // Positive control: the same production dispatcher really owns this recorder's start callback.
-        actions.performPrimaryAction(for: prompt)
+        await actions.performPrimaryAction(for: prompt)
         let sessionBeforeJoin = try XCTUnwrap(controller.session)
         let contextBeforeJoin = try XCTUnwrap(context)
         let directoryBeforeJoin = try XCTUnwrap(writer.currentDirectoryURL())
@@ -193,7 +203,7 @@ final class NativeCalendarJoinTests: XCTestCase {
         prompt.kind = .join
         for selectedScenario in 0...2 {
             scenario = selectedScenario
-            actions.performPrimaryAction(for: prompt)
+            await actions.performPrimaryAction(for: prompt)
             let result = await joinTask!.value
             XCTAssertEqual(result, selectedScenario == 0)
             XCTAssertEqual(starts, 1)
@@ -210,6 +220,77 @@ final class NativeCalendarJoinTests: XCTestCase {
         XCTAssertTrue(manifest.isComplete)
         XCTAssertEqual(manifest.tracks.first { $0.role == .mixedMeetingAudio }?.frameCount, 6_400)
         XCTAssertFalse(writer.isRecording)
+    }
+
+    func testBrowserRecoveryRequiresActionAndFreshAuthorizedTarget() async {
+        let fresh = URL(string: "https://meet.example.test:8443/new")!
+        var calls: [String] = []
+        let success = await CalendarMeetingOpener.recoverInBrowser(confirm: { calls.append("confirm"); return true },
+            resolve: { calls.append("resolve"); return fresh }, isCurrent: { true },
+            open: { url in calls.append("browser"); XCTAssertEqual(url, fresh); return true })
+        XCTAssertTrue(success)
+        XCTAssertEqual(calls, ["confirm", "resolve", "browser"])
+        for scenario in 0...3 {
+            var current = true
+            var opens = 0
+            let result = await CalendarMeetingOpener.recoverInBrowser(confirm: {
+                if scenario == 1 { current = false }
+                return scenario != 0
+            }, resolve: {
+                if scenario == 2 { throw URLError(.resourceUnavailable) }
+                if scenario == 3 { current = false }
+                return fresh
+            }, isCurrent: { current }, open: { _ in opens += 1; return true })
+            XCTAssertFalse(result)
+            XCTAssertEqual(opens, 0)
+        }
+    }
+
+    func testReminderRefreshRetainsOnlyRecentSameSessionTransientFailure() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let prompt = DesktopCalendarPrompt(id: "synthetic", kind: .join, eventId: UUID().uuidString,
+            title: "Synthetic", message: "", primaryActionTitle: "Join", accessibilityLabel: "Join")
+        let errors: [(Error, Bool)] = [(URLError(.notConnectedToInternet), true),
+            (DesktopUploadClientError.httpStatus(503, "unavailable"), true),
+            (DesktopUploadClientError.httpStatus(401, "auth"), false),
+            (DesktopUploadClientError.httpStatus(404, "removed"), false),
+            (URLError(.cancelled), false)]
+        for (error, expected) in errors {
+            XCTAssertEqual(DesktopCalendarReminderService.shouldRetainFailedJoin(prompt: prompt,
+                failedPromptID: prompt.id, failedAt: now, isCurrentSession: true, error: error, now: now), expected)
+        }
+        for (current, id, age) in [(false, prompt.id, 0.0), (true, "replaced", 0.0), (true, prompt.id, 301.0)] {
+            XCTAssertFalse(DesktopCalendarReminderService.shouldRetainFailedJoin(prompt: prompt,
+                failedPromptID: id, failedAt: now.addingTimeInterval(-age), isCurrentSession: current,
+                error: URLError(.notConnectedToInternet), now: now))
+        }
+        XCTAssertFalse(DesktopCalendarReminderService.shouldRetainFailedJoin(prompt: nil,
+            failedPromptID: prompt.id, failedAt: now, isCurrentSession: true,
+            error: URLError(.notConnectedToInternet), now: now))
+    }
+
+    func testReminderWaitsForJoinAndRetainsFailureForRetry() async {
+        let pending = JoinPendingResolver()
+        var dismisses = 0
+        var succeed = false
+        let prompt = DesktopCalendarPrompt(id: "synthetic", kind: .join, eventId: UUID().uuidString,
+            title: "Synthetic", message: "", primaryActionTitle: "Join", accessibilityLabel: "Join",
+            openMeetingURL: URL(string: "https://example.test/join")!)
+        let actions = DesktopCalendarPromptActions(openURL: { _ in
+            if !succeed { _ = try? await pending.resolve() }
+            return succeed
+        }, startRecording: { XCTFail("Join must not start capture") }, dismiss: { _ in dismisses += 1 })
+        let attempt = Task { await actions.performPrimaryAction(for: prompt) }
+        while !(await pending.started) { await Task.yield() }
+        XCTAssertEqual(dismisses, 0)
+        await pending.finish()
+        let failed = await attempt.value
+        XCTAssertFalse(failed)
+        XCTAssertEqual(dismisses, 0)
+        succeed = true
+        let retried = await actions.performPrimaryAction(for: prompt)
+        XCTAssertTrue(retried)
+        XCTAssertEqual(dismisses, 1)
     }
 
     func testNativeEntryRechecksSessionAndSuppressesDuplicate() async {

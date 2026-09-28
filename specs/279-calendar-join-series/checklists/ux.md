@@ -33,3 +33,6 @@ Reviewer-owned. Автор реализации не меняет checkbox; эт
 
 
 Завершающая проверка локальных доказательств T010: S07 (реальная API/ACL проверка grant/revoke/delete), C02 (production dispatcher/resolver/controller/writer с синтетическими данными) и SC-007 (30 измерений production browser harness) подтверждены PASS. Swift 113/0, серверный contract файл 9 PASS, browser PASS. Границы доказательств и оставшиеся SHA/CI/Dev условия записаны в разделе «Завершающее ревью локальных доказательств T010» `../review-report.md`. Качество требований сохраняется **8 checked / 0 unchecked**.
+
+
+Независимое повторное ревью четырёх PR-замечаний: day30/history, явное browser recovery, async reminder retry с ограниченным сохранением при offline, допустимые HTTPS-порты — исправлены по исходникам/локальным тестам. Swift 117/0; server focused 13 PASS. Итог и границы app-build/runtime evidence записаны в последнем разделе `../review-report.md`; markers качества требований сохраняются **8 checked / 0 unchecked**.

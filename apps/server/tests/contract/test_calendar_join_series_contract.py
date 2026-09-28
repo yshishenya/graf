@@ -447,3 +447,71 @@ def test_series_recordings_recheck_grant_revocation_and_deletion(client):
     ids, payload = available_recordings()
     assert ids == set()
     assert all(meeting_id not in payload for meeting_id in recordings)
+
+
+def test_default_history_includes_overview_thirtieth_day_and_excludes_day31(client, monkeypatch):
+    import asyncio
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import select
+
+    from tests.contract.test_ingest_openapi_contract import auth_headers
+    from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
+    from twobrain_rec_server.api import calendar as calendar_api
+    from twobrain_rec_server.db.models import CalendarEventSnapshot, CalendarSettingsPreference
+
+    frozen = datetime(2026, 9, 28, 12, tzinfo=UTC)
+    today = frozen.replace(hour=0)
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen
+
+    monkeypatch.setattr(calendar_api, "datetime", FrozenDateTime)
+    seed_series(client)
+
+    async def place_boundary_events():
+        async with client.app_state["sessionmaker"]() as db:
+            rows = list(
+                await db.scalars(
+                    select(CalendarEventSnapshot).order_by(CalendarEventSnapshot.provider_event_id)
+                )
+            )
+            for row in rows:
+                row.source_status = "cancelled"
+            chosen = rows[:3]
+            for row, offset in zip(
+                chosen,
+                [timedelta(days=30), timedelta(days=30, hours=10), timedelta(days=31)],
+                strict=True,
+            ):
+                row.source_status = "confirmed"
+                row.recurring_series_id = "boundary-series"
+                row.starts_at = today + offset
+                row.ends_at = row.starts_at + timedelta(hours=1)
+            chosen[0].all_day = True
+            db.add(
+                CalendarSettingsPreference(
+                    workspace_id=WORKSPACE_ID, owner_user_id=USER_ID, include_all_day_events=True
+                )
+            )
+            await db.commit()
+            return [str(row.id) for row in chosen]
+
+    ids = asyncio.run(place_boundary_events())
+    overview = client.get("/api/v1/calendar/overview", headers=auth_headers())
+    assert overview.status_code == 200, overview.text
+    card = next(row for row in overview.json()["cards"] if row["event_id"] == ids[0])
+    url = f"/api/v1/calendar/series/{card['series_key']}/occurrences"
+    history = client.get(url, headers=auth_headers())
+    assert history.status_code == 200, history.text
+    assert [row["event_id"] for row in history.json()["occurrences"]] == ids[:2]
+    assert datetime.fromisoformat(history.json()["coverage_range"]["to"]) == today + timedelta(
+        days=31
+    )
+    explicit = client.get(
+        url, params={"to": (today + timedelta(days=30)).isoformat()}, headers=auth_headers()
+    )
+    assert explicit.status_code == 200, explicit.text
+    assert explicit.json()["occurrences"] == []

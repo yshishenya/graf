@@ -8,6 +8,22 @@ public struct DesktopCalendarReminderService: Sendable {
         self.dismissedPromptIDs = dismissedPromptIDs
     }
 
+    /// A short retry window survives transport failures, never a changed session or definitive response.
+    public static func shouldRetainFailedJoin(
+        prompt: DesktopCalendarPrompt?, failedPromptID: String?, failedAt: Date?,
+        isCurrentSession: Bool, error: Error, now: Date = Date()
+    ) -> Bool {
+        guard isCurrentSession, let prompt, prompt.kind == .join, prompt.id == failedPromptID,
+              let failedAt, (0...300).contains(now.timeIntervalSince(failedAt)) else { return false }
+        if let network = error as? URLError {
+            return [.notConnectedToInternet, .timedOut, .networkConnectionLost, .cannotConnectToHost, .cannotFindHost].contains(network.code)
+        }
+        if case DesktopUploadClientError.httpStatus(let status, _) = error {
+            return status == 408 || status == 429 || (500...599).contains(status)
+        }
+        return false
+    }
+
     public mutating func dismiss(_ prompt: DesktopCalendarPrompt) {
         dismissedPromptIDs.insert(prompt.id)
     }

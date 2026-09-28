@@ -9,7 +9,7 @@ public enum CalendarMeetingOpener {
         guard raw.utf8.count <= 8192, !raw.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }),
               let url = URL(string: raw), let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
               parts.scheme?.lowercased() == "https", let host = parts.host, !host.isEmpty,
-              parts.user == nil, parts.password == nil, parts.port == nil || parts.port == 443 else { return nil }
+              parts.user == nil, parts.password == nil, parts.port.map({ (0...65535).contains($0) }) ?? true else { return nil }
         let normalizedHost = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
         guard normalizedHost.contains("."), !normalizedHost.contains(":"),
               !normalizedHost.hasSuffix(".localhost"), !normalizedHost.hasSuffix(".local"),
@@ -19,7 +19,8 @@ public enum CalendarMeetingOpener {
 
     public static func nativeCandidate(for url: URL) -> URL? {
         guard validatedHTTPS(url.absoluteString) != nil,
-              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false), let host = parts.host?.lowercased() else { return nil }
+              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false), let host = parts.host?.lowercased(),
+              parts.port == nil || parts.port == 443 else { return nil }
         if host == "teams.microsoft.com", parts.path.hasPrefix("/l/meetup-join/") {
             parts.scheme = "msteams"
             return parts.url
@@ -69,39 +70,74 @@ public enum CalendarMeetingOpener {
         let generation = DesktopCabinetSessionBridge.generation
         let origin = client.baseOrigin
         let token = DesktopUploadClient.defaultAuthSessionToken(for: origin)
-        return await resolveAndOpen(eventID: eventID,
-            resolve: { try await client.calendarJoinTarget(eventID: $0) },
-            isCurrent: {
+        let isCurrent = {
                 DesktopCabinetSessionBridge.isCurrentSession(generation)
                     && DesktopUploadClient.defaultAuthSessionToken(for: origin) == token
                     && DesktopUploadClient.configuredFromEnvironment()?.baseOrigin == origin
-            }, open: { await Self.open($0) })
+        }
+        return await resolveAndOpen(eventID: eventID,
+            resolve: { try await client.calendarJoinTarget(eventID: $0) },
+            isCurrent: isCurrent, open: { await Self.open($0,
+                resolveFallback: { try await client.calendarJoinTarget(eventID: eventID) },
+                isCurrent: isCurrent) })
+    }
+
+    /// Browser recovery is a separate explicit user action, with fresh authorization.
+    @MainActor
+    static func recoverInBrowser(
+        confirm: () async -> Bool,
+        resolve: () async throws -> URL,
+        isCurrent: () -> Bool,
+        open: (URL) async -> Bool
+    ) async -> Bool {
+        guard !Task.isCancelled, isCurrent(), await confirm(), !Task.isCancelled, isCurrent() else { return false }
+        do {
+            let target = try await resolve()
+            guard !Task.isCancelled, isCurrent(), let safe = validatedHTTPS(target.absoluteString) else { return false }
+            return await open(safe)
+        } catch { return false }
     }
 
     @MainActor
-    public static func open(_ url: URL) async -> Bool {
-        guard let safe = validatedHTTPS(url.absoluteString) else { return false }
+    public static func open(_ url: URL, resolveFallback: () async throws -> URL,
+                            isCurrent: () -> Bool) async -> Bool {
+        guard isCurrent(), let safe = validatedHTTPS(url.absoluteString) else { return false }
         let workspace = NSWorkspace.shared
-        // Telemost accepts conference links through its application URL handler.
-        if safe.host?.lowercased() == "telemost.yandex.ru", safe.path.hasPrefix("/j/"),
-           let app = workspace.urlForApplication(withBundleIdentifier: "ru.yandex.desktop.telemost") {
+        var application: URL?
+        var target = safe
+        // Nonstandard HTTPS ports belong to the browser, not custom native schemes.
+        if safe.port == nil || safe.port == 443 {
+            if safe.host?.lowercased() == "telemost.yandex.ru", safe.path.hasPrefix("/j/") {
+                application = workspace.urlForApplication(withBundleIdentifier: "ru.yandex.desktop.telemost")
+            } else if let native = nativeCandidate(for: safe) {
+                application = nativeApplicationIdentifiers(for: safe)
+                    .compactMap { workspace.urlForApplication(withBundleIdentifier: $0) }.first
+                if application != nil { target = native }
+            }
+        }
+        guard let application else { return workspace.open(safe) }
+        let opened: Bool = await withCheckedContinuation { continuation in
+            workspace.open([target], withApplicationAt: application, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+                continuation.resume(returning: error == nil)
+            }
+        }
+        if opened { return true }
+        return await recoverInBrowser(confirm: {
+            let alert = NSAlert()
+            alert.messageText = "Не удалось открыть приложение встречи"
+            alert.informativeText = "Можно открыть встречу в браузере. Перед переходом GRAF ещё раз проверит доступность ссылки."
+            alert.addButton(withTitle: "Открыть в браузере")
+            alert.addButton(withTitle: "Отмена")
+            return alert.runModal() == .alertFirstButtonReturn
+        }, resolve: resolveFallback, isCurrent: isCurrent, open: { fresh in
+            // Explicitly address the default HTTPS browser to avoid retrying a universal-link app.
+            guard let browser = workspace.urlForApplication(toOpen: URL(string: "https://example.com")!) else { return false }
             return await withCheckedContinuation { continuation in
-                workspace.open([safe], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration()) { _, error in
+                workspace.open([fresh], withApplicationAt: browser, configuration: NSWorkspace.OpenConfiguration()) { _, error in
                     continuation.resume(returning: error == nil)
                 }
             }
-        }
-        // A registered scheme can point at a removed app or a Parallels proxy.
-        // Address the supported native application explicitly; otherwise retain HTTPS.
-        if let native = nativeCandidate(for: safe),
-           let app = nativeApplicationIdentifiers(for: safe).compactMap({ workspace.urlForApplication(withBundleIdentifier: $0) }).first {
-            return await withCheckedContinuation { continuation in
-                workspace.open([native], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration()) { _, error in
-                    continuation.resume(returning: error == nil)
-                }
-            }
-        }
-        return workspace.open(safe)
+        })
     }
     #endif
 }

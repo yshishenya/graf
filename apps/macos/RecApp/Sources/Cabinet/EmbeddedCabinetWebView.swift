@@ -2094,15 +2094,18 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 let sessionToken = DesktopUploadClient.defaultAuthSessionToken(for: origin)
                 let currentHeaders = desktopHeaders.filter { $0.key.caseInsensitiveCompare("X-Auth-Session") != .orderedSame }
                 let client = DesktopUploadClient(baseURL: origin, headers: currentHeaders)
-                calendarJoinBridge.join(join, resolve: { try await client.calendarJoinTarget(eventID: $0) },
-                    isCurrent: { [weak self, weak webView] in
+                let isCurrent: @MainActor @Sendable () -> Bool = { [weak self, weak webView] in
                         guard let self, let webView else { return false }
                         return self.isActive && self.cabinetState == .ready && !webView.isLoading
                             && self.navigationController.isAttached(to: webView) && webView.url == sourceURL
                             && self.userTimeDocumentRevision == revision && self.navigationController.sessionBoundaryID == boundary
                             && DesktopCabinetSessionBridge.isCurrentSession(generation)
                             && DesktopUploadClient.defaultAuthSessionToken(for: origin) == sessionToken
-                    }, open: { await CalendarMeetingOpener.open($0) }, reply: { [weak webView] state in
+                }
+                calendarJoinBridge.join(join, resolve: { try await client.calendarJoinTarget(eventID: $0) },
+                    isCurrent: isCurrent, open: { await CalendarMeetingOpener.open($0,
+                        resolveFallback: { try await client.calendarJoinTarget(eventID: join.eventID) },
+                        isCurrent: isCurrent) }, reply: { [weak webView] state in
                         webView?.evaluateJavaScript("window.GRAFCalendarJoin?.reply('\(join.requestID.uuidString.lowercased())', '\(state)')", in: nil, in: EmbeddedCabinetCalendarJoinBridge.contentWorld, completionHandler: { _ in })
                     })
                 return
