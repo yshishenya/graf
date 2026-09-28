@@ -1510,3 +1510,247 @@ reviewer; тесты запускал MAIN, reviewer только прочита
 по сообщению MAIN, их результат здесь не удостоверяется. Добавлен только
 этот раздел; tasks/checklists/source/GitHub/commits reviewer не менял,
 tests/build/app не запускал, общий GRAF Dev F278 не трогал.
+
+### T035 — независимый requirements/checklist gate до tasks, 2026-09-28
+
+**PASS качества требований: 31 checked / 0 unchecked; custom 26/26,
+built-in requirements 5/5. Findings CRITICAL/HIGH/MEDIUM/LOW: 0/0/0/0.**
+Проверен рабочий текст шести изменённых документов на HEAD
+`792ff42ca1ff453dee8cd81c64d913f717b0c035`, включая окончательное уточнение
+действий в FR-013/UI contract/quickstart. Это допускает добавление T035,
+не начало реализации и не подтверждение работы нового поведения.
+
+Прочитаны AGENTS, guidance README/spec-kit-flow/product-gates,
+constitution, правила workspace/validation, относящиеся к календарю и записи
+разделы product baseline/current status; активные spec/plan/tasks/research,
+data-model, оба contracts, quickstart, cleanup-map и все четыре checklist.
+Использованы speckit-checklist и ограниченная проверка согласованности
+speckit-analyze. Существующие отметки независимо перепроверены; оснований
+менять критерии или открывать пункт нет. Основания всех 31 пунктов:
+
+| Пункты | Основание сохранённого PASS |
+|---|---|
+| requirements, все 5 | Spec: истории, FR/SC, Session 2026-09-28, границы и исключения; решение владельца закрывает календарный вопрос, не меняет три правила и 8 s. |
+| UX CHK001–003 | FR-001–006, UI «Геометрия»: пять видов, размеры, необязательные поля, действия и флажок не меняются. |
+| UX CHK004 | FR-009/012/013, data-model: 8/20/6 s отдельно от календарного deadline=min(due+120s,endsAt), offset 0/1/5; ошибка/восстановление срок не продлевают. |
+| UX CHK005–006 | FR-006/019, UI «Клавиатура»/«Геометрия»: первый click, focus, AX, контраст и темы сохранены; повторного показа/звука нет. |
+| UX CHK007–008 | FR-007/008/020/025, UI «Конкуренция»/«Lifecycle»: кандидаты очищаются, terminal не воскресает, сон/блокировка/контекст и Stop остаются обязательными. |
+| UX CHK009–010 | FR-016–018/024, research R2/R3/R5, plan: нейтральная история, quiet, ограничения доставки/доступности и происхождение материалов не меняются. |
+| Security CHK011–012 | FR-013/017/020, data-model, plan T035: только видимое событие в прежнем контексте до исходного срока; auth имеет приоритет, safe actions и очистка истории сохранены. |
+| Security CHK013–015 | Settings bridge, cleanup-map, FR-014/015/021–023: версия/поля/защита настроек, полезные prefs и удаление старого канала сохранены; nullable callback заменяется, не оставляется параллельно. |
+| Security CHK016 | Plan Release Gate/Validation, quickstart: синтетические данные, отдельные exact-SHA/base gates; нет разрешения на release/Dev replacement. |
+| Capture CHK017–020 | FR-009/010/020, UI «Решения записи»/«Lifecycle», plan I–II: прежние решения/remember, однократность, отмена и все capture gates/indicator/Stop сохранены. |
+| Capture CHK021–024; Security CHK025–026 | FR-026–028/SC-008, plan P1, data-model acceptance, quickstart: T035 не меняет writer/manifest/recovery/upload admission, совместимость и прежние отрицательные проверки. |
+
+Согласованность нового среза: изменяемый FR-013 и сохраняемые FR-017/020
+покрыты описанным договором **3/3**; SC-003/005 не ослаблены. Полный
+post-tasks analyze ещё не выполнен: T035 пока отсутствует в tasks.md и не
+имеет подтверждённого здесь GitHub owner. На стадии checklist-before-tasks
+это ожидаемый порядок, не пробел требований. Исторические запреты изменения
+календаря в T033/T034 остаются верны для их объёма; новое решение отдельно
+зафиксировано в Session 2026-09-28 и plan T035.
+
+Узкая схема согласована: confirmed / temporarilyUnavailable / invalidated
+заменяют nullable onProjection. Разрешены только HTTP408/429/5xx и перечисленные
+сетевые URLError; authSession/401/403 выше временной ошибки, неизвестная
+ошибка очищает карточку. Generation guard предшествует любому результату.
+Меню и непоказанные кандидаты очищаются даже при временной ошибке; сохраняется
+только текущий видимый eligible envelope с теми же окном/token/deadline/claim.
+Подтверждённый ответ заменяет snapshot, включая empty/move/link change.
+Нет нового cache, retry, таймера или восстановления terminal identity.
+
+Окончательное уточнение не удаляет meeting actions: join без записи,
+joinAndRecord/record через прежние capture gates; ошибка и календарное expiry
+сами ничего не запускают. Требуемая проверка — tests-first настоящей цепочки
+CalendarTrayModel → Presenter → card: повторные временные ошибки и восстановление,
+тот же window/deadline и один звук; исходное expiry, в том числе endsAt раньше
+due+120s; ноль новых кандидатов/повторного показа; immediate auth/context clear
+до await и отбрасывание прежних success/failure; empty/moved/link change,
+quiet/reminders/recording/lock, title privacy и действия до/после deadline.
+Положительные join/joinAndRecord/record и отрицательные устаревшие callbacks
+проверяются без реального браузера/захвата: existing capture-model spy или
+узкий injected URL opener на том же рабочем пути, без второго обработчика.
+Подмена всей проекции прямым вызовом presenter не доказывает typed callback.
+
+После добавления задачи MAIN выполняет analyze с mapping/dependencies,
+синхронизацию единственного issue owner, затем RED → код → GREEN/review и
+fresh exact-SHA/base проверки. Прежние локальные/CI результаты не являются
+доказательством T035 или обновлённой базы. Принятые T015/manual решения и
+явно отложенный второй монитор T020 не переоткрываются. Reviewer добавил
+только этот раздел; checklists, main docs, tasks, code, git/GitHub не менял,
+tests/build/app не запускал.
+
+### T035 — повторный gate с Phase 14 tasks, 2026-09-28
+
+**PASS узкой проверки mapping/dependencies/current task. Findings
+CRITICAL/HIGH/MEDIUM/LOW: 0/0/0/0.** Предыдущий requirements gate
+**31 checked / 0 unchecked** сохраняется: требования не изменились,
+полный аудит checklist повторно не выполнялся и отметки не редактировались.
+
+Проверена добавленная T035 в tasks.md: всего 35 уникальных task IDs,
+открыты T020/T022/T035; прежние строки/статусы не изменены. Новый срез
+FR-013/017/020 и SC-003/005 связан с T035: **5/5 (100%)**, непокрытых
+требований среза 0, несвязанных новых задач 0. Существующие ссылки T009–T010
+не заменяют новую задачу; Phase 14 явно дополняет историческую таблицу.
+
+Порядок согласован: T034 → T035 → итоговая T022; внутри T035 RED настоящей
+model→presenter→card цепочки предшествует замене callback и интеграции App,
+затем GREEN, общий набор, сборки/ContractValidation, retirement, независимое
+review/converge и обновление evidence. Все пять адресованных Swift-файлов
+существуют. MAIN единолично владеет реализацией и .build; reviewer не пишет
+в эти файлы. Нет параллельной задачи на те же общие файлы или нового scope.
+Ограничения временных ошибок, исходного deadline, auth/context, terminal
+claim, безопасных join/joinAndRecord/record и capture gates перенесены в
+задачу без ослабления; тесты не открывают браузер и не включают захват.
+
+Это завершает повторный reviewer gate с задачей, но **не удостоверяет
+GitHub ownership**: в прочитанной Phase 14 ссылки владельца T035 ещё нет;
+MAIN отдельно завершает post-tasks analyze и issue sync до реализации.
+Их отсутствие на момент параллельной проверки не является дефектом текста,
+но не разрешает начать implement раньше. T020/manual решения сохранены.
+Prerequisites для plan/tasks прошли поддерживаемой локальной командой;
+наличие spec проверено отдельно (скрипт не поддерживает флаг --require-spec
+из skill). Добавлен только этот раздел; tests/build/app и изменения
+tasks/checklists/source/git/GitHub reviewer не выполнял.
+
+### T035 — независимое code review / scoped converge, 2026-09-28
+
+**REQUEST CHANGES: A14-01, MEDIUM, partial; CRITICAL/HIGH 0/0,
+MEDIUM/LOW 1/0.** Проверена текущая рабочая реализация на HEAD
+`792ff42ca1ff453dee8cd81c64d913f717b0c035`, а не только diff:
+CalendarTrayModel refresh/invalidate, App wiring и auth observer,
+Presenter projection/context/reconcile/show/retire/action/expiry и safe URL,
+Card present/update/refresh/clear, два изменённых тестовых файла и fixtures.
+Граница — T035/#7356, FR-013/017/020 и SC-003/005: проверены 5/5,
+4 удовлетворены в прочитанном коде, FR-013/plan/data-model retention — partial.
+Новых missing/contradicts/unrequested findings нет. Requirements checklist
+31/31 не переоценивается как runtime evidence и не меняется.
+
+**A14-01 — данные удержанной карточки переживают terminal/deadline.**
+`DesktopNotificationPresenter.swift:282–287` оставляет событие с title/URL
+в calendarEvents при temporarilyUnavailable. `retire` (498–504), вызываемый
+close/expiry/preemption/action, очищает active и окно, но не эту проекцию;
+reconcile также не удаляет её. Без следующего завершившегося refresh или
+context reset данные остаются в памяти дольше исходного deadline.
+Это не найденный replay, поздний запуск или утечка между аккаунтами:
+terminal claim, isCurrent/deadline и context invalidation их защищают.
+Однако data-model:32–36 прямо ограничивает хранение исходным deadline,
+а plan T035 разрешает сохранять только данные текущего видимого envelope.
+Тесты disappearance/no-replay проверяют другое и этот остаток не обнаруживают.
+
+Исправить в существующей T035: отличать временно удержанную проекцию от
+обычного confirmed snapshot и убирать её при terminal/expiry без ожидания
+сети, не затрагивая актуальные подтверждённые кандидаты. При этом нельзя
+слепо очистить calendarEvents внутри retire: handleAction сейчас повторно
+получает currentMeetingURL после retire. Сохранить прежнюю безопасную проверку
+и однократное выполнение join/joinAndRecord/record, затем отсутствие
+удержанных данных; не добавлять обход проверки URL/контекста. Нужны
+детерминированные проверки фактической очистки после expiry/close/preemption
+и действия без следующего refresh, плюс прежние положительные action tests.
+Переписать data-model как «только запрет активного доступа» означало бы
+ослабить проверенное ограничение; reviewer такого изменения не одобряет.
+Новая задача или изменение политики для исправления не требуются.
+
+Остальной срез: typed callback единственный; authSession/401/403 проверяются
+до временных ошибок, URLError ограничены явным списком, unknown очищает;
+generation отбрасывает прежние success/failure. Меню очищается на любой
+ошибке. Удержание допускает только visible/current meeting, удаляет других
+кандидатов, не пересоздаёт окно/deadline/claim и не повторяет звук.
+Confirmed empty/move/link/policy и context/quiet/reminders/recording/lock
+прекращают показ. Join opener внедрён в прежний safe-URL путь; model.send
+остаётся прежним путём явной записи, без нового capture bypass. Tests используют
+настоящие карточки/кнопки, общие управляемые часы, URL/action spies; они
+доказывают маршрутизацию команд, не реальный запуск capture executable.
+App/observer wiring проверено исходником, не выдано за новый runtime observer test.
+
+Непосредственно прочитаны журналы MAIN: RED
+`/tmp/graf-f277-t035-red.log` — 1 test, 21 failures, 0 unexpected;
+завершённый `/tmp/graf-f277-t035-focused.log` — 81 PASS/0 SKIP/0 FAIL,
+4.227 s (41 CalendarReminder + 40 LocalNotificationDelivery).
+Новые тесты: 5 delivery + 7 classification/race, также усилены прежние.
+Завершение focused подтверждено MAIN; reviewer ничего не запускал.
+Полный `/tmp/graf-f277-t035-full.log` на момент просмотра ещё выполняется;
+build/ContractValidation и fresh exact-SHA/base CI здесь не подтверждены.
+Прежний T034/full proof не перенесён на T035. Canon/ownership #7356 отражены
+в tasks и сообщении MAIN, live GitHub reviewer не проверял. Добавлен только
+этот раздел; tasks/checklists/source/git/GitHub и GRAF Dev не изменены.
+
+### T035 — закрытие A14-01 после retention fix, 2026-09-28
+
+**Code/test review и scoped converge PASS; A14-01 закрыт.
+Открытых findings CRITICAL/HIGH/MEDIUM/LOW: 0/0/0/0; срез
+FR-013/017/020, SC-003/005 — 5/5 по прочитанной реализации.**
+Предыдущий REQUEST CHANGES остаётся историей, не удалён. Новая политика,
+задача или ослабление data-model не потребовались.
+
+Проверен окончательный diff и terminal/action/recovery пути:
+Envelope.retainsCalendarProjection включается только для текущей видимой
+eligible meeting при временной ошибке; confirmed сбрасывает его до замены
+calendarEvents. Retire очищает проекцию только при этом признаке, поэтому
+expiry/close/preemption/action/quiet/recording/lock не держат данные сбоя
+до следующего refresh, а подтверждённые новые кандидаты не теряются.
+Safe meeting URL вычисляется перед синхронным retire после isCurrent;
+join/joinAndRecord/record сохраняют прежние команды и однократность.
+У настоящей кнопки card очищает поверхность до callback coordinator,
+поэтому её close lifecycle предшествует этим проверкам актуальности.
+Нового await, capture bypass или параллельного обработчика нет.
+
+CalendarEvents остаётся тем же хранилищем: internal getter/private setter
+позволяет проверять фактическую очистку, не создаёт public API или test-only
+копию состояния. Новые assertions проверяют пустую проекцию сразу после
+terminal/expiry/действий без следующего refresh. Confirmed replacements
+обоснованно не требуют пустоты; recovery-тест проверяет сохранение обоих
+подтверждённых событий и последующий настоящий показ будущего кандидата
+при offset 0/1/5. Положительные join/joinAndRecord/record и отрицательные
+deadline/context/link/повторный click остаются в том же тестовом пути.
+
+Прочитаны результаты MAIN: retention RED — 22 tests / 15 assertion
+failures / 0 unexpected, 2.422 s в `/tmp/graf-f277-t035-retention-red.log`.
+После исправления `/tmp/graf-f277-t035-final-focused.log` содержит
+завершение XCTest Selected tests и footer: **81 tests / 0 failures,
+3.460 s**, без пропусков (41 CalendarReminder + 40 Delivery).
+Reviewer прочитал журнал, отдельный shell exit code ему не передан;
+это не новый запуск reviewer и не доказательство полного финального CI.
+
+Полный `/tmp/graf-f277-t035-full.log` теперь также прочитан до завершения:
+1165 selected / 1156 PASS / 9 SKIP / 0 FAIL, 102.675 s. Он выполнен
+**до retention fix**, поэтому не выдаётся за полную проверку окончательного
+исправления. Финальные builds/ContractValidation, полный повтор при выборе
+MAIN и обязательные fresh exact-SHA/base PR gates остаются отдельно.
+Checklist 31/31 не изменён и не считается runtime-приёмкой. Добавлен только
+этот раздел; исходники/tests/tasks/checklists/git/GitHub reviewer не менял,
+тесты/сборки/приложение не запускал, GRAF Dev не затрагивал.
+
+### T019 — изоляция двух AppKit-тестов после полного прогона, 2026-09-28
+
+**PASS независимого review точного test-only diff; findings
+CRITICAL/HIGH/MEDIUM/LOW: 0/0/0/0.** В двух файлах добавлено ровно по
+одному вызову существующего requireInactiveHost() и поясняющему комментарию:
+DesktopNotificationAccessibilityTests.testUncompletedFocusRequestExpiresAndDoesNotStealLaterActivation
+и DesktopNotificationCardTests.testDismissReleasesNativePanelAndContentForEveryFamily.
+Оба вызова находятся после requireScreen(), до создания проверяемых окон.
+Общий F277CardTestSupport и production CardPresenter не изменены.
+Assertions, реальные timeout/позднее уведомление, пять семейств карточки,
+autoreleasepool, weak presenter/window/view и предел 20×10 ms сохранены.
+Новых skips, принудительного освобождения или операций над закрытым окном нет.
+
+Это допустимая ограниченная регрессионная правка T019 по прежним
+FR-019/022, SC-004; T035 и требования не расширяются, T036 не нужна.
+Подготовка использует существующий hide/unhide собственного XCTest-host
+и его ограниченный AppKit-цикл, не активацию другого приложения. Она
+фиксирует видимое неактивное предусловие, но **не доказывает освобождение
+окна в активном host** и не устанавливает внутреннюю причину старого удержания.
+
+Исходный полный FAIL остаётся действующим историческим свидетельством:
+1165 selected, 2 optional image SKIP, 3 assertions в двух тестах,
+94.674 s в /tmp/graf-f277-t035-final-full.log. Диагностический повтор
+33 selected / 27 PASS / 6 SKIP / 0 FAIL, 15.391 s имеет другое покрытие
+фокуса и не отменяет этот сбой. На момент чтения нового
+/tmp/graf-f277-t035-isolated-profile.log есть только завершение сборки
+за 6.61 s, итог тестов отсутствует; isolated-full.log ещё не создан.
+Ни профильный, ни полный новый runtime PASS этим review не заявлен.
+MAIN завершает последовательную валидацию и exact-SHA/base gates отдельно.
+
+Reviewer добавил только этот раздел. Tasks/checklists/code/git/GitHub не
+изменял; tests/build/app не запускал. Проверка завершена без фоновых задач,
+мониторинга или ожидания прогонов MAIN.

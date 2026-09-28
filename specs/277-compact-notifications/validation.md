@@ -1956,3 +1956,99 @@ App build, сборка/выполнение ContractValidation и retirement gu
 Окончательное подтверждение устранения CI-дефекта требует нового
 macOS14/Swift6.0.3 запуска точного SHA. Локальный GREEN не заменяет его.
 Прежние FAIL сохранены; общий GRAF Dev по-прежнему не изменялся.
+
+## T035 — решение владельца и временная недоступность календаря, 2026-09-28
+
+Владелец ответил «Сохранять» уже видимое напоминание до исходного срока и
+«сливать» после реализации и свежих проверок. Release/production/замена
+установленного GRAF Dev не разрешены. Уточнены FR-013/017/020, план,
+data-model/UI contract/quickstart. Независимые требования31/31 PASS;
+post-tasks analyze5/5,0 findings; T035/#7356 создана после проверки дубликатов,
+canon ensure/validate PASS (300 issues), прежние34 задачи сохранены.
+
+Исходный3824612a7 сохранён в codex/f277-before-refresh-3824612a. Rebase29
+коммитов на master59aa72e22 прошёл без конфликтов; range-diff29/29 равны.
+HEAD после переноса792ff42ca1ff453dee8cd81c64d913f717b0c035.
+Исходные69 профильных тестов после переноса:69 PASS,0 SKIP/FAIL,1.869s.
+Основной dirty checkout и общий GRAF Dev не менялись.
+
+RED нового договора на настоящих model→presenter→card:1test/21assertion
+failures/0unexpected,1.065s;503 и offline уничтожали окно/deadline на0/1/5.
+Журнал `/tmp/graf-f277-t035-red.log`. После замены nullable onProjection
+явным confirmed/temporarilyUnavailable/invalidated —81 PASS,0 SKIP/FAIL,
+4.227s, `/tmp/graf-f277-t035-focused.log`. Добавлены12 тестов:5 delivery
+и7 classification/race, усилены прежние проверки. Ошибки auth имеют приоритет
+даже над misleading network code; unknown/cancellation/TLS не считаются
+разрешённым временным сбоем. Меню очищается при любой ошибке, состояние
+записи не меняется. Нет нового retry/cache/timer или канала совместимости.
+
+Первый полный Swift:1165selected,1156PASS,9SKIP,0FAIL,102.675s,
+`/tmp/graf-f277-t035-full.log`. Семь skips — невозможность получить фокус
+независимого контрольного окна в локальном хосте; два — необязательный
+экспорт изображений без указанных каталогов. Не считать их PASS.
+
+Повторное review выявило A14-01: calendarEvents мог удерживать данные после
+terminal до следующего refresh. Ограничение хранения не ослаблялось.
+Дополнительный RED22tests/15assertion failures/0unexpected,2.422s:
+`/tmp/graf-f277-t035-retention-red.log`. Исправлено внутри T035:
+только удерживаемый envelope помечает свою проекцию; terminal очищает её
+синхронно, успешный ответ снимает пометку и сохраняет свежих кандидатов.
+Безопасная ссылка вычисляется после проверки актуальности непосредственно
+перед синхронным retire; прежние команды и capture gates сохраняются.
+
+Итоговый профиль после очистки:81 PASS,0 SKIP/FAIL,3.460s,
+`/tmp/graf-f277-t035-final-focused.log`. Проверены исходный срок/ранний end,
+то же окно, один звук, приватный title, no replay/new stale candidates,
+auth/logout/workspace/lock/quiet/recording, deleted/moved/link/policy,
+реальные join/joinAndRecord/record и двойные/устаревшие нажатия.
+URL и capture spies доказывают маршрутизацию, не реальный браузер/захват.
+Чтение actual calendarEvents подтверждает освобождение памяти после
+terminal/expiry/actions без следующего refresh и сохранение confirmedfuture.
+Старые success/failure отбрасываются управляемыми continuations.
+
+Node notification contract37 PASS; Python retirement contracts78 PASS;
+retirement guard0 нарушений; governance PASS. Process preflight сначала
+обнаружил старый source_sha в игнорируемом указателе после rebase; указатель
+обновлён на реальный HEAD, повтор PASS. Рабочие правила/валидаторы не менялись.
+Окончательный full/build/ContractValidation, независимое снятие A14-01 и
+точные GitHub SHA/base gates фиксируются отдельно после завершения.
+
+Независимое повторное review закрыло A14-01: 0 открытых findings;
+scoped converge FR-013/017/020, SC-003/005 —5/5. Main проверил тот же
+срез: исходный срок, ограниченное удержание данных, актуальность действий,
+отмена контекста и единственный путь показа соблюдены; новых задач нет.
+App build и ContractValidation после retention fix —PASS, exit0
+(`/tmp/graf-f277-t035-app.log`, `/tmp/graf-f277-t035-contract.log`).
+
+Повторный полный набор `/tmp/graf-f277-t035-final-full.log` завершился FAIL:
+1165 выбрано,2 SKIP,3 assertion failures в двух тестах,94.674s. В отличие
+от прежнего запуска здесь семь клавиатурных проверок не были пропущены.
+Timeout-test ожидал отказ в фокусе, но окно стало key; первая meeting-панель
+release-test не освободилась за200мс. T035 focused при этом остался81 PASS.
+Отдельные Accessibility+Card без изменения кода дали33 выбрано,27PASS,
+6SKIP,0FAIL,15.391s; это не отменяет полного FAIL и не доказывает его причину.
+
+Регрессионная подготовка T019 согласована независимым reviewer до правки:
+два теста вызывают существующий requireInactiveHost до создания карточки.
+Неактивный видимый собственный тестовый процесс соответствует их сценарию;
+предшествующая активация больше не является неявным предусловием. Только
+две тестовые строки и пояснения; production/helper/assertions/200мс не
+менялись, новых skips или принудительного освобождения нет. Ошибка
+подготовки остаётся FAIL. Причина прежнего удержания окна не установлена;
+это не новое доказательство teardown в активном установленном приложении.
+Requirements31/31 сохраняется; отдельная T036 не нужна для исправления
+предусловий существующей T019. Профиль после правки:33 выбрано,27PASS,
+6SKIP,0FAIL,15.346s (`/tmp/graf-f277-t035-isolated-profile.log`).
+
+Полный окончательный локальный набор после изоляции:
+`swift test --package-path apps/macos` —1165 выбрано,1157 PASS,8 SKIP,
+0 FAIL,109.421s,exit0 (`/tmp/graf-f277-t035-isolated-full.log`). Шесть skips
+связаны с независимой пробой фокуса тестового хоста, два — необязательные
+экспорты изображений. Пропуски не считаются подтверждёнными сценариями.
+Независимый просмотр точных двух test-only правок:0 findings; production
+focus/teardown не менялся. Это дополнительный результат, не стирающий FAIL.
+Final governance/development-process/retirement/diff-check —PASS.
+T035 завершена; T019/T021 актуализированы этой проверкой и независимыми
+дополнениями. До слияния остаются свежие обязательные GitHub gates точного
+HEAD/base. T020/#7305 и T022/#7276 не закрываются; установленный GRAF Dev,
+выпуск и production не затрагивались.

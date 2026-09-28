@@ -6,6 +6,191 @@ import TwoBrainRecShared
 
 @MainActor
 final class DesktopLocalNotificationDeliveryTests: XCTestCase {
+    func testF277CalendarRecoveryKeepsDeadlineAndEarlyEventEndWins() async throws {
+        for offset in [0, 1, 5] {
+            let f = try notificationFixture(self)
+            let p = f.presenter()
+            defer { p.dismissAllCards() }
+            var prefs = p.preferences; prefs.offsetMinutes = offset; prefs.sound = true
+            XCTAssertTrue(p.save(prefs))
+            // End wins at offsets0/1; due+120 wins at offset5.
+            let early = f.event(start: f.now.addingTimeInterval(Double(offset * 60)), duration: 30)
+            let (tray, loader) = calendarPipeline(f, p, [early])
+            await tray.refresh()
+            let window = try XCTUnwrap(p.card.window)
+            let deadline = try XCTUnwrap(p.card.deadline)
+            XCTAssertEqual(deadline, min(f.now.addingTimeInterval(120), early.endsAt))
+            f.now.addTimeInterval(5)
+            await loader.setFailure(URLError(.timedOut)); await tray.refresh()
+            XCTAssertTrue(p.card.window === window)
+            var updated = early; updated.title = "Changed synthetic title"
+            let future = f.event(id: "future", start: f.now.addingTimeInterval(Double(offset * 60) + 240))
+            await loader.setResponse(f.calendar([updated, future])); await tray.refresh()
+            XCTAssertTrue(p.card.window === window)
+            XCTAssertEqual(p.card.deadline, deadline)
+            XCTAssertFalse(p.card.presentedContent?.accessibilitySummary.contains("Changed synthetic") ?? true)
+            XCTAssertEqual(f.sounds, 1)
+            f.now = deadline; p.card.refresh()
+            XCTAssertFalse(p.card.isVisible)
+            XCTAssertTrue(f.actions.isEmpty)
+            XCTAssertEqual(p.calendarEvents.count, 2, "A confirmed replacement is no longer retained error data")
+            f.now = future.startsAt.addingTimeInterval(-Double(offset * 60))
+            p.reconcileCard(now: f.now)
+            XCTAssertTrue(p.card.isVisible, "Fresh future candidates must survive retirement of the old card")
+        }
+    }
+
+    func testF277TemporaryCalendarFailureDropsUnshownAndQueuedCandidates() async throws {
+        for behindPrompt in [false, true] {
+            let f = try notificationFixture(self)
+            let p = f.presenter()
+            defer { p.dismissAllCards() }
+            if behindPrompt { XCTAssertTrue(f.prompt(p)) }
+            let event = f.event(start: f.now.addingTimeInterval(behindPrompt ? 60 : 120))
+            let (tray, loader) = calendarPipeline(f, p, [event])
+            await tray.refresh()
+            await loader.setFailure(URLError(.notConnectedToInternet)); await tray.refresh()
+            if behindPrompt { try notificationClose(p) }
+            f.now.addTimeInterval(61); p.reconcileCard(now: f.now)
+            XCTAssertFalse(p.card.isVisible, "No new reminder may come from the failed projection")
+            XCTAssertTrue(f.actions.isEmpty)
+        }
+    }
+
+    func testF277RetainedCalendarCardStillHonorsInvalidationAndNeverReplays() async throws {
+        for reason in ["close", "preempt", "empty", "move", "link", "policy", "auth", "forbidden",
+                       "unknown", "logout", "workspace", "quiet", "disabled", "recording", "lock"] {
+            let f = try notificationFixture(self)
+            let p = f.presenter()
+            defer { p.dismissAllCards() }
+            let event = f.event(start: f.now.addingTimeInterval(60))
+            let (tray, loader) = calendarPipeline(f, p, [event])
+            await tray.refresh()
+            await loader.setFailure(URLError(.networkConnectionLost)); await tray.refresh()
+            XCTAssertTrue(p.card.isVisible, reason)
+            switch reason {
+            case "close": try notificationClose(p)
+            case "preempt":
+                XCTAssertTrue(f.prompt(p)); try notificationClose(p)
+            case "empty":
+                await loader.setResponse(f.calendar([])); await tray.refresh()
+            case "move":
+                var moved = event; moved.startsAt.addTimeInterval(3600); moved.endsAt.addTimeInterval(3600)
+                await loader.setResponse(f.calendar([moved])); await tray.refresh()
+            case "link":
+                var changed = event; changed.openMeetingURL = URL(string: "https://example.test/changed")
+                await loader.setResponse(f.calendar([changed])); await tray.refresh()
+            case "policy":
+                var blocked = event; blocked.joinPromptState = .blockedByPolicy
+                await loader.setResponse(f.calendar([blocked])); await tray.refresh()
+            case "auth", "forbidden":
+                await loader.setFailure(DesktopUploadClientError.httpStatus(reason == "auth" ? 401 : 403, "denied"))
+                await tray.refresh(); XCTAssertTrue(p.owner.isEmpty)
+            case "unknown":
+                await loader.setFailure(DesktopUploadClientError.invalidResponse); await tray.refresh()
+            case "logout": tray.invalidate()
+            case "workspace": p.updateContext(user: "owner", workspace: "other")
+            case "quiet": var prefs = p.preferences; prefs.quiet = true; XCTAssertTrue(p.save(prefs))
+            case "disabled": var prefs = p.preferences; prefs.reminders = false; XCTAssertTrue(p.save(prefs))
+            case "recording":
+                var snapshot = DesktopControlSnapshot()
+                snapshot.session = CaptureSession(id: "synthetic-active", mode: .audioRecording, state: .active,
+                    sourceAppEligibility: .eligible, policySnapshotRef: "policy", triggerEvidence: [:],
+                    visibleIndicatorState: .active, stopActionAvailable: true,
+                    bufferSummaryId: nil, startedAt: f.now, stoppedAt: nil)
+                await p.updateSnapshot(snapshot)?.value
+            case "lock": p.setPresentationBlocked(.lock, blocked: true)
+            default: XCTFail("Uncovered reason")
+            }
+            XCTAssertFalse(p.card.isVisible, reason)
+            if !["move", "link", "policy"].contains(reason) {
+                XCTAssertTrue(p.calendarEvents.isEmpty, "Retained calendar data must be released on terminal state: \(reason)")
+            }
+            await loader.setFailure(URLError(.timedOut)); await tray.refresh()
+            if reason == "lock" { p.setPresentationBlocked(.lock, blocked: false) }
+            XCTAssertFalse(p.card.isVisible, reason)
+            if !["logout", "workspace", "auth", "forbidden"].contains(reason) {
+                await loader.setResponse(f.calendar([event])); await tray.refresh()
+                XCTAssertFalse(p.card.isVisible, "Terminal occurrence cannot replay: \(reason)")
+            }
+            XCTAssertTrue(f.actions.isEmpty)
+        }
+    }
+
+    func testF277RetainedCalendarActionsAreSingleUseAndRejectStaleButtons() async throws {
+        for title in ["Подключиться", "Подключиться и начать запись", "Начать запись"] {
+            for invalidation in ["none", "deadline", "context", "link"] {
+                let f = try notificationFixture(self)
+                let p = f.presenter()
+                defer { p.dismissAllCards() }
+                var event = f.event(start: f.now.addingTimeInterval(60))
+                if title == "Начать запись" { event.meetingLinkPresent = false; event.openMeetingURL = nil }
+                let (tray, loader) = calendarPipeline(f, p, [event])
+                await tray.refresh()
+                let button = try XCTUnwrap(notificationButtons(p.card.window?.contentView).first { $0.title == title })
+                let deadline = try XCTUnwrap(p.card.deadline)
+                await loader.setFailure(URLError(.timedOut)); await tray.refresh()
+                XCTAssertTrue(p.card.isVisible)
+                switch invalidation {
+                case "deadline": f.now = deadline
+                case "context": p.invalidate()
+                case "link":
+                    var changed = event; changed.openMeetingURL = URL(string: "javascript:alert(1)")
+                    await loader.setResponse(f.calendar([changed])); await tray.refresh()
+                default: f.now = deadline.addingTimeInterval(-0.001)
+                }
+                button.performClick(nil); button.performClick(nil)
+                if invalidation != "link" {
+                    XCTAssertTrue(p.calendarEvents.isEmpty, "Retained data must be released after action or expiry")
+                }
+                XCTAssertEqual(f.actions, invalidation == "none" && title != "Подключиться" ? [.start] : [])
+                XCTAssertEqual(f.openedURLs, invalidation == "none" && title != "Начать запись" ? [try XCTUnwrap(event.openMeetingURL)] : [])
+                XCTAssertFalse(p.card.isVisible)
+            }
+        }
+    }
+
+    func testF277TemporaryCalendarFailureKeepsVisibleCardUntilOriginalDeadline() async throws {
+        for offset in [0, 1, 5] {
+            let f = try notificationFixture(self)
+            let p = f.presenter()
+            defer { p.dismissAllCards() }
+            var prefs = p.preferences; prefs.offsetMinutes = offset; prefs.sound = true
+            XCTAssertTrue(p.save(prefs))
+            let event = f.event(start: f.now.addingTimeInterval(Double(offset * 60)))
+            let loader = NotificationCalendarLoader(response: f.calendar([event]))
+            let tray = CalendarTrayModel { try await loader.load() }
+            tray.onProjection = { p.updateCalendarProjection($0) }
+            await tray.refresh()
+            let window = try XCTUnwrap(p.card.window)
+            let deadline = try XCTUnwrap(p.card.deadline)
+            XCTAssertEqual(deadline, f.now.addingTimeInterval(120))
+            for error in [DesktopUploadClientError.httpStatus(503, "unavailable") as any Error,
+                          URLError(.notConnectedToInternet)] {
+                f.now.addTimeInterval(10)
+                await loader.setFailure(error)
+                await tray.refresh()
+                XCTAssertTrue(tray.events.isEmpty)
+                XCTAssertTrue(p.card.isVisible, "A temporary fetch failure must preserve the visible reminder")
+                XCTAssertTrue(p.card.window === window)
+                XCTAssertEqual(p.card.deadline, deadline)
+                XCTAssertEqual(f.sounds, 1)
+            }
+            f.now = deadline.addingTimeInterval(-0.001)
+            p.card.refresh()
+            XCTAssertTrue(p.card.isVisible)
+            f.now = deadline
+            p.card.refresh()
+            XCTAssertFalse(p.card.isVisible)
+            XCTAssertTrue(p.calendarEvents.isEmpty, "Do not retain failed-refresh data beyond the original deadline")
+            await loader.setResponse(f.calendar([event]))
+            await tray.refresh()
+            XCTAssertFalse(p.card.isVisible)
+            XCTAssertEqual(f.sounds, 1)
+            XCTAssertTrue(f.actions.isEmpty)
+        }
+    }
+
     func testOwnedFreshServerAcceptedItemsStaySilentAndLocalBlockedActionOnlyOpensRecording() async throws {
         let f = try notificationFixture(self)
         let p = f.presenter()
@@ -670,6 +855,30 @@ final class DesktopLocalNotificationDeliveryTests: XCTestCase {
 }
 
 @MainActor
+private func calendarPipeline(_ fixture: NotificationTestFixture, _ presenter: DesktopNotificationPresenter,
+                              _ events: [DesktopCalendarPromptEvent]) -> (CalendarTrayModel, NotificationCalendarLoader) {
+    let loader = NotificationCalendarLoader(response: fixture.calendar(events))
+    let model = CalendarTrayModel { try await loader.load() }
+    model.onProjection = { presenter.updateCalendarProjection($0) }
+    model.onAuthInvalidated = { presenter.invalidate() }
+    return (model, loader)
+}
+
+private actor NotificationCalendarLoader {
+    var response: DesktopCalendarPromptResponse
+    var failure: (any Error)?
+    init(response: DesktopCalendarPromptResponse) { self.response = response }
+    func load() throws -> DesktopCalendarPromptResponse {
+        if let failure { throw failure }
+        return response
+    }
+    func setFailure(_ failure: any Error) { self.failure = failure }
+    func setResponse(_ response: DesktopCalendarPromptResponse) {
+        self.response = response; failure = nil
+    }
+}
+
+@MainActor
 func notificationFixture(_ test: XCTestCase, requiresScreen: Bool = true) throws -> NotificationTestFixture {
     _ = NSApplication.shared
     if requiresScreen && NSScreen.screens.isEmpty { throw XCTSkip("WindowServer screen is required for actual card delivery") }
@@ -682,6 +891,7 @@ func notificationFixture(_ test: XCTestCase, requiresScreen: Bool = true) throws
 final class NotificationTestFixture {
     var now = Date()
     var sounds = 0
+    var openedURLs: [URL] = []
     var actions: [DesktopControlAction] = []
     let store: DesktopNotificationPreferencesStore
     let defaults: UserDefaults
@@ -704,7 +914,8 @@ final class NotificationTestFixture {
         model.onAction = { [weak self] in self?.actions.append($0) }
         let result = DesktopNotificationPresenter(
             store: restoredStore ? DesktopNotificationPreferencesStore(defaults: defaults) : store,
-            model: model, clock: { self.now }, playSound: { self.sounds += 1 }, serverOrigin: serverOrigin,
+            model: model, clock: { self.now }, playSound: { self.sounds += 1 },
+            openMeetingURL: { self.openedURLs.append($0) }, serverOrigin: serverOrigin,
             card: DesktopNotificationCardPresenter(environment: environment))
         result.updateContext(user: user, workspace: workspace)
         return result

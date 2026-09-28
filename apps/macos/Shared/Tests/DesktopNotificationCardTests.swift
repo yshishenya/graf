@@ -68,6 +68,9 @@ final class DesktopNotificationCardTests: XCTestCase {
 
     func testDismissReleasesNativePanelAndContentForEveryFamily() async throws {
         try F277CardTestSupport.requireScreen()
+        // Automatic cards start without activating their host; do not inherit
+        // an earlier keyboard test's activation and pending AppKit events.
+        try await F277CardTestSupport.requireInactiveHost()
         for (name, content) in families {
             weak var retiredWindow: NSWindow?
             weak var retiredPresenter: DesktopNotificationCardPresenter?

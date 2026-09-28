@@ -239,6 +239,9 @@ final class DesktopNotificationAccessibilityTests: XCTestCase {
 
     func testUncompletedFocusRequestExpiresAndDoesNotStealLaterActivation() async throws {
         try F277CardTestSupport.requireScreen()
+        // A preceding keyboard test may leave AppKit active. Establish the
+        // denied-activation scenario before exposing an eligible key panel.
+        try await F277CardTestSupport.requireInactiveHost()
         var requests = 0
         var environment = NotificationCardEnvironment()
         environment.automaticallyTicks = false

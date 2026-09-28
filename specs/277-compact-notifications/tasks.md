@@ -323,3 +323,40 @@ ContractValidation, retirement guard и 78 Python contracts —PASS.
 Доказательства и ограничения — validation.md, scope-review.md Phase13.
 T020/#7305 и T022/#7276 остаются открыты. Issue #7353 не закрывается
 до проверки точного SHA/base и разрешённого слияния. GRAF Dev не обновлялся.
+
+## Phase 14: US3 — видимое напоминание при временной ошибке
+
+Решение владельца2026-09-28: сохранять только уже показанное напоминание
+до исходного срока; после проверки сливать PR. Предварительный независимый
+requirements gate31/31 PASS записан в scope-review.md. Ветка обновлена на
+master59aa72e22; range-diff подтверждает сохранность всех29 прежних коммитов.
+
+- [X] T035 [US3] Сначала воспроизвести RED исчезновения настоящей видимой карточки при503/offline в `apps/macos/Shared/Tests/DesktopLocalNotificationDeliveryTests.swift`, связав `CalendarTrayModel` с настоящим presenter/card и управляемым loader. В `apps/macos/RecApp/Sources/Calendar/CalendarTray.swift` заменить nullable `onProjection` явным confirmed/temporarilyUnavailable/invalidated с приоритетом authSession/401/403 и whitelist HTTP408/429/5xx/сетевых URLError; остальные ошибки очищают, generation guard обязателен. В `apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift` при временной ошибке оставлять только уже видимое актуальное событие в прежнем контексте, сохраняя window/token/deadline/claim и звук, без новых кандидатов/таймера/cache/повторного показа. Подключить единственный новый callback в `apps/macos/RecApp/App/TwoBrainRecApp.swift`, удалить прежнюю nullable развилку, не менять capture gates или claim-before-show. В `apps/macos/Shared/Tests/DesktopCalendarReminderTests.swift` и delivery tests проверить классификацию, меню-empty, offset0/1/5 и deadline=min(due+120s,endsAt), repeated failure/recovery, late success/failure, logout/context,empty/moved/link change,close/preemption/expiry/quiet/reminders/recording/lock и отсутствие возрождения. Проверить настоящие join/joinAndRecord/record до/после срока и контекста без браузера/захвата: допустим узкий injected URL opener на единственном рабочем пути, не новый обработчик. После GREEN выполнить общий F277 набор, App build/ContractValidation, retirement guard, независимое code review и scoped converge, обновить `specs/277-compact-notifications/validation.md`, `docs/current-product-status.md`, `changes/unreleased/F277.yaml`; новые exact-SHA/base GitHub gates обязательны перед разрешённым merge. По FR-013/017/020, SC-003/005, plan T035; после T034, до T022. (partial, MEDIUM)
+
+Старые IDs и статусы сохранены;35 задач всего,33 связаны с реализацией,
+T020 аппаратный долг и T022 итоговая сверка отдельно. T035 выполняет MAIN;
+Russell владеет только DesktopCalendarReminderTests.swift (классификация и
+порядок ответов), MAIN — production и delivery tests. Независимый reviewer
+Laplace проверяет требования/код; единственный владелец .build — MAIN.
+До реализации обязательны post-tasks analyze, issue sync и повторный
+reviewer gate. Физический второй монитор, release, production и установленный
+GRAF Dev в T035 не входят.
+
+- T035 (Issue #7356) — https://github.com/yshishenya/graf/issues/7356
+
+Main analyze Phase14: FR-013/017/020, SC-003/005 —5/5 покрыты T035;
+CRITICAL/HIGH/MEDIUM/LOW0, несвязанных задач0. Reviewer post-tasks PASS
+подтвердил mapping/dependencies;31/31 checklist остаются подтверждёнными.
+Issue sync:35/35 tasks имеют открытых владельцев, дубликатов T035 нет;
+canon ensure/validate PASS (300 issues). Реализация разрешена после этих
+проверок; отметка T035 меняется только после GREEN/review.
+
+T035 выполнена: первоначальный RED21 и retention RED15; окончательный
+профиль81 PASS/0 SKIP/FAIL. A14-01 независимо закрыт, scoped converge5/5,
+0 открытых findings. App build/ContractValidation, Node37, Python78 и guards
+PASS. Полный итог после изоляции двух прежних AppKit предусловий T019:
+1165 выбрано,1157 PASS,8 SKIP,0 FAIL,109.421s. Прежний полный FAIL и
+ограничения среды сохранены в validation.md. Независимый test-only review
+PASS, без изменения production/assertions/ожиданий. T019/T021 проверены
+повторно в этом срезе; T020/T022 и аппаратный долг остаются открытыми.
+Свежие exact-SHA/base gates и слияние — следующая отдельная стадия.

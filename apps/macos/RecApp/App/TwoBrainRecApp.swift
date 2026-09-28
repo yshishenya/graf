@@ -3235,10 +3235,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         notificationContextSubscription = DesktopNotificationPresenter.shared.$authEpoch.dropFirst()
             .sink { [weak self] _ in self?.calendarTrayController?.invalidateNotificationHistory() }
         trayModel.onAuthInvalidated = { DesktopNotificationPresenter.shared.invalidate() }
-        trayModel.onProjection = { response in
-            if let response { DesktopNotificationPresenter.shared.updateCalendar(response) }
-            else { DesktopNotificationPresenter.shared.clearCalendar() }
-        }
+        trayModel.onProjection = { DesktopNotificationPresenter.shared.updateCalendarProjection($0) }
         calendarTrayController?.start()
         calendarTrayController?.showRecordingState(trayRecordingState)
         appUpdateSubscription = appUpdateController.$presentation

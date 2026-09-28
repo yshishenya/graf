@@ -71,11 +71,12 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
     private let contextProvider: (@MainActor () async throws -> DesktopNotificationContext)?
     private let clock: () -> Date
     private let playSound: () -> Void
+    private let openMeetingURL: (URL) -> Void
     private var context = ""
     private var legacyContext = ""
     private var serverOrigin: String
     private var contextGeneration = 0
-    private var calendarEvents: [DesktopCalendarPromptEvent] = []
+    private(set) var calendarEvents: [DesktopCalendarPromptEvent] = []
     private var lastSnapshot = DesktopControlSnapshot()
     private var observations: [AnyCancellable] = []
     private let distributedObservations = DesktopNotificationLifecycleObservations()
@@ -107,6 +108,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
         var deadline: Date
         var content: DesktopNotificationCardContent
         var event: DesktopCalendarPromptEvent?
+        var retainsCalendarProjection = false
         var sessionID: String?
         var onStart: (() -> Void)?
         var onDismiss: (() -> Void)?
@@ -126,9 +128,11 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
     init(store: DesktopNotificationPreferencesStore, model: DesktopControlModel,
          contextProvider: (@MainActor () async throws -> DesktopNotificationContext)? = nil,
          clock: @escaping () -> Date = Date.init, playSound: @escaping () -> Void = { NSSound.beep() },
+         openMeetingURL: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) },
          serverOrigin: String = "", card: DesktopNotificationCardPresenter = .init()) {
         self.store = store; self.model = model; self.contextProvider = contextProvider
         self.clock = clock; self.playSound = playSound; self.serverOrigin = Self.normalizedOrigin(serverOrigin)
+        self.openMeetingURL = openMeetingURL
         self.card = card
         super.init()
         store.beginCalendarRetirement(at: clock())
@@ -265,10 +269,29 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
             clearCalendar(); return
         }
         updateContext(user: user, workspace: workspace)
+        active?.retainsCalendarProjection = false
         calendarEvents = response.events
         reconcileCard(now: clock())
     }
-    public func clearCalendar() { calendarEvents.removeAll(); reconcileCard(now: clock()) }
+    public func updateCalendarProjection(_ update: CalendarProjectionUpdate) {
+        switch update {
+        case let .confirmed(response): updateCalendar(response)
+        case .invalidated: clearCalendar()
+        case .temporarilyUnavailable:
+            let now = clock()
+            // Keep only the already visible occurrence, never the stale queue.
+            // Its envelope and original deadline remain the authority.
+            if let current = active, current.kind == .meeting,
+               card.isVisible, isCurrent(current, now: now) {
+                current.retainsCalendarProjection = true
+                calendarEvents = calendarEvents.filter {
+                    Self.reminderID($0, context: context) == current.identity
+                }
+            } else { calendarEvents.removeAll() }
+            reconcileCard(now: now)
+        }
+    }
+    private func clearCalendar() { calendarEvents.removeAll(); reconcileCard(now: clock()) }
 
     @discardableResult
     func updateSnapshot(_ snapshot: DesktopControlSnapshot) -> Task<Void, Never>? {
@@ -480,6 +503,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
         active = nil
         if envelope.kind == .meeting {
             terminalMeetings[envelope.identity] = max(envelope.deadline, envelope.event?.endsAt ?? envelope.deadline)
+            if envelope.retainsCalendarProjection { calendarEvents.removeAll() }
         }
         card.dismiss()
     }
@@ -543,6 +567,9 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
             envelope.onRemember?(value)
             return
         }
+        let meetingURL = envelope.event.flatMap {
+            Self.currentMeetingURL(for: $0, events: calendarEvents, now: clock())
+        }
         retire(envelope)
         if envelope.kind == .recordingPrompt {
             switch action {
@@ -550,11 +577,11 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
             case .skipRecordingPrompt: envelope.onSkip?(envelope.remember)
             default: break
             }
-        } else if envelope.kind == .meeting, let event = envelope.event {
+        } else if envelope.kind == .meeting {
             switch action {
             case .join, .joinAndRecord:
-                if let url = Self.currentMeetingURL(for: event, events: calendarEvents, now: clock()) {
-                    NSWorkspace.shared.open(url)
+                if let url = meetingURL {
+                    openMeetingURL(url)
                     if action == .joinAndRecord { model.send(.start) }
                 }
             case .record: model.send(.start)

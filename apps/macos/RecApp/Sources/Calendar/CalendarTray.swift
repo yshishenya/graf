@@ -23,6 +23,12 @@ public enum GrafTrayRecordingState: Equatable, Sendable {
     }
 }
 
+public enum CalendarProjectionUpdate: Equatable, Sendable {
+    case confirmed(DesktopCalendarPromptResponse)
+    case temporarilyUnavailable
+    case invalidated
+}
+
 /// The menu-bar surface intentionally owns only a short-lived safe projection.
 /// Server truth remains authoritative; no calendar event is persisted locally.
 @MainActor
@@ -37,11 +43,11 @@ public final class CalendarTrayModel {
     private let load: @Sendable () async throws -> DesktopCalendarPromptResponse
     private var refreshGeneration = 0
     public var onAuthInvalidated: (() -> Void)?
-    public var onProjection: ((DesktopCalendarPromptResponse?) -> Void)?
+    public var onProjection: ((CalendarProjectionUpdate) -> Void)?
     public func invalidate() {
         refreshGeneration += 1
         events = []
-        onProjection?(nil)
+        onProjection?(.invalidated)
         onAuthInvalidated?()
     }
 
@@ -63,16 +69,30 @@ public final class CalendarTrayModel {
                 .sorted { $0.startsAt == $1.startsAt ? $0.eventId < $1.eventId : $0.startsAt < $1.startsAt }
                 .prefix(12)
                 .map { $0 }
-            onProjection?(response)
-        } catch let error as DesktopUploadClientError {
-            guard generation == refreshGeneration else { return }
-            events = []
-            onProjection?(nil)
-            if error.failureCategory == .authSession { invalidate() }
+            onProjection?(.confirmed(response))
         } catch {
             guard generation == refreshGeneration else { return }
             events = []
-            onProjection?(nil)
+            if let error = error as? DesktopUploadClientError {
+                if error.failureCategory == .authSession {
+                    invalidate(); return
+                }
+                if case let .httpStatus(status, _) = error {
+                    if status == 401 || status == 403 { invalidate(); return }
+                    if status == 408 || status == 429 || (500...599).contains(status) {
+                        onProjection?(.temporarilyUnavailable); return
+                    }
+                }
+            }
+            if let error = error as? URLError {
+                switch error.code {
+                case .timedOut, .notConnectedToInternet, .networkConnectionLost,
+                     .cannotFindHost, .dnsLookupFailed, .cannotConnectToHost:
+                    onProjection?(.temporarilyUnavailable); return
+                default: break
+                }
+            }
+            onProjection?(.invalidated)
         }
     }
 }

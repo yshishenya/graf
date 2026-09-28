@@ -27,6 +27,14 @@ States: pending→visible→acted/dismissed/expired/invalidated. Один termin
 Meeting due=startsAt-offsetMinutes×60; deadline=min(due+120s,endsAt). Offset0 допускает карточку после начала в этом окне. Перенос/удаление/изменение ссылки/начало записи инвалидируют старые actions. Wake не показывает просроченное.
 
 ## History
+Календарное обновление различает confirmed(response), temporarilyUnavailable
+и invalidated. Ошибка не является подтверждённым пустым календарём. При
+temporarilyUnavailable из памяти кандидатов сохраняется только текущая
+видимая meeting identity с прежними token/context/deadline; остальных нет.
+Последующий confirmed заменяет этот набор целиком. Invalidated, context reset
+и завершение карточки не позволяют её воскресить. Меню не показывает старые
+события на ошибке. Граница хранения остаётся исходным deadline, не120s от сбоя.
+
 
 До50entries newestfirst в памяти: UUID, Date, closed enum kind, нейтральный текст из enum. Без meetingname/sessionpath/URL/participant/transcript/audio/replayaction. Short/problem добавляются даже в quiet; preview/tick нет. Тот же incident не дублируется; новое возникновение после resolution допускается. Contextreset очищает history/card. Проблема остаётся в existing recordingstatus.
 
