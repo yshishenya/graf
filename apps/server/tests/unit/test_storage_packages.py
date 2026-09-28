@@ -180,3 +180,33 @@ async def test_scheduled_renewal_rechecks_package_terms_before_any_provider_call
     assert subscription.renewal_resolution == "price_changed"
     assert subscription.recurring_allowed is True
     assert provider.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("plan_code", ["free", "personal"])
+async def test_reactivation_quote_includes_previously_selected_storage(monkeypatch, plan_code):
+    from twobrain_rec_server.billing import purchases
+    from twobrain_rec_server.billing.catalog import validate_plan_version
+    from twobrain_rec_server.db.models import BillingPlanVersion
+
+    now = datetime(2026, 9, 28, tzinfo=UTC)
+    sub = WorkspaceSubscription(workspace_id=uuid4(), plan_code=plan_code,
+                                paid_through=now - timedelta(days=1),
+                                next_capacity_bytes=10_000_000_000)
+    base = validate_plan_version(BillingPlanVersion(
+        plan_code="personal", version=1, cycle="month", amount_minor=100000,
+        currency="RUB", storage_bytes=5_000_000_000, processing_mode="unlimited",
+        enabled_for_checkout=True, policy_snapshot={"offer_version": "synthetic"}))
+    price = BillingStoragePriceVersion(id=uuid4(), version=1, cycle="month",
+                                      capacity_bytes=10_000_000_000, amount_minor=25000,
+                                      currency="RUB", enabled_for_checkout=True, policy_snapshot={})
+
+    async def catalog(*args, **kwargs):
+        return {(10_000_000_000, "month"): price}
+
+    monkeypatch.setattr(purchases, "storage_catalog", catalog)
+    quoted, storage = await purchases.compose_personal_catalog(None, base=base,
+                                                              subscription=sub, now=now)
+    assert quoted.amount_minor == 125000
+    assert quoted.storage_bytes == 10_000_000_000
+    assert storage is price

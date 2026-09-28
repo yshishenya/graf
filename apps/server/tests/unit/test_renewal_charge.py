@@ -112,7 +112,16 @@ class PlanningDb(FakeDb):
         super().__init__(values)
 
     async def scalars(self, _query: object) -> list[WorkspaceSubscription]:
-        return [next(self._values)]  # type: ignore[return-value]
+        if _query.column_descriptions[0].get("entity") is BillingOperation:
+            return []
+        self.subscription = next(self._values)
+        return [self.subscription]  # type: ignore[return-value]
+
+    async def scalar(self, query):
+        if (query.column_descriptions[0].get("entity") is WorkspaceSubscription
+                and hasattr(self, "subscription")):
+            return self.subscription
+        return await super().scalar(query)
 
 
 class FakeProvider:

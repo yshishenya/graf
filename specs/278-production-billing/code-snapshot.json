@@ -2,7 +2,7 @@
   "schema_version": 1,
   "base_sha": "f5cca687a06dc57ad6ccbef840a0be897eaa6336",
   "kind": "source-and-tests-before-authorized-commit",
-  "created_at": "2026-09-27T23:53:18.352727+00:00",
+  "created_at": "2026-09-28T00:22:48.773091+00:00",
   "files": [
     {
       "path": "apps/server/scripts/manage_promo_campaign.py",
@@ -18,7 +18,7 @@
     },
     {
       "path": "apps/server/src/twobrain_rec_server/billing/entitlements.py",
-      "sha256": "3e2add1ddff25cef7ddec2b35bb072c9fc54942a8181436c3f4780935cb58fad"
+      "sha256": "279bee9acea2005cd805de32a8c9fa6cc17dcce6f7b26326f80b5360b145f120"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/billing/history.py",
@@ -38,7 +38,7 @@
     },
     {
       "path": "apps/server/src/twobrain_rec_server/billing/purchases.py",
-      "sha256": "064ec34473eaddaba7127419ea97b74f7f834c4b9c7cb138993779b594d30197"
+      "sha256": "df606ade8069d626eb2c30728942564ef9ee7d90b40702f66ffaf9217055199d"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/billing/reconciliation.py",
@@ -50,11 +50,11 @@
     },
     {
       "path": "apps/server/src/twobrain_rec_server/billing/renewal_charge.py",
-      "sha256": "b29c815cf461734a01f32178a71921a11df89af46e7ad2dc1d40e0604593965a"
+      "sha256": "37f26f9bf100cd95316200e6a908101c6706ad00153cfd8403f6ac93b0876a66"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/billing/webhook_reconciliation.py",
-      "sha256": "073566353e320c6a27a3dfa22abe42c3a8488cd6e721186bdb2d2626506d32dd"
+      "sha256": "15b7b220c202b5582487823a6796f9b12863addc63971d3a4dc2f0e30b4b47b8"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/billing/yookassa.py",
@@ -106,7 +106,7 @@
     },
     {
       "path": "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py",
-      "sha256": "88d79194e0286a150057c24023bc0e4c7bc7970263ab311ac501d6067ca824c0"
+      "sha256": "f4546b9f09fdc8c5c75f7b879db7b517a50397db4fbe7203e48d27d6d30a1006"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/config.py",
@@ -194,7 +194,7 @@
     },
     {
       "path": "apps/server/tests/integration/test_billing_review_regressions.py",
-      "sha256": "ff49952b7bdb31adea2946ddd0b5a9441725169c505b6bb1934251f829bfaa0c"
+      "sha256": "4e88306789687dffb8a5cc09e7c3990348682c54151dbe8bf460d776cbc78c79"
     },
     {
       "path": "apps/server/tests/integration/test_billing_usability.py",
@@ -278,11 +278,11 @@
     },
     {
       "path": "apps/server/tests/unit/test_renewal_charge.py",
-      "sha256": "a943076dbea99789891dfd2d8c49b35d8b7b4a4d9a6daaf268069c6d23c9bbfd"
+      "sha256": "539b730bacacc698ead78ef1c1546b68a4fca2e31b3457e0efbffb671ea9a204"
     },
     {
       "path": "apps/server/tests/unit/test_storage_packages.py",
-      "sha256": "452e9f230fca7a3960c96312a34b4d73a655056d24c73d268537a50986d136ad"
+      "sha256": "f795fb13d63b20c375645dae452f36afd7c6d8b72c40188f783abbdf1e620cff"
     },
     {
       "path": "infra/docker-compose.yml",

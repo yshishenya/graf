@@ -4923,6 +4923,9 @@ async def _cancel_unsent_renewals(db, *, workspace_id, reason):
         )
         if pending_invoice is not None:
             pending_invoice.status = "canceled"
+        await settle_acceptance_budget(
+            db, workspace_id=workspace_id, operation_id=pending.id, succeeded=False
+        )
 
 
 async def _notify_storage_selection(db, *, subscription):

@@ -75,6 +75,7 @@ async def apply_confirmed_purchase(
     scope: ProviderScope,
     defer_referral_reward: bool = False,
 ) -> str:
+    await lock_storage_workspace(db, operation.workspace_id)
     invoice = await db.scalar(
         select(BillingInvoice)
         .where(
@@ -131,6 +132,11 @@ async def apply_confirmed_purchase(
             operation.state = "canceled"
             invoice.status = "canceled"
         return "canceled"
+    if operation.request_snapshot.get("purchase_schema") == 2:
+        invoice.plan_snapshot = {
+            **(invoice.plan_snapshot or {}),
+            "provider_paid_at": (observation.captured_at or observation.provider_created_at).isoformat(),
+        }
     if operation.kind == "initial_checkout":
         result = await grant_confirmed_payment(
             db,
@@ -139,6 +145,8 @@ async def apply_confirmed_purchase(
             amount_minor=observation.amount_minor,
             currency=observation.currency,
             paid_at=observation.captured_at or observation.provider_created_at,
+            grant_starts_at=datetime.now(UTC)
+            if operation.request_snapshot.get("purchase_schema") == 2 else None,
             recurring_method_confirmed=saved_bank_card_confirmed(payload),
             saved_payment_method=extract_saved_bank_card(payload),
             payment_method_label=extract_payment_method_label(payload),
@@ -183,7 +191,8 @@ async def apply_confirmed_purchase(
             amount_minor=observation.amount_minor,
             currency=observation.currency,
             grant_starts_at=datetime.now(UTC)
-            if operation.state == "provider_key_expired"
+            if (operation.state == "provider_key_expired"
+                or operation.request_snapshot.get("purchase_schema") == 2)
             else (observation.captured_at or observation.provider_created_at),
         )
     if operation.kind == "storage_upgrade":

@@ -660,3 +660,283 @@ def test_composite_subscription_invoice_displays_purchased_capacity(client, tmp_
     response = client.get("/billing/invoices/INV-COMPOSITE-CAPACITY", headers=headers)
     assert response.status_code == 200
     assert "15 GB" in response.text
+
+
+@pytest.mark.parametrize("state", ["scheduled", "unknown", "sent"])
+def test_cancel_unsent_renewal_releases_only_retriable_reservation(client, tmp_path, state):
+    from twobrain_rec_server.billing.purchases import reserve_acceptance_budget
+    from twobrain_rec_server.cabinet.web_routes.billing import _cancel_unsent_renewals
+    from twobrain_rec_server.db.models import BillingAcceptanceBudget, BillingAcceptanceReservation
+
+    _configure_billing(client, tmp_path)
+    workspace, _ = _prepare_owner_session(client)
+    seed_catalog_and_budget(client, workspace)
+
+    async def run():
+        async with client.app_state["sessionmaker"]() as db:
+            op = BillingOperation(workspace_id=workspace, kind="renewal", state=state,
+                                  idempotency_key=str(uuid4()), request_snapshot={})
+            db.add(op)
+            await db.flush()
+            invoice = BillingInvoice(workspace_id=workspace, operation_id=op.id,
+                                     safe_number=f"INV-{uuid4().hex}", amount_minor=1000,
+                                     currency="RUB", plan_snapshot={})
+            db.add(invoice)
+            await reserve_acceptance_budget(db, workspace_id=workspace, operation_id=op.id,
+                                            amount_minor=1000, now=datetime.now(UTC))
+            await _cancel_unsent_renewals(db, workspace_id=workspace, reason="authority_cancelled")
+            await db.flush()
+            budget = await db.scalar(select(BillingAcceptanceBudget).where(
+                BillingAcceptanceBudget.workspace_id == workspace))
+            reservation = await db.scalar(select(BillingAcceptanceReservation).where(
+                BillingAcceptanceReservation.operation_id == op.id))
+            assert budget.reserved_minor == (0 if state == "scheduled" else 1000)
+            assert reservation.state == ("released" if state == "scheduled" else "reserved")
+            assert invoice.status == ("canceled" if state == "scheduled" else "pending")
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("state", ["scheduled", "unknown", "sent"])
+def test_cutoff_finalizes_only_unsent_attempt_and_its_budget(client, tmp_path, state):
+    from twobrain_rec_server.billing.purchases import reserve_acceptance_budget
+    from twobrain_rec_server.billing.renewal_charge import project_renewal_cutoffs
+    from twobrain_rec_server.db.models import BillingAcceptanceBudget
+
+    _configure_billing(client, tmp_path)
+    workspace, _ = _prepare_owner_session(client)
+    seed_catalog_and_budget(client, workspace)
+
+    async def run():
+        async with client.app_state["sessionmaker"]() as db:
+            now = datetime.now(UTC)
+            sub = WorkspaceSubscription(workspace_id=workspace, billing_owner_id=USER_ID,
+                                        state="personal", plan_code="personal", cycle="month",
+                                        paid_through=now, recurring_allowed=True,
+                                        recurring_authority_version=1)
+            db.add(sub)
+            op = BillingOperation(workspace_id=workspace, kind="renewal", state=state,
+                                  idempotency_key=str(uuid4()), request_snapshot={},
+                                  provider_key_expires_at=now)
+            db.add(op)
+            await db.flush()
+            invoice = BillingInvoice(workspace_id=workspace, operation_id=op.id,
+                                     safe_number=f"INV-{uuid4().hex}", amount_minor=1000,
+                                     currency="RUB", plan_snapshot={})
+            db.add(invoice)
+            await reserve_acceptance_budget(db, workspace_id=workspace, operation_id=op.id,
+                                            amount_minor=1000, now=now)
+            assert await project_renewal_cutoffs(db, now=now) == 1
+            assert sub.state == "free"
+            assert sub.recurring_allowed is (state != "scheduled")
+            assert op.state == ("canceled" if state == "scheduled" else state)
+            budget = await db.scalar(select(BillingAcceptanceBudget).where(
+                BillingAcceptanceBudget.workspace_id == workspace))
+            assert budget.reserved_minor == (0 if state == "scheduled" else 1000)
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("kind", ["initial_checkout", "renewal", "early_renewal"])
+@pytest.mark.parametrize("previous_state", ["unknown", "manual_resolution"])
+@pytest.mark.parametrize("cycle", ["month", "year"])
+def test_late_confirmed_base_payment_delivers_a_current_full_period(
+    client, tmp_path, kind, previous_state, cycle
+):
+    from twobrain_rec_server.billing.reconciliation import ProviderScope
+    from twobrain_rec_server.billing.webhook_reconciliation import apply_confirmed_purchase
+
+    _configure_billing(client, tmp_path)
+    workspace, _ = _prepare_owner_session(client)
+
+    async def run():
+        async with client.app_state["sessionmaker"]() as db:
+            now = datetime.now(UTC)
+            captured = now - timedelta(days=400)
+            sub = WorkspaceSubscription(workspace_id=workspace, billing_owner_id=USER_ID,
+                                        state="free", plan_code="free", cycle="none",
+                                        paid_through=captured - timedelta(days=1),
+                                        recurring_allowed=False, recurring_authority_version=2)
+            db.add(sub)
+            op = BillingOperation(workspace_id=workspace, kind=kind, state=previous_state,
+                                  provider_id=f"synthetic-{uuid4().hex}", idempotency_key=str(uuid4()),
+                                  request_snapshot={"purchase_schema": 2, "plan_code": "personal",
+                                                    "cycle": cycle, "billing_actor_user_id": str(USER_ID),
+                                                    "recurring_authority_version": 1,
+                                                    "provider_environment": "test",
+                                                    "provider_shop_id": "123"})
+            db.add(op)
+            await db.flush()
+            invoice = BillingInvoice(workspace_id=workspace, operation_id=op.id,
+                                     safe_number=f"INV-{uuid4().hex}", amount_minor=1000,
+                                     currency="RUB", plan_snapshot=dict(op.request_snapshot))
+            db.add(invoice)
+            await db.flush()
+            payload = {"id": op.provider_id, "status": "succeeded", "test": True,
+                       "recipient": {"account_id": "123"},
+                       "amount": {"value": "10.00", "currency": "RUB"},
+                       "created_at": captured.isoformat(), "captured_at": captured.isoformat(),
+                       "metadata": {"workspace_id": str(workspace), "operation_id": str(op.id),
+                                    "invoice_number": invoice.safe_number}}
+            for expected in ["granted", "duplicate"]:
+                assert await apply_confirmed_purchase(
+                    db, client.app.state.settings, operation=op, payload=payload,
+                    scope=ProviderScope(environment="test", shop_id="123"),
+                ) == expected
+            grant = await db.scalar(select(BillingEntitlementGrant).where(
+                BillingEntitlementGrant.invoice_id == invoice.id))
+            assert grant.starts_at >= now
+            assert grant.ends_at >= now + timedelta(days=28 if cycle == "month" else 365)
+            assert sub.paid_through == grant.ends_at
+            assert sub.recurring_allowed is False
+            assert invoice.plan_snapshot["provider_paid_at"] == captured.isoformat()
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("kind", ["renewal", "early_renewal"])
+@pytest.mark.parametrize("mismatch", ["payer", "subscription"])
+def test_paid_renewal_owner_change_has_one_visible_service_resolution(client, tmp_path, kind, mismatch):
+    from twobrain_rec_server.billing.entitlements import grant_confirmed_renewal
+    from twobrain_rec_server.billing.purchases import reserve_acceptance_budget
+    from twobrain_rec_server.db.models import (
+        BillingAcceptanceBudget,
+        BillingAcceptanceReservation,
+        BillingNotificationDelivery,
+        PromotionRedemption,
+    )
+
+    _configure_billing(client, tmp_path)
+    workspace, headers = _prepare_owner_session(client)
+    seed_catalog_and_budget(client, workspace)
+
+    async def run():
+        async with client.app_state["sessionmaker"]() as db:
+            # Current workspace owner remains the authenticated owner; the paid
+            # operation or stale subscription refers to a different authority.
+            prior_owner = uuid4()
+            sub = WorkspaceSubscription(workspace_id=workspace,
+                                        billing_owner_id=USER_ID if mismatch == "payer" else None,
+                                        state="free", plan_code="free", recurring_allowed=False)
+            db.add(sub)
+            op = BillingOperation(workspace_id=workspace, kind=kind, state="unknown",
+                                  provider_id=f"synthetic-{uuid4().hex}", idempotency_key=str(uuid4()),
+                                  request_snapshot={"purchase_schema": 2, "plan_code": "personal",
+                                                    "cycle": "month", "billing_actor_user_id": str(prior_owner),
+                                                    "recurring_authority_version": 1})
+            db.add(op)
+            await db.flush()
+            invoice = BillingInvoice(workspace_id=workspace, operation_id=op.id,
+                                     safe_number=f"INV-{uuid4().hex}", amount_minor=1000,
+                                     currency="RUB", plan_snapshot=dict(op.request_snapshot))
+            db.add(invoice)
+            await db.flush()
+            await reserve_acceptance_budget(db, workspace_id=workspace, operation_id=op.id,
+                                            amount_minor=1000, now=datetime.now(UTC))
+            campaign = await db.scalar(select(PromotionCampaign).where(
+                PromotionCampaign.campaign_version == "synthetic-v1").limit(1))
+            redemption = PromotionRedemption(campaign_id=campaign.id, workspace_id=workspace,
+                invoice_id=invoice.id, reservation_key=str(uuid4()), code_hash=campaign.code_hash,
+                list_amount_minor=100000, payable_amount_minor=1000, discount_percent=99,
+                state="reserved")
+            db.add(redemption)
+            await db.flush()
+            details = None
+            for _ in range(2):
+                await grant_confirmed_renewal(db, workspace_id=workspace,
+                    provider_payment_id=op.provider_id, amount_minor=1000, currency="RUB",
+                    grant_starts_at=datetime.now(UTC))
+                assert invoice.status == "succeeded"
+                assert invoice.plan_snapshot.get("service_resolution")
+                if details is None:
+                    details = dict(op.request_snapshot["reconciliation_detail"])
+                assert op.request_snapshot["reconciliation_detail"] == details
+            assert await db.scalar(select(BillingEntitlementGrant).where(
+                BillingEntitlementGrant.invoice_id == invoice.id)) is None
+            notices = list(await db.scalars(select(BillingNotificationDelivery).where(
+                BillingNotificationDelivery.event_id == f"payment:{invoice.id}:service_gap")))
+            assert len(notices) == 1 and notices[0].recipient_id == USER_ID
+            budget = await db.scalar(select(BillingAcceptanceBudget).where(
+                BillingAcceptanceBudget.workspace_id == workspace))
+            reservation = await db.scalar(select(BillingAcceptanceReservation).where(
+                BillingAcceptanceReservation.operation_id == op.id))
+            assert budget.reserved_minor == 0 and budget.spent_minor == 1000
+            assert reservation.state == "spent"
+            assert redemption.state == "redeemed"
+            await db.refresh(campaign)
+            assert campaign.reserved_count == 0 and campaign.redeemed_count == 1
+            await db.commit()
+            return invoice.safe_number
+    number = asyncio.run(run())
+    assert "Оплата подтверждена; услуга требует сверки" in client.get("/billing/history", headers=headers).text
+    assert "услуга требует сверки" in client.get(f"/billing/invoices/{number}", headers=headers).text
+
+
+def test_cutoff_waits_for_payment_and_rechecks_the_extended_period(client, tmp_path, monkeypatch):
+    from twobrain_rec_server.billing import renewal_charge
+    from twobrain_rec_server.billing.purchases import reserve_acceptance_budget
+    from twobrain_rec_server.billing.reconciliation import ProviderScope
+    from twobrain_rec_server.billing.storage import lock_storage_workspace
+    from twobrain_rec_server.billing.webhook_reconciliation import apply_confirmed_purchase
+    from twobrain_rec_server.db.models import BillingAcceptanceBudget
+
+    _configure_billing(client, tmp_path)
+    workspace, _ = _prepare_owner_session(client)
+    seed_catalog_and_budget(client, workspace)
+
+    async def run():
+        now = datetime.now(UTC)
+        async with client.app_state["sessionmaker"]() as seed:
+            seed.add(WorkspaceSubscription(workspace_id=workspace, billing_owner_id=USER_ID,
+                state="personal", plan_code="personal", cycle="month", paid_through=now,
+                recurring_allowed=False, recurring_authority_version=2))
+            op = BillingOperation(workspace_id=workspace, kind="renewal", state="unknown",
+                provider_id=f"synthetic-{uuid4().hex}", idempotency_key=str(uuid4()),
+                request_snapshot={"purchase_schema": 2, "plan_code": "personal", "cycle": "month",
+                    "billing_actor_user_id": str(USER_ID), "recurring_authority_version": 1,
+                    "provider_environment": "test", "provider_shop_id": "123"})
+            seed.add(op)
+            await seed.flush()
+            invoice = BillingInvoice(workspace_id=workspace, operation_id=op.id,
+                safe_number=f"INV-{uuid4().hex}", amount_minor=1000, currency="RUB",
+                plan_snapshot=dict(op.request_snapshot))
+            seed.add(invoice)
+            await reserve_acceptance_budget(seed, workspace_id=workspace, operation_id=op.id,
+                                            amount_minor=1000, now=now)
+            await seed.commit()
+            op_id, number, payment_id = op.id, invoice.safe_number, op.provider_id
+        async with (client.app_state["sessionmaker"]() as payment_db,
+                    client.app_state["sessionmaker"]() as cutoff_db):
+            await lock_storage_workspace(payment_db, workspace)
+            op = await payment_db.scalar(select(BillingOperation).where(
+                BillingOperation.id == op_id).with_for_update())
+            await payment_db.scalar(select(BillingInvoice).where(
+                BillingInvoice.operation_id == op_id).with_for_update())
+            await payment_db.scalar(select(BillingAcceptanceBudget).where(
+                BillingAcceptanceBudget.workspace_id == workspace).with_for_update())
+            reached_lock = asyncio.Event()
+
+            async def observe_lock(db, workspace_id):
+                if db is cutoff_db:
+                    reached_lock.set()
+                await lock_storage_workspace(db, workspace_id)
+
+            monkeypatch.setattr(renewal_charge, "lock_storage_workspace", observe_lock)
+            cutoff = asyncio.create_task(renewal_charge.project_renewal_cutoffs(cutoff_db, now=now))
+            try:
+                await asyncio.wait_for(reached_lock.wait(), timeout=5)
+                payload = {"id": payment_id, "status": "succeeded", "test": True,
+                    "recipient": {"account_id": "123"}, "amount": {"value": "10.00", "currency": "RUB"},
+                    "created_at": now.isoformat(), "captured_at": now.isoformat(),
+                    "metadata": {"workspace_id": str(workspace), "operation_id": str(op_id),
+                                 "invoice_number": number}}
+                assert await asyncio.wait_for(apply_confirmed_purchase(
+                    payment_db, client.app.state.settings, operation=op, payload=payload,
+                    scope=ProviderScope(environment="test", shop_id="123")), timeout=5) == "granted"
+                await payment_db.commit()
+                assert await asyncio.wait_for(cutoff, timeout=5) == 0
+                sub = await cutoff_db.scalar(select(WorkspaceSubscription).where(
+                    WorkspaceSubscription.workspace_id == workspace))
+                assert sub.plan_code == "personal" and sub.paid_through > now
+            finally:
+                if not cutoff.done():
+                    cutoff.cancel()
+                    await asyncio.gather(cutoff, return_exceptions=True)
+    asyncio.run(run())

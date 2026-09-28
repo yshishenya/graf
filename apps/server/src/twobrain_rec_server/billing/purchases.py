@@ -548,7 +548,9 @@ async def compose_personal_catalog(
     from datetime import timedelta
 
     capacity = PERSONAL_STORAGE_BYTES
-    if (
+    if subscription and subscription.next_capacity_bytes is not None:
+        capacity = subscription.next_capacity_bytes
+    elif (
         subscription
         and subscription.plan_code == "personal"
         and subscription.paid_through

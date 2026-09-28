@@ -85,9 +85,9 @@ MOSCOW_OFFSET = timedelta(hours=3)
 # YooKassa may have accepted the first request. Only an untouched operation
 # may enter the outbound mutation path; unknown is GET/list/manual recovery.
 RENEWAL_CANDIDATE_STATES = frozenset({"scheduled"})
-# `scheduled` is an in-flight reservation during the reminder window.  At the
-# exact cutoff it must remain chargeable; provider-key expiry is final and
-# revokes recurring authority instead of keeping the card armed.
+# Scheduled work remains pending only inside its dispatch window. At cutoff,
+# expired unsent attempts are canceled before classifying the provider state.
+# Sent or unknown payments still require authoritative reconciliation.
 RENEWAL_PROVIDER_STATES = frozenset({"scheduled", "sent", "unknown", "processing"})
 
 
@@ -624,10 +624,19 @@ async def project_renewal_cutoffs(
         )
         .order_by(WorkspaceSubscription.paid_through, WorkspaceSubscription.workspace_id)
         .limit(limit)
-        .with_for_update(skip_locked=True)
     )
     projected = 0
-    for subscription in await db.scalars(query):
+    for candidate in await db.scalars(query):
+        await lock_storage_workspace(db, candidate.workspace_id)
+        subscription = await db.scalar(
+            select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == candidate.workspace_id,
+            ).with_for_update().execution_options(populate_existing=True)
+        )
+        if (subscription is None or subscription.plan_code != "personal"
+                or subscription.paid_through is None
+                or _utc(subscription.paid_through) > current):
+            continue
         workspace = await db.get(Workspace, subscription.workspace_id)
         owner = await db.scalar(
             select(WorkspaceMembership).where(
@@ -643,6 +652,26 @@ async def project_renewal_cutoffs(
             and workspace.owner_user_id == subscription.billing_owner_id
             and owner is not None
         )
+        expired_unsent = await db.scalars(
+            select(BillingOperation).where(
+                BillingOperation.workspace_id == subscription.workspace_id,
+                BillingOperation.kind == "renewal",
+                BillingOperation.state == "scheduled",
+                BillingOperation.provider_id.is_(None),
+                BillingOperation.provider_key_expires_at <= current,
+            ).with_for_update()
+        )
+        for missed in expired_unsent:
+            missed.state = "canceled"
+            missed.request_snapshot = {**missed.request_snapshot, "cancel_reason": "window_missed"}
+            missed_invoice = await db.scalar(select(BillingInvoice).where(
+                BillingInvoice.operation_id == missed.id).with_for_update())
+            if missed_invoice is not None:
+                missed_invoice.status = "canceled"
+            await settle_acceptance_budget(
+                db, workspace_id=subscription.workspace_id,
+                operation_id=missed.id, succeeded=False,
+            )
         operation = await db.scalar(
             select(BillingOperation)
             .where(
@@ -912,18 +941,7 @@ async def charge_renewal_operation(
         else None
     )
     if expected_paid_through != current_paid_through:
-        operation.state = "canceled"
-        invoice.status = "canceled"
-        subscription.renewal_resolution = "schedule_changed"
-        _record_charge_audit(
-            db,
-            subscription=subscription,
-            operation=operation,
-            outcome="canceled",
-            reason_code="renewal_schedule_changed",
-        )
-        await db.commit()
-        return RenewalChargeResult(operation_id, "canceled")
+        return await cancel_before_dispatch("schedule_changed")
     attempt = renewal_attempt_of(operation)
     due_at = (
         renewal_attempt_due_at(paid_through=subscription.paid_through, attempt=attempt)
@@ -937,11 +955,7 @@ async def charge_renewal_operation(
         await db.rollback()
         return RenewalChargeResult(operation_id, "scheduled")
     if current >= due_at + RENEWAL_ATTEMPT_INTERVAL:
-        operation.state = "canceled"
-        invoice.status = "canceled"
-        subscription.renewal_resolution = "window_missed"
-        await db.commit()
-        return RenewalChargeResult(operation_id, "canceled")
+        return await cancel_before_dispatch("window_missed")
     if (
         operation.provider_key_expires_at is None
         or _utc(operation.provider_key_expires_at) <= current
@@ -981,11 +995,7 @@ async def charge_renewal_operation(
         except PurchaseError:
             accepted = False
         if not accepted:
-            operation.state = "canceled"
-            invoice.status = "canceled"
-            subscription.renewal_resolution = "price_changed"
-            await db.commit()
-            return RenewalChargeResult(operation_id, "canceled")
+            return await cancel_before_dispatch("price_changed")
     try:
         require_billing_enabled(
             checkout_enabled=billing_checkout_allowed(settings, workspace_id),

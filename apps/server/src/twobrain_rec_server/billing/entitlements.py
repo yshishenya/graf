@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
@@ -150,6 +150,7 @@ async def grant_confirmed_payment(
     amount_minor: int,
     currency: str,
     paid_at: datetime,
+    grant_starts_at: datetime | None = None,
     recurring_method_confirmed: bool = False,
     saved_payment_method: SavedPaymentMethod | None = None,
     payment_method_key: bytes | None = None,
@@ -279,7 +280,7 @@ async def grant_confirmed_payment(
     # A payment made before the current period ends extends that period instead
     # of restarting it, so the paid remainder never burns: paying a year ahead
     # or switching month to year keeps every already paid day.
-    period_start = paid_at
+    period_start = (grant_starts_at or paid_at).astimezone(UTC)
     if subscription.paid_through is not None:
         period_start = max(period_start, subscription.paid_through.astimezone(UTC))
     paid_through = _add_paid_interval(period_start, cycle)
@@ -434,6 +435,37 @@ async def grant_confirmed_payment(
     return "granted"
 
 
+async def _record_paid_service_gap(db, *, operation, invoice, reason, recipient_id):
+    """Keep paid money visible when the current owner cannot receive its service."""
+    current = datetime.now(UTC)
+    invoice.status = "succeeded"
+    invoice.plan_snapshot = {**(invoice.plan_snapshot or {}), "service_resolution": reason}
+    operation.request_snapshot = {
+        **operation.request_snapshot,
+        "reconciliation_detail": operation.request_snapshot.get("reconciliation_detail") or {
+            "code": reason,
+            "incident_owner": "billing_operator",
+            "financial_operator": "finance_operator",
+            "detected_at": current.isoformat(),
+            "review_by": (current + timedelta(hours=24)).isoformat(),
+        },
+    }
+    if operation.request_snapshot.get("purchase_schema") == 2:
+        await redeem_invoice_promo(db, invoice_id=invoice.id, now=current)
+        await settle_acceptance_budget(
+            db, workspace_id=operation.workspace_id, operation_id=operation.id, succeeded=True
+        )
+    if recipient_id is not None:
+        await enqueue_billing_notification(
+            db, workspace_id=operation.workspace_id, recipient_id=recipient_id,
+            event_id=f"payment:{invoice.id}:service_gap",
+            kind=BillingNotification.SERVICE_RECONCILIATION,
+            payload={"invoice": invoice.safe_number,
+                     "action_path": f"/billing/invoices/{invoice.safe_number}"},
+            marketing_allowed=False,
+        )
+
+
 async def grant_confirmed_renewal(
     db: AsyncSession,
     *,
@@ -523,6 +555,10 @@ async def grant_confirmed_renewal(
                 subscription.recurring_authority_version or 0
             ) + 1
         subscription.renewal_resolution = "workspace_scope_invalid"
+        await _record_paid_service_gap(
+            db, operation=operation, invoice=invoice, reason="workspace_scope_invalid",
+            recipient_id=owner.user_id if owner is not None else None,
+        )
         db.add(
             BillingAuditEvent(
                 workspace_id=workspace_id,
@@ -554,6 +590,10 @@ async def grant_confirmed_renewal(
     ):
         operation.state = "reconciliation_gap"
         invoice.status = "succeeded"
+        await _record_paid_service_gap(
+            db, operation=operation, invoice=invoice, reason="owner_changed",
+            recipient_id=owner.user_id,
+        )
         return "owner_changed"
     # Late success after cancellation still delivers the paid period. Never
     # restore recurring_allowed or replace a card from this old authority.
