@@ -37,6 +37,11 @@ public enum DesktopCabinetSessionBridge {
     }
 
     @MainActor
+    static func isCurrentSession(_ expectedGeneration: UInt64) -> Bool {
+        navigationBarriers.isEmpty && generation == expectedGeneration
+    }
+
+    @MainActor
     private static func canRenew(_ expectedGeneration: UInt64) -> Bool {
         navigationBarriers.isEmpty && generation == expectedGeneration
     }

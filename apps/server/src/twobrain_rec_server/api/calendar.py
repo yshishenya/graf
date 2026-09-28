@@ -14,7 +14,10 @@ from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import (
     CalendarDisconnectResponse,
     CalendarEventSummary,
+    CalendarJoinTargetResponse,
+    CalendarOverviewResponse,
     CalendarProviderListResponse,
+    CalendarSeriesOccurrencesResponse,
     CalendarSourceListResponse,
     CalendarSourceResponse,
     CalendarSourceSummary,
@@ -227,9 +230,12 @@ def _event_summary(
     title = content.get("title")
     # An available row with no title means the provider supplied no title.
     # Preserve the deployed Swift enum without claiming that GRAF hid content.
-    title_state = "free_busy_only" if not title and event.privacy_class == "free_busy_only" else "available"
+    title_state = (
+        "free_busy_only" if not title and event.privacy_class == "free_busy_only" else "available"
+    )
     return CalendarEventSummary(
         all_day=bool(event.all_day),
+        is_recurring=bool(event.recurring_series_id),
         event_id=event.id,
         provider_family=extras.get("provider_family") or "calendar",
         starts_at=event.starts_at,
@@ -441,25 +447,19 @@ async def open_calendar_meeting(
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
 ) -> RedirectResponse:
-    event = await require_db(db).scalar(
-        select(CalendarEventSnapshot)
-        .join(ExternalCalendar, CalendarEventSnapshot.external_calendar_id == ExternalCalendar.id)
-        .join(CalendarSource, CalendarEventSnapshot.calendar_source_id == CalendarSource.id)
-        .where(
-            CalendarEventSnapshot.id == event_id,
-            CalendarEventSnapshot.workspace_id == tenant_scope.workspace_id,
-            CalendarEventSnapshot.source_deleted_at.is_(None),
-            ExternalCalendar.workspace_id == tenant_scope.workspace_id,
-            ExternalCalendar.selected.is_(True),
-            CalendarSource.workspace_id == tenant_scope.workspace_id,
-            CalendarSource.owner_user_id == tenant_scope.user_id,
-            CalendarSource.disconnected_at.is_(None),
-            CalendarSource.connection_state != "disconnected",
-        )
+    event, url = await _resolve_join_target(event_id, request, tenant_scope, require_db(db))
+    return RedirectResponse(url, status_code=303, headers={"Cache-Control": "no-store"})
+
+
+async def _resolve_join_target(event_id, request, tenant_scope, db):
+    from twobrain_rec_server.calendar.series import authorized_events
+
+    event = await db.scalar(
+        authorized_events(tenant_scope).where(CalendarEventSnapshot.id == event_id)
     )
     url = (
         _open_meeting_url(event, _credential_encryption_key(request, required=False))
-        if event is not None
+        if event
         else None
     )
     if url is None:
@@ -468,7 +468,33 @@ async def open_calendar_meeting(
             code="calendar_meeting_link_unavailable",
             title="Calendar meeting link unavailable",
         )
-    return RedirectResponse(url, status_code=303)
+    return event, url
+
+
+@router.get(
+    "/calendar/events/{event_id}/join-target",
+    response_model=CalendarJoinTargetResponse,
+    dependencies=[PrincipalDependency],
+)
+async def calendar_join_target(
+    event_id: UUID,
+    request: Request,
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+):
+    from fastapi.responses import JSONResponse
+
+    event, url = await _resolve_join_target(event_id, request, tenant_scope, require_db(db))
+    return JSONResponse(
+        {
+            "event_id": str(event.id),
+            "provider_family": (event.provider_extras_json or {}).get(
+                "provider_family", "calendar"
+            ),
+            "https_url": url,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get(
@@ -681,3 +707,229 @@ async def _calendar_settings_preference_or_default(
         include_all_day_events=False,
         include_private_free_busy_prompt_candidates=False,
     )
+
+
+def _series_event_payload(event, scope, preference, key):
+    from twobrain_rec_server.calendar.owner_content import owner_event_title
+    from twobrain_rec_server.calendar.series import series_key
+
+    show_title = preference.show_upcoming_title if preference else True
+    show_time = preference.show_upcoming_time if preference else True
+    return {
+        "event_id": str(event.id),
+        "series_key": series_key(event, scope.user_id),
+        "is_recurring": bool(event.recurring_series_id),
+        "title": (owner_event_title(event, key) or "Без названия")
+        if show_title
+        else "Название скрыто настройкой",
+        "starts_at": event.starts_at.isoformat() if show_time else None,
+        "ends_at": event.ends_at.isoformat() if show_time else None,
+        "all_day": event.all_day,
+        "cancelled": event.source_status == "cancelled" or event.source_deleted_at is not None,
+        "open_meeting_available": event.source_status != "cancelled"
+        and event.source_deleted_at is None
+        and _open_meeting_url(event, key) is not None,
+    }
+
+
+@router.get(
+    "/calendar/overview",
+    response_model=CalendarOverviewResponse,
+    dependencies=[PrincipalDependency],
+)
+async def calendar_overview(
+    request: Request,
+    limit: Annotated[int, Query(ge=1, le=50)] = 4,
+    cursor: str | None = None,
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+):
+    from fastapi.responses import JSONResponse
+
+    from twobrain_rec_server.calendar.series import decode_cursor, encode_cursor, overview_events
+
+    session = require_db(db)
+    preference = await _calendar_settings_preference_or_default(session, tenant_scope)
+    now = datetime.now(UTC)
+    context = {
+        "owner": str(tenant_scope.user_id),
+        "session": str(tenant_scope.auth_session_id or tenant_scope.device_id),
+        "workspace": str(tenant_scope.workspace_id),
+        "series": "overview",
+        "from": now.date().isoformat(),
+        "to": (now + timedelta(days=30)).date().isoformat(),
+    }
+    secret = request.app.state.settings.web_csrf_secret
+    try:
+        after = decode_cursor(cursor, context, secret) if cursor else None
+    except ValueError as error:
+        raise ProblemDetail(
+            status=422, code="invalid_calendar_cursor", title="Invalid calendar cursor"
+        ) from error
+    events, more = await overview_events(
+        session, tenant_scope, preference, now=now, limit=limit, after=after
+    )
+    key = _credential_encryption_key(request, required=False)
+    next_cursor = (
+        encode_cursor(context, (events[-1].starts_at.isoformat(), str(events[-1].id)), secret)
+        if more and events
+        else None
+    )
+    return JSONResponse(
+        {
+            "cards": [_series_event_payload(e, tenant_scope, preference, key) for e in events],
+            "partial": more,
+            "coverage_range": {"from": context["from"], "to": context["to"]},
+            "next_cursor": next_cursor,
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get(
+    "/calendar/series/{series_key}/occurrences",
+    response_model=CalendarSeriesOccurrencesResponse,
+    dependencies=[PrincipalDependency],
+)
+async def calendar_series_occurrences(
+    series_key: str,
+    request: Request,
+    starts_from: Annotated[datetime | None, Query(alias="from")] = None,
+    starts_to: Annotated[datetime | None, Query(alias="to")] = None,
+    cursor: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+):
+    import re
+
+    from fastapi.responses import JSONResponse
+
+    from twobrain_rec_server.calendar.series import (
+        authorized_events,
+        decode_cursor,
+        encode_cursor,
+        series_key_expression,
+        series_occurrences,
+    )
+
+    session = require_db(db)
+    # Day boundaries make the default range stable between paginated requests.
+    today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    start, end = starts_from or today - timedelta(days=180), starts_to or today + timedelta(days=30)
+    if (
+        start.tzinfo is None
+        or end.tzinfo is None
+        or not timedelta(0) < end - start <= timedelta(days=366)
+    ):
+        raise ProblemDetail(
+            status=422, code="invalid_calendar_range", title="Invalid calendar range"
+        )
+    context = {
+        "owner": str(tenant_scope.user_id),
+        "session": str(tenant_scope.auth_session_id or tenant_scope.device_id),
+        "workspace": str(tenant_scope.workspace_id),
+        "series": series_key,
+        "from": start.isoformat(),
+        "to": end.isoformat(),
+    }
+    secret = request.app.state.settings.web_csrf_secret
+    try:
+        after = decode_cursor(cursor, context, secret) if cursor else None
+    except ValueError as error:
+        raise ProblemDetail(
+            status=422, code="invalid_calendar_cursor", title="Invalid calendar cursor"
+        ) from error
+    if not re.fullmatch(r"v2-[0-9a-f]{64}", series_key):
+        raise ProblemDetail(
+            status=404, code="calendar_series_unavailable", title="Calendar series unavailable"
+        )
+    exists = await session.scalar(
+        authorized_events(tenant_scope, include_cancelled=True)
+        .with_only_columns(CalendarEventSnapshot.id)
+        .where(
+            CalendarEventSnapshot.recurring_series_id.is_not(None),
+            series_key_expression(tenant_scope.user_id) == series_key,
+        )
+        .limit(1)
+    )
+    if exists is None:
+        raise ProblemDetail(
+            status=404, code="calendar_series_unavailable", title="Calendar series unavailable"
+        )
+    preference = await _calendar_settings_preference_or_default(session, tenant_scope)
+    events, more = await series_occurrences(
+        session, tenant_scope, preference, series_key, start, end, limit=limit, after=after
+    )
+    key = _credential_encryption_key(request, required=False)
+    records, records_partial = await _series_recordings(
+        session, tenant_scope, [e.id for e in events]
+    )
+    payload = [
+        {
+            **_series_event_payload(e, tenant_scope, preference, key),
+            "recordings": records.get(e.id, []),
+        }
+        for e in events
+    ]
+    next_cursor = (
+        encode_cursor(context, (events[-1].starts_at.isoformat(), str(events[-1].id)), secret)
+        if more and events
+        else None
+    )
+    return JSONResponse(
+        {
+            "occurrences": payload,
+            "next_cursor": next_cursor,
+            "coverage_range": {"from": start.isoformat(), "to": end.isoformat()},
+            "partial": more or records_partial,
+            "coverage_note": "Показаны сохранённые доступные даты. Полная история календаря может быть недоступна.",
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+async def _series_recordings(db, scope, event_ids):
+    from twobrain_rec_server.cabinet.access import decide_meeting_access
+    from twobrain_rec_server.cabinet.queries import _prefetch_meeting_list_reads
+    from twobrain_rec_server.db.models import Meeting, RecordingCalendarContextLink
+
+    if not event_ids:
+        return {}, False
+    rows = list(
+        await db.execute(
+            select(RecordingCalendarContextLink.calendar_event_snapshot_id, Meeting)
+            .join(Meeting, RecordingCalendarContextLink.meeting_id == Meeting.id)
+            .where(
+                RecordingCalendarContextLink.workspace_id == scope.workspace_id,
+                RecordingCalendarContextLink.calendar_event_snapshot_id.in_(event_ids),
+                RecordingCalendarContextLink.context_state.in_(["matched_auto", "matched_user"]),
+                RecordingCalendarContextLink.unlinked_at.is_(None),
+                Meeting.workspace_id == scope.workspace_id,
+                Meeting.deleted_at.is_(None),
+                Meeting.deletion_state == "none",
+            )
+            .order_by(Meeting.started_at, Meeting.id)
+        )
+    )
+    from twobrain_rec_server.cabinet.read_prefetch import clear_read_prefetch
+
+    result = {}
+    try:
+        for offset in range(0, len(rows), 100):
+            chunk = rows[offset : offset + 100]
+            await _prefetch_meeting_list_reads(
+                db,
+                workspace_id=scope.workspace_id,
+                viewer_user_id=scope.user_id,
+                meetings=[m for _, m in chunk],
+            )
+            for event_id, meeting in chunk:
+                access = await decide_meeting_access(
+                    db, meeting, workspace_id=scope.workspace_id, viewer_user_id=scope.user_id
+                )
+                if access.can_view:
+                    result.setdefault(event_id, []).append({"meeting_id": str(meeting.id)})
+    finally:
+        clear_read_prefetch(db)
+    return result, False

@@ -962,6 +962,7 @@ class UpcomingPreviewItemView:
     source_labels: tuple[str, ...] = ()
     duplicate_source_count: int = 1
     sync_confidence_state: str = "current"
+    series_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -987,6 +988,9 @@ class CalendarSettingsSurfaceView:
     preferences: CalendarSettingsPreferencesView
     selected_calendar_count_total: int = 0
     preview: tuple[UpcomingPreviewItemView, ...] = ()
+    overview: tuple[UpcomingPreviewItemView, ...] = ()
+    overview_loaded: bool = False
+    overview_partial: bool = False
     conflicts: tuple[OverlapConflictGroupView, ...] = ()
     preview_empty_reason: str = "Пока нет ближайших событий из выбранных календарей."
     loading_state_copy: str = "Во время загрузки настроек ручная запись остается доступной."

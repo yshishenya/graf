@@ -5774,6 +5774,10 @@
           .find((item) => item.dataset.calendarLive === region.dataset.calendarLive);
         if (!replacement) return;
         const active = document.activeElement;
+        const samePrivacy = region.dataset.calendarShowTitle === replacement.dataset.calendarShowTitle
+          && region.dataset.calendarShowTime === replacement.dataset.calendarShowTime;
+        const openSeries = samePrivacy ? [...region.querySelectorAll('[data-calendar-series][open]')] : [];
+        const seriesFocus = openSeries.some(panel => panel.contains(active)) ? active : null;
         const focusedLink = region.contains(active) && active instanceof HTMLAnchorElement
           ? active.getAttribute("href") : null;
         // Preserve the details element itself (and its open state).
@@ -5784,7 +5788,18 @@
         } else {
           region.innerHTML = replacement.innerHTML;
         }
-        if (focusedLink) {
+        openSeries.forEach(panel => {
+          const nextPanel = [...region.querySelectorAll('[data-calendar-series]')]
+            .find(item => item.dataset.calendarSeries === panel.dataset.calendarSeries);
+          if (nextPanel) {
+            nextPanel.replaceWith(panel);
+            if (seriesFocus && panel.contains(seriesFocus)) seriesFocus.focus({preventScroll:true});
+            panel.dispatchEvent(new CustomEvent('graf:calendar-series-refresh',{bubbles:true}));
+          }
+        });
+        region.dataset.calendarShowTitle = replacement.dataset.calendarShowTitle || '';
+        region.dataset.calendarShowTime = replacement.dataset.calendarShowTime || '';
+        if (focusedLink && !seriesFocus?.isConnected) {
           const link = [...region.querySelectorAll("a[href]")]
             .find((item) => item.getAttribute("href") === focusedLink);
           (link || region.querySelector("summary"))?.focus({ preventScroll: true });

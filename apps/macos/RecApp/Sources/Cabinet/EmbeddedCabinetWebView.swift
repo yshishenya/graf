@@ -1586,6 +1586,8 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         configuration.preferences.tabFocusesLinks = true
         configuration.applicationNameForUserAgent = DesktopCabinetConfiguration.applicationNameForUserAgent()
         configuration.allowsAirPlayForMediaPlayback = false
+        configuration.userContentController.addUserScript(WKUserScript(source: EmbeddedCabinetCalendarJoinBridge.documentScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: EmbeddedCabinetCalendarJoinBridge.contentWorld))
+        configuration.userContentController.add(context.coordinator, contentWorld: EmbeddedCabinetCalendarJoinBridge.contentWorld, name: EmbeddedCabinetCalendarJoinBridge.handlerName)
         configuration.userContentController.addUserScript(
             WKUserScript(
                 source: EmbeddedCabinetAppearanceBridge.documentScript,
@@ -1750,6 +1752,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         guard let container = nsView as? WebViewContainer else { return }
         coordinator.detachSupportIncidentBridge(from: container.webView)
         coordinator.detachNavigationController(from: container.webView)
+        container.webView.configuration.userContentController.removeScriptMessageHandler(forName: EmbeddedCabinetCalendarJoinBridge.handlerName, contentWorld: EmbeddedCabinetCalendarJoinBridge.contentWorld)
         container.webView.configuration.userContentController.removeScriptMessageHandler(
             forName: EmbeddedCabinetAppearanceBridge.messageHandlerName
         )
@@ -1776,6 +1779,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     // annotation at this compatibility boundary.
     @MainActor
     public final class Coordinator: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate, @preconcurrency WKScriptMessageHandler, @preconcurrency WKDownloadDelegate, @preconcurrency WKHTTPCookieStoreObserver {
+        let calendarJoinBridge = EmbeddedCabinetCalendarJoinBridge()
         let recordingSettingsBridge: EmbeddedCabinetRecordingSettingsBridge
         let notificationSettingsBridge: EmbeddedCabinetNotificationSettingsBridge
         private let routePolicy: DesktopCabinetRoutePolicy
@@ -1979,6 +1983,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             webView.configuration.websiteDataStore.httpCookieStore.remove(self)
             userTimeWebView = nil
             cancelJavaScriptConfirmation()
+            calendarJoinBridge.invalidate()
             recordingSettingsBridge.invalidate()
             notificationSettingsBridge.invalidate()
             navigationController.detach(webView: webView)
@@ -2075,6 +2080,33 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             _: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
+            if message.name == EmbeddedCabinetCalendarJoinBridge.handlerName {
+                guard isActive, cabinetState == .ready, message.frameInfo.isMainFrame,
+                      let webView = message.webView, !webView.isLoading, navigationController.isAttached(to: webView),
+                      let sourceURL = message.frameInfo.documentRequestURL, sourceURL == webView.url,
+                      routePolicy.decision(for: sourceURL).decision == .allow,
+                      routePolicy.decision(for: sourceURL).route.kind == .meetingList,
+                      let join = EmbeddedCabinetCalendarJoinBridge.Request.parse(message.body) else { return }
+                let generation = DesktopCabinetSessionBridge.generation
+                let revision = userTimeDocumentRevision
+                let boundary = navigationController.sessionBoundaryID
+                let origin = routePolicy.cabinetBaseURL
+                let sessionToken = DesktopUploadClient.defaultAuthSessionToken(for: origin)
+                let currentHeaders = desktopHeaders.filter { $0.key.caseInsensitiveCompare("X-Auth-Session") != .orderedSame }
+                let client = DesktopUploadClient(baseURL: origin, headers: currentHeaders)
+                calendarJoinBridge.join(join, resolve: { try await client.calendarJoinTarget(eventID: $0) },
+                    isCurrent: { [weak self, weak webView] in
+                        guard let self, let webView else { return false }
+                        return self.isActive && self.cabinetState == .ready && !webView.isLoading
+                            && self.navigationController.isAttached(to: webView) && webView.url == sourceURL
+                            && self.userTimeDocumentRevision == revision && self.navigationController.sessionBoundaryID == boundary
+                            && DesktopCabinetSessionBridge.isCurrentSession(generation)
+                            && DesktopUploadClient.defaultAuthSessionToken(for: origin) == sessionToken
+                    }, open: { await CalendarMeetingOpener.open($0) }, reply: { [weak webView] state in
+                        webView?.evaluateJavaScript("window.GRAFCalendarJoin?.reply('\(join.requestID.uuidString.lowercased())', '\(state)')", in: nil, in: EmbeddedCabinetCalendarJoinBridge.contentWorld, completionHandler: { _ in })
+                    })
+                return
+            }
             if message.name == EmbeddedCabinetAppearanceBridge.messageHandlerName {
                 guard isActive, message.frameInfo.isMainFrame,
                       let webView = message.webView, navigationController.isAttached(to: webView),
@@ -2693,6 +2725,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         @MainActor
         public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             guard navigationController.isAttached(to: webView) else { return }
+            calendarJoinBridge.invalidate()
             recordingSettingsBridge.invalidate()
             notificationSettingsBridge.invalidate()
             userTimeDocumentRevision &+= 1
@@ -2707,6 +2740,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             guard navigationController.isAttached(to: webView) else { return }
             webContentProcessTerminated = true
+            calendarJoinBridge.invalidate()
             recordingSettingsBridge.invalidate()
             notificationSettingsBridge.invalidate()
             paymentNavigation = paymentNavigation.stopped()

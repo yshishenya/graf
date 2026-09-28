@@ -290,7 +290,46 @@ class CalendarDisconnectResponse(BaseModel):
     matched_context_retention: Literal["meeting_retention_policy"] = "meeting_retention_policy"
 
 
+class CalendarJoinTargetResponse(BaseModel):
+    event_id: UUID
+    provider_family: str
+    https_url: str
+
+
+class CalendarSeriesRecording(BaseModel):
+    meeting_id: UUID
+
+
+class CalendarSeriesEvent(BaseModel):
+    event_id: UUID
+    series_key: str | None
+    is_recurring: bool
+    title: str
+    starts_at: datetime | None
+    ends_at: datetime | None
+    all_day: bool
+    cancelled: bool
+    open_meeting_available: bool
+    recordings: list[CalendarSeriesRecording] = Field(default_factory=list)
+
+
+class CalendarOverviewResponse(BaseModel):
+    cards: list[CalendarSeriesEvent]
+    partial: bool
+    coverage_range: dict[str, str]
+    next_cursor: str | None
+
+
+class CalendarSeriesOccurrencesResponse(BaseModel):
+    occurrences: list[CalendarSeriesEvent]
+    partial: bool
+    coverage_range: dict[str, str]
+    coverage_note: str
+    next_cursor: str | None
+
+
 class CalendarEventSummary(BaseModel):
+    is_recurring: bool = False
     all_day: bool = False
     event_id: UUID
     provider_family: str
@@ -484,6 +523,8 @@ class MeetingTargetRegistryDocument(BaseModel):
         default_factory=list,
         alias="nonTargetRules",
     )
+
+
 class MeetingDetectionRegistryResponse(MeetingTargetRegistryDocument):
     etag: Annotated[SafeClientText, Field(max_length=160)] | None = None
 
@@ -2461,7 +2502,9 @@ class OriginCancellationReceipt(BaseModel):
 
 class RecordingLifecycleLookup(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    origins: list[Annotated[SafeClientText, Field(min_length=1, max_length=240)]] = Field(default_factory=list, max_length=100)
+    origins: list[Annotated[SafeClientText, Field(min_length=1, max_length=240)]] = Field(
+        default_factory=list, max_length=100
+    )
     meeting_ids: list[UUID] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")

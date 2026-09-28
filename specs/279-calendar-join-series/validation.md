@@ -1,0 +1,79 @@
+# F279 — результаты проверки
+
+Дата: 2026-09-28. Категория риска: high-risk; полный процесс Spec Kit. Проверяется рабочая копия `codex/279-calendar-join-series` от `59aa72e22bf94725fac37f1248613114954498c5`. Изменения пока не закоммичены; результаты ниже не являются доказательством CI на новом SHA или исправления установленного приложения.
+
+## Реализация
+
+- JSON join-target заново проверяет владельца, рабочее пространство, источник, выбор календаря, отмену/удаление и ссылку. Старый browser `/open` использует тот же resolver.
+- Встроенный кабинет передаёт только UUID через отдельный WKContentWorld. Доверенный клик, текущий документ/сессия и отсутствие повторной операции проверяются до открытия; авторизованный запрос не следует перенаправлениям. Ошибка остаётся рядом с действием.
+- Меню macOS и напоминание также повторно получают join-target; устаревшая ссылка не служит запасным вариантом при отказе сервера.
+- Обзор группирует серию до LIMIT, выбирая текущий или ближайший повтор; идентичность включает workspace/owner/source/calendar/provider-series. Старые ключи и отдельные события не мигрируют.
+- История ограничена периодом и страницами, проверяет права на каждую запись. Отменённая дата без участников/ссылки/места сохраняет разрешённые записи. Обновление повторно проверяет доступ, сохраняет фокус, изолирует поздние ошибки и восстанавливается после истёкшего курсора.
+
+## Выполненные автоматические проверки
+
+| Проверка | Результат | Граница доказательства |
+|---|---|---|
+| PostgreSQL: unit/contract/integration календаря | 97 passed, 2 warnings | Синтетические данные, изолированный PostgreSQL; реальный провайдер не использовался |
+| Swift: opener, bridge, session, client, reminders | 98 tests, 0 failures | Включает настоящий WKWebView для изоляции JS; внешний запуск приложений не выполнялся |
+| calendar_series.mjs | PASS | Рабочие renderer/assets, Chromium, синтетический ответ native-моста |
+| Независимое ревью | UX 8/8, security 8/8; IMP-001–007 устранены, T009 PASS | review-report.md; ручная продуктовая приёмка отдельно |
+| Ruff check | PASS для всех 8 изменённых Python-файлов | Формат проверен для 5 новых/API файлов; в общих cabinet-файлах есть исходные отличия от полного formatter |
+| Spec Kit governance | PASS | bootstrap integrity + GRAF invariants |
+| Changelog fragment | PASS | changes/unreleased/F279.yaml |
+| git diff --check | PASS | Рабочие изменения |
+| GitHub issue canon | PASS, 300 issues | T009 добавлена к существующему #7360, дубли не создавались |
+
+Команды из корня рабочей копии:
+
+```sh
+bash apps/server/scripts/run_local_postgres_tests.sh --focused \
+  tests/unit/test_calendar_series.py \
+  tests/contract/test_calendar_join_series_contract.py \
+  tests/unit/test_calendar_settings_view_models.py \
+  tests/contract/test_calendar_settings_contract.py \
+  tests/integration/test_calendar_access_policy.py \
+  tests/unit/test_calendar_normalization.py \
+  tests/integration/test_calendar_disconnect_lifecycle.py \
+  tests/integration/test_calendar_owner_content.py -q
+swift test --package-path apps/macos --filter 'CalendarMeetingOpenerTests|NativeCalendarJoinTests|EmbeddedCabinetCalendarJoinBridgeTests|CalendarJoinClientTests|CalendarJoinIsolationTests|DesktopUploadClientTests|DesktopCabinetSessionBridgeTests|DesktopCalendarReminderTests'
+SERVER_PYTHON="$PWD/apps/server/.venv/bin/python" node apps/server/tests/browser/calendar_series.mjs
+python3 scripts/check_spec_kit_governance.py
+python3 scripts/validate-changelog-fragments.py
+git diff --check
+```
+
+Для browser запуска использован существующий Playwright через PLAYWRIGHT_MODULE и установленный Chromium; новые зависимости в lock-файлы не добавлялись. Python 3.13.3, окружение подготовлено `uv sync --frozen --extra dev`.
+
+Серверные сценарии включают 12 повторов/пагинацию, группировку до LIMIT, реальный SQL-выбор текущего события, совпадение provider-series в разных календарях, перенос без смены идентичности, отмену с двумя записями, скрытие названия/времени, чужого участника workspace, снятие выбора/отключение источника, недопустимый диапазон/курсор. Swift проверяет сохранение query, исключение небезопасных целей, смену сессии, повторное нажатие, отказ resolver без cached fallback, отсутствие page-world обработчика и отказ программному клику.
+
+Браузер проверяет клавиатуру, 12 дат, отдельные ссылки записей, все копии статуса подключения, сохранение страницы, узкое окно 480 px, настоящее обновление календаря через online с сохранением фокуса, повторную загрузку после 503/422 и поздний ответ закрытой панели. Синтетическое изображение просмотрено; это не снимок установленного GRAF Dev.
+
+## Ограничение существующего браузерного набора
+
+`calendar_refresh.mjs` останавливается на строке 125: тест пытается нажать недоступный input выбора календаря. Повтор на исходном SHA в исходной рабочей копии дал тот же timeout. Это не новый успешный тест и не доказательство регрессии F279. Для затронутого обновления календарного блока новый calendar_series.mjs отдельно проверяет настоящий production-путь refresh. Общий набор calendar_refresh остаётся незакрытым ограничением локальной проверки.
+
+## Analyze и converge
+
+До реализации проверены 20 FR, 7 SC, tasks T001–T008, constitution и custom checklists: непокрытых critical/high требований нет. После первого converge обнаружен один partial/HIGH: старые native entry points использовали cached URL. Добавлена T009, повторный analyze связал её с FR-001/004/006 и #7360; исправление и тесты выполнены, независимое ревью PASS.
+
+Повторная сверка охватила 20 FR, 7 SC, 14 acceptance scenarios, 8 решений архитектуры и 7 принципов constitution в применимой области. Дополнительных отсутствующих участков кода в утверждённой области не найдено. Неизмеренные/ручные критерии остаются открытыми ниже; сверка исходников не подменяет их. Новая пустая фаза задач не добавлялась.
+
+## Совместимость запуска — что доказано
+
+| Сервис | Реализованный механизм | Автоматическая проверка | Настоящее приложение |
+|---|---|---|---|
+| Телемост | Передача HTTPS /j/ установленному приложению через NSWorkspace | Проверка безопасного URL; наличие зарегистрированного приложения исследовано | Не проверено в GRAF Dev |
+| Zoom | Документированная zoommtg-схема для числового /j/; остальные ссылки через HTTPS | Схема, номер, query, защита подмены домена | Не проверено в GRAF Dev |
+| Teams | Документированная msteams-схема для meetup-join | Схема и проверка домена/пути | Не проверено в GRAF Dev |
+| Google Meet / другие HTTPS | Системный браузер | Безопасный HTTPS и сохранение query | Не проверено в GRAF Dev |
+
+## Открытая приёмка
+
+- Установить проверяемый commit в единственный GRAF Dev через dev-harness; проверить screen continuity и правильный pre-join экран приложения без участия в реальном звонке.
+- Проверить VoiceOver, светлую/тёмную темы, возврат фокуса после внешнего приложения, совместимость работающей записи без нового захвата.
+- Измерить SC-007 на согласованном локальном стенде; время внешней сети/запуска отдельно.
+- PR и обязательные governance-fast/macos-pr/pr-metadata на точном SHA, review/merge — не выполнялись. Production/release не входят в текущую приёмку.
+- T001, T006 и T008 остаются открыты. Все GitHub issues остаются открыты до полной совокупной приёмки; автоматический PASS не закрывает release/human gates.
+
+Исходные 15 изменений в dbeb не редактировались. Feature pointer, резервирование F279, ветка, spec-каталог и umbrella #7357 согласованы. Commit требует отдельного разрешения пользователя после этой проверки согласно AGENTS.md.

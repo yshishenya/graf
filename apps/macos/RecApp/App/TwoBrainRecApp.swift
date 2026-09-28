@@ -882,8 +882,9 @@ private struct ContentView: View {
     @MainActor
     private func handleCalendarPromptPrimary(_ prompt: DesktopCalendarPrompt) {
         let actions = DesktopCalendarPromptActions(
-            openURL: { url in
-                NSWorkspace.shared.open(url)
+            openURL: { _ in
+                guard let eventID = prompt.eventId else { return }
+                Task { await CalendarMeetingOpener.openEvent(eventID) }
             },
             startRecording: { decisionIntent, eventId in
                 Task {
