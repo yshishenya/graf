@@ -277,3 +277,49 @@ App build/ContractValidation/retirement/78 Python contracts —PASS.
 проверок и решения о слиянии; T020 — физический второй монитор, принятый долг.
 Новый commit SHA и GitHub proofs сохраняются в PR #7351 без самоссылочного
 цикла коммитов ради записи собственного SHA. Issue #7352 до слияния не закрыт.
+
+## Phase 13: Convergence — все видимые области indicator/Stop
+
+На 14462f9f148a7e990c639bedebf599b80fd18e8d независимо подтверждено замечание
+PR #7351 / discussion_r4117917499: единственный маркер в TwoBrainRecApp
+охватывает только CaptureControlView раскрытого инспектора. Компактная
+полоса и titlebar HUD имеют собственные indicator/Stop без регистрации.
+Каждый новый маркер также перезаписывает единственный protectedFramesProvider,
+поэтому добавление маркеров без исправления владения недостаточно.
+
+Узкая сверка: T017, FR-019, SC-004; UI contract «Lifecycle/экран» (защита
+Stop и отказ невозможного размещения); plan Constitution Check/I–II
+(видимый indicator/Stop); Constitution II (постоянный контроль записи).
+Одна partial/MEDIUM находка, остальные типы/уровни0. Не утверждается полная
+утрата всех путей Stop: меню строки состояния существует. Граница проблемы
+— собственные видимые области управления в основном окне, а не новый
+capture contract. Ранее успешные тесты не доказывают подключение этих областей.
+
+- [X] T034 [US4] Сначала получить RED настоящих AppKit/SwiftUI проверок нескольких защищённых областей и действующих indicator/Stop при свёрнутом инспекторе/titlebar HUD. В `apps/macos/RecApp/Sources/Notifications/DesktopNotificationProtectedRegion.swift` и `DesktopNotificationCardPresenter.swift` заменить перезапись provider регистрацией всех живых областей конкретного presenter с отдельной идентичностью, без глобального удержания NSView/NSWindow, дубликатов и устаревших регистраций. В `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`, `apps/macos/RecApp/Sources/Capture/CaptureStatusItem.swift` и, если нужно для передачи владельца, `CaptureControlViewCore.swift` привязать маркеры к фактическим видимым indicator/Stop раскрытого блока, compact rail и самому HUD внутри accessory hosting view, не его нулевому anchor и не всему пустому окну/инспектору. Удалить прежнюю широкую отметку в `apps/macos/RecApp/App/TwoBrainRecApp.swift`, если её заменяют точные действующие потребители, не сохранять второй путь измерения ради совместимости. Учитывать visibleRect/скрытых предков/обрезание/окно/Space; полностью скрытый элемент не резервирует место, частично обрезанный — только видимую часть. Корректно снимать регистрацию и наблюдателей при смене и удалении view, закрытии окна, снятии HUD/завершении записи; удаление последнего созданного маркера не убирает оставшиеся. Геометрия, прокрутка, видимость и состав областей пересчитывают размещение событийно без сканирования чужих окон, polling и сброса срока карточки. Добавить исполняемые проверки в `apps/macos/Shared/Tests/DesktopNotificationProtectedRegionTests.swift`, связанные tests размещения и действующего shell: разные порядки регистрации/удаления, настоящее hosting view раскрытого/свёрнутого инспектора и titlebar accessory, создание/снятие при записи, движение/resize/скрытие/miniaturize/detach/reattach, clipping/scroll и невмешательство в hit testing. Настоящий Stop в исходной зоне карточки должен приводить к непересечению всех защищённых областей с зазором; невозможное размещение — к прежнему явному отказу без скрытого prompt-start. Проверить обновление уже видимой карточки без пересоздания окна/продления deadline. Source wiring не заменяет измерение настоящих потребителей. Не менять Stop callbacks, capture gates, уровни окон, приоритеты, сроки, дедупликацию и политику календаря. После RED/GREEN выполнить профильные/общие F277 тесты, App build/ContractValidation, retirement guard и независимое review; реальные skips и ограничения ручной проверки записать отдельно. По T017, FR-019, SC-004, UI contract «Lifecycle/экран», plan I–II. (partial, MEDIUM)
+
+До реализации T034 обязательны analyze, независимый reviewer-owned
+requirements/checklist gate и синхронизация владельца GitHub. Все прежние
+IDs/статусы/доказательства сохранены. Общий GRAF Dev на момент read-only
+status принадлежит F278/dev-7a78b7c1df4b; не заменять его и не создавать
+другую копию приложения. Автоматические hosting-view тесты без установки
+разрешены; физическая приёмка на стенде — отдельное согласование занятости.
+Вопрос владельцу о календарной ошибке и T020/#7305 остаются отдельно.
+
+- T034 (Issue #7353) — https://github.com/yshishenya/graf/issues/7353
+
+Main analyze после добавления T034: FR-019 и SC-004 покрыты новой задачей
+и прежней T017 (2/2); непокрытых новых требований0, несвязанных задач0,
+CRITICAL/HIGH/MEDIUM/LOW0. Изменение только существующей защиты собственных
+controls, без нового решения о записи. Независимый requirements gate
+выполняется отдельно; до его PASS исходники и тесты T034 не меняются.
+
+T034 реализована после независимого допуска: registry RED (3 assertion
+failures), затем RED двух настоящих compact/HUD потребителей; итоговый
+профиль 10 PASS/0 SKIP/0 FAIL. Полный заключительный Swift-набор:
+1153 выбрано,1144 PASS,9 SKIP,0 FAIL,92.945s. App build,
+ContractValidation, retirement guard и 78 Python contracts —PASS.
+Независимое review Laplace:0 findings; main scoped converge FR-019/SC-004
+2/2, без новой задачи или изменения capture/calendar политики.
+Доказательства и ограничения — validation.md, scope-review.md Phase13.
+T020/#7305 и T022/#7276 остаются открыты. Issue #7353 не закрывается
+до проверки точного SHA/base и разрешённого слияния. GRAF Dev не обновлялся.

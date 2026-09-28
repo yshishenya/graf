@@ -343,12 +343,13 @@ final class DesktopNotificationAccessibilityTests: XCTestCase {
         let deadline = presenter.deadline
         let window = try XCTUnwrap(presenter.window)
         let obstacle = NSRect(x: window.frame.minX, y: 760, width: window.frame.width, height: 100)
-        presenter.protectedFramesProvider = { [obstacle] }
+        let regionID = UUID()
+        presenter.registerProtectedRegion(id: regionID) { obstacle }
         presenter.reposition()
         XCTAssertTrue(presenter.window === window)
         XCTAssertLessThanOrEqual(window.frame.maxY, obstacle.minY - 8)
         XCTAssertEqual(presenter.deadline, deadline)
-        presenter.protectedFramesProvider = { [fixture.screens[0].visibleFrame] }
+        presenter.registerProtectedRegion(id: regionID) { fixture.screens[0].visibleFrame }
         presenter.reposition()
         presenter.reposition()
         XCTAssertEqual(invalidated, 1)

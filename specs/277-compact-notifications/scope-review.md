@@ -1306,3 +1306,169 @@ retirement guard, проверки окончательного SHA/base и оф
 GitHub и Git-история рецензентом не изменялись. Тесты, сборки и приложение
 не запускались. Проверка оформления ограничена чтением добавленного раздела
 и `git diff --check` для этого файла.
+
+## Phase 13 — независимый допуск T034 до реализации, 2026-09-28
+
+Проверен HEAD `14462f9f148a7e990c639bedebf599b80fd18e8d`: до отчёта изменён
+только tasks.md, append-only Phase 13 (+27 строк); рабочего исправления ещё нет.
+Lane: существующий F277 `high-risk-product`. **Requirements/checklist PASS;
+scoped analyze PASS: CRITICAL 0 / HIGH 0 / MEDIUM 1 / LOW 0**. MEDIUM ниже
+относится к предложенной схеме событий, не к противоречию продуктовых требований.
+До кода остаётся отдельное условие — синхронизация владельца T034 основным агентом.
+
+Самостоятельно перечитаны spec/plan/tasks/quickstart, все четыре checklists,
+constitution 7.1.0, AGENTS/README, spec-kit-flow/product-gates/codex-worktrees,
+tracker-policy, применимые release-and-validation/local-development, договор
+автозаписи PRD, текущий статус и UI contract. Прочитаны marker, placement,
+реальные CaptureStatusItem/compact rail/titlebar accessory и текущие тесты.
+Применены code-reviewer, speckit-analyze и appkit-interop (владение и lifecycle);
+analyze hooks отключены; prerequisite подтвердил активный F277.
+
+### Все 31 критерия и покрытие добавки
+
+| Checklist | Checked / unchecked | Основание повторной проверки всех пунктов |
+|---|---|---|
+| UX | 10 / 0 | CHK001–003/006/010: геометрия/controls/темы/provenance сохранены; CHK004: сроки неизменны; CHK005/007/008: FR-019/020, UI lifecycle и T034 задают событийное размещение, все три поверхности, отказ и teardown; CHK009: quiet/history/Stop не меняются. |
+| Security | 8 / 0 | CHK011–013/015: FR-015/017/018/020 и прежние контракты остаются; CHK014: широкая отметка заменяется без второго совместимого пути; CHK016: synthetic/no-deploy/отдельный стендовый допуск; CHK025–026: FR-026–028 и запрет отправки не затрагиваются. |
+| Audio-capture | 8 / 0 | CHK017–019: 8 s/решения/отмена остаются; CHK020: защита видимых indicator/Stop прямо задана T034; CHK021–024: аудиообработка, gates, pending/accepted, ошибки сохранения и регрессии plan P1 остаются вне изменения. |
+| Requirements | 5 / 0 | Цель/истории, измеримые FR/SC, ясные границы, конституционный отсчёт и исключения сохранены; вопрос календарной политики исключён из T034. |
+
+**Reviewer-owned 26/0; всего 31/0.** Отметки не изменены: это качество требований,
+не runtime PASS. Узкое покрытие: **FR-019 и SC-004 — 2/2; одна новая mapped T034**,
+продолжение T017; прямые основания UI Lifecycle/экран, plan I–II и Constitution II
+сохранены (3/3). Несопоставленных задач, дубликатов, блокирующих уточнений и
+конституционных конфликтов 0. Всего tasks 34: 31 checked / 3 unchecked
+(T020/T022/T034); прежние аудиты исполнения этим не повторяются.
+
+### Замечание и оценка узкой схемы
+
+**A13-01 — MEDIUM, детализация событий/проверок.** Предложенный window-scoped
+didUpdateNotification годится как дополнительная проверка, но не единственная
+гарантия актуальности при прокрутке: Apple указывает, что автоматический
+[updateWindows()](https://developer.apple.com/documentation/appkit/nsapplication/updatewindows())
+не вызывается в NSEventTrackingRunLoopMode. Сохранить непосредственные
+события lifecycle/move/resize и обеспечить обновление для реального tracking/
+scroll пути. Тест с принудительным NSApp.updateWindows() подтверждает обычный
+цикл, но сам не доказывает этот случай. Закрыть замечание при выборе механизма
+и RED/GREEN T034; нового продуктового решения или изменения checklist не нужно.
+
+Остальная схема реализуема в указанных файлах:
+
+- Один registry конкретного card с weak NSView и отдельной identity; маркер
+  снимает только свою регистрацию/наблюдателей при dismantle, detach и смене
+  владельца. Удаление последнего созданного не теряет остальные. Не полагаться
+  только на deinit; исчезновение области тоже инициирует переразмещение.
+- Expanded: настоящий CaptureStatusItem, compact: indicator и Stop, titlebar:
+  внутренний HUD в accessory NSHostingView, не нулевой anchor, вся ширина host
+  или CaptureControlView. Необязательная передача card через реальные views
+  допустима для изолированных тестов; нового глобального держателя views нет.
+- VisibleRect переводится в экранные координаты после проверки окна/Space,
+  hidden ancestors и clipping. Сравнивать конечную геометрию и видимость,
+  не только локальный visibleRect: движение предка/окна может не менять его.
+  [viewDidHide()](https://developer.apple.com/documentation/appkit/nsview/viewdidhide())
+  действительно охватывает скрытие предка. didUpdate вызывает переразмещение
+  только при изменении снимка; исключить цикл update→reposition→update.
+- Existing protectedFramesProvider обоснован настоящими placement-тестами
+  AccessibilityTests:335; допустима композиция дополнительных препятствий с
+  registry, но provider не может заменять/отключать живые регистрации.
+- RED/GREEN должны измерять настоящие expanded/compact/accessory consumers,
+  несколько областей и порядков удаления, clip/scroll/hide/reparent/close,
+  создание/снятие HUD, hit testing и изоляцию двух card. Проверять зазор,
+  прежние window identity/deadline и отказ невозможного размещения без старта;
+  source wiring и отдельно размещённый голый marker этого не доказывают.
+
+Сроки/приоритеты/Stop callbacks/capture/privacy и календарная политика не меняются.
+Занятость единственного GRAF Dev F278 ограничивает установку/ручную приёмку,
+не автоматические hosting-view тесты без установки; в этом ревью они не запускались.
+Владелец T034 пока не синхронизирован; это условие начала кода, не дефект требований.
+Изменён только этот короткий раздел отчёта, добавлением в конец. Исходники,
+tasks/checklists, GitHub/commits, тесты/сборки/приложение не изменялись/не запускались.
+
+### T034 — уточнение единого registry и владельца до реализации
+
+На том же HEAD проверены новая каноническая связь T034 → #7353 в tasks.md
+и отсутствие изменений исходников/тестов. Синхронизация владельца сообщена MAIN;
+прежняя запись «владелец пока не синхронизирован» больше не описывает этот этап.
+Результат ещё выполняющегося postvalidate здесь не объявляется успешным.
+
+**Requirements gate PASS сохранён: UX 10/0, security 8/0, audio-capture 8/0,
+requirements 5/0; всего 31 checked / 0 unchecked, отметки неизменны.**
+FR-019/SC-004 по-прежнему покрыты 2/2, одна связанная T034. Новых findings
+этого уточнения 0; CRITICAL/HIGH 0. Прежний неблокирующий A13-01 MEDIUM
+о tracking/scroll остаётся обязательством реализации и проверки, не закрыт
+заменой интерфейса регистрации.
+
+Полное удаление protectedFramesProvider допустимо и заменяет ранее описанный
+вариант его композиции: требование сохранять старый API отсутствует.
+Один внутренний registerProtectedRegion(UUID, frame: () -> NSRect?), unregister
+и сбор актуальных frames соответствует задаче. Настоящие маркеры передают
+замыкание со слабым захватом self; geometry tests используют тот же registry
+с управляемыми значениями, без отдельной ветки размещения. Проверки реальных
+NSHostingView/трёх поверхностей остаются обязательны: frame closure их не заменяет.
+
+Явные dismantle/detach/смена владельца снимают только собственную регистрацию
+и инициируют переразмещение; reattach восстанавливает её без дубликата.
+Слабое замыкание для уже исчезнувшего маркера возвращает nil. Отложенная на
+MainActor очистка из deinit допустима как страховка, не единственный teardown:
+без захвата уничтожаемого self, со старым владельцем и точным ID, без удаления
+новой/чужой регистрации. Actor-isolation/Swift 6 и этот lifecycle ещё предстоит
+подтвердить кодом и тестами. Это деталь реализации прежнего договора, не новые
+требования, scope или разрешение менять capture/Stop/таймеры/календарную политику.
+
+Уточнение проверено через code-reviewer/appkit-interop; добавлен только этот
+раздел отчёта. Исторические аудиты/CI не повторялись; tests/build/app, GitHub
+и commits не запускались/не изменялись. Начало реализации — после успешного
+обязательного postvalidate; текущий отчёт не подменяет его результат.
+
+### T034 — независимое ревью реализации и узкая сходимость, 2026-09-28
+
+Граница проверки: T034/#7353, защита собственных indicator/Stop в раскрытом
+блоке, compact rail и titlebar HUD. FR-019/SC-004 рассмотрены **2/2 только
+в этом срезе**, вместе с UI contract «Lifecycle/экран» и plan I–II
+(видимое управление и неизменность capture). **Новых findings 0:
+CRITICAL/HIGH/MEDIUM/LOW = 0/0/0/0; missing/partial/contradicts/unrequested =
+0/0/0/0. Узкая сходимость реализации PASS**, не итоговая приёмка всей F277.
+
+Независимо прочитаны пять изменённых production-файлов и три файла тестов:
+CardPresenter/ProtectedRegion, DesktopMeetingShellView, CaptureStatusItem,
+TwoBrainRecApp; ProtectedRegionTests, ProtectedConsumerTests и изменение
+AccessibilityTests. Единый registry UUID со слабыми замыканиями заменяет
+provider; owner передаётся в настоящий HUD hosting view, широкая отметка App
+удалена. Измерение visibleRect.intersection(bounds), собственные события,
+очистка и update-in-place не вводят второй канал, polling или новые сроки.
+Изменений Stop callbacks, capture/privacy gates и календарной политики
+в рассмотренном срезе не найдено.
+
+**A13-01 MEDIUM закрыт текущим доказательством:** наблюдение собственных
+ancestor frame/bounds и scroll events дополняет window.didUpdate;
+переразмещение объединяется через RunLoop .common. Прочитанный тест
+testClippingScrollAndHiddenAncestorRepositionDuringTrackingWithoutExtendingDeadline
+меняет настоящие AppKit bounds, обслуживает .eventTracking без ручных
+reposition/updateWindows/подставных notifications и проверяет частичную
+видимость 30 pt, исчезновение/возврат области, окно и прежний deadline.
+
+Два пробела доказательств закрыты дополнениями только тестов, без новой
+правки production после независимого ревью: все три потребителя отдельно
+измеряют настоящий AX indicator и Stop; expanded/HUD читают публичный
+accessibilityValue, compact — label. Проверяется включение экранных границ
+в защищённую область. Отдельный тест после dismantle/close/autoreleasepool
+и уступки исполнителя через Task.yield требует освобождения weak marker
+и weak presenter, а не только пустого списка frames.
+
+**Результат выполнения прочитан непосредственно в предоставленном MAIN
+/tmp/graf-f277-t034-final-focused.log:** XCTest 2026-09-28 05:52:33–05:52:36,
+**10 PASS / 0 FAIL / 0 SKIP, 2.803 s**. Это **3 consumer + 7 registry**,
+то есть **1 прежний registry-тест + 9 новых**, не 10 новых. Журнал подтверждает
+успех указанных проверок, реальных Stop collision/callback/end-capture,
+двух порядков удаления внутри одного теста, reparent/owner/dismantle,
+miniaturize/restore и невозможного prompt без позднего старта. Исходники
+проверял reviewer; запуск выполнял MAIN, reviewer прочитал его журнал и
+сам тесты/сборку не запускал. Прежние семь focus SKIP не относятся к этому
+набору и не превращены в PASS.
+
+Полный Swift-набор ещё выполняется по сообщению MAIN; его результат,
+App build/ContractValidation, retirement guard и окончательный CI на точном
+SHA этим разделом не удостоверяются. Отметка T034, checklists и GitHub
+не изменены; новых задач нет. По просьбе владельца добавлен только этот
+раздел scope-review.md: code-reviewer и ограниченная сверка speckit-converge,
+без повторения исторического аудита, commits или изменений других файлов.

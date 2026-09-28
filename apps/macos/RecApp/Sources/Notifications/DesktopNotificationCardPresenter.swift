@@ -122,8 +122,37 @@ public final class DesktopNotificationCardPresenter {
     public static let recordingPromptDisplayDuration: TimeInterval = 8
     public static let noticeDisplayDuration: TimeInterval = 20
 
-    /// Visible GRAF controls, in global screen coordinates. No foreign-window discovery.
-    public var protectedFramesProvider: () -> [NSRect] = { [] }
+    // Each live control owns one registration. Providers capture their views weakly;
+    // dismissing a card must not discard controls needed by the next card.
+    private var protectedRegions: [UUID: () -> NSRect?] = [:]
+    private var protectedPlacementScheduled = false
+    var protectedFrames: [NSRect] {
+        protectedRegions.values.compactMap { $0() }.filter { !$0.isEmpty }
+    }
+
+    func registerProtectedRegion(id: UUID, frame: @escaping () -> NSRect?) {
+        protectedRegions[id] = frame
+        scheduleProtectedPlacement()
+    }
+
+    func unregisterProtectedRegion(id: UUID) {
+        guard protectedRegions.removeValue(forKey: id) != nil else { return }
+        scheduleProtectedPlacement()
+    }
+
+    func scheduleProtectedPlacement() {
+        guard !protectedPlacementScheduled else { return }
+        protectedPlacementScheduled = true
+        // Common modes include scroll/resize tracking. No polling, new timer or
+        // deadline: this is one coalesced response to actual geometry changes.
+        RunLoop.main.perform(inModes: [.common]) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.protectedPlacementScheduled = false
+                self.reposition()
+            }
+        }
+    }
     public var isVisible: Bool { panel?.isVisible == true }
     public private(set) var presentedContent: DesktopNotificationCardContent?
     var window: NSWindow? { panel }
@@ -437,7 +466,7 @@ public final class DesktopNotificationCardPresenter {
         let surfaceWidth = width + Self.horizontalMargin * 2
         let x = allowed.maxX - surfaceWidth
         var top = allowed.maxY
-        let protected = protectedFramesProvider().filter { !$0.isEmpty }
+        let protected = protectedFrames
         for _ in 0...protected.count {
             let available = top - allowed.minY - Self.topPadding - Self.bottomPadding
             guard available >= layout.minimumHeight else { return nil }
