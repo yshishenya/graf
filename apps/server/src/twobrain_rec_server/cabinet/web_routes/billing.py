@@ -92,9 +92,10 @@ from twobrain_rec_server.billing.receipts import (
 from twobrain_rec_server.billing.referrals import referral_token_hash, validate_referral_token
 from twobrain_rec_server.billing.refund_email import build_refund_mailto
 from twobrain_rec_server.billing.renewal_charge import (
+    cancel_unsent_renewals,
     next_renewal_attempt,
     renewal_attempt_of,
-    renewal_canceled_before_dispatch,
+    renewal_canceled_without_payment,
 )
 from twobrain_rec_server.billing.storage import (
     StorageProjection,
@@ -2926,7 +2927,7 @@ async def cancel_billing_subscription(
     except ValueError:
         await db.rollback()
         return RedirectResponse("/billing/subscription?result=conflict", status_code=303)
-    await _cancel_unsent_renewals(
+    await cancel_unsent_renewals(
         db, workspace_id=tenant_scope.workspace_id, reason="authority_cancelled"
     )
     subscription.recurring_allowed = changed.recurring_allowed
@@ -3635,7 +3636,7 @@ async def start_billing_checkout(
             )
             response.status_code = 409
             return response
-        await _cancel_unsent_renewals(
+        await cancel_unsent_renewals(
             db, workspace_id=tenant_scope.workspace_id, reason="checkout_selected"
         )
         unresolved_payment = await db.scalar(
@@ -4567,7 +4568,7 @@ async def confirm_billing_purchase(
                 if current_price is None or str(current_price.id) != segment["catalog_version_id"]:
                     raise PurchaseError("Цена изменилась. Проверьте расчёт заново")
         if bound.purpose == "early_renewal":
-            await _cancel_unsent_renewals(
+            await cancel_unsent_renewals(
                 db, workspace_id=tenant_scope.workspace_id, reason="early_renewal_selected"
             )
         blocker = await db.scalar(
@@ -4854,7 +4855,7 @@ async def _next_renewal_label(db, subscription, *, now, for_resume=False):
         resolved_attempts={
             renewal_attempt_of(item)
             for item in operations
-            if item.state in {"canceled", "succeeded"} and not renewal_canceled_before_dispatch(item)
+            if item.state in {"canceled", "succeeded"} and not renewal_canceled_without_payment(item)
         },
         unresolved=False,
     )
@@ -4879,7 +4880,7 @@ async def _resume_renewal_snapshot(db, *, subscription, now):
     )))
     if next_renewal_attempt(
         paid_through=subscription.paid_through, now=now,
-        resolved_attempts={renewal_attempt_of(item) for item in operations if item.state in {"canceled", "succeeded"} and not renewal_canceled_before_dispatch(item)},
+        resolved_attempts={renewal_attempt_of(item) for item in operations if item.state in {"canceled", "succeeded"} and not renewal_canceled_without_payment(item)},
         unresolved=any(item.state not in {"canceled", "succeeded", "scheduled"} for item in operations),
     ) is None:
         raise PurchaseError("Попытки автопродления недоступны. Проверьте историю и оплатите следующий период вручную")
@@ -4906,33 +4907,6 @@ async def _resume_renewal_snapshot(db, *, subscription, now):
         "payment_method_id": str(method),
         "next_attempt_label": await _next_renewal_label(db, subscription, now=now, for_resume=True),
     }
-
-
-async def _cancel_unsent_renewals(db, *, workspace_id, reason):
-    """Caller holds the workspace advisory lock; in-flight operations are preserved."""
-    scheduled = await db.scalars(
-        select(BillingOperation)
-        .where(
-            BillingOperation.workspace_id == workspace_id,
-            BillingOperation.kind == "renewal",
-            BillingOperation.state == "scheduled",
-            BillingOperation.provider_id.is_(None),
-        )
-        .with_for_update()
-    )
-    for pending in scheduled:
-        pending.state = "canceled"
-        pending.request_snapshot = {**pending.request_snapshot, "cancel_reason": reason}
-        pending_invoice = await db.scalar(
-            select(BillingInvoice)
-            .where(BillingInvoice.operation_id == pending.id)
-            .with_for_update()
-        )
-        if pending_invoice is not None:
-            pending_invoice.status = "canceled"
-        await settle_acceptance_budget(
-            db, workspace_id=workspace_id, operation_id=pending.id, succeeded=False
-        )
 
 
 async def _notify_storage_selection(db, *, subscription):

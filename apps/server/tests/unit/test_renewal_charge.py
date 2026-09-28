@@ -1018,17 +1018,12 @@ async def test_rate_limit_retries_same_attempt_and_key_without_decline_notice(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("attempt", [1, 2])
-@pytest.mark.parametrize("response_kind", ["http_error", "canceled_payment"])
 async def test_declined_attempt_before_the_last_one_keeps_recurring_authority(
-    monkeypatch, tmp_path: Path, attempt: int, response_kind: str
+    monkeypatch, tmp_path: Path, attempt: int
 ) -> None:
     settings = _settings(tmp_path)
     subscription, operation, invoice, method = _rows(tmp_path, attempt=attempt)
-    provider = FakeProvider(
-        YooKassaProviderError("declined", status_code=402)
-        if response_kind == "http_error"
-        else _canceled_payment()
-    )
+    provider = FakeProvider(_canceled_payment())
     monkeypatch.setattr(
         "twobrain_rec_server.billing.renewal_charge.YooKassaClient",
         lambda _settings: provider,
@@ -1059,17 +1054,12 @@ async def test_declined_attempt_before_the_last_one_keeps_recurring_authority(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("response_kind", ["http_error", "canceled_payment"])
 async def test_confirmed_provider_decline_of_the_last_attempt_turns_authority_off(
-    monkeypatch, tmp_path: Path, response_kind: str
+    monkeypatch, tmp_path: Path
 ) -> None:
     settings = _settings(tmp_path)
     subscription, operation, invoice, method = _rows(tmp_path, attempt=3)
-    provider = FakeProvider(
-        YooKassaProviderError("declined", status_code=402)
-        if response_kind == "http_error"
-        else _canceled_payment()
-    )
+    provider = FakeProvider(_canceled_payment())
     monkeypatch.setattr(
         "twobrain_rec_server.billing.renewal_charge.YooKassaClient",
         lambda _settings: provider,
@@ -1296,6 +1286,21 @@ async def test_changed_base_price_after_planning_never_reaches_provider(monkeypa
     assert subscription.renewal_resolution == "price_changed"
     assert not provider.calls
 
+    from twobrain_rec_server.billing.purchases import accept_base_price
+    accepted = await changed_catalog(None, cycle="month", now=_attempt_charge_moment(3))
+    accept_base_price(subscription, accepted.as_dict())
+    planning = PlanningDb([subscription, None, method, "billing@example.test",
+                           None, None, operation, None])
+    assert len(await plan_due_renewals(planning, now=_attempt_charge_moment(3))) == 1
+    fresh = next(row for row in planning.added if isinstance(row, BillingOperation))
+    fresh_invoice = next(row for row in planning.added if isinstance(row, BillingInvoice))
+    provider.response = {"id": "payment-after-new-consent", "status": "pending"}
+    result = await charge_renewal_operation(FakeDb([subscription, fresh, fresh_invoice, method]),
+        settings, operation_id=fresh.id, workspace_id=WORKSPACE_ID, now=_attempt_charge_moment(3))
+    assert result.status == "sent" and len(provider.calls) == 1
+    assert fresh.id != operation.id and fresh_invoice.amount_minor == accepted.amount_minor
+    assert subscription.recurring_authority_version == 4
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cause", ["budget", "provider_setup", "secret_io"])
@@ -1329,7 +1334,7 @@ async def test_unsent_renewal_refusal_preserves_method_and_bank_attempt(monkeypa
     result = await charge_renewal_operation(db, settings, operation_id=OPERATION_ID,
         workspace_id=WORKSPACE_ID, now=_attempt_charge_moment(3))
     assert result.status == operation.state == invoice.status == "canceled"
-    assert renewal.renewal_canceled_before_dispatch(operation)
+    assert renewal.renewal_canceled_without_payment(operation)
     assert subscription.renewal_resolution == (
         "acceptance_budget" if cause == "budget" else "provider_unavailable")
     assert subscription.recurring_allowed and subscription.recurring_authority_version == 4
@@ -1339,7 +1344,7 @@ async def test_unsent_renewal_refusal_preserves_method_and_bank_attempt(monkeypa
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("cause", ["budget", "provider_setup"])
+@pytest.mark.parametrize("cause", ["budget", "provider_setup", "provider_request"])
 async def test_two_local_renewal_failures_recover_in_last_window_without_new_consent(
     monkeypatch, tmp_path, cause
 ):
@@ -1363,6 +1368,9 @@ async def test_two_local_renewal_failures_recover_in_last_window_without_new_con
     def construct(_settings):
         if cause == "provider_setup" and preparation <= 2:
             raise YooKassaConfigurationError("synthetic setup unavailable")
+        if cause == "provider_request":
+            provider.response = (YooKassaProviderError("synthetic authentication failure", status_code=401)
+                if preparation <= 2 else {"id": "payment-after-recovery", "status": "pending"})
         return provider
 
     monkeypatch.setattr(renewal, "reserve_acceptance_budget", reserve)
@@ -1390,7 +1398,7 @@ async def test_two_local_renewal_failures_recover_in_last_window_without_new_con
         assert len(planned) == 1
         operation = next(row for row in planning.added if isinstance(row, BillingOperation))
         invoice = next(row for row in planning.added if isinstance(row, BillingInvoice))
-    assert len(provider.calls) == 1
+    assert len(provider.calls) == (3 if cause == "provider_request" else 1)
     assert len({row.id for row in [*previous, operation]}) == 3
     assert all(row.state == "canceled" and row.provider_id is None for row in previous)
     assert subscription.recurring_authority_version == 4 and subscription.recurring_allowed
@@ -1398,9 +1406,10 @@ async def test_two_local_renewal_failures_recover_in_last_window_without_new_con
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("state", ["unknown", "sent", "processing", "succeeded"])
-async def test_local_retry_never_ignores_a_later_dispatched_successor(state):
+@pytest.mark.parametrize("reason", ["provider_unavailable", "price_changed", "provider_request_rejected"])
+async def test_local_retry_never_ignores_a_later_dispatched_successor(state, reason):
     root = _stored_attempt(attempt=3, state="canceled")
-    root.request_snapshot = {**root.request_snapshot, "cancel_reason": "provider_unavailable"}
+    root.request_snapshot = {**root.request_snapshot, "cancel_reason": reason}
     latest = _stored_attempt(attempt=3, state=state)
     db = PlanningDb([
         _planning_subscription(), None, _planning_catalog(), UUID(int=1), "billing@example.test",
@@ -1412,9 +1421,10 @@ async def test_local_retry_never_ignores_a_later_dispatched_successor(state):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("state", ["unknown", "sent", "processing", "succeeded"])
-async def test_local_retry_from_previous_window_blocks_next_bank_attempt(state):
+@pytest.mark.parametrize("reason", ["provider_unavailable", "price_changed", "provider_request_rejected"])
+async def test_local_retry_from_previous_window_blocks_next_bank_attempt(state, reason):
     root = _stored_attempt(attempt=1, state="canceled")
-    root.request_snapshot = {**root.request_snapshot, "cancel_reason": "provider_unavailable"}
+    root.request_snapshot = {**root.request_snapshot, "cancel_reason": reason}
     latest = _stored_attempt(attempt=1, state=state)
     class WindowDb(PlanningDb):
         async def scalar(self, query):
@@ -1489,3 +1499,75 @@ async def test_planner_pages_past_unaccepted_prices_without_consuming_action_lim
     resumed = PagedDb()
     assert len(await plan_due_renewals(resumed, now=PAID_THROUGH - timedelta(hours=70), limit=1)) == 1
     assert resumed.pages == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("attempt", [1, 3])
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 405, 415])
+async def test_rejected_merchant_request_never_spends_card_attempt_or_revokes_mandate(
+    monkeypatch, tmp_path, attempt, status
+):
+    from twobrain_rec_server.billing import renewal_charge as renewal
+    settings = _settings(tmp_path)
+    subscription, operation, invoice, method = _rows(tmp_path, attempt=attempt)
+    provider = FakeProvider(YooKassaProviderError("synthetic merchant request failure", status_code=status))
+    settlements = []
+
+    async def settle(*args, **kwargs):
+        settlements.append(kwargs["succeeded"])
+
+    monkeypatch.setattr(renewal, "YooKassaClient", lambda _: provider)
+    monkeypatch.setattr(renewal, "settle_acceptance_budget", settle)
+    db = FakeDb([subscription, operation, invoice, method])
+    result = await charge_renewal_operation(db, settings, operation_id=operation.id,
+        workspace_id=WORKSPACE_ID, now=_attempt_charge_moment(attempt))
+    assert result.status == invoice.status == operation.state == "canceled"
+    assert operation.request_snapshot["cancel_reason"] == "provider_request_rejected"
+    assert renewal.renewal_canceled_without_payment(operation)
+    assert subscription.recurring_allowed and subscription.recurring_authority_version == 4
+    assert method.state == "active" and method.is_default
+    assert settlements == [False]
+    assert not any(isinstance(row, BillingNotificationDelivery) for row in db.added)
+
+
+@pytest.mark.asyncio
+async def test_last_window_price_change_requires_new_consent_then_uses_new_operation():
+    from twobrain_rec_server.billing.catalog import validate_plan_version
+    from twobrain_rec_server.billing.purchases import accept_base_price
+    subscription = _planning_subscription()
+    canceled = _stored_attempt(attempt=3, state="canceled")
+    canceled.request_snapshot = {**canceled.request_snapshot, "cancel_reason": "price_changed"}
+    subscription.storage_price_consents = {}
+    now = PAID_THROUGH - timedelta(hours=12)
+    assert await plan_due_renewals(PlanningDb([subscription, None, _planning_catalog()]), now=now) == ()
+    accept_base_price(subscription, validate_plan_version(_planning_catalog()).as_dict())
+    db = PlanningDb([subscription, None, _planning_catalog(), UUID(int=1),
+        "billing@example.test", None, None, canceled, None])
+    assert len(await plan_due_renewals(db, now=now)) == 1
+    fresh = next(row for row in db.added if isinstance(row, BillingOperation))
+    assert fresh.id != canceled.id and fresh.idempotency_key.endswith(f":retry:{canceled.id}")
+    assert fresh.request_snapshot["renewal_attempt"] == 3
+    assert canceled.state == "canceled" and subscription.recurring_allowed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [402, 408, 409, 422, 500])
+async def test_ambiguous_request_status_keeps_unknown_payment_reserved(monkeypatch, tmp_path, status):
+    from twobrain_rec_server.billing import renewal_charge as renewal
+    settings = _settings(tmp_path)
+    subscription, operation, invoice, method = _rows(tmp_path, attempt=3)
+    provider = FakeProvider(YooKassaProviderError("synthetic ambiguous response", status_code=status))
+    settlements = []
+
+    async def settle(*args, **kwargs):
+        settlements.append(kwargs)
+
+    monkeypatch.setattr(renewal, "YooKassaClient", lambda _: provider)
+    monkeypatch.setattr(renewal, "settle_acceptance_budget", settle)
+    db = FakeDb([subscription, operation, invoice, method])
+    result = await charge_renewal_operation(db, settings, operation_id=operation.id,
+        workspace_id=WORKSPACE_ID, now=_attempt_charge_moment(3))
+    assert result.status == operation.state == invoice.status == "unknown"
+    assert subscription.recurring_allowed and subscription.recurring_authority_version == 4
+    assert settlements == []
+    assert not any(isinstance(row, BillingNotificationDelivery) for row in db.added)

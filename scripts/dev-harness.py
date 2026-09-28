@@ -48,6 +48,10 @@ POINTER_VERSION = "dev-active-pointer.v1"
 PROCESS_STOP_TIMEOUT_SECONDS = 10
 APP_STOP_TIMEOUT_SECONDS = 30
 RUNTIME_CLEANUP_TIMEOUT_SECONDS = 60
+# Cold startup includes storage setup, migration preflight, migration, identity
+# seed and worker health probes. Ninety seconds can expire after successful
+# initialization but before the last probe on a busy development Mac.
+RUNTIME_STARTUP_TIMEOUT_SECONDS = 180
 PROBE_RETRY_DELAY_SECONDS = 0.2
 RUNTIME_READY_SERVICES = (
     "api",
@@ -1572,7 +1576,7 @@ class GrafLocalAdapter:
                 )
             raise
 
-    def _wait_runtime_ready(self, manifest: Dict[str, Any], env: Dict[str, str], *, timeout: int = 90) -> None:
+    def _wait_runtime_ready(self, manifest: Dict[str, Any], env: Dict[str, str], *, timeout: int = RUNTIME_STARTUP_TIMEOUT_SECONDS) -> None:
         """Wait for the newly started exact-SHA runtime, not an old HTTP listener.
 
         The loopback port can remain served by the previous Compose container

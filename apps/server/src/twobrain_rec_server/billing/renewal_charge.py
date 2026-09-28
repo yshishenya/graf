@@ -128,14 +128,42 @@ def renewal_attempt_of(operation: BillingOperation) -> int:
     return RENEWAL_ATTEMPT_COUNT
 
 
-def renewal_canceled_before_dispatch(operation) -> bool:
+def renewal_canceled_without_payment(operation) -> bool:
     return (
         operation.state == "canceled"
         and operation.provider_id is None
         and (operation.request_snapshot or {}).get("cancel_reason") in {
-            "authority_cancelled", "acceptance_budget", "provider_unavailable"
+            "authority_cancelled", "acceptance_budget", "provider_unavailable",
+            "price_changed", "provider_request_rejected"
         }
     )
+
+
+async def cancel_unsent_renewals(db, *, workspace_id, reason):
+    """Caller holds the workspace advisory lock; in-flight operations are preserved."""
+    scheduled = await db.scalars(
+        select(BillingOperation)
+        .where(
+            BillingOperation.workspace_id == workspace_id,
+            BillingOperation.kind == "renewal",
+            BillingOperation.state == "scheduled",
+            BillingOperation.provider_id.is_(None),
+        )
+        .with_for_update()
+    )
+    for pending in scheduled:
+        pending.state = "canceled"
+        pending.request_snapshot = {**pending.request_snapshot, "cancel_reason": reason}
+        pending_invoice = await db.scalar(
+            select(BillingInvoice)
+            .where(BillingInvoice.operation_id == pending.id)
+            .with_for_update()
+        )
+        if pending_invoice is not None:
+            pending_invoice.status = "canceled"
+        await settle_acceptance_budget(
+            db, workspace_id=workspace_id, operation_id=pending.id, succeeded=False
+        )
 
 
 def next_renewal_attempt(
@@ -409,7 +437,7 @@ async def plan_due_renewals(
             )
             if (
                 existing is not None
-                and renewal_canceled_before_dispatch(existing)
+                and renewal_canceled_without_payment(existing)
                 and existing.request_snapshot.get("cancel_reason") == "authority_cancelled"
             ):
                 # A revoked, never-sent mandate did not use a bank attempt.
@@ -426,9 +454,10 @@ async def plan_due_renewals(
                 )
             if (
                 existing is not None
-                and renewal_canceled_before_dispatch(existing)
+                and renewal_canceled_without_payment(existing)
                 and existing.request_snapshot.get("cancel_reason") in {
-                    "acceptance_budget", "provider_unavailable"
+                    "acceptance_budget", "provider_unavailable", "price_changed",
+                    "provider_request_rejected"
                 }
             ):
                 # Repeated local failures do not use a bank attempt. Find the
@@ -452,7 +481,7 @@ async def plan_due_renewals(
                 )
                 existing = latest or existing
                 if (
-                    renewal_canceled_before_dispatch(existing)
+                    renewal_canceled_without_payment(existing)
                     and current < due_at + RENEWAL_ATTEMPT_INTERVAL
                 ):
                     key = f"{root_key}:retry:{existing.id}"
@@ -922,7 +951,7 @@ async def charge_renewal_operation(
             return RenewalChargeResult(operation_id, operation.state, operation.provider_id)
         return None
 
-    async def cancel_before_dispatch(reason: str) -> RenewalChargeResult:
+    async def cancel_without_payment(reason: str) -> RenewalChargeResult:
         operation.state = invoice.status = "canceled"
         operation.request_snapshot = {**operation.request_snapshot, "cancel_reason": reason}
         subscription.renewal_resolution = reason
@@ -964,7 +993,7 @@ async def charge_renewal_operation(
         else None
     )
     if expected_paid_through != current_paid_through:
-        return await cancel_before_dispatch("schedule_changed")
+        return await cancel_without_payment("schedule_changed")
     attempt = renewal_attempt_of(operation)
     due_at = (
         renewal_attempt_due_at(paid_through=subscription.paid_through, attempt=attempt)
@@ -978,7 +1007,7 @@ async def charge_renewal_operation(
         await db.rollback()
         return RenewalChargeResult(operation_id, "scheduled")
     if current >= due_at + RENEWAL_ATTEMPT_INTERVAL:
-        return await cancel_before_dispatch("window_missed")
+        return await cancel_without_payment("window_missed")
     if (
         operation.provider_key_expires_at is None
         or _utc(operation.provider_key_expires_at) <= current
@@ -1018,7 +1047,7 @@ async def charge_renewal_operation(
         except PurchaseError:
             accepted = False
         if not accepted:
-            return await cancel_before_dispatch("price_changed")
+            return await cancel_without_payment("price_changed")
     try:
         require_billing_enabled(
             checkout_enabled=billing_checkout_allowed(settings, workspace_id),
@@ -1079,7 +1108,7 @@ async def charge_renewal_operation(
                 now=current,
             )
         except PurchaseError:
-            return await cancel_before_dispatch("acceptance_budget")
+            return await cancel_without_payment("acceptance_budget")
         operation.request_snapshot = {
             **operation.request_snapshot,
             "purchase_schema": 2,
@@ -1202,16 +1231,11 @@ async def charge_renewal_operation(
             )
             await db.commit()
             return RenewalChargeResult(operation_id, "scheduled")
-        if exc.status_code is not None and 400 <= exc.status_code < 500:
-            await record_renewal_decline(
-                db,
-                subscription=subscription,
-                operation=operation,
-                invoice=invoice,
-                now=current,
-            )
-            await db.commit()
-            return RenewalChargeResult(operation_id, "canceled")
+        if exc.status_code in {400, 401, 403, 404, 405, 415}:
+            # An API request/authentication error is not a canceled payment.
+            # Preserve the mandate and bank attempt so configuration repair
+            # can produce a fresh immutable operation within this same window.
+            return await cancel_without_payment("provider_request_rejected")
         operation.state = "unknown"
         invoice.status = "unknown"
         subscription.renewal_resolution = "pending"
@@ -1226,7 +1250,7 @@ async def charge_renewal_operation(
         return RenewalChargeResult(operation_id, "unknown")
     except (httpx.HTTPError, YooKassaConfigurationError, OSError):
         if not dispatched:
-            return await cancel_before_dispatch("provider_unavailable")
+            return await cancel_without_payment("provider_unavailable")
         completed = await refresh_after_dispatch()
         if completed is not None:
             return completed

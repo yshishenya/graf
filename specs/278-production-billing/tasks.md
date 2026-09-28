@@ -48,7 +48,7 @@
 
 - [X] T015 [US5] Добавить проверки названий операций, помощи, ошибок, фокуса, клавиатуры и отсутствия секретов в `apps/server/tests/contract/test_billing_purchase_ui.py`, `apps/server/tests/browser/billing-accessibility.test.cjs`. FR-027–032; SC-005/007/009.
 - [X] T016 [US5] Завершить историю/детали/статусы и однократные уведомления в `billing/history.py`, `billing/notifications.py`, `billing/events.py`, `cabinet/web_routes/billing.py`, `cabinet/templates/cabinet/pages/billing_*`; отдельная блокирующая сверка истёкшего storage с incident owner/review_by. FR-009/010/027–032/037/041.
-- [ ] T017 [US5] Проверить вручную браузер и единственный GRAF Dev, темы/360px/200%/VoiceOver/клавиатуру и три независимых прохождения; исправить недопонимания, записать факты в `specs/278-production-billing/acceptance-matrix.md` и `validation.md`. FR-029/030; SC-007–009.
+- [ ] T017 [US5] Устранить подтверждённое ограничение холодного запуска в `scripts/dev-harness.py` с проверками `tests/governance/test_graf_local_adapter.py`; проверить вручную браузер и единственный GRAF Dev, темы/360px/200%/VoiceOver/клавиатуру и три независимых прохождения; исправить недопонимания, записать факты в `specs/278-production-billing/acceptance-matrix.md` и `validation.md`. FR-029/030; SC-007–009.
 
 ## Phase 8: US6 — реальные деньги и открытие продаж (P1)
 

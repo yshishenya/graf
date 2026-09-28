@@ -665,7 +665,7 @@ def test_composite_subscription_invoice_displays_purchased_capacity(client, tmp_
 @pytest.mark.parametrize("state", ["scheduled", "unknown", "sent"])
 def test_cancel_unsent_renewal_releases_only_retriable_reservation(client, tmp_path, state):
     from twobrain_rec_server.billing.purchases import reserve_acceptance_budget
-    from twobrain_rec_server.cabinet.web_routes.billing import _cancel_unsent_renewals
+    from twobrain_rec_server.billing.renewal_charge import cancel_unsent_renewals
     from twobrain_rec_server.db.models import BillingAcceptanceBudget, BillingAcceptanceReservation
 
     _configure_billing(client, tmp_path)
@@ -684,7 +684,7 @@ def test_cancel_unsent_renewal_releases_only_retriable_reservation(client, tmp_p
             db.add(invoice)
             await reserve_acceptance_budget(db, workspace_id=workspace, operation_id=op.id,
                                             amount_minor=1000, now=datetime.now(UTC))
-            await _cancel_unsent_renewals(db, workspace_id=workspace, reason="authority_cancelled")
+            await cancel_unsent_renewals(db, workspace_id=workspace, reason="authority_cancelled")
             await db.flush()
             budget = await db.scalar(select(BillingAcceptanceBudget).where(
                 BillingAcceptanceBudget.workspace_id == workspace))
@@ -1059,4 +1059,131 @@ def test_legacy_current_capacity_does_not_require_a_price_unless_it_is_increased
             with pytest.raises(PurchaseError, match="Ранее оплаченный объём требует сверки"):
                 await calculate_storage_purchase(db, subscription=sub,
                     target_capacity_bytes=200_000_000_000, now=now)
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("delay,discount,review_minutes", [
+    (timedelta(seconds=1), 0, 0), (timedelta(days=1), 0, 0),
+    (timedelta(days=1), 99, 0), (timedelta(seconds=1), 0, 9),
+])
+def test_partly_elapsed_storage_preserves_quote_and_opens_one_money_gap(
+    client, tmp_path, delay, discount, review_minutes
+):
+    from twobrain_rec_server.billing.purchases import grant_confirmed_storage
+    from twobrain_rec_server.db.models import (
+        BillingNotificationDelivery,
+        BillingStorageEntitlementGrant,
+    )
+
+    _configure_billing(client, tmp_path)
+    _approved_month_catalog(client)
+    workspace, _ = _prepare_owner_session(client)
+    seed_catalog_and_budget(client, workspace)
+    now = seed_periods(client, workspace)
+
+    async def run():
+        async with client.app_state["sessionmaker"]() as db:
+            sub = await db.scalar(select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == workspace))
+            calculation = await calculate_storage_purchase(db, subscription=sub,
+                target_capacity_bytes=10_000_000_000, now=now, discount_percent=discount)
+            segments = [segment.as_dict() for segment in calculation.segments]
+            created = now + timedelta(minutes=review_minutes)
+            operation = BillingOperation(workspace_id=workspace, kind="storage_upgrade", state="unknown",
+                created_at=created, idempotency_key=str(uuid4()), request_snapshot={
+                    "purchase_schema": 2, "storage_segments": segments,
+                    "target_capacity_bytes": 10_000_000_000, "selection_version": 0})
+            db.add(operation)
+            await db.flush()
+            invoice = BillingInvoice(workspace_id=workspace, operation_id=operation.id,
+                safe_number=f"INV-{uuid4().hex}", amount_minor=calculation.payable_amount_minor,
+                currency="RUB", plan_snapshot={"storage_segments": segments})
+            db.add(invoice)
+            await db.flush()
+            result = await grant_confirmed_storage(db, operation=operation, invoice=invoice, now=created + delay)
+            delayed = delay >= timedelta(days=1)
+            assert result == ("service_elapsed" if delayed else "granted")
+            assert invoice.amount_minor == calculation.payable_amount_minor and invoice.status == "succeeded"
+            assert invoice.plan_snapshot["storage_segments"] == segments
+            assert operation.state == ("reconciliation_gap" if delayed else "succeeded")
+            detail = operation.request_snapshot.get("reconciliation_detail")
+            if delayed:
+                assert detail["elapsed_paid_minor"] == (8 if discount else 833)
+                assert detail["elapsed_segment_indices"] == [0]
+                assert detail["expired_segment_indices"] == []
+                assert detail["service_available_at"] == (created + delay).isoformat()
+            replay = await grant_confirmed_storage(db, operation=operation, invoice=invoice, now=created + delay + timedelta(days=1))
+            assert replay == ("service_elapsed" if delayed else "duplicate")
+            assert operation.request_snapshot.get("reconciliation_detail") == detail
+            grants = list(await db.scalars(select(BillingStorageEntitlementGrant).where(
+                BillingStorageEntitlementGrant.invoice_id == invoice.id).order_by(BillingStorageEntitlementGrant.starts_at)))
+            assert len(grants) == 2
+            assert [grant.starts_at for grant in grants] == [segment.starts_at for segment in calculation.segments]
+            assert sub.capacity_bytes == 10_000_000_000
+            notices = list(await db.scalars(select(BillingNotificationDelivery).where(
+                BillingNotificationDelivery.event_id == f"payment:{invoice.id}:service_gap")))
+            assert len(notices) == int(delayed)
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("state,provider_id", [("scheduled", None), ("scheduled", "synthetic-known"),
+                                             ("sent", None), ("unknown", None)])
+def test_close_acceptance_cancels_only_uncreated_payments_and_is_idempotent(
+    client, tmp_path, monkeypatch, state, provider_id
+):
+    from argparse import Namespace
+
+    from scripts import manage_promo_campaign as cli
+    from twobrain_rec_server.billing.purchases import reserve_acceptance_budget
+    from twobrain_rec_server.db.models import BillingAcceptanceBudget, BillingAcceptanceReservation
+
+    _configure_billing(client, tmp_path)
+    workspace, _ = _prepare_owner_session(client)
+    seed_catalog_and_budget(client, workspace)
+
+    class Engine:
+        async def dispose(self):
+            pass
+
+    monkeypatch.setattr(cli, "create_engine", lambda _: Engine())
+    monkeypatch.setattr(cli, "create_sessionmaker", lambda _: client.app_state["sessionmaker"])
+    monkeypatch.setattr(cli, "_maintenance_sessionmaker", lambda factory: factory)
+
+    async def run():
+        paid_through = datetime.now(UTC) + timedelta(days=15)
+        async with client.app_state["sessionmaker"]() as db:
+            subscription = WorkspaceSubscription(workspace_id=workspace, billing_owner_id=USER_ID,
+                recurring_allowed=True, recurring_authority_version=4, paid_through=paid_through)
+            db.add(subscription)
+            operation = BillingOperation(workspace_id=workspace, kind="renewal", state=state,
+                provider_id=provider_id, idempotency_key=str(uuid4()), request_snapshot={})
+            db.add(operation)
+            await db.flush()
+            invoice = BillingInvoice(workspace_id=workspace, operation_id=operation.id,
+                safe_number=f"INV-{uuid4().hex}", amount_minor=1000, currency="RUB", plan_snapshot={})
+            db.add(invoice)
+            await reserve_acceptance_budget(db, workspace_id=workspace, operation_id=operation.id,
+                amount_minor=1000, now=datetime.now(UTC))
+            operation_id, invoice_id = operation.id, invoice.id
+            await db.commit()
+        expected_reserved = 0 if state == "scheduled" and provider_id is None else 1000
+        for _ in range(2):
+            result = await cli._close_acceptance(Namespace(workspace=workspace, execute=True))
+            assert result["reserved_minor"] == expected_reserved
+            assert result["unresolved_payments"] == bool(expected_reserved)
+        async with client.app_state["sessionmaker"]() as db:
+            operation = await db.get(BillingOperation, operation_id)
+            invoice = await db.get(BillingInvoice, invoice_id)
+            subscription = await db.scalar(select(WorkspaceSubscription).where(
+                WorkspaceSubscription.workspace_id == workspace))
+            budget = await db.scalar(select(BillingAcceptanceBudget).where(
+                BillingAcceptanceBudget.workspace_id == workspace))
+            reservation = await db.scalar(select(BillingAcceptanceReservation).where(
+                BillingAcceptanceReservation.operation_id == operation_id))
+            assert not budget.enabled and budget.spent_minor == 0
+            assert subscription.recurring_allowed is False and subscription.recurring_authority_version == 5
+            assert subscription.paid_through == paid_through
+            assert operation.state == (state if expected_reserved else "canceled")
+            assert invoice.status == ("pending" if expected_reserved else "canceled")
+            assert reservation.state == ("reserved" if expected_reserved else "released")
     asyncio.run(run())

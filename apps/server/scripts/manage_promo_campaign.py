@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.promotions import PromoError, normalize_promo, promo_code_hash
+from twobrain_rec_server.billing.renewal_charge import cancel_unsent_renewals
 from twobrain_rec_server.billing.storage import lock_storage_workspace
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
@@ -385,6 +386,7 @@ async def _close_acceptance(args: argparse.Namespace) -> dict[str, Any]:
                 .where(WorkspaceSubscription.workspace_id == args.workspace)
                 .with_for_update()
             )
+            await cancel_unsent_renewals(db, workspace_id=args.workspace, reason="authority_cancelled")
             if subscription and subscription.recurring_allowed:
                 subscription.recurring_allowed = False
                 subscription.recurring_authority_version += 1

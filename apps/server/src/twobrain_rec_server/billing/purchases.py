@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from fractions import Fraction
 from uuid import UUID
 
 from sqlalchemy import delete, select
@@ -699,11 +700,10 @@ async def grant_confirmed_storage(db: AsyncSession, *, operation, invoice, now: 
         .limit(1)
     )
     if existing:
-        return (
-            "service_expired"
-            if invoice.plan_snapshot.get("service_resolution") == "storage_period_expired"
-            else "duplicate"
-        )
+        return {
+            "storage_period_expired": "service_expired",
+            "storage_period_elapsed": "service_elapsed",
+        }.get(invoice.plan_snapshot.get("service_resolution"), "duplicate")
     subscription = await db.scalar(
         select(WorkspaceSubscription)
         .where(
@@ -725,6 +725,26 @@ async def grant_confirmed_storage(db: AsyncSession, *, operation, invoice, now: 
     valid_segments = [
         segment for index, segment in enumerate(segments) if index not in expired_indices
     ]
+    # The accepted quote remains immutable. Measure the paid service lost while
+    # awaiting confirmation after purchase creation (not time spent reviewing
+    # the quote). A whole kopeck is the smallest financial discrepancy; sum
+    # exact fractions across segments before rounding down once.
+    elapsed_value = Fraction(0)
+    elapsed_indices = []
+    list_amount = sum(segment.get("amount_minor", 0) for segment in segments)
+    if list_amount > 0:
+        for index, segment in enumerate(segments):
+            start = utc(datetime.fromisoformat(segment["starts_at"]))
+            end = utc(datetime.fromisoformat(segment["ends_at"]))
+            loss_start = max(start, utc(operation.created_at))
+            loss_end = min(current, end)
+            if loss_end > loss_start and segment.get("amount_minor", 0) > 0:
+                elapsed_indices.append(index)
+                elapsed_value += Fraction(
+                    segment["amount_minor"] * invoice.amount_minor * _micros(loss_start, loss_end),
+                    list_amount * _micros(start, end),
+                )
+    elapsed_paid_minor = min(invoice.amount_minor, int(elapsed_value))
     for segment in valid_segments:
         db.add(
             BillingStorageEntitlementGrant(
@@ -748,19 +768,23 @@ async def grant_confirmed_storage(db: AsyncSession, *, operation, invoice, now: 
             db, subscription=subscription, now=current
         )
         subscription.application_version = (subscription.application_version or 0) + 1
-    if expired_indices:
+    if expired_indices or elapsed_paid_minor > 0:
+        resolution = "storage_period_expired" if expired_indices else "storage_period_elapsed"
         invoice.status = "succeeded"
         operation.state = "reconciliation_gap"
         invoice.plan_snapshot = {
             **invoice.plan_snapshot,
-            "service_resolution": "storage_period_expired",
+            "service_resolution": resolution,
         }
         operation.request_snapshot = {
             **snapshot,
             "reconciliation_detail": snapshot.get("reconciliation_detail")
             or {
-                "code": "storage_period_expired",
+                "code": resolution,
                 "expired_segment_indices": expired_indices,
+                "elapsed_segment_indices": elapsed_indices,
+                "elapsed_paid_minor": elapsed_paid_minor,
+                "service_available_at": current.isoformat(),
                 "incident_owner": "billing_operator",
                 "financial_operator": "finance_operator",
                 "detected_at": current.isoformat(),
@@ -782,7 +806,7 @@ async def grant_confirmed_storage(db: AsyncSession, *, operation, invoice, now: 
                 marketing_allowed=False,
             )
         await db.flush()
-        return "service_expired"
+        return "service_expired" if expired_indices else "service_elapsed"
     invoice.status = "succeeded"
     operation.state = "succeeded"
     await redeem_invoice_promo(db, invoice_id=invoice.id, now=current)
