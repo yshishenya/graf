@@ -114,30 +114,44 @@ T001 → T002 → независимые тестовые ветви T003/T006/T
 
 Каждая строка ниже назначает единственного владельца задачи; все issues открыты до полной проверки закрытия. T022 использует исходную umbrella reservation #7276, без дублирования.
 
-| Task | Issue |
-|---|---|
-| T001 | [#7287](https://github.com/yshishenya/graf/issues/7287) |
-| T002 | [#7288](https://github.com/yshishenya/graf/issues/7288) |
-| T003 | [#7289](https://github.com/yshishenya/graf/issues/7289) |
-| T004 | [#7286](https://github.com/yshishenya/graf/issues/7286) |
-| T005 | [#7290](https://github.com/yshishenya/graf/issues/7290) |
-| T006 | [#7293](https://github.com/yshishenya/graf/issues/7293) |
-| T007 | [#7291](https://github.com/yshishenya/graf/issues/7291) |
-| T008 | [#7292](https://github.com/yshishenya/graf/issues/7292) |
-| T009 | [#7294](https://github.com/yshishenya/graf/issues/7294) |
-| T010 | [#7295](https://github.com/yshishenya/graf/issues/7295) |
-| T011 | [#7297](https://github.com/yshishenya/graf/issues/7297) |
-| T012 | [#7296](https://github.com/yshishenya/graf/issues/7296) |
-| T013 | [#7298](https://github.com/yshishenya/graf/issues/7298) |
-| T014 | [#7300](https://github.com/yshishenya/graf/issues/7300) |
-| T015 | [#7301](https://github.com/yshishenya/graf/issues/7301) |
-| T016 | [#7299](https://github.com/yshishenya/graf/issues/7299) |
-| T017 | [#7302](https://github.com/yshishenya/graf/issues/7302) |
-| T018 | [#7304](https://github.com/yshishenya/graf/issues/7304) |
-| T019 | [#7303](https://github.com/yshishenya/graf/issues/7303) |
-| T020 | [#7305](https://github.com/yshishenya/graf/issues/7305) |
-| T021 | [#7306](https://github.com/yshishenya/graf/issues/7306) |
-| T022 | [#7276](https://github.com/yshishenya/graf/issues/7276) |
+- T001 (Issue #7287) — https://github.com/yshishenya/graf/issues/7287
+- T002 (Issue #7288) — https://github.com/yshishenya/graf/issues/7288
+- T003 (Issue #7289) — https://github.com/yshishenya/graf/issues/7289
+- T004 (Issue #7286) — https://github.com/yshishenya/graf/issues/7286
+- T005 (Issue #7290) — https://github.com/yshishenya/graf/issues/7290
+- T006 (Issue #7293) — https://github.com/yshishenya/graf/issues/7293
+- T007 (Issue #7291) — https://github.com/yshishenya/graf/issues/7291
+- T008 (Issue #7292) — https://github.com/yshishenya/graf/issues/7292
+- T009 (Issue #7294) — https://github.com/yshishenya/graf/issues/7294
+- T010 (Issue #7295) — https://github.com/yshishenya/graf/issues/7295
+- T011 (Issue #7297) — https://github.com/yshishenya/graf/issues/7297
+- T012 (Issue #7296) — https://github.com/yshishenya/graf/issues/7296
+- T013 (Issue #7298) — https://github.com/yshishenya/graf/issues/7298
+- T014 (Issue #7300) — https://github.com/yshishenya/graf/issues/7300
+- T015 (Issue #7301) — https://github.com/yshishenya/graf/issues/7301
+- T016 (Issue #7299) — https://github.com/yshishenya/graf/issues/7299
+- T017 (Issue #7302) — https://github.com/yshishenya/graf/issues/7302
+- T018 (Issue #7304) — https://github.com/yshishenya/graf/issues/7304
+- T019 (Issue #7303) — https://github.com/yshishenya/graf/issues/7303
+- T020 (Issue #7305) — https://github.com/yshishenya/graf/issues/7305
+- T021 (Issue #7306) — https://github.com/yshishenya/graf/issues/7306
+- T022 (Issue #7276) — https://github.com/yshishenya/graf/issues/7276
+- T023 (Issue #7336) — https://github.com/yshishenya/graf/issues/7336
+- T024 (Issue #7336) — https://github.com/yshishenya/graf/issues/7336
+- T025 (Issue #7336) — https://github.com/yshishenya/graf/issues/7336
+- T026 (Issue #7336) — https://github.com/yshishenya/graf/issues/7336
+- T027 (Issue #7337) — https://github.com/yshishenya/graf/issues/7337
+- T028 (Issue #7337) — https://github.com/yshishenya/graf/issues/7337
+- T029 (Issue #7338) — https://github.com/yshishenya/graf/issues/7338
+- T030 (Issue #7339) — https://github.com/yshishenya/graf/issues/7339
+- T031 (Issue #7340) — https://github.com/yshishenya/graf/issues/7340
+- T032 (Issue #7341) — https://github.com/yshishenya/graf/issues/7341
+
+Формат связей приведён к поддерживаемому `validate-issue-closeout.py`:
+прежняя таблица не распознавалась его парсером. Владельцы сверены с live
+`Spec Kit task IDs` всех28 issues; содержание и статусы32 задач не менялись.
+Это исправление метаданных T022, не отмена требований приёмки: аппаратный
+долг T020 и итоговая сверка/слияние T022 по-прежнему открыты.
 
 ### Порядок реализации
 
