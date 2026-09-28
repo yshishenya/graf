@@ -104,7 +104,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
         let epoch: Int
         let identity: String
         let kind: Kind
-        let deadline: Date
+        var deadline: Date
         var content: DesktopNotificationCardContent
         var event: DesktopCalendarPromptEvent?
         var sessionID: String?
@@ -112,7 +112,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
         var onDismiss: (() -> Void)?
         var onRemember: ((Bool) -> Void)?
         var onSkip: ((Bool) -> Void)?
-        var onTick: (() -> DesktopNotificationCardContent?)?
+        var isStillCurrent: (() -> Bool)?
         var onExpire: (() -> Void)?
         var onInvalidated: (() -> Void)?
         var remember = false
@@ -344,7 +344,8 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
     private func isCurrent(_ envelope: Envelope, now: Date) -> Bool {
         guard envelope.epoch == authEpoch, isPresentationAvailable else { return false }
         switch envelope.kind {
-        case .recordingPrompt: return !lastSnapshot.active && !lastSnapshot.stopping
+        case .recordingPrompt:
+            return !lastSnapshot.active && !lastSnapshot.stopping && (envelope.isStillCurrent?() ?? true)
         case .meeting:
             guard let target = envelope.event, now < envelope.deadline,
                   let event = Self.currentMeeting(for: target, events: calendarEvents, now: now),
@@ -452,7 +453,8 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
         }
         active = envelope
         let token = envelope.token
-        let shown = card.present(envelope.content, dismissAfter: envelope.deadline,
+        let shown = card.present(envelope.content,
+            dismissAfter: envelope.kind == .recordingPrompt ? nil : envelope.deadline,
             onAction: { [weak self] in self?.handleAction($0, token: token) },
             onTick: { [weak self] in self?.tick(token: token) },
             onExpire: { [weak self] in self?.expire(token: token) },
@@ -461,6 +463,12 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
         guard shown, active?.token == token else {
             if active?.token == token { invalidateEnvelope(envelope) }
             return false
+        }
+        if envelope.kind == .recordingPrompt {
+            // Capture the visible surface's single deadline before any terminal
+            // callback: the card clears its own fields before delivering it.
+            guard let deadline = card.deadline else { invalidateEnvelope(envelope); return false }
+            envelope.deadline = deadline
         }
         envelope.lastVisibleTick = clock()
         if envelope.kind != .preview, envelope.kind != .recordingPrompt,
@@ -497,24 +505,22 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
         let visibleRecently = envelope.lastVisibleTick.map { (0...2.5).contains(now.timeIntervalSince($0)) } ?? false
         let valid = isCurrent(envelope, now: now)
             && (envelope.kind != .recordingPrompt || (visibleRecently && now >= envelope.deadline))
+        guard active?.token == token else { return }
         retire(envelope)
         if valid { envelope.onExpire?() } else { envelope.onInvalidated?() }
         reconcileCard(now: clock())
     }
     private func tick(token: UUID) -> DesktopNotificationCardContent? {
         let now = clock()
-        guard let envelope = active, envelope.token == token, isCurrent(envelope, now: now), card.isVisible else { return nil }
+        guard let envelope = active, envelope.token == token, isCurrent(envelope, now: now),
+              active?.token == token, card.isVisible else { return nil }
         if envelope.kind == .recordingPrompt, let previous = envelope.lastVisibleTick,
            !(0...2.5).contains(now.timeIntervalSince(previous)) { return nil }
         envelope.lastVisibleTick = now
         guard envelope.kind == .recordingPrompt else { return envelope.content }
-        if let onTick = envelope.onTick {
-            guard let next = onTick(), active?.token == token,
-                  case let .recordingPrompt(name, seconds, _) = next else { return nil }
-            envelope.content = .recordingPrompt(displayName: name, remainingSeconds: seconds, rememberChoice: envelope.remember)
-        } else if case let .recordingPrompt(name, _, _) = envelope.content {
+        if case let .recordingPrompt(name, _, _) = envelope.content {
             envelope.content = .recordingPrompt(displayName: name,
-                remainingSeconds: max(0, Int(ceil(envelope.deadline.timeIntervalSince(clock())))), rememberChoice: envelope.remember)
+                remainingSeconds: max(0, Int(ceil(envelope.deadline.timeIntervalSince(now)))), rememberChoice: envelope.remember)
         }
         return envelope.content
     }
@@ -526,6 +532,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
             reconcileCard(now: clock())
             return
         }
+        guard active?.token == token else { return }
         if case let .toggleRecordingPromptRemember(value) = action {
             guard envelope.kind == .recordingPrompt else { return }
             envelope.remember = value
@@ -559,19 +566,19 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject {
     }
 
     @discardableResult
-    public func presentRecordingPrompt(displayName: String, remainingSeconds: Int, rememberChoice: Bool = false,
-        duration: TimeInterval = DesktopNotificationCardPresenter.recordingPromptDisplayDuration,
+    public func presentRecordingPrompt(displayName: String, rememberChoice: Bool = false,
         onStart: @escaping () -> Void, onDismiss: @escaping () -> Void,
         onRememberChoiceChanged: @escaping (Bool) -> Void,
-        onTick: (() -> DesktopNotificationCardContent?)? = nil, onExpire: (() -> Void)? = nil,
+        isStillCurrent: (() -> Bool)? = nil, onExpire: (() -> Void)? = nil,
         onSkip: ((Bool) -> Void)? = nil, onInvalidated: (() -> Void)? = nil) -> Bool {
         guard isPresentationAvailable, !lastSnapshot.active, !lastSnapshot.stopping, active?.kind != .recordingPrompt else { return false }
         let envelope = Envelope(epoch: authEpoch, identity: UUID().uuidString, kind: .recordingPrompt,
-            deadline: clock().addingTimeInterval(duration),
-            content: .recordingPrompt(displayName: displayName, remainingSeconds: remainingSeconds, rememberChoice: rememberChoice))
+            deadline: clock().addingTimeInterval(DesktopNotificationCardPresenter.recordingPromptDisplayDuration),
+            content: .recordingPrompt(displayName: displayName,
+                remainingSeconds: Int(DesktopNotificationCardPresenter.recordingPromptDisplayDuration), rememberChoice: rememberChoice))
         envelope.remember = rememberChoice
         envelope.onStart = onStart; envelope.onDismiss = onDismiss; envelope.onRemember = onRememberChoiceChanged
-        envelope.onTick = onTick; envelope.onExpire = onExpire; envelope.onSkip = onSkip
+        envelope.isStillCurrent = isStillCurrent; envelope.onExpire = onExpire; envelope.onSkip = onSkip
         envelope.onInvalidated = onInvalidated
         return show(envelope)
     }

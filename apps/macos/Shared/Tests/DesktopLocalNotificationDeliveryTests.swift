@@ -539,7 +539,7 @@ final class DesktopLocalNotificationDeliveryTests: XCTestCase {
         let f = try notificationFixture(self, requiresScreen: false)
         let p = f.presenter(screens: [])
         var expired = 0, invalidated = 0
-        XCTAssertFalse(p.presentRecordingPrompt(displayName: "Zoom", remainingSeconds: 8,
+        XCTAssertFalse(p.presentRecordingPrompt(displayName: "Zoom",
             onStart: { XCTFail("Invisible start") }, onDismiss: {}, onRememberChoiceChanged: { _ in },
             onExpire: { expired += 1 }, onInvalidated: { invalidated += 1 }))
         f.now = f.now.addingTimeInterval(9); p.card.refresh()
@@ -552,7 +552,7 @@ final class DesktopLocalNotificationDeliveryTests: XCTestCase {
         let p = f.presenter()
         defer { p.dismissAllCards() }
         var cancelled = 0, expired = 0
-        XCTAssertTrue(p.presentRecordingPrompt(displayName: "Zoom", remainingSeconds: 8,
+        XCTAssertTrue(p.presentRecordingPrompt(displayName: "Zoom",
             onStart: {}, onDismiss: {}, onRememberChoiceChanged: { _ in }, onExpire: { expired += 1 },
             onInvalidated: {
                 cancelled += 1
@@ -578,7 +578,7 @@ final class DesktopLocalNotificationDeliveryTests: XCTestCase {
         let p = f.presenter()
         defer { p.dismissAllCards() }
         var invalidated = 0, expires = 0
-        XCTAssertTrue(p.presentRecordingPrompt(displayName: "Zoom", remainingSeconds: 8,
+        XCTAssertTrue(p.presentRecordingPrompt(displayName: "Zoom",
             onStart: {}, onDismiss: {}, onRememberChoiceChanged: { _ in },
             onExpire: { expires += 1 }, onInvalidated: { invalidated += 1 }))
         f.now = f.now.addingTimeInterval(60); p.card.refresh()
@@ -591,7 +591,7 @@ final class DesktopLocalNotificationDeliveryTests: XCTestCase {
         let p = f.presenter()
         defer { p.dismissAllCards() }
         var expires = 0, remembers = 0, skips = 0
-        XCTAssertTrue(p.presentRecordingPrompt(displayName: "Zoom", remainingSeconds: 8, rememberChoice: true,
+        XCTAssertTrue(p.presentRecordingPrompt(displayName: "Zoom", rememberChoice: true,
             onStart: { XCTFail("Explicit start") }, onDismiss: {}, onRememberChoiceChanged: { _ in remembers += 1 },
             onExpire: { expires += 1 }, onSkip: { _ in skips += 1 }))
         for _ in 1...9 { f.now = f.now.addingTimeInterval(1); p.card.refresh() }
@@ -604,7 +604,7 @@ final class DesktopLocalNotificationDeliveryTests: XCTestCase {
         let p = f.presenter()
         defer { p.dismissAllCards() }
         var choices: [Bool] = [], skips: [Bool] = [], closes = 0
-        XCTAssertTrue(p.presentRecordingPrompt(displayName: "Zoom", remainingSeconds: 8,
+        XCTAssertTrue(p.presentRecordingPrompt(displayName: "Zoom",
             onStart: {}, onDismiss: { closes += 1 }, onRememberChoiceChanged: { choices.append($0) },
             onSkip: { skips.append($0) }))
         let checkbox = try XCTUnwrap(notificationButtons(p.card.window?.contentView).first { $0.title.contains("Запомнить") })
@@ -612,7 +612,7 @@ final class DesktopLocalNotificationDeliveryTests: XCTestCase {
         let skip = try XCTUnwrap(notificationButtons(p.card.window?.contentView).first { $0.title == "Не записывать" })
         skip.performClick(nil); skip.performClick(nil)
         XCTAssertEqual(choices, [true]); XCTAssertEqual(skips, [true]); XCTAssertEqual(closes, 0)
-        XCTAssertTrue(p.presentRecordingPrompt(displayName: "Zoom", remainingSeconds: 8, rememberChoice: true,
+        XCTAssertTrue(p.presentRecordingPrompt(displayName: "Zoom", rememberChoice: true,
             onStart: {}, onDismiss: { closes += 1 }, onRememberChoiceChanged: { choices.append($0) },
             onSkip: { skips.append($0) }))
         try notificationClose(p)
@@ -655,7 +655,7 @@ final class DesktopLocalNotificationDeliveryTests: XCTestCase {
         let p = f.presenter()
         defer { p.dismissAllCards() }
         var starts = 0, cancelled = 0
-        XCTAssertTrue(p.presentRecordingPrompt(displayName: "Zoom", remainingSeconds: 8,
+        XCTAssertTrue(p.presentRecordingPrompt(displayName: "Zoom",
             onStart: { starts += 1 }, onDismiss: {}, onRememberChoiceChanged: { _ in },
             onInvalidated: { cancelled += 1 }))
         let buttons = notificationButtons(p.card.window?.contentView)
@@ -689,11 +689,18 @@ final class NotificationTestFixture {
     init(defaults: UserDefaults) { self.defaults = defaults; store = .init(defaults: defaults) }
     func presenter(screens: [NotificationCardScreen]? = nil, restoredStore: Bool = false,
                    user: String = "owner", workspace: String = "workspace",
-                   serverOrigin: String = "") -> DesktopNotificationPresenter {
+                   serverOrigin: String = "", initialPlacementDelay: TimeInterval = 0) -> DesktopNotificationPresenter {
         var environment = NotificationCardEnvironment()
         environment.now = { self.now }; environment.automaticallyTicks = false
         environment.announce = { _, _ in }
         if let screens { environment.screens = { screens } }
+        let currentScreens = environment.screens
+        var pendingPlacementDelay = initialPlacementDelay
+        environment.screens = {
+            self.now.addTimeInterval(pendingPlacementDelay)
+            pendingPlacementDelay = 0
+            return currentScreens()
+        }
         model.onAction = { [weak self] in self?.actions.append($0) }
         let result = DesktopNotificationPresenter(
             store: restoredStore ? DesktopNotificationPreferencesStore(defaults: defaults) : store,
@@ -721,7 +728,7 @@ final class NotificationTestFixture {
         }
     }
     func prompt(_ p: DesktopNotificationPresenter) -> Bool {
-        p.presentRecordingPrompt(displayName: "Zoom", remainingSeconds: 8,
+        p.presentRecordingPrompt(displayName: "Zoom",
             onStart: {}, onDismiss: {}, onRememberChoiceChanged: { _ in })
     }
     func bind(_ item: DesktopUploadQueueItem) { store.bindSession(item.sessionId, context: "owner:workspace") }

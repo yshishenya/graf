@@ -619,7 +619,7 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("DesktopNotificationPresenter.shared.presentRecordingPrompt("))
         XCTAssertFalse(source.contains("MeetingDetectionPromptPanel("))
         XCTAssertFalse(source.contains("MeetingDetectionPromptView"))
-        XCTAssertTrue(source.contains("meetingDetectionPromptStartedAt"))
+        XCTAssertFalse(source.contains("meetingDetectionPromptStartedAt"))
         XCTAssertTrue(source.contains("meetingDetectionPromptRememberChoice"))
         XCTAssertTrue(source.contains("twoBrainRecDismissMeetingDetectionPrompt"))
         // Положение в правом верхнем углу: та же ширина и тот же верх, что у
@@ -631,7 +631,7 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("persistedRule"))
         XCTAssertTrue(source.contains("onRememberChoiceChanged:"))
         XCTAssertTrue(source.contains("onDismiss:"))
-        XCTAssertTrue(source.contains("onTick:"))
+        XCTAssertTrue(source.contains("isStillCurrent: { [self] in"))
         XCTAssertFalse(source.contains("timeout_without_authorization"))
         XCTAssertFalse(source.contains("Режим: аудиозапись встречи"))
         XCTAssertFalse(source.contains("Источники: системный звук и микрофон"))
@@ -640,8 +640,9 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("autoRecordOptIn"))
         XCTAssertTrue(source.contains("saveMeetingDetectionRule(rule, targetID: prompt.targetID)"))
         XCTAssertTrue(source.contains("let shouldPersistChoice = rememberChoice && reason == .userSkipped"))
-        XCTAssertTrue(source.contains("onTick:"))
-        XCTAssertTrue(source.contains("remainingSeconds: max(0, Int(ceil(8 - elapsed)))"))
+        // This checks App wiring only; delayed visibility/countdown behavior is
+        // executed by MeetingDetectionCountdownTests on the real presenters.
+        XCTAssertFalse(source.contains("remainingSeconds: max(0, Int(ceil(8 - elapsed)))"))
         XCTAssertTrue(source.contains("onExpire:"))
         XCTAssertTrue(source.contains("reason: .promptTimeout"))
         XCTAssertTrue(source.contains("var didHandleRecordingTrigger = false"))
@@ -649,7 +650,7 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("meetingDetectionTriggerInProgress"))
         XCTAssertTrue(source.contains("didHandleRecordingTrigger = true"))
         XCTAssertTrue(source.contains("meetingDetectionPrompt?.bundleID == bundleID"))
-        XCTAssertTrue(source.contains("meetingDetectionPromptStartedAt = nil"))
+        XCTAssertTrue(source.contains("isCurrentMeetingDetectionPrompt(prompt, token: token)"))
         XCTAssertFalse(source.contains(".sheet(item: $meetingDetectionPrompt)"))
     }
 

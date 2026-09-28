@@ -79,6 +79,17 @@ fullscreen/первый щелчок, preview/клавиатура, start/timeou
 AppKit; отказ среды фиксировать как skip, не как успешную проверку карточки.
 Не заменять физическую клавиатуру и VoiceOver этим автоматическим набором.
 
+Для T033 проверять общий срок после задержанного первого размещения настоящих
+card/coordinator. `MeetingDetectionCountdownTests` продвигает одни часы на0.5s
+внутри выбора экрана, затем проверяет visibleAt+7.999 (реальный текст «1 секунду»,
+кнопки и флажок) и visibleAt+8 (одно истечение). `isStillCurrent` подключается
+как в App, но только подтверждает актуальность — приложение больше не считает
+остаток самостоятельно. Source-проверка `CaptureControlTests` подтверждает
+подключение, не исполняет обработчик executable. Lifecycle tests сохраняют
+полные8 секунд, запрет продления и очистку до callback без реального ожидания.
+Проверить изменения времени до входа в card, устаревание на tick/action/expiry,
+а также существующие отмены, контекст, sleep/lock, календарные сроки и hold.
+
 Reviewerchecklists — качество требований, не результат runtime. Analyze0CRITICAL/0HIGH. Послекода `$speckit-converge`, newtasks appendonly. PR exactSHA/base проверять `scripts/validate-pr-checks.py`. Tasks/issues закрывать поevidence. Historicaldocs неизменны, currentstatus/changelogfragment обновить. Полныйrelease отдельно.
 
 ### Воспроизводимая ручная проверка вопроса в Телемосте
