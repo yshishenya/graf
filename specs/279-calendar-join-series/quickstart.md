@@ -57,3 +57,11 @@ python3 scripts/check_spec_kit_governance.py
 
 - S09: синтетические A 10:00–11:00, B 10:30–11:30, C завтра: в 10:45 карточка выбирает B; в 11:30 — C. При одинаковом начале выбирается меньший UUID; в панели обе даты доступны отдельно. Отменённый экземпляр не участвует в выборе.
 - S10: диапазон 367 суток, limit 51, cursor >2048, испорченная подпись, истёкший cursor, другой owner/series/range → 422; корректные страницы стабильны при одинаковом starts_at.
+
+
+## Завершающие воспроизводимые проверки
+
+- S07: `test_series_recordings_recheck_grant_revocation_and_deletion` выполняет настоящий API и SQL ACL для доступной серии: собственная запись, разрешённая чужая запись, запрещённая запись; затем отзыв grant и удаление. Скрытые UUID и счётчики не выдаются.
+- C02: `NativeCalendarJoinTests.testProductionPromptJoinKeepsSyntheticRecordingContinuous` использует один production-диспетчер Record/Join. Record запускает настоящие CaptureSessionController и LocalRecordingWriter с двумя Buffered-источниками (синтетический сигнал и нули); Join проходит production resolver при success/failure/stale. Проверяются неизменные session/context, один start, доступная Stop, активный writer и полный итоговый аудиопакет. Это проверка композиции без доступа к устройствам; аппаратный захват не заявляется.
+- SC-007: `calendar_series.mjs` измеряет production renderer/JS на локальном Chromium, viewport 1100×850, 3 прогрева + 30 образцов. От trusted click до видимого статуса/готовых строк и двух requestAnimationFrame; p95 — nearest rank ceil(n×0.95). Максимум Join ≤200 мс, p95 серии ≤500 мс. Локальный ответ API включён, внешняя сеть/native-запуск исключены. Версии ОС/Chromium и SHA печатаются тестом. Native-WK p95 спецификацией не требуется; настоящий GRAF Dev проверяется отдельно через UI.
+- VoiceOver: принят по прямому подтверждению пользователя, повторно не запускать.

@@ -357,3 +357,93 @@ def test_sql_overview_current_selection_move_and_calendar_collision(client):
     assert sum(x["event_id"] == first_id for x in rows) == 1
     assert next(x for x in rows if x["event_id"] == second_id)["cancelled"]
     assert all(x["series_key"] == original_key for x in rows)
+
+
+def test_series_recordings_recheck_grant_revocation_and_deletion(client):
+    import asyncio
+    from datetime import UTC, datetime
+    from uuid import UUID
+
+    from tests.contract.test_ingest_openapi_contract import auth_headers
+    from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
+    from tests.fixtures.admin import DEFAULT_MEMBER_USER_ID, seed_default_workspace_admin_roles
+    from twobrain_rec_server.db.models import Meeting, MeetingShareGrant
+
+    event, _, _ = seed_series(client)
+    recordings = []
+    for name in ("own", "shared", "denied"):
+        response = client.post(
+            "/api/v1/meetings",
+            headers=auth_headers(),
+            json={"local_recording_id": f"f279-access-{name}", "duration_seconds": 90},
+        )
+        assert response.status_code == 200, response.text
+        meeting_id = response.json()["meeting_id"]
+        recordings.append(meeting_id)
+        linked = client.put(
+            f"/api/v1/meetings/{meeting_id}/calendar-context",
+            headers=auth_headers(),
+            json={"event_id": event, "context_reason": "manual_selection"},
+        )
+        assert linked.status_code == 200, linked.text
+
+    async def configure_access():
+        async with client.app_state["sessionmaker"]() as db:
+            await seed_default_workspace_admin_roles(db)
+            # Retain reliable historical context links while exercising each meeting's ACL.
+            for meeting_id in recordings[1:]:
+                meeting = await db.get(Meeting, UUID(meeting_id))
+                meeting.created_by_user_id = DEFAULT_MEMBER_USER_ID
+                meeting.visibility = "owner_only"
+            grant = MeetingShareGrant(
+                workspace_id=WORKSPACE_ID,
+                meeting_id=UUID(recordings[1]),
+                grant_type="user",
+                grantee_user_id=USER_ID,
+                audience_type="user",
+                audience_id=USER_ID,
+                content_scope="full_meeting",
+                created_by_user_id=DEFAULT_MEMBER_USER_ID,
+                status="active",
+            )
+            db.add(grant)
+            await db.commit()
+            return grant.id
+
+    grant_id = asyncio.run(configure_access())
+    cards = client.get("/api/v1/calendar/overview", headers=auth_headers()).json()["cards"]
+    url = f"/api/v1/calendar/series/{cards[0]['series_key']}/occurrences"
+
+    def available_recordings():
+        response = client.get(url, headers=auth_headers())
+        assert response.status_code == 200, response.text
+        assert recordings[2] not in response.text
+        occurrence = next(row for row in response.json()["occurrences"] if row["event_id"] == event)
+        assert "recording_count" not in occurrence
+        return {row["meeting_id"] for row in occurrence["recordings"]}, response.text
+
+    assert available_recordings()[0] == set(recordings[:2])
+
+    async def revoke():
+        async with client.app_state["sessionmaker"]() as db:
+            grant = await db.get(MeetingShareGrant, grant_id)
+            grant.status = "revoked"
+            grant.revoked_at = datetime.now(UTC)
+            await db.commit()
+
+    asyncio.run(revoke())
+    ids, payload = available_recordings()
+    assert ids == {recordings[0]}
+    assert recordings[1] not in payload
+
+    async def delete_owned():
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, UUID(recordings[0]))
+            meeting.deletion_state = "deleted"
+            meeting.deleted_at = datetime.now(UTC)
+            await db.commit()
+
+    asyncio.run(delete_owned())
+    ids, payload = available_recordings()
+    assert ids == set()
+    assert all(meeting_id not in payload for meeting_id in recordings)

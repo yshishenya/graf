@@ -1,5 +1,6 @@
 import XCTest
 @testable import TwoBrainRecAppCore
+import TwoBrainRecShared
 
 final class CalendarMeetingOpenerTests: XCTestCase {
     func testRejectsUnsafeURLsAndPreservesPassword() throws {
@@ -126,6 +127,91 @@ private final class CalendarJoinMessageSpy: NSObject, @preconcurrency WKScriptMe
 
 @MainActor
 final class NativeCalendarJoinTests: XCTestCase {
+    func testProductionPromptJoinKeepsSyntheticRecordingContinuous() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("f279-join-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let silence = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let writer = LocalRecordingWriter(store: LocalRecordingStore(rootURL: root),
+            microphoneSampleSourceFactory: { silence }, incomingSampleSourceFactory: { source },
+            recordMicrophone: true)
+        defer { if writer.isRecording { _ = try? writer.stop() } }
+        let controller = CaptureSessionController(idFactory: { "f279-active-recording" })
+        let started = Date(timeIntervalSince1970: 100)
+        let scope = CaptureScopeApproval(scopeApprovalId: "synthetic-scope", scopeKind: .display,
+            sourceDisplayName: "Synthetic samples only", approvedAt: started,
+            approvalMode: .userConfirmedSuggestedScope, eligibleReason: .manualMeetingScope)
+        let permissions = SystemAudioPermissionSnapshot(microphone: .granted, systemAudio: .granted, evaluatedAt: started)
+        var starts = 0
+        var opens = 0
+        var scenario = 0
+        var joinTask: Task<Bool, Never>?
+        var context: DesktopCalendarResolveCommand?
+        let eventID = UUID()
+        let safeURL = URL(string: "https://meet.google.com/abc-defg-hij")!
+        let actions = DesktopCalendarPromptActions(openURL: { _ in
+            let selectedScenario = scenario
+            joinTask = Task {
+                var current = true
+                return await CalendarMeetingOpener.resolveAndOpen(eventID: eventID, resolve: { _ in
+                    if selectedScenario == 1 { throw URLError(.resourceUnavailable) }
+                    if selectedScenario == 2 { current = false }
+                    return safeURL
+                }, isCurrent: { current }, open: { _ in opens += 1; return true })
+            }
+        }, startRecording: { intent, selectedID in
+            starts += 1
+            do {
+                _ = try controller.beginPreparing(mode: .audioRecording, sourceAppEligibility: .eligible)
+                _ = try controller.markReady()
+                _ = try controller.start()
+                let session = try controller.markCapturing()
+                _ = try writer.start(sessionId: session.id, startedAt: started, scopeApproval: scope, permissions: permissions)
+                context = DesktopCalendarResolvePolicy.commandAfterCaptureStarted(localRecordingActive: writer.isRecording,
+                    localRecordingId: session.id, recordingStartedAt: started, decisionIntent: intent, eventId: selectedID)
+            } catch { XCTFail("Synthetic record action failed: \(error)") }
+        }, dismiss: { _ in })
+        var prompt = DesktopCalendarPrompt(id: "f279-prompt", kind: .record, eventId: eventID.uuidString,
+            title: "Synthetic", message: "", primaryActionTitle: "Record", accessibilityLabel: "Synthetic", openMeetingURL: safeURL)
+        // Positive control: the same production dispatcher really owns this recorder's start callback.
+        actions.performPrimaryAction(for: prompt)
+        let sessionBeforeJoin = try XCTUnwrap(controller.session)
+        let contextBeforeJoin = try XCTUnwrap(context)
+        let directoryBeforeJoin = try XCTUnwrap(writer.currentDirectoryURL())
+        XCTAssertEqual(sessionBeforeJoin.state, .active)
+        func append(_ index: Int) {
+            silence.append(RecordingAudioBatch(samples: Array(repeating: 0, count: 4_800),
+                format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+                presentationTime: RecordingAudioPresentationTimestamp(seconds: 100 + Double(index) / 10, clockDomain: .hostTime),
+                discontinuity: .none, routeGeneration: 0))
+            source.append(RecordingAudioBatch(samples: Array(repeating: 0.2, count: 4_800),
+                format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+                presentationTime: RecordingAudioPresentationTimestamp(seconds: 100 + Double(index) / 10, clockDomain: .hostTime),
+                discontinuity: .none, routeGeneration: 0))
+        }
+        append(0)
+        prompt.kind = .join
+        for selectedScenario in 0...2 {
+            scenario = selectedScenario
+            actions.performPrimaryAction(for: prompt)
+            let result = await joinTask!.value
+            XCTAssertEqual(result, selectedScenario == 0)
+            XCTAssertEqual(starts, 1)
+            XCTAssertEqual(opens, 1)
+            XCTAssertEqual(controller.session, sessionBeforeJoin)
+            XCTAssertEqual(context, contextBeforeJoin)
+            XCTAssertTrue(writer.isRecording)
+            XCTAssertEqual(writer.currentDirectoryURL(), directoryBeforeJoin)
+            XCTAssertTrue(CaptureStatusItem.shouldEnableStopButton(for: try XCTUnwrap(controller.session), stopDisabled: false))
+            append(selectedScenario + 1)
+        }
+        let manifest = try await writer.stopAsync()
+        XCTAssertNil(manifest.captureFailureCode)
+        XCTAssertTrue(manifest.isComplete)
+        XCTAssertEqual(manifest.tracks.first { $0.role == .mixedMeetingAudio }?.frameCount, 6_400)
+        XCTAssertFalse(writer.isRecording)
+    }
+
     func testNativeEntryRechecksSessionAndSuppressesDuplicate() async {
         let pending = JoinPendingResolver()
         var current = true

@@ -148,3 +148,82 @@
 Проверки host/path в nativeCandidate сохранены. Новый тест проверяет соответствие Teams/Zoom известным bundle ID, отказ подменённому домену и отсутствие native-кандидата для Zoom personal URL. Этот unit-тест проверяет политику выбора, но не реальное состояние Launch Services и не открытие установленного приложения.
 
 На момент чтения `/tmp/f279-swift.log` новый запуск ещё компилировал набор; прежние 98 PASS не приписываются текущему изменению. Итог новой проверки и повторное открытие Teams-ссылки из установленного GRAF Dev должен подтвердить основной агент. Сообщённая им проверка Телемост/Zoom/Meet не заменяет проверку изменённого Teams-пути. Reviewer не запускал приложения и не менял код/commit/runtime. Качество требований остаётся UX 8/8, security 8/8.
+
+
+## Аудит готовности F279 после пользовательской приёмки VoiceOver
+
+Проверен исходный HEAD `54c9c7cdb877a3e00a57da68610557f4a5eb5c59`, затем подтверждён локальный HEAD после rebase `e26aedf74253dc2a4e65be333a90ddb54e306e0b`. Прочитаны актуальные spec/plan/tasks/quickstart/validation и custom checklist, новые server/Swift/browser tests и относящиеся к календарю существующие проверки. **Качество требований: UX 8 checked / 0 unchecked; security 8 checked / 0 unchecked.** Новых подтверждённых дефектов реализации при данном проходе не найдено.
+
+### Пользовательская приёмка и границы проверки подключения
+
+Пользователь прямо сообщил: «Voice Over не будем проверять. Я его уже отдельно проверил, все работает». Это принято как **user evidence** выполнения VoiceOver, а не как тест reviewer-агента; повторная проверка не требуется. В сочетании с описанными в validation проверками клавиатуры/тем GRAF Dev и browser узкого окна это закрывает известную незавершённость U01/SC-006.
+
+Spec Independent Test и quickstart прямо допускают передачу синтетической ссылки приложению без участия в звонке. Следовательно, доказательства внешней маршрутизации Телемост/Zoom/Meet и сохранения GRAF нельзя отклонять только потому, что ссылка не ведёт к настоящему разговору. Критерий оценивается вместе с тестами точного UUID/query/выбора повторения. Права на микрофон, реальное аудио или вступление в чужой звонок для этого не требуются.
+
+Teams на проверенной машине отсутствует: J02 для исходного HTTPS после исключения Parallels handler подтверждён validation. Native Teams остаётся **unverified**, как требует plan п.4; не считать браузер доказательством native-запуска. Проверка native Teams обязательна перед заявлением проверенной direct-app поддержки этого варианта; доказанный путь при отсутствующем приложении не требует его установки.
+
+### Матрица J/S: сопоставление доказательств
+
+Здесь «покрыт» означает достаточное совокупное scoped evidence требований, исходников, существующих/новых тестов и записанной Dev-приёмки. Это не заявление о едином полном ручном прогоне всех вариантов; самостоятельные SHA/CI и условия завершения указаны ниже.
+
+| ID | Оценка | Доказательства / предел |
+|---|---|---|
+| J01 | Покрыт для установленного Телемост/Zoom | Dev-передача нужным приложениям и сохранение экрана (validation); точный event UUID/query проверяет CalendarJoinClientTests/контракт resolver. Native Teams отдельно unverified. |
+| J02 | Покрыт | Dev Google Meet и Teams HTTPS при отсутствии Mac Teams; known-bundle policy и исходный HTTPS fallback прочитаны. |
+| J03 | Покрыт | Contract resolver и Swift client/opener сохраняют синтетический query; redirect blocker отделяет auth GRAF. Новые пути не журналируют URL. |
+| J04 | Покрыт | Contract cancelled/unselected/disconnect/foreign-owner; общий resolver не выдаёт отсутствующую/удалённую безопасную цель, no cached fallback проверен NativeCalendarJoinTests; локальная ошибка browser/bridge. |
+| J05 | Покрыт | Native/bridge duplicate+stale+retry tests, browser точный documentScript и inline retry. |
+| J06 | Покрыт | Поколение сессии/token/origin/navigation barrier и поздний resolver; NativeCalendarJoinTests/bridge tests. |
+| J07 | Покрыт | Настоящий WKContentWorld isolation test + malformed/extra URL payload tests; Coordinator main-frame/origin/allowed-route guards и forMainFrameOnly не расширяют политику навигации. |
+| S01 | Покрыт совокупно | Contract/browser/Dev 12 повторов; отдельные keys/группы; unit `series_key=None` и сохранённый API одиночных событий. |
+| S02 | Покрыт | SQL группирует до LIMIT, contract две серии не вытесняются частыми экземплярами. |
+| S03 | Покрыт | Unit owner/calendar identity, реальный SQL collision внешних календарей, группировка не использует title/link. |
+| S04 | Покрыт | SQL move/cancel сохраняет ID и группу; cancelled-history contract; ссылки resolver выбираются по ID даты. Нормализация переносов покрыта существующим набором. |
+| S05 | Покрыт совокупно | Прогнанный normalization suite содержит DST/all-day/floating/moved identity; Dev подтвердил одну зону карточки/истории, UI использует общий форматтер. |
+| S06 | Покрыт совокупно | Fixture содержит одноэкземплярную отдельную серию; recurrence presence независимо от количества, UI не выдумывает частоту и пишет ограниченный диапазон/неполную историю. |
+| S07 | **Обязательное дополнение evidence** | Own 0/2 записи, отменённая дата и hidden title/time покрыты; foreign-series отказ тоже. Нужен API сценарий **внутри разрешённой серии** с недоступной записью другого владельца/отозванным grant, затем удалением одной записи: реальные `_series_recordings`/`decide_meeting_access`, без лишней ссылки/скрытого счётчика. Browser mock revoke это не заменяет. Реальная утечка по исходникам не обнаружена. |
+| S08 | Покрыт lifecycle; часть delete проверяется дополнением S07 | Contract source disconnect/unselect и существующий disconnect lifecycle сохраняют записи и убирают будущую проекцию. |
+| S09 | Покрыт | `representative` unit и реальное SQL current-selection/move/collision; tie-break/граница ends_at заданы и проверены. |
+| S10 | Покрыт | HMAC/Fernet context+expiry/tampering unit, API чужая серия/слишком длинный cursor/range, schema limit 1..50, browser 422 restart; keyset пара starts_at/id. |
+
+### Обязательные остаточные доказательства до объявления готовности
+
+1. **S07 / SC-005**: описанный выше авторизационный API regression в доступной серии, включая отзыв/удаление. Основной агент принял дополнение; будущий результат пока не PASS.
+2. **C02 / FR-020**: Join во время уже активной записи. Существующие tests доказывают «join не вызывает startRecording» и сохранение recordingState при calendar invalidation, но ещё нет контролируемого сценария именно production Join при active capture-state. Достаточен синтетический recorder/controller с настоящим bridge/action: активный recording ID/state/context до вызова, success/failed/stale resolver, счётчики start/stop=0 и сохранение active ID/context/видимого состояния после. Recorder должен быть связан с проверяемым production путём, а не быть посторонней неизменяемой переменной. Реальный захват микрофона/экрана не является обязательным условием этого локального контракта.
+3. **SC-007**: воспроизводимые измерения <=200 мс для индикации и p95 <=500 мс для уже загруженных данных. Production browser harness с trusted click, подготовленными данными, измерением до кадра, 30 образцами и явно указанными версиями среды/viewport/SHA/правилом p95 достаточен по формулировке spec. Native-WK p95 не требуется; Dev UI подтверждается отдельно. Время CUA round trip с фиксированным ожиданием инструмента не является временем paint. Временные цифры основного агента не считаются сохранённым PASS до воспроизводимого сценария и его результата.
+4. **Финальный SHA/base/CI и согласованные документы**: после rebase/новых тестов нужен новый exact-SHA current-check validator; старые CI на 54c9 не квалифицируют новый SHA. Read-only GitHub snapshot PR #7363 дал head 54c9, draft=true, mergeable_state=behind и base e39c5f4554174451f790c1240cb07270072b69d1; это снимок до обновления remote, не утверждение о текущем состоянии после работы основного агента. Перед readiness согласовать tasks/validation с user VoiceOver и новыми результатами, убрать устаревшее требование участия в звонке. Замороженный release-full остаётся воротами конкретного релизного кандидата, а не дополнительным требованием к каждому локальному проходу.
+
+Reviewer не менял tasks, spec/plan/validation, код, GitHub, commits или приложение. Будущие проверки не отмечены как выполненные.
+
+
+## Завершающее ревью локальных доказательств T010
+
+Дата: 2026-09-28. Проверены текущие изменения тестов поверх `e26aedf74253dc2a4e65be333a90ddb54e306e0b` и непосредственно прочитаны журналы их завершения. **S07/SC-005, C02/FR-020 в описанной ниже границе и SC-007 — PASS. Открытых обязательных локальных пробелов, перечисленных предыдущим проходом, больше нет.** Этот раздел заменяет незавершённый статус пунктов 1–3 предыдущего раздела; пункт 4 о финальном SHA/CI/документах сохраняется.
+
+### S07: независимые права записей внутри разрешённой серии
+
+`test_series_recordings_recheck_grant_revocation_and_deletion` в `apps/server/tests/contract/test_calendar_join_series_contract.py` вызывает настоящий HTTP endpoint и использует БД/действующую политику доступа. У разрешённой пользователю даты созданы собственная запись, чужая запись с активным персональным grant и чужая запись без grant. Сначала возвращаются только первые две, после отзыва grant — только собственная, после её удаления — пустой список. Тест проверяет отсутствие запрещённых/отозванных ID во всём payload и отсутствие `recording_count`, а не только число элементов. Это закрывает прежний пробел проверки `_series_recordings` в доступной серии; browser mock не используется как замена авторизации.
+
+Непосредственно прочитан `/tmp/f279-closeout-server.log`: **9 passed, 2 warnings**, `postgres_test_result=pass`, изолированный контейнер удалён. Предупреждения не представлены как ошибки; тестовый код и итог проверены reviewer.
+
+### C02: подключение при активной синтетической записи
+
+`NativeCalendarJoinTests.testProductionPromptJoinKeepsSyntheticRecordingContinuous` в `apps/macos/Shared/Tests/CalendarMeetingOpenerTests.swift` сначала выполняет `.record` через настоящий `DesktopCalendarPromptActions`: его callback запускает настоящие `CaptureSessionController` и `LocalRecordingWriter` и создаёт контекст записи. Затем тот же dispatcher выполняет `.join` через настоящий `CalendarMeetingOpener.resolveAndOpen` для успеха, отказа resolver и устаревшей сессии. Положительный `.record` контроль связывает проверяемый recorder с production action; это не отдельная неизменяемая переменная рядом с bridge.
+
+После каждого Join проверяются единственный старт записи, единственный успешный внешний запуск, прежние session/state/context/directory, активность writer и доступность Stop по production policy. Оба источника writer — `BufferedLocalRecordingSampleSource`; микрофонный содержит только синтетические нули. Четыре последовательные порции после явного завершения дают 6400 кадров mixedMeetingAudio на выходе 16 kHz, `captureFailureCode == nil`, `manifest.isComplete == true`. Первоначальный провал из-за отсутствия обязательного второго источника устранён в fixture; production-код не менялся.
+
+Непосредственно прочитан `/tmp/f279-closeout-swift.log`: **113 tests, 0 failures**, в том числе новый C02. Граница доказательства: production dispatcher/resolver/controller/writer с подставным внешним opener и синтетическими аудиоданными. Это достаточно для локального контракта разделения Join/Record и сохранения записи; не является тестом аппаратного захвата, полного приватного ContentView, cabinet → OS → устройство или вступления в звонок. Новые системные разрешения не выдавались reviewer.
+
+### SC-007: воспроизводимое измерение интерфейса
+
+`apps/server/tests/browser/calendar_series.mjs` измеряет trusted click в capture-фазе window до production обработчика, затем видимый статус Join либо фактически отображённые строки серии и два requestAnimationFrame. Проверяется число измерений, Join maximum <=200 ms и series p95 <=500 ms. После 3 прогревочных измерений выполнены 30 образцов; p95 определяется nearest rank ceil(n*0.95). Используются production HTML/assets/documentScript и локальный синтетический API. Это соответствует согласованному локальному стенду spec; время внешнего запуска и аппаратного WKWebView не приписывается измерению.
+
+Непосредственно прочитан `/tmp/f279-closeout-browser.log`: **PASS**; darwin 25.6.0 arm64, Chromium 151.0.7922.34, viewport 1100×850. Join p95 15.4 ms / max 15.5 ms; series p95 32.5 ms / max 32.8 ms. Строка SHA указывает базовый HEAD e26aedf при проверяемых незакоммиченных изменениях тестов, а не новый финальный commit. Сохранённые ранее проверки GRAF Dev и пользовательская VoiceOver-приёмка остаются отдельными доказательствами.
+
+### Итог и оставшиеся условия готовности
+
+Повторно прочитаны оба custom checklist: **UX 8 checked / 0 unchecked; security 8 checked / 0 unchecked; всего 16/16**. Их markers оценивают качество требований и не были переопределены как runtime checklist. Новых подтверждённых дефектов в трёх дополнениях не найдено.
+
+Обязательных открытых локальных пробелов в проверенной матрице больше нет. Основному агенту остаются согласование tasks/validation, окончательный commit, актуальная проверка установленного GRAF Dev после rebase и CI/checked base на окончательном SHA. Старые CI 54c9 не заменяют новый SHA; release-full/распространение относятся к отдельному замороженному релизному кандидату. Native Teams на машине без Mac Teams остаётся unverified для заявления о проверенном прямом запуске; доказанный HTTPS fallback не требует установки Teams или реального звонка. Пользовательская VoiceOver-приёмка принята без повторного теста.
+
+Reviewer изменил только reviewer-owned отчёт и примечания двух custom checklist. Код, tasks, другие документы, GitHub, commits и приложение не менялись. После передачи этого отчёта reviewer не меняет файлы без нового запроса основного агента.

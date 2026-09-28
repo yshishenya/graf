@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { release as osRelease } from 'node:os';
 const serverRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const html=execFileSync(process.env.SERVER_PYTHON || 'python',['-c',`
@@ -119,5 +120,54 @@ try {
  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
  assert.equal(await page.locator('.calendar-series__occurrence').count(),5);
  assert.match(await page.locator('[data-calendar-series-status]').textContent(),/Показаны сохранённые/);
+
+ // SC-007: production assets, trusted input, local synthetic API; no native app launch.
+ await page.setViewportSize({width:1100,height:850});
+ await page.evaluate(bridge);
+ await page.evaluate(()=>{
+   window.calendarTiming={join:[],series:[]};
+   window.addEventListener('click',event=>{
+     if(!event.isTrusted) return;
+     const started=performance.now();
+     const button=event.target.closest('[data-calendar-join]');
+     if(button) {
+       requestAnimationFrame(()=>requestAnimationFrame(()=>{
+         const status=button.parentElement.querySelector('[data-calendar-join-status]');
+         if(button.getAttribute('aria-disabled')==='true' && status?.textContent==='Открываем…' && status.getClientRects().length)
+           window.calendarTiming.join.push(performance.now()-started);
+       }));
+     }
+     const summary=event.target.closest('.calendar-series summary');
+     if(summary && !summary.parentElement.open) {
+       const ready=()=>{
+         const rows=summary.parentElement.querySelectorAll('.calendar-series__occurrence');
+         if(rows.length===5 && rows[0].getClientRects().length)
+           requestAnimationFrame(()=>requestAnimationFrame(()=>window.calendarTiming.series.push(performance.now()-started)));
+         else if(performance.now()-started<5000) requestAnimationFrame(ready);
+       };requestAnimationFrame(ready);
+     }
+   },true);
+ });
+ const warmup=3,samples=30;
+ for(let n=0;n<warmup+samples;n++) {
+   await page.locator('[data-calendar-join]').first().click();
+   await page.waitForFunction(n=>window.calendarTiming.join.length>n,n,{timeout:5000});
+   await page.evaluate(()=>window.GRAFCalendarJoin.reply(window.joinMessages.at(-1).requestId,'handed_off'));
+   if(await page.locator('.calendar-series').getAttribute('open')!==null) {
+     await page.locator('.calendar-series summary').click();
+     await page.waitForFunction(()=>document.querySelectorAll('.calendar-series__occurrence').length===0);
+   }
+   await page.locator('.calendar-series summary').click();
+   await page.waitForFunction(n=>window.calendarTiming.series.length>n,n,{timeout:5000});
+ }
+ const timing=await page.evaluate(warmup=>Object.fromEntries(Object.entries(window.calendarTiming).map(([key,all])=>{
+   const values=all.slice(warmup).sort((a,b)=>a-b);
+   return [key,{samples:values.length,p95_ms:values[Math.ceil(values.length*0.95)-1],max_ms:values.at(-1)}];
+ })),warmup);
+ console.log('SC-007 '+JSON.stringify({sha:execFileSync('git',['rev-parse','HEAD'],{cwd:serverRoot,encoding:'utf8'}).trim(),os:process.platform,os_release:osRelease(),arch:process.arch,chromium:browser.version(),viewport:page.viewportSize(),warmup,p95_rule:'nearest rank ceil(n*0.95)',timing}));
+ assert.equal(timing.join.samples,samples);
+ assert.equal(timing.series.samples,samples);
+ assert.ok(timing.join.max_ms<=200,`Join feedback maximum ${timing.join.max_ms}ms exceeds 200ms`);
+ assert.ok(timing.series.p95_ms<=500,`Series p95 ${timing.series.p95_ms}ms exceeds 500ms`);
  console.log('PASS: production series UI, keyboard, pagination 12 dates, inline retry, real calendar refresh focus, stale failure isolation, narrow viewport, exact native script double-click/retry/no-navigation');
 } finally {await browser.close();await new Promise(resolve=>server.close(resolve));}

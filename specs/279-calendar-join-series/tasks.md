@@ -6,7 +6,7 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 Подготовить синтетические сценарии J01–J07/S01–S10 и проверки регрессий в apps/server/tests/contract/test_calendar_join_series_contract.py и apps/server/tests/unit/test_calendar_series.py; подтвердить исходные сбои перед реализацией.
+- [X] T001 Подготовить синтетические сценарии J01–J07/S01–S10 и проверки регрессий в apps/server/tests/contract/test_calendar_join_series_contract.py и apps/server/tests/unit/test_calendar_series.py; подтвердить исходные сбои перед реализацией.
 
 ## Phase 2: Foundation
 
@@ -26,7 +26,7 @@
 Независимая проверка: 12 экземпляров → одна карточка, независимые серии не объединяются, частая серия не вытесняет соседние; S01–S04,S06,S09.
 
 - [X] T005 [US2] Добавить проекцию overview и группировку до LIMIT с owner/privacy фильтрами в apps/server/src/twobrain_rec_server/calendar/series.py, api/calendar.py, cabinet/queries.py, cabinet/view_models.py; current starts_at <= now < ends_at, latest current then UUID, иначе earliest future then UUID. Сохранить occurrence API и напоминания. FR-008–013,016–018.
-- [ ] T006 [US2] Реализовать карточку серии и раскрытие дат в apps/server/src/twobrain_rec_server/cabinet/rendering.py и cabinet/static/cabinet/; явная выбранная дата, скрытие title/time во всех атрибутах, keyboard/VoiceOver, темы и узкое окно; browser tests. FR-009–013,016,019; SC-003,006,007.
+- [X] T006 [US2] Реализовать карточку серии и раскрытие дат в apps/server/src/twobrain_rec_server/cabinet/rendering.py и cabinet/static/cabinet/; явная выбранная дата, скрытие title/time во всех атрибутах, keyboard/VoiceOver, темы и узкое окно; browser tests. FR-009–013,016,019; SC-003,006,007.
 
 ## Phase 5: US3 — даты и отдельные записи
 
@@ -70,6 +70,10 @@ macOS, Python 3.13.3; apps/server/.venv создан через uv sync --frozen
 
 ## Состояние проверки реализации
 
-T002–T005, T007 и T009 подтверждены исходниками, независимым ревью и автоматическими наборами (validation.md). Их GitHub issues остаются открытыми до совокупной приёмки и слитого PR. T001 остаётся открытой для завершения всей матрицы J/S и доказательств, T006 — для VoiceOver/тем в GRAF Dev, T008 — для локального установленного приложения и последующих gates. Это не утверждение готовности релиза.
+T002–T005, T007 и T009 подтверждены исходниками, независимым ревью и автоматическими наборами (validation.md). Их GitHub issues остаются открытыми до совокупной приёмки и слитого PR. T001/T006/T010 подтверждены завершающей матрицей и тестами; VoiceOver отдельно принят пользователем. T008 остаётся для повторного GRAF Dev после обновления базы и текущих GitHub checks. Это не утверждение готовности релиза.
 
 Повторный analyze после T009: задача связана с FR-001/004/006 и существующим #7360; новых противоречий/непокрытых обязательных требований нет. Converge повторно проверил новый resolver для всех изменённых точек входа; оставшиеся пункты — приёмка, не недостающие участки реализации.
+
+## Phase 8: Convergence — завершение приёмки
+
+- [X] T010 Завершить доказательства S07/C02/SC-007: API-регрессия отзыва доступа и удаления записи внутри доступной серии; неизменность активной записи при успешном/ошибочном/устаревшем Join; воспроизводимый замер trusted click и раскрытия серии в локальном production browser harness. Пути: apps/server/tests/contract/test_calendar_join_series_contract.py, apps/macos/Shared/Tests/CalendarMeetingOpenerTests.swift, apps/server/tests/browser/calendar_series.mjs. FR-014/020, SC-005/007 (partial evidence). Владелец: https://github.com/yshishenya/graf/issues/7362.

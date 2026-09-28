@@ -25,3 +25,6 @@ Reviewer-owned. Автор реализации не меняет checkbox; эт
 - CHK008 PASS: FR-020, Plan Constitution Check, design validation и quickstart C02 сохраняют ручные Start/Stop и прежнюю трёхсостоянийную автозапись; native-проверка явно ограничена GRAF Dev через dev-harness.
 
 Повторная проверка перед реализацией: `tasks.md` T001–T008 прочитан и сопоставлен с пунктами; PASS сохраняется. T001 задаёт тесты до кода, T002–T007 — реализацию и проверки по пользовательским сценариям, T008 — полную приёмку и независимое ревью. Analyze записан в `validation.md`; завершение синхронизации GitHub остаётся отдельным процессным условием. Сводный отчёт: `../review-report.md`.
+
+
+Завершающая проверка локальных доказательств T010: S07 (реальная API/ACL проверка grant/revoke/delete), C02 (production dispatcher/resolver/controller/writer с синтетическими данными) и SC-007 (30 измерений production browser harness) подтверждены PASS. Swift 113/0, серверный contract файл 9 PASS, browser PASS. Границы доказательств и оставшиеся SHA/CI/Dev условия записаны в разделе «Завершающее ревью локальных доказательств T010» `../review-report.md`. Качество требований сохраняется **8 checked / 0 unchecked**.
