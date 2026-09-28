@@ -120,10 +120,26 @@ final class DesktopNotificationProtectedConsumerTests: XCTestCase {
         XCTAssertTrue(window.isOnActiveSpace, "Fixture must be on the active Space")
         XCTAssertEqual(matches.count, 1, "Expected one actual SwiftUI Stop AX element")
         let stop = try XCTUnwrap(matches.first, "Missing Stop is a fixture/AX failure, not protection RED")
-        let stopFrame = try XCTUnwrap(frame(stop), "Actual Stop must expose its screen frame")
+        var stopFrame = try XCTUnwrap(frame(stop), "Actual Stop must expose its screen frame")
         XCTAssertFalse(stopFrame.isEmpty)
         XCTAssertTrue([stopFrame.minX, stopFrame.minY, stopFrame.width, stopFrame.height].allSatisfy { $0.isFinite })
         XCTAssertTrue(window.frame.contains(stopFrame), "Stop must be inside the visible fixture window")
+        if inTitlebar {
+            let accessory = try XCTUnwrap(window.titlebarAccessoryViewControllers.first)
+            XCTAssertEqual(accessory.view.bounds.height, DesktopMeetingShellChrome.recordingStripHeight,
+                           accuracy: 0.5, "AppKit must preserve the declared recording strip height")
+            let oldWidth = accessory.view.bounds.width
+            var resized = window.frame
+            resized.size.width -= 80
+            window.setFrame(resized, display: true)
+            let followedWindow = try await F277CardTestSupport.awaitAppKitState {
+                abs(accessory.view.bounds.width - (oldWidth - 80)) < 1
+                    && abs(accessory.view.bounds.height - DesktopMeetingShellChrome.recordingStripHeight) < 0.5
+            }
+            XCTAssertTrue(followedWindow, "Titlebar must preserve its height while following window width")
+            stopFrame = try XCTUnwrap(frame(stop))
+            XCTAssertTrue(window.frame.contains(stopFrame))
+        }
         // Allow pending registration work after layout; never supply an obstacle here.
         await Task.yield()
         let protectedFrames = card.protectedFrames

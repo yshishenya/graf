@@ -1247,6 +1247,9 @@ private final class RecordingTitlebarAccessoryAnchor: NSView {
             accessoryController = controller
             installedWindow = window
             window.addTitlebarAccessoryViewController(controller)
+            // Installation may replace the proposed size with the system's
+            // compact titlebar height. Restore our control strip afterwards.
+            host.setFrameSize(NSSize(width: host.frame.width, height: DesktopMeetingShellChrome.recordingStripHeight))
         } else {
             accessoryController?.fullScreenMinHeight = DesktopMeetingShellChrome.recordingStripHeight
         }
