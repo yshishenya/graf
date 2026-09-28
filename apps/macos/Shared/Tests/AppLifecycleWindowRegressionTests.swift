@@ -1,16 +1,27 @@
+import AppKit
 import Foundation
 import XCTest
+@testable import TwoBrainRecAppCore
 
 final class AppLifecycleWindowRegressionTests: XCTestCase {
+    @MainActor
     func testPromptGeometryUsesSharedCardLayout() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let source = try String(contentsOf: root.appendingPathComponent("RecApp/Sources/Notifications/DesktopNotificationCardPresenter.swift"), encoding: .utf8)
-        XCTAssertTrue(source.contains("public static let windowWidth: CGFloat = 448"))
-        XCTAssertTrue(source.contains("public static let cardWidth: CGFloat = 420"))
-        XCTAssertTrue(source.contains("public static let topInset: CGFloat = 39"))
-        XCTAssertTrue(source.contains("public func presentRecordingPrompt("))
-        XCTAssertTrue(source.contains("onClose: onDismiss"))
+        try F277CardTestSupport.requireScreen()
+        let fixture = F277CardFixture()
+        let presenter = fixture.presenter()
+        defer { presenter.dismiss() }
+        var closed = 0
+        var actions = 0
+        XCTAssertTrue(presenter.present(F277CardTestSupport.prompt(),
+            onAction: { _ in actions += 1 }, onClose: { closed += 1 }))
+        let (view, card) = try F277CardTestSupport.fitted(presenter)
+        XCTAssertEqual(card.bounds.width, 380, accuracy: 0.5)
+        let close = try F277CardTestSupport.close(view)
+        close.performClick(nil)
+        close.performClick(nil)
+        XCTAssertEqual(closed, 1)
+        XCTAssertEqual(actions, 0)
+        XCTAssertFalse(presenter.isVisible)
     }
 
     func testMainWindowReadinessMarkerFollowsVisibilityAttempt() throws {

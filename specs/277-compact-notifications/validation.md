@@ -1631,3 +1631,65 @@ specs/277-compact-notifications/spec.md`, `scripts/check-development-process.py`
 Hooks before/after implement отключены. Установленный GRAF Dev остаётся51bcff6b1;
 ручную приёмку и долг второго монитора это исправление не переписывает.
 Окончательная приёмка T021/T022 требует новых точных GitHub SHA/base результатов.
+
+## Полный CI обнаружил оставшиеся старые тесты — 2026-09-28
+
+На `b850b975f1902c511240133949e6080fb95a9b19` сборка Swift 6.0.3
+успешно дошла до тестов: прежний отказ компиляции устранён. `macos-pr`
+run36360051114 завершился FAILURE: 1139 тестов, 2 SKIP, 17 ошибок утверждений
+в трёх тестах. Они не входили в прежний локальный фильтр579. Это новый
+подтверждённый остаток T019, не повод объявить прошлые579 полной проверкой CI.
+
+- AppLifecycleWindowRegressionTests.testPromptGeometryUsesSharedCardLayout
+  всё ещё требовал старые420/448pt, topInset39 и удалённые методы. Пять
+  проверок строк заменены настоящим компонентом из F277CardFixture:
+  успешный показ,380pt видимой карточки, два нажатия крестика → один callback,
+  ноль действий, скрытое окно, обязательный dismiss. Другие lifecycle-тесты
+  не менялись; новая карточка не подстраивалась под старые размеры.
+- Два положительных теста DesktopUploadRetirementTests не записывали исходный
+  manifest v5. Действующий live gate закономерно запрещал попытку до вызова
+  тестового транспорта. Теперь в изолированный каталог записывается
+  декодируемый manifest с совпадающими sessionId/directoryId и accepted.
+  В mixed-сценарии у v5 отдельные идентичности и каталог. Все прежние assertions
+  retired/swap/reconcile/progress/late success/failure/повтор/удаление сохранены.
+  Минимальный manifest с tracks=[] проверяет только переходы очереди через
+  подставной транспорт; он не доказывает полноту медиа или отправку настоящим
+  DesktopUploadClient. Рабочие admission/capture/upload paths не менялись.
+- Обе группы включены в quickstart, чтобы не выпадать из целевых проверок.
+
+Независимый допуск Russell и Laplace: custom26/26 + built-in5/5,
+analyze0 CRITICAL/HIGH/MEDIUM, область прежней T019/#7303 без новой задачи.
+Laplace отдельно прочитал окончательный diff и вернул code/test review PASS:
+исходные утверждения сохранены, минимальный manifest допустим для этого
+тестового транспорта. Reviewer файлы/отметки не менялись.
+
+Воспроизведение и результат:
+
+```sh
+swift test --package-path apps/macos --filter 'AppLifecycleWindowRegressionTests|DesktopUploadRetirementTests'
+```
+
+До правки:8 тестов,3 неуспешных,17 ошибок assertions, exit1.
+После:8 PASS/0 SKIP/0 FAIL, exit0,0.510s. Журналы:
+`/tmp/graf-f277-ci-regressions-before.log`,
+`/tmp/graf-f277-ci-regressions-after.log`.
+
+Полный локальный фильтр предыдущего раздела расширен двумя группами
+`AppLifecycleWindowRegressionTests|DesktopUploadRetirementTests`, с новым
+GRAF_CARD_SNAPSHOT_DIR. Результат587: **580 PASS,7 SKIP,0 FAIL**, exit0,
+53.672s, окончание03:04:09.124 местного времени. Журнал
+`/tmp/graf-f277-regression-complete.log`. Подтверждение запуска0.00053725s.
+Все семь пропусков — независимое контрольное окно не получило фокус:
+пять DesktopNotificationAccessibilityTests (Escape/явный focus/inactive host/
+keyboard actions/scroll), два DesktopNotificationPromptLifecycleTests
+(hold/deadline). Условия SKIP и assertions не менялись. Отдельный профиль
+Accessibility/Compact/PromptLifecycle:41 выбрано,34 PASS/7 SKIP/0 FAIL,
+18.651s; `/tmp/graf-f277-regression-focus.log`. Это подтверждает ограничение
+текущего тестового хоста, не успешность этих семи сценариев. Предыдущий579/579
+и пользовательские проверки на неизменном рабочем коде сохраняются отдельно.
+
+Retirement guard0violations, process/governance и diffcheck — PASS.
+Этот проход меняет только тесты и документы. GRAF Dev не переустанавливался,
+аудио/сеансы пользователя не использовались, PR не сливался. Требуется полный
+GitHub CI следующего SHA; текущий неуспешный run не объявляется исправленным
+по одним локальным результатам. Физический второй монитор остаётся долгом.

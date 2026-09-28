@@ -7,7 +7,7 @@
 ## Команды из корня
 
 ```sh
-swift test --package-path apps/macos --filter 'DesktopNotification|DesktopLocalNotification|EmbeddedCabinetNotification|MeetingDetectionCountdownTests|MeetingDetectionPolicyTests|MeetingDetectionRecordingLifecycleTests|CaptureControlTests|CaptureIndicatorTests|ShortRecording|AppControlAccessibility|DesktopCabinetRoutePolicy|DesktopCalendarReminderTests|DesktopUploadQueueTests/testRevokedPromptStart|DesktopUploadQueueTests/testV5CaptureFailure'
+swift test --package-path apps/macos --filter 'DesktopNotification|DesktopLocalNotification|EmbeddedCabinetNotification|MeetingDetectionCountdownTests|MeetingDetectionPolicyTests|MeetingDetectionRecordingLifecycleTests|CaptureControlTests|CaptureIndicatorTests|ShortRecording|AppControlAccessibility|AppLifecycleWindowRegressionTests|DesktopCabinetRoutePolicy|DesktopCalendarReminderTests|DesktopUploadRetirementTests|DesktopUploadQueueTests/testRevokedPromptStart|DesktopUploadQueueTests/testV5CaptureFailure'
 swift build --package-path apps/macos --product TwoBrainRecApp
 swift build --package-path apps/macos --product ContractValidation
 apps/macos/.build/debug/ContractValidation
