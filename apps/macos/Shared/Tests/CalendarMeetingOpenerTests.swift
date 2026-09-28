@@ -118,7 +118,7 @@ final class CalendarJoinIsolationTests: XCTestCase {
 }
 
 @MainActor
-private final class CalendarJoinMessageSpy: NSObject, WKScriptMessageHandler {
+private final class CalendarJoinMessageSpy: NSObject, @preconcurrency WKScriptMessageHandler {
     var count=0
     func userContentController(_ controller: WKUserContentController,didReceive message: WKScriptMessage) {count += 1}
 }
