@@ -4,6 +4,26 @@ import XCTest
 
 @MainActor
 final class DesktopNotificationPromptLifecycleTests: XCTestCase {
+    func testPromptGetsFullEightVisibleSecondsEvenWhenRequestBudgetWasAlreadySpent() throws {
+        try F277CardTestSupport.requireScreen()
+        let fixture = F277CardFixture()
+        let requestedDeadline = fixture.now.addingTimeInterval(8)
+        fixture.now.addTimeInterval(0.4)
+        let presenter = fixture.presenter()
+        defer { presenter.dismiss() }
+        var expired = 0
+        XCTAssertTrue(presenter.present(F277CardTestSupport.prompt(), dismissAfter: requestedDeadline,
+            onAction: { _ in }, onExpire: { expired += 1 }))
+        let visibleAt = fixture.now
+        XCTAssertEqual(presenter.deadline, visibleAt.addingTimeInterval(8))
+        for second in 1...7 { fixture.now = visibleAt.addingTimeInterval(Double(second)); presenter.refresh() }
+        fixture.now = visibleAt.addingTimeInterval(7.999); presenter.refresh()
+        XCTAssertEqual(expired, 0)
+        XCTAssertTrue(presenter.isVisible)
+        fixture.now = visibleAt.addingTimeInterval(8); presenter.refresh(); presenter.refresh()
+        XCTAssertEqual(expired, 1)
+    }
+
     func testInformationalHoverHoldPreservesRemainingTimeForAllThreeFamilies() throws {
         try F277CardTestSupport.requireScreen()
         let cases: [(DesktopNotificationCardContent, TimeInterval)] = [
@@ -137,12 +157,13 @@ final class DesktopNotificationPromptLifecycleTests: XCTestCase {
         defer { presenter.dismiss() }
         var invalidated = 0
         XCTAssertTrue(presenter.present(F277CardTestSupport.prompt(),
-            dismissAfter: fixture.now.addingTimeInterval(1),
+            dismissAfter: fixture.now.addingTimeInterval(8),
             onAction: { _ in XCTFail("Скрытый вопрос не выполняет действие") },
             onExpire: { XCTFail("Невидимая панель не запускает запись") },
             onInvalidated: { invalidated += 1 }))
         let (view, _) = try F277CardTestSupport.fitted(presenter)
         let button = try XCTUnwrap(F277CardTestSupport.actions(view).last)
+        for _ in 1...7 { fixture.now.addTimeInterval(1); presenter.refresh() }
         try XCTUnwrap(presenter.window).orderOut(nil)
         fixture.now.addTimeInterval(1)
         presenter.refresh()
@@ -297,15 +318,16 @@ final class DesktopNotificationPromptLifecycleTests: XCTestCase {
         XCTAssertNil(presenter.presentedContent)
     }
 
-    func testExpiryClearsBeforeCallbackAndDoesNotDismissReplacement() async throws {
+    func testExpiryClearsBeforeCallbackAndDoesNotDismissReplacement() throws {
         try F277CardTestSupport.requireScreen()
         for remember in [false, true] {
-            let presenter = DesktopNotificationCardPresenter()
+            let fixture = F277CardFixture()
+            let presenter = fixture.presenter()
             defer { presenter.dismiss() }
             var expired = 0
             let next = DesktopNotificationCardContent.preview(title: "Следующее", message: "Сообщение")
             presenter.present(F277CardTestSupport.prompt(remember: remember),
-                              dismissAfter: Date().addingTimeInterval(0.02),
+                              dismissAfter: fixture.now.addingTimeInterval(8),
                               onAction: { _ in XCTFail("Expiry не является явным start/skip") },
                               onExpire: {
                                   expired += 1
@@ -313,7 +335,7 @@ final class DesktopNotificationPromptLifecycleTests: XCTestCase {
                                   XCTAssertNil(presenter.presentedContent)
                                   presenter.present(next, onAction: { _ in })
                               }, onClose: { XCTFail("Expiry не является close") })
-            try await Task.sleep(for: .milliseconds(60))
+            for _ in 1...8 { fixture.now.addTimeInterval(1); presenter.refresh() }
             presenter.refresh()
             presenter.refresh()
             XCTAssertEqual(expired, 1)
@@ -321,34 +343,38 @@ final class DesktopNotificationPromptLifecycleTests: XCTestCase {
         }
     }
 
-    func testTickAndCheckboxContentRefreshCannotExtendOriginalDeadline() async throws {
+    func testTickAndCheckboxContentRefreshCannotExtendOriginalDeadline() throws {
         try F277CardTestSupport.requireScreen()
-        let presenter = DesktopNotificationCardPresenter()
+        let fixture = F277CardFixture()
+        let presenter = fixture.presenter()
         defer { presenter.dismiss() }
         var expired = 0
         var remember = false
-        presenter.present(F277CardTestSupport.prompt(), dismissAfter: Date().addingTimeInterval(0.02),
+        let deadline = fixture.now.addingTimeInterval(8)
+        presenter.present(F277CardTestSupport.prompt(), dismissAfter: deadline,
                           onAction: { _ in },
                           onTick: { F277CardTestSupport.prompt(seconds: 7, remember: remember) },
                           onExpire: { expired += 1 })
         remember = true
         presenter.refresh()
-        try await Task.sleep(for: .milliseconds(60))
+        XCTAssertEqual(presenter.deadline, deadline)
+        for _ in 1...8 { fixture.now.addTimeInterval(1); presenter.refresh() }
         presenter.refresh()
         XCTAssertEqual(expired, 1)
         XCTAssertFalse(presenter.isVisible)
     }
 
-    func testDismissBeforeDeadlinePreventsLateExpiry() async throws {
+    func testDismissBeforeDeadlinePreventsLateExpiry() throws {
         try F277CardTestSupport.requireScreen()
-        let presenter = DesktopNotificationCardPresenter()
+        let fixture = F277CardFixture()
+        let presenter = fixture.presenter()
         defer { presenter.dismiss() }
         var expired = 0
-        presenter.present(F277CardTestSupport.prompt(), dismissAfter: Date().addingTimeInterval(0.02),
+        presenter.present(F277CardTestSupport.prompt(), dismissAfter: fixture.now.addingTimeInterval(8),
                           onAction: { _ in XCTFail("Отменённый вопрос не выполняет действие") },
                           onExpire: { expired += 1 })
         presenter.dismiss()
-        try await Task.sleep(for: .milliseconds(60))
+        fixture.now.addTimeInterval(9)
         presenter.refresh()
         XCTAssertEqual(expired, 0)
         XCTAssertFalse(presenter.isVisible)

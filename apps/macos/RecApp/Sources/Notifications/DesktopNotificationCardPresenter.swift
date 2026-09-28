@@ -203,12 +203,13 @@ public final class DesktopNotificationCardPresenter {
         view.layoutSubtreeIfNeeded()
         window.orderFrontRegardless()
         guard window.isVisible else { clear(); return false }
+        let visibleAt = environment.now()
         view.configureKeyLoop()
         // The prompt's budget starts only when the panel is actually visible.
-        if case .recordingPrompt = content, let dismissAfter {
-            deadline = environment.now().addingTimeInterval(dismissAfter.timeIntervalSince(requestedAt))
+        if case .recordingPrompt = content {
+            deadline = visibleAt.addingTimeInterval(Self.recordingPromptDisplayDuration)
         } else { deadline = dismissAfter }
-        lastTickAt = environment.now()
+        lastTickAt = visibleAt
         reconcileHold()
         observeLifecycle(token: token)
         environment.announce(window, content.accessibilitySummary)

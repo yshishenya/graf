@@ -209,7 +209,6 @@ private struct ContentView: View {
     @State private var meetingDetectionPrompt: MeetingDetectionPrompt?
     @State private var meetingDetectionPromptToken: UUID?
     @State private var meetingDetectionPromptRememberChoice = false
-    @State private var meetingDetectionPromptStartedAt: Date?
     @State private var liveRecordingLevels = LiveRecordingLevels.inactive
     @State private var localRecordingActive = false
     @State private var levelsPollInProgress = false
@@ -1606,12 +1605,9 @@ private struct ContentView: View {
         let token = UUID()
         meetingDetectionPromptToken = token
         meetingDetectionPromptRememberChoice = false
-        meetingDetectionPromptStartedAt = nil
         let shown = DesktopNotificationPresenter.shared.presentRecordingPrompt(
             displayName: prompt.displayName,
-            remainingSeconds: 8,
             rememberChoice: false,
-            duration: 8,
             onStart: { [self] in
                 guard isCurrentMeetingDetectionPrompt(prompt, token: token) else { return }
                 self.acceptMeetingDetectionPrompt(
@@ -1628,15 +1624,8 @@ private struct ContentView: View {
                 guard isCurrentMeetingDetectionPrompt(prompt, token: token) else { return }
                 self.meetingDetectionPromptRememberChoice = value
             },
-            onTick: { [self] in
-                guard isCurrentMeetingDetectionPrompt(prompt, token: token),
-                      let startedAt = self.meetingDetectionPromptStartedAt else { return nil }
-                let elapsed = Date().timeIntervalSince(startedAt)
-                return .recordingPrompt(
-                    displayName: prompt.displayName,
-                    remainingSeconds: max(0, Int(ceil(8 - elapsed))),
-                    rememberChoice: self.meetingDetectionPromptRememberChoice
-                )
+            isStillCurrent: { [self] in
+                isCurrentMeetingDetectionPrompt(prompt, token: token)
             },
             onExpire: { [self] in
                 guard isCurrentMeetingDetectionPrompt(prompt, token: token) else { return }
@@ -1661,9 +1650,6 @@ private struct ContentView: View {
             }
             return
         }
-        // No deadline exists for an invisible prompt. A failed presentation
-        // cancels this offer instead of allowing a later, hidden auto-start.
-        meetingDetectionPromptStartedAt = Date()
         AppLog.writeRaw(
             event: "meeting_detection.prompt_presented",
             detail: "targetId=\(prompt.targetID) bundleID=\(prompt.bundleID)"
@@ -1685,7 +1671,6 @@ private struct ContentView: View {
         }
         meetingDetectionPromptToken = nil
         meetingDetectionPrompt = nil
-        meetingDetectionPromptStartedAt = nil
         meetingDetectionPromptRememberChoice = false
         DesktopNotificationPresenter.shared.dismissRecordingPrompt()
     }
