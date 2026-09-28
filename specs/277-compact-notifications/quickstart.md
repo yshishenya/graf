@@ -92,6 +92,19 @@ card/coordinator. `MeetingDetectionCountdownTests` продвигает одни
 
 Reviewerchecklists — качество требований, не результат runtime. Analyze0CRITICAL/0HIGH. Послекода `$speckit-converge`, newtasks appendonly. PR exactSHA/base проверять `scripts/validate-pr-checks.py`. Tasks/issues закрывать поevidence. Historicaldocs неизменны, currentstatus/changelogfragment обновить. Полныйrelease отдельно.
 
+Для T034 профиль `DesktopNotificationProtected` проверяет настоящие SwiftUI
+indicator/Stop в compact rail, раскрытом CaptureStatusItem и titlebar accessory.
+Они измеряются через публичные AX-методы; виртуальные элементы ScrollView
+дополнительно обнаруживаются настоящим accessibility hit-test внутри viewport,
+без подстановки рамок Stop. Проверяются коллизия, зазор, неизменные окно/срок,
+исполнение Stop и снятие областей при завершении записи. Отдельные AppKit tests
+проверяют несколько регистраций, оба порядка удаления, смену владельца/окна,
+освобождение памяти, resize/miniaturize/close, hidden ancestors, clipping и scroll
+в eventTracking mode без ручного reposition/updateWindows. Невозможный показ
+через настоящий coordinator не запускает запись после освобождения места.
+Автоматические окна не являются установкой приложения или повторной ручной
+приёмкой; общий GRAF Dev не заменять, пока он занят другой задачей.
+
 ### Воспроизводимая ручная проверка вопроса в Телемосте
 
 - Только разрешённая пустая встреча без приглашений и разговора. Сначала

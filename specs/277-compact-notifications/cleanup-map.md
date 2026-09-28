@@ -9,6 +9,7 @@
 | Старое состояние | lastRecordingNotice, RecordingNoticeState, updateRecordingIndicator, записываемое без чтения cardDeadline | Постоянный действующий индикатор записи и вычисление срока события |
 | DesktopRecordingNoticePresenter.swift | Весь файл и второй запасной экземпляр карточки | Прямой вызов общей карточки из приложения, короткий текст и срок20s |
 | DesktopNotificationCardPresenter | Неиспользуемые screenObserver/buttons, progress%, невыдаваемые actions | Настоящий screen lifecycle observer, optional layout, stable focus и terminal callbacks |
+| Защита управления записью (T034) | Единственный перезаписываемый protectedFramesProvider и широкая отметка CaptureControlView в App | Один реестр живых областей с независимым снятием; настоящие CaptureStatusItem, compact indicator/Stop и внутренний titlebar HUD, включая clipping/scroll |
 | Bridge/template/cabinet.js | requestPermission/openSystemSettings, permission/canRequestPermission, старые DOM поля | Version2, quiet, контекстная защита, последовательное сохранение |
 | cabinet.css | Неиспользуемый селектор `[data-local-notification-permission]` удалённого раздела разрешения | Действующие стили настроек; исходная проверка охватывает также CSS |
 | Cabinet navigation | /desktop/settings/notifications/mac, onOpenNotificationSettings через route/webview/workspace/app | Обычная страница notifications; старый URL отклоняется без alias |

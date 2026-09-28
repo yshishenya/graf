@@ -350,7 +350,6 @@ private struct ContentView: View {
                 }
             )
             .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.captureRegion)
-            .background(DesktopNotificationProtectedRegion().allowsHitTesting(false))
         } meetingsWorkspace: {
             DesktopCabinetWorkspaceView(
                 configuration: desktopCabinetConfiguration,

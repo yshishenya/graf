@@ -103,6 +103,11 @@ public struct CaptureStatusItem: View {
                 .fill(.thickMaterial)
         )
         .opacity(statusOpacity(for: session))
+        .background {
+            if Self.showsStopButton(for: session) {
+                DesktopNotificationProtectedRegion().allowsHitTesting(false)
+            }
+        }
     }
 
     private func iconName(for session: CaptureSession) -> String {
