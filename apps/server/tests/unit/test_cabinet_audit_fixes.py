@@ -105,6 +105,7 @@ async def test_billing_routes_render_real_profile_and_persisted_trial_dates(
         billing_owner_id=UUID(int=2),
         cycle=None,
         renewal_resolution=None,
+        recurring_allowed=False,
     )
     user = SimpleNamespace(
         display_name="Synthetic Profile", locale="en-US", timezone="UTC", theme="dark"
