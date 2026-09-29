@@ -713,6 +713,10 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         if [
             ["billing", "checkout", "preview"],
             ["billing", "checkout", "start"],
+            ["billing", "storage", "preview"],
+            ["billing", "storage", "cancel-selection"],
+            ["billing", "subscription", "early-preview"],
+            ["billing", "purchases", "confirm"],
             ["billing", "discounts", "apply"],
             ["billing", "discounts", "remove"],
             ["billing", "trial", "activate"],

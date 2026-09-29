@@ -1,0 +1,69 @@
+# Tasks: F280 — понятная оплата
+
+**Lane**: high-risk-product · **Branch**: codex/280-payment-clarity · **Umbrella**: #7366
+Источник реализации — этот файл. Requirement review → analyze → issue sync → code. Все изменения основываются на текущем контракте F278; финансовая приемка не наследуется.
+
+## Phase 1 — Исследование и допуск
+
+- [X] T001 Зафиксировать аудит всех страниц и прочитанные источники в `specs/280-payment-clarity/research.md`, `audit.md`, `ux-audit.md` (FR-001/014).
+- [X] T002 Получить независимый PASS `specs/280-payment-clarity/checklists/ux-payment.md`, провести analyze и синхронизацию задач; сохранить результат в `specs/280-payment-clarity/review-requirements.md` (FR-015, gates).
+
+## Phase 2 — US1: выбор и оформление
+
+- [X] T003 [US1] Зафиксировать исходный checkout, добавить проверки существенных условий/скидок в `apps/server/tests/contract/test_billing_clarity.py`; использовать реальные fixture/CSS (FR-003/004/005/011, SC-002).
+- [X] T004 [US1] Упростить `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_plans_content.html` и `billing_checkout_content.html`: один главный путь, полный итог, ясные непредвыбранные согласия, детали по запросу (FR-002–005/013).
+
+## Phase 3 — US2: место и досрочная оплата
+
+- [X] T005 [US2] Упростить `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_storage_content.html`, `billing_purchase_content.html` и существующий storage JS в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`; общий объем вместо подсчета пакетов, все существенные future условия видны (FR-006/007).
+- [X] T006 [P] [US2] Добавить отрицательные и положительные route tests в `apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift`, затем разрешить четыре точных purchase POST в `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetRoutePolicy.swift` (FR-008).
+
+## Phase 4 — US3: результат и восстановление
+
+- [X] T007 [US3] Проверить regression сценарии в `apps/server/tests/integration/test_billing_clarity.py`, исправить invoice/status recovery, годовой cycle, receipt readiness и reason/state projection в `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py` и соответствующих invoice/status templates; восстановить узкий GET-only `next` через settings/email/merge существующего account flow, добавить проверки в `apps/server/tests/integration/test_billing_return.py` (FR-009/011, Contract Состояния).
+
+## Phase 5 — US4: управление и удержание
+
+- [X] T008 [US4] Упростить оставшиеся billing overview/subscription/payment-method/history/usage/discounts и referrals_content.html templates в `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/`, исправить помощь, renewal blockers и обещания действий; отмена доступна без препятствий (FR-002/009/010/013); проверить и зафиксировать решение по referral_landing, public pricing/offer, primitives quota notices и billing notification links.
+
+## Phase 6 — Общая приемка
+
+- [X] T009 Пройти `apps/server/tests/browser/billing-accessibility.test.cjs`, дополнить нужными сценариями/320px, проверить synthetic screenshots и подсчет слов; результаты в `specs/280-payment-clarity/validation.md` (FR-012, SC-001–004).
+- [X] T010 Получить три независимых заключения по актуальному diff, исправить замечания и пройти converge; записать `specs/280-payment-clarity/review-final.md`, owned fragment `changes/unreleased/F280.yaml` (FR-015).
+- [ ] T011 После отдельного одобрения коммита получить точные PR SHA checks и установленный GRAF Dev через harness; evidence в `specs/280-payment-clarity/validation.md` (FR-008/012, release boundary).
+- [ ] T012 Провести пять человеческих прохождений и последующее измерение конверсии/удержания по `specs/280-payment-clarity/validation.md` без новой публичной платежной аналитики; SC-005/006 не заменять агентами (FR-016).
+
+## Dependencies and parallelism
+
+T001 → T002 → T003 → T004; T005 после T004 для единых условий. T006 независим от server после T002. T007 и T008 координируют один billing.py и templates: отдельное владение файлами, без конфликтующих правок. T009 после T004–008; T010 после T009; T011 после локального допуска и согласования; T012 human gates/данные после доступного кандидата. Незавершенные T011/T012 не мешают честно предъявить проверенный diff, но запрещают полное закрытие фичи.
+
+## Independent validation
+
+US1 — month/year/promo/consents; US2 — 5–500 ГБ, downgrade/timeline/early, четыре POST; US3 — history recovery/unknown/refused/receipt/cycle; US4 — cancel/resume/current status/help. MVP — US1 вместе с сохранением финансовых защит; весь запрос включает US1–US4.
+
+## GitHub links
+
+| Task | Issue |
+| --- | --- |
+| T001 | [#7368](https://github.com/yshishenya/graf/issues/7368) |
+| T002 | [#7369](https://github.com/yshishenya/graf/issues/7369) |
+| T003 | [#7370](https://github.com/yshishenya/graf/issues/7370) |
+| T004 | [#7371](https://github.com/yshishenya/graf/issues/7371) |
+| T005 | [#7372](https://github.com/yshishenya/graf/issues/7372) |
+| T006 | [#7373](https://github.com/yshishenya/graf/issues/7373) |
+| T007 | [#7374](https://github.com/yshishenya/graf/issues/7374) |
+| T008 | [#7375](https://github.com/yshishenya/graf/issues/7375) |
+| T009 | [#7376](https://github.com/yshishenya/graf/issues/7376) |
+| T010 | [#7377](https://github.com/yshishenya/graf/issues/7377) |
+| T011 | [#7378](https://github.com/yshishenya/graf/issues/7378) |
+| T012 | [#7379](https://github.com/yshishenya/graf/issues/7379) |
+
+## Состояние после локальной реализации, 2026-09-30
+
+**implementation ready; tracker pending**. T001–T010 выполнены в локальной рабочей копии и проверены; это не означает приемку соответствующих GitHub issues. T011/T012 остаются открытыми. Коммита, PR, точных SHA checks, установленной проверки GRAF Dev и человеческих прохождений пока нет. Финансовая приемка F278 не наследуется.
+
+Три окончательных независимых PASS, закрытые замечания, границы и результат convergence: [review-final.md](review-final.md). Проверки и сценарий для людей: [validation.md](validation.md). Кандидат: 41 файл, SHA-256 `328d7805ff57d15de4fdd19b6d3fb92d08a66fbf4a6b59ffaead4362eaced187`.
+
+Во время `$speckit-converge` новых реализуемых пробелов не найдено, задачи оставались byte-for-byte неизменными (SHA-256 `fee102547cb13156ade179d6534e542cdcb4414d78ce764e3723ac5b29c7d4e6`). Отметки выше выставлены отдельным завершением этапа implement после convergence. Дубли T011/T012 не создавались. Legacy Impact: `untouched`; новых устаревших путей нет.
+
+Состояние внешнего трекера фиксируется отдельно в [tracker-closeout.md](tracker-closeout.md); до проверки merge/приемки issues не закрываются.

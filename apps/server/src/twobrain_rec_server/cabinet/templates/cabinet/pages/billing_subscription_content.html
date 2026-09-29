@@ -1,54 +1,66 @@
 {% import "cabinet/components/sections.html" as sections %}
 <main id="cabinet-main" class="cabinet-main billing-page" tabindex="-1">
   <div class="cabinet-workspace settings-page">
-    <div class="settings-page__content">
-      <header class="cabinet-topbar settings-page__topbar">
-        <div class="page-title"><h1>Управление подпиской</h1><p class="muted">Отмена отключает только будущие списания и не возвращает деньги.</p></div>
-      </header>
-      {% if result == "cancelled" %}<p class="notice notice--success" role="status" aria-live="polite">Автопродление отключено. Доступ сохранится до окончания оплаченного периода.</p>
-      {% elif result == "resumed" %}<p class="notice notice--success" role="status" aria-live="polite">Автопродление снова включено.</p>
-      {% elif result == "conflict" %}<p class="notice notice--error" role="alert">Подписка изменилась в другой вкладке. Обновите страницу и повторите действие.</p>
+    <div class="settings-page__content billing-page__content">
+      <header class="cabinet-topbar settings-page__topbar"><div class="page-title"><h1>Подписка</h1></div></header>
+      {% if early_preview_error|default(None) %}<p class="notice notice--error" role="alert">{{ early_preview_error }}</p>{% endif %}
+      {% if result == "cancelled" %}<p class="notice notice--success" role="status">Автопродление отключено.{% if active %} Доступ сохранится до окончания оплаченного периода.{% else %} Новые автоматические списания отключены.{% endif %}</p>
+      {% elif result == "resumed" %}<p class="notice notice--success" role="status">Автопродление снова включено.</p>
+      {% elif result == "conflict" %}<p class="notice notice--error" role="alert">Подписка изменилась. Обновите страницу и проверьте условия заново.</p>
       {% elif result == "already_cancelled" %}<p class="notice" role="status">Автопродление уже отключено.</p>
       {% elif result == "already_active" %}<p class="notice" role="status">Автопродление уже включено.</p>
-      {% elif result == "consent_required" %}<p class="notice notice--warning" role="alert">Подтвердите отдельное согласие на следующее списание.</p>
-      {% elif result == "method_required" %}<p class="notice notice--warning" role="alert">Нужен подтвержденный способ оплаты. Возобновление не включено.</p>
-      {% elif result == "unavailable" %}<p class="notice notice--warning" role="alert">Управление подпиской сейчас недоступно.</p>{% endif %}
+      {% elif result == "consent_required" %}<p class="notice notice--warning" role="alert">Подтвердите согласие на автоматическое списание.</p>
+      {% elif result == "method_required" %}<p class="notice notice--warning" role="alert">Автопродление не включено. <a href="/billing/payment-method">Проверьте способ оплаты</a>.</p>
+      {% elif result == "unavailable" %}<p class="notice notice--warning" role="alert">Управление подпиской временно недоступно.</p>{% endif %}
       <section class="settings-section cabinet-card" aria-labelledby="billing-subscription-state-title">
         {% set displayed_plan_label = subscription_plan_label|default({"personal": "Личный", "trial": "Пробный период", "free": "Бесплатный"}.get(subscription.plan_code if subscription else "free", "Бесплатный")) %}
         <h2 id="billing-subscription-state-title">{{ displayed_plan_label }}</h2>
-        {% if subscription and subscription.renewal_resolution|default(None) == "price_changed" %}<p class="notice" role="status">Цена подписки или дополнительного места изменилась. Автоматический платеж не отправлен. Уже оплаченный объем сохранен. <a href="/billing/storage">Проверить полную цену и подтвердить новые условия</a>.</p>{% endif %}
-        {% if subscription and (subscription.renewal_resolution|default(None)) in ["pending", "unknown"] %}
-        <p class="notice notice--warning" role="status" aria-live="polite">Проверяем результат последнего списания. Нового платежа не создаем. Доступ остается действующим до оплаченной даты.</p>
-        {% elif subscription and (subscription.renewal_resolution|default(None)) in ["acceptance_budget", "provider_unavailable"] %}
-        <p class="notice notice--warning" role="status">Автоматический платеж не отправлен. Оформление временно недоступно. Уже оплаченный срок сохранен. <a href="/billing/history#billing-help">Обратиться в поддержку</a>.</p>
-        {% elif subscription and subscription.renewal_resolution|default(None) == "provider_key_expired" %}
-        <p class="notice notice--warning" role="status" aria-live="polite">Срок проверки списания истек. Позднее подтверждение будет учтено; до новой оплаты доступ не продлевается.</p>
-        {% elif subscription and subscription.renewal_resolution|default(None) == "late_success" %}
-        <p class="notice" role="status" aria-live="polite">Позднее подтверждение списания получено. Статус доступа обновлен.</p>
-        {% endif %}
+        {% if renewal_notice|default(None) %}<p class="notice notice--warning" role="status">{{ renewal_notice }} <a href="{{ renewal_action_url }}">{{ renewal_action_label }}</a></p>
+        {% elif subscription and subscription.renewal_resolution|default(None) in ["pending", "unknown", "unknown_pending"] %}<p class="notice notice--warning" role="status">Проверяем результат последнего списания. Повторно платить не нужно.</p>
+        {% elif subscription and subscription.renewal_resolution|default(None) in ["acceptance_budget", "provider_unavailable", "catalog_not_approved", "provider_floor"] %}<p class="notice notice--warning" role="status">Автопродление приостановлено. Уже оплаченный срок сохранен. <a href="/billing/history#billing-help">Обратиться в поддержку</a>.</p>
+        {% elif subscription and subscription.renewal_resolution|default(None) == "provider_key_expired" %}<p class="notice notice--warning" role="status">Результат списания еще не подтвержден. <a href="/billing/history#billing-help">Уточните результат перед новой оплатой</a>.</p>
+        {% elif subscription and subscription.renewal_resolution|default(None) == "late_success" %}<p class="notice" role="status">Подтверждение оплаты получено. Доступ обновлен.</p>{% endif %}
+
+        {% if pending_charge_amount_label|default(None) %}<p role="status">Уже отправленный платеж на <strong>{{ pending_charge_amount_label }}</strong> еще может завершиться. <a href="{{ pending_payment_url|default('/billing/history', true) }}">Проверить статус</a>.</p>{% endif %}
+        {% if prepared_charge_amount_label|default(None) and not pending_charge_amount_label|default(None) %}<p>Подготовлено автоматическое списание на <strong>{{ prepared_charge_amount_label }}</strong>. При досрочной оплате этот расчет будет отменен.</p>{% endif %}
+
         {% if active %}
-        {% if billing_enabled|default(False) and method_available|default(False) %}
-        <details class="billing-coupon"><summary>Оплатить следующий период заранее</summary><p>Разовая оплата сохраненной картой. Оплаченный остаток сохранится.</p>
-        <form action="/billing/subscription/early-preview" method="post" class="billing-checkout-form">{{ sections.csrf_field(csrf_token|default(None)) }}<label for="early-promo">Промокод, если есть</label><input id="early-promo" name="promo_code" maxlength="48" autocomplete="off"><button type="submit" class="button quiet">Проверить сумму и срок</button></form></details>
+        <dl class="settings-definition-list">
+          <div><dt>Оплачено до</dt><dd><strong>{{ paid_through_label|default("дата уточняется") }}</strong></dd></div>
+          <div><dt>Период оплаты</dt><dd>{{ subscription_cycle_label|default("месяц") }}</dd></div>
+          <div><dt>Автопродление</dt><dd>{{ "Включено" if subscription.recurring_allowed else "Отключено" }}</dd></div>
+          <div><dt>{{ "Следующее списание" if subscription.recurring_allowed else "Цена следующего периода" }}</dt><dd><strong>{{ next_charge_amount_label|default("сумма уточняется", true) }}</strong> за {{ subscription_cycle_label|default("месяц") }}{% if subscription.recurring_allowed %} · {{ next_charge_label|default("дата уточняется", true) }}{% else %}. Новые автоматические списания отключены.{% endif %}</dd></div>
+          {% if payment_method_label|default(None) %}<div><dt>Способ оплаты</dt><dd>{{ payment_method_label }} · <a href="/billing/payment-method">Управлять картой</a></dd></div>{% endif %}
+        </dl>
+        {% if next_capacity_label|default(None) %}<p>Со следующего неоплаченного периода после {{ paid_through_label }}: <strong>{{ next_capacity_label }} всего</strong>. <a href="/billing/storage">Изменить выбор объема</a></p>{% endif %}
+        {% if not subscription.recurring_allowed %}
+        <p>Без новой оплаты после {{ paid_through_label }} включится бесплатный тариф.</p>
+        {% if billing_enabled|default(False) and method_available|default(False) and resume_quote_id|default(None) %}
+        <p>После включения следующая попытка: <strong>{{ next_charge_amount_label|default("сумма уточняется", true) }}</strong> · {{ resume_charge_label|default("дата уточняется", true) }} с сохраненной карты.</p>
+        <form action="/billing/subscription/resume" method="post" class="billing-checkout-form">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><input type="hidden" name="resume_quote_id" value="{{ resume_quote_id }}"><label class="billing-consent"><input type="checkbox" name="resume_consent" value="true" required> <span>Разрешаю автоматическое списание по указанной сумме и сроку. Отключить можно здесь.</span></label><button class="button primary" data-billing-primary type="submit">Включить автопродление</button></form>
+        {% elif not renewal_notice|default(None) %}<p>Возобновление пока недоступно. <a href="/billing/payment-method">Проверьте способ оплаты</a> и <a href="/billing/history">результат предыдущих платежей</a>.</p>{% endif %}
+        {% if billing_enabled|default(False) and not pending_charge_amount_label|default(None) and not renewal_notice|default(None) %}<p><a href="{{ manual_checkout_url|default('/billing/checkout') }}">Оплатить следующий период вручную</a></p>{% endif %}
         {% endif %}
-        {% if payment_method_label|default(None) %}<p>Способ оплаты: <strong>{{ payment_method_label }}</strong>. <a href="/billing/payment-method">Управлять картой</a></p>{% endif %}
-        <p>Период оплаты: {{ subscription_cycle_label|default("месяц") }}.</p>
-        {% if next_capacity_label|default(None) %}<p>Со следующего неоплаченного периода после {{ paid_through_label }}: <strong>{{ next_capacity_label }} всего</strong>. <a href="/billing/storage">Изменить или отменить выбор объема</a></p>{% endif %}
-        {% if pending_charge_amount_label|default(None) %}<p role="status">Сумма уже созданной попытки: <strong>{{ pending_charge_amount_label }}</strong>. <a href="/billing/history">Проверить ее результат</a>. Новый платеж ожидает завершения проверки.</p>{% endif %}
-        <p>Оплачено до: <strong>{{ paid_through_label|default("дата уточняется") }}</strong>.</p>
-        {% if subscription.recurring_allowed %}
-        <p>Следующее списание: <strong>{{ next_charge_label|default("дата уточняется") }}</strong> · {{ next_charge_amount_label|default("сумма уточняется") }} по сохраненной карте.</p>
-        <p class="muted">Если передумаете, автопродление можно включить снова до даты окончания доступа.</p>
-        <form action="/billing/subscription/cancel" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><button class="button quiet" type="submit">Отключить автопродление</button></form>
+
+        {% if billing_enabled|default(False) and method_available|default(False) and not pending_charge_amount_label|default(None) and not renewal_notice|default(None) %}
+        <details class="billing-coupon"{% if early_preview_error|default(None) %} open{% endif %}><summary>Оплатить следующий период заранее</summary><p>Разовая оплата сохраненной картой. Оплаченный остаток сохранится.</p>
+        {% if not receipt_contact_ready|default(True) %}
+        <p>Подтвердите email для чека, затем вернитесь к досрочной оплате.</p><a class="button quiet" href="{{ receipt_contact_action_url }}">Подтвердить email</a>
         {% else %}
-        <p>Автопродление отключено для будущих периодов. Если платеж уже был отправлен, его результат продолжает проверяться в истории.</p>
-        <p class="muted">После возобновления следующая попытка оплаты: <strong>{{ next_charge_amount_label|default("сумма уточняется") }}</strong> · {{ resume_charge_label|default("дата уточняется") }}. Для действия нужна сохраненная подтвержденная карта.</p>
-        {% if billing_enabled|default(False) and method_available|default(False) and resume_quote_id|default(None) %}<form action="/billing/subscription/resume" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><label><input type="hidden" name="resume_quote_id" value="{{ resume_quote_id }}"><input type="checkbox" name="resume_consent" value="true"> Я разрешаю следующее рекуррентное списание по указанной сумме и дате.</label><button class="button" type="submit">Возобновить автопродление</button></form>{% else %}<p role="status">Возобновление пока недоступно. Проверьте способ оплаты и результат предыдущих списаний в истории. {% if billing_enabled|default(False) %}<a href="/billing/checkout">Оплатить следующий период вручную</a>.{% endif %}</p>{% endif %}
+        <form action="/billing/subscription/early-preview" method="post" class="billing-checkout-form">{{ sections.csrf_field(csrf_token|default(None)) }}<label for="early-promo">Промокод, если есть</label><input id="early-promo" name="promo_code" value="{{ early_promo_code|default('') }}" maxlength="48" autocomplete="off" spellcheck="false"><button type="submit" class="button quiet">Проверить сумму и срок</button></form>
+        {% endif %}</details>
         {% endif %}
-        {% else %}<p>Активной платной подписки нет. После окончания оплаченного периода доступ сразу переходит на бесплатный тариф.</p><p>Следующее списание: <strong>не запланировано</strong>.</p>{% if billing_enabled|default(False) %}<a class="button" href="/billing/checkout">Выбрать тариф</a>{% else %}<p role="status">Оплата временно недоступна.</p>{% endif %}{% endif %}
+        {% else %}
+        <p>Активной платной подписки нет. Сейчас действует бесплатный тариф.</p>
+        {% if subscription and subscription.recurring_allowed %}<p>Разрешение на автопродление действует.</p>{% else %}<p>Новые автоматические списания отключены.</p>{% endif %}
+        {% if not pending_charge_amount_label|default(None) %}{% if billing_enabled|default(False) %}<a class="button primary" data-billing-primary href="{{ manual_checkout_url|default('/billing/checkout') }}">Выбрать тариф</a>{% else %}<p role="status">Оплата временно недоступна.</p>{% endif %}{% endif %}
+        {% endif %}
+        {% if subscription and subscription.recurring_allowed and subscription.paid_through %}
+        <p>Отключение автопродления не оформит возврат.{% if active %} Уже оплаченный доступ сохранится.{% endif %}{% if pending_charge_amount_label|default(None) %} Уже отправленный платеж продолжит проверяться.{% endif %}</p>
+        <form action="/billing/subscription/cancel" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><button class="button quiet" type="submit">Отключить автопродление</button></form>
+        {% endif %}
       </section>
-      <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
-      <a class="button quiet" href="/billing">Вернуться к тарифу и оплате</a>
+      <div class="billing-page__footer"><a class="button quiet" href="/billing">К тарифу и оплате</a><a href="/billing/history#billing-help">Помощь с оплатой</a></div>
     </div>
   </div>
 </main>

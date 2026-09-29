@@ -596,10 +596,12 @@ def test_subscription_page_names_the_real_charge_day(client, monkeypatch, tmp_pa
     assert page.status_code == 200, page.text
     first_attempt = format_user_datetime(PAID_THROUGH - timedelta(hours=72), show_zone=True)
     period_end = format_user_datetime(PAID_THROUGH, show_zone=True)
-    assert f"Следующее списание: <strong>{first_attempt}</strong>" in page.text
-    assert f"Следующее списание: <strong>{period_end}</strong>" not in page.text
+    next_charge = re.search(r"<dt>Следующее списание</dt><dd>(.*?)</dd>", page.text, re.S)
+    assert next_charge is not None
+    assert first_attempt in next_charge.group(1)
+    assert period_end not in next_charge.group(1)
     # Оплаченный период по-прежнему показан его собственной датой.
-    assert f"Оплачено до: <strong>{period_end}</strong>" in page.text
+    assert f"<dt>Оплачено до</dt><dd><strong>{period_end}</strong>" in page.text
 
 
 @pytest.mark.parametrize("purchase_schema", [1, 2])
@@ -976,7 +978,9 @@ def test_changed_offer_preserves_year_and_recalculates_promo(client, monkeypatch
     assert 'name="cycle" value="year"' in response.text
     assert 'name="promo_code" value="SAVE10"' in response.text
     assert 'name="offer_version" value="' + PUBLIC_APPROVED_OFFER_VERSION + '"' in response.text
-    assert "Оплатить 9 000 ₽ в ЮKassa — год" in response.text
+    assert "Оплатить 9 000 ₽ в ЮKassa" in response.text
+    assert "<dt>Срок</dt><dd>Год после подтверждения оплаты</dd>" in response.text
+    assert "<dt>Автопродление</dt><dd>10 000 ₽ за год</dd>" in response.text
     assert '<input type="checkbox" name="offer_consent" value="true" required>' in response.text
     assert '<input type="checkbox" name="recurring_consent" value="true" required>' in response.text
     assert provider.create_payloads == []

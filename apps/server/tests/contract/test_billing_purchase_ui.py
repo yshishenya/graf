@@ -18,6 +18,7 @@ def test_checkout_discloses_components_period_and_undiscounted_renewal():
         checkout_storage_price_label="290 ₽",
         checkout_period_label="27 сентября — 27 октября 2026",
         checkout_next_attempt_label="24 октября 2026",
+        checkout_has_discount=True,
         checkout_preview={
             "payable_amount_label": "12.90 ₽",
             "list_amount_label": "1 290 ₽",
@@ -30,7 +31,8 @@ def test_checkout_discloses_components_period_and_undiscounted_renewal():
     assert "1 000 ₽" in html and "290 ₽" in html
     assert "27 сентября — 27 октября 2026" in html
     assert "24 октября 2026" in html
-    assert "Скидка действует только на эту оплату" in html
+    assert "Разовая скидка" in html
+    assert "1 290 ₽ за месяц" in html
     assert "Оплатить 12.90 ₽" in html
     assert " checked" not in html
 

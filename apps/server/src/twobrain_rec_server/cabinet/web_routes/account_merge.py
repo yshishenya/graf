@@ -25,6 +25,7 @@ from twobrain_rec_server.auth.dependencies import (
     auth_session_cookie_secure,
     is_web_cookie_session,
 )
+from twobrain_rec_server.auth.redirects import safe_billing_return_path
 from twobrain_rec_server.auth.session_epoch import rotate_browser_session_epoch
 from twobrain_rec_server.cabinet.rendering import (
     account_merge_provider_label,
@@ -68,7 +69,7 @@ def _embedded(request: Request) -> bool:
     return request.url.path.startswith("/desktop/")
 
 
-def _account_settings_path(*, embedded: bool, result: str) -> str:
+def _account_settings_path(*, embedded: bool, result: str, next_path: str | None = None) -> str:
     safe_result = {
         "confirmed",
         "merge_blocked",
@@ -81,12 +82,19 @@ def _account_settings_path(*, embedded: bool, result: str) -> str:
         "reauth_required",
     }
     outcome = result if result in safe_result else "provider_link_unavailable"
-    return f"{'/desktop' if embedded else ''}/settings/account?provider_link={outcome}"
+    query = {"provider_link": outcome}
+    if billing_return := safe_billing_return_path(next_path):
+        query["next"] = billing_return
+    return f"{'/desktop' if embedded else ''}/settings/account?{urlencode(query)}"
 
 
-def _account_settings_redirect(*, embedded: bool, result: str) -> RedirectResponse:
+def _account_settings_redirect(request: Request, *, embedded: bool, result: str) -> RedirectResponse:
     return RedirectResponse(
-        _account_settings_path(embedded=embedded, result=result),
+        _account_settings_path(
+            embedded=embedded, result=result,
+            next_path=request.query_params.get("next")
+            if len(request.query_params.getlist("next")) == 1 else None,
+        ),
         status_code=303,
     )
 
@@ -341,7 +349,7 @@ async def account_merge_page(
 ) -> Response:
     embedded = _embedded(request)
     if db is None:
-        return _account_settings_redirect(embedded=embedded, result="provider_link_unavailable")
+        return _account_settings_redirect(request, embedded=embedded, result="provider_link_unavailable")
     try:
         intent = await _owned_intent(
             db, intent_id=intent_id, principal=principal, tenant_scope=tenant_scope
@@ -350,14 +358,15 @@ async def account_merge_page(
     except ProblemDetail as exc:
         await db.rollback()
         return _account_settings_redirect(
+            request,
             embedded=embedded, result=_merge_recovery_result(exc.code)
         )
     except SQLAlchemyError:
         await db.rollback()
-        return _account_settings_redirect(embedded=embedded, result="provider_link_unavailable")
+        return _account_settings_redirect(request, embedded=embedded, result="provider_link_unavailable")
     if provider_id is None:
         await db.rollback()
-        return _account_settings_redirect(embedded=embedded, result="provider_link_invalid")
+        return _account_settings_redirect(request, embedded=embedded, result="provider_link_invalid")
     provider_label = account_merge_provider_label(provider_id)
     preview = None
     error_code = request.query_params.get("error", "")
@@ -371,7 +380,7 @@ async def account_merge_page(
         error_message = _error_copy(exc.code, provider_label=provider_label)
     except SQLAlchemyError:
         await db.rollback()
-        return _account_settings_redirect(embedded=embedded, result="provider_link_unavailable")
+        return _account_settings_redirect(request, embedded=embedded, result="provider_link_unavailable")
     can_restart = error_code in ACCOUNT_MERGE_RESTART_ERRORS
     return cabinet_html_response(
         render_account_merge_page(
@@ -390,6 +399,8 @@ async def account_merge_page(
             requires_reauth=error_code == "reauth_required",
             requires_restart=can_restart,
             provider_id=provider_id,
+            billing_return_path=request.query_params.get("next")
+            if len(request.query_params.getlist("next")) == 1 else None,
             blockers=(
                 account_merge_blockers(
                     preview.blocker_codes,
@@ -414,10 +425,14 @@ async def _confirm(
     db: AsyncSession | None,
     embedded: bool,
 ) -> RedirectResponse:
+    billing_return = (
+        safe_billing_return_path(request.query_params.get("next"))
+        if len(request.query_params.getlist("next")) == 1 else None
+    )
     if not principal.auth_via_session or not is_web_cookie_session(request):
-        return _account_settings_redirect(embedded=embedded, result="reauth_required")
+        return _account_settings_redirect(request, embedded=embedded, result="reauth_required")
     if db is None:
-        return _account_settings_redirect(embedded=embedded, result="provider_link_unavailable")
+        return _account_settings_redirect(request, embedded=embedded, result="provider_link_unavailable")
     try:
         intent = await _owned_intent(
             db, intent_id=intent_id, principal=principal, tenant_scope=tenant_scope
@@ -426,22 +441,23 @@ async def _confirm(
     except ProblemDetail as exc:
         await db.rollback()
         return _account_settings_redirect(
+            request,
             embedded=embedded,
             result=_merge_recovery_result(exc.code),
         )
     except SQLAlchemyError:
         await db.rollback()
-        return _account_settings_redirect(embedded=embedded, result="provider_link_unavailable")
+        return _account_settings_redirect(request, embedded=embedded, result="provider_link_unavailable")
     if provider_id is None:
         await db.rollback()
-        return _account_settings_redirect(embedded=embedded, result="provider_link_invalid")
+        return _account_settings_redirect(request, embedded=embedded, result="provider_link_invalid")
     owned_intent_id = intent.id
     form = await request.form()
     fingerprint = str(form.get("preview_fingerprint") or "")
     idempotency_key = str(form.get("idempotency_key") or "")
     if not fingerprint or not idempotency_key:
         await db.rollback()
-        return _account_settings_redirect(embedded=embedded, result="provider_link_invalid")
+        return _account_settings_redirect(request, embedded=embedded, result="provider_link_invalid")
     try:
         await confirm_merge_intent(
             db,
@@ -461,21 +477,26 @@ async def _confirm(
             "merge_journal_missing",
         }:
             return _account_settings_redirect(
+                request,
                 embedded=embedded,
                 result=_merge_recovery_result(exc.code),
             )
+        recovery_query = {"error": exc.code}
+        if billing_return:
+            recovery_query["next"] = billing_return
         return RedirectResponse(
-            f"{'/desktop' if embedded else ''}/settings/account/merge/{owned_intent_id}?error={exc.code}",
+            f"{'/desktop' if embedded else ''}/settings/account/merge/{owned_intent_id}?{urlencode(recovery_query)}",
             status_code=303,
         )
     except SQLAlchemyError:
         await db.rollback()
-        return _account_settings_redirect(embedded=embedded, result="provider_link_unavailable")
+        return _account_settings_redirect(request, embedded=embedded, result="provider_link_unavailable")
     await db.commit()
+    account_path = "/desktop/settings/account" if embedded else "/settings/account"
+    if billing_return:
+        account_path += "?" + urlencode({"next": billing_return})
     response = RedirectResponse(
-        f"/login?next=/desktop/settings/account&error={_relogin_result(provider_id)}"
-        if embedded
-        else f"/login?next=/settings/account&error={_relogin_result(provider_id)}",
+        "/login?" + urlencode({"next": account_path, "error": _relogin_result(provider_id)}, safe="/"),
         status_code=303,
     )
     response.delete_cookie(
@@ -535,9 +556,9 @@ async def cancel_account_merge(
 ) -> RedirectResponse:
     embedded = _embedded(request)
     if not principal.auth_via_session or not is_web_cookie_session(request):
-        return _account_settings_redirect(embedded=embedded, result="reauth_required")
+        return _account_settings_redirect(request, embedded=embedded, result="reauth_required")
     if db is None:
-        return _account_settings_redirect(embedded=embedded, result="provider_link_unavailable")
+        return _account_settings_redirect(request, embedded=embedded, result="provider_link_unavailable")
     try:
         intent = await _owned_intent(
             db, intent_id=intent_id, principal=principal, tenant_scope=tenant_scope
@@ -547,14 +568,16 @@ async def cancel_account_merge(
     except ProblemDetail as exc:
         await db.rollback()
         return _account_settings_redirect(
+            request,
             embedded=embedded, result=_merge_recovery_result(exc.code)
         )
     except AccountMergeError as exc:
         await db.rollback()
         return _account_settings_redirect(
+            request,
             embedded=embedded, result=_merge_recovery_result(exc.code)
         )
     except SQLAlchemyError:
         await db.rollback()
-        return _account_settings_redirect(embedded=embedded, result="provider_link_unavailable")
-    return _account_settings_redirect(embedded=embedded, result="merge_cancelled")
+        return _account_settings_redirect(request, embedded=embedded, result="provider_link_unavailable")
+    return _account_settings_redirect(request, embedded=embedded, result="merge_cancelled")

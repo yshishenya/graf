@@ -28,6 +28,7 @@ from twobrain_rec_server.db.models import (
     BillingAcceptanceBudget,
     BillingInvoice,
     BillingNotificationDelivery,
+    BillingOperation,
     BillingStorageEntitlementGrant,
     PromotionCampaign,
     PromotionRedemption,
@@ -186,9 +187,28 @@ def test_initial_storage_early_renewal_and_scheduled_downgrade_are_one_coherent_
             )
 
         responses = asyncio.run(both_tabs())
-        assert sorted(result.status_code for result in responses) == [303, 409]
-        if responses[1].status_code == 303:
-            storage_quote = second_quote
+        assert all(result.status_code in {303, 409} for result in responses)
+        status_urls = [result.headers["location"] for result in responses if result.status_code == 303]
+        assert status_urls
+
+        async def dispatched_quote():
+            async with client.app_state["sessionmaker"]() as db:
+                operations = list(await db.scalars(select(BillingOperation).where(
+                    BillingOperation.workspace_id == workspace,
+                    BillingOperation.kind == "storage_upgrade",
+                )))
+                assert len(operations) == 1
+                invoice = await db.scalar(select(BillingInvoice).where(
+                    BillingInvoice.operation_id == operations[0].id,
+                ))
+                return operations[0].request_snapshot["quote_id"], {
+                    f"https://yookassa.test/checkout/{storage.payment_id}",
+                    f"/billing/checkout/status/{invoice.safe_number}",
+                }
+
+        storage_quote, same_payment_urls = asyncio.run(dispatched_quote())
+        assert set(status_urls) <= same_payment_urls
+        assert storage_quote in {quote_id(preview), second_quote}
     else:
         assert confirm_storage(storage_quote).status_code == 303
     assert len(storage.create_payloads) == 1

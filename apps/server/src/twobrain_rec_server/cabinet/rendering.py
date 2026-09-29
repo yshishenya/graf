@@ -19,6 +19,7 @@ from twobrain_rec_server.api.schemas import (
     TranscriptSpeakerTurnView,
 )
 from twobrain_rec_server.auth.account_merge import MergePreview
+from twobrain_rec_server.auth.redirects import safe_billing_return_path
 from twobrain_rec_server.auth.workspace_onboarding import (
     WorkspaceAccessView,
     WorkspaceJoinOfferView,
@@ -486,7 +487,11 @@ def render_settings_page(
     account_active: str = "profile",
     notification_preferences: object | None = None,
     show_account_navigation: bool = False,
+    billing_return_path: str | None = None,
 ) -> str:
+    billing_return_path = safe_billing_return_path(billing_return_path)
+    account_path = "/desktop/settings/account" if embedded else "/settings/account"
+    billing_query = "?" + urlencode({"next": billing_return_path}) if billing_return_path else ""
     offer_result_copy = {
         "accepted": "Рабочее пространство добавлено. Текущее пространство не изменилось.",
         "rejected": "Приглашение отклонено. Текущее пространство не изменилось.",
@@ -599,8 +604,9 @@ def render_settings_page(
         "account_close_requested": account_close_result == "reauth_required",
         "requires_account_reauth": requires_account_reauth,
         "account_reauth_action": "/desktop/meetings" if embedded else "/logout",
-        "account_reauth_next": "/login?next="
-        + ("/desktop/settings/account" if embedded else "/settings/account"),
+        "account_reauth_next": "/login?" + urlencode({"next": account_path + billing_query}, safe="/"),
+        "billing_return_path": billing_return_path,
+        "account_email_start_action": account_path + "/email-link/start" + billing_query,
         "notification_result": {
             "saved": "Настройки уведомлений сохранены.",
             "conflict": "Настройки изменились или не прошли проверку. Ваш выбор сохранен в форме. Загрузите актуальные настройки перед повторным сохранением.",
@@ -672,9 +678,12 @@ def render_account_merge_page(
     requires_reauth: bool = False,
     requires_restart: bool = False,
     provider_id: str | None = None,
+    billing_return_path: str | None = None,
 ) -> str:
     base_path = "/desktop/settings/account/merge" if embedded else "/settings/account/merge"
     settings_path = "/desktop/settings/account" if embedded else "/settings/account"
+    billing_return_path = safe_billing_return_path(billing_return_path)
+    billing_query = "?" + urlencode({"next": billing_return_path}) if billing_return_path else ""
     provider_label = account_merge_provider_label(provider_id)
     provider_sentence_label = {
         "Email": "Email",
@@ -693,16 +702,17 @@ def render_account_merge_page(
         content_template="cabinet/pages/account_merge_content.html",
         presentation=account_merge_presentation(preview),
         intent_id=intent_id,
-        confirm_action=f"{base_path}/{intent_id}/confirm",
-        cancel_action=f"{base_path}/{intent_id}/cancel",
-        settings_href="/desktop/settings/account" if embedded else "/settings/account",
+        confirm_action=f"{base_path}/{intent_id}/confirm{billing_query}",
+        cancel_action=f"{base_path}/{intent_id}/cancel{billing_query}",
+        settings_href=settings_path + billing_query,
+        billing_return_path=billing_return_path,
         provider_label=provider_label,
         provider_sentence_label=provider_sentence_label,
         connect_action_label=f"Подключить {provider_label}",
         restart_action=(
             f"{'/desktop' if embedded else ''}/settings/provider-links/{restart_provider}/start"
             if restart_provider is not None
-            else f"{settings_path}/email-link/start"
+            else f"{settings_path}/email-link/start{billing_query}"
             if restart_requires_email
             else None
         ),
@@ -713,7 +723,7 @@ def render_account_merge_page(
         ),
         restart_requires_email=restart_requires_email,
         reauth_action="/desktop/meetings" if embedded else "/logout",
-        reauth_next=f"/login?next={settings_path}?provider_link=reauth_required",
+        reauth_next="/login?" + urlencode({"next": settings_path + billing_query}, safe="/"),
         requires_reauth=requires_reauth,
         requires_restart=requires_restart,
         error_message=error_message,

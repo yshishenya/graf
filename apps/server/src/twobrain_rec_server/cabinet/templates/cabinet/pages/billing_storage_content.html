@@ -3,46 +3,47 @@
   <div class="cabinet-workspace settings-page">
     <div class="settings-page__content">
       <header class="cabinet-topbar settings-page__topbar">
-        <div class="page-title"><h1>Увеличение хранилища</h1><p class="muted">Добавляйте место пакетами по 5 ГБ. Перед оплатой вы увидите точную доплату за оставшееся время.</p></div>
+        <div class="page-title"><h1>Объем хранения</h1><p class="muted">Выберите нужный объем. Точную доплату проверите перед оплатой.</p></div>
       </header>
       <section class="settings-section cabinet-card" aria-labelledby="billing-storage-title">
-        <h2 id="billing-storage-title">Текущая емкость</h2>
+        <h2 id="billing-storage-title">Сейчас доступно</h2>
         {% if result|default(None) == "unavailable" %}<p class="notice notice--error" role="alert">Данные хранилища временно недоступны. Объемы и платные действия скрыты; обновите страницу позже.</p>
         {% else %}
-        <p><strong>{{ current_capacity_label|default("емкость уточняется") }}</strong> доступно сейчас.</p>
-        <p class="muted">Лимит расходуют сохраненные записи встреч. Удалить ненужные записи и скачать свои файлы можно в разделе использования.</p>
-        {% if eligible and billing_enabled %}
+        <p><strong>{{ current_capacity_label|default("объем уточняется") }}</strong> для аудиозаписей.</p>
+        {% if eligible %}
         {% if result|default(None) == "scheduled" %}<p role="status" class="notice">Объем следующего периода сохранен. Сейчас списания не было.</p>{% endif %}
         {% if result|default(None) == "schedule_canceled" %}<p role="status" class="notice">Отложенный выбор отменен.</p>{% endif %}
         {% if next_capacity_label|default(None) %}<p>Следующий неоплаченный период после {{ paid_through_label }}: {{ next_capacity_label }} всего.</p>
-        <form action="/billing/storage/cancel-selection" method="post">{{ sections.csrf_field(csrf_token) }}<input type="hidden" name="selection_version" value="{{ selection_version }}"><button class="button quiet" type="submit">Отменить выбор следующего объема</button></form>{% endif %}
+        {% if billing_enabled %}<form action="/billing/storage/cancel-selection" method="post">{{ sections.csrf_field(csrf_token) }}<input type="hidden" name="selection_version" value="{{ selection_version }}"><button class="button quiet" type="submit">Отменить выбор следующего объема</button></form>{% endif %}{% endif %}
         {% if storage_timeline|default([]) %}<h3>Уже оплаченные периоды</h3><ul>{% for period in storage_timeline %}<li>{{ period.start }} — {{ period.end }}: {{ period.capacity }} всего{% if period.bonus %} · бонусный срок{% endif %}</li>{% endfor %}</ul>{% endif %}
-        <h3>Общий объем хранения</h3>
-        <p>В тариф включено 5 ГБ. Дополнительные пакеты продлеваются вместе с подпиской. Объем не накапливается ежемесячно. Указана доплата за полный период; за оставшееся время сумма будет рассчитана перед подтверждением.</p>
+        {% endif %}
+        {% if eligible and billing_enabled %}
+        {% if storage_preview_error|default(None) %}<p id="billing-storage-preview-error" class="notice notice--error" role="alert">{{ storage_preview_error }}</p>{% endif %}
         <form action="/billing/storage/preview" method="post" class="billing-checkout-form">
           {{ sections.csrf_field(csrf_token|default(None)) }}
-          <label for="storage-packages">Дополнительные пакеты по 5 ГБ</label>
+          <label for="storage-packages">Общий объем хранения</label>
           <div class="billing-package-controls" data-storage-packages>
-            <button class="button quiet" type="button" data-package-step="-1" aria-label="Убрать один пакет 5 ГБ" hidden>−</button>
+            <button class="button quiet" type="button" data-package-step="-1" aria-label="Выбрать меньший объем" hidden>−</button>
             <select id="storage-packages" name="package_count" required aria-describedby="storage-package-summary">
-              {% for option in storage_options|default([]) %}<option value="{{ option.package_count }}" data-summary="{{ option.label }} всего · дополнительно {{ option.addon_label }} за {{ option.cycle_label }} · вместе с подпиской {{ option.total_label }} за {{ option.cycle_label }}" {% if option.package_count == selected_package_count|default(0) %}selected{% endif %}>{{ option.package_count }} × 5 ГБ · {{ option.label }} всего · {{ option.total_label }} за {{ option.cycle_label }}</option>{% endfor %}
+              {% for option in storage_options|default([]) %}<option value="{{ option.package_count }}" data-summary="{{ option.label }} всего · {{ option.total_label }} за {{ option.cycle_label }} вместе с тарифом" {% if option.package_count == selected_package_count|default(0) %}selected{% endif %}>{{ option.label }} · {{ option.total_label }} за {{ option.cycle_label }}</option>{% endfor %}
             </select>
-            <button class="button quiet" type="button" data-package-step="1" aria-label="Добавить один пакет 5 ГБ" hidden>+</button>
+            <button class="button quiet" type="button" data-package-step="1" aria-label="Выбрать больший объем" hidden>+</button>
           </div>
-          <p id="storage-package-summary" aria-live="polite" aria-atomic="true">Цена полного периода указана в выбранном варианте. Ноль пакетов оставляет включенные 5 ГБ.</p>
-          <label for="storage-promo">Промокод, если есть</label><input id="storage-promo" name="promo_code" maxlength="48" autocomplete="off">
-          {% if storage_options|default([]) %}<button class="button" type="submit">Рассчитать и проверить условия</button>{% else %}<p role="status">Цена временно недоступна. Попробуйте позже.</p>{% endif %}
+          <p id="storage-package-summary" aria-live="polite" aria-atomic="true">Полная цена включает тариф и хранение.</p>
+          {% if receipt_contact_ready|default(True) %}<details class="billing-coupon"{% if storage_preview_error|default(None) or storage_promo_code|default('') %} open{% endif %}><summary>Есть промокод?</summary><label for="storage-promo">Промокод</label><input id="storage-promo" name="promo_code" maxlength="48" autocomplete="off" spellcheck="false" value="{{ storage_promo_code|default('') }}"{% if storage_preview_error|default(None) %} aria-invalid="true" aria-describedby="billing-storage-preview-error"{% endif %}></details>{% endif %}
+          {% if storage_options|default([]) %}<button class="button primary" type="submit">Проверить доплату</button>{% else %}<p role="status">Цена временно недоступна. Попробуйте позже.</p>{% endif %}
         </form>
-        <p>Уменьшение применяется только со следующего неоплаченного периода. Файлы не удаляются. Если они займут больше нового лимита, новые записи можно будет обрабатывать без сохранения аудио.</p>
+        <p>Уменьшение — со следующего неоплаченного периода. Файлы не удаляются.</p>
+        <details class="billing-coupon"><summary>Как учитывается место</summary><p>Место занимают сохраненные аудиозаписи. В тариф включено 5 ГБ; выбранный объем не накапливается каждый месяц. При заполненном хранилище на «Личном» можно обрабатывать встречи без сохранения аудио.</p></details>
         {% elif not billing_enabled %}
         <p role="status">Платные дополнения пока недоступны.</p>
         {% else %}
         <p role="status">Дополнение доступно только на тарифе «Личный».</p>
-        <a class="button" href="/billing/checkout">Выбрать тариф «Личный»</a>
+        <a class="button primary" href="/billing/checkout">Выбрать тариф «Личный»</a>
         {% endif %}
         {% endif %}
       </section>
-      <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
+      <p class="billing-help"><a class="button quiet" href="/billing/history#billing-help">Нужна помощь с оплатой?</a></p>
       <a class="button quiet" href="/billing/usage">Открыть использование и хранение</a>
     </div>
   </div>

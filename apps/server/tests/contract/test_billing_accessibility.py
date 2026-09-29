@@ -24,6 +24,19 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         annual_price_label="10 000 ₽",
         csrf_token="synthetic",
         embedded=False,
+        receipt_contact_ready=True,
+        receipt_contact_label="demo@example.test",
+        checkout_cycle="month",
+        catalog_storage_label="5 ГБ",
+        checkout_has_discount=False,
+        checkout_base_price_label="1 000 ₽",
+        checkout_period_label="29.09.2026 — 29.10.2026",
+        checkout_next_attempt_label="26.10.2026",
+        checkout_preview={
+            "payable_amount_label": "1 000 ₽", "list_amount_label": "1 000 ₽",
+            "discount_label": "0 ₽", "next_amount_label": "1 000 ₽",
+            "cycle_label": "месяц",
+        },
     )
     pages = {
         name: render_template(
@@ -33,6 +46,36 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         )
         for name, result in (("checkout", None), ("error", "offer_changed"))
     }
+    for name, changes in {
+        "checkout-first-annual": {
+            "checkout_cycle": "year",
+            "checkout_period_label": "Год после подтверждения оплаты",
+            "checkout_next_attempt_label": (
+                "За 3 дня до конца оплаченного периода; точная дата появится после оплаты"
+            ),
+            "receipt_contact_label": "billing.team.with.long.address@example.test",
+            "checkout_preview": {
+                "payable_amount_label": "10 000 ₽", "list_amount_label": "10 000 ₽",
+                "discount_label": "0 ₽", "next_amount_label": "10 000 ₽",
+                "cycle_label": "год",
+            },
+        },
+        "checkout-promo-error": {
+            "checkout_result": "promo_invalid", "checkout_promo_code": "DEMO",
+            "promo_preview_error": "Промокод не подходит для выбранного периода.",
+        },
+        "checkout-pending": {
+            "checkout_blocked": True,
+            "checkout_status_url": "/billing/checkout/status/INV-SYNTHETIC",
+        },
+        "checkout-receipt": {
+            "receipt_contact_ready": False, "receipt_contact_label": None,
+            "receipt_contact_action_url": "/settings/account?next=%2Fbilling%2Fcheckout%3Fcycle%3Dyear",
+        },
+    }.items():
+        pages[name] = render_template(
+            "cabinet/pages/billing_checkout_content.html", **{**context, **changes},
+        )
     for result in (None, "refreshed", "unchanged"):
         pages[f"status-{result}"] = render_template(
             "cabinet/pages/billing_operation_status_content.html",
@@ -45,6 +88,15 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
             status_result=result,
             can_refresh_payment=True,
         )
+    for state in ("succeeded", "succeeded_refused", "canceled", "failed", "provider_pending"):
+        pages[f"status-{state}"] = render_template(
+            "cabinet/pages/billing_operation_status_content.html",
+            embedded=False, csrf_token="synthetic", billing_enabled=True,
+            invoice={"safe_number": "INV-SYNTHETIC"}, amount_label="1 000 ₽",
+            operation_state=state, operation_state_label="Статус оплаты",
+            updated_at_label="29.09.2026", can_continue_payment=state == "provider_pending",
+            support_email="support@example.test", retry_payment_url="/billing/checkout?cycle=year",
+        )
     for purpose in ("storage_upgrade", "early_renewal", "storage_schedule"):
         pages[purpose] = render_template(
             "cabinet/pages/billing_purchase_content.html",
@@ -55,9 +107,10 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
                 "purpose": purpose,
                 "title": "Подтверждение покупки",
                 "capacity_label": "500 ГБ",
-                "list_label": "257 500 ₽",
-                "payable_label": "2 575 ₽",
-                "discount_label": "254 925 ₽",
+                "list_label": "0 ₽" if purpose == "storage_schedule" else "257 500 ₽",
+                "payable_label": "0 ₽" if purpose == "storage_schedule" else "2 575 ₽",
+                "discount_label": "0 ₽" if purpose == "storage_schedule" else "254 925 ₽",
+                "has_discount": purpose != "storage_schedule",
                 "next_label": "257 500 ₽",
                 "base_label": "10 000 ₽",
                 "storage_label": "247 500 ₽",
@@ -80,6 +133,119 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
             "total_label": f"{1000 + 250 * n} ₽", "cycle_label": "месяц",
         } for n in range(100)],
     )
+    invoice = {
+        "safe_number": "INV-SYNTHETIC", "amount_label": "1 000 ₽",
+        "cycle_label": "месяц", "created_at_label": "29.09.2026",
+        "status_label": "Уточняем статус", "receipt_label": "Чек готовится",
+        "detail_url": "/billing/invoices/INV-SYNTHETIC",
+        "status_url": "/billing/checkout/status/INV-SYNTHETIC",
+        "status_action_label": "Проверить оплату",
+        "discount_label": None, "receipt_url": None, "refund_mailto": None,
+        "payment_method_label": "•••• 4242", "receipt_contact_label": "demo@example.test",
+    }
+    surface_context = {
+        **context, "billing_owner": True, "billing_role": "owner", "result": None,
+        "active": True, "billing_result": None, "referral_issue_result": None,
+        "plan_code": "personal", "current_plan_code": "personal",
+        "support_email": "support@example.test", "trial_state": "already",
+        "subscription": {
+            "recurring_allowed": True, "recurring_authority_version": 1,
+            "state": "active", "cycle": "month", "plan_code": "personal",
+            "paid_through": "2026-10-29T12:00:00Z",
+        },
+        "paid_through_label": "29.10.2026", "next_charge_label": "26.10.2026",
+        "next_charge_amount_label": "1 000 ₽", "method_available": True,
+        "subscription_plan_label": "Личный", "subscription_cycle_label": "месяц",
+        "current_cycle_label": "месяц", "current_price_label": "1 000 ₽",
+        "method_label": "•••• 4242", "method_kind": "bank_card",
+        "payment_method_label": "•••• 4242", "renewal_allowed": True,
+        "processing_unlimited": True, "processing_threshold": "normal",
+        "processing_reserved": 0, "processing_reserved_label": "0 минут",
+        "processing_used_label": "60 минут", "storage_used_label": "1 ГБ",
+        "storage_capacity_label": "5 ГБ", "storage_available_label": "4 ГБ",
+        "storage_threshold": "normal", "storage_reserved_label": "0 ГБ",
+        "storage_used": 1_000_000_000, "storage_reserved": 0,
+        "storage_available": 4_000_000_000, "storage_capacity": 5_000_000_000,
+        "meetings_href": "/meetings", "manual_checkout_url": "/billing/checkout?cycle=month",
+        "invoice": invoice, "invoices": [invoice], "latest_invoice_summary": invoice,
+        "active_promotions": [], "redemptions": [],
+        "referral_issued": True, "referral_link": "https://graf.test/r/synthetic",
+        "referral_expires_at_label": "29.10.2026", "referral_history": [],
+    }
+    for name in ("overview", "subscription", "payment_method", "history", "invoice", "usage", "discounts"):
+        pages[name] = render_template(
+            f"cabinet/pages/billing_{name}_content.html", **surface_context,
+        )
+    pages["subscription-expired-pending"] = render_template(
+        "cabinet/pages/billing_subscription_content.html",
+        **{
+            **surface_context, "active": False, "paid_through_label": "28.09.2026",
+            "subscription": {
+                **surface_context["subscription"], "renewal_resolution": "pending",
+                "paid_through": "2026-09-28T12:00:00Z",
+            },
+            "pending_charge_amount_label": "1 000 ₽",
+            "pending_payment_url": "/billing/checkout/status/INV-SYNTHETIC",
+        },
+    )
+    pages["overview-expired-pending"] = render_template(
+        "cabinet/pages/billing_overview_content.html",
+        **{
+            **surface_context, "plan": plan_descriptor("free"), "plan_code": "free",
+            "current_plan_code": "free", "active": False, "operation_pending": True,
+            "pending_invoice_summary": {"safe_number": "INV-SYNTHETIC"},
+            "free_processing_limit_label": "300 минут", "renewal_allowed": True,
+            "current_price_label": "0 ₽", "next_charge_label": None,
+            "next_charge_amount_label": None, "paid_through_label": None,
+            "storage_used_label": "0 Б", "storage_capacity_label": "250 МБ",
+        },
+    )
+    pages["subscription-prepared"] = render_template(
+        "cabinet/pages/billing_subscription_content.html",
+        **{**surface_context, "prepared_charge_amount_label": "1 000 ₽"},
+    )
+    pages["discounts-error"] = render_template(
+        "cabinet/pages/billing_discounts_content.html",
+        **{**surface_context, "result": "invalid", "discount_promo_code": "DEMO"},
+    )
+    pages["storage-price-confirmation"] = render_template(
+        "cabinet/pages/billing_purchase_content.html", csrf_token="synthetic",
+        purchase_error=None,
+        purchase={
+            "quote_id": "synthetic-quote", "purpose": "storage_schedule",
+            "title": "Подтвердите цену следующего периода",
+            "capacity_label": "10 ГБ", "current_capacity_label": "10 ГБ",
+            "payable_label": "0 ₽", "list_label": "0 ₽", "has_discount": False,
+            "next_label": "1 250 ₽", "base_label": "1 000 ₽", "storage_label": "250 ₽",
+            "cycle_label": "месяц", "period_label": "Со следующего неоплаченного периода",
+            "next_attempt_label": "после сохранения выбора, в ближайшее время",
+            "recurring_allowed": True, "method_label": None, "deferred": True,
+        },
+    )
+    pages["referrals"] = render_template("cabinet/pages/referrals_content.html", **surface_context)
+    pages["plans"] = render_template(
+        "cabinet/pages/billing_plans_content.html", **surface_context,
+        selected_cycle="year",
+        plans=[{
+            "code": code, "label": label, "storage_label": capacity,
+            "processing_mode": "limited" if code == "free" else "unlimited",
+            "processing_label": "300 минут", "is_current": code == "personal",
+            "monthly_amount_label": "1 000 ₽" if code == "personal" else "0 ₽",
+            "annual_amount_label": "10 000 ₽" if code == "personal" else "0 ₽",
+            "catalog_ready": True,
+            "annual_saving_label": "2 000 ₽ экономии за год" if code == "personal" else None,
+        } for code, label, capacity in (
+            ("free", "Бесплатный", "250 МБ"), ("trial", "Пробный", "500 МБ"),
+            ("personal", "Личный", "5 ГБ"),
+        )],
+    )
+    from twobrain_rec_server.cabinet.rendering_shared import _page_shell
+
+    for name in ("checkout", "plans", "packages"):
+        pages[f"shell-{name}"] = _page_shell(
+            "Оплата", content=pages[name], embedded=False,
+            csrf_token="synthetic", active_nav="settings", settings_active="billing",
+        )
     fixture = tmp_path / "billing-pages.json"
     fixture.write_text(json.dumps(pages), encoding="utf-8")
     script = Path(__file__).parents[1] / "browser/billing-accessibility.test.cjs"
@@ -117,17 +283,24 @@ def test_every_billing_screen_keeps_payment_help_or_history_after_the_primary_pa
         "billing_operation_status_content.html",
     ):
         html = (TEMPLATE_ROOT / name).read_text(encoding="utf-8")
+        if name == "billing_operation_status_content.html":
+            html = render_template(
+                "cabinet/pages/" + name,
+                invoice={"safe_number": "INV-SYNTHETIC"},
+                amount_label="1 000 ₽", operation_state="unknown",
+                operation_state_label="Уточняем статус", updated_at_label="29.09.2026",
+            )
         if name == "billing_overview_content.html":
             assert 'href="/billing/history">История платежей</a>' in html
-            assert html.index('href="/billing/history"') > html.index('id="billing-history-title"')
+            assert html.index('href="/billing/history">История платежей</a>') > html.index('id="billing-history-title"')
             assert "Нужна помощь с оплатой?" not in html
             continue
-        assert "Нужна помощь с оплатой?" in html
+        assert "помощь с оплатой" in html.lower()
         destination = (
-            "#billing-help" if name == "billing_history_content.html" else "/billing/history"
+            "#billing-help" if name == "billing_history_content.html" else "/billing/history#billing-help"
         )
         assert f'href="{destination}"' in html
-        assert html.index("Нужна помощь с оплатой?") > html.index("</section>")
+        assert html.lower().index("помощь с оплатой") > html.index("</section>")
 
 
 def test_non_payer_billing_surfaces_keep_quota_state_without_usage_values() -> None:
@@ -295,6 +468,9 @@ def test_checkout_renders_server_calculated_promo_amounts() -> None:
         checkout_result="promo_applied",
         checkout_promo_code="SAVE10",
         checkout_cycle="month",
+        checkout_has_discount=True,
+        receipt_contact_ready=True,
+        checkout_next_attempt_label="26.10.2026",
         checkout_preview={
             "cycle_label": "месяц",
             "list_amount_label": "790 ₽",
@@ -304,10 +480,10 @@ def test_checkout_renders_server_calculated_promo_amounts() -> None:
         },
         promo_preview_error=None,
     )
-    assert "Стоимость покупки" in html
+    assert "Разовая скидка" in html
     assert "−79 ₽ (10%)" in html
     assert "711 ₽" in html
-    assert "Оплатить 711 ₽ в ЮKassa — месяц" in html
+    assert "Оплатить 711 ₽ в ЮKassa" in html
     assert 'action="/billing/checkout/preview"' in html
     assert 'name="promo_code" value="SAVE10"' in html
     assert 'name="cycle" value="year"' in html

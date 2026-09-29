@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
@@ -29,7 +29,7 @@ from twobrain_rec_server.auth.provider_links import (
     recovery_safe_unlink_allowed,
 )
 from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
-from twobrain_rec_server.auth.redirects import safe_first_party_path
+from twobrain_rec_server.auth.redirects import safe_billing_return_path, safe_first_party_path
 from twobrain_rec_server.auth.session_epoch import rotate_browser_session_epoch
 from twobrain_rec_server.auth.sessions import (
     fingerprint_identity,
@@ -198,6 +198,9 @@ async def _render_settings(
             ),
             notification_preferences=notification_draft or notification_preferences,
             show_account_navigation=request.url.path.startswith(("/account", "/desktop/account")),
+            billing_return_path=safe_billing_return_path(request.query_params.get("next"))
+            if category == "account" and len(request.query_params.getlist("next")) == 1
+            else None,
             product_analytics_provider=build_request_browser_provider_context(
                 request,
                 "settings",
@@ -314,19 +317,30 @@ async def _start_email_link(
     embedded: bool,
 ) -> HTMLResponse | RedirectResponse:
     prefix = "/desktop" if embedded else ""
+    billing_return = (
+        safe_billing_return_path(request.query_params.get("next"))
+        if len(request.query_params.getlist("next")) == 1 else None
+    )
+    return_query = "&" + urlencode({"next": billing_return}) if billing_return else ""
     if db is None:
         return RedirectResponse(
-            f"{prefix}/settings/account?provider_link=provider_link_unavailable",
+            f"{prefix}/settings/account?provider_link=provider_link_unavailable{return_query}",
             status_code=303,
         )
     if not principal.auth_via_session or principal.session_id is None:
         return RedirectResponse(
-            f"{prefix}/settings/account?provider_link=reauth_required",
+            f"{prefix}/settings/account?provider_link=reauth_required{return_query}",
             status_code=303,
         )
     form = await request.form()
     email = _normalize_email(str(form.get("email") or ""))
-    next_path = "/desktop/settings/account" if embedded else "/settings/account"
+    if "next" in form:
+        billing_return = (
+            safe_billing_return_path(str(form.get("next") or ""))
+            if len(form.getlist("next")) == 1 and len(request.query_params.getlist("next")) <= 1
+            else None
+        )
+    next_path = billing_return or f"{prefix}/settings/account"
     flow = "desktop_link" if embedded else "link"
     csrf_token = _csrf_token_for_principal(request, principal, tenant_scope=tenant_scope)
     if email is None:
@@ -479,17 +493,30 @@ async def _verify_email_link(
     embedded: bool,
 ) -> HTMLResponse | RedirectResponse:
     prefix = "/desktop" if embedded else ""
+    billing_return = (
+        safe_billing_return_path(request.query_params.get("next"))
+        if len(request.query_params.getlist("next")) == 1 else None
+    )
+    return_query = "&" + urlencode({"next": billing_return}) if billing_return else ""
     if db is None:
         return RedirectResponse(
-            f"{prefix}/settings/account?provider_link=provider_link_unavailable",
+            f"{prefix}/settings/account?provider_link=provider_link_unavailable{return_query}",
             status_code=303,
         )
     if not principal.auth_via_session or principal.session_id is None:
         return RedirectResponse(
-            f"{prefix}/settings/account?provider_link=reauth_required",
+            f"{prefix}/settings/account?provider_link=reauth_required{return_query}",
             status_code=303,
         )
     form = await request.form()
+    if "next" in form:
+        billing_return = (
+            safe_billing_return_path(str(form.get("next") or ""))
+            if len(form.getlist("next")) == 1 and len(request.query_params.getlist("next")) <= 1
+            else None
+        )
+    next_path = billing_return or f"{prefix}/settings/account"
+    return_query = "&" + urlencode({"next": billing_return}) if billing_return else ""
     csrf_token = _csrf_token_for_principal(request, principal, tenant_scope=tenant_scope)
     email = _normalize_email(str(form.get("email") or ""))
     code = str(form.get("code") or "")
@@ -500,7 +527,7 @@ async def _verify_email_link(
             render_email_code_page(
                 email=email or "",
                 state_nonce=state,
-                next_path="/desktop/settings/account" if embedded else "/settings/account",
+                next_path=next_path,
                 error="email_code_invalid",
                 flow=flow,
                 csrf_token=csrf_token,
@@ -520,6 +547,7 @@ async def _verify_email_link(
             code=code,
             state_nonce=state,
             csrf_token=csrf_token,
+            next_path=next_path,
         )
         prefix = "/desktop" if embedded else ""
         if isinstance(result, HTMLResponse):
@@ -529,11 +557,13 @@ async def _verify_email_link(
             and result.intent_id is not None
         ):
             response = RedirectResponse(
-                f"{prefix}/settings/account/merge/{result.intent_id}", status_code=303
+                f"{prefix}/settings/account/merge/{result.intent_id}"
+                + ("?" + urlencode({"next": billing_return}) if billing_return else ""),
+                status_code=303,
             )
         else:
             response = RedirectResponse(
-                f"{prefix}/settings/account?provider_link=confirmed", status_code=303
+                f"{prefix}/settings/account?provider_link=confirmed{return_query}", status_code=303
             )
         await db.commit()
         return response

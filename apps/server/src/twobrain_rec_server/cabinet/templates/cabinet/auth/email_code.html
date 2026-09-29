@@ -57,6 +57,7 @@
     </form>
     <div class="auth-secondary">
       <a class="mini-link" href="{{ back_href }}">Изменить почту</a>
+      {% if billing_return_path %}<a class="mini-link" href="{{ billing_return_path }}">Вернуться к оплате</a>{% endif %}
     </div>
   </section>
   <p class="auth-legal">Код действует ограниченное время. Не пересылайте его другим людям.</p>
