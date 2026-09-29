@@ -1897,7 +1897,7 @@ def _render_home_upcoming(
               </div>
               {f'<a class="button quiet calendar-home-upcoming__join" data-calendar-join="{escape(item.event_id)}" target="_blank" rel="noopener noreferrer" href="/api/v1/calendar/events/{escape(item.event_id)}/open">Подключиться</a>' if item.open_meeting_available else ""}
               <span data-calendar-join-status role="status" aria-live="polite"></span>
-              {f'<details class="calendar-series" data-calendar-series="{escape(item.series_key)}"><summary>Все даты и записи</summary><p>Доступные сохранённые даты за последние 180 дней и ближайшие 30 дней.</p><div data-calendar-series-rows></div><button type="button" data-calendar-series-more>Загрузить даты</button><p role="status" aria-live="polite" data-calendar-series-status></p></details>' if item.series_key else ''}
+              {f'<details class="calendar-series" data-calendar-series="{escape(item.series_key)}"><summary>Все даты и записи</summary><p>Доступные сохраненные даты за последние 180 дней и ближайшие 30 дней.</p><div data-calendar-series-rows></div><button type="button" data-calendar-series-more>Загрузить даты</button><p role="status" aria-live="polite" data-calendar-series-status></p></details>' if item.series_key else ''}
             </article>
             """
             for item in preview

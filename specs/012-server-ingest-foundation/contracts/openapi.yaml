@@ -4,6 +4,317 @@ info:
   description: Backend ingest foundation for finalized local recording artifacts.
   version: 0.1.0
 paths:
+  /api/v1/calendar/events/{event_id}/join-target:
+    get:
+      tags:
+      - calendar
+      summary: Calendar Join Target
+      operationId: calendar_join_target_api_v1_calendar_events__event_id__join_target_get
+      parameters:
+      - name: event_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Event Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarJoinTargetResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - calendar
+      summary: Calendar Join Target
+      operationId: calendar_join_target_api_v1_calendar_events__event_id__join_target_post
+      parameters:
+      - name: event_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Event Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarJoinTargetResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/calendar/overview:
+    get:
+      tags:
+      - calendar
+      summary: Calendar Overview
+      operationId: calendar_overview_api_v1_calendar_overview_get
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 4
+          title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cursor
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarOverviewResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/calendar/series/{series_key}/occurrences:
+    get:
+      tags:
+      - calendar
+      summary: Calendar Series Occurrences
+      operationId: calendar_series_occurrences_api_v1_calendar_series__series_key__occurrences_get
+      parameters:
+      - name: series_key
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Series Key
+      - name: from
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: From
+      - name: to
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: To
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Cursor
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 50
+          minimum: 1
+          default: 20
+          title: Limit
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalendarSeriesOccurrencesResponse'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/health/live:
     get:
       tags:
@@ -11591,6 +11902,151 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
+    CalendarJoinTargetResponse:
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          title: Event Id
+        provider_family:
+          type: string
+          title: Provider Family
+        https_url:
+          type: string
+          title: Https Url
+      type: object
+      required:
+      - event_id
+      - provider_family
+      - https_url
+      title: CalendarJoinTargetResponse
+    CalendarOverviewResponse:
+      properties:
+        cards:
+          items:
+            $ref: '#/components/schemas/CalendarSeriesEvent'
+          type: array
+          title: Cards
+        partial:
+          type: boolean
+          title: Partial
+        coverage_range:
+          additionalProperties:
+            type: string
+          type: object
+          title: Coverage Range
+        next_cursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next Cursor
+      type: object
+      required:
+      - cards
+      - partial
+      - coverage_range
+      - next_cursor
+      title: CalendarOverviewResponse
+    CalendarSeriesEvent:
+      properties:
+        event_id:
+          type: string
+          format: uuid
+          title: Event Id
+        series_key:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Series Key
+        is_recurring:
+          type: boolean
+          title: Is Recurring
+        title:
+          type: string
+          title: Title
+        starts_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Starts At
+        ends_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Ends At
+        all_day:
+          type: boolean
+          title: All Day
+        cancelled:
+          type: boolean
+          title: Cancelled
+        open_meeting_available:
+          type: boolean
+          title: Open Meeting Available
+        recordings:
+          items:
+            $ref: '#/components/schemas/CalendarSeriesRecording'
+          type: array
+          title: Recordings
+        recordings_partial:
+          type: boolean
+          title: Recordings Partial
+          default: false
+      type: object
+      required:
+      - event_id
+      - series_key
+      - is_recurring
+      - title
+      - starts_at
+      - ends_at
+      - all_day
+      - cancelled
+      - open_meeting_available
+      title: CalendarSeriesEvent
+    CalendarSeriesOccurrencesResponse:
+      properties:
+        occurrences:
+          items:
+            $ref: '#/components/schemas/CalendarSeriesEvent'
+          type: array
+          title: Occurrences
+        partial:
+          type: boolean
+          title: Partial
+        coverage_range:
+          additionalProperties:
+            type: string
+          type: object
+          title: Coverage Range
+        coverage_note:
+          type: string
+          title: Coverage Note
+        next_cursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next Cursor
+      type: object
+      required:
+      - occurrences
+      - partial
+      - coverage_range
+      - coverage_note
+      - next_cursor
+      title: CalendarSeriesOccurrencesResponse
+    CalendarSeriesRecording:
+      properties:
+        meeting_id:
+          type: string
+          format: uuid
+          title: Meeting Id
+      type: object
+      required:
+      - meeting_id
+      title: CalendarSeriesRecording
     AbortUploadRequest:
       properties:
         reason:
@@ -12178,6 +12634,10 @@ components:
       title: CalendarDisconnectResponse
     CalendarEventSummary:
       properties:
+        is_recurring:
+          type: boolean
+          title: Is Recurring
+          default: false
         all_day:
           type: boolean
           title: All Day
@@ -13527,6 +13987,10 @@ components:
       title: DeletionVerificationReport
     DesktopCalendarPromptEvent:
       properties:
+        is_recurring:
+          type: boolean
+          title: Is Recurring
+          default: false
         all_day:
           type: boolean
           title: All Day
