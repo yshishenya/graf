@@ -379,7 +379,7 @@ async def get_calendar_settings_surface(
     attach_owner_content(
         preview, credential_encryption_key or owner_content_key_from_settings(settings)
     )
-    return calendar_settings_surface(
+    surface = calendar_settings_surface(
         provider_payloads=list_provider_presets(
             google_available=(
                 google_oauth_config_from_settings(settings) is not None
@@ -397,6 +397,20 @@ async def get_calendar_settings_surface(
         preview_events=preview,
         notice_codes=notice_codes,
     )
+    from dataclasses import replace
+
+    from twobrain_rec_server.cabinet.view_models import upcoming_preview_item
+    from twobrain_rec_server.calendar.series import overview_events, series_key
+
+    overview, more = await overview_events(db, tenant_scope, preference)
+    attach_owner_content(
+        overview, credential_encryption_key or owner_content_key_from_settings(settings)
+    )
+    cards = tuple(
+        replace(upcoming_preview_item(event), series_key=series_key(event, tenant_scope.user_id))
+        for event in overview
+    )
+    return replace(surface, overview=cards, overview_loaded=True, overview_partial=more)
 
 
 async def _calendar_settings_preview_events(

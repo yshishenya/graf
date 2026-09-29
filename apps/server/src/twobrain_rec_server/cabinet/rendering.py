@@ -1852,8 +1852,16 @@ def _render_home_upcoming(
     settings_href = (
         "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"
     )
-    preview = calendar_surface.preview[:4]
-    upcoming_refresh_at = min((item.ends_at for item in preview), default=None)
+    preview = (
+        calendar_surface.overview
+        if calendar_surface.overview_loaded
+        else calendar_surface.preview[:4]
+    )
+    upcoming_refresh_at = (
+        min((item.ends_at for item in preview), default=None)
+        if calendar_surface.preferences.show_upcoming_time
+        else None
+    )
     source_states = {source.sync_health_state for source in calendar_surface.sources}
     credential_issue = bool(source_states & {"credential_failed", "failed_closed"})
     provider_issue = bool(source_states & {"provider_unavailable", "rate_limited"})
@@ -1885,9 +1893,11 @@ def _render_home_upcoming(
               {f'<time datetime="{escape(item.starts_at.isoformat())}" title="{escape(format_user_datetime(item.starts_at.date() if item.all_day else item.starts_at, show_zone=True))}" aria-label="{escape(format_user_datetime(item.starts_at.date() if item.all_day else item.starts_at, show_zone=True))}">{escape(_home_upcoming_time_label(item.starts_at, display_timezone, all_day=item.all_day))}</time>' if calendar_surface.preferences.show_upcoming_time else '<span class="calendar-home-upcoming__time-hidden">Время скрыто настройкой</span>'}
               <div>
                 <strong>{escape(item.title if calendar_surface.preferences.show_upcoming_title else "Название скрыто настройкой")}</strong>
-                <small>{"Есть ссылка на встречу" if item.meeting_link_present else "Без ссылки на встречу"}{" · данные могут быть устаревшими" if item.sync_confidence_state == "stale" else " · обновляется" if item.sync_confidence_state == "updating" else ""}</small>
+                <small>{"Повторяющаяся встреча · " if item.series_key else ""}{"Есть ссылка на встречу" if item.meeting_link_present else "Без ссылки на встречу"}{" · данные могут быть устаревшими" if item.sync_confidence_state == "stale" else " · обновляется" if item.sync_confidence_state == "updating" else ""}</small>
               </div>
-              {f'<a class="button quiet calendar-home-upcoming__join" href="/api/v1/calendar/events/{escape(item.event_id)}/open">Подключиться</a>' if item.open_meeting_available else ""}
+              {f'<a class="button quiet calendar-home-upcoming__join" data-calendar-join="{escape(item.event_id)}" target="_blank" rel="noopener noreferrer" href="/api/v1/calendar/events/{escape(item.event_id)}/open">Подключиться</a>' if item.open_meeting_available else ""}
+              <span data-calendar-join-status role="status" aria-live="polite"></span>
+              {f'<details class="calendar-series" data-calendar-series="{escape(item.series_key)}"><summary>Все даты и записи</summary><p>Доступные сохранённые даты за последние 180 дней и ближайшие 30 дней.</p><div data-calendar-series-rows></div><button type="button" data-calendar-series-more>Загрузить даты</button><p role="status" aria-live="polite" data-calendar-series-status></p></details>' if item.series_key else ''}
             </article>
             """
             for item in preview
@@ -1912,7 +1922,7 @@ def _render_home_upcoming(
         )
 
     return f"""
-      <details class="calendar-home-upcoming" data-calendar-live="upcoming" open{f' data-calendar-upcoming-refresh-at="{escape(upcoming_refresh_at.isoformat())}"' if upcoming_refresh_at is not None else ''}>
+      <details class="calendar-home-upcoming" data-calendar-live="upcoming" data-calendar-show-title="{str(calendar_surface.preferences.show_upcoming_title).lower()}" data-calendar-show-time="{str(calendar_surface.preferences.show_upcoming_time).lower()}" open{f' data-calendar-upcoming-refresh-at="{escape(upcoming_refresh_at.isoformat())}"' if upcoming_refresh_at is not None else ''}>
         <summary>
           <span>Ближайшие встречи</span>
           <small>{escape(state_copy)}</small>

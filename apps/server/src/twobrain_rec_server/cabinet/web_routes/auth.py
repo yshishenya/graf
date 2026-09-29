@@ -30,6 +30,7 @@ from twobrain_rec_server.auth.dependencies import (
 from twobrain_rec_server.auth.policy import read_auth_providers
 from twobrain_rec_server.auth.providers import build_provider_registry, get_provider_adapter
 from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
+from twobrain_rec_server.auth.session_epoch import rotate_browser_session_epoch
 from twobrain_rec_server.auth.sessions import (
     create_callback_state,
     issue_callback_nonce,
@@ -822,6 +823,7 @@ async def logout_current_browser_session(
         httponly=True,
         samesite="lax",
     )
+    rotate_browser_session_epoch(redirect, secure=auth_session_cookie_secure(request))
     return redirect
 
 

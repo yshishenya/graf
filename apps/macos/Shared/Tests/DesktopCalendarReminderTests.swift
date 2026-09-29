@@ -198,7 +198,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
         )
     }
 
-    func testSelectedJoinChoiceOpensSelectedMeetingURL() throws {
+    func testSelectedJoinChoiceOpensSelectedMeetingURL() async throws {
         let firstURL = try XCTUnwrap(URL(string: "https://meet.example.test/first"))
         let secondURL = try XCTUnwrap(URL(string: "https://meet.example.test/second"))
         let prompt = DesktopCalendarReminderService.overlapJoinPrompt(for: [
@@ -212,17 +212,17 @@ final class DesktopCalendarReminderTests: XCTestCase {
         var dismissedPromptID: String?
 
         let actions = DesktopCalendarPromptActions(
-            openURL: { openedURL = $0 },
+            openURL: { openedURL = $0; return true },
             startRecording: { XCTFail("Join choice must not start recording") },
             dismiss: { dismissedPromptID = $0.id }
         )
-        actions.performPrimaryAction(for: selectedPrompt)
+        await actions.performPrimaryAction(for: selectedPrompt)
 
         XCTAssertEqual(openedURL, secondURL)
         XCTAssertEqual(dismissedPromptID, prompt.id)
     }
 
-    func testRecordPromptAtEventStartDoesNotAutoRecord() throws {
+    func testRecordPromptAtEventStartDoesNotAutoRecord() async throws {
         let event = makeEvent(startsAt: date(120), endsAt: date(300), recordPromptDueAt: date(120))
         var recordStarts = 0
         var dismissedPromptID: String?
@@ -235,18 +235,18 @@ final class DesktopCalendarReminderTests: XCTestCase {
         XCTAssertEqual(recordStarts, 0)
 
         let actions = DesktopCalendarPromptActions(
-            openURL: { _ in XCTFail("Record prompt must not open a meeting URL") },
+            openURL: { _ in XCTFail("Record prompt must not open a meeting URL"); return false },
             startRecording: { recordStarts += 1 },
             dismiss: { dismissedPromptID = $0.id }
         )
-        actions.performPrimaryAction(for: prompt)
+        await actions.performPrimaryAction(for: prompt)
 
         XCTAssertEqual(recordStarts, 1)
         XCTAssertEqual(dismissedPromptID, prompt.id)
     }
 
     // FR-005, FR-015: a synthetic single-event prompt is only a hint; resolve remains automatic.
-    func testSingleRecordPromptStartsWithAutomaticIntentAndNoEventID() throws {
+    func testSingleRecordPromptStartsWithAutomaticIntentAndNoEventID() async throws {
         let event = makeEvent(
             eventId: "synthetic-single-event",
             startsAt: date(120),
@@ -263,7 +263,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
         var receivedIntent: DesktopCalendarMatchDecisionIntent?
         var receivedEventID: String?
         let actions = DesktopCalendarPromptActions(
-            openURL: { _ in XCTFail("Record prompt must not open a meeting URL") },
+            openURL: { _ in XCTFail("Record prompt must not open a meeting URL"); return false },
             startRecording: { intent, eventID in
                 receivedIntent = intent
                 receivedEventID = eventID
@@ -271,7 +271,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
             dismiss: { _ in }
         )
 
-        actions.performPrimaryAction(for: prompt)
+        await actions.performPrimaryAction(for: prompt)
 
         XCTAssertEqual(prompt.eventId, "synthetic-single-event")
         XCTAssertFalse(prompt.requiresExplicitCalendarChoice)
@@ -375,7 +375,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
         XCTAssertNil(prompt.choices.last?.eventId)
     }
 
-    func testOverlapPrimaryActionStartsManualRecordingWithoutSelectingCalendarContext() throws {
+    func testOverlapPrimaryActionStartsManualRecordingWithoutSelectingCalendarContext() async throws {
         let now = date(160)
         let prompt = try XCTUnwrap(
             DesktopCalendarReminderService.activePrompt(
@@ -389,7 +389,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
         var dismissedPromptID: String?
 
         let actions = DesktopCalendarPromptActions(
-            openURL: { openedURL = $0 },
+            openURL: { openedURL = $0; return true },
             startRecording: { recordStarts += 1 },
             dismiss: { dismissedPromptID = $0.id }
         )
@@ -398,7 +398,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
         XCTAssertNil(prompt.eventId)
         XCTAssertTrue(prompt.requiresExplicitCalendarChoice)
 
-        actions.performPrimaryAction(for: prompt)
+        await actions.performPrimaryAction(for: prompt)
 
         XCTAssertEqual(recordStarts, 1)
         XCTAssertNil(openedURL)
@@ -406,7 +406,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
     }
 
     // FR-014, FR-015, SC-003: only a synthetic explicit overlap choice may carry its event ID.
-    func testOverlapRecordChoiceStartsWithUserSelectedIntentAndChosenEventID() throws {
+    func testOverlapRecordChoiceStartsWithUserSelectedIntentAndChosenEventID() async throws {
         var prompt = DesktopCalendarReminderService.overlapRecordPrompt(for: [
             makeEvent(eventId: "synthetic-first", startsAt: date(120), endsAt: date(300)),
             makeEvent(eventId: "synthetic-second", startsAt: date(120), endsAt: date(300))
@@ -416,7 +416,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
         var receivedIntent: DesktopCalendarMatchDecisionIntent?
         var receivedEventID: String?
         let actions = DesktopCalendarPromptActions(
-            openURL: { _ in XCTFail("Record prompt must not open a meeting URL") },
+            openURL: { _ in XCTFail("Record prompt must not open a meeting URL"); return false },
             startRecording: { intent, eventID in
                 receivedIntent = intent
                 receivedEventID = eventID
@@ -424,7 +424,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
             dismiss: { _ in }
         )
 
-        actions.performPrimaryAction(for: prompt)
+        await actions.performPrimaryAction(for: prompt)
 
         XCTAssertTrue(prompt.requiresExplicitCalendarChoice)
         XCTAssertEqual(prompt.eventId, "synthetic-first")
@@ -433,7 +433,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
     }
 
     // FR-014, FR-051, SC-014: start-time decline is explicit and never aliases a later clear.
-    func testOverlapRecordWithoutContextStartsWithUserDeclinedIntent() throws {
+    func testOverlapRecordWithoutContextStartsWithUserDeclinedIntent() async throws {
         var prompt = DesktopCalendarReminderService.overlapRecordPrompt(for: [
             makeEvent(eventId: "synthetic-first", startsAt: date(120), endsAt: date(300)),
             makeEvent(eventId: "synthetic-second", startsAt: date(120), endsAt: date(300))
@@ -445,7 +445,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
         var receivedIntent: DesktopCalendarMatchDecisionIntent?
         var receivedEventID: String?
         let actions = DesktopCalendarPromptActions(
-            openURL: { _ in XCTFail("Record prompt must not open a meeting URL") },
+            openURL: { _ in XCTFail("Record prompt must not open a meeting URL"); return false },
             startRecording: { intent, eventID in
                 receivedIntent = intent
                 receivedEventID = eventID
@@ -453,7 +453,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
             dismiss: { _ in }
         )
 
-        actions.performPrimaryAction(for: prompt)
+        await actions.performPrimaryAction(for: prompt)
 
         XCTAssertTrue(prompt.requiresExplicitCalendarChoice)
         XCTAssertNil(prompt.eventId)

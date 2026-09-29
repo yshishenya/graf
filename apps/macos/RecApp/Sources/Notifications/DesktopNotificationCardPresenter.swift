@@ -9,8 +9,10 @@ public enum DesktopNotificationCardAction: Equatable, Sendable {
 }
 
 /// Semantic content only. Decisions, event identity and priority belong to the owner.
+public enum DesktopNotificationJoinState: Equatable, Sendable { case idle, opening, failed }
+
 public enum DesktopNotificationCardContent: Equatable, Sendable {
-    case meeting(title: String, startText: String, hasJoinLink: Bool)
+    case meeting(title: String, startText: String, hasJoinLink: Bool, joinState: DesktopNotificationJoinState = .idle)
     case recordingPrompt(displayName: String, remainingSeconds: Int, rememberChoice: Bool)
     case problem(title: String, message: String, actionTitle: String, sessionID: String?)
     case preview(title: String, message: String)
@@ -27,7 +29,12 @@ public enum DesktopNotificationCardContent: Equatable, Sendable {
     }
     fileprivate var text: (title: String, message: String) {
         switch self {
-        case let .meeting(title, startText, _): return (title, startText)
+        case let .meeting(title, startText, _, state):
+            switch state {
+            case .idle: return (title, startText)
+            case .opening: return (title, "Открываем встречу…")
+            case .failed: return (title, "Не удалось открыть встречу. Повторите подключение.")
+            }
         case let .recordingPrompt(name, seconds, _):
             let count = max(0, seconds)
             let ending: String
@@ -46,7 +53,11 @@ public enum DesktopNotificationCardContent: Equatable, Sendable {
     }
     fileprivate var actions: [(title: String, action: DesktopNotificationCardAction, primary: Bool)] {
         switch self {
-        case let .meeting(_, _, linked):
+        case let .meeting(_, _, linked, state):
+            if state == .opening { return [] }
+            if linked && state == .failed {
+                return [("Повторить подключение", .join, false), ("Подключиться и начать запись", .joinAndRecord, true)]
+            }
             return linked ? [("Подключиться", .join, false), ("Подключиться и начать запись", .joinAndRecord, true)]
                 : [("Начать запись", .record, true)]
         case .recordingPrompt: return [("Не записывать", .skipRecordingPrompt, false), ("Записать", .record, true)]
@@ -370,6 +381,12 @@ public final class DesktopNotificationCardPresenter {
         if case let .toggleRecordingPromptRemember(value) = action {
             guard case let .recordingPrompt(name, seconds, _)? = presentedContent else { return }
             guard update(.recordingPrompt(displayName: name, remainingSeconds: seconds, rememberChoice: value)) else { return }
+            onAction?(action)
+            return
+        }
+        if case .meeting = presentedContent, action == .join || action == .joinAndRecord {
+            guard presentedContent?.actions.contains(where: { $0.action == action }) == true else { return }
+            // The owner retires the card only after the asynchronous fresh join.
             onAction?(action)
             return
         }

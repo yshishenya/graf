@@ -117,6 +117,88 @@ final class DesktopLocalNotificationDeliveryTests: XCTestCase {
         }
     }
 
+    func testF279NotificationJoinRetainsFailureAndRetriesWithoutStartingRecording() async throws {
+        for joinAndRecord in [false, true] {
+            let f = try notificationFixture(self)
+            let p = f.presenter()
+            defer { p.dismissAllCards() }
+            let event = f.event(id: UUID().uuidString, start: f.now.addingTimeInterval(60))
+            var pending: CheckedContinuation<Bool, Never>?
+            var attempts = 0
+            f.joinHandler = { id, current in
+                XCTAssertEqual(id, event.eventId)
+                attempts += 1
+                let result = await withCheckedContinuation { pending = $0 }
+                return current() && result
+            }
+            p.updateCalendar(f.calendar([event]))
+            let title = joinAndRecord ? "Подключиться и начать запись" : "Подключиться"
+            let button = try XCTUnwrap(notificationButtons(p.card.window?.contentView).first { $0.title == title })
+            let deadline = p.card.deadline
+            button.performClick(nil); button.performClick(nil)
+            for _ in 0..<100 where pending == nil { await Task.yield() }
+            XCTAssertNotNil(pending)
+            XCTAssertEqual(attempts, 1)
+            XCTAssertTrue(p.card.isVisible)
+            XCTAssertTrue(f.actions.isEmpty)
+            p.updateCalendar(f.calendar([event]))
+            XCTAssertTrue(p.card.presentedContent?.accessibilitySummary.contains("Открываем") == true)
+            XCTAssertEqual(p.card.deadline, deadline)
+            pending?.resume(returning: false); pending = nil
+            for _ in 0..<100 { await Task.yield() }
+            XCTAssertTrue(p.card.isVisible)
+            p.updateCalendar(f.calendar([event]))
+            XCTAssertTrue(p.card.presentedContent?.accessibilitySummary.contains("Не удалось") == true)
+            XCTAssertTrue(f.actions.isEmpty)
+            let retry = try XCTUnwrap(notificationButtons(p.card.window?.contentView).first {
+                $0.title == (joinAndRecord ? title : "Повторить подключение")
+            })
+            retry.performClick(nil)
+            for _ in 0..<100 where pending == nil { await Task.yield() }
+            XCTAssertNotNil(pending)
+            pending?.resume(returning: true); pending = nil
+            for _ in 0..<100 { await Task.yield() }
+            XCTAssertEqual(attempts, 2)
+            XCTAssertFalse(p.card.isVisible)
+            XCTAssertEqual(f.actions, joinAndRecord ? [.start] : [])
+        }
+    }
+
+    func testF279PendingNotificationJoinCancelsBeforeHandoffWhenCardBecomesStale() async throws {
+        for reason in ["close", "deadline", "auth", "link", "cancelled", "lock", "superseded"] {
+            let f = try notificationFixture(self)
+            let p = f.presenter()
+            defer { p.dismissAllCards() }
+            var event = f.event(id: UUID().uuidString, start: f.now.addingTimeInterval(60))
+            var pending: CheckedContinuation<Void, Never>?
+            var handoffs = 0
+            f.joinHandler = { id, current in
+                await CalendarMeetingOpener.resolveAndOpen(eventID: UUID(uuidString: id)!, resolve: { _ in
+                    await withCheckedContinuation { pending = $0 }
+                    return URL(string: "https://meet.google.com/fresh")!
+                }, isCurrent: current, open: { _ in handoffs += 1; return true })
+            }
+            p.updateCalendar(f.calendar([event]))
+            let button = try XCTUnwrap(notificationButtons(p.card.window?.contentView).first { $0.title == "Подключиться и начать запись" })
+            button.performClick(nil)
+            for _ in 0..<100 where pending == nil { await Task.yield() }
+            XCTAssertNotNil(pending)
+            switch reason {
+            case "close": try notificationClose(p)
+            case "deadline": f.now = try XCTUnwrap(p.card.deadline); p.reconcileCard(now: f.now)
+            case "auth": p.invalidate()
+            case "link": event.openMeetingURL = nil; event.meetingLinkPresent = false; p.updateCalendar(f.calendar([event]))
+            case "cancelled": p.updateCalendar(f.calendar([]))
+            case "lock": p.setPresentationBlocked(.lock, blocked: true)
+            default: _ = p.presentRecordingPrompt(displayName: "Synthetic", onStart: {}, onDismiss: {}, onRememberChoiceChanged: { _ in })
+            }
+            pending?.resume(); pending = nil
+            for _ in 0..<100 { await Task.yield() }
+            XCTAssertEqual(handoffs, 0, reason)
+            XCTAssertTrue(f.actions.isEmpty, reason)
+        }
+    }
+
     func testF277RetainedCalendarActionsAreSingleUseAndRejectStaleButtons() async throws {
         for title in ["Подключиться", "Подключиться и начать запись", "Начать запись"] {
             for invalidation in ["none", "deadline", "context", "link"] {
@@ -140,11 +222,12 @@ final class DesktopLocalNotificationDeliveryTests: XCTestCase {
                 default: f.now = deadline.addingTimeInterval(-0.001)
                 }
                 button.performClick(nil); button.performClick(nil)
+                for _ in 0..<20 { await Task.yield() }
                 if invalidation != "link" {
                     XCTAssertTrue(p.calendarEvents.isEmpty, "Retained data must be released after action or expiry")
                 }
                 XCTAssertEqual(f.actions, invalidation == "none" && title != "Подключиться" ? [.start] : [])
-                XCTAssertEqual(f.openedURLs, invalidation == "none" && title != "Начать запись" ? [try XCTUnwrap(event.openMeetingURL)] : [])
+                XCTAssertEqual(f.openedEventIDs, invalidation == "none" && title != "Начать запись" ? [event.eventId] : [])
                 XCTAssertFalse(p.card.isVisible)
             }
         }
@@ -891,7 +974,8 @@ func notificationFixture(_ test: XCTestCase, requiresScreen: Bool = true) throws
 final class NotificationTestFixture {
     var now = Date()
     var sounds = 0
-    var openedURLs: [URL] = []
+    var openedEventIDs: [String] = []
+    var joinHandler: (@MainActor (String, @escaping () -> Bool) async -> Bool)?
     var actions: [DesktopControlAction] = []
     let store: DesktopNotificationPreferencesStore
     let defaults: UserDefaults
@@ -915,7 +999,11 @@ final class NotificationTestFixture {
         let result = DesktopNotificationPresenter(
             store: restoredStore ? DesktopNotificationPreferencesStore(defaults: defaults) : store,
             model: model, clock: { self.now }, playSound: { self.sounds += 1 },
-            openMeetingURL: { self.openedURLs.append($0) }, serverOrigin: serverOrigin,
+            openMeetingEvent: { id, current in
+                if let handler = self.joinHandler { return await handler(id, current) }
+                guard current() else { return false }
+                self.openedEventIDs.append(id); return true
+            }, serverOrigin: serverOrigin,
             card: DesktopNotificationCardPresenter(environment: environment))
         result.updateContext(user: user, workspace: workspace)
         return result

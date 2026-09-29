@@ -6327,3 +6327,12 @@ html[data-theme="dark"] .app-shell[data-active-nav="settings"] {
 .billing-package-controls { display: flex; align-items: center; gap: .5rem; max-width: 100%; }
 .billing-package-controls select { flex: 1; min-width: 0; max-width: 100%; min-height: 44px; }
 .billing-package-controls button { flex-shrink: 0; min-width: 44px; min-height: 44px; }
+
+/* Calendar series uses the existing controls and theme tokens. */
+.calendar-series { grid-column: 1 / -1; width: 100%; min-width: 0; }
+.calendar-series summary { cursor: pointer; padding: .5rem 0; }
+.calendar-series summary:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.calendar-series__occurrence { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; padding: .75rem 0; border-top: 1px solid currentColor; }
+.calendar-series__occurrence strong { overflow-wrap: anywhere; }
+.calendar-home-upcoming__row [data-calendar-join-status] { grid-column: 1 / -1; }
+.calendar-home-upcoming__join[aria-disabled="true"] { opacity: .65; cursor: progress; }

@@ -12,7 +12,7 @@ import WebKit
 public enum DesktopCabinetSessionBridge {
     public static let authSessionCookieName = DesktopCabinetConfiguration.productionAuthSessionCookieName
 
-    @MainActor static var generation: UInt64 = 0
+    @MainActor public private(set) static var generation: UInt64 = 0
     @MainActor private static var pendingRenewal: Task<Void, Never>?
     @MainActor private static var navigationBarriers: Set<UUID> = []
 
@@ -34,6 +34,11 @@ public enum DesktopCabinetSessionBridge {
         guard navigationBarriers.remove(barrier) != nil else { return }
         // Responses dispatched during navigation must not become eligible afterwards.
         generation &+= 1
+    }
+
+    @MainActor
+    public static func isCurrentSession(_ expectedGeneration: UInt64) -> Bool {
+        navigationBarriers.isEmpty && generation == expectedGeneration
     }
 
     @MainActor

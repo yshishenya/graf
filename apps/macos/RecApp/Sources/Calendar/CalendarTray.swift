@@ -531,8 +531,8 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         // Re-resolve after selection: a background refresh/sign-out may have removed the event.
         guard let id = sender.representedObject as? String,
               let event = model.events.first(where: { $0.eventId == id }),
-              let url = safeMeetingLink(for: event) else { return }
-        NSWorkspace.shared.open(url)
+              safeMeetingLink(for: event) != nil else { return }
+        Task { await CalendarMeetingOpener.openEventFromMenu(id) }
     }
 }
 

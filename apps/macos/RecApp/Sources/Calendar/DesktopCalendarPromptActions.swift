@@ -32,12 +32,12 @@ public enum DesktopCalendarResolvePolicy {
 
 @MainActor
 public struct DesktopCalendarPromptActions {
-    public var openURL: (URL) -> Void
+    public var openURL: (URL) async -> Bool
     public var startRecording: (DesktopCalendarMatchDecisionIntent, String?) -> Void
     public var dismiss: (DesktopCalendarPrompt) -> Void
 
     public init(
-        openURL: @escaping (URL) -> Void,
+        openURL: @escaping (URL) async -> Bool,
         startRecording: @escaping (DesktopCalendarMatchDecisionIntent, String?) -> Void,
         dismiss: @escaping (DesktopCalendarPrompt) -> Void
     ) {
@@ -47,7 +47,7 @@ public struct DesktopCalendarPromptActions {
     }
 
     public init(
-        openURL: @escaping (URL) -> Void,
+        openURL: @escaping (URL) async -> Bool,
         startRecording: @escaping () -> Void,
         dismiss: @escaping (DesktopCalendarPrompt) -> Void
     ) {
@@ -58,12 +58,11 @@ public struct DesktopCalendarPromptActions {
         )
     }
 
-    public func performPrimaryAction(for prompt: DesktopCalendarPrompt) {
+    @discardableResult
+    public func performPrimaryAction(for prompt: DesktopCalendarPrompt) async -> Bool {
         switch prompt.kind {
         case .join:
-            if let url = prompt.openMeetingURL {
-                openURL(url)
-            }
+            guard let url = prompt.openMeetingURL, await openURL(url) else { return false }
         case .record:
             if prompt.requiresExplicitCalendarChoice, prompt.eventId != nil {
                 startRecording(.userSelected, prompt.eventId)
@@ -74,6 +73,7 @@ public struct DesktopCalendarPromptActions {
             }
         }
         dismiss(prompt)
+        return true
     }
 
     public func dismissPrompt(_ prompt: DesktopCalendarPrompt) {

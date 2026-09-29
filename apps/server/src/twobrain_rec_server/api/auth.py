@@ -46,6 +46,7 @@ from twobrain_rec_server.auth.providers import build_provider_registry, get_prov
 from twobrain_rec_server.auth.providers.base import ProviderCredentials
 from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
 from twobrain_rec_server.auth.redirects import safe_first_party_path as _safe_browser_return_path
+from twobrain_rec_server.auth.session_epoch import rotate_browser_session_epoch
 from twobrain_rec_server.auth.sessions import (
     create_callback_state,
     resolve_session_device,
@@ -933,6 +934,7 @@ def _set_auth_cookie(response: Response, *, token: str, expires_at: datetime) ->
         httponly=True,
         samesite="lax",
     )
+    rotate_browser_session_epoch(response, secure=True, max_age=max_age)
 
 
 async def _enforce_public_provider_rate_limits(

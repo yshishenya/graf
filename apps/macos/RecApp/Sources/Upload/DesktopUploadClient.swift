@@ -346,7 +346,10 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
             partSizeBytes: partSizeBytes,
             authSessionTokenProvider: authSessionTokenProvider,
             requestExecutor: { request in
-                try await URLSession.shared.data(for: request)
+                if request.url?.path.hasSuffix("/join-target") == true {
+                    return try await URLSession.shared.data(for: request, delegate: CalendarJoinRedirectBlocker())
+                }
+                return try await URLSession.shared.data(for: request)
             }
         )
     }
@@ -1399,6 +1402,16 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         return request
     }
 
+    public func calendarJoinTarget(eventID: UUID) async throws -> URL {
+        struct Target: Decodable { let event_id: UUID; let https_url: String }
+        let request = try request(path: "/api/v1/calendar/events/\(eventID.uuidString.lowercased())/join-target", method: "GET", timeoutInterval: 15)
+        let target: Target = try await perform(request)
+        guard target.event_id == eventID, let url = CalendarMeetingOpener.validatedHTTPS(target.https_url) else {
+            throw DesktopUploadClientError.invalidResponse
+        }
+        return url
+    }
+
     private func execute(_ request: URLRequest) async throws -> (Data, URLResponse) {
         if let item = recordingStartAcceptanceItem { try RecordingStartAcceptanceGate.check(item) }
         let generation = await DesktopCabinetSessionBridge.generation
@@ -1679,4 +1692,12 @@ public struct DesktopRecordingLifecycleEntry: Decodable, Sendable {
     public let target_id: String
     public let state: String
     public let receipt: RecordingDeletionReceipt?
+}
+
+/// A resolver response must never forward GRAF authorization through a redirect.
+private final class CalendarJoinRedirectBlocker: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
 }
