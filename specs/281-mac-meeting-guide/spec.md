@@ -21,3 +21,9 @@ Umbrella: #7391. Lane: tiny-low-risk content: фиксированная пуб�
 ## Проверки
 
 Маршрут/metadata/sitemap/ссылки, регрессии public pages, mobile browser proof, exact-SHA CI. После штатного выпуска — production GET и canonical. Публикация не гарантирует индексацию.
+
+## Legacy Impact
+
+- Classification: untouched
+- Главная, download, политики и существующие data/auth/analytics contracts сохранены. Alias, fallback и новые зависимости не добавлены.
+- legacy_new=0, unowned_legacy=0, expired_exceptions=0.
