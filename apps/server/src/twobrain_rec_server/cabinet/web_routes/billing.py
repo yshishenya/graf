@@ -1783,42 +1783,27 @@ async def billing_discounts_page(
     )
     if not billing_owner:
         return RedirectResponse("/billing?result=owner_only", status_code=303)
-    now = datetime.now(UTC)
-    active_promotions: list[dict[str, str]] = []
     redemptions: list[dict[str, str]] = []
     if db is not None:
-        campaigns = await db.scalars(
-            select(PromotionCampaign)
-            .where(PromotionCampaign.enabled.is_(True))
-            .order_by(PromotionCampaign.created_at.desc())
-            .limit(20)
-        )
-        for campaign in campaigns:
-            if campaign.starts_at is not None and campaign.starts_at > now:
-                continue
-            if campaign.ends_at is not None and campaign.ends_at <= now:
-                continue
-            active_promotions.append(
-                {
-                    "discount_label": f"Скидка {campaign.discount_percent}% на «Личный»",
-                    "expiry_label": _billing_datetime_label(campaign.ends_at)
-                    if campaign.ends_at
-                    else "срок не ограничен",
-                }
-            )
         rows = await db.execute(
-            select(PromotionRedemption, PromotionCampaign)
-            .join(PromotionCampaign, PromotionCampaign.id == PromotionRedemption.campaign_id)
+            select(PromotionRedemption, BillingInvoice)
+            .outerjoin(
+                BillingInvoice,
+                (BillingInvoice.id == PromotionRedemption.invoice_id)
+                & (BillingInvoice.workspace_id == tenant_scope.workspace_id),
+            )
             .where(PromotionRedemption.workspace_id == tenant_scope.workspace_id)
             .order_by(PromotionRedemption.reserved_at.desc())
             .limit(100)
         )
-        for redemption, campaign in rows:
+        for redemption, invoice in rows:
+            snapshot = invoice.plan_snapshot if invoice is not None else None
+            cycle = snapshot.get("cycle") if isinstance(snapshot, dict) else None
             redemptions.append(
                 {
                     "discount_label": f"Скидка {redemption.discount_percent}%",
                     "state_label": _promotion_state_label(redemption.state),
-                    "cycle_label": "Год" if campaign.cycle == "year" else "Месяц",
+                    "cycle_label": "Год" if cycle == "year" else "Месяц" if cycle == "month" else "",
                 }
             )
     content = _page_shell(
@@ -1832,7 +1817,6 @@ async def billing_discounts_page(
             request, "billing_discounts", principal=principal, tenant_scope=tenant_scope
         ),
         content_template="cabinet/pages/billing_discounts_content.html",
-        active_promotions=active_promotions,
         redemptions=redemptions,
         billing_owner=billing_owner,
         billing_enabled=billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id),

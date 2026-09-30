@@ -160,6 +160,21 @@ async function checkTextContrast(page, label) {
         assert(await consent.isChecked());
         assert(await page.getByRole('button', { name: /^(Оплатить|Сохранить выбор)/ }).isVisible());
       }
+      if (name.includes('discounts')) {
+        const promo = page.getByRole('textbox', { name: 'Промокод', exact: true });
+        assert(await promo.isVisible());
+        await promo.focus();
+        assert(await promo.evaluate(el => el === document.activeElement));
+        await page.keyboard.press(tabKey);
+        assert(await page.getByRole('button', { name: 'Применить и проверить цену' }).evaluate(el => el === document.activeElement));
+        assert.equal(await page.getByText('Действующие предложения', { exact: true }).count(), 0);
+        if (name.includes('history-year')) assert.match(await page.locator('[aria-label="История скидок"]').innerText(), /Применён · Год/);
+        if (name.includes('history-unknown')) {
+          const history = await page.locator('[aria-label="История скидок"]').innerText();
+          assert(history.includes('Скидка 10%') && history.includes('Применён'));
+          assert(!/Год|Месяц|·/.test(history));
+        }
+      }
       for (const width of [320, 360, 768, 1280]) {
         await page.setViewportSize({ width, height: 900 });
         for (const theme of ['light', 'dark']) {
@@ -175,7 +190,7 @@ async function checkTextContrast(page, label) {
             });
             assert(!overflow, `${name}: content clipped at ${width}px, ${theme}, ${zoom * 100}%`);
             const smallTargets = await page.evaluate(() => [...document.querySelectorAll(
-              'main button, main .button, main summary, main select, main label.billing-consent',
+              'main button, main .button, main summary, main select, main input[type=text], main label.billing-consent',
             )].filter(el => el.checkVisibility() && !el.matches(':disabled')).filter(el => {
               const rect = el.getBoundingClientRect();
               return rect.width < 24 || rect.height < 24;

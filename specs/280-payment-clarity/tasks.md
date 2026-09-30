@@ -77,3 +77,15 @@ PR [#7380](https://github.com/yshishenya/graf/pull/7380) проверен на �
 - [X] T013 [US3] Согласовать `apps/server/tests/contract/test_payment_history_support.py` и `apps/server/tests/integration/test_account_lifecycle.py` с упрощённым интерфейсом, сохранив проверки безопасных писем, чека, номера платежа, запрета автоматического возврата и истечения trial; пройти focused tests, независимый обзор и обязательные PR checks. Причина — три устаревших ожидания в `release-full` 36744581806; это не снимает T011/T012 либо финансовые условия F278. (Issue #7383)
 
 T013: [#7383](https://github.com/yshishenya/graf/issues/7383).
+
+
+## Phase 7: Convergence — дополнительная проверка промокода
+
+Проверка после выпуска нашла два MEDIUM несоответствия в представлении скидок. Расчёт/применение промокода прошёл 10 HTTP/DB сценариев и 10 unit/preview проверок; эти результаты не исключают ошибок отображения.
+
+- [X] T014 [US4] Показывать в истории скидок период фактического сохранённого счёта, сохраняя его после изменения универсальной кампании; при отсутствии надёжного периода не показывать выдуманный «Месяц». Источник: FR-003/009/011/013, plan: исправить недостоверные состояния (contradicts, MEDIUM). Владение: `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py`; регрессия в `apps/server/tests/integration/test_billing_discount_presentation.py`. (Issue #7388)
+- [X] T015 [US1] Убрать непроверенный общий список «Действующих предложений» с раздела скидок, сохранив ввод известного промокода, серверную проверку цены и историю; ограниченные кампании не представлять как доступные конкретному плательщику. Источник: FR-003/004/011/013, plan: один понятный шаг без лишнего текста (contradicts, MEDIUM). Владение: `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_discounts_content.html`; регрессия и цепочка применить/месяц/год/удалить в `apps/server/tests/integration/test_billing_discount_presentation.py`. (Issue #7389)
+
+T014/T015 выполняются после независимого review `checklists/promo-presentation.md`, analyze и issue sync. Финансовые обработчики, цены, campaign eligibility, cookie TTL/path и правила списания не меняются; матрица реальных денег и T011/T012 остаются открытыми. Полный выпуск нового кода проходит отдельный frozen candidate, обязательные SHA checks и release/deploy gate.
+
+Завершение implement T014/T015: исходники и локальные регрессии проверены, три актуальных независимых PASS записаны в [review-promo-final.md](review-promo-final.md), команды и ограничения — [validation-promo.md](validation-promo.md). Дополнительный охват FR-012: `apps/server/tests/contract/test_billing_accessibility.py` и `apps/server/tests/browser/billing-accessibility.test.cjs`. Статусы новых GitHub issues до production остаются открытыми; T011/T012 не меняются. Эти отметки не подменяют отдельные SHA/release/deploy условия.
