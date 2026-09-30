@@ -208,6 +208,19 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         "cabinet/pages/billing_discounts_content.html",
         **{**surface_context, "result": "invalid", "discount_promo_code": "DEMO"},
     )
+    for name, changes in {
+        "discounts-history-year": {
+            "redemptions": [{"discount_label": "Скидка 10%", "state_label": "Применён", "cycle_label": "Год"}],
+        },
+        "discounts-history-unknown": {
+            "redemptions": [{"discount_label": "Скидка 10%", "state_label": "Применён", "cycle_label": ""}],
+        },
+        "discounts-applied": {"result": "promo_applied", "checkout_promo_active": True},
+        "discounts-removed": {"result": "removed"},
+    }.items():
+        pages[name] = render_template(
+            "cabinet/pages/billing_discounts_content.html", **{**surface_context, **changes},
+        )
     pages["storage-price-confirmation"] = render_template(
         "cabinet/pages/billing_purchase_content.html", csrf_token="synthetic",
         purchase_error=None,
@@ -241,7 +254,7 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
     )
     from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 
-    for name in ("checkout", "plans", "packages"):
+    for name in ("checkout", "plans", "packages", "discounts", "discounts-history-year", "discounts-history-unknown", "discounts-error"):
         pages[f"shell-{name}"] = _page_shell(
             "Оплата", content=pages[name], embedded=False,
             csrf_token="synthetic", active_nav="settings", settings_active="billing",
