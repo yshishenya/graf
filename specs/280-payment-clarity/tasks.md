@@ -74,6 +74,6 @@ PR [#7380](https://github.com/yshishenya/graf/pull/7380) проверен на �
 
 ## Доработка по полной выпускной проверке
 
-- [ ] T013 [US3] Согласовать `apps/server/tests/contract/test_payment_history_support.py` и `apps/server/tests/integration/test_account_lifecycle.py` с упрощённым интерфейсом, сохранив проверки безопасных писем, чека, номера платежа, запрета автоматического возврата и истечения trial; пройти focused tests, независимый обзор и обязательные PR checks. Причина — три устаревших ожидания в `release-full` 36744581806; это не снимает T011/T012 либо финансовые условия F278.
+- [X] T013 [US3] Согласовать `apps/server/tests/contract/test_payment_history_support.py` и `apps/server/tests/integration/test_account_lifecycle.py` с упрощённым интерфейсом, сохранив проверки безопасных писем, чека, номера платежа, запрета автоматического возврата и истечения trial; пройти focused tests, независимый обзор и обязательные PR checks. Причина — три устаревших ожидания в `release-full` 36744581806; это не снимает T011/T012 либо финансовые условия F278.
 
 T013: [#7383](https://github.com/yshishenya/graf/issues/7383).
