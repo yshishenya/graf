@@ -89,3 +89,16 @@ SC-005/006 — post-launch человеческое понимание/конв�
 - `research.md`: `da922d7e08779edd53b74f3ac45873c7ace982b864e4ace27e2f12e150c5ff61`
 - `data-model.md`: `da523bd494a05390aead717d316c589ee9f8004cf7178d5457d055901997df68`
 - `contracts/payment-journey.md`: `7ac316892768cafd3586d6b8e1505f85978e4201ea6d6b1c42e08bf60204a571`
+
+## Анализ пограничных случаев PR #7403
+
+После уточнений spec/plan/quickstart и повторного открытия T017/T018: годовой период без явного cycle, устаревшая вкладка против signed draft и editable promo до receipt verification покрыты существующими FR-005/011/017/018, US1 и SC-007. Точная семантика явного Apply/правки/удаления и неизмененного stale period определена; GET/period/start error не продлевают expiry. Конфликтов с конституцией, новой неоднозначности, пропущенного task или дубликата нет. Кодовая и выпускная приемка остаются открытыми до новых проверок. Requirements review независим; основной агент не меняет отметки.
+
+## Сверка после окончательного implement/converge
+
+Проверены FR-017/018, SC-007, обе точки применения, period/expiry/error/две вкладки и receipt guards; текущие исходники и независимые заключения согласованы с уточнениями. Новых missing/partial/contradicts/unrequested пробелов кода0, нарушений конституции0. СуществующиеT011/T012/T019 не дублируются. Старые hashes выше исторические; текущие документы:
+
+- `spec.md`: `53d6ee633b1376a6508d3bebff024e833a7f45654d849d5b5fd9f394c91602fa`
+- `plan.md`: `0de2f595e907a84e4a7145eb6cafc335dfc701fcb3992397268039bde5025404`
+- `tasks.md`: `2dd6ddcbcd3c42d929410451373ade400eefb3a1856f85657cee045e9c5e1630`
+- `quickstart.md`: `459ccb498269dddaeed8749ca57f17ba3f340911a63d0bea646706bdd1e7c317`

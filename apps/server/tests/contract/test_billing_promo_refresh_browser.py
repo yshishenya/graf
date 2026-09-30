@@ -18,11 +18,19 @@ from sqlalchemy import select
 
 from tests.integration.test_billing_discount_presentation import owner as owner
 from tests.integration.test_billing_discount_presentation import seed_campaign
+from tests.unit.test_billing_money_path_e2e import USER_ID
 from twobrain_rec_server.auth.dependencies import (
     AUTH_SESSION_COOKIE_NAME,
     DEV_AUTH_SESSION_COOKIE_NAME,
 )
-from twobrain_rec_server.db.models import BillingInvoice, BillingOperation, PromotionRedemption
+from twobrain_rec_server.billing.promotions import promo_code_hash
+from twobrain_rec_server.db.models import (
+    BillingInvoice,
+    BillingOperation,
+    ExternalIdentity,
+    PromotionRedemption,
+    WorkspaceSubscription,
+)
 
 ENABLED = os.environ.get("GRAF_PROMO_BROWSER") == "1"
 pytestmark = [pytest.mark.skipif(not ENABLED, reason="Set GRAF_PROMO_BROWSER=1 for DOM proof")]
@@ -33,11 +41,30 @@ ROOT = Path(__file__).parents[4]
 SCRIPT = ROOT / "apps/server/tests/browser/billing-promo-refresh.test.cjs"
 
 
-def test_promo_survives_real_submit_reload_and_return(client, owner, tmp_path, monkeypatch):
+@pytest.mark.parametrize("receipt_verified", [True, False], ids=["verified", "unverified"])
+def test_promo_survives_real_submit_reload_and_return(
+    client, owner, tmp_path, monkeypatch, receipt_verified
+):
     workspace, _ = owner
     seed_campaign(client, policy_snapshot={
         "workspace_id": str(workspace), "purposes": ["initial_checkout"],
     })
+    seed_campaign(client, code_hash=promo_code_hash("SYNTH-SECOND"), discount_percent=25,
+                  policy_snapshot={"workspace_id": str(workspace), "purposes": ["initial_checkout"]})
+
+    async def configure_annual_receipt():
+        async with client.app_state["sessionmaker"]() as db:
+            subscription = await db.get(WorkspaceSubscription, workspace)
+            if subscription is None:
+                subscription = WorkspaceSubscription(workspace_id=workspace, billing_owner_id=USER_ID)
+                db.add(subscription)
+            subscription.cycle = "year"
+            identity = await db.scalar(select(ExternalIdentity).where(
+                ExternalIdentity.user_id == USER_ID, ExternalIdentity.provider == "email"))
+            identity.is_verified = receipt_verified
+            await db.commit()
+
+    asyncio.run(configure_annual_receipt())
     # Use the project's supported local HTTP cookie, retaining the actual issued
     # database session and CSRF subject. Production __Host cookies require TLS.
     session_token = client.cookies.get(AUTH_SESSION_COOKIE_NAME)
@@ -54,7 +81,7 @@ def test_promo_survives_real_submit_reload_and_return(client, owner, tmp_path, m
 
         def forward(self):
             path = urlsplit(self.path).path
-            if self.command == "POST" and path != "/billing/checkout/preview":
+            if self.command == "POST" and path not in {"/billing/checkout/preview", "/billing/discounts/apply"}:
                 errors.append("unexpected_post")
                 self.send_error(405)
                 return
@@ -98,26 +125,29 @@ def test_promo_survives_real_submit_reload_and_return(client, owner, tmp_path, m
             "cookie_name": DEV_AUTH_SESSION_COOKIE_NAME,
             "session_token": session_token,
             "screenshots_dir": os.environ.get("GRAF_PROMO_BROWSER_SCREENSHOTS"),
+            "receipt_verified": receipt_verified,
         }, output)
     thread.start()
     try:
         result = subprocess.run(
             ["node", str(SCRIPT), str(config)], capture_output=True, text=True,
-            timeout=150, check=False,
+            timeout=240, check=False,
         )
         # The runner emits only synthetic check counts and a named failure stage.
         assert result.returncode == 0, (
             result.stderr + " Route statuses: " + repr([
-                row for row in trace if row[1] in {"/billing/checkout", "/billing/checkout/preview"}
+                row for row in trace if row[1] in {"/billing/checkout", "/billing/checkout/preview", "/billing/discounts/apply"}
             ])
         )
         proof = json.loads(result.stdout)
         assert proof["engine"] == os.environ.get("GRAF_BROWSER", "chromium")
         assert proof["viewports"] == [320, 1280]
         assert proof["external_requests"] == 0
-        assert proof["submit_redirects"] == 16
+        assert proof["submit_redirects"] == 36
+        assert proof["receipt_verified"] == receipt_verified
         assert not errors
-        assert sum(row == ("POST", "/billing/checkout/preview", 303) for row in trace) == 16
+        assert sum(row == ("POST", "/billing/checkout/preview", 303) for row in trace) == 32
+        assert sum(row == ("POST", "/billing/discounts/apply", 303) for row in trace) == 4
         assert sum(row == ("GET", "/billing/checkout", 200) for row in trace) >= 30
     finally:
         server.shutdown()

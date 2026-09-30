@@ -1256,6 +1256,36 @@ def test_billing_overview_renders_unavailable_trial_result() -> None:
     assert "Пробный период сейчас недоступен" in html
 
 
+def test_checkout_allows_promo_correction_before_receipt_email_verification() -> None:
+    html = render_template(
+        "cabinet/pages/billing_checkout_content.html",
+        plan=plan_descriptor("personal"),
+        billing_enabled=True,
+        catalog_ready=True,
+        csrf_token="synthetic-csrf",
+        receipt_contact_ready=False,
+        receipt_contact_action_url="/settings/account",
+        checkout_quote_id="synthetic-quote",
+        checkout_idempotency_key="synthetic-key",
+        checkout_result="promo_invalid",
+        checkout_promo_code="BAD<CODE",
+        promo_preview_error="Промокод недействителен. Проверьте код.",
+    )
+
+    assert '<details class="billing-coupon" open>' in html
+    assert 'form="billing-promo-preview" id="billing-promo" name="promo_code"' in html
+    assert 'value="BAD&lt;CODE"' in html
+    assert 'aria-describedby="billing-checkout-error" aria-invalid="true"' in html
+    assert 'value="apply">Применить</button>' in html
+    assert "очистите поле и нажмите «Применить»" in html
+    assert html.count('name="promo_code"') == 1
+    assert 'action="/billing/checkout/preview"' in html
+    assert '>Подтвердить почту</a>' in html
+    assert 'action="/billing/checkout/start"' not in html
+    assert 'name="offer_consent"' not in html
+    assert 'name="recurring_consent"' not in html
+
+
 def test_checkout_keeps_coupon_collapsed_until_promo_interaction() -> None:
     html = render_template(
         "cabinet/pages/billing_checkout_content.html",

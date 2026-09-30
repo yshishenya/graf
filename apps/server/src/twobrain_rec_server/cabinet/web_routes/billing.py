@@ -426,10 +426,14 @@ def _checkout_result_redirect(
     """Carry signed input, never a price, quote, consent or payment authority."""
     previous = _checkout_promo_draft(request, principal=principal, tenant_scope=tenant_scope)
     value = promo_code if promo_code is not None else previous["code"] if previous else ""
-    if not replace_promo and (previous is None or value != previous["code"]):
-        if value and result == "promo_applied":
-            result = "promo_expired"
-        value = ""
+    if not replace_promo:
+        if previous is not None:
+            # An unchanged/stale form or failed start cannot replace newer input.
+            value = previous["code"]
+        else:
+            if value and result == "promo_applied":
+                result = "promo_expired"
+            value = ""
     selected_cycle = cycle if cycle in ("month", "year") else (
         previous["cycle"] if previous else "month"
     )
@@ -1954,16 +1958,17 @@ async def apply_billing_discount(
             PromotionCampaign.enabled.is_(True),
         )
     ) if normalized else None
+    cycle = subscription.cycle if subscription and subscription.cycle in {"month", "year"} else None
     now = datetime.now(UTC)
     if campaign is None or (campaign.starts_at is not None and campaign.starts_at > now) or (
         campaign.ends_at is not None and campaign.ends_at <= now
     ):
         return _checkout_result_redirect(
-            request, "promo_invalid", promo_code=promo_code,
+            request, "promo_invalid", promo_code=promo_code, cycle=cycle,
             principal=principal, tenant_scope=tenant_scope, replace_promo=True,
         )
     return _checkout_result_redirect(
-        request, "promo_applied", promo_code=normalized,
+        request, "promo_applied", promo_code=normalized, cycle=cycle,
         principal=principal, tenant_scope=tenant_scope, replace_promo=True,
     )
 
@@ -3537,6 +3542,12 @@ async def preview_billing_checkout(
         bool((promo_code or "").strip())
         and promo_code != previous_promo_code
     )
+    if not replace_promo:
+        saved_draft = _checkout_promo_draft(
+            request, principal=principal, tenant_scope=tenant_scope
+        )
+        if saved_draft is not None:
+            promo_code = saved_draft["code"]
     if cycle not in {"month", "year"}:
         return _checkout_result_redirect(request, "promo_invalid", promo_code=promo_code, principal=principal, tenant_scope=tenant_scope)
     try:
@@ -3547,10 +3558,18 @@ async def preview_billing_checkout(
                 request, "catalog_not_approved", cycle=cycle, promo_code=promo_code,
                 principal=principal, tenant_scope=tenant_scope, replace_promo=replace_promo,
             )
+        if (
+            preview_action in {"month", "year"} and not replace_promo
+            and saved_draft is None and (promo_code or "").strip()
+        ):
+            return _checkout_result_redirect(
+                request, "promo_expired", cycle=cycle,
+                principal=principal, tenant_scope=tenant_scope,
+            )
         if not (promo_code or "").strip():
             return _checkout_result_redirect(
                 request, "promo_applied", cycle=cycle, promo_code="",
-                principal=principal, tenant_scope=tenant_scope,
+                principal=principal, tenant_scope=tenant_scope, replace_promo=replace_promo,
             )
         entered_promo, _ = await _load_checkout_promo(
             db,

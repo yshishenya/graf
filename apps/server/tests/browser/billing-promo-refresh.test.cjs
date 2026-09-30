@@ -13,7 +13,10 @@ async function run() {
   assert.ok(['chromium', 'webkit'].includes(engine));
   const config = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
   const base = config.base_url;
-  if (config.screenshots_dir) fs.mkdirSync(config.screenshots_dir, { recursive: true });
+  if (config.screenshots_dir) {
+    config.screenshots_dir = path.join(config.screenshots_dir, config.receipt_verified ? 'verified' : 'unverified');
+    fs.mkdirSync(config.screenshots_dir, { recursive: true });
+  }
   const browser = await ({ chromium, webkit })[engine].launch({ headless: true });
   let submitRedirects = 0;
   let externalRequests = 0;
@@ -55,33 +58,39 @@ async function run() {
           assert.ok(summary.includes(`Автопродление ${renewal} ₽ за ${cycle === 'year' ? 'год' : 'месяц'}`));
           for (const name of ['offer_consent', 'recurring_consent']) {
             const consent = page.locator(`input[name="${name}"]`);
-            assert.equal(await consent.count(), 1);
-            assert.equal(await consent.isChecked(), false);
+            assert.equal(await consent.count(), config.receipt_verified ? 1 : 0);
+            if (config.receipt_verified) assert.equal(await consent.isChecked(), false);
           }
-          assert.ok(normalized(await page.locator('[data-billing-primary]').innerText()).includes(`Оплатить ${today} ₽`));
-          const compactConsents = await page.locator('.billing-checkout-form').evaluate(form => {
-            const px = value => Number.parseFloat(value) || 0;
-            return [...form.querySelectorAll('.billing-consent')].every(label => {
-              const style = getComputedStyle(label);
-              const content = Math.max(px(style.minHeight), ...[...label.children].map(child => {
-                const childStyle = getComputedStyle(child);
-                return child.getBoundingClientRect().height
-                  + px(childStyle.marginTop) + px(childStyle.marginBottom);
-              }));
-              const needed = content + px(style.paddingTop) + px(style.paddingBottom)
-                + px(style.borderTopWidth) + px(style.borderBottomWidth);
-              return label.getBoundingClientRect().height <= needed + 2;
+          if (config.receipt_verified) {
+            assert.ok(normalized(await page.locator('[data-billing-primary]').innerText()).includes(`Оплатить ${today} ₽`));
+            const compactConsents = await page.locator('.billing-checkout-form').evaluate(form => {
+              const px = value => Number.parseFloat(value) || 0;
+              return [...form.querySelectorAll('.billing-consent')].every(label => {
+                const style = getComputedStyle(label);
+                const content = Math.max(px(style.minHeight), ...[...label.children].map(child => {
+                  const childStyle = getComputedStyle(child);
+                  return child.getBoundingClientRect().height
+                    + px(childStyle.marginTop) + px(childStyle.marginBottom);
+                }));
+                const needed = content + px(style.paddingTop) + px(style.paddingBottom)
+                  + px(style.borderTopWidth) + px(style.borderBottomWidth);
+                return label.getBoundingClientRect().height <= needed + 2;
+              });
             });
-          });
-          assert.ok(compactConsents, 'consent rows fit their visible text and controls');
+            assert.ok(compactConsents, 'consent rows fit their visible text and controls');
+          }
+        }
+        if (!config.receipt_verified) {
+          assert.equal(await page.locator('form[action="/billing/checkout/start"]').count(), 0);
+          assert.ok(await page.getByRole('link', { name: 'Подтвердить почту', exact: true }).isVisible());
         }
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
       }
 
-      async function submit(button) {
-        const response = page.waitForResponse(response => response.request().method() === 'POST'
-          && new URL(response.url()).pathname === '/billing/checkout/preview');
-        await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), button.click()]);
+      async function submit(button, target = page, endpoint = '/billing/checkout/preview') {
+        const response = target.waitForResponse(response => response.request().method() === 'POST'
+          && new URL(response.url()).pathname === endpoint);
+        await Promise.all([target.waitForNavigation({ waitUntil: 'domcontentloaded' }), button.click()]);
         assert.equal((await response).status(), 303);
         submitRedirects++;
       }
@@ -99,7 +108,7 @@ async function run() {
             path: path.join(config.screenshots_dir, `promo-refresh-${engine}-${width}-${state}.png`),
             fullPage: true,
           });
-          if (state === 'applied' || state === 'cleared') {
+          if (config.receipt_verified && (state === 'applied' || state === 'cleared')) {
             const form = page.locator('.billing-checkout-form');
             const layout = () => form.evaluate(el => ({
               form_height: el.getBoundingClientRect().height,
@@ -205,10 +214,63 @@ async function run() {
       await submit(page.locator('.billing-period-switch button[value="month"]'));
       await verify(month);
       await reloadTwice(month);
+
+      // Two native pages share cookies but retain different rendered inputs.
+      for (const staleCode of ['SYNTH-PRESENTATION', '']) {
+        stage = `${width}:stale-${staleCode ? 'nonempty' : 'empty'}-tab`;
+        assert.equal(await input.inputValue(), staleCode);
+        const other = await context.newPage();
+        await other.goto(`${base}/billing/checkout`, { waitUntil: 'domcontentloaded' });
+        const otherInput = other.locator('#billing-promo');
+        if (!(await otherInput.isVisible())) await other.getByText('Есть промокод?', { exact: true }).click();
+        await otherInput.fill('SYNTH-SECOND');
+        await submit(other.locator('button[form="billing-promo-preview"][value="apply"]'), other);
+        const draft = async () => {
+          const cookie = (await context.cookies()).find(cookie => cookie.name === 'graf_checkout_promo_draft');
+          assert.ok(cookie);
+          return JSON.parse(Buffer.from(cookie.value.split('.')[0], 'base64url').toString('utf8'));
+        };
+        const expiry = (await draft()).expiry;
+        await new Promise(resolve => setTimeout(resolve, 1100));
+        const cycle = staleCode ? 'year' : 'month';
+        await submit(page.locator(`.billing-period-switch button[value="${cycle}"]`));
+        const latest = { code: 'SYNTH-SECOND', cycle, today: cycle === 'year' ? '7500' : '750', renewal: cycle === 'year' ? '10000' : '1000' };
+        await verify(latest);
+        assert.equal((await draft()).expiry, expiry, 'stale period does not renew latest draft');
+        await reloadTwice(latest);
+        await page.goto(`${base}/billing/checkout`, { waitUntil: 'domcontentloaded' });
+        await verify(latest);
+
+        stage = `${width}:explicit-replace-after-stale-tab`;
+        await input.fill('SYNTH-PRESENTATION');
+        await submit(apply);
+        await verify(cycle === 'year' ? year : month);
+        assert.ok((await draft()).expiry > expiry, 'explicit replacement has its own lifetime');
+        await input.fill('');
+        await submit(apply);
+        await verify({ code: '', cycle, today: cycle === 'year' ? '10000' : '1000', renewal: cycle === 'year' ? '10000' : '1000' });
+        await other.close();
+      }
+
+      for (const code of ['SYNTH-PRESENTATION', 'SYNTH-UNKNOWN']) {
+        stage = `${width}:annual-discounts-${code === 'SYNTH-UNKNOWN' ? 'invalid' : 'valid'}`;
+        await page.goto(`${base}/billing/discounts`, { waitUntil: 'domcontentloaded' });
+        const discounts = page.locator('form[action="/billing/discounts/apply"]');
+        assert.equal(await discounts.locator('[name="cycle"]').count(), 0);
+        await discounts.locator('input[name="promo_code"]').fill(code);
+        await submit(discounts.getByRole('button', { name: 'Применить и проверить цену' }), page, '/billing/discounts/apply');
+        const annual = code === 'SYNTH-UNKNOWN' ? { code, cycle: 'year', error: true } : year;
+        await verify(annual);
+        await reloadTwice(annual);
+        await page.goto(`${base}/billing/checkout`, { waitUntil: 'domcontentloaded' });
+        await verify(annual);
+        await screenshot(code === 'SYNTH-UNKNOWN' ? 'annual-discounts-error' : 'annual-discounts');
+      }
       await context.close();
     }
     process.stdout.write(JSON.stringify({
       engine, viewports, submit_redirects: submitRedirects, external_requests: externalRequests,
+      receipt_verified: config.receipt_verified,
     }));
   } finally {
     await browser.close();

@@ -33,6 +33,7 @@ from twobrain_rec_server.db.models import (
     UserIdentity,
     Workspace,
     WorkspaceMembership,
+    WorkspaceSubscription,
 )
 
 DRAFT_COOKIE = "graf_checkout_promo_draft"
@@ -67,6 +68,13 @@ def draft_cookie(response):
         if DRAFT_COOKIE in cookie and cookie[DRAFT_COOKIE].value:
             return cookie[DRAFT_COOKIE]
     pytest.fail("Explicit promo application must issue protected draft state")
+
+
+def keep_cookie_on_controlled_clock(client):
+    """The server clock is frozen; do not let httpx's real clock win instead."""
+    for cookie in client.cookies.jar:
+        if cookie.name == DRAFT_COOKIE:
+            cookie.expires = None
 
 
 def assert_no_draft_renewal(response):
@@ -171,11 +179,13 @@ def test_expiry_is_fixed_and_get_period_changes_and_start_errors_do_not_renew(cl
     assert_no_draft_renewal(page)
     switched = submit(client, headers, cycle="month", action="year")
     assert int(draft_cookie(switched)["max-age"]) <= initial_expiry - clock[0]
+    keep_cookie_on_controlled_clock(client)
     start_error = client.post("/billing/checkout/start", headers=headers,
                               data={"cycle": "year", "promo_code": SYNTH_CODE},
                               follow_redirects=False)
     assert start_error.status_code == 303
     assert int(draft_cookie(start_error)["max-age"]) <= initial_expiry - clock[0]
+    keep_cookie_on_controlled_clock(client)
     clock[0] = initial_expiry
     assert_plain_checkout(client.get("/billing/checkout"))
     for action in ("month", "year"):
@@ -364,3 +374,227 @@ def test_explicit_apply_or_replacement_starts_its_own_fixed_expiry(client, owner
                     cycle="год" if action == "year" else "месяц", promo=code)
     clock[0] = new_expiry
     assert_plain_checkout(client.get("/billing/checkout"))
+
+
+@pytest.mark.parametrize("subscription_cycle", ["year", "month", "none", "unknown"])
+@pytest.mark.parametrize("code", [SYNTH_CODE, "SYNTH-UNKNOWN"])
+def test_discounts_apply_keeps_subscription_period_or_month_fallback(
+    client, owner, code, subscription_cycle
+):
+    workspace, headers = owner
+    seed_campaign(client)
+
+    async def set_cycle():
+        async with client.app_state["sessionmaker"]() as db:
+            subscription = await db.get(WorkspaceSubscription, workspace)
+            if subscription is None:
+                subscription = WorkspaceSubscription(workspace_id=workspace, billing_owner_id=USER_ID)
+                db.add(subscription)
+            subscription.cycle = subscription_cycle
+            await db.commit()
+
+    asyncio.run(set_cycle())
+    applied = client.post("/billing/discounts/apply", headers=headers,
+                          data={"promo_code": code}, follow_redirects=False)
+    assert applied.status_code == 303
+    cycle = "year" if subscription_cycle == "year" else "month"
+    if subscription_cycle in {"month", "year"}:
+        assert f"cycle={cycle}" in applied.headers["location"]
+    for _ in range(3):
+        page = client.get("/billing/checkout")
+        assert promo_input(page) == code
+        assert f'value="{cycle}"' in page.text
+        if code == SYNTH_CODE:
+            assert_checkout(page, today="9000" if cycle == "year" else "900",
+                            renewal="10000" if cycle == "year" else "1000",
+                            cycle="год" if cycle == "year" else "месяц", promo=code)
+        else:
+            assert 'id="billing-checkout-error"' in page.text
+            assert 'action="/billing/checkout/start"' not in page.text
+
+
+@pytest.mark.parametrize("stale_code", [SYNTH_CODE, ""])
+@pytest.mark.parametrize("action", ["month", "year"])
+def test_unchanged_stale_tab_period_uses_latest_draft_without_renewal(
+    client, owner, monkeypatch, stale_code, action
+):
+    _, headers = owner
+    seed_campaign(client)
+    latest_code = "SYNTH-SECOND"
+    seed_campaign(client, code_hash=promo_code_hash(latest_code), discount_percent=25)
+    clock = [int(time.time())]
+    monkeypatch.setattr(routes, "_promo_draft_now", lambda: clock[0])
+    if stale_code:
+        submit(client, headers)
+    latest = submit(client, headers, code=latest_code)
+    assert draft_cookie(latest)["max-age"] == "300"
+    clock[0] += 299
+    switched = submit(client, headers, code=stale_code, action=action,
+                      previous_code=stale_code)
+    assert draft_cookie(switched)["max-age"] == "1"
+    keep_cookie_on_controlled_clock(client)
+    for _ in range(2):
+        assert_checkout(client.get("/billing/checkout"),
+                        today="7500" if action == "year" else "750",
+                        renewal="10000" if action == "year" else "1000",
+                        cycle="год" if action == "year" else "месяц", promo=latest_code)
+    clock[0] += 1
+    assert_plain_checkout(client.get("/billing/checkout"))
+
+
+
+def test_stale_start_error_preserves_latest_draft_and_actual_receipt_guard(client, owner, monkeypatch):
+    _, headers = owner
+    seed_campaign(client)
+    latest_code = "SYNTH-SECOND"
+    seed_campaign(client, code_hash=promo_code_hash(latest_code), discount_percent=25)
+    clock = [int(time.time())]
+    monkeypatch.setattr(routes, "_promo_draft_now", lambda: clock[0])
+    submit(client, headers)
+    submit(client, headers, code=latest_code)
+
+    async def unverify_email():
+        async with client.app_state["sessionmaker"]() as db:
+            identity = await db.scalar(select(ExternalIdentity).where(
+                ExternalIdentity.user_id == USER_ID, ExternalIdentity.provider == "email"))
+            identity.is_verified = False
+            await db.commit()
+
+    asyncio.run(unverify_email())
+    clock[0] += 299
+    rejected = client.post("/billing/checkout/start", headers=headers,
+                           data={"cycle": "month", "promo_code": SYNTH_CODE,
+                                 "idempotency_key": "synthetic-stale-start",
+                                 "offer_consent": "true", "recurring_consent": "true"},
+                           follow_redirects=False)
+    assert rejected.status_code == 303
+    assert "result=receipt_contact_required" in rejected.headers["location"]
+    assert draft_cookie(rejected)["max-age"] == "1"
+    keep_cookie_on_controlled_clock(client)
+    page = client.get(rejected.headers["location"])
+    assert promo_input(page) == latest_code
+    assert 'action="/billing/checkout/start"' not in page.text
+    assert "Подтвердите email" in page.text
+    clock[0] += 1
+    assert promo_input(client.get("/billing/checkout")) == ""
+
+
+def test_unverified_receipt_allows_readonly_promo_correction_and_clear(client, owner):
+    _, headers = owner
+    seed_campaign(client)
+
+    async def unverify_email():
+        async with client.app_state["sessionmaker"]() as db:
+            identity = await db.scalar(select(ExternalIdentity).where(
+                ExternalIdentity.user_id == USER_ID, ExternalIdentity.provider == "email"))
+            identity.is_verified = False
+            await db.commit()
+
+    asyncio.run(unverify_email())
+    rejected = client.post("/billing/discounts/apply", headers=headers,
+                           data={"promo_code": "SYNTH-UNKNOWN"}, follow_redirects=False)
+    assert rejected.status_code == 303
+    assert promo_input(client.get(rejected.headers["location"])) == "SYNTH-UNKNOWN"
+    for code in (SYNTH_CODE, ""):
+        preview = submit(client, headers, code=code)
+        page = client.get(preview.headers["location"])
+        assert promo_input(page) == code
+        assert 'action="/billing/checkout/start"' not in page.text
+        assert "Подтвердите email" in page.text
+        assert 'name="preview_action" value="apply"' in page.text
+
+
+@pytest.mark.parametrize("command", ["replace", "clear", "expired"])
+def test_stale_tab_explicit_actions_and_expired_latest_choice(client, owner, monkeypatch, command):
+    _, headers = owner
+    seed_campaign(client)
+    latest_code = "SYNTH-SECOND"
+    seed_campaign(client, code_hash=promo_code_hash(latest_code), discount_percent=25)
+    clock = [int(time.time())]
+    monkeypatch.setattr(routes, "_promo_draft_now", lambda: clock[0])
+    submit(client, headers)
+    submit(client, headers, code=latest_code)
+    clock[0] += 300 if command == "expired" else 299
+    response = submit(client, headers, code="" if command == "clear" else SYNTH_CODE,
+                      action="year" if command == "expired" else "apply",
+                      previous_code=SYNTH_CODE)
+    if command == "replace":
+        assert draft_cookie(response)["max-age"] == "300"
+        assert_checkout(client.get("/billing/checkout"), today="900", renewal="1000",
+                        cycle="месяц", promo=SYNTH_CODE)
+    else:
+        assert_no_draft_renewal(response)
+        assert_plain_checkout(client.get("/billing/checkout"))
+        if command == "expired":
+            assert "result=promo_expired" in response.headers["location"]
+            assert "Промокод больше не сохранен" in client.get(response.headers["location"]).text
+
+
+def test_stale_period_rechecks_latest_campaign_instead_of_using_old_valid_code(client, owner, monkeypatch):
+    _, headers = owner
+    seed_campaign(client)
+    latest_code = "SYNTH-SECOND"
+    campaign_id = seed_campaign(client, code_hash=promo_code_hash(latest_code), discount_percent=25)
+    clock = [int(time.time())]
+    monkeypatch.setattr(routes, "_promo_draft_now", lambda: clock[0])
+    submit(client, headers)
+    submit(client, headers, code=latest_code)
+
+    async def disable_latest():
+        async with client.app_state["sessionmaker"]() as db:
+            campaign = await db.get(PromotionCampaign, campaign_id)
+            campaign.enabled = False
+            await db.commit()
+
+    asyncio.run(disable_latest())
+    clock[0] += 299
+    response = submit(client, headers, action="year", previous_code=SYNTH_CODE)
+    assert "result=promo_invalid" in response.headers["location"]
+    assert draft_cookie(response)["max-age"] == "1"
+    keep_cookie_on_controlled_clock(client)
+    page = client.get(response.headers["location"])
+    assert promo_input(page) == latest_code
+    assert 'action="/billing/checkout/start"' not in page.text
+    assert 'id="billing-checkout-error"' in page.text
+
+
+@pytest.mark.parametrize("stale_code", ["SYNTH-UNKNOWN", "[bad code]"])
+@pytest.mark.parametrize("action", ["month", "year"])
+def test_expired_latest_draft_explains_loss_for_unchanged_invalid_stale_input(
+    client, owner, monkeypatch, stale_code, action
+):
+    _, headers = owner
+    seed_campaign(client)
+    clock = [int(time.time())]
+    monkeypatch.setattr(routes, "_promo_draft_now", lambda: clock[0])
+    submit(client, headers, code=stale_code)
+    submit(client, headers)
+    clock[0] += 300
+    response = submit(client, headers, code=stale_code, action=action, previous_code=stale_code)
+    assert "result=promo_expired" in response.headers["location"]
+    assert_no_draft_renewal(response)
+    page = client.get(response.headers["location"])
+    assert promo_input(page) == ""
+    assert "Промокод больше не сохранен" in page.text
+    assert "снова проверить скидку" in page.text
+    assert re.search(r'<details class="billing-coupon" open>', page.text)
+
+
+@pytest.mark.parametrize("guard", ["unavailable", "catalog_not_approved"])
+def test_expired_stale_input_does_not_hide_preview_guard(client, owner, monkeypatch, guard):
+    _, headers = owner
+    seed_campaign(client)
+    clock = [int(time.time())]
+    monkeypatch.setattr(routes, "_promo_draft_now", lambda: clock[0])
+    submit(client, headers, code="[bad code]")
+    clock[0] += 300
+    if guard == "unavailable":
+        monkeypatch.setattr(routes, "billing_checkout_allowed", lambda *_args: False)
+    else:
+        async def no_catalog(*_args, **_kwargs):
+            return {}
+        monkeypatch.setattr(routes, "_approved_personal_catalog", no_catalog)
+    response = submit(client, headers, code="[bad code]", action="year", previous_code="[bad code]")
+    assert f"result={guard}" in response.headers["location"]
+    assert "promo_expired" not in response.headers["location"]
+    assert_no_draft_renewal(response)
