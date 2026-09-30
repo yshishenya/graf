@@ -11,7 +11,7 @@
 1. `cd apps/server && uv run --extra dev ruff check src/twobrain_rec_server/public/web.py tests/contract/test_public_search_pages.py`
 2. `bash apps/server/scripts/run_local_postgres_tests.sh --focused -q tests/contract/test_public_search_pages.py tests/contract/test_public_landing_contract.py tests/contract/test_public_mac_meeting_guide.py tests/unit/test_public_landing.py tests/unit/test_public_analytics.py tests/unit/test_public_visit_attribution.py`
 3. Браузер на 320, 390, 768, 1440: все три новые страницы, отсутствие горизонтального переполнения и скрытых CTA, фокус/skip-link и без JS. До/после first screen главной одинаков при одинаковом контексте; footer links доступны. Сохранить только синтетический preview.
-4. `git diff --check` и `python3 scripts/check_spec_kit_governance.py`, `python3 scripts/validate-changelog-fragments.py` (актуальный интерфейс предварительно через --help).
+4. `git diff --check` и `python3 scripts/check-development-process.py`, `python3 scripts/check_spec_kit_governance.py`, `python3 scripts/validate-changelog-fragments.py` (актуальный интерфейс предварительно через --help).
 5. Независимое ревью требований перед implement; analyze без critical/high; issue sync до implement. Converge после тестов.
 
 ## Expected results
