@@ -62,10 +62,13 @@ def test_refund_mailto_rejects_unsafe_addresses_and_references(
 def test_history_ui_keeps_refund_as_email_only_and_warns_against_sensitive_data() -> None:
     template = HISTORY_TEMPLATE.read_text(encoding="utf-8")
 
-    assert "Написать письмо" in template
-    assert "Скопировать номер платежа" in template
-    assert "Не отправляйте данные карты" in template
-    assert "не создает заявку в продукте" in template
+    assert 'href="mailto:{{ support_email }}"' in template
+    assert 'data-copy-value="{{ support_email }}">Скопировать адрес' in template
+    assert 'href="{{ invoice.detail_url }}"' in template
+    assert "Номер платежа можно скопировать в его сведениях" in template
+    assert "Не отправляйте данные карты, идентификаторы ЮKassa, ссылки или содержимое встреч" in template
+    assert "Запрос на возврат отправьте письмом в поддержку" in template
+    assert "<form" not in template.lower()
     assert not hasattr(YooKassaClient, "create_refund")
     assert '"POST", "/v3/refunds' not in inspect.getsource(YooKassaClient)
 
@@ -74,9 +77,14 @@ def test_invoice_detail_ui_exposes_only_safe_copy_and_mailto_actions() -> None:
     template = INVOICE_TEMPLATE.read_text(encoding="utf-8")
 
     assert "Скопировать номер платежа" in template
-    assert "Скопировать email" in template
-    assert "Написать письмо" in template
-    assert "GRAF не создает заявку" in template
-    assert "не отправляйте данные карты" in template.lower()
-    assert "refund_mailto" in template
+    assert 'data-copy-value="{{ invoice.safe_number }}"' in template
+    assert "Написать в поддержку" in template
+    assert "Открытие письма не отправляет запрос и не оформляет возврат" in template
+    assert "Данные карты отправлять не нужно" in template
+    assert "Результат возврата уточняйте у поддержки: GRAF не показывает его статус" in template
+    assert "Возврат не отключает автопродление" in template
+    assert 'href="/billing/subscription"' in template
+    assert 'href="{{ invoice.refund_mailto }}"' in template
+    assert 'href="mailto:{{ support_email }}"' in template
     assert "invoice.receipt_url" in template
+    assert "<form" not in template.lower()

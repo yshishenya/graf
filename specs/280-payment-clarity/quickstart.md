@@ -10,6 +10,7 @@
 apps/server/scripts/run_local_postgres_tests.sh --focused \
   tests/contract/test_billing_ui.py tests/contract/test_billing_purchase_ui.py \
   tests/contract/test_billing_clarity.py tests/contract/test_billing_security.py \
+  tests/contract/test_payment_history_support.py tests/integration/test_account_lifecycle.py \
   tests/contract/test_billing_safety_contract.py tests/unit/test_billing_copy_and_redaction.py \
   tests/integration/test_billing_usability.py tests/integration/test_billing_review_regressions.py \
   tests/integration/test_billing_purchase_journey.py tests/integration/test_billing_clarity.py \
