@@ -434,8 +434,8 @@ def _checkout_result_redirect(
             if value and result == "promo_applied":
                 result = "promo_expired"
             value = ""
-    selected_cycle = cycle if cycle in ("month", "year") else (
-        previous["cycle"] if previous else "month"
+    selected_cycle = previous["cycle"] if previous and request.url.path == "/billing/checkout/start" else (
+        cycle if cycle in ("month", "year") else previous["cycle"] if previous else "month"
     )
     query = {"result": result}
     if cycle in ("month", "year") or previous:
@@ -2137,9 +2137,7 @@ async def billing_checkout_status_page(
         ),
         status_result=request.query_params.get("result"),
     )
-    response = cabinet_html_response(content)
-    _clear_checkout_promo_draft(response)
-    return response
+    return cabinet_html_response(content)
 
 
 @router.post(
@@ -2271,7 +2269,7 @@ async def continue_billing_checkout(
             )
         url = operation.request_snapshot.get("confirmation_url")
         if operation.state == "provider_pending" and is_allowed_confirmation_url(url):
-            return RedirectResponse(url, status_code=303)
+            return _checkout_operation_redirect(url, status_code=303)
         return RedirectResponse(_checkout_status_location(invoice.safe_number), status_code=303)
     if operation is None or operation.kind != "initial_checkout":
         return RedirectResponse(
@@ -2303,11 +2301,10 @@ async def continue_billing_checkout(
         await db.commit()
     if operation.provider_id is not None:
         confirmation_url = operation.request_snapshot.get("confirmation_url")
+        if is_allowed_confirmation_url(confirmation_url):
+            return _checkout_operation_redirect(confirmation_url, status_code=303)
         return RedirectResponse(
-            confirmation_url
-            if is_allowed_confirmation_url(confirmation_url)
-            else _checkout_status_location(safe_number, result="unchanged"),
-            status_code=303,
+            _checkout_status_location(safe_number, result="unchanged"), status_code=303
         )
     if operation.request_snapshot.get("purchase_schema") == 2:
         return RedirectResponse(
@@ -2344,7 +2341,7 @@ async def continue_billing_checkout(
         if subscription is not None and subscription.billing_owner_id != principal.user_id:
             subscription.billing_owner_id = principal.user_id
         await db.commit()
-        return RedirectResponse(
+        return _checkout_operation_redirect(
             confirmation_url
             if confirmation_url is not None
             else _checkout_status_location(safe_number, result="provider_unavailable"),
@@ -3299,14 +3296,11 @@ async def billing_checkout_page(
         continuation_candidate if is_allowed_confirmation_url(continuation_candidate) else None
     )
     saved_draft = _checkout_promo_draft(request, principal=principal, tenant_scope=tenant_scope)
-    checkout_promo_code = getattr(
-        request.state,
-        "billing_checkout_promo_code",
-        saved_draft["code"] if saved_draft else "",
-    )
-    checkout_cycle = getattr(
-        request.state, "billing_checkout_cycle", request.query_params.get("cycle")
-    )
+    checkout_promo_code = saved_draft["code"] if saved_draft else ""
+    # Direct POST rejection must not replay stale form input into the preview.
+    checkout_cycle = (
+        saved_draft["cycle"] if saved_draft else None
+    ) if request.method == "POST" else request.query_params.get("cycle")
     descriptor = plan_descriptor("personal")
     receipt_contact = await _verified_receipt_contact(db, principal.user_id)
     now = datetime.now(UTC)
@@ -3745,8 +3739,6 @@ async def start_billing_checkout(
             return _checkout_result_redirect(request, "catalog_not_approved", cycle=cycle, promo_code=promo_code, principal=principal, tenant_scope=tenant_scope)
         if offer_version != catalog_snapshot.offer_version:
             request.state.billing_checkout_result = "offer_changed"
-            request.state.billing_checkout_cycle = cycle
-            request.state.billing_checkout_promo_code = promo_code or ""
             response = await billing_checkout_page(
                 request,
                 tenant_scope=tenant_scope,
@@ -3871,8 +3863,6 @@ async def start_billing_checkout(
         except (PurchaseError, ValueError):
             await db.rollback()
             request.state.billing_checkout_result = "quote_changed"
-            request.state.billing_checkout_cycle = cycle
-            request.state.billing_checkout_promo_code = promo_code or ""
             response = await billing_checkout_page(
                 request,
                 tenant_scope=tenant_scope,

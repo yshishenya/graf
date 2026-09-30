@@ -29,13 +29,13 @@
         </nav>
         {% endif %}
 
+        {% if not checkout_blocked and checkout_result == "quote_changed" %}<p class="notice notice--warning" role="alert">Расчет изменился или устарел. Проверьте сумму, срок и подтвердите покупку заново. Списания не было.</p>{% endif %}
+        {% if not checkout_blocked and checkout_result == "offer_changed" %}<p class="notice notice--warning" role="alert">Условия оплаты изменились. Проверьте итог и заново примите оферту. Новая оплата не создана.</p>{% endif %}
         {% if checkout_blocked %}<div class="notice notice--warning" role="status" aria-live="polite"><p>Платеж уже создан. Повторно платить не нужно.</p>{% if checkout_continuation_url|default(None) %}<a class="button primary" href="{{ checkout_continuation_url|e }}">Продолжить этот платеж в ЮKassa</a>{% elif checkout_status_url|default(None) %}<a class="button primary" href="{{ checkout_status_url }}">Проверить статус</a>{% else %}<a class="button quiet" href="/billing/history">Открыть историю платежей</a>{% endif %}</div>
         {% elif checkout_result == "promo_expired" %}<p class="notice notice--warning" role="status">Промокод больше не сохранен. Введите его и нажмите «Применить», чтобы снова проверить скидку.</p>
         {% elif promo_preview_error|default(None) %}<p id="billing-checkout-error" role="alert" class="notice notice--error">{{ promo_preview_error }}</p>
         {% elif checkout_result == "owner_only" %}<p class="notice notice--error" role="alert">Оплатить тариф может только владелец пространства.</p>
         {% elif checkout_result == "offer_required" %}<p class="notice notice--warning" role="alert">Откройте и примите оферту перед оплатой.</p>
-        {% elif checkout_result == "quote_changed" %}<p class="notice notice--warning" role="alert">Расчет изменился или устарел. Проверьте сумму, срок и подтвердите покупку заново. Списания не было.</p>
-        {% elif checkout_result == "offer_changed" %}<p class="notice notice--warning" role="alert">Условия оплаты изменились. Проверьте итог и заново примите оферту. Новая оплата не создана.</p>
         {% elif checkout_result == "consent_required" %}<p class="notice notice--warning" role="alert">Подтвердите согласие на автоматические списания или вернитесь к тарифам.</p>
         {% elif checkout_result == "catalog_not_approved" %}<p class="notice notice--warning" role="alert">Оплата временно недоступна. Попробуйте позже.</p>
         {% elif checkout_result == "unavailable" %}<p class="notice notice--warning" role="alert">Оплата временно недоступна. Повторите попытку позже.</p>

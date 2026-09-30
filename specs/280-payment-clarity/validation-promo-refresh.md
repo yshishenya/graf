@@ -80,3 +80,33 @@ DOM после edge исправлений на billing.py073e23a2…: Chromium2
 Актуальный независимый flow reviewer дал PASS current cf91d565… и testd1126007… после личного просмотра исходников/логов/снимков. Browser reviewer отдельно подтвердил закрытие MEDIUM к проверке часов по фактическому109PASS; визуальный/DOM PASS сохраняется, отдельные пределы указаны в review-promo-refresh-edge-final-browser.md. Финальная сверка security ожидается.
 
 Три закрывающих независимых заключения PASS/currenthash и отсутствие конкретных неисправленных замечаний записаны в review-promo-refresh-final.md. Readiness текущего кода подтверждена; повторный converge не выявил новой реализации за пределами существующих задач. T017/T018 завершены, T019 открыт до нового exactSHA CI/release/runtime.
+
+## Дополнительные замечания истории/start, текущая редакция
+
+Два новых P2 PR #7403 привели к повторному открытию T017/T018. Независимая сверка соседних обработчиков обнаружила также303 с потерей года и разрешённый continue без явной очистки. Уточнения требований/плана и независимый допуск 9/0: review-promo-refresh-status-conflict-requirements.md. Перед правкой кода выполнены analyze, синхронизация #7402 и canon: 300 PASS. Новых моделей, зависимостей и задач нет.
+
+Воспроизведения до исправления: история/прямые409 — 8 FAIL / 2 PASS за 16,18 с; расширение — 15 FAIL / 2 PASS за 23,53 с; старый303 — 1 FAIL за 9,62 с; hosted continue — 2 FAIL / 4 PASS за 11,50 с. Прежний набор222 прерван после116 PASS за303,36 с; это не итог. Параллельный Chromium получил timeout, повтор WebKit прерван; они не считаются PASS.
+
+Окончательная команда:
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused \
+  tests/integration/test_billing_promo_refresh.py \
+  tests/integration/test_billing_discount_presentation.py \
+  tests/integration/test_billing_return.py tests/contract/test_billing_ui.py \
+  -q --tb=short --show-capture=no
+```
+
+Результат: 228 PASS за133,25 с, runner138 с; внутри79 HTTP/БД сценариев refresh. Лог `/tmp/graf-f280-promo-history409-303-continue-final.log`, SHA256 `e79e2ddb8fb4e1bde24a8f60cada762f22b7e0c0b987bdbbda5ccca78d6955b1`. Исполнитель подтвердил неизменность файлов во время запуска:
+
+- billing.py: `2c571a3e79b7062c58929b94666fd519f5a2ad1d87b393a9dabc27d35a5f65a2`.
+- Шаблон: `8351694ffbd603639a6e05bd7bcd033ca3f33df4874128b67c220763b9a23556`.
+- HTTP-тест: `214b94edae17e7af22a0294b2edf5089034f1d3dad1be896f1d0f71f43bfd46a`.
+
+Проверены оба409, исторические статусы succeeded/failed/canceled, отсутствие/срок/подмена/чужая сессия/отключение акции, годовой B при303 и разрешённое/запрещённое продолжение. Все столбцы заранее существующих финансовых записей сравниваются до/после; новых строк и вызовов провайдера нет.
+
+Независимые последовательные реальные браузеры на этом снимке: Chromium1 PASS /16,48 с (runner21 с), WebKit1 PASS /45,60 с (runner50 с). Логи `/tmp/graf-status-conflict-browser/chromium-stable.log` и `webkit-stable.log`; на движок8 preview303,4 отказных POSTstart409,2 GET исторического статуса,320/1280 px. Проверены B/year/7500/10000, пустые согласия, исходный expiry и два обновления. Финансовые строки1/1/0 без новых, провайдер и внешние запросы запрещены. Временный сценарий подготовлен независимым исполнителем; постоянные HTTP/SQL регрессии входят в репозиторий.
+
+Основной агент отдельно исполнил тот же последовательный сценарий на этом снимке: Chromium1 PASS /16,19 с и WebKit1 PASS /46,20 с. Эти повторы не прибавляются к независимым результатам.
+
+Три независимых ограниченных PASS и точные границы: review-promo-refresh-status-conflict-final-flow.md, review-promo-refresh-status-conflict-security.md, review-promo-refresh-status-conflict-browser.md. Прежние109/199/DOM остаются историческими. T011/T012, реальная финансовая F278 и новый выпуск T019 этим не подтверждаются.

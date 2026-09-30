@@ -3,12 +3,14 @@
 import asyncio
 import re
 import time
+from datetime import UTC, datetime, timedelta
 from html import unescape
 from http.cookies import SimpleCookie
 
 import pytest
 from sqlalchemy import select
 
+from tests.integration.test_billing_clarity import seed_payment
 from tests.integration.test_billing_discount_presentation import (
     assert_checkout,
     seed_campaign,
@@ -42,14 +44,31 @@ SYNTH_CODE = "SYNTH-PRESENTATION"
 
 @pytest.fixture(autouse=True)
 def no_financial_side_effects(client):
+    client.promo_expected_financial_rows = {}
+    client.promo_expected_financial_contents = {}
     yield
 
     async def inspect():
         async with client.app_state["sessionmaker"]() as db:
             for model in (BillingOperation, BillingInvoice, PromotionRedemption):
-                assert await db.scalar(select(model.id)) is None
+                expected = getattr(client, "promo_expected_financial_rows", {}).get(model, set())
+                rows = (await db.execute(select(model.__table__))).mappings().all()
+                assert {row["id"] for row in rows} == expected
+                contents = client.promo_expected_financial_contents.get(model)
+                if contents is not None:
+                    assert {row["id"]: dict(row) for row in rows} == contents
 
     asyncio.run(inspect())
+
+
+def capture_financial_baseline(client):
+    async def capture():
+        async with client.app_state["sessionmaker"]() as db:
+            for model in (BillingOperation, BillingInvoice):
+                rows = (await db.execute(select(model.__table__))).mappings().all()
+                client.promo_expected_financial_contents[model] = {row["id"]: dict(row) for row in rows}
+                client.promo_expected_financial_rows[model] = {row["id"] for row in rows}
+    asyncio.run(capture())
 
 
 def submit(client, headers, code=SYNTH_CODE, *, cycle="month", action="apply",
@@ -86,8 +105,8 @@ def assert_plain_checkout(response):
     assert_checkout(response, today="1000", renewal="1000", cycle="месяц", promo="")
 
 
-def promo_input(response):
-    assert response.status_code == 200
+def promo_input(response, *, status=200):
+    assert response.status_code == status
     field = re.search(r'<input[^>]*id="billing-promo"[^>]*>', response.text)
     assert field, "Checkout must retain the editable promo field"
     return unescape(re.search(r'value="([^"]*)"', field.group(0)).group(1))
@@ -451,7 +470,7 @@ def test_stale_start_error_preserves_latest_draft_and_actual_receipt_guard(clien
     clock = [int(time.time())]
     monkeypatch.setattr(routes, "_promo_draft_now", lambda: clock[0])
     submit(client, headers)
-    submit(client, headers, code=latest_code)
+    submit(client, headers, code=latest_code, cycle="year")
 
     async def unverify_email():
         async with client.app_state["sessionmaker"]() as db:
@@ -473,6 +492,7 @@ def test_stale_start_error_preserves_latest_draft_and_actual_receipt_guard(clien
     keep_cookie_on_controlled_clock(client)
     page = client.get(rejected.headers["location"])
     assert promo_input(page) == latest_code
+    assert 'name="cycle" value="year"' in page.text
     assert 'action="/billing/checkout/start"' not in page.text
     assert "Подтвердите email" in page.text
     clock[0] += 1
@@ -598,3 +618,167 @@ def test_expired_stale_input_does_not_hide_preview_guard(client, owner, monkeypa
     assert f"result={guard}" in response.headers["location"]
     assert "promo_expired" not in response.headers["location"]
     assert_no_draft_renewal(response)
+
+
+
+def checkout_start_fields(page):
+    values = {
+        match[1]: unescape(match[2])
+        for match in re.finditer(r'<input[^>]*name="([^"]+)"[^>]*value="([^"]*)"', page.text)
+    }
+    return {name: values[name] for name in ("cycle", "idempotency_key", "quote_id", "offer_version")}
+
+
+@pytest.mark.parametrize("state", ["succeeded", "failed", "canceled"])
+def test_historical_status_get_preserves_other_checkout_draft(client, owner, monkeypatch, state):
+    workspace, headers = owner
+    seed_campaign(client)
+    clock = [int(time.time())]
+    monkeypatch.setattr(routes, "_promo_draft_now", lambda: clock[0])
+
+    async def historical_invoice():
+        async with client.app_state["sessionmaker"]() as db:
+            operation = BillingOperation(workspace_id=workspace, kind="initial_checkout", state=state,
+                                         idempotency_key="synthetic-old-payment", request_snapshot={})
+            db.add(operation)
+            await db.flush()
+            invoice = BillingInvoice(workspace_id=workspace, operation_id=operation.id,
+                                     safe_number="INV-SYNTH-OLDER", amount_minor=100000,
+                                     status=state, plan_snapshot={"cycle": "month"},
+                                     created_at=datetime.now(UTC) - timedelta(days=60))
+            db.add(invoice)
+            await db.commit()
+            return operation.id, invoice.id
+
+    asyncio.run(historical_invoice())
+    capture_financial_baseline(client)
+    applied = submit(client, headers, cycle="year")
+    before = draft_cookie(applied).value
+    clock[0] += 299
+    for _ in range(2):
+        status = client.get("/billing/checkout/status/INV-SYNTH-OLDER")
+        assert status.status_code == 200
+        assert_no_draft_renewal(status)
+        assert not any(DRAFT_COOKIE in header for header in status.headers.get_list("set-cookie"))
+        assert client.cookies.get(DRAFT_COOKIE) == before
+        assert_checkout(client.get("/billing/checkout"), today="9000", renewal="10000",
+                        cycle="год", promo=SYNTH_CODE)
+    clock[0] += 1
+    assert_plain_checkout(client.get("/billing/checkout"))
+    submit(client, headers, cycle="year")
+    recovered = client.post("/billing/checkout/start", headers=headers, data={
+        "cycle": "year", "promo_code": SYNTH_CODE,
+        "idempotency_key": "synthetic-old-payment",
+        "offer_consent": "true", "recurring_consent": "true",
+    }, follow_redirects=False)
+    assert recovered.status_code == 303
+    assert recovered.headers["location"] == "/billing/checkout/status/INV-SYNTH-OLDER"
+    assert any(DRAFT_COOKIE in header and "Max-Age=0" in header
+               for header in recovered.headers.get_list("set-cookie"))
+    assert_plain_checkout(client.get("/billing/checkout"))
+
+
+@pytest.mark.parametrize("reason", ["offer_changed", "quote_changed"])
+@pytest.mark.parametrize("selection", ["latest", "unchanged", "expired", "absent", "tampered", "foreign_session", "disabled"])
+def test_direct_stale_start_rejection_uses_verified_draft_only(
+    client, owner, monkeypatch, reason, selection
+):
+    _, headers = owner
+    seed_campaign(client)
+    latest_code = "SYNTH-SECOND"
+    seed_campaign(client, code_hash=promo_code_hash(latest_code), discount_percent=25)
+    clock = [int(time.time())]
+    monkeypatch.setattr(routes, "_promo_draft_now", lambda: clock[0])
+    submit(client, headers)
+    first = client.get("/billing/checkout")
+    fields = checkout_start_fields(first)
+    if selection in {"latest", "expired", "tampered", "foreign_session", "disabled"}:
+        submit(client, headers, code=latest_code, cycle="year")
+    if selection in {"tampered", "foreign_session"}:
+        saved_token = client.cookies.get(DRAFT_COOKIE)
+        client.cookies.delete(DRAFT_COOKIE)
+        if selection == "tampered":
+            saved_token = ("A" if saved_token[0] != "A" else "B") + saved_token[1:]
+        else:
+            change_verified_context(client, boundary="session")
+            session_response = client.get("/billing/checkout")
+            csrf = re.search(r'name="csrf_token" value="([^"]+)"', session_response.text)
+            headers = {"X-CSRF-Token": unescape(csrf[1])}
+        client.cookies.set(DRAFT_COOKIE, saved_token, path="/billing/checkout")
+    elif selection == "absent":
+        client.cookies.delete(DRAFT_COOKIE)
+    elif selection == "disabled":
+        async def disable_latest():
+            async with client.app_state["sessionmaker"]() as db:
+                campaign = await db.scalar(select(PromotionCampaign).where(
+                    PromotionCampaign.code_hash == promo_code_hash(latest_code)))
+                campaign.enabled = False
+                await db.commit()
+        asyncio.run(disable_latest())
+    clock[0] += 300 if selection == "expired" else 299
+    if reason == "offer_changed":
+        fields["offer_version"] = "synthetic-outdated-offer"
+    else:
+        fields["quote_id"] = "00000000-0000-0000-0000-000000000000"
+    response = client.post("/billing/checkout/start", headers=headers, data={
+        **fields, "promo_code": SYNTH_CODE,
+        "offer_consent": "true", "recurring_consent": "true",
+    }, follow_redirects=False)
+    expected_code = latest_code if selection in {"latest", "disabled"} else SYNTH_CODE if selection == "unchanged" else ""
+    assert promo_input(response, status=409) == expected_code
+    expected_cycle = "year" if selection in {"latest", "disabled"} else "month"
+    assert f'name="cycle" value="{expected_cycle}"' in response.text
+    assert "Условия оплаты изменились" in response.text if reason == "offer_changed" else "Расчет изменился или устарел" in response.text
+    assert_no_draft_renewal(response)
+    for name in ("offer_consent", "recurring_consent"):
+        checkbox = re.search(rf'<input[^>]*name="{name}"[^>]*>', response.text)
+        if selection == "disabled":
+            assert checkbox is None
+        else:
+            assert checkbox and "checked" not in checkbox.group(0)
+    for _ in range(2):
+        page = client.get("/billing/checkout")
+        if selection == "disabled":
+            assert promo_input(page) == latest_code
+            assert 'id="billing-checkout-error"' in page.text
+            assert 'action="/billing/checkout/start"' not in page.text
+            continue
+        assert_checkout(page, today="7500" if selection == "latest" else "900" if selection == "unchanged" else "1000",
+                        renewal="10000" if selection == "latest" else "1000",
+                        cycle="год" if selection == "latest" else "месяц", promo=expected_code)
+    if selection in {"latest", "unchanged"}:
+        clock[0] += 1
+        assert_plain_checkout(client.get("/billing/checkout"))
+
+
+@pytest.mark.parametrize("kind", ["initial_checkout", "storage_upgrade"])
+@pytest.mark.parametrize("access", ["allowed", "disabled", "foreign_actor"])
+def test_existing_hosted_continue_clears_only_after_authorized_handoff(client, owner, monkeypatch, kind, access):
+    workspace, headers = owner
+    seed_campaign(client)
+    hosted_url = "https://yookassa.test/checkout/synthetic-existing"
+    seed_payment(client, workspace, kind=kind, state="provider_pending", confirmation_url=hosted_url)
+    if access == "foreign_actor":
+        async def foreign_actor():
+            async with client.app_state["sessionmaker"]() as db:
+                operation = await db.scalar(select(BillingOperation))
+                operation.request_snapshot = {**operation.request_snapshot,
+                                              "billing_actor_user_id": "synthetic-other-actor"}
+                await db.commit()
+        asyncio.run(foreign_actor())
+    capture_financial_baseline(client)
+    before = draft_cookie(submit(client, headers, cycle="year")).value
+    if access == "disabled":
+        monkeypatch.setattr(routes, "billing_checkout_allowed", lambda *_args: False)
+    response = client.post("/billing/checkout/status/INV-CLARITY/continue", headers=headers,
+                           follow_redirects=False)
+    assert response.status_code == 303
+    if access == "allowed":
+        assert response.headers["location"] == hosted_url
+        assert any(DRAFT_COOKIE in header and "Max-Age=0" in header
+                   for header in response.headers.get_list("set-cookie"))
+        assert client.cookies.get(DRAFT_COOKIE) is None
+    else:
+        assert "result=unavailable" in response.headers["location"]
+        assert not any(DRAFT_COOKIE in header for header in response.headers.get_list("set-cookie"))
+        assert client.cookies.get(DRAFT_COOKIE) == before
