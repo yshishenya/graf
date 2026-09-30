@@ -144,6 +144,19 @@ async def public_download_page(
     )
 
 
+GUIDE_PATH = "/guides/zapis-vstrechi-na-mac-bez-bota"
+
+
+@router.get(GUIDE_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_mac_meeting_guide(request: Request) -> HTMLResponse:
+    return await public_page_response(
+        request,
+        "public/mac_meeting_guide.html",
+        page_title="Как записать встречу на Mac без бота и получить итоги — ГРАФ",
+        social_description="Как проверить запись обеих сторон на Mac и получить расшифровку с итогами. Пошаговая подготовка и ограничения ГРАФ.",
+    )
+
+
 @router.get("/privacy", response_class=HTMLResponse, include_in_schema=False)
 async def public_privacy_page(
     request: Request,
@@ -299,7 +312,7 @@ async def public_robots(request: Request) -> PlainTextResponse:
 @router.get("/sitemap.xml", include_in_schema=False)
 async def public_sitemap(request: Request) -> Response:
     base_url = _public_base_url(request)
-    locations = ("/", "/download", "/privacy", "/cookies", "/terms", "/offer", "/analytics-consent")
+    locations = ("/", "/download", "/privacy", "/cookies", "/terms", "/offer", "/analytics-consent", GUIDE_PATH)
     urls = "".join(f"<url><loc>{base_url}{path}</loc></url>" for path in locations)
     return Response(
         f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>',
