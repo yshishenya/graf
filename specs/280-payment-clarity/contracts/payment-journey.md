@@ -45,3 +45,12 @@
 ## Смежные входы
 
 `referrals_content.html`: убрать ложное «Поделиться», оставить копирование. `cabinet/auth/referral_landing.html`, public pricing и `offer` проверяются на цену/правдивость, сохраняются при отсутствии найденного несоответствия; условия оферты не меняются. Входы ограничений: `cabinet/components/primitives.html` (billing_member_quota_notice), `billing_usage_content.html`, `billing_overview_content.html` и существующие billing notification links. Каждый сохраняет правильную роль/доступность и ведет к существующему тарифу/месту/статусу; никакого нового сбора аналитики.
+
+
+## Промокод после обновления, продолжение 2026-10-01
+
+POST `/billing/checkout/preview` и `/billing/discounts/apply` применяют/заменяют bounded code до 48 символов и сохраняют выбранный cycle в закодированном подписанном состоянии только текущих проверенных user/workspace/session; обычный 303 допустим. GET `/billing/checkout` читает выбор до исходного expiry300с, два обновления/возврат его не удаляют и срок не продлевают. Перед отображением цены сервер вновь проверяет код, текущую акцию и period, получает свежий quote. Ошибочный формат до MAX48 также остаётся доступен для исправления с ошибкой и запретом оплаты; сырые байты не уходят в headers. Query period приоритетен, без query восстанавливается saved period.
+
+Empty preview или `/billing/discounts/remove` очищает текущий выбор; start errors/recovery не продлевают его срок. Созданная/восстановленная операция очищает выбор для будущей покупки и продолжает существующие authoritative invoice/operation. Согласия всегда пусты на новом оформлении; прежние CSRF/roles/tenant/quote freshness/idempotency/price/offer/provider guards сохраняются. Preview не создаёт финансовых записей и не вызывает провайдера.
+
+Старый unsigned cookie и подделанное/просроченное/чужое/переименованное состояние отвергаются. Session/key отсутствует — persist отсутствует. HttpOnly, SameSite=Lax, Secure наHTTPS, path `/billing/checkout` остаются; нет code вURL/JS/localStorage/logs/evidence. Никаких consent/quote/amount вdraft. Этот договор дополняет лишь возврат к оформлению внутри той же действующей сессии и TTL: предыдущий account `next` не переносит code, а смена/выпуск новой сессии его не наследует.

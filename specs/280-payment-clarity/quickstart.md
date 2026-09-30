@@ -68,3 +68,47 @@ GRAF_BROWSER=webkit uv run --extra dev pytest tests/contract/test_billing_access
 После основной доставки проверять через одноразовый PostgreSQL новый `tests/integration/test_billing_discount_presentation.py` вместе с применимыми прежними purchase/return/security наборами. История универсальной кампании должна сохранять месяц/год сохранённого счёта после изменения кампании; unknown/malformed/чужой счёт не должен давать ложный месяц. Непригодное предложение не рекламируется. HTTP-цепочка код→месяц→год→очистка проверяет цену сегодня, обычное продление и отсутствие новых платёжных записей.
 
 Существующий browser suite `tests/contract/test_billing_accessibility.py` теперь включает годовую/неизвестную историю, результат применения/удаления и полный кабинет скидок/истории/ошибки. Запускать Chromium и WebKit с установленными Node dependencies; синтетические снимки можно сохранить через BILLING_VISUAL_OUTPUT_DIR. Точные выполненные команды и пределы — [validation-promo.md](validation-promo.md).
+
+
+## Дополнение: сохранение промокода T016–T019
+
+Сначала воспроизвести сброс в новом focused HTTP/DB наборе `tests/integration/test_billing_promo_refresh.py` на одноразовом PostgreSQL; ожидание сохранения после второго GET должно показать дефект до исправления. Не запускать against live DB, не отправлять реальный платёж и не записывать настоящий код.
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused \
+  tests/integration/test_billing_promo_refresh.py \
+  tests/integration/test_billing_discount_presentation.py \
+  tests/integration/test_billing_clarity.py \
+  tests/integration/test_billing_purchase_journey.py \
+  tests/contract/test_billing_security.py \
+  tests/contract/test_billing_safety_contract.py \
+  -q --tb=short --show-capture=no
+```
+
+Матрица регрессий:
+
+1. Применить синтетический код на месяце и годе → следовать 303 → два GET обновления: код, период и текущий итог сохраняются; нет новых invoice/operation/reservation/provider calls, оба согласия пусты.
+2. Переход месяц→год→месяц и возврат на исходный checkout URL сохраняют код, но сервер вновь проверяет eligibility и цену. Нет кода, quote или согласий в URL.
+3. Отклонённый код длиной до 48 символов после повторного GET остаётся доступен с ошибкой, оплата заблокирована. Отдельно malformed код, non-ASCII и управляющие символы в пределах 48 символов сохраняются через Apply→два refresh как безопасно экранированный ввод; сырых байтов в response headers нет, ошибка понятна, поле раскрыто и оплата заблокирована. Ограничение сверх 48 символов остаётся прежним.
+4. Изменить условия/доступность акции между двумя GET: нет устаревшей скидки или тихой обычной цены, новый расчёт требует явного подтверждения. Quotes не переиспользуются как сохраняемое состояние.
+5. Пустой preview и существующее удаление очищают текущий выбор; повторный GET без кода. Созданная/восстановленная операция использует авторитетные invoice/operation и не сохраняет выбор для следующей покупки.
+6. Подменить cookie, срок или идентичность; перенести/переименовать в другой user/workspace/session; удалить session; подать старую общую raw cookie: код не читается, доступ и финансовые guards сохраняются.
+7. Контролируемое время: до 300 секунд выбор читается, на границе/после срока отвергается; GET, смена cycle и ошибки start не продлевают срок. Смена cycle сохраняет code/expiry; возврат без query cycle восстанавливает saved cycle. Атрибуты HttpOnly/SameSite/Secure/path проверены, отсутствующий ключ не разрешает небезопасный fallback.
+8. Три независимых заключения по текущим исходникам: путь/тексты, безопасность/финансовые состояния, браузер/доступность. Настоящая DOM-цепочка заполнить/отправить форму → 303 → GET → два reload → back/return проверяется в Chromium и WebKit с изолированной синтетической сессией и локальным тестовым сервером без провайдера; только fixture-снимки не доказывают этот путь. Цепочка включает месяц/год, malformed и исправление/удаление кода, URL без code и пустые согласия. Существующие браузерные наборы из раздела выше дополнительно покрывают темы/масштаб/ширины и сохраняемый код/ошибку. Снять границы и ограничения доказательств в `validation-promo-refresh.md` и `review-promo-refresh-final.md`.
+
+Локальные проверки, reviewer-owned PASS, issue sync и convergence предшествуют отдельным PR checks точного SHA. После merge — один новый frozen release-full, сухой прогон CD, deploy, metadata smoke и опубликованный серверный выпуск; текущий frozen кандидат не менять. Владелец уже разрешил технический выпуск. T011/T012 и F278 финансовая приёмка остаются открытыми в их невыполненной части; этот срез не является их повторной задачей.
+
+
+Браузерный вход из macOS: после штатного native handoff устанавливается обычная проверенная браузерная сессия; дальнейшее применение/обновление проверяется как web-flow. Создание новой сессии handoff не наследует draft старой сессии. Изменений native route policy этот срез не требует; ручная installed macOS приёмка по-прежнему принадлежит T011, только GRAF Dev через harness. Не объявлять её пройденной из HTTP или Playwright.
+
+
+Настоящий браузерный путь этого дополнения: `tests/browser/billing-promo-refresh.test.cjs` и `tests/contract/test_billing_promo_refresh_browser.py`; запускается из корня с одноразовым PostgreSQL и установленными Chromium/WebKit:
+
+```sh
+GRAF_PROMO_BROWSER=1 GRAF_BROWSER=chromium apps/server/scripts/run_local_postgres_tests.sh --focused \
+  tests/contract/test_billing_promo_refresh_browser.py -q --tb=short --show-capture=no
+GRAF_PROMO_BROWSER=1 GRAF_BROWSER=webkit apps/server/scripts/run_local_postgres_tests.sh --focused \
+  tests/contract/test_billing_promo_refresh_browser.py -q --tb=short --show-capture=no
+```
+
+Это план проверки будущей реализации: команды ещё не запускались и не являются положительным результатом. Существующая accessibility fixture матрица из раздела выше не подменяет настоящую отправку формы.

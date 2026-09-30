@@ -7,6 +7,7 @@ from uuid import UUID
 import pytest
 from starlette.requests import Request
 
+from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.billing.catalog import plan_descriptor
 from twobrain_rec_server.billing.receipts import ReceiptState, receipt_label
 from twobrain_rec_server.billing.usage import format_duration
@@ -723,6 +724,12 @@ def test_pending_checkout_hides_recomputed_order_total() -> None:
 
 
 def test_checkout_result_redirect_keeps_promo_out_of_url_and_uses_short_lived_cookie() -> None:
+    user, workspace, session, organization, device = (UUID(int=n) for n in range(1, 6))
+    principal = AuthenticatedPrincipal(
+        user, organization, frozenset({workspace}), str(user),
+        session_id=session, auth_via_session=True,
+    )
+    tenant_scope = TenantScope(organization, workspace, user, device, auth_session_id=session)
     request = Request(
         {
             "type": "http",
@@ -732,25 +739,45 @@ def test_checkout_result_redirect_keeps_promo_out_of_url_and_uses_short_lived_co
             "path": "/billing/checkout/start",
             "headers": [],
             "query_string": b"",
+            "app": SimpleNamespace(state=SimpleNamespace(web_csrf_secret="synthetic-secret")),
         }
     )
-    response = _checkout_result_redirect(request, "promo_invalid", promo_code="WELCOME10")
+    response = _checkout_result_redirect(
+        request, "promo_invalid", promo_code="WELCOME10", principal=principal,
+        tenant_scope=tenant_scope, replace_promo=True,
+    )
     assert response.headers["location"] == "/billing/checkout?result=promo_invalid"
-    cookie = response.headers["set-cookie"]
-    assert "graf_checkout_promo=WELCOME10" in cookie
+    cookie = response.headers.getlist("set-cookie")[0]
+    assert "graf_checkout_promo_draft=" in cookie
+    assert "WELCOME10" not in cookie
     assert "Max-Age=300" in cookie
     assert "Path=/billing/checkout" in cookie
     assert "HttpOnly" in cookie
     assert "SameSite=lax" in cookie
     assert "Secure" in cookie
 
-    malformed = _checkout_result_redirect(request, "promo_invalid", promo_code="bad\ncode")
-    assert 'graf_checkout_promo=""' in malformed.headers["set-cookie"]
-    assert "Max-Age=0" in malformed.headers["set-cookie"]
+    malformed = _checkout_result_redirect(
+        request, "promo_invalid", promo_code="bad\ncode", principal=principal,
+        tenant_scope=tenant_scope, replace_promo=True,
+    )
+    assert "graf_checkout_promo_draft=" in malformed.headers["set-cookie"]
+    assert "bad\ncode" not in malformed.headers["set-cookie"]
+    assert "Max-Age=300" in malformed.headers["set-cookie"]
 
-    empty = _checkout_result_redirect(request, "promo_applied")
-    assert 'graf_checkout_promo=""' in empty.headers["set-cookie"]
+    empty = _checkout_result_redirect(
+        request, "promo_applied", promo_code="", principal=principal, tenant_scope=tenant_scope,
+    )
+    assert 'graf_checkout_promo_draft=""' in empty.headers["set-cookie"]
     assert "Max-Age=0" in empty.headers["set-cookie"]
+
+
+    # Losing the saved input must not hide the actual recovery condition.
+    for reason in ("unavailable", "owner_only", "offer_required", "consent_required", "catalog_not_approved"):
+        failed = _checkout_result_redirect(
+            request, reason, promo_code="WELCOME10", principal=principal,
+            tenant_scope=tenant_scope,
+        )
+        assert failed.headers["location"] == f"/billing/checkout?result={reason}"
 
 
 def test_payment_method_and_storage_surfaces_keep_safe_boundaries() -> None:

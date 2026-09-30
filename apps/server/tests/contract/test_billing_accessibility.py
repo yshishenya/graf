@@ -400,8 +400,8 @@ def test_non_payer_billing_surfaces_keep_quota_state_without_usage_values() -> N
 
 def test_checkout_uses_amount_specific_yookassa_actions_without_js() -> None:
     html = (TEMPLATE_ROOT / "billing_checkout_content.html").read_text(encoding="utf-8")
-    assert 'name="cycle" value="month"' in html
-    assert 'name="cycle" value="year"' in html
+    assert 'form="billing-promo-preview" type="submit" name="preview_action" value="month"' in html
+    assert 'form="billing-promo-preview" type="submit" name="preview_action" value="year"' in html
     assert 'name="cycle" value="{{ checkout_cycle }}"' in html
     assert 'action="/billing/checkout/preview" method="post"' in html
     assert "checkout_preview" in html
@@ -438,8 +438,10 @@ def test_plans_and_checkout_use_named_period_navigation_and_native_coupon_disclo
     assert 'href="/billing/plans?cycle=year"' in plans
     assert 'aria-label="Период оплаты"' in checkout
     assert 'action="/billing/checkout/preview" method="post"' in checkout
-    assert 'name="cycle" value="month"' in checkout
-    assert 'name="cycle" value="year"' in checkout
+    assert 'id="billing-promo-preview"' in checkout
+    assert 'form="billing-promo-preview" type="submit" name="preview_action" value="month"' in checkout
+    assert 'form="billing-promo-preview" type="submit" name="preview_action" value="year"' in checkout
+    assert 'form="billing-promo-preview" id="billing-promo"' in checkout
     assert '<details class="billing-coupon"' in checkout
     assert "<summary" in checkout
     assert checkout.count("data-billing-primary") == 1
@@ -499,7 +501,7 @@ def test_checkout_renders_server_calculated_promo_amounts() -> None:
     assert "Оплатить 711 ₽ в ЮKassa" in html
     assert 'action="/billing/checkout/preview"' in html
     assert 'name="promo_code" value="SAVE10"' in html
-    assert 'name="cycle" value="year"' in html
+    assert 'form="billing-promo-preview" type="submit" name="preview_action" value="year"' in html
     assert "Следующее списание" in html
     assert "referral" not in html.lower()
 
