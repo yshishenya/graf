@@ -202,7 +202,7 @@ definitions/dashboard/smoke; infrastructure operator — backup/restore/retentio
 ## Короткий план стендовой explicit воронки
 
 Использовать существующие тестовые fixtures и отдельный disposable PostgreSQL,
-синтетические campaign labels `organic_test` и псевдонимный аккаунт. Продуктовые
+синтетические campaign labels `organic_test` и тестовый аккаунт. Продуктовые
 провайдеры заменить test doubles; счётчик production и реальные ключи не задавать.
 Первый прогон уже сделан существующими 85 unit тестами и 8 DB consent tests.
 Это проверки отдельных звеньев, не доказательство реальной end-to-end установки.
@@ -253,3 +253,11 @@ Mac без бота, Телемост/Google Meet на Mac, запись → п�
 - Документы/SQL подготовлены; merge/deploy не выполнялись. Draft PR публикуется
   отдельно, без runtime diff. Единственная внешняя запись — разрешённая отправка
   существующего sitemap в Search Console; не rollout сайта или аналитики.
+
+## Последующее решение о PostHog
+
+Владелец выбрал client IP и исходный internal account ID в существующем self-hosted
+PostHog. Предыдущее предложение no-IP/pseudonymous заменено; 365 дней не утверждено.
+Текущий privacy/consent обещает pseudonymous identity, текущий код требует её.
+До совместимой ревизии notice, identity contract, consent scope и стендовой проверки
+ingestion не включать. Полный исполнимый порядок — в posthog-remediation-2026-09-30.md.

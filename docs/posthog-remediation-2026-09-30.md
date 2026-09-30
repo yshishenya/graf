@@ -6,6 +6,15 @@
 Главная и download сохранены. Настройки найденного проекта проверены через
 существующий read-only Docker/DB доступ без вывода секретов.
 
+## Решение владельца: последующая ревизия
+
+30 сентября владелец явно выбрал IP и исходный внутренний account ID без
+хеширования для своего self-hosted PostHog. Это заменяет прежнее предложение
+no-IP/pseudonymous. Срок 365 дней не подтверждён. Решение о категориях данных
+не разрешает rollout, новые credentials, обход readiness или сбор email/имени,
+содержимого встреч, паролей, токенов, платёжных реквизитов, replay/autocapture.
+Изменение этой документации не меняет текущий контракт приложения.
+
 ## Проверенные факты
 
 - ClickHouse: 46 events, 46 уникальных UUID, все 9 июля 2026, последняя запись
@@ -58,12 +67,22 @@ provider event ids; последний webhook 29 сентября. Invoice stat
 их нельзя объявить уже готовыми. Первичная оплата/retention сверяется внутри
 GRAF server ledger; отдельный контракт для передачи в PostHog подготовить позже.
 
-До входа — короткоживущий непрозрачный view/bridge identifier только по допустимому
-согласию. После входа — существующий pseudonymous account identity, никакого email,
-display name, названий встреч или участников. `identity.py` делает SHA256 от
-внутреннего identifier с постоянным публичным salt; это pseudonymization,
-не криптографическая анонимность. Нельзя хешировать email и назвать его anonymous.
-HMAC/секретный salt и смена identity потребуют отдельного совместимого контракта.
+До входа — непрозрачный consent-scoped browser/bridge identifier; не email и
+не общая identity для всех посетителей. После входа proposed distinct_id — исходный
+внутренний account ID, полученный сервером из authenticated principal, не из
+произвольного поля клиента. Не передавать workspace/user IDs дополнительно, пока
+не доказана необходимость. События остаются персональными и связуемыми с аккаунтом.
+IP — адрес клиента из проверенной цепочки trusted proxy, не адрес API/worker;
+не доверять произвольному X-Forwarded-For. Отсутствующий IP не выдумывать.
+GeoIP enrichment пока отдельно не выбран; координаты/географию не добавлять.
+
+Текущий код этого не реализует: identity.py/build_safe_identity хеширует исходные
+IDs, is_safe_pseudonymous_id и posthog_client.py отвергают raw account IDs.
+Нельзя просто включить флаги. Нужны versioned identity/payload contract для
+PostHog, серверная binding/auth проверка, совместимый browser→account identify и
+повторные dedupe tests. Псевдонимные ограничения других providers не ослаблять.
+Исторические 46 событий не переписывать и не объединять задним числом без
+проверенного mapping; смену схемы помечать identity_schema_version.
 Bridge/unknown coverage всегда показывать; неподтверждённый источник не direct/AI.
 
 Дедупликация: UUID-проверка достаточна только для транспортных дублей. Проверить
@@ -73,9 +92,10 @@ ledger и process server guard не заменяют доказательств�
 
 ## Retention/IP и готовый безопасный путь
 
-Предложение для существующего проекта: explicit pseudonymous events 365 дней,
-без replay/autocapture и без клиентского IP/GeoIP. Текущий repo policy ожидает
-365 дней, минимум baseline 90; изменение срока без owner/legal решения запрещено.
+Целевой режим после готовности: explicit events, исходный internal account ID и
+IP, без содержимого, replay/autocapture. Срок хранения — нерешённый blocker;
+365 дней остаётся предложением, не одобренной настройкой. Repo baseline и
+project 84 months не заменяют решение владельца и проверку legal basis.
 Уже существует `infra/scripts/apply-posthog-event-ttl.sh --dry-run/--status/--execute`
 и `infra/posthog/clickhouse-retention.sql`. Script apply TTL к MergeTree таблице,
 а не distributed events. Проверенная текущая реализация enforcement отсутствует:
@@ -84,13 +104,12 @@ TTL_defined=0. После отдельного инфраструктурног�
 контролируемый expiry-test в отдельной restore среде. Не менять production TTL
 в рамках «найти реквизиты»; retention может удалять данные.
 
-IP: `anonymize_ips=true` менять через поддерживаемый Projects API/UI после входа,
-а не SQL update. Для server-mediated events отдельно проверить `$geoip_disable`,
-чтобы адрес сервера не становился местоположением клиента. Это предложение,
-не проверенный deployed patch. Документация:
-[Projects API](https://posthog.com/docs/api/projects),
-[GeoIP implementation](https://github.com/PostHog/posthog-plugin-geoip).
-На стенде доказать отсутствие `$ip` и производных GeoIP properties после ingress.
+IP: существующее anonymize_ips=false соответствует выбранной категории, но
+доставка реального client IP не доказана: старые 46 адресов только private network.
+Проектные настройки не менять через SQL. Supported UI/API после существующего
+входа; не расширять постоянный доступ. На отдельном стенде проверить client IP
+fixture против proxy spoofing, `$ip` на ingress и отсутствие ненужного GeoIP.
+Документация: [Projects API](https://posthog.com/docs/api/projects).
 Backup/export lifecycle и удаление по запросу должны иметь проверенные границы;
 нельзя обещать исчезновение старых backup копий по одному TTL.
 
@@ -117,22 +136,47 @@ Management API не доступен: PersonalAPIKey отсутствует, bro
 обхода; требуется существующий поддерживаемый вход владельца (final secure ввод
 самим владельцем), затем можно сохранить панели в доступном UI без новых grants.
 
-## Одно согласование после готовности
+## Consent/privacy: проверенный blocker и порядок реализации
 
-Текст решения для владельца, а не применённое разрешение:
+Повторный live GET /privacy и /analytics-consent вернул HTTP 200. Тексты совпадают
+с кодовым обещанием псевдонимных идентификаторов продуктовой аналитики и срока
+«не менее 90 дней». Они не раскрывают выбранную связку raw account ID + client IP
+для PostHog. Отсутствие адреса устройства в anonymous level 1 относится к агрегату;
+его нельзя расширять новым персональным режимом. Одного решения владельца
+недостаточно для обработки пользователей по несоответствующему notice.
 
-«Разрешаю подготовить и проверить на отдельном стенде минимальную explicit
-воронку в существующем self-hosted PostHog project GRAF Product Activation.
-Данные: короткоживущая анонимная связка по согласию, псевдонимный account ID,
-название milestone, время, platform/version bucket, обезличенные campaign labels,
-bridge/source reliability; без email, IP/GeoIP, текстов/названий встреч, участников,
-аудио, replay/autocapture. Предлагаемый retention — 365 дней. Сначала подтвердить
-основание сбора/consent, semantic dedupe, доставку в ClickHouse, attribution,
-retention/backup/deletion и dashboards. После review точного конфигурационного
-diff отдельно разрешить rollout; это решение само по себе production deploy
-не разрешает. Payments остаются в GRAF ledger до отдельной финансовой сверки».
+Требуется согласованная отдельная ревизия privacy, analytics-consent и уведомления
+зарегистрированного пользователя: destination, цели, исходный account ID и IP,
+конкретный срок, отзыв/удаление, роли операторов. Версия решения должна явно
+соответствовать новому scope; старое согласие нельзя автоматически считать
+принятием расширенных категорий. Лендинг/CTA/title/description не менять.
 
-Главный blocker: отсутствует management session и проверенные readiness evidence.
-Проект и endpoint уже найдены, пользователю не нужно искать реквизиты вручную.
-Нужен только безопасный финальный вход владельца в существующий PostHog; найденные
-секреты не будут передаваться в browser tool args, сообщения или другой сервис.
+Исходная specs/273-paid-traffic-analytics/spec.md требует ревизии FR-026/FR-046,
+определения «Веха активации», identity и retention/deletion contracts;
+FR-007/FR-010 anonymous level 1 остаются без изменений. Нужно обновить
+product_analytics/consent_copy.py, identity.py, posthog_client.py, API contracts,
+retention.py и связанные tests как отдельную согласованную реализацию, не
+ослаблять forbidden_fields глобально. Этот аудиторский PR только фиксирует diff
+требований; он не выдаёт false readiness и не разрешает production ingestion.
+
+Стендовый acceptance: синтетический account и documentation IP fixture;
+без/со старым/повреждённым/отозванным consent — ноль optional delivery; новый
+scope — ровно allowlisted событие с server-bound raw account ID и client IP;
+подмена account/proxy headers отклоняется; email/content/secrets/payment details
+не проходят; anonymous→account merge не склеивает двух людей; повтор, restart и
+второе устройство не умножают first milestones; accepted подтверждён ClickHouse;
+удаление по raw account ID и expiry проверены после решения о сроке.
+
+## Следующие необходимые решения и доступ
+
+Категории account ID + IP уже выбраны; повторно их не согласовывать. Остались:
+1. Срок хранения и проверка владельцем/ответственным за privacy актуального
+   notice/legal basis, затем versioned consent implementation и стендовый тест.
+2. Безопасный финальный вход владельца в существующий PostHog: management session
+   отсутствует, project/endpoint найдены. Не создавать credentials/grants и не
+   передавать найденные секреты в tool args, сообщения или другой сервис.
+3. После тестов — отдельное согласование точного rollout diff. Readiness evidence
+   backup/restore, retention/deletion и access governance не заменять флагами.
+
+Dashboard/queries и серверная финансовая сверка сохраняются в описанном scope;
+сбор реальных оплат не доказан наличием checkout=true. Production изменений нет.
