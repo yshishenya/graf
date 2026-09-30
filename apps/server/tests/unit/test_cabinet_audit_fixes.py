@@ -105,6 +105,7 @@ async def test_billing_routes_render_real_profile_and_persisted_trial_dates(
         billing_owner_id=UUID(int=2),
         cycle=None,
         renewal_resolution=None,
+        recurring_allowed=False,
     )
     user = SimpleNamespace(
         display_name="Synthetic Profile", locale="en-US", timezone="UTC", theme="dark"
@@ -338,10 +339,12 @@ def test_empty_history_has_real_help_or_honest_unavailable(email):
     assert 'href="#billing-help"' in page and 'id="billing-help"' in page
     if email:
         assert f'href="mailto:{email}"' in page
+        assert "Запрос на возврат отправьте письмом в поддержку" in page
     else:
         assert "Контакт поддержки пока не настроен" in page
         assert 'href="/billing"' in page
         assert "Напишите в поддержку" not in page
+        assert "Запрос на возврат отправьте письмом в поддержку" not in page
 
 
 @pytest.mark.parametrize(

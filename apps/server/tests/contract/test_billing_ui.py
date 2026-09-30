@@ -401,6 +401,7 @@ async def test_checkout_page_only_offers_authorized_persisted_continuation(
 ) -> None:
     principal = SimpleNamespace(user_id=UUID(int=1), session_id=None, auth_via_session=False)
     blocker = SimpleNamespace(
+        id=UUID(int=5),
         kind="initial_checkout",
         state="provider_pending",
         request_snapshot={
@@ -411,7 +412,7 @@ async def test_checkout_page_only_offers_authorized_persisted_continuation(
 
     class FakeSession:
         def __init__(self) -> None:
-            self.results = iter((blocker, None, None))
+            self.results = iter((blocker, None, None, None))
 
         async def scalar(self, _statement: object) -> object:
             return next(self.results)
@@ -548,11 +549,12 @@ def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> N
         storage_threshold_label="В норме",
         billing_owner=True,
     )
-    assert "Возобновить автопродление" in subscription_html
+    assert "Включить автопродление" in subscription_html
     assert "01.09.2026, 03:00 (МСК)" in subscription_html
     assert "2026-09-01 00:00:00" not in subscription_html
     assert "Без лимита по минутам и встречам" in usage_html
-    assert "meeting-review.m4a" in usage_html
+    assert "Место занимают сохраненные аудиозаписи" in usage_html
+    assert "meeting-review.m4a" not in usage_html
     assert "Состояние: <strong>В норме</strong>" in usage_html
     assert "Состояние: normal" not in usage_html
     assert "Управлять архивом" in usage_html
@@ -655,7 +657,8 @@ def test_checkout_requires_explicit_recurring_consent_copy() -> None:
     assert 'href="/billing/plans">Назад к тарифам</a>' in html
     assert 'href="/offer"' in html
     assert "required" in html
-    assert "регулярное списание" in html
+    assert "Разрешаю автоматические списания" in html
+    assert "Отключить можно в «Подписке»" in html
     assert "Чек отправится на" in html
     assert "y***@example.com" in html
 
@@ -775,7 +778,7 @@ def test_payment_method_and_storage_surfaces_keep_safe_boundaries() -> None:
     )
     assert "•••• 4242" in method_html
     assert "Данные карты не проходят через GRAF" in method_html
-    assert "Лимит расходуют сохраненные записи встреч" in storage_html
+    assert "Место занимают сохраненные аудиозаписи" in storage_html
     assert "Файлы не удаляются" in storage_html
     assert "Рассчитать" not in storage_html  # No catalog was supplied to this fixture.
     assert "5000000000 байт" not in storage_html
@@ -961,14 +964,17 @@ def test_billing_overview_never_presents_missing_paid_price_as_free() -> None:
     assert "<strong>0 ₽</strong>" not in html
 
 
-def test_pending_billing_overview_exposes_status_without_competing_checkout() -> None:
+@pytest.mark.parametrize("plan_code", ["free", "personal"])
+@pytest.mark.parametrize("renewal_allowed", [False, True])
+def test_pending_billing_overview_exposes_status_without_competing_checkout(plan_code, renewal_allowed) -> None:
     html = render_template(
         "cabinet/pages/billing_overview_content.html",
         embedded=False,
         settings_navigation=settings_category_navigation(active="billing"),
         settings_active="billing",
-        plan=plan_descriptor("free"),
-        plan_code="free",
+        plan=plan_descriptor(plan_code),
+        plan_code=plan_code,
+        renewal_allowed=renewal_allowed,
         billing_data_available=True,
         billing_enabled=True,
         catalog_ready=True,
@@ -998,6 +1004,8 @@ def test_pending_billing_overview_exposes_status_without_competing_checkout() ->
     assert 'href="/billing/checkout"' not in html
     assert 'href="/billing/plans"' not in html
     assert html.count("data-billing-primary") == 1
+    assert ('href="/billing/subscription"' in html) == renewal_allowed
+    assert ("Управлять автопродлением" in html) == renewal_allowed
 
 
 def test_pending_billing_without_invoice_suppresses_new_checkout() -> None:
@@ -1496,9 +1504,9 @@ def test_payment_method_delete_guard_remains_visible_when_renewal_is_enabled() -
         billing_enabled=True,
         result=None,
     )
-    assert 'action="/billing/payment-method/delete"' in html
+    assert 'action="/billing/payment-method/delete"' not in html
     assert "Сначала отключите автопродление" in html
-    assert "Подтвердить удаление" in html
+    assert 'href="/billing/subscription"' in html
 
 
 def test_checkout_hides_publishable_price_when_store_is_disabled() -> None:

@@ -1,21 +1,62 @@
 {% import "cabinet/components/primitives.html" as ui %}
 {% import "cabinet/components/sections.html" as sections %}
+{% set needs_service_review = service_gap|default(False) or operation_state == "succeeded_refused" %}
+{% set help_url = "mailto:" ~ support_email if support_email|default(None) else "/billing/history#billing-help" %}
 <main id="cabinet-main" class="cabinet-main billing-page" tabindex="-1">
   <div class="cabinet-workspace settings-page">
-    <div class="settings-page__content">
+    <div class="settings-page__content billing-page__content">
       {{ ui.settings_header("Статус платежа") }}
       <section class="settings-section cabinet-card" aria-labelledby="billing-operation-title">
-        <h2 id="billing-operation-title">{{ invoice.safe_number }}</h2>
-        <p>{{ purchase_purpose_label|default("Оплата тарифа") }}</p>
-        {% if service_gap|default(None) %}<p class="notice notice--warning" role="alert">ЮKassa подтвердила оплату, но срок покупки уже закончился. Увеличенный объем не предоставлен. Платеж передан на финансовую сверку; напишите в поддержку с номером выше.</p>{% endif %}
-        <p role="status" aria-live="polite"><strong>{{ operation_state_label }}</strong></p>
-        <dl class="settings-definition-list"><div><dt>Сумма</dt><dd>{{ amount_label }}</dd></div><div><dt>Последняя проверка</dt><dd>{{ updated_at_label or "еще не выполнялась" }}</dd></div></dl>
-        <ol class="billing-operation-timeline" aria-label="Хронология платежа"><li>Создано: {{ invoice.created_at_label|default("время недоступно") }}</li><li>Текущее состояние: {{ operation_state_label|default("Статус уточняется") }}</li>{% if updated_at_label %}<li>Последняя проверка: {{ updated_at_label }}</li>{% endif %}</ol>
-        {% if status_result|default(None) == "refreshed" %}<p class="notice notice--success">ЮKassa проверена. Текущее состояние показано выше.</p>{% elif status_result|default(None) == "unchanged" %}<p class="notice">Состояние платежа пока не изменилось. Повторного списания не было.</p>{% elif status_result|default(None) == "provider_unavailable" %}<p class="notice notice--error" role="alert">Страницу оплаты получить не удалось. Новая операция не создана.</p>{% elif status_result|default(None) == "continuation_expired" %}<p class="notice notice--warning" role="alert">Срок безопасного продолжения этой операции истек. Новая оплата не создавалась.</p>{% elif status_result|default(None) == "unavailable" %}<p class="notice notice--warning" role="alert">Действие сейчас недоступно. Новая оплата не создавалась.</p>{% endif %}
-        {% if can_continue_payment|default(False) %}<p>ЮKassa не вернула страницу оплаты. Можно безопасно продолжить эту же операцию: сумма и счет не изменятся.</p><form action="/billing/checkout/status/{{ invoice.safe_number }}/continue" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button" type="submit">Продолжить оплату</button></form>{% elif can_refresh_payment|default(False) %}<p>Проверим исходный платеж в ЮKassa. Новая операция и повторное списание не создаются.</p><form action="/billing/checkout/status/{{ invoice.safe_number }}/refresh" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button quiet" type="submit">Проверить статус</button></form>{% elif operation_state == "observation_expired" %}<p>Срок автоматической проверки истек. Новая оплата не создавалась; позднее подтверждение ЮKassa будет учтено.</p>{% elif operation_state in ["scheduled", "sent", "processing", "pending_reconciliation", "reconciliation_gap", "manual_resolution"] %}<p>Автоматическое продолжение недоступно. Новую оплату не создаем, пока эта операция не будет безопасно закрыта.</p>{% elif operation_state == "provider_key_expired" %}<p>Срок безопасного продолжения этой операции истек. Новую оплату для этой операции не создаем. Если доступ уже закончился, начните новую оплату из кабинета.</p>{% elif operation_state == "method_required" %}<p>Для продолжения нужен подтвержденный способ оплаты.</p><a class="button" href="/billing/payment-method">Добавить способ оплаты</a>{% elif operation_state == "succeeded" %}<p>Платеж подтвержден, оплаченный доступ предоставлен. Статус чека указан в истории платежей.</p><a class="button quiet" href="/billing/history">Открыть историю платежей</a>{% elif operation_state in ["canceled", "failed"] %}<p>Платеж не выполнен. {% if billing_enabled|default(False) %}Можно начать новую попытку.</p><a class="button" href="{{ retry_payment_url|default("/billing/checkout") }}">Попробовать снова</a>{% else %}Оплата временно недоступна; попробуйте позже или обратитесь в поддержку.</p>{% endif %}{% else %}<p>Не удалось найти платеж. Обратитесь в поддержку с номером платежа.</p>{% endif %}
+        <div role="status" aria-atomic="true">
+        <h2 id="billing-operation-title">{% if needs_service_review %}Оплата получена. Проверяем доступ{% else %}{{ operation_state_label }}{% endif %}</h2>
+        <p>{{ purchase_purpose_label|default("Оплата тарифа") }} · <strong>{{ amount_label }}</strong></p>
+        {% if status_result|default(None) == "refreshed" %}<p class="notice">Результат проверки обновлен.</p>
+        {% elif status_result|default(None) == "unchanged" %}<p class="notice">Результат проверки не изменился.</p>
+        {% elif status_result|default(None) == "provider_unavailable" %}<p class="notice notice--error">Страница оплаты временно недоступна. Проверьте этот платеж позже.</p>
+        {% elif status_result|default(None) == "continuation_expired" %}<p class="notice notice--warning">Продолжить эту оплату уже нельзя. Проверьте ее результат перед новой попыткой.</p>
+        {% elif status_result|default(None) == "unavailable" %}<p class="notice notice--warning">Действие сейчас недоступно. Попробуйте позже или напишите в поддержку.</p>{% endif %}
+
+        {% if needs_service_review %}
+        <p>Платеж подтвержден, но предоставление оплаченной услуги требует проверки. Напишите в поддержку и укажите номер {{ invoice.safe_number }}.</p>
+        {% elif can_continue_payment|default(False) %}
+        <p>Продолжите этот платеж. Сумма и номер платежа сохранятся.</p>
+        {% elif can_refresh_payment|default(False) %}
+        <p>Подтверждение еще не получено. Повторно платить не нужно.</p>
+        {% elif operation_state == "succeeded" %}
+        <p>Оплата прошла, оплаченный доступ предоставлен.</p>
+        {% elif operation_state in ["canceled", "failed"] %}
+        <p>Оплата не прошла.{% if not billing_enabled|default(False) %} Новая оплата временно недоступна.{% endif %}</p>
+        {% elif operation_state == "method_required" %}
+        <p>Проверьте способ оплаты, чтобы продолжить.</p>
+        {% elif operation_state in ["observation_expired", "provider_key_expired"] %}
+        <p>Проверка оплаты занимает больше времени. Не начинайте новый платеж, пока не выяснен результат.</p>
+        {% else %}
+        <p>Проверяем результат оплаты. Новую оплату не создаем, пока не выяснен результат этой.</p>
+        {% endif %}
+        </div>
+
+        {% if needs_service_review %}
+        <a class="button primary" data-billing-primary href="{{ help_url }}">Написать в поддержку</a>
+        {% elif can_continue_payment|default(False) %}
+        <form action="/billing/checkout/status/{{ invoice.safe_number }}/continue" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button primary" data-billing-primary type="submit">Продолжить оплату</button></form>
+        {% elif can_refresh_payment|default(False) %}
+        <form action="/billing/checkout/status/{{ invoice.safe_number }}/refresh" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button primary" data-billing-primary type="submit">Проверить статус</button></form>
+        {% elif operation_state == "succeeded" %}
+        <a class="button primary" data-billing-primary href="{{ return_to_work_url|default('/desktop/meetings' if embedded|default(False) else '/meetings') }}">К встречам</a>
+        {% elif operation_state in ["canceled", "failed"] %}
+        {% if billing_enabled|default(False) %}<a class="button primary" data-billing-primary href="{{ retry_payment_url|default('/billing/checkout') }}">Попробовать снова</a>{% endif %}
+        {% elif operation_state == "method_required" %}
+        <a class="button primary" data-billing-primary href="/billing/payment-method">Проверить способ оплаты</a>
+        {% else %}
+        <a class="button primary" data-billing-primary href="{{ help_url }}">Уточнить результат</a>
+        {% endif %}
+
+        <details class="billing-coupon"><summary>Сведения о платеже</summary>
+          <dl class="settings-definition-list"><div><dt>Номер</dt><dd>{{ invoice.safe_number }}</dd></div><div><dt>Создан</dt><dd>{{ invoice.created_at_label|default("время уточняется") }}</dd></div><div><dt>Последняя проверка</dt><dd>{{ updated_at_label or "еще не выполнялась" }}</dd></div></dl>
+        </details>
+        <p><a href="/billing/invoices/{{ invoice.safe_number }}">Платеж и чек</a></p>
       </section>
-      <a class="button quiet" href="/billing">Вернуться в кабинет</a>
-      <p class="billing-help">{% if support_email|default(None) %}<a class="button quiet" href="mailto:{{ support_email }}">Написать в поддержку</a> · укажите номер платежа выше.{% else %}<a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a>{% endif %}</p>
+      <div class="billing-page__footer"><a class="button quiet" href="/billing">К тарифу и оплате</a>{% if not needs_service_review %}<a href="{{ help_url }}">Помощь с оплатой</a>{% endif %}</div>
     </div>
   </div>
 </main>

@@ -9,12 +9,9 @@
         <ul class="settings-choice-list" aria-label="История платежей">
           {% for invoice in invoices %}
           <li class="settings-choice-row">
-            <div><strong>{{ invoice.amount_label }}</strong><span>{{ invoice.purpose_label|default("Оплата тарифа") }}</span>{% if invoice.service_label|default(None) %}<span role="status">{{ invoice.service_label }}</span>{% endif %}<span class="muted">{{ invoice.safe_number }} · {{ invoice.status_label|default("Статус уточняется") }} · {{ invoice.cycle_label|default("Период уточняется") }}{% if invoice.created_at_label %} · {{ invoice.created_at_label }}{% endif %}</span>{% if invoice.discount_label %}<span class="muted">{{ invoice.discount_label }}</span>{% endif %}{% if invoice.payment_method_label %}<span class="muted">Способ оплаты: {{ invoice.payment_method_label }}</span>{% endif %}<span class="muted">{{ invoice.receipt_label|default("Чек: статус уточняется") }}</span></div>
+            <div><strong>{{ invoice.amount_label }}</strong><span>{{ invoice.purpose_label|default("Оплата тарифа") }} · {{ invoice.cycle_label|default("Период уточняется") }}</span><span>{{ invoice.status_label|default("Статус уточняется") }}</span>{% if invoice.service_label|default(None) %}<span role="status">{{ invoice.service_label }}</span>{% endif %}{% if invoice.created_at_label %}<span class="muted">{{ invoice.created_at_label }}</span>{% endif %}<span class="muted">{{ invoice.receipt_label|default("Чек: статус уточняется") }}</span></div>
             <div class="settings-actions">
-              <a class="button quiet" href="{{ invoice.detail_url }}">Открыть</a>
-              <button class="button quiet" type="button" data-copy-value="{{ invoice.safe_number }}">Скопировать номер платежа</button>
-              {% if support_email %}<button class="button quiet" type="button" data-copy-value="{{ support_email }}">Скопировать email</button>{% endif %}
-              {% if invoice.refund_mailto %}<a class="button quiet" href="{{ invoice.refund_mailto }}">Написать письмо</a>{% endif %}
+              {% if invoice.status_url|default(None) %}<a class="button quiet" href="{{ invoice.status_url }}">{{ invoice.status_action_label }}</a><a href="{{ invoice.detail_url }}">Сведения и чек</a>{% else %}<a class="button quiet" href="{{ invoice.detail_url }}">Платеж и чек</a>{% endif %}
             </div>
           </li>
           {% endfor %}
@@ -25,14 +22,14 @@
       <section class="settings-section cabinet-card" id="billing-help" tabindex="-1" aria-labelledby="billing-refund-title">
         <h2 id="billing-refund-title">Помощь с оплатой и возвратом</h2>
         {% if support_email %}
-        <p>Напишите в поддержку. Если вопрос связан с платежом, укажите его номер из истории выше.</p>
-        <p><a href="mailto:{{ support_email }}">{{ support_email }}</a> <button class="button quiet" type="button" data-copy-value="{{ support_email }}">Скопировать email</button></p>
+        <p>Напишите в поддержку. Номер платежа можно скопировать в его сведениях.</p>
+        <p><a href="mailto:{{ support_email }}">{{ support_email }}</a> <button class="button quiet" type="button" data-copy-value="{{ support_email }}">Скопировать адрес</button></p>
         <p class="muted">Не отправляйте данные карты, идентификаторы ЮKassa, ссылки или содержимое встреч.</p>
+        <p class="muted">Запрос на возврат отправьте письмом в поддержку.</p>
         {% else %}
         <p role="status">Контакт поддержки пока не настроен. Обращение из этого раздела сейчас недоступно.</p>
         <a class="button quiet" href="/billing">Вернуться к тарифу и оплате</a>
         {% endif %}
-        <p class="muted">Возврат не оформляется автоматически и не создает заявку в продукте.</p>
       </section>
     </div>
   </div>

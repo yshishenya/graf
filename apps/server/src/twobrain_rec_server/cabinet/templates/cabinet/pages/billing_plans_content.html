@@ -12,59 +12,48 @@
       </nav>
 
       <section class="billing-plan-grid" aria-label="Доступные тарифы">
-        {% for item in plans %}
+        {% for item in plans if item.code != "trial" %}
         {% set price_label = item.annual_amount_label if selected_cycle == "year" else item.monthly_amount_label %}
-        {% if item.code in ["free", "trial"] %}{% set price_label = "0 ₽" %}{% endif %}
+        {% if item.code == "free" %}{% set price_label = "0 ₽" %}{% endif %}
         <article class="billing-plan-card{% if item.code == 'personal' %} billing-plan-card--featured{% endif %}{% if item.is_current %} is-current{% endif %}"{% if item.is_current %} aria-current="true"{% endif %}>
           <div class="billing-plan-card__heading">
-            <h2>{{ item.label }}</h2>
-            {% if item.is_current %}<span class="billing-plan-badge">Текущий тариф</span>{% elif item.code == "personal" %}<span class="billing-plan-badge">Больше возможностей</span>{% endif %}
+            <h2>{{ "Бесплатный" if item.code == "free" else item.label }}</h2>
+            {% if item.is_current %}<span class="billing-plan-badge">Текущий тариф</span>{% endif %}
           </div>
-          <p class="billing-plan-card__price"><strong>{{ price_label|default("Цена уточняется", true) }}</strong><span>{% if item.code == "free" %}без оплаты{% elif item.code == "trial" %}7 дней{% elif selected_cycle == "year" %}в год{% else %}в месяц{% endif %}</span></p>
+          <p class="billing-plan-card__price"><strong>{{ price_label|default("Цена уточняется", true) }}</strong><span>{% if item.code == "free" %}без оплаты{% elif selected_cycle == "year" %}за год{% else %}за месяц{% endif %}</span></p>
           {% if selected_cycle == "year" and item.annual_saving_label %}<p class="billing-plan-card__saving">{{ item.annual_saving_label }}</p>{% endif %}
           <ul class="billing-feature-list">
             <li>{% if item.processing_mode == "unlimited" %}Без лимита по минутам и встречам{% else %}{{ item.processing_label }} в календарный месяц{% endif %}</li>
-            <li>Хранилище записей {{ item.storage_label }}</li>
-            <li>Обработка без сохранения аудио при заполненном архиве</li>
+            <li>{{ item.storage_label }} для аудиозаписей{% if item.code == "personal" %} · можно увеличить{% endif %}</li>
           </ul>
           <div class="billing-plan-card__action">
             {% if item.code == "personal" and item.is_current %}<span class="muted">Подключен сейчас{% if not billing_owner %}; оплатой управляет текущий плательщик{% endif %}</span>
             {% elif item.code == "personal" and current_plan_code|default(None) == "personal" %}
-              <p class="muted">Другой период оплаты. Оплаченный остаток сохранится; новый период начнется после него. Сумма и условия будут показаны перед подтверждением.</p>
+              <p class="muted">Другой период оплаты. Новый срок добавится после уже оплаченного.</p>
               {% if operation_pending|default(False) %}<span class="muted">Платеж проверяется; новая оплата будет доступна после проверки.</span>
-              {% elif billing_owner and billing_enabled and item.catalog_ready %}<a class="button" href="/billing/checkout?cycle={{ selected_cycle }}">{% if selected_cycle == "year" %}Рассчитать оплату за год{% else %}Рассчитать оплату за месяц{% endif %}</a>
+              {% elif billing_owner and billing_enabled and item.catalog_ready %}<a class="button primary" href="/billing/checkout?cycle={{ selected_cycle }}">{% if selected_cycle == "year" %}Рассчитать оплату за год{% else %}Рассчитать оплату за месяц{% endif %}</a>
               {% elif not billing_owner %}<span class="muted">Оплатой управляет текущий плательщик.</span>
               {% else %}<span class="muted">Оплата временно недоступна.</span>{% endif %}
             {% elif item.code == "personal" and operation_pending|default(False) %}<span class="muted">Платеж проверяется; новую оплату пока не предлагаем.</span>
             {% elif item.is_current and billing_owner %}<span class="muted">Подключен сейчас</span>
-            {% elif item.code == "personal" and (billing_owner or billing_role|default(None) == "owner") and billing_enabled and item.catalog_ready %}<a class="button" href="/billing/checkout?cycle={{ selected_cycle }}">Выбрать «Личный»</a>
+            {% elif item.code == "personal" and (billing_owner or billing_role|default(None) == "owner") and billing_enabled and item.catalog_ready %}<a class="button primary" href="/billing/checkout?cycle={{ selected_cycle }}">Выбрать «Личный»</a>
             {% elif item.code == "personal" and not item.catalog_ready %}<span class="muted">Цена пока недоступна. Попробуйте позже.</span>
             {% elif item.code == "personal" and not billing_enabled %}<span class="muted">Оплата временно недоступна. Попробуйте позже.</span>
             {% elif item.code == "personal" %}<span class="muted">Оплата временно недоступна.</span>
-            {% elif item.code == "trial" and billing_owner and trial_state == "eligible" and not operation_pending|default(False) %}{{ sections.trial_confirmation(csrf_token|default(None), trial_preview_starts_at_label|default(None), trial_preview_ends_at_label|default(None)) }}
-            {% elif item.code == "trial" %}<span class="muted">Пробный период недоступен</span>
             {% else %}<span class="muted">Доступен без оплаты</span>{% endif %}
           </div>
         </article>
         {% endfor %}
       </section>
 
-      <section class="billing-section billing-comparison" aria-labelledby="billing-comparison-title">
-        <h2 id="billing-comparison-title">Сравнение возможностей</h2>
-        <div class="billing-comparison__table" role="table" aria-label="Сравнение тарифов">
-          <div role="row" class="billing-comparison__row billing-comparison__row--head"><span role="columnheader">Возможность</span>{% for item in plans %}<span role="columnheader">{{ item.label }}</span>{% endfor %}</div>
-          <div role="row" class="billing-comparison__row"><span role="rowheader">Обработка</span>{% for item in plans %}<span role="cell" data-plan-label="{{ item.label }}">{% if item.processing_mode == "unlimited" %}Без лимита{% else %}{{ item.processing_label }}{% endif %}</span>{% endfor %}</div>
-          <div role="row" class="billing-comparison__row"><span role="rowheader">Хранилище</span>{% for item in plans %}<span role="cell" data-plan-label="{{ item.label }}">{{ item.storage_label }}</span>{% endfor %}</div>
-          <div role="row" class="billing-comparison__row"><span role="rowheader">Без сохранения аудио</span>{% for item in plans %}<span role="cell" data-plan-label="{{ item.label }}">Доступно</span>{% endfor %}</div>
-        </div>
+      {% for item in plans if item.code == "trial" and (item.is_current or trial_state in ["eligible", "verification_required"]) %}
+      <section class="billing-section billing-row-section" aria-labelledby="billing-trial-title">
+        <div><h2 id="billing-trial-title">{{ "Пробный период действует" if item.is_current else "Попробуйте 7 дней бесплатно" }}</h2><p>Без лимита по минутам · {{ item.storage_label }} для записей. Карта не нужна.</p></div>
+        {% if billing_owner and trial_state == "eligible" and not operation_pending|default(False) %}{{ sections.trial_confirmation(csrf_token|default(None), trial_preview_starts_at_label|default(None), trial_preview_ends_at_label|default(None)) }}
+        {% elif billing_owner and trial_state == "verification_required" %}<a class="button quiet" href="/account/security">Подтвердить почту для пробного периода</a>{% endif %}
       </section>
-
-      <section class="billing-section billing-row-section" aria-labelledby="billing-plan-boundary-title">
-        <div><h2 id="billing-plan-boundary-title">Важно о хранении</h2><p>Платная обработка не ограничена по времени, но архив имеет конечную емкость. В «Личный» включено 5 ГБ. В разделе «Хранилище» можно добавить пакеты по 5 ГБ и проверить точную доплату перед покупкой.</p></div>
-        {% if billing_owner %}<a class="button quiet" href="/billing/storage">Настроить хранилище</a>{% endif %}
-      </section>
-      {% if support_email|default(None) %}<p class="billing-help"><a class="button quiet" href="mailto:{{ support_email|e }}">Связаться с нами</a></p>{% endif %}
-      {% if billing_owner %}<p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>{% endif %}
+      {% endfor %}
+      <div class="billing-page__footer">{% if billing_owner and current_plan_code|default(None) == "personal" %}<a class="button quiet" href="/billing/storage">Настроить хранилище</a>{% endif %}{% if billing_owner %}<a class="button quiet" href="/billing/history#billing-help">Нужна помощь с оплатой?</a>{% endif %}</div>
     </div>
   </div>
 </main>

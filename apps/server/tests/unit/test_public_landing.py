@@ -340,7 +340,7 @@ def test_catalog_ready_template_publishes_tariff_before_payment_is_enabled() -> 
     assert 'id="price"' in html
     assert "1 000 ₽" in html
     assert "10 000 ₽" in html
-    assert "Оплата откроется" in html
+    assert "Оплата временно недоступна" in html
 
     parser = _StructuredDataParser()
     parser.feed(html)

@@ -1,0 +1,65 @@
+{
+  "created_at_utc": "2026-09-29T21:51:46.027232+00:00",
+  "base_sha": "04768db6d3bac13ea3121b1171f605aa32062c14",
+  "implementation_manifest_sha256": "328d7805ff57d15de4fdd19b6d3fb92d08a66fbf4a6b59ffaead4362eaced187",
+  "scope": "Local synthetic checks; not commit CI, installed app, live payments or human acceptance.",
+  "checks": [
+    {
+      "name": "server-final-127",
+      "passed": 127,
+      "duration_seconds": 95.77,
+      "log_path": "/tmp/graf-f280-final-regressions.log",
+      "log_sha256": "ef5fd8438d06c323f01e661a8bf54738762f3fc12c5b80909f72a8bb330bccd6"
+    },
+    {
+      "name": "ui-and-chromium",
+      "passed": 84,
+      "duration_seconds": 26.55,
+      "log_path": "/tmp/graf-f280-browser-r5.log",
+      "log_sha256": "626177a7ceba522d199b28a8669b25806a2637e370e594b54afb4c153fba8309"
+    },
+    {
+      "name": "webkit",
+      "passed": 16,
+      "duration_seconds": 29.81,
+      "log_path": "/tmp/graf-f280-webkit-r5.log",
+      "log_sha256": "9f87a7a9630c72ab6b0ef4b9cf098f5a7b80bb8c6d4e6ebacb29a8608fa22916"
+    },
+    {
+      "name": "chromium-matrix-final",
+      "passed": 1,
+      "duration_seconds": 29.13,
+      "log_path": "/tmp/graf-f280-browser-r6.log",
+      "log_sha256": "03eff6d826129df18db0ae2878fe4f095a20c95b05ef73797925101679621cee"
+    },
+    {
+      "name": "webkit-matrix-final",
+      "passed": 1,
+      "duration_seconds": 35.02,
+      "log_path": "/tmp/graf-f280-webkit-r6.log",
+      "log_sha256": "ead523b1405d12984969089af7181c736683d6515604b7ad6ef59cc0bf2dfd79"
+    }
+  ],
+  "browser_matrix": {
+    "variants": 35,
+    "widths": [
+      320,
+      360,
+      768,
+      1280
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "css_zoom": [
+      1,
+      2
+    ],
+    "engines": [
+      "chromium",
+      "webkit"
+    ],
+    "combinations": 1120
+  }
+}

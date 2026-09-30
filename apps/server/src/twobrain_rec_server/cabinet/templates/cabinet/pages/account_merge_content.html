@@ -14,6 +14,7 @@
           {% endif %}
         </div>
       </header>
+      {% if billing_return_path %}<p><a class="button quiet" href="{{ billing_return_path }}">Вернуться к оплате</a></p>{% endif %}
 
       {% if error_message and presentation and not blockers %}
       <section class="account-linking-alert account-linking-alert--error" role="alert" tabindex="-1" data-outcome-focus aria-labelledby="account-linking-error-title">

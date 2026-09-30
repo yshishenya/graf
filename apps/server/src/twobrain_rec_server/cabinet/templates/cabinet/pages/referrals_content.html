@@ -3,7 +3,7 @@
   <div class="cabinet-workspace settings-page">
     <div class="settings-page__content">
       <header class="cabinet-topbar settings-page__topbar">
-        <div class="page-title"><h1>Пригласить друзей</h1><p class="muted">Друг получит 10% скидки на первую подписку. Вам начислят дни после подтвержденной оплаты.</p></div>
+        <div class="page-title"><h1>Пригласить друзей</h1><p class="muted">Другу — 10% на первую оплату. Вам — 7 дней за месяц или 30 дней за год.</p></div>
       </header>
       <section class="settings-section cabinet-card" aria-labelledby="referral-link-title">
         <h2 id="referral-link-title">Ваша ссылка</h2>
@@ -11,18 +11,17 @@
         {% if referral_issued|default(False) %}
         <label for="referral-link">Ссылка для приглашения</label>
         <input id="referral-link" type="text" value="{{ referral_link }}" readonly aria-describedby="referral-link-help">
-        <p id="referral-link-help" class="muted">Ссылка действует до {{ referral_expires_at_label or "обновления условий кампании" }}. За месячную подписку — 7 дней, за годовую — 30 дней. Начисление происходит через 14 дней после оплаты; денежного вознаграждения нет.</p>
-        <button class="button" type="button" data-copy-target="referral-link">Скопировать ссылку</button>
-        <button class="button quiet" type="button" data-copy-target="referral-link">Поделиться</button>
+        <p id="referral-link-help" class="muted">Ссылка действует до {{ referral_expires_at_label or "обновления условий кампании" }}.</p>
+        <button class="button primary" type="button" data-copy-target="referral-link">Скопировать ссылку</button>
         {% else %}
         <p class="notice" role="status">Ссылка еще не активирована для учета приглашений.</p>
-        <form action="/referrals/issue" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button" type="submit">Активировать ссылку</button></form>
+        <form action="/referrals/issue" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button primary" type="submit">Активировать ссылку</button></form>
         {% endif %}
       </section>
       <section class="settings-section cabinet-card" aria-labelledby="referral-safety-title">
         <h2 id="referral-safety-title">Как это работает</h2>
-        <p>Скидка действует только на первую оплату приглашенного. Одна ссылка может использоваться несколькими приглашенными, а бонусы ограничены 180 днями за скользящие 12 месяцев.</p>
-        <p class="muted">Статус приглашений показывается без email и других персональных данных.</p>
+        <p>Дни начисляются через 14 дней после подтвержденной оплаты друга; денежного вознаграждения нет.</p>
+        <details class="billing-coupon"><summary>Правила приглашений</summary><p>Скидка действует только на первую оплату. По ссылке можно пригласить несколько друзей. Максимум — 180 бонусных дней за скользящие 12 месяцев.</p><p>Статус приглашений виден без почты и платежных данных друзей.</p></details>
       </section>
       <section class="settings-section cabinet-card" aria-labelledby="referral-history-title">
         <h2 id="referral-history-title">Статус приглашений</h2>
@@ -34,7 +33,6 @@
           {% endfor %}
         </ol>
         {% else %}<p class="muted" role="status">Пока нет зарегистрированных приглашенных.</p>{% endif %}
-        <p class="muted">Для вопросов о начислении обратитесь в поддержку; email и платежные данные приглашенных не показываются.</p>
         {% if support_email %}<p><a class="button quiet" href="mailto:{{ support_email }}">Обратиться в поддержку</a></p>{% endif %}
       </section>
     </div>

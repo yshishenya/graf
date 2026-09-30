@@ -5,6 +5,30 @@ import Foundation
 import XCTest
 
 final class DesktopCabinetRoutePolicyTests: XCTestCase {
+    func testBillingPurchaseActionsStayWithinExactRoutesAndSessionOrigin() throws {
+        let policy = DesktopCabinetRoutePolicy(baseURL: try url("/"))
+        for path in [
+            "/billing/storage/preview",
+            "/billing/storage/cancel-selection",
+            "/billing/subscription/early-preview",
+            "/billing/purchases/confirm"
+        ] {
+            let result = policy.decision(for: try url(path))
+            XCTAssertEqual(result.decision, .allow, path)
+            XCTAssertEqual(result.route.kind, .billing, path)
+            for invalid in [
+                "https://rec.2brain.dev\(path)/extra",
+                "https://rec.2brain.dev\(path)-all",
+                "https://foreign.example\(path)",
+                "https://rec.2brain.dev:444\(path)",
+                "https://user@rec.2brain.dev\(path)",
+                "http://rec.2brain.dev\(path)"
+            ] {
+                XCTAssertEqual(policy.decision(for: try XCTUnwrap(URL(string: invalid))).decision, .blockWithMessage, invalid)
+            }
+        }
+    }
+
     func testRetiredNotificationSettingsRouteIsRejectedWithoutAlias() throws {
         let policy = DesktopCabinetRoutePolicy(baseURL: try url("/"))
         XCTAssertEqual(policy.decision(for: try url("/desktop/settings/notifications")).decision, .allow)

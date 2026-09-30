@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit
 from uuid import UUID
 
-from twobrain_rec_server.auth.redirects import safe_first_party_path
+from twobrain_rec_server.auth.redirects import safe_billing_return_path, safe_first_party_path
 from twobrain_rec_server.cabinet.templates import render_template, trusted_component_html
 from twobrain_rec_server.cabinet.view_models import PROVIDER_LINK_LABELS
 
@@ -13,6 +13,17 @@ _PLANNED_LOGIN_PROVIDER_ACTIONS: tuple[dict[str, str | bool], ...] = (
     {"provider": "gosuslugi", "label": "Госуслуги", "mark": "Г", "active": False},
     {"provider": "alfa", "label": "Alfa ID", "mark": "A", "active": False},
 )
+
+
+def _billing_return_for_auth(next_path: str) -> str | None:
+    direct = safe_billing_return_path(next_path)
+    if direct:
+        return direct
+    parsed = urlsplit(next_path)
+    if parsed.path not in {"/settings/account", "/desktop/settings/account"} or parsed.fragment:
+        return None
+    query = parse_qsl(parsed.query, keep_blank_values=True)
+    return safe_billing_return_path(query[0][1]) if len(query) == 1 and query[0][0] == "next" else None
 
 
 def _login_provider_actions(providers: list, *, next_path: str) -> list[dict[str, str | bool]]:
@@ -106,6 +117,7 @@ def render_login_page(
         workspace_configured=workspace_id is not None,
         providers=provider_actions,
         next_path=safe_next,
+        billing_return_path=_billing_return_for_auth(safe_next),
         signup_href=f"/sign-up?{urlencode({'next': safe_next})}",
         invitation_flow=invitation_flow,
         recovery_mode=recovery_mode,
@@ -171,13 +183,17 @@ def render_email_code_page(
     safe_next = _safe_browser_next_path(next_path)
     link_flow = flow in {"link", "desktop_link"}
     link_base_path = "/desktop/settings/account" if flow == "desktop_link" else "/settings/account"
+    if link_flow:
+        safe_next = safe_billing_return_path(safe_next) or link_base_path
+    billing_return_path = _billing_return_for_auth(safe_next)
+    link_query = "?" + urlencode({"next": billing_return_path}) if billing_return_path else ""
     verify_path = (
-        f"{link_base_path}/email-link/verify"
+        f"{link_base_path}/email-link/verify{link_query}"
         if link_flow
         else ("/sign-up/email/verify" if flow == "signup" else "/login/email/verify")
     )
     resend_path = (
-        f"{link_base_path}/email-link/start"
+        f"{link_base_path}/email-link/start{link_query}"
         if link_flow
         else ("/sign-up/email/start" if flow == "signup" else "/login/email/start")
     )
@@ -235,6 +251,7 @@ def render_email_code_page(
         verify_path=verify_path,
         resend_path=resend_path,
         back_href=f"{back_path}?{urlencode({'next': safe_next})}",
+        billing_return_path=billing_return_path,
         email=email,
         state_nonce=state_nonce,
         next_path=safe_next,

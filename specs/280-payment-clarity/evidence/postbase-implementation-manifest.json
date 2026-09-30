@@ -1,0 +1,173 @@
+{
+  "base_sha": "8da0e2b635f7628a0ad22a5739bd5c47d1784c76",
+  "source_code_commit": "8c21e97f3a94574d26a11aa9e441e0003039cc55",
+  "reviewed_manifest_sha256": "328d7805ff57d15de4fdd19b6d3fb92d08a66fbf4a6b59ffaead4362eaced187",
+  "sha256": "d2080643d2ccb7c240ef21cbd8daae94f2252c0adef321356e375db7f1c7a2cf",
+  "scope": "Same 41 F280 source/test paths after rebasing onto current master. Only upstream calendar spelling in rendering.py differs from reviewed files. Reports remain historical.",
+  "files": [
+    {
+      "path": "apps/macos/RecApp/Sources/Cabinet/DesktopCabinetRoutePolicy.swift",
+      "sha256": "a0688ae25b0d25ddc2329bf50ed58069eb1148f5c20e28930082ed4a3cd5c1ea"
+    },
+    {
+      "path": "apps/macos/Shared/Tests/DesktopCabinetNavigationRequestPolicyTests.swift",
+      "sha256": "ffc0fa7468f058e60481b153b06ec70cdd108f29a9f8b04c6eb0ed794244f755"
+    },
+    {
+      "path": "apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift",
+      "sha256": "719dbbb0d0dbc63bd1752a1a6b3455cce2dc6e35bb11c0ab2da7b6d60221e7f9"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/auth/redirects.py",
+      "sha256": "6ffff503a807d8370751fc074e736456fc50d04db0c648e39a20f3abf1a151da"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/auth_rendering.py",
+      "sha256": "0d31f74da12c70deb75065d5dde78728b4ad44da5f1e6ab6872b71703d1e4008"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/rendering.py",
+      "sha256": "c34ebf7b8af8196abb214b003d83ca06ee1b61682bbaa1a7569da985ba26f23a"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css",
+      "sha256": "276fc8c536d06b93aa9526f53af56feb4492e5037ae67020073579fc6361094c"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/auth/email_code.html",
+      "sha256": "94ba8cbccccea41915af09e019e6d1c99eff60528e7b95ee3e7045115b38c034"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/auth/login.html",
+      "sha256": "a788527bccaf503634d022cc68d55c0912b765b5a76a72ce7408dc5ce9a33bd7"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/account_merge_content.html",
+      "sha256": "1f95f52e50d70ee540e71287661dced8d31cb5ec9e883254028bd339d1bab9f8"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html",
+      "sha256": "8a0559df43406694b659cbe17c43e22530177f949999ec1b6d357620f62b55ad"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_discounts_content.html",
+      "sha256": "a734dd80e197ce9408f90b8413f95bfa165139f0452c18efe501777ff0ea3f36"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_history_content.html",
+      "sha256": "1b8a9d48ee06b472a1a78369e69c7f6d771ff319070109c48f1b0ef8f3b9d326"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_invoice_content.html",
+      "sha256": "66edea5dad95846004b2bd45e2b0428cb8f05d138a0e9b223c44627e85b109fd"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_operation_status_content.html",
+      "sha256": "11428475364b0c97e80bd207f577521a7f2139b8c503983f0b8ff0dac8bcf4c0"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_overview_content.html",
+      "sha256": "cc2c1af28413016dac595056a193cabc0c2f2ffb458d90c700e303275f54ab29"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_payment_method_content.html",
+      "sha256": "9e12cb4cf511b40625b63a8384857e529a27043632298f2a708af8eb32001195"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_plans_content.html",
+      "sha256": "cf45d47a2f49360f7e27ebdd8fae49c8f31d7e6d5812b917068b3d322759717e"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_purchase_content.html",
+      "sha256": "b758c62be4aa60c625ee52607090b219dad8187f21bf318bdb84a141a8a41a35"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_storage_content.html",
+      "sha256": "17b434cda4c361f9b564f38563c3d0e7edd80c4adc6419f78f807ea2a44db385"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_subscription_content.html",
+      "sha256": "14e72d255f53a8cfffdf067a01bb8c955b741df96813a10c6015ddef54d54300"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_usage_content.html",
+      "sha256": "b00b232f421ab29ad60d99b902e4d95d1cc68d3f388d9bdb94a859ee8f4f7fce"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/referrals_content.html",
+      "sha256": "e86856577d2791d4f2cd13347b98492fdc37e6179e1f100dd43699c241f4ce21"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_account_content.html",
+      "sha256": "a0747c72f601ab7d812d6cb137171e5e79f6075a3f1a7138eca0586943d4c897"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/web_routes/account_merge.py",
+      "sha256": "f53c49a65c340bea2977c7e3309a376983b824fdcd4aa7dfe7a9a3515d6e4481"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/web_routes/auth_email_flow.py",
+      "sha256": "50bce41ab8e990fec9c30c0144c986c0d7c0e1b4b270a88ba0414b98de3d8afd"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py",
+      "sha256": "7464446d9c41f0586b88f9f665a579bb2452792adaccb38acc60db81a9edc757"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/web_routes/settings.py",
+      "sha256": "1e7e6d115aece1a8566b92f4cfb5b52bb9192642f5d7f9f21c20412a2df25bd6"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/public/templates/public/landing.html",
+      "sha256": "c0cf2aebecfe79777551447bba276f5982bbd7ea46d2949eb6e0209c4ed46010"
+    },
+    {
+      "path": "apps/server/tests/browser/billing-accessibility.test.cjs",
+      "sha256": "3c7e13a20df92605e7aed3e86eac7dd5f38b3a807a6714b37a9fd1788d88e6d9"
+    },
+    {
+      "path": "apps/server/tests/contract/test_account_routes.py",
+      "sha256": "171dceba645c14eb56a5c87107b0b0a77a8e198f46fd9e615de637fcb4190ae9"
+    },
+    {
+      "path": "apps/server/tests/contract/test_billing_accessibility.py",
+      "sha256": "9a1026d9d4b1079c3c1ade2c948775ef6cdfd50066998ed1318ab94f2e35b443"
+    },
+    {
+      "path": "apps/server/tests/contract/test_billing_clarity.py",
+      "sha256": "6ba61636e105455b567bdb2bbadf06739491c02b5516c2696bf87bc7293c3b8c"
+    },
+    {
+      "path": "apps/server/tests/contract/test_billing_purchase_ui.py",
+      "sha256": "62cfb367958d46eff2a4f92119ebeba958ad116eb05274fb807b0279f8596dd8"
+    },
+    {
+      "path": "apps/server/tests/contract/test_billing_ui.py",
+      "sha256": "b835fe97a67676fc4275709cc776b7c32a7af4abf5d97ee5df92d38965ae4bb1"
+    },
+    {
+      "path": "apps/server/tests/integration/test_billing_clarity.py",
+      "sha256": "65f0733b6df83a1fb9c2f9e1e582c7ba3ed02447783a8129543abeff309dfc66"
+    },
+    {
+      "path": "apps/server/tests/integration/test_billing_purchase_journey.py",
+      "sha256": "54e8233ee8807b6ca27a1d59014f73c57e2dc3db696062926358a8a2778b67e4"
+    },
+    {
+      "path": "apps/server/tests/integration/test_billing_return.py",
+      "sha256": "f2e01c687813966189fcf91f28284ad48125df17c65909b8352a5135efb48cb2"
+    },
+    {
+      "path": "apps/server/tests/integration/test_billing_usability.py",
+      "sha256": "160dae57895138d910521bc51aa98b26fa11dcafcc8e9efe5f4cc882a7431f12"
+    },
+    {
+      "path": "apps/server/tests/unit/test_billing_money_path_e2e.py",
+      "sha256": "51896b8373aa054a638d01772e7afbac4e2215681595c2d0ec14211daa203feb"
+    },
+    {
+      "path": "apps/server/tests/unit/test_public_landing.py",
+      "sha256": "0b3920d8536bd5698455bfc10c27fb375472cff7fce0f4d9566789f4d554b99b"
+    }
+  ]
+}

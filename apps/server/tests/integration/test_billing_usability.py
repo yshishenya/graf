@@ -121,7 +121,8 @@ def test_subscription_and_discount_surfaces_gate_disabled_checkout_actions() -> 
         ROOT / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_discounts_content.html"
     ).read_text(encoding="utf-8")
     assert 'billing_enabled|default(False)' in subscription
-    assert 'href="/billing/checkout">Выбрать тариф</a>' in subscription
+    assert "manual_checkout_url" in subscription
+    assert "Выбрать тариф" in subscription
     assert "{% if billing_enabled|default(True) %}<form action=\"/billing/discounts/apply\"" in discounts
 
 
@@ -136,8 +137,8 @@ def test_billing_surfaces_keep_contextual_non_coercive_upgrade_copy() -> None:
     ).read_text(encoding="utf-8")
     assert "Использовано 80% месячного лимита обработки" in overview
     assert "Осталось {{ processing_remaining_label }} до сброса {{ processing_reset_at_label }}" in overview
-    assert "После окончания автоматически включится Free" in overview
-    assert "Платный режим закончился" in overview
+    assert "После окончания автоматически включится «Бесплатный»" in overview
+    assert "Пробный период закончился" in overview
     assert "через {{ trial_remaining_label }}" in overview
     assert "обработка без сохранения аудио также недоступна до этого момента" in overview
     assert 'href="/meetings?archive_audio=false#manual-upload"' not in overview
@@ -160,7 +161,7 @@ def test_billing_navigation_uses_approved_russian_labels() -> None:
     ).read_text(encoding="utf-8")
     assert "Управлять хранилищем" in overview
     assert 'href="/billing/payment-method"' in overview
-    assert '"Изменить" if payment_method_label' in overview
+    assert 'href="/billing/payment-method">Способ оплаты</a>' in overview
     assert "Настроить хранилище" in plans
 
 

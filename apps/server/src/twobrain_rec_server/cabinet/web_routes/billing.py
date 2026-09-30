@@ -802,13 +802,14 @@ def _operation_state_label(state: str | None) -> str:
         "sent": "Платеж отправлен в ЮKassa",
         "processing": "ЮKassa обрабатывает платеж",
         "unknown": "Проверяем результат платежа",
-        "pending_reconciliation": "Ожидаем сверку с ЮKassa",
-        "reconciliation_gap": "Нужна ручная сверка платежа",
-        "manual_resolution": "Нужна ручная сверка платежа",
-        "provider_key_expired": "Срок безопасного продолжения оплаты истек",
+        "pending_reconciliation": "Проверяем результат оплаты",
+        "reconciliation_gap": "Проверяем результат оплаты",
+        "manual_resolution": "Проверяем результат оплаты",
+        "provider_key_expired": "Продолжить эту оплату уже нельзя",
         "observation_expired": "Срок проверки платежа истек",
         "method_required": "Нужен способ оплаты",
         "succeeded": "Платеж подтвержден",
+        "succeeded_refused": "Оплата получена. Проверяем доступ",
         "canceled": "Платеж отменен",
         "failed": "Платеж не выполнен",
     }.get(state or "", "Статус уточняется")
@@ -838,6 +839,48 @@ def _masked_receipt_contact(value: str | None) -> str | None:
     if not local or not domain:
         return None
     return f"{local[0]}***@{domain}"
+
+
+async def _verified_receipt_contact(db, user_id):
+    if db is None:
+        return None
+    return await db.scalar(
+        select(ExternalIdentity.email)
+        .where(
+            ExternalIdentity.user_id == user_id,
+            ExternalIdentity.is_active.is_(True),
+            ExternalIdentity.is_verified.is_(True),
+            ExternalIdentity.email.is_not(None),
+        )
+        .order_by(ExternalIdentity.created_at.asc())
+        .limit(1)
+    )
+
+
+def _receipt_contact_action_url(request, *, next_path):
+    account_path = "/desktop/settings/account" if _is_embedded_request(request) else "/settings/account"
+    return f"{account_path}?{urlencode({'next': next_path})}#account-providers-title"
+
+
+def _renewal_notice(subscription):
+    """Explain existing renewal blockers without changing their resolution."""
+    resolution = subscription.renewal_resolution if subscription else None
+    cycle = "year" if subscription and subscription.cycle == "year" else "month"
+    return {
+        "method_required": (
+            "Автопродление приостановлено. Проверьте способ оплаты.",
+            "/billing/payment-method", "Проверить способ оплаты",
+        ),
+        "receipt_contact_required": (
+            "Автопродление приостановлено: нужен адрес для чека из подтвержденной оплаты. "
+            "Оплатите следующий период вручную; оплаченный остаток сохранится.",
+            f"/billing/checkout?cycle={cycle}", "Оплатить следующий период вручную",
+        ),
+        "price_changed": (
+            "Цена подписки или хранения изменилась. Автопродление приостановлено до подтверждения новых условий.",
+            "/billing/storage", "Проверить новую цену",
+        ),
+    }.get(resolution, (None, None, None))
 
 
 def _capacity_label(capacity_bytes: int) -> str:
@@ -1428,6 +1471,7 @@ async def billing_overview_page(
     )
     recurring_next_charge_label = None
     recurring_next_charge_amount_label = None
+    renewal_notice, renewal_action_url, renewal_action_label = _renewal_notice(subscription)
     if (
         subscription is not None
         and plan_code == "personal"
@@ -1473,6 +1517,17 @@ async def billing_overview_page(
             )
         else:
             recurring_next_charge_label = "не запланировано"
+            next_catalog = approved_catalog.get(current_cycle)
+            if next_catalog is not None:
+                try:
+                    next_catalog, _ = await compose_personal_catalog(
+                        db, base=next_catalog, subscription=subscription, now=now
+                    )
+                except PurchaseError:
+                    next_catalog = None
+            recurring_next_charge_amount_label = _billing_amount_label(
+                next_catalog.amount_minor if next_catalog is not None else None
+            )
     elif subscription is not None and subscription.renewal_resolution in {
         "unknown_pending",
         "pending",
@@ -1566,6 +1621,11 @@ async def billing_overview_page(
         bonus_until_label=_billing_datetime_label(bonus_until),
         next_charge_label=recurring_next_charge_label,
         next_charge_amount_label=recurring_next_charge_amount_label,
+        renewal_allowed=bool(subscription and subscription.recurring_allowed),
+        renewal_notice=renewal_notice,
+        renewal_action_url=renewal_action_url,
+        renewal_action_label=renewal_action_label,
+        manual_checkout_url=f"/billing/checkout?cycle={current_cycle or 'month'}",
         payment_method_label=payment_method.masked_label if payment_method is not None else None,
         latest_invoice=latest_invoice,
         latest_invoice_summary=latest_invoice_summary,
@@ -1708,7 +1768,7 @@ async def billing_discounts_page(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
-    """Show discount terms and safe redemption history; raw promo codes stay out of UI."""
+    """Show discount terms and history without disclosing campaign codes."""
     subscription = None
     if db is not None:
         subscription = await db.scalar(
@@ -1777,7 +1837,8 @@ async def billing_discounts_page(
         billing_owner=billing_owner,
         billing_enabled=billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id),
         checkout_promo_active=bool(request.cookies.get(_CHECKOUT_PROMO_COOKIE)),
-        result=request.query_params.get("result"),
+        discount_promo_code=getattr(request.state, "discount_promo_code", ""),
+        result=getattr(request.state, "discount_result", request.query_params.get("result")),
     )
     return cabinet_html_response(content)
 
@@ -1790,7 +1851,7 @@ async def apply_billing_discount(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
     promo_code: str | None = Form(default=None, max_length=48),
-) -> RedirectResponse:
+) -> HTMLResponse:
     """Validate a code without reserving it; reservation belongs to checkout."""
     subscription = (
         await db.scalar(
@@ -1818,20 +1879,22 @@ async def apply_billing_discount(
     try:
         normalized = normalize_promo(promo_code or "")
     except PromoError:
-        return RedirectResponse("/billing/discounts?result=invalid", status_code=303)
+        normalized = None
     campaign = await db.scalar(
         select(PromotionCampaign).where(
             PromotionCampaign.code_hash == promo_code_hash(normalized),
             PromotionCampaign.enabled.is_(True),
         )
-    )
-    if campaign is None:
-        return RedirectResponse("/billing/discounts?result=invalid", status_code=303)
+    ) if normalized else None
     now = datetime.now(UTC)
-    if (campaign.starts_at is not None and campaign.starts_at > now) or (
+    if campaign is None or (campaign.starts_at is not None and campaign.starts_at > now) or (
         campaign.ends_at is not None and campaign.ends_at <= now
     ):
-        return RedirectResponse("/billing/discounts?result=invalid", status_code=303)
+        request.state.discount_result = "invalid"
+        request.state.discount_promo_code = promo_code or ""
+        response = await billing_discounts_page(request, tenant_scope, principal, db)
+        response.status_code = 409
+        return response
     return _checkout_result_redirect(request, "promo_applied", promo_code=normalized)
 
 
@@ -1913,11 +1976,24 @@ async def billing_checkout_status_page(
     if invoice is None:
         return RedirectResponse("/billing/history?result=not_found", status_code=303)
     operation_state = operation.state if operation is not None else None
+    retry_payment_url = f"/billing/checkout?cycle={'year' if invoice.plan_snapshot.get('cycle') == 'year' else 'month'}"
+    if operation and operation.kind == "storage_upgrade":
+        retry_payment_url = "/billing/storage"
+        try:
+            package_count = storage_package_count(operation.request_snapshot.get("target_capacity_bytes"))
+        except ValueError:
+            pass
+        else:
+            retry_payment_url += f"?package_count={package_count}"
+    elif operation and operation.kind == "early_renewal":
+        retry_payment_url = "/billing/subscription"
     settings = request.app.state.settings
     operation_actor = (
         operation.request_snapshot.get("billing_actor_user_id") if operation is not None else None
     )
-    actor_matches = operation_actor in {None, str(principal.user_id)}
+    actor_matches = operation_actor == str(principal.user_id) or (
+        operation_actor is None and operation is not None and operation.kind == "initial_checkout"
+    )
     can_continue_payment = bool(
         operation is not None
         and billing_checkout_allowed(settings, tenant_scope.workspace_id)
@@ -1925,7 +2001,7 @@ async def billing_checkout_status_page(
         and (
             _initial_checkout_can_continue(operation)
             or (
-                operation.kind == "storage_upgrade"
+                operation.kind in {"initial_checkout", "storage_upgrade"}
                 and operation.state == "provider_pending"
                 and is_allowed_confirmation_url(operation.request_snapshot.get("confirmation_url"))
             )
@@ -1968,18 +2044,15 @@ async def billing_checkout_status_page(
         amount_label=_billing_amount_label(invoice.amount_minor, invoice.currency)
         or "Сумма недоступна",
         operation_state=operation_state,
-        retry_payment_url=(
-            "/billing/storage"
-            if operation and operation.kind == "storage_upgrade"
-            else "/billing/subscription"
-            if operation and operation.kind == "early_renewal"
-            else "/billing/checkout"
-        ),
+        retry_payment_url=retry_payment_url,
         support_email=settings.billing_support_email,
         purchase_purpose_label=purchase_purpose_label(invoice.plan_snapshot or {}),
-        service_gap=(operation.request_snapshot or {}).get("reconciliation_detail")
-        if operation
-        else None,
+        service_gap=bool(
+            operation_state == "succeeded_refused"
+            or (operation and operation.request_snapshot.get("reconciliation_detail"))
+            or (invoice.plan_snapshot or {}).get("service_resolution")
+        ),
+        return_to_work_url="/desktop/meetings" if _is_embedded_request(request) else "/meetings",
         operation_state_label=_operation_state_label(operation_state),
         billing_enabled=billing_checkout_allowed(settings, tenant_scope.workspace_id),
         can_continue_payment=can_continue_payment,
@@ -2516,7 +2589,11 @@ async def billing_subscription_page(
     payment_method_label = None
     resume_quote_id = None
     pending_charge_amount_label = None
+    prepared_charge_amount_label = None
     next_charge_amount_label = None
+    pending_invoice = None
+    receipt_contact = await _verified_receipt_contact(db, principal.user_id) if db is not None else None
+    renewal_notice, renewal_action_url, renewal_action_label = _renewal_notice(subscription)
     if db is not None and subscription is not None:
         payment_method_label = await db.scalar(
             select(BillingPaymentMethod.masked_label).where(
@@ -2540,8 +2617,8 @@ async def billing_subscription_page(
         next_charge_amount_label = _billing_amount_label(
             cycle_catalog.amount_minor if cycle_catalog is not None else None
         )
-        pending_invoice = await db.scalar(
-            select(BillingInvoice)
+        awaiting_invoices = await db.execute(
+            select(BillingInvoice, BillingOperation)
             .join(BillingOperation, BillingOperation.id == BillingInvoice.operation_id)
             .where(
                 BillingInvoice.workspace_id == tenant_scope.workspace_id,
@@ -2549,12 +2626,14 @@ async def billing_subscription_page(
                 BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
             )
             .order_by(BillingInvoice.created_at.desc())
-            .limit(1)
         )
-        if pending_invoice is not None:
-            pending_charge_amount_label = _billing_amount_label(
-                pending_invoice.amount_minor, pending_invoice.currency
-            )
+        for invoice, operation in awaiting_invoices:
+            if operation.kind == "renewal" and operation.state == "scheduled" and operation.provider_id is None:
+                if prepared_charge_amount_label is None:
+                    prepared_charge_amount_label = _billing_amount_label(invoice.amount_minor, invoice.currency)
+            elif pending_invoice is None:
+                pending_invoice = invoice
+                pending_charge_amount_label = _billing_amount_label(invoice.amount_minor, invoice.currency)
 
     if (
         db is not None
@@ -2563,6 +2642,7 @@ async def billing_subscription_page(
         and not subscription.recurring_allowed
         and billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id)
         and method_available
+        and subscription.renewal_resolution != "receipt_contact_required"
     ):
         try:
             resume_snapshot = await _resume_renewal_snapshot(db, subscription=subscription, now=now)
@@ -2601,9 +2681,22 @@ async def billing_subscription_page(
         resume_charge_label=resume_charge_label,
         resume_quote_id=resume_quote_id,
         method_available=method_available,
+        receipt_contact_ready=bool(receipt_contact),
+        receipt_contact_action_url=_receipt_contact_action_url(
+            request, next_path="/billing/subscription",
+        ),
+        early_preview_error=getattr(request.state, "early_preview_error", None),
+        early_promo_code=getattr(request.state, "early_promo_code", ""),
         payment_method_label=mask_payment_method(payment_method_label),
         next_charge_amount_label=next_charge_amount_label,
         pending_charge_amount_label=pending_charge_amount_label,
+        prepared_charge_amount_label=prepared_charge_amount_label,
+        pending_payment_url=_checkout_status_location(pending_invoice.safe_number)
+        if pending_invoice else None,
+        renewal_notice=renewal_notice,
+        renewal_action_url=renewal_action_url,
+        renewal_action_label=renewal_action_label,
+        manual_checkout_url=f"/billing/checkout?cycle={'year' if subscription and subscription.cycle == 'year' else 'month'}",
         subscription_cycle_label="год"
         if subscription and subscription.cycle == "year"
         else "месяц",
@@ -2667,6 +2760,7 @@ async def billing_payment_method_page(
             request, "billing_payment_method", principal=principal, tenant_scope=tenant_scope
         ),
         content_template="cabinet/pages/billing_payment_method_content.html",
+        manual_checkout_url=f"/billing/checkout?cycle={'year' if subscription and subscription.cycle == 'year' else 'month'}",
         method_label=method.masked_label if method is not None else None,
         method_kind=method.kind if method is not None else None,
         method_kind_label=_payment_method_kind_label(method.kind if method is not None else None),
@@ -2808,6 +2902,17 @@ async def billing_storage_page(
                     "cycle_label": "месяц" if base.cycle == "month" else "год",
                 }
             )
+    selected_package_count = storage_package_count(
+        max(PERSONAL_STORAGE_BYTES, subscription.next_capacity_bytes or current_capacity)
+    ) if subscription else 0
+    selected_package_count = next(
+        (option["package_count"] for option in options
+         if str(option["package_count"]) == str(getattr(
+             request.state, "storage_package_count", request.query_params.get("package_count"),
+         ))),
+        selected_package_count,
+    )
+    receipt_contact = await _verified_receipt_contact(db, principal.user_id)
     content = _page_shell(
         "Увеличение хранилища",
         embedded=_is_embedded_request(request),
@@ -2822,11 +2927,14 @@ async def billing_storage_page(
         current_capacity=current_capacity,
         current_capacity_label=_capacity_label(current_capacity),
         storage_options=options,
-        selected_package_count=storage_package_count(
-            max(PERSONAL_STORAGE_BYTES, subscription.next_capacity_bytes or current_capacity)
-        )
-        if subscription
-        else 0,
+        selected_package_count=selected_package_count,
+        storage_preview_error=getattr(request.state, "storage_preview_error", None),
+        storage_promo_code=getattr(request.state, "storage_promo_code", ""),
+        receipt_contact_ready=bool(receipt_contact),
+        receipt_contact_action_url=_receipt_contact_action_url(
+            request, next_path=f"/billing/storage?package_count={selected_package_count}",
+        ),
+        receipt_contact_message="Подтвердите email для чека в аккаунте, затем вернитесь к выбору места.",
         storage_timeline=[
             {
                 "start": _billing_datetime_label(item["starts_at"]),
@@ -2901,11 +3009,7 @@ async def cancel_billing_subscription(
     subscription = await _billing_owner_subscription(
         db, tenant_scope=tenant_scope, principal=principal
     )
-    if (
-        subscription is None
-        or subscription.paid_through is None
-        or subscription.paid_through <= datetime.now(UTC)
-    ):
+    if subscription is None or subscription.paid_through is None:
         return RedirectResponse("/billing/subscription?result=unavailable", status_code=303)
     if not subscription.recurring_allowed:
         return RedirectResponse("/billing/subscription?result=already_cancelled", status_code=303)
@@ -3096,6 +3200,13 @@ async def billing_checkout_page(
     )
     if blocking_operation is not None:
         checkout_result = "pending"
+    blocking_invoice = (
+        await db.scalar(select(BillingInvoice).where(
+            BillingInvoice.workspace_id == tenant_scope.workspace_id,
+            BillingInvoice.operation_id == blocking_operation.id,
+        ))
+        if db is not None and blocking_operation is not None else None
+    )
     checkout_blocked = checkout_result == "pending"
     continuation_candidate = (
         blocking_operation.request_snapshot.get("confirmation_url")
@@ -3116,25 +3227,10 @@ async def billing_checkout_page(
         request.cookies.get(_CHECKOUT_PROMO_COOKIE, ""),
     )
     checkout_cycle = getattr(
-        request.state, "billing_checkout_cycle", request.query_params.get("cycle", "month")
+        request.state, "billing_checkout_cycle", request.query_params.get("cycle")
     )
-    if checkout_cycle not in {"month", "year"}:
-        checkout_cycle = "month"
     descriptor = plan_descriptor("personal")
-    receipt_contact = (
-        await db.scalar(
-            select(ExternalIdentity.email)
-            .where(
-                ExternalIdentity.user_id == principal.user_id,
-                ExternalIdentity.is_active.is_(True),
-                ExternalIdentity.is_verified.is_(True),
-                ExternalIdentity.email.is_not(None),
-            )
-            .order_by(ExternalIdentity.created_at.asc())
-        )
-        if db is not None
-        else None
-    )
+    receipt_contact = await _verified_receipt_contact(db, principal.user_id)
     now = datetime.now(UTC)
     subscription = (
         await db.scalar(
@@ -3145,6 +3241,12 @@ async def billing_checkout_page(
         if db is not None
         else None
     )
+    if checkout_cycle not in {"month", "year"}:
+        checkout_cycle = (
+            subscription.cycle
+            if subscription and subscription.cycle in {"month", "year"}
+            else "month"
+        )
     catalog = await _approved_personal_catalog(db, now=now)
     base_catalog = dict(catalog)
     storage_prices = {}
@@ -3181,6 +3283,7 @@ async def billing_checkout_page(
         else PUBLIC_APPROVED_OFFER_VERSION
     )
     checkout_preview_data: dict[str, str] | None = None
+    checkout_has_discount = False
     promo_preview_error: str | None = composition_error
     selected_catalog = catalog.get(checkout_cycle)
     if (
@@ -3258,6 +3361,7 @@ async def billing_checkout_page(
                 discount_percent=chosen.discount_percent if chosen is not None else None,
                 discount_source=discount_source,
             )
+            checkout_has_discount = preview.payable_amount_minor < preview.list_amount_minor
         except (PromoError, PurchaseError) as exc:
             promo_preview_error = str(exc)
         except ValueError:
@@ -3298,11 +3402,19 @@ async def billing_checkout_page(
         checkout_idempotency_key=f"web-{principal.user_id}-{uuid4().hex}",
         checkout_result=checkout_result,
         checkout_blocked=checkout_blocked,
+        checkout_status_url=_checkout_status_location(blocking_invoice.safe_number)
+        if blocking_invoice else None,
         checkout_continuation_url=checkout_continuation_url,
         checkout_promo_code=checkout_promo_code,
         checkout_cycle=checkout_cycle,
         checkout_preview=checkout_preview_data,
+        checkout_has_discount=checkout_has_discount,
         promo_preview_error=promo_preview_error,
+        receipt_contact_ready=bool(receipt_contact),
+        receipt_contact_action_url=_receipt_contact_action_url(
+            request, next_path=f"/billing/checkout?cycle={checkout_cycle}",
+        ),
+        receipt_contact_message="Подтвердите email для чека в аккаунте, затем вернитесь к оформлению.",
         receipt_contact_label=_masked_receipt_contact(receipt_contact),
     )
     response = cabinet_html_response(content)
@@ -3403,7 +3515,7 @@ async def start_billing_checkout(
 ) -> HTMLResponse:
     settings = request.app.state.settings
     if db is None:
-        return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
+        return _checkout_result_redirect(request, "unavailable", cycle=cycle, promo_code=promo_code)
     # Keep the narrow rate-limit transaction ahead of workspace row locks.
     # Otherwise its FK insert can wait on this transaction's FOR UPDATE lock
     # and deadlock the checkout request against itself.
@@ -3442,27 +3554,18 @@ async def start_billing_checkout(
             .with_for_update()
         )
         if membership is None or membership.role != "owner":
-            return RedirectResponse("/billing/checkout?result=owner_only", status_code=303)
-        receipt_contact = await db.scalar(
-            select(ExternalIdentity.email)
-            .where(
-                ExternalIdentity.user_id == principal.user_id,
-                ExternalIdentity.is_active.is_(True),
-                ExternalIdentity.is_verified.is_(True),
-                ExternalIdentity.email.is_not(None),
-            )
-            .order_by(ExternalIdentity.created_at.asc())
-        )
+            return _checkout_result_redirect(request, "owner_only", cycle=cycle, promo_code=promo_code)
+        receipt_contact = await _verified_receipt_contact(db, principal.user_id)
         require_billing_enabled(
             checkout_enabled=billing_checkout_allowed(settings, tenant_scope.workspace_id),
         )
         key = idempotency_key.strip()
         if not key:
-            return RedirectResponse("/billing/checkout?result=invalid", status_code=303)
+            return _checkout_result_redirect(request, "invalid", cycle=cycle, promo_code=promo_code)
         if not offer_consent:
-            return RedirectResponse("/billing/checkout?result=offer_required", status_code=303)
+            return _checkout_result_redirect(request, "offer_required", cycle=cycle, promo_code=promo_code)
         if not recurring_consent:
-            return RedirectResponse("/billing/checkout?result=consent_required", status_code=303)
+            return _checkout_result_redirect(request, "consent_required", cycle=cycle, promo_code=promo_code)
 
         # Idempotency recovery must not re-run mutable promo/referral checks.
         # A retried request can carry the same reservation and should recover
@@ -3488,6 +3591,23 @@ async def start_billing_checkout(
                     status_code=303,
                 )
             return RedirectResponse("/billing?result=pending", status_code=303)
+        if not receipt_contact:
+            blocker = await db.scalar(
+                _blocking_payment_operation_query(tenant_scope.workspace_id).limit(1)
+            )
+            if blocker is not None:
+                blocked_invoice = await db.scalar(select(BillingInvoice).where(
+                    BillingInvoice.workspace_id == tenant_scope.workspace_id,
+                    BillingInvoice.operation_id == blocker.id,
+                ))
+                return RedirectResponse(
+                    _checkout_status_location(blocked_invoice.safe_number)
+                    if blocked_invoice else "/billing?result=pending",
+                    status_code=303,
+                )
+            return _checkout_result_redirect(
+                request, "receipt_contact_required", cycle=cycle, promo_code=promo_code,
+            )
         now = datetime.now(UTC)
         # An active paid period must never block a new payment: a person who
         # wants to pay early can pay at any moment, and the granted period is
@@ -3499,9 +3619,7 @@ async def start_billing_checkout(
         # available.  An absent/stale/disabled row therefore fails closed.
         catalog_snapshot = (await _approved_personal_catalog(db, now=now)).get(cycle)
         if catalog_snapshot is None:
-            return RedirectResponse(
-                "/billing/checkout?result=catalog_not_approved", status_code=303
-            )
+            return _checkout_result_redirect(request, "catalog_not_approved", cycle=cycle, promo_code=promo_code)
         if offer_version != catalog_snapshot.offer_version:
             request.state.billing_checkout_result = "offer_changed"
             request.state.billing_checkout_cycle = cycle
@@ -3759,7 +3877,7 @@ async def start_billing_checkout(
             )
             if redemption is not None and redemption.state not in {"released", "expired"}:
                 await db.rollback()
-                return _checkout_result_redirect(request, "promo_invalid", promo_code=promo_code)
+                return _checkout_result_redirect(request, "promo_invalid", promo_code=promo_code, cycle=cycle)
             if redemption is None:
                 redemption = PromotionRedemption(
                     campaign_id=promo_campaign.id,
@@ -3847,7 +3965,7 @@ async def start_billing_checkout(
                     status_code=303,
                 )
             return RedirectResponse("/billing?result=pending", status_code=303)
-        return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
+        return _checkout_result_redirect(request, "unavailable", cycle=cycle, promo_code=promo_code)
     except (
         BillingCheckoutDisabled,
         ValueError,
@@ -3886,7 +4004,7 @@ async def start_billing_checkout(
                         ),
                         status_code=303,
                     )
-        return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
+        return _checkout_result_redirect(request, "unavailable", cycle=cycle, promo_code=promo_code)
 
 
 @router.get("/billing/checkout/return", name="billing_checkout_return", include_in_schema=False)
@@ -3972,6 +4090,9 @@ async def billing_history_page(
                     ),
                     "receipt_label": receipt_label(receipt_state) if can_manage else "Чек доступен плательщику",
                     "detail_url": f"/billing/invoices/{invoice.safe_number}",
+                    "status_url": _checkout_status_location(invoice.safe_number)
+                    if can_manage and invoice.status in {"pending", "unknown", "manual_resolution", "failed", "canceled"} else None,
+                    "status_action_label": "Открыть статус платежа",
                     "refund_mailto": refund_mailto,
                 }
             )
@@ -4076,6 +4197,9 @@ async def billing_invoice_detail_page(
             "amount_label": _billing_amount_label(invoice.amount_minor, invoice.currency)
             or "Сумма недоступна",
             "status": invoice.status,
+            "status_url": _checkout_status_location(invoice.safe_number)
+            if can_manage and invoice.status in {"pending", "unknown", "manual_resolution", "failed", "canceled"} else None,
+            "status_action_label": "Открыть статус платежа",
             "cycle_label": "Год" if snapshot.get("cycle") == "year" else "Месяц",
             "purpose_label": purchase_purpose_label(snapshot),
             "capacity_label": _invoice_capacity_label(snapshot),
@@ -4121,7 +4245,10 @@ async def billing_invoice_detail_page(
     return cabinet_html_response(content)
 
 
-async def _purchase_error_page(request, tenant_scope, principal, db, message, *, status_code=409):
+async def _purchase_error_page(
+    request, tenant_scope, principal, db, message, *, status_code=409,
+    action_url=None, action_label=None,
+):
     content = _page_shell(
         "Подтверждение покупки",
         embedded=_is_embedded_request(request),
@@ -4133,12 +4260,15 @@ async def _purchase_error_page(request, tenant_scope, principal, db, message, *,
         support_email=request.app.state.settings.billing_support_email,
         purchase=None,
         purchase_error=message,
+        purchase_error_action_url=action_url,
+        purchase_error_action_label=action_label,
     )
     return cabinet_html_response(content, status_code=status_code)
 
 
 async def _render_purchase_quote(request, tenant_scope, principal, db, bound_quote):
     value = bound_quote.snapshot
+    receipt_contact = await _verified_receipt_contact(db, principal.user_id)
     next_storage_price = (
         value.get("next_storage_price") or value.get("storage_price_snapshot") or {}
     )
@@ -4153,6 +4283,12 @@ async def _render_purchase_quote(request, tenant_scope, principal, db, bound_quo
         content_template="cabinet/pages/billing_purchase_content.html",
         support_email=request.app.state.settings.billing_support_email,
         purchase_error=None,
+        receipt_contact_ready=bound_quote.purpose == "storage_schedule" or bool(receipt_contact),
+        receipt_contact_action_url=_receipt_contact_action_url(
+            request, next_path="/billing/subscription" if bound_quote.purpose == "early_renewal"
+            else f"/billing/storage?package_count={storage_package_count(value['target_capacity_bytes'])}",
+        ),
+        receipt_contact_message="Подтвердите email для чека в аккаунте, затем вернитесь к покупке.",
         purchase={
             "quote_id": str(bound_quote.id),
             "purpose": bound_quote.purpose,
@@ -4166,6 +4302,7 @@ async def _render_purchase_quote(request, tenant_scope, principal, db, bound_quo
             "discount_label": _billing_price_label(
                 value["list_amount_minor"] - value["payable_amount_minor"]
             ),
+            "has_discount": value["payable_amount_minor"] < value["list_amount_minor"],
             "next_label": _billing_price_label(value["next_amount_minor"]),
             "base_label": _billing_price_label(value["next_amount_minor"] - next_storage_amount),
             "storage_label": _billing_price_label(next_storage_amount),
@@ -4273,7 +4410,9 @@ async def preview_storage_purchase(
             )
             + format_user_datetime(subscription.paid_through, show_zone=True),
             "ends_at": utc(subscription.paid_through).isoformat(),
-            "next_attempt_label": await _next_renewal_label(db, subscription, now=now),
+            "next_attempt_label": await _next_renewal_label(
+                db, subscription, now=now, after_price_confirmation=purpose == "storage_schedule",
+            ),
             "recurring_allowed": bool(subscription.recurring_allowed),
             "promo_code_hash": promo_code_hash(promo.code) if promo else None,
             "campaign_id": str(campaign.id) if campaign else None,
@@ -4293,7 +4432,12 @@ async def preview_storage_purchase(
         return await _render_purchase_quote(request, tenant_scope, principal, db, bound)
     except (PurchaseError, PromoError, BillingCheckoutDisabled) as exc:
         await db.rollback()
-        return await _purchase_error_page(request, tenant_scope, principal, db, str(exc))
+        request.state.storage_preview_error = str(exc)
+        request.state.storage_promo_code = promo_code
+        request.state.storage_package_count = package_count
+        response = await billing_storage_page(request, tenant_scope, principal, db)
+        response.status_code = 409
+        return response
 
 
 @router.post(
@@ -4410,7 +4554,11 @@ async def preview_early_renewal(
         return await _render_purchase_quote(request, tenant_scope, principal, db, bound)
     except (PurchaseError, PromoError, BillingCheckoutDisabled) as exc:
         await db.rollback()
-        return await _purchase_error_page(request, tenant_scope, principal, db, str(exc))
+        request.state.early_preview_error = str(exc)
+        request.state.early_promo_code = promo_code
+        response = await billing_subscription_page(request, tenant_scope, principal, db)
+        response.status_code = 409
+        return response
 
 
 async def _reserve_purchase_promo(db, *, quote_snapshot, workspace_id, invoice, operation, now):
@@ -4494,6 +4642,7 @@ async def confirm_billing_purchase(
     operation, invoice = None, None
     dispatched = False
     persisted = False
+    recovery_url = "/billing"
     try:
         require_billing_enabled(checkout_enabled=billing_checkout_allowed(settings, tenant_scope.workspace_id))
         await lock_storage_workspace(db, tenant_scope.workspace_id)
@@ -4519,6 +4668,16 @@ async def confirm_billing_purchase(
             "early_renewal",
         }:
             raise PurchaseError("Расчёт недоступен. Откройте новую покупку")
+        if bound.purpose == "early_renewal":
+            recovery_url = "/billing/subscription"
+        else:
+            recovery_url = "/billing/storage"
+            try:
+                package_count = storage_package_count(bound.snapshot.get("target_capacity_bytes"))
+            except ValueError:
+                pass
+            else:
+                recovery_url += f"?package_count={package_count}"
         if bound.consumed_operation_id:
             previous_invoice = await db.scalar(
                 select(BillingInvoice).where(
@@ -4581,7 +4740,17 @@ async def confirm_billing_purchase(
             .with_for_update()
         )
         if blocker is not None:
-            raise PurchaseError("Дождитесь результата предыдущего платежа в истории")
+            blocked_invoice = await db.scalar(select(BillingInvoice).where(
+                BillingInvoice.workspace_id == tenant_scope.workspace_id,
+                BillingInvoice.operation_id == blocker.id,
+            ))
+            if blocked_invoice is not None:
+                return RedirectResponse(_checkout_status_location(blocked_invoice.safe_number), status_code=303)
+            return await _purchase_error_page(
+                request, tenant_scope, principal, db,
+                "Проверяем предыдущую оплату. Повторно платить не нужно.",
+                action_url="/billing/history#billing-help", action_label="Уточнить результат",
+            )
         accept_base_price(subscription, base.as_dict())
         accept_storage_price(
             subscription, value.get("next_storage_price") or value.get("storage_price_snapshot")
@@ -4605,19 +4774,19 @@ async def confirm_billing_purchase(
             await _notify_storage_selection(db, subscription=subscription)
             await db.commit()
             return RedirectResponse("/billing/storage?result=scheduled", status_code=303)
-        receipt_contact = await db.scalar(
-            select(ExternalIdentity.email)
-            .where(
-                ExternalIdentity.user_id == principal.user_id,
-                ExternalIdentity.is_active.is_(True),
-                ExternalIdentity.is_verified.is_(True),
-                ExternalIdentity.email.is_not(None),
-            )
-            .order_by(ExternalIdentity.created_at)
-            .limit(1)
-        )
+        receipt_contact = await _verified_receipt_contact(db, principal.user_id)
         if not receipt_contact:
-            raise PurchaseError("Подтвердите адрес электронной почты для чека")
+            next_path = (
+                "/billing/subscription" if bound.purpose == "early_renewal"
+                else f"/billing/storage?package_count={storage_package_count(value['target_capacity_bytes'])}"
+            )
+            await db.rollback()
+            return await _purchase_error_page(
+                request, tenant_scope, principal, db,
+                "Подтвердите email для чека в аккаунте, затем вернитесь к покупке.",
+                action_url=_receipt_contact_action_url(request, next_path=next_path),
+                action_label="Подтвердить email",
+            )
         provider_ref = None
         if bound.purpose == "early_renewal":
             from twobrain_rec_server.billing.payment_methods import (
@@ -4770,12 +4939,21 @@ async def confirm_billing_purchase(
                     return RedirectResponse(
                         _checkout_status_location(saved_invoice.safe_number), status_code=303
                     )
+            return await _purchase_error_page(
+                request, tenant_scope, principal, db,
+                "Результат оплаты уточняется. Не начинайте новый платеж.",
+                action_url="/billing/history#billing-help", action_label="Уточнить результат",
+            )
         message = (
             str(exc)
             if isinstance(exc, (PurchaseError, PromoError))
             else "Покупка не создана. Проверьте условия и повторите расчёт"
         )
-        return await _purchase_error_page(request, tenant_scope, principal, db, message)
+        return await _purchase_error_page(
+            request, tenant_scope, principal, db, message,
+            action_url=recovery_url,
+            action_label="К тарифу и оплате" if recovery_url == "/billing" else "Проверить сумму заново",
+        )
 
 
 @router.post("/billing/storage/cancel-selection", include_in_schema=False)
@@ -4827,13 +5005,21 @@ async def cancel_storage_selection(
     return RedirectResponse("/billing/storage?result=schedule_canceled", status_code=303)
 
 
-async def _next_renewal_label(db, subscription, *, now, for_resume=False):
+async def _next_renewal_label(db, subscription, *, now, for_resume=False, after_price_confirmation=False):
     if subscription is None or subscription.paid_through is None:
         return "не запланировано"
     if not subscription.recurring_allowed and not for_resume:
         return "не запланировано"
-    if subscription.renewal_resolution == "price_changed" and not for_resume:
+    if subscription.renewal_resolution == "price_changed" and not (for_resume or after_price_confirmation):
         return "приостановлено: подтвердите новую цену подписки и хранения"
+    if subscription.renewal_resolution == "method_required" and not for_resume:
+        return "приостановлено: проверьте способ оплаты"
+    if subscription.renewal_resolution == "receipt_contact_required":
+        return "приостановлено: нужен адрес для чека из подтвержденной оплаты"
+    if subscription.renewal_resolution in {
+        "acceptance_budget", "provider_unavailable", "catalog_not_approved", "provider_floor"
+    } and not for_resume:
+        return "приостановлено: оплата временно недоступна"
     operations = list(
         await db.scalars(
             select(BillingOperation).where(
@@ -4862,6 +5048,8 @@ async def _next_renewal_label(db, subscription, *, now, for_resume=False):
     if next_at is None:
         return "попытки в этом периоде завершены; доступна ручная оплата"
     if next_at <= now:
+        if after_price_confirmation:
+            return "после сохранения выбора, в ближайшее время"
         return (
             "после подтверждения возобновления, в ближайшее время"
             if for_resume

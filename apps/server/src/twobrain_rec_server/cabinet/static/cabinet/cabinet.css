@@ -5315,13 +5315,15 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .billing-actions { margin-top: 18px; }
 .billing-actions form { margin: 0; }
 .billing-page .button { min-height: 40px; border-radius: var(--radius-sm); }
-.billing-page [data-billing-primary] { min-width: 148px; }
+.billing-page a:not(.button) { text-decoration: underline; text-underline-offset: 2px; }
+.billing-page [data-billing-primary] { min-width: min(148px, 100%); }
 
 /* Shared notice component: tones are explicit classes, role="alert" stays danger. */
 .notice { margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface-2); color: var(--text); }
 .notice[role="alert"],
 .notice--error { color: var(--danger-text); border-color: var(--danger-border); background: var(--danger-surface); }
 .notice.notice--warning { color: var(--amber); border-color: var(--warning-border); background: var(--warning-surface); }
+.billing-page .notice--warning { color: var(--text); }
 .notice.notice--success { color: var(--green); border-color: var(--success-border); background: var(--success-surface); }
 .notice + .notice { margin-top: 8px; }
 .billing-offer {
@@ -5381,10 +5383,10 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .billing-period-switch :is(a, button) small { color: inherit; font-size: var(--font-size-caption); font-weight: 600; }
 .billing-period-switch :is(a, button)[aria-current="true"] { color: var(--text); background: var(--surface-3); box-shadow: var(--shadow-sm); }
 .billing-period-switch :is(a, button):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.billing-plan-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.billing-plan-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .billing-plan-card {
   min-width: 0;
-  min-height: 430px;
+  min-height: 320px;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -5434,21 +5436,17 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .billing-order-summary__total dt,
 .billing-order-summary__total dd { color: var(--text); font-weight: 700; }
 .billing-coupon { border-block: 1px solid var(--line); padding: 14px 0; }
-.billing-coupon > summary { width: fit-content; color: var(--text); font-weight: 700; cursor: pointer; }
+.billing-coupon > summary { width: fit-content; min-height: 24px; color: var(--text); font-weight: 700; cursor: pointer; }
 .billing-coupon > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .billing-coupon__form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; padding-top: 14px; }
 .billing-coupon__form label { grid-column: 1 / -1; }
 .billing-coupon__form input { min-width: 0; }
 .billing-checkout-form { display: grid; gap: 12px; }
-.billing-consent { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 9px; }
+.billing-consent { min-width: 0; min-height: 24px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 9px; }
 .billing-consent input { margin-top: 3px; }
 .billing-consent span { min-width: 0; overflow-wrap: anywhere; }
 .billing-checkout-form__submit { width: 100%; margin-top: 4px; }
 
-@media (max-width: 980px) {
-  .billing-plan-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .billing-plan-card:last-child { grid-column: 1 / -1; }
-}
 @media (max-width: 760px) {
   .billing-page__content { padding-bottom: 32px; }
   .billing-section,
@@ -6325,8 +6323,13 @@ html[data-theme="dark"] .app-shell[data-active-nav="settings"] {
 .report-band > h3 { font-size: var(--font-size-section); font-weight: 600; line-height: var(--line-height-tight); }
 
 .billing-package-controls { display: flex; align-items: center; gap: .5rem; max-width: 100%; }
-.billing-package-controls select { flex: 1; min-width: 0; max-width: 100%; min-height: 44px; }
+.billing-package-controls select { flex: 1; min-width: 0; max-width: 100%; height: 44px; }
 .billing-package-controls button { flex-shrink: 0; min-width: 44px; min-height: 44px; }
+@media (max-width: 480px) {
+  .billing-package-controls { flex-wrap: wrap; }
+  .billing-package-controls select { order: -1; flex-basis: 100%; width: 100%; }
+  .billing-package-controls button { flex: 1; }
+}
 
 /* Calendar series uses the existing controls and theme tokens. */
 .calendar-series { grid-column: 1 / -1; width: 100%; min-width: 0; }

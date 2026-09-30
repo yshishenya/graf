@@ -18,17 +18,18 @@
         <div class="billing-row-section billing-plan-row">
           <div class="billing-plan-details">
             <h2 id="billing-summary-title">Текущий тариф</h2>
-            <p class="billing-plan-name">{{ plan.label if billing_data_available else "Данные временно недоступны" }}</p>
-            {% if billing_data_available and billing_owner %}<p class="billing-plan-price"><strong>{{ current_price_label|default("Сумма уточняется", true) }}</strong> {% if plan_code != "free" %}<span>{{ current_cycle_label|default("период уточняется") }}</span>{% endif %}</p>{% endif %}
+            <p class="billing-plan-name">{{ ("Бесплатный" if plan_code == "free" else plan.label) if billing_data_available else "Данные временно недоступны" }}</p>
+            {% if billing_data_available and billing_owner and not next_charge_amount_label|default(None) %}<p class="billing-plan-price"><strong>{{ current_price_label|default("Сумма уточняется", true) }}</strong> {% if plan_code != "free" %}<span>{{ current_cycle_label|default("период уточняется") }}{% if plan_code == "personal" %} · без дополнительного хранения{% endif %}</span>{% endif %}</p>{% endif %}
             {% if billing_owner and plan_code != "free" and paid_through_label|default(None) %}<p class="muted">Действует до {{ paid_through_label }}</p>{% endif %}
             {% if billing_owner and bonus_until_label|default(None) %}<p class="muted">Бонус до {{ bonus_until_label }}</p>{% endif %}
-            {% if billing_owner and next_charge_label|default(None) %}<p>Следующее списание {{ next_charge_label }}{% if next_charge_amount_label|default(None) %} · {{ next_charge_amount_label }}{% endif %}</p>{% endif %}
+            {% if billing_owner and renewal_notice|default(None) %}<p class="notice notice--warning" role="status">{{ renewal_notice }}{% if renewal_action_url|default(None) %} <a href="{{ renewal_action_url }}">{{ renewal_action_label }}</a>{% endif %}</p>{% if next_charge_amount_label|default(None) %}<p>Цена следующего периода: {{ next_charge_amount_label }} {{ current_cycle_label }}.</p>{% endif %}
+            {% elif billing_owner and next_charge_label|default(None) %}<p>{% if renewal_allowed|default(True) %}Следующее списание {{ next_charge_label }}{% if next_charge_amount_label|default(None) %} · {{ next_charge_amount_label }}{% endif %}{% else %}Автопродление отключено{% if next_charge_amount_label|default(None) %}. Следующий период: {{ next_charge_amount_label }} {{ current_cycle_label }}{% endif %}{% endif %}</p>{% endif %}
             {% if billing_owner %}<a class="billing-text-link" href="/billing/discounts">Промокоды и скидки</a>{% endif %}
           </div>
         {% if billing_data_available %}
         <div class="billing-actions">
           {% if billing_owner and operation_pending and pending_invoice_summary %}
-          <a class="button" data-billing-primary href="/billing/checkout/status/{{ pending_invoice_summary.safe_number }}">Открыть статус платежа</a>
+          <a class="button primary" data-billing-primary href="/billing/checkout/status/{{ pending_invoice_summary.safe_number }}">Открыть статус платежа</a>
           {% elif billing_owner and operation_pending %}
           <p class="muted" role="status">Платеж проверяется. Новую оплату пока не предлагаем.</p>
           {% elif not billing_owner and billing_role == "owner" and operation_pending %}
@@ -36,19 +37,20 @@
           {% elif not billing_owner and billing_role == "owner" and plan_code == "personal" %}
           <p class="muted" role="status">Активным тарифом управляет текущий плательщик; новую оплату не создаем.</p>
           {% elif not billing_owner and billing_role == "owner" and billing_enabled and catalog_ready|default(True) %}
-          <a class="button" data-billing-primary href="/billing/plans">Подтвердить новую оплату</a>
+          <a class="button primary" data-billing-primary href="/billing/plans">Подтвердить новую оплату</a>
           {% elif not billing_owner and billing_role == "owner" %}
           <p class="muted" role="status">Смена плательщика временно недоступна.</p>
           {% elif billing_owner and plan_code == "personal" %}
           {% if billing_enabled and catalog_ready|default(True) %}<a class="button quiet" href="/billing/plans">Сравнить тарифы</a>{% endif %}
-          <a class="button" data-billing-primary href="/billing/subscription">Управлять подпиской</a>
+          <a class="button primary" data-billing-primary href="/billing/subscription">Управлять подпиской</a>
           {% elif billing_owner and billing_enabled and catalog_ready|default(True) %}
-          <a class="button" data-billing-primary href="/billing/plans">Сравнить тарифы</a>
+          <a class="button primary" data-billing-primary href="/billing/plans">Выбрать «Личный»</a>
           {% elif billing_owner and billing_enabled %}
           <p class="muted" role="status">Оплата пока недоступна. Условия подключения появятся здесь.</p>
           {% elif billing_owner %}
           <p class="muted" role="status">Оплата временно недоступна. Попробуйте позже.</p>
           {% endif %}
+          {% if billing_owner and renewal_allowed|default(False) and (operation_pending or plan_code != "personal") %}<a class="button quiet" href="/billing/subscription">Управлять автопродлением</a>{% endif %}
           {% if billing_owner and plan_code == "free" and trial_state == "eligible" and not operation_pending %}
           {{ sections.trial_confirmation(csrf_token|default(None), trial_preview_starts_at_label|default(None), trial_preview_ends_at_label|default(None), primary=not (billing_enabled and catalog_ready|default(True))) }}
           {% endif %}
@@ -66,9 +68,9 @@
         {% elif billing_result == "owner_only" %}<p class="notice" role="status">Оплатой и платежными данными управляет владелец пространства.</p>
         {% elif billing_result == "personal_only" %}<p class="notice" role="status">Личный тариф оформляется для «Моего пространства». <a href="/settings/workspace">Выбрать Мое пространство</a></p>{% endif %}
 
-        {% if billing_owner and renewal_failed|default(False) %}<p class="notice notice--error" role="status" aria-live="polite">Продление не подтверждено — сейчас действует Free. Повторно не списываем; проверяем исход платежа. {% if billing_enabled %}Можно выбрать тариф заново после завершения проверки.{% else %}Оплата временно недоступна; можно остаться на Free.{% endif %}</p>
-        {% elif billing_owner and trial_expired|default(False) %}<p class="notice notice--warning" role="status" aria-live="polite">Платный режим закончился {{ trial_ends_at_label }}. Сейчас действует Free; повторного списания без отдельного подтверждения нет. {% if not billing_enabled %}Оплата временно недоступна; {% endif %}можно остаться на Free.</p>
-        {% elif billing_owner and plan_code == "trial" and trial_phase|default(None) in ["t_minus_3", "t_minus_1"] %}<p class="notice notice--warning" role="status" aria-live="polite">Пробный период заканчивается {{ trial_ends_at_label }} (через {{ trial_remaining_label }}). После окончания автоматически включится Free; списания без отдельного подтверждения не будет.</p>{% endif %}
+        {% if billing_owner and renewal_failed|default(False) %}<p class="notice notice--error" role="status" aria-live="polite">Продление не подтверждено. Сейчас действует «Бесплатный». <a href="/billing/history">Проверить результат платежа</a>.</p>
+        {% elif billing_owner and trial_expired|default(False) %}<p class="notice notice--warning" role="status" aria-live="polite">Пробный период закончился {{ trial_ends_at_label }}. Сейчас действует «Бесплатный». Автоматического списания не будет.</p>
+        {% elif billing_owner and plan_code == "trial" and trial_phase|default(None) in ["t_minus_3", "t_minus_1"] %}<p class="notice notice--warning" role="status" aria-live="polite">Пробный период заканчивается {{ trial_ends_at_label }} (через {{ trial_remaining_label }}). После окончания автоматически включится «Бесплатный»; списания без отдельного подтверждения не будет.</p>{% endif %}
 
         {% if not billing_owner %}{{ ui.billing_member_quota_notice(plan_code, processing_threshold, processing_reset_at_label) }}{% endif %}
         {% if billing_owner and plan_code == "free" and processing_threshold|default("normal") == "approaching" %}<p class="notice notice--warning" role="status" aria-live="polite">Использовано 80% месячного лимита обработки. Осталось {{ processing_remaining_label }} до сброса {{ processing_reset_at_label }}.</p>
@@ -77,7 +79,7 @@
         {% if trial_result|default(None) == "activated" %}<p role="status" aria-live="polite">Пробный период активирован на 7 дней.</p>
         {% elif trial_result|default(None) == "pending" %}<p role="status" aria-live="polite">Платеж уже проверяется. Пробный период пока не запускаем.</p>
         {% elif trial_result|default(None) == "already" or trial_state == "already" %}<p role="status" aria-live="polite">Пробный период уже использован.</p>
-        {% elif trial_result|default(None) == "verification_required" or trial_state == "verification_required" %}<p role="alert">Подтвердите email, чтобы начать 7 дней бесплатно. <a href="/account/security">Открыть аккаунт и безопасность</a>.</p>
+        {% elif trial_result|default(None) == "verification_required" or trial_state == "verification_required" %}<p role="alert">Подтвердите почту, чтобы начать 7 дней бесплатно. <a href="/account/security">Открыть аккаунт и безопасность</a>.</p>
         {% elif trial_result|default(None) == "confirmation_required" %}<p role="alert">Подтвердите запуск пробного периода кнопкой еще раз.</p>
         {% elif trial_result|default(None) == "unavailable" %}<p role="alert">Пробный период сейчас недоступен. Обновите страницу или повторите позже.</p>{% endif %}
       </section>
@@ -103,7 +105,7 @@
 
       <section class="billing-section billing-row-section" aria-labelledby="billing-method-title">
         <div><h2 id="billing-method-title">Способ оплаты</h2><p>{% if billing_owner %}{{ payment_method_label|default("Способ оплаты не сохранен", true) }}{% else %}Платежные данные доступны владельцу пространства.{% endif %}</p></div>
-        {% if billing_owner %}<a class="button quiet" href="/billing/payment-method">{{ "Изменить" if payment_method_label|default(None) else "Добавить" }}</a>{% endif %}
+        {% if billing_owner %}<a class="button quiet" href="/billing/payment-method">Способ оплаты</a>{% endif %}
       </section>
 
       <section class="billing-section billing-row-section billing-history-preview" aria-labelledby="billing-history-title">
