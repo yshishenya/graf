@@ -1,5 +1,6 @@
 # Проверка необязательного автопродления F280
 
+Текущее состояние после выпуска: **T020–T022 завершены**; [v2026.10.01.2](https://github.com/yshishenya/graf/releases/tag/v2026.10.01.2), SHA `e9d34cf349a6bc2248a9d4e206138fd77dee9c56`. [Итоговый отчёт](release-optional-renewal-closeout.md) и [запись доказательств](evidence/optional-renewal-release.json). Нижние разделы сохраняют историческую последовательность проверок до выпуска; прежние «T022 открыт» и «Full пока не запускался» относятся к моменту их записи. F278/T011/T012 остаются открытыми.
 Дата: 2026-10-01. Ветка: `codex/280-payment-optional-renewal`. Базовый SHA: `14fa81f4fff91b2158eaf1afb456713c50692300`. Режим: `high-risk-product` и последующий `release-deploy`.
 
 Допуск требований: reviewer-owned43/0 +builtin8/0, итого51/0; [независимое заключение](review-optional-renewal-requirements.md). [Анализ](analyze-optional-renewal.md) выполнен после окончательной генерации T020–T022, findings0. Task-to-issue sync: поиск feature280/T020–T022 и результата не нашёл дублей; [#7408](https://github.com/yshishenya/graf/issues/7408) покрывает T020–T022. Обязательные canon ensure и canon validate выполнены, последний PASS300. Umbrella7366 и F278/T011/T012 не закрываются.

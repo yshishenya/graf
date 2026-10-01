@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "feature_id": 280,
+  "tasks": [
+    "T020",
+    "T021",
+    "T022"
+  ],
+  "release": "v2026.10.01.2",
+  "source_sha": "e9d34cf349a6bc2248a9d4e206138fd77dee9c56",
+  "candidate_id": "rc-20261001T192325Z-5444e62a992b",
+  "train_id": "train-20261001T192228Z-e9d34cf349a6",
+  "full_run_id": "github-full-36913925182",
+  "github_run_id": "36913925182",
+  "full_status": "passed",
+  "full_evidence_digest": "sha256:c4dc84bc35ed2bed5e1e7acb8f7f76f004a326e73810c8509361a8a5038ad052",
+  "deploy_result": "pass",
+  "deploy_duration_seconds": 213,
+  "backup_timestamp": "20261001T194350Z",
+  "readiness_verdict": "infra_smoke_ready",
+  "runtime": {
+    "rec-api": {
+      "source_sha": "e9d34cf349a6bc2248a9d4e206138fd77dee9c56",
+      "checkout_enabled": true,
+      "scope_public": true,
+      "environment_production": true,
+      "shop_expected": true,
+      "observation_enabled": true,
+      "running": true,
+      "health": "healthy"
+    },
+    "rec-processing-worker": {
+      "source_sha": "e9d34cf349a6bc2248a9d4e206138fd77dee9c56",
+      "checkout_enabled": true,
+      "scope_public": true,
+      "environment_production": true,
+      "shop_expected": true,
+      "observation_enabled": true,
+      "running": true,
+      "health": "healthy"
+    },
+    "rec-maintenance": {
+      "source_sha": "e9d34cf349a6bc2248a9d4e206138fd77dee9c56",
+      "checkout_enabled": true,
+      "scope_public": true,
+      "environment_production": true,
+      "shop_expected": true,
+      "observation_enabled": true,
+      "running": true,
+      "health": null
+    }
+  },
+  "source_files": {
+    "source_file_digests_match": true,
+    "services": {
+      "rec-api": {
+        "src/twobrain_rec_server/cabinet/web_routes/billing.py": "bf6d4cfbeb154eb875063d7e200fec83801fcce4ff066b614a53793594dc083d",
+        "src/twobrain_rec_server/billing/entitlements.py": "83f43809f9ec736e028a9d1bcbd9311afa19d7fb0cad195676fba27c1ad0b14b",
+        "src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html": "a690a666515d7c9cb2c53595d4527240e57005d3b6be200e85334547a76bfa95",
+        "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "cd40bdb77e07b978eb13e98f17a24c40d0af5c93eaf4e9d1e300bf08947e4cb4"
+      },
+      "rec-processing-worker": {
+        "src/twobrain_rec_server/cabinet/web_routes/billing.py": "bf6d4cfbeb154eb875063d7e200fec83801fcce4ff066b614a53793594dc083d",
+        "src/twobrain_rec_server/billing/entitlements.py": "83f43809f9ec736e028a9d1bcbd9311afa19d7fb0cad195676fba27c1ad0b14b",
+        "src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html": "a690a666515d7c9cb2c53595d4527240e57005d3b6be200e85334547a76bfa95",
+        "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "cd40bdb77e07b978eb13e98f17a24c40d0af5c93eaf4e9d1e300bf08947e4cb4"
+      },
+      "rec-maintenance": {
+        "src/twobrain_rec_server/cabinet/web_routes/billing.py": "bf6d4cfbeb154eb875063d7e200fec83801fcce4ff066b614a53793594dc083d",
+        "src/twobrain_rec_server/billing/entitlements.py": "83f43809f9ec736e028a9d1bcbd9311afa19d7fb0cad195676fba27c1ad0b14b",
+        "src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html": "a690a666515d7c9cb2c53595d4527240e57005d3b6be200e85334547a76bfa95",
+        "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "cd40bdb77e07b978eb13e98f17a24c40d0af5c93eaf4e9d1e300bf08947e4cb4"
+      }
+    }
+  },
+  "deployed_helper_check": {
+    "deployed_helper": "pass",
+    "deployed_template_default_optional": true,
+    "offer_required_unchecked": true,
+    "choice_false_true": true,
+    "original_key_reused": true,
+    "malformed_choice_rejected": true,
+    "provider_calls": 0,
+    "database_calls": 0,
+    "scope": "synthetic helper only"
+  },
+  "public_health": {
+    "live_http_status": 200,
+    "ready_http_status": 200
+  },
+  "public_package": {
+    "public_pkg_sha256": "b5df859986d0ad36a07302c87c598b7a7d6e027a65e4024dd70fe0cba3338662",
+    "size_bytes": 9259700,
+    "existing_public_package_preserved": true
+  },
+  "rollback": {
+    "status": "not_required_not_executed",
+    "status_basis": "normalized_from_terminal_deployed_record_and_successful_guarded_deploy",
+    "deployment_attempt_id": "d51ae8c9f1a742caaf7f7e845bbaa446",
+    "deployment_image_result": "deployed",
+    "previous_source_sha": "002c15d34975edff3b8029a0dc496952188ad165",
+    "evidence_reference": "graf-release-images/attempts/d51ae8c9f1a742caaf7f7e845bbaa446/result.json",
+    "identity_reference": "graf-release-images/attempts/d51ae8c9f1a742caaf7f7e845bbaa446/identity.json",
+    "baseline_reference": "graf-release-images/attempts/d51ae8c9f1a742caaf7f7e845bbaa446/baseline.json",
+    "evidence_sha256": "6929b24ed8eff31c78751314edb3191bb1a86fabce710039e53d777f8676181d",
+    "decision_digest": "sha256:a940867a45c0c838b0d4e2d5601ec1f53396aaccb4e7d5155ed76f31e3db9250",
+    "full_digest": "sha256:c4dc84bc35ed2bed5e1e7acb8f7f76f004a326e73810c8509361a8a5038ad052"
+  },
+  "publication": {
+    "attestation_id": "pa-rc-20261001T192325Z-5444e62a992b",
+    "attested_at": "2026-10-01T19:47:23Z",
+    "attested_by": "yshishenya",
+    "candidate_id": "rc-20261001T192325Z-5444e62a992b",
+    "decision_digest": "sha256:a940867a45c0c838b0d4e2d5601ec1f53396aaccb4e7d5155ed76f31e3db9250",
+    "github_release_url": "https://github.com/yshishenya/graf/releases/tag/v2026.10.01.2",
+    "release_target_sha": "e9d34cf349a6bc2248a9d4e206138fd77dee9c56",
+    "schema_version": 1,
+    "source_sha": "e9d34cf349a6bc2248a9d4e206138fd77dee9c56",
+    "tag": "v2026.10.01.2"
+  },
+  "not_proven": [
+    "human_acceptance_T011_T012",
+    "real_payments_receipts_bank_settlement_refunds_F278",
+    "conversion_and_retention_change"
+  ],
+  "proposed_issue_closeout_live_validator": "pass"
+}
