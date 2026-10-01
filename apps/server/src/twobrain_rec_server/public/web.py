@@ -55,6 +55,20 @@ MEETING_TARGET_REGISTRY = (
     / "0030_meeting_target_registry.json"
 )
 PUBLIC_WEB_CONTEXT_ID = UUID(int=0)
+PUBLIC_SEARCH_PAGES = {
+    "/transcription": (
+        "Расшифровка аудио и видео в текст — ГРАФ",
+        "Как перевести запись разговора в текст: загрузка аудио и видео, расшифровка по спикерам, таймкоды и проверка результата в ГРАФ.",
+    ),
+    "/meeting-minutes": (
+        "Протокол встречи из записи: итоги, решения и задачи — ГРАФ",
+        "Как подготовить протокол встречи из аудио или видео: выделить решения, проверить задачи и договорённости по расшифровке в ГРАФ.",
+    ),
+    "/record-without-bot": (
+        "Запись и расшифровка звонков без бота — ГРАФ",
+        "Как записать онлайн-встречу без бота в списке участников, получить расшифровку по спикерам и итоги. Порядок работы и ограничения ГРАФ.",
+    ),
+}
 
 
 async def get_public_web_db_session(request: Request):
@@ -224,6 +238,25 @@ async def public_analytics_consent_page(
     )
 
 
+@router.get("/transcription", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/meeting-minutes", response_class=HTMLResponse, include_in_schema=False)
+@router.get("/record-without-bot", response_class=HTMLResponse, include_in_schema=False)
+async def public_search_page(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
+    title, description = PUBLIC_SEARCH_PAGES[request.url.path]
+    return await public_page_response(
+        request,
+        "public/search_guide.html",
+        db=db,
+        page_title=title,
+        social_description=description,
+        guide_path=request.url.path,
+        related_pages=PUBLIC_SEARCH_PAGES,
+    )
+
+
 async def public_page_response(
     request: Request,
     template_name: str,
@@ -312,7 +345,17 @@ async def public_robots(request: Request) -> PlainTextResponse:
 @router.get("/sitemap.xml", include_in_schema=False)
 async def public_sitemap(request: Request) -> Response:
     base_url = _public_base_url(request)
-    locations = ("/", "/download", "/privacy", "/cookies", "/terms", "/offer", "/analytics-consent", GUIDE_PATH)
+    locations = (
+        "/",
+        "/download",
+        "/privacy",
+        "/cookies",
+        "/terms",
+        "/offer",
+        "/analytics-consent",
+        GUIDE_PATH,
+        *PUBLIC_SEARCH_PAGES,
+    )
     urls = "".join(f"<url><loc>{base_url}{path}</loc></url>" for path in locations)
     return Response(
         f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>',
