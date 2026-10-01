@@ -1,5 +1,6 @@
 # F280 — сходимость дополнения необязательного автопродления
 
+Текущее состояние после выпуска: **T020–T022 завершены**; [v2026.10.01.2](https://github.com/yshishenya/graf/releases/tag/v2026.10.01.2), SHA `e9d34cf349a6bc2248a9d4e206138fd77dee9c56`. [Итоговый отчёт](release-optional-renewal-closeout.md) и [запись доказательств](evidence/optional-renewal-release.json). Нижние разделы сохраняют историческую последовательность проверок до выпуска; прежние «T022 открыт» и «Full пока не запускался» относятся к моменту их записи. F278/T011/T012 остаются открытыми.
 Дата: 2026-10-01. Lane `high-risk-product`, последующий выпуск `release-deploy`. Ветка `codex/280-payment-optional-renewal`. Независимый scoped обзор после реализации T020; финальная локальная проверка T021 и три независимых заключения подтверждены; T022 не завершён. Данный отчёт не объявляет завершённой F280.
 
 Активная F280 подтверждена supported `check-prerequisites.sh --json --require-tasks --include-tasks`, spec прочитан явно (upstream `--require-spec` этим скриптом не поддерживается). Применена read-only оценка speckit-converge в границах делегированного ownership. before/after_converge hooks отсутствуют. Tasks не изменены.
