@@ -179,3 +179,8 @@ Frozen `rc-20261001T005011Z-b1f956559a15`, train20261001T004937Z-694aa8672f21, �
 Два текущих независимых closingPASS: review-receipt-contract-final-flow.md / review-receipt-contract-final-security.md, новых конкретных замечаний0; browser-boundary заключение отдельно ожидается. Reviewer-owned отметки не редактировал основной агент.
 
 Browser-boundary review-receipt-contract-final-browser.md — PASS текущего329иtesthash, неизменныеfec78/835169/397a668 подтверждены; прежний boundedChromium/WebKit6/6 принят именно для неизменногоUI, браузеры повторно не запускались. Все три текущих обзора без применимых неисправленных замечаний; T018 завершён.
+
+
+## Выпуск дополнения: окончательный результат
+
+T019 завершён по [release-promo-refresh-closeout.md](release-promo-refresh-closeout.md) и [записи доказательств](evidence/promo-refresh-release.json). Полная проверка 36800518268 PASS на `002c15d34975edff3b8029a0dc496952188ad165`; CD dry-run/execute/publication PASS. Публичная оплата остаётся включённой для всех пространств; три службы exact SHA/source hashes/health подтверждены, helpers-only synthetic PASS, публичный PKG прежний по скачанным байтам. Реальная финансовая и человеческая приёмка не выводятся из этого доказательства. Frozen source не менялся; это отдельные документы закрытия.
