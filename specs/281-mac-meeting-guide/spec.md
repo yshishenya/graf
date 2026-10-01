@@ -22,6 +22,10 @@ Umbrella: #7391. Lane: tiny-low-risk content: фиксированная пуб�
 
 Маршрут/metadata/sitemap/ссылки, регрессии public pages, mobile browser proof, exact-SHA CI. После штатного выпуска — production GET и canonical. Публикация не гарантирует индексацию.
 
+## Дополнение: учебный протокол встречи
+
+Путь `/guides/protokol-vstrechi-iz-zapisi`. Отдельный материал показывает разницу между решением, предложением и задачей на вымышленном диалоге; протокол составлен вручную, не является результатом ГРАФ. Условия начала и неизвестные ответственные/сроки сохранены; дата 16 ноября не утверждена. Копируемый шаблон сохраняет переносы. Существующие guides/main/download/policies не изменяются; новый фиксированный route и sitemap следуют существующей архитектуре. Lane: tiny-low-risk read-only content, без API данных или изменений AI/продукта. Article schema и дата публикации не выдумываются.
+
 ## Legacy Impact
 
 - Classification: untouched
