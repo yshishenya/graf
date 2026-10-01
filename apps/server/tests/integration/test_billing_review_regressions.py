@@ -1,7 +1,10 @@
 """Payment review edge cases exercised against PostgreSQL and HTTP."""
 
 import asyncio
+import json
+import re
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 import pytest
@@ -22,6 +25,12 @@ from twobrain_rec_server.db.models import (
     PromotionCampaign,
     TimeCreditLedgerEntry,
     WorkspaceSubscription,
+)
+
+CREATION_REJECTED_MESSAGE = "Оплата не началась. Попробуйте ещё раз или напишите в поддержку."
+RECURRING_UNAVAILABLE_MESSAGE = (
+    "Оплата не началась. Автопродление недоступно. Вернитесь к оплате и снимите галочку "
+    "автоматических списаний, чтобы оплатить один период."
 )
 
 
@@ -275,7 +284,7 @@ def test_explicit_base_only_renewal_projects_five_gb_despite_old_capacity_cache(
 
 
 @pytest.mark.parametrize("purpose", ["initial_checkout", "storage_upgrade"])
-@pytest.mark.parametrize("http_status", [400, 401, 403, 429, 500, "setup", "secret_io"])
+@pytest.mark.parametrize("http_status", [400, 401, 403, 404, 405, 415, 429, "recurring403", 500, "timeout", "setup", "secret_io"])
 def test_rejected_creation_releases_reservations_but_unknown_result_keeps_them(
     client, monkeypatch, tmp_path, purpose, http_status
 ):
@@ -296,8 +305,16 @@ def test_rejected_creation_releases_reservations_but_unknown_result_keeps_them(
     calls = []
 
     def reject(request):
+        from tests.contract.test_yookassa_adapter import RECURRING_DENIAL
+
         calls.append(request.method)
-        return httpx.Response(http_status, json={"type": "error", "code": "synthetic"})
+        if http_status == "timeout":
+            raise httpx.ReadTimeout("synthetic-private-description", request=request)
+        return httpx.Response(403 if http_status == "recurring403" else http_status, json={
+            "type": "error", "code": "forbidden" if http_status == "recurring403" else "synthetic",
+            "description": RECURRING_DENIAL if http_status == "recurring403" else "synthetic-private-description",
+            "id": "synthetic-private-request-id",
+        })
 
     def provider_factory(settings):
         from twobrain_rec_server.billing.yookassa import YooKassaConfigurationError
@@ -354,7 +371,31 @@ def test_rejected_creation_releases_reservations_but_unknown_result_keeps_them(
 
     op, invoice, budget, promo = asyncio.run(state())
     assert budget.spent_minor == 0
-    if http_status == 500:
+    status_path = f"/billing/checkout/status/{invoice.safe_number}"
+    for _ in range(2):
+        page = client.get(status_path + "?result=provider_unavailable&reason=recurring_not_available", headers=headers)
+        assert page.status_code == 200
+        assert "synthetic-private" not in page.text
+        if http_status not in {500, "timeout", "setup", "secret_io"}:
+            assert '<h2 id="billing-operation-title">Не удалось начать оплату</h2>' in page.text
+            specific = purpose == "initial_checkout" and http_status == "recurring403"
+            assert (RECURRING_UNAVAILABLE_MESSAGE in page.text) is specific
+            assert (CREATION_REJECTED_MESSAGE in page.text) is not specific
+            cta = "Вернуться к оплате" if specific else "Попробовать снова"
+            assert f">{cta}</a>" in page.text
+        else:
+            assert "Не удалось начать оплату" not in page.text
+            assert RECURRING_UNAVAILABLE_MESSAGE not in page.text
+            if http_status in {500, "timeout"}:
+                assert "Проверить статус" in page.text
+                assert 'href="/billing/checkout?cycle=' not in page.text
+                assert 'href="/billing/storage"' not in page.text
+    assert calls == (["setup"] if http_status in {"setup", "secret_io"} else ["POST"])
+    assert "synthetic-private" not in str(op.request_snapshot)
+    failure = op.request_snapshot["provider_failure"]
+    assert failure.get("reason") == ("recurring_not_available" if http_status == "recurring403" else None)
+    assert set(failure) <= {"class", "http_status", "observed_at", "reason"}
+    if http_status in {500, "timeout"}:
         assert op.state == invoice.status == "manual_resolution"
         assert budget.reserved_minor == invoice.amount_minor > 0
         assert promo.state == "reserved"
@@ -365,6 +406,222 @@ def test_rejected_creation_releases_reservations_but_unknown_result_keeps_them(
         # A fresh calculation can use the same one-use promotion again.
         fresh = client.post(preview_path, headers=headers, data=preview_data)
         assert quote_id(fresh) != post_data["quote_id"]
+
+
+@pytest.mark.parametrize(
+    "changes,creation_rejected,recurring_not_available",
+    [
+        *[({"http_status": status}, True, False) for status in (400, 401, 403, 404, 405, 415, 429)],
+        ({"reason": "recurring_not_available"}, True, True),
+        ({"reason": "recurring_not_available", "recurring_consent": False}, True, False),
+        ({"reason": "recurring_not_available", "recurring_consent": 1}, True, False),
+        ({"reason": "recurring_not_available", "recurring_consent": "true"}, True, False),
+        ({"reason": "recurring_not_available", "recurring_consent": None}, True, False),
+        ({"reason": "synthetic-unknown"}, True, False),
+        ({"reason": "recurring_not_available", "http_status": 400}, True, False),
+        ({"reason": "recurring_not_available", "kind": "storage_upgrade"}, True, False),
+        ({"purchase_schema": 1}, False, False),
+        ({"purchase_schema": None}, False, False),
+        ({"http_status": True}, False, False),
+        ({"http_status": "403"}, False, False),
+        ({"http_status": 402}, False, False),
+        ({"http_status": 500}, False, False),
+        ({"http_status": None}, False, False),
+        ({"class": "provider_unavailable"}, False, False),
+        ({"class": "synthetic-unknown"}, False, False),
+        ({"provider_failure": None}, False, False),
+        ({"provider_failure": []}, False, False),
+        ({"provider_failure": {}}, False, False),
+        ({"provider_id": "synthetic-bound"}, False, False),
+        ({"state": "unknown", "invoice_status": "unknown"}, False, False),
+        ({"state": "manual_resolution", "invoice_status": "manual_resolution"}, False, False),
+        ({"invoice_status": "pending"}, False, False),
+    ],
+    ids=["400", "401", "old403", "404", "405", "415", "429", "known403", "saved-false",
+         "saved-int", "saved-string", "saved-null", "unknown-reason", "reason400", "storage",
+         "schema1", "missing-schema", "status-bool", "status-string", "402", "500", "missing-status",
+         "unavailable-class", "unknown-class", "null-failure", "array-failure", "empty-failure",
+         "genuine-bound-cancellation", "unknown", "manual", "invoice-pending"],
+)
+def test_creation_rejection_status_uses_only_authoritative_snapshot(
+    client, monkeypatch, tmp_path, changes, creation_rejected, recurring_not_available,
+):
+    from tests.integration.test_billing_clarity import seed_payment
+    from twobrain_rec_server.cabinet.web_routes import billing as routes
+
+    _configure_billing(client, tmp_path)
+    _approved_month_catalog(client)
+    workspace, headers = _prepare_owner_session(client)
+    seed_payment(client, workspace, state="canceled", cycle="year")
+
+    def no_provider(*_args, **_kwargs):
+        pytest.fail("Status GET must not dispatch or observe provider payments")
+
+    monkeypatch.setattr(routes, "YooKassaClient", no_provider)
+    contexts = []
+    original_shell = routes._page_shell
+
+    def capture_shell(*args, **kwargs):
+        contexts.append(kwargs)
+        return original_shell(*args, **kwargs)
+
+    monkeypatch.setattr(routes, "_page_shell", capture_shell)
+
+    async def prepare():
+        async with client.app_state["sessionmaker"]() as db:
+            op = await db.scalar(select(BillingOperation).where(BillingOperation.workspace_id == workspace))
+            invoice = await db.scalar(select(BillingInvoice).where(BillingInvoice.operation_id == op.id))
+            op.provider_id = changes.get("provider_id")
+            op.state = changes.get("state", "canceled")
+            op.kind = changes.get("kind", "initial_checkout")
+            invoice.status = changes.get("invoice_status", "canceled")
+            failure = {"class": changes.get("class", "provider_rejected"),
+                       "http_status": changes.get("http_status", 403)}
+            if "reason" in changes:
+                failure["reason"] = changes["reason"]
+            op.request_snapshot = {
+                **op.request_snapshot,
+                "purchase_schema": changes.get("purchase_schema", 2),
+                "recurring_consent": changes.get("recurring_consent", True),
+                "provider_failure": changes.get("provider_failure", failure),
+            }
+            await db.commit()
+            return op.request_snapshot, op.state, invoice.status
+
+    before = asyncio.run(prepare())
+    for query in ("", "?result=provider_unavailable&creation_rejected=true&reason=recurring_not_available"):
+        page = client.get("/billing/checkout/status/INV-CLARITY" + query, headers=headers)
+        assert page.status_code == 200
+        assert contexts[-1]["creation_rejected"] is creation_rejected
+        assert contexts[-1]["recurring_not_available"] is recurring_not_available
+        assert ('<h2 id="billing-operation-title">Не удалось начать оплату</h2>' in page.text) is creation_rejected
+        assert (RECURRING_UNAVAILABLE_MESSAGE in page.text) is recurring_not_available
+        assert (CREATION_REJECTED_MESSAGE in page.text) is (creation_rejected and not recurring_not_available)
+        if creation_rejected:
+            cta = "Вернуться к оплате" if recurring_not_available else "Попробовать снова"
+            assert f">{cta}</a>" in page.text
+        elif changes.get("state") in {"unknown", "manual_resolution"}:
+            assert "Подтверждение еще не получено. Повторно платить не нужно." in page.text
+            assert "Проверить статус" in page.text
+            assert 'href="/billing/checkout?cycle=year"' not in page.text
+        else:
+            assert '<h2 id="billing-operation-title">Платеж отменен</h2>' in page.text
+    async def after():
+        async with client.app_state["sessionmaker"]() as db:
+            ops = list(await db.scalars(select(BillingOperation).where(BillingOperation.workspace_id == workspace)))
+            invoices = list(await db.scalars(select(BillingInvoice).where(BillingInvoice.workspace_id == workspace)))
+            assert len(ops) == len(invoices) == 1
+            return ops[0].request_snapshot, ops[0].state, invoices[0].status
+    assert asyncio.run(after()) == before
+
+
+def test_recurring_denial_retry_keeps_year_and_requires_explicit_manual_payment(client, monkeypatch, tmp_path):
+    import httpx
+
+    from tests.contract.test_yookassa_adapter import RECURRING_DENIAL
+    from tests.integration.test_billing_promo_refresh import checkout_start_fields, promo_input
+    from twobrain_rec_server.billing.promotions import promo_code_hash
+    from twobrain_rec_server.billing.yookassa import YooKassaClient
+    from twobrain_rec_server.cabinet.web_routes import billing as routes
+    from twobrain_rec_server.db.models import BillingAcceptanceBudget, PromotionRedemption
+
+    _configure_billing(client, tmp_path)
+    _approved_month_catalog(client)
+    workspace, headers = _prepare_owner_session(client)
+    seed_catalog_and_budget(client, workspace)
+
+    async def allow_year():
+        async with client.app_state["sessionmaker"]() as db:
+            campaign = await db.scalar(select(PromotionCampaign).where(
+                PromotionCampaign.code_hash == promo_code_hash("SYNTHFIRST")))
+            campaign.cycle = None
+            await db.commit()
+    asyncio.run(allow_year())
+    calls = []
+
+    def provider(request):
+        assert request.method == "POST" and request.url.path == "/v3/payments"
+        calls.append(json.loads(request.content))
+        if len(calls) == 1:
+            return httpx.Response(403, json={"type": "error", "code": "forbidden",
+                "description": RECURRING_DENIAL, "id": "synthetic-private-request-id"})
+        return httpx.Response(200, json={"id": "synthetic-manual-payment", "status": "pending",
+            "confirmation": {"confirmation_url": "https://yookassa.test/checkout/manual"}})
+
+    monkeypatch.setattr(routes, "YooKassaClient", lambda settings: YooKassaClient(settings, transport=httpx.MockTransport(provider)))
+    preview = client.post("/billing/checkout/preview", headers=headers,
+                          data={"cycle": "year", "promo_code": "SYNTHFIRST"})
+    first_fields = {**checkout_start_fields(preview), "promo_code": "SYNTHFIRST",
+                    "offer_consent": "true", "recurring_consent": "true"}
+    rejected = client.post("/billing/checkout/start", headers=headers, data=first_fields, follow_redirects=False)
+    assert rejected.status_code == 303, rejected.text
+    assert calls[0]["save_payment_method"] is True
+    original_status = rejected.headers["location"]
+    duplicate = client.post("/billing/checkout/start", headers=headers, data=first_fields, follow_redirects=False)
+    assert duplicate.status_code == 303
+    assert urlsplit(duplicate.headers["location"]).path == urlsplit(original_status).path
+    for _ in range(2):
+        status = client.get(original_status, headers=headers)
+        assert RECURRING_UNAVAILABLE_MESSAGE in status.text
+        assert 'href="/billing/checkout?cycle=year">Вернуться к оплате</a>' in status.text
+        retry = client.get("/billing/checkout?cycle=year", headers=headers)
+        assert retry.status_code == 200
+        assert promo_input(retry) == ""  # Created operation consumed the old draft.
+        assert 'name="cycle" value="year"' in retry.text
+        recurring = re.search(r'<input[^>]*name="recurring_consent"[^>]*>', retry.text).group()
+        offer = re.search(r'<input[^>]*name="offer_consent"[^>]*>', retry.text).group()
+        assert "checked" in recurring and "required" not in recurring
+        assert "checked" not in offer and "required" in offer
+    assert len(calls) == 1
+
+    async def inspect():
+        async with client.app_state["sessionmaker"]() as db:
+            ops = list(await db.scalars(select(BillingOperation).where(
+                BillingOperation.workspace_id == workspace).order_by(BillingOperation.created_at)))
+            invoices = list(await db.scalars(select(BillingInvoice).where(BillingInvoice.workspace_id == workspace)))
+            promos = list(await db.scalars(select(PromotionRedemption).where(PromotionRedemption.workspace_id == workspace)))
+            budget = await db.scalar(select(BillingAcceptanceBudget).where(BillingAcceptanceBudget.workspace_id == workspace))
+            return ops, invoices, promos, budget
+    ops, invoices, promos, budget = asyncio.run(inspect())
+    assert len(ops) == len(invoices) == len(promos) == 1
+    assert ops[0].state == invoices[0].status == "canceled"
+    assert ops[0].provider_id is None and ops[0].request_snapshot["recurring_consent"] is True
+    assert invoices[0].plan_snapshot["recurring_consent"] is True
+    assert promos[0].state == "released" and budget.reserved_minor == budget.spent_minor == 0
+
+    # Only a fresh explicit preview reapplies the released promotion; retry GET did not.
+    manual = client.post("/billing/checkout/preview", headers=headers,
+                         data={"cycle": "year", "promo_code": "SYNTHFIRST", "recurring_consent": "false"})
+    manual_fields = {**checkout_start_fields(manual), "promo_code": "SYNTHFIRST", "recurring_consent": "false"}
+    assert manual_fields["quote_id"] != first_fields["quote_id"]
+    assert promo_input(manual) == "SYNTHFIRST"
+    assert "checked" not in re.search(r'<input[^>]*name="offer_consent"[^>]*>', manual.text).group()
+    blocked = client.post("/billing/checkout/start", headers=headers, data=manual_fields, follow_redirects=False)
+    assert blocked.status_code == 303 and len(calls) == 1
+    accepted = client.post("/billing/checkout/start", headers=headers,
+                          data={**manual_fields, "offer_consent": "true"}, follow_redirects=False)
+    assert accepted.status_code == 303
+    assert accepted.headers["location"] == "https://yookassa.test/checkout/manual"
+    assert len(calls) == 2 and calls[1]["save_payment_method"] is False
+    assert calls[1]["metadata"]["operation_id"] != calls[0]["metadata"]["operation_id"]
+    for _ in range(2):
+        client.get(original_status, headers=headers)
+    # Two duplicate POSTs total stay within the real five-attempt rate limit.
+    duplicate = client.post("/billing/checkout/start", headers=headers, data=first_fields, follow_redirects=False)
+    assert duplicate.status_code == 303
+    assert urlsplit(duplicate.headers["location"]).path == urlsplit(original_status).path
+    assert len(calls) == 2
+    ops, invoices, promos, budget = asyncio.run(inspect())
+    assert len(ops) == len(invoices) == 2
+    assert len(promos) == 1  # Released workspace/campaign reservation is reused.
+    assert ops[0].request_snapshot["recurring_consent"] is True
+    assert ops[1].request_snapshot["recurring_consent"] is False
+    assert ops[1].request_snapshot["offer_consent"] is True
+    assert ops[1].provider_id == "synthetic-manual-payment"
+    manual_invoice = next(invoice for invoice in invoices if invoice.operation_id == ops[1].id)
+    assert manual_invoice.plan_snapshot["recurring_consent"] is False
+    assert promos[0].state == "reserved" and promos[0].invoice_id == manual_invoice.id
+    assert budget.spent_minor == 0 and budget.reserved_minor == manual_invoice.amount_minor > 0
 
 
 def test_partly_expired_storage_keeps_valid_access_and_one_financial_remedy(client, tmp_path):

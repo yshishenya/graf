@@ -18,9 +18,12 @@ class YooKassaConfigurationError(RuntimeError):
 
 
 class YooKassaProviderError(RuntimeError):
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self, message: str, *, status_code: int | None = None, reason: str | None = None
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.reason = reason if reason == "recurring_not_available" else None
 
 
 def provider_environment(environment: object) -> str:
@@ -260,9 +263,26 @@ class YooKassaClient:
             method, path, json=payload, headers=headers, params=params
         )
         if response.status_code >= 400:
+            reason = None
+            if response.status_code == 403:
+                try:
+                    error = response.json()
+                except ValueError:
+                    error = None
+                if (
+                    isinstance(error, dict)
+                    and error.get("type") == "error"
+                    and error.get("code") == "forbidden"
+                    and error.get("description") == (
+                        "This store can't make recurring payments. "
+                        "Contact the YooMoney manager to learn more"
+                    )
+                ):
+                    reason = "recurring_not_available"
             raise YooKassaProviderError(
                 f"YooKassa request failed: {response.status_code}",
                 status_code=response.status_code,
+                reason=reason,
             )
         try:
             data = response.json()

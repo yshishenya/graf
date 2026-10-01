@@ -146,6 +146,30 @@ def test_provider_reject_before_provider_id_keeps_only_safe_failure_metadata() -
     assert "secret provider response" not in str(operation.request_snapshot)
 
 
+@pytest.mark.parametrize("reason", [None, "recurring_not_available", "synthetic-private-reason"])
+def test_dispatched_schema2_rejection_saves_only_fixed_reason(reason) -> None:
+    now = datetime(2026, 8, 25, 10, tzinfo=UTC)
+    operation = _operation(expires_at=now + timedelta(hours=1), state="scheduled")
+    operation.request_snapshot["purchase_schema"] = 2
+    invoice = _invoice()
+    error = billing.YooKassaProviderError(
+        "synthetic-private-description synthetic-private-request-id", status_code=403, reason=reason,
+    )
+    # The metadata boundary must also reject a reason from a changed/mocked exception.
+    error.reason = reason
+    billing._record_initial_checkout_failure(operation, invoice, error, now=now)
+    expected = {
+        "class": "provider_rejected", "http_status": 403,
+        "observed_at": "2026-08-25T10:00:00+00:00",
+    }
+    if reason == "recurring_not_available":
+        expected["reason"] = reason
+    assert operation.request_snapshot["provider_failure"] == expected
+    assert operation.state == invoice.status == "canceled"
+    assert operation.provider_id is None
+    assert "synthetic-private" not in str(operation.request_snapshot)
+
+
 def test_expired_provider_key_blocks_continuation() -> None:
     now = datetime(2026, 8, 25, 10, tzinfo=UTC)
     operation = _operation(expires_at=now)

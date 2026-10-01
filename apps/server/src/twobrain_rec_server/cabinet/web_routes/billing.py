@@ -576,6 +576,8 @@ def _initial_checkout_failure_metadata(
         and 400 <= exc.status_code <= 599
     ):
         metadata["http_status"] = exc.status_code
+    if isinstance(exc, YooKassaProviderError) and exc.reason == "recurring_not_available":
+        metadata["reason"] = "recurring_not_available"
     return metadata
 
 
@@ -2051,6 +2053,25 @@ async def billing_checkout_status_page(
     if invoice is None:
         return RedirectResponse("/billing/history?result=not_found", status_code=303)
     operation_state = operation.state if operation is not None else None
+    provider_failure = operation.request_snapshot.get("provider_failure") if operation else None
+    if not isinstance(provider_failure, dict):
+        provider_failure = {}
+    creation_rejected = bool(
+        operation
+        and operation.request_snapshot.get("purchase_schema") == 2
+        and operation_state == invoice.status == "canceled"
+        and operation.provider_id is None
+        and provider_failure.get("class") == "provider_rejected"
+        and type(provider_failure.get("http_status")) is int
+        and provider_failure["http_status"] in {400, 401, 403, 404, 405, 415, 429}
+    )
+    recurring_not_available = bool(
+        creation_rejected
+        and operation.kind == "initial_checkout"
+        and operation.request_snapshot.get("recurring_consent") is True
+        and provider_failure.get("http_status") == 403
+        and provider_failure.get("reason") == "recurring_not_available"
+    )
     retry_payment_url = f"/billing/checkout?cycle={'year' if invoice.plan_snapshot.get('cycle') == 'year' else 'month'}"
     if operation and operation.kind == "storage_upgrade":
         retry_payment_url = "/billing/storage"
@@ -2119,6 +2140,8 @@ async def billing_checkout_status_page(
         amount_label=_billing_amount_label(invoice.amount_minor, invoice.currency)
         or "Сумма недоступна",
         operation_state=operation_state,
+        creation_rejected=creation_rejected,
+        recurring_not_available=recurring_not_available,
         retry_payment_url=retry_payment_url,
         support_email=settings.billing_support_email,
         purchase_purpose_label=purchase_purpose_label(invoice.plan_snapshot or {}),

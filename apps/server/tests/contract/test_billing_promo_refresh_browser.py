@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import threading
+from copy import deepcopy
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -44,9 +45,15 @@ ROOT = Path(__file__).parents[4]
 SCRIPT = ROOT / "apps/server/tests/browser/billing-promo-refresh.test.cjs"
 
 
-@pytest.mark.parametrize("receipt_verified", [True, False], ids=["verified", "unverified"])
+@pytest.mark.parametrize(
+    "receipt_verified,error_mode,width",
+    [pytest.param(True, None, None, id="verified"),
+     pytest.param(False, None, None, id="unverified"),
+     *(pytest.param(True, mode, width, id=f"provider_rejection-{mode}-{width}")
+       for mode in ("recurring", "generic", "uncertain") for width in (320, 1280))],
+)
 def test_promo_survives_real_submit_reload_and_return(
-    client, owner, tmp_path, monkeypatch, receipt_verified
+    client, owner, tmp_path, monkeypatch, receipt_verified, error_mode, width
 ):
     workspace, _ = owner
     seed_campaign(client, policy_snapshot={
@@ -69,9 +76,68 @@ def test_promo_survives_real_submit_reload_and_return(
 
     asyncio.run(configure_annual_receipt())
     provider = _FakeYooKassa()
+    dispatched = []
+
+    def reject_recurring(request):
+        assert request.method == "POST", "unbound rejection must not query a provider payment"
+        payload = json.loads(request.content)
+        dispatched.append(payload)
+        if payload["save_payment_method"] is True:
+            return httpx.Response(503 if error_mode == "uncertain" else 403, json={
+                "type": "error", "code": "forbidden",
+                "description": (
+                    "This store can't make recurring payments. Contact the YooMoney manager to learn more"
+                    if error_mode == "recurring" else "Synthetic unrelated provider rejection"
+                ),
+            })
+        assert error_mode != "uncertain", "unknown result must block a new payment"
+        return provider.handle(request)
+
     if receipt_verified:
         monkeypatch.setattr(routes, "YooKassaClient", lambda settings: YooKassaClient(
-            settings, transport=httpx.MockTransport(provider.handle)))
+            settings, transport=httpx.MockTransport(reject_recurring if error_mode else provider.handle)))
+
+    original = {}
+
+    async def rejection_state():
+        async with client.app_state["sessionmaker"]() as db:
+            operations = list(await db.scalars(select(BillingOperation).order_by(BillingOperation.created_at)))
+            invoices = list(await db.scalars(select(BillingInvoice).order_by(BillingInvoice.created_at)))
+            redemptions = list(await db.scalars(select(PromotionRedemption)))
+            assert len(operations) == len(invoices) == len(dispatched)
+            old = operations[0]
+            invoice = next(row for row in invoices if row.operation_id == old.id)
+            assert old.state == invoice.status == ("manual_resolution" if error_mode == "uncertain" else "canceled")
+            assert old.provider_id is None
+            assert old.request_snapshot["recurring_consent"] is True
+            assert invoice.plan_snapshot["recurring_consent"] is True
+            assert old.request_snapshot["offer_consent"] is True
+            assert invoice.amount_minor == 900_000
+            assert invoice.plan_snapshot["cycle"] == "year"
+            failure = old.request_snapshot["provider_failure"]
+            assert failure["http_status"] == (503 if error_mode == "uncertain" else 403)
+            assert failure.get("reason") == ("recurring_not_available" if error_mode == "recurring" else None)
+            assert "YooMoney" not in str(old.request_snapshot)
+            assert len(redemptions) == 1
+            assert redemptions[0].state == ("reserved" if error_mode == "uncertain" else "released")
+            snapshots = deepcopy((old.request_snapshot, invoice.plan_snapshot))
+            if original:
+                assert snapshots == original["snapshots"], "retry must not rewrite the accepted operation"
+            else:
+                original["snapshots"] = snapshots
+            if len(operations) == 2:
+                new = operations[1]
+                new_invoice = next(row for row in invoices if row.operation_id == new.id)
+                assert new.state == "provider_pending" and new_invoice.status == "pending"
+                assert new.provider_id == provider.payment_id
+                assert new.request_snapshot["recurring_consent"] is False
+                assert new_invoice.plan_snapshot["recurring_consent"] is False
+                assert new.request_snapshot["offer_consent"] is True
+                assert new_invoice.plan_snapshot["cycle"] == "year"
+                assert new_invoice.amount_minor == 1_000_000, "consumed promo draft is not revived"
+                assert new.idempotency_key != old.idempotency_key
+        assert [payload["save_payment_method"] for payload in dispatched] == [True] + ([False] if len(dispatched) == 2 else [])
+        assert len(provider.create_payloads) == len(dispatched) - 1
 
     async def no_money_side_effects():
         async with client.app_state["sessionmaker"]() as db:
@@ -106,7 +172,8 @@ def test_promo_survives_real_submit_reload_and_return(
             try:
                 if self.command == "POST" and path == "/billing/checkout/start":
                     assert receipt_verified
-                    asyncio.run(no_money_side_effects())
+                    if not error_mode or not dispatched:
+                        asyncio.run(no_money_side_effects())
                 # Supplying only browser Cookie prevents TestClient's jar from
                 # masking a browser that failed to persist or send the draft.
                 client.cookies.clear()
@@ -115,6 +182,8 @@ def test_promo_survives_real_submit_reload_and_return(
                     headers=headers, content=request_body, follow_redirects=False,
                 )
                 client.cookies.clear()
+                if error_mode and dispatched:
+                    asyncio.run(rejection_state())
             except Exception as exc:
                 errors.append(f"asgi_request_failed:{type(exc).__name__}")
                 self.send_error(500)
@@ -142,6 +211,7 @@ def test_promo_survives_real_submit_reload_and_return(
             "session_token": session_token,
             "screenshots_dir": os.environ.get("GRAF_PROMO_BROWSER_SCREENSHOTS"),
             "receipt_verified": receipt_verified,
+            **({"provider_rejection": error_mode, "width": width} if error_mode else {}),
         }, output)
     thread.start()
     try:
@@ -157,6 +227,19 @@ def test_promo_survives_real_submit_reload_and_return(
         )
         proof = json.loads(result.stdout)
         assert proof["engine"] == os.environ.get("GRAF_BROWSER", "chromium")
+        if error_mode:
+            assert proof["viewports"] == [width]
+            assert proof["provider_rejection"] == error_mode
+            assert proof["external_requests"] == 0
+            assert proof["submit_redirects"] == 2
+            assert proof["provider_redirects"] == int(error_mode != "uncertain")
+            assert not errors
+            assert sum(row == ("POST", "/billing/checkout/preview", 303) for row in trace) == 1
+            assert sum(row == ("POST", "/billing/checkout/start", 303) for row in trace) == (1 if error_mode == "uncertain" else 2)
+            assert sum(row[0] == "POST" for row in trace) == (2 if error_mode == "uncertain" else 3)
+            assert sum(row[0] == "GET" and row[1].startswith("/billing/checkout/status/") for row in trace) >= 3
+            asyncio.run(rejection_state())
+            return
         assert proof["viewports"] == [320, 1280]
         assert proof["external_requests"] == 0
         assert proof["submit_redirects"] == (38 if receipt_verified else 36)
