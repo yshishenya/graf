@@ -145,3 +145,18 @@ CI governance-fast 36792155653 на c3cecb3101b9f7ac61cb64ee0034575a643d4ddb в�
 
 
 Независимый расширенный настоящий DOM на9b7c4b41/template8351694f: Chromium1PASS28,16с/runner32, WebKit1PASS173,67с/runner177. На движок320/1280px,4realPOST409,2historicalGET и12unavailablePOST303 (disabled/dbNone×new/replace/clear). Проверены новый код, очисткаcookie, год,7500/10000, пустые согласия, reload, overflow и отсутствие внешних запросов/провайдера. Логи /tmp/graf-status-conflict-browser/chromium-unavailable-final.log и webkit-unavailable-final.log; sourcehash после выполнения неизменён. Синтетический guardbridge существует только в /tmp test harness, исходники не получают query bypass. Независимый итоговый обзор: review-promo-refresh-unavailable-final-browser.md.
+
+
+## Дополнительный явный период из ссылки тарифа
+
+Автоматический review PR7403/4150566615 после e1a566fd нашёл validGETquery cycle против прежнего storedcycle. Requirements9/0 до кода — review-promo-refresh-query-cycle-requirements.md; уточнены spec/plan/analyze, issue7402 синхронизирован, canon300PASS. Baseline6FAIL8,20с/runner11 в /tmp/graf-f280-query-cycle-baseline.log.
+
+Минимальная правка GETresponse повторно использует signedstate helper только для cookieheaders при validquerydiff и действующемB; прежний expiry, статусHTML и отсутствиеLocation сохраняются. Blockingclear имеет приоритет, POST не изменяетB из старой формы. Матрица обоих направлений month/year × два409/один303, дваGET безquery, остаток258 и t300. Текущие runtimefec78d91 и HTTPtest7ad40a80; прежние307/DOM/CIe1 являются историческими, не допуском к этому исходнику.
+
+
+Окончательный HTTP/SQL/UI/money_path после querycycle: **313 PASS179,05с/runner184**, cleanup PASS. Лог /tmp/graf-f280-query-cycle-final.log SHA256 fea1433cfb834fdef393c6b09a7c1ba79c9d17f05b83ea1b4a82fd4885148944; collection digest720de8802a42176d192386a88c6b0ddc165fc3c61c40ad26670bf7686538aae2. Runtimefec78d91, тест7ad40a80 сверены до/после. Прежние307 и CIe1 не складываются и не заменяют новый выпуск.
+
+
+Актуальный независимый querycycle DOM: Chromium **6PASS40,12с/runner44**, WebKit **6PASS131,96с/runner136**, последовательно после313cleanup. Каждый из6кейсов проверяет320/1280, две вкладки, реальныйApply→GETperiod с +42с controlledclock и неизменным signedexpiry; две перезагрузки, старый start с409 либо303 и повторныеGET обеихвкладок. На движок8реальных start409 и4start303,12явныхquery переключений, цены/согласия/отсутствиеoverflow, внешние/provider0. Все столбцы исторических финансовых строк неизменны. Логи chromium-query-cycle-final.log и webkit-query-cycle-final.log в /tmp/graf-status-conflict-browser.
+
+Первый объединённый временный сценарий упёрся в настоящий лимит попыток на шестомstart; сохранён отдельно chromium-query-cycle-rate-limit-baseline.log, неPASS. Шесть комбинаций изолированы существующей pytest fixture в отдельные синтетические сессии/БД; ограничение частоты и assertions сохранены. Изменён только /tmp harness, в приложении нет testquery или bypass. Предыдущий9b7c unavailableDOM остаётся отдельным доказательством той ветви; не считается текущим querycycleDOM.

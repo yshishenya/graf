@@ -118,3 +118,9 @@ SC-005/006 — post-launch человеческое понимание/конв�
 
 
 Окончательная сверка реализации FR017/018/SC007 и всех callers после emptyApply: runtime9b7c4b41, HTTP307PASS; независимые flow/security не нашли новых missing/partial/contradicts/unrequested пробелов кода. Существующие T019/T011/T012/F278 уже покрывают выпуск/внешнюю приёмку и не дублируются. При convergence новых задач не добавляется; browser evidence и точные GitHub checks остаются явными следующими условиями.
+
+
+P2 PR7403/4150566615: GET с явным query периодом отображал новую сумму, но storedcycle не менял; recovery start использовал прежний цикл. Требования уточнены до кода: только действующий draft+GETvalidquerydiff обновляет подписанный cycle с прежним expiry; общее сохранение состояния повторно используется, без новой модели и финансовых полномочий. Матрица month→year/year→month × offer_changed/quote_changed/offer_required, reload безquery/исходный expiry/t300; unchanged/invalid/expired signed выбор не переписывается. T017/T018 повторно открываются, новых задач0.
+
+
+Convergence после querycycle: FR017/018/SC007, уточнения lifecycle/подписи/выбранного периода и все callers сопоставлены с runtimefec78d91,313PASS и currentDOM Chromium/WebKit6/6. Независимые flow/security/browser не оставили конкретных замечаний; missing/partial/contradicts/unrequested новых задач0. ExistingT019/T011/T012/F278 остаются и не дублируются, hooksconverge отсутствуют. Отметки T017/T018 обновлены отдельным завершением реализации после этой сверки; checklist остаётся reviewer-owned.

@@ -3494,6 +3494,17 @@ async def billing_checkout_page(
         request.cookies.get(_CHECKOUT_PROMO_DRAFT_COOKIE) and saved_draft is None
     ):
         _clear_checkout_promo_draft(response)
+    elif (
+        request.method == "GET" and saved_draft
+        and request.query_params.get("cycle") in {"month", "year"}
+        and checkout_cycle != saved_draft["cycle"]
+    ):
+        updated_choice = _checkout_result_redirect(
+            request, "promo_applied", cycle=checkout_cycle,
+            principal=principal, tenant_scope=tenant_scope,
+        )
+        for header in updated_choice.headers.getlist("set-cookie"):
+            response.headers.append("set-cookie", header)
     elif request.cookies.get(_CHECKOUT_PROMO_COOKIE):
         response.delete_cookie(_CHECKOUT_PROMO_COOKIE, path="/billing/checkout")
     return response

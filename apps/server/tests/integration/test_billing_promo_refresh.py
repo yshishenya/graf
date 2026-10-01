@@ -849,3 +849,53 @@ def test_unavailable_preview_keeps_explicit_intent(client, owner, monkeypatch, g
                 assert 'id="billing-checkout-error"' in page.text
             else:
                 assert_checkout(page, today="9000", renewal="10000", cycle="год", promo=SYNTH_CODE)
+
+
+@pytest.mark.parametrize("cycle,initial_cycle,today,renewal,label", [
+    ("year", "month", "9000", "10000", "год"),
+    ("month", "year", "900", "1000", "месяц"),
+])
+@pytest.mark.parametrize("reason", ["offer_changed", "quote_changed", "offer_required"])
+def test_query_selected_period_survives_refresh_and_start_rejection(
+    client, owner, monkeypatch, cycle, initial_cycle, today, renewal, label, reason
+):
+    _, headers = owner
+    seed_campaign(client)
+    clock = [int(time.time())]
+    monkeypatch.setattr(routes, "_promo_draft_now", lambda: clock[0])
+    submit(client, headers, cycle=initial_cycle)
+    clock[0] += 42
+    page = client.get(f"/billing/checkout?cycle={cycle}")
+    assert_checkout(page, today=today, renewal=renewal, cycle=label, promo=SYNTH_CODE)
+    assert draft_cookie(page)["max-age"] == "258"
+    keep_cookie_on_controlled_clock(client)
+    for _ in range(2):
+        page = client.get("/billing/checkout")
+        assert_checkout(page, today=today, renewal=renewal, cycle=label, promo=SYNTH_CODE)
+        assert_no_draft_renewal(page)
+    fields = checkout_start_fields(page)
+    if reason == "offer_changed":
+        fields["offer_version"] = "synthetic-outdated-offer"
+    elif reason == "quote_changed":
+        fields["quote_id"] = "00000000-0000-0000-0000-000000000000"
+    response = client.post("/billing/checkout/start", headers=headers, data={
+        **fields, "promo_code": SYNTH_CODE,
+        "offer_consent": reason != "offer_required", "recurring_consent": "true",
+    }, follow_redirects=False)
+    if reason == "offer_required":
+        assert response.status_code == 303
+        assert f"cycle={cycle}" in response.headers["location"]
+        assert draft_cookie(response)["max-age"] == "258"
+        keep_cookie_on_controlled_clock(client)
+        response = client.get(response.headers["location"])
+    else:
+        assert response.status_code == 409
+    assert f'name="cycle" value="{cycle}"' in response.text
+    assert promo_input(response, status=response.status_code) == SYNTH_CODE
+    for name in ("offer_consent", "recurring_consent"):
+        checkbox = re.search(rf'<input[^>]*name="{name}"[^>]*>', response.text)
+        assert checkbox and "checked" not in checkbox.group(0)
+    clock[0] += 258
+    page = client.get("/billing/checkout?cycle=year")
+    assert promo_input(page) == ""
+    assert_no_draft_renewal(page)

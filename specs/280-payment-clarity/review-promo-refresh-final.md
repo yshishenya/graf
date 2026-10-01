@@ -36,3 +36,8 @@
 ## Окончательный срез периода без draft и unavailable
 
 Актуальные flow и security PASS по runtime9b7c4b41…: review-promo-refresh-unavailable-final-flow.md, review-promo-refresh-unavailable-final-security.md. Требования независимо перечитаны9/0: review-promo-refresh-unavailable-requirements.md. Пустой FormNone исправлен общей функцией, оба дополнительных P2 сохранены как причины регрессий. Окончательный расширенный набор307PASS171,16с включает money_path и десять unavailable случаев; прежние297/228 исторические. Третий независимый реальный DOM/снимки PASS: review-promo-refresh-unavailable-final-browser.md, Chromium1PASS28,16с и WebKit1PASS173,67с на текущих9b7c4b41/template8351694f. Все три заключения завершены без конкретных оставшихся замечаний; новых задач реализации0. Точное CI и production принадлежат T019.
+
+
+## Окончательное сохранение периода из ссылки тарифа
+
+Актуальный runtimefec78d91 и тест7ad40a80: три независимых ограниченных PASS — review-promo-refresh-query-cycle-final-flow.md, review-promo-refresh-query-cycle-final-security.md, review-promo-refresh-query-cycle-final-browser.md. Новых конкретных замечаний0. Подтверждены313HTTP/SQL/UI/money_path PASS179,05с и DOM Chromium6PASS40,12с/WebKit6PASS131,96с, оба направления/три причины/две ширины/две вкладки/исходныйexpiry. Предыдущие307/9b7cDOM и CIe1 исторические. Converge новых задач0; T017/T018 завершены, T019 требует нового точногоSHA и выпуска. T011/T012/F278 не закрываются.

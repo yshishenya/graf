@@ -127,3 +127,7 @@ T017/T018 повторно открыты после governance-fast36792155653:
 
 
 Окончательное завершение T017/T018 после двух последнихP2: runtime9b7c4b41,307PASS171,16с; оба direct409year безdraft и unavailable×10, emptyFormNone очистка исправлена в общем helper без ослабления assertions. Независимые flow/security/реальныйbrowser PASS: Chromium1PASS28,16с, WebKit1PASS173,67с, по12unavailablePOST303 и4direct409. Checklist9/0 независим. Converge: новых задач кода0, внешниеT011/T012/F278 и выпускT019 не дублируются.
+
+T017/T018 повторно открыты по query-selected cycle P2: signeddraft period должен сохранять явный validGET выбор с исходным сроком; новое воспроизведение/независимые обзоры обязательны. Прежний9b7c/307 и DOM относятся к истории после новой правки.
+
+Завершение querycycle T017/T018: runtimefec78d91,313PASS179,05с; Chromium6PASS40,12с и WebKit6PASS131,96с на текущемsource, оба направления/три причины/две ширины/две вкладки/исходныйexpiry. Три независимых ограниченных PASS, конкретных оставшихся замечаний0. Converge: новых задач0; T019 и внешниеT011/T012/F278 не дублируются.
