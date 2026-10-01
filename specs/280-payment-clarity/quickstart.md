@@ -50,7 +50,7 @@ GRAF_BROWSER=webkit uv run --extra dev pytest tests/contract/test_billing_access
 
 ## Сценарии
 
-1. Free/trial/month/year; no discount/promo valid/invalid; условия и реальный итог видны, согласия пусты.
+1. Free/trial/month/year; no discount/promo valid/invalid; условия и реальный итог видны, оферта непринята, режим продления по FR-019/020.
 2. Storage 5/10/15/500 ГБ; upgrade, deferred downgrade, отмена выбора, разные оплаченные периоды; future amount не скрыт.
 3. Успех, unknown, pending, failed, canceled, refused, service gap, поздний ответ; реальное следующее действие и отсутствие false success.
 4. Счет из истории → существующий status → refresh/continue; annual retry/manual pay сохраняет цикл.
@@ -87,14 +87,14 @@ apps/server/scripts/run_local_postgres_tests.sh --focused \
 
 Матрица регрессий:
 
-1. Применить синтетический код на месяце и годе → следовать 303 → два GET обновления: код, период и текущий итог сохраняются; нет новых invoice/operation/reservation/provider calls, оба согласия пусты.
+1. Применить синтетический код на месяце и годе → следовать 303 → два GET обновления: код, период и текущий итог сохраняются; нет новых invoice/operation/reservation/provider calls, оба оферта непринята, режим продления по FR-019/020.
 2. Переход месяц→год→месяц и возврат на исходный checkout URL сохраняют код, но сервер вновь проверяет eligibility и цену. Нет кода, quote или согласий в URL.
 3. Отклонённый код длиной до 48 символов после повторного GET остаётся доступен с ошибкой, оплата заблокирована. Отдельно malformed код, non-ASCII и управляющие символы в пределах 48 символов сохраняются через Apply→два refresh как безопасно экранированный ввод; сырых байтов в response headers нет, ошибка понятна, поле раскрыто и оплата заблокирована. Ограничение сверх 48 символов остаётся прежним.
 4. Изменить условия/доступность акции между двумя GET: нет устаревшей скидки или тихой обычной цены, новый расчёт требует явного подтверждения. Quotes не переиспользуются как сохраняемое состояние.
 5. Пустой preview и существующее удаление очищают текущий выбор; повторный GET без кода. Созданная/восстановленная операция использует авторитетные invoice/operation и не сохраняет выбор для следующей покупки.
 6. Подменить cookie, срок или идентичность; перенести/переименовать в другой user/workspace/session; удалить session; подать старую общую raw cookie: код не читается, доступ и финансовые guards сохраняются.
 7. Контролируемое время: до 300 секунд выбор читается, на границе/после срока отвергается; GET, смена cycle и ошибки start не продлевают срок. Смена cycle сохраняет code/expiry; возврат без query cycle восстанавливает saved cycle. Атрибуты HttpOnly/SameSite/Secure/path проверены, отсутствующий ключ не разрешает небезопасный fallback.
-8. Три независимых заключения по текущим исходникам: путь/тексты, безопасность/финансовые состояния, браузер/доступность. Настоящая DOM-цепочка заполнить/отправить форму → 303 → GET → два reload → back/return проверяется в Chromium и WebKit с изолированной синтетической сессией и локальным тестовым сервером без провайдера; только fixture-снимки не доказывают этот путь. Цепочка включает месяц/год, malformed и исправление/удаление кода, URL без code и пустые согласия. Существующие браузерные наборы из раздела выше дополнительно покрывают темы/масштаб/ширины и сохраняемый код/ошибку. Снять границы и ограничения доказательств в `validation-promo-refresh.md` и `review-promo-refresh-final.md`.
+8. Три независимых заключения по текущим исходникам: путь/тексты, безопасность/финансовые состояния, браузер/доступность. Настоящая DOM-цепочка заполнить/отправить форму → 303 → GET → два reload → back/return проверяется в Chromium и WebKit с изолированной синтетической сессией и локальным тестовым сервером без провайдера; только fixture-снимки не доказывают этот путь. Цепочка включает месяц/год, malformed и исправление/удаление кода, URL без code и непринятая оферта с выбором продления FR-020. Существующие браузерные наборы из раздела выше дополнительно покрывают темы/масштаб/ширины и сохраняемый код/ошибку. Снять границы и ограничения доказательств в `validation-promo-refresh.md` и `review-promo-refresh-final.md`.
 
 Локальные проверки, reviewer-owned PASS, issue sync и convergence предшествуют отдельным PR checks точного SHA. После merge — один новый frozen release-full, сухой прогон CD, deploy, metadata smoke и опубликованный серверный выпуск; текущий frozen кандидат не менять. Владелец уже разрешил технический выпуск. T011/T012 и F278 финансовая приёмка остаются открытыми в их невыполненной части; этот срез не является их повторной задачей.
 
@@ -131,7 +131,7 @@ apps/server/scripts/run_local_postgres_tests.sh --focused \
 
 В HTTP-проверках управляемого времени Set-Cookie Max-Age проверяется до удержания того же синтетического токена в клиенте: это согласует замороженные часы сервера с тестом. Подписанный expiry и серверный отказ на t300 не изменяются. Настоящий срок браузерных cookies проверяется отдельно в DOM сценариях, где искусственные часы не используются.
 
-Дополнительные сценарии PR7403: текущий B→GET статуса старого failed/canceled счёта→два GET checkout сохраняют B/период/expiry; stale start A после B → прямой409 offer_changed и quote_changed отображает B/его период со свежей ценой и пустыми согласиями, повторные GET не возвращают A; expired/missing/invalid signedB не возрождает A. Финансовые записи и вызовы провайдера отсутствуют.
+Дополнительные сценарии PR7403: текущий B→GET статуса старого failed/canceled счёта→два GET checkout сохраняют B/период/expiry; stale start A после B → прямой409 offer_changed и quote_changed отображает B/его период со свежей ценой, непринятой офертой и выбором продления FR-020, повторные GET не возвращают A; expired/missing/invalid signedB не возрождает A. Финансовые записи и вызовы провайдера отсутствуют.
 
 Смежный303: Bгод/Aмесяц→отказ start сохраняет year в location, draft и двух GET, исходный expiry/Max-Age и t300. Продолжение подтверждённой существующей операции прекращает draft; отказ продолжения не стирает несвязанное оформление.
 
@@ -139,3 +139,15 @@ apps/server/scripts/run_local_postgres_tests.sh --focused \
 ## Выпускной договор редактора до подтверждения почты
 
 В набор T018 включён `tests/contract/test_billing_clarity.py`: предварительный редактор/Apply связан только с `/billing/checkout/preview`; подтверждение почты доступно, но start, денежные согласия, quote/idempotency и кнопка оплаты отсутствуют. HTTP-регрессии unverified receipt остаются обязательными. Старый frozen 36798151219 завершился FAIL на прежних двух ожиданиях; он не переиспользуется как PASS. Runtime не меняется, DOM-доказательства относятся к прежним неизменным хешам кода; тестовая коррекция требует нового exact-SHA PR и нового frozen Full.
+
+
+## Необязательное продление — T020–T022
+
+Перед кодом: независимый requirements PASS `checklists/optional-renewal.md`, анализ `analyze-optional-renewal.md`, canon ensure → deduplicated issue sync → canon validate. Данные/провайдер синтетические, реальных денег/кодов/контактов в evidence нет.
+
+1. RED: HTML две галочки — только offer required/unchecked, recurring optional/checked; HTTP month/year×True/False/missing recurring, missing offer отказ без money state. Общий creator strict bool, одинаковый idempotency при восстановлении False, save_payment_method=False.
+2. GREEN: request+invoice bool совпадают; проверенный success False выдаёт один grant и один период, no renewal/no new payment method даже если fake provider возвратил saved card; True прежний успех. Уже активное продление+новая успешная False покупка выключает дальнейшее; неуспех не выдаёт права. Существующая старая отмена/owner changed/authority drift/duplicate остаются безопасными.
+3. Реальный браузер Chromium/WebKit 320/1280: снять галочку → Apply valid/invalid → month/year → remove → два reload → оферта всегда unchecked, recurring False, итог свежий → offer accept → start в mock provider, False request. Проверить disabled/off summary, keyboard/focus, JS-off нормальную отправку; URL не содержит promo/quote/consents.
+4. Off-choice boundary: sessionStorage содержит только true/false, отдельные user/workspace/session keys; unknown value/missing meta/storage failure не ломают текущую форму и не наследуют чужой выбор. Новая вкладка без opener→True; standard opener cloning документируется, отдельная tab identity не добавляется. Creator recovery продолжает исходный bool; no financial state на preview; прежний promo TTL300/signature/binding не меняется.
+5. Запуск по существующему синтетическому pytest окружению `tests/contract/test_billing_clarity.py tests/contract/test_billing_ui.py tests/unit/test_initial_checkout_recovery.py tests/unit/test_billing_entitlements.py tests/unit/test_billing_money_path_e2e.py tests/integration/test_billing_review_regressions.py tests/integration/test_billing_promo_refresh.py` и новым сценариям optional renewal; точная команда/browser receipt записывается исполнителем в `validation-optional-renewal.md`.
+6. Три независимых заключения current flow/security/browser, converge текущего spec/plan/tasks; новые exact-SHA governance-fast/macos-pr/pr-metadata/common validator, отдельный frozen release-full, CD dry-run/execute, runtime SHA и фактическая публикация. T011/T012/F278 не закрываются; real money/receipt/settlement/refund/human остаются отдельными.

@@ -735,7 +735,9 @@ def test_direct_stale_start_rejection_uses_verified_draft_only(
         if selection == "disabled":
             assert checkbox is None
         else:
-            assert checkbox and "checked" not in checkbox.group(0)
+            assert checkbox
+            assert ("checked" in checkbox.group(0)) is (name == "recurring_consent")
+            assert ("required" in checkbox.group(0)) is (name == "offer_consent")
     for _ in range(2):
         page = client.get("/billing/checkout")
         if selection == "disabled":
@@ -806,7 +808,9 @@ def test_direct_rejection_without_saved_promo_keeps_submitted_year(client, owner
     assert_no_draft_renewal(response)
     for name in ("offer_consent", "recurring_consent"):
         checkbox = re.search(rf'<input[^>]*name="{name}"[^>]*>', response.text)
-        assert checkbox and "checked" not in checkbox.group(0)
+        assert checkbox
+        assert ("checked" in checkbox.group(0)) is (name == "recurring_consent")
+        assert ("required" in checkbox.group(0)) is (name == "offer_consent")
 
 
 @pytest.mark.parametrize("guard", ["disabled", "db_none"])
@@ -894,7 +898,9 @@ def test_query_selected_period_survives_refresh_and_start_rejection(
     assert promo_input(response, status=response.status_code) == SYNTH_CODE
     for name in ("offer_consent", "recurring_consent"):
         checkbox = re.search(rf'<input[^>]*name="{name}"[^>]*>', response.text)
-        assert checkbox and "checked" not in checkbox.group(0)
+        assert checkbox
+        assert ("checked" in checkbox.group(0)) is (name == "recurring_consent")
+        assert ("required" in checkbox.group(0)) is (name == "offer_consent")
     clock[0] += 258
     page = client.get("/billing/checkout?cycle=year")
     assert promo_input(page) == ""

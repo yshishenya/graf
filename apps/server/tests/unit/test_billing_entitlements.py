@@ -2,13 +2,16 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
+from cryptography.fernet import Fernet
 
 import twobrain_rec_server.billing.entitlements as entitlements
+from twobrain_rec_server.billing.payment_methods import SavedPaymentMethod
 from twobrain_rec_server.db.models import (
     BillingAcceptanceBudget,
     BillingEntitlementGrant,
     BillingInvoice,
     BillingOperation,
+    BillingPaymentMethod,
     BillingStorageEntitlementGrant,
     TimeCreditLedgerEntry,
     Workspace,
@@ -23,9 +26,12 @@ INVOICE_ID = UUID("55555555-5555-4555-8555-555555555555")
 
 
 class _FakeDb:
-    def __init__(self, values: list[object]) -> None:
+    def __init__(
+        self, values: list[object], *, payment_methods: list[BillingPaymentMethod] | None = None,
+    ) -> None:
         self._values = iter(values)
         self.invoices = [item for item in values if isinstance(item, BillingInvoice)]
+        self.payment_methods = payment_methods or []
         self.added: list[object] = []
 
     async def scalar(self, _query: object) -> object:
@@ -49,6 +55,10 @@ class _FakeDb:
         if entity in {BillingAcceptanceBudget, TimeCreditLedgerEntry}:
             return None
         return next(self._values)
+
+    async def scalars(self, query: object) -> list[BillingPaymentMethod]:
+        assert query.column_descriptions[0].get("entity") is BillingPaymentMethod
+        return self.payment_methods
 
     def add(self, value: object) -> None:
         self.added.append(value)
@@ -269,6 +279,8 @@ async def test_early_payment_and_cycle_change_keep_the_paid_remainder(
     # on the payment date.
     assert subscription.paid_through == datetime(2027, 9, 1, 12, tzinfo=UTC)
     assert subscription.cycle == "year"
+    assert subscription.recurring_allowed is False
+    assert subscription.recurring_authority_version == 4
     grant = next(row for row in db.added if isinstance(row, BillingEntitlementGrant))
     assert grant.starts_at == already_paid_through
     assert grant.ends_at == subscription.paid_through
@@ -288,6 +300,99 @@ async def test_early_payment_and_cycle_change_keep_the_paid_remainder(
     )
     assert subscription.paid_through == datetime(2027, 9, 1, 12, tzinfo=UTC)
     assert not [row for row in duplicate.added if isinstance(row, BillingEntitlementGrant)]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "consent_snapshot",
+    [{"recurring_consent": True}, {"recurring_consent": False}, {},
+     {"recurring_consent": None}, {"recurring_consent": 0}, {"recurring_consent": 1},
+     {"recurring_consent": "true"}, {"recurring_consent": "false"}],
+    ids=["true", "false", "missing", "null", "zero", "one", "true-string", "false-string"],
+)
+@pytest.mark.parametrize("fence", ["unchanged", "newer-cancellation", "different-owner"])
+async def test_saved_card_requires_true_consent_and_current_authority(
+    monkeypatch: pytest.MonkeyPatch, consent_snapshot: dict[str, object], fence: str,
+) -> None:
+    async def no_promo(*_args: object, **_kwargs: object) -> str:
+        return "none"
+
+    async def no_credit(*_args: object, **_kwargs: object) -> str:
+        return "ineligible"
+
+    async def no_notification(*_args: object, **_kwargs: object) -> bool:
+        return True
+
+    monkeypatch.setattr(entitlements, "redeem_invoice_promo", no_promo)
+    monkeypatch.setattr(entitlements, "create_pending_credit", no_credit)
+    monkeypatch.setattr(entitlements, "enqueue_billing_notification", no_notification)
+    paid_at = datetime(2026, 8, 20, 9, tzinfo=UTC)
+    already_paid_through = datetime(2026, 9, 1, 12, tzinfo=UTC)
+    current_owner_id = (
+        UUID("77777777-7777-4777-8777-777777777777")
+        if fence == "different-owner" else OWNER_ID
+    )
+    operation = BillingOperation(
+        id=OPERATION_ID, workspace_id=WORKSPACE_ID, kind="initial_checkout",
+        idempotency_key="consent-checkout", provider_id="consent-payment",
+        request_snapshot={
+            "plan_code": "personal", "cycle": "month",
+            "billing_actor_user_id": str(OWNER_ID), "recurring_authority_version": 3,
+            **consent_snapshot,
+        },
+    )
+    invoice = BillingInvoice(
+        id=INVOICE_ID, workspace_id=WORKSPACE_ID, operation_id=OPERATION_ID,
+        safe_number="INV-CONSENT", amount_minor=79_000, currency="RUB",
+        plan_snapshot={"plan_code": "personal", "cycle": "month"},
+    )
+    owner = WorkspaceMembership(
+        workspace_id=WORKSPACE_ID, user_id=current_owner_id, role="owner", status="active",
+    )
+    workspace = Workspace(
+        id=WORKSPACE_ID, organization_id=UUID("66666666-6666-4666-8666-666666666666"),
+        slug="personal", name="Personal", kind="personal", owner_user_id=current_owner_id,
+    )
+    subscription = WorkspaceSubscription(
+        workspace_id=WORKSPACE_ID, billing_owner_id=current_owner_id,
+        state="personal", plan_code="personal", cycle="month",
+        paid_through=already_paid_through,
+        recurring_allowed=fence != "newer-cancellation",
+        recurring_authority_version=4 if fence == "newer-cancellation" else 3,
+    )
+    old_method = BillingPaymentMethod(
+        workspace_id=WORKSPACE_ID, owner_user_id=current_owner_id,
+        encrypted_provider_ref="old-synthetic-reference", key_version="billing-v1",
+        kind="bank_card", masked_label="•••• 4444", state="active", is_default=True,
+    )
+    db = _FakeDb(
+        [operation, invoice, None, workspace, owner, subscription],
+        payment_methods=[old_method],
+    )
+
+    result = await entitlements.grant_confirmed_payment(
+        db, workspace_id=WORKSPACE_ID, provider_payment_id="consent-payment",
+        amount_minor=79_000, currency="RUB", paid_at=paid_at,
+        recurring_method_confirmed=True,
+        saved_payment_method=SavedPaymentMethod("synthetic-new-card", "bank_card", "•••• 5555"),
+        payment_method_key=Fernet.generate_key(),
+    )
+
+    assert result == "granted"
+    assert operation.state == "succeeded"
+    assert invoice.status == "succeeded"
+    grants = [row for row in db.added if isinstance(row, BillingEntitlementGrant)]
+    assert len(grants) == 1
+    assert grants[0].starts_at == already_paid_through
+    assert grants[0].ends_at == datetime(2026, 10, 1, 12, tzinfo=UTC)
+    assert subscription.paid_through == grants[0].ends_at
+    may_save = consent_snapshot.get("recurring_consent") is True and fence == "unchanged"
+    methods = [row for row in db.added if isinstance(row, BillingPaymentMethod)]
+    assert len(methods) == int(may_save)
+    assert old_method.is_default is (not may_save)
+    assert old_method.state == ("replaced" if may_save else "active")
+    assert subscription.recurring_allowed is may_save
+    assert subscription.recurring_authority_version == 4
 
 
 @pytest.mark.anyio

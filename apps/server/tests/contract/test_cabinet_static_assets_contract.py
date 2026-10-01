@@ -306,7 +306,18 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert "htmx:afterSwap" in script
     assert "meeting-list-region" in script
     assert "localStorage" not in script
-    assert script.count("sessionStorage") == 15
+    renewal = script[
+        script.index("const billingRenewalPreferenceKey") :
+        script.index("const initAuthTransition")
+    ]
+    assert renewal.count("sessionStorage") == 2
+    assert "sessionStorage.getItem(key)" in renewal
+    assert "sessionStorage.setItem(currentKey, String(checkbox.checked))" in renewal
+    assert 'saved === "true" || saved === "false"' in renewal
+    assert "graf-checkout-renewal:" in renewal
+    assert all(name in renewal for name in ("graf-time-user", "graf-workspace", "graf-time-session"))
+    assert "JSON.stringify" not in renewal
+    assert script.replace(renewal, "").count("sessionStorage") == 15
     assert script.count('sessionStorage.removeItem("htmx-history-cache")') == 1
     assert script.count('sessionStorage.removeItem("htmx-current-path-for-history")') == 2
     assert "graf-summary-candidate-" in script

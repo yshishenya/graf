@@ -664,7 +664,7 @@ async def _create_initial_checkout_payment(
         or snapshot.get("plan_code") != "personal"
         or snapshot.get("cycle") not in {"month", "year"}
         or snapshot.get("offer_consent") is not True
-        or snapshot.get("recurring_consent") is not True
+        or type(snapshot.get("recurring_consent")) is not bool
         or isinstance(snapshot.get("payable_amount_minor"), bool)
         or snapshot.get("payable_amount_minor") != invoice.amount_minor
         or invoice.currency != "RUB"
@@ -703,7 +703,7 @@ async def _create_initial_checkout_payment(
                 "invoice_number": invoice.safe_number,
                 "return_url": return_url,
             },
-            save_payment_method=True,
+            save_payment_method=snapshot["recurring_consent"],
             receipt=receipt,
         )
 
@@ -3690,8 +3690,6 @@ async def start_billing_checkout(
             return _checkout_result_redirect(request, "invalid", cycle=cycle, promo_code=promo_code, principal=principal, tenant_scope=tenant_scope)
         if not offer_consent:
             return _checkout_result_redirect(request, "offer_required", cycle=cycle, promo_code=promo_code, principal=principal, tenant_scope=tenant_scope)
-        if not recurring_consent:
-            return _checkout_result_redirect(request, "consent_required", cycle=cycle, promo_code=promo_code, principal=principal, tenant_scope=tenant_scope)
 
         # Idempotency recovery must not re-run mutable promo/referral checks.
         # A retried request can carry the same reservation and should recover
@@ -3944,7 +3942,7 @@ async def start_billing_checkout(
                 else 0,
                 "selection_version": subscription.next_capacity_version if subscription else 0,
                 "offer_consent": True,
-                "recurring_consent": True,
+                "recurring_consent": recurring_consent,
                 "consent_at": consent_at,
                 "billing_actor_user_id": str(principal.user_id),
                 "offer_version": catalog_snapshot.offer_version,
@@ -3987,7 +3985,7 @@ async def start_billing_checkout(
                 else 0,
                 "selection_version": subscription.next_capacity_version if subscription else 0,
                 "offer_consent": True,
-                "recurring_consent": True,
+                "recurring_consent": recurring_consent,
                 "consent_at": consent_at,
                 "billing_actor_user_id": str(principal.user_id),
                 "offer_version": catalog_snapshot.offer_version,

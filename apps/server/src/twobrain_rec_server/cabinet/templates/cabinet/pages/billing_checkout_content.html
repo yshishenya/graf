@@ -36,7 +36,6 @@
         {% elif promo_preview_error|default(None) %}<p id="billing-checkout-error" role="alert" class="notice notice--error">{{ promo_preview_error }}</p>
         {% elif checkout_result == "owner_only" %}<p class="notice notice--error" role="alert">Оплатить тариф может только владелец пространства.</p>
         {% elif checkout_result == "offer_required" %}<p class="notice notice--warning" role="alert">Откройте и примите оферту перед оплатой.</p>
-        {% elif checkout_result == "consent_required" %}<p class="notice notice--warning" role="alert">Подтвердите согласие на автоматические списания или вернитесь к тарифам.</p>
         {% elif checkout_result == "catalog_not_approved" %}<p class="notice notice--warning" role="alert">Оплата временно недоступна. Попробуйте позже.</p>
         {% elif checkout_result == "unavailable" %}<p class="notice notice--warning" role="alert">Оплата временно недоступна. Повторите попытку позже.</p>
         {% elif checkout_result == "promo_invalid" %}<p id="billing-checkout-error" role="alert" class="notice notice--error">Промокод недействителен, не подходит для выбранного периода или уже использован. Проверьте код и отправьте форму еще раз.</p>{% endif %}
@@ -45,8 +44,8 @@
           {% if checkout_period_label|default(None) %}<div><dt>Срок</dt><dd>{{ checkout_period_label }}</dd></div>{% endif %}
           {% if checkout_has_discount|default(False) and checkout_preview|default(None) %}<div><dt>Разовая скидка</dt><dd>{{ checkout_preview.discount_label }}</dd></div>{% endif %}
           <div class="billing-order-summary__total"><dt>К оплате сегодня</dt><dd><strong>{{ selected_price_label }}</strong></dd></div>
-          <div><dt>Автопродление</dt><dd>{% if checkout_preview|default(None) %}{{ checkout_preview.next_amount_label }} за {{ checkout_preview.cycle_label }}{% else %}{{ selected_price_label }} за {% if checkout_cycle == "year" %}год{% else %}месяц{% endif %}{% endif %}</dd></div>
-          {% if checkout_next_attempt_label|default(None) %}<div><dt>Следующее списание</dt><dd>{{ checkout_next_attempt_label }}</dd></div>{% endif %}
+          <div><dt data-billing-renewal-label>При автопродлении</dt><dd aria-live="polite" aria-atomic="true"><span data-billing-renewal-on>{% if checkout_preview|default(None) %}{{ checkout_preview.next_amount_label }} за {{ checkout_preview.cycle_label }}{% else %}{{ selected_price_label }} за {% if checkout_cycle == "year" %}год{% else %}месяц{% endif %}{% endif %}</span><span data-billing-renewal-off hidden>Отключено — автоматического списания не будет.</span></dd></div>
+          {% if checkout_next_attempt_label|default(None) %}<div data-billing-next-attempt><dt data-billing-next-label>Списание при автопродлении</dt><dd>{{ checkout_next_attempt_label }}</dd></div>{% endif %}
           {% if receipt_contact_label|default(None) %}<div><dt>Чек отправится на</dt><dd>{{ receipt_contact_label }}</dd></div>{% endif %}
         </dl>
         {% if checkout_storage_price_label|default(None) %}<details class="billing-coupon"><summary>Состав цены</summary><dl class="billing-order-summary"><div><dt>Тариф · 5 ГБ включено</dt><dd>{{ checkout_base_price_label }}</dd></div><div><dt>Хранение до {{ catalog_storage_label }}</dt><dd>{{ checkout_storage_price_label }}</dd></div></dl></details>{% endif %}
@@ -73,7 +72,7 @@
           <input type="hidden" name="promo_code" value="{{ checkout_promo_code|default('') }}">
           <input type="hidden" name="cycle" value="{{ checkout_cycle }}">
           <label class="billing-consent"><input type="checkbox" name="offer_consent" value="true" required> <span>Принимаю <a href="/offer" target="_blank" rel="noopener">оферту</a>.</span></label>
-          <label class="billing-consent"><input type="checkbox" name="recurring_consent" value="true" required> <span>Разрешаю автоматические списания. Отключить можно в «Подписке».</span></label>
+          <label class="billing-consent"><input type="checkbox" name="recurring_consent" value="true" checked> <span>Разрешаю автоматические списания. Отключить можно в «Подписке».</span></label>
           <button class="button primary billing-checkout-form__submit" data-billing-primary type="submit">Оплатить {{ selected_price_label }} в ЮKassa</button>
         </form>
         {% endif %}

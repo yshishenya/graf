@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -636,7 +637,7 @@ def test_billing_notices_and_list_statuses_use_one_toned_component() -> None:
     assert '.meeting-content-readiness[data-processing-retry-class="unknown_outcome"]' in css
 
 
-def test_checkout_requires_explicit_recurring_consent_copy() -> None:
+def test_checkout_offers_optional_recurring_and_requires_offer_consent() -> None:
     html = render_template(
         "cabinet/pages/billing_checkout_content.html",
         embedded=False,
@@ -647,7 +648,7 @@ def test_checkout_requires_explicit_recurring_consent_copy() -> None:
         billing_enabled=True,
         checkout_idempotency_key="synthetic-key",
         checkout_quote_id="synthetic-quote",
-        checkout_result="consent_required",
+        checkout_result=None,
         monthly_price_label="790 ₽",
         annual_price_label="7 900 ₽",
         annual_saving_label="Экономия 1 580 ₽ (17%)",
@@ -658,6 +659,10 @@ def test_checkout_requires_explicit_recurring_consent_copy() -> None:
     assert 'href="/billing/plans">Назад к тарифам</a>' in html
     assert 'href="/offer"' in html
     assert "required" in html
+    recurring = re.search(r'<input[^>]*name="recurring_consent"[^>]*>', html)
+    offer = re.search(r'<input[^>]*name="offer_consent"[^>]*>', html)
+    assert recurring and "checked" in recurring.group(0) and "required" not in recurring.group(0)
+    assert offer and "checked" not in offer.group(0) and "required" in offer.group(0)
     assert "Разрешаю автоматические списания" in html
     assert "Отключить можно в «Подписке»" in html
     assert "Чек отправится на" in html

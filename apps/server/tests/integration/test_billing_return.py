@@ -169,7 +169,10 @@ def test_email_error_resend_change_and_success_keep_fresh_purchase(client, owner
     assert returned.status_code == 200
     if target.startswith("/billing/checkout"):
         assert 'name="cycle" value="year"' in returned.text
-        assert not re.search(r'<input[^>]*type="checkbox"[^>]*\bchecked\b', returned.text)
+        offer = re.search(r'<input[^>]*name="offer_consent"[^>]*>', returned.text)
+        recurring = re.search(r'<input[^>]*name="recurring_consent"[^>]*>', returned.text)
+        assert offer and "required" in offer.group() and "checked" not in offer.group()
+        assert recurring and "checked" in recurring.group() and "required" not in recurring.group()
     if target.startswith("/billing/storage"):
         assert re.search(r'<option value="1"[^>]*\sselected[^>]*>', returned.text)
     assert payment_counts(client) == before

@@ -48,9 +48,13 @@ def _invoice() -> BillingInvoice:
 
 
 @pytest.mark.asyncio
-async def test_initial_checkout_continuation_reuses_the_same_provider_key(monkeypatch) -> None:
+@pytest.mark.parametrize("recurring_consent", [True, False])
+async def test_initial_checkout_continuation_reuses_the_same_provider_key(
+    monkeypatch, recurring_consent: bool,
+) -> None:
     now = datetime(2026, 8, 25, 10, tzinfo=UTC)
     operation = _operation(expires_at=now + timedelta(hours=1))
+    operation.request_snapshot["recurring_consent"] = recurring_consent
     calls: list[dict[str, object]] = []
 
     class Provider:
@@ -90,6 +94,34 @@ async def test_initial_checkout_continuation_reuses_the_same_provider_key(monkey
     ]
     assert all(call["amount_minor"] == 1_000 for call in calls)
     assert all(call["metadata"]["operation_id"] == str(OPERATION_ID) for call in calls)
+    assert all(call["save_payment_method"] is recurring_consent for call in calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "consent_snapshot",
+    [{}, {"recurring_consent": None}, {"recurring_consent": 0}, {"recurring_consent": 1},
+     {"recurring_consent": "true"}, {"recurring_consent": "false"}],
+    ids=["missing", "null", "zero", "one", "true-string", "false-string"],
+)
+async def test_initial_checkout_rejects_non_boolean_saved_consent_before_dispatch(
+    monkeypatch, consent_snapshot: dict[str, object],
+) -> None:
+    operation = _operation(expires_at=None)
+    del operation.request_snapshot["recurring_consent"]
+    operation.request_snapshot.update(consent_snapshot)
+
+    def unexpected_provider(_settings):
+        pytest.fail("Invalid stored consent must not reach the provider")
+
+    monkeypatch.setattr(billing, "YooKassaClient", unexpected_provider)
+    with pytest.raises(ValueError, match="initial checkout snapshot is invalid"):
+        await billing._create_initial_checkout_payment(
+            settings=Settings(billing_provider_floor_minor=100),
+            operation=operation,
+            invoice=_invoice(),
+            return_url="https://rec.example.test/billing/checkout/return?invoice=INV-RECOVERY1",
+        )
 
 
 def test_provider_reject_before_provider_id_keeps_only_safe_failure_metadata() -> None:

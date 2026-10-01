@@ -82,7 +82,7 @@ def test_checkout_keeps_full_financial_terms_outside_optional_details(cycle, amo
             "cycle_label": "месяц" if cycle == "month" else "год",
         },
     ))
-    for term in ("Личный", "5 ГБ", payable, amount, "29.09.2026 — 29.10.2026", "26.10.2026", "Автопродление", "оферту"):
+    for term in ("Личный", "5 ГБ", payable, amount, "29.09.2026 — 29.10.2026", "26.10.2026", "При автопродлении", "оферту"):
         assert term in page.visible
     assert ("Разовая скидка" in page.visible) == discount
     assert ("−100 ₽" in page.visible) == discount
@@ -90,7 +90,11 @@ def test_checkout_keeps_full_financial_terms_outside_optional_details(cycle, amo
     assert "Отключить" in page.visible and "Подписке" in page.visible
     consents = [attrs for tag, attrs in page.nodes if tag == "input" and attrs.get("type") == "checkbox"]
     assert {item["name"] for item in consents} == {"offer_consent", "recurring_consent"}
-    assert all("required" in item and "checked" not in item for item in consents)
+    offer = next(item for item in consents if item["name"] == "offer_consent")
+    recurring = next(item for item in consents if item["name"] == "recurring_consent")
+    assert "required" in offer and "checked" not in offer
+    assert "required" not in recurring and "checked" in recurring
+    assert "Списание при автопродлении" in page.visible
     assert any(attrs.get("name") == "offer_version" and attrs.get("type") == "hidden" and attrs.get("value") == "synthetic-offer-version" for _, attrs in page.nodes)
 
 

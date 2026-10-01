@@ -20,6 +20,7 @@ async function run() {
   const browser = await ({ chromium, webkit })[engine].launch({ headless: true });
   let submitRedirects = 0;
   let externalRequests = 0;
+  let providerRedirects = 0;
   const viewports = [320, 1280];
   try {
     for (const width of viewports) {
@@ -29,6 +30,21 @@ async function run() {
         httpOnly: true, sameSite: 'Lax', secure: false,
       }]);
       await context.route('**/*', async route => {
+        const url = new URL(route.request().url());
+        if (config.receipt_verified && stage === `${width}:one-period-start`
+            && url.origin === base && url.pathname === '/billing/checkout/start'
+            && route.request().method() === 'POST') {
+          // Send the native browser form to the real ASGI route and inspect its
+          // redirect without following the deliberately unresolvable provider.
+          const response = await route.fetch({maxRedirects: 0});
+          assert.equal(response.status(), 303, 'real checkout returns a provider redirect');
+          const destination = new URL(response.headers().location);
+          assert.ok(destination.origin === 'https://yookassa.test'
+            && destination.pathname.startsWith('/checkout/'), 'expected synthetic provider destination');
+          providerRedirects++;
+          await route.fulfill({status: 200, contentType: 'text/html; charset=utf-8', body: '<meta charset="utf-8"><p>Переход к оплате проверен</p>'});
+          return;
+        }
         if (new URL(route.request().url()).origin !== base) {
           externalRequests++;
           await route.abort();
@@ -39,6 +55,7 @@ async function run() {
       const page = await context.newPage();
       const input = page.locator('#billing-promo');
       const apply = page.locator('button[form="billing-promo-preview"][value="apply"]');
+      let recurringChoice = true;
       const normalized = text => text.replace(/\s+/gu, ' ').replace(/(?<=\d)\s+(?=\d)/gu, '').trim();
 
       async function verify({ code, cycle, today, renewal, error = false }) {
@@ -55,11 +72,19 @@ async function run() {
         } else {
           const summary = normalized(await page.locator('.billing-order-summary').first().innerText());
           assert.ok(summary.includes(`К оплате сегодня ${today} ₽`));
-          assert.ok(summary.includes(`Автопродление ${renewal} ₽ за ${cycle === 'year' ? 'год' : 'месяц'}`));
+          if (recurringChoice) {
+            assert.ok(summary.includes(`Автопродление ${renewal} ₽ за ${cycle === 'year' ? 'год' : 'месяц'}`));
+          } else {
+            assert.ok(summary.includes('Отключено — автоматического списания не будет.'));
+            assert.equal(await page.locator('[data-billing-next-attempt]').isVisible(), false);
+          }
           for (const name of ['offer_consent', 'recurring_consent']) {
             const consent = page.locator(`input[name="${name}"]`);
             assert.equal(await consent.count(), config.receipt_verified ? 1 : 0);
-            if (config.receipt_verified) assert.equal(await consent.isChecked(), false);
+            if (config.receipt_verified) {
+              assert.equal(await consent.isChecked(), name === 'recurring_consent' ? recurringChoice : false);
+              assert.equal(await consent.evaluate(el => el.required), name === 'offer_consent');
+            }
           }
           if (config.receipt_verified) {
             assert.ok(normalized(await page.locator('[data-billing-primary]').innerText()).includes(`Оплатить ${today} ₽`));
@@ -139,6 +164,14 @@ async function run() {
 
       stage = `${width}:initial-apply`;
       await page.goto(`${base}/billing/checkout?cycle=month`, { waitUntil: 'domcontentloaded' });
+      if (config.receipt_verified) {
+        const recurring = page.getByRole('checkbox', { name: /Разрешаю автоматические списания/ });
+        assert(await recurring.isChecked(), 'first visit defaults to optional recurring enabled');
+        assert.equal(await recurring.evaluate(el => el.required), false);
+        await recurring.uncheck();
+        recurringChoice = false;
+        assert(await page.getByText('Отключено — автоматического списания не будет.', { exact: true }).isVisible());
+      }
       stage = `${width}:initial-open`;
       await page.getByText('Есть промокод?', { exact: true }).click();
       stage = `${width}:initial-fill`;
@@ -221,6 +254,7 @@ async function run() {
         assert.equal(await input.inputValue(), staleCode);
         const other = await context.newPage();
         await other.goto(`${base}/billing/checkout`, { waitUntil: 'domcontentloaded' });
+        if (config.receipt_verified) assert(await other.getByRole('checkbox', { name: /Разрешаю/ }).isChecked(), 'other tab has its own default');
         const otherInput = other.locator('#billing-promo');
         if (!(await otherInput.isVisible())) await other.getByText('Есть промокод?', { exact: true }).click();
         await otherInput.fill('SYNTH-SECOND');
@@ -266,11 +300,61 @@ async function run() {
         await verify(annual);
         await screenshot(code === 'SYNTH-UNKNOWN' ? 'annual-discounts-error' : 'annual-discounts');
       }
+      if (config.receipt_verified && width === 1280) {
+        stage = `${width}:one-period-preview`;
+        await input.fill('SYNTH-PRESENTATION');
+        await submit(apply);
+        await verify(year);
+
+        stage = `${width}:offer-required-redirect`;
+        // Exercise the server guard too; native required validation is covered
+        // separately and only this synthetic submission bypasses it.
+        await page.locator('form[action="/billing/checkout/start"]').evaluate(form => { form.noValidate = true; });
+        await submit(page.getByRole('button', { name: /^Оплатить/ }), page, '/billing/checkout/start');
+        assert(await page.getByRole('alert').filter({hasText: 'Откройте и примите оферту'}).isVisible());
+        await verify(year);
+        await reloadTwice(year);
+
+        stage = `${width}:stale-offer-conflict`;
+        // A form opened before an offer update must be rejected and freshly
+        // rendered without changing the tab's explicit one-period preference.
+        await page.locator('input[name="offer_version"]').evaluate(input => { input.value = 'synthetic-older-offer'; });
+        await page.getByRole('checkbox', { name: /Принимаю/ }).check();
+        const conflict = page.waitForResponse(response => response.request().method() === 'POST'
+          && new URL(response.url()).pathname === '/billing/checkout/start');
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+          page.getByRole('button', { name: /^Оплатить/ }).click(),
+        ]);
+        assert.equal((await conflict).status(), 409);
+        assert(await page.getByRole('alert').filter({hasText: 'Условия оплаты изменились'}).isVisible());
+        await verify(year);
+        await page.goto(`${base}/billing/checkout`, { waitUntil: 'domcontentloaded' });
+        await reloadTwice(year);
+
+        await page.getByRole('checkbox', { name: /Принимаю/ }).check();
+        stage = `${width}:one-period-start`;
+        const submitted = page.waitForRequest(request => request.method() === 'POST'
+          && new URL(request.url()).pathname === '/billing/checkout/start');
+        assert.equal(await page.getByRole('button', { name: /^Оплатить/ }).count(), 1, 'one checkout submit button');
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+          page.getByRole('button', { name: /^Оплатить/ }).click(),
+        ]);
+        stage = `${width}:one-period-document`;
+        await page.getByText('Переход к оплате проверен', {exact: true}).waitFor({state: 'visible'});
+        stage = `${width}:one-period-fields`;
+        const fields = new URLSearchParams((await submitted).postData());
+        assert.equal(fields.get('recurring_consent'), null, 'unchecked optional field is omitted from the real HTTP request');
+        assert.equal(fields.get('offer_consent'), 'true', 'native form sends accepted offer');
+        assert.equal(fields.get('cycle'), 'year', 'native form sends the chosen year');
+      }
       await context.close();
     }
     process.stdout.write(JSON.stringify({
       engine, viewports, submit_redirects: submitRedirects, external_requests: externalRequests,
       receipt_verified: config.receipt_verified,
+      provider_redirects: providerRedirects,
     }));
   } finally {
     await browser.close();
@@ -281,6 +365,7 @@ run().catch(error => {
   // Do not dump cookies, HTML, CSRF form data, or request headers on failure.
   const reason = error.name === 'AssertionError' && !error.generatedMessage
     ? error.message.split('\n')[0] : error.name;
-  process.stderr.write(`Promo DOM proof failed at ${stage} (${reason})\n`);
+  const browserCode = error.message.match(/(?:net::)?ERR_[A-Z_]+|strict mode violation|Target (?:page|closed)|not a valid selector/)?.[0];
+  process.stderr.write(`Promo DOM proof failed at ${stage} (${reason}${browserCode ? `: ${browserCode}` : ''})\n`);
   process.exitCode = 1;
 });

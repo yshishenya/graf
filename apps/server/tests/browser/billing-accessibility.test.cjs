@@ -114,16 +114,20 @@ async function checkTextContrast(page, label) {
         const consents = page.getByRole('checkbox');
         assert.equal(await consents.count(), 2);
         for (let index = 0; index < 2; index++) {
-          assert.equal(await consents.nth(index).isChecked(), false);
+          assert.equal(await consents.nth(index).isChecked(), index === 1);
+          assert.equal(await consents.nth(index).evaluate(el => el.required), index === 0);
           await consents.nth(index).focus();
           await page.keyboard.press('Space');
-          assert(await consents.nth(index).isChecked());
+          assert.equal(await consents.nth(index).isChecked(), index === 0);
         }
+        assert(await page.getByText('Отключено — автоматического списания не будет.', { exact: true }).isVisible());
+        assert.equal(await page.locator('[data-billing-next-attempt]').isVisible(), false);
         await page.keyboard.press(tabKey);
         assert(await page.getByRole('button', { name: /^Оплатить/ }).evaluate(el => el === document.activeElement));
         await page.keyboard.press(isWebKit ? 'Shift+Alt+Tab' : 'Shift+Tab');
         assert(await consents.nth(1).evaluate(el => el === document.activeElement));
-        assert(await form.evaluate(el => el.checkValidity()), 'explicit consents permit submit');
+        assert(await form.evaluate(el => el.checkValidity()), 'accepted offer permits a one-period payment');
+        assert.equal(await form.evaluate(el => new FormData(el).get('recurring_consent')), null);
       } else if (name.startsWith('status-')) {
         assert.equal(await page.getByRole('status').count(), 1, 'one payment status announcement region');
       } else if (name === 'invoice') {
@@ -219,32 +223,116 @@ async function checkTextContrast(page, label) {
       assert.deepEqual(errors, []);
       await page.close();
     }
+    // Reuse the checkout HTML to isolate tab/scope persistence from server money state.
+    const preferenceContext = await browser.newContext();
+    let scope = { user: 'synthetic-user', workspace: 'synthetic-workspace', session: 'synthetic-session' };
+    const originalScope = { ...scope };
+    await preferenceContext.route('https://graf.test/**', route => {
+      const filename = path.basename(new URL(route.request().url()).pathname);
+      if (route.request().resourceType() !== 'document') {
+        return route.fulfill({ path: path.join(assets, filename) });
+      }
+      const meta = Object.entries(scope).map(([name, value]) =>
+        `<meta name="${name === 'workspace' ? 'graf-workspace' : `graf-time-${name}`}" content="${value}">`).join('');
+      return route.fulfill({contentType: 'text/html; charset=utf-8', body:
+        `<html lang="ru"><meta charset="utf-8">${meta}<link rel="stylesheet" href="/cabinet.css"><script src="/cabinet.js" defer></script><body data-surface-mode="standalone_browser">${pages.checkout}</body></html>`});
+    });
+    const preferencePage = await preferenceContext.newPage();
+    const renewal = preferencePage.getByRole('checkbox', { name: /Разрешаю автоматические списания/ });
+    const off = preferencePage.getByText('Отключено — автоматического списания не будет.', { exact: true });
+    await preferencePage.goto('https://graf.test/billing/checkout');
+    assert(await renewal.isChecked(), 'new tab defaults to recurring enabled');
+    await renewal.uncheck();
+    assert(await off.isVisible());
+    const preference = await preferencePage.evaluate(() => Object.entries(sessionStorage)
+      .filter(([key]) => key.startsWith('graf-checkout-renewal:')));
+    assert.equal(preference.length, 1);
+    assert.equal(preference[0][1], 'false', 'only the boolean preference is stored');
+    for (let index = 0; index < 2; index++) {
+      await preferencePage.reload();
+      assert.equal(await renewal.isChecked(), false);
+      assert(await off.isVisible());
+      assert.equal(await preferencePage.getByRole('checkbox', { name: /Принимаю/ }).isChecked(), false);
+    }
+    await renewal.check();
+    await preferencePage.reload();
+    assert(await renewal.isChecked(), 'explicitly enabling renewal replaces the previous off choice');
+    assert.equal(await preferencePage.evaluate(key => sessionStorage.getItem(key), preference[0][0]), 'true');
+    await renewal.uncheck();
+    await preferencePage.evaluate(html => {
+      document.querySelector('main').outerHTML = html;
+      document.body.dispatchEvent(new CustomEvent('htmx:afterSwap'));
+    }, pages.checkout);
+    assert.equal(await renewal.isChecked(), false, 'HTMX replacement restores this tab choice');
+    await renewal.evaluate(el => { el.checked = true; });
+    await preferencePage.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+    assert.equal(await renewal.isChecked(), false, 'pageshow reconciles native restored state');
+    const anotherTab = await preferenceContext.newPage();
+    await anotherTab.goto('https://graf.test/billing/checkout');
+    assert(await anotherTab.getByRole('checkbox', { name: /Разрешаю/ }).isChecked(), 'a tab without opener has independent choice');
+    await anotherTab.close();
+    for (const part of ['user', 'workspace', 'session']) {
+      scope = { ...originalScope, [part]: `another-${part}` };
+      await preferencePage.reload();
+      assert(await renewal.isChecked(), `choice is isolated by ${part}`);
+      scope = { ...originalScope };
+      await preferencePage.reload();
+      assert.equal(await renewal.isChecked(), false);
+    }
+    await preferencePage.evaluate(key => sessionStorage.setItem(key, 'invalid'), preference[0][0]);
+    await preferencePage.reload();
+    assert(await renewal.isChecked(), 'unknown stored value cannot become an inherited choice');
+    scope = { ...originalScope, session: '' };
+    await preferencePage.reload();
+    await renewal.uncheck();
+    await preferencePage.evaluate(() => document.body.dispatchEvent(new CustomEvent('htmx:afterSwap')));
+    assert.equal(await renewal.isChecked(), false, 'missing scope still permits a live one-period choice');
+    assert(await off.isVisible());
+    assert.equal(await preferencePage.evaluate(key => sessionStorage.getItem(key), preference[0][0]), 'invalid');
+    scope = { ...originalScope };
+    await preferencePage.addInitScript(() => {
+      for (const method of ['getItem', 'setItem']) Storage.prototype[method] = () => { throw new DOMException('blocked', 'SecurityError'); };
+    });
+    await preferencePage.reload();
+    await renewal.uncheck();
+    await preferencePage.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+    assert.equal(await renewal.isChecked(), false, 'storage failure cannot undo the current native choice');
+    assert(await off.isVisible());
+    await preferencePage.getByRole('checkbox', { name: /Принимаю/ }).check();
+    assert(await preferencePage.locator('form[action="/billing/checkout/start"]').evaluate(el => el.checkValidity()));
+    await preferenceContext.close();
+
     // Submit the actual native form with scripting disabled. The intercepted
     // request proves browser validation and serialization, not provider success.
-    const noScriptPage = await browser.newPage({ javaScriptEnabled: false });
-    noScriptPage.setDefaultTimeout(5000);
-    const posts = [];
-    await noScriptPage.route('https://graf.test/**', route => {
-      const request = route.request();
-      if (request.method() === 'POST') posts.push(request);
-      return route.fulfill({contentType: 'text/html; charset=utf-8', body: request.method() === 'POST'
-        ? '<meta charset="utf-8"><p>Синтетическая отправка принята</p>' : `<html lang="ru"><meta charset="utf-8"><body>${pages.checkout}</body></html>`});
-    });
-    await noScriptPage.goto('https://graf.test/billing/checkout');
-    await noScriptPage.getByRole('button', {name: /^Оплатить/}).click();
-    assert.equal(posts.length, 0, 'native validation blocks unchecked consents without JS');
-    for (const checkbox of await noScriptPage.getByRole('checkbox').all()) await checkbox.check();
-    await Promise.all([
-      noScriptPage.waitForURL('https://graf.test/billing/checkout/start'),
-      noScriptPage.getByRole('button', {name: /^Оплатить/}).click(),
-    ]);
-    assert.equal(posts.length, 1);
-    const submitted = new URLSearchParams(posts[0].postData());
-    assert.equal(submitted.get('quote_id'), 'synthetic-quote');
-    assert.equal(submitted.get('cycle'), 'month');
-    assert.equal(submitted.get('offer_consent'), 'true');
-    assert.equal(submitted.get('recurring_consent'), 'true');
-    await noScriptPage.close();
+    for (const recurring of [true, false]) {
+      const noScriptPage = await browser.newPage({ javaScriptEnabled: false });
+      noScriptPage.setDefaultTimeout(5000);
+      const posts = [];
+      await noScriptPage.route('https://graf.test/**', route => {
+        const request = route.request();
+        if (request.method() === 'POST') posts.push(request);
+        return route.fulfill({contentType: 'text/html; charset=utf-8', body: request.method() === 'POST'
+          ? '<meta charset="utf-8"><p>Синтетическая отправка принята</p>' : `<html lang="ru"><meta charset="utf-8"><body>${pages.checkout}</body></html>`});
+      });
+      await noScriptPage.goto('https://graf.test/billing/checkout');
+      assert(await noScriptPage.getByText('При автопродлении', { exact: true }).isVisible());
+      assert(await noScriptPage.getByText('Списание при автопродлении', { exact: true }).isVisible());
+      await noScriptPage.getByRole('button', {name: /^Оплатить/}).click();
+      assert.equal(posts.length, 0, 'native validation requires offer acceptance without JS');
+      await noScriptPage.getByRole('checkbox', { name: /Принимаю/ }).check();
+      await noScriptPage.getByRole('checkbox', { name: /Разрешаю/ }).setChecked(recurring);
+      await Promise.all([
+        noScriptPage.waitForURL('https://graf.test/billing/checkout/start'),
+        noScriptPage.getByRole('button', {name: /^Оплатить/}).click(),
+      ]);
+      assert.equal(posts.length, 1);
+      const submitted = new URLSearchParams(posts[0].postData());
+      assert.equal(submitted.get('quote_id'), 'synthetic-quote');
+      assert.equal(submitted.get('cycle'), 'month');
+      assert.equal(submitted.get('offer_consent'), 'true');
+      assert.equal(submitted.get('recurring_consent'), recurring ? 'true' : null);
+      await noScriptPage.close();
+    }
     console.log('billing: initial/error focus, native consent keyboard, no focus steal, single status region passed');
   } finally {
     await browser.close();

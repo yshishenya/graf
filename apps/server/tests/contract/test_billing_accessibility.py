@@ -502,7 +502,7 @@ def test_checkout_renders_server_calculated_promo_amounts() -> None:
     assert 'action="/billing/checkout/preview"' in html
     assert 'name="promo_code" value="SAVE10"' in html
     assert 'form="billing-promo-preview" type="submit" name="preview_action" value="year"' in html
-    assert "Следующее списание" in html
+    assert "Списание при автопродлении" in html
     assert "referral" not in html.lower()
 
 
