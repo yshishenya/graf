@@ -1,5 +1,7 @@
 # F280 — проверка отказа начала оплаты
 
+Актуальное завершение: серверный v2026.10.02.1 опубликован, source `4591f90558565b8e1621bbfe931455f546ff6407`, Full36937258970/CD/runtime/publication PASS. T023–T025 завершены; исторические pending/FAIL записи ниже сохранены. Полный отчёт — [release-provider-rejection-closeout.md](release-provider-rejection-closeout.md); человеческая и реальная финансовая приёмка остаются отдельными.
+
 Дата: 2026-10-02. Lane: active Spec Kit slice / high-risk-product; далее release-deploy. Ветка `codex/280-payment-provider-rejection`, base `8764f29f3a3c18cc348986ee7c498e9381ec703e`. Pre-code: reviewer requirements61/0, analyze CRITICAL/HIGH0, deduplicated issue7414 canonPASS.
 
 ## Изменение и границы
