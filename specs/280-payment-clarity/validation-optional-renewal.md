@@ -65,3 +65,11 @@ UI RED:5 ожидаемых отказов до изменения исходн�
 После исправления полный static-assets/settings набор101PASS3.34с,2 прежних warnings; Ruff изменённого файла PASS. Три независимых узких заключения и новый PR SHA/CI записываются ниже; старый failed run не используется для допуска.
 
 Узкие независимые flow/security PASS: статический тест сохраняет прежний лимит вне блока, строгий bool/scope/get/set/noJSON внутри; все runtime hashes прежние. Оба отчёта сохранены в review-optional-renewal-final.md. Новых требований/изменений кода0; converge актуализирован.
+
+## Основной запрос на слияние и поправка общего теста покупки
+
+PR7409: exact HEAD8db50a9ab6d40d83d350ab28ebb7e3c9dafcd3ef, checked base14fa81f4fff91b2158eaf1afb456713c50692300. Общий validate-pr-checks.py PASS: governance-fast36909005557, macos-pr36909005532, pr-metadata36909037123, attempt1. Последние текстовые gates также проверены общим validator, предыдущий FAIL не подменён. PR merged в c9331a7702fd4716085ce60558c8c30c74e699be. Серверная установка браузерных ресурсов была медленной, затем обязательный набор завершился успешно.
+
+Последний independent browser storage review на8db50a9a также PASS0 findings: прежние15 вне блока и2strict scoped bool внутри сохранены; хеши runtime/browser tests неизменны. Отчёт был записан после предыдущего коммита и не вызвал повторных запусков неизменного кода.
+
+До frozen Full отдельная сверка всех billing checked-expectations выявила ещё одну устаревшую строку test_billing_purchase_ui.py:37. RED:1FAIL/1PASS0.11с, причина только запрет checked всего HTML при новой optional checked recurring. Тест исправлен отдельными regex проверками required/unchecked offer и optional/checked recurring; цена, скидка, срок/дата и запрет money form без quote сохранены. GREEN:2PASS0.06с, Ruff/diffcheckPASS,2 прежних warnings. Первоначальная попытка патча использовала root-relative путь из apps/server и не записала файл; затем путь исправлен. Runtime/браузерные tests и требования не менялись. Test-only поправка отправляется отдельным PR из codex/280-payment-purchase-contract; после её нового exact-SHA CI возможен T022. Новый Full пока не запускался.
