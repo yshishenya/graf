@@ -10,7 +10,7 @@
         <div role="status" aria-atomic="true">
         <h2 id="billing-operation-title">{% if needs_service_review %}Оплата получена. Проверяем доступ{% elif creation_rejected|default(False) %}Не удалось начать оплату{% else %}{{ operation_state_label }}{% endif %}</h2>
         <p>{{ purchase_purpose_label|default("Оплата тарифа") }} · <strong>{{ amount_label }}</strong></p>
-        {% if creation_rejected|default(False) %}<p class="notice notice--error">Оплата не началась.{% if recurring_not_available|default(False) %} Автопродление недоступно. Вернитесь к оплате и снимите галочку автоматических списаний, чтобы оплатить один период.{% else %} Попробуйте ещё раз или напишите в поддержку.{% endif %}</p>
+        {% if creation_rejected|default(False) %}<p class="notice notice--error">Оплата не началась.{% if recurring_not_available|default(False) %} Автопродление недоступно. Вернитесь к оплате и снимите галочку автоматических списаний, чтобы оплатить один период.{% else %} Попробуйте еще раз или напишите в поддержку.{% endif %}</p>
         {% elif status_result|default(None) == "refreshed" %}<p class="notice">Результат проверки обновлен.</p>
         {% elif status_result|default(None) == "unchanged" %}<p class="notice">Результат проверки не изменился.</p>
         {% elif status_result|default(None) == "provider_unavailable" %}<p class="notice notice--error">Страница оплаты временно недоступна. Проверьте этот платеж позже.</p>

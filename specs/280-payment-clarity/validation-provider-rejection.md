@@ -59,4 +59,10 @@ GRAF_BROWSER=webkit .venv/bin/python -m pytest -q tests/contract/test_billing_ac
 
 ## Следующий этап
 
+### Остановленный первый кандидат
+
+Кандидат `rc-20261001T215108Z-ae3e8878c637`, source `91b59ac8ee89aad47104ab0f0ff3747a0f70cafa`, Full [36931385550](https://github.com/yshishenya/graf/actions/runs/36931385550) не допущен к выпуску. Shard2: 1FAIL/772PASS/1skip — существующий `test_copy_convention_contract` обнаружил букву «ё» в новой общей подсказке. После этого оставшийся длительный shard5 остановлен оператором; общий workflow canceled, aggregate failed. Остальные завершённые группы прошли. Это не Full PASS: deploy/публикация не выполнялись, драйвер оставил отдельную запись abandonment, исходный кандидат не переписан.
+
+Правка заменяет одно слово на «еще» и синхронизирует его точное ожидание в HTTP-тесте. Условия отказа, ссылки, выбор автопродления и денежные переходы не меняются. Контракт текста, billing UI, adapter и recovery: 164PASS/0FAIL, 0.76с. PostgreSQL-профиль соответствующих HTTP-сценариев: 56PASS/0FAIL, 69 deselected, 74.33с; runner78с, isolated container removed; collection56 digest `5ac524bbcfacc1820156d03455f6eb09e5d38bab0844c5c32ccab5d3b4cc1f3b`. Фрагмент `changes/releases/v2026.10.02.1/F280.yaml` уже описывает этот ещё не опубликованный срез; дубликат фрагмента не создаётся. Следующий кандидат получит новую идентичность и собственный полный прогон.
+
 Общий профиль завершён450PASS; collection450, digest `ff6b4bf65bf14bd71c45b2b76cad8b61f7eafffc1cc59b95ffd505156ab488f1`, focused statuspass и isolated container removed. T023/T024 завершены по текущим доказательствам; source-converged, новых задач0. T025 требует exact-SHA PR checks/common validator, новый frozen release-full, dry-run/execute, runtime SHA/source hashes и publication. Подключение автоплатежей у YooKassa отдельно; живая разовая оплата False пока не подтверждена. F278/T011/T012/#7366 остаются открытыми, текущие проверки не доказывают конверсию/удержание.
