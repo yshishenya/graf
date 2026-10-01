@@ -15,3 +15,9 @@ Exact-SHA PR gates и штатный Full CI остаются обязатель
 Исправление review: только новый route зарегистрирован в существующих inventories и передает PublicWebDbDependency. Шаблон без analytics JS; providers/replay/ingestion/consent/env не изменены. Disposable PostgreSQL test проверяет L1 bucket, идемпотентный campaign reference, перенос source/landing в download, отсутствие secret query и L1-off brake. Campaign bookkeeping использует прежний local legal-basis gate, не optional provider consent.
 
 Focused measurement suite: 27 passed, 10.35 s; disposable container removed. Ruff, development-process и diff whitespace — PASS.
+
+Первый frozen Full 36922903347 выявил устаревший exact surface inventory contract: добавлен public_protocol_guide в ожидаемый закрытый список. Отдельная ошибка browser focus существующего consent modal исследуется без изменения интерфейса/политик. Production еще не менялся.
+
+Consent focus failure reproduced as a harness readiness race: vendored library schedules initial focus after 100 ms, while test waited only for DOM. Harness now waits for initial focus inside modal before keyboard assertions, preserving the assertion and real refusal behavior. Product JS/CSS/copy unchanged. Focused repair suite initially 28 passed including real modal; rerun validates the readiness fix.
+
+Repair validation: 28 focused tests passed, 13.64 s; real modal harness separately PASS after final bounded-wait options. Ruff/development-process/whitespace PASS.
