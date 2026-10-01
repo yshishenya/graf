@@ -110,3 +110,38 @@ apps/server/scripts/run_local_postgres_tests.sh --focused \
 Основной агент отдельно исполнил тот же последовательный сценарий на этом снимке: Chromium1 PASS /16,19 с и WebKit1 PASS /46,20 с. Эти повторы не прибавляются к независимым результатам.
 
 Три независимых ограниченных PASS и точные границы: review-promo-refresh-status-conflict-final-flow.md, review-promo-refresh-status-conflict-security.md, review-promo-refresh-status-conflict-browser.md. Прежние109/199/DOM остаются историческими. T011/T012, реальная финансовая F278 и новый выпуск T019 этим не подтверждаются.
+
+
+## Последняя поправка периода без подписанного выбора
+
+CI governance-fast 36792155653 на c3cecb3101b9f7ac61cb64ee0034575a643d4ddb выявил потерю year в прямом HTTP409 без saved draft. До правки два новых сценария дали 2 FAIL за 6,31 с. Renderer теперь использует подписанный B, иначе допустимый период Form из двух существующих ветвей отказа; промокод берётся только из B. Прежний money-path сценарий выполняет настоящий Apply перед start, все прежние утверждения сохранены.
+
+Окончательная расширенная команда добавляет к предыдущим четырём файлам tests/unit/test_billing_money_path_e2e.py. Результат: **297 PASS, 2 warnings за 166,86 с**, runner171 с; изолированный контейнер удалён. Лог /tmp/graf-f280-promo-final-with-money-path.log, SHA256 b0742112428d1992239dd67a2f7f277f652f1355f049fd9f50b9d22a03d98227. Коллекция297, digest0ba86fca04f883b3debc38da09d6c27f7e0370d72f76833e1e08e8c21fc8a789. Прежние228 и ранние результаты не складываются.
+
+Текущие SHA256:
+
+- billing.py: 248abe04110649153ee68cdab680d9067b8b0b3a48416b8e126306d7df97e834.
+- template: 8351694ffbd603639a6e05bd7bcd033ca3f33df4874128b67c220763b9a23556.
+- refresh HTTP tests: 58e7851bbbb9c8b40d48114975169d1fe20b74dcc9e3e83b50e7c4f69a9cf1e8.
+- money-path tests: 26bf2b4f1b3e8fc41e273941f1b79f23d5f155215b52980b397ef1025c3df344.
+
+Независимые требования9/0: review-promo-refresh-empty-draft-requirements.md; два текущих ограниченных source PASS: review-promo-refresh-empty-draft-flow.md и review-promo-refresh-empty-draft-security.md. Runtime/деньги/люди этим не подтверждаются.
+
+
+## Дополнительная временная недоступность preview
+
+Последний review PR7403/4150394449 воспроизведён до изменения: 10 FAIL9,67с/runner14. Перенос существующего разбора намерения до unavailable сохранил новый/заменённый ввод и период, но расширенный307 дал305PASS/2FAIL170,42с/runner174: пустой Form поступает какNone и helper наследовал старый код. Причина исправлена общим fallback: previous только при not replace_promo. Проверки не ослаблены. Допуск требований9/0 до кода — review-promo-refresh-unavailable-requirements.md.
+
+Временные последние Chromium1PASS14,41с и WebKit1PASS72,77с относятся к248abe, до unavailable-правки; новый текущий DOM проверяется отдельно. Прежний297 тоже исторический, новым307 не подменяется.
+
+
+Окончательный набор после emptyApply исправления: **307 PASS171,16с**, runner175, cleanup PASS; digest коллекции f62aaceff6a91ded8e19124e5e30b6b34b6ab9093cad61597038b3e93f8cdd45. Та же команда пяти файлов, без ослабления assertions. Лог /tmp/graf-f280-unavailable-clear-final.log SHA256 98c62670dee7cbfe8bc2557d91c2f418f8e5f0a63ffc5b38fda45aeaf74ea7f2.
+
+- runtime: 9b7c4b41bd434d3e43df07d90b5c9cc9ff2fbd0c0697217ff2ef7649e29ddc4a.
+- refresh tests: 61e37fabbac6cdbe40ccb1831d1147771b14dd64d530765abba516c1ee4c53de.
+- template8351694f, moneytest26bf2b4f и CSS397a6683 неизменны.
+
+Новый unavailable matrix10 подтверждает новое Apply/замену300с, emptyApply clear, editedperiod/year, staleB исходный290с и дваGET после восстановления доступности. Для каждого nofinancial fixture контролирует полное отсутствие финансовых записей, обращения к провайдеру запрещены. Старый failing307/297 не складываются с текущим307.
+
+
+Независимый расширенный настоящий DOM на9b7c4b41/template8351694f: Chromium1PASS28,16с/runner32, WebKit1PASS173,67с/runner177. На движок320/1280px,4realPOST409,2historicalGET и12unavailablePOST303 (disabled/dbNone×new/replace/clear). Проверены новый код, очисткаcookie, год,7500/10000, пустые согласия, reload, overflow и отсутствие внешних запросов/провайдера. Логи /tmp/graf-status-conflict-browser/chromium-unavailable-final.log и webkit-unavailable-final.log; sourcehash после выполнения неизменён. Синтетический guardbridge существует только в /tmp test harness, исходники не получают query bypass. Независимый итоговый обзор: review-promo-refresh-unavailable-final-browser.md.

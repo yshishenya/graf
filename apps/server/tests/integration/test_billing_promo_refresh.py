@@ -782,3 +782,70 @@ def test_existing_hosted_continue_clears_only_after_authorized_handoff(client, o
         assert "result=unavailable" in response.headers["location"]
         assert not any(DRAFT_COOKIE in header for header in response.headers.get_list("set-cookie"))
         assert client.cookies.get(DRAFT_COOKIE) == before
+
+
+@pytest.mark.parametrize("reason", ["offer_changed", "quote_changed"])
+def test_direct_rejection_without_saved_promo_keeps_submitted_year(client, owner, reason):
+    _, headers = owner
+    preview = submit(client, headers, code="", cycle="year", action="year")
+    page = client.get(preview.headers["location"])
+    assert_checkout(page, today="10000", renewal="10000", cycle="год", promo="")
+    assert client.cookies.get(DRAFT_COOKIE) is None
+    fields = checkout_start_fields(page)
+    if reason == "offer_changed":
+        fields["offer_version"] = "synthetic-outdated-offer"
+    else:
+        fields["quote_id"] = "00000000-0000-0000-0000-000000000000"
+    response = client.post("/billing/checkout/start", headers=headers, data={
+        **fields, "promo_code": "", "offer_consent": "true", "recurring_consent": "true",
+    }, follow_redirects=False)
+    assert promo_input(response, status=409) == ""
+    assert 'name="cycle" value="year"' in response.text
+    assert "Оплатить 10 000 ₽ в ЮKassa" in response.text
+    assert "Условия оплаты изменились" in response.text if reason == "offer_changed" else "Расчет изменился или устарел" in response.text
+    assert_no_draft_renewal(response)
+    for name in ("offer_consent", "recurring_consent"):
+        checkbox = re.search(rf'<input[^>]*name="{name}"[^>]*>', response.text)
+        assert checkbox and "checked" not in checkbox.group(0)
+
+
+@pytest.mark.parametrize("guard", ["disabled", "db_none"])
+@pytest.mark.parametrize("intent", ["new", "replace", "clear", "edit", "stale_period"])
+def test_unavailable_preview_keeps_explicit_intent(client, owner, monkeypatch, guard, intent):
+    _, headers = owner
+    seed_campaign(client)
+    clock = [int(time.time())]
+    monkeypatch.setattr(routes, "_promo_draft_now", lambda: clock[0])
+    old_code = "[old synthetic code]"
+    if intent != "new":
+        submit(client, headers, code=old_code)
+        keep_cookie_on_controlled_clock(client)
+        clock[0] += 10
+    code = "" if intent == "clear" else old_code if intent == "stale_period" else SYNTH_CODE
+    action = "year" if intent in {"edit", "stale_period"} else "apply"
+    with monkeypatch.context() as unavailable:
+        if guard == "disabled":
+            unavailable.setattr(routes, "billing_checkout_allowed", lambda *_args: False)
+        else:
+            async def no_db():
+                yield None
+            unavailable.setitem(client.app.dependency_overrides, routes.WebDbDependency.dependency, no_db)
+        response = submit(client, headers, code=code, cycle="month" if action == "year" else "year",
+                          action=action, previous_code=old_code)
+    assert "result=unavailable" in response.headers["location"]
+    assert "cycle=year" in response.headers["location"]
+    if intent == "clear":
+        assert client.cookies.get(DRAFT_COOKIE) is None
+        assert promo_input(client.get("/billing/checkout?cycle=year")) == ""
+    else:
+        cookie = draft_cookie(response)
+        assert cookie["max-age"] == ("290" if intent == "stale_period" else "300")
+        keep_cookie_on_controlled_clock(client)
+        for _ in range(2):
+            page = client.get("/billing/checkout")
+            assert promo_input(page) == code
+            assert 'name="cycle" value="year"' in page.text
+            if intent == "stale_period":
+                assert 'id="billing-checkout-error"' in page.text
+            else:
+                assert_checkout(page, today="9000", renewal="10000", cycle="год", promo=SYNTH_CODE)

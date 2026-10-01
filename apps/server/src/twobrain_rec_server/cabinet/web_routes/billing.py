@@ -425,7 +425,7 @@ def _checkout_result_redirect(
 ) -> RedirectResponse:
     """Carry signed input, never a price, quote, consent or payment authority."""
     previous = _checkout_promo_draft(request, principal=principal, tenant_scope=tenant_scope)
-    value = promo_code if promo_code is not None else previous["code"] if previous else ""
+    value = promo_code if promo_code is not None else previous["code"] if previous and not replace_promo else ""
     if not replace_promo:
         if previous is not None:
             # An unchanged/stale form or failed start cannot replace newer input.
@@ -3299,7 +3299,7 @@ async def billing_checkout_page(
     checkout_promo_code = saved_draft["code"] if saved_draft else ""
     # Direct POST rejection must not replay stale form input into the preview.
     checkout_cycle = (
-        saved_draft["cycle"] if saved_draft else None
+        saved_draft["cycle"] if saved_draft else getattr(request.state, "billing_checkout_cycle", None)
     ) if request.method == "POST" else request.query_params.get("cycle")
     descriptor = plan_descriptor("personal")
     receipt_contact = await _verified_receipt_contact(db, principal.user_id)
@@ -3513,21 +3513,6 @@ async def preview_billing_checkout(
 ) -> RedirectResponse:
     """Validate a promo and show its price without reserving or charging."""
     settings = request.app.state.settings
-    if db is None or not billing_checkout_allowed(settings, tenant_scope.workspace_id):
-        return _checkout_result_redirect(
-            request, "unavailable", cycle=cycle, promo_code=promo_code,
-            principal=principal, tenant_scope=tenant_scope,
-        )
-    if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
-        return RedirectResponse("/billing?result=owner_only", status_code=303)
-    limited = await _billing_rate_limited_response(
-        request,
-        tenant_scope=tenant_scope,
-        principal=principal,
-        action="billing_checkout_preview",
-    )
-    if limited is not None:
-        return limited
     if preview_action in {"month", "year"}:
         cycle = preview_action
     # A presentation hint detects an edit; it never authorizes a discount.
@@ -3542,6 +3527,21 @@ async def preview_billing_checkout(
         )
         if saved_draft is not None:
             promo_code = saved_draft["code"]
+    if db is None or not billing_checkout_allowed(settings, tenant_scope.workspace_id):
+        return _checkout_result_redirect(
+            request, "unavailable", cycle=cycle, promo_code=promo_code,
+            principal=principal, tenant_scope=tenant_scope, replace_promo=replace_promo,
+        )
+    if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
+        return RedirectResponse("/billing?result=owner_only", status_code=303)
+    limited = await _billing_rate_limited_response(
+        request,
+        tenant_scope=tenant_scope,
+        principal=principal,
+        action="billing_checkout_preview",
+    )
+    if limited is not None:
+        return limited
     if cycle not in {"month", "year"}:
         return _checkout_result_redirect(request, "promo_invalid", promo_code=promo_code, principal=principal, tenant_scope=tenant_scope)
     try:
@@ -3739,6 +3739,7 @@ async def start_billing_checkout(
             return _checkout_result_redirect(request, "catalog_not_approved", cycle=cycle, promo_code=promo_code, principal=principal, tenant_scope=tenant_scope)
         if offer_version != catalog_snapshot.offer_version:
             request.state.billing_checkout_result = "offer_changed"
+            request.state.billing_checkout_cycle = cycle
             response = await billing_checkout_page(
                 request,
                 tenant_scope=tenant_scope,
@@ -3863,6 +3864,7 @@ async def start_billing_checkout(
         except (PurchaseError, ValueError):
             await db.rollback()
             request.state.billing_checkout_result = "quote_changed"
+            request.state.billing_checkout_cycle = cycle
             response = await billing_checkout_page(
                 request,
                 tenant_scope=tenant_scope,
