@@ -911,11 +911,15 @@ async def calendar_series_occurrences(
             "recordings": records.get(e.id, []),
             "recordings_partial": records_partial,
             "temporal_state": (
-                "history"
-                if e.ends_at <= anchor
-                else "ongoing"
-                if e.starts_at <= anchor
-                else "upcoming"
+                (
+                    "history"
+                    if e.ends_at <= anchor
+                    else "ongoing"
+                    if e.starts_at <= anchor
+                    else "upcoming"
+                )
+                if preference is None or preference.show_upcoming_time
+                else None
             ),
         }
         for e in events

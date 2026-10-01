@@ -82,7 +82,7 @@
     const actions=document.createElement('div');actions.className='calendar-series__actions';
     if(event.cancelled) {row.classList.add('is-cancelled');actions.append(text('span','Отменена'));}
     if(view==='upcoming') {
-      if(event.temporal_state==='ongoing' && !event.cancelled) {
+      if(event.starts_at && event.temporal_state==='ongoing' && !event.cancelled) {
         const live=text('span','Идёт сейчас');live.className='calendar-series__live';detail.append(live);
       }
       if(event.open_meeting_available && !event.cancelled) {

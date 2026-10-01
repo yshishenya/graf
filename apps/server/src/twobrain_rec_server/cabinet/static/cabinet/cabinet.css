@@ -6377,8 +6377,10 @@ html[data-theme="dark"] .app-shell[data-active-nav="settings"] {
 .calendar-home-upcoming__row [data-calendar-join-status] { grid-column: 1 / -1; color: var(--muted); font-size: var(--font-size-helper); overflow-wrap: anywhere; }
 .calendar-series__actions [data-calendar-join-status] { flex-basis: 100%; text-align: start; }
 .calendar-home-upcoming__join[aria-disabled="true"] { opacity: .65; cursor: progress; }
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .calendar-series { grid-column: 1 / -1; }
+}
+@media (max-width: 640px) {
   .calendar-series__body { padding: 12px; }
   .calendar-series__occurrence { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .calendar-series__actions { justify-content: flex-start; max-width: none; }

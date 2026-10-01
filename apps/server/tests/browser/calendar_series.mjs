@@ -85,7 +85,7 @@ const server=createServer((req,res)=>{
       starts_at:scenario==='masked'?null:scenario==='dst'?new Date(Date.UTC(2026,2,29,n%2,30)).toISOString():new Date(Date.UTC(2026,9,history?-offset-n:5+offset+n,12)).toISOString(),
       all_day:scenario==='all-day',cancelled:(revised&&n===0)||n===2,
       open_meeting_available:!(revised&&n===0)&&n!==1&&n!==2,
-      temporal_state:history?'history':scenario==='ongoing'&&n===0?'ongoing':'upcoming',
+      temporal_state:history?'history':['ongoing','masked'].includes(scenario)&&n===0?'ongoing':'upcoming',
       recordings_partial:true,
       recordings:(!revised&&n===0)?[{meeting_id:'00000000-0000-0000-0000-000000000099'},{meeting_id:'00000000-0000-0000-0000-000000000098'}]:[]
     }));
@@ -204,6 +204,17 @@ try {
  await page.locator('.calendar-home-upcoming').screenshot({path:path.join(screenshotDir,'upcoming-dark.png')});
  await page.evaluate(()=>document.documentElement.dataset.theme='light');
  await page.locator('.calendar-home-upcoming').screenshot({path:path.join(screenshotDir,'upcoming-light.png')});
+ for(const width of [641,700,760]) {
+   await page.setViewportSize({width,height:850});
+   assert.equal(await page.locator('.calendar-series').evaluate(panel=>{
+     const parent=panel.parentElement,style=getComputedStyle(parent),bounds=panel.getBoundingClientRect(),row=parent.getBoundingClientRect();
+     return Math.abs(bounds.left-row.left-parseFloat(style.paddingLeft))<=1
+       && Math.abs(bounds.right-row.right+parseFloat(style.paddingRight))<=1
+       && parent.scrollWidth<=parent.clientWidth+1;
+   }),true,`series fills the collapsed parent grid at ${width}px`);
+ }
+ await page.locator('.calendar-home-upcoming').screenshot({path:path.join(screenshotDir,'upcoming-medium.png')});
+ await page.setViewportSize({width:1100,height:850});
  await page.locator('[data-calendar-series-view="history"]').click();
  await page.waitForFunction(()=>document.querySelectorAll('.calendar-series__recording').length===2);
  await assertContrast(page);
@@ -236,6 +247,7 @@ try {
    }
    else if(kind==='ongoing') assert.equal(await page.getByText('Идёт сейчас',{exact:true}).count(),1);
    else if(kind==='masked') {
+     assert.equal(await page.getByText('Идёт сейчас',{exact:true}).count(),0);
      assert.equal(await page.locator('.calendar-series__date time').count(),0);
      assert.equal(await page.locator('.calendar-series__date').getByText('Время скрыто настройкой',{exact:true}).count(),5);
      assert.equal(await page.locator('.calendar-home-upcoming [datetime]').count(),0);

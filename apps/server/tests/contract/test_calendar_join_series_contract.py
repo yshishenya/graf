@@ -834,8 +834,6 @@ def test_temporal_views_order_boundary_stable_cursor_and_masks(client, monkeypat
         def now(cls, tz=None):
             return anchor
 
-    monkeypatch.setattr(api, "datetime", Clock)
-
     async def arrange():
         async with client.app_state["sessionmaker"]() as db:
             first = await db.get(CalendarEventSnapshot, UUID(event))
@@ -862,6 +860,9 @@ def test_temporal_views_order_boundary_stable_cursor_and_masks(client, monkeypat
     key, expected_history, expected_upcoming = asyncio.run(arrange())
     url = f"/api/v1/calendar/series/{key}/occurrences"
     headers = auth_headers()
+    # Resolve lazy route annotations before replacing its clock.
+    assert client.get(url, headers=headers).status_code == 200
+    monkeypatch.setattr(api, "datetime", Clock)
     pages = {}
     for view, expected in (("history", expected_history), ("upcoming", expected_upcoming)):
         response = client.get(url, params={"view": view, "limit": 2}, headers=headers)
@@ -916,11 +917,15 @@ def test_temporal_views_order_boundary_stable_cursor_and_masks(client, monkeypat
             await db.commit()
 
     asyncio.run(hide())
-    hidden = client.get(url, params={"view": "history"}, headers=headers)
-    assert hidden.status_code == 200
-    assert all(
-        row["starts_at"] is None
-        and row["ends_at"] is None
-        and row["title"] == "Название скрыто настройкой"
-        for row in hidden.json()["occurrences"]
-    )
+    anchor -= timedelta(days=10)
+    for view in ("history", "upcoming", "all"):
+        hidden = client.get(url, params={"view": view}, headers=headers)
+        assert hidden.status_code == 200
+        assert hidden.json()["occurrences"]
+        assert all(
+            row["starts_at"] is None
+            and row["ends_at"] is None
+            and row["temporal_state"] is None
+            and row["title"] == "Название скрыто настройкой"
+            for row in hidden.json()["occurrences"]
+        )
