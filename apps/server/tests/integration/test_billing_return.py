@@ -590,8 +590,15 @@ def test_storage_price_confirmation_shows_the_next_actual_attempt(client, owner,
 
 
 @pytest.mark.parametrize("case", ["malformed", "missing", "expired", "future"])
-def test_discounts_error_preserves_exact_input_only_in_html(client, owner, case):
+def test_discounts_error_preserves_exact_input_through_checkout_refresh(client, owner, case):
     _, headers = owner
+    async def verified_receipt_email():
+        async with client.app_state["sessionmaker"]() as db:
+            await db.execute(update(ExternalIdentity).where(
+                ExternalIdentity.user_id == USER_ID, ExternalIdentity.provider == "email",
+            ).values(is_verified=True))
+            await db.commit()
+    asyncio.run(verified_receipt_email())
     promo = 'TYPO<"&' if case == "malformed" else "SYNTH-TYPO"
     if case in {"expired", "future"}:
         async def campaign():
@@ -605,15 +612,20 @@ def test_discounts_error_preserves_exact_input_only_in_html(client, owner, case)
         asyncio.run(campaign())
     response = client.post("/billing/discounts/apply", headers=headers, data={"promo_code": promo},
                            follow_redirects=False)
-    assert response.status_code == 409
-    assert "Проверьте код и попробуйте снова" in response.text
-    action, fields = form(response.text, "/billing/discounts/apply")
-    assert action == "/billing/discounts/apply" and fields["promo_code"] == promo
-    assert 'aria-invalid="true"' in response.text
-    assert 'aria-describedby="billing-discount-error"' in response.text
-    assert "location" not in response.headers and promo not in response.headers.get("set-cookie", "")
-    if case == "malformed":
-        assert promo not in response.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/billing/checkout?result=promo_invalid"
+    assert promo not in response.headers["location"]
+    assert promo not in response.headers.get("set-cookie", "")
+    for _ in range(2):
+        page = client.get(response.headers["location"], headers=headers)
+        assert page.status_code == 200
+        field = re.search(r'<input[^>]*id="billing-promo"[^>]*>', page.text)
+        assert field and unescape(re.search(r'value="([^"]*)"', field.group(0)).group(1)) == promo
+        assert 'aria-invalid="true"' in field.group(0)
+        assert 'aria-describedby="billing-checkout-error"' in field.group(0)
+        assert 'action="/billing/checkout/start"' not in page.text
+        if case == "malformed":
+            assert promo not in page.text
     fresh = client.get("/billing/discounts", headers=headers)
     assert form(fresh.text, "/billing/discounts/apply")[1]["promo_code"] == ""
     assert payment_counts(client) == (0, 0)

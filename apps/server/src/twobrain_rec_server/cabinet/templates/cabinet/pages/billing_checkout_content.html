@@ -17,18 +17,25 @@
         <p class="muted">Без лимита по минутам и встречам · {{ catalog_storage_label|default("5 ГБ") }} для записей.</p>
 
         {% if billing_enabled and catalog_ready|default(True) and not checkout_blocked %}
+        <form id="billing-promo-preview" action="/billing/checkout/preview" method="post">
+          <button type="submit" name="preview_action" value="apply" hidden tabindex="-1" aria-hidden="true"></button>
+          {{ sections.csrf_field(csrf_token|default(None)) }}
+          <input type="hidden" name="cycle" value="{{ checkout_cycle }}">
+          <input type="hidden" name="previous_promo_code" value="{{ checkout_promo_code|default('') }}">
+        </form>
         <nav class="billing-period-switch" aria-label="Период оплаты">
-          <form action="/billing/checkout/preview" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="promo_code" value="{{ checkout_promo_code|default('') }}"><button type="submit" name="cycle" value="month"{% if checkout_cycle == "month" %} aria-current="true"{% endif %}>Месяц<span>{{ monthly_price_label|default("Цена уточняется") }}</span></button></form>
-          <form action="/billing/checkout/preview" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="promo_code" value="{{ checkout_promo_code|default('') }}"><button type="submit" name="cycle" value="year"{% if checkout_cycle == "year" %} aria-current="true"{% endif %}>Год<span>{{ annual_price_label|default("Цена уточняется") }}</span>{% if annual_saving_label|default(None) %}<small>{{ annual_saving_label }}</small>{% endif %}</button></form>
+          <button form="billing-promo-preview" type="submit" name="preview_action" value="month" formnovalidate{% if checkout_cycle == "month" %} aria-current="true"{% endif %}>Месяц<span>{{ monthly_price_label|default("Цена уточняется") }}</span></button>
+          <button form="billing-promo-preview" type="submit" name="preview_action" value="year" formnovalidate{% if checkout_cycle == "year" %} aria-current="true"{% endif %}>Год<span>{{ annual_price_label|default("Цена уточняется") }}</span>{% if annual_saving_label|default(None) %}<small>{{ annual_saving_label }}</small>{% endif %}</button>
         </nav>
         {% endif %}
 
+        {% if not checkout_blocked and checkout_result == "quote_changed" %}<p class="notice notice--warning" role="alert">Расчет изменился или устарел. Проверьте сумму, срок и подтвердите покупку заново. Списания не было.</p>{% endif %}
+        {% if not checkout_blocked and checkout_result == "offer_changed" %}<p class="notice notice--warning" role="alert">Условия оплаты изменились. Проверьте итог и заново примите оферту. Новая оплата не создана.</p>{% endif %}
         {% if checkout_blocked %}<div class="notice notice--warning" role="status" aria-live="polite"><p>Платеж уже создан. Повторно платить не нужно.</p>{% if checkout_continuation_url|default(None) %}<a class="button primary" href="{{ checkout_continuation_url|e }}">Продолжить этот платеж в ЮKassa</a>{% elif checkout_status_url|default(None) %}<a class="button primary" href="{{ checkout_status_url }}">Проверить статус</a>{% else %}<a class="button quiet" href="/billing/history">Открыть историю платежей</a>{% endif %}</div>
+        {% elif checkout_result == "promo_expired" %}<p class="notice notice--warning" role="status">Промокод больше не сохранен. Введите его и нажмите «Применить», чтобы снова проверить скидку.</p>
         {% elif promo_preview_error|default(None) %}<p id="billing-checkout-error" role="alert" class="notice notice--error">{{ promo_preview_error }}</p>
         {% elif checkout_result == "owner_only" %}<p class="notice notice--error" role="alert">Оплатить тариф может только владелец пространства.</p>
         {% elif checkout_result == "offer_required" %}<p class="notice notice--warning" role="alert">Откройте и примите оферту перед оплатой.</p>
-        {% elif checkout_result == "quote_changed" %}<p class="notice notice--warning" role="alert">Расчет изменился или устарел. Проверьте сумму, срок и подтвердите покупку заново. Списания не было.</p>
-        {% elif checkout_result == "offer_changed" %}<p class="notice notice--warning" role="alert">Условия оплаты изменились. Проверьте итог и заново примите оферту. Новая оплата не создана.</p>
         {% elif checkout_result == "consent_required" %}<p class="notice notice--warning" role="alert">Подтвердите согласие на автоматические списания или вернитесь к тарифам.</p>
         {% elif checkout_result == "catalog_not_approved" %}<p class="notice notice--warning" role="alert">Оплата временно недоступна. Попробуйте позже.</p>
         {% elif checkout_result == "unavailable" %}<p class="notice notice--warning" role="alert">Оплата временно недоступна. Повторите попытку позже.</p>
@@ -46,17 +53,15 @@
         {% endif %}
 
         {% if billing_enabled and catalog_ready|default(True) and not checkout_blocked %}
-        {% if receipt_contact_ready|default(True) %}<details class="billing-coupon"{% if checkout_result == "promo_invalid" or promo_preview_error|default(None) or checkout_promo_code|default("") %} open{% endif %}>
+        <details class="billing-coupon"{% if checkout_result in ["promo_invalid", "promo_expired"] or promo_preview_error|default(None) or checkout_promo_code|default("") %} open{% endif %}>
           <summary>Есть промокод?</summary>
-          <form action="/billing/checkout/preview" method="post" class="billing-coupon__form">
-            {{ sections.csrf_field(csrf_token|default(None)) }}
-            <input type="hidden" name="cycle" value="{{ checkout_cycle }}">
+          <div class="billing-coupon__form">
             <label for="billing-promo">Промокод</label>
-            <input id="billing-promo" name="promo_code" type="text" autocomplete="off" spellcheck="false" maxlength="48" value="{{ checkout_promo_code|default('') }}"{% if checkout_result == "promo_invalid" or promo_preview_error|default(None) %} aria-describedby="billing-checkout-error" aria-invalid="true"{% endif %}>
-            <button class="button quiet" type="submit">Применить</button>
-          </form>
+            <input form="billing-promo-preview" id="billing-promo" name="promo_code" type="text" autocomplete="off" spellcheck="false" maxlength="48" value="{{ checkout_promo_code|default('') }}"{% if checkout_result == "promo_invalid" or promo_preview_error|default(None) %} aria-describedby="billing-checkout-error" aria-invalid="true"{% endif %}>
+            <button form="billing-promo-preview" class="button quiet" type="submit" name="preview_action" value="apply">Применить</button>
+          </div>
           <p class="muted">Применяется одна скидка. Чтобы убрать промокод, очистите поле и нажмите «Применить».</p>
-        </details>{% endif %}
+        </details>
 
         {% if not receipt_contact_ready|default(True) %}<p class="notice notice--warning" role="status">{{ receipt_contact_message|default("Подтвердите почту для чека.") }}</p><a class="button primary" href="{{ receipt_contact_action_url }}">Подтвердить почту</a>
         {% elif checkout_quote_id|default(None) and not promo_preview_error|default(None) %}

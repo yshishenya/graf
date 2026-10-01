@@ -961,6 +961,12 @@ def test_changed_offer_preserves_year_and_recalculates_promo(client, monkeypatch
             await db.commit()
 
     asyncio.run(seed_promo())
+    applied = client.post(
+        "/billing/checkout/preview", headers=headers, follow_redirects=False,
+        data={"cycle": "year", "promo_code": "SAVE10", "preview_action": "apply"},
+    )
+    assert applied.status_code == 303
+    assert "result=promo_applied" in applied.headers["location"]
     response = client.post(
         CHECKOUT_PATH,
         headers=headers,

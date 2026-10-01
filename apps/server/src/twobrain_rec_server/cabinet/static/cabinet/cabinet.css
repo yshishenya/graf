@@ -5441,10 +5441,10 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .billing-coupon__form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 8px; padding-top: 14px; }
 .billing-coupon__form label { grid-column: 1 / -1; }
 .billing-coupon__form input { min-width: 0; }
-.billing-checkout-form { display: grid; gap: 12px; }
-.billing-consent { min-width: 0; min-height: 24px; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 9px; }
-.billing-consent input { margin-top: 3px; }
-.billing-consent span { min-width: 0; overflow-wrap: anywhere; }
+.billing-checkout-form { display: flex; flex-direction: column; gap: 12px; }
+.billing-consent { min-width: 0; min-height: 24px; display: flex; align-items: flex-start; gap: 9px; }
+.billing-consent input { flex-shrink: 0; margin-top: 3px; }
+.billing-consent span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .billing-checkout-form__submit { width: 100%; margin-top: 4px; }
 
 @media (max-width: 760px) {
