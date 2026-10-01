@@ -23,3 +23,9 @@ FR-001→T004/T007; FR-002→T002/T003/T004; FR-003→T004/T006; FR-004→T004/T
 Converge checks implementation against10 FR,4 buildable SC,3 stories and plan boundaries: no missing build work, no feature-introduced unrequested behavior. tasks unchanged by converge; T009 delivery/Dev/exact-SHA PR evidence remains pending. All local results above bind to working diff, not a released source SHA. No production release, deploy or VoiceOver claimed.
 
 Final local profile:87 PostgreSQL tests PASS/0 skips; Chromium151 and WebKit26.5 harness PASS. WebKit Join max32ms, series p95 50ms;30 samples/3warm-up, nearest-rank p95. All code changes validated before implementation commit. Previously granted user approval to commit and continue the calendar task through GRAF Dev is retained; no new production authorization inferred.
+
+## Delivery checks
+
+GRAF Dev build/promote and live smoke PASS for source0186a7b96c45bfaf1003dbdda7ab4dade926c0c2:13 checks, including installed app identity, API/frontend, database/migration, storage, Temporal/workers and exact component SHA. This is runtime readiness, not manual UI acceptance. Manual check stopped at the macOS lock screen; user asked to unlock. No bypass, VoiceOver repetition or production action.
+
+CI identified a missing required Legacy Impact section in the feature specification. Added the existing PR classification to spec.md without changing product behavior or weakening validation. Branch rebased without conflict onto202855acbb751c9a6f3d2b3bbeae64ddf91cbe9c; final SHA-bound CI and Dev checks must be repeated. T009 remains open until required evidence is complete.
