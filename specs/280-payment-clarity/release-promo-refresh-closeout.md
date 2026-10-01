@@ -14,6 +14,8 @@
 
 CD dry-run PASS, execute PASS: deploy 256 с, свежая резервная копия 20261001T012725Z, readiness_verdict=infra_smoke_ready. Runtime SHA совпал с кандидатом, штатные health/smoke/cleanup прошли. Playback/normalization сохраняют штатный предел worker_capability_only; последующие пользовательские сценарии этим не аттестуются. Тег, публичный GitHub Release и отдельная неизменяемая publication attestation совпадают с SHA кандидата.
 
+Защищённый путь отката не запускался: развёртывание завершилось успешно, постоянный журнал образов зафиксировал `deployed`. Нормализованный статус `not_required_not_executed` выведен из этого результата и штатного успешного завершения; это не доказательство выполнения отката. Попытка `039536b82a1c471eacc5e938851418e1` связана через `identity.json` с точным SHA, кандидатом и decision/full digest выше. Постоянная ссылка: `graf-release-images/attempts/039536b82a1c471eacc5e938851418e1/result.json`, SHA256 `6929b24ed8eff31c78751314edb3191bb1a86fabce710039e53d777f8676181d`. Предыдущая зафиксированная основа `df3a91a01fc8e741a7ebe355ad098353c290770c` сохранена в `baseline.json` той же попытки.
+
 ## Живая проверка
 
 rec-api, rec-processing-worker, rec-maintenance: exact SHA, checkout=true, scope public=true, YooKassa production и ожидаемый магазин, observation=true, running=true. API и processing worker healthy, maintenance running. SHA256 billing.py `fec78d91a5ef03f667ddf34524afd6aaa787d1d6f1189bd3bfeb952d847a80c3`, template `8351694ffbd603639a6e05bd7bcd033ca3f33df4874128b67c220763b9a23556`, CSS `397a66835149e7614dd75a201e4c57676dc2485d632641ba5f2f2990684fc934` совпали внутри всех трёх служб.

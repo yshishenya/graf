@@ -105,5 +105,18 @@
     "live_http_status": 200,
     "ready_http_status": 200
   },
-  "proposed_issue_closeout_live_validator": "pass"
+  "proposed_issue_closeout_live_validator": "pass",
+  "rollback": {
+    "status": "not_required_not_executed",
+    "status_basis": "normalized_from_terminal_deployed_record_and_successful_guarded_deploy",
+    "deployment_attempt_id": "039536b82a1c471eacc5e938851418e1",
+    "deployment_image_result": "deployed",
+    "previous_source_sha": "df3a91a01fc8e741a7ebe355ad098353c290770c",
+    "evidence_reference": "graf-release-images/attempts/039536b82a1c471eacc5e938851418e1/result.json",
+    "identity_reference": "graf-release-images/attempts/039536b82a1c471eacc5e938851418e1/identity.json",
+    "baseline_reference": "graf-release-images/attempts/039536b82a1c471eacc5e938851418e1/baseline.json",
+    "evidence_sha256": "6929b24ed8eff31c78751314edb3191bb1a86fabce710039e53d777f8676181d",
+    "decision_digest": "sha256:9453890640afe64213b43f49fa24388e9b66daa307a0608b8b338831aadaa80d",
+    "full_digest": "sha256:cbac6871046a3ec2ca667d8119797fa6f2f73c23728a8deade98e99054ee828f"
+  }
 }

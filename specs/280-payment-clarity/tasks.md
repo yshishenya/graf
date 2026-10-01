@@ -93,7 +93,7 @@ T014/T015 выполняются после независимого review `che
 
 ## Phase 8 — US1: промокод после обновления, 2026-10-01
 
-Ветка среза: `codex/280-payment-promo-refresh`, lane `high-risk-product`. Независимый requirements PASS до генерации: [review-promo-refresh-requirements.md](review-promo-refresh-requirements.md), checklist 9/0. T016–T018 завершены по актуальным доказательствам; T019 открыт до выпуска. Исторические T014/T015 не включали этот жизненный цикл. T011/T012 не заменяются.
+Ветка среза: `codex/280-payment-promo-refresh`, lane `high-risk-product`. Независимый requirements PASS до генерации: [review-promo-refresh-requirements.md](review-promo-refresh-requirements.md), checklist 9/0. T016–T019 завершены по актуальным доказательствам, серверный выпуск v2026.10.01.1 опубликован. Исторические T014/T015 не включали этот жизненный цикл. T011/T012 не заменяются.
 
 **Goal**: После применения, двух обновлений и возврата пользователь сохраняет code и month/year до исходного expiry300с; ошибочный ввод до MAX48 остаётся для исправления, а каждая цена рассчитывается заново и согласия пусты.
 **Independent Test**: Синтетическая HTTP/DB и реальная DOM цепочка Chromium/WebKit из дополнения quickstart, без провайдера; legacy/corrupt/expired/foreign draft отвергается, preview не создаёт финансовых записей.
