@@ -1,3 +1,5 @@
+import re
+
 from twobrain_rec_server.billing.catalog import plan_descriptor
 from twobrain_rec_server.cabinet.templates import render_template
 
@@ -34,7 +36,10 @@ def test_checkout_discloses_components_period_and_undiscounted_renewal():
     assert "Разовая скидка" in html
     assert "1 290 ₽ за месяц" in html
     assert "Оплатить 12.90 ₽" in html
-    assert " checked" not in html
+    offer = re.search(r'<input\b[^>]*name="offer_consent"[^>]*>', html)
+    recurring = re.search(r'<input\b[^>]*name="recurring_consent"[^>]*>', html)
+    assert offer and "required" in offer.group() and "checked" not in offer.group()
+    assert recurring and "checked" in recurring.group() and "required" not in recurring.group()
 
 
 def test_checkout_without_valid_quote_cannot_submit_money():
