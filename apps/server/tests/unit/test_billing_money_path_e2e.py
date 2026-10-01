@@ -45,6 +45,7 @@ from twobrain_rec_server.db.models import (
     BillingInvoice,
     BillingNotificationDelivery,
     BillingOperation,
+    BillingPaymentMethod,
     BillingPlanVersion,
     BillingWebhookEvent,
     ExternalIdentity,
@@ -278,6 +279,13 @@ def _money_state(client, workspace_id: UUID, key: str) -> SimpleNamespace:
                         )
                     )
                 ),
+                payment_methods=tuple(
+                    await db.scalars(
+                        select(BillingPaymentMethod).where(
+                            BillingPaymentMethod.workspace_id == workspace_id
+                        )
+                    )
+                ),
                 events=tuple(
                     await db.scalars(
                         select(BillingWebhookEvent).where(
@@ -311,20 +319,23 @@ def _checkout_quote_id(client, cycle="month"):
 
 
 def _start_checkout(
-    client, headers: dict[str, str], key: str, *, offer_version=PUBLIC_APPROVED_OFFER_VERSION
+    client, headers: dict[str, str], key: str, *, offer_version=PUBLIC_APPROVED_OFFER_VERSION,
+    cycle: str = "month", recurring_consent: bool | None = True,
 ):
+    data = {
+        "cycle": cycle,
+        "quote_id": _checkout_quote_id(client, cycle),
+        "idempotency_key": key,
+        "offer_consent": "true",
+        "offer_version": offer_version,
+    }
+    if recurring_consent is not None:
+        data["recurring_consent"] = "true" if recurring_consent else "false"
     return client.post(
         CHECKOUT_PATH,
         headers=headers,
         follow_redirects=False,
-        data={
-            "cycle": "month",
-            "quote_id": _checkout_quote_id(client),
-            "idempotency_key": key,
-            "offer_consent": "true",
-            "recurring_consent": "true",
-            "offer_version": offer_version,
-        },
+        data=data,
     )
 
 
@@ -353,7 +364,10 @@ def _deliver_webhook(client, body: dict):
     )
 
 
-def _open_checkout(client, monkeypatch, tmp_path: Path, provider: _FakeYooKassa, key: str):
+def _open_checkout(
+    client, monkeypatch, tmp_path: Path, provider: _FakeYooKassa, key: str, *,
+    cycle: str = "month", recurring_consent: bool | None = True,
+):
     """Configure test billing, seed the owner session and open one hosted checkout."""
     class ReconciliationClock(datetime):
         @classmethod
@@ -368,7 +382,9 @@ def _open_checkout(client, monkeypatch, tmp_path: Path, provider: _FakeYooKassa,
     monkeypatch.setattr(webhook_reconciliation, "YooKassaClient", factory)
     catalog = _approved_month_catalog(client)
     workspace_id, headers = _prepare_owner_session(client)
-    started = _start_checkout(client, headers, key)
+    started = _start_checkout(
+        client, headers, key, cycle=cycle, recurring_consent=recurring_consent,
+    )
     assert started.status_code == 303, started.text
     state = _money_state(client, workspace_id, key)
     assert state.operation is not None and state.invoice is not None, "checkout persisted no money"
@@ -377,13 +393,20 @@ def _open_checkout(client, monkeypatch, tmp_path: Path, provider: _FakeYooKassa,
     )
 
 
+@pytest.mark.parametrize("cycle", ["month", "year"])
+@pytest.mark.parametrize("recurring_consent", [True, False, None], ids=["renew", "once", "omitted"])
 def test_confirmed_payment_grants_access_and_survives_replays(
-    client, monkeypatch, tmp_path: Path
+    client, monkeypatch, tmp_path: Path, cycle: str, recurring_consent: bool | None,
 ) -> None:
     key = "checkout-money-path-1"
-    provider = _FakeYooKassa()
-    checkout = _open_checkout(client, monkeypatch, tmp_path, provider, key)
+    provider = _FakeYooKassa(saved_card=True)
+    checkout = _open_checkout(
+        client, monkeypatch, tmp_path, provider, key,
+        cycle=cycle, recurring_consent=recurring_consent,
+    )
     operation, invoice = checkout.state.operation, checkout.state.invoice
+    expected_consent = recurring_consent is True
+    paid_through = PAID_THROUGH if cycle == "month" else PAID_AT.replace(year=PAID_AT.year + 1)
 
     # Hosted checkout created the money rows and reached the provider.
     assert checkout.started.headers["location"] == (
@@ -393,7 +416,11 @@ def test_confirmed_payment_grants_access_and_survives_replays(
     assert operation.provider_id == provider.payment_id
     assert (invoice.status, invoice.currency) == ("pending", "RUB")
     assert invoice.receipt_contact_snapshot == RECEIPT_EMAIL
-    assert invoice.amount_minor == checkout.catalog.amount_minor == PUBLIC_MONTHLY_AMOUNT_MINOR
+    assert invoice.amount_minor == (
+        PUBLIC_MONTHLY_AMOUNT_MINOR if cycle == "month" else PUBLIC_ANNUAL_AMOUNT_MINOR
+    )
+    assert operation.request_snapshot["recurring_consent"] is expected_consent
+    assert invoice.plan_snapshot["recurring_consent"] is expected_consent
     assert checkout.state.grants == () and checkout.state.events == ()
 
     # The real client signed the request: idempotency, capture, saved method, receipt.
@@ -403,12 +430,23 @@ def test_confirmed_payment_grants_access_and_survives_replays(
     assert provider.idempotence_keys == [operation.idempotency_key]
     assert create["amount"] == amount
     assert create["capture"] is True
-    assert create["save_payment_method"] is True
+    assert create["save_payment_method"] is expected_consent
     assert create["metadata"]["workspace_id"] == str(checkout.workspace_id)
     assert create["receipt"]["tax_system_code"] == 2
     assert create["receipt"]["customer"]["email"] == RECEIPT_EMAIL
     assert create["receipt"]["items"][0]["vat_code"] == 1
     assert create["receipt"]["items"][0]["payment_mode"] == "full_payment"
+
+    # A different checkbox value on retry cannot rewrite the accepted purchase.
+    pending_retry = _start_checkout(
+        client, checkout.headers, key, cycle=cycle, recurring_consent=not expected_consent,
+    )
+    assert pending_retry.status_code == 303
+    assert pending_retry.headers["location"] == checkout.started.headers["location"]
+    pending_state = _money_state(client, checkout.workspace_id, key)
+    assert pending_state.operation.request_snapshot == operation.request_snapshot
+    assert pending_state.invoice.plan_snapshot == invoice.plan_snapshot
+    assert len(provider.create_payloads) == 1
 
     # The webhook only records the signal; the background pass reads provider truth.
     webhook = _payment_webhook(
@@ -428,27 +466,40 @@ def test_confirmed_payment_grants_access_and_survives_replays(
     assert len(state.grants) == 1
     assert state.grants[0].provider_payment_id == provider.payment_id
     assert state.grants[0].invoice_id == invoice.id
-    assert (state.grants[0].starts_at, state.grants[0].ends_at) == (PAID_AT, PAID_THROUGH)
+    assert (state.grants[0].starts_at, state.grants[0].ends_at) == (PAID_AT, paid_through)
     assert state.grants[0].amount_minor == invoice.amount_minor
     assert (state.subscription.state, state.subscription.plan_code, state.subscription.cycle) == (
         "personal",
         "personal",
-        "month",
+        cycle,
     )
-    assert state.subscription.paid_through == PAID_THROUGH
+    assert state.subscription.paid_through == paid_through
     assert state.subscription.billing_anchor == PAID_AT
+    assert state.subscription.recurring_allowed is expected_consent
+    assert len(state.payment_methods) == int(expected_consent)
+    assert state.operation.request_snapshot["recurring_consent"] is expected_consent
+    assert state.invoice.plan_snapshot["recurring_consent"] is expected_consent
     assert state.invoice.status == "succeeded"
     assert state.operation.state == "succeeded"
 
     # Replay: a duplicate signal, an idempotent pass and no second provider payment.
     assert _deliver_webhook(client, webhook).json() == {"status": "duplicate"}
     assert _reconcile(client) == {"processed": 0, "reconciled": 0, "pending": 0, "failed": 0}
-    retried = _start_checkout(client, checkout.headers, key, offer_version="older-shown-offer")
+    retried = _start_checkout(
+        client, checkout.headers, key, offer_version="older-shown-offer",
+        cycle=cycle, recurring_consent=not expected_consent,
+    )
     assert retried.status_code == 303
     assert retried.headers["location"] == checkout.started.headers["location"]
     assert len(provider.create_payloads) == 1
     assert provider.read_count == 1
-    assert len(_money_state(client, checkout.workspace_id, key).grants) == 1
+    replayed = _money_state(client, checkout.workspace_id, key)
+    assert len(replayed.grants) == 1
+    assert replayed.subscription.paid_through == paid_through
+    assert replayed.subscription.recurring_allowed is expected_consent
+    assert len(replayed.payment_methods) == int(expected_consent)
+    assert replayed.operation.request_snapshot["recurring_consent"] is expected_consent
+    assert replayed.invoice.plan_snapshot["recurring_consent"] is expected_consent
 
 
 def test_amount_mismatch_never_grants_access(client, monkeypatch, tmp_path: Path) -> None:
@@ -478,7 +529,7 @@ def test_early_payment_extends_the_paid_period_and_keeps_the_remainder(
     client, monkeypatch, tmp_path: Path
 ) -> None:
     """An active month never blocks a year paid ahead: the remainder survives."""
-    month_provider = _FakeYooKassa()
+    month_provider = _FakeYooKassa(saved_card=True)
     month = _open_checkout(client, monkeypatch, tmp_path, month_provider, "checkout-early-month")
     month_amount = (
         f"{month.state.invoice.amount_minor // 100}.{month.state.invoice.amount_minor % 100:02d}"
@@ -495,8 +546,9 @@ def test_early_payment_extends_the_paid_period_and_keeps_the_remainder(
     assert _reconcile(client) == {"processed": 1, "reconciled": 1, "pending": 0, "failed": 0}
     paid_month = _money_state(client, month.workspace_id, "checkout-early-month").subscription
     assert paid_month.paid_through == PAID_THROUGH
+    assert paid_month.recurring_allowed is True
 
-    year_provider = _FakeYooKassa()
+    year_provider = _FakeYooKassa(saved_card=True)
     transport = httpx.MockTransport(year_provider.handle)
     factory = lambda settings: YooKassaClient(settings, transport=transport)  # noqa: E731
     monkeypatch.setattr(billing_routes, "YooKassaClient", factory)
@@ -513,7 +565,7 @@ def test_early_payment_extends_the_paid_period_and_keeps_the_remainder(
             "idempotency_key": "checkout-early-year",
             "offer_version": PUBLIC_APPROVED_OFFER_VERSION,
             "offer_consent": "true",
-            "recurring_consent": "true",
+            "recurring_consent": "false",
         },
     )
     assert started.status_code == 303, started.text
@@ -523,6 +575,9 @@ def test_early_payment_extends_the_paid_period_and_keeps_the_remainder(
     year = _money_state(client, month.workspace_id, "checkout-early-year")
     assert year.operation is not None and year.invoice is not None
     assert year.invoice.amount_minor == PUBLIC_ANNUAL_AMOUNT_MINOR
+    assert year.operation.request_snapshot["recurring_consent"] is False
+    assert year.invoice.plan_snapshot["recurring_consent"] is False
+    assert year_provider.create_payloads[0]["save_payment_method"] is False
 
     # The same unfinished payment is recovered instead of being charged twice.
     repeated = client.post(
@@ -558,6 +613,10 @@ def test_early_payment_extends_the_paid_period_and_keeps_the_remainder(
     assert (state.subscription.plan_code, state.subscription.cycle) == ("personal", "year")
     # One year is added to the month that was already paid for.
     assert state.subscription.paid_through == datetime(2027, 10, 10, 9, 0, tzinfo=UTC)
+    assert state.subscription.recurring_allowed is False
+    assert len(state.payment_methods) == 1
+    assert state.payment_methods[0].is_default is True
+    assert state.payment_methods[0].state == "active"
     year_grant = next(
         grant for grant in state.grants if grant.provider_payment_id == year_provider.payment_id
     )
@@ -859,7 +918,6 @@ def test_confirmed_renewal_is_atomic_and_replay_safe(
         "missing_csrf",
         "invalid_csrf",
         "offer_consent",
-        "recurring_consent",
         "stale_catalog",
         "stale_offer",
         "missing_offer_version",
@@ -907,7 +965,7 @@ def test_checkout_denials_leave_no_money_state(
         headers = {}
     elif denial == "invalid_csrf":
         headers = {"X-CSRF-Token": "not-the-session-token"}
-    elif denial in {"offer_consent", "recurring_consent"}:
+    elif denial == "offer_consent":
         data.pop(denial)
     elif denial == "stale_offer":
         data["offer_version"] = "stale-offer"
@@ -986,9 +1044,13 @@ def test_changed_offer_preserves_year_and_recalculates_promo(client, monkeypatch
     assert 'name="offer_version" value="' + PUBLIC_APPROVED_OFFER_VERSION + '"' in response.text
     assert "Оплатить 9 000 ₽ в ЮKassa" in response.text
     assert "<dt>Срок</dt><dd>Год после подтверждения оплаты</dd>" in response.text
-    assert "<dt>Автопродление</dt><dd>10 000 ₽ за год</dd>" in response.text
-    assert '<input type="checkbox" name="offer_consent" value="true" required>' in response.text
-    assert '<input type="checkbox" name="recurring_consent" value="true" required>' in response.text
+    assert '<dt data-billing-renewal-label>При автопродлении</dt>' in response.text
+    assert '<span data-billing-renewal-on>10 000 ₽ за год</span>' in response.text
+    offer = re.search(r'<input\b[^>]*name="offer_consent"[^>]*>', response.text)
+    recurring = re.search(r'<input\b[^>]*name="recurring_consent"[^>]*>', response.text)
+    assert offer is not None and recurring is not None
+    assert "required" in offer.group() and "checked" not in offer.group()
+    assert "checked" in recurring.group() and "required" not in recurring.group()
     assert provider.create_payloads == []
 
 

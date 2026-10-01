@@ -1790,6 +1790,56 @@
     target.focus();
   };
 
+  // A tab-local display preference, never payment authority or offer acceptance.
+  const billingRenewalPreferenceKey = () => {
+    const scope = ["graf-time-user", "graf-workspace", "graf-time-session"].map(name =>
+      document.querySelector(`meta[name="${name}"]`)?.content || "");
+    return scope.every(Boolean) ? `graf-checkout-renewal:${scope.join(":")}` : null;
+  };
+
+  const renderBillingRenewalChoice = (page, enabled) => {
+    page.querySelectorAll("[data-billing-renewal-on], [data-billing-next-attempt]")
+      .forEach(element => { element.hidden = !enabled; });
+    page.querySelectorAll("[data-billing-renewal-off]")
+      .forEach(element => { element.hidden = enabled; });
+    const label = page.querySelector("[data-billing-renewal-label]");
+    if (label) label.textContent = "Автопродление";
+    const nextLabel = page.querySelector("[data-billing-next-label]");
+    if (nextLabel) nextLabel.textContent = "Следующее списание";
+  };
+
+  const initBillingRenewalChoice = () => {
+    const page = document.querySelector("main.billing-checkout-page");
+    if (!page) return;
+    const checkbox = page.querySelector('input[name="recurring_consent"]');
+    const key = billingRenewalPreferenceKey();
+    let enabled = checkbox?.checked ?? true;
+    if (checkbox?.dataset.renewalReady && checkbox.dataset.renewalScope !== (key || "")) {
+      enabled = checkbox.defaultChecked;
+    }
+    if (key) {
+      try {
+        const saved = sessionStorage.getItem(key);
+        if (saved === "true" || saved === "false") enabled = saved === "true";
+      } catch (_) { /* The current native checkbox remains usable without storage. */ }
+    }
+    if (checkbox) {
+      checkbox.checked = enabled;
+      checkbox.dataset.renewalScope = key || "";
+      if (checkbox.dataset.renewalReady !== "true") {
+        checkbox.dataset.renewalReady = "true";
+        checkbox.addEventListener("change", () => {
+          const currentKey = billingRenewalPreferenceKey();
+          if (currentKey) {
+            try { sessionStorage.setItem(currentKey, String(checkbox.checked)); } catch (_) { /* Optional storage. */ }
+          }
+          renderBillingRenewalChoice(page, checkbox.checked);
+        });
+      }
+    }
+    renderBillingRenewalChoice(page, enabled);
+  };
+
   const initAuthTransition = () => {
     const page = document.querySelector(".auth-page");
     if (!page || page.dataset.authTransitionReady === "true") return;
@@ -8895,6 +8945,7 @@
     initListDisclosures();
     initCodeForms();
     initOutcomeFocus();
+    initBillingRenewalChoice();
     initBillingFocus();
     initMeetingList();
     announceUploadProgress();
@@ -9035,6 +9086,7 @@
   });
 
   window.addEventListener("pageshow", (event) => {
+    initBillingRenewalChoice();
     updateSelection();
     if (event.persisted) refreshMeetingList();
   });

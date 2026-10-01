@@ -13,17 +13,20 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import httpx
 import pytest
 from sqlalchemy import select
 
 from tests.integration.test_billing_discount_presentation import owner as owner
 from tests.integration.test_billing_discount_presentation import seed_campaign
-from tests.unit.test_billing_money_path_e2e import USER_ID
+from tests.unit.test_billing_money_path_e2e import USER_ID, _FakeYooKassa
 from twobrain_rec_server.auth.dependencies import (
     AUTH_SESSION_COOKIE_NAME,
     DEV_AUTH_SESSION_COOKIE_NAME,
 )
 from twobrain_rec_server.billing.promotions import promo_code_hash
+from twobrain_rec_server.billing.yookassa import YooKassaClient
+from twobrain_rec_server.cabinet.web_routes import billing as routes
 from twobrain_rec_server.db.models import (
     BillingInvoice,
     BillingOperation,
@@ -65,6 +68,16 @@ def test_promo_survives_real_submit_reload_and_return(
             await db.commit()
 
     asyncio.run(configure_annual_receipt())
+    provider = _FakeYooKassa()
+    if receipt_verified:
+        monkeypatch.setattr(routes, "YooKassaClient", lambda settings: YooKassaClient(
+            settings, transport=httpx.MockTransport(provider.handle)))
+
+    async def no_money_side_effects():
+        async with client.app_state["sessionmaker"]() as db:
+            for model in (BillingOperation, BillingInvoice, PromotionRedemption):
+                assert await db.scalar(select(model.id)) is None
+        assert provider.create_payloads == []
     # Use the project's supported local HTTP cookie, retaining the actual issued
     # database session and CSRF subject. Production __Host cookies require TLS.
     session_token = client.cookies.get(AUTH_SESSION_COOKIE_NAME)
@@ -81,7 +94,7 @@ def test_promo_survives_real_submit_reload_and_return(
 
         def forward(self):
             path = urlsplit(self.path).path
-            if self.command == "POST" and path not in {"/billing/checkout/preview", "/billing/discounts/apply"}:
+            if self.command == "POST" and path not in {"/billing/checkout/preview", "/billing/discounts/apply", "/billing/checkout/start"}:
                 errors.append("unexpected_post")
                 self.send_error(405)
                 return
@@ -91,6 +104,9 @@ def test_promo_survives_real_submit_reload_and_return(
                 if key.lower() not in {"host", "connection", "accept-encoding", "content-length"}
             }
             try:
+                if self.command == "POST" and path == "/billing/checkout/start":
+                    assert receipt_verified
+                    asyncio.run(no_money_side_effects())
                 # Supplying only browser Cookie prevents TestClient's jar from
                 # masking a browser that failed to persist or send the draft.
                 client.cookies.clear()
@@ -99,8 +115,8 @@ def test_promo_survives_real_submit_reload_and_return(
                     headers=headers, content=request_body, follow_redirects=False,
                 )
                 client.cookies.clear()
-            except Exception:
-                errors.append("asgi_request_failed")
+            except Exception as exc:
+                errors.append(f"asgi_request_failed:{type(exc).__name__}")
                 self.send_error(500)
                 return
             trace.append((self.command, path, response.status_code))
@@ -135,18 +151,21 @@ def test_promo_survives_real_submit_reload_and_return(
         )
         # The runner emits only synthetic check counts and a named failure stage.
         assert result.returncode == 0, (
-            result.stderr + " Route statuses: " + repr([
-                row for row in trace if row[1] in {"/billing/checkout", "/billing/checkout/preview", "/billing/discounts/apply"}
+            result.stderr + " Bridge errors: " + repr(errors) + " Route statuses: " + repr([
+                row for row in trace if row[1] in {"/billing/checkout", "/billing/checkout/preview", "/billing/checkout/start", "/billing/discounts/apply"}
             ])
         )
         proof = json.loads(result.stdout)
         assert proof["engine"] == os.environ.get("GRAF_BROWSER", "chromium")
         assert proof["viewports"] == [320, 1280]
         assert proof["external_requests"] == 0
-        assert proof["submit_redirects"] == 36
+        assert proof["submit_redirects"] == (38 if receipt_verified else 36)
+        assert proof["provider_redirects"] == int(receipt_verified)
         assert proof["receipt_verified"] == receipt_verified
         assert not errors
-        assert sum(row == ("POST", "/billing/checkout/preview", 303) for row in trace) == 32
+        assert sum(row == ("POST", "/billing/checkout/preview", 303) for row in trace) == (33 if receipt_verified else 32)
+        assert sum(row == ("POST", "/billing/checkout/start", 303) for row in trace) == (2 if receipt_verified else 0)
+        assert sum(row == ("POST", "/billing/checkout/start", 409) for row in trace) == int(receipt_verified)
         assert sum(row == ("POST", "/billing/discounts/apply", 303) for row in trace) == 4
         assert sum(row == ("GET", "/billing/checkout", 200) for row in trace) >= 30
     finally:
@@ -156,9 +175,16 @@ def test_promo_survives_real_submit_reload_and_return(
         config.unlink(missing_ok=True)
         client.cookies.clear()
 
-    async def no_money_side_effects():
+    async def one_period_payment():
         async with client.app_state["sessionmaker"]() as db:
-            for model in (BillingOperation, BillingInvoice, PromotionRedemption):
-                assert await db.scalar(select(model.id)) is None
+            operation = (await db.scalars(select(BillingOperation))).one()
+            invoice = (await db.scalars(select(BillingInvoice))).one()
+            assert operation.request_snapshot["recurring_consent"] is False
+            assert invoice.plan_snapshot["recurring_consent"] is False
+            assert operation.request_snapshot["offer_consent"] is True
+            assert invoice.amount_minor == 900_000
+            assert invoice.plan_snapshot["cycle"] == "year"
+        assert len(provider.create_payloads) == 1
+        assert provider.create_payloads[0]["save_payment_method"] is False
 
-    asyncio.run(no_money_side_effects())
+    asyncio.run(one_period_payment() if receipt_verified else no_money_side_effects())

@@ -1,6 +1,6 @@
 # F280 — данные представления
 
-Новых таблиц, полей БД, API или денежных правил нет. Существующие `BillingPurchaseQuote`, `BillingOperation`, `BillingInvoice`, `WorkspaceSubscription` и каталог остаются источником правды.
+Новых таблиц, полей БД или API нет. Денежные правила до FR-019 не менялись; дополнение ниже допускает один оплаченный период без продления. Существующие `BillingPurchaseQuote`, `BillingOperation`, `BillingInvoice`, `WorkspaceSubscription` и каталог остаются источником правды.
 
 | Представление | Источник | Инвариант |
 | --- | --- | --- |
@@ -11,7 +11,7 @@
 | Продолжение счета | workspace-scoped invoice/operation | Только существующая операция, никакой выдачи чужого safe_number |
 | Результат услуги | operation.state + reconciliation_detail | Успешный платеж с невыданной/частичной услугой не становится «не найден»/обычным success |
 
-Переходы платежей/согласий/авторизации не меняются. Представление различает unknown, pending, terminal cancel/failure, succeeded, succeeded_refused, service_gap. Неизвестный reason получает нейтральное сообщение о проверке доступа, не выдуманную причину. Повторный GET/refresh не создает новый платеж. Суммы, валюта, сроки, offer version и idempotency перепроверяются прежними серверными правилами.
+Переходы платежей/авторизации не меняются; выбор продления отдельно уточнён FR-019/020. Представление различает unknown, pending, terminal cancel/failure, succeeded, succeeded_refused, service_gap. Неизвестный reason получает нейтральное сообщение о проверке доступа, не выдуманную причину. Повторный GET/refresh не создает новый платеж. Суммы, валюта, сроки, offer version и idempotency перепроверяются прежними серверными правилами.
 
 
 ## Кратковременный выбор промокода, продолжение 2026-10-01
@@ -20,4 +20,11 @@
 
 Сервер до использования проверяет целостность, формат, `now < expiry` и точную текущую связь трёх границ. Отсутствующий session/key, legacy/corrupt/foreign/expired draft дают отсутствие выбора. В форме используется безопасное экранирование; любой код вновь проходит нормализацию, условия акции и свежий расчёт, ошибочный draft не означает скидку. Валидный явный query cycle приоритетен, без query восстанавливается saved cycle; смена периода не продлевает expiry. GET и start errors сохраняют оставшийся срок, не обновляют 300 секунд.
 
-Absent → explicit apply/replace → draft; повторное чтение остаётся в draft. Empty input/remove, срок, другая связка или созданная авторитетная операция → absent. Quote/invoice/operation остаются финансовым источником правды; draft не заменяет их, consent не сохраняется.
+Absent → explicit apply/replace → draft; повторное чтение остаётся в draft. Empty input/remove, срок, другая связка или созданная авторитетная операция → absent. Quote/invoice/operation остаются финансовым источником правды; draft не заменяет их, принятие оферты не сохраняется; отдельный выбор продления определён ниже.
+
+
+## Выбор продления и финансовые снимки, FR-019/020
+
+Существующий request_snapshot.recurring_consent и invoice.plan_snapshot.recurring_consent — строго bool, фактический выбор денежного POST; True/False оба допустимы, missing/string/number в provider snapshot отвергаются. False→provider save_payment_method=False→подтверждённый оплаченный период→recurring_allowed=False; неожиданная saved card не сохраняется. True сохраняет нынешнюю проверку bank card, key и актуального владельца. Версия recurring_authority_version защищает более новую отмену от позднего результата; не заменяется клиентским выбором. Повтор той же операции не меняет снимок.
+
+Визуальный выбор оформления: sessionStorage bool true/false, ключ из существующих meta UUID user/workspace/session; это не авторизация и не подписанный promo draft. Нет цены/quote/принятия оферты/карты/права списания. Новая вкладка без перенесённого выбора→True; explicit False→False в той же вкладке через promo/cycle/reload/errors до завершения браузерной сессии. Неизвестное значение/неполный контекст→default, чужая тройка не читается. API/cookie schema без изменений. Стандартный opener может клонировать sessionStorage браузером. При storage failure выбор работает внутри документа, перенос best effort. Ни promo, ни quote, ни offer не хранятся в URL или JavaScript storage. Immutable bool принятой операции остаётся только авторитетным снимком денег; визуальное предпочтение не включает существующую отменённую подписку.
