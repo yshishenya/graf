@@ -82,3 +82,49 @@ def test_example_keeps_unknowns_conditions_and_plaintext_template_order():
     assert offsets == sorted(offsets)
     assert "[имя / не назначен]" in copy and "[дата и время / не согласован]" in copy
     assert "<" not in copy
+
+
+def test_protocol_guide_counts_visits_and_preserves_campaign_without_optional_tracking(
+    client, postgres_seeded_database_url, monkeypatch, tmp_path,
+):
+    import asyncio
+    import json
+
+    import sqlalchemy as sa
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from twobrain_rec_server.public.analytics import PUBLIC_VISIT_ATTRIBUTION_COOKIE
+
+    monkeypatch.setenv("GRAF_PRODUCT_ANALYTICS_LEGAL_BASIS_STATE_FILE", str(tmp_path / "missing.json"))
+
+    async def read_rows(table):
+        engine = create_async_engine(postgres_seeded_database_url, poolclass=NullPool)
+        try:
+            async with engine.connect() as connection:
+                result = await connection.execute(sa.text(f"select * from {table}"))
+                return [dict(row._mapping) for row in result]
+        finally:
+            await engine.dispose()
+
+    response = client.get(PATH + "?utm_source=example&utm_medium=organic&utm_campaign=protocol&token=synthetic-secret")
+    assert response.status_code == 200 and "<script" not in response.text
+    assert PUBLIC_VISIT_ATTRIBUTION_COOKIE in response.cookies
+    assert client.get(PATH).status_code == 200
+    buckets = asyncio.run(read_rows("anonymous_page_aggregate_buckets"))
+    assert len(buckets) == 1 and buckets[0]["visits"] == 2
+    assert buckets[0]["surface"] == "public_protocol_guide"
+    assert buckets[0]["landing_path"] == PATH
+    assert buckets[0]["source"] == "example" and buckets[0]["campaign"] == "protocol"
+    visits = asyncio.run(read_rows("public_visit_attributions"))
+    assert len(visits) == 1
+    assert visits[0]["landing_path"] == PATH and visits[0]["campaign"] == "protocol"
+    assert "synthetic-secret" not in json.dumps([buckets, visits], default=str)
+    client.get("/download")
+    downloads = [row for row in asyncio.run(read_rows("anonymous_page_aggregate_buckets")) if row["surface"] == "public_download"]
+    assert len(downloads) == 1 and downloads[0]["landing_path"] == PATH
+    assert downloads[0]["campaign"] == "protocol"
+    client.app.state.settings.product_analytics_anonymous_aggregate_enabled = False
+    assert client.get(PATH).status_code == 200
+    guide_rows = [row for row in asyncio.run(read_rows("anonymous_page_aggregate_buckets")) if row["surface"] == "public_protocol_guide"]
+    assert guide_rows[0]["visits"] == 2

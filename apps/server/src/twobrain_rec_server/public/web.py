@@ -159,10 +159,14 @@ async def public_mac_meeting_guide(request: Request) -> HTMLResponse:
 
 
 @router.get(PROTOCOL_GUIDE_PATH, response_class=HTMLResponse, include_in_schema=False)
-async def public_meeting_protocol_guide(request: Request) -> HTMLResponse:
+async def public_meeting_protocol_guide(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
     return await public_page_response(
         request,
         "public/meeting_protocol_guide.html",
+        db=db,
         page_title="Протокол встречи из записи: пример решений и задач — ГРАФ",
         social_description="Как превратить расшифровку в протокол встречи: учебный диалог, пример решений и задач, шаблон и проверка ответственных, сроков и договоренностей.",
     )

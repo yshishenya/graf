@@ -73,6 +73,7 @@ from twobrain_rec_server.product_analytics.traffic_class import (
 PUBLIC_PAGE_SURFACES = {
     "/": "public_landing",
     "/download": "public_download",
+    "/guides/protokol-vstrechi-iz-zapisi": "public_protocol_guide",
     "/privacy": "public_privacy",
     "/cookies": "public_cookies",
     "/terms": "public_terms",

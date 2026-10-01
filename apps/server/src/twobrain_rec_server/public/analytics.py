@@ -81,6 +81,7 @@ PUBLIC_ANALYTICS_VALIDATION_MODES = {"disabled", "render_only", "provider_smoke"
 PUBLIC_ANALYTICS_SURFACES = {
     "/": "public_landing",
     "/download": "public_download",
+    "/guides/protokol-vstrechi-iz-zapisi": "public_protocol_guide",
     "/sign-up": "public_signup",
     "/login": "public_login",
     "/privacy": "public_privacy",
