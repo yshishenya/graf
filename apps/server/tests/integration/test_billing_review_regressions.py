@@ -27,7 +27,7 @@ from twobrain_rec_server.db.models import (
     WorkspaceSubscription,
 )
 
-CREATION_REJECTED_MESSAGE = "Оплата не началась. Попробуйте ещё раз или напишите в поддержку."
+CREATION_REJECTED_MESSAGE = "Оплата не началась. Попробуйте еще раз или напишите в поддержку."
 RECURRING_UNAVAILABLE_MESSAGE = (
     "Оплата не началась. Автопродление недоступно. Вернитесь к оплате и снимите галочку "
     "автоматических списаний, чтобы оплатить один период."
