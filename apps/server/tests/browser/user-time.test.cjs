@@ -2,7 +2,7 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const assert = require('node:assert/strict');
 const code = fs.readFileSync(require('node:path').join(__dirname, '../../src/twobrain_rec_server/cabinet/static/cabinet/user-time.js'), 'utf8');
-const run = ({allow = false, cookieEnabled = true, server = 'UTC', storage = new Map(), deviceZone, preferred = ""} = {}) => {
+const run = ({allow = false, cookieEnabled = true, server = 'UTC', storage = new Map(), deviceZone = 'Asia/Yekaterinburg', preferred = ""} = {}) => {
  let saved = '', reloads = 0;
  const document = {querySelector: (q) => ({content: q.includes('graf-time-preferred') ? preferred : q.includes('graf-timezone') ? server : String(allow)})};
  Object.defineProperty(document, 'cookie', {get: () => saved, set: (v) => {if(cookieEnabled) saved = v.split(';')[0]}});

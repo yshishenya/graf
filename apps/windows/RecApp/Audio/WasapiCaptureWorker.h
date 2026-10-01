@@ -39,6 +39,7 @@ enum class CaptureWorkerError {
     // разрешении, и человеку нужно сказать именно это, а не «устройство
     // отключилось».
     accessDenied,
+    stopFailed,
 };
 
 struct CaptureWorkerConfig {
@@ -79,6 +80,9 @@ public:
 
 private:
     friend struct CaptureSessionTestPeer;
+    // Shared by the native Stop call and fault-injection tests. Never clears
+    // an earlier capture failure; published before the completion fence.
+    void completeNativeStop(std::int32_t hresult) noexcept;
     // The device loop and packet regressions share copy/release/normalization.
     [[nodiscard]] bool consumePacket(ClockMapper& mapper, AudioNormalizer& normalizer,
         ClockObservation packet, const void* data, std::uint16_t channels, bool float32,

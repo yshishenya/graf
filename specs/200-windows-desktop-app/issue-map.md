@@ -94,5 +94,18 @@
 - [T103](https://github.com/yshishenya/graf/issues/7280)
 - [T104](https://github.com/yshishenya/graf/issues/7281)
 - [T105](https://github.com/yshishenya/graf/issues/7282)
+- [T113](https://github.com/yshishenya/graf/issues/7348)
 - [T106](https://github.com/yshishenya/graf/issues/7283)
 - [T107](https://github.com/yshishenya/graf/issues/7284)
+- [T108](https://github.com/yshishenya/graf/issues/7342)
+- [T109](https://github.com/yshishenya/graf/issues/7343)
+- [T110](https://github.com/yshishenya/graf/issues/7344)
+- [T111](https://github.com/yshishenya/graf/issues/7345)
+- [T112](https://github.com/yshishenya/graf/issues/7346)
+
+Сверка 2026-09-27: для T001–T107 подтверждены открытые владельцы; перед созданием
+T108–T112 проверены открытые и закрытые issues фичи, дублей не найдено.
+Requirements review 112/112 и analyze 0 critical/high/medium от 27 сентября
+предшествуют синхронизации. Обязательные ensure/validate завершились успешно;
+validate проверил 300 открытых Spec Kit issues. Ни одна задача не закрыта по
+этому административному результату; приёмка реализации и выпуск остаются отдельно.

@@ -238,6 +238,15 @@ media revision, upload session and accepted ranges.
 
 ## 8. WebViewBridgeEnvelope
 
+Уточнение 2026-09-27: `request_app_update` использует тот же проверяемый envelope
+и строго пустой payload. Это просьба открыть нативную проверку, не передача
+пакета/адреса/команды установки. `GRAFDesktopPlatform` — конечное значение
+`windows` или `macos` для представления общей страницы; отсутствие сохраняет
+совместимость отображения старого Mac. Значение не даёт полномочий и не
+сохраняется в данных встречи. UI обновления хранит только эфемерные состояния
+checking/current/available/unavailable/error и generation; неизвестный источник
+не приравнивается к current. Сохранённые схемы записей/очереди не меняются.
+
 Web-to-native requests use this JSON shape; native display messages are
 specified separately in `contracts/windows-native-web-bridge.md` §4:
 
@@ -262,7 +271,7 @@ Rules:
 - native validates `Source`, exact origin, route kind, version, direction,
   message id, payload size and command-specific payload before action;
 - only `request_app_quit`, `local_recording`, `app_appearance`,
-  `native_settings` and `delete_selection` are accepted as requests;
+  `native_settings`, `delete_selection` and `request_app_update` are accepted as requests;
   their exact payloads and current-state checks are defined in the bridge
   contract; obsolete settings/diagnostics/repair/acknowledgement aliases fail;
 - web receives `native_ready`, typed settings replies, deletion outcomes and
@@ -377,3 +386,21 @@ webview_runtime_unavailable
 
 Reason code text is product-owned and localized at the UI layer. Diagnostics may
 include counts and durations, but never the content that was spoken or recorded.
+
+## 11. Отменённый проект системных попыток (T104, 2026-09-27)
+
+Историческое исследование, НЕ модель для реализации: пользователь 28 сентября
+выбрал F277 с единственным собственным каналом. Журнал ниже не создаётся;
+действующее состояние определено в contracts/f277-notifications-parity.md.
+
+Отдельно от настроек и аудиозаписей хранится минимальный журнал схемы v1:
+хешированный ключ owner/workspace/event occurrence, plannedDue, validUntil,
+состояние reservation. StartsAt не входит в идентичность попытки. Сначала
+устойчиво записывается запрет повторной попытки, затем будущая reservation;
+сбой между записями остаётся безопасным молчанием, не повторной доставкой.
+Будущая reservation допускает сверку/замену до due; после due факт попытки
+не снимается по отсутствию уведомления в очереди. Идентификаторы очереди ОС
+связываются с хешированным ключом; названия, ссылки, аудио и токены не хранятся
+в этом журнале. Контекст ограничивает доступ и очистку системных заявок.
+Повреждение/неизвестная схема не разрешают повтор; диагностика только кодом.
+Журнал не является доказательством фактического показа или звука.

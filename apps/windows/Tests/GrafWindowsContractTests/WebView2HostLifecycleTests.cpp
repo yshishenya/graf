@@ -13,6 +13,9 @@
 #include "../../RecApp/Web/WebView2Host.h"
 
 #include <cassert>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -27,6 +30,20 @@ using graf::windows::WebView2Host;
 using graf::windows::WebViewLocalRecordingRow;
 
 constexpr const char* kTrusted = "https://rec.2brain.pro";
+
+void testNotificationV2IsNotStoppedByRecordingV1HostGuard() {
+    // The real native dispatch is behind _WIN32. Pin its wiring as well as the
+    // portable parser tests; this is not a live WebView messaging test.
+    const auto root = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
+    std::ifstream input(root / "RecApp/Web/WebView2Host.cpp");
+    assert(input.is_open());
+    const std::string text{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+    const auto begin = text.find("const auto request = payload.GetNamedObject(L\"request\")");
+    const auto parse = text.find("NativeSettingsBridge::parseNotificationPayload(", begin);
+    const auto recordingVersion = text.find("request.GetNamedNumber(L\"version\") != 1.0", begin);
+    assert(begin != std::string::npos && parse != std::string::npos && recordingVersion != std::string::npos);
+    assert(parse < recordingVersion); // recording-only v1 guard, after the notification branch
+}
 
 std::string lastNavigation(std::vector<RouteEvaluation>& seen) {
     assert(!seen.empty());
@@ -157,6 +174,75 @@ void testDocumentResponseLatch() {
     }
 }
 
+void testHttpErrorDocumentGate() {
+    using namespace graf::windows;
+    const auto login = std::string(kTrusted) + "/login";
+    const auto email = std::string(kTrusted) + "/desktop/settings/account/email-link/start";
+    for (const bool headersFirst : {false, true}) {
+        for (const int status : {400, 429, 503}) {
+            for (const auto& target : {login, email}) {
+                WebView2Host host;
+                (void)host.beginDocumentNavigation(target, 1, false, 0, "");
+                const auto tag = host.documentRequestTag(target);
+                if (headersFirst)
+                    assert(host.observeDocumentResponseHeaders(target, tag, "document", "POST", {status, true, "text/html"}));
+                assert(host.observeDocumentCompletion(target, 1, status, false, true, 1));
+                if (!headersFirst) {
+                    assert(host.tryFinishDocumentNavigation(2) == WebResponseDecision::ignore);
+                    assert(!host.observeDocumentResponseHeaders(target, tag, "iframe", "POST", {status, true, "text/html"}));
+                    assert(host.observeDocumentResponseHeaders(target, tag, "document", "POST", {status, true, "text/html"}));
+                }
+                assert(host.tryFinishDocumentNavigation(3) == WebResponseDecision::interactiveForm);
+                assert(host.runtimeState() != WebRuntimeState::ready);
+            }
+        }
+    }
+    for (const int status : {0, 200, 400, 503}) {
+        WebView2Host host;
+        (void)host.beginDocumentNavigation(login, 1, false, 0, "");
+        assert(host.observeDocumentResponseHeaders(login, host.documentRequestTag(login), "document", "GET", {status, true, "text/html"}));
+        // A known transport/cancellation error cannot become a form solely
+        // because response headers or an HTTP error status were observed.
+        assert(host.observeDocumentCompletion(login, 1, status, false, false, 1));
+        assert(host.tryFinishDocumentNavigation(2) == WebResponseDecision::unavailable);
+    }
+    WebView2Host missing;
+    (void)missing.beginDocumentNavigation(login, 1, false, 0, "");
+    assert(missing.observeDocumentCompletion(login, 1, 400, false, true, 1));
+    assert(missing.tryFinishDocumentNavigation(2) == WebResponseDecision::ignore);
+    assert(missing.tryFinishDocumentNavigation(5001) == WebResponseDecision::unavailable);
+}
+
+void testAuthRecoveryPresentation() {
+    using namespace graf::windows;
+    for (const bool reselect : {false, true}) {
+        WebView2Host host;
+        const auto page = std::string(kTrusted) + "/billing/checkout?source=synthetic#details";
+        assert(host.pendingAuthRecovery() == WebResponseDecision::ignore);
+        int cleared = 0;
+        host.setAuthSessionHandler([&](std::string value) { assert(value.empty()); ++cleared; });
+        (void)host.beginDocumentNavigation(page, 1, false, 0, "GET");
+        const auto reason = reselect ? WebResponseDecision::workspaceReselection : WebResponseDecision::expiredSession;
+        assert(host.completeDocumentNavigation(page, 1,
+            {reselect ? 503 : 401, true, "text/html", reselect ? "reselect-space" : ""}, 1) == reason);
+        assert(cleared == 1 && host.pendingAuthRecovery() == reason);
+        assert(host.runtimeState() == WebRuntimeState::authRequired);
+        assert(host.currentUrl() == page);
+        const auto target = host.recoveryUrl();
+        assert(target == std::string(kTrusted) + "/login?next=%2Fbilling%2Fcheckout");
+        // The native button chooses the validated GET target, not reload of the failed action.
+        assert(host.navigate(target).decision == RouteDecision::allow);
+        (void)host.beginDocumentNavigation(target, 2, false, 2, "GET");
+        assert(host.pendingAuthRecovery() == WebResponseDecision::ignore);
+        assert(host.completeDocumentNavigation(target, 2, {429, true, "text/html"}, 3) == WebResponseDecision::interactiveForm);
+        assert(host.runtimeState() == WebRuntimeState::authRequired);
+        assert(host.pendingAuthRecovery() == WebResponseDecision::ignore); // Do not cover the working form.
+        assert(cleared == 1);
+        host.close();
+        assert(host.pendingAuthRecovery() == WebResponseDecision::ignore);
+    }
+}
+
 void testProcessFailureRecovery() {
     using namespace graf::windows;
     const auto url = std::string(kTrusted) + "/desktop/meetings";
@@ -200,7 +286,193 @@ void testProcessFailureRecovery() {
     }
 }
 
+void testPaymentPopupAdmissionAndLifetime() {
+    using namespace graf::windows;
+    const std::string billing = std::string(kTrusted) + "/billing";
+    const auto loadBilling = [&](WebView2Host& host) {
+        assert(host.beginDocumentNavigation(billing, 1, false, 0).decision == RouteDecision::allow);
+        assert(host.completeDocumentNavigation(billing, 1, {200}, 1) == WebResponseDecision::cabinet);
+        host.setRuntimeState(WebRuntimeState::ready);
+    };
+    for (const auto target : {"https://api.yookassa.ru/confirm", "https://rec.2brain.pro/billing/checkout/start"}) {
+        WebView2Host host;
+        loadBilling(host);
+        WebView2Host::PopupSource source{host.documentGeneration(), 7, 7, true};
+        int cleanups = 0;
+        assert(host.beginPaymentPopup(target, source, 100, [&] { ++cleanups; }));
+        assert(host.runtimeState() == WebRuntimeState::unprivileged);
+        assert(host.canGoBack());
+        assert(!host.canGoForward());
+        assert(!host.localRecordingActionAllowed("send", "any"));
+        assert(!host.beginPaymentPopup(target, source, 101, [] {})); // one owned child
+        assert(host.handOffPaymentPopup(source, 102));
+        assert(!host.handOffPaymentPopup(source, 103)); // no repeated NewWindow assignment
+        assert(host.evaluatePaymentPopupDocument(target, 104).decision == RouteDecision::allow);
+        assert(host.evaluatePaymentPopupDocument("https://api.yookassa.ru/confirm", 105).decision == RouteDecision::allow);
+        assert(host.evaluatePaymentPopupDocument("https://bank.test/3ds", 106).decision == RouteDecision::allow);
+        assert(host.paymentNavigationAllowedAt(106));
+        assert(host.evaluatePaymentPopupDocument(billing, 107).decision == RouteDecision::allow);
+        assert(!host.paymentNavigationAllowedAt(107)); // return ends external authority before load
+        assert(host.evaluatePaymentPopupDocument("https://bank.test/again", 108).decision == RouteDecision::deny);
+        host.cancelPaymentPopup();
+        host.close();
+        assert(cleanups == 1);
+    }
+    // URL equality cannot prove a main-frame source, even for a same-origin iframe.
+    for (int invalid = 0; invalid != 5; ++invalid) {
+        WebView2Host host;
+        loadBilling(host);
+        WebView2Host::PopupSource proof{host.documentGeneration(), 7, 7, true};
+        if (invalid == 0) proof.isMainFrame = false;
+        if (invalid == 1) proof.frameId = 0;
+        if (invalid == 2) proof.coreFrameId = 0;
+        if (invalid == 3) proof.frameId = 8;
+        if (invalid == 4) ++proof.documentGeneration;
+        assert(!host.beginPaymentPopup("https://yookassa.ru/pay", proof, 100, [] {}));
+        assert(host.runtimeState() == WebRuntimeState::ready);
+    }
+    for (const auto url : {"about:blank", "https://bank.test/first", "https://yookassa.ru.evil.test/pay",
+             "http://yookassa.ru/pay", "https://user@yookassa.ru/pay", "file:///checkout"}) {
+        WebView2Host host;
+        loadBilling(host);
+        assert(!host.beginPaymentPopup(url, {host.documentGeneration(), 7, 7, true}, 100, [] {}));
+    }
+    for (int interruption = 0; interruption != 6; ++interruption) {
+        WebView2Host host;
+        loadBilling(host);
+        const WebView2Host::PopupSource proof{host.documentGeneration(), 7, 7, true};
+        int cleanups = 0;
+        assert(host.beginPaymentPopup("https://yookassa.ru/pay", proof, 100, [&] { ++cleanups; }));
+        if (interruption == 0) (void)host.beginDocumentNavigation(billing, 2, false, 101);
+        if (interruption == 1) host.close();
+        if (interruption == 2) host.handleProcessFailure(WebProcessFailure::renderExited, 0);
+        if (interruption == 3) host.setRuntimeState(WebRuntimeState::authRequired);
+        if (interruption == 4) assert(!host.handOffPaymentPopup(proof, 900100));
+        if (interruption == 5) assert(!host.handOffPaymentPopup({proof.documentGeneration, 8, 8, true}, 101));
+        if (interruption >= 4) {
+            assert(host.runtimeState() == WebRuntimeState::unavailable);
+            assert(host.failureDetail().find("payment-popup-binding") == 0);
+            assert(!host.localRecordingActionAllowed("send", "any"));
+        }
+        assert(!host.handOffPaymentPopup(proof, 102));
+        host.cancelPaymentPopup();
+        assert(cleanups == 1);
+        assert(!host.paymentNavigationAllowedAt(102));
+    }
+    {
+        WebView2Host host;
+        loadBilling(host);
+        const WebView2Host::PopupSource old{host.documentGeneration(), 7, 7, true};
+        assert(host.beginPaymentPopup("https://yookassa.ru/pay", old, 100, [] {}));
+        (void)host.beginDocumentNavigation(billing, 2, false, 101);
+        assert(host.completeDocumentNavigation(billing, 2, {200}, 102) == WebResponseDecision::cabinet);
+        host.setRuntimeState(WebRuntimeState::ready);
+        const WebView2Host::PopupSource current{host.documentGeneration(), 9, 9, true};
+        int currentCleanups = 0;
+        assert(host.beginPaymentPopup("https://yookassa.ru/pay", current, 103, [&] { ++currentCleanups; }));
+        assert(!host.handOffPaymentPopup(old, 104));
+        assert(currentCleanups == 0 && host.failureDetail().empty());
+        assert(host.handOffPaymentPopup(current, 105));
+        assert(!host.localRecordingActionAllowed("send", "any"));
+        host.close();
+        assert(currentCleanups == 1);
+    }
+    for (const bool reload : {false, true}) {
+        WebView2Host host;
+        loadBilling(host);
+        int cleanups = 0;
+        std::vector<RouteEvaluation> navigations;
+        host.setNavigationHandler([&](RouteEvaluation route) { navigations.push_back(std::move(route)); });
+        assert(host.beginPaymentPopup("https://yookassa.ru/pay", {host.documentGeneration(), 7, 7, true}, 100, [&] { ++cleanups; }));
+        host.forward();
+        assert(navigations.empty());
+        if (reload) host.reload(); else host.back();
+        assert(cleanups == 1 && navigations.size() == 1);
+        assert(navigations.front().normalizedUrl == billing);
+    }
+    {
+        WebView2Host host;
+        loadBilling(host);
+        const WebView2Host::PopupSource proof{host.documentGeneration(), 7, 7, true};
+        int cleanups = 0;
+        assert(host.beginPaymentPopup("https://rec.2brain.pro/billing/checkout/start", proof, 100, [&] { ++cleanups; }));
+        assert(host.handOffPaymentPopup(proof, 101));
+        // Same-origin checkout is not a licence for a first arbitrary bank hop.
+        assert(host.evaluatePaymentPopupDocument("https://bank.test/first", 102).decision == RouteDecision::deny);
+        assert(cleanups == 1);
+        assert(!host.paymentNavigationAllowedAt(102));
+    }
+}
+
+void testNestedPaymentPopupKeepsOriginalDeadline() {
+    using namespace graf::windows;
+    WebView2Host host;
+    const auto billing = std::string(kTrusted) + "/billing";
+    (void)host.beginDocumentNavigation(billing, 1, false, 0);
+    (void)host.completeDocumentNavigation(billing, 1, {200}, 1);
+    host.setRuntimeState(WebRuntimeState::ready);
+    const auto generation = host.documentGeneration();
+    int parentCleanup = 0, childCleanup = 0;
+    assert(host.beginPaymentPopup("https://yookassa.ru/pay", {generation, 7, 7, true}, 100, [&] { ++parentCleanup; }));
+    assert(host.handOffPaymentPopup({generation, 7, 7, true}, 101));
+    assert(host.paymentPopupChildCurrent(generation, 1, 101));
+    assert(!host.bindPaymentPopupFrame(0, generation, 1, 101));
+    assert(!host.bindPaymentPopupFrame(11, generation + 1, 1, 101));
+    assert(host.bindPaymentPopupFrame(11, generation, 1, 101));
+    assert(host.evaluatePaymentPopupDocument("https://yookassa.ru/pay", 102).decision == RouteDecision::allow);
+    assert(!host.beginPaymentPopup("https://bank.test/3ds", {generation, 7, 7, true}, 200, [] {}));
+    assert(!host.beginPaymentPopup("https://bank.test/3ds", {generation, 12, 11, false}, 200, [] {}));
+    assert(host.beginPaymentPopup("https://bank.test/3ds", {generation, 11, 11, true}, 900098, [&] { ++childCleanup; }));
+    assert(host.handOffPaymentPopup({generation, 11, 11, true}, 900099));
+    assert(!host.paymentPopupChildCurrent(generation, 1, 900099));
+    assert(!host.bindPaymentPopupFrame(11, generation, 1, 900099));
+    assert(host.paymentPopupChildCurrent(generation, 2, 900099));
+    // Replacing the active child revokes the previous opener immediately, even
+    // before the new child's first ContentLoading supplies a positive frame ID.
+    assert(!host.beginPaymentPopup("https://bank.test/stale", {generation, 11, 11, true}, 900099, [] {}));
+    assert(host.bindPaymentPopupFrame(17, generation, 2, 900099));
+    assert(!host.bindPaymentPopupFrame(11, generation, 1, 900099));
+    assert(host.paymentPopupLiveAt(900099));
+    assert(!host.paymentPopupLiveAt(900100));
+    assert(host.evaluatePaymentPopupDocument("https://bank.test/next", 900100).decision == RouteDecision::deny);
+    assert(parentCleanup == 1 && childCleanup == 1);
+    host.close();
+    assert(!host.bindPaymentPopupFrame(17, generation, 2, 900099));
+    assert(parentCleanup == 1 && childCleanup == 1);
+}
+
+void testLatePopupReturnKeepsParentDeadline() {
+    using namespace graf::windows;
+    WebView2Host host;
+    const auto billing = std::string(kTrusted) + "/billing";
+    const std::string provider = "https://yookassa.ru/pay";
+    (void)host.beginDocumentNavigation(billing, 1, false, 0);
+    assert(host.completeDocumentNavigation(billing, 1, {200}, 1) == WebResponseDecision::cabinet);
+    host.setRuntimeState(WebRuntimeState::ready);
+    assert(host.beginDocumentNavigation(provider, 2, false, 100).decision == RouteDecision::allow);
+    assert(host.completeDocumentNavigation(provider, 2, {200}, 101) == WebResponseDecision::externalDocument);
+    const WebView2Host::PopupSource source{host.documentGeneration(), 7, 7, true};
+    int cleanups = 0;
+    assert(host.beginPaymentPopup("https://bank.test/3ds", source, 899000, [&] { ++cleanups; }));
+    assert(host.handOffPaymentPopup(source, 899001));
+    assert(host.bindPaymentPopupFrame(11, source.documentGeneration, 1, 899002));
+    assert(host.evaluatePaymentPopupDocument(billing, 899999).decision == RouteDecision::allow);
+    assert(!host.paymentNavigationAllowedAt(899999)); // Return stopped external authority.
+    assert(host.paymentPopupLiveAt(899999));
+    assert(!host.paymentPopupLiveAt(900100)); // But must not reset the parent's clock.
+    assert(host.evaluatePaymentPopupDocument(billing, 900100).decision == RouteDecision::deny);
+    assert(cleanups == 1);
+    host.close();
+    assert(cleanups == 1);
+}
+
 int main() {
+    testLatePopupReturnKeepsParentDeadline();
+    testNestedPaymentPopupKeepsOriginalDeadline();
+    testPaymentPopupAdmissionAndLifetime();
+    testNotificationV2IsNotStoppedByRecordingV1HostGuard();
+    testHttpErrorDocumentGate();
+    testAuthRecoveryPresentation();
     testProcessFailureRecovery();
     testDocumentResponseLatch();
     {

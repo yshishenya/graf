@@ -34,9 +34,10 @@ void WindowsCaptureSessionController::setEndpoints(WasapiEndpointSnapshot render
     microphoneWorker_ = std::make_unique<WasapiCaptureWorker>(std::move(microphone), false);
 }
 
-TransitionResult WindowsCaptureSessionController::record(const ReadinessInputs& readiness) {
+TransitionResult WindowsCaptureSessionController::record(const ReadinessInputs& readiness, StartGuard startGuard) {
     const auto checked = session_.beginReadinessCheck();
     if (!checked.accepted()) return checked;
+    startGuard_ = std::move(startGuard);
     const auto gate = WindowsReadinessGate::evaluate(readiness);
     if (!gate.recordingReady) {
         const auto blocked = session_.block(gate.blockers[0]);
@@ -65,6 +66,10 @@ TransitionResult WindowsCaptureSessionController::pause() {
 
 TransitionResult WindowsCaptureSessionController::resume() {
     (void)pollHealth();
+    // The session transition table also allows starting -> recording. Resume
+    // must not take that edge when the readiness/automatic gate is still pending.
+    if (session_.state() != SessionState::paused)
+        return {TransitionStatus::rejected, session_.state(), session_.reason()};
     std::lock_guard<std::mutex> lock(captureMutex_);
     const auto result = session_.resume();
     if (result.accepted()) {
@@ -75,6 +80,7 @@ TransitionResult WindowsCaptureSessionController::resume() {
 }
 
 TransitionResult WindowsCaptureSessionController::pollHealth() {
+    if (checkingStart_) return {TransitionStatus::idempotent, session_.state(), session_.reason()};
     const auto state = session_.state();
     if (state == SessionState::stopping || state == SessionState::finalizing) return finishStop();
     if (state == SessionState::starting || state == SessionState::recording ||
@@ -96,9 +102,19 @@ TransitionResult WindowsCaptureSessionController::pollHealth() {
             return stop(RecordingStopReason::interruption);
         }
         if (state == SessionState::starting && renderWorker_->ready() && microphoneWorker_->ready()) {
+            // The only transition that opens audio delivery, including polls
+            // from pause/resume. Until this point even ready workers drop audio;
+            // the writer has nothing to persist or recover after a crash.
+            checkingStart_ = true;
+            bool allowed = false;
+            try { allowed = !startGuard_ || startGuard_(session_.sessionId()); }
+            catch (...) {} // A failed check never grants capture or logs its payload.
+            checkingStart_ = false;
+            if (!allowed || session_.state() != SessionState::starting)
+                return stop(RecordingStopReason::interruption);
             const auto started = session_.startRecording();
             indicator_.publish(session_.state(), session_.reason());
-            acceptingBatches_.store(true);
+            if (started.accepted()) acceptingBatches_.store(true, std::memory_order_release);
             return started;
         }
     }

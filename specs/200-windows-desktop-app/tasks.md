@@ -151,7 +151,7 @@ endpoint, clock, gap, overflow, sleep/wake, protected-audio and disk failures.
   Наличие этого пути не подтверждает полноту counters/bridge или аппаратную
   и визуальную приёмку; проверки T081/T084 остаются открытыми.
 
-- [X] T048 [US4] Добавить `apps/windows/scripts/validate-audio-contract.ps1` с synthetic, hardware-matrix, fault-injection и custody modes из quickstart.md.
+- [X] T048 [US4] Добавить `apps/windows/scripts/validate-audio-contract.ps1` для синтетических и custody-проверок из `specs/200-windows-desktop-app/quickstart.md`; аппаратная матрица выполняется вручную и учитывается в T071.
 - [X] T049 [US4] Добавить `apps/windows/Tests/GrafWindowsPackageTests/WindowsHardwareEvidenceSchemaTests.cpp` для x64 OS matrix, source/device class, state and metadata-only evidence schema.
 
 ## Phase 7: User Story 5 — Автоматическая запись по verified target (Priority: P2)
@@ -449,3 +449,53 @@ typed replies настроек/удаления. Старые task IDs/отме�
 - [ ] T105 [US2] Привести `Shell/RecordingNoticePresenter.*` и `ShortRecordingThresholdTests.cpp` к общей карточке Mac: справа сверху, без захвата фокуса, 20 секунд для короткой записи, ручное закрытие и замена без стопки. Проверить границы срока и доступность клавиатурой; использовать presenter T104. FR-002/FR-015, SC-002/SC-009 (partial, MEDIUM).
 - [ ] T106 [US3] Перенести F273 attribution handoff в Windows: валидировать только `grafrec://attribution`, сохранять один ограниченный по сроку набор разрешённых меток, использовать единый sign-in URL builder для первоначального/повторного входа; подключить штатную MSIX protocol activation без нового привилегированного моста. Пределы и 90 дней как в `ProductAttributionHandoff.swift`; malformed/expired/secret-like данные отклонять и не журналировать, неизвестную кампанию не объявлять известной; вход не зависит от аналитики. Тестировать parse/store/expiry/activation/recovery. FR-002/FR-005/FR-021, SC-002 (missing, MEDIUM).
 - [ ] T107 [US3] Сохранять разрешённые постоянные причины отказа загрузки F275 в `Upload/DesktopHttpTransport.*`, `DesktopUploadQueueService.*` и проекции действий `AppMain.cpp`; `not_retryable` не допускает ручной requeue после перезапуска, но сохраняет чтение/удаление. Тестировать отказ create/part/finalize и restart; нормальный Windows v5 остаётся совместимым. FR-002/FR-013/FR-014, SC-002 (partial, MEDIUM).
+
+## Phase 16: Convergence — устранение расхождений и итоговый паритет (2026-09-27)
+
+Основание: проверка checkpoint `a9691d4d474d918f54493d55a3aba286c749b513`
+и уточнение цели владельцем. Сверены 22 FR/10 SC, семь принципов constitution
+и пять затронутых решений плана: lifecycle, представление платформы, tray,
+фоновый фокус, обновление. Пять новых gaps: 3 contradicts/HIGH (T108–T110),
+2 missing/MEDIUM (T111–T112); отсутствие новых constitution violations.
+Напоминания offset/sound продолжаются в T104, popup — в T102, новая общая
+визуальная приёмка — T097, полная доказательная матрица — T063/T071.
+Эти открытые работы повторно не нумеруются и их критерии не сокращаются.
+
+Сначала T108 и T109; T110/T111 идут после T108 в том же AppMain и не меняют
+его параллельно. T112 и T102/T103 последовательно меняют WebView host. T104
+может идти отдельно в модели/presenter до общей интеграции. Общие проверки
+двух платформ описаны в quickstart §11 и остаются частью T097/T063.
+Уточнение 2026-09-28: пользователь выбрал фактический GRAF Dev F277 на
+`51bcff6b1abfdf2a01d59a7d3f00c831674c365c`. Для T104/T105 нормативен
+`contracts/f277-notifications-parity.md`: единые компактные собственные карточки,
+offset0/1/5, quiet, история≤50, notification v2, без системного канала/раннего
+−15min показа. Эти критерии заменяют исторический двухканальный проект и сроки
+карточки T104 выше, не добавляют дубли задач. T105 включает геометрию/доступность
+общего presenter и повторный доступ к существенным результатам. T104 владеет
+моделью/настройками/приоритетами/контекстом. T109 сохраняет адресную адаптацию
+подписей, но canOpenSystemSettings не переносится в новый notification v2;
+совместимость старого Mac относится к тексту, не к retired v1 протоколу.
+Общие JS/templates F277 интегрируются после завершения T109. Старый draft
+Scheduler не входит в сборку. Перед этой частью нужен повторный review/analyze
+и сверка существующих issues #7281/#7282; T108–T111 сохраняют независимую область.
+
+С этого раунда FR-006/bridge§5 добавляют шестой узкий intent request_app_update;
+историческое описание пяти команд в Phase15 не является текущим allowlist.
+
+- [ ] T108 [US1] Разделить закрытие окна и явный выход в `apps/windows/RecApp/AppMain.cpp` и минимальной тестируемой политике `Shell/`: крестик при рабочем трее скрывает главное окно без остановки текущей записи; при недоступном фоновом управлении сохраняет окно; Quit использует единственную bounded финализацию. Добавить регрессии idle/starting/recording/paused/finalizing, повторного закрытия, отсутствия трея и возврата той же сессии; проверить установленный MSIX с видимым Stop per FR-002/FR-004/FR-015, SC-002/SC-004 (contradicts, HIGH).
+- [ ] T109 [P] [US2] Заменить whole-body адаптацию `apps/windows/RecApp/Web/NativeSettingsBridge.cpp` явным маркером платформы в `WebView2Host.cpp`, адресными служебными подписями в общем `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` и соответствующих templates. Пользовательские названия/расшифровки/атрибуты неизменны; dynamic deletion, HTMX и canOpenSystemSettings корректны; старый Mac сохраняет поведение. Удалить TreeWalker/таймеры/старые тесты замен, добавить проверки Windows/Mac/старого Mac в Chromium/WebKit и нативный contract per FR-002/FR-003/FR-006/FR-022, SC-002/SC-006/SC-009 (contradicts, HIGH).
+- [ ] T110 [US2] Исправить фоновые `automaticPromptWindow_` и `indicatorWindow_` в `apps/windows/RecApp/AppMain.cpp`: показ не активирует GRAF и не меняет foreground окна встречи; ручные действия и клавиатурный доступ/Stop сохранены. Покрыть automatic Ask/Always и manual Start, ошибки показа и повторное открытие; live проверить foreground на установленной сборке per FR-002/FR-015/FR-016, SC-002/SC-004/SC-009 (contradicts, HIGH).
+- [ ] T111 [US2] Добавить Start и Settings в `apps/windows/RecApp/Shell/WindowsTray.*`, подключить существующие действия `AppMain.cpp`, сохранять state/readiness gate и единственность записи. Регрессии состава/доступности меню и вызовов, живая проверка из скрытого главного окна, без дубля logic/UI per FR-002/FR-004/FR-015, SC-002/SC-009 (missing, MEDIUM).
+- [ ] T112 [US2] Реализовать нативную проверку обновлений Windows в `apps/windows/RecApp/Shell/` с доверенным Package/App Installer источником и bounded UI; связать общий кабинет через узкий `request_app_update` в `Web/WebViewBridge.*`/`WebView2Host.*` и `AppMain.cpp`. Не принимать URL/пакеты из страницы, не устанавливать во время записи, не называть unknown актуальной версией. Проверить current/available/unavailable/error, stale callback, закрытие, nonce/route, явный нативный install, подпись и сохранность на тестовом подписанном канале; production feed не публиковать без release approval per FR-002/FR-005/FR-006/FR-020, SC-002/SC-006/SC-008 (missing, MEDIUM).
+
+## Phase 17: Convergence — окончательный допуск автозаписи (2026-09-28)
+
+Срез: текущий controller/policy/AppMain поверх a9691d4, сравнение поведения
+F277 на 51bcff6b. Проверены FR-002/004/016, SC-002/004, решение нативного
+допуска аудио и применимые принципы I/II/III/VI/VII; одно partial/HIGH.
+Остальные открытые работы T001–T112 не дублируются. Windows до допуска
+отбрасывает пакеты и не создаёт аудиофайл: Mac-схему manifest не переносим
+без необходимости. Подтверждённый пробел — captureAccepted при starting,
+за которым pollHealth открывает приём без повторной проверки решения.
+
+- [ ] T113 [US1] Проверять окончательный допуск автоматического старта в `apps/windows/RecApp/Capture/WindowsCaptureSessionController.*`, `MeetingDetection/AutomaticRecordingPolicy.*` и `AppMain.cpp` непосредственно перед `starting → recording`/открытием приёма пакетов: решение относится к текущей сессии и поколению, цель/процесс/свежесть обнаружения/правило/готовность актуальны, отмена не принята. Не считать starting принятым стартом. Все пути pollHealth проходят один синхронный допуск; отказ завершает workers без writer append и без отправляемого пакета. Проверить задержанный второй worker со Stop/сменой правила/исчезновением или заменой процесса/устаревшим снимком; старое разрешение A не разрешает B, повтор не запускает дважды; после прерывания до допуска recovery и ручная отправка не вызывают transport; валидный старт/финализация/recovery сохраняются. Новое durable поле обязательно только если аудио допускается до окончательной проверки или появляется асинхронный промежуток: тогда pending/ошибка запрещают все upload/recovery пути. Выполнить автоматические регрессии и свежую проверку установленной сборки per FR-002/FR-004/FR-016, SC-002/SC-004, spec Session2026-09-28 / F277 FR-026–028 (partial, HIGH).

@@ -7,6 +7,27 @@ int main() {
     using P = AutomaticRecordingPreference;
     VerifiedTargetRegistry registry;
     assert(registry.registerTarget(target()));
+    // A detected but never shown prompt must not start a timer, accept an old
+    // click or persist a remembered decision. Showing starts a single full 8s.
+    Preferences unseenStorage;
+    AutomaticRecordingPolicy unseen(registry, unseenStorage.store());
+    for (int second = 0; second <= 20; ++second) {
+        const auto now = at(std::chrono::seconds(second));
+        assert(!unseen.update(snapshot(now), ready(), now).shouldStart);
+    }
+    assert(unseen.state() == AutomaticPromptState::countdown && unseen.secondsRemaining(at(20s)) == 8);
+    assert(!unseen.recordNow(true, snapshot(at(20s)), ready(), at(20s)).shouldStart);
+    assert(!unseen.refuse(true, at(20s)).preferenceSaved && unseenStorage.writes == 0);
+    assert(unseen.confirmPromptPresented(at(20s)));
+    assert(!unseen.confirmPromptPresented(at(22s)));
+    assert(unseen.secondsRemaining(at(22s)) == 6);
+    for (int second = 21; second < 28; ++second) {
+        const auto now = at(std::chrono::seconds(second));
+        assert(!unseen.update(snapshot(now), ready(), now).shouldStart);
+    }
+    const auto shownTimeout = unseen.update(snapshot(at(28s)), ready(), at(28s));
+    assert(shownTimeout.shouldStart && shownTimeout.startReason == AutomaticStartReason::promptExpired);
+    assert(unseenStorage.writes == 0);
     Preferences storage;
     AutomaticRecordingPolicy policy(registry, storage.store());
     assert(!AutomaticRecordingPrompt::view(policy, at()).visible);

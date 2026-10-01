@@ -39,12 +39,14 @@ void testUnchangedMappings() {
     assert(reasonForWorkerError(CaptureWorkerError::sinkRejected, true) == ReasonCode::queueOverflow);
     assert(reasonForWorkerError(CaptureWorkerError::clockDiscontinuity, true) == ReasonCode::clockDiscontinuity);
     assert(reasonForWorkerError(CaptureWorkerError::releaseFailed, true) == ReasonCode::endpointInvalidated);
+    assert(reasonForWorkerError(CaptureWorkerError::stopFailed, true) == ReasonCode::finalizationFailed);
+    assert(reasonForWorkerError(CaptureWorkerError::stopFailed, false) == ReasonCode::finalizationFailed);
     assert(reasonForWorkerError(CaptureWorkerError::audioClockFailed, false) == ReasonCode::endpointInvalidated);
     assert(reasonForWorkerError(CaptureWorkerError::unsupportedPlatform, false) == ReasonCode::endpointInvalidated);
 }
 
 void testEveryErrorHasAReason() {
-    const std::array<CaptureWorkerError, 17> errors{
+    const std::array<CaptureWorkerError, 18> errors{
         CaptureWorkerError::none,
         CaptureWorkerError::alreadyRunning,
         CaptureWorkerError::invalidEndpoint,
@@ -62,6 +64,7 @@ void testEveryErrorHasAReason() {
         CaptureWorkerError::releaseFailed,
         CaptureWorkerError::normalizationFailed,
         CaptureWorkerError::sinkRejected,
+        CaptureWorkerError::stopFailed,
     };
     for (const auto error : errors) {
         for (const bool microphone : {false, true}) {

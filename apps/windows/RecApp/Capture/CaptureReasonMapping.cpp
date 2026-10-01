@@ -11,6 +11,7 @@ ReasonCode reasonForWorkerError(CaptureWorkerError error, bool microphoneSource)
     case CaptureWorkerError::bufferOverflow: return ReasonCode::queueOverflow;
     case CaptureWorkerError::sinkRejected: return ReasonCode::queueOverflow;
     case CaptureWorkerError::clockDiscontinuity: return ReasonCode::clockDiscontinuity;
+    case CaptureWorkerError::stopFailed: return ReasonCode::finalizationFailed;
     case CaptureWorkerError::accessDenied:
         return microphoneSource ? ReasonCode::microphonePermissionDenied : ReasonCode::renderEndpointUnavailable;
     case CaptureWorkerError::invalidEndpoint:

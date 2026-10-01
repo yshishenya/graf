@@ -1,5 +1,4 @@
 #include "ProductAttributionHandoff.h"
-#include "../Web/WebViewRoutePolicy.h"
 
 #include <algorithm>
 #include <array>
@@ -365,16 +364,6 @@ std::string applyingSignInQueryItems(std::string_view plain,
     }
     if (fragmentAt != std::string_view::npos) result += plain.substr(fragmentAt);
     return result;
-}
-
-std::string productAttributionSignInUrl(const WebViewRoutePolicy& policy, std::string_view next,
-    const std::optional<ProductAttributionHandoff>& handoff, std::int64_t now) {
-    const auto candidate = !next.empty() && next.front() == '/' && next.substr(0, 2) != "//"
-        ? policy.trustedOrigin() + std::string(next) : std::string(next);
-    auto safe = policy.safeRecoveryUrl(candidate);
-    if (safe.empty()) safe = policy.trustedOrigin() + "/desktop/meetings";
-    const auto plain = policy.trustedOrigin() + "/login?next=" + encode(safe.substr(policy.trustedOrigin().size()));
-    return applyingSignInQueryItems(plain, handoff, now);
 }
 
 } // namespace graf::windows

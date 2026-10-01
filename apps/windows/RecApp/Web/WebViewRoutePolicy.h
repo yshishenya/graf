@@ -87,6 +87,7 @@ public:
         std::string_view destination, std::uint64_t now);
     [[nodiscard]] bool live(std::uint64_t now) const noexcept;
     [[nodiscard]] bool started() const noexcept { return startedAt_.has_value(); }
+    [[nodiscard]] std::optional<std::uint64_t> startedAt() const noexcept { return startedAt_; }
     void loaded(const WebViewRoutePolicy& policy, std::string_view url, std::uint64_t now);
     void stop() noexcept { startedAt_.reset(); }
 private:

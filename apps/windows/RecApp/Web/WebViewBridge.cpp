@@ -165,6 +165,15 @@ BridgeValidationError WebViewBridge::validate(const WebViewBridgeEnvelope& messa
     if (message.direction == BridgeDirection::webToNative && !isAllowedWebCommand(message.command)) {
         return BridgeValidationError::commandDenied;
     }
+    if (message.command == "request_app_update") {
+        // Only an empty JSON object: never accept a source URL or install intent.
+        const auto first = message.payloadJson.find_first_not_of(" \t\r\n");
+        const auto last = message.payloadJson.find_last_not_of(" \t\r\n");
+        if (first == std::string::npos || message.payloadJson[first] != '{' ||
+            message.payloadJson[last] != '}' ||
+            message.payloadJson.find_first_not_of(" \t\r\n", first + 1) != last)
+            return BridgeValidationError::commandDenied;
+    }
     lastMessageId_ = message.messageId;
     return BridgeValidationError::none;
 }
@@ -180,7 +189,7 @@ bool WebViewBridge::isAllowedWebCommand(std::string_view command) noexcept {
     // строгий и живёт в обработчиках: конверт проверяет только право команды
     // дойти до приложения.
     return command == "request_app_quit" || command == "local_recording" || command == "app_appearance" ||
-           command == "native_settings" || command == "delete_selection";
+           command == "native_settings" || command == "delete_selection" || command == "request_app_update";
 }
 
 std::size_t WebViewBridge::jsonDepth(std::string_view payload) noexcept {

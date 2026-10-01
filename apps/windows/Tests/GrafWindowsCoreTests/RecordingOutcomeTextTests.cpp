@@ -93,6 +93,16 @@ void testUnknownReasonKeepsTheOldCopy() {
            recordingFailureText(ReasonCode::storageUnavailable, false));
 }
 
+void testAudioClockFailureDoesNotBlameSystemTime() {
+    for (const bool retained : {false, true}) {
+        const auto text = recordingFailureText(ReasonCode::clockDiscontinuity, retained);
+        assert(contains(text, L"синхронизац"));
+        assert(!contains(text, L"системное время"));
+        assert(contains(text, L"безопасную сводку"));
+        assert(namesNextStep(text));
+    }
+}
+
 void testDeniedPermissionWinsOverTheDeviceMechanism() {
     // Система отвечает на запрет как на отключённое устройство: без поправки
     // человек читает неверное объяснение и не находит разрешение.
@@ -116,6 +126,7 @@ int main() {
     testPermissionDenialPointsAtWindowsSettings();
     testDeviceProblemsNameTheDevice();
     testUnknownReasonKeepsTheOldCopy();
+    testAudioClockFailureDoesNotBlameSystemTime();
     testDeniedPermissionWinsOverTheDeviceMechanism();
     std::printf("RecordingOutcomeTextTests: ok\n");
     return 0;

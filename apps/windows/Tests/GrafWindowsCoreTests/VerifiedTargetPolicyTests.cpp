@@ -1,6 +1,106 @@
 #include "AutomaticRecordingTestSupport.h"
 
+namespace {
+void finalStartAcceptance() {
+    using namespace graf::windows;
+    using namespace graf::windows::testing;
+    using P = AutomaticRecordingPreference;
+    for (int failure = 0; failure != 23; ++failure) {
+        VerifiedTargetRegistry registry;
+        assert(registry.registerTarget(target()));
+        Preferences storage;
+        AutomaticRecordingPolicy policy(registry, storage.store());
+        assert(policy.setPreference(target(), P::always));
+        const auto decision = observeFor(policy, 0, 5);
+        assert(decision.shouldStart);
+        assert(policy.canBindStart(decision.generation));
+        assert(policy.bindStart(decision.generation, "session-A"));
+        assert(!policy.canBindStart(decision.generation));
+        assert(!policy.bindStart(decision.generation, "session-B"));
+        auto observed = snapshot(at(6s));
+        auto prerequisites = ready();
+        auto now = at(6s);
+        switch (failure) {
+        case 1: policy.cancel(); break;
+        case 2: assert(policy.setPreference(target(), P::never)); break;
+        case 3: assert(policy.setAllPreferences(P::ask)); break;
+        case 4: observed.observations.clear(); break;
+        case 5: ++observed.observations.front().processId; break;
+        case 6: ++observed.observations.front().processCreatedAt; break;
+        case 7: now = at(8001ms); break;
+        case 8: observed.observedAt = at(7s); break;
+        case 9: observed.status = TargetDetectionStatus::enumerationFailed; break;
+        case 10: prerequisites.oneActionStopAvailable = false; break;
+        case 11: prerequisites.capture.microphonePermissionGranted = false; break;
+        case 12: prerequisites.recordingAlreadyActive = true; break;
+        case 13: prerequisites.suppressed = true; break;
+        case 14: observed.observedAt = at(4s); break; // Older than the decision, yet within 2 s.
+        case 15: observed.observations.front().signatureVerified = false; break;
+        case 16: observed.observations.front().hasCaptureStream = false; break;
+        case 17: observed.observations.front().hasRenderStream = false; break;
+        case 18: prerequisites.visibleIndicatorAvailable = false; break;
+        case 19: prerequisites.capture.storageWritable = false; break;
+        case 20: prerequisites.capture.aecReady = false; break;
+        case 21: prerequisites.capture.aacEncoderReady = false; break;
+        case 22: assert(registry.removeTarget(target().executableFingerprint)); break;
+        }
+        // Polls while starting must preserve a valid intent, but invalid evidence
+        // cancels it irreversibly: a later fresh snapshot cannot revive this token.
+        (void)policy.update(observed, prerequisites, now);
+        assert(!policy.acceptStart(decision.generation, "session-B", observed, prerequisites, now));
+        assert(policy.acceptStart(decision.generation, "session-A", observed, prerequisites, now) == (failure == 0));
+        assert(!policy.acceptStart(decision.generation, "session-A", snapshot(at(9s)), ready(), at(9s)));
+    }
+
+    VerifiedTargetRegistry registry;
+    assert(registry.registerTarget(target()));
+    Preferences storage;
+    AutomaticRecordingPolicy policy(registry, storage.store());
+    assert(policy.setPreference(target(), P::always));
+    const auto a = observeFor(policy, 0, 5);
+    assert(policy.bindStart(a.generation, "A"));
+    policy.cancel();
+    auto absent = snapshot(at(21s)); absent.observations.clear();
+    (void)policy.update(absent, ready(), at(21s));
+    const auto b = observeFor(policy, 22, 27);
+    assert(b.shouldStart && b.generation != a.generation);
+    assert(!policy.canBindStart(a.generation) && policy.canBindStart(b.generation));
+    assert(policy.bindStart(b.generation, "B"));
+    assert(!policy.acceptStart(a.generation, "A", snapshot(at(28s)), ready(), at(28s)));
+    assert(!policy.acceptStart(a.generation, "B", snapshot(at(28s)), ready(), at(28s)));
+    assert(!policy.acceptStart(b.generation, "A", snapshot(at(28s)), ready(), at(28s)));
+    assert(policy.acceptStart(b.generation, "B", snapshot(at(28s)), ready(), at(28s)));
+    assert(!policy.acceptStart(b.generation, "B", snapshot(at(28s)), ready(), at(28s)));
+
+    // Ask still supports both the explicit button and the ordinary 8 s expiry.
+    // An unrelated preference, an idempotent save or a failed save cannot revoke
+    // a valid decision; a successful change away and back cannot resurrect it.
+    for (int action = 0; action != 4; ++action) {
+        assert(registry.registerTarget(target('c')));
+        Preferences askStorage;
+        AutomaticRecordingPolicy ask(registry, askStorage.store());
+        assert(observeFor(ask, 0, 5).state == AutomaticPromptState::countdown);
+        auto start = action == 0 ? observeFor(ask, 6, 13) :
+            ask.recordNow(false, snapshot(at(6s)), ready(), at(6s));
+        const auto now = action == 0 ? at(13s) : at(6s);
+        assert(start.shouldStart && ask.bindStart(start.generation, "ask"));
+        assert(ask.setPreference(target('c'), P::never));
+        assert(ask.setPreference(target(), P::ask));
+        if (action == 2) {
+            askStorage.writeFails = true;
+            assert(!ask.setPreference(target(), P::never));
+        }
+        if (action == 3) {
+            assert(ask.setPreference(target(), P::never));
+            assert(ask.setPreference(target(), P::ask));
+        }
+        assert(ask.acceptStart(start.generation, "ask", snapshot(now), ready(), now) == (action != 3));
+    }
+}
+}
+
 int main() {
+    finalStartAcceptance();
     using namespace graf::windows;
     using namespace graf::windows::testing;
     using P = AutomaticRecordingPreference;

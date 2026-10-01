@@ -57,6 +57,9 @@ inline AutomaticRecordingDecision observeFor(AutomaticRecordingPolicy& policy, i
     for (int second = firstSecond; second <= lastSecond; ++second) {
         const auto now = at(std::chrono::seconds(second));
         result = policy.update(snapshot(now, identity), ready(), now);
+        // This helper models the ordinary successfully displayed UI. Tests for
+        // invisible/failed presentation call update directly without this ack.
+        if (result.state == AutomaticPromptState::countdown) (void)policy.confirmPromptPresented(now);
     }
     return result;
 }

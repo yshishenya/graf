@@ -1,6 +1,18 @@
 (() => {
   document.documentElement.dataset.cabinetJs = "ready";
 
+  // The native bootstrap supplies a presentation hint, never bridge authority.
+  // No marker preserves the existing Mac copy, including older desktop clients.
+  const platformText = (mac, windows) => window.GRAFDesktopPlatform === "windows" ? windows : mac;
+  const applyPlatformCopy = (root = document) => {
+    if (window.GRAFDesktopPlatform !== "windows") return;
+    const apply = element => { element.textContent = element.dataset.platformCopy; };
+    if (root instanceof Element && root.matches("[data-platform-copy]")) apply(root);
+    root.querySelectorAll("[data-platform-copy]").forEach(apply);
+  };
+  window.GRAFPlatform = {refresh: () => applyPlatformCopy()};
+  applyPlatformCopy();
+
   const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || "";
   let pendingDeleteRows = [];
   let deleteReturnFocus = null;
@@ -418,16 +430,16 @@
     list.replaceChildren();
     for (const item of localPending) {
       const row = document.createElement("li");
-      row.textContent = `${localRecordingDisplayTitle(item)}: очистка файлов на этом Mac еще не завершена. Повторим попытку автоматически.`;
+      row.textContent = localRecordingDisplayTitle(item) + platformText(": очистка файлов на этом Mac еще не завершена. Повторим попытку автоматически.", ": очистка файлов на этом компьютере еще не завершена. Повторим попытку автоматически.");
       list.append(row);
     }
     for (const operation of operations.slice(-100).reverse()) {
       const row = document.createElement("li");
       const labels = {queued:"Удаление ожидает подключения", sending:"Удаляем…", resolving:"Проверяем, принято ли удаление",
-        accepted:"Запись удалена из списка. Очистка проверяется отдельно.", verified:"Данные этой записи очищены на этом Mac", rejected:"Нет права удалить запись"};
+        accepted:"Запись удалена из списка. Очистка проверяется отдельно.", verified:platformText("Данные этой записи очищены на этом Mac", "Данные этой записи очищены на этом компьютере"), rejected:"Нет права удалить запись"};
       const waiting = {connection:"Ожидаем подключения для подтверждения удаления", authentication:"Войдите в исходный аккаунт для продолжения удаления",
         rateLimit:"Сервер попросил подождать. Повторим запрос автоматически", serverUpdate:"Для завершения удаления требуется обновление сервера",
-        localCleanup:"Запись удалена из списка. Не удалось очистить файлы на этом Mac; повторим попытку"};
+        localCleanup:platformText("Запись удалена из списка. Не удалось очистить файлы на этом Mac; повторим попытку", "Запись удалена из списка. Не удалось очистить файлы на этом компьютере; повторим попытку")};
       row.textContent = waiting[operation.waitReason] || labels[operation.phase] || "Состояние удаления неизвестно";
       const meetingId = operation.receipt?.meeting_id;
       if (typeof meetingId === "string" && /^[0-9a-f-]{36}$/i.test(meetingId)) {
@@ -844,7 +856,7 @@
     const copy = {
       offline: {
         title: "Нет подключения",
-        description: "Запись на Mac продолжает работать.",
+        description: platformText("Запись на Mac продолжает работать.", "Запись в Windows продолжает работать."),
         action: "Повторить",
       },
       service: {
@@ -924,10 +936,10 @@
       && localRecordingRows.some(localRecordingIsRenderable)) {
       const localHost = document.createElement("section");
       localHost.className = "list-card cabinet-card";
-      localHost.setAttribute("aria-label", "Записи на этом Mac");
+      localHost.setAttribute("aria-label", platformText("Записи на этом Mac", "Записи на этом компьютере"));
       const localNotice = document.createElement("p");
       localNotice.className = "muted";
-      localNotice.textContent = "Запись сохранена на этом Mac и останется здесь до повторной проверки списка.";
+      localNotice.textContent = platformText("Запись сохранена на этом Mac и останется здесь до повторной проверки списка.", "Запись сохранена на этом компьютере и останется здесь до повторной проверки списка.");
       localHost.append(localNotice);
       localHost.setAttribute("data-meeting-list", "");
       current.append(localHost);
@@ -1266,7 +1278,7 @@
       const localCount = pendingDeleteRows.filter(row => row.hasAttribute("data-graf-local-recording-row")
         && localRecordingRows.some(item => item.id === row.dataset.grafLocalRecordingId && item.deletionIsLocalOnly === true)).length;
       count.textContent = deletingLabel(pendingDeleteRows.length)
-        + (localCount ? ` Только на этом Mac: ${localCount}.`
+        + (localCount ? `${platformText(" Только на этом Mac: ", " Только на этом компьютере: ")}${localCount}.`
           + (localCount === pendingDeleteRows.length ? " Эти записи еще не отправлялись на сервер." : "") : "")
         + (localCount < pendingDeleteRows.length ? ` На сервере или ожидают его подтверждения: ${pendingDeleteRows.length - localCount}.` : "");
     }
@@ -6129,7 +6141,7 @@
             async load(){if(nonce()!==queueNonce)throw new Error('scope');const current=await post();if(current.error)throw new Error('unavailable');return {values:snapshotValues(current)};}
           });
           queue.refresh(values);render(current);status.textContent=current.error||'';retry.hidden=!current.error;
-        }catch(_){if(nonce()===owner){status.textContent='Не удалось загрузить настройки этого Mac.';retry.hidden=false;}}
+        }catch(_){if(nonce()===owner){status.textContent=platformText('Не удалось загрузить настройки этого Mac.', 'Не удалось загрузить настройки этого компьютера.');retry.hidden=false;}}
         finally{if(nonce()===owner)loading=null;}
       })();await loading;
     };
@@ -6180,19 +6192,112 @@
     const root=document.querySelector('[data-local-notification-settings]');if(!root||root.dataset.ready==='true')return;
     root.dataset.ready='true';
     const controls=root.querySelector('[data-local-notification-controls]'),status=root.querySelector('[data-local-notification-status]');
-    const permission=root.querySelector('[data-local-notification-permission]'),retry=root.querySelector('[data-local-notification-retry]'),reload=root.querySelector('[data-local-notification-reload]');
+    const retry=root.querySelector('[data-local-notification-retry]'),reload=root.querySelector('[data-local-notification-reload]');
     const fields=[...controls.querySelectorAll('[data-local-notification-field]')];
-    const values=snapshot=>{const prefs=snapshot.preferences;if(!prefs||!['reminders','showTitles','sound'].every(k=>typeof prefs[k]==='boolean')||![0,1,5].includes(prefs.offsetMinutes)||typeof snapshot.canEdit!=='boolean'||typeof snapshot.permission!=='string'||typeof snapshot.canRequestPermission!=='boolean')throw new Error('unsupported');return prefs;};
+    const preferenceKeys=['reminders','offsetMinutes','showTitles','sound','quiet'];
+    const values=snapshot=>{
+      const prefs=snapshot?.preferences;
+      if(snapshot?.version!==2||!prefs||Object.keys(prefs).length!==5||Object.keys(prefs).some(key=>!preferenceKeys.includes(key))||
+        !['reminders','showTitles','sound','quiet'].every(key=>typeof prefs[key]==='boolean')||![0,1,5].includes(prefs.offsetMinutes)||
+        typeof snapshot.canEdit!=='boolean'||typeof snapshot.message!=='string'||
+        Object.keys(snapshot).some(key=>!['version','preferences','canEdit','message','error'].includes(key))||
+        ('error' in snapshot&&(typeof snapshot.error!=='string'||!snapshot.error)))throw new Error('unsupported');
+      return prefs;
+    };
+    const renderAvailability=snapshot=>{
+      controls.disabled=!snapshot.canEdit;reload.hidden=snapshot.canEdit;initSettingsComboboxes();
+    };
     const render=snapshot=>{
       for(const input of fields){const field=input.dataset.localNotificationField;if(input.type==='checkbox')input.checked=snapshot.preferences[field];else input.value=String(snapshot.preferences[field]);input.disabled=field==='offsetMinutes'&&!snapshot.preferences.reminders;}
-      permission.textContent=snapshot.permission;controls.querySelector('[data-local-notification-action="requestPermission"]').hidden=!snapshot.canRequestPermission;controls.disabled=!snapshot.canEdit;reload.hidden=snapshot.canEdit;initSettingsComboboxes();
+      renderAvailability(snapshot);
     };
-    const controller=nativeSettingsQueue(root,'grafNotificationSettings',()=>notificationSettingsNonce,values,render,status,retry);
-    root.addEventListener('change',event=>{const input=event.target,field=input.dataset.localNotificationField;if(field)controller.edit({[field]:input.type==='checkbox'?input.checked:Number(input.value)});});
-    controls.querySelectorAll('[data-local-notification-action]').forEach(button=>button.addEventListener('click',()=>controller.action(button.dataset.localNotificationAction)));
-    root.addEventListener('graf:notification-settings-refresh',controller.load);
-    root.addEventListener('graf:notification-settings-disconnect',()=>{controller.disconnect();controls.disabled=true;fields.forEach(input=>{if(input.type==='checkbox')input.checked=false;else input.value='';settingsCombos.get(input)?.close();});initSettingsComboboxes();permission.textContent='';status.textContent='Аккаунт изменился. Обновите страницу настроек.';reload.hidden=false;});
-    window.addEventListener('focus',()=>{if(root.isConnected)controller.load();});controller.load();
+    // This document has one v2 transport and the shared autosave draft queue.
+    let queue=null,snapshot=null,loading=null,identity=notificationSettingsNonce,generation=0,serial=Promise.resolve();
+    const renderRemote=response=>{
+      // Edits may arrive while read/preview waits. Only the draft queue owns
+      // their displayed values and save status until they are confirmed.
+      if(queue?.pending()){renderAvailability(response);return false;}
+      // Both read and preview carry confirmed preferences. Keep the queue's
+      // baseline aligned with what is displayed, without creating an edit.
+      queue?.refresh(values(response));
+      render(response);return true;
+    };
+    status.id||='grafNotificationSettings-status';
+    fields.forEach(input=>input.setAttribute('aria-describedby',[input.getAttribute('aria-describedby'),status.id].filter(Boolean).join(' ')));
+    const current=(owner,epoch)=>root.isConnected&&owner===notificationSettingsNonce&&epoch===generation;
+    const disconnect=()=>{generation++;queue?.dispose();queue=null;snapshot=null;loading=null;serial=Promise.resolve();};
+    const post=(action='read',patch={})=>{
+      const owner=notificationSettingsNonce,epoch=generation;
+      const operation=serial.then(async()=>{
+        const bridge=window.webkit?.messageHandlers?.grafNotificationSettings;
+        if(!owner||!bridge||!current(owner,epoch))throw new Error('scope');
+        if(action!=='read'&&snapshot?.canEdit!==true)throw new Error('unavailable');
+        let timer;
+        try{
+          const response=await Promise.race([bridge.postMessage({version:2,nonce:owner,action,...patch}),
+            new Promise((_,reject)=>timer=setTimeout(()=>reject(new Error('timeout')),15000))]);
+          if(!current(owner,epoch))throw new Error('scope');
+          values(response);snapshot=response;return response;
+        }finally{clearTimeout(timer);}
+      });
+      serial=operation.catch(()=>{});return operation;
+    };
+    const load=async()=>{
+      if(identity!==notificationSettingsNonce){disconnect();identity=notificationSettingsNonce;}
+      if(loading)return loading;
+      if(queue?.pending()){if(await queue.flush())return load();return;}
+      const editing=root.querySelector('input[role="combobox"][aria-expanded="true"]:focus');
+      if(editing){editing.addEventListener('blur',load,{once:true});return;}
+      const owner=notificationSettingsNonce,epoch=generation;
+      loading=(async()=>{
+        try{
+          const response=await post();
+          if(!window.GRAFSettings)throw new Error('unavailable');
+          if(!queue)queue=window.GRAFSettings.create(`native:grafNotificationSettings:${owner}`,{
+            initial:values(response),valid:()=>current(owner,epoch)&&snapshot?.canEdit===true,
+            render(state,message,draft){
+              if(!current(owner,epoch))return;
+              render({...snapshot,preferences:draft});root.dataset.state=state;
+              status.textContent=message;retry.hidden=!['error','conflict'].includes(state);
+              retry.textContent=state==='conflict'?'Применить мой выбор':'Повторить';
+              window.GRAFSettings.offerRemote(status,queue,state);
+            },
+            async save(changes){
+              let result;
+              for(const [field,value] of Object.entries(changes)){
+                if(!current(owner,epoch)||!snapshot?.canEdit||!preferenceKeys.includes(field))throw new Error('scope');
+                result=await post('set',{field,value});
+                if(result.error||!result.canEdit)throw new Error('unavailable');
+              }
+              if(!result||!current(owner,epoch))throw new Error('scope');
+              const scope=window.GRAFSettings.headers();
+              return {saved:true,actor:scope['X-Graf-Expected-Actor'],workspace:scope['X-Graf-Expected-Workspace'],values:values(result)};
+            },
+            async load(){
+              if(!current(owner,epoch))throw new Error('scope');
+              const result=await post();if(result.error||!result.canEdit)throw new Error('unavailable');return {values:values(result)};
+            }
+          });
+          if(!renderRemote(response))return;
+          status.textContent=response.error||response.message||(!response.canEdit?'Настройки недоступны. Обновите окно настроек после входа в GRAF.':'');
+          retry.hidden=!response.error;
+        }catch(_){if(current(owner,epoch)){controls.disabled=true;initSettingsComboboxes();status.textContent=platformText('Не удалось загрузить настройки этого Mac. Обновите окно настроек или повторите попытку.', 'Не удалось загрузить настройки этого компьютера. Обновите окно настроек или повторите попытку.');retry.hidden=false;}}
+        finally{if(current(owner,epoch))loading=null;}
+      })();return loading;
+    };
+    const preview=async()=>{
+      const owner=notificationSettingsNonce,epoch=generation;
+      if(queue?.pending()&&!await queue.flush())return;
+      if(!current(owner,epoch)||!snapshot?.canEdit)return;
+      try{const result=await post('test');if(renderRemote(result))status.textContent=result.error||result.message;}
+      catch(_){if(current(owner,epoch))status.textContent='Не удалось показать проверочное уведомление. Повторите попытку.';}
+    };
+    retry.addEventListener('click',()=>queue?.pending()?queue.retry(root.dataset.state==='conflict'):load());
+    root.addEventListener('change',event=>{const input=event.target,field=input.dataset.localNotificationField;if(fields.includes(input)&&snapshot?.canEdit)queue?.edit({[field]:input.type==='checkbox'?input.checked:Number(input.value)});});
+    controls.querySelectorAll('[data-local-notification-action="test"]').forEach(button=>button.addEventListener('click',preview));
+    root.addEventListener('graf:notification-settings-refresh',load);
+    root.addEventListener('graf:notification-settings-disconnect',()=>{disconnect();controls.disabled=true;fields.forEach(input=>{if(input.type==='checkbox')input.checked=false;else input.value='';settingsCombos.get(input)?.close();});initSettingsComboboxes();status.textContent='Аккаунт изменился. Обновите страницу настроек.';reload.hidden=false;retry.hidden=true;});
+    window.addEventListener('focus',()=>{if(root.isConnected)load();});load();
   };
   window.GRAFNotificationSettings={connect(nonce){notificationSettingsNonce=nonce;initLocalNotificationSettings();this.refresh();},refresh(){document.querySelector('[data-local-notification-settings]')?.dispatchEvent(new Event('graf:notification-settings-refresh'));},disconnect(){notificationSettingsNonce=null;document.querySelector('[data-local-notification-settings]')?.dispatchEvent(new Event('graf:notification-settings-disconnect'));}};
 
@@ -7050,8 +7155,7 @@
         window.requestAnimationFrame(() => {
           if (!details.open || !details.isConnected || menu.hidden) return;
           const inline = () => { hidePanel(); details.classList.toggle("is-inline", true); };
-          if (window.innerWidth <= 520 || mobileNav?.contains(root)
-              || typeof submenu.showPopover !== "function") {
+          if (mobileNav?.contains(root) || typeof submenu.showPopover !== "function") {
             inline();
             return;
           }
@@ -7061,9 +7165,8 @@
           if (!submenu.matches(":popover-open")) submenu.showPopover();
           const anchor = details.querySelector("summary").getBoundingClientRect();
           const rect = submenu.getBoundingClientRect();
-          let left = anchor.right + 8;
-          if (left + rect.width > window.innerWidth - 8) left = anchor.left - rect.width - 8;
-          if (left < 8) { inline(); return; }
+          const left = anchor.right + 8;
+          if (left + rect.width > window.innerWidth - 8) { inline(); return; }
           const bounds = menu.getBoundingClientRect();
           if (anchor.bottom <= bounds.top || anchor.top >= bounds.bottom) {
             details.open = false;
@@ -8926,6 +9029,8 @@
 
   document.body.addEventListener("htmx:afterSwap", (event) => {
     const target = event.detail?.target;
+    const copyRoot = event.detail?.elt || target;
+    if (copyRoot instanceof Element) applyPlatformCopy(copyRoot);
     const source = shareRequestSource(event);
     if (source && target instanceof Element && target.id === "meeting-share-host") {
       resetShareRequestSource(source);

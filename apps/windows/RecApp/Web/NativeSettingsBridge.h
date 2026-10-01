@@ -13,8 +13,8 @@ namespace graf::windows::NativeSettingsBridge {
 //
 //   window.webkit.messageHandlers.<handler>.postMessage({version, nonce, action, ...})
 //
-// is answered with `{version: 1, ...}`, and the page refuses any other answer
-// (`cabinet.js`, `nativeSettingsQueue`). macOS implements that protocol natively;
+// Recording settings use version 1; notification settings use version 2.
+// The outer desktop envelope is unchanged. macOS implements that protocol natively;
 // Windows reaches the same protocol through the desktop bridge, so the shim, the
 // request vocabulary and the reply shape live here and the pages stay unchanged.
 
@@ -55,7 +55,7 @@ struct Target {
 // is what lets it say something true instead.
 [[nodiscard]] std::string failureReply(std::string_view message);
 
-enum class NotificationAction { read, set, test, requestPermission, openSystemSettings };
+enum class NotificationAction { read, set, test };
 struct NotificationRequest {
     NotificationAction action = NotificationAction::read;
     std::string field;

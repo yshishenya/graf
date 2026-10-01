@@ -5192,7 +5192,7 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
     overflow-y: auto;
     overflow-x: hidden;
   }
-  .sidebar-profile-menu__submenu {
+  .sidebar-profile-menu__submenu:not([popover]) {
     position: static;
     width: auto;
     min-width: 0;
@@ -5207,7 +5207,7 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 
 .sidebar-profile-menu:has(.is-inline) { overflow-y: auto; overflow-x: hidden; }
 .sidebar-profile-menu__disclosure.is-inline > .sidebar-profile-menu__submenu,
-.cabinet-mobile-nav .sidebar-profile-menu__submenu {
+.cabinet-mobile-nav .sidebar-profile-menu__submenu:not([popover]) {
   position: static;
   width: auto;
   min-width: 0;
@@ -6153,7 +6153,6 @@ html:not([data-cabinet-js="ready"]) .detail-page-main:not([data-processing-repla
 .settings-search { display: grid; gap: 8px; margin-block: 16px; }
 .settings-search input { width: 100%; min-height: 36px; }
 [data-local-notification-controls] { border: 0; margin: 0; padding: 0; min-width: 0; }
-[data-local-notification-permission] { padding-block: 16px; }
 :is(.settings-page, .calendar-settings) .settings-control-row[hidden] { display: none; }
 @media (max-width: 540px) {
   :is(.settings-page, .calendar-settings) .settings-control-row:has(select) { grid-template-columns: minmax(0, 1fr); gap: 8px; }

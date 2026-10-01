@@ -32,7 +32,13 @@
     <RuntimeIdentifier Condition="'$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
     <RuntimeIdentifier Condition="'$(Platform)' != 'ARM64'">win-x64</RuntimeIdentifier>
     <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
-    <WebView2UseWinRT>false</WebView2UseWinRT>
+    <WebView2UseWinRT>true</WebView2UseWinRT>
+    <!-- TargetFramework above selects native UAP tooling, not .NET. WebView2
+         otherwise infers C#/WinRT and packages an unused .NET 6 projection,
+         which fails resource extraction on a clean MSIX build (MSB3816).
+         The native WinRT branch supplies WinMD + native Core.dll and its
+         activation metadata; the COM host still uses the dynamic loader. -->
+    <WebView2EnableCsWinRTProjection>false</WebView2EnableCsWinRTProjection>
     <WebView2LoaderPreference>Dynamic</WebView2LoaderPreference>
     <GrafWebView2SdkVersion Condition="'$(GrafWebView2SdkVersion)' == ''">1.0.4129.50</GrafWebView2SdkVersion>
     <GrafWebView2NativeRoot Condition="'$(GrafWebView2NativeRoot)' == '' and '$(NuGetPackageRoot)' != ''">$(NuGetPackageRoot)\microsoft.web.webview2\$(GrafWebView2SdkVersion)\build\native</GrafWebView2NativeRoot>
@@ -112,6 +118,7 @@
     <ClCompile Include="Shell\MeetingReminderModel.cpp" />
     <ClCompile Include="Shell\MeetingReminderPresenter.cpp" />
     <ClCompile Include="Shell\WindowsTray.cpp" />
+    <ClCompile Include="Shell\WindowsAppUpdateController.cpp" />
     <ClCompile Include="Web\WebView2Host.cpp" />
     <ClCompile Include="Web\RecordingDeletionBridge.cpp" />
     <ClCompile Include="Web\NativeSettingsBridge.cpp" />
@@ -124,7 +131,6 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" />
     <PackageReference Include="Microsoft.Web.WebView2" />
     <PackageReference Include="Microsoft.Windows.CppWinRT" />
-    <Reference Include="$(GrafWebView2NativeRoot)\..\..\lib\Microsoft.Web.WebView2.Core.winmd" />
   </ItemGroup>
   <!-- The MSIX packaging targets require an AppxManifest whenever
        WindowsPackageType is not None. Only the packaging lane sets that, and the

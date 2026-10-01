@@ -17,6 +17,7 @@
 
 #if defined(_WIN32) && defined(GRAF_WINDOWS_APP_SDK)
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
+#include <winrt/Microsoft.Web.WebView2.Core.h>
 #endif
 
 namespace graf::windows {
@@ -144,6 +145,8 @@ public:
     void setNavigationHandler(NavigationHandler handler) { navigationHandler_ = std::move(handler); }
     void setRuntimeHandler(RuntimeHandler handler) { runtimeHandler_ = std::move(handler); }
     void setQuitHandler(QuitHandler handler) { quitHandler_ = std::move(handler); }
+    void setUpdateHandler(std::function<void()> handler) { updateHandler_ = std::move(handler); }
+    void setAppUpdateAvailable(bool available);
     void setAuthSessionHandler(AuthSessionHandler handler) { authSessionHandler_ = std::move(handler); }
     void setSignInUrlBuilder(SignInUrlBuilder builder) { signInUrlBuilder_ = std::move(builder); }
     [[nodiscard]] std::string signInUrl() const;
@@ -221,7 +224,8 @@ public:
         bool captureInterrupted);
 
 #if defined(_WIN32) && defined(GRAF_WINDOWS_APP_SDK)
-    void attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control);
+    void attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control,
+        winrt::Microsoft::Web::WebView2::Core::CoreWebView2Environment environment = nullptr);
 #endif
 
     [[nodiscard]] const std::string& currentUrl() const noexcept { return currentUrl_; }
@@ -233,9 +237,29 @@ public:
     [[nodiscard]] WebResponseDecision completeDocumentNavigation(std::string_view url, std::uint64_t id,
         const WebDocumentResponse& response, std::uint64_t now);
     [[nodiscard]] RouteEvaluation evaluatePopupNavigation(std::string_view url, std::uint64_t now);
+    // Native frame identity, never inferred from a frame URL or page script.
+    struct PopupSource {
+        std::uint64_t documentGeneration = 0;
+        std::uint32_t frameId = 0;
+        std::uint32_t coreFrameId = 0;
+        bool isMainFrame = false;
+    };
+    [[nodiscard]] bool beginPaymentPopup(std::string_view url, PopupSource source,
+        std::uint64_t now, std::function<void()> cleanup);
+    [[nodiscard]] bool handOffPaymentPopup(PopupSource source, std::uint64_t now);
+    [[nodiscard]] bool paymentPopupChildCurrent(std::uint64_t generation, unsigned childOrdinal,
+        std::uint64_t now) const noexcept;
+    [[nodiscard]] bool bindPaymentPopupFrame(std::uint32_t frameId, std::uint64_t generation,
+        unsigned childOrdinal, std::uint64_t now);
+    [[nodiscard]] RouteEvaluation evaluatePaymentPopupDocument(std::string_view url, std::uint64_t now);
+    [[nodiscard]] bool paymentPopupLiveAt(std::uint64_t now) const noexcept;
+    void cancelPaymentPopup() noexcept;
     [[nodiscard]] bool paymentNavigationAllowedAt(std::uint64_t now) const noexcept { return payment_.live(now); }
     [[nodiscard]] const std::string& safeRecoveryUrl() const noexcept { return safeRecoveryUrl_; }
     [[nodiscard]] std::string recoveryUrl() const;
+    // Only a failed protected document needs the native recovery screen.
+    // Interactive sign-in documents also use authRequired, but must stay visible.
+    [[nodiscard]] WebResponseDecision pendingAuthRecovery() const noexcept;
     // Metadata is bound to the main request generation, not merely a URL which
     // an older request or iframe can share with the next document.
     [[nodiscard]] bool observeDocumentResponse(std::string_view url, std::uint64_t generation,
@@ -251,10 +275,20 @@ public:
     [[nodiscard]] std::uint64_t documentGeneration() const noexcept { return documentGeneration_; }
 
 private:
+#if defined(_WIN32) && defined(GRAF_WINDOWS_APP_SDK)
+    friend struct WebView2PaymentPopupNativeFixture;
+    // Native fixture injects a failure at the irreversible browser handoff.
+    // Never set by the application or a web message.
+    std::function<void(bool, winrt::Microsoft::Web::WebView2::Core::CoreWebView2 const&)> popupHandoffCheckpoint_;
+    void openPaymentPopup(winrt::Microsoft::UI::Xaml::Controls::WebView2 opener,
+        winrt::Microsoft::Web::WebView2::Core::CoreWebView2NewWindowRequestedEventArgs args);
+#endif
     WebViewRoutePolicy policy_;
     NavigationHandler navigationHandler_;
     RuntimeHandler runtimeHandler_;
     QuitHandler quitHandler_;
+    std::function<void()> updateHandler_;
+    bool appUpdateAvailable_ = false;
     AuthSessionHandler authSessionHandler_;
     SignInUrlBuilder signInUrlBuilder_;
     LocalRecordingHandler localRecordingHandler_;
@@ -286,6 +320,17 @@ private:
     bool billingContext_ = false;
     WebResponseDecision recoveryReason_ = WebResponseDecision::unavailable;
     PaymentNavigation payment_;
+    struct PaymentPopup {
+        PopupSource source;
+        std::string billingSource;
+        std::uint64_t admittedAt;
+        bool handedOff = false;
+        bool returning = false;
+        std::function<void()> cleanup;
+        std::uint32_t activeFrameId = 0;
+        unsigned children = 1;
+    };
+    std::optional<PaymentPopup> paymentPopup_;
     std::string committedDocumentUrl_;
     std::string navigationSourceUrl_;
     std::string navigationUrl_;

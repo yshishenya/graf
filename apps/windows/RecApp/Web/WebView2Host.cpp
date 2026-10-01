@@ -13,6 +13,7 @@
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Microsoft.Web.WebView2.Core.h>
 #include <winrt/Microsoft.UI.Dispatching.h>
+#include <winrt/Microsoft.UI.Xaml.Automation.h>
 #include <windows.h>
 #include <combaseapi.h>
 #include <commdlg.h>
@@ -43,6 +44,68 @@ std::string utf8(winrt::hstring const& value) {
 bool isJsonUnsignedInteger(double value, double maximum) noexcept {
     return std::isfinite(value) && value >= 0.0 && value <= maximum &&
         value <= kJsonSafeIntegerMax && std::floor(value) == value;
+}
+
+// Owns the browser deferral and XAML child, not a second privileged host.
+// Events hold weak references so Close also releases their captured state.
+struct PaymentPopupWindow {
+    winrt::Microsoft::UI::Xaml::Controls::WebView2 child{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::WebView2 opener{nullptr};
+    winrt::Microsoft::UI::Xaml::Controls::Panel panel{nullptr};
+    winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer timer{nullptr};
+    winrt::Microsoft::UI::Dispatching::DispatcherQueue dispatcher{nullptr};
+    winrt::Windows::Foundation::Deferral deferral{nullptr};
+    std::atomic_bool cancellationRequested{false};
+    bool completed = false;
+    bool closed = false;
+    bool ready = false;
+    std::uint64_t generation = 0;
+    unsigned childOrdinal = 0;
+    std::uint64_t navigationId = 0;
+    std::uint64_t interruptedNavigationId = 0;
+    std::uint64_t interruptedAt = 0;
+    static constexpr std::uint64_t replacementWindowMs = 100;
+    std::string navigationUrl;
+
+    void complete() noexcept {
+        if (std::exchange(completed, true)) return;
+        try { if (deferral) deferral.Complete(); } catch (...) {}
+        deferral = nullptr;
+    }
+    void close() noexcept {
+        // Completion delegates may run outside the UI apartment. The host owns
+        // this object until its UI timer/teardown consumes the cancellation.
+        if (dispatcher && !dispatcher.HasThreadAccess()) { cancellationRequested.store(true); return; }
+        if (std::exchange(closed, true)) return;
+        ready = false;
+        try { if (timer) timer.Stop(); } catch (...) {}
+        timer = nullptr;
+        try { if (child) child.Close(); } catch (...) {}
+        // Closing must precede release of a cancelled browser request, especially
+        // if NewWindow succeeded but a later configuration operation failed.
+        complete();
+        try {
+            std::uint32_t index = 0;
+            if (panel && child && panel.Children().IndexOf(child, index)) panel.Children().RemoveAt(index);
+        } catch (...) {}
+        child = nullptr;
+        panel = nullptr;
+        try { if (opener) opener.Visibility(winrt::Microsoft::UI::Xaml::Visibility::Visible); } catch (...) {}
+        opener = nullptr;
+    }
+    ~PaymentPopupWindow() { close(); }
+};
+
+WebView2Host::PopupSource paymentPopupSource(
+    winrt::Microsoft::Web::WebView2::Core::CoreWebView2 const& core,
+    winrt::Microsoft::Web::WebView2::Core::CoreWebView2NewWindowRequestedEventArgs const& args,
+    std::uint64_t generation) {
+    // Unsupported runtime interfaces or UNKNOWN/zero identities fail closed.
+    try {
+        const auto frame = args.OriginalSourceFrameInfo();
+        return {generation, frame.FrameId(), core.FrameId(),
+            frame.FrameKind() == winrt::Microsoft::Web::WebView2::Core::CoreWebView2FrameKind::MainFrame};
+    } catch (...) { return {}; }
 }
 
 std::string newNonce() {
@@ -161,6 +224,9 @@ constexpr wchar_t kDesktopBridgeScript[] = LR"JS(
 (() => {
   if (window.__grafDesktopBridgeInstalled) return;
   window.__grafDesktopBridgeInstalled = true;
+  // Presentation only. This script is installed after the host accepts the document.
+  window.GRAFDesktopPlatform = 'windows';
+  window.GRAFPlatform?.refresh();
   let nonce = null;
   let nextMessageId = 1;
   const send = (command, payload) => {
@@ -187,11 +253,21 @@ constexpr wchar_t kDesktopBridgeScript[] = LR"JS(
     attributes: true, attributeFilter: ['data-theme']
   });
   publishAppearance();
+  let updateAvailable = false;
+  const paintUpdate = () => document.querySelectorAll('[data-graf-app-update]').forEach(button => {
+    button.hidden = !updateAvailable;
+  });
+  window.__grafSetUpdateAvailable = available => {
+    updateAvailable = available === true;
+    paintUpdate();
+  };
+  document.addEventListener('htmx:afterSwap', paintUpdate);
   document.addEventListener('click', (event) => {
     const button = event.target instanceof Element
-      ? event.target.closest('[data-graf-app-quit], [data-graf-local-recording-action]') : null;
+      ? event.target.closest('[data-graf-app-quit], [data-graf-local-recording-action], [data-graf-app-update]') : null;
     if (!button || button.disabled) return;
     if (button.hasAttribute('data-graf-app-quit')) send('request_app_quit', {action: 'quit'});
+    else if (button.hasAttribute('data-graf-app-update')) send('request_app_update', {});
     else send('local_recording', {action: button.dataset.grafLocalRecordingAction, id: button.dataset.grafLocalRecordingId});
   });
   // The deletion bridge in the page hands its selection here instead of posting an
@@ -275,6 +351,8 @@ WebView2Host::~WebView2Host() {
 }
 
 void WebView2Host::setRuntimeState(WebRuntimeState state) noexcept {
+    if (state == WebRuntimeState::authRequired || state == WebRuntimeState::closed ||
+        state == WebRuntimeState::unavailable) cancelPaymentPopup();
     if (state != WebRuntimeState::ready) nativeSettingsNonce_.clear();
     runtimeState_ = state;
     if (state != WebRuntimeState::ready) {
@@ -292,6 +370,7 @@ void WebView2Host::setRuntimeState(WebRuntimeState state) noexcept {
 }
 
 void WebView2Host::fail(std::string_view stage, std::int32_t code) noexcept {
+    cancelPaymentPopup();
     authContinuation_ = AuthContinuation::none;
     payment_.stop();
     navigationId_ = 0;
@@ -311,6 +390,13 @@ std::uint64_t WebView2Host::monotonicMilliseconds() noexcept {
     return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count());
 #endif
+}
+
+WebResponseDecision WebView2Host::pendingAuthRecovery() const noexcept {
+    if (runtimeState_ == WebRuntimeState::authRequired &&
+        (recoveryReason_ == WebResponseDecision::expiredSession || recoveryReason_ == WebResponseDecision::workspaceReselection))
+        return recoveryReason_;
+    return WebResponseDecision::ignore;
 }
 
 std::string WebView2Host::recoveryUrl() const {
@@ -347,6 +433,7 @@ std::string WebView2Host::signInUrl() const {
 RouteEvaluation WebView2Host::beginDocumentNavigation(std::string_view url, std::uint64_t id,
     bool redirected, std::uint64_t now, std::string_view method) {
     if (runtimeState_ == WebRuntimeState::closed || id == 0) return {};
+    cancelPaymentPopup(); // A new parent document cannot retain an old payment child.
     if (payment_.started() && !payment_.live(now)) {
         payment_.stop();
         if (!policy_.sharesOrigin(url)) {
@@ -459,6 +546,107 @@ WebResponseDecision WebView2Host::tryFinishDocumentNavigation(std::uint64_t now)
     documentCompletion_.reset();
     if (nativeStopResponseTimer_) nativeStopResponseTimer_();
     return completeDocumentNavigation(completion.url, navigationId_, response, now);
+}
+
+bool WebView2Host::beginPaymentPopup(std::string_view url, PopupSource source, std::uint64_t now,
+    std::function<void()> cleanup) {
+    if ((runtimeState_ != WebRuntimeState::ready && runtimeState_ != WebRuntimeState::unprivileged) ||
+        source.documentGeneration != documentGeneration_ || !source.isMainFrame ||
+        source.frameId == 0 || source.frameId != source.coreFrameId ||
+        (payment_.started() && !payment_.live(now))) return false;
+    if (paymentPopup_) {
+        // A bounded chain keeps every opener alive but has only one active surface.
+        // Neither nesting nor controller creation restarts the first deadline.
+        if (!paymentPopupLiveAt(now) || !paymentPopup_->handedOff || paymentPopup_->returning ||
+            !payment_.live(now) || source.frameId != paymentPopup_->activeFrameId ||
+            paymentPopup_->children >= 8 ||
+            policy_.evaluate(url, true, AuthContinuation::none, true).kind != RouteKind::paymentProvider) return false;
+        auto previous = std::move(paymentPopup_->cleanup);
+        paymentPopup_->cleanup = [previous = std::move(previous), cleanup = std::move(cleanup)] {
+            try { if (cleanup) cleanup(); } catch (...) {}
+            try { if (previous) previous(); } catch (...) {}
+        };
+        paymentPopup_->source = source;
+        paymentPopup_->handedOff = false;
+        paymentPopup_->activeFrameId = 0;
+        ++paymentPopup_->children;
+        return true;
+    }
+    const auto from = policy_.evaluate(committedDocumentUrl_);
+    const auto own = policy_.evaluate(url);
+    const bool starts = policy_.canStartPayment(committedDocumentUrl_, url);
+    const bool checkout = from.kind == RouteKind::billing && own.kind == RouteKind::billing &&
+        own.decision == RouteDecision::allow;
+    if (!checkout && !starts && !(payment_.live(now) &&
+        policy_.evaluate(url, true, AuthContinuation::none, true).decision == RouteDecision::allow)) return false;
+    // Keep the original parent deadline even after an own-origin return stops
+    // external navigation authority. A late popup cannot start another 15 minutes.
+    paymentPopup_ = PaymentPopup{source, committedDocumentUrl_, payment_.startedAt().value_or(now), false, false, std::move(cleanup)};
+    if (starts) (void)payment_.begin(policy_, committedDocumentUrl_, url, now);
+    cancelDialog();
+    setRuntimeState(WebRuntimeState::unprivileged); // Revoke the opener's old nonce as well.
+    return true;
+}
+
+bool WebView2Host::paymentPopupLiveAt(std::uint64_t now) const noexcept {
+    return paymentPopup_ && runtimeState_ == WebRuntimeState::unprivileged &&
+        paymentPopup_->source.documentGeneration == documentGeneration_ &&
+        now >= paymentPopup_->admittedAt && now - paymentPopup_->admittedAt < 900000 &&
+        (!payment_.started() || payment_.live(now));
+}
+
+bool WebView2Host::handOffPaymentPopup(PopupSource source, std::uint64_t now) {
+    if (!paymentPopup_ || paymentPopup_->handedOff || source.documentGeneration != documentGeneration_) return false;
+    if (!paymentPopupLiveAt(now) || !source.isMainFrame || source.frameId == 0 ||
+        source.frameId != source.coreFrameId || source.frameId != paymentPopup_->source.frameId ||
+        source.documentGeneration != documentGeneration_) {
+        fail("payment-popup-binding", 0);
+        return false;
+    }
+    paymentPopup_->handedOff = true;
+    return true;
+}
+
+bool WebView2Host::paymentPopupChildCurrent(std::uint64_t generation, unsigned childOrdinal,
+    std::uint64_t now) const noexcept {
+    return paymentPopupLiveAt(now) && paymentPopup_->handedOff && generation == documentGeneration_ &&
+        childOrdinal == paymentPopup_->children;
+}
+
+bool WebView2Host::bindPaymentPopupFrame(std::uint32_t frameId, std::uint64_t generation,
+    unsigned childOrdinal, std::uint64_t now) {
+    if (!paymentPopupChildCurrent(generation, childOrdinal, now) || frameId == 0 ||
+        (paymentPopup_->activeFrameId != 0 && paymentPopup_->activeFrameId != frameId)) return false;
+    paymentPopup_->activeFrameId = frameId;
+    return true;
+}
+
+RouteEvaluation WebView2Host::evaluatePaymentPopupDocument(std::string_view url, std::uint64_t now) {
+    if (!paymentPopupLiveAt(now) || !paymentPopup_->handedOff) {
+        cancelPaymentPopup();
+        return {};
+    }
+    const bool starts = !payment_.started() && !paymentPopup_->returning &&
+        policy_.canStartPayment(paymentPopup_->billingSource, url);
+    const auto result = policy_.evaluate(url, true, AuthContinuation::none, payment_.live(now) || starts);
+    if (result.decision != RouteDecision::allow || result.kind == RouteKind::artifactDownload ||
+        result.kind == RouteKind::nativeSettings) {
+        cancelPaymentPopup();
+        return {};
+    }
+    if (starts) (void)payment_.begin(policy_, paymentPopup_->billingSource, url, now);
+    if (payment_.started() && policy_.sharesOrigin(url)) {
+        paymentPopup_->returning = true;
+        payment_.stop(); // The original return request still executes; no GET substitution.
+    }
+    return result;
+}
+
+void WebView2Host::cancelPaymentPopup() noexcept {
+    auto popup = std::exchange(paymentPopup_, std::nullopt);
+    if (!popup) return;
+    payment_.stop();
+    try { if (popup->cleanup) popup->cleanup(); } catch (...) {}
 }
 
 RouteEvaluation WebView2Host::evaluatePopupNavigation(std::string_view url, std::uint64_t now) {
@@ -577,6 +765,11 @@ RouteEvaluation WebView2Host::navigate(std::string url) {
 
 void WebView2Host::reload() {
     if (runtimeState_ == WebRuntimeState::closed) return;
+    if (paymentPopup_) {
+        cancelPaymentPopup();
+        (void)navigate(policy_.trustedOrigin() + "/billing");
+        return;
+    }
     if (recreateRequired_) {
         auto recreate = recreateHandler_; // It may replace this host/control.
         if (recreate) recreate();
@@ -617,17 +810,30 @@ void WebView2Host::handleProcessFailure(WebProcessFailure failure, std::int32_t 
     fail(stage, exitCode);
 }
 
-void WebView2Host::back() { if (canGoBack()) nativeBack_(); }
+void WebView2Host::back() {
+    if (paymentPopup_) {
+        cancelPaymentPopup();
+        (void)navigate(policy_.trustedOrigin() + "/billing");
+    } else if (canGoBack()) nativeBack_();
+}
 void WebView2Host::forward() { if (canGoForward()) nativeForward_(); }
 bool WebView2Host::canGoBack() const {
+    if (paymentPopup_) return true; // One action out even on the first payment page.
     try { return !recreateRequired_ && nativeCanGoBack_ && nativeCanGoBack_(); } catch (...) { return false; }
 }
 bool WebView2Host::canGoForward() const {
+    if (paymentPopup_) return false; // Never traverse/replay a checkout action.
     try { return !recreateRequired_ && nativeCanGoForward_ && nativeCanGoForward_(); } catch (...) { return false; }
 }
 
 bool WebView2Host::isAllowedQuitPayload(std::string_view payload) noexcept {
     return payload == R"({"action":"quit"})";
+}
+
+void WebView2Host::setAppUpdateAvailable(bool available) {
+    appUpdateAvailable_ = available;
+    if (runtimeState_ == WebRuntimeState::ready && nativeRunScript_)
+        nativeRunScript_(available ? "window.__grafSetUpdateAvailable?.(true)" : "window.__grafSetUpdateAvailable?.(false)");
 }
 
 bool WebView2Host::isAllowedAppearance(std::string_view theme) noexcept {
@@ -773,7 +979,247 @@ void WebView2Host::completeDeletionSelection(const DeletionRequest& request,
 }
 
 #if defined(_WIN32) && defined(GRAF_WINDOWS_APP_SDK)
-void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control) {
+void WebView2Host::openPaymentPopup(winrt::Microsoft::UI::Xaml::Controls::WebView2 opener,
+    winrt::Microsoft::Web::WebView2::Core::CoreWebView2NewWindowRequestedEventArgs args) {
+    using namespace winrt::Microsoft::UI::Xaml;
+    using namespace winrt::Microsoft::UI::Xaml::Controls;
+    using namespace winrt::Microsoft::Web::WebView2::Core;
+    const auto alive = alive_;
+    const auto dispatcher = opener.DispatcherQueue();
+    const auto window = std::make_shared<PaymentPopupWindow>();
+    window->dispatcher = dispatcher;
+    try {
+        const auto core = opener.CoreWebView2();
+        const auto openerUrl = utf8(core.Source());
+        const auto source = paymentPopupSource(core, args, documentGeneration_);
+        window->panel = opener.Parent().try_as<Panel>();
+        if (!window->panel || (!paymentPopup_ && utf8(core.Source()) != committedDocumentUrl_) ||
+            !beginPaymentPopup(utf8(args.Uri()), source, monotonicMilliseconds(), [window] { window->close(); })) return;
+        window->generation = source.documentGeneration;
+        window->childOrdinal = paymentPopup_->children;
+        window->opener = opener;
+        window->deferral = args.GetDeferral();
+        const auto environment = core.Environment();
+        const auto profile = core.Profile();
+        const auto options = environment.CreateCoreWebView2ControllerOptions();
+        options.ProfileName(profile.ProfileName());
+        options.IsInPrivateModeEnabled(profile.IsInPrivateModeEnabled());
+        window->child = WebView2();
+        const auto child = window->child;
+        child.HorizontalAlignment(opener.HorizontalAlignment());
+        child.VerticalAlignment(opener.VerticalAlignment());
+        child.Margin(opener.Margin());
+        Grid::SetRow(child, Grid::GetRow(opener));
+        Grid::SetColumn(child, Grid::GetColumn(opener));
+        Grid::SetRowSpan(child, Grid::GetRowSpan(opener));
+        Grid::SetColumnSpan(child, Grid::GetColumnSpan(opener));
+        Automation::AutomationProperties::SetName(child, L"Оплата GRAF");
+        window->panel.Children().Append(child);
+        const std::weak_ptr<PaymentPopupWindow> weak = window;
+        window->timer = dispatcher.CreateTimer();
+        window->timer.Interval(std::chrono::milliseconds(100));
+        window->timer.Tick([this, alive, weak](auto const& timer, auto const&) {
+            const auto window = weak.lock();
+            if (!window || window->closed || !alive->load()) { timer.Stop(); return; }
+            if (window->cancellationRequested.load()) { fail("payment-dispatch", E_ABORT); return; }
+            const auto now = monotonicMilliseconds();
+            if (!paymentPopupLiveAt(now)) { fail("payment-expired", E_ABORT); return; }
+            if (window->interruptedNavigationId != 0 &&
+                paymentPopupChildCurrent(window->generation, window->childOrdinal, now) &&
+                (now < window->interruptedAt || now - window->interruptedAt >= PaymentPopupWindow::replacementWindowMs))
+                fail("payment-document", E_FAIL);
+        });
+        window->timer.Start();
+        // Bind creation to the opener's captured native environment and profile.
+        // Environment() may return distinct WinRT wrappers for the same environment;
+        // wrapper reference equality is not an environment identity check.
+        child.EnsureCoreWebView2Async(environment, options).Completed(
+            [this, alive, dispatcher, opener, core, args, window, source, openerUrl](auto const& operation, auto const&) {
+                if (!dispatcher.TryEnqueue([this, alive, dispatcher, opener, core, args, window, source, openerUrl, operation] {
+                    if (!alive->load() || window->closed) { window->close(); return; }
+                    if (source.documentGeneration != documentGeneration_ || !paymentPopup_ ||
+                        window->childOrdinal != paymentPopup_->children) { window->close(); return; }
+                    try {
+                        operation.GetResults();
+                        const auto child = window->child;
+                        const auto target = child.CoreWebView2();
+                        const auto settings = target.Settings();
+                        settings.AreHostObjectsAllowed(false);
+                        settings.IsWebMessageEnabled(false);
+                        settings.AreDefaultScriptDialogsEnabled(false);
+                        settings.IsStatusBarEnabled(false);
+                        const std::weak_ptr<PaymentPopupWindow> weak = window;
+                        target.NavigationStarting([this, alive, weak](auto const& sender, auto const& event) {
+                            const auto window = weak.lock();
+                            if (!window || window->closed || !window->ready || !alive->load()) { event.Cancel(true); return; }
+                            try {
+                                if (!paymentPopupChildCurrent(window->generation, window->childOrdinal, monotonicMilliseconds())) {
+                                    event.Cancel(true);
+                                    return; // A replaced child cannot affect its successor.
+                                }
+                                const auto now = monotonicMilliseconds();
+                                if (window->interruptedNavigationId != 0 &&
+                                    (now < window->interruptedAt || now - window->interruptedAt >= PaymentPopupWindow::replacementWindowMs)) {
+                                    event.Cancel(true);
+                                    fail("payment-document", E_FAIL);
+                                    return;
+                                }
+                                // This is the owned Core's main-navigation event, not a
+                                // frame URL guess. FrameId may remain zero until ContentLoading.
+                                if (paymentPopup_->activeFrameId != 0 && sender.FrameId() != paymentPopup_->activeFrameId) {
+                                    event.Cancel(true);
+                                    fail("payment-opener-navigation", E_ABORT);
+                                    return;
+                                }
+                                const auto url = utf8(event.Uri());
+                                if (evaluatePaymentPopupDocument(url, monotonicMilliseconds()).decision != RouteDecision::allow) {
+                                    event.Cancel(true);
+                                    fail("payment-route", E_ACCESSDENIED);
+                                    return;
+                                }
+                                window->navigationId = event.NavigationId();
+                                window->navigationUrl = url;
+                                if (window->navigationId != window->interruptedNavigationId)
+                                    window->interruptedNavigationId = 0;
+                            } catch (...) { event.Cancel(true); fail("payment-navigation", E_FAIL); }
+                        });
+                        target.ContentLoading([this, alive, weak](auto const& sender, auto const& event) {
+                            const auto window = weak.lock();
+                            if (!alive->load() || !window || window->closed || !window->ready ||
+                                window->navigationId == 0 || event.NavigationId() != window->navigationId ||
+                                !paymentPopupChildCurrent(window->generation, window->childOrdinal, monotonicMilliseconds())) return;
+                            try {
+                                if (!bindPaymentPopupFrame(sender.FrameId(), window->generation, window->childOrdinal,
+                                    monotonicMilliseconds())) fail("payment-frame", E_ABORT);
+                            } catch (...) { fail("payment-frame", E_FAIL); }
+                        });
+                        target.FrameNavigationStarting([this, alive, weak](auto const&, auto const& event) {
+                            const auto window = weak.lock();
+                            if (!window || window->closed || !alive->load()) { event.Cancel(true); return; }
+                            try {
+                                if (!paymentPopupLiveAt(monotonicMilliseconds()) ||
+                                    policy_.evaluate(utf8(event.Uri()), false, AuthContinuation::none,
+                                        payment_.live(monotonicMilliseconds())).decision != RouteDecision::allow) event.Cancel(true);
+                            } catch (...) { event.Cancel(true); }
+                        });
+                        target.PermissionRequested([](auto const&, auto const& event) {
+                            event.State(CoreWebView2PermissionState::Deny);
+                            event.Handled(true);
+                        });
+                        target.DownloadStarting([](auto const&, auto const& event) { event.Cancel(true); event.Handled(true); });
+                        target.NewWindowRequested([this, alive, weak](auto const&, auto const& event) {
+                            event.Handled(true);
+                            const auto window = weak.lock();
+                            if (!alive->load() || !window || window->closed) return;
+                            openPaymentPopup(window->child, event);
+                        });
+                        target.ProcessFailed([this, alive, weak](auto const&, auto const&) {
+                            const auto window = weak.lock();
+                            if (alive->load() && window && !window->closed) fail("payment-process", E_FAIL);
+                        });
+                        target.WindowCloseRequested([this, alive, weak, dispatcher](auto const&, auto const&) {
+                            const auto window = weak.lock();
+                            if (!alive->load() || !window || window->closed) return;
+                            dispatcher.TryEnqueue([this, alive, weak] {
+                                const auto window = weak.lock();
+                                if (!alive->load() || !window || window->closed) return;
+                                cancelPaymentPopup();
+                                (void)navigate(policy_.trustedOrigin() + "/billing");
+                            });
+                        });
+                        target.NavigationCompleted([this, alive, weak, dispatcher](auto const& sender, auto const& event) {
+                            const auto window = weak.lock();
+                            if (!alive->load() || !window || window->closed || event.NavigationId() != window->navigationId) return;
+                            try {
+                                if (!paymentPopupChildCurrent(window->generation, window->childOrdinal, monotonicMilliseconds())) return;
+                                // A failed first navigation may never emit ContentLoading,
+                                // so it must not wait for a frame ID to expose recovery.
+                                if (!event.IsSuccess()) {
+                                    // An immediate form can replace the initial popup load.
+                                    // Wait only for a bounded, policy-validated new navigation;
+                                    // a genuine aborted connection still exposes recovery.
+                                    if (event.WebErrorStatus() == CoreWebView2WebErrorStatus::ConnectionAborted &&
+                                        paymentPopup_->activeFrameId == 0) {
+                                        if (window->interruptedNavigationId == 0) {
+                                            window->interruptedNavigationId = event.NavigationId();
+                                            window->interruptedAt = monotonicMilliseconds();
+                                        }
+                                    } else fail("payment-document", E_FAIL);
+                                    return;
+                                }
+                                if (paymentPopup_->activeFrameId == 0 || sender.FrameId() != paymentPopup_->activeFrameId) return;
+                                const auto url = utf8(sender.Source());
+                                if (url != window->navigationUrl) { fail("payment-document", E_FAIL); return; }
+                                // The original request (including a return POST) has completed.
+                                // Only now restore a fresh privileged GET, never replay an action.
+                                if (!policy_.sharesOrigin(url)) return;
+                                if (!paymentPopup_ || !paymentPopup_->returning) return;
+                                auto safe = policy_.safeRecoveryUrl(url);
+                                if (safe.empty()) safe = policy_.trustedOrigin() + "/billing";
+                                const auto completedNavigationId = event.NavigationId();
+                                const auto completedFrameId = sender.FrameId();
+                                dispatcher.TryEnqueue([this, alive, weak, safe, completedNavigationId, completedFrameId] {
+                                    const auto window = weak.lock();
+                                    if (!alive->load() || !window || window->closed || !paymentPopupLiveAt(monotonicMilliseconds())) return;
+                                    if (window->navigationId != completedNavigationId ||
+                                        paymentPopup_->activeFrameId != completedFrameId || !paymentPopup_->returning) return;
+                                    cancelPaymentPopup();
+                                    (void)navigate(safe);
+                                });
+                            } catch (...) { fail("payment-document", E_FAIL); }
+                        });
+                        // Re-read native frame identity after asynchronous controller creation.
+                        const auto proof = paymentPopupSource(core, args, documentGeneration_);
+                        if (utf8(core.Source()) != openerUrl ||
+                            target.Profile().ProfileName() != core.Profile().ProfileName() ||
+                            target.Profile().IsInPrivateModeEnabled() != core.Profile().IsInPrivateModeEnabled() ||
+                            !handOffPaymentPopup(proof, monotonicMilliseconds())) { fail("payment-popup-binding", E_ABORT); return; }
+                        // NewWindow also enforces native environment/profile compatibility.
+                        args.NewWindow(target); // Browser owns method/body/name/opener; never Navigate(Uri).
+                        if (popupHandoffCheckpoint_) popupHandoffCheckpoint_(false, target);
+                        // WebView2 replaces the contents on NewWindow assignment. Resource
+                        // filters must apply to those contents, before completing the deferral.
+                        target.AddWebResourceRequestedFilter(L"*", CoreWebView2WebResourceContext::Document,
+                            CoreWebView2WebResourceRequestSourceKinds::Document);
+                        const auto deniedDocument = core.Environment().CreateWebResourceResponse(nullptr, 403,
+                            L"Forbidden", L"Content-Length: 0\r\nCache-Control: no-store\r\n");
+                        target.WebResourceRequested([this, alive, weak, deniedDocument](auto const&, auto const& event) {
+                            const auto window = weak.lock();
+                            try {
+                                if (alive->load() && window && !window->closed) {
+                                    const auto now = monotonicMilliseconds();
+                                    const auto request = event.Request();
+                                    const auto url = utf8(request.Uri());
+                                    if (paymentPopupChildCurrent(window->generation, window->childOrdinal, now) &&
+                                        policy_.evaluate(url, false, AuthContinuation::none, payment_.live(now)).decision == RouteDecision::allow) {
+                                        if (policy_.sharesOrigin(url)) request.Headers().SetHeader(L"X-GRAF-Client", L"desktop");
+                                        return; // Preserve the browser's original request, including POST.
+                                    }
+                                }
+                            } catch (...) {}
+                            // NavigationStarting.Cancel may arrive after a GET was sent.
+                            // Supply a local response at the request boundary instead.
+                            try { event.Response(deniedDocument); }
+                            catch (...) {
+                                if (alive->load() && window && !window->closed && paymentPopup_ &&
+                                    window->generation == documentGeneration_ && window->childOrdinal == paymentPopup_->children)
+                                    fail("payment-request", E_FAIL);
+                            }
+                        });
+                        opener.Visibility(Visibility::Collapsed);
+                        window->ready = true;
+                        window->complete();
+                        if (popupHandoffCheckpoint_) popupHandoffCheckpoint_(true, target);
+                    } catch (const winrt::hresult_error& error) { fail("payment-popup", error.code().value); window->close(); }
+                    catch (...) { fail("payment-popup", E_FAIL); window->close(); }
+                })) window->cancellationRequested.store(true);
+            });
+    } catch (const winrt::hresult_error& error) { fail("payment-popup", error.code().value); window->close(); }
+    catch (...) { fail("payment-popup", E_FAIL); window->close(); }
+}
+
+void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control,
+    winrt::Microsoft::Web::WebView2::Core::CoreWebView2Environment suppliedEnvironment) {
     close();
     alive_ = std::make_shared<std::atomic_bool>(true);
     const auto alive = alive_;
@@ -1017,18 +1463,21 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                         payment_.live(monotonicMilliseconds())).decision != RouteDecision::allow) args.Cancel(true);
                 } catch (...) { args.Cancel(true); }
             });
-            core.NewWindowRequested([this, alive](auto const& core, auto const& args) {
+            core.NewWindowRequested([this, alive, control](auto const& core, auto const& args) {
                 args.Handled(true);
                 if (!alive->load()) return;
                 const auto url = utf8(args.Uri());
-                // NewWindowRequested supplies no method/body. Navigate(Uri)
-                // would silently convert a payment POST to GET. Until a native
-                // same-view request-preserving adapter is proven, refuse it as
-                // required by contract §9; never report popup parity as passed.
+                if (payment_.started() || policy_.evaluate(committedDocumentUrl_).kind == RouteKind::billing) {
+                    openPaymentPopup(control, args);
+                    return;
+                }
+                // URI-only fallback for contexts outside the payment adapter.
+                // Its evaluator explicitly denies payment requests: Navigate(Uri)
+                // cannot preserve their method/body or browser opener semantics.
                 const auto evaluation = evaluatePopupNavigation(url, monotonicMilliseconds());
                 if (evaluation.decision == RouteDecision::allow) {
-                    // Keep provider popups in this profile, with the same policy
-                    // rechecked by NavigationStarting. No generic new windows.
+                    // Only non-payment routes admitted by the URI-only policy;
+                    // NavigationStarting rechecks them. No generic new windows.
                     core.Navigate(args.Uri());
                 } else if (evaluation.decision == RouteDecision::openExternal && args.IsUserInitiated()) {
                     (void)::ShellExecuteW(nullptr, L"open", winrt::to_hstring(evaluation.normalizedUrl).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
@@ -1135,7 +1584,6 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                         const auto requestId = payload.GetNamedNumber(L"requestId");
                         if (!isJsonUnsignedInteger(requestId, kJsonSafeIntegerMax)) return;
                         const auto request = payload.GetNamedObject(L"request");
-                        if (request.GetNamedNumber(L"version") != 1.0) return;
                         if (utf8(request.GetNamedString(L"nonce")) != nativeSettingsNonce_) return;
                         NativeSettingsRequest parsed;
                         parsed.handler = handler;
@@ -1151,6 +1599,7 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                             // Invalid current-document requests still receive an explicit
                             // refusal from the owner, never a timed-out web promise.
                         } else {
+                            if (request.GetNamedNumber(L"version") != 1.0) return;
                             const auto action = NativeSettingsBridge::actionFromToken(utf8(request.GetNamedString(L"action")));
                             if (!action) return;
                             parsed.action = std::string(NativeSettingsBridge::actionToken(*action));
@@ -1199,6 +1648,9 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                         if (appearanceHandler_) appearanceHandler_(theme);
                     } else if (message->command == "request_app_quit") {
                         if (isAllowedQuitPayload(message->payloadJson) && quitHandler_) quitHandler_();
+                    } else if (message->command == "request_app_update") {
+                        // Empty payload was validated before dispatch; never installs.
+                        if (updateHandler_) updateHandler_();
                     } else if (message->command == "local_recording") {
                         const auto payload = winrt::Windows::Data::Json::JsonObject::Parse(winrt::to_hstring(message->payloadJson));
                         if (payload.Size() != 2) return;
@@ -1251,10 +1703,8 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                         return;
                     }
                     const auto result = tryFinishDocumentNavigation(monotonicMilliseconds());
-                    if (result == WebResponseDecision::expiredSession || result == WebResponseDecision::workspaceReselection) {
-                        core.Navigate(winrt::to_hstring(recoveryUrl()));
-                        return;
-                    }
+                    // Auth recovery waits for the same explicit user action as macOS.
+                    // The shell distinguishes it from an already open sign-in form.
                     if (result != WebResponseDecision::cabinet) return;
                     // Native acceptance must prove request/response correlation
                     // on WebView2. Never ignore a possible recovery header and
@@ -1394,6 +1844,7 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                                     ready.Insert(L"payload", winrt::Windows::Data::Json::JsonObject{});
                                     ready.Insert(L"sent_at_monotonic_ms", Value::CreateNumberValue(static_cast<double>(GetTickCount64())));
                                     core.PostWebMessageAsJson(ready.Stringify());
+                                    setAppUpdateAvailable(appUpdateAvailable_);
                                     // Тема читается у самой страницы, а не ждётся
                                     // объявлением: объявление приходит только после
                                     // рукопожатия, а окно обязано совпасть с
@@ -1450,7 +1901,11 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                 try {
                     using Error = winrt::Microsoft::Web::WebView2::Core::CoreWebView2WebErrorStatus;
                     const auto status = args.HttpStatusCode();
-                    const bool httpErrorDocument = args.WebErrorStatus() == Error::ErrorHttpInvalidServerResponse ||
+                    // Runtime also reports ordinary HTTP 4xx/5xx with Unknown.
+                    // This is only a candidate: the response latch still requires
+                    // correlated document headers before applying auth/MIME policy.
+                    const bool httpErrorDocument = args.WebErrorStatus() == Error::Unknown ||
+                        args.WebErrorStatus() == Error::ErrorHttpInvalidServerResponse ||
                         (status == 401 && args.WebErrorStatus() == Error::ValidAuthenticationCredentialsRequired);
                     if (!observeDocumentCompletion(utf8(core.Source()), args.NavigationId(), status,
                         args.IsSuccess(), httpErrorDocument, monotonicMilliseconds())) return;
@@ -1466,29 +1921,36 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
             fail("configure", error.code().value);
         } catch (...) { fail("configure", E_FAIL); }
     });
-    nativeInitialize_ = [this, alive, dispatcher, control] {
+    const auto ensureControl = [this, alive, dispatcher, control](auto const& environment) {
+        control.EnsureCoreWebView2Async(environment).Completed(
+            [this, alive, dispatcher](auto const& ensured, auto const&) {
+                dispatcher.TryEnqueue([this, alive, ensured] {
+                    if (!alive->load()) return;
+                    try { ensured.GetResults(); }
+                    catch (const winrt::hresult_error& error) { fail("ensure-control", error.code().value); }
+                    catch (...) { fail("ensure-control", E_FAIL); }
+                });
+            });
+    };
+    nativeInitialize_ = [this, alive, dispatcher, ensureControl, suppliedEnvironment] {
         if (!alive->load() || runtimeState_ == WebRuntimeState::initializing) return;
         try {
             failureDetail_.clear();
             setRuntimeState(WebRuntimeState::initializing);
+            if (suppliedEnvironment) {
+                ensureControl(suppliedEnvironment);
+                return;
+            }
             const auto userData = webViewUserDataFolder();
             if (userData.empty()) { fail("profile", E_ACCESSDENIED); return; }
             auto environment = winrt::Microsoft::Web::WebView2::Core::CoreWebView2Environment::CreateWithOptionsAsync(
                 winrt::hstring{}, winrt::hstring(userData.wstring()),
                 winrt::Microsoft::Web::WebView2::Core::CoreWebView2EnvironmentOptions{});
-            environment.Completed([this, alive, dispatcher, control](auto const& operation, auto const&) {
-                dispatcher.TryEnqueue([this, alive, dispatcher, control, operation] {
+            environment.Completed([this, alive, dispatcher, ensureControl](auto const& operation, auto const&) {
+                dispatcher.TryEnqueue([this, alive, ensureControl, operation] {
                     if (!alive->load()) return;
                     try {
-                        control.EnsureCoreWebView2Async(operation.GetResults()).Completed(
-                            [this, alive, dispatcher](auto const& ensured, auto const&) {
-                                dispatcher.TryEnqueue([this, alive, ensured] {
-                                    if (!alive->load()) return;
-                                    try { ensured.GetResults(); }
-                                    catch (const winrt::hresult_error& error) { fail("ensure-control", error.code().value); }
-                                    catch (...) { fail("ensure-control", E_FAIL); }
-                                });
-                            });
+                        ensureControl(operation.GetResults());
                     } catch (const winrt::hresult_error& error) {
                         fail("environment", error.code().value);
                     } catch (...) { fail("environment", E_FAIL); }

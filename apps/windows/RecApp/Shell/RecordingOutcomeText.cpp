@@ -36,7 +36,8 @@ std::wstring recordingFailureText(ReasonCode reason, bool trustedPrefixRetained)
         case ReasonCode::endpointInvalidated:
             return L"Устройство звука отключилось во время записи. Подключите его и повторите запись.";
         case ReasonCode::clockDiscontinuity:
-            return L"Часы записи сбились. Проверьте системное время и повторите запись.";
+            return L"Нарушилась синхронизация звука. Скопируйте безопасную сводку, "
+                   L"проверьте устройство звука и повторите запись.";
         case ReasonCode::activeSessionExists:
             return L"Запись уже идёт. Остановите текущую запись перед новой.";
         default:

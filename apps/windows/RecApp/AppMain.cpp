@@ -11,6 +11,8 @@
 #include "Storage/AtomicFileStore.h"
 #include "Shell/CabinetWindow.h"
 #include "Shell/WindowsTray.h"
+#include "Shell/WindowsAppUpdateController.h"
+#include "Shell/ShellClosePolicy.h"
 #include "Shell/AutomaticRecordingPrompt.h"
 #include "Shell/MicrophoneConsentKey.h"
 #include "Shell/RecordingNoticePresenter.h"
@@ -45,6 +47,7 @@
 #include <winrt/Microsoft.UI.Xaml.Controls.Primitives.h>
 #include <winrt/Microsoft.UI.Xaml.Input.h>
 #include <winrt/Microsoft.UI.Xaml.Automation.h>
+#include <winrt/Microsoft.UI.Xaml.Automation.Peers.h>
 #include <winrt/Microsoft.UI.Xaml.Media.h>
 #include <winrt/Microsoft.UI.Xaml.Markup.h>
 #include <winrt/Microsoft.UI.Xaml.XamlTypeInfo.h>
@@ -62,6 +65,7 @@
 #include <winrt/Windows.System.Profile.h>
 #include <winrt/Windows.System.h>
 #include <winrt/Windows.Storage.h>
+#include <winrt/Windows.Data.Json.h>
 #include <dwmapi.h>
 #include <fstream>
 
@@ -81,6 +85,8 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <ctime>
+#include <cwchar>
 #include <iterator>
 #include <future>
 #include <memory>
@@ -101,6 +107,18 @@ using namespace winrt::Microsoft::UI::Xaml::Media;
 using winrt::Windows::UI::Text::FontWeight;
 using winrt::Windows::UI::Text::FontWeights;
 using winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer;
+
+// STA calls (notably Recycle Bin) can pump another UI tick. A synchronous
+// custody mutation remains in flight until its entire owner-thread call ends.
+class CustodyMutationScope final {
+public:
+    explicit CustodyMutationScope(std::size_t& count) noexcept : count_(count) { ++count_; }
+    ~CustodyMutationScope() { --count_; }
+    CustodyMutationScope(const CustodyMutationScope&) = delete;
+    CustodyMutationScope& operator=(const CustodyMutationScope&) = delete;
+private:
+    std::size_t& count_;
+};
 
 std::int64_t attributionNow() {
     return std::chrono::duration_cast<std::chrono::seconds>(
@@ -588,13 +606,29 @@ public:
         refreshReadiness();
     }
 
-    [[nodiscard]] graf::windows::TransitionResult record() {
+    using StartGuardFactory = std::function<graf::windows::WindowsCaptureSessionController::StartGuard(const std::string&)>;
+    [[nodiscard]] graf::windows::TransitionResult record(StartGuardFactory makeStartGuard = {}) {
+        if (updateAdmissionBlocked_) return {graf::windows::TransitionStatus::rejected, indicator().state};
+        const CustodyMutationScope mutation(synchronousMutations_);
         if (!indicator().visible && indicator().state != graf::windows::SessionState::idle) createRecordingPipeline();
         refreshReadiness();
+        // Readiness can enter COM. An update accepted by a nested UI event must
+        // prevent the old Record action from starting workers afterwards.
+        if (updateAdmissionBlocked_) return {graf::windows::TransitionStatus::rejected, indicator().state};
         recordingAccount_ = currentAccount_;
+        recordingOrigin_ = graf::windows::DesktopHttpConfig{}.baseOrigin;
+        recordingAuthGeneration_ = authGeneration_;
         recordingEndpointIdentity_ = currentEndpointIdentity_;
-        return controller_->record(readiness_);
+        graf::windows::WindowsCaptureSessionController::StartGuard guard;
+        if (makeStartGuard) {
+            // Bind after any pipeline replacement, before either worker starts.
+            // A failed automatic binding must never fall back to manual capture.
+            try { guard = makeStartGuard(sessionId_); } catch (...) {}
+            if (!guard) guard = [](std::string_view) { return false; };
+        }
+        return controller_->record(readiness_, std::move(guard));
     }
+    [[nodiscard]] const std::string& sessionId() const noexcept { return sessionId_; }
     void refreshPermission() noexcept { readiness_.microphonePermissionGranted = microphonePrivacyGranted(); }
     // The server renewed the session while answering a flight and named the new
     // deadline. It travels to the shell, which carries it to the cabinet's own
@@ -627,7 +661,9 @@ public:
     [[nodiscard]] const std::string& selectedMicrophone() const noexcept { return selectedMicrophone_; }
     [[nodiscard]] const std::wstring& sourceSummary() const noexcept { return sourceSummary_; }
     bool selectMicrophone(std::string identity) {
-        if (indicator().visible || !saveMicrophonePreference(identity)) return false;
+        if (updateAdmissionBlocked_ || indicator().visible) return false;
+        const CustodyMutationScope mutation(synchronousMutations_);
+        if (!saveMicrophonePreference(identity)) return false;
         selectedMicrophone_ = std::move(identity);
         refreshReadiness();
         return true;
@@ -637,10 +673,11 @@ public:
         if (!pendingRecovery_ || trigger == graf::windows::RecoveryTrigger::authRecovered) pendingRecovery_ = trigger;
     }
     void pollUploads() {
+        const CustodyMutationScope mutation(synchronousMutations_);
         (void)scheduler_.drain();
         pollAccount();
         if (!currentAccount_) return;
-        if (shuttingDown_ || scheduler_.busy() || !pendingRecovery_) return;
+        if (shuttingDown_ || updateAdmissionBlocked_ || scheduler_.busy() || !pendingRecovery_) return;
         graf::windows::DesktopHttpConfig config;
         config.sessionToken = authSessionToken_;
         config.workspaceId = currentAccount_->workspaceId;
@@ -670,6 +707,7 @@ public:
         return controller_->stop(reason);
     }
     void tickNotice() { noticePresenter_.tick(std::chrono::steady_clock::now()); }
+    std::function<void()> onShortRecordingPresented;
     graf::windows::RecordingNoticePresenter& notificationCard() { return noticePresenter_; }
     void pollHealth() {
         (void)controller_->pollHealth();
@@ -721,8 +759,61 @@ public:
     }
 
     [[nodiscard]] const auto& localItems() const noexcept { return queue_.items(); }
+    [[nodiscard]] bool localQueueComplete() const noexcept { return !queue_.quarantined(); }
+    [[nodiscard]] graf::windows::LocalProblemContext localProblemContext() const {
+        if (!currentAccount_) return {};
+        return {graf::windows::DesktopHttpConfig{}.baseOrigin, currentAccount_->userId, currentAccount_->workspaceId};
+    }
+    [[nodiscard]] bool ownsRecordingSession(const graf::windows::LocalProblemContext& context,
+                                           std::string_view id) const {
+        const auto current = localProblemContext();
+        if (id.empty() || current.owner.empty() || current.workspace.empty() ||
+            context.origin != current.origin || context.owner != current.owner || context.workspace != current.workspace) return false;
+        bool found = false;
+        if (!queue_.quarantined()) for (const auto& item : queue_.items()) {
+            if (item.sessionId != id) continue;
+            if (item.localRecordingId.empty() || item.ownerUserId != context.owner || item.ownerWorkspaceId != context.workspace) return false;
+            found = true;
+        }
+        if (id == sessionId_ && recordingAccount_) {
+            if (recordingOrigin_ != context.origin || recordingAccount_->userId != context.owner ||
+                recordingAccount_->workspaceId != context.workspace) return false;
+            found = true;
+        }
+        return found;
+    }
+    [[nodiscard]] std::vector<graf::windows::LocalProblemProjection> recordingProblems(std::uint64_t nowMs) const {
+        const auto context = localProblemContext();
+        // The queue's origin is confirmed by its current native account, never
+        // copied from a notification target or used to adopt an unowned row.
+        graf::windows::LocalProblemContext queueContext;
+        if (currentAccount_) queueContext = {graf::windows::DesktopHttpConfig{}.baseOrigin,
+            currentAccount_->userId, currentAccount_->workspaceId};
+        std::optional<graf::windows::CurrentCaptureProblem> capture;
+        if (recordingAccount_) {
+            const auto& state = indicator();
+            using State = graf::windows::SessionState;
+            const bool deliberateShort = controller_->finalization().shortRecordingDiscarded &&
+                state.state == State::blocked && state.reason == graf::windows::ReasonCode::none;
+            const bool blocker = !deliberateShort && (state.state == State::failed || state.state == State::degraded ||
+                (state.state == State::blocked && state.reason != graf::windows::ReasonCode::none) ||
+                (state.state == State::stopping && state.reason == graf::windows::ReasonCode::finalizationFailed));
+            capture = graf::windows::CurrentCaptureProblem{sessionId_,
+                {recordingOrigin_, recordingAccount_->userId, recordingAccount_->workspaceId}, blocker};
+        }
+        const bool complete = !queue_.quarantined();
+        const std::vector<graf::windows::UploadCustodyItem> noRows;
+        return graf::windows::projectLocalRecordingProblems(context, queueContext,
+            complete ? queue_.items() : noRows, complete, capture, nowMs);
+    }
     [[nodiscard]] const auto& custodyRoot() const noexcept { return custodyRoot_; }
     [[nodiscard]] bool uploadsBusy() const noexcept { return scheduler_.busy(); }
+    void setUpdateAdmissionBlocked(bool blocked) noexcept { updateAdmissionBlocked_ = blocked; }
+    [[nodiscard]] bool updateAdmissionBlocked() const noexcept { return updateAdmissionBlocked_; }
+    [[nodiscard]] bool updateWorkDrained() const noexcept {
+        return !graf::windows::isCaptureState(indicator().state) && !scheduler_.busy() &&
+            !finalizationFuture_.valid() && synchronousMutations_ == 0;
+    }
     // The shell asks before its ordinary recovery tick: a server-requested pause
     // must not be cut short by the cadence that normally drives retries.
     [[nodiscard]] std::uint64_t uploadDeferralRemainingMs() const noexcept {
@@ -739,6 +830,8 @@ public:
         return std::nullopt;
     }
     bool sendLocalRecording(std::string_view id) {
+        if (updateAdmissionBlocked_) return false;
+        const CustodyMutationScope mutation(synchronousMutations_);
         const auto item = localItem(id);
         if (!item || scheduler_.busy() || item->status == graf::windows::UploadQueueStatus::uploaded ||
             item->status == graf::windows::UploadQueueStatus::quarantined || !currentAccount_ ||
@@ -757,7 +850,8 @@ public:
     // the mark the cabinet shows — "очистка ещё не завершена" — true rather than
     // permanent. Runs on the owner thread, like every other ledger write.
     void finishPendingLocalDeletions(HWND owner) {
-        if (indicator().visible || scheduler_.busy() || !owner) return;
+        if (updateAdmissionBlocked_ || indicator().visible || scheduler_.busy() || !owner) return;
+        const CustodyMutationScope mutation(synchronousMutations_);
         for (const auto& id : queue_.pendingLocalDeletionIds()) {
             (void)queue_.removeLocalCopy(id, graf::windows::LocalPurgeProof::userConfirmedLocalCopy,
                 [owner](const std::filesystem::path& path) {
@@ -765,7 +859,10 @@ public:
                 });
         }
     }
-    graf::windows::LocalCopyRemovalResult removeLocalCopy(std::string_view id, HWND owner) {
+    graf::windows::LocalCopyRemovalResult removeLocalCopy(std::string_view id, HWND owner,
+                                                        bool acceptedBeforeUpdate = false) {
+        if (updateAdmissionBlocked_ && !acceptedBeforeUpdate) return graf::windows::LocalCopyRemovalResult::unsafePath;
+        const CustodyMutationScope mutation(synchronousMutations_);
         if (indicator().visible || scheduler_.busy() || !localItem(id)) return graf::windows::LocalCopyRemovalResult::unsafePath;
         return queue_.removeLocalCopy(id, graf::windows::LocalPurgeProof::userConfirmedLocalCopy,
             [owner](const std::filesystem::path& path) {
@@ -774,6 +871,8 @@ public:
     }
 
     bool assignLocalOwner(std::string_view id, const graf::windows::DesktopAccountIdentity& expected, std::uint64_t generation) {
+        if (updateAdmissionBlocked_) return false;
+        const CustodyMutationScope mutation(synchronousMutations_);
         return generation == authGeneration_ && currentAccount_ && !scheduler_.busy() &&
             currentAccount_->userId == expected.userId && currentAccount_->workspaceId == expected.workspaceId &&
             queue_.assignOwner(id, expected);
@@ -931,7 +1030,15 @@ private:
                 // finish a cleanup that a crash interrupted.
                 if (result.shortRecordingDiscarded) {
                     (void)queue_.discardShortRecording(result.packageDirectory);
-                    noticePresenter_.showShortRecordingDiscarded(std::chrono::steady_clock::now());
+                    const bool sameOwner = recordingAccount_ && currentAccount_
+                        ? recordingAccount_->userId == currentAccount_->userId && recordingAccount_->workspaceId == currentAccount_->workspaceId
+                        : !recordingAccount_ && !currentAccount_;
+                    // Record history now; the presenter alone owns pending and
+                    // its original expiry. The shell drains after terminal state
+                    // publication and problem reconciliation, never in finalizer.
+                    if (!shuttingDown_ && recordingAuthGeneration_ == authGeneration_ && sameOwner &&
+                        recordingOrigin_ == graf::windows::DesktopHttpConfig{}.baseOrigin)
+                        noticePresenter_.queueShortRecordingDiscarded(std::chrono::steady_clock::now(), onShortRecordingPresented);
                     return graf::windows::CaptureFinalization{
                         false, graf::windows::ReasonCode::none, false, true};
                 }
@@ -1015,11 +1122,15 @@ private:
     graf::windows::DesktopUploadRecoveryScheduler scheduler_;
     std::optional<graf::windows::RecoveryTrigger> pendingRecovery_;
     bool shuttingDown_ = false;
+    bool updateAdmissionBlocked_ = false;
+    std::size_t synchronousMutations_ = 0;
     std::unique_ptr<graf::windows::WindowsCaptureSessionController> controller_;
     graf::windows::ReadinessInputs readiness_;
     std::string authSessionToken_;
     std::optional<graf::windows::DesktopAccountIdentity> currentAccount_;
     std::optional<graf::windows::DesktopAccountIdentity> recordingAccount_;
+    std::string recordingOrigin_;
+    std::uint64_t recordingAuthGeneration_ = 0;
     std::future<std::optional<graf::windows::DesktopAccountIdentity>> accountFuture_;
     std::shared_ptr<std::atomic_bool> accountCancellation_;
     std::uint64_t authGeneration_ = 0;
@@ -1075,16 +1186,22 @@ public:
                 resizeWindowLogical(window_, 1080, 620, true);
             });
             capture_ = std::make_unique<NativeCapture>();
+            capture_->notificationCard().setDarkTheme(shellIsDark_);
+            capture_->notificationCard().protectedFramesProvider = [this] { return notificationProtectedFrames(); };
+            capture_->notificationCard().interactionPermitProvider = [this] { return interactionPermit(); };
             reminders_ = std::make_unique<graf::windows::MeetingReminderPresenter>(capture_->notificationCard());
+            reminders_->onMeetingPresented = [this] { playOptionalNotificationSound(); };
+            const auto alive = alive_;
+            capture_->onShortRecordingPresented = [this, alive] {
+                if (alive->load()) playOptionalNotificationSound();
+            };
             reminders_->onActionRequested = [this](auto target, auto action) {
                 if (pendingReminderAction_ || reminderFlightAction_) return;
                 pendingReminderAction_ = ReminderIntent{std::move(target), action};
                 lastReminderRequest_ = 0; // a click requires a new server read
             };
             root_.KeyDown([this](auto const&, auto const& args) {
-                if (args.Key() == winrt::Windows::System::VirtualKey::F6 && capture_ && capture_->notificationCard().visible()) {
-                    capture_->notificationCard().focus(); args.Handled(true);
-                }
+                if (args.Key() == winrt::Windows::System::VirtualKey::F6 && focusBackgroundSurface()) args.Handled(true);
             });
             capture_->setSessionExpiryHandler([this](std::int64_t seconds) {
                 if (!cabinet_ || shuttingDown_) return;
@@ -1101,19 +1218,24 @@ public:
             showStartupError(L"Не удалось инициализировать Windows shell");
         }
         window_.AppWindow().Closing([this](auto const&, auto const& args) {
-            if (exitRequested_ || shuttingDown_) return;
-            if (capture_ && capture_->indicator().visible) {
-                args.Cancel(true);
-                requestExit();
-                return;
+            if (shuttingDown_) return;
+            using namespace graf::windows;
+            const auto state = capture_ ? capture_->indicator().state : SessionState::idle;
+            const auto action = shellCloseAction(ShellCloseIntent::window, state,
+                tray_ && tray_->available(), recordingIndicatorAvailable(), exitRequested_);
+            if (action == ShellCloseAction::close) {
+                appUpdate_.close();
+                syncUpdateAdmission();
+                if (!appUpdate_.blocksNewWork()) return;
+                // Cancel is a request, not proof that Windows has stopped the
+                // deployment. Keep polling before releasing the app lifetime.
+                exitRequested_ = true;
             }
-            // Закрытие окна оставляет приложение в значке, как в macOS: окно
-            // скрывается, а не уничтожается. Уничтоженное окно вернуть нельзя —
-            // значок оставался без действия. Без значка прятать некуда: тогда
-            // окно закрывается обычным порядком.
-            if (!tray_) return;
             args.Cancel(true);
-            window_.AppWindow().Hide();
+            // Hiding must not cancel automaticPolicy_: it also owns tracking
+            // and end-of-meeting Stop for the current automatic recording.
+            if (action == ShellCloseAction::hide) window_.AppWindow().Hide();
+            else refreshTrayAvailability();
         });
         window_.Closed([this](auto const&, auto const&) {
             shuttingDown_ = true;
@@ -1125,6 +1247,8 @@ public:
             (void)closeAutomaticPrompt(automaticPromptGeneration_);
             if (cabinet_) cabinet_->webView().close();
             if (settingsWindow_) settingsWindow_.Close();
+            appUpdate_.close();
+            if (updateWindow_) updateWindow_.Close();
             if (stateTimer_) stateTimer_.Stop();
             if (capture_) capture_->shutdown();
             if (indicatorWindow_) indicatorWindow_.Close();
@@ -1164,18 +1288,20 @@ public:
                     std::ofstream log(std::filesystem::path(folder.c_str()) / L"appearance.log", std::ios::app);
                     log << GetTickCount64() << " tray-open\n";
                 } catch (...) {}
-                // Окно могло быть скрыто закрытием: сначала показать, потом поднять.
-                if (window_) window_.AppWindow().Show();
-                if (mainWindowHandle_) {
-                    ShowWindow(mainWindowHandle_, SW_RESTORE);
-                    SetForegroundWindow(mainWindowHandle_);
-                }
-                if (window_) window_.Activate();
+                openMainWindow();
             },
             [this] { stopCapture(); },
             [this] { requestExit(); },
-            [this] { pauseResumeCapture(); });
+            [this] { pauseResumeCapture(); },
+            [this] { recordCapture(); },
+            [this] { openAccountSettings(); },
+            [this] {
+                if (!shuttingDown_ && capture_ && capture_->notificationCard().visible())
+                    capture_->notificationCard().focus();
+            },
+            [this] { invalidateNotificationInteraction(); });
             tray_->setTheme(shellIsDark_);
+            tray_->setUpdateHandler([this] { openUpdateWindow(); });
         } catch (...) {
             trayFailureText_.Text(L"Значок GRAF недоступен. Управляйте записью в этом окне; кнопка «Остановить» остаётся доступной.");
             trayFailureText_.Visibility(Visibility::Visible);
@@ -1188,6 +1314,8 @@ public:
 
 private:
     void applyPendingActivation(bool showWindow = true) {
+        if (capture_ && capture_->updateAdmissionBlocked()) return;
+        const CustodyMutationScope mutation(shellMutations_);
         PendingActivation activation;
         {
             std::lock_guard<std::mutex> lock(activationMutex);
@@ -1210,6 +1338,96 @@ private:
                 SetForegroundWindow(mainWindowHandle_);
             }
             window_.Activate();
+        }
+    }
+
+    void openMainWindow() {
+        if (!window_ || shuttingDown_) return;
+        window_.AppWindow().Show();
+        if (mainWindowHandle_) {
+            ShowWindow(mainWindowHandle_, SW_RESTORE);
+            SetForegroundWindow(mainWindowHandle_);
+        }
+        window_.Activate();
+    }
+
+    void openAccountSettings() {
+        if (shuttingDown_ || exitRequested_) return;
+        openMainWindow();
+        initializeWebView();
+        if (cabinet_) {
+            const auto url = cabinet_->webView().routePolicy().trustedOrigin() + "/desktop/settings/account";
+            (void)cabinet_->open(url);
+        }
+    }
+
+    bool focusBackgroundSurface() {
+        // Explicit keyboard navigation is allowed to activate a background
+        // surface; automatic detection and capture must never use this path.
+        if (shuttingDown_) return false;
+        if (capture_ && capture_->notificationCard().visible() &&
+            capture_->notificationCard().kind() == graf::windows::NoticeKind::recordingPrompt) {
+            capture_->notificationCard().focus();
+            return true;
+        }
+        if (capture_ && capture_->indicator().visible && recordingIndicatorAvailable()) {
+            indicatorWindow_.Activate();
+            return indicatorStop_.Focus(FocusState::Keyboard);
+        }
+        if (capture_ && capture_->notificationCard().visible()) {
+            capture_->notificationCard().focus();
+            return true;
+        }
+        return false;
+    }
+
+    std::vector<graf::windows::NoticeRect> notificationProtectedFrames() const {
+        std::vector<graf::windows::NoticeRect> frames;
+        if (!capture_ || !capture_->indicator().visible) return frames;
+        const auto protectWindow = [&frames](HWND handle) {
+            RECT rect{};
+            if (handle && IsWindowVisible(handle) && !IsIconic(handle) && GetWindowRect(handle, &rect))
+                frames.push_back({rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top});
+        };
+        // Protect the complete compact indicator, which always contains Stop.
+        if (indicatorWindow_) protectWindow(nativeWindowHandle(indicatorWindow_));
+        if (mainWindowHandle_ && IsWindowVisible(mainWindowHandle_) && !IsIconic(mainWindowHandle_)) {
+            try {
+                const auto point = recordingStripStop_.TransformToVisual(root_).TransformPoint({0, 0});
+                POINT client{};
+                const auto scale = static_cast<double>(GetDpiForWindow(mainWindowHandle_)) / 96.0;
+                if (!ClientToScreen(mainWindowHandle_, &client) || scale <= 0 ||
+                    recordingStripStop_.ActualWidth() <= 0 || recordingStripStop_.ActualHeight() <= 0) {
+                    protectWindow(mainWindowHandle_);
+                } else frames.push_back({client.x + static_cast<int>(std::floor(point.X * scale)),
+                    client.y + static_cast<int>(std::floor(point.Y * scale)),
+                    static_cast<int>(std::ceil(recordingStripStop_.ActualWidth() * scale)),
+                    static_cast<int>(std::ceil(recordingStripStop_.ActualHeight() * scale))});
+            } catch (...) { protectWindow(mainWindowHandle_); }
+        }
+        return frames;
+    }
+
+    void refreshTrayAvailability() {
+        if (shuttingDown_ || !window_) return;
+        const bool available = tray_ && tray_->available();
+        if (trayFailureText_) {
+            trayFailureText_.Text(available ? L"" :
+                L"Значок GRAF недоступен. Окно остаётся открытым для управления записью. Для выхода выберите «Закрыть GRAF».");
+            trayFailureText_.Visibility(available ? Visibility::Collapsed : Visibility::Visible);
+        }
+        if (trayExitButton_) {
+            trayExitButton_.Visibility(available ? Visibility::Collapsed : Visibility::Visible);
+            trayExitButton_.IsEnabled(!exitRequested_);
+        }
+        if (!available) {
+            inspectorExpanded_ = true;
+            updateInspectorVisibility();
+            // Explorer can disappear after the window has already been hidden.
+            // Restore a reachable shell without stealing the meeting's focus.
+            if (!window_.AppWindow().IsVisible()) window_.AppWindow().Show(false);
+            if (mainWindowHandle_ && IsIconic(mainWindowHandle_))
+                ShowWindow(mainWindowHandle_, SW_SHOWNOACTIVATE);
         }
     }
 
@@ -1320,14 +1538,20 @@ private:
         fallback.Children().Append(heading);
         fallback.Children().Append(subtitle);
         fallback.Children().Append(card(statusCard));
-        auto retry = styledButton(L"Повторить загрузку");
-        retry.Click([this](auto const&, auto const&) {
+        fallbackCabinetAction_ = styledButton(L"Повторить загрузку");
+        fallbackCabinetAction_.Click([this](auto const&, auto const&) {
             localMetadataRefreshRequested_ = true;
-            if (cabinet_) cabinet_->webView().reload();
-            else initializeWebView();
+            if (cabinet_) {
+                auto& host = cabinet_->webView();
+                if (host.pendingAuthRecovery() != graf::windows::WebResponseDecision::ignore) {
+                    fallbackCabinetAction_.IsEnabled(false);
+                    if (host.navigate(host.recoveryUrl()).decision != graf::windows::RouteDecision::allow)
+                        fallbackCabinetAction_.IsEnabled(true);
+                } else host.reload();
+            } else initializeWebView();
         });
-        setAccessible(retry, L"Повторить загрузку кабинета", L"Запись и локальная очередь не сбрасываются");
-        fallback.Children().Append(retry);
+        setAccessible(fallbackCabinetAction_, L"Повторить загрузку кабинета", L"Запись и локальная очередь не сбрасываются");
+        fallback.Children().Append(fallbackCabinetAction_);
         localFallback_.Child(fallback);
         localFallback_.Visibility(Visibility::Visible);
         Grid::SetRow(localFallback_, 1);
@@ -1371,7 +1595,7 @@ private:
         auto settingsButton = iconButton(Symbol::Setting, L"Настройки");
         settingsButton.Width(36);
         settingsButton.Padding(Thickness{0, 0, 0, 0});
-        settingsButton.Click([this](auto const&, auto const&) { openNativeSettings(); });
+        settingsButton.Click([this](auto const&, auto const&) { openAccountSettings(); });
         setAccessible(settingsButton, L"Настройки");
         Grid::SetColumn(settingsButton, 1);
         header.Children().Append(settingsButton);
@@ -1524,6 +1748,11 @@ private:
         custodyBody.Children().Append(custodyTitle);
         custodyBody.Children().Append(custodyDetail);
         custodyBody.Children().Append(custodyStatus_);
+        selectedRecordingPanel_ = ContentControl();
+        selectedRecordingPanel_.IsTabStop(true);
+        selectedRecordingPanel_.HorizontalContentAlignment(HorizontalAlignment::Stretch);
+        selectedRecordingPanel_.Visibility(Visibility::Collapsed);
+        custodyBody.Children().Append(selectedRecordingPanel_);
         custody.Children().Append(custodyBody);
         body.Children().Append(card(custody, 12));
 
@@ -1535,6 +1764,11 @@ private:
         styleText(trayFailureText_, 12);
         trayFailureText_.Visibility(Visibility::Collapsed);
         body.Children().Append(trayFailureText_);
+        trayExitButton_ = styledButton(L"Закрыть GRAF");
+        trayExitButton_.Visibility(Visibility::Collapsed);
+        trayExitButton_.Click([this](auto const&, auto const&) { requestExit(); });
+        setAccessible(trayExitButton_, L"Закрыть GRAF после сохранения записи");
+        body.Children().Append(trayExitButton_);
         scroll.Content(body);
         expandedInspector_.Child(scroll);
         Grid::SetColumn(expandedInspector_, 1);
@@ -1595,7 +1829,7 @@ private:
                 return;
             }
             if (evaluation.decision == graf::windows::RouteDecision::allow && localFallback_) {
-                localFallback_.Visibility(Visibility::Collapsed);
+                hideCabinetFallback();
             }
         });
         host.setRuntimeHandler([this](graf::windows::WebRuntimeState state) {
@@ -1605,20 +1839,38 @@ private:
                 runtimeText_.Text(L"Кабинет недоступен · локальная запись сохраняется на компьютере");
             } else if (state == graf::windows::WebRuntimeState::initializing) {
                 showCabinetFallback(L"Загружаем кабинет…", L"Нативные управление записью и локальная очередь работают независимо.");
+                fallbackCabinetAction_.IsEnabled(false);
                 runtimeText_.Text(L"Загружаем кабинет…");
             } else if (state == graf::windows::WebRuntimeState::authRequired) {
-                localFallback_.Visibility(Visibility::Collapsed);
-                runtimeText_.Text(L"Нужен вход · открываем кабинет");
+                const auto recovery = cabinet_->webView().pendingAuthRecovery();
+                if (recovery != graf::windows::WebResponseDecision::ignore) {
+                    const bool reselect = recovery == graf::windows::WebResponseDecision::workspaceReselection;
+                    const auto title = reselect ? L"Нужно выбрать пространство" : L"Нужно войти";
+                    const auto action = reselect ? L"Войти и выбрать пространство" : L"Войти в кабинет";
+                    showCabinetFallback(title, reselect
+                        ? L"Доступ к выбранному пространству больше не подтвержден. Войдите снова и выберите доступное пространство. Запись на этом компьютере остается доступна."
+                        : L"Войдите снова, чтобы видеть встречи. Запись на этом компьютере остается доступна.");
+                    fallbackCabinetAction_.Content(winrt::box_value(action));
+                    // The covered document must not retain keyboard focus/input.
+                    webView_.Visibility(Visibility::Collapsed);
+                    setAccessible(fallbackCabinetAction_, action, L"Открыть вход и сохранить место возврата. Локальные записи не удаляются.");
+                    runtimeText_.Text(title);
+                } else {
+                    hideCabinetFallback();
+                    runtimeText_.Text(L"Вход в кабинет");
+                }
             } else if (state == graf::windows::WebRuntimeState::unprivileged) {
-                localFallback_.Visibility(Visibility::Collapsed);
+                hideCabinetFallback();
                 runtimeText_.Text(L"Открыта веб-страница · локальная запись работает отдельно");
             } else if (state == graf::windows::WebRuntimeState::ready) {
                 if (capture_) (void)capture_->recover(graf::windows::RecoveryTrigger::authRecovered);
-                localFallback_.Visibility(Visibility::Collapsed);
+                hideCabinetFallback();
                 runtimeText_.Text(L"Кабинет GRAF открыт");
             }
         });
         host.setQuitHandler([this]() { requestExit(); });
+        host.setUpdateHandler([this] { openUpdateWindow(); });
+        host.setAppUpdateAvailable(appUpdate_.available());
         host.setAuthSessionHandler([this](std::string token) {
             if (capture_ && token != capture_->authSessionToken()) {
                 if (reminderCancellation_) reminderCancellation_->store(true);
@@ -1782,6 +2034,7 @@ private:
             }
             operations.push_back(std::move(operation));
         }
+        localStatusRows_ = rows;
         cabinet_->webView().setLocalRecordings(std::move(rows), std::move(operations), false);
     }
 
@@ -1816,13 +2069,15 @@ private:
             } catch (...) { return std::string("unknown"); }
         };
         note(("received " + applied()).c_str(), shellIsDark_);
-        if (theme == announcedAppearance_) { note("same-announcement", shellIsDark_); return; }
+        // "system" can resolve differently even when the stored choice has not
+        // changed. Compare the resolved palette, not just the preference token.
         announcedAppearance_ = theme;
         const bool isDark = graf::windows::resolveShellIsDark(theme, systemThemeIsDark());
         if (isDark == shellIsDark_ && root_) { note(("same-theme " + applied()).c_str(), isDark); return; }
         note(("resolved " + applied()).c_str(), isDark);
         shellIsDark_ = isDark;
         refreshShellPalette(isDark);
+        if (capture_) capture_->notificationCard().setDarkTheme(isDark);
         // Страница узнаёт системную тему из `prefers-color-scheme`: без этого
         // кабинет с оформлением «системная» рисуется тёмным на светлом окне.
         if (cabinet_) cabinet_->webView().setPreferredColorScheme(isDark);
@@ -1830,12 +2085,10 @@ private:
         // Заголовки окон рисует система: без явных цветов они остаются светлыми.
         applyWindowChrome(mainWindowHandle_, isDark);
         if (settingsWindow_) applyWindowChrome(nativeWindowHandle(settingsWindow_), isDark);
-        if (automaticPromptWindow_) applyWindowChrome(nativeWindowHandle(automaticPromptWindow_), isDark);
         if (indicatorWindow_) applyWindowChrome(nativeWindowHandle(indicatorWindow_), isDark);
         if (root_) root_.RequestedTheme(requested);
         // Собственные окна приложения следуют той же теме, что и главное.
         if (settingsContent_) settingsContent_.RequestedTheme(requested);
-        if (automaticPromptContent_) automaticPromptContent_.RequestedTheme(requested);
         if (indicatorPanel_) indicatorPanel_.RequestedTheme(requested);
     }
 
@@ -1856,6 +2109,10 @@ private:
 
     void handleLocalRecording(const std::string& action, const std::string& id) {
         if (!capture_ || shuttingDown_) return;
+        if (capture_->updateAdmissionBlocked() && action != "open") {
+            localActionNotice_ = L"Готовится обновление GRAF. Дождитесь завершения или отмените его в окне обновлений.";
+            return;
+        }
         const auto item = capture_->localItem(id);
         if (!item) { localActionNotice_ = L"Запись недоступна. Обновите список."; return; }
         if (action == "send") {
@@ -1936,13 +2193,16 @@ private:
         // The ledger records whose request this is. Without a confirmed account
         // there is no name to store, so the page is told the request was not saved
         // instead of being left with a deletion nobody will ask the server for.
-        if (!owner || capture_->authSessionToken().empty()) {
+        if (capture_->updateAdmissionBlocked() || !owner || capture_->authSessionToken().empty()) {
             cabinet_->webView().completeDeletionSelection(request, {});
             return;
         }
         std::vector<graf::windows::DesktopUploadQueueService::DeletionTargetRequest> targets;
         targets.reserve(request.targets.size());
         for (const auto& target : request.targets) targets.push_back({target.target, target.targetId});
+        // Includes the UI-thread ledger/file completion, not merely the network
+        // flight. A lost UI callback cannot give the installer a false ready.
+        ++deletionSelectionsInFlight_;
         const auto plan = capture_->deletionLedger().planDeletionSelection(targets, *owner, serverOrigin());
         const auto requests = plan.requests;
         // Nothing to ask the server: the local copies the server never saw are
@@ -2024,7 +2284,7 @@ private:
     // removed here and only the two network calls happen off it: read the tasks and
     // ask for the missing ones, then answer with what could be proven.
     void startLocalPurgePass() {
-        if (!capture_ || shuttingDown_ || localPurgeInFlight_) return;
+        if (!capture_ || shuttingDown_ || capture_->updateAdmissionBlocked() || localPurgeInFlight_) return;
         const auto owner = capture_->currentAccount();
         if (!owner || capture_->authSessionToken().empty()) return;
         // Nothing may be removed while a recording or an upload owns those files.
@@ -2172,7 +2432,7 @@ private:
         // removed here, on the thread that owns the files and the window, and the
         // removal itself is what the cabinet is told about.
         for (const auto& id : plan.localOnly) {
-            if (capture_->removeLocalCopy(id, mainWindowHandle_) == graf::windows::LocalCopyRemovalResult::removed) {
+            if (capture_->removeLocalCopy(id, mainWindowHandle_, true) == graf::windows::LocalCopyRemovalResult::removed) {
                 ++outcome.accepted;
             } else {
                 ++outcome.pending;
@@ -2189,6 +2449,7 @@ private:
         // the next tick is the right moment to look for it rather than a minute
         // later.
         if (outcome.accepted != 0) lastLocalPurge_ = 0;
+        --deletionSelectionsInFlight_;
     }
 
     void confirmLocalAction(hstring title, hstring body, hstring button, std::function<void()> confirmed) {
@@ -2209,7 +2470,11 @@ private:
                     if (!alive->load()) return;
                     localActionDialogOpen_ = false;
                     try {
-                        if (operation.GetResults() == ContentDialogResult::Primary) confirmed();
+                        if (operation.GetResults() == ContentDialogResult::Primary) {
+                            if (capture_->updateAdmissionBlocked())
+                                localActionNotice_ = L"Действие не выполнено: готовится обновление GRAF. Повторите после завершения или отмены обновления.";
+                            else confirmed();
+                        }
                         updateLocalRecordings();
                     } catch (...) { localActionNotice_ = L"Не удалось завершить действие с локальной записью."; }
                 });
@@ -2220,7 +2485,15 @@ private:
     void showCabinetFallback(std::wstring title, std::wstring detail) {
         fallbackCabinetTitle_.Text(std::move(title));
         fallbackCabinetDetail_.Text(std::move(detail));
+        fallbackCabinetAction_.Content(winrt::box_value(L"Повторить загрузку"));
+        fallbackCabinetAction_.IsEnabled(true);
+        setAccessible(fallbackCabinetAction_, L"Повторить загрузку кабинета", L"Запись и локальная очередь не сбрасываются");
         localFallback_.Visibility(Visibility::Visible);
+    }
+
+    void hideCabinetFallback() {
+        webView_.Visibility(Visibility::Visible);
+        localFallback_.Visibility(Visibility::Collapsed);
     }
 
     void openNativeSettings() {
@@ -2300,6 +2573,66 @@ private:
         styleText(automaticSettingsError_, 12);
         body.Children().Append(automaticSettingsError_);
         refreshAutomaticSettings();
+        auto notificationTitle = TextBlock();
+        notificationTitle.Text(L"Уведомления на этом компьютере");
+        styleText(notificationTitle, 16, FontWeights::SemiBold());
+        body.Children().Append(notificationTitle);
+        auto notificationDetail = TextBlock();
+        notificationDetail.Text(L"GRAF показывает карточки, пока приложение запущено. Тихий режим скрывает необязательные уведомления, но не предложение автозаписи и не управление записью.");
+        styleText(notificationDetail, 13);
+        body.Children().Append(notificationDetail);
+        localNotificationToggles_.clear();
+        for (const auto& [field, label] : std::vector<std::pair<std::string, std::wstring>>{
+                 {"reminders", L"Напоминать о встречах"}, {"showTitles", L"Показывать названия встреч"},
+                 {"sound", L"Звук уведомлений"}, {"quiet", L"Тихий режим"}}) {
+            CheckBox toggle;
+            toggle.Content(box_value(label));
+            setAccessible(toggle, label);
+            const auto changed = [this, field](auto const& sender, auto const&) {
+                if (updatingLocalNotifications_) return;
+                const auto value = sender.template as<CheckBox>().IsChecked();
+                graf::windows::NativeSettingsBridge::NotificationRequest request;
+                request.action = graf::windows::NativeSettingsBridge::NotificationAction::set;
+                request.field = field;
+                request.booleanValue = value && value.Value();
+                applyLocalNotificationSetting(request);
+            };
+            toggle.Checked(changed);
+            toggle.Unchecked(changed);
+            localNotificationToggles_.emplace_back(field, toggle);
+            body.Children().Append(toggle);
+        }
+        localNotificationOffset_ = ComboBox();
+        localNotificationOffset_.Header(box_value(L"Напомнить до начала встречи"));
+        localNotificationOffset_.HorizontalAlignment(HorizontalAlignment::Stretch);
+        setAccessible(localNotificationOffset_, L"Напомнить до начала встречи");
+        for (const auto label : {L"В момент начала", L"За 1 минуту", L"За 5 минут"})
+            localNotificationOffset_.Items().Append(box_value(label));
+        localNotificationOffset_.SelectionChanged([this](auto const&, auto const&) {
+            if (updatingLocalNotifications_) return;
+            const auto index = localNotificationOffset_.SelectedIndex();
+            if (index < 0 || index > 2) return;
+            graf::windows::NativeSettingsBridge::NotificationRequest request;
+            request.action = graf::windows::NativeSettingsBridge::NotificationAction::set;
+            request.field = "offsetMinutes";
+            request.offsetMinutes = index == 0 ? 0 : index == 1 ? 1 : 5;
+            applyLocalNotificationSetting(request);
+        });
+        body.Children().Append(localNotificationOffset_);
+        localNotificationTest_ = styledButton(L"Проверить уведомление");
+        setAccessible(localNotificationTest_, L"Проверить уведомление");
+        localNotificationTest_.Click([this](auto const&, auto const&) {
+            graf::windows::NativeSettingsBridge::NotificationRequest request;
+            request.action = graf::windows::NativeSettingsBridge::NotificationAction::test;
+            applyLocalNotificationSetting(request);
+        });
+        body.Children().Append(localNotificationTest_);
+        localNotificationStatus_ = TextBlock();
+        styleText(localNotificationStatus_, 13);
+        winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetLiveSetting(localNotificationStatus_,
+            winrt::Microsoft::UI::Xaml::Automation::Peers::AutomationLiveSetting::Polite);
+        body.Children().Append(localNotificationStatus_);
+        refreshLocalNotificationSettings();
         auto captureTitle = TextBlock();
         captureTitle.Text(L"Запись и разрешения");
         styleText(captureTitle, 16, FontWeights::SemiBold());
@@ -2345,9 +2678,88 @@ private:
             bulkAutomaticPreference_ = nullptr;
             automaticPreferencePickers_.clear();
             automaticSettingsError_ = nullptr;
+            localNotificationToggles_.clear();
+            localNotificationOffset_ = nullptr;
+            localNotificationTest_ = nullptr;
+            localNotificationStatus_ = nullptr;
         });
         settingsWindow_.Activate();
         resizeWindowLogical(settingsWindow_, 760, 500, true);
+    }
+
+    void bindNotificationContext() {
+        if (!reminders_ || !capture_) return;
+        const auto account = capture_->currentAccount();
+        if (account) reminders_->bind(account->userId, account->workspaceId,
+            graf::windows::DesktopHttpConfig{}.baseOrigin);
+        else if (!reminders_->owner().empty()) reminders_->invalidate();
+        if (problemContextEpoch_ != reminders_->epoch() || problemAuthGeneration_ != capture_->authGeneration()) {
+            pendingProblems_.clear();
+            presentedProblem_.reset();
+            selectedRecording_.reset();
+            problemContextEpoch_ = reminders_->epoch();
+            problemAuthGeneration_ = capture_->authGeneration();
+            refreshSelectedRecording();
+        }
+    }
+
+    void setLocalNotificationStatus(winrt::hstring const& text) {
+        if (!localNotificationStatus_ || localNotificationStatus_.Text() == text) return;
+        localNotificationStatus_.Text(text);
+        try {
+            using namespace winrt::Microsoft::UI::Xaml::Automation::Peers;
+            if (const auto peer = FrameworkElementAutomationPeer::FromElement(localNotificationStatus_))
+                peer.RaiseAutomationEvent(AutomationEvents::LiveRegionChanged);
+        } catch (...) {} // Assistive client failure never alters the saved preference.
+    }
+
+    void refreshLocalNotificationSettings() {
+        if (!localNotificationOffset_) return;
+        bindNotificationContext();
+        const bool editable = reminders_ && !reminders_->owner().empty();
+        const auto preferences = reminders_ ? reminders_->preferences() : graf::windows::NotificationPreferences{};
+        updatingLocalNotifications_ = true;
+        for (const auto& [field, toggle] : localNotificationToggles_) {
+            const auto value = field == "reminders" ? preferences.reminders : field == "showTitles" ? preferences.showTitles :
+                field == "sound" ? preferences.sound : preferences.quiet;
+            toggle.IsChecked(value);
+            toggle.IsEnabled(editable);
+        }
+        localNotificationOffset_.SelectedIndex(preferences.offsetMinutes == 0 ? 0 : preferences.offsetMinutes == 1 ? 1 : 2);
+        localNotificationOffset_.IsEnabled(editable && preferences.reminders);
+        localNotificationTest_.IsEnabled(editable);
+        updatingLocalNotifications_ = false;
+        if (!editable) setLocalNotificationStatus(L"Войдите в GRAF, чтобы изменить настройки уведомлений.");
+        else if (localNotificationEpoch_ != reminders_->epoch()) setLocalNotificationStatus(L"");
+        localNotificationEpoch_ = reminders_ ? reminders_->epoch() : 0;
+    }
+
+    void applyLocalNotificationSetting(const graf::windows::NativeSettingsBridge::NotificationRequest& request) {
+        if (capture_ && capture_->updateAdmissionBlocked()) {
+            refreshLocalNotificationSettings();
+            setLocalNotificationStatus(L"Настройка не изменена: готовится обновление GRAF.");
+            return;
+        }
+        const CustodyMutationScope mutation(shellMutations_);
+        const auto displayedEpoch = localNotificationEpoch_;
+        bindNotificationContext(); // never write using the previous account's context
+        if (!reminders_ || !capture_ || !localNotificationStatus_) return;
+        if (displayedEpoch != reminders_->epoch()) {
+            refreshLocalNotificationSettings();
+            setLocalNotificationStatus(L"Аккаунт изменился. Проверьте настройки и повторите действие.");
+            return;
+        }
+        try {
+            const auto reply = reminders_->settings(request, reminderWallTime(), std::chrono::steady_clock::now(),
+                capture_->indicator().visible);
+            const auto result = winrt::Windows::Data::Json::JsonObject::Parse(winrt::to_hstring(reply));
+            refreshLocalNotificationSettings(); // failed save restores the persisted values
+            setLocalNotificationStatus(result.HasKey(L"error") ? result.GetNamedString(L"error") : result.GetNamedString(L"message"));
+        } catch (...) {
+            refreshLocalNotificationSettings();
+            setLocalNotificationStatus(L"Не удалось подтвердить настройку. Проверьте выбранные значения и повторите.");
+        }
+        if (cabinet_) cabinet_->webView().refreshNativeSettings();
     }
 
     ComboBox automaticPreferencePicker(std::wstring title,
@@ -2364,6 +2776,12 @@ private:
         }
         picker.SelectionChanged([this, target](auto const& sender, auto const&) {
             if (updatingAutomaticPreferences_) return;
+            if (capture_ && capture_->updateAdmissionBlocked()) {
+                automaticPreferenceError_ = true;
+                refreshAutomaticSettings();
+                return;
+            }
+            const CustodyMutationScope mutation(shellMutations_);
             const auto selected = sender.template as<ComboBox>().SelectedIndex();
             if (selected < 0 || selected > 2) return;
             const auto preference = selected == 0 ? graf::windows::AutomaticRecordingPreference::always :
@@ -2394,11 +2812,22 @@ private:
 
     std::string answerNativeSettings(const graf::windows::WebView2Host::NativeSettingsRequest& request) {
         using graf::windows::NativeSettingsBridge::Action;
+        if (capture_ && capture_->updateAdmissionBlocked()) {
+            if (request.handler == graf::windows::NativeSettingsBridge::kNotificationSettingsHandler)
+                return graf::windows::NativeSettingsBridge::notificationSettingsReply({}, false, {},
+                    "Настройки недоступны во время обновления GRAF. Повторите после завершения или отмены обновления.");
+            return graf::windows::NativeSettingsBridge::failureReply(
+                "Настройки недоступны во время обновления GRAF. Повторите после завершения или отмены обновления.");
+        }
+        const CustodyMutationScope mutation(shellMutations_);
         if (request.handler == graf::windows::NativeSettingsBridge::kNotificationSettingsHandler) {
             if (!reminders_ || !request.notification)
-                return graf::windows::NativeSettingsBridge::notificationSettingsReply({}, false, {}, "Неверный запрос уведомлений.");
-            return reminders_->settings(*request.notification, reminderWallTime(), std::chrono::steady_clock::now(),
+                return graf::windows::NativeSettingsBridge::notificationSettingsReply({}, false, {}, "Обновите окно настроек. Запрос уведомлений не поддерживается.");
+            bindNotificationContext();
+            const auto reply = reminders_->settings(*request.notification, reminderWallTime(), std::chrono::steady_clock::now(),
                 capture_->indicator().visible);
+            refreshLocalNotificationSettings();
+            return reply;
         }
         if (request.handler != graf::windows::NativeSettingsBridge::kRecordingSettingsHandler) {
             return graf::windows::NativeSettingsBridge::failureReply("Неизвестная страница настроек.");
@@ -2456,21 +2885,66 @@ private:
         automaticSettingsError_.Visibility(failed ? Visibility::Visible : Visibility::Collapsed);
     }
 
+    [[nodiscard]] graf::windows::InteractionPermit interactionPermit() const noexcept {
+        return !shuttingDown_ && tray_ ? tray_->interactionPermit() : graf::windows::InteractionPermit{};
+    }
+
+    void invalidateNotificationInteraction() {
+        if (shuttingDown_ || !capture_) return;
+        pendingProblems_.clear();
+        presentedProblem_.reset();
+        // Revoke proposals and pending starts, but keep tracking an accepted
+        // automatic recording. Its indicator and Stop are independent surfaces.
+        if (!capture_->indicator().visible || capture_->indicator().state == graf::windows::SessionState::starting)
+            automaticPolicy_.cancel();
+        capture_->notificationCard().invalidatePresentation();
+        (void)closeAutomaticPrompt(automaticPromptGeneration_);
+        detectionSnapshot_ = {};
+        detectionNotBefore_ = graf::windows::DetectionClock::now();
+        if (reminderCancellation_) reminderCancellation_->store(true);
+        reminderRequestIdentity_ = {};
+        pendingReminderAction_.reset();
+        reminderFlightAction_.reset();
+        if (reminders_) reminders_->calendarFailed(); // not an account/history reset
+        lastReminderRequest_ = 0;
+    }
+
+    void refreshNotificationInteraction() {
+        const auto permit = interactionPermit();
+        if (permit.epoch != notificationInteractionEpoch_ || (!permit.allowed && notificationInteractionAllowed_))
+            invalidateNotificationInteraction();
+        notificationInteractionEpoch_ = permit.epoch;
+        notificationInteractionAllowed_ = permit.allowed;
+    }
+
     graf::windows::AutomaticRecordingPrerequisites automaticPrerequisites() const {
         graf::windows::AutomaticRecordingPrerequisites result;
         result.capture = capture_->readiness();
         result.recordingAlreadyActive = capture_->indicator().visible;
+        // Only this decision's own starting lease is exempt. A manual start or
+        // a different session remains an active-recording blocker.
+        if (capture_->indicator().state == graf::windows::SessionState::starting &&
+            automaticPolicy_.hasPendingStart(capture_->sessionId())) result.recordingAlreadyActive = false;
         result.visibleIndicatorAvailable = indicatorWindow_ && indicatorText_;
         result.oneActionStopAvailable = result.visibleIndicatorAvailable && indicatorStop_ && indicatorStop_.IsEnabled();
-        result.suppressed = shuttingDown_ || exitRequested_ || permissionDialogOpen_ || localActionDialogOpen_;
+        result.suppressed = shuttingDown_ || exitRequested_ || capture_->updateAdmissionBlocked() || permissionDialogOpen_ || localActionDialogOpen_ ||
+            !interactionPermit().allowed;
         return result;
     }
 
-    void refreshAutomaticRecording() {
+    void consumeDetectionSnapshot() {
         if (detectionFuture_.valid() && detectionFuture_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            try { detectionSnapshot_ = detectionFuture_.get(); }
+            try {
+                auto snapshot = detectionFuture_.get();
+                detectionSnapshot_ = snapshot.observedAt >= detectionNotBefore_ ? std::move(snapshot) :
+                    graf::windows::TargetDetectionSnapshot{};
+            }
             catch (...) { detectionSnapshot_ = {}; }
         }
+    }
+
+    void refreshAutomaticRecording() {
+        consumeDetectionSnapshot();
         const auto now = graf::windows::DetectionClock::now();
         if (automaticPolicy_.shouldStopCapture(detectionSnapshot_, capture_->indicator().visible, now))
             (void)capture_->stop();
@@ -2510,18 +2984,34 @@ private:
     }
 
     void startAutomaticRecording(const graf::windows::AutomaticRecordingDecision& decision) {
-        if (!decision.shouldStart || !automaticPrerequisites().allowsStart()) return;
-        const auto key = graf::windows::VerifiedTargetRegistry::identityKey(automaticPolicy_.target());
-        const auto target = std::find_if(detectionSnapshot_.observations.begin(), detectionSnapshot_.observations.end(), [&](const auto& item) {
-            return graf::windows::VerifiedTargetRegistry::identityKey(item.identity) == key &&
-                graf::windows::WindowsTargetDetector::isPromptCandidate(item, verifiedTargets_);
+        if (!decision.shouldStart || !automaticPolicy_.canBindStart(decision.generation)) return;
+        const auto permit = interactionPermit();
+        if (!permit.allowed || !automaticPrerequisites().allowsStart() || !ensureRecordingIndicator()) {
+            automaticPolicy_.cancel();
+            return;
+        }
+        const auto result = capture_->record([this, generation = decision.generation, interactionEpoch = permit.epoch](const std::string& sessionId) {
+            const bool bound = automaticPolicy_.bindStart(generation, sessionId);
+            return [this, generation, bound, interactionEpoch](std::string_view currentSession) {
+                if (!bound) return false;
+                // pollHealth also runs from pause/resume and before the ordinary
+                // detection tick. Consume any completed observation here, without
+                // waiting, pumping UI events or reentering capture polling.
+                consumeDetectionSnapshot();
+                capture_->refreshPermission();
+                auto prerequisites = automaticPrerequisites();
+                prerequisites.visibleIndicatorAvailable = recordingIndicatorAvailable();
+                prerequisites.oneActionStopAvailable = prerequisites.visibleIndicatorAvailable;
+                // Prerequisite queries can outlive the interaction epoch. This
+                // final fresh permit must be the last query before acceptance.
+                const auto permit = interactionPermit();
+                if (!permit.allowed || permit.epoch != interactionEpoch) return false;
+                return automaticPolicy_.acceptStart(generation, currentSession, detectionSnapshot_, prerequisites);
+            };
         });
-        if (target == detectionSnapshot_.observations.end() || !ensureRecordingIndicator()) return;
-        const auto result = capture_->record();
         if (result.accepted() && (result.state == graf::windows::SessionState::starting ||
                                   result.state == graf::windows::SessionState::recording)) {
             recordingStartedAt_ = 0;
-            automaticPolicy_.captureAccepted();
         } else {
             automaticPolicy_.cancel();
         }
@@ -2529,129 +3019,208 @@ private:
 
     bool closeAutomaticPrompt(std::uint64_t generation) noexcept {
         if (generation != automaticPromptGeneration_) return true;
-        const auto prompt = automaticPromptWindow_;
-        if (prompt) {
-            const auto handle = nativeWindowHandle(prompt);
-            if (handle) ShowWindow(handle, SW_HIDE);
-            try { prompt.Close(); }
-            catch (...) {
-                // Retain ownership and the occupied slot unless disappearance
-                // is confirmed; a failed Close must not allow stacked cards.
-                if (!handle || IsWindowVisible(handle)) return false;
-            }
-            if (handle && IsWindowVisible(handle)) return false;
-        }
-        if (generation == automaticPromptGeneration_) {
-            automaticPromptWindow_ = nullptr;
-            automaticPromptText_ = nullptr;
-            rememberAutomaticChoice_ = nullptr;
-        }
-        if (capture_) capture_->notificationCard().releaseAutomaticPrompt(generation);
+        const auto id = std::exchange(automaticPromptId_, std::string{});
+        automaticPromptTargetKey_.clear();
+        rememberAutomaticChoice_ = false;
+        if (capture_ && capture_->notificationCard().visible() &&
+            capture_->notificationCard().kind() == graf::windows::NoticeKind::recordingPrompt &&
+            capture_->notificationCard().id() == id) capture_->notificationCard().dismiss();
         return true;
     }
 
     void updateAutomaticPrompt() {
-        const auto view = graf::windows::AutomaticRecordingPrompt::view(automaticPolicy_);
-        const auto key = graf::windows::VerifiedTargetRegistry::identityKey(automaticPolicy_.target());
-        if (automaticPromptWindow_ && automaticPromptTargetKey_ != key &&
-            !closeAutomaticPrompt(automaticPromptGeneration_)) {
-            automaticPolicy_.cancel();
-            return;
-        }
-        if (!view.visible) {
+        using namespace graf::windows;
+        const auto view = AutomaticRecordingPrompt::view(automaticPolicy_);
+        const auto key = VerifiedTargetRegistry::identityKey(automaticPolicy_.target());
+        if (!automaticPromptId_.empty() && automaticPromptTargetKey_ != key)
             (void)closeAutomaticPrompt(automaticPromptGeneration_);
-            return;
+        if (!view.visible) { (void)closeAutomaticPrompt(automaticPromptGeneration_); return; }
+        if (automaticPromptId_.empty()) {
+            ++automaticPromptGeneration_;
+            automaticPromptId_ = "prompt:" + std::to_string(automaticPromptGeneration_);
+            automaticPromptTargetKey_ = key;
+            rememberAutomaticChoice_ = false;
         }
-        if (!automaticPromptWindow_) {
-            const auto generation = ++automaticPromptGeneration_;
-            if (!capture_->notificationCard().acquireAutomaticPrompt(generation, std::chrono::steady_clock::now(),
-                [this, generation] {
-                    if (automaticPromptGeneration_ != generation) return true;
-                    automaticPolicy_.cancel();
-                    return closeAutomaticPrompt(generation);
-                })) {
-                automaticPolicy_.cancel();
-                return;
+        const auto generation = automaticPromptGeneration_;
+        const auto current = [this, generation, key] {
+            return !shuttingDown_ && capture_ && !capture_->updateAdmissionBlocked() &&
+                !automaticPromptId_.empty() && generation == automaticPromptGeneration_ &&
+                automaticPolicy_.state() == AutomaticPromptState::countdown &&
+                VerifiedTargetRegistry::identityKey(automaticPolicy_.target()) == key;
+        };
+        NoticeContent content{NoticeKind::recordingPrompt, automaticPromptId_,
+            std::wstring(winrt::to_hstring(view.title).c_str()),
+            deviceDisplayName(view.applicationName) + L". " +
+                std::wstring(winrt::to_hstring(view.accessibleDescription).c_str()),
+            {{std::wstring(winrt::to_hstring(view.secondaryAction).c_str()), NoticeAction::skip},
+             {std::wstring(winrt::to_hstring(view.primaryAction).c_str()), NoticeAction::record}}};
+        content.checkboxTitle = std::wstring(winrt::to_hstring(view.rememberChoiceLabel).c_str());
+        content.rememberChoice = rememberAutomaticChoice_;
+        NoticePresentationHooks hooks;
+        hooks.beforeFirstShow = [this, current] {
+            capture_->refreshPermission();
+            return current() && automaticPrerequisites().allowsStart();
+        };
+        hooks.onPresented = [this, current] {
+            if (current() && !automaticPolicy_.confirmPromptPresented(
+                capture_->notificationCard().deadline() - std::chrono::seconds(8))) automaticPolicy_.cancel();
+        };
+        hooks.onRememberChanged = [this, current](bool value) { if (current()) rememberAutomaticChoice_ = value; };
+        hooks.onInvalidated = [this, generation, current] {
+            if (current()) automaticPolicy_.cancel();
+            (void)closeAutomaticPrompt(generation);
+        };
+        hooks.onExpired = [this, generation, current] {
+            if (current()) {
+                consumeDetectionSnapshot();
+                const auto decision = automaticPolicy_.update(detectionSnapshot_, automaticPrerequisites());
+                if (decision.shouldStart) startAutomaticRecording(decision);
+                else automaticPolicy_.cancel();
             }
-            try {
-                automaticPromptWindow_ = Window();
-                automaticPromptTargetKey_ = key;
-                automaticPromptWindow_.AppWindow().Title(L"Автозапись GRAF");
-                applyWindowIcon(automaticPromptWindow_);
-                applyWindowChrome(nativeWindowHandle(automaticPromptWindow_), shellIsDark_);
-                resizeWindowLogical(automaticPromptWindow_, 520, 300);
-                StackPanel content;
-                automaticPromptContent_ = content;
-                content.RequestedTheme(shellIsDark_ ? ElementTheme::Dark : ElementTheme::Light);
-                content.Background(themeBrush(L"ApplicationPageBackgroundThemeBrush"));
-                content.Padding(Thickness{24, 20, 24, 20});
-                content.Spacing(14);
-                auto title = TextBlock();
-                title.Text(winrt::to_hstring(view.title));
-                styleText(title, 20, FontWeights::SemiBold());
-                content.Children().Append(title);
-                automaticPromptText_ = TextBlock();
-                styleText(automaticPromptText_, 14);
-                content.Children().Append(automaticPromptText_);
-                rememberAutomaticChoice_ = CheckBox();
-                rememberAutomaticChoice_.Content(box_value(winrt::to_hstring(view.rememberChoiceLabel)));
-                rememberAutomaticChoice_.IsChecked(false);
-                content.Children().Append(rememberAutomaticChoice_);
-                StackPanel actions;
-                actions.Orientation(Orientation::Horizontal);
-                actions.Spacing(8);
-                auto start = styledButton(std::wstring(winrt::to_hstring(view.primaryAction).c_str()), true);
-                start.Click([this, generation, key](auto const&, auto const&) {
-                    if (!automaticPromptWindow_ || automaticPromptGeneration_ != generation || automaticPolicy_.state() != graf::windows::AutomaticPromptState::countdown ||
-                        graf::windows::VerifiedTargetRegistry::identityKey(automaticPolicy_.target()) != key) return;
-                    const auto checked = rememberAutomaticChoice_.IsChecked();
-                    const auto decision = automaticPolicy_.recordNow(checked && checked.Value(), detectionSnapshot_, automaticPrerequisites());
-                    automaticPreferenceError_ = automaticPolicy_.settings().preferenceWriteFailed;
-                    startAutomaticRecording(decision);
-                    refreshAutomaticSettings();
-                    refreshNativeState();
-                });
-                auto refuse = styledButton(std::wstring(winrt::to_hstring(view.secondaryAction).c_str()));
-                refuse.Click([this, generation, key](auto const&, auto const&) {
-                    if (!automaticPromptWindow_ || automaticPromptGeneration_ != generation || automaticPolicy_.state() != graf::windows::AutomaticPromptState::countdown ||
-                        graf::windows::VerifiedTargetRegistry::identityKey(automaticPolicy_.target()) != key) return;
-                    const auto checked = rememberAutomaticChoice_.IsChecked();
-                    (void)automaticPolicy_.refuse(checked && checked.Value());
-                    automaticPreferenceError_ = automaticPolicy_.settings().preferenceWriteFailed;
-                    refreshAutomaticSettings();
-                    refreshNativeState();
-                });
-                actions.Children().Append(start);
-                actions.Children().Append(refuse);
-                content.Children().Append(actions);
-                automaticPromptWindow_.Content(content);
-                automaticPromptWindow_.Closed([this, generation, key](auto const&, auto const&) {
-                    if (capture_) capture_->notificationCard().releaseAutomaticPrompt(generation);
-                    if (automaticPromptGeneration_ != generation) return;
-                    if (automaticPolicy_.state() == graf::windows::AutomaticPromptState::countdown &&
-                        graf::windows::VerifiedTargetRegistry::identityKey(automaticPolicy_.target()) == key) automaticPolicy_.cancel();
-                    automaticPromptWindow_ = nullptr;
-                    automaticPromptText_ = nullptr;
-                    rememberAutomaticChoice_ = nullptr;
-                });
-                automaticPromptWindow_.Activate();
-            } catch (...) {
-                automaticPolicy_.cancel();
+            (void)closeAutomaticPrompt(generation);
+        };
+        const auto now = std::chrono::steady_clock::now();
+        const bool shown = capture_->notificationCard().present(std::move(content), now, now + std::chrono::seconds(8),
+            [this, generation, current](NoticeAction action) {
+                if (!current()) return;
+                const CustodyMutationScope mutation(shellMutations_);
+                consumeDetectionSnapshot();
+                AutomaticRecordingDecision decision;
+                if (action == NoticeAction::record)
+                    decision = automaticPolicy_.recordNow(rememberAutomaticChoice_, detectionSnapshot_, automaticPrerequisites());
+                else if (action == NoticeAction::skip) decision = automaticPolicy_.refuse(rememberAutomaticChoice_);
+                else return;
+                automaticPreferenceError_ = automaticPolicy_.settings().preferenceWriteFailed;
                 (void)closeAutomaticPrompt(generation);
+                startAutomaticRecording(decision);
+                refreshAutomaticSettings();
+                refreshNativeState();
+            },
+            [this, generation, current] {
+                if (current()) automaticPolicy_.cancel();
+                (void)closeAutomaticPrompt(generation);
+            }, std::move(hooks));
+        if (!shown) {
+            if (current()) {
+                automaticPolicy_.cancel();
                 localActionNotice_ = L"Не удалось показать предложение автозаписи. Начните запись вручную.";
-                return;
             }
+            (void)closeAutomaticPrompt(generation);
         }
-        try {
-            const auto description = deviceDisplayName(view.applicationName) + L". " +
-                std::wstring(winrt::to_hstring(view.accessibleDescription).c_str());
-            automaticPromptText_.Text(description);
-            setAccessible(automaticPromptText_, description);
-        } catch (...) {
-            automaticPolicy_.cancel();
-            (void)closeAutomaticPrompt(automaticPromptGeneration_);
-            localActionNotice_ = L"Не удалось обновить предложение автозаписи. Начните запись вручную.";
+    }
+
+    void syncUpdateAdmission() noexcept {
+        if (capture_) capture_->setUpdateAdmissionBlocked(appUpdate_.blocksNewWork());
+    }
+
+    [[nodiscard]] bool readyForUpdate() const noexcept {
+        return capture_ && !shuttingDown_ && !exitRequested_ && capture_->localQueueComplete() &&
+            capture_->updateWorkDrained() && !localPurgeInFlight_ && deletionSelectionsInFlight_ == 0 &&
+            shellMutations_ == 0;
+    }
+
+    void refreshUpdateWindow() {
+        appUpdate_.tick(graf::windows::WindowsAppUpdateController::Clock::now(), readyForUpdate(),
+            [this] { return readyForUpdate(); });
+        syncUpdateAdmission();
+        const bool available = appUpdate_.available();
+        if (available != updateBadgeVisible_) {
+            updateBadgeVisible_ = available;
+            if (cabinet_) cabinet_->webView().setAppUpdateAvailable(available);
         }
+        if (!updateWindow_) return;
+        updateContent_.RequestedTheme(shellIsDark_ ? ElementTheme::Dark : ElementTheme::Light);
+        const auto detail = graf::windows::appUpdateDetail(appUpdate_.result(), appUpdate_.busy());
+        if (updateDetail_.Text() != detail) {
+            updateDetail_.Text(detail);
+            setAccessible(updateDetail_, detail);
+            try {
+                using namespace winrt::Microsoft::UI::Xaml::Automation::Peers;
+                if (const auto peer = FrameworkElementAutomationPeer::FromElement(updateDetail_))
+                    peer.RaiseAutomationEvent(AutomationEvents::LiveRegionChanged);
+            } catch (...) {}
+        }
+        updateCheckButton_.IsEnabled(!appUpdate_.busy() && !exitRequested_);
+        updateInstallButton_.IsEnabled(appUpdate_.canInstall() && capture_ &&
+            !graf::windows::isCaptureState(capture_->indicator().state) &&
+            capture_->localQueueComplete() && !exitRequested_);
+        updateInstallButton_.Visibility(appUpdate_.canInstall() ? Visibility::Visible : Visibility::Collapsed);
+        updateCancelButton_.Visibility(appUpdate_.blocksNewWork() ? Visibility::Visible : Visibility::Collapsed);
+    }
+
+    void openUpdateWindow() {
+        if (shuttingDown_ || exitRequested_) return;
+        if (updateWindow_) { updateWindow_.Activate(); return; }
+        updateWindow_ = Window();
+        updateWindow_.Title(L"Обновления GRAF");
+        updateContent_ = StackPanel();
+        updateContent_.Spacing(18);
+        updateContent_.Padding(Thickness{24, 24, 24, 24});
+        updateContent_.Background(themeBrush(L"ApplicationPageBackgroundThemeBrush"));
+        auto title = TextBlock();
+        title.Text(L"Обновления GRAF");
+        styleText(title, 24, FontWeights::SemiBold());
+        updateContent_.Children().Append(title);
+        updateDetail_ = TextBlock();
+        styleText(updateDetail_, 14);
+        winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetLiveSetting(updateDetail_,
+            winrt::Microsoft::UI::Xaml::Automation::Peers::AutomationLiveSetting::Polite);
+        updateContent_.Children().Append(updateDetail_);
+        updateCheckButton_ = styledButton(L"Проверить снова", true);
+        setAccessible(updateCheckButton_, L"Проверить обновления GRAF", L"Проверка не прерывает запись и не устанавливает обновление");
+        updateCheckButton_.Click([this](auto const&, auto const&) {
+            if (shuttingDown_ || exitRequested_) return;
+            (void)appUpdate_.check(graf::windows::WindowsAppUpdateController::Clock::now());
+            refreshUpdateWindow();
+        });
+        updateContent_.Children().Append(updateCheckButton_);
+        updateInstallButton_ = styledButton(L"Установить обновление", true);
+        setAccessible(updateInstallButton_, L"Установить обновление GRAF",
+            L"Дождаться завершения фоновых операций и передать установку Windows. Во время записи установка недоступна");
+        updateInstallButton_.Click([this](auto const&, auto const&) {
+            if (shuttingDown_ || exitRequested_ || !capture_ || !appUpdate_.canInstall()) return;
+            // Close admission before native source checks can enter COM and
+            // dispatch a queued Record/delete action on this STA.
+            capture_->setUpdateAdmissionBlocked(true);
+            const bool preparing = appUpdate_.beginInstall(graf::windows::WindowsAppUpdateController::Clock::now(),
+                graf::windows::isCaptureState(capture_->indicator().state), capture_->localQueueComplete());
+            syncUpdateAdmission();
+            if (preparing) {
+                automaticPolicy_.cancel();
+                (void)closeAutomaticPrompt(automaticPromptGeneration_);
+            }
+            refreshUpdateWindow();
+        });
+        updateContent_.Children().Append(updateInstallButton_);
+        updateCancelButton_ = styledButton(L"Отменить обновление");
+        setAccessible(updateCancelButton_, L"Отменить обновление GRAF",
+            L"После начала установки нужно дождаться подтверждения отмены от Windows");
+        updateCancelButton_.Click([this](auto const&, auto const&) {
+            appUpdate_.close();
+            syncUpdateAdmission();
+            refreshUpdateWindow();
+        });
+        updateContent_.Children().Append(updateCancelButton_);
+        auto close = styledButton(L"Закрыть");
+        close.Click([this](auto const&, auto const&) { if (updateWindow_) updateWindow_.Close(); });
+        updateContent_.Children().Append(close);
+        auto scroll = ScrollViewer();
+        scroll.Content(updateContent_);
+        updateWindow_.Content(scroll);
+        updateWindow_.Closed([this](auto const&, auto const&) {
+            appUpdate_.close();
+            syncUpdateAdmission();
+            updateWindow_ = nullptr;
+            updateContent_ = nullptr;
+            updateDetail_ = nullptr;
+            updateCheckButton_ = nullptr;
+            updateInstallButton_ = nullptr;
+            updateCancelButton_ = nullptr;
+        });
+        (void)appUpdate_.check(graf::windows::WindowsAppUpdateController::Clock::now());
+        refreshUpdateWindow();
+        updateWindow_.Activate();
+        resizeWindowLogical(updateWindow_, 500, 360, true);
     }
 
     void showPermissionOnboarding() {
@@ -2684,8 +3253,20 @@ private:
         }
     }
 
+    bool canStartRecording() const {
+        return !shuttingDown_ && !exitRequested_ && capture_ &&
+            !capture_->updateAdmissionBlocked() &&
+            !graf::windows::isCaptureState(capture_->indicator().state) && capture_->recordingReady();
+    }
+
     void recordCapture() {
-        if (exitRequested_ || !capture_ || capture_->indicator().visible || !ensureRecordingIndicator()) return;
+        if (shuttingDown_ || exitRequested_ || !capture_ || capture_->updateAdmissionBlocked() ||
+            graf::windows::isCaptureState(capture_->indicator().state)) return;
+        // A tray command can outlive its menu snapshot. Use the same fresh
+        // permission/device/storage gate as the shell, not the painted flags.
+        capture_->refreshReadiness();
+        if (!canStartRecording() || !ensureRecordingIndicator()) { refreshNativeState(); return; }
+        if (!canStartRecording()) return;
         localActionNotice_.clear();
         automaticPolicy_.cancel();
         recordingStartedAt_ = 0;
@@ -2702,14 +3283,33 @@ private:
 
     void requestExit() {
         if (!window_ || shuttingDown_) return;
-        if (!capture_ || !capture_->indicator().visible) { window_.Close(); return; }
+        appUpdate_.close();
+        syncUpdateAdmission();
+        if (appUpdate_.blocksNewWork()) {
+            exitRequested_ = true;
+            return; // Continue timer polling until OS confirms termination.
+        }
+        using namespace graf::windows;
+        const auto state = capture_ ? capture_->indicator().state : SessionState::idle;
+        const auto action = shellCloseAction(ShellCloseIntent::quit, state, false, false, exitRequested_);
+        if (exitRequested_ && action == ShellCloseAction::wait) return;
         exitRequested_ = true;
         automaticPolicy_.cancel();
+        (void)closeAutomaticPrompt(automaticPromptGeneration_);
+        if (action == ShellCloseAction::close) { window_.Close(); return; }
         // Closing the app while recording is a termination, not a Stop, so the
         // short-recording threshold must not discard the fragment.
-        (void)capture_->stop(graf::windows::RecordingStopReason::interruption);
+        if (action == ShellCloseAction::stopAndWait)
+            (void)capture_->stop(graf::windows::RecordingStopReason::interruption);
         // Keep the window/indicator alive until UI polling finalizes the local
         // package and queue after both native workers have actually stopped.
+    }
+
+    bool recordingIndicatorAvailable() const {
+        if (!indicatorWindow_ || !indicatorStop_ || !indicatorWindow_.AppWindow().IsVisible()) return false;
+        const auto handle = nativeWindowHandle(indicatorWindow_);
+        return handle && IsWindowVisible(handle) && !IsIconic(handle) &&
+            indicatorStop_.IsEnabled() && indicatorStop_.Visibility() == Visibility::Visible;
     }
 
     bool ensureRecordingIndicator(bool show = true) {
@@ -2751,9 +3351,8 @@ private:
             // Prepared once, without displaying a false recording indicator.
             if (!show) return indicatorText_ && indicatorStop_ && indicatorStop_.IsEnabled();
             indicatorText_.Text(L"Запуск записи…");
-            indicatorWindow_.Activate();
-            if (!indicatorWindow_.AppWindow().IsVisible() || !indicatorStop_.IsEnabled() ||
-                indicatorStop_.Visibility() != Visibility::Visible) throw winrt::hresult_error(E_FAIL);
+            indicatorWindow_.AppWindow().Show(false);
+            if (!recordingIndicatorAvailable()) throw winrt::hresult_error(E_FAIL);
             return true;
         } catch (...) {
             try { if (indicatorWindow_) indicatorWindow_.Close(); } catch (...) {}
@@ -2823,6 +3422,9 @@ private:
         styleText(message, 13);
         error.Children().Append(title);
         error.Children().Append(message);
+        auto quit = styledButton(L"Закрыть GRAF");
+        quit.Click([this](auto const&, auto const&) { requestExit(); });
+        error.Children().Append(quit);
         root_.Children().Append(error);
     }
 
@@ -2830,26 +3432,218 @@ private:
         return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
     }
 
+    void playOptionalNotificationSound() {
+        if (!shuttingDown_ && !exitRequested_ && capture_ && reminders_ &&
+            !capture_->indicator().visible && reminders_->preferences().sound &&
+            !reminders_->preferences().quiet && interactionPermit().allowed) MessageBeep(MB_OK);
+    }
+
+    struct ProblemTarget {
+        graf::windows::LocalProblemContext context;
+        std::string sessionId, incidentId;
+        std::uint64_t authGeneration = 0, contextEpoch = 0, interactionEpoch = 0, occurredAtMs = 0;
+        graf::windows::RecordingNoticePresenter::Clock::time_point expires;
+    };
+
+    [[nodiscard]] bool problemContextCurrent(const ProblemTarget& target) const {
+        return !shuttingDown_ && !exitRequested_ && capture_ && reminders_ &&
+            target.authGeneration == capture_->authGeneration() && target.contextEpoch == reminders_->epoch() &&
+            target.context.origin == reminders_->origin() && target.context.owner == reminders_->owner() &&
+            target.context.workspace == reminders_->workspace() &&
+            capture_->ownsRecordingSession(target.context, target.sessionId);
+    }
+
+    [[nodiscard]] bool problemActionCurrent(const ProblemTarget& target) const {
+        if (!problemContextCurrent(target)) return false;
+        const auto permit = interactionPermit();
+        if (!permit.allowed || permit.epoch == 0 || permit.epoch != target.interactionEpoch) return false;
+        const auto problems = capture_->recordingProblems(static_cast<std::uint64_t>(reminderWallTime() * 1000));
+        return std::any_of(problems.begin(), problems.end(), [&](const auto& problem) {
+            return problem.sessionId == target.sessionId && problem.incidentId == target.incidentId &&
+                problem.state == graf::windows::LocalProblemState::problem;
+        });
+    }
+
+    void openProblemRecording(const ProblemTarget& target) {
+        if (!problemActionCurrent(target)) return;
+        selectedRecording_ = target;
+        selectedRecordingDisplayKey_.clear();
+        inspectorExpanded_ = true;
+        attentionExpansionDismissed_ = false;
+        refreshSelectedRecording();
+        updateInspectorVisibility();
+        openMainWindow();
+        const auto alive = alive_;
+        // Layout follows expansion; the queued focus must still name the same
+        // account/session, not whichever recording became current meanwhile.
+        (void)root_.DispatcherQueue().TryEnqueue([this, alive, target] {
+            if (!alive->load() || !selectedRecording_ || selectedRecording_->sessionId != target.sessionId ||
+                !problemActionCurrent(target) || !selectedRecordingPanel_) return;
+            selectedRecordingPanel_.StartBringIntoView();
+            (void)selectedRecordingPanel_.Focus(FocusState::Programmatic);
+        });
+    }
+
+    void reconcileRecordingProblems() {
+        if (!capture_ || !reminders_ || shuttingDown_ || exitRequested_ || capture_->updateAdmissionBlocked()) return;
+        using State = graf::windows::LocalProblemState;
+        using Clock = graf::windows::RecordingNoticePresenter::Clock;
+        const auto now = Clock::now();
+        const auto permit = interactionPermit();
+        const auto problems = capture_->recordingProblems(static_cast<std::uint64_t>(reminderWallTime() * 1000));
+        auto& card = capture_->notificationCard();
+        const auto lookup = [&](const ProblemTarget& target) {
+            return std::find_if(problems.begin(), problems.end(), [&](const auto& problem) {
+                return problem.sessionId == target.sessionId && problem.incidentId == target.incidentId;
+            });
+        };
+        // Unknown/absent observations revoke UI actions, but never erase the
+        // durable incident. Only complete, owned, all-uploaded truth resolves it.
+        for (const auto& problem : problems) {
+            if (problem.state == graf::windows::LocalProblemState::positivelyResolved &&
+                problemStore_.resolveProblem(reminders_->origin(), reminders_->owner(), reminders_->workspace(), problem.incidentId))
+                card.resolveProblem(problem.incidentId);
+        }
+        pendingProblems_.erase(std::remove_if(pendingProblems_.begin(), pendingProblems_.end(), [&](const auto& target) {
+            const auto problem = lookup(target);
+            return now >= target.expires || !problemContextCurrent(target) || !permit.allowed ||
+                permit.epoch != target.interactionEpoch || problem == problems.end() || problem->state != State::problem;
+        }), pendingProblems_.end());
+        if (presentedProblem_) {
+            const auto problem = lookup(*presentedProblem_);
+            const bool visible = card.visible() && card.kind() == graf::windows::NoticeKind::problem && card.id() == presentedProblem_->incidentId;
+            if (!visible || !problemActionCurrent(*presentedProblem_) || problem == problems.end() || problem->state != State::problem) {
+                presentedProblem_.reset();
+                if (visible) card.invalidate();
+            }
+        }
+        for (const auto& problem : problems) {
+            if (problem.state != State::problem || !problem.fresh || problem.incidentId.size() > 1024) continue;
+            if (!problemStore_.claimProblem(reminders_->origin(), reminders_->owner(), reminders_->workspace(), problem.incidentId)) continue;
+            const auto expires = now + std::chrono::seconds(300);
+            card.recordProblemHistory(problem.incidentId, expires);
+            if (reminders_->preferences().quiet) continue;
+            if (!permit.allowed || permit.epoch == 0 || pendingProblems_.size() >= 256) continue;
+            pendingProblems_.push_back({{reminders_->origin(), reminders_->owner(), reminders_->workspace()},
+                problem.sessionId, problem.incidentId, capture_->authGeneration(), reminders_->epoch(),
+                permit.epoch, problem.occurredAtMs, expires});
+        }
+        if (reminders_->preferences().quiet) { pendingProblems_.clear(); return; }
+        if (!permit.allowed || card.automaticPromptActive() ||
+            (card.visible() && static_cast<int>(card.kind()) >= static_cast<int>(graf::windows::NoticeKind::problem))) return;
+        if (pendingProblems_.empty()) return;
+        const auto next = std::min_element(pendingProblems_.begin(), pendingProblems_.end(), [](const auto& a, const auto& b) {
+            return a.occurredAtMs == b.occurredAtMs ? a.incidentId < b.incidentId : a.occurredAtMs < b.occurredAtMs;
+        });
+        const auto target = *next;
+        pendingProblems_.erase(next); // a failed/invalidated show is not replayed
+        if (!problemActionCurrent(target)) return;
+        const auto alive = alive_;
+        graf::windows::NoticePresentationHooks hooks;
+        hooks.beforeFirstShow = [this, alive, target] {
+            return alive->load() && Clock::now() < target.expires && problemActionCurrent(target) && !reminders_->preferences().quiet;
+        };
+        hooks.onPresented = [this, alive, target] {
+            if (alive->load() && problemActionCurrent(target)) playOptionalNotificationSound();
+        };
+        presentedProblem_ = target;
+        if (!card.present({graf::windows::NoticeKind::problem, target.incidentId, L"Запись требует вашего внимания",
+                L"Откройте запись в GRAF, чтобы проверить её сохранность и отправку.",
+                {{L"Открыть запись", graf::windows::NoticeAction::openRecording}}}, now, now + std::chrono::seconds(20),
+            [this, alive, target](graf::windows::NoticeAction action) {
+                if (alive->load() && action == graf::windows::NoticeAction::openRecording && problemActionCurrent(target))
+                    openProblemRecording(target);
+            }, {}, std::move(hooks))) presentedProblem_.reset();
+    }
+
+    void refreshSelectedRecording() {
+        if (!selectedRecordingPanel_) return;
+        if (!selectedRecording_ || !problemContextCurrent(*selectedRecording_)) {
+            selectedRecording_.reset();
+            selectedRecordingDisplayKey_.clear();
+            selectedRecordingPanel_.Content(nullptr);
+            selectedRecordingPanel_.Visibility(Visibility::Collapsed);
+            return;
+        }
+        const auto target = *selectedRecording_;
+        std::wstring detail;
+        std::string recordedAt;
+        std::string retryId;
+        if (capture_->sessionId() == target.sessionId) {
+            const auto& state = capture_->indicator();
+            detail = winrt::to_hstring(state.statusText).c_str();
+            if (state.state == graf::windows::SessionState::failed) {
+                detail += L"\n" + graf::windows::recordingFailureText(
+                    graf::windows::effectiveFailureReason(state.reason, capture_->microphonePermissionGranted()),
+                    capture_->finalization().trustedPrefixRetained);
+            }
+        }
+        if (capture_->localQueueComplete()) for (const auto& item : capture_->localItems()) {
+            if (item.sessionId != target.sessionId) continue;
+            if (recordedAt.empty()) {
+                const auto metadata = std::find_if(localMetadata_.begin(), localMetadata_.end(), [&](const auto& value) {
+                    return value.first == item.localRecordingId;
+                });
+                if (metadata != localMetadata_.end()) recordedAt = graf::windows::DesktopApiClient::formatDisplayMinute(
+                    metadata->second.startedAtMs, metadata->second.displayTimezoneOffsetMinutes);
+            }
+            // Reuse the cabinet's already-derived status, not a second mapping
+            // of upload states. The native selection works without a ready page.
+            const auto row = std::find_if(localStatusRows_.begin(), localStatusRows_.end(), [&](const auto& row) {
+                return row.id == item.localRecordingId;
+            });
+            if (row != localStatusRows_.end()) {
+                if (!detail.empty()) detail += L"\n";
+                detail += winrt::to_hstring(row->status).c_str();
+            }
+            if (retryId.empty() && capture_->localItem(item.localRecordingId) &&
+                graf::windows::DesktopUploadQueueService::canRetry(item) && !capture_->uploadsBusy()) retryId = item.localRecordingId;
+        }
+        if (detail.empty()) detail = L"Состояние записи уточняется. Это не подтверждение её отправки.";
+        const auto key = target.sessionId + "\n" + recordedAt + "\n" + winrt::to_string(detail) + "\n" + retryId;
+        if (key == selectedRecordingDisplayKey_) return;
+        selectedRecordingDisplayKey_ = key;
+        auto body = StackPanel(); body.Spacing(6);
+        auto title = TextBlock();
+        title.Text(winrt::to_hstring(recordedAt.empty() ? "Выбранная запись" : "Запись от " + recordedAt));
+        styleText(title, 13, FontWeights::SemiBold());
+        body.Children().Append(title);
+        auto status = TextBlock(); status.Text(detail); styleText(status, 13);
+        body.Children().Append(status);
+        if (!retryId.empty()) {
+            auto retry = styledButton(L"Отправить запись");
+            const auto alive = alive_;
+            retry.Click([this, alive, target, retryId](auto const&, auto const&) {
+                if (!alive->load() || !interactionPermit().allowed || !problemContextCurrent(target) ||
+                    !selectedRecording_ || selectedRecording_->sessionId != target.sessionId) return;
+                const auto item = capture_->localItem(retryId);
+                if (!item || item->sessionId != target.sessionId || !graf::windows::DesktopUploadQueueService::canRetry(*item)) return;
+                handleLocalRecording("send", retryId);
+                refreshSelectedRecording();
+            });
+            body.Children().Append(retry);
+        }
+        selectedRecordingPanel_.Content(body);
+        selectedRecordingPanel_.Visibility(Visibility::Visible);
+        setAccessible(selectedRecordingPanel_, std::wstring(title.Text().c_str()) + L". " + detail);
+    }
+
     void refreshMeetingReminders() {
-        if (!reminders_ || !capture_ || shuttingDown_) return;
+        if (!reminders_ || !capture_ || shuttingDown_ || capture_->updateAdmissionBlocked()) return;
         const auto generation = capture_->authGeneration();
         const auto now = GetTickCount64();
-        // Invalidate a pre-sleep request before consuming its result or action.
-        if (lastStateTick_ && now - lastStateTick_ > 5000) {
-            if (reminderCancellation_) reminderCancellation_->store(true);
-            reminderRequestIdentity_ = {};
-            reminders_->invalidate(); pendingReminderAction_.reset(); reminderFlightAction_.reset();
-            lastReminderRequest_ = 0;
-        }
         if (reminderRejectedGeneration_ && *reminderRejectedGeneration_ == generation &&
             lastReminderRequest_ && now - lastReminderRequest_ < 30000) return;
         reminderRejectedGeneration_.reset();
         const auto account = capture_->currentAccount();
         if (!account) {
             if (!reminders_->owner().empty()) reminders_->invalidate();
+            refreshLocalNotificationSettings();
             return;
         }
-        reminders_->bind(account->userId, account->workspaceId);
+        reminders_->bind(account->userId, account->workspaceId, graf::windows::DesktopHttpConfig{}.baseOrigin);
+        refreshLocalNotificationSettings();
+        if (!interactionPermit().allowed) return;
         if (reminderFuture_.valid() && reminderFuture_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
             graf::windows::CalendarReminderResponse response;
             try { response = reminderFuture_.get(); } catch (...) {}
@@ -2909,8 +3703,13 @@ private:
 
     void refreshNativeState() {
         if (!capture_ || shuttingDown_) return;
+        refreshUpdateWindow();
+        const CustodyMutationScope mutation(shellMutations_);
+        refreshNotificationInteraction(); // before workers or any card can accept an old decision
+        if (announcedAppearance_ == "system" && systemThemeIsDark() != shellIsDark_)
+            applyCabinetAppearance("system");
         applyPendingActivation();
-        if (attribution_ && capture_->currentAccount() &&
+        if (!capture_->updateAdmissionBlocked() && attribution_ && capture_->currentAccount() &&
             attributionAccountGeneration_ != capture_->authGeneration()) {
             // Only a server-confirmed account marks the optional attribution.
             // Record an attempt per generation; failed analytics storage never
@@ -2920,8 +3719,7 @@ private:
         }
         capture_->pollHealth();
         capture_->tickNotice();
-        refreshMeetingReminders();
-        if (exitRequested_ && !capture_->indicator().visible) { window_.Close(); return; }
+        if (exitRequested_ && !capture_->indicator().visible && !appUpdate_.blocksNewWork()) { window_.Close(); return; }
         if (capture_->indicator().state == graf::windows::SessionState::recording && recordingStartedAt_ == 0) {
             recordingStartedAt_ = GetTickCount64();
         }
@@ -2956,6 +3754,12 @@ private:
         }
         capture_->refreshPermission();
         refreshAutomaticRecording();
+        bindNotificationContext();
+        reconcileRecordingProblems();
+        refreshSelectedRecording();
+        if (interactionPermit().allowed)
+            (void)capture_->notificationCard().presentPendingShort(std::chrono::steady_clock::now());
+        refreshMeetingReminders();
         if (localActionNotice_ != previousLocalActionNotice_) {
             previousLocalActionNotice_ = localActionNotice_;
             attentionExpansionDismissed_ = false;
@@ -3002,7 +3806,7 @@ private:
                                                              : L"Общий системный звук и локальный микрофон")
                                    : capture_->readinessSummary());
         recordButton_.Visibility(active ? Visibility::Collapsed : Visibility::Visible);
-        recordButton_.IsEnabled(!active && capture_->recordingReady());
+        recordButton_.IsEnabled(canStartRecording());
         permissionButton_.Visibility(!active && permissionMissing ? Visibility::Visible : Visibility::Collapsed);
         custodyStatus_.Text(capture_->custodySummary());
         recordingStrip_.Visibility(active ? Visibility::Visible : Visibility::Collapsed);
@@ -3015,6 +3819,12 @@ private:
             recordingStripText_.Text(std::wstring(recordingStripText_.Text().c_str()) + L" · " + timer);
         }
         setAccessible(recordingStripText_, std::wstring(recordingStripText_.Text().c_str()));
+        if (active && !recordingIndicatorAvailable() && !ensureRecordingIndicator()) {
+            // A failed background surface must not hide the remaining native
+            // Stop. Do not stop capture or activate the meeting's foreground.
+            window_.AppWindow().Show(false);
+            if (mainWindowHandle_ && IsIconic(mainWindowHandle_)) ShowWindow(mainWindowHandle_, SW_SHOWNOACTIVATE);
+        }
         if (indicatorWindow_) {
             indicatorText_.Text(recordingStripText_.Text());
             setAccessible(indicatorText_, std::wstring(recordingStripText_.Text().c_str()));
@@ -3026,9 +3836,21 @@ private:
         compactStatus_.Symbol(paused ? Symbol::Pause : snapshot.state == graf::windows::SessionState::degraded ? Symbol::Important : Symbol::Microphone);
         recordingStripStop_.IsEnabled(active);
         if (tray_) {
-            tray_->setState(snapshot);
+            tray_->setState(snapshot, canStartRecording(), exitRequested_);
             tray_->setTheme(shellIsDark_);
+            std::vector<std::wstring> history;
+            const auto& entries = capture_->notificationCard().history();
+            for (const auto& entry : entries) {
+                const auto instant = std::chrono::system_clock::to_time_t(entry.occurredAt);
+                std::tm local{};
+                wchar_t time[32]{};
+                if (localtime_s(&local, &instant) == 0) std::wcsftime(time, 32, L"%H:%M", &local);
+                history.push_back(std::wstring(time) + L" — " +
+                    std::wstring(graf::windows::RecordingNoticePresenter::historyMessage(entry.kind)));
+            }
+            tray_->setNotificationState(capture_->notificationCard().visible(), std::move(history));
         }
+        refreshTrayAvailability();
         pauseButton_.Visibility(active ? Visibility::Visible : Visibility::Collapsed);
         stopButton_.Visibility(active ? Visibility::Visible : Visibility::Collapsed);
         if (meters_) {
@@ -3045,7 +3867,7 @@ private:
         if (active) pauseButton_.Content(box_value(snapshot.state == graf::windows::SessionState::paused ? L"Продолжить" : L"Пауза"));
         pauseButton_.IsEnabled(snapshot.state == graf::windows::SessionState::recording || paused);
         setAccessible(pauseButton_, paused ? L"Продолжить запись локального микрофона" : L"Поставить локальный микрофон на паузу");
-        if (compactRecordButton_) compactRecordButton_.IsEnabled(!active && capture_->recordingReady());
+        if (compactRecordButton_) compactRecordButton_.IsEnabled(canStartRecording());
         if (compactRecordButton_) compactRecordButton_.Visibility(active ? Visibility::Collapsed : Visibility::Visible);
         if (compactAttentionButton_) {
             compactAttentionButton_.Visibility(hasInspectorAttention() ? Visibility::Visible : Visibility::Collapsed);
@@ -3110,6 +3932,13 @@ private:
     TextBlock recordingStripText_{nullptr};
     Button recordingStripStop_{nullptr};
     TextBlock custodyStatus_{nullptr};
+    ContentControl selectedRecordingPanel_{nullptr};
+    std::optional<ProblemTarget> selectedRecording_, presentedProblem_;
+    std::vector<ProblemTarget> pendingProblems_; // at most 256, current context only
+    graf::windows::NotificationPreferenceStore problemStore_ = graf::windows::NotificationPreferenceStore::native();
+    std::uint64_t problemContextEpoch_ = 0, problemAuthGeneration_ = 0;
+    std::string selectedRecordingDisplayKey_;
+    std::vector<graf::windows::WebViewLocalRecordingRow> localStatusRows_;
     Window settingsWindow_{nullptr};
     DispatcherQueueTimer stateTimer_{nullptr};
     std::unique_ptr<graf::windows::WindowsTray> tray_;
@@ -3141,6 +3970,7 @@ private:
     TextBlock trayFailureText_{nullptr};
     TextBlock fallbackCabinetTitle_{nullptr};
     TextBlock fallbackCabinetDetail_{nullptr};
+    Button fallbackCabinetAction_{nullptr};
     TextBlock autoRecordDetail_{nullptr};
     Button recordButton_{nullptr};
     Button pauseButton_{nullptr};
@@ -3151,6 +3981,14 @@ private:
     bool attributionSignInRequested_ = false;
     bool lastDrainTimeout_ = false;
     std::unique_ptr<graf::windows::MeetingReminderPresenter> reminders_;
+    std::vector<std::pair<std::string, CheckBox>> localNotificationToggles_;
+    ComboBox localNotificationOffset_{nullptr};
+    Button localNotificationTest_{nullptr};
+    TextBlock localNotificationStatus_{nullptr};
+    bool updatingLocalNotifications_ = false;
+    std::uint64_t localNotificationEpoch_ = 0;
+    std::uint64_t notificationInteractionEpoch_ = 0;
+    bool notificationInteractionAllowed_ = false;
     struct ReminderIntent { graf::windows::ReminderActionTarget target; graf::windows::NoticeAction action; };
     std::optional<ReminderIntent> pendingReminderAction_, reminderFlightAction_;
     std::future<graf::windows::CalendarReminderResponse> reminderFuture_;
@@ -3174,9 +4012,19 @@ private:
     std::wstring localActionNotice_;
     std::wstring previousLocalActionNotice_;
     bool localActionDialogOpen_ = false;
+    graf::windows::WindowsAppUpdateController appUpdate_;
+    Window updateWindow_{nullptr};
+    StackPanel updateContent_{nullptr};
+    TextBlock updateDetail_{nullptr};
+    Button updateCheckButton_{nullptr};
+    Button updateInstallButton_{nullptr};
+    Button updateCancelButton_{nullptr};
+    std::size_t shellMutations_ = 0;
+    bool updateBadgeVisible_ = false;
     bool shuttingDown_ = false;
     ULONGLONG lastStateTick_ = 0;
     bool exitRequested_ = false;
+    Button trayExitButton_{nullptr};
     ULONGLONG lastUploadRecovery_ = 0;
     // The appearance the cabinet asked for. The app starts with the system one,
     // which is what macOS shows before the page announces its own.
@@ -3186,11 +4034,11 @@ private:
     bool shellIsDark_ = true;
     bool mainWindowSized_ = false;
     Grid settingsContent_{nullptr};
-    StackPanel automaticPromptContent_{nullptr};
     StackPanel indicatorPanel_{nullptr};
     // The purge pass: at most one at a time, and the answers it has prepared but
     // not yet sent.
     bool localPurgeInFlight_ = false;
+    std::size_t deletionSelectionsInFlight_ = 0;
     ULONGLONG lastLocalPurge_ = 0;
     struct PendingPurgeAck {
         std::string taskId;
@@ -3201,9 +4049,8 @@ private:
     std::vector<PendingPurgeAck> pendingPurgeAcks_;
     graf::windows::VerifiedTargetRegistry verifiedTargets_{graf::windows::VerifiedTargetRegistry::bundled()};
     graf::windows::AutomaticRecordingPolicy automaticPolicy_{verifiedTargets_};
-    Window automaticPromptWindow_{nullptr};
-    TextBlock automaticPromptText_{nullptr};
-    CheckBox rememberAutomaticChoice_{nullptr};
+    bool rememberAutomaticChoice_ = false;
+    std::string automaticPromptId_;
     ComboBox bulkAutomaticPreference_{nullptr};
     TextBlock automaticSettingsError_{nullptr};
     std::vector<std::pair<graf::windows::VerifiedTargetIdentity, ComboBox>> automaticPreferencePickers_;
@@ -3212,16 +4059,37 @@ private:
     graf::windows::TargetDetectionSnapshot detectionSnapshot_;
     std::future<graf::windows::TargetDetectionSnapshot> detectionFuture_;
     graf::windows::DetectionClock::time_point lastDetectionRequest_{};
+    graf::windows::DetectionClock::time_point detectionNotBefore_{};
     std::string automaticPromptTargetKey_;
     std::uint64_t automaticPromptGeneration_ = 0;
 };
 
 } // namespace
 
+namespace {
+
+int verifyAudioBackendForInstalledPackage() noexcept {
+    UINT32 packageFullNameLength = 0;
+    if (GetCurrentPackageFullName(&packageFullNameLength, nullptr) != ERROR_INSUFFICIENT_BUFFER) {
+        return 2;
+    }
+    try {
+        const auto processor = graf::windows::GrafAEC3WebRtcAdapter::create();
+        // Distinct success code prevents an old executable's normal/mutex
+        // exit (0) from being mistaken for execution of this self-check.
+        return processor && processor->ready() ? 73 : 2;
+    } catch (...) {
+        return 2;
+    }
+}
+
+} // namespace
+
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     // Local package verification: no devices, UI, profile, files or network.
     // create() executes the real reverse-before-microphone 10 ms self-check.
-    // Parse with Windows quoting rules: launchers may append whitespace.
+    // Check the process command line and MSIX launch payload; packaged shell
+    // activation may provide arguments outside GetCommandLineW().
     int argumentCount = 0;
     auto arguments = CommandLineToArgvW(GetCommandLineW(), &argumentCount);
     if (!arguments) return 2;
@@ -3229,20 +4097,20 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         std::wstring_view(arguments[1]) == L"--verify-audio-backend";
     LocalFree(arguments);
     if (verifyAudioBackend) {
-        try {
-            const auto processor = graf::windows::GrafAEC3WebRtcAdapter::create();
-            // Distinct success code prevents an old executable's normal/mutex
-            // exit (0) from being mistaken for execution of this self-check.
-            return processor && processor->ready() ? 73 : 2;
-        } catch (...) {
-            return 2;
-        }
+        return verifyAudioBackendForInstalledPackage();
     }
     try {
         winrt::init_apartment(winrt::apartment_type::single_threaded);
         using winrt::Microsoft::Windows::AppLifecycle::AppInstance;
         const auto current = AppInstance::GetCurrent();
         const auto activation = current.GetActivatedEventArgs();
+        if (activation.Kind() == winrt::Microsoft::Windows::AppLifecycle::ExtendedActivationKind::Launch) {
+            const auto launch = activation.Data().try_as<
+                winrt::Windows::ApplicationModel::Activation::ILaunchActivatedEventArgs>();
+            if (launch && launch.Arguments() == L"--verify-audio-backend") {
+                return verifyAudioBackendForInstalledPackage();
+            }
+        }
         // Seed the cold event and subscribe before publishing this instance.
         // A newer redirected handoff must never be overwritten by the cold one.
         receiveActivation(activation);

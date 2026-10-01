@@ -101,5 +101,18 @@ int main() {
     assert(bridge.validate(message) == BridgeValidationError::none);
     message.messageId = 4; message.command = "native_settings_purge";
     assert(bridge.validate(message) == BridgeValidationError::commandDenied);
+    message.messageId = 5; message.command = "request_app_update";
+    for (const auto payload : {"null", "[]", "true", R"({"url":"https://example.test/update"})",
+                               R"({"install":true})", R"({"package":"x.msix"})"}) {
+        message.payloadJson = payload;
+        assert(bridge.validate(message) == BridgeValidationError::commandDenied);
+    }
+    message.payloadJson = " { \n\t } ";
+    assert(bridge.validate(message) == BridgeValidationError::none);
+    assert(bridge.validate(message) == BridgeValidationError::replay);
+    message.messageId = 6; message.nonce = "old";
+    assert(bridge.validate(message) == BridgeValidationError::staleNonce);
+    message.nonce = "nonce-2"; message.origin = "https://outside.test";
+    assert(bridge.validate(message) == BridgeValidationError::wrongOrigin);
     return 0;
 }

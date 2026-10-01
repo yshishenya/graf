@@ -7,6 +7,10 @@
 
 namespace graf::windows {
 namespace {
+bool sameTarget(const ReminderActionTarget& left, const ReminderActionTarget& right) {
+    return left.epoch == right.epoch && left.eventId == right.eventId && left.startsAt == right.startsAt &&
+        left.meetingUrl == right.meetingUrl && left.meetingLinkPresent == right.meetingLinkPresent;
+}
 std::wstring wide(std::string_view value) {
 #ifdef _WIN32
     const auto size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()), nullptr, 0);
@@ -49,28 +53,55 @@ std::wstring startText(double instant) {
 }
 MeetingReminderPresenter::MeetingReminderPresenter(RecordingNoticePresenter& card, NotificationPreferenceStore store)
     : card_(card), store_(std::move(store)) {}
-void MeetingReminderPresenter::bind(std::string owner, std::string workspace) {
-    const auto epoch = model_.epoch(); model_.bind(std::move(owner), std::move(workspace));
+MeetingReminderPresenter::~MeetingReminderPresenter() { retirePresented(); }
+void MeetingReminderPresenter::bind(std::string owner, std::string workspace, std::string origin) {
+    const auto epoch = model_.epoch(); model_.bind(std::move(owner), std::move(workspace), std::move(origin));
     if (model_.epoch() == epoch) return;
-    card_.dismiss(); presented_.reset(); preferences_ = store_.load(model_.owner());
+    presented_.reset(); pendingAction_.reset(); card_.resetContext();
+    preferences_ = store_.load(model_.owner()); card_.setQuiet(preferences_.quiet);
 }
-void MeetingReminderPresenter::invalidate() { model_.invalidate(); card_.dismiss(); presented_.reset(); preferences_ = {}; }
+void MeetingReminderPresenter::invalidate() { model_.invalidate(); presented_.reset(); pendingAction_.reset(); card_.resetContext(); preferences_ = {}; }
+void MeetingReminderPresenter::retirePresented() {
+    if (presented_) {
+        CalendarReminderEvent event{}; event.eventId = presented_->eventId; event.startsAt = presented_->startsAt;
+        model_.dismiss(event);
+        if (card_.visible() && card_.kind() == NoticeKind::meeting && card_.id() == model_.dismissalKey(event)) card_.dismiss();
+    }
+    presented_.reset(); pendingAction_.reset();
+}
 void MeetingReminderPresenter::calendarFailed() {
-    model_.clearCalendar(); presented_.reset();
-    if (card_.visible() && card_.kind() == NoticeKind::meeting) card_.dismiss();
+    retirePresented(); model_.clearCalendar();
 }
 bool MeetingReminderPresenter::update(CalendarReminderSnapshot snapshot, std::uint64_t epoch) {
-    return model_.update(std::move(snapshot), epoch);
+    bool stillCurrent = !presented_;
+    if (presented_) for (const auto& event : snapshot.events) {
+        if (sameTarget(model_.actionTarget(event), *presented_) && event.canSurface) stillCurrent = true;
+    }
+    if (!model_.update(std::move(snapshot), epoch)) return false;
+    if (!stillCurrent) retirePresented();
+    return true;
 }
 void MeetingReminderPresenter::reconcile(double now, RecordingNoticePresenter::Clock::time_point steadyNow, bool recording) {
     card_.tick(steadyNow);
-    if (model_.owner().empty() || !preferences_.reminders) {
-        if (card_.visible() && card_.kind() == NoticeKind::meeting) card_.dismiss();
-        presented_.reset(); return;
+    if (model_.owner().empty()) return;
+    if (!store_.pruneMeetingReceipts(model_.contextKey(), now) || !preferences_.reminders || preferences_.quiet) {
+        retirePresented(); return;
     }
-    if (card_.visible() && card_.kind() == NoticeKind::meeting &&
-        (!presented_ || !model_.revalidate(*presented_, now, recording))) { card_.dismiss(); presented_.reset(); }
-    const auto event = model_.candidate(now, recording);
+    std::optional<CalendarReminderEvent> event;
+    if (presented_) {
+        event = model_.revalidate(*presented_, now, recording, preferences_.offsetMinutes);
+        const bool sameCard = card_.visible() && card_.kind() == NoticeKind::meeting &&
+            event && card_.id() == model_.dismissalKey(*event);
+        if (!event || now >= presentedDeadline_ || steadyNow >= presentedSteadyDeadline_ ||
+            card_.automaticPromptActive() || (!sameCard && (card_.visible() || !pendingAction_))) {
+            retirePresented(); event.reset();
+        } else if (pendingAction_) return;
+    }
+    const bool updating = event.has_value();
+    if (!updating) {
+        if (card_.automaticPromptActive() || (card_.visible() && card_.kind() != NoticeKind::preview)) return;
+        event = model_.candidate(now, recording, preferences_.offsetMinutes);
+    }
     if (!event) return;
     auto title = std::wstring(L"Встреча в календаре");
     if (preferences_.showTitles && event->titleAvailable) {
@@ -78,28 +109,50 @@ void MeetingReminderPresenter::reconcile(double now, RecordingNoticePresenter::C
         if (title.find_first_not_of(L" \r\n\t") == std::wstring::npos) title = L"Без названия";
     }
     NoticeContent content{NoticeKind::meeting, model_.dismissalKey(*event), std::move(title), startText(event->startsAt), {}};
-    if (MeetingReminderModel::safeMeetingUrl(event->meetingUrl)) {
-        content.buttons = {{L"Подключиться и начать запись", NoticeAction::joinAndRecord}, {L"Подключиться", NoticeAction::join}};
+    if (event->meetingLinkPresent && MeetingReminderModel::safeMeetingUrl(event->meetingUrl)) {
+        content.buttons = {{L"Подключиться", NoticeAction::join}, {L"Подключиться и начать запись", NoticeAction::joinAndRecord}};
     } else content.buttons = {{L"Начать запись", NoticeAction::record}};
     const auto target = model_.actionTarget(*event);
-    const auto deadline = steadyNow + std::chrono::duration_cast<RecordingNoticePresenter::Clock::duration>(
-        std::chrono::duration<double>(MeetingReminderModel::deadline(*event) - now));
-    if (card_.present(std::move(content), steadyNow, deadline,
-        [this, target](NoticeAction action) { if (onActionRequested) onActionRequested(target, action); },
-        [this, event = *event] { model_.dismiss(event); presented_.reset(); })) presented_ = target;
+    const auto deadline = MeetingReminderModel::deadline(*event, preferences_.offsetMinutes);
+    const auto steadyDeadline = steadyNow + std::chrono::duration_cast<RecordingNoticePresenter::Clock::duration>(
+        std::chrono::duration<double>(deadline - now));
+    if (!updating) { presentedDeadline_ = deadline; presentedSteadyDeadline_ = steadyDeadline; }
+    else { // An end/offset change may shorten, never restart an already visible card.
+        presentedDeadline_ = std::min(presentedDeadline_, deadline);
+        presentedSteadyDeadline_ = std::min(presentedSteadyDeadline_, steadyDeadline);
+    }
+    presented_ = target;
+    NoticePresentationHooks hooks;
+    hooks.beforeFirstShow = [this, target, event = *event, now] {
+        return presented_ && sameTarget(target, *presented_) && !preferences_.quiet && preferences_.reminders &&
+            store_.claimMeeting(model_.contextKey(), event, now);
+    };
+    hooks.onPresented = [this, target] {
+        if (presented_ && sameTarget(target, *presented_) && preferences_.sound && !preferences_.quiet && onMeetingPresented)
+            onMeetingPresented();
+    };
+    hooks.onInvalidated = [this, target] { if (presented_ && sameTarget(target, *presented_)) retirePresented(); };
+    hooks.onExpired = hooks.onInvalidated;
+    if (!card_.present(std::move(content), steadyNow, presentedSteadyDeadline_,
+        [this, target](NoticeAction action) {
+            if (!presented_ || !sameTarget(target, *presented_) || pendingAction_) return;
+            pendingAction_ = action;
+            if (onActionRequested) onActionRequested(target, action);
+        },
+        [this, target] { if (presented_ && sameTarget(target, *presented_)) retirePresented(); }, std::move(hooks))) {
+        if (presented_ && sameTarget(target, *presented_)) retirePresented();
+    }
 }
 std::string MeetingReminderPresenter::settings(const NativeSettingsBridge::NotificationRequest& request,
     double now, RecordingNoticePresenter::Clock::time_point steadyNow, bool recording) {
     using namespace NativeSettingsBridge;
     std::string message, error;
     const bool editable = !model_.owner().empty();
-    if (request.action == NotificationAction::requestPermission || request.action == NotificationAction::openSystemSettings)
-        error = "Системное разрешение для карточек GRAF не требуется.";
-    else if (!editable && request.action != NotificationAction::read) error = "Войдите в GRAF, чтобы изменить настройки уведомлений.";
+    if (!editable && request.action != NotificationAction::read) error = "Войдите в GRAF, чтобы изменить настройки уведомлений.";
     else if (request.action == NotificationAction::set) {
         auto next = preferences_;
         if (!applyNotificationSetting(next, request) || !store_.save(next, model_.owner())) error = "Не сохранено. Действуют прежние настройки.";
-        else { preferences_ = next; message = "Сохранено на этом компьютере"; reconcile(now, steadyNow, recording); }
+        else { preferences_ = next; card_.setQuiet(preferences_.quiet); message = "Сохранено на этом компьютере"; reconcile(now, steadyNow, recording); }
     } else if (request.action == NotificationAction::test) {
         if (card_.present({NoticeKind::preview, "preview", L"Проверка уведомлений GRAF", L"Так выглядит напоминание о встрече.", {}},
             steadyNow, steadyNow + std::chrono::seconds(6))) message = "Проверочное уведомление показано в правом верхнем углу.";
@@ -110,10 +163,14 @@ std::string MeetingReminderPresenter::settings(const NativeSettingsBridge::Notif
 }
 std::optional<CalendarReminderEvent> MeetingReminderPresenter::completeAction(const ReminderActionTarget& target,
     NoticeAction action, double now, bool recording) {
-    if (!preferences_.reminders || card_.automaticPromptActive() ||
-        (card_.visible() && static_cast<int>(card_.kind()) > static_cast<int>(NoticeKind::meeting))) return std::nullopt;
-    const auto event = model_.revalidate(target, now, recording);
-    if (!event || (action != NoticeAction::record && (!event->meetingLinkPresent || !MeetingReminderModel::safeMeetingUrl(event->meetingUrl)))) return std::nullopt;
-    model_.dismiss(*event); card_.dismiss(); presented_.reset(); return event;
+    if (!presented_ || !sameTarget(target, *presented_) || pendingAction_ != action) return std::nullopt;
+    const auto event = model_.revalidate(target, now, recording, preferences_.offsetMinutes);
+    const bool allowed = event && preferences_.reminders && !preferences_.quiet && now < presentedDeadline_ &&
+        RecordingNoticePresenter::Clock::now() < presentedSteadyDeadline_ &&
+        !card_.automaticPromptActive() && (!card_.visible() || card_.kind() == NoticeKind::meeting) &&
+        (action == NoticeAction::record || ((action == NoticeAction::join || action == NoticeAction::joinAndRecord) &&
+            event->meetingLinkPresent && MeetingReminderModel::safeMeetingUrl(event->meetingUrl)));
+    retirePresented();
+    return allowed ? event : std::nullopt;
 }
 } // namespace graf::windows

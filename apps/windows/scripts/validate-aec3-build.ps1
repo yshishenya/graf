@@ -9,6 +9,13 @@ param(
 $ErrorActionPreference = "Stop"
 $project = Join-Path $PSScriptRoot "..\RecApp\GrafWindowsApp.vcxproj"
 $verify = Join-Path $PSScriptRoot "build-graf-aec3.ps1"
+if ($Executable) {
+    $runningApps = @(Get-Process -Name 'GrafWindowsApp' -ErrorAction SilentlyContinue)
+    if ($runningApps.Count -gt 0) {
+        $processIds = ($runningApps.Id | Sort-Object) -join ','
+        throw "Close GRAF before the installed-package self-check (active PID: $processIds); activation was not attempted."
+    }
+}
 $fixture = Join-Path ([IO.Path]::GetTempPath()) ("graf-aec3-gate-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $fixture | Out-Null
 
@@ -60,19 +67,76 @@ try {
     Write-Output 'stale-source-provenance=PASS'
     Test-BuildGate 'real-backend' $true @('/p:Platform=x64', "/p:GrafAEC3Root=$SourceDirectory", "/p:GrafAEC3BuildRoot=$BuildDirectory")
     if ($Executable) {
-        if ($ExpectedExecutableSha256 -notmatch '^[0-9A-Fa-f]{64}$' -or
-            (Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash -ine $ExpectedExecutableSha256) {
-            throw 'Provide the independently recorded build/package EXE SHA256; executable identity must match.'
+        if ($ExpectedExecutableSha256 -notmatch '^[0-9A-Fa-f]{64}$') {
+            throw 'Provide the independently recorded installed-package EXE SHA256.'
         }
-        $process = Start-Process -FilePath $Executable -ArgumentList '--verify-audio-backend' -PassThru
-        if (-not $process.WaitForExit(30000)) {
-            $process.Kill()
-            throw 'Native audio backend verification timed out.'
+        $packages = @(Get-AppxPackage -Name 'com.graf.desktop')
+        if ($packages.Count -ne 1) { throw 'Install exactly one registered GRAF MSIX package for the native self-check.' }
+        $package = $packages[0]
+        $manifest = Get-AppxPackageManifest -Package $package.PackageFullName
+        $application = $manifest.SelectSingleNode("/*[local-name()='Package']/*[local-name()='Applications']/*[local-name()='Application'][@Executable='GrafWindowsApp.exe']")
+        if ($null -eq $application) { throw 'The installed GRAF package manifest has no GrafWindowsApp.exe application.' }
+        $installedExecutable = [IO.Path]::GetFullPath((Join-Path $package.InstallLocation 'GrafWindowsApp.exe'))
+        $providedExecutable = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $Executable).Path)
+        if (-not [string]::Equals($providedExecutable, $installedExecutable, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'The self-check accepts only GrafWindowsApp.exe from the registered GRAF MSIX install location; build output must not be launched directly.'
         }
-        if ($process.ExitCode -ne 73) { throw "Native audio backend self-check was not confirmed: $($process.ExitCode)" }
-        Write-Output 'native-create-process=PASS'
+        if ((Get-FileHash -LiteralPath $installedExecutable -Algorithm SHA256).Hash -ine $ExpectedExecutableSha256) {
+            throw 'The installed-package executable hash does not match the independently recorded SHA256.'
+        }
+
+        if (-not ('GrafValidation.PackageActivation' -as [type])) {
+            Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace GrafValidation {
+    [ComImport, Guid("2e941141-7f97-4756-ba1d-9decde894a3d"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface IApplicationActivationManager {
+        [PreserveSig]
+        int ActivateApplication(
+            [MarshalAs(UnmanagedType.LPWStr)] string appUserModelId,
+            [MarshalAs(UnmanagedType.LPWStr)] string arguments,
+            uint options,
+            out uint processId);
+    }
+
+    [ComImport, Guid("45BA127D-10A8-46EA-8AB7-56EA9078943C")]
+    class ApplicationActivationManager { }
+
+    public static class PackageActivation {
+        public static uint Launch(string appUserModelId, string arguments) {
+            var manager = (IApplicationActivationManager)new ApplicationActivationManager();
+            uint processId;
+            Marshal.ThrowExceptionForHR(manager.ActivateApplication(appUserModelId, arguments, 0, out processId));
+            return processId;
+        }
+    }
+}
+'@
+        }
+        $appUserModelId = "$($package.PackageFamilyName)!$($application.GetAttribute('Id'))"
+        $processId = [GrafValidation.PackageActivation]::Launch($appUserModelId, '--verify-audio-backend')
+        if ($processId -eq 0) { throw 'Package activation did not return a process ID.' }
+        try { $process = [Diagnostics.Process]::GetProcessById([int]$processId) }
+        catch [ArgumentException] { throw 'The activated GRAF self-check exited before its result could be observed.' }
+        try {
+            # Retain the handle before the short-lived process exits; PID lookup
+            # alone can leave ExitCode unavailable after WaitForExit.
+            $null = $process.Handle
+            if (-not $process.WaitForExit(30000)) {
+                throw "Native audio backend verification timed out in PID $processId; the process was left running."
+            }
+            $processExitCode = $process.ExitCode
+            if ($null -eq $processExitCode -or $processExitCode -ne 73) {
+                throw "Native audio backend self-check was not confirmed: PID=$processId exit=$processExitCode (expected 73)."
+            }
+            Write-Output "native-msix-activation=PASS pid=$processId exit=73"
+        } finally {
+            $process.Dispose()
+        }
     } else {
-        Write-Output 'native-create-process=NOT_RUN (provide the built or installed executable)'
+        Write-Output 'native-msix-activation=NOT_RUN (provide the exact installed-package executable and its SHA256)'
     }
 } finally {
     # Only the unique fixture directory created by this invocation is removed.

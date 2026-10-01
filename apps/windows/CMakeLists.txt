@@ -25,6 +25,7 @@ set(GRAF_WINDOWS_TESTS
     "Tests/GrafWindowsCoreTests/CaptureReasonMappingTests.cpp"
     "Tests/GrafWindowsCoreTests/RecordingOutcomeTextTests.cpp"
     "Tests/GrafWindowsCoreTests/ShellPaletteTests.cpp"
+    "Tests/GrafWindowsCoreTests/WindowsAppUpdateTests.cpp"
     "Tests/GrafWindowsCoreTests/AudioNormalizerTests.cpp"
     "Tests/GrafWindowsCoreTests/VerifiedTargetPolicyTests.cpp"
     "Tests/GrafWindowsContractTests/NativeCaptureWebFailureTests.cpp"

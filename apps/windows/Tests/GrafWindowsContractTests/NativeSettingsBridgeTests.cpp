@@ -6,19 +6,620 @@
 #include "../../RecApp/Shell/MeetingReminderModel.h"
 #include "../../RecApp/Shell/RecordingNoticePresenter.h"
 #include "../../RecApp/Shell/MeetingReminderPresenter.h"
+#include "../../RecApp/Storage/Sha256.h"
+#include "../../RecApp/Upload/DesktopUploadQueueService.h"
 
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
 
 #include <cassert>
+#include <algorithm>
 #include <cstdio>
 #include <string>
+#include <limits>
+#include <stdexcept>
 
 using graf::windows::NativeSettingsBridge::Action;
 using graf::windows::NativeSettingsBridge::Target;
 
 namespace {
+
+graf::windows::UploadCustodyItem problemRow(std::string id, std::string session,
+    graf::windows::UploadQueueStatus status, std::uint64_t updatedAt = 900'000) {
+    graf::windows::UploadCustodyItem row;
+    row.localRecordingId = std::move(id); row.sessionId = std::move(session);
+    row.ownerUserId = "owner"; row.ownerWorkspaceId = "workspace";
+    row.status = status; row.updatedAtMs = updatedAt;
+    return row;
+}
+
+void testLocalProblemsGroupSessionAndKeepStableIdentity() {
+    using namespace graf::windows;
+    const LocalProblemContext context{"https://one.example", "owner", "workspace"};
+    std::vector<UploadCustodyItem> rows{
+        problemRow("item-b", "session", UploadQueueStatus::quarantined, 999'000),
+        problemRow("item-a", "session", UploadQueueStatus::needsAuth, 998'000)};
+    const CurrentCaptureProblem capture{"session", context, true};
+    auto projected = projectLocalRecordingProblems(context, context, rows, true, capture, 1'000'000);
+    assert(projected.size() == 1);
+    assert(projected[0].sessionId == "session" && projected[0].state == LocalProblemState::problem);
+    assert(projected[0].fresh && projected[0].occurredAtMs == 998'000);
+    const auto identity = projected[0].incidentId;
+    assert(!identity.empty());
+    rows[0].safeReason = "private text is not an identity"; rows[0].attempts = 14;
+    rows[0].updatedAtMs = 1'000'000;
+    std::swap(rows[0], rows[1]);
+    projected = projectLocalRecordingProblems(context, context, rows, true, std::nullopt, 1'000'001);
+    assert(projected.size() == 1 && projected[0].incidentId == identity);
+    assert(projected[0].incidentId.find("private") == std::string::npos);
+    rows.push_back(problemRow("item-c", "other-session", UploadQueueStatus::blocked));
+    const auto two = projectLocalRecordingProblems(context, context, rows, true, capture, 1'000'001);
+    assert(two.size() == 2 && two[0].incidentId != two[1].incidentId);
+    std::reverse(rows.begin(), rows.end());
+    const auto reordered = projectLocalRecordingProblems(context, context, rows, true, capture, 1'000'001);
+    assert(reordered.size() == two.size());
+    for (std::size_t i = 0; i < two.size(); ++i) assert(reordered[i].incidentId == two[i].incidentId);
+}
+
+void testLocalProblemsClassifyOnlyTypedStatesAndExactRetryReason() {
+    using namespace graf::windows;
+    const LocalProblemContext context{"https://one.example", "owner", "workspace"};
+    for (const auto status : {UploadQueueStatus::pending, UploadQueueStatus::uploading,
+        UploadQueueStatus::retry, UploadQueueStatus::needsAuth, UploadQueueStatus::uploaded,
+        UploadQueueStatus::quarantined, UploadQueueStatus::blocked}) {
+        auto row = problemRow("item", "session", status);
+        row.safeReason = "some_auth_failed_upload_blocked_private_text";
+        row.processingStatus = "failed";
+        const auto result = projectLocalRecordingProblems(context, context, {row}, true, std::nullopt, 1'000'000);
+        assert(result.size() == 1);
+        const auto expected = status == UploadQueueStatus::uploaded ? LocalProblemState::positivelyResolved :
+            status == UploadQueueStatus::needsAuth || status == UploadQueueStatus::quarantined || status == UploadQueueStatus::blocked
+                ? LocalProblemState::problem : LocalProblemState::unknown;
+        assert(result[0].state == expected);
+        assert(result[0].fresh == (expected == LocalProblemState::problem));
+    }
+    for (const auto reason : {"manual_retry", "auth_recovered", "rate_limited", "transport_unavailable",
+        "retry_budget_exhausted", "prefix_retry_budget_exhausted", "retry_budget_exhausted_suffix"}) {
+        auto row = problemRow("item", "session", UploadQueueStatus::retry);
+        row.safeReason = reason;
+        const auto result = projectLocalRecordingProblems(context, context, {row}, true, std::nullopt, 1'000'000);
+        assert(result.size() == 1 && result[0].state ==
+            (row.safeReason == "retry_budget_exhausted" ? LocalProblemState::problem : LocalProblemState::unknown));
+    }
+}
+
+void testLocalProblemsFreshnessIsStrictAndDoesNotResolveOldProblems() {
+    using namespace graf::windows;
+    const LocalProblemContext context{"https://one.example", "owner", "workspace"};
+    for (const auto stamp : {0ULL, 700'000ULL, 700'001ULL, 1'000'000ULL, 1'000'001ULL,
+        std::numeric_limits<unsigned long long>::max()}) {
+        const auto row = problemRow("item", "session", UploadQueueStatus::quarantined, stamp);
+        const auto result = projectLocalRecordingProblems(context, context, {row}, true, std::nullopt, 1'000'000);
+        assert(result.size() == 1 && result[0].state == LocalProblemState::problem);
+        assert(result[0].fresh == (stamp > 700'000 && stamp <= 1'000'000));
+    }
+    auto oldProblem = problemRow("old", "session", UploadQueueStatus::blocked, 500'000);
+    auto newHealthy = problemRow("new", "session", UploadQueueStatus::uploaded, 999'999);
+    auto result = projectLocalRecordingProblems(context, context, {oldProblem, newHealthy}, true, std::nullopt, 1'000'000);
+    assert(result.size() == 1 && result[0].state == LocalProblemState::problem && !result[0].fresh);
+    const CurrentCaptureProblem capture{"session", context, true};
+    result = projectLocalRecordingProblems(context, context, {oldProblem}, true, capture, 1'000'000);
+    assert(result[0].state == LocalProblemState::problem && result[0].fresh);
+    result = projectLocalRecordingProblems(context, context, {}, true, capture, 1'000'000);
+    assert(result.size() == 1 && result[0].fresh && result[0].occurredAtMs == 1'000'000);
+}
+
+void testLocalProblemsRequireExactOwnershipAndFrozenCaptureContext() {
+    using namespace graf::windows;
+    const LocalProblemContext context{"https://one.example", "owner", "workspace"};
+    const auto row = problemRow("item", "session", UploadQueueStatus::uploaded);
+    for (const auto& other : {LocalProblemContext{"https://two.example", "owner", "workspace"},
+        LocalProblemContext{"https://one.example", "other", "workspace"},
+        LocalProblemContext{"https://one.example", "owner", "other"},
+        LocalProblemContext{"https://one.example/", "owner", "workspace"},
+        LocalProblemContext{"https://one.example", "OWNER", "workspace"},
+        LocalProblemContext{"", "owner", "workspace"},
+        LocalProblemContext{"https://one.example", "", "workspace"},
+        LocalProblemContext{"https://one.example", "owner", ""}, LocalProblemContext{}}) {
+        const auto result = projectLocalRecordingProblems(context, other, {row}, true, std::nullopt, 1'000'000);
+        assert(result.size() == 1 && result[0].state == LocalProblemState::unknown && !result[0].fresh);
+        const CurrentCaptureProblem capture{"session", other, true};
+        const auto blocked = projectLocalRecordingProblems(context, context, {row}, true, capture, 1'000'000);
+        assert(blocked.size() == 1 && blocked[0].state == LocalProblemState::unknown && !blocked[0].fresh);
+    }
+    for (const auto owner : {"", "other", "OWNER"}) {
+        auto foreign = problemRow("foreign", "session", UploadQueueStatus::blocked);
+        foreign.ownerUserId = owner;
+        const auto result = projectLocalRecordingProblems(context, context, {row, foreign}, true, std::nullopt, 1'000'000);
+        assert(result.size() == 1 && result[0].state == LocalProblemState::unknown && !result[0].fresh);
+    }
+    auto foreign = row; foreign.ownerWorkspaceId = "other";
+    const auto result = projectLocalRecordingProblems(context, context, {foreign}, true, std::nullopt, 1'000'000);
+    assert(result[0].state == LocalProblemState::unknown);
+    const auto unbound = projectLocalRecordingProblems({}, {}, {row}, true,
+        CurrentCaptureProblem{"session", {}, true}, 1'000'000);
+    assert(unbound.size() == 1 && unbound[0].state == LocalProblemState::unknown);
+}
+
+void testLocalProblemsResolveOnlyCompleteAllUploadedSessions() {
+    using namespace graf::windows;
+    const LocalProblemContext context{"https://one.example", "owner", "workspace"};
+    auto a = problemRow("a", "session", UploadQueueStatus::uploaded);
+    auto b = problemRow("b", "session", UploadQueueStatus::uploaded);
+    const auto classify = [&](bool complete, std::optional<CurrentCaptureProblem> capture = std::nullopt) {
+        const auto result = projectLocalRecordingProblems(context, context, {a, b}, complete, capture, 1'000'000);
+        assert(result.size() == 1); return result[0].state;
+    };
+    assert(classify(true) == LocalProblemState::positivelyResolved);
+    assert(classify(false) == LocalProblemState::unknown);
+    assert(classify(true, CurrentCaptureProblem{"session", context, true}) == LocalProblemState::problem);
+    assert(classify(true, CurrentCaptureProblem{"session", context, false}) == LocalProblemState::positivelyResolved);
+    for (const auto reason : {"manual_retry", "auth_recovered"}) {
+        b.status = UploadQueueStatus::retry; b.safeReason = reason;
+        assert(classify(true) == LocalProblemState::unknown);
+    }
+    b.status = UploadQueueStatus::quarantined;
+    assert(classify(false) == LocalProblemState::problem); // partial known failure is still a failure
+    assert(projectLocalRecordingProblems(context, context, {}, true, std::nullopt, 1'000'000).empty());
+    const auto captureOnly = projectLocalRecordingProblems(context, context, {}, true,
+        CurrentCaptureProblem{"session", context, false}, 1'000'000);
+    assert(captureOnly.size() == 1 && captureOnly[0].state == LocalProblemState::unknown);
+}
+
+void testF277NotificationContractBeforeImplementation() {
+    using namespace graf::windows;
+    using namespace NativeSettingsBridge;
+    const auto quiet = parseNotificationRequest(
+        R"({"version":2,"nonce":"current","action":"set","field":"quiet","value":true})", "current");
+    assert(quiet && quiet->booleanValue);
+    assert(!parseNotificationRequest(R"({"version":1,"nonce":"current","action":"read"})", "current"));
+    assert(!parseNotificationRequest(R"({"version":2,"nonce":"current","action":"requestPermission"})", "current"));
+    const auto reply = notificationSettingsReply({}, true);
+    assert(reply.find("\"version\":2") != std::string::npos);
+    assert(reply.find("\"quiet\":false") != std::string::npos);
+    assert(reply.find("permission") == std::string::npos);
+    CalendarReminderEvent event{"event", 10'000, 11'000, true, false, "", false, ""};
+    assert(MeetingReminderModel::deadline(event) == 10'060);
+    assert(!MeetingReminderModel::eligible(event, 9'100, false));
+    assert(MeetingReminderModel::eligible(event, 9'940, false));
+}
+
+struct ReminderDisk {
+    std::map<std::string, std::string> values;
+    bool writable = true, loseWrite = false;
+    graf::windows::NotificationPreferenceStore store() {
+        return {
+            [this](std::string_view key) -> std::optional<std::string> {
+                const auto it = values.find(std::string(key));
+                return it == values.end() ? std::nullopt : std::optional<std::string>(it->second);
+            },
+            [this](std::string_view key, std::string_view value) {
+                if (!writable) return false;
+                if (!loseWrite) values[std::string(key)] = value;
+                return true;
+            }};
+    }
+};
+
+void testLocalProblemProjectionDoesNotForgetPersistedClaims() {
+    using namespace graf::windows;
+    const LocalProblemContext context{"https://one.example", "owner", "workspace"};
+    ReminderDisk disk;
+    auto row = problemRow("item", "session", UploadQueueStatus::blocked);
+    auto projected = projectLocalRecordingProblems(context, context, {row}, true, std::nullopt, 1'000'000);
+    assert(projected.size() == 1 && projected[0].state == LocalProblemState::problem);
+    const auto id = projected[0].incidentId;
+    assert(disk.store().claimProblem(context.origin, context.owner, context.workspace, id));
+    const auto claimed = disk.values;
+    // Pure projection has no storage capability. Neither absence nor a retry is
+    // a signal for its consumer to erase the durable deny marker.
+    assert(projectLocalRecordingProblems(context, context, {}, false, std::nullopt, 1'000'000).empty());
+    row.status = UploadQueueStatus::retry; row.safeReason = "manual_retry";
+    projected = projectLocalRecordingProblems(context, context, {row}, true, std::nullopt, 1'000'000);
+    assert(projected[0].state == LocalProblemState::unknown && projected[0].incidentId == id);
+    assert(row.status == UploadQueueStatus::retry && row.safeReason == "manual_retry");
+    row.status = UploadQueueStatus::uploaded;
+    projected = projectLocalRecordingProblems(context, context, {row}, false, std::nullopt, 1'000'000);
+    assert(projected[0].state == LocalProblemState::unknown);
+    assert(disk.values == claimed && !disk.store().claimProblem(context.origin, context.owner, context.workspace, id));
+    projected = projectLocalRecordingProblems(context, context, {row}, true, std::nullopt, 1'000'000);
+    assert(projected[0].state == LocalProblemState::positivelyResolved);
+    assert(disk.values == claimed); // only the explicit consumer action below mutates storage
+    assert(disk.store().resolveProblem(context.origin, context.owner, context.workspace, projected[0].incidentId));
+    row.status = UploadQueueStatus::blocked;
+    projected = projectLocalRecordingProblems(context, context, {row}, true, std::nullopt, 1'000'001);
+    assert(projected[0].state == LocalProblemState::problem && projected[0].incidentId == id);
+    assert(disk.store().claimProblem(context.origin, context.owner, context.workspace, id));
+}
+
+void testProblemClaimsPersistUntilExplicitResolution() {
+    using namespace graf::windows;
+    ReminderDisk disk;
+    const auto claim = [&] { return disk.store().claimProblem("https://one.example", "a", "w", "session:audio-failed"); };
+    assert(claim());
+    assert(!claim()); // a fresh store object represents restart; no in-memory authority
+    assert(disk.store().claimProblem("https://one.example", "a", "w", "session:upload-blocked"));
+    const auto saved = disk.values;
+    // Partial/empty calendar state and context reset have no authority to resolve a problem.
+    MeetingReminderModel model; model.bind("a", "w", "https://one.example");
+    assert(model.update({"a", "w", {}}, model.epoch()));
+    assert(disk.store().pruneMeetingReceipts(model.contextKey(), 1e12));
+    model.invalidate();
+    assert(!claim() && disk.values == saved); // no timeout-based problem cleanup
+    assert(disk.store().resolveProblem("https://one.example", "a", "w", "unknown-problem"));
+    assert(disk.values == saved);
+    assert(disk.store().resolveProblem("https://one.example", "a", "w", "session:audio-failed"));
+    assert(disk.store().resolveProblem("https://one.example", "a", "w", "session:audio-failed"));
+    assert(claim()); // a new occurrence after positively confirmed recovery
+    assert(!disk.store().claimProblem("https://one.example", "a", "w", "session:upload-blocked"));
+}
+
+void testProblemClaimsArePrivateAndContextScoped() {
+    using namespace graf::windows;
+    ReminderDisk disk;
+    const std::string incident = "synthetic-session/type-with-private-text";
+    assert(disk.store().claimProblem("https://one.example", "a", "w", incident));
+    assert(!disk.store().claimProblem("HTTPS://ONE.EXAMPLE:443/", "A", "W", incident));
+    assert(disk.store().claimProblem("https://two.example", "a", "w", incident));
+    assert(disk.store().claimProblem("https://one.example", "b", "w", incident));
+    assert(disk.store().claimProblem("https://one.example", "a", "other", incident));
+    assert(disk.store().resolveProblem("https://two.example", "a", "w", incident));
+    assert(!disk.store().claimProblem("https://one.example", "a", "w", incident));
+    for (const auto& [key, value] : disk.values) {
+        assert(key.size() == 64 + std::string(".problems").size());
+        assert(key.find("example") == std::string::npos);
+        assert(value.find("synthetic") == std::string::npos && value.find("private") == std::string::npos);
+        assert(value.find("https") == std::string::npos);
+    }
+    const auto saved = disk.values;
+    for (int empty = 0; empty < 4; ++empty) {
+        const auto origin = empty == 0 ? "" : "https://one.example";
+        const auto owner = empty == 1 ? "" : "a";
+        const auto workspace = empty == 2 ? "" : "w";
+        const auto identity = empty == 3 ? "" : "incident";
+        assert(!disk.store().claimProblem(origin, owner, workspace, identity));
+        assert(!disk.store().resolveProblem(origin, owner, workspace, identity));
+    }
+    assert(disk.values == saved);
+}
+
+void testProblemClaimsVerifyBothWritesAndFailClosedReads() {
+    using namespace graf::windows;
+    ReminderDisk disk;
+    auto store = disk.store();
+    disk.loseWrite = true;
+    assert(!store.claimProblem("https://one.example", "a", "w", "incident"));
+    disk.loseWrite = false; disk.writable = false;
+    assert(!store.claimProblem("https://one.example", "a", "w", "incident"));
+    disk.writable = true;
+    assert(store.claimProblem("https://one.example", "a", "w", "incident"));
+    const auto saved = disk.values;
+    disk.loseWrite = true;
+    assert(!store.resolveProblem("https://one.example", "a", "w", "incident"));
+    disk.loseWrite = false; disk.writable = false;
+    assert(!store.resolveProblem("https://one.example", "a", "w", "incident"));
+    assert(disk.values == saved && !store.claimProblem("https://one.example", "a", "w", "incident"));
+    disk.writable = true;
+    const auto read = store.read;
+    store.read = [](std::string_view) -> std::optional<std::string> { throw std::runtime_error("synthetic-read-error"); };
+    assert(!store.claimProblem("https://one.example", "a", "w", "new-incident"));
+    assert(!store.resolveProblem("https://one.example", "a", "w", "incident"));
+    store.read = [](std::string_view) -> std::optional<std::string> { return std::string{}; }; // native read failure sentinel
+    assert(!store.claimProblem("https://one.example", "a", "w", "new-incident"));
+    assert(!store.resolveProblem("https://one.example", "a", "w", "incident"));
+    assert(disk.values == saved);
+    store.read = read;
+    store.write = [](std::string_view, std::string_view) -> bool { throw std::runtime_error("synthetic-write-error"); };
+    assert(!store.claimProblem("https://one.example", "a", "w", "new-incident"));
+    assert(!store.resolveProblem("https://one.example", "a", "w", "incident"));
+    assert(disk.values == saved);
+    store = disk.store();
+    int reads = 0;
+    store.read = [&](std::string_view key) -> std::optional<std::string> {
+        if (++reads > 1) return std::string{}; // failed verification after a successful write
+        return read(key);
+    };
+    assert(!store.claimProblem("https://one.example", "a", "w", "new-incident"));
+    assert(!disk.store().claimProblem("https://one.example", "a", "w", "new-incident"));
+}
+
+void testProblemClaimsCorruptionAndCapacityDoNotForgetIncidents() {
+    using namespace graf::windows;
+    MeetingReminderModel model; model.bind("a", "w", "https://one.example");
+    const auto key = model.contextKey() + ".problems";
+    const auto digest = sha256("incident");
+    for (const auto& bytes : {std::string{}, std::string("problems-v2\n"),
+        "problems-v1\n" + digest, "problems-v1\n" + digest + " extra\n",
+        "problems-v1\n" + digest + "\n" + digest + "\n",
+        "problems-v1\n" + std::string(64, 'z') + "\n", std::string(128 * 1024 + 1, 'x')}) {
+        ReminderDisk disk; disk.values[key] = bytes;
+        assert(!disk.store().claimProblem("https://one.example", "a", "w", "incident"));
+        assert(!disk.store().resolveProblem("https://one.example", "a", "w", "incident"));
+        assert(disk.values[key] == bytes);
+    }
+    ReminderDisk disk;
+    std::string bytes = "problems-v1\n";
+    for (int i = 0; i < 1024; ++i) bytes += sha256(std::to_string(i)) + "\n";
+    disk.values[key] = bytes;
+    assert(!disk.store().claimProblem("https://one.example", "a", "w", "overflow"));
+    assert(disk.values[key] == bytes);
+    assert(disk.store().resolveProblem("https://one.example", "a", "w", "0"));
+    assert(disk.store().claimProblem("https://one.example", "a", "w", "overflow"));
+    assert(!disk.store().claimProblem("https://one.example", "a", "w", "1"));
+}
+
+void testF277PreferencesMigrateAndVerifyWrites() {
+    using namespace graf::windows;
+    ReminderDisk disk;
+    disk.values[sha256("a")] = "v1:\n0115";
+    auto preferences = disk.store().load("a");
+    assert(!preferences.reminders && preferences.showTitles && preferences.sound);
+    assert(preferences.offsetMinutes == 5 && !preferences.quiet);
+    preferences.quiet = true;
+    assert(disk.store().save(preferences, "a"));
+    assert(disk.store().load("a").quiet && !disk.store().load("b").quiet);
+    disk.loseWrite = true; preferences.quiet = false;
+    assert(!disk.store().save(preferences, "a"));
+    assert(disk.store().load("a").quiet);
+    preferences.offsetMinutes = 2;
+    assert(!disk.store().save(preferences, "a"));
+}
+
+void testF277OffsetsContextAndLinkIdentity() {
+    using namespace graf::windows;
+    CalendarReminderEvent event{"event", 10'000, 11'000, true, false, "", true, "https://meet.example.com/a"};
+    for (int offset : {0, 1, 5}) {
+        const auto due = event.startsAt - offset * 60;
+        assert(!MeetingReminderModel::eligible(event, due - .001, false, offset));
+        assert(MeetingReminderModel::eligible(event, due, false, offset));
+        assert(MeetingReminderModel::eligible(event, due + 119.999, false, offset));
+        assert(!MeetingReminderModel::eligible(event, due + 120, false, offset));
+        assert(!MeetingReminderModel::eligible(event, due, true, offset));
+        assert(MeetingReminderModel::deadline(event, offset) == due + 120);
+    }
+    assert(!MeetingReminderModel::eligible(event, 10'000, false, 2));
+    assert(!MeetingReminderModel::eligible(event, std::numeric_limits<double>::quiet_NaN(), false));
+    MeetingReminderModel model;
+    model.bind("a", "w", "https://one.example");
+    assert(model.update({"a", "w", {event}}, model.epoch()));
+    auto target = model.actionTarget(event);
+    const auto key = model.dismissalKey(event);
+    event.meetingUrl = "https://meet.example.com/b";
+    assert(model.update({"a", "w", {event}}, model.epoch()));
+    assert(!model.revalidate(target, 9'950, false));
+    target = model.actionTarget(event); event.meetingLinkPresent = false;
+    assert(model.update({"a", "w", {event}}, model.epoch()));
+    assert(!model.revalidate(target, 9'950, false));
+    model.bind("a", "w", "https://two.example");
+    assert(model.dismissalKey(event) != key);
+    assert(!model.revalidate(target, 9'950, false));
+    const auto context = model.contextKey();
+    model.bind("a", "w", "HTTPS://TWO.EXAMPLE:443/");
+    assert(model.contextKey() == context); // one origin, not a fresh receipt namespace
+    model.bind("a", "other", "https://two.example");
+    assert(model.contextKey() != context);
+    model.bind("a", "w", "");
+    assert(!model.update({"a", "w", {event}}, model.epoch()));
+}
+
+void testF277PersistedReceiptsFailClosedAndExpire() {
+    using namespace graf::windows;
+    ReminderDisk disk;
+    MeetingReminderModel model; model.bind("a", "w", "https://one.example");
+    CalendarReminderEvent event{"event", 10'000, 10'001, true, false, "private title", true, "https://meet.example.com/private"};
+    const auto context = model.contextKey();
+    assert(disk.store().claimMeeting(context, event, 9'950));
+    event.endsAt = 11'000; // A changed end or offset cannot grant a new receipt.
+    assert(!disk.store().claimMeeting(context, event, 10'001));
+    assert(!disk.store().claimMeeting(context, event, 9'951)); // recreated store / clock rollback
+    event.startsAt += 1;
+    assert(disk.store().claimMeeting(context, event, 9'951));
+    event.startsAt -= 1;
+    assert(!disk.store().claimMeeting(context, event, 9'951));
+    model.bind("b", "w", "https://one.example");
+    assert(disk.store().claimMeeting(model.contextKey(), event, 9'951));
+    model.bind("a", "other", "https://one.example");
+    assert(disk.store().claimMeeting(model.contextKey(), event, 9'951));
+    model.bind("a", "w", "https://two.example");
+    assert(disk.store().claimMeeting(model.contextKey(), event, 9'951));
+    assert(!disk.store().claimMeeting({}, event, 9'951));
+    for (const auto& [key, value] : disk.values) {
+        assert(key.find("example") == std::string::npos);
+        assert(value.find("private") == std::string::npos && value.find("event") == std::string::npos);
+    }
+    ReminderDisk broken; broken.loseWrite = true;
+    assert(!broken.store().claimMeeting(context, event, 9'951));
+    broken.loseWrite = false; broken.writable = false;
+    assert(!broken.store().claimMeeting(context, event, 9'951));
+    for (auto& [key, value] : disk.values) value = "corrupt";
+    assert(!disk.store().claimMeeting(context, event, 9'952));
+    ReminderDisk expiry;
+    assert(expiry.store().claimMeeting(context, event, 9'950));
+    assert(expiry.store().pruneMeetingReceipts(context, 10'120));
+    assert(!expiry.store().claimMeeting(context, event, 10'120));
+    event.startsAt = 10'500;
+    assert(expiry.store().claimMeeting(context, event, 10'450));
+    for (auto& [key, value] : expiry.values) value.pop_back(); // incomplete last row
+    event.startsAt += 1;
+    assert(!expiry.store().claimMeeting(context, event, 10'450));
+}
+
+void testF277PresenterRestartQuietAndExactAction() {
+    using namespace graf::windows;
+    using namespace NativeSettingsBridge;
+    ReminderDisk disk;
+    const auto now = RecordingNoticePresenter::Clock::now();
+    CalendarReminderEvent event{"event", 10'000, 11'000, true, false, "", true, "https://meet.example.com/a"};
+    RecordingNoticePresenter card;
+    card.interactionPermitProvider = [] { return InteractionPermit{true, 1}; };
+    int sounds = 0;
+    {
+        MeetingReminderPresenter p(card, disk.store());
+        p.bind("a", "w", "https://one.example");
+        p.onMeetingPresented = [&] { ++sounds; };
+        assert(p.update({"a", "w", {event}}, p.epoch()));
+        (void)p.settings({NotificationAction::set, "sound", true, 1}, 9'930, now, false);
+        (void)p.settings({NotificationAction::set, "quiet", true, 1}, 9'940, now, false);
+        assert(!card.visible());
+        (void)p.settings({NotificationAction::set, "quiet", false, 1}, 9'940, now, false);
+        assert(card.visible() && sounds == 1);
+        p.reconcile(9'941, now + std::chrono::seconds(1), false);
+        assert(card.visible() && sounds == 1);
+        std::optional<ReminderActionTarget> clicked;
+        int requests = 0;
+        p.onActionRequested = [&](auto target, auto) { clicked = target; ++requests; };
+        card.invoke(NoticeAction::join); card.invoke(NoticeAction::join);
+        assert(clicked && requests == 1);
+        event.meetingUrl = "https://meet.example.com/b";
+        assert(p.update({"a", "w", {event}}, p.epoch()));
+        assert(!p.completeAction(*clicked, NoticeAction::join, 9'942, false));
+        p.reconcile(9'943, now, false); assert(!card.visible());
+        p.invalidate();
+    }
+    MeetingReminderPresenter restarted(card, disk.store());
+    restarted.bind("a", "w", "https://one.example");
+    assert(restarted.update({"a", "w", {event}}, restarted.epoch()));
+    restarted.reconcile(9'944, now, false); assert(!card.visible());
+    event.startsAt += 10;
+    assert(restarted.update({"a", "w", {event}}, restarted.epoch()));
+    restarted.reconcile(9'950, now, false); assert(card.visible());
+    std::optional<ReminderActionTarget> clicked;
+    restarted.onActionRequested = [&](auto target, auto) { clicked = target; };
+    card.invoke(NoticeAction::join); assert(clicked);
+    assert(restarted.completeAction(*clicked, NoticeAction::join, 9'951, false));
+    assert(!restarted.completeAction(*clicked, NoticeAction::join, 9'951, false));
+    restarted.invalidate();
+}
+
+void testF277QuietPreviewAndDeadlineNeverRestart() {
+    using namespace graf::windows;
+    using namespace NativeSettingsBridge;
+    ReminderDisk disk;
+    RecordingNoticePresenter card;
+    card.interactionPermitProvider = [] { return InteractionPermit{true, 1}; };
+    MeetingReminderPresenter p(card, disk.store());
+    p.bind("a", "w", "https://one.example");
+    const auto now = RecordingNoticePresenter::Clock::now();
+    (void)p.settings({NotificationAction::set, "quiet", true, 1}, 9'930, now, false);
+    assert(p.settings({NotificationAction::test, {}, false, 1}, 9'930, now, false).find("\"error\"") == std::string::npos);
+    assert(card.visible() && card.kind() == NoticeKind::preview);
+    assert(card.history().empty());
+    (void)p.settings({NotificationAction::set, "quiet", false, 1}, 9'930, now, false);
+    CalendarReminderEvent event{"event", 10'000, 10'010, true, false, "", false, ""};
+    assert(p.update({"a", "w", {event}}, p.epoch()));
+    p.reconcile(9'940, now, false);
+    const auto original = card.deadline();
+    assert(original == now + std::chrono::seconds(70));
+    event.endsAt = 11'000;
+    assert(p.update({"a", "w", {event}}, p.epoch()));
+    p.reconcile(9'941, now + std::chrono::seconds(1), false);
+    assert(card.deadline() == original);
+    event.endsAt = 10'005;
+    assert(p.update({"a", "w", {event}}, p.epoch()));
+    p.reconcile(9'942, now + std::chrono::seconds(2), false);
+    assert(card.deadline() == now + std::chrono::seconds(65));
+    p.reconcile(10'005, now + std::chrono::seconds(65), false);
+    assert(!card.visible());
+    (void)p.settings({NotificationAction::set, "offsetMinutes", false, 0}, 10'005, now + std::chrono::seconds(65), false);
+    assert(!card.visible()); // new offset is not a new occurrence
+}
+
+void testF277BlockedSurfaceAndRestartWhileVisible() {
+    using namespace graf::windows;
+    ReminderDisk disk;
+    RecordingNoticePresenter card;
+    card.interactionPermitProvider = [] { return InteractionPermit{true, 1}; };
+    auto now = RecordingNoticePresenter::Clock::now();
+    CalendarReminderEvent event{"event", 10'000, 11'000, true, false, "", false, ""};
+    {
+        MeetingReminderPresenter p(card, disk.store());
+        p.bind("a", "w", "https://one.example");
+        assert(p.update({"a", "w", {event}}, p.epoch()));
+        assert(card.present({NoticeKind::recordingPrompt, "prompt-7", L"", L"", {}}, now, now + std::chrono::seconds(8)));
+        now = card.deadline() - std::chrono::seconds(8); // first visible instant, after preparation
+        p.reconcile(9'940, now, false);
+        assert(card.visible() && card.kind() == NoticeKind::recordingPrompt);
+        card.dismiss();
+        p.reconcile(9'941, now, false); assert(card.visible());
+        // A new store/presenter must already see the receipt while the first is open.
+        RecordingNoticePresenter otherCard;
+        otherCard.interactionPermitProvider = [] { return InteractionPermit{true, 1}; };
+        MeetingReminderPresenter restarted(otherCard, disk.store());
+        restarted.bind("a", "w", "https://one.example");
+        assert(restarted.update({"a", "w", {event}}, restarted.epoch()));
+        restarted.reconcile(9'942, now, false); assert(!otherCard.visible());
+        assert(card.present({NoticeKind::problem, "problem", L"", L"", {}}, now, now + std::chrono::seconds(20)));
+        p.reconcile(9'943, now, false);
+        card.close(); p.reconcile(9'944, now, false); assert(!card.visible());
+    }
+    assert(!card.visible());
+}
+
+void testF277ReceiptCorruptionAndCapacityNeverEvictLiveClaims() {
+    using namespace graf::windows;
+    MeetingReminderModel model; model.bind("a", "w", "https://one.example");
+    const auto context = model.contextKey();
+    const auto key = context + ".meetings";
+    const auto digest = sha256("synthetic");
+    CalendarReminderEvent event{"event", 10'000, 11'000, true, false, "", false, ""};
+    for (const auto& bytes : {std::string{}, std::string("receipts-v2\n"),
+        "receipts-v1\n" + digest + " nan\n", "receipts-v1\n" + digest + " -1\n",
+        "receipts-v1\n" + digest + " 10120 extra\n",
+        "receipts-v1\n" + digest + " 10120\n" + digest + " 10121\n",
+        "receipts-v1\n" + std::string(63, '0') + " 10120\n"}) {
+        ReminderDisk disk; disk.values[key] = bytes;
+        assert(!disk.store().claimMeeting(context, event, 9'950));
+        assert(!disk.store().pruneMeetingReceipts(context, 9'950));
+        assert(disk.values[key] == bytes); // Do not replace corrupt evidence with an empty set.
+    }
+    ReminderDisk full;
+    std::string bytes = "receipts-v1\n";
+    for (int i = 0; i < 1024; ++i) bytes += sha256(std::to_string(i)) + " 10120\n";
+    full.values[key] = bytes;
+    assert(!full.store().claimMeeting(context, event, 9'950));
+    assert(full.values[key] == bytes);
+    assert(full.store().pruneMeetingReceipts(context, 10'120));
+    assert(full.values[key] == "receipts-v1\n");
+}
+
+void testF277PendingActionCannotOutliveMonotonicDeadline() {
+    using namespace graf::windows;
+    ReminderDisk disk;
+    RecordingNoticePresenter card;
+    card.interactionPermitProvider = [] { return InteractionPermit{true, 1}; };
+    MeetingReminderPresenter p(card, disk.store());
+    p.bind("a", "w", "https://one.example");
+    CalendarReminderEvent event{"event", 10'000, 11'000, true, false, "", false, ""};
+    assert(p.update({"a", "w", {event}}, p.epoch()));
+    const auto before = RecordingNoticePresenter::Clock::now() - std::chrono::seconds(121);
+    p.reconcile(9'940, before, false);
+    std::optional<ReminderActionTarget> clicked;
+    p.onActionRequested = [&](auto target, auto) { clicked = target; };
+    card.invoke(NoticeAction::record, card.generation(), before + std::chrono::seconds(1));
+    assert(clicked);
+    assert(!p.completeAction(*clicked, NoticeAction::record, 9'941, false));
+}
+
+void testF277PendingActionCannotReturnAfterAnotherCard() {
+    using namespace graf::windows;
+    ReminderDisk disk;
+    RecordingNoticePresenter card;
+    card.interactionPermitProvider = [] { return InteractionPermit{true, 1}; };
+    MeetingReminderPresenter p(card, disk.store());
+    p.bind("a", "w", "https://one.example");
+    CalendarReminderEvent event{"event", 10'000, 11'000, true, false, "", false, ""};
+    assert(p.update({"a", "w", {event}}, p.epoch()));
+    const auto now = RecordingNoticePresenter::Clock::now();
+    p.reconcile(9'940, now, false);
+    std::optional<ReminderActionTarget> clicked;
+    p.onActionRequested = [&](auto target, auto) { clicked = target; };
+    card.invoke(NoticeAction::record); assert(clicked);
+    assert(card.present({NoticeKind::problem, "problem", L"", L"", {}}, now, now + std::chrono::seconds(20)));
+    p.reconcile(9'941, now, false);
+    card.close();
+    assert(!p.completeAction(*clicked, NoticeAction::record, 9'942, false));
+}
 
 void testOnlyTheSettingsPageMayUseTheBridge() {
     // The route macOS bridges: the recording settings page, addressed plainly.
@@ -134,11 +735,12 @@ void testTheNotificationReplyIsThePlatformTruth() {
     const auto reply = notificationSettingsReply({}, true);
     // The page refuses a reply that misses one of these, and then it would show
     // nothing at all, so the shape is checked here.
-    assert(reply.find("\"version\":1") != std::string::npos);
-    assert(reply.find("\"preferences\":{\"reminders\":true,\"showTitles\":false,\"sound\":false,\"offsetMinutes\":1}") != std::string::npos);
+    assert(reply.find("\"version\":2") != std::string::npos);
+    assert(reply.find("\"preferences\":{\"reminders\":true,\"showTitles\":false,\"sound\":false,\"quiet\":false,\"offsetMinutes\":1}") != std::string::npos);
     assert(reply.find("\"canEdit\":true") != std::string::npos);
-    assert(reply.find("\"canRequestPermission\":false") != std::string::npos);
-    assert(reply.find("\"permission\":\"Windows") != std::string::npos);
+    assert(reply.find("canRequestPermission") == std::string::npos);
+    assert(reply.find("permission") == std::string::npos);
+    assert(reply.find("\"message\":\"\"") != std::string::npos);
     // A reason given by the app is used as it is.
     assert(notificationSettingsReply({}, false).find("\"canEdit\":false") != std::string::npos);
 }
@@ -147,21 +749,28 @@ void testNotificationRequestsAndOwnerPersistence() {
     using namespace graf::windows;
     using namespace NativeSettingsBridge;
     const auto parse = [](std::string fields) {
-        return parseNotificationRequest("{\"version\":1,\"nonce\":\"current\"," + fields + "}", "current");
+        return parseNotificationRequest("{\"version\":2,\"nonce\":\"current\"," + fields + "}", "current");
     };
     assert(parse("\"action\":\"read\""));
     assert(parse("\"action\":\"test\""));
-    assert(parse("\"action\":\"requestPermission\"")); // explicit unsupported reply
+    assert(!parse("\"action\":\"requestPermission\""));
+    assert(!parse("\"action\":\"openSystemSettings\""));
+    for (const auto field : {"reminders", "showTitles", "sound", "quiet"}) {
+        assert(parse(std::string("\"action\":\"set\",\"field\":\"") + field + "\",\"value\":true"));
+        assert(!parse(std::string("\"action\":\"set\",\"field\":\"") + field + "\",\"value\":\"true\""));
+    }
+    for (const auto offset : {"0", "1", "5"})
+        assert(parse(std::string("\"action\":\"set\",\"field\":\"offsetMinutes\",\"value\":") + offset));
     assert(!parse("\"action\":\"read\",\"value\":true"));
     assert(!parse("\"action\":\"set\",\"field\":\"sound\",\"value\":1"));
     assert(!parse("\"action\":\"set\",\"field\":\"offsetMinutes\",\"value\":1.0"));
     assert(!parse("\"action\":\"set\",\"field\":\"offsetMinutes\",\"value\":2"));
     assert(!parse("\"action\":\"set\",\"field\":\"sound\",\"value\":true,\"extra\":0"));
-    assert(!parseNotificationRequest(R"({"version":1,"nonce":"old","action":"test"})", "current"));
+    assert(!parseNotificationRequest(R"({"version":2,"nonce":"old","action":"test"})", "current"));
     assert(!parse("\"action\":\"test\",\"action\":\"read\""));
     const auto payload = [](std::string id, std::string extra = "") {
         return "{\"handler\":\"grafNotificationSettings\",\"requestId\":" + id +
-            ",\"request\":{\"version\":1,\"nonce\":\"current\",\"action\":\"test\"}" + extra + "}";
+            ",\"request\":{\"version\":2,\"nonce\":\"current\",\"action\":\"test\"}" + extra + "}";
     };
     assert(parseNotificationPayload(payload("1"), "current"));
     assert(!parseNotificationPayload(payload("0"), "current"));
@@ -197,58 +806,56 @@ void testNotificationRequestsAndOwnerPersistence() {
     assert(saved.begin()->first.find("owner-a") == std::string::npos);
 }
 
-void testFixedReminderWindowAndRevalidation() {
+void testReminderOccurrenceAndRevalidation() {
     using namespace graf::windows;
     CalendarReminderEvent event{"event", 10'000, 11'000, true, false, "", false, ""};
-    assert(MeetingReminderModel::deadline(event) == 9'220);
-    assert(!MeetingReminderModel::eligible(event, 9'099, false));
-    assert(MeetingReminderModel::eligible(event, 9'100, false));
-    assert(MeetingReminderModel::eligible(event, 9'219, false));
-    assert(!MeetingReminderModel::eligible(event, 9'220, false));
-    assert(!MeetingReminderModel::eligible(event, 9'101, true));
     MeetingReminderModel model;
-    model.bind("a", "w");
+    model.bind("a", "w", "https://one.example");
     const auto epoch = model.epoch();
     assert(model.update({"a", "w", {event}}, epoch));
-    auto selected = model.candidate(9'101, false);
+    auto selected = model.candidate(9'950, false);
     assert(selected && selected->eventId == "event");
     auto earlier = event; earlier.eventId = "earlier"; earlier.startsAt = 9'990;
     assert(model.update({"a", "w", {event, earlier}}, epoch));
-    assert(model.candidate(9'101, false)->eventId == "earlier");
+    assert(model.candidate(9'950, false)->eventId == "earlier");
     model.dismiss(event);
-    event.startsAt += 10; // moving a dismissed occurrence does not undismiss it
+    event.startsAt += 10; // A new start is a new occurrence; moving back stays dismissed.
     assert(model.update({"a", "w", {event}}, epoch));
-    assert(!model.candidate(9'120, false));
-    model.bind("b", "w");
+    assert(model.candidate(9'960, false));
+    event.startsAt -= 10;
+    assert(model.update({"a", "w", {event}}, epoch));
+    assert(!model.candidate(9'960, false));
+    model.bind("b", "w", "https://one.example");
     assert(!model.update({"a", "w", {event}}, epoch));
-    assert(!model.candidate(9'120, false));
+    assert(!model.candidate(9'960, false));
     assert(model.update({"b", "w", {event}}, model.epoch()));
-    assert(model.candidate(9'120, false));
+    assert(model.candidate(9'960, false));
     const auto target = model.actionTarget(event);
     event.startsAt += 1;
     assert(model.update({"b", "w", {event}}, model.epoch()));
-    assert(!model.revalidate(target, 9'120, false)); // a stale click cannot follow a moved occurrence
+    assert(!model.revalidate(target, 9'960, false)); // a stale click cannot follow a moved occurrence
     auto current = model.actionTarget(event);
-    assert(model.revalidate(current, 9'120, false));
-    assert(!model.revalidate(current, 9'120, true));
+    assert(model.revalidate(current, 9'960, false));
+    assert(!model.revalidate(current, 9'960, true));
     event.canSurface = false;
     assert(model.update({"b", "w", {event}}, model.epoch()));
-    assert(!model.revalidate(current, 9'120, false));
+    assert(!model.revalidate(current, 9'960, false));
     model.clearCalendar();
-    assert(!model.revalidate(current, 9'120, false));
+    assert(!model.revalidate(current, 9'960, false));
     model.invalidate();
     assert(model.owner().empty());
     assert(!model.update({"b", "w", {event}}, epoch));
     // A restart during/after the expired fixed window never grants a new 120s.
     MeetingReminderModel restarted;
-    restarted.bind("b", "w"); event.canSurface = true;
+    restarted.bind("b", "w", "https://one.example"); event.canSurface = true;
     assert(restarted.update({"b", "w", {event}}, restarted.epoch()));
-    assert(!restarted.candidate(9'300, false));
+    assert(!restarted.candidate(10'121, false));
 }
 
 void testSharedCardPriorityAndManualClose() {
     using namespace graf::windows;
     RecordingNoticePresenter presenter;
+    presenter.interactionPermitProvider = [] { return InteractionPermit{true, 1}; };
     const auto now = std::chrono::steady_clock::now();
     int closed = 0;
     assert(presenter.present({NoticeKind::preview, "preview", L"Проверка", L"", {}}, now, now + std::chrono::seconds(6)));
@@ -260,7 +867,8 @@ void testSharedCardPriorityAndManualClose() {
     assert(closed == 0); // replacement/expiry must not dismiss the real event
     presenter.tick(now + std::chrono::seconds(20));
     assert(!presenter.visible());
-    assert(presenter.present({NoticeKind::meeting, "a", L"Встреча", L"", {}}, now, now + std::chrono::seconds(90), {}, [&] { ++closed; }));
+    assert(!presenter.present({NoticeKind::meeting, "a", L"Встреча", L"", {}}, now, now + std::chrono::seconds(90)));
+    assert(presenter.present({NoticeKind::meeting, "c", L"Встреча", L"", {}}, now, now + std::chrono::seconds(90), {}, [&] { ++closed; }));
     presenter.close();
     assert(!presenter.visible() && closed == 1);
     assert(presenter.present({NoticeKind::preview, "preview", L"Проверка", L"", {}}, now, now + std::chrono::seconds(6)));
@@ -294,98 +902,93 @@ void testCalendarSchemaAndSafeJoin() {
 void testAutomaticPromptSharesCardPriority() {
     using namespace graf::windows;
     RecordingNoticePresenter card;
-    const auto now = RecordingNoticePresenter::Clock::now();
-    int replaced = 0, dismissed = 0;
+    card.interactionPermitProvider = [] { return InteractionPermit{true, 1}; };
+    auto now = RecordingNoticePresenter::Clock::now();
+    int dismissed = 0;
     assert(card.present({NoticeKind::meeting, "event", L"", L"", {}}, now,
         now + std::chrono::seconds(90), {}, [&] { ++dismissed; }));
-    assert(card.acquireAutomaticPrompt(1, now, [&] { ++replaced; card.releaseAutomaticPrompt(1); return true; }));
-    assert(!card.visible() && card.occupied() && card.automaticPromptActive());
+    const auto meetingGeneration = card.generation();
+    const NoticeContent prompt{NoticeKind::recordingPrompt, "prompt-1", L"", L"", {}};
+    assert(card.present(prompt, now, now + std::chrono::seconds(8)));
+    const auto firstPromptDeadline = card.deadline();
+    now = firstPromptDeadline - std::chrono::seconds(8);
+    const auto firstPromptGeneration = card.generation();
+    assert(card.visible() && card.occupied() && card.automaticPromptActive());
     assert(dismissed == 0); // Preemption is not a dismissal of the meeting.
-    assert(card.acquireAutomaticPrompt(1, now, [] { return true; }));
-    assert(!card.acquireAutomaticPrompt(2, now, [] { return true; }));
+    assert(card.present(prompt, now, now + std::chrono::seconds(8)));
+    assert(card.generation() == firstPromptGeneration && card.deadline() == firstPromptDeadline);
+    assert(!card.present({NoticeKind::recordingPrompt, "prompt-2", L"", L"", {}}, now, now + std::chrono::seconds(8)));
     assert(!card.present({NoticeKind::preview, "preview", L"", L"", {}}, now, now + std::chrono::seconds(6)));
     assert(!card.present({NoticeKind::meeting, "event", L"", L"", {}}, now, now + std::chrono::seconds(90)));
     card.showShortRecordingDiscarded(now);
-    assert(!card.visible() && card.automaticPromptActive());
-    card.dismiss(); // Dismissing the native card does not release the external window.
-    card.releaseAutomaticPrompt(2);
+    assert(card.visible() && card.automaticPromptActive());
+    card.close(meetingGeneration); // A stale close from the replaced meeting is harmless.
     assert(card.automaticPromptActive());
-    assert(card.present({NoticeKind::problem, "problem", L"", L"", {}}, now, now + std::chrono::seconds(20)));
-    assert(replaced == 1 && !card.automaticPromptActive() && card.visible());
-    assert(!card.acquireAutomaticPrompt(2, now, [] { return true; }));
+    assert(!card.present({NoticeKind::problem, "problem", L"", L"", {}}, now, now + std::chrono::seconds(20)));
+    assert(card.automaticPromptActive() && card.visible());
     card.dismiss();
-    card.showShortRecordingDiscarded(now);
-    assert(!card.acquireAutomaticPrompt(2, now, [] { return true; }));
-    assert(card.acquireAutomaticPrompt(2, now + std::chrono::seconds(20), [] { return true; }));
-    card.releaseAutomaticPrompt(1); // A late Closed event belongs to the old window.
+    assert(!card.occupied() && !card.automaticPromptActive());
+    card.tick(now + std::chrono::seconds(21)); // unshown short has expired
+    const auto later = now + std::chrono::seconds(21);
+    card.showShortRecordingDiscarded(later);
+    assert(card.present({NoticeKind::recordingPrompt, "prompt-2", L"", L"", {}}, later, later + std::chrono::seconds(8)));
+    card.close(firstPromptGeneration); // A late close cannot affect the new prompt.
     assert(card.automaticPromptActive());
-    card.releaseAutomaticPrompt(2);
+    card.dismiss();
     assert(!card.occupied());
-    assert(!card.acquireAutomaticPrompt(3, now, {})); // A preemptible window needs a close callback.
+    now = later + std::chrono::seconds(1);
 
-    MeetingReminderPresenter reminders(card, {});
-    reminders.bind("owner", "workspace");
+    ReminderDisk disk;
+    MeetingReminderPresenter reminders(card, disk.store());
+    reminders.bind("owner", "workspace", "https://one.example");
     CalendarReminderEvent event{"event", 10'000, 11'000, true, false, "", false, ""};
     assert(reminders.update({"owner", "workspace", {event}}, reminders.epoch()));
-    assert(card.acquireAutomaticPrompt(3, now, [] { return true; }));
-    reminders.reconcile(9'100, now, false);
-    const auto reply = reminders.settings({NativeSettingsBridge::NotificationAction::test, {}, false, 1}, 9'100, now, false);
+    assert(card.present({NoticeKind::recordingPrompt, "prompt-3", L"", L"", {}}, now, now + std::chrono::seconds(8)));
+    now = card.deadline() - std::chrono::seconds(8);
+    reminders.reconcile(9'940, now, false);
+    const auto reply = reminders.settings({NativeSettingsBridge::NotificationAction::test, {}, false, 1}, 9'940, now, false);
     assert(reply.find("важное сообщение") != std::string::npos && reply.find("\"error\"") == std::string::npos);
-    assert(!reminders.completeAction({reminders.epoch(), "event", event.startsAt}, NoticeAction::record, 9'100, false));
-    card.releaseAutomaticPrompt(3);
-    reminders.reconcile(9'101, now, false);
+    assert(!reminders.completeAction({reminders.epoch(), "event", event.startsAt}, NoticeAction::record, 9'940, false));
+    card.dismiss();
+    reminders.reconcile(9'941, now, false);
     assert(card.visible() && card.kind() == NoticeKind::meeting); // Not consumed by the prompt.
     card.showShortRecordingDiscarded(now);
-    assert(!reminders.completeAction({reminders.epoch(), "event", event.startsAt}, NoticeAction::record, 9'101, false));
+    assert(!reminders.completeAction({reminders.epoch(), "event", event.startsAt}, NoticeAction::record, 9'941, false));
     assert(card.visible() && card.kind() == NoticeKind::shortRecording);
     assert(card.present({NoticeKind::problem, "problem", L"", L"", {}}, now, now + std::chrono::seconds(20)));
-    assert(!reminders.completeAction({reminders.epoch(), "event", event.startsAt}, NoticeAction::record, 9'101, false));
+    assert(!reminders.completeAction({reminders.epoch(), "event", event.startsAt}, NoticeAction::record, 9'941, false));
     assert(card.visible() && card.kind() == NoticeKind::problem);
 }
 
-void testAutomaticPromptReplacementAcknowledgement() {
+void testAutomaticPromptProtectedUntilClosedOrInvalidated() {
     using namespace graf::windows;
     RecordingNoticePresenter card;
-    const auto now = RecordingNoticePresenter::Clock::now();
+    card.interactionPermitProvider = [] { return InteractionPermit{true, 1}; };
+    auto now = RecordingNoticePresenter::Clock::now();
     const NoticeContent problem{NoticeKind::problem, "problem", L"", L"", {}};
-    int calls = 0, dismissed = 0;
-    bool hidden = false;
-    assert(card.acquireAutomaticPrompt(10, now, [&] {
-        ++calls;
-        assert(card.visible() && card.kind() == NoticeKind::problem); // Create before requesting acknowledgement.
-        assert(card.automaticPromptActive()); // Lease is held until acknowledgement.
-        return hidden;
-    }));
-    assert(!card.present(problem, now, now + std::chrono::seconds(20), {}, [&] { ++dismissed; }));
-    assert(calls == 1 && dismissed == 0 && !card.visible() && card.automaticPromptActive());
-    assert(!card.acquireAutomaticPrompt(11, now, [] { return true; }));
+    int closes = 0, expires = 0;
+    NoticePresentationHooks hooks;
+    hooks.onExpired = [&] { ++expires; };
+    assert(card.present({NoticeKind::recordingPrompt, "prompt-10", L"", L"", {}}, now,
+        now + std::chrono::seconds(8), {}, [&] { ++closes; }, hooks));
+    now = card.deadline() - std::chrono::seconds(8);
+    const auto oldGeneration = card.generation();
+    assert(!card.present(problem, now, now + std::chrono::seconds(20)));
+    assert(closes == 0 && expires == 0 && card.visible() && card.automaticPromptActive());
+    assert(!card.present({NoticeKind::recordingPrompt, "prompt-11", L"", L"", {}}, now, now + std::chrono::seconds(8)));
     assert(!card.present({NoticeKind::preview, "preview", L"", L"", {}}, now, now + std::chrono::seconds(6)));
-    hidden = true;
-    assert(card.present(problem, now, now + std::chrono::seconds(20)));
-    assert(calls == 2 && card.visible() && !card.automaticPromptActive()); // Same callback survived failure.
-    card.dismiss();
-
-    assert(card.acquireAutomaticPrompt(11, now, [&] {
-        card.releaseAutomaticPrompt(11); // Synchronous Closed already released this generation.
-        return true;
-    }));
+    card.close(oldGeneration);
+    assert(closes == 1 && expires == 0 && !card.occupied());
     assert(card.present(problem, now, now + std::chrono::seconds(20)));
     assert(card.visible() && !card.automaticPromptActive());
-    card.dismiss();
-
-    int newerCalls = 0;
-    assert(card.acquireAutomaticPrompt(12, now, [&] {
-        card.releaseAutomaticPrompt(12);
-        card.dismiss(); // Reentrant UI removes the replacement before opening a newer prompt.
-        assert(card.acquireAutomaticPrompt(13, now, [&] { ++newerCalls; return false; }));
-        return true;
-    }));
-    assert(!card.present(problem, now, now + std::chrono::seconds(20)));
-    card.releaseAutomaticPrompt(12);
+    assert(card.present({NoticeKind::recordingPrompt, "prompt-11", L"", L"", {}}, now,
+        now + std::chrono::seconds(8), {}, [&] { ++closes; }, hooks));
+    now = card.deadline() - std::chrono::seconds(8);
+    card.close(oldGeneration); // stale close cannot close the new prompt
     assert(card.automaticPromptActive());
     assert(!card.present(problem, now, now + std::chrono::seconds(20)));
-    assert(newerCalls == 1 && card.automaticPromptActive() && !card.visible());
-    card.releaseAutomaticPrompt(13);
+    card.resetContext();
+    assert(closes == 1 && expires == 0 && !card.occupied() && !card.automaticPromptActive());
 }
 
 void testReminderAuthExpiryPropagation() {
@@ -457,58 +1060,58 @@ void testReminderPresenterNeverConsumesRealEventsForPreview() {
         [&](std::string_view key) -> std::optional<std::string> { auto it = disk.find(std::string(key)); return it == disk.end() ? std::nullopt : std::optional<std::string>(it->second); },
         [&](std::string_view key, std::string_view value) { if (!writeAllowed) return false; disk[std::string(key)] = value; return true; }};
     RecordingNoticePresenter card;
+    card.interactionPermitProvider = [] { return InteractionPermit{true, 1}; };
     MeetingReminderPresenter presenter(card, store);
     auto now = RecordingNoticePresenter::Clock::now();
     const NotificationRequest preview{NotificationAction::test, {}, false, 1};
     assert(presenter.settings(preview, 9'100, now, false).find("\"error\"") != std::string::npos);
     assert(!card.visible());
-    presenter.bind("a", "w");
+    presenter.bind("a", "w", "https://one.example");
     CalendarReminderEvent event{"event", 10'000, 11'000, true, true, "Синтетическая встреча", true, "https://meet.example.com/current"};
     assert(presenter.update({"a", "w", {event}}, presenter.epoch()));
-    (void)presenter.settings(preview, 9'099, now, false);
+    (void)presenter.settings(preview, 9'939, now, false);
     assert(card.visible() && card.kind() == NoticeKind::preview);
-    presenter.reconcile(9'100, now, false);
+    presenter.reconcile(9'940, now, false);
     assert(card.kind() == NoticeKind::meeting && card.content().title == L"Встреча в календаре");
-    (void)presenter.settings(preview, 9'100, now, false);
+    (void)presenter.settings(preview, 9'940, now, false);
     assert(card.kind() == NoticeKind::meeting);
     auto edit = NotificationRequest{NotificationAction::set, "showTitles", true, 1};
-    assert(presenter.settings(edit, 9'100, now, false).find("\"error\"") == std::string::npos);
+    assert(presenter.settings(edit, 9'940, now, false).find("\"error\"") == std::string::npos);
     assert(card.content().title == L"Синтетическая встреча");
     writeAllowed = false; edit.booleanValue = false;
-    assert(presenter.settings(edit, 9'100, now, false).find("\"error\"") != std::string::npos);
+    assert(presenter.settings(edit, 9'940, now, false).find("\"error\"") != std::string::npos);
     assert(card.content().title == L"Синтетическая встреча");
     std::optional<ReminderActionTarget> clicked;
     presenter.onActionRequested = [&](auto target, auto action) { assert(action == NoticeAction::join); clicked = target; };
     card.invoke(NoticeAction::join); assert(clicked);
-    // Fresh response changes the URL; only that URL is allowed on completion.
+    // A changed URL invalidates the old action; it must not redirect the click.
     event.meetingUrl = "https://meet.example.com/revalidated";
     assert(presenter.update({"a", "w", {event}}, presenter.epoch()));
-    const auto allowed = presenter.completeAction(*clicked, NoticeAction::join, 9'101, false);
-    assert(allowed && allowed->meetingUrl == event.meetingUrl);
-    assert(!presenter.completeAction(*clicked, NoticeAction::join, 9'101, false));
-    presenter.reconcile(9'102, now, false); assert(!card.visible());
+    assert(!presenter.completeAction(*clicked, NoticeAction::join, 9'941, false));
+    presenter.reconcile(9'942, now, false); assert(!card.visible());
     // Preview does not clear dismissal, nor refresh the calendar, nor alter settings.
-    (void)presenter.settings(preview, 9'102, now, false);
-    presenter.reconcile(9'108, now + std::chrono::seconds(6), false); assert(!card.visible());
-    presenter.invalidate(); presenter.bind("a", "w");
+    (void)presenter.settings(preview, 9'942, now, false);
+    presenter.reconcile(9'948, now + std::chrono::seconds(6), false); assert(!card.visible());
+    presenter.invalidate(); presenter.bind("a", "w", "https://one.example");
     assert(presenter.update({"a", "w", {event}}, presenter.epoch()));
-    presenter.reconcile(9'109, now, false); assert(!card.visible());
-    presenter.bind("b", "w");
+    presenter.reconcile(9'949, now, false); assert(!card.visible());
+    presenter.bind("b", "w", "https://one.example");
     assert(presenter.update({"b", "w", {event}}, presenter.epoch()));
-    presenter.reconcile(9'109, now, false); assert(card.visible());
+    writeAllowed = true;
+    presenter.reconcile(9'949, now, false); assert(card.visible());
     presenter.calendarFailed(); assert(!card.visible());
-    assert(!presenter.completeAction(*clicked, NoticeAction::record, 9'110, false));
+    assert(!presenter.completeAction(*clicked, NoticeAction::record, 9'950, false));
     // Test remains six seconds even when meeting reminders are disabled.
     writeAllowed = true;
-    (void)presenter.settings({NotificationAction::set, "reminders", false, 1}, 9'110, now, false);
-    (void)presenter.settings(preview, 9'110, now, false);
-    presenter.reconcile(9'115, now + std::chrono::seconds(5), false); assert(card.visible());
-    presenter.reconcile(9'116, now + std::chrono::seconds(6), false); assert(!card.visible());
+    (void)presenter.settings({NotificationAction::set, "reminders", false, 1}, 9'950, now, false);
+    (void)presenter.settings(preview, 9'950, now, false);
+    presenter.reconcile(9'955, now + std::chrono::seconds(5), false); assert(card.visible());
+    presenter.reconcile(9'956, now + std::chrono::seconds(6), false); assert(!card.visible());
     presenter.invalidate(); assert(!card.visible());
     // A restarted presenter reloads persisted preferences but never old calendar data.
-    MeetingReminderPresenter restarted(card, store); restarted.bind("a", "w");
-    assert(restarted.settings({}, 9'110, now, false).find("\"showTitles\":true") != std::string::npos);
-    restarted.reconcile(9'110, now, false); assert(!card.visible());
+    MeetingReminderPresenter restarted(card, store); restarted.bind("a", "w", "https://one.example");
+    assert(restarted.settings({}, 9'950, now, false).find("\"showTitles\":true") != std::string::npos);
+    restarted.reconcile(9'950, now, false); assert(!card.visible());
 }
 
 void testTheShimAsksOnlyWhatTheAppCanAnswer() {
@@ -524,42 +1127,41 @@ void testTheShimAsksOnlyWhatTheAppCanAnswer() {
     assert(script.find("if (window.__grafNativeSettingsInstalled) return;") != std::string::npos);
 }
 
-void testTheSharedSettingsPageStopsClaimingToBeAMac() {
+void testSettingsTransportDoesNotRewritePageContent() {
     const auto script = std::string(graf::windows::NativeSettingsBridge::documentScript());
-    // Общая серверная страница написана для macOS. На Windows это неправда, и
-    // оболочка приводит слова и кнопку в порядок, не трогая общую страницу.
-    assert(script.find("platformWords") != std::string::npos);
-    assert(script.find("['На этом Mac', 'На этом компьютере']") != std::string::npos);
-    assert(script.find("['Настройки macOS', 'Настройки Windows']") != std::string::npos);
-    assert(script.find("['разрешение macOS', 'разрешение Windows']") != std::string::npos);
-    assert(script.find("'настройки этого компьютера'") != std::string::npos);
-    // Живая проверка 2026-09-19: заголовок страницы «На этом Mac» стоит вне формы
-    // настроек, поэтому обход идёт по всему документу — иначе заголовок, легенда
-    // раздела, карточка навигации и примечание для страниц без скриптов остаются
-    // маковскими.
-    assert(script.find("const root = document.body;") != std::string::npos);
-    assert(script.find("['Правила автозаписи на Mac', 'Правила автозаписи в Windows']") != std::string::npos);
-    assert(script.find("['Уведомления на этом Mac', 'Уведомления на этом компьютере']") != std::string::npos);
-    assert(script.find("['изменить уведомления Mac', 'изменить уведомления в приложении']") != std::string::npos);
-    // System permission is not needed; the local test is now functional.
-    assert(script.find("[data-local-notification-action=\"openSystemSettings\"]") != std::string::npos);
-    assert(script.find("[data-local-notification-action=\"test\"]") == std::string::npos);
-    assert(script.find("button.hidden = true") != std::string::npos);
-    // Живая проверка 2026-09-19 (раунд 52) показала, что одной подписки на события
-    // мало: оболочка ставится, когда документ уже идёт. Поэтому правка запускается
-    // сразу, на событии документа, на подстановке и ещё дважды по времени.
-    assert(script.find("const runAdaptation = () => {") != std::string::npos);
-    assert(script.find("document.addEventListener('DOMContentLoaded', runAdaptation)") != std::string::npos);
-    assert(script.find("document.addEventListener('htmx:afterSwap', adaptPlatformWords)") != std::string::npos);
-    assert(script.find("setTimeout(adaptPlatformWords, 120)") != std::string::npos);
-    assert(script.find("setTimeout(adaptPlatformWords, 600)") != std::string::npos);
-    assert(script.find("action: 'diag_'") == std::string::npos);
-    assert(script.find("window.dispatchEvent(new CustomEvent('graf:native-settings'") != std::string::npos);
+    // The transport must not inspect user content or own presentation.
+    assert(script.find("TreeWalker") == std::string::npos);
+    assert(script.find("platformWords") == std::string::npos);
+    assert(script.find("setTimeout") == std::string::npos);
+    assert(script.find("document.body") == std::string::npos);
+    assert(script.find("GRAFDesktopPlatform") == std::string::npos);
+    const auto reply = graf::windows::NativeSettingsBridge::notificationSettingsReply({}, true);
+    assert(reply.find("canOpenSystemSettings") == std::string::npos);
 }
 
 } // namespace
 
 int main() {
+    testLocalProblemsGroupSessionAndKeepStableIdentity();
+    testLocalProblemsClassifyOnlyTypedStatesAndExactRetryReason();
+    testLocalProblemsFreshnessIsStrictAndDoesNotResolveOldProblems();
+    testLocalProblemsRequireExactOwnershipAndFrozenCaptureContext();
+    testLocalProblemsResolveOnlyCompleteAllUploadedSessions();
+    testLocalProblemProjectionDoesNotForgetPersistedClaims();
+    testProblemClaimsPersistUntilExplicitResolution();
+    testProblemClaimsArePrivateAndContextScoped();
+    testProblemClaimsVerifyBothWritesAndFailClosedReads();
+    testProblemClaimsCorruptionAndCapacityDoNotForgetIncidents();
+    testF277NotificationContractBeforeImplementation();
+    testF277PreferencesMigrateAndVerifyWrites();
+    testF277OffsetsContextAndLinkIdentity();
+    testF277PersistedReceiptsFailClosedAndExpire();
+    testF277PresenterRestartQuietAndExactAction();
+    testF277ReceiptCorruptionAndCapacityNeverEvictLiveClaims();
+    testF277PendingActionCannotOutliveMonotonicDeadline();
+    testF277PendingActionCannotReturnAfterAnotherCard();
+    testF277QuietPreviewAndDeadlineNeverRestart();
+    testF277BlockedSurfaceAndRestartWhileVisible();
     testOnlyTheSettingsPageMayUseTheBridge();
     testTheRequestVocabularyIsThePagesOwn();
     testTheReplyCarriesWhatThePageValidates();
@@ -567,15 +1169,15 @@ int main() {
     testQuotesAndControlCharactersCannotLeaveTheJson();
     testARefusalIsStillAnAnswer();
     testEachSettingsPageHasItsOwnRoute();
-    testTheSharedSettingsPageStopsClaimingToBeAMac();
+    testSettingsTransportDoesNotRewritePageContent();
     testTheNotificationReplyIsThePlatformTruth();
     testNotificationRequestsAndOwnerPersistence();
-    testFixedReminderWindowAndRevalidation();
+    testReminderOccurrenceAndRevalidation();
     testSharedCardPriorityAndManualClose();
     testCalendarSchemaAndSafeJoin();
     testMeetingUrlIpLiteralSyntax();
     testAutomaticPromptSharesCardPriority();
-    testAutomaticPromptReplacementAcknowledgement();
+    testAutomaticPromptProtectedUntilClosedOrInvalidated();
     testReminderAuthExpiryPropagation();
     testReminderPresenterNeverConsumesRealEventsForPreview();
     testTheShimAsksOnlyWhatTheAppCanAnswer();

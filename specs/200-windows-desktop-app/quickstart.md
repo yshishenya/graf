@@ -29,7 +29,7 @@ ctest --preset x64-release --output-on-failure
 Pop-Location
 msbuild apps/windows/GrafWindows.sln /m /p:Configuration=Release /p:Platform=x64
 ctest --test-dir apps/windows/out/build/x64/Release --output-on-failure
-pwsh -File apps/windows/scripts/validate-audio-contract.ps1
+pwsh -File apps/windows/scripts/validate-audio-contract.ps1 -Synthetic
 pwsh -File apps/windows/scripts/validate-webview-boundary.ps1
 ```
 
@@ -87,9 +87,12 @@ T085: отдельно пройти `AudioNormalizerTests` с включённы
 проверяет ошибки меток и native lifecycle. Прохождение моделируемого часа
 одних метаданных не является 60-минутной звуковой/ресурсной приёмкой SC-003.
 
-Для WASAPI дополнительно проверяется `IAudioClock`-позиция: `devicePosition`
-не используется как число engine-кадров при endpoint/engine resampling,
-а отсутствие `IAudioClock` является отказом инициализации.
+Для WASAPI действуют правила §5 `contracts/windows-desktop-contract.md`:
+`GetBuffer.devicePosition` первого кадра точно продолжает размер предыдущего
+пакета; расхождение не разрешено объяснять ресемплированием. `IAudioClock`
+проверяется отдельно и не заменяет packet QPC/device/count. Отсутствие часов
+является отказом инициализации. Прежняя гипотеза 2026-09-07 не является
+действующим контрактом.
 
 - два source batch могут иметь разные размеры, но timeline выдаёт только
   contiguous 480-sample frames;
@@ -117,12 +120,11 @@ source class, format class, state, safe reason code, counters, durations и
 redacted endpoint fingerprint. Raw audio остаётся локальным QA input и не
 попадает в git/evidence.
 
-```powershell
-pwsh -File apps/windows/scripts/validate-audio-contract.ps1 -HardwareMatrix `
-  -Os "Windows10-22H2,Windows11" `
-  -Inputs "BuiltIn,USB,Bluetooth" `
-  -Outputs "BuiltIn,HDMI,DisplayPort,Dock"
-```
+Эта матрица выполняется вручную на реальных устройствах. Скрипт
+`validate-audio-contract.ps1` запускает только синтетические тесты и проверки
+ошибок локального хранения; он не открывает устройства и не принимает список
+операционных систем, микрофонов или выходов. Не засчитывать запуск скрипта как
+аппаратную приёмку.
 
 Pass criteria: active indicator и one-action Stop остаются видимыми при каждом
 fault injection; permission/endpoint/clock/protected/overflow failures не дают
@@ -332,3 +334,44 @@ pass/fail result, exact supported Windows 11 build set, skipped ARM64 lane (ес
   `infra/scripts/ci-local.sh --fast` `1240 passed`; Windows MSBuild/UI,
   hardware, authenticated cabinet and signed MSIX still require the VM gates
   above and are not claimed here.
+
+## 11. Итоговая приёмка двух платформ (2026-09-27)
+
+Использовать одинаковые синтетические данные и актуальную `parity-matrix.md`.
+Записывать точные Mac/source/server/package SHA, ОС, архитектуру, Runtime,
+размер окна, масштаб и тему. Частные записи и снимки в evidence не включать.
+
+1. На Mac и Windows пройти все общие маршруты/настройки, их загрузку, пустые
+   состояния, ошибки и восстановление. Общие страницы проверить в Chromium и
+   WebKit при 1080×620, 744×530, 744×400 и 560×530, в светлой/тёмной/системной
+   теме. Нативные окна отдельно — с клавиатурой, диктором, High Contrast, 200%
+   DPI и reduced motion. Любое отличие требует причины, не пометки «так в Win».
+2. Закрыть главное окно во время безопасной записи >30 секунд, открыть из трея:
+   та же запись продолжается, индикатор/Stop видимы. Затем явно остановить.
+   Отдельно проверить Quit, повторное закрытие при finalizing и отсутствие трея.
+3. Синтетическое название/текст с фразами «На этом Mac», «Настройки macOS»,
+   «Windows» сохраняются дословно, в том числе после HTMX swap. При этом
+   системные подписи/разрешения соответствуют ОС, сообщения удаления точны.
+4. Проверить Start/Settings из трея; фоновые prompt/indicator не меняют
+   foreground окно тестового приложения. Stop доступен мышью и клавиатурой.
+5. По подтверждённому эталону F277 `51bcff6b…` проверить одну собственную
+   компактную карточку: offsets0/1/5, sound/title/quiet, все пять вариантов,
+   приоритеты и отсутствие старого −15min/system toast. Deadline=min(due+120s,endsAt),
+   повтор/перенос/отмена/offline/restart/context/sleep/lock по новому контракту
+   `contracts/f277-notifications-parity.md`. Quit прекращает показ; скрытие окна
+   нет. Проверить v2 и отказv1 без mutation, миграциюquiet, ошибкуsave, историю≤50
+   без содержания, hover/focus hold, первыйclick, keyboard/screen reader и Stop
+   collision. Звук не повторяется поtick и не звучит приcapture/quiet. Preview
+   не пишет историю, не начинаетзапись и не меняет сервер. После F277 новый
+   системный канал не считается допустимым способом выполнить этот пункт.
+6. T102: тестовая платёжная цепочка со всеми redirect/frame/popup и сохранением
+   метода/тела без реального списания; истечение и hostile routes отвергаются.
+7. Обновления: текущая/новая/неизвестная версия, отказ/повтор, отсутствие
+   association, закрытие окна и поздний ответ. Проверка не устанавливает пакет;
+   установка требует явного действия, доверенной подписи и отсутствия захвата.
+8. Завершить существующие SC-003/005/008 аппаратными/сквозными измерениями,
+   не заменяя их переносимыми тестами или VM ARM64 с x64-эмуляцией.
+
+После каждой общей новой функции добавлять соответствующую строку матрицы и
+оба набора проверок. PASS компонента не закрывает строку установленного приложения;
+непроверенные и проваленные строки препятствуют итоговой приёмке.

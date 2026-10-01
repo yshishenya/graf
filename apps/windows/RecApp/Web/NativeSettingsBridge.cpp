@@ -120,13 +120,11 @@ std::optional<NotificationRequest> parseNotificationRequest(std::string_view jso
     const auto value = [&](std::string_view key) -> std::string_view {
         const auto it = fields->find(key); return it == fields->end() ? std::string_view{} : it->second;
     };
-    if (value("version") != "1" || value("nonce") != quoted(currentNonce)) return std::nullopt;
+    if (value("version") != "2" || value("nonce") != quoted(currentNonce)) return std::nullopt;
     NotificationRequest result;
     const auto action = value("action");
     if (action == "\"read\"") result.action = NotificationAction::read;
     else if (action == "\"test\"") result.action = NotificationAction::test;
-    else if (action == "\"requestPermission\"") result.action = NotificationAction::requestPermission;
-    else if (action == "\"openSystemSettings\"") result.action = NotificationAction::openSystemSettings;
     else if (action == "\"set\"") result.action = NotificationAction::set;
     else return std::nullopt;
     if (result.action != NotificationAction::set) return fields->size() == 3 ? std::optional<NotificationRequest>(result) : std::nullopt;
@@ -137,7 +135,7 @@ std::optional<NotificationRequest> parseNotificationRequest(std::string_view jso
         if (raw != "0" && raw != "1" && raw != "5") return std::nullopt;
         result.field = "offsetMinutes"; result.offsetMinutes = raw[0] - '0';
     } else {
-        if (field != "\"reminders\"" && field != "\"showTitles\"" && field != "\"sound\"") return std::nullopt;
+        if (field != "\"reminders\"" && field != "\"showTitles\"" && field != "\"sound\"" && field != "\"quiet\"") return std::nullopt;
         if (value("value") != "true" && value("value") != "false") return std::nullopt;
         result.field = std::string(field.substr(1, field.size() - 2)); result.booleanValue = value("value") == "true";
     }
@@ -163,6 +161,7 @@ bool applyNotificationSetting(NotificationPreferences& preferences, const Notifi
     if (request.field == "reminders") preferences.reminders = request.booleanValue;
     else if (request.field == "showTitles") preferences.showTitles = request.booleanValue;
     else if (request.field == "sound") preferences.sound = request.booleanValue;
+    else if (request.field == "quiet") preferences.quiet = request.booleanValue;
     else if (request.field == "offsetMinutes" && (request.offsetMinutes == 0 || request.offsetMinutes == 1 || request.offsetMinutes == 5))
         preferences.offsetMinutes = request.offsetMinutes;
     else return false;
@@ -172,14 +171,14 @@ bool applyNotificationSetting(NotificationPreferences& preferences, const Notifi
 std::string notificationSettingsReply(const NotificationPreferences& preferences, bool canEdit,
                                       std::string_view message, std::string_view error) {
     const auto boolean = [](bool value) { return value ? "true" : "false"; };
-    std::string result = "{\"version\":1,\"preferences\":{\"reminders\":";
+    std::string result = "{\"version\":2,\"preferences\":{\"reminders\":";
     result += boolean(preferences.reminders);
     result += ",\"showTitles\":"; result += boolean(preferences.showTitles);
     result += ",\"sound\":"; result += boolean(preferences.sound);
+    result += ",\"quiet\":"; result += boolean(preferences.quiet);
     result += ",\"offsetMinutes\":" + std::to_string(preferences.offsetMinutes) + "},\"canEdit\":";
     result += boolean(canEdit);
-    result += ",\"canRequestPermission\":false,\"permission\":\"Windows: карточки GRAF не требуют системного разрешения\"";
-    if (!message.empty()) result += ",\"message\":" + quoted(message.substr(0, 512));
+    result += ",\"message\":" + quoted(message.substr(0, 512));
     if (!error.empty()) result += ",\"error\":" + quoted(error.substr(0, 512));
     result += "}";
     return result;
@@ -212,6 +211,10 @@ std::string_view documentScript() noexcept {
   });
   const handler = (name) => ({
     postMessage: (request) => new Promise((resolve, reject) => {
+      if (name === 'grafNotificationSettings' && request && request.version === 1) {
+        resolve({version: 2, error: 'Обновите окно настроек'});
+        return;
+      }
       const requestId = nextRequestId++;
       pending.set(requestId, {resolve, reject});
       window.dispatchEvent(new CustomEvent('graf:native-settings', {
@@ -224,66 +227,6 @@ std::string_view documentScript() noexcept {
   // Only the handlers this app can answer are installed.
   window.webkit.messageHandlers.grafRecordingSettings = handler('grafRecordingSettings');
   window.webkit.messageHandlers.grafNotificationSettings = handler('grafNotificationSettings');
-  // The cabinet's settings pages are one server page shared with macOS, so they
-  // say «На этом Mac» and offer «Настройки macOS». The shell
-  // corrects the words and hides the unsupported system-settings button; the
-  // local card test remains available. This avoids the server
-  // growing a second copy of the page: a server change would also change
-  // macOS, and the owner has not asked for that.
-  const platformWords = [
-    ['Правила автозаписи на Mac', 'Правила автозаписи в Windows'],
-    ['В приложении на Mac', 'В приложении для Windows'],
-    ['Уведомления на этом Mac', 'Уведомления на этом компьютере'],
-    ['изменить уведомления Mac', 'изменить уведомления в приложении'],
-    ['настройки этого Mac', 'настройки этого компьютера'],
-    ['этого Mac', 'этого компьютера'],
-    ['На этом Mac', 'На этом компьютере'],
-    ['Настройки macOS', 'Настройки Windows'],
-    ['разрешение macOS', 'разрешение Windows']
-  ];
-  // The words live outside the settings forms too: the page heading, the section
-  // legend, the navigation card and the no-script note all name the Mac. Walking
-  // the whole document catches them; the list is exact phrases, so nothing else
-  // changes.
-  const adaptPlatformWords = () => {
-    try {
-      const root = document.body;
-      if (!root) return {found: 0, replaced: 0};
-      root.querySelectorAll('[data-local-notification-action="openSystemSettings"]')
-        .forEach((button) => { button.hidden = true; });
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-      const nodes = [];
-      while (walker.nextNode()) nodes.push(walker.currentNode);
-      let found = 0;
-      let replaced = 0;
-      for (const node of nodes) {
-        let text = node.nodeValue;
-        for (const pair of platformWords) {
-          if (text.indexOf(pair[0]) === -1) continue;
-          found++;
-          text = text.split(pair[0]).join(pair[1]);
-        }
-        if (text !== node.nodeValue) {
-          node.nodeValue = text;
-          replaced++;
-        }
-      }
-      return {found: found, replaced: replaced};
-    } catch (error) {
-      return {found: 0, replaced: 0, error: String((error && error.message) || error)};
-    }
-  };
-  // The host installs this script when the document is already under way, so a
-  // single listener is not enough: the correction runs at once, on the document
-  // event, on every swap and a few more times after that.
-  const runAdaptation = () => {
-    adaptPlatformWords();
-    setTimeout(adaptPlatformWords, 120);
-    setTimeout(adaptPlatformWords, 600);
-  };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', runAdaptation);
-  else runAdaptation();
-  document.addEventListener('htmx:afterSwap', adaptPlatformWords);
 })();
 )JS";
 }

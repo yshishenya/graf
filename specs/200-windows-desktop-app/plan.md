@@ -160,7 +160,7 @@ server path, x64 first with an explicit ARM64 gate
 | Data boundary and secret discipline | PASS | Desktop uses GRAF APIs only; WebView receives bounded state, not files/tokens/handles; MediaScribe credentials remain server-side. |
 | Deletion truth and lifecycle accounting | PASS | Windows local package/queue/purge use existing custody and deletion semantics; no universal-erasure promise is added. |
 | Spec-driven delivery with testable gates | PASS | New feature has spec, clarification, research, data model, contracts, checklists, quickstart, tasks and analyze gate before implementation. |
-| Clean-room UX/accessibility | PASS WITH DESIGN GATE | Web cabinet is reused; native Windows strip/tray mirrors semantics and requires keyboard, screen-reader, DPI/high-contrast and brand-distance review. |
+| UX/accessibility and reference fidelity | PASS WITH DESIGN GATE | Web cabinet is reused; native Windows strip/tray mirrors macOS semantics and requires keyboard, screen-reader, DPI/high-contrast and reference-fidelity review against current GRAF macOS. Windows-only deviations must be documented and justified by OS behavior, accessibility or truthful platform limits; third-party asset provenance remains a release gate. |
 | Platform/deployment safety | PASS WITH RELEASE GATE | Packaged Windows App SDK + signed MSIX + WebView2 Evergreen are planned; installer/rollback/signature evidence is required before distribution. |
 | Ponytail ceiling | PASS | Native platform APIs, existing v5/queue contracts and pinned AEC C ABI are reused; no second UI framework, driver or transport is introduced. |
 
@@ -595,3 +595,215 @@ static AEC3 artifact and package validation are required because capture,
 WebView trust and signed desktop distribution are platform boundaries, not
 generic abstractions. Process-loopback, virtual routing, a second UI runtime and
 new server persistence are deliberately omitted.
+
+## Завершение паритета и совместное развитие — 2026-09-27
+
+Действует цель из spec.md от 27 сентября. Полоса `high-risk-product`,
+production deploy/public release не разрешены. Существующие 16 открытых задач
+сохраняются; новые задачи описывают только неучтённые дефекты последней проверки.
+Сначала сохранность записи и пользовательского текста, затем удобство оболочки,
+напоминания/оплата/обновления, после них полная приёмка.
+
+- **Закрытие и трей.** Разделить закрытие главного окна и явный выход. При
+  работающем трее крестик скрывает окно; активная запись продолжает ту же сессию
+  с отдельным видимым индикатором и Stop. Если управление в фоне недоступно,
+  закрытие отменяется без остановки. Только явный Quit выполняет существующую
+  bounded остановку/финализацию. Start и Settings в WindowsTray вызывают уже
+  существующие действия AppMain; состояния готовности/занятости не дублируются.
+  Минимальное тестируемое решение о закрытии располагается рядом с shell;
+  AppMain остаётся владельцем окон и вызовов захвата.
+  Общая команда Settings открывает `/desktop/settings/account`, как команда Mac,
+  а не только нативную страницу автозаписи. При недоступном кабинете сохраняется
+  существующее восстановление и независимое нативное управление записью.
+  Скрытие окна не вызывает безусловный `automaticPolicy_.cancel()`: сопровождение
+  уже начатой автозаписи и её остановка по окончании встречи сохраняются.
+- **Платформенный текст.** Удалить whole-body `adaptPlatformWords`, а не
+  расширять список замен. В общих шаблонах адресно обозначить только подписи
+  приложения; динамические тексты формировать общей функцией выбора подписи.
+  Windows публикует ограниченный признак платформы только в доверенном bootstrap.
+  Этот признак влияет на отображение, не предоставляет полномочий. Без нового
+  признака существующий Mac сохраняет свой интерфейс. Пользовательский текст
+  не сканируется. Повторная инициализация через имеющийся HTMX lifecycle,
+  без нового наблюдателя за всем DOM и без второго комплекта страниц.
+- **Фокус.** Автоматическое предложение и индикатор показываются штатным
+  API без активации. Ручные действия пользователя могут активировать окно;
+  фоновое обнаружение и старт — нет. Проверяются сохранение foreground HWND,
+  доступность Stop и клавиатурный путь к фоновому окну, не только видимость.
+- **Напоминания T104/T105 — уточнение 28 сентября.** Эталон F277 на
+  `51bcff6b1abfdf2a01d59a7d3f00c831674c365c`, подтверждённый пользователем,
+  заменяет два прежних канала единственной собственной карточкой. Использовать
+  существующие RecordingNoticePresenter/MeetingReminderModel/Presenter и
+  automatic prompt owner, удалить раннее окно −15 минут. Due=startsAt−offset,
+  deadline=min(due+120s,endsAt); срок не перезапускается при refresh. Системные
+  уведомления/новая служба/постоянный журнал попыток не добавляются. Общая
+  карточка получает варианты meeting/prompt/problem/short/preview, компактную
+  раскладку и правила приоритета F277. Настройки уведомлений переходят на v2
+  с quiet; история последних 50 нейтральных событий только в памяти контекста.
+  Quit прекращает показ, скрытие окна — нет. Тихий режим не скрывает prompt,
+  indicator/Stop и не меняет решения записи. Shared server templates/JS F277
+  интегрируются адресно после освобождения файлов T109, не вторым Windows UI.
+  Существующий recording-settings bridge сохраняет свою версию; notification
+  v1 даёт понятный отказ обновить окно без изменения настроек.
+- **Обновление.** Источник истины — штатные Package/App Installer API текущего
+  подписанного пакета и зарегистрированный источник обновлений, не собственный
+  загрузчик и не URL из страницы. Общий intent `request_app_update` с пустым
+  payload открывает нативную поверхность проверки; ответы unknown/unavailable
+  не выдаются за «последняя версия». Установка требует явного нативного действия,
+  не прерывает запись и не снимает проверку подписи. Нет App Installer association
+  или ещё не опубликован канал — честная диагностика и незакрытый delivery gate,
+  а не выдуманный production endpoint. Проверяются статусы, отказ, повтор,
+  закрытие окна/устаревший callback и отделение capability от факта обновления.
+  Системный `PackageManager.FindPackageForUser` получает текущий пакет по
+  identity; `GetAppInstallerInfo` и `CheckUpdateAvailabilityAsync` проверяют
+  зарегистрированный источник без известного обходного пути через
+  `Package::Current().CheckUpdateAvailabilityAsync`. NoUpdates/Available/
+  Required/Unknown/Error отображаются раздельно. API не сообщает новую версию:
+  она не выдумывается. Перед установкой повторно сверяются identity и URI;
+  принимается только абсолютный HTTPS без userinfo/query/fragment.
+  Зарегистрированный URI не доказывает доверие всему содержимому канала:
+  утверждённый выпуском канал обязан соответствовать identity/publisher/версии/
+  архитектуре пакета, без неожиданных дополнительных пакетов/redirects.
+  Отсутствие такого канала оставляет установку недоступной. Тестовый канал
+  не становится производственным. Автообновление в AppInstaller не должно
+  обходить явное действие и сохранность записи. Перед передачей управления
+  системному установщику блокируются новые записи и завершаются фоновые
+  изменения файлов; ограниченное ожидание при неуспехе отменяет установку.
+  `ForceTargetAppShutdown` допустим только после готовности, `drain` не
+  подменяется `cancel`. Перезапуск регистрируется, но не обещается безусловно.
+  Проверка подписи требует Status=Valid, не наличия сертификата. Совместимость
+  AppInstaller XML проверяется на минимальной Windows 10 19045 отдельно от API.
+- **Общее развитие.** `parity-matrix.md` остаётся единым списком пользовательских
+  возможностей. У каждого нового общего поведения указываются реализации и
+  проверки двух ОС, допустимое системное отличие и результат приёмки. Нового
+  UI runtime, общей абстракции захвата, серверной схемы или глобального процесса
+  выпуска не вводится. Рабочая инструкция находится в пределах F200.
+
+Constitution check до и после уточнения: I/II — нативный захват/видимый Stop
+сохранены; III/IV — данные не подменяются, секреты/удаление не расширены;
+V — Mac distribution не меняется; VI — независимые checklist/analyze/issue
+гейты перед реализацией; VII — общий эталон и доступность сохраняются.
+Новые поля хранимых аудиозаписей не нужны; состояние обновления эфемерно.
+Настройки уведомлений дополняются quiet с сохранением прежних значений;
+по уточнению F277 постоянный журнал системных попыток не создаётся.
+История уведомлений — только память текущего контекста (data-model.md).
+Аудиоалгоритмы этого исправления не
+меняются. Обязательная аппаратная/сквозная приёмка остаётся открытой.
+
+### Уточнение F277: окончательное принятие автоматического старта
+
+T113 сохраняет нынешний закрытый допуск пакетов во время starting. Контроллер
+при готовности обоих workers вызывает единственную синхронную проверку решения
+до startRecording/acceptingBatches: текущий сеанс, поколение отмены, подтверждённая
+цель и процесс, свежесть обнаружения, действующее правило и prerequisites.
+Собственное starting не считается другой записью. AppMain связывает эту проверку
+с текущей политикой; starting больше не вызывает captureAccepted. Любой путь
+pollHealth использует тот же допуск, а не только таймер. Отказ завершает workers
+с закрытым допуском; writer не получает пакеты, recovery не получает нормальный
+пакет. Нельзя вводить await/обработку событий между проверкой и открытием допуска.
+Manual Start сохраняет штатную readiness-проверку, без автоматического решения.
+Новые manifest-поля не нужны, пока сохраняется эта граница; предварительное
+накопление аудио или асинхронное подтверждение потребует durable pending/accepted
+с запретом pending/ошибок во всех upload/recovery путях и отдельной проверкой.
+Регрессии T113 охватывают задержанный worker, отмену/правило/цель/свежесть,
+чужой сеанс, повтор, прерывание до допуска и нормальный принятый старт.
+
+### Открытая Phase 0 от 2026-09-30: T094 и RQ30-H1
+
+Риск остаётся high-risk-product. Clarify в spec.md закрепляет унаследованное
+шифрование и отделение потери кадров от ошибки метки; новых пользовательских
+решений не выдумано. Исследование в research.md выявило два незавершённых
+технических решения: согласованную модель packet timestamp/дрейфа для всего
+аудиопотока и защищённый seekable local custody поток на всех поддерживаемых
+редакциях Windows. Увеличение порога только ClockMapper не является планом
+исправления; EFS/ACL либо шифрование только окончательного manifest не
+являются планом защиты полного локального потока.
+
+Перед реализацией необходимы выбранный устойчивый формат и нативные
+интеграции, согласованные data-model/contract/quickstart/tasks и независимый
+review/checklist/analyze. Пока это не сделано, Phase 1 и общий gate не
+закрываются; численные правила §5 не ослаблены, код шифрования не внедряется,
+существующие пользовательские записи не мигрируются. Разрешены ограниченные
+синтетические/metadata-only исследования без приёмки аудио и без изменения
+рабочих данных. Необязательное обновление agent context после plan не
+выполняется: этап не завершён, корневой AGENTS.md должен остаться стабильным.
+
+Уточнение исследования 2026-09-30: штатная граница IStream → IMFByteStream
+проверена искусственным AAC round trip. Для дальнейшего протокола рассмотрены
+bounded DPAPI blocks с дополнительной проверкой целостности и два alternating
+protected indexes над immutable block versions; это проще собственной AES
+key/nonce lifecycle. По round121 выбран исходный layout для проектирования:
+256KiB immutable block versions, два protected index snapshots, native
+user-scope DPAPI; block version отличается от index generation. Index entry16B,
+logical representation64GiB/262144blocks, plain index≤4198400B; bounds проверены
+арифметически ASan/UBSan, не приняты как runtime resource proof. Это не новая
+продуктовая квота или длительность: local parser24h отличается от server4h,
+расхождение не исправляется скрытым ограничением Windows writer. Sequential
+checkpoint на полном block, Flush/Pause/Stop сохраняют короткий tail; 4block
+group относится к seek/rewrite, не обычной задержке checkpoint. Финальный wire
+format/intent/authority migration будет определён в Phase1; combined IO,
+memory/Stop/power-loss/paths остаются отдельными обязательными проверками.
+Существующие AppInstance, recovery lease, finalizer future и CNG hash reuse
+предпочтительнее нового сервиса/БД/очереди. При directory layout обязательно
+согласовать short-recording discard и миграцию прежних пакетов. Phase0 остаётся
+открытой, новый protected-storage код в продукт пока не вводится.
+
+Playback проектируется через native Media Engine audio-only и существующий
+IStream→IMFByteStream adapter без plaintext tempfile/ShellExecute. Существующие
+LocalMetadataScan/open-validation background paths сохраняются; новых scanner
+services нет. Callback lifetime/account/delete/shutdown fences и управление
+потоком закрепляются в contract до кода. Выбор API по документации — не
+runtime proof проигрывания. Последние decisions/отвергнутые альтернативы и
+границы Phase0 записаны в research.md: выбран storage путь, coherent clock
+model ещё не выбрана. Общий gate не закрывается; after_plan context hook
+по-прежнему не применяется к незавершённому этапу.
+
+Уточнение round122: для исследования clock выбрана раздельная проверка
+непрерывности кадров и интервальной совместимости phase/frequency с ошибкой
+меток; не выбран готовый производственный PTS estimator. Детерминированный
+стенд показал, что при гипотетическом noise±3ms полный120s ряд ещё может быть
+совместим одновременно со100 и200ppm. Это не новый продуктовый порог3ms/120s:
+bounded noise реального endpoint и достаточная точность двухисточникового
+выравнивания ещё не установлены. Совместимость одной гипотезы не означает
+SC003 PASS; clamp/reset origin/fallback/mapper-only bypass запрещены. Следующее
+исследование должно дать наблюдаемые долгосрочные границы и согласованный
+mapper→normalizer→timeline, а не только сгладить краткий metadata trace.
+
+Round123 отверг phase-only smoothing после проверки всей настоящей downstream
+цепочки: healthy timeline и почти неизменённый RMS не исключили рассогласование
+двух одинаковых тестовых волн. Следующий кандидат — непрерывная коррекция
+resampler ratio, связанная с оценкой частоты/неопределённости; не общий trim/
+interpolate ответ на noise. До production кода нужны waveform/двухисточниковые
+регрессии, количественный clock contract и независимый review. Ни гипотетические
+J3ms/6ms, ни alpha0.32s не становятся рабочими порогами. Новая библиотека,
+zero-fill/drop/epoch reset из сторонних playback реализаций не переносятся.
+
+Round124 завершил доступный CLI путь последовательных metadata-only опытов
+x64/native ARM64: оба получают DATA_DISCONTINUITY, x64 также clock_drift;
+корректный Stop/release/exit не означает здоровый capture. Эмуляция x64 не
+единственное необходимое условие. Product/§5 не меняются. Отдельная следующая
+проверка — native MMCSS registration на capture thread с гарантированным
+AvRevert на том же thread после Stop/COM cleanup; только disposable probe,
+без registry/service/global priority. Сначала сравнить короткие явные CLI
+варианты на одинаковом endpoint/buffer/mapper, сохранить flags/count/Stop
+guards. Даже благополучный короткий опыт не закрывает SC003 и не выбирает
+численный clock contract. Эта независимая scheduling гипотеза не заменяет
+частотную модель и не является разрешением phase-only/threshold обхода.
+
+Независимый API review round124 выбрал direct pinned WebRTC SincResampler как
+reuse candidate для SetRatio с непрерывной source phase, не PushSincResampler
+и не новую библиотеку. Это ещё не production model: численные estimator/slew
+bounds, startup zero history/partial EOS и waveform evidence остаются открытыми.
+Кроме того, T096 требует отдельной узкой regression/fix exception-before-release:
+main-agent synthetic bad_alloc в actual consumePacket подтвердил ReleaseBuffer
+calls0. Исправление текущей custody гарантии не требует расширения clock bounds,
+но требует reviewer/implementation gates; ошибка выделения не выдаётся за
+причину наблюдаемого WASAPI clock_drift.
+
+Round126 подтвердил compiled reuse direct pinned SincResampler: oracle
+двухисточниковая waveform проверка с настоящим timeline проходит fixed/variable
+partitions и реальную смену ratio без сброса фазы. Nominal-ratio negative
+отвергается при healthy timeline/нормальном RMS. API edge tests также подтвердили
+ограничение полного partial-EOS без padding callback. Это выбор исследовательского
+механизма, не законченный causal clock contract. До production интеграции нужны
+estimator/phase uncertainty/slew bounds и явно согласованные начало/конец;
+§5 и SC003 не меняются, Phase0/after_plan context hook остаются открытыми.

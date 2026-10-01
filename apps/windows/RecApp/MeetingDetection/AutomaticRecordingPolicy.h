@@ -54,6 +54,7 @@ struct AutomaticRecordingDecision {
     bool shouldStart = false;
     bool preferenceSaved = false;
     AutomaticStartReason startReason = AutomaticStartReason::none;
+    std::uint64_t generation = 0;
 };
 
 // Single-owner (UI thread). Registry must outlive policy. Pass immutable worker
@@ -75,8 +76,20 @@ public:
         const AutomaticRecordingPrerequisites& prerequisites, DetectionClock::time_point now = DetectionClock::now());
     [[nodiscard]] AutomaticRecordingDecision refuse(bool rememberChoice,
         DetectionClock::time_point now = DetectionClock::now());
-    // Arm only after native capture accepts the automatic Starting intent.
+    // Called only after the native card confirms its first visible show. A
+    // detected candidate alone never arms the Ask timeout or accepts a click.
+    [[nodiscard]] bool confirmPromptPresented(DetectionClock::time_point shownAt = DetectionClock::now()) noexcept;
+    // Arm only at final native acceptance, never merely upon entering starting.
     void captureAccepted();
+    // Bind once before worker startup. A cancelled or consumed generation cannot
+    // be rebound, and callbacks for another session cannot affect this one.
+    [[nodiscard]] bool canBindStart(std::uint64_t generation) const noexcept;
+    [[nodiscard]] bool bindStart(std::uint64_t generation, std::string_view sessionId);
+    [[nodiscard]] bool hasPendingStart(std::string_view sessionId) const noexcept;
+    // Called synchronously by the controller immediately before opening its sink.
+    [[nodiscard]] bool acceptStart(std::uint64_t generation, std::string_view sessionId,
+        const TargetDetectionSnapshot& snapshot, const AutomaticRecordingPrerequisites& prerequisites,
+        DetectionClock::time_point now = DetectionClock::now());
     // Same verified app across PIDs; 15 s confirmed absence or 600 s without
     // positive evidence. Never controls manual capture. Stop is edge-triggered.
     [[nodiscard]] bool shouldStopCapture(const TargetDetectionSnapshot& snapshot, bool captureActive,
@@ -96,6 +109,8 @@ private:
     };
     [[nodiscard]] bool save(std::map<std::string, AutomaticRecordingPreference> updated);
     [[nodiscard]] bool currentTargetReady(const TargetDetectionSnapshot& snapshot, DetectionClock::time_point now) const;
+    [[nodiscard]] bool startStillAllowed(const TargetDetectionSnapshot& snapshot,
+        const AutomaticRecordingPrerequisites& prerequisites, DetectionClock::time_point now) const;
     [[nodiscard]] AutomaticRecordingDecision start(AutomaticStartReason reason, bool rememberChoice);
     const VerifiedTargetRegistry& registry_;
     AutomaticRecordingPreferenceStore store_;
@@ -103,8 +118,12 @@ private:
     std::map<std::string, TrackedTarget> tracked_;
     TargetObservation target_;
     DetectionClock::time_point promptStartedAt_{};
+    bool promptPresented_ = false;
     AutomaticPromptState state_ = AutomaticPromptState::idle;
     bool preferenceWriteFailed_ = false;
+    std::uint64_t startGeneration_ = 0;
+    std::string pendingSessionId_;
+    DetectionClock::time_point startEvidenceAt_{};
     std::optional<VerifiedTargetIdentity> recordingTarget_;
     DetectionClock::time_point lastCaptureEvidenceAt_{};
     DetectionClock::time_point lastCaptureSnapshotAt_{};

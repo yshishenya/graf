@@ -40,12 +40,17 @@ try {
         $_.FullName -match '(?i)(\.sys$|\.msi$|service|driver|elevat|setup\.exe$)'
     })
     if ($forbiddenEntries.Count -gt 0) { throw "Package contains forbidden driver/service/elevation entries: $($forbiddenEntries.FullName -join ', ')" }
+    $managedWebView = @($archive.Entries | Where-Object {
+        $_.FullName -match '(?i)(^|[/\\])Microsoft\.Web\.WebView2\.Core\.Projection\.dll$'
+    })
+    if ($managedWebView.Count -gt 0) { throw "Native package contains a managed WebView2 projection: $($managedWebView.FullName -join ', ')" }
 } finally {
     $archive.Dispose()
 }
 
 $signature = Get-AuthenticodeSignature -LiteralPath $Package
 if (-not $signature.SignerCertificate) { throw 'MSIX has no embedded signing certificate.' }
+if ($signature.Status -ne 'Valid') { throw "MSIX signature is not valid on this host: $($signature.Status)" }
 Write-Output ("MSIX static smoke passed: identity={0}, entryPoint={1}, signatureStatus={2}" -f $packageName, $entryPoint, $signature.Status)
 if ($UiMatrix) {
     Write-Output 'UI matrix remains a clean-image gate: first launch, WebView2 repair, update interruption, rollback and uninstall are not claimed here.'

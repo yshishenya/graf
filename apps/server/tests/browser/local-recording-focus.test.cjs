@@ -6,7 +6,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
 (async () => {
   const browser = await chromium.launch({headless: true});
   try {
-    const page = await browser.newPage();
+    const page = await browser.newPage({timezoneId:'UTC'});
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     await page.route('https://synthetic.invalid/**', route => route.fulfill({contentType:'text/html', body:'<html></html>'}));
@@ -89,12 +89,17 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
     await page.selectOption('#meeting-sort','updated_desc');
     await publish();
     assert.notEqual(await page.locator('[data-graf-local-recording-row] time').textContent(),oldDate,'sort context must update rendered time');
+    await page.locator('[data-graf-local-recording-row] [data-meeting-select]').check();
     await page.locator('[data-graf-local-recording-action="open"]').focus();
-    await page.evaluate(() => { document.querySelector('meta[name="graf-timezone"]').content = 'Asia/Yekaterinburg'; });
-    await page.addScriptTag({path:path.join(assets,'user-time.js')});
+    await page.evaluate(() => window.GRAFTime.setTimezone('Asia/Yekaterinburg'));
     await publish();
     assert.match(await page.locator('[data-graf-local-recording-row] time').textContent(),/05:30/,'timezone changes invalidate the rendered row');
     assert.match(await page.locator('[data-graf-local-recording-row] .meeting-title').textContent(),/02:30/,'generated title follows timezone too');
+    assert.equal(await page.locator('[data-graf-local-recording-action="open"]').evaluate(node => node === document.activeElement),true,'timezone refresh restores focus to the corresponding control');
+    assert.equal(await page.locator('[data-graf-local-recording-row] [data-meeting-select]').isChecked(),true,'timezone refresh retains selection');
+    await page.evaluate(() => { window.timezoneFocusedControl = document.activeElement; });
+    for (let iteration = 0; iteration < 20; iteration++) await publish();
+    assert.equal(await page.evaluate(() => window.timezoneFocusedControl === document.activeElement),true,'identical publications after a timezone refresh retain the focused node');
     await page.locator('[data-graf-local-recording-action="open"]').focus();
     await page.evaluate(() => { document.querySelector('#meeting-search').value = 'no-matching-local-recording'; });
     await publish();

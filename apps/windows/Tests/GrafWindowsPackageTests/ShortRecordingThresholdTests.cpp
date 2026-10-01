@@ -13,6 +13,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include "RecordingNoticePresenterTests.h"
 
 namespace {
 
@@ -31,6 +32,7 @@ bool writeFixture(const std::filesystem::path& path, const std::filesystem::path
 
 int main() {
     using namespace graf::windows;
+    testF277RecordingNoticePresenter();
 
     // 1. The portable threshold is exact: 29.99 s is rejected, 30.0 s is kept,
     //    and no fault, interruption or empty capture ever authorizes a discard.
@@ -158,26 +160,24 @@ int main() {
         assert(queue.discardShortRecording(directory) == ShortRecordingDiscardResult::unsafePath);
     }
 
-    // 8. Passive feedback: one notice at a time, replaced on repeat, expiring by
-    //    itself after the designed interval without any user action.
+    // 8. F277: repeat identity updates in place without extending its lifetime.
     {
         RecordingNoticePresenter presenter;
+        presenter.interactionPermitProvider = [] { return InteractionPermit{true, 1}; };
         const auto start = std::chrono::steady_clock::now();
         assert(!presenter.visible());
-        presenter.showShortRecordingDiscarded(start);
+        const NoticeContent shortNotice{NoticeKind::shortRecording, "same-result", L"", std::wstring(RecordingNoticePresenter::message()), {}};
+        assert(presenter.present(shortNotice, start, start + std::chrono::seconds(20)));
         assert(presenter.visible());
         assert(!presenter.expired(start));
         assert(!presenter.expired(start + std::chrono::milliseconds(19'999)));
         assert(presenter.expired(start + std::chrono::milliseconds(20'000)));
-        // A repeat replaces the notice instead of stacking a second one.
-        presenter.showShortRecordingDiscarded(start + std::chrono::milliseconds(1'000));
+        assert(presenter.present(shortNotice, start + std::chrono::seconds(1), start + std::chrono::seconds(21)));
         presenter.tick(start + std::chrono::milliseconds(20'000));
-        assert(presenter.visible());
-        presenter.tick(start + std::chrono::milliseconds(21'000));
         assert(!presenter.visible());
         presenter.dismiss();
         assert(!presenter.visible());
-        assert(RecordingNoticePresenter::message() == L"Записи короче 30 секунд не сохраняются.");
+        assert(RecordingNoticePresenter::message() == L"Запись не сохранена — короче 30 секунд");
     }
 
     std::filesystem::remove_all(directory);

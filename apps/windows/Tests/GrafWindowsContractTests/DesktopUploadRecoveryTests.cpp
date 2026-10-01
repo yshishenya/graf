@@ -642,6 +642,100 @@ void testUploadProblemResponses(const std::filesystem::path& root) {
     run("create", {409, R"({"code":"unsupported_recording_source_kind"})"}, DesktopTransportStatus::serverRejected, "");
 }
 
+void testSyncNotRetryableRecovery(const std::filesystem::path& root) {
+    using namespace graf::windows;
+    const auto package = root / "package";
+    const auto ledger = root / "queue.json";
+    std::filesystem::create_directories(package);
+    V5LocalRecordingWriter writer(package, [](const auto& path, const auto&, std::uint64_t) {
+        std::ofstream output(path, std::ios::binary);
+        output << "synthetic-playback";
+        return output.good();
+    });
+    CanonicalAudioFrame frame; frame.mixed.fill(0.25F);
+    assert(writer.append(frame) && writer.finalize().ok());
+    const auto before = LocalRecordingPackage::inspect(package, root);
+    assert(before.integrity == PackageIntegrity::valid);
+    const auto read = [](const std::filesystem::path& path) {
+        std::ifstream input(path, std::ios::binary);
+        assert(input.good());
+        return std::string(std::istreambuf_iterator<char>(input), {});
+    };
+    const auto manifest = read(package / "manifest.json");
+    const auto media = read(package / "meeting-transcription.wav");
+    const auto playback = read(package / "meeting-review.m4a");
+    DesktopUploadQueueService queue(ledger, root);
+    assert(queue.load());
+    assert(queue.enqueue({"recording", "directory", "session", package,
+        UploadQueueStatus::pending, {}, 0, "", owner.userId, owner.workspaceId}));
+    DesktopHttpConfig config;
+    config.sessionToken = "synthetic-session";
+    config.workspaceId = owner.workspaceId;
+    config.confirmedIdentity = owner;
+    unsigned calls = 0;
+    const DesktopHttpTransport::UploadSend send = [&](const auto& requestConfig, const auto& request) {
+        // Only the wire is replaced. A conflict must stop create/parts/finalize.
+        assert(++calls == 1);
+        assert(requestConfig.sessionToken == config.sessionToken);
+        assert(request.method == "GET" && request.path ==
+            "/api/v1/desktop/recordings/directory/sync-state?local_media_revision_id=directory--initial");
+        return DesktopHttpTransport::UploadResponse{200, R"({
+            "meeting":{"meeting_id":"meeting-id","status":"uploading"},
+            "upload_session":{"session_id":"upload-id","status":"uploading",
+                "accepted_bytes_by_track":{"manifest":1,"media":2,"playback":3}},
+            "media_revision":{"media_revision_id":"revision-id","status":"uploading"},
+            "conflict":{"state":"metadata_mismatch"},
+            "custody":{"retry_class":"not_retryable"}
+        })"};
+    };
+    DesktopUploadRecoveryScheduler scheduler(queue);
+    assert(runWorker(scheduler, RecoveryTrigger::launch, [&](const auto& item, auto cancellation) {
+        auto workerConfig = config;
+        workerConfig.cancellation = std::move(cancellation);
+        return DesktopHttpTransport(workerConfig).upload(item, send);
+    }) == 1);
+    assert(calls == 1 && !scheduler.busy());
+
+    DesktopUploadQueueService restarted(ledger, root);
+    assert(restarted.load() && restarted.items().size() == 1);
+    const auto& row = restarted.items()[0];
+    assert(row.status == UploadQueueStatus::blocked && row.safeReason == "not_retryable");
+    assert(row.attempts == 0 && row.meetingId == "meeting-id");
+    assert(row.uploadSessionId == "upload-id" && row.mediaRevisionId == "revision-id");
+    assert((row.acceptedBytes == std::array<std::uint64_t, 3>{1, 2, 3}));
+    assert(!DesktopUploadQueueService::canRetry(row) && !restarted.requestRetry(row.localRecordingId));
+    DesktopUploadRecoveryScheduler resumed(restarted);
+    for (const auto trigger : {RecoveryTrigger::launch, RecoveryTrigger::scheduled, RecoveryTrigger::authRecovered}) {
+        assert(!resumed.startAsync(trigger, [&](const auto& item, auto cancellation) {
+            auto workerConfig = config;
+            workerConfig.cancellation = std::move(cancellation);
+            return DesktopHttpTransport(workerConfig).upload(item, send);
+        }));
+    }
+    assert(DesktopHttpTransport(config).upload(row, send).retryClass == "not_retryable");
+    assert(calls == 1 && restarted.pendingItems(32).empty());
+    const auto after = LocalRecordingPackage::inspect(package, root);
+    assert(after.integrity == before.integrity && after.durationMs == before.durationMs);
+    // Portable inspection cannot attest to AAC decoding; byte readability and
+    // integrity must survive even when playbackAvailable was already false.
+    assert(after.playbackAvailable == before.playbackAvailable);
+    assert(read(package / "manifest.json") == manifest);
+    assert(read(package / "meeting-transcription.wav") == media);
+    assert(read(package / "meeting-review.m4a") == playback);
+    unsigned recycles = 0;
+    assert(restarted.removeLocalCopy("recording", LocalPurgeProof::userConfirmedLocalCopy,
+        [&](const auto& path) {
+            assert(path == package && ++recycles == 1);
+            std::filesystem::rename(path, root / "recycled");
+            return true;
+        }) == LocalCopyRemovalResult::removed);
+    assert(recycles == 1 && restarted.items().empty() && !std::filesystem::exists(package));
+    assert(read(root / "recycled" / "meeting-review.m4a") == playback);
+    DesktopUploadQueueService afterDelete(ledger, root);
+    assert(afterDelete.load() && afterDelete.items().empty());
+    assert(calls == 1);
+}
+
 void testRetryClassClassification(const std::filesystem::path& root) {
     using namespace graf::windows;
     std::filesystem::create_directories(root / "package");
@@ -1066,6 +1160,7 @@ int main() {
     testManualRetry(root / "manual");
     testPermanentRejectionDurability(root / "permanent-durability");
     testUploadProblemResponses(root / "problem-responses");
+    testSyncNotRetryableRecovery(root / "sync-not-retryable");
     testRetryClassClassification(root / "retry-class");
     testRateLimitPause(root / "rate-limit");
     testSessionDeadlineHeader();

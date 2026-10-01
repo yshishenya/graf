@@ -17,6 +17,7 @@ enum class CaptureStage : std::uint8_t {
     releaseBuffer,
     normalize,
     callback,
+    stop,
 };
 
 struct CaptureStageTrace {

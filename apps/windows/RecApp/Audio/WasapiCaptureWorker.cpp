@@ -215,6 +215,11 @@ struct WasapiCaptureWorker::Impl {
                 break;
             }
             if (!running.load()) break;
+            // Construct the callable before Start/GetBuffer: std::function may allocate.
+            const std::function<CaptureReleaseResult(std::uint32_t)> releasePacket = [&](std::uint32_t consumed) {
+                const auto releaseResult = capture->ReleaseBuffer(consumed);
+                return CaptureReleaseResult{SUCCEEDED(releaseResult), static_cast<std::int32_t>(releaseResult)};
+            };
             const auto startResult = client->Start();
             if (FAILED(startResult)) {
                 error.store(startResult == E_ACCESSDENIED ? CaptureWorkerError::accessDenied
@@ -277,12 +282,7 @@ struct WasapiCaptureWorker::Impl {
                     if (!owner.consumePacket(clockMapper, normalizer,
                             {qpcPosition, devicePosition, format->nSamplesPerSec, flagsRead, count,
                              audioClockPosition, audioClockFrequency, static_cast<std::int32_t>(positionResult)},
-                            data, format->nChannels, pcmFormat.float32,
-                            [&](std::uint32_t consumed) {
-                                const auto releaseResult = capture->ReleaseBuffer(consumed);
-                                return CaptureReleaseResult{
-                                    SUCCEEDED(releaseResult), static_cast<std::int32_t>(releaseResult)};
-                            })) break;
+                            data, format->nChannels, pcmFormat.float32, releasePacket)) break;
                     packetResult = capture->GetNextPacketSize(&frames);
                     recordTrace(CaptureStage::nextPacketSize, static_cast<std::int32_t>(packetResult),
                                 0, frames);
@@ -292,13 +292,23 @@ struct WasapiCaptureWorker::Impl {
                     }
                 }
             }
-            client->Stop();
+            owner.completeNativeStop(static_cast<std::int32_t>(client->Stop()));
         } while (false);
         // All native resources must be released before the outer thread wrapper
         // publishes finished; UI finalization relies on that completion fence.
 #endif
     }
 };
+
+void WasapiCaptureWorker::completeNativeStop(std::int32_t hresult) noexcept {
+    impl_->recordTrace(CaptureStage::stop, hresult);
+    // Stop returns S_FALSE when already stopped: it is success, unlike an
+    // imprecise IAudioClock measurement. Negative HRESULTs are failures.
+    if (hresult < 0) {
+        auto expected = CaptureWorkerError::none;
+        (void)impl_->error.compare_exchange_strong(expected, CaptureWorkerError::stopFailed);
+    }
+}
 
 bool WasapiCaptureWorker::consumePacket(ClockMapper& mapper, AudioNormalizer& normalizer,
     ClockObservation packet, const void* data, std::uint16_t channels, bool float32,
@@ -343,7 +353,13 @@ bool WasapiCaptureWorker::consumePacket(ClockMapper& mapper, AudioNormalizer& no
     batch.channels = channels;
     batch.routeGeneration = impl_->config.routeGeneration;
     batch.clockDomain = impl_->config.clockDomain;
-    batch.samples.resize(static_cast<std::size_t>(packet.frameCount) * channels);
+    try {
+        batch.samples.resize(static_cast<std::size_t>(packet.frameCount) * channels);
+    } catch (...) {
+        impl_->error.store(CaptureWorkerError::normalizationFailed);
+        (void)release(); // Release failure takes priority over the allocation error.
+        return false;
+    }
     const bool silent = (packet.flags & ClockObservation::silent) != 0;
     if (!silent && data != nullptr && float32) {
         const auto* samples = static_cast<const float*>(data);

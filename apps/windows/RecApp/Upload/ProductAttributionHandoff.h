@@ -9,7 +9,6 @@
 #include <string_view>
 
 namespace graf::windows {
-class WebViewRoutePolicy;
 
 // F273/F200: data from an untrusted protocol activation, never account authority.
 // Times are UTC Unix seconds supplied by the caller (not by URI parameters).
@@ -74,14 +73,5 @@ private:
 [[nodiscard]] std::string applyingSignInQueryItems(
     std::string_view plain, const std::optional<ProductAttributionHandoff>& handoff,
     std::int64_t now);
-
-// One helper for initial login, auth recovery and explicit sign-in. next may be
-// a relative path or an absolute cabinet URL; the existing route policy chooses
-// a safe GET path, strips query/fragment, and falls back to /desktop/meetings.
-// The configured origin is supplied by policy, never by the handoff. This only
-// builds a URL: callers retain the normal navigation/nonce/account boundaries.
-[[nodiscard]] std::string productAttributionSignInUrl(
-    const WebViewRoutePolicy& policy, std::string_view next,
-    const std::optional<ProductAttributionHandoff>& handoff, std::int64_t now);
 
 } // namespace graf::windows

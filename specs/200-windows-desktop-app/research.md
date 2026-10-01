@@ -113,7 +113,8 @@ device handle, process handle, native object or arbitrary command. The native
 side does not rebuild the cabinet. The active bridge sends `native_ready`, typed
 settings/deletion replies and bounded `local_recordings` display rows with
 operations/recoveryRequired; it accepts only typed `request_app_quit`,
-`local_recording`, `app_appearance`, `native_settings` and `delete_selection`
+`local_recording`, `app_appearance`, `native_settings`, `delete_selection`
+and the bounded `request_app_update` intent added by the 2026-09-27 refinement
 requests with command-specific route/schema/capability checks.
 Capture/runtime/custody authority remains native.
 The initial settings/diagnostics/repair/acknowledgement aliases and proposed
@@ -427,6 +428,15 @@ Manifest выбирался по Id MSTeams: второй entry использу
 | C# shell + P/Invoke audio core | Extra managed/native lifecycle boundary around real-time ownership; revisit if UI staffing outweighs safety benefit |
 | FFmpeg bundled solely for AAC | Larger dependency/license/release surface when native Media Foundation AAC-LC/Sink Writer meets the required format |
 
+Any future process-isolated capture feature must separately specify how the user
+selects and verifies the target process identity, whether child processes are in
+scope, applicable Windows privacy/permission controls, protected-audio behavior,
+data minimization and fallback. Here “privacy” means technical user/system
+control and data scope; it does not mean participant legal notice or consent and
+does not reinstate either as an app-enforced recording prerequisite. This future
+gate neither authorizes process loopback work nor changes Feature 200's shared-
+loopback-only baseline.
+
 ## Open validation gates
 
 1. Prove Media Foundation AAC/Sink Writer produces a playable mono 48 kHz M4A
@@ -530,3 +540,729 @@ Process loopback остаётся вне F200. До отдельной спец�
 process-only и global capture; fallback и disclosure требуют отдельной приёмки.
 Это перечень будущих вопросов, не юридические prerequisites и не реализация
 process loopback, драйвера или скрытой записи в текущей фиче.
+
+## Адресные платформенные подписи — 2026-09-27
+
+Decision: один `GRAFDesktopPlatform` в доверенном Windows bootstrap, конечный
+набор служебных ключей в общем cabinet.js и адресные атрибуты только на
+элементах служебного текста. Поздний bootstrap вызывает идемпотентное обновление;
+ранний читается при обычной инициализации. HTMX использует существующий цикл.
+Текст динамического удаления выбирается до соединения с названием записи.
+`canOpenSystemSettings` — отдельная возможность ответа уведомлений, false в
+Windows; отсутствие поля у старого Mac сохраняет прежнее поведение после
+успешного подключения. Признак платформы не является проверкой безопасности.
+
+Rationale: независимое чтение `NativeSettingsBridge.cpp`, bootstrap host,
+cabinet.js и шаблонов подтвердило отсутствие общего маркера ОС и опасный обход
+всего body. `data-surface-mode` различает web/embedded, `window.webkit` используется
+обоими клиентами. Ни один из них не доказывает macOS. Решение поддерживает старый
+Mac без нового бинарного клиента и не затрагивает данные встречи.
+
+Alternatives rejected: расширять string replacements/TreeWalker; определять ОС
+по User-Agent или наличию webkit; отдельные страницы Windows; глобальный
+MutationObserver; менять подпись устройства другого компьютера по текущей ОС.
+Старый Windows с TreeWalker требует обновления приложения: сервер не способен
+отменить уже исполняемый сторонний сценарий замены гарантированно.
+
+## Системные напоминания и обновления (2026-09-27)
+
+Часть о системных напоминаниях отменена решением пользователя 28 сентября:
+фактический GRAF Dev F277 `51bcff6b…` удалил оба прежних канала в пользу одной
+собственной карточки. Ниже сохранено основание предыдущего исследования,
+НЕ указание реализовывать Scheduler. Решение T112 об обновлениях сохраняется.
+
+T104 использует `Windows.UI.Notifications` ScheduledToastNotification и
+ToastNotifier.AddToSchedule; локальная ранняя карточка остаётся отдельной.
+ОС хранит расписание независимо от процесса. Её пятиминутное окно доставки
+не гарантирует показ после длительного выключения; передача запроса не
+является подтверждением показа. [Microsoft: scheduled notifications](https://learn.microsoft.com/en-us/windows/apps/develop/notifications/app-notifications/app-notifications-scheduled).
+Нужны ExpirationTime, системная отмена, устойчивый журнал, безопасная активация
+с повторной проверкой и нативная проверка подавления на границе записи.
+Собственный второй таймер не удовлетворяет работе после выхода из приложения.
+
+T112 использует системный PackageManager и зарегистрированный App Installer.
+Из-за документированной ошибки не вызывается CheckUpdateAvailabilityAsync
+непосредственно у Package.Current; пакет получают FindPackageForUser.
+Unknown не равен NoUpdates. [Microsoft: проверка обновления пакета](https://learn.microsoft.com/en-us/uwp/api/windows.applicationmodel.package.checkupdateavailabilityasync?view=winrt-26100).
+Наличие API не доказывает работу XML на минимальной ОС, доверие содержимому
+канала, успешную подпись или сохранность при принудительном завершении.
+Эти условия остаются отдельными тестами T112/T063/T071; публичный канал
+не утверждён и не публикуется в рамках этой реализации.
+
+## Фактический эталон F277 (2026-09-28)
+
+Вместо догадки по master проверен GRAFSourceSHA работающего GRAF Dev:
+`51bcff6b1abfdf2a01d59a7d3f00c831674c365c`. Пользователь явно выбрал его.
+Прочитаны spec, два notification contracts, data-model и код этого git object.
+F277 меняет канал, сроки, геометрию, quiet, историю и notification protocolv2.
+Контракт переноса вынесен в `contracts/f277-notifications-parity.md`.
+Системный планировщик и журнал отвергнуты как уже устаревшие относительно цели,
+а не из-за недостатка Windows API. Одна карточка переиспользует текущих владельцев
+Shell/модели; нет нового UI runtime, сервера календаря и фоновой службы.
+Синхронизация с незавершённой чужой веткой выполняется по точному эталону и
+проверкам, а не автоматическим merge. Production deploy по-прежнему отдельно.
+
+## Windows-захват: повторная сверка открытого кода — 2026-09-30
+
+Read-only исследование T094. Ранее изученные Chromium/cubeb найдены в T085;
+поиск OpenViking вернул timeout и не использован как доказательство. Прочитаны
+реальные публичные исходники, без переноса стороннего кода в приложение:
+
+- [Chromium](https://github.com/chromium/chromium/blob/5b50c26e08d6f46f0f47ec548ef0fa0815e2a719/media/audio/win/audio_low_latency_input_win.cc#L1370-L1530)
+  отдельно учитывает потерянные кадры через ожидаемую device position и ошибки
+  времени, имеет timestamp fallback. В этом участке нет нашего немедленного
+  отказа по формуле 100 ppm + 1 ms + frame.
+- [cubeb](https://github.com/mozilla/cubeb/blob/dc56ea41279c1089eb9064d15fcebdefc5d9feca/src/cubeb_wasapi.cpp#L1136-L1268)
+  накапливает frames, QPC использует для input latency и явно игнорирует
+  DATA_DISCONTINUITY. Последнее не переносится в GRAF.
+- [OBS](https://github.com/obsproject/obs-studio/blob/2c4e446a2201d5ef66b8909190f7f15afe092ace/plugins/win-wasapi/win-wasapi.cpp#L995-L1087)
+  для обычного capture выбирает device timestamp либо время обработки минус
+  длительность пакета. ProcessOutput — другой путь, вне F200.
+- [Meetily stream.rs](https://github.com/Zackriya-Solutions/meetily/blob/a2cb62e827da7ef59f65064c97233efb2313878e/frontend/src-tauri/src/audio/stream.rs#L244-L309)
+  принимает данные CPAL, но не использует InputCallbackInfo. Cargo.lock этого
+  снимка закрепляет CPAL 0.15.3; его
+  [WASAPI backend](https://github.com/RustAudio/cpal/blob/v0.15.3/src/host/wasapi/stream.rs#L379-L438)
+  запрашивает QPC, но не device position. Это не доказательство нашего alignment.
+
+[Microsoft QPC virtualization](https://learn.microsoft.com/en-us/windows/win32/sysinfo/acquiring-high-resolution-time-stamps#virtualization)
+ожидает надёжность счётчика в корректном hypervisor. Сам факт VM не доказывает
+поломку QPC. По
+[GetBuffer](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudiocaptureclient-getbuffer)
+метка относится к первому кадру пакета, а
+[GetPosition](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock-getposition)
+— к текущей позиции. Заменять одно другим нельзя.
+
+Schema6 пользователя: после startup кадры непрерывны, на packet60 (stats59)
+packet QPC error = 12707 × 100 ns = 1.2707 ms; текущая граница = 1.0789604 ms.
+Это превышение timestamp budget, не доказанный dropout: probe не читает звук.
+VM/виртуальный endpoint остаётся гипотезой причины колебаний. AudioNormalizer
+переносит QPC residual в ptsFrames, RecordingAudioTimeline ограничивает поправку
+48 кадрами. Поэтому увеличение только mapper budget не исправляет весь путь.
+Кандидат решения — раздельная оценка packet custody, кратковременной
+неопределённости меток и устойчивого drift с bounded alignment двух источников.
+Модель ещё не принята: нужны уточнение контракта §5, plan/checklist/analyze,
+регрессии потерь/повторов/скачков/drift и живая приёмка. Это НЕ разрешение на
+fake timestamps, wall-clock padding, сброс epoch или raw-mic fallback.
+
+## Пробел локального хранения RQ30-H1 — 2026-09-30
+
+Независимый review выявил: PRD требует encrypted local buffers, F057 FR-043 —
+encrypted custody artifacts, а F200 FR-012 описывает ACL/atomic write; запись
+T083 говорит, что буферы не шифруются. Это не одобренное исключение. Поиск
+Windows-кода не нашёл шифрования custody: AtomicFileStore пишет bytes в
+ofstream и применяет ACL; V5LocalRecordingWriter пишет временный canonical
+float и использует Media Foundation URL writer. Шифрование тома в этом раунде
+не проверялось. Нужны явные требования к сохраняемым media/temporary/key paths,
+план защиты без admin/сети/новых пользовательских препятствий, сохранность
+существующих записей и проверки restart/upload/playback/purge. Механизм не
+выбран; считать ACL шифрованием или отменять baseline нельзя. Общий gate открыт.
+
+### RQ30-H1: исследование нативной защиты — 2026-09-30
+
+**Решение на этапе исследования:** FR-012 явно наследует шифрование F057
+FR-043 и PRD; исключение для Windows не вводится. Предварительно осуществимый
+путь — пользовательская защита ключа DPAPI и ограниченные независимо
+аутентифицированные блоки CNG. Это кандидат, не завершённый формат или
+разрешение реализации: Phase 0 остаётся открытой.
+
+**Обоснование:** независимый исследователь проверил все активные пути:
+`V5LocalRecordingWriter` создаёт открытый canonical float, WAV и M4A;
+`AtomicFileStore` пишет открытые bytes и устанавливает ACL после записи;
+`LocalRecordingPackage`, queue и WinHTTP читают файлы напрямую, а локальный
+playback передаёт путь внешнему проигрывателю. Защита одного AtomicFileStore
+не закрывает этот поток. Требуются защищённые временные/окончательные media,
+manifest, recovery, queue registry, quarantine и их atomic temporary версии.
+Конкретные объекты и регрессии должны попасть в data model/contract/tasks
+после выбора и независимой проверки механизма, не только в FR.
+
+**Альтернативы:** EFS прозрачен файловым readers, но не доступен на Windows
+Home; включение BitLocker/FileVault/полного шифрования диска не является
+условием обычного запуска. DPAPI целого media-файла требует целого DATA_BLOB
+и не закрывает часовой захват с ограниченной памятью. DPAPI-NG streaming
+не предоставляет автоматически произвольные seek/rewrite v5/MP4. Для
+пользовательского DPAPI используются null prompt и UI_FORBIDDEN, не
+LOCAL_MACHINE; ключ не передаётся в WebView/сеть/диагностику.
+
+**Не разрешённые технические вопросы:** writable/seekable IMFByteStream для
+AAC/MP4; безопасное изменение блока без повторного nonce с тем же ключом;
+восстановление после частичной перезаписи/сбоя и ограниченность индекса;
+playback без открытого временного файла/внешнего ShellExecute; миграция старых
+plaintext packages/registry без перекодирования или потери UUID, исходных
+v5 bytes, hashes, accepted ranges и delete intent. Распознанная повреждённая
+зашифрованная оболочка не должна переходить в legacy plaintext reader.
+Recovery зависит от сохранённого профиля/ключей Windows: переустановка ОС
+или потеря ключей не получает обещания восстановления. Корзина сохраняет
+восстановимость владельцу; шифрование не доказывает cryptographic erasure
+старых копий, backup или остатков носителя.
+
+Дополнительный подтверждённый риск SC-003: `Sha256.cpp::sha256File` загружает
+целый файл в строку, а digest создаёт дополнительный полный vector. Часовой
+mono float 48 kHz — 691200000 bytes (~659 MiB), ещё без этих копий. Нужен
+инкрементальный хеш логических расшифрованных bytes с ограниченным буфером;
+проверки маленьких fixtures не подтверждают предел роста памяти 128 MiB.
+
+Первичные источники:
+[CryptProtectData](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata),
+[EncryptFileW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-encryptfilew),
+[CNG streaming](https://learn.microsoft.com/en-us/windows/win32/api/ncryptprotect/nf-ncryptprotect-ncryptstreamopentoprotect),
+[BCrypt authenticated cipher info](https://learn.microsoft.com/en-us/windows/win32/api/bcrypt/ns-bcrypt-bcrypt_authenticated_cipher_mode_info),
+[MP4 seekable byte stream](https://learn.microsoft.com/en-us/windows/win32/api/mfidl/nf-mfidl-mfcreatempeg4mediasink).
+RQ30-H1 не закрыт: доступность API и дополнение FR не доказывают реализацию.
+
+### T094: одиночная ошибка метки и downstream — 2026-09-30
+
+Синтетическая проверка связывает настоящий `ClockMapper`, `AudioNormalizer`
+и `RecordingAudioTimeline` из dirty worktree, без VM/микрофона/чтения звука.
+На 58 идеальных интервалах по 480 frames при 48 kHz и одиночной ошибке
+пакетного QPC +1.2707 ms текущий mapper закономерно даёт sticky clockDrift:
+ошибка превышает бюджет 1.0789604 ms. Если только в изолированном стенде
+обойти этот отказ, normalizer переносит ошибку в PTS и timeline отклоняет
+скачок 61 frame при пределе коррекции 48. Идеальные интервалы проходят;
+пропуск одного frame отдельно отвергается. Это не воспроизведение полного
+аппаратного trace: пользовательская schema6 содержит лишь пять checkpoints.
+
+**Решение:** увеличивать только порог mapper нельзя — это оставляет отказ
+ниже по потоку. Нужны совместимые оценки packet timestamp uncertainty,
+устойчивого дрейфа и двух исходных шкал, с сохранением независимой проверки
+device/count/flags. Действующий численный контракт §5 пока не меняется;
+новая модель не выбрана и приёмка записи не заявляется. Для проверки влияния
+эмуляции подготовлены x64 и native ARM64 diagnostics из одного исходника;
+это сравнение probe, не объявление ARM64-продукта поддерживаемым.
+
+### RQ30-H1: проверка нативного stream adapter — 2026-09-30
+
+**Выбрана API-граница, не формат хранения:** для Media Foundation использовать
+штатный `MFCreateMFByteStreamOnStream` поверх seekable `IStream`, вместо своей
+полной реализации IMFByteStream или открытого temporary media URL. Writer
+принимает null URL + stream + явный MPEG4 container attribute; reader принимает
+byte stream без URL. Это уменьшает будущий адаптер, но IStream всё равно должен
+реализовать ограниченные logical read/write/seek/size и безопасное хранение.
+
+Самостоятельный Windows x64 research fixture вне git
+`f200-storage-stream-proof.b5wKeF/StreamProof.cpp` прошёл с exit0. Нативный
+кодировщик получил 100 искусственных блоков 480 mono PCM16 при 48 kHz,
+сохранил M4A в SHCreateMemStream (12929 bytes). Случайный 32-byte ключ защищён
+пользовательским DPAPI с null prompt/UI_FORBIDDEN и восстановлен в том же
+процессе/профиле. CNG AES-GCM восстановил исходные bytes; подмена ciphertext,
+tag и block-identity AAD отдельно отклонена. Повторно восстановленные bytes
+через новый IStream/byte stream декодированы до EOS: 96256 PCM bytes.
+128 лишних PCM samples — наблюдаемое ограничение этого секундного fixture,
+не основание менять duration/hash/delivery продуктового v5-контракта.
+
+**Границы доказательства:** ни устройство, ни звук пользователя, ни сеть, ни
+media-файл не использовались. Весь маленький искусственный fixture находился
+в памяти; целый memory stream НЕ является проектом часового хранения. Нативный
+кодек не воспроизводил звук. Не проверены защита ciphertext на диске, partial
+write/rewrite/crash, уникальность nonce всего жизненного цикла, произвольные
+логические диапазоны, другой пользователь/профиль, restart, Home/Windows10 и
+реальный playback. CLI runner имеет Administrator role=True: этот запуск
+не доказывает работу приложения без повышения прав. Раздельные DPAPI/CNG/MF
+вызовы не означают, что будущий file-backed IStream уже защищает MP4 при записи.
+
+**Следующие нерешённые вопросы:** формат и атомарный commit защищённых блоков,
+key/nonce lifecycle при seek/rewrite, целостность logical length/index и предел
+его памяти, безопасное восстановление/совместимый переход старых пакетов,
+встроенное воспроизведение. Общий Phase0/review gate остаётся NOT READY.
+
+Первичные источники:
+[IStream adapter](https://learn.microsoft.com/en-us/windows/win32/api/mfidl/nf-mfidl-mfcreatemfbytestreamonstream),
+[Sink Writer byte stream/container](https://learn.microsoft.com/en-us/windows/win32/api/mfreadwrite/nf-mfreadwrite-mfcreatesinkwriterfromurl),
+[Source Reader from stream](https://learn.microsoft.com/en-us/windows/win32/api/mfreadwrite/nf-mfreadwrite-mfcreatesourcereaderfrombytestream),
+[native memory stream](https://learn.microsoft.com/en-us/windows/win32/api/shlwapi/nf-shlwapi-shcreatememstream),
+[native symmetric key lifetime](https://learn.microsoft.com/en-us/windows/win32/api/bcrypt/nf-bcrypt-bcryptgeneratesymmetrickey).
+
+### RQ30-H1: bounded DPAPI blocks и переключение версии — 2026-09-30
+
+**Более простой криптографический кандидат:** защищать каждый ограниченный
+блок пользовательским DPAPI, вместо DPAPI только для ключа + собственного
+управления AES-GCM ключом/nonce для перезаписи. Это не DPAPI целого часового
+media: logical reader читает нужные блоки и выдаёт исходный диапазон. DPAPI
+создаёт собственные session keys; приложение не сохраняет свой открытый ключ
+или счётчик nonce. Формат/размер блока окончательно не выбран, код продукта
+не изменён. CNG остаётся нативным инкрементальным SHA256, не самописным crypto.
+
+**Важное уточнение целостности:** Microsoft CryptUnprotectData прямо допускает
+при повреждении разные ошибки и в отдельных случаях успешный возврат с
+повреждённым результатом; рекомендует дополнительную проверку приложения.
+Поэтому TRUE недостаточен. Research envelope проверяет ожидаемые context
+(schema/file identity/block index/generation), точную bounded length и SHA256
+контекста/полезных bytes до их выдачи. Контекст также передан как optional
+entropy. Выдача повреждённого результата как plaintext/fallback запрещена.
+Это fixture-проверка, не security review будущего постоянного формата.
+
+Нативный x64 BlockProof прошёл exit0: на каждом размере 12 encrypt/decrypt
+round trips, отдельно шесть отказов (подмена ciphertext, усечение, другой
+block index, другое generation, неверная ожидаемая длина, искусственно
+повреждённый decoded envelope при успешном пути API). Все bytes искусственные,
+media/устройства/сеть не использовались. Измерение после одного warmup:
+
+| Payload | Cipher bytes | Protect mean/max, µs | Unprotect mean/max, µs |
+| --- | --- | --- | --- |
+| 65536 | 65830 | 5492 / 6430 | 5059 / 5592 |
+| 262144 | 262438 | 20295 / 30808 | 21143 / 53442 |
+| 1048576 | 1048870 | 76957 / 92806 | 73950 / 97597 |
+
+Это wall-time в Parallels x64 emulation, не CPU-time SC003, не file IO и не
+standard-user/Home/Windows10 proof. В том же runner ранее подтверждён admin
+role=True. Замеры не разрешают новый размер очереди или ослабление Stop:
+нужно измерить combined crypto/index/flush и существующий 256-item dispatcher
+с двумя EOS/5s drain. Native writer finalization уже вынесен в существующую
+packaged_task/future (`AppMain.cpp:995–1027`); новый сервис/очередь не нужны.
+
+**Кандидат persistence layout из независимого исследования:** каталог каждого
+logical artifact, immutable block versions и два alternating protected
+index slots, без БД, журнала или head file. Seek/rewrite создаёт новую версию
+затронутых блоков. Старый активный индекс не заменяется; новая версия
+публикуется только в неактивный слот после проверенных записей/сбросов блоков
+и временного индекса. Оба слота и их block references защищаются от очистки.
+После публикации с неудачным barrier результат indeterminate: остановить
+изменения/cleanup, перечитать оба слота; не объявлять normal saved.
+
+Recovery проверяет только два bounded slots, layout/integrity/все обязательные
+blocks и выбирает наибольшее пригодное generation. Temp index не считается
+commit. Возврат к старой версии означает явное ограниченное recovery, а не
+полное normal output. Missing block не превращается в нули; явное расширение
+seekable файла требует определённых защищённых zero ranges. Восстановление
+не защищает от намеренного rollback всего хранилища к старой корректной копии.
+
+Append-only single container уменьшает число файлов, но оставляет мусор от
+rewrite и требует безопасной compaction/двойного дискового резерва; in-place
+encrypted rewrite отвергнут из-за уничтожения прежнего блока при partial write.
+Directory layout пока предпочтителен только как следующий проверяемый протокол,
+не как доказанный итоговый формат/производительность. Index ограничивает
+logical bytes/block count/entry size до allocation. Disk budget учитывает оба
+слота, pinned readers, dirty group и остатки сбоев; cleanup bounded и не гоняется
+с writer/recovery. После финализации logical artifact неизменяем.
+
+**Новые конкретные пробелы текущих helpers:** AtomicFileStore использует
+ofstream/trunc, ACL после записи, нет CREATE_NEW и FlushFileBuffers, а
+canonical path check не закрепляет открытые объекты от подмены/reparse/hardlink.
+MOVEFILE_WRITE_THROUGH не доказывает весь требуемый порядок durability.
+Результат storageWritable сейчас означает непустой путь. Нужны DACL при
+создании, native handle/volume/identity guards, удержание trusted directories,
+write/close/flush/replace/barrier errors и различение process crash/power loss.
+Нельзя требовать admin/volume flush. Существующий AppInstance единственного
+приложения и scheduler lease сначала используются и проверяются, не создаётся
+новый lock service. `discardShortRecording` сейчас разрешает только regular
+files непосредственно в пакете: вложенные блоки требуют согласованного purge
+контракта. Общий recycle-bin путь уже проверяет вложенное дерево, но это не
+доказательство новых ownership/hardlink/race guards.
+
+Первичные источники:
+[CryptUnprotectData integrity caveat](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptunprotectdata),
+[FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers),
+[MoveFileExW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw).
+Следующий шаг Phase0 — Windows file-backed immutable-version/commit/recovery
+fixture с искусственными bytes и отказами каждого этапа. Последний сохранённый
+commit при отключении питания, безопасность путей, полный resource budget и
+встроенный playback остаются непроверенными; RQ30-H1 не закрывается замерами.
+
+### RQ30-H1: file-backed commit/recovery fixture — 2026-09-30
+
+**Результат исследования:** отдельный x64 CommitProof проверил предложенный
+порядок immutable block → temporary protected index → inactive slot на
+Windows-local fixed NTFS. Исходник вне git: `f200-dpapi-commit-proof.9xdyLi`,
+CPP SHA-256 `ced3982c08668428390f32983b1e7a374f9aec1fedbdfa928290af1de1d9b387`;
+он повторно использует crypto/envelope функции BlockProof из раунда118, а не
+создаёт ещё одну реализацию. EXE SHA-256
+`3cc539dd67d84f0f283c78576a55fb2229f66577e3c3420c7c6aac0df61858fc`.
+Строгая сборка /W4 /WX exit0. Два исполнения exit0/stderr0; второе после
+проверки точного EXE hash, с 30s parent watchdog и 10s на каждого своего child.
+
+Только искусственный 64KiB payload. Диск выбран через GetTempPath и проверен
+как fixed NTFS, не общая папка `C:\Mac`. Новый случайный каталог; существующие
+GRAF custody/записи не открывались. CREATE_NEW и защищённая DACL текущему
+пользователю/SYSTEM перед записью, checked WriteFile/FlushFileBuffers/CloseHandle,
+MoveFileEx в другой index slot, повторный checked flush опубликованного файла.
+Открытые файлы проверяются по handle: regular file, no reparse, один hardlink;
+directory handle удерживается без FILE_SHARE_DELETE. Это проверка своего
+пустого каталога, не доказательство всей adversarial-path модели. DACL проверка
+fixture ограничена protected-bit и двумя ACE, не полным сопоставлением SID/mask.
+
+| Точка принудительного ExitProcess(77) дочернего writer | Выбранное generation |
+| --- | --- |
+| Половина нового encrypted block после flush | 1 |
+| Полный новый block после flush | 1 |
+| Половина temporary encrypted index после flush | 1 |
+| Полный temporary index после flush | 1 |
+| Inactive slot опубликован | 2 |
+| Опубликованный slot повторно flush/close | 2 |
+| Без сбоя | 2 |
+
+На каждом случае исходный generation1 предварительно восстановлен. Temp index
+не принимается за commit; незавершённый block не нужен прежнему индексу.
+Дополнительно generation3 заменяет неактивный slot, не generation2. Подмена
+block3 приводит к generation2 с одним invalid slot, то есть только к явному
+ограниченному восстановлению. Усечение оставшегося index приводит к generation0
+с двумя invalid slots, не пустому успешному ledger. CREATE_NEW collision
+отклоняется во всех семи случаях; исходный block1 не перезаписывается.
+
+**Границы:** child ExitProcess не равен отключению питания; незакрытые handles
+закрывает ОС, disk cache не пропадает. Не проверены реальное failed/partial IO,
+indeterminate post-publish barrier, low disk, несколько blocks и seek/rewrite,
+GC/readers/migration, путь всех metadata/media, реальная очередь/Stop/60min,
+размер index на час, memory/CPU, стандартный пользователь/другие профили/Home,
+adversarial parent/namespace/races и встроенное воспроизведение. Файлы fixture
+сохранены в его собственных временных каталогах; открытый звук не записывался.
+Это поддерживает выбранный порядок для следующего проектирования, но не
+завершает Phase0 и не разрешает внедрять формат в рабочие записи.
+
+Нативные источники:
+[CreateFileW: CREATE_NEW, security attributes и sharing](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew),
+[ReplaceFileW: WRITE_THROUGH flag не поддерживается](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-replacefilew).
+
+### T094: same-source native ARM64 результат — 2026-09-30
+
+Присланный пользователем schema6 сверён с stdout живого PID2956:
+`f200-arch-comparison.gJ8bq3/arm64/PacketProbe.exe`, PE ARM64 и SHA-256
+`3b4128c5cc633cf460eaf9f8bea457b80c43332d4f107193ae4510c447d9e6b1`.
+GRAF отсутствовал. Это один завершённый metadata-only запуск по явному Start,
+не проверка звука/SC003. 65 packets/31200 frames/released65, startup480,
+единственный startup discontinuity, release/timestamp errors0. Stats64,
+gaps min/max/residual0; clockDrift на native packet12 (stats11), valid10.
+
+| Stats checkpoint | Packet QPC error, ms | Current clock error, ms | Paired span shift, ms |
+| --- | --- | --- | --- |
+| 2 | -0.0601 | -10.0000 | -9.9399 |
+| 8 | -0.0788 | -8.2058 | -8.1270 |
+| 11 (первая ошибка) | +1.1438 | +3.8313 | +2.6875 |
+| 32 | +1.8970 | -8.0315 | -9.9285 |
+| 64 | +2.2090 | -7.4771 | -9.6861 |
+
+На пяти точках `clockError - packetError - pairShift = 0` в единицах100ns:
+относительные position spans совпадают после деления на свои частоты. Это
+результат только экспортированных точек, не гарантия поведения между ними.
+Текущие часы не являются более устойчивым готовым timestamp первого кадра.
+На stats11 device span4800frames=100ms, ошибка packet1.1438ms превышает
+действующий budget1.0309477ms. End-to-end источник отклонения по одному такому
+короткому наблюдению не установлен: cadence/QPC/virtual endpoint/host scheduling
+ещё не разделены. Max service17.148ms и hold34µs — агрегаты до первого fault,
+не временная трасса его причины; отсутствие timestamp flag не доказывает
+точность1ms. Native GetPosition/GetBuffer возвращают разные позиции/корреляции.
+
+**Изменение следующего действия:** сбой существует в native ARM64, поэтому
+нельзя считать x64 emulation его единственной необходимой причиной. Влияние
+Parallels/виртуальных устройств остаётся гипотезой. После окончания/checked
+release/Stop ARM64 process закрыт, затем открыт один x64 GUI из тех же исходников
+и с предварительно проверенным EXE hash; Start ожидается отдельно, результат
+пока не получен. Контролируемое сравнение двух архитектур ещё не завершено.
+Никакая архитектура продукта не добавлялась.
+
+Синтетическая изоляция actual mapper/normalizer/timeline дополнена именно
+fault checkpoint stats11: идеальные предыдущие пакеты, ошибка1.1438ms,
+sticky clock rejection PASS, потеря одного кадра отвергается. Counterfactual
+mapper-only bypass даёт55frames и штатный timeline rejection (>48). Это не
+полный replay аппаратной трассы: предыдущие64 timestamps не экспортированы.
+На новом CPP `c6b918256b47e3debba80b5c100596e326eaa1e7d2f42cf3c8b9f9903002d799`
+оба исторический и новый isolation cases PASS; продукт/§5 не изменены.
+План остаётся: coherent clock model через всю цепочку, не увеличение одного
+threshold и не замена PTS callback/wall-clock/current-clock timestamp.
+
+### RQ30-H1: выбранные решения Phase0 для ProtectedLogicalFile — 2026-09-30
+
+**Decision:** native user-scope DPAPI на ограниченные объекты, каталог каждого
+logical artifact с immutable block versions и двумя alternating protected
+indices; 256KiB payload block. CNG SHA256 проверяет decoded envelope.
+**Rationale:** штатные offline/profile keys без своего AES key/nonce lifecycle;
+256KiB уменьшает число файлов/индекс вчетверо против64KiB при измеренном
+protect/unprotect≈20/21ms, не задержке1MiB объекта. Это выбор для дизайна,
+не доказательство общей disk/index/queue скорости. **Alternatives:** EFS не
+покрывает Home; AES-GCM+DPAPI key добавляет nonce lifecycle; append-only container
+требует compaction; in-place rewrite разрушает прежний checkpoint.
+
+Выбранные исходные bounds (не результаты runtime memory proof):
+
+| Ресурс | Предел |
+| --- | --- |
+| Logical artifact | 64GiB; 262144block positions, exact ceil без overflow addition |
+| Index entry | 16B: block version u64, cipher length u32, flags u32; index implicit |
+| Plain index | Header/envelope≤4096 + count×16; максимум4198400B |
+| Cipher block / index | Payload+4096 / plain-index-bound+64KiB; checked до чтения и после API |
+| Plain block caches | До2MiB суммарно на процесс, не на каждый IStream Clone |
+| Dirty rewrite group | До4blocks/1MiB, одна группа без очереди следующих групп |
+| Layer-owned buffers | Cap64MiB, резервирование до allocation; внутренние DPAPI/MF не объявлены измеренными |
+| GC pass | До64objects, без списка всего каталога в памяти |
+
+64GiB — предел представления, не серверная квота/длительность и не разрешение
+выделять его на диске. Он выше canonical boundary25769803554B из текущего RIFF
+u32 limit и отношения192000/32000. Поэтому предложение исследователя16GiB
+не принято как новый предел writer. Час canonical691200000B требует2637blocks/
+index46288B; 4h2764800000B —10547/172848; 24h16588800000B —63282/1016608.
+Коррекция вывода исследователя: DesktopHttpTransport.cpp:175 допускает24h
+только в локальном parser, сервер config.py:238/ingest policy ограничивает4h.
+Это найденное расхождение, не право заявлять server acceptance24h; эти лимиты
+не менялись. Проверка общих product limits нужна до закрытия паритета.
+
+Block version и index generation различаются: незатронутые blocks переиспользуются.
+Protected envelope связывает schema/type/file identity/index/version/exact length
+и digest; wire fields явно little-endian, не ABI memcpy. Explicit ZERO допустим
+только для заданного расширения файла; missing/corrupt object никогда не ZERO.
+Sequential writer публикует каждый полный256KiB block, Flush/Pause/Stop также
+короткий хвост. 4blocks — максимум seek/rewrite группы, не ожидание5.46s для
+обычной записи. При продвижении canonical cadence≈1.365s; это не wall-time
+гарантия при зависшем IO. Recovery принимает только complete480-frame groups
+в durable checkpoint; Write-accepted bytes не равны durable prefix. Любой
+storage отказ завершает normal acceptance, не увеличивает256batches/2EOS/5s drain.
+
+Commit сохраняет порядок round119; indeterminate post-publish error блокирует
+writes/GC. Оба slots/readers/current group удерживают свои objects; unreadable
+slot запрещает GC его неизвестных ссылок. Disk reserve считается по фактическим
+cipher sizes+candidate index+orphan/pinned/legacy copies и PRD quota/reserve,
+не считается гарантированным по одному GetDiskFreeSpace. Finalized snapshot
+immutable; manifest последний после WAV/M4A. Streaming logical hash/ranges
+сохраняют v5 bytes, не используют whole-file allocation. Existing LocalMetadataScan
+и open-validation background path уже существуют — новый scanner service не нужен.
+
+**Playback API выбран для дизайна:** IStream→IMFByteStream→native Media Engine
+IMFMediaEngineEx::SetSourceFromByteStream; MF_MEDIA_ENGINE_AUDIOONLY — flag
+CreateInstance (не attribute), IMFMediaEngineNotify callback обязателен.
+Нейтральный resource label не раскрывает private path/token, не разрешает
+external resource resolve. Нет ShellExecute через plaintext temp. Native
+Pause/Resume/Seek/Stop и close/account/delete/shutdown fences используют один
+pinned snapshot. Это API-интеграция по документации, ещё не runtime playback proof.
+
+Legacy migration копирует один файл streaming, проверяет exact hash/length и
+validated commit до переключения; original и durable intent сохраняются.
+Без re-encode/new UUID/сброса accepted ranges. Два slots не являются transaction
+всего package/ledger: точный intent/authority/order требует Phase1. Legacy/
+oversized/key-loss copies не обрезаются/не удаляются автоматически; до безопасной
+очистки originals весь old inventory не называется encrypted. DPAPI profile
+loss не выдаётся за восстановление; plaintext fallback запрещён.
+
+Bounds fixture `/tmp/graf-f200-storage-bounds.dMZocV/check.cpp`, SHA-256
+`278566e785580d3c37b1200f14cd9e89007fafb9bc7671d1285995a43fe93aea`,
+ASan/UBSan/Wall/Wextra/Wpedantic/Werror build0/run0: empty/partial/full/max
+dimensions, UINT64/offset/count overflow, truncated/extra index, flags/ZERO,
+cipher length. Только design arithmetic, не parser/crypto/storage acceptance.
+Coherent clock model пока неизвестна; exact wire/envelope и package migration
+contract требуют Phase1 после Phase0. Combined IO/resources, power-loss,
+standard-user/Home и playback — обязательные будущие проверки реализации.
+Общий Phase0/review NOT READY; production code не менялся.
+
+Первичные источники:
+[SetSourceFromByteStream](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nf-mfmediaengine-imfmediaengineex-setsourcefrombytestream),
+[CreateInstance audio-only and callback](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nf-mfmediaengine-imfmediaengineclassfactory-createinstance),
+[native create flags](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/ne-mfmediaengine-mf_media_engine_createflags).
+
+### T094: проверка различимости дрейфа и ошибки меток — 2026-09-30
+
+**Решение:** дальнейшая модель должна отдельно проверять custody кадров и
+согласованность временной шкалы; один residual от первого пакета не является
+измерением устойчивого изменения частоты. Для исследования выбран проверяемый
+интервальный критерий совместимости меток с частотой/фазой, а не clamp результата
+или перезапуск origin. Производственная модель PTS пока не выбрана: совместимость
+одной частоты не означает, что она установлена, или что двухисточниковый AEC
+получит достаточно точное выравнивание. Phase0 остаётся открытой.
+
+**Обоснование:** синтетический стенд использует модель
+`q(t)=phase+t*(1+e)+noise`, `abs(noise)<=J`. Для заданного постоянного `e` каждая
+метка ограничивает phase интервалом `[q-t*(1+e)-J, q-t*(1+e)+J]`; пустое
+пересечение отвергает гипотезу. Все точки учитываются без сброса окна/накопленной
+границы. Это модель исследования, не гарантия постоянной частоты реального
+устройства на протяжении всей записи и не алгоритм допуска аудио.
+
+Оценка частоты по концам интервала имеет неопределённость `2J/T`. Две гипотезы
+с разными неизвестными phase и собственным ограниченным noise гарантированно
+различимы только при `abs(e1-e2)*T>4J`. При равенстве множества ещё соприкасаются.
+Независимо известный точный phase даёт другую границу `>2J`, но первая измеренная
+метка WASAPI не является таким точным внешним эталоном. Независимый исследователь
+подтвердил различие этих трёх случаев. Это вывод из модели, не утверждение Microsoft.
+
+В стенде **гипотетический** J=3ms: один и тот же полный искусственный ряд
+совместим с 100 и 200ppm до120s включительно; после120s эти две гипотезы
+различимы. Без шума несовместимость 200ppm с 100ppm появляется раньше — после60s.
+Это не обоснование нового лимита3ms и не обещание, что120s любой настоящей
+диагностики установят частоту. Пять экспортированных ARM64 checkpoints совместимы
+с номинальной частотой при этом предположении; допустимая phase ширина3.7122ms
+сама по себе не доказывает нынешнюю точность1ms/48frames. Неэкспортированные
+пакеты, предел noise, последующая частота и относительная шкала render/mic
+из этого не восстанавливаются.
+
+**Проверено:** standalone C++17/ASan/UBSan/Wall/Wextra/Wpedantic/Werror, без VM,
+устройств/PCM/сети: идеальный час, одиночная ошибка1.1438ms, alternating±3ms,
+границы±100ppm; неоднозначность120s и исключение сразу за границей; phase step7ms,
+sticky rejection и границы арифметики. Настоящий ClockMapper отдельно сохраняет
+отказ при потере/повторе одного кадра и ошибочных flags. Файл вне git:
+`/tmp/graf-f200-clock-feasibility.yvkwK5/check.cpp`, SHA-256
+`3b54380d082bfb858446424f14a4be3de000a2304442726f91f6cd28dc3d6f32`.
+
+**Отвергнутые альтернативы:** выдавать единственную подогнанную частоту за
+подтверждённую; принять clamp/smoothing как исправление потерь; расширить только
+порог mapper; заменить время первого кадра текущим clock/временем callback;
+назвать ARM64 или VM единственной доказанной причиной. Следующий аппаратный
+вопрос — долговременные диапазоны ошибки меток и совместимость обеих исходных
+шкал. Численные правила §5/SC003, product mapper/normalizer/timeline не менялись.
+
+Повторно сверенные первичные источники: Microsoft
+[GetBuffer: время первого кадра](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudiocaptureclient-getbuffer),
+[GetPosition: текущая позиция и S_FALSE](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock-getposition),
+[GetFrequency: номинальная частота не учитывает drift/jitter](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock-getfrequency).
+
+### T094: phase-only smoothing не является исправлением — 2026-09-30
+
+**Решение:** отвергнут путь «сгладить пакетный QPC и оставить коррекцию семплов
+существующей timeline». Следующая модель должна согласовывать оценку частоты с
+непрерывной фазой resampler, а не лечить шум меток многократным trim/interpolate.
+Это выбор направления, не готовый численный контракт или допуск нового mapper.
+
+**Доказательство:** изолированный одноэкспоненциальный phase filter с временем
+0.32s и гипотетической погрешностью±3ms на метку связан с настоящими
+`AudioNormalizer`/`RecordingAudioTimeline`. Счётчик кадров проверяется независимо,
+origin не сбрасывается. Четыре искусственных60s случая — 0/0 и+100/−100ppm,
+постоянные/переменные пакеты, разные sinusoidal ошибки меток — проходят без
+timeline fault:6000/5999 blocks. Это ещё не качество записи.
+
+Контрпример10s: два одинаковых1kHz тона, идеальные реальные часы, различается
+только искусственная ошибка меток. Timeline остаётся healthy, изменение RMS
+render всего−0.000899928dB, но максимальная ошибка относительно исходной волны
+и рассогласование двух одинаковых источников достигают0.5 при амплитуде0.25;
+trimmed render frames1415. Так проверка уровня≤1dB и отсутствие fault могут
+пропустить полную ошибку фазы. Это counterfactual prototype, не утверждение
+о таких ошибках текущего GRAF или настоящем AEC. Рабочий GRAF ещё раньше
+прекратил бы этот поток по неизменённому mapper budget.
+
+Проверены sticky отказ при+200ppm (packet6021/60.21s в конкретном noiseless
+стенде), loss/repeat одного кадра и скачок метки. Диагностический J3ms, предел
+разности6ms и alpha не принимаются за production bounds. PCM — только
+сгенерированные constant/tone samples; процессор passthrough, не pinned AEC.
+Standalone C++17/O2/ASan/UBSan/Wall/Wextra/Wpedantic/Werror build0/run0:
+`/tmp/graf-f200-clock-filter.vAEmXa/check.cpp`, SHA-256
+`9ef5c4cd01d4c2fc6092c72af973b764cb31ea9eda23b425d4fb32f1d7890683`.
+
+**Первичные образцы:** Chromium
+[SnooperNode](https://github.com/chromium/chromium/blob/ab6b23fbaa30f59c1f7b7c984e4f4247aea6d2a8/services/audio/snooper_node.cc#L237-L318)
+корректирует ratio resampler, не только output timestamp. Его zero-fill/drop/
+seek/prime-silence пути не подходят для GRAF и не копируются. Это playback
+node, не готовое доказательство capture integrity WASAPI.
+[GStreamer slave methods](https://gstreamer.freedesktop.org/documentation/audio/gstaudiobasesrc.html#GstAudioBaseSrcSlaveMethod)
+также разделяют resample, retimestamp и изменение capture pointer; библиотека
+не добавляется. WebRTC
+[CoreAudioInput](https://webrtc.googlesource.com/src/+/d2c106be9c34f71b756e45b2b7fd9e97f553a549/modules/audio_device/win/core_audio_input_win.cc#318)
+использует packetQPC для latency estimate, а flags ошибок пишет как warning;
+этот relaxed integrity путь не переносится в GRAF. Никакой сторонний код
+или новая dependency в продукт не внесены. Phase0/§5/SC003 остаются открытыми.
+
+### T094: последовательные metadata-only опыты x64 и ARM64 — 2026-09-30
+
+**Решение:** исключить зависимость исследовательского опыта от ненадёжного
+ручного ввода Parallels. В собственной утилите вне git добавлен строгий
+`--metadata-once-48000`: тот же worker, видимый индикатор и Stop, один опыт,
+5s deadline/750ms отмена, без чтения PCM. Без аргументов сохраняется ручной
+Start; неизвестные аргументы отклоняются до COM/микрофона. Это CLI собственного
+кода, не имитация GUI input и не доказательство приёмки интерфейса GRAF.
+
+Две сборки одного источника, x64 и native ARM64, выполнены последовательно.
+Обе дали exit0, Stop S_OK, освобождение каждого полученного пакета и отсутствие
+остаточного процесса. x64:31 packets/14880frames/352ms,21 valid; clock_drift
+на packet23, затем DATA_DISCONTINUITY на packet31. ARM64:7 packets/3360frames/
+91ms,5 valid; DATA_DISCONTINUITY на packet7. До flag обе серии имеют нулевые
+frame gaps; x64 checkpoint22 показывает packet-time residual1.2869ms.
+Нулевой счётчик разрывов кадров не позволяет игнорировать аппаратный flag.
+
+**Вывод и ограничения:** проблема не требует x64 эмуляции для возникновения.
+Эти короткие неравные серии не сравнивают производительность архитектур,
+не устанавливают Parallels/driver как единственную причину, не доказывают
+качество/непрерывность звука. Автоматический сбор metadata теперь доступен
+без пользовательского клика; основная запись и установленный MSIX не менялись.
+Не копируется relaxed обработка flags из других продуктов; mapper threshold
+не расширяется. Дальнейший кандидат должен согласовывать непрерывную фазу
+преобразователя частоты и временную шкалу, а отдельно сохранять строгие
+frame/flag/ReleaseBuffer/EOS проверки. См. round124 validation для точных
+источников, хешей и отказа первой версии оболочки запуска.
+
+### T094/T096: reuse преобразователя и исключение до ReleaseBuffer — 2026-09-30
+
+Независимый исследователь проверил exact pinned WebRTC
+`846fe90a289f58b7c9303a635142aa2c7caa93e5`: direct
+[SincResampler API](https://github.com/okarlsen/webrtc-audio-processing/blob/846fe90a289f58b7c9303a635142aa2c7caa93e5/webrtc/common_audio/resampler/sinc_resampler.h)
+поддерживает SetRatio без сброса fractional source phase; вызовы serial с
+Resample. Он входит в уже linked libcommon_audio.a, новая dependency не нужна.
+PushSincResampler фиксирует ratio/request sizes; старый discrete Resampler
+не подходит. Vendor в этом worktree не доступен; local symbols/compiled reuse
+не проверены. Это API-level reuse choice, не выбранная production clock модель.
+
+Минимальный кандидат использует одну оценку `q=a+b*n+noise` и для source phase,
+и для input/output ratio. PTS/normalizedFrameOffset продвигаются по выданным
+семплам, реальная source phase не сбрасывается; phase correction действует
+через непрерывный ratio, не независимый timeline trim. Correction horizon,
+slew/phase uncertainty не определены и не заменяются прежними toy constants.
+Совместимость clock/count/flags остаётся отдельным проверяемым gate. Вывод:
+нужны true-time waveform для двух источников, partition-invariant output,
+startup/partial-request/EOS accounting. Pinned sinc имеет zero startup history
+и не имеет partial EOS drain; его callback padding нельзя молча принять за
+полученный звук. Границы должны быть согласованы с §5 до внедрения.
+
+Отдельно main-agent воспроизвёл T096 exception custody gap настоящего
+`WasapiCaptureWorker::consumePacket`: искусственный отказ только1920B
+выделения `batch.samples.resize(480)` выбрасывает bad_alloc до release callback.
+Однопоточный portable стенд с generated zero array, actual worker/mapper/
+normalizer/enumerator, ASan/UBSan/strict C++17 сообщает
+`ALLOCATION_FAULT_REPRODUCED=1 RELEASE_CALLS=0 CUSTODY_ACCEPTED=0`.
+Память системы не исчерпывалась, устройств/PCM/network не использовано.
+Это реальная uncovered failure branch, а не объяснение аппаратного clock_drift.
+Минимальное исправление должно гарантировать ровно один ReleaseBuffer после
+успешного acquisition при исключении до copy/release, сохранить release error
+как приоритетную причину и не вызвать normalizer/callback/writer. Сам product
+пока не менялся; regression и review относятся к существующей T096, не дублирующей
+фиче. Источник/хеши стенда в round124 validation.
+
+### T094/T096: результат узкого исправления и MMCSS — 2026-10-01
+
+Round125 восстановил existing release гарантию: catch только samples allocation,
+checked release с приоритетом releaseFailed и false до normalize/callback.
+Native std::function заранее построена до Start/GetBuffer; новая модель/API не
+добавлена. RED→GREEN actual worker, macOS/Windows32/32 и ASan/UBSan1/1;
+independent post-implementation review привязан к двум source hashes. Полная
+T096 и clock/storage Phase0 остаются открытыми.
+
+Отдельный disposable metadata-only x64 опыт зарегистрировал Audio thread через
+[AvSetMmThreadCharacteristicsW](https://learn.microsoft.com/en-us/windows/win32/api/avrt/nf-avrt-avsetmmthreadcharacteristicsw)
+и выполнил
+[AvRevertMmThreadCharacteristics](https://learn.microsoft.com/en-us/windows/win32/api/avrt/nf-avrt-avrevertmmthreadcharacteristics)
+на том же worker после Stop/COM cleanup. Registration/revert успешны, но
+получен sample_count_mismatch packet9: frame gap−11 при65/65release, без
+timestamp-error flags. Наблюдение отвергает достаточность одной регистрации,
+не доказывает отсутствие её пользы или VM/driver sole cause. В приложение не
+переносились MMCSS/buffer/новые thresholds. Подробности и hashes —
+validation-2026-10-01.md; ни этот опыт, ни custody fix не принимают живой звук.
+
+### T094/T095: compiled continuous-ratio waveform и граница EOS — 2026-10-01
+
+**Decision:** сохранить direct pinned SincResampler как подтверждённый
+исследовательский путь непрерывного ratio без новой зависимости. Не переносить
+его в production до количественного clock estimator/uncertainty contract и
+полного start/partial-EOS решения. Phase0 остаётся открытой.
+
+**Rationale:** round126 впервые использует настоящий verified x64 artifact,
+не копию алгоритма. Семь generated60s вариантов с реальным RecordingAudioTimeline
+проверяют waveform, два источника44.1/48k, известные±100ppm, start offset,
+разные input request sizes и output partitions, изменения ratio20/40s.
+На одном опубликованном интервале fixed/variable output побитно одинаковы;
+ошибка волны<0.000021, межисточниковая разница<0.000023. Negative с nominal
+ratio здоров по timeline и RMS, но waveform mismatch≈0.39: длительности и
+уровня недостаточно. Это oracle эксперимент, не clock estimator из метаданных.
+Числа допустимой ошибки в собственном стенде не задают новых рабочих порогов.
+
+**Startup/EOS:** из actual layout следует support
+`[floor(x)-16,floor(x)+15]` для центра x. Zero-history начала нельзя выдавать
+как полученный звук. Callback требует полный request R, R>48; после полной
+загрузки C=R*floor(N/R) безопасный префикс API имеет16≤x<C−16.
+Неполный хвост никогда не дополняется нулями. Два runnable edge cases R64/N100
+и N128 подтвердили недоступность соответственно37 и1 математически пригодных
+центров без ещё одного полного callback. Зеркало bounded local cursor нужно
+проверять с тем же порядком floating-point операций; глобальная сумма ratio
+не является точным публичным getter. Это дальнейшая интеграционная задача,
+не объявленное отсутствие потерь полного EOS.
+
+**Alternatives considered:** nominal ratio при независимом timestamp shift
+отвергнут waveform negative; phase-only фильтр уже отвергнут round123;
+callback zero-padding/Flush на смене ratio/игнорирование flags не допустимы.
+Собственная новая resampler library не нужна. Частота/phase по oracle не
+выдаётся за выбранный causal estimator, проверка generated prefix — за AEC,
+AAC, WASAPI, device recovery или полноценный аппаратный тест.
+
+Primary source pin:
+[SincResampler API](https://github.com/okarlsen/webrtc-audio-processing/blob/846fe90a289f58b7c9303a635142aa2c7caa93e5/webrtc/common_audio/resampler/sinc_resampler.h),
+[layout/SetRatio/Resample](https://github.com/okarlsen/webrtc-audio-processing/blob/846fe90a289f58b7c9303a635142aa2c7caa93e5/webrtc/common_audio/resampler/sinc_resampler.cc).
+Exact source/artifact hashes, commands, counters and limitations находятся в
+validation-2026-10-01.md, round126; production artifacts/tasks не изменились.

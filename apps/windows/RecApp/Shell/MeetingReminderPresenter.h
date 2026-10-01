@@ -10,7 +10,8 @@ class MeetingReminderPresenter final {
 public:
     explicit MeetingReminderPresenter(RecordingNoticePresenter& card,
         NotificationPreferenceStore store = NotificationPreferenceStore::native());
-    void bind(std::string owner, std::string workspace);
+    ~MeetingReminderPresenter();
+    void bind(std::string owner, std::string workspace, std::string origin = {});
     void invalidate();
     void calendarFailed();
     [[nodiscard]] bool update(CalendarReminderSnapshot snapshot, std::uint64_t epoch);
@@ -22,12 +23,21 @@ public:
     [[nodiscard]] std::uint64_t epoch() const { return model_.epoch(); }
     [[nodiscard]] const std::string& owner() const { return model_.owner(); }
     [[nodiscard]] const std::string& workspace() const { return model_.workspace(); }
+    [[nodiscard]] const std::string& origin() const { return model_.origin(); }
+    [[nodiscard]] const NotificationPreferences& preferences() const { return preferences_; }
     std::function<void(ReminderActionTarget, NoticeAction)> onActionRequested;
+    // Native integration plays one optional sound here; never called for a
+    // refresh, preview, quiet mode, blocked surface or active capture.
+    std::function<void()> onMeetingPresented;
 private:
+    void retirePresented();
     RecordingNoticePresenter& card_;
     NotificationPreferenceStore store_;
     MeetingReminderModel model_;
     NotificationPreferences preferences_;
     std::optional<ReminderActionTarget> presented_;
+    std::optional<NoticeAction> pendingAction_;
+    double presentedDeadline_ = 0;
+    RecordingNoticePresenter::Clock::time_point presentedSteadyDeadline_{};
 };
 } // namespace graf::windows

@@ -11,7 +11,7 @@ const origin = process.env.SETTINGS_PREVIEW_URL || 'http://127.0.0.1:8897';
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
       let checks = 0;
-      for (const [width, height] of [[1080, 620], [744, 530], [744, 400], [560, 530], [375, 620]]) {
+      for (const [width, height] of [[1080, 620], [744, 530], [744, 400], [560, 530], [500, 620], [480, 620], [375, 620]]) {
         await page.setViewportSize({width, height});
         const response = await page.goto(`${origin}/desktop/meetings?theme=light`);
         assert.equal(response.status(), 200);
@@ -22,7 +22,7 @@ const origin = process.env.SETTINGS_PREVIEW_URL || 'http://127.0.0.1:8897';
         for (const title of ['Вид', 'Решение проблем', 'Документация']) {
           const details = menu.locator('.sidebar-profile-menu__disclosure').filter({hasText: title});
           await details.locator('summary').click();
-          const inline = width <= 520 || (width === 560 && title === 'Документация');
+          const inline = width < 485 || ((width === 560 || width === 500) && title === 'Документация');
           await page.waitForFunction(({title, inline}) => {
             const d = [...document.querySelectorAll('.sidebar-profile-menu__disclosure')]
               .find(el => el.querySelector('summary').textContent.trim() === title);

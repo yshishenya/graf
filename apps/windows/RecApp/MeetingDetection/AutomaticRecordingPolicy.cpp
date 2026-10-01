@@ -138,16 +138,24 @@ bool AutomaticRecordingPolicy::save(std::map<std::string, AutomaticRecordingPref
 
 bool AutomaticRecordingPolicy::setPreference(const VerifiedTargetIdentity& target, AutomaticRecordingPreference value) {
     if (!validPreference(value) || !registry_.contains(target)) return false;
+    const bool invalidatesStart = state_ == AutomaticPromptState::started && !recordingTarget_ &&
+        target.targetKey == target_.identity.targetKey && preference(target) != value;
     auto updated = preferences_;
     updated[target.targetKey] = value;
-    return save(std::move(updated));
+    if (!save(std::move(updated))) return false;
+    if (invalidatesStart) cancel();
+    return true;
 }
 
 bool AutomaticRecordingPolicy::setAllPreferences(AutomaticRecordingPreference value) {
     if (!validPreference(value) || registry_.targets().empty()) return false;
+    const bool invalidatesStart = state_ == AutomaticPromptState::started && !recordingTarget_ &&
+        preference(target_.identity) != value;
     auto updated = preferences_;
     for (const auto& target : registry_.targets()) updated[target.targetKey] = value;
-    return save(std::move(updated));
+    if (!save(std::move(updated))) return false;
+    if (invalidatesStart) cancel();
+    return true;
 }
 
 AutomaticRecordingSettingsSnapshot AutomaticRecordingPolicy::settings() const {
@@ -177,20 +185,40 @@ bool AutomaticRecordingPolicy::currentTargetReady(const TargetDetectionSnapshot&
 
 std::uint32_t AutomaticRecordingPolicy::secondsRemaining(DetectionClock::time_point now) const noexcept {
     if (state_ != AutomaticPromptState::countdown) return 0;
+    if (!promptPresented_) return 8;
     if (now <= promptStartedAt_) return 8;
     const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - promptStartedAt_).count();
     return elapsed >= 8 ? 0 : static_cast<std::uint32_t>(8 - elapsed);
 }
 
+bool AutomaticRecordingPolicy::confirmPromptPresented(DetectionClock::time_point shownAt) noexcept {
+    if (state_ != AutomaticPromptState::countdown || promptPresented_ || shownAt < promptStartedAt_) return false;
+    promptStartedAt_ = shownAt;
+    promptPresented_ = true;
+    return true;
+}
+
 AutomaticRecordingDecision AutomaticRecordingPolicy::start(AutomaticStartReason reason, bool rememberChoice) {
     const auto saved = rememberChoice && setPreference(target_.identity, AutomaticRecordingPreference::always);
-    tracked_.at(VerifiedTargetRegistry::identityKey(target_.identity)).handled = true;
+    auto& tracked = tracked_.at(VerifiedTargetRegistry::identityKey(target_.identity));
+    tracked.handled = true;
     state_ = AutomaticPromptState::started;
-    return {state_, true, saved, reason};
+    pendingSessionId_.clear();
+    startEvidenceAt_ = tracked.lastSeen;
+    return {state_, true, saved, reason, ++startGeneration_};
 }
 
 AutomaticRecordingDecision AutomaticRecordingPolicy::update(const TargetDetectionSnapshot& snapshot,
     const AutomaticRecordingPrerequisites& prerequisites, DetectionClock::time_point now) {
+    if (state_ == AutomaticPromptState::started && !recordingTarget_) {
+        // Do not replace the target/decision while native workers are starting.
+        // Once invalidated, later fresh evidence cannot revive the same token.
+        if (!startStillAllowed(snapshot, prerequisites, now)) {
+            cancel();
+            state_ = AutomaticPromptState::blocked;
+        }
+        return {state_};
+    }
     if (!fresh(snapshot, now)) {
         state_ = AutomaticPromptState::blocked;
         return {state_};
@@ -237,6 +265,7 @@ AutomaticRecordingDecision AutomaticRecordingPolicy::update(const TargetDetectio
         if (preference(target_.identity) == AutomaticRecordingPreference::always)
             return start(AutomaticStartReason::savedPreference, false);
         promptStartedAt_ = now;
+        promptPresented_ = false;
         state_ = AutomaticPromptState::countdown;
         return {state_};
     }
@@ -245,7 +274,7 @@ AutomaticRecordingDecision AutomaticRecordingPolicy::update(const TargetDetectio
 
 AutomaticRecordingDecision AutomaticRecordingPolicy::recordNow(bool rememberChoice, const TargetDetectionSnapshot& snapshot,
     const AutomaticRecordingPrerequisites& prerequisites, DetectionClock::time_point now) {
-    if (state_ != AutomaticPromptState::countdown) return {state_};
+    if (state_ != AutomaticPromptState::countdown || !promptPresented_) return {state_};
     if (now < promptStartedAt_ || !currentTargetReady(snapshot, now) || !prerequisites.allowsStart() ||
         preference(target_.identity) == AutomaticRecordingPreference::never) {
         state_ = AutomaticPromptState::blocked;
@@ -257,7 +286,7 @@ AutomaticRecordingDecision AutomaticRecordingPolicy::recordNow(bool rememberChoi
 }
 
 AutomaticRecordingDecision AutomaticRecordingPolicy::refuse(bool rememberChoice, DetectionClock::time_point now) {
-    if (state_ != AutomaticPromptState::countdown || now < promptStartedAt_ || secondsRemaining(now) == 0) return {state_};
+    if (state_ != AutomaticPromptState::countdown || !promptPresented_ || now < promptStartedAt_ || secondsRemaining(now) == 0) return {state_};
     const auto saved = rememberChoice && setPreference(target_.identity, AutomaticRecordingPreference::never);
     cancel();
     state_ = AutomaticPromptState::refused;
@@ -270,6 +299,42 @@ void AutomaticRecordingPolicy::captureAccepted() {
     lastCaptureEvidenceAt_ = tracked_.at(VerifiedTargetRegistry::identityKey(*recordingTarget_)).lastSeen;
     lastCaptureSnapshotAt_ = lastCaptureEvidenceAt_;
     captureAbsentSince_.reset();
+    pendingSessionId_.clear();
+}
+
+bool AutomaticRecordingPolicy::canBindStart(std::uint64_t generation) const noexcept {
+    return generation != 0 && generation == startGeneration_ && state_ == AutomaticPromptState::started &&
+        !recordingTarget_ && pendingSessionId_.empty();
+}
+
+bool AutomaticRecordingPolicy::bindStart(std::uint64_t generation, std::string_view sessionId) {
+    if (!canBindStart(generation) || sessionId.empty()) return false;
+    pendingSessionId_ = sessionId;
+    return true;
+}
+
+bool AutomaticRecordingPolicy::hasPendingStart(std::string_view sessionId) const noexcept {
+    return !sessionId.empty() && pendingSessionId_ == sessionId && !recordingTarget_ &&
+        state_ == AutomaticPromptState::started;
+}
+
+bool AutomaticRecordingPolicy::startStillAllowed(const TargetDetectionSnapshot& snapshot,
+    const AutomaticRecordingPrerequisites& prerequisites, DetectionClock::time_point now) const {
+    return prerequisites.allowsStart() && preference(target_.identity) != AutomaticRecordingPreference::never &&
+        snapshot.observedAt >= startEvidenceAt_ && currentTargetReady(snapshot, now);
+}
+
+bool AutomaticRecordingPolicy::acceptStart(std::uint64_t generation, std::string_view sessionId,
+    const TargetDetectionSnapshot& snapshot, const AutomaticRecordingPrerequisites& prerequisites,
+    DetectionClock::time_point now) {
+    if (generation == 0 || generation != startGeneration_ || !hasPendingStart(sessionId)) return false;
+    if (!startStillAllowed(snapshot, prerequisites, now)) {
+        cancel();
+        return false;
+    }
+    captureAccepted();
+    lastCaptureEvidenceAt_ = lastCaptureSnapshotAt_ = snapshot.observedAt;
+    return true;
 }
 
 bool AutomaticRecordingPolicy::shouldStopCapture(const TargetDetectionSnapshot& snapshot, bool captureActive,
@@ -306,6 +371,8 @@ bool AutomaticRecordingPolicy::shouldStopCapture(const TargetDetectionSnapshot& 
 }
 
 void AutomaticRecordingPolicy::cancel() noexcept {
+    ++startGeneration_;
+    pendingSessionId_.clear();
     recordingTarget_.reset();
     captureAbsentSince_.reset();
     // Avoid allocating a key from a noexcept Stop/dismissal path.

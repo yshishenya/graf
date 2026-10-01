@@ -36,6 +36,9 @@ public:
     // The callback owns dispatch; it must not wait for that work on the UI thread.
     using Finalizer = std::function<std::optional<CaptureFinalization>(ReasonCode, RecordingStopReason)>;
     using MicrophonePauseHandler = std::function<void(bool)>;
+    // UI-owner-thread only, synchronous, no event pumping. Automatic starts
+    // bind this to their decision/session before workers start. Empty = manual.
+    using StartGuard = std::function<bool(std::string_view)>;
 
     WindowsCaptureSessionController(std::string sessionId, BatchSink batchSink = {},
                                     Finalizer finalizer = {},
@@ -49,7 +52,7 @@ public:
     // Record returns starting; health polling promotes it only after both
     // endpoints are ready. Stop may return stopping while cancellation unwinds.
     // Continue polling until terminal: only the UI poll finalizes a pending Stop.
-    [[nodiscard]] TransitionResult record(const ReadinessInputs& readiness);
+    [[nodiscard]] TransitionResult record(const ReadinessInputs& readiness, StartGuard startGuard = {});
     [[nodiscard]] TransitionResult pause();
     [[nodiscard]] TransitionResult resume();
     // Only a deliberate stop can make a short recording eligible for discard.
@@ -91,6 +94,8 @@ private:
     BatchSink batchSink_;
     Finalizer finalizer_;
     MicrophonePauseHandler microphonePauseHandler_;
+    StartGuard startGuard_;
+    bool checkingStart_ = false;
     RecordingIndicator indicator_;
     std::unique_ptr<WasapiCaptureWorker> renderWorker_;
     std::unique_ptr<WasapiCaptureWorker> microphoneWorker_;

@@ -1,5 +1,5 @@
 #include "../../RecApp/Upload/ProductAttributionHandoff.h"
-#include "../../RecApp/Web/WebViewRoutePolicy.h"
+#include "../../RecApp/Web/WebView2Host.h"
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -98,29 +98,71 @@ void expiryAndSignIn() {
     constexpr auto life = ProductAttributionHandoff::validitySeconds;
     assert(value && !value->isExpired(now + life - 1) && value->isExpired(now + life));
     assert(value->isExpired(std::numeric_limits<std::int64_t>::max()));
-    const WebViewRoutePolicy policy("https://rec.2brain.pro");
-    const auto url = productAttributionSignInUrl(policy, "/billing", value, now);
-    assert(url == "https://rec.2brain.pro/login?next=%2Fbilling&graf_attribution_fallback=1"
-        "&graf_attribution_ref=graf_attr_abcdefgh&utm_source=search&utm_campaign=launch&landing_path=%2Fdownload");
-    assert(productAttributionSignInUrl(policy, "https://evil.invalid/billing", value, now).find("next=%2Fdesktop%2Fmeetings") != std::string::npos);
-    assert(productAttributionSignInUrl(policy, "//evil.invalid", value, now).find("evil") == std::string::npos);
-    assert(productAttributionSignInUrl(policy, "/billing?next=https://evil.invalid#bad", value, now).find("evil") == std::string::npos);
-    assert(productAttributionSignInUrl(policy, "/billing", value, now + life) == "https://rec.2brain.pro/login?next=%2Fbilling");
-    assert(productAttributionSignInUrl(policy, "/billing", std::nullopt, now) == "https://rec.2brain.pro/login?next=%2Fbilling");
-    assert(productAttributionSignInUrl(policy, "/desktop/meetings/abc-123", std::nullopt, now) ==
-        "https://rec.2brain.pro/login?next=%2Fdesktop%2Fmeetings%2Fabc-123");
-    assert(productAttributionSignInUrl(policy, "/billing/checkout/start", std::nullopt, now) ==
-        "https://rec.2brain.pro/login?next=%2Fdesktop%2Fmeetings");
-    assert(productAttributionSignInUrl(WebViewRoutePolicy("https://cabinet.example.invalid"), "/billing", std::nullopt, now) ==
-        "https://cabinet.example.invalid/login?next=%2Fbilling");
-    const auto empty = ProductAttributionHandoff::parse("grafrec://attribution", now);
-    assert(productAttributionSignInUrl(policy, "/billing", empty, now).find("graf_attribution_fallback=1") != std::string::npos);
+    const std::string plain = "https://cabinet.example.invalid/login?next=%2Fbilling";
+    assert(applyingSignInQueryItems(plain, value, now + life) == plain);
+    assert(applyingSignInQueryItems(plain, std::nullopt, now) == plain);
     // Even an in-process caller cannot smuggle arbitrary query keys into a URL.
     value->campaign["next"] = "https://evil.invalid";
     value->campaign["utm_term"] = "secret-value";
     value->bridgeID = "bad&next=evil";
-    assert(productAttributionSignInUrl(policy, "/billing", value, now).find("evil") == std::string::npos);
-    assert(productAttributionSignInUrl(policy, "/billing", value, now).find("secret") == std::string::npos);
+    assert(applyingSignInQueryItems(plain, value, now).find("evil") == std::string::npos);
+    assert(applyingSignInQueryItems(plain, value, now).find("secret") == std::string::npos);
+}
+
+void persistedSignInUsesActualHost() {
+    Fixture fixture;
+    ProductAttributionHandoffStore writer(fixture.file());
+    ProductAttributionHandoffStore reader(fixture.file());
+    constexpr auto origin = "https://cabinet.example.invalid";
+    const std::string billing = std::string(origin) + "/billing";
+    const std::string plain = std::string(origin) + "/login?next=%2Fbilling";
+    const std::string suffix = "&graf_attribution_fallback=1&graf_attribution_ref=graf_attr_abcdefgh"
+        "&utm_source=search&utm_campaign=launch&landing_path=%2Fdownload";
+    auto clock = now;
+    WebView2Host host{WebViewRoutePolicy(origin)};
+    // The same composition as AppMain: read on every request, then decorate
+    // the host's validated URL. No parallel route builder exists in this test.
+    host.setSignInUrlBuilder([&](std::string_view url) {
+        return applyingSignInQueryItems(url, reader.current(clock).handoff, clock);
+    });
+    assert(host.navigate(billing).decision == RouteDecision::allow);
+    assert(host.signInUrl() == plain);
+    assert(writer.saveLink(link, now) == AttributionStoreError::none);
+    const auto saved = bytes(fixture.file());
+    assert(host.signInUrl() == plain + suffix);
+    clock = now + ProductAttributionHandoff::validitySeconds - 1;
+    assert(host.signInUrl() == plain + suffix);
+    assert(bytes(fixture.file()) == saved); // Reading must not extend the 90 days.
+    ++clock;
+    assert(host.signInUrl() == plain);
+    assert(!ProductAttributionHandoffStore(fixture.file()).current(clock).handoff);
+
+    assert(writer.saveLink("grafrec://attribution", clock) == AttributionStoreError::none);
+    assert(host.signInUrl() == plain + "&graf_attribution_fallback=1");
+    assert(!reader.current(clock).handoff->campaignKnown());
+    assert(writer.saveLink(link, clock) == AttributionStoreError::none);
+    for (const auto route : {"https://evil.invalid/billing", "//evil.invalid",
+                             "https://cabinet.example.invalid/billing/checkout/start"}) {
+        (void)host.navigate(route);
+        assert(host.signInUrl() == plain + suffix); // Preserve the last safe GET.
+    }
+    (void)host.navigate(billing + "?next=https://evil.invalid#bad");
+    assert(host.signInUrl() == plain + suffix);
+
+    const auto detail = std::string(origin) + "/desktop/meetings/abc-123";
+    const auto detailLogin = std::string(origin) + "/login?next=%2Fdesktop%2Fmeetings%2Fabc-123";
+    (void)host.beginDocumentNavigation(detail, 1, false, 0);
+    (void)host.completeDocumentNavigation(detail, 1, {401}, 1);
+    assert(host.recoveryUrl() == detailLogin + suffix);
+    assert(host.signInUrl() == host.recoveryUrl());
+    assert(writer.clear() == AttributionStoreError::none);
+    assert(host.recoveryUrl() == detailLogin); // No stale cached attribution.
+    { std::ofstream output(fixture.file()); output << "unsupported state"; }
+    assert(host.signInUrl() == detailLogin); // Corruption cannot block sign-in.
+    assert(writer.clear() == AttributionStoreError::none);
+    std::filesystem::create_directory(fixture.file());
+    assert(reader.current(clock).error == AttributionStoreError::ioError);
+    assert(host.signInUrl() == detailLogin); // Nor can unavailable storage.
 }
 
 void decorateValidatedSignIn() {
@@ -213,8 +255,9 @@ void boundedAndCorruptStorage() {
 int main() {
     parseAndFilter();
     expiryAndSignIn();
+    persistedSignInUsesActualHost();
     decorateValidatedSignIn();
     storeRoundTripAndFailure();
     boundedAndCorruptStorage();
-    std::puts("ProductAttributionHandoffTests: 5 groups passed");
+    std::puts("ProductAttributionHandoffTests: 6 groups passed");
 }
