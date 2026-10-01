@@ -14,14 +14,14 @@ async function run() {
   const config = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
   const base = config.base_url;
   if (config.screenshots_dir) {
-    config.screenshots_dir = path.join(config.screenshots_dir, config.receipt_verified ? 'verified' : 'unverified');
+    config.screenshots_dir = path.join(config.screenshots_dir, config.provider_rejection || (config.receipt_verified ? 'verified' : 'unverified'));
     fs.mkdirSync(config.screenshots_dir, { recursive: true });
   }
   const browser = await ({ chromium, webkit })[engine].launch({ headless: true });
   let submitRedirects = 0;
   let externalRequests = 0;
   let providerRedirects = 0;
-  const viewports = [320, 1280];
+  const viewports = config.provider_rejection ? [config.width] : [320, 1280];
   try {
     for (const width of viewports) {
       const context = await browser.newContext({ viewport: { width, height: 1000 } });
@@ -112,10 +112,12 @@ async function run() {
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
       }
 
-      async function submit(button, target = page, endpoint = '/billing/checkout/preview') {
+      async function submit(button, target = page, endpoint = '/billing/checkout/preview', keyboard = false) {
         const response = target.waitForResponse(response => response.request().method() === 'POST'
           && new URL(response.url()).pathname === endpoint);
-        await Promise.all([target.waitForNavigation({ waitUntil: 'domcontentloaded' }), button.click()]);
+        if (keyboard) await button.focus();
+        await Promise.all([target.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+          keyboard ? button.press('Enter') : button.click()]);
         assert.equal((await response).status(), 303);
         submitRedirects++;
       }
@@ -160,6 +162,113 @@ async function run() {
               JSON.stringify({ before, after: await layout() }));
           }
         }
+      }
+
+      if (config.provider_rejection) {
+        let starts = 0;
+        page.on('request', request => {
+          if (request.method() === 'POST' && new URL(request.url()).pathname === '/billing/checkout/start') starts++;
+        });
+        const recurring = page.getByRole('checkbox', { name: /Разрешаю автоматические списания/ });
+        const offer = page.getByRole('checkbox', { name: /Принимаю/ });
+        const quote = () => page.locator('form[action="/billing/checkout/start"] input[name="quote_id"]').inputValue();
+        const assertSafe = async () => {
+          const url = new URL(page.url());
+          for (const field of ['promo_code', 'quote_id', 'recurring_consent', 'offer_consent']) {
+            assert.equal(url.searchParams.has(field), false, 'checkout fields stay out of URL');
+          }
+          assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false,
+            'status and checkout fit the viewport');
+          const text = await page.locator('#cabinet-main').innerText();
+          assert.equal(text.includes('YooMoney'), false, 'raw provider description is never rendered');
+          assert.equal(text.includes('Synthetic unrelated'), false, 'unknown provider text is never rendered');
+        };
+        stage = `${width}:provider-promo-year`;
+        await page.goto(`${base}/billing/checkout?cycle=year`, {waitUntil: 'domcontentloaded'});
+        await page.getByText('Есть промокод?', {exact: true}).click();
+        await input.fill('SYNTH-PRESENTATION');
+        await submit(apply);
+        await verify({code: 'SYNTH-PRESENTATION', cycle: 'year', today: '9000', renewal: '10000'});
+        const oldQuote = await quote();
+        assert.equal(starts, 0);
+        await offer.focus();
+        await offer.press('Space');
+        assert(await offer.isChecked());
+        stage = `${width}:provider-true-rejection`;
+        await submit(page.getByRole('button', {name: /^Оплатить/}), page, '/billing/checkout/start', true);
+        const statusUrl = page.url();
+        assert.ok(new URL(statusUrl).pathname.startsWith('/billing/checkout/status/'));
+        const specific = config.provider_rejection === 'recurring';
+        const uncertain = config.provider_rejection === 'uncertain';
+        for (let i = 0; i < 3; i++) {
+          if (i) await page.reload({waitUntil: 'domcontentloaded'});
+          await assertSafe();
+          const title = await page.locator('#billing-operation-title').innerText();
+          assert.equal(title === 'Не удалось начать оплату', !uncertain, 'creation rejection differs from unknown outcome');
+          const text = await page.locator('#cabinet-main').innerText();
+          if (!uncertain) {
+            assert.ok(text.includes('Оплата не началась.'), 'rejected creation is explained as not started');
+            assert.equal(text.includes('Проверьте этот платеж позже.'), false, 'historical result cannot override definite rejection');
+          }
+          assert.equal(text.includes('Автопродление недоступно'), specific, 'only the exact rejection gets a precise hint');
+          assert.equal(text.includes('снимите галочку'), specific, 'only the exact rejection explains manual False');
+          const primary = page.locator('[data-billing-primary]');
+          assert.equal(await primary.innerText(), uncertain ? 'Проверить статус' : specific ? 'Вернуться к оплате' : 'Попробовать снова');
+          assert.equal(starts, 1, 'status GET and reload never create another payment');
+        }
+        await screenshot('provider-status');
+        stage = `${width}:provider-keyboard-return`;
+        if (uncertain) {
+          assert.equal(await page.locator('a[href^="/billing/checkout?cycle="]').count(), 0, 'unknown result has no retry');
+          await page.goto(`${base}/billing/checkout?cycle=year`, {waitUntil: 'domcontentloaded'});
+          for (let i = 0; i < 3; i++) {
+            if (i) await page.reload({waitUntil: 'domcontentloaded'});
+            assert.equal(await page.locator('form[action="/billing/checkout/start"]').count(), 0,
+              'unknown result blocks a new checkout form');
+            assert.equal(await page.getByRole('button', {name: /^Оплатить/}).count(), 0);
+            assert.equal(starts, 1);
+            await assertSafe();
+          }
+          await screenshot('provider-blocked');
+        } else {
+          const retry = page.locator('[data-billing-primary]');
+          assert.equal(await retry.getAttribute('href'), '/billing/checkout?cycle=year');
+          await retry.focus();
+          assert(await retry.evaluate(el => el === document.activeElement), 'retry receives keyboard focus');
+          await Promise.all([page.waitForNavigation({waitUntil: 'domcontentloaded'}), retry.press('Enter')]);
+          await verify({code: '', cycle: 'year', today: '10000', renewal: '10000'});
+          assert.notEqual(await quote(), oldQuote, 'retry receives a fresh quote after draft consumption');
+          assert.equal(starts, 1, 'retry navigation has no money POST');
+          for (let i = 0; i < 2; i++) {
+            await page.reload({waitUntil: 'domcontentloaded'});
+            await verify({code: '', cycle: 'year', today: '10000', renewal: '10000'});
+            assert.equal(starts, 1);
+          }
+          await recurring.focus();
+          await recurring.press('Space');
+          recurringChoice = false;
+          await verify({code: '', cycle: 'year', today: '10000', renewal: '10000'});
+          await assertSafe();
+          await screenshot('provider-manual-false');
+          await offer.focus();
+          await offer.press('Space');
+          assert(await offer.isChecked(), 'fresh offer explicitly accepted');
+          stage = `${width}:one-period-start`;
+          const submitted = page.waitForRequest(request => request.method() === 'POST'
+            && new URL(request.url()).pathname === '/billing/checkout/start');
+          const pay = page.getByRole('button', {name: /^Оплатить/});
+          await pay.focus();
+          await Promise.all([page.waitForNavigation({waitUntil: 'domcontentloaded'}), pay.press('Enter')]);
+          await page.getByText('Переход к оплате проверен', {exact: true}).waitFor({state: 'visible'});
+          const fields = new URLSearchParams((await submitted).postData());
+          assert.equal(fields.get('recurring_consent'), null);
+          assert.equal(fields.get('offer_consent'), 'true');
+          assert.equal(fields.get('cycle'), 'year');
+          assert.notEqual(fields.get('quote_id'), oldQuote);
+          assert.equal(starts, 2, 'manual False dispatches exactly one new checkout POST');
+        }
+        await context.close();
+        continue;
       }
 
       stage = `${width}:initial-apply`;
@@ -355,6 +464,7 @@ async function run() {
       engine, viewports, submit_redirects: submitRedirects, external_requests: externalRequests,
       receipt_verified: config.receipt_verified,
       provider_redirects: providerRedirects,
+      ...(config.provider_rejection ? {provider_rejection: config.provider_rejection} : {}),
     }));
   } finally {
     await browser.close();

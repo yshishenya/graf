@@ -13,6 +13,76 @@ from twobrain_rec_server.billing.yookassa import (
 )
 from twobrain_rec_server.config import Settings
 
+RECURRING_DENIAL = (
+    "This store can't make recurring payments. Contact the YooMoney manager to learn more"
+)
+
+
+@pytest.mark.parametrize("reason", [None, "recurring_not_available", "synthetic-private-reason"])
+def test_provider_error_accepts_only_fixed_safe_reason(reason) -> None:
+    error = YooKassaProviderError("safe failure", status_code=403, reason=reason)
+    assert error.status_code == 403
+    assert error.reason == (reason if reason == "recurring_not_available" else None)
+    assert "synthetic-private-reason" not in repr(vars(error))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,body,expected_reason",
+    [
+        (403, {"type": "error", "code": "forbidden", "description": RECURRING_DENIAL}, "recurring_not_available"),
+        (403, {"type": "error", "code": "forbidden", "description": "synthetic-private-description"}, None),
+        (403, {"type": "error", "code": "forbidden", "description": RECURRING_DENIAL + " "}, None),
+        (403, {"type": "error", "code": "unauthorized", "description": RECURRING_DENIAL}, None),
+        (403, {"type": "payment", "code": "forbidden", "description": RECURRING_DENIAL}, None),
+        (400, {"type": "error", "code": "forbidden", "description": RECURRING_DENIAL}, None),
+        (429, {"type": "error", "code": "forbidden", "description": RECURRING_DENIAL}, None),
+        (500, {"type": "error", "code": "forbidden", "description": RECURRING_DENIAL}, None),
+        (403, {"type": "error", "code": "forbidden", "description": None}, None),
+        (403, {"type": "error", "code": "forbidden"}, None),
+        (403, [], None),
+        (403, None, None),
+        (403, "synthetic-private-description", None),
+        (403, b"malformed-synthetic-private-description", None),
+        ("timeout", None, None),
+    ],
+    ids=["exact", "other-description", "description-suffix", "other-code", "other-type",
+         "400", "429", "500", "null-description", "missing-description", "array", "null",
+         "string", "malformed", "timeout"],
+)
+async def test_yookassa_adapter_recurring_denial_is_exact_and_private(
+    tmp_path: Path, status, body, expected_reason,
+) -> None:
+    secret = tmp_path / "secret"
+    secret.write_text("test-secret", encoding="utf-8")
+    settings = Settings(
+        billing_yookassa_base_url="https://api.yookassa.test",
+        billing_yookassa_shop_id="shop-1",
+        billing_yookassa_secret_file=secret,
+    )
+
+    def reject(request):
+        if status == "timeout":
+            raise httpx.ReadTimeout("synthetic-private-description", request=request)
+        response_body = {**body, "id": "synthetic-private-request-id"} if isinstance(body, dict) else body
+        return httpx.Response(status, content=body if isinstance(body, bytes) else json.dumps(response_body))
+
+    async with YooKassaClient(settings, transport=httpx.MockTransport(reject)) as client:
+        with pytest.raises(httpx.ReadTimeout if status == "timeout" else YooKassaProviderError) as caught:
+            await client.create_payment(
+                amount_minor=79_000, currency="RUB", description="Личный",
+                idempotence_key="synthetic-denied", metadata={}, save_payment_method=True,
+            )
+    if status == "timeout":
+        assert getattr(caught.value, "reason", None) is None
+    else:
+        assert caught.value.status_code == status
+        assert caught.value.reason == expected_reason
+        evidence = str(caught.value) + repr(vars(caught.value))
+        assert "synthetic-private-description" not in evidence
+        assert "synthetic-private-request-id" not in evidence
+        assert RECURRING_DENIAL not in evidence
+
 
 def test_receipt_payload_uses_exact_minor_unit_amount_and_fails_closed() -> None:
     receipt = build_receipt_payload(
