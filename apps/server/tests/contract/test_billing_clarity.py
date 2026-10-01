@@ -110,8 +110,13 @@ def test_checkout_missing_receipt_contact_provides_recovery_without_money_form()
     assert "Подтвердите почту для чека" in page.visible
     assert any(attrs.get("href") == "/settings/account#account-providers-title" for _, attrs in page.nodes)
     assert not any(attrs.get("action") == "/billing/checkout/start" for _, attrs in page.nodes)
-    assert not any(tag == "input" and attrs.get("name") == "promo_code" and attrs.get("type") != "hidden" for tag, attrs in page.nodes)
-    assert "Есть промокод?" not in page.visible
+    assert any(tag == "form" and attrs.get("id") == "billing-promo-preview" and attrs.get("action") == "/billing/checkout/preview" for tag, attrs in page.nodes)
+    assert any(tag == "input" and attrs.get("name") == "promo_code" and attrs.get("type") == "text" and attrs.get("form") == "billing-promo-preview" for tag, attrs in page.nodes)
+    assert any(tag == "button" and attrs.get("form") == "billing-promo-preview" and attrs.get("name") == "preview_action" and attrs.get("value") == "apply" for tag, attrs in page.nodes)
+    assert "Есть промокод?" in page.visible
+    assert not any(tag == "input" and attrs.get("name") in {"offer_consent", "recurring_consent", "quote_id", "idempotency_key"} for tag, attrs in page.nodes)
+    assert not any(tag == "button" and "data-billing-primary" in attrs for tag, attrs in page.nodes)
+    assert "Оплатить" not in page.visible
 
 
 @pytest.mark.parametrize("purpose,recurring", [("storage_upgrade", True), ("storage_upgrade", False), ("early_renewal", False), ("storage_schedule", False)])

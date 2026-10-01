@@ -160,3 +160,22 @@ CI governance-fast 36792155653 на c3cecb3101b9f7ac61cb64ee0034575a643d4ddb в�
 Актуальный независимый querycycle DOM: Chromium **6PASS40,12с/runner44**, WebKit **6PASS131,96с/runner136**, последовательно после313cleanup. Каждый из6кейсов проверяет320/1280, две вкладки, реальныйApply→GETperiod с +42с controlledclock и неизменным signedexpiry; две перезагрузки, старый start с409 либо303 и повторныеGET обеихвкладок. На движок8реальных start409 и4start303,12явныхquery переключений, цены/согласия/отсутствиеoverflow, внешние/provider0. Все столбцы исторических финансовых строк неизменны. Логи chromium-query-cycle-final.log и webkit-query-cycle-final.log в /tmp/graf-status-conflict-browser.
 
 Первый объединённый временный сценарий упёрся в настоящий лимит попыток на шестомstart; сохранён отдельно chromium-query-cycle-rate-limit-baseline.log, неPASS. Шесть комбинаций изолированы существующей pytest fixture в отдельные синтетические сессии/БД; ограничение частоты и assertions сохранены. Изменён только /tmp harness, в приложении нет testquery или bypass. Предыдущий9b7c unavailableDOM остаётся отдельным доказательством той ветви; не считается текущим querycycleDOM.
+
+
+## Отказ выпускного теста и коррекция T018
+
+PR #7403 прошёл общий валидатор на `b944fd24ced1610fadc39556f530bba33010c425` (governance-fast36796907346/native36796907393/metadata36796905792); merge193dde15154bf8e48c46ae44436950c8c822e0d1. Подготовка PR #7404 прошла общий валидатор на636f8a79294fb197f0c64d67cee842bfeeb809bd; merge694aa8672f215309f30930d051cf9d97eeb0f61e.
+
+Frozen `rc-20261001T005011Z-b1f956559a15`, train20261001T004937Z-694aa8672f21, единственный [release-full36798151219](https://github.com/yshishenya/graf/actions/runs/36798151219) — **FAIL**. Все компоненты кроме server shard2 прошли. Причина: старые два запрета редактора до почты в `test_billing_clarity.py:113/114`; это противоречит уже принятому plan:99/105. Локальное fail-before:1FAIL0.09с, runner3с, cleanupPASS. Кандидат оставлен без выпуска штатным immutable abandonment record, deploy и публикации не было.
+
+Независимые requirements33/0 custom +8/0 builtin: review-receipt-contract-requirements.md. Причина независимо подтверждена: review-receipt-contract-failure.md. Синхронизирована старая фраза договора; scoped analyze0finding и issue #7402 canon300PASS выполнены до теста. Runtime/template/CSS не меняются.
+
+Промежуточная test-only коррекция получила применимый P2 от security/browser: `Применить` присутствует в DOM, но закрытый details делает её невидимой по умолчанию. Промежуточный329набор:328PASS/1FAIL178.32с, runner183с, cleanupPASS; этот результат не считается готовностью. Убрано только неверное требование видимости; связь DOM-кнопки с preview, видимый summary и запреты денежных элементов сохранены. Окончательный329набор выполняется отдельно. Прежние313/DOM результаты не складываются с ним; они относятся к неизменным хешам runtime.
+
+Окончательная коррекция test hash `6b088ff18ffa4a391e72c14ba21969473a5935021aeecfd0795237e09a0c44c2`: **329PASS**, pytest179.06с/runner183с, collectiondigest `3c8360b581fd7605bed25070d9d95075ed86843c2acd1f272cbf00bd6df75338`, cleanupPASS. Журнал SHA256 `4b059e2ce9398c25b0706edce35d03322d0c5ca7c39f7115384cf04139e91629`. Набор: refresh, discount presentation, return, UI, clarity, money-path e2e; платёжный провайдер запрещён, финансовые ограничения и unverified receipt guards сохраняются. Ruff, diff-check, governance и fragment validator PASS. Runtime файлы SHA256 fec78d91…/8351694f…/397a6683… неизменны.
+
+Повторный convergence после минимальной test-only коррекции: новых missing/partial/contradicts/unrequested задач кода0. FR005/011/017/018 и plan99/105 удовлетворены проверкой существующего preview, отсутствием денежного start/consents/quote/idempotency/button. Старое расхождение договора устранено. Невыполненные exact-SHA releaseT019 и внешниеT011/T012/F278 уже отслеживаются, новые дубли не добавляются. Tasks в ходе самого convergence не изменены.
+
+Два текущих независимых closingPASS: review-receipt-contract-final-flow.md / review-receipt-contract-final-security.md, новых конкретных замечаний0; browser-boundary заключение отдельно ожидается. Reviewer-owned отметки не редактировал основной агент.
+
+Browser-boundary review-receipt-contract-final-browser.md — PASS текущего329иtesthash, неизменныеfec78/835169/397a668 подтверждены; прежний boundedChromium/WebKit6/6 принят именно для неизменногоUI, браузеры повторно не запускались. Все три текущих обзора без применимых неисправленных замечаний; T018 завершён.
