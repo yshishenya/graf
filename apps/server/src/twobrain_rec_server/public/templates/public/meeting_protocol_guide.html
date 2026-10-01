@@ -9,11 +9,13 @@
   <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('guide.css') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('protocol-guide.css') }}">
+  <link rel="stylesheet" href="{{ public_static_asset_url('content.css') }}">
 </head>
 <body>
   <a class="skip-link" href="#main">К содержанию</a>
   <header><a href="/" aria-label="ГРАФ — главная">ГРАФ</a><nav aria-label="Навигация"><a href="/guides/zapis-vstrechi-na-mac-bez-bota">Запись на Mac</a></nav></header>
   <main id="main"><article>
+    <nav class="content-breadcrumb" aria-label="Раздел"><a href="/guides">Все руководства</a></nav>
     <p class="eyebrow">Руководство · Редакция ГРАФ</p>
     <h1>Как составить протокол встречи из записи: пример решений и задач</h1>
     <p class="lead">Чтобы составить протокол встречи, выделите из записи принятые решения, конкретные задачи и открытые вопросы. Для каждой задачи укажите действие, ответственного и срок, если они действительно прозвучали. Затем проверьте формулировки по исходному разговору.</p>
@@ -102,6 +104,7 @@
       <p>Если вам сначала нужно подготовить запись, прочитайте <a href="/guides/zapis-vstrechi-na-mac-bez-bota">руководство по записи встречи на Mac без бота</a>.</p>
     </section>
     <section class="start"><h2>Перед отправкой протокола проверьте четыре вещи</h2><ul><li>Предложения не попали в список принятых решений</li><li>У задач сохранены реальные ответственные, сроки и условия</li><li>Неизвестное явно отмечено и вынесено на уточнение</li><li>Получателям доступен только тот объем записи и итогов, который им нужен</li></ul><p>Хороший протокол позволяет понять, что уже согласовано, кто за что взялся и какой вопрос еще требует ответа.</p></section>
+  {% include "public/_related_guide.html" %}
   </article></main>
   <footer><a href="/">ГРАФ</a><a href="/privacy">Обработка данных</a><a href="/analytics-consent">Об аналитике</a></footer>
 </body>

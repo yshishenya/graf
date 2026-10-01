@@ -8,12 +8,14 @@
   <meta name="description" content="{{ social_description }}">
   <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('guide.css') }}">
+  <link rel="stylesheet" href="{{ public_static_asset_url('content.css') }}">
 </head>
 <body>
   <a class="skip-link" href="#main">К содержанию</a>
   <header><a href="/" aria-label="ГРАФ — главная">ГРАФ</a><nav aria-label="Навигация"><a href="/download">Скачать для Mac</a></nav></header>
   <main id="main">
     <article>
+    <nav class="content-breadcrumb" aria-label="Раздел"><a href="/guides">Все руководства</a></nav>
       <p class="eyebrow">Руководство · Редакция ГРАФ</p>
       <h1>Как записать встречу на Mac без бота и получить итоги</h1>
       <p class="lead">Чтобы сохранить обе стороны разговора без отдельного участника в звонке, приложению нужны системный звук Mac и ваш микрофон. После обработки записи можно вернуться к репликам, решениям и следующим действиям.</p>
@@ -60,7 +62,8 @@
         <p>Перед загрузкой ознакомьтесь с <a href="/privacy">политикой обработки данных</a> и <a href="/terms">условиями использования</a>. Не считайте запись на Mac обещанием, что вся последующая обработка происходит локально.</p>
       </section>
       <section class="start"><h2>Начните с короткого тестового звонка</h2><p>Проверьте обе стороны, дождитесь расшифровки и сравните итог с реальным разговором. Так вы оцените весь путь до рабочей встречи.</p><a class="cta" href="/download">Скачать ГРАФ для Mac</a><p>macOS 14.5+ · Apple Silicon и Intel</p></section>
-    </article>
+    {% include "public/_related_guide.html" %}
+  </article>
   </main>
   <footer><a href="/">ГРАФ</a><a href="/privacy">Обработка данных</a><a href="/analytics-consent">Об аналитике</a></footer>
 </body>

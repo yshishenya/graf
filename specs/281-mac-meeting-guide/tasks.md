@@ -4,6 +4,12 @@ Umbrella issue: #7391
 
 - [x] T001 Подготовить отдельное руководство, маршрут и sitemap; сверить утверждения и protected diff.
 - [x] T002 Проверить HTTP, canonical, ссылки, tracking, mobile 360/390/768 и регрессии public pages.
-- [ ] T003 Пройти exact-SHA CI и штатный ограниченный выпуск с production read-back.
+- [x] T003 Пройти exact-SHA CI и штатный ограниченный выпуск с production read-back.
 - [x] T004 Подготовить отдельный учебный guide протокола, маркировку, route/sitemap и копируемый шаблон.
-- [ ] T005 Проверить metadata/условия/ссылки/copy/mobile, exact-SHA CI и штатную публикацию нового guide.
+- [x] T005 Проверить metadata/условия/ссылки/copy/mobile, exact-SHA CI и штатную публикацию нового guide.
+
+
+Предыдущая публикация подтверждена: первый материал `v2026.09.30.2`, второй `v2026.10.01.3`, PR7411/7415, source/runtime/tag216ab38e6eeb112aefa23f8c87cf69bf6f064b08; Full36927435763 SUCCESS и production200/readback PASS.
+
+- [x] T006 Реализовать и проверить `/guides`, типы/реестр публичного контента, взаимные ссылки и единственную footer-ссылку главной; FR006–FR010, issue #7419, parent #7391.
+- [ ] T007 Пройти exact-SHA CI/provenance и штатную публикацию hub с backup, Full/CD и protected production readback; FR010, issue #7419, parent #7391.
