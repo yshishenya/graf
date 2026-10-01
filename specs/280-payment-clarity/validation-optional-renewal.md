@@ -57,3 +57,11 @@ UI RED:5 ожидаемых отказов до изменения исходн�
 ## Независимые заключения и состояние задач
 
 Три независимых reviewer, не авторы исходников: optional_renewal_trace (flow), optional_renewal_security (финансовая/защитная логика), promo_unavailable_browser (DOM/снимки/JS/noJS) — scoped PASS, конкретных незакрытых замечаний0. Полные заключения и frozen source hashes сохранены в review-optional-renewal-final.md. T020/T021 завершены; T022 открыт до новых exact-SHA PR/Full/CD/runtime/publication. Реальные F278/T011/T012 не закрываются.
+
+## Дополнительное статическое ожидание после PR проверки
+
+Первый exact-SHA governance-fast36908074789 на83bf12da81e622ae3d46b6c0b302f1c667905d3e завершился FAIL:100PASS/1FAIL в test_cabinet_static_assets_contract.py::test_cabinet_js_keeps_fragment_state_ephemeral, устаревший literal15 вместо17 sessionStorage после разрешённого FR020. Отказ не игнорировался. Узкая test-only коррекция выделяет renewal block: ровно2get/set вызова, strict true/false, существующие3scope, только String(checkbox.checked), noJSON.stringify; вне блока прежние15 и все остальные guards сохраняются. Product source/browser tests не изменились.
+
+После исправления полный static-assets/settings набор101PASS3.34с,2 прежних warnings; Ruff изменённого файла PASS. Три независимых узких заключения и новый PR SHA/CI записываются ниже; старый failed run не используется для допуска.
+
+Узкие независимые flow/security PASS: статический тест сохраняет прежний лимит вне блока, строгий bool/scope/get/set/noJSON внутри; все runtime hashes прежние. Оба отчёта сохранены в review-optional-renewal-final.md. Новых требований/изменений кода0; converge актуализирован.

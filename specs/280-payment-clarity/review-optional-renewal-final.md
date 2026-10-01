@@ -277,3 +277,54 @@ Exact-SHA CI, authoritative Full, CD dry-run/execute, deployed runtime proof, п
 - entitlements.py: `83f43809f9ec736e028a9d1bcbd9311afa19d7fb0cad195676fba27c1ad0b14b`
 - billing_checkout_content.html: `a690a666515d7c9cb2c53595d4527240e57005d3b6be200e85334547a76bfa95`
 - cabinet.js: `cd40bdb77e07b978eb13e98f17a24c40d0af5c93eaf4e9d1e300bf08947e4cb4`
+
+## Независимая test-only поправка — flow
+
+# F280 — независимый обзор поправки договора browser storage
+
+Дата: 2026-10-01. Проверяющий: optional_renewal_trace. Рабочая копия `рабочая копия F280`, ветка `codex/280-payment-optional-renewal`. Только read-only source/test review и данный отчёт; код, checklist, tasks, GitHub и CI не менялись, новые тесты не запускались. Изменения других исполнителей сохранены.
+
+**Scoped PASS: конкретных неисправленных замечаний по test-only поправке0.**
+
+Прочитаны текущий diff и вся функция `test_cabinet_js_keeps_fragment_state_ephemeral`, действующие FR-020 и его fallback, действующий renewal block cabinet.js. Причина прежнего отказа governance-fast36908074789 — устаревший общий literal count15: FR-020 добавил ровно два чтения/записи visual bool, фактически обращений17. Это не новая неисправность runtime и не основание менять реализованный платёжный путь.
+
+Новый тест выделяет renewal block по существующим функциям `billingRenewalPreferenceKey`→`initAuthTransition`, требует ровно два sessionStorage обращения, конкретные getItem/setItem с checked bool, строгую пару строк true/false, scoped namespace и три meta user/workspace/session, отсутствие JSON.stringify. Вне выделенного блока по-прежнему требуется ровно15 обращений. Запрет localStorage, очистка HTMX caches, прежние summary-candidate/rail storage и остальные assertions сохранены. Следовательно, замена общего счётчика не снимает прежние ограничения и не разрешает произвольные дополнительные записи.
+
+Runtime renewal block действительно сохраняет только bool визуального выбора. Ни цена, промокод, quote, оферта или денежные полномочия туда не добавлены. Требования/границы FR-020 не менялись. Прежние самостоятельные browser проверки scope/storage failure/noJS и actual POST остаются применимыми к тем же runtime bytes; этот статический тест их не заменяет.
+
+Root сообщил фактически выполненную узкую проверку из apps/server:
+
+```sh
+.venv/bin/python -m pytest tests/contract/test_cabinet_static_assets_contract.py tests/contract/test_settings_ui_contract.py -q --tb=short --show-capture=no
+```
+
+Результат:101 PASS3.34с, два прежних warnings; Ruff изменённого файла PASS. Execution принадлежит root, reviewer тесты не повторял. Самостоятельно выполнен `git diff --check` PASS и пересчитаны исходники: все четыре runtime hashes совпадают с окончательными flow/security/browser обзорами. Поэтому никаких новых source findings или дополнительных implementation tasks нет. Новый exact-SHA CI и T022 остаются обязательными; прежний упавший run не объявляется PASS.
+
+SHA256 изменённого теста: `c8ef51102c6aefd185792c111dcf0783887b0f81ce44497cc91a59a465e35f36`.
+
+Неизменные runtime SHA256:
+
+- billing.py: `bf6d4cfbeb154eb875063d7e200fec83801fcce4ff066b614a53793594dc083d`
+- entitlements.py: `83f43809f9ec736e028a9d1bcbd9311afa19d7fb0cad195676fba27c1ad0b14b`
+- billing_checkout_content.html: `a690a666515d7c9cb2c53595d4527240e57005d3b6be200e85334547a76bfa95`
+- cabinet.js: `cd40bdb77e07b978eb13e98f17a24c40d0af5c93eaf4e9d1e300bf08947e4cb4`
+
+## Независимая test-only поправка — security
+
+# F280 — независимая перепроверка поправки договора sessionStorage
+
+Дата: 2026-10-01. Проверяющий: `optional_renewal_security`. Рабочая копия `release-f280/crisp`; PR7409. Проверка read-only: изменён только этот отчёт вне репозитория. Никаких изменений кода, тестов, документации, GitHub или запуска широких тестовых наборов.
+
+**Scoped PASS: единственная test-only поправка не ослабляет запрет хранения финансового состояния.** Конкретных замечаний к текущему diff не найдено.
+
+До FR-020 статический договор разрешал ровно15 упоминаний sessionStorage во всём cabinet.js. Новый разрешённый визуальный выбор добавил ровно2 get/set и сделал старый счётчик несовместимым с согласованным требованием. Вместо простого увеличения общего лимита тест теперь выделяет ровно существующий блок от `const billingRenewalPreferenceKey` до `const initAuthTransition` и отдельно ограничивает его двумя обращениями.
+
+В этом блоке проверяется именно чтение `sessionStorage.getItem(key)`, запись `sessionStorage.setItem(currentKey, String(checkbox.checked))`, строгое принятие строк true/false и namespace graf-checkout-renewal с user/workspace/session. JSON.stringify запрещён. После удаления ровно этого блока из текста прежний лимит15 остаётся неизменным. Все последующие guards removeItem htmx history, candidate namespace, бессрочное/эфемерное состояние и запрет localStorage сохранены без изменений.
+
+Сопоставлен фактический frozen source: блок действительно содержит только scoped visual boolean get/set, без promo, quote, сумм или принятия оферты; серверный actual bool и денежный authority по-прежнему поступают через отдельно проверяемую native POST форму. Поправка не добавляет широкого исключения для любого billing storage и не меняет runtime. cabinet.js SHA256 `cd40bdb77e07b978eb13e98f17a24c40d0af5c93eaf4e9d1e300bf08947e4cb4` совпадает с предыдущим independent review.
+
+Граница: статический тест является точным договором текущего расположения/вызовов и не заменяет выполняемые браузерные/серверные проверки. Это существовавшая граница статического подхода, новая test-only поправка её не расширяет. Новые денежные данные или иное storage назначение потребуют отдельного изменения требований и обзора. Focused execution101 и последующие exact-SHA CI фиксирует root; этот отчёт их заранее не объявляет прошедшими.
+
+Проверенный HEAD `83bf12da81e622ae3d46b6c0b302f1c667905d3e`; SHA256 изменённого теста `c8ef51102c6aefd185792c111dcf0783887b0f81ce44497cc91a59a465e35f36`.
+
+После обзора root передал результат focused execution:101 PASS за3.34с, два прежних предупреждения; Ruff PASS. Численный результат сообщён исполнителем, не повторён reviewer; product source остался неизменным. Новый exact-SHA CI остаётся последующим этапом.

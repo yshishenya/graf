@@ -25,4 +25,8 @@
 
 Следующий обязательный этап — T022 exact-SHA PR/Full/CD/runtime/publication. T011/T012/F278 остаются открытыми отдельными критериями всей F280. Автор отчёта не выполнял commits/GitHub/release/deploy/live payments и не запускал новых тестов, задачи не менял.
 
+## Узкая поправка статического теста после governance-fast
+
+governance-fast36908074789 выявил один stale assertion `sessionStorage count15` в test_cabinet_static_assets_contract.py. После FR020 actual17 состоит из прежних15 + новых ровно2 visual bool get/set. Root поправил только тест: выделенный renewal block требует exact2/get/set/strict bool/scope/noJSON, вне блока сохраняет15 и прежние guards. Независимый read-only обзор `/tmp/graf-f280-optional-storage-flow.md` PASS0 findings. Root focused static assets+settings:101 PASS3.34с, Ruff PASS; reviewer самостоятельно подтвердил diff-check и четыре неизменных runtime hashes. Тест SHA256 `c8ef51102c6aefd185792c111dcf0783887b0f81ce44497cc91a59a465e35f36`. FR020/исходники не изменились, дополнительных implementation задач не требуется. T022 всё ещё требует нового exact-SHA CI; прежний FAIL не переименовывается в PASS.
+
 Основной агент перечитал три независимых заключения и финальные receipts: source hashes совпадают, новых concrete code findings0, новые missing implementation tasks0. В tasks добавлена явная ссылка Issue7408 для каждого нового task; отметки T020/T021 обновлены после проверки, T022 открыт. Требования и объём не менялись.
