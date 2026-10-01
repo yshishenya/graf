@@ -22,6 +22,16 @@ from twobrain_rec_server.public.analytics import (
     deliver_public_analytics_event,
     normalize_public_analytics_event,
 )
+from twobrain_rec_server.public.content import (
+    GUIDE_PATH,
+    GUIDES_PATH,
+    MAC_MEETING_GUIDE,
+    MEETING_PROTOCOL_GUIDE,
+    PROTOCOL_GUIDE_PATH,
+    PUBLISHED_CONTENT_PATHS,
+    ContentSection,
+    content_for_section,
+)
 from twobrain_rec_server.public.offers import build_public_offer_view
 from twobrain_rec_server.public.templates import (
     DEFAULT_PUBLIC_BASE_URL,
@@ -144,15 +154,31 @@ async def public_download_page(
     )
 
 
-GUIDE_PATH = "/guides/zapis-vstrechi-na-mac-bez-bota"
-PROTOCOL_GUIDE_PATH = "/guides/protokol-vstrechi-iz-zapisi"
+@router.get(GUIDES_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_guides(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
+    return await public_page_response(
+        request,
+        "public/guides.html",
+        db=db,
+        page_title="Руководства по записи и итогам встреч — ГРАФ",
+        social_description="Практические руководства: запись встречи на Mac без бота, расшифровка и протокол с решениями и задачами. Подготовка, примеры и проверка результата.",
+        guides=content_for_section(ContentSection.GUIDES),
+    )
 
 
 @router.get(GUIDE_PATH, response_class=HTMLResponse, include_in_schema=False)
-async def public_mac_meeting_guide(request: Request) -> HTMLResponse:
+async def public_mac_meeting_guide(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
     return await public_page_response(
         request,
         "public/mac_meeting_guide.html",
+        db=db,
+        related_content=MEETING_PROTOCOL_GUIDE,
         page_title="Как записать встречу на Mac без бота и получить итоги — ГРАФ",
         social_description="Как проверить запись обеих сторон на Mac и получить расшифровку с итогами. Пошаговая подготовка и ограничения ГРАФ.",
     )
@@ -166,6 +192,7 @@ async def public_meeting_protocol_guide(
     return await public_page_response(
         request,
         "public/meeting_protocol_guide.html",
+        related_content=MAC_MEETING_GUIDE,
         db=db,
         page_title="Протокол встречи из записи: пример решений и задач — ГРАФ",
         social_description="Как превратить расшифровку в протокол встречи: учебный диалог, пример решений и задач, шаблон и проверка ответственных, сроков и договоренностей.",
@@ -327,7 +354,7 @@ async def public_robots(request: Request) -> PlainTextResponse:
 @router.get("/sitemap.xml", include_in_schema=False)
 async def public_sitemap(request: Request) -> Response:
     base_url = _public_base_url(request)
-    locations = ("/", "/download", "/privacy", "/cookies", "/terms", "/offer", "/analytics-consent", GUIDE_PATH, PROTOCOL_GUIDE_PATH)
+    locations = ("/", "/download", "/privacy", "/cookies", "/terms", "/offer", "/analytics-consent", *PUBLISHED_CONTENT_PATHS)
     urls = "".join(f"<url><loc>{base_url}{path}</loc></url>" for path in locations)
     return Response(
         f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>',

@@ -63,6 +63,7 @@ from twobrain_rec_server.product_analytics.provider_delivery_gate import (
     resolve_provider_delivery_gate,
 )
 from twobrain_rec_server.product_analytics.traffic_class import classify_public_traffic
+from twobrain_rec_server.public.content import PUBLIC_CONTENT_SURFACES
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ PUBLIC_ANALYTICS_VALIDATION_MODES = {"disabled", "render_only", "provider_smoke"
 PUBLIC_ANALYTICS_SURFACES = {
     "/": "public_landing",
     "/download": "public_download",
-    "/guides/protokol-vstrechi-iz-zapisi": "public_protocol_guide",
+    **PUBLIC_CONTENT_SURFACES,
     "/sign-up": "public_signup",
     "/login": "public_login",
     "/privacy": "public_privacy",

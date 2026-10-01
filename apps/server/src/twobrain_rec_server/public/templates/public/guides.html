@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page_title }}</title>
+  {% include "public/_meta.html" %}
+  <meta name="description" content="{{ social_description }}">
+  <meta name="theme-color" content="#090b12">
+  <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}" sizes="any">
+  <link rel="preload" href="{{ public_static_asset_url('fonts/onest-cyrillic.woff2') }}" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
+  <link rel="stylesheet" href="{{ public_static_asset_url('content.css') }}">
+</head>
+<body class="guides-page">
+  <a class="skip-link" href="#main">К содержанию</a>
+  <header class="site-header guides-header">
+    <div class="shell header-inner">
+      <a class="brand" href="/" aria-label="ГРАФ — на главную"><img src="{{ cabinet_static_asset_url('graf-wordmark-dark@2x.png') }}" alt="ГРАФ"></a>
+      <nav aria-label="Основная навигация"><a class="button button-small" href="/download">Скачать для Mac</a></nav>
+    </div>
+  </header>
+  <main id="main">
+    <section class="guides-intro section-dark">
+      <div class="shell">
+        <p class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span>Практика работы со встречами</p>
+        <h1>Руководства по записи<br class="guides-break"> и итогам встреч</h1>
+        <p class="guides-lead">Проверьте запись разговора на Mac, затем разберите расшифровку и составьте протокол с решениями и задачами.</p>
+      </div>
+    </section>
+    <section class="guides-library section-light" aria-label="Руководства">
+      <div class="shell">
+        <ol class="guide-cards" role="list">
+          {% for guide in guides %}
+          <li class="guide-card">
+            <span class="guide-step">0{{ loop.index }} · {{ 'Запись встречи' if loop.first else 'Работа с итогами' }}</span>
+            <h2><a href="{{ guide.path }}">{{ guide.title }}<span class="guide-card-hit" aria-hidden="true"></span></a></h2>
+            <p>{{ guide.summary }}</p>
+            <span class="guide-read" aria-hidden="true">Читать руководство <span>↗</span></span>
+          </li>
+          {% endfor %}
+        </ol>
+      </div>
+    </section>
+  </main>
+  <footer class="guides-footer">
+    <div class="shell"><p>ГРАФ · Запись и итоги встреч</p><nav aria-label="Служебные ссылки"><a href="/">На главную</a><a href="/privacy">Политика конфиденциальности</a><a href="/analytics-consent">Условия аналитики</a></nav></div>
+  </footer>
+</body>
+</html>
