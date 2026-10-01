@@ -1,5 +1,7 @@
 # F280 — сходимость отказа начала оплаты
 
+Актуальное завершение: серверный v2026.10.02.1 опубликован, source `4591f90558565b8e1621bbfe931455f546ff6407`, Full36937258970/CD/runtime/publication PASS. T023–T025 завершены; исторические pending/FAIL записи ниже сохранены. Полный отчёт — [release-provider-rejection-closeout.md](release-provider-rejection-closeout.md); человеческая и реальная финансовая приёмка остаются отдельными.
+
 Дата: 2026-10-02. Lane: active Spec Kit slice / high-risk-product. Ветка `codex/280-payment-provider-rejection`; активный указатель и supported `check-prerequisites.sh --json --require-tasks --include-tasks` подтверждают F280. Файл spec прочитан явно: upstream `--require-spec` не поддерживается установленным скриптом. Hooks before/after_converge отсутствуют.
 
 | Источник | Реализация и доказательство | Состояние |

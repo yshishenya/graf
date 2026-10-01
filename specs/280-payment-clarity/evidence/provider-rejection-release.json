@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "feature_id": 280,
+  "tasks": [
+    "T023",
+    "T024",
+    "T025"
+  ],
+  "release": "v2026.10.02.1",
+  "source_sha": "4591f90558565b8e1621bbfe931455f546ff6407",
+  "candidate_id": "rc-20261001T224834Z-cddd2dfffe5e",
+  "train_id": "train-20261001T224746Z-4591f9055856",
+  "full_run_id": "github-full-36937258970",
+  "github_run_id": "36937258970",
+  "full_status": "passed",
+  "full_evidence_digest": "sha256:75535f0aefb140cc8c7cd8777b4066337e56d96409f2a75dac3d00eae17c8ab2",
+  "deploy_result": "pass",
+  "deploy_duration_seconds": 245,
+  "driver_execute_duration_seconds": 250,
+  "backup_timestamp": "20261001T225756Z",
+  "readiness_verdict": "infra_smoke_ready",
+  "runtime": {
+    "rec-api": {
+      "source_sha": "4591f90558565b8e1621bbfe931455f546ff6407",
+      "checkout_enabled": true,
+      "scope_public": true,
+      "environment_production": true,
+      "shop_expected": true,
+      "observation_enabled": true,
+      "running": true,
+      "health": "healthy"
+    },
+    "rec-processing-worker": {
+      "source_sha": "4591f90558565b8e1621bbfe931455f546ff6407",
+      "checkout_enabled": true,
+      "scope_public": true,
+      "environment_production": true,
+      "shop_expected": true,
+      "observation_enabled": true,
+      "running": true,
+      "health": "healthy"
+    },
+    "rec-maintenance": {
+      "source_sha": "4591f90558565b8e1621bbfe931455f546ff6407",
+      "checkout_enabled": true,
+      "scope_public": true,
+      "environment_production": true,
+      "shop_expected": true,
+      "observation_enabled": true,
+      "running": true,
+      "health": null
+    }
+  },
+  "source_files": {
+    "source_file_digests_match": true,
+    "services": {
+      "rec-api": {
+        "src/twobrain_rec_server/billing/yookassa.py": "5988391c8a034cab8eb959e53f988eb0fef3b131ed5f845382792f61358157ce",
+        "src/twobrain_rec_server/cabinet/web_routes/billing.py": "60151eb2a2c5d46bff9314eb5e10fbfd0eedeb939029d6fa4fbd9eab53a4dd12",
+        "src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_operation_status_content.html": "9b428a4474355dc5357393773ad31fb382ecb90980f26c4e93d9f18c9737c0a9"
+      },
+      "rec-processing-worker": {
+        "src/twobrain_rec_server/billing/yookassa.py": "5988391c8a034cab8eb959e53f988eb0fef3b131ed5f845382792f61358157ce",
+        "src/twobrain_rec_server/cabinet/web_routes/billing.py": "60151eb2a2c5d46bff9314eb5e10fbfd0eedeb939029d6fa4fbd9eab53a4dd12",
+        "src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_operation_status_content.html": "9b428a4474355dc5357393773ad31fb382ecb90980f26c4e93d9f18c9737c0a9"
+      },
+      "rec-maintenance": {
+        "src/twobrain_rec_server/billing/yookassa.py": "5988391c8a034cab8eb959e53f988eb0fef3b131ed5f845382792f61358157ce",
+        "src/twobrain_rec_server/cabinet/web_routes/billing.py": "60151eb2a2c5d46bff9314eb5e10fbfd0eedeb939029d6fa4fbd9eab53a4dd12",
+        "src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_operation_status_content.html": "9b428a4474355dc5357393773ad31fb382ecb90980f26c4e93d9f18c9737c0a9"
+      }
+    }
+  },
+  "deployed_helper_check": {
+    "deployed_adapter_metadata_template": "pass",
+    "live_provider_calls": 0,
+    "database_calls": 0,
+    "scope": "installed code synthetic only"
+  },
+  "stored_status_readonly_check": {
+    "stored_live_refusals_read": 2,
+    "installed_predicate_template": "pass",
+    "database_mode": "read_only_rolled_back",
+    "provider_calls": 0,
+    "scope": "live stored state and installed predicate/template, no authenticated browser HTTP"
+  },
+  "public_health": {
+    "live_http_status": 200,
+    "ready_http_status": 200,
+    "download_http_status": 200
+  },
+  "public_package": {
+    "public_pkg_sha256": "b5df859986d0ad36a07302c87c598b7a7d6e027a65e4024dd70fe0cba3338662",
+    "size_bytes": 9259700,
+    "existing_public_package_preserved": true
+  },
+  "rollback": {
+    "status": "not_required_not_executed",
+    "status_basis": "terminal_deployed_record_and_successful_guarded_deploy",
+    "deployment_attempt_id": "bd219f76b509442fa6ca86059339356f",
+    "deployment_image_result": "deployed",
+    "previous_source_sha": "216ab38e6eeb112aefa23f8c87cf69bf6f064b08",
+    "evidence_reference": "graf-release-images/attempts/bd219f76b509442fa6ca86059339356f/result.json",
+    "identity_reference": "graf-release-images/attempts/bd219f76b509442fa6ca86059339356f/identity.json",
+    "baseline_reference": "graf-release-images/attempts/bd219f76b509442fa6ca86059339356f/baseline.json",
+    "evidence_sha256": "6929b24ed8eff31c78751314edb3191bb1a86fabce710039e53d777f8676181d",
+    "decision_digest": "sha256:ba036779681d1c37c2e2f78ca36ae1bc946acf925880b333f5afe6ea39e6c161",
+    "full_digest": "sha256:75535f0aefb140cc8c7cd8777b4066337e56d96409f2a75dac3d00eae17c8ab2"
+  },
+  "publication": {
+    "attestation_id": "pa-rc-20261001T224834Z-cddd2dfffe5e",
+    "attested_at": "2026-10-01T23:02:04Z",
+    "attested_by": "yshishenya",
+    "candidate_id": "rc-20261001T224834Z-cddd2dfffe5e",
+    "decision_digest": "sha256:ba036779681d1c37c2e2f78ca36ae1bc946acf925880b333f5afe6ea39e6c161",
+    "github_release_url": "https://github.com/yshishenya/graf/releases/tag/v2026.10.02.1",
+    "release_target_sha": "4591f90558565b8e1621bbfe931455f546ff6407",
+    "schema_version": 1,
+    "source_sha": "4591f90558565b8e1621bbfe931455f546ff6407",
+    "tag": "v2026.10.02.1"
+  },
+  "pr_checks": {
+    "7418": {
+      "base_sha": "91b59ac8ee89aad47104ab0f0ff3747a0f70cafa",
+      "checks": {
+        "governance-fast": {
+          "proof_digest": "sha256:cb90110108af8b914731b86e13a36ad6673422e8cbfa1acb74fd44761d988be8",
+          "run_attempt": 1,
+          "run_id": "36933307189"
+        },
+        "macos-pr": {
+          "proof_digest": "sha256:6baadaad1773507b4d300f8654a6807a72ee0cea7e88789b99281c5032413672",
+          "run_attempt": 1,
+          "run_id": "36933307074"
+        },
+        "pr-metadata": {
+          "proof_digest": "sha256:fd12c3be41af237ae8a1a49c27c2fadd2d9af95394dbbda4213150720acce33a",
+          "run_attempt": 1,
+          "run_id": "36933364810"
+        }
+      },
+      "merge_commit_sha": null,
+      "metadata_digest": "e4bde6cbefcb38d99b173659c21a2c05cecc5dc23e02e1f46ecbceef627c436c",
+      "policy": "separate",
+      "pr_number": 7418,
+      "repository": "yshishenya/graf",
+      "schema_version": 1,
+      "target_sha": "0c73689d4ba2730f5de754fd83a8e6ac2a3fe1e7"
+    },
+    "7421": {
+      "base_sha": "95be4e117dc2403e5388abe04a9aab9a475f4ca2",
+      "checks": {
+        "governance-fast": {
+          "proof_digest": "sha256:964433666918bd4716a924ce32abe94aa4edb03038efa11160738bb24130d9c7",
+          "run_attempt": 1,
+          "run_id": "36936440924"
+        },
+        "macos-pr": {
+          "proof_digest": "sha256:2c130427c8e9964df6602ce9aece91ff78c4b6f1e04ac86088fbf14012e45386",
+          "run_attempt": 1,
+          "run_id": "36936440929"
+        },
+        "pr-metadata": {
+          "proof_digest": "sha256:da30f67de4541f0b982819910f6e00c3f3cf71cf2899f788313733cef1ea400b",
+          "run_attempt": 1,
+          "run_id": "36936441093"
+        }
+      },
+      "merge_commit_sha": null,
+      "metadata_digest": "b483060344936c782dcdb2d16d75815d73f720af91572db628880b31d3587dac",
+      "policy": "separate",
+      "pr_number": 7421,
+      "repository": "yshishenya/graf",
+      "schema_version": 1,
+      "target_sha": "c2ac15fbcffed5f814c2b9cf6151d2f9e6d49946"
+    }
+  },
+  "native_final": {
+    "tests": 1191,
+    "skipped": 2,
+    "failures": 0,
+    "changed_focus_case": "passed",
+    "changed_focus_case_seconds": 0.758,
+    "contract_validation": "pass"
+  },
+  "historical_failed_candidates": [
+    {
+      "candidate_id": "rc-20261001T215108Z-ae3e8878c637",
+      "source_sha": "91b59ac8ee89aad47104ab0f0ff3747a0f70cafa",
+      "run_id": "36931385550",
+      "status": "cancelled_after_confirmed_shard2_failure",
+      "reason": "copy_convention_yo",
+      "deployed": false
+    },
+    {
+      "candidate_id": "rc-20261001T222514Z-1942bb89cf2a",
+      "source_sha": "95be4e117dc2403e5388abe04a9aab9a475f4ca2",
+      "run_id": "36934946364",
+      "status": "failed",
+      "reason": "native_test_baseline_before_appkit_setup",
+      "deployed": false
+    }
+  ],
+  "native_diagnostic_previous_source": {
+    "run_id": "36935788313",
+    "source_sha": "95be4e117dc2403e5388abe04a9aab9a475f4ca2",
+    "status": "passed",
+    "authoritative": false,
+    "changed_focus_case": "passed"
+  },
+  "not_proven": [
+    "provider_recurring_enablement",
+    "real_one_time_payment",
+    "real_payments_receipts_bank_settlement_refunds_F278",
+    "authenticated_browser_HTTP_after_deploy",
+    "human_acceptance_T011_T012",
+    "conversion_and_retention_change"
+  ],
+  "provider_support_status": "user_reports_request_already_sent_under_review",
+  "final_local_browser_checks": {
+    "source_sha": "4591f90558565b8e1621bbfe931455f546ff6407",
+    "collection_count": 6,
+    "collection_digest": "0fc61c6feca5afe1c616d3cbb4b5f18507fece8824f325cca6f5efd2ff144b43",
+    "chromium": {
+      "passed": 6,
+      "deselected": 2,
+      "duration_seconds": 44.91
+    },
+    "webkit": {
+      "passed": 6,
+      "deselected": 2,
+      "duration_seconds": 48.95
+    },
+    "scope": "synthetic localhost HTTP SQL DOM, no real provider or production session"
+  },
+  "proposed_issue_closeout_validator": {
+    "issue": 7414,
+    "status": "pass",
+    "live_verification": true,
+    "expected_candidate_sha": "4591f90558565b8e1621bbfe931455f546ff6407",
+    "actual_issue_still_open": true
+  }
+}
