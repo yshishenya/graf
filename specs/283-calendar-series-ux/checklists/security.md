@@ -1,0 +1,33 @@
+# SECURITY Checklist: F283
+
+**Purpose**: requirements quality before implementation
+**Created**: 2026-10-02
+**Feature**: [spec.md](../spec.md)
+**Review Ownership**: independent reviewer only. [x] means requirements quality accepted, not implemented.
+
+## Requirements quality
+
+- [x] CHK001 Определены ли сохранение owner/session/workspace/calendar и ACL/deletion на каждой странице? [Completeness, Spec FR-007]
+- [x] CHK002 Определены ли стабильный период/anchor, проверка cursor и совместимость all? [Clarity, Spec FR-007, contracts/calendar-series.md]
+- [x] CHK003 Описаны ли очистка/недоступность старых данных при обновлении прав и поздние ответы? [Coverage, Spec FR-006/007]
+- [x] CHK004 Сохранены ли Join UUID/HTTPS/CSRF/session/native guard и отсутствие автоматической записи? [Consistency, Spec FR-008]
+- [x] CHK005 Определены ли маскирование DOM/подсказок и граница приватного research evidence? [Completeness, Spec FR-007/010]
+- [x] CHK006 Разделены ли разрешённая разработка, Dev harness и отдельный production release gate? [Consistency, Spec Assumptions, plan.md Validation Plan]
+
+## Notes
+
+Implementation reads this gate and cannot change markers. Reviewer records evidence and totals in a separate report.
+
+
+## Независимое ревью требований — 2026-10-02
+
+Это PASS качества изложенных требований до создания tasks, а не подтверждение реализации или выполненной приёмки.
+
+- CHK001 — PASS: Spec FR-007, data-model, API contract прямо сохраняют owner/session/workspace/calendar, ACL/deletion/privacy на каждой странице; plan требует авторизацию до payload.
+- CHK002 — PASS: Spec FR-007, data-model и plan Phase 1/API contract задают view+immutable UTC anchor в новом подписанном context, прежние owner/session/workspace/series/from/to и bounds, view mismatch422, восстановление anchor и совместимый default all/старый cursor до существующего expiry.
+- CHK003 — PASS: Spec US3.2, FR-006/007 и plan Phase 1 JS определяют недоступность старых данных на время повторной проверки, очистку после отказа, AbortController/request identity, отсутствие кеша между периодами и сброс close/switch. Quickstart п.2 включает rights/focus/selection и late response сценарии.
+- CHK004 — PASS: Spec FR-008 и Assumptions, plan Constraints/Constitution Check, API contract сохраняют UUID/HTTPS/CSRF/session/native guards, отдельный запуск записи, отсутствие capture/permissions changes и обязательное сохранение прежних Join security tests.
+- CHK005 — PASS: Spec US3.3, FR-003/007/010, research вводная часть и plan JS запрещают скрытые поля в DOM/атрибутах/подсказках/доступных именах и сохранение частных встреч в research. Quickstart допускает только synthetic screenshots вне git и metadata-only заметки.
+- CHK006 — PASS: Spec Assumptions, plan Release Gate/Validation Plan, quickstart п.4–5 отделяют разработку, единственный GRAF Dev через штатный harness после validated approved commit, exact-SHA PR checks и отдельно разрешённый frozen release-full/cd dry-run production release.
+
+Итог после перечитывания: **6 checked / 0 unchecked**. Подробности и границы: [checklist-review.md](../checklist-review.md).

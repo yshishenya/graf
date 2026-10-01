@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -814,6 +814,7 @@ async def calendar_series_occurrences(
     starts_to: Annotated[datetime | None, Query(alias="to")] = None,
     cursor: str | None = None,
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    view: Literal["all", "upcoming", "history"] = "all",
     tenant_scope: TenantScope = TenantDependency,
     db: AsyncSession | None = DbDependency,
 ):
@@ -837,12 +838,17 @@ async def calendar_series_occurrences(
         "series": series_key,
     }
     secret = request.app.state.settings.web_csrf_secret
+    anchor = datetime.now(UTC)
+    if view != "all":
+        context["view"] = view
     after = None
     if cursor:
         try:
             start, end, after, context = decode_occurrence_cursor(
                 cursor, context, secret, starts_from=starts_from, starts_to=starts_to
             )
+            if view != "all":
+                anchor = datetime.fromisoformat(context["anchor"])
         except ValueError as error:
             raise ProblemDetail(
                 status=422, code="invalid_calendar_cursor", title="Invalid calendar cursor"
@@ -863,6 +869,8 @@ async def calendar_series_occurrences(
                 status=422, code="invalid_calendar_range", title="Invalid calendar range"
             )
         context = {**context, "from": start.isoformat(), "to": end.isoformat()}
+        if view != "all":
+            context["anchor"] = anchor.isoformat()
     if not re.fullmatch(r"v2-[0-9a-f]{64}", series_key):
         raise ProblemDetail(
             status=404, code="calendar_series_unavailable", title="Calendar series unavailable"
@@ -882,7 +890,16 @@ async def calendar_series_occurrences(
         )
     preference = await _calendar_settings_preference_or_default(session, tenant_scope)
     events, more = await series_occurrences(
-        session, tenant_scope, preference, series_key, start, end, limit=limit, after=after
+        session,
+        tenant_scope,
+        preference,
+        series_key,
+        start,
+        end,
+        limit=limit,
+        after=after,
+        view=view,
+        anchor=anchor,
     )
     key = _credential_encryption_key(request, required=False)
     records, records_partial = await _series_recordings(
@@ -893,6 +910,13 @@ async def calendar_series_occurrences(
             **_series_event_payload(e, tenant_scope, preference, key),
             "recordings": records.get(e.id, []),
             "recordings_partial": records_partial,
+            "temporal_state": (
+                "history"
+                if e.ends_at <= anchor
+                else "ongoing"
+                if e.starts_at <= anchor
+                else "upcoming"
+            ),
         }
         for e in events
     ]

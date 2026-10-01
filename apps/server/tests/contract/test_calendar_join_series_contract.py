@@ -811,3 +811,116 @@ def test_occurrence_cursor_restores_default_window_across_midnight(client, monke
             url, params={"cursor": cursor, bound: different}, headers=auth_headers()
         )
         assert response.status_code == 422
+
+
+def test_temporal_views_order_boundary_stable_cursor_and_masks(client, monkeypatch):
+    import asyncio
+    from datetime import UTC, datetime, timedelta
+    from uuid import UUID
+
+    from sqlalchemy import select
+
+    from tests.contract.test_ingest_openapi_contract import auth_headers
+    from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
+    from twobrain_rec_server.api import calendar as api
+    from twobrain_rec_server.calendar.series import series_key
+    from twobrain_rec_server.db.models import CalendarEventSnapshot, CalendarSettingsPreference
+
+    event, _, _ = seed_series(client)
+    anchor = datetime.now(UTC)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return anchor
+
+    monkeypatch.setattr(api, "datetime", Clock)
+
+    async def arrange():
+        async with client.app_state["sessionmaker"]() as db:
+            first = await db.get(CalendarEventSnapshot, UUID(event))
+            rows = list(
+                await db.scalars(
+                    select(CalendarEventSnapshot)
+                    .where(CalendarEventSnapshot.recurring_series_id == first.recurring_series_id)
+                    .order_by(CalendarEventSnapshot.starts_at)
+                )
+            )
+            for n, row in enumerate(rows):
+                row.starts_at = anchor + timedelta(days=n - 6)
+                row.ends_at = row.starts_at + timedelta(minutes=30)
+            rows[5].ends_at = anchor  # equality is completed
+            rows[6].starts_at = anchor - timedelta(minutes=10)
+            rows[6].ends_at = anchor + timedelta(minutes=10)  # ongoing stays upcoming
+            rows[7].source_status = "cancelled"
+            key = series_key(first, USER_ID)
+            expected_history = [str(row.id) for row in reversed(rows[:6])]
+            expected_upcoming = [str(row.id) for row in rows[6:]]
+            await db.commit()
+            return key, expected_history, expected_upcoming
+
+    key, expected_history, expected_upcoming = asyncio.run(arrange())
+    url = f"/api/v1/calendar/series/{key}/occurrences"
+    headers = auth_headers()
+    pages = {}
+    for view, expected in (("history", expected_history), ("upcoming", expected_upcoming)):
+        response = client.get(url, params={"view": view, "limit": 2}, headers=headers)
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert [r["event_id"] for r in body["occurrences"]] == expected[:2]
+        pages[view] = body
+        ids = [r["event_id"] for r in body["occurrences"]]
+        while body["next_cursor"]:
+            body = client.get(
+                url,
+                params={"view": view, "limit": 2, "cursor": body["next_cursor"]},
+                headers=headers,
+            ).json()
+            ids += [r["event_id"] for r in body["occurrences"]]
+        assert ids == expected and len(set(ids)) == 6
+    assert pages["upcoming"]["occurrences"][0]["temporal_state"] == "ongoing"
+    assert pages["upcoming"]["occurrences"][1]["cancelled"] is True
+    for view in ("history", "all"):
+        assert (
+            client.get(
+                url,
+                params={"view": view, "cursor": pages["upcoming"]["next_cursor"]},
+                headers=headers,
+            ).status_code
+            == 422
+        )
+    assert client.get(url, params={"view": "bad"}, headers=headers).status_code == 422
+    legacy = client.get(url, headers=headers)
+    assert legacy.status_code == 200 and len(legacy.json()["occurrences"]) == 12
+    assert client.get(url, params={"view": "all"}, headers=headers).json() == legacy.json()
+
+    # Next page uses issued anchor even if wall clock advances beyond the upcoming date.
+    anchor += timedelta(days=10)
+    remaining = client.get(
+        url,
+        params={"view": "upcoming", "cursor": pages["upcoming"]["next_cursor"]},
+        headers=headers,
+    )
+    assert [r["event_id"] for r in remaining.json()["occurrences"]] == expected_upcoming[2:]
+
+    async def hide():
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                CalendarSettingsPreference(
+                    workspace_id=WORKSPACE_ID,
+                    owner_user_id=USER_ID,
+                    show_upcoming_title=False,
+                    show_upcoming_time=False,
+                )
+            )
+            await db.commit()
+
+    asyncio.run(hide())
+    hidden = client.get(url, params={"view": "history"}, headers=headers)
+    assert hidden.status_code == 200
+    assert all(
+        row["starts_at"] is None
+        and row["ends_at"] is None
+        and row["title"] == "Название скрыто настройкой"
+        for row in hidden.json()["occurrences"]
+    )

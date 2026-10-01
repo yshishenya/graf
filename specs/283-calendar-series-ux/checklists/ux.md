@@ -1,0 +1,37 @@
+# UX Checklist: F283
+
+**Purpose**: requirements quality before implementation
+**Created**: 2026-10-02
+**Feature**: [spec.md](../spec.md)
+**Review Ownership**: independent reviewer only. [x] means requirements quality accepted, not implemented.
+
+## Requirements quality
+
+- [x] CHK001 Определены ли измеримые иерархия компактного обзора, раскрытие и отсутствие повторения? [Clarity, Spec FR-001/003, SC-001/002]
+- [x] CHK002 Разделены ли цели расписания и результатов, их порядок и текущая встреча? [Consistency, Spec FR-002/004]
+- [x] CHK003 Определены ли исключения, отмена, отсутствие ссылки и несколько записей без недостоверной полноты? [Coverage, Spec FR-004/005, Edge Cases]
+- [x] CHK004 Описаны ли пустые, загрузка, ошибка, повтор, expiry и поздние ответы? [Completeness, Spec FR-006]
+- [x] CHK005 Определены ли фокус, нативная клавиатура, доступные имена и live status без повторной проверки VoiceOver? [Clarity, Spec FR-009]
+- [x] CHK006 Есть ли измеримые условия двух тем,320px,200% и contrast AA? [Measurability, Spec FR-009, SC-003]
+- [x] CHK007 Задокументированы ли наблюдение Krisp, официальные источники, адаптация GRAF и независимое происхождение ассетов? [Traceability, Spec FR-010, research.md]
+- [x] CHK008 Согласованы ли скрытые поля, пользовательская зона, all-day и отсутствие догадок RRULE? [Consistency, Spec FR-003/007, Assumptions]
+
+## Notes
+
+Implementation reads this gate and cannot change markers. Reviewer records evidence and totals in a separate report.
+
+
+## Независимое ревью требований — 2026-10-02
+
+Это PASS качества изложенных требований до создания tasks, а не подтверждение реализации или выполненной приёмки.
+
+- CHK001 — PASS: Spec FR-001/003, SC-001/002; plan Phase 1 и research Scenario decisions задают одну строку/один общий заголовок, вторичное раскрытие, отсутствие повторных предупреждений и одно действие Join.
+- CHK002 — PASS: Spec FR-002/004, US1/US2; data-model и API contract разделяют upcoming ends_at>anchor и history ends_at<=anchor, ASC/DESC и текущий экземпляр до окончания.
+- CHK003 — PASS: Spec FR-003–005, US1.3/US2.2–3 и research Scenario decisions задают изменённое название, отмену, отсутствие ссылки, различимые нумерованные записи, нейтральное отсутствие результата при partial и единую справку с общим списком.
+- CHK004 — PASS: Spec US3, FR-006; plan Phase 1 JS определяют отдельные empty/loading/error/retry, очистку при expiry/refresh error, отмену switch/close, request identity и сохранение разрешённых строк только при ошибке пагинации; quickstart п.2 задаёт проверяемую матрицу.
+- CHK005 — PASS: Spec FR-009 и plan Phase 1 задают native buttons/details, именованную группу aria-pressed, Enter/Space, видимый focus, live polite и отсутствие автоматического переноса при обычной загрузке; FR-006 сохраняет безопасный фокус обновления. Отказ от повторной проверки VoiceOver указан явно, а не принят за новую runtime-проверку.
+- CHK006 — PASS: Spec FR-009/SC-003 и quickstart п.3 задают две темы, 320px, 200% масштаб, WCAG AA, цели≥32px и отсутствие перекрытий/горизонтальной прокрутки; условия объективно проверяемы.
+- CHK007 — PASS: Spec FR-010, plan Constitution Check/Research и research таблица содержат официальные ссылки, дату, границы local observation (recurring detail не наблюдался), явно названный вывод автора и адаптацию inline GRAF. Независимый код/собственные SVG, отсутствие заимствованных ассетов и частного research содержимого заданы как требования; фактическая проверка сайтов этим review не заявляется.
+- CHK008 — PASS: Spec FR-003/007, US3.3, Edge Cases/Assumptions; data-model и research требуют выбранную зону, all-day, отсутствие скрытых timestamps в проекции/DOM/tooltip/accessible names и запрещают угадывание RRULE по датам/названиям.
+
+Итог после перечитывания: **8 checked / 0 unchecked**. Подробности и границы: [checklist-review.md](../checklist-review.md).

@@ -62,83 +62,130 @@
       clearTimeout(timer);if(pendingJoin===operation) pendingJoin=null;
     }
   });
-  function rowFor(event) {
+  function rowFor(event, panel, view) {
     const row=document.createElement('article');row.className='calendar-series__occurrence';row.dataset.eventId=event.event_id;
-    row.append(text('strong',event.title));
-    if(event.cancelled) row.append(text('span','Отменена'));
+    const detail=document.createElement('div');detail.className='calendar-series__date';
     if(event.starts_at) {
-      const label=event.all_day ? event.starts_at.slice(0,10)+' · весь день' : (window.GRAFTime?.format(event.starts_at,{showZone:true}) || new Intl.DateTimeFormat(document.documentElement.lang || 'ru',{dateStyle:'medium',timeStyle:'short'}).format(new Date(event.starts_at)));
-      row.append(text('span',label));
-    } else row.append(text('span','Время скрыто настройкой'));
-    if(event.open_meeting_available) {
-      const join=text('a','Подключиться');join.className='button quiet';join.dataset.calendarJoin=event.event_id;
-      join.href=`/api/v1/calendar/events/${event.event_id}/open`;join.target='_blank';join.rel='noopener noreferrer';row.append(join);
+      const zone=event.all_day?'UTC':window.GRAFTime?.timezone || 'UTC';
+      const instant=new Date(event.starts_at),locale=document.documentElement.lang || 'ru';
+      const day=text('time',new Intl.DateTimeFormat(locale,{timeZone:zone,day:'numeric',month:'short',weekday:'short',year:'numeric'}).format(instant));
+      day.dateTime=event.starts_at;
+      day.title=(event.all_day?window.GRAFTime?.format(event.starts_at.slice(0,10)):window.GRAFTime?.format(event.starts_at,{showZone:true})) || day.textContent;
+      day.setAttribute('aria-label',day.title);
+      detail.append(day,text('span',event.all_day?'Весь день':new Intl.DateTimeFormat(locale,{timeZone:zone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(instant)));
+    } else detail.append(text('span','Время скрыто настройкой'));
+    const seriesTitle=panel.closest('.calendar-home-upcoming__row')?.querySelector(':scope > div > strong')?.textContent;
+    if(event.title && event.title!==seriesTitle) {
+      const exception=text('span',event.title);exception.className='calendar-series__exception';exception.title=event.title;detail.append(exception);
     }
-    const feedback=text('span','');feedback.dataset.calendarJoinStatus='';feedback.setAttribute('role','status');row.append(feedback);
-    if(!event.recordings_partial && !(event.recordings || []).length) row.append(text('span','Нет доступной записи'));
-    for(const recording of event.recordings || []) {
-      if(!uuid.test(recording.meeting_id)) continue;
-      const link=text('a','Открыть запись');link.href=`${location.pathname.startsWith('/desktop/')?'/desktop':''}/meetings/${recording.meeting_id}`;row.append(link);
+    row.append(detail);
+    const actions=document.createElement('div');actions.className='calendar-series__actions';
+    if(event.cancelled) {row.classList.add('is-cancelled');actions.append(text('span','Отменена'));}
+    if(view==='upcoming') {
+      if(event.temporal_state==='ongoing' && !event.cancelled) {
+        const live=text('span','Идёт сейчас');live.className='calendar-series__live';detail.append(live);
+      }
+      if(event.open_meeting_available && !event.cancelled) {
+        const join=text('a','Подключиться');join.className='button quiet';join.dataset.calendarJoin=event.event_id;
+        join.href=`/api/v1/calendar/events/${event.event_id}/open`;join.target='_blank';join.rel='noopener noreferrer';join.setAttribute('aria-label',`Подключиться · ${detail.firstElementChild.textContent}`);actions.append(join);
+      } else if(!event.cancelled) actions.append(text('span','Без ссылки'));
+    } else {
+      const recordings=(event.recordings || []).filter(recording=>uuid.test(recording.meeting_id));
+      recordings.forEach((recording,index)=>{
+        const link=text('a',recordings.length===1?'Открыть запись':`Запись ${index+1}`);
+        link.className='calendar-series__recording';
+        link.setAttribute('aria-label',`Открыть ${recordings.length===1?'запись':`запись ${index+1}`} · ${detail.firstElementChild.textContent}`);
+        link.href=`${location.pathname.startsWith('/desktop/')?'/desktop':''}/meetings/${recording.meeting_id}`;
+        actions.append(link);
+      });
+      if(!recordings.length && !event.cancelled) {
+        const missing=text('span',event.recordings_partial?'—':'Нет доступной записи');
+        if(event.recordings_partial) {missing.title='В выборке нет связанной записи';missing.setAttribute('aria-label',missing.title);}
+        actions.append(missing);
+      }
     }
-    if(event.recordings_partial) {
-      row.append(text('span','Здесь показана ограниченная выборка записей.'));
-      const all=text('a','Все доступные записи');all.href=`${location.pathname.startsWith('/desktop/')?'/desktop':''}/meetings`;row.append(all);
-    }
+    row.append(actions);
+    const feedback=text('span','');feedback.dataset.calendarJoinStatus='';feedback.setAttribute('role','status');feedback.setAttribute('aria-live','polite');actions.append(feedback);
     return row;
   }
+  function reset(panel,view='upcoming') {
+    state.get(panel)?.controller?.abort();
+    const data={view,busy:false,cursor:null,started:false,count:0};state.set(panel,data);
+    panel.querySelector('[data-calendar-series-rows]').replaceChildren();
+    panel.querySelector('[data-calendar-series-rows]').inert=false;
+    panel.querySelectorAll('[data-calendar-series-view]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.calendarSeriesView===view)));
+    panel.querySelector('[data-calendar-series-scope]').textContent=view==='history'?'Последние 180 дней':'Ближайшие 30 дней';
+    const more=panel.querySelector('[data-calendar-series-more]');more.hidden=true;more.disabled=false;
+    panel.querySelector('[data-calendar-series-status]').textContent='';
+    return data;
+  }
   async function load(panel,{refresh=false}={}) {
-    let data=state.get(panel);
-    if(!data) {data={busy:false,cursor:null,started:false,count:0};state.set(panel,data);}
-    if(data.busy) {if(refresh) data.refreshRequested=true;return;}
+    const data=state.get(panel) || reset(panel);
+    if(data.busy) {
+      if(refresh) {data.refreshRequested=true;panel.querySelector('[data-calendar-series-rows]').inert=true;}
+      return;
+    }
     if(!refresh && data.started && !data.cursor) return;
     const key=panel.dataset.calendarSeries;if(!/^v2-[0-9a-f]{64}$/.test(key)) return;
     const status=panel.querySelector('[data-calendar-series-status]'),more=panel.querySelector('[data-calendar-series-more]'),rows=panel.querySelector('[data-calendar-series-rows]');
     const focus=document.activeElement,hadFocus=panel.contains(focus),focusedHref=hadFocus?focus.getAttribute('href'):null;
+    const hadRowFocus=rows.contains(focus);
     const wanted=refresh?Math.max(data.count,20):20;
-    data.busy=true;more.disabled=true;status.textContent=refresh?'Обновляем даты…':'Загружаем даты…';
+    const controller=new AbortController();data.controller=controller;
+    const timer=setTimeout(()=>controller.abort(),15000);
+    data.busy=true;more.disabled=true;status.textContent=refresh?'Обновляем…':'Загружаем…';
+    rows.setAttribute('aria-busy','true');
     // Old data is no longer actionable while its permissions are being rechecked.
     if(refresh) rows.inert=true;
     try {
       let cursor=refresh?null:data.cursor,result;
       const events=[];
       do {
-        const query=new URLSearchParams({limit:String(Math.min(50,wanted-events.length))});
+        const query=new URLSearchParams({limit:String(Math.min(50,wanted-events.length)),view:data.view});
         if(cursor) query.set('cursor',cursor);
-        if(data.from) {query.set('from',data.from);query.set('to',data.to);}
-        const response=await fetch(`/api/v1/calendar/series/${key}/occurrences?${query}`,{credentials:'same-origin',cache:'no-store',redirect:'error',headers:{Accept:'application/json'}});
-        if(!response.ok) {const error=new Error('unavailable');error.cursorExpired=response.status===422;throw error;}
+        if(!refresh && data.from) {query.set('from',data.from);query.set('to',data.to);}
+        const response=await fetch(`/api/v1/calendar/series/${key}/occurrences?${query}`,{credentials:'same-origin',cache:'no-store',redirect:'error',signal:controller.signal,headers:{Accept:'application/json'}});
+        if(!response.ok) {const error=new Error('unavailable');error.cursorExpired=response.status===422;error.accessDenied=response.status===401 || response.status===403 || response.status===404;throw error;}
         result=await response.json();
-        if(!panel.isConnected || state.get(panel)!==data) return;
+        if(!panel.isConnected || state.get(panel)!==data || controller.signal.aborted) return;
         events.push(...result.occurrences.filter(e=>uuid.test(e.event_id)));
         cursor=result.next_cursor;
         data.from=result.coverage_range.from;data.to=result.coverage_range.to;
       } while(refresh && cursor && events.length<wanted && result.occurrences.length);
-      const fragment=document.createDocumentFragment();events.forEach(event=>fragment.append(rowFor(event)));
+      const fragment=document.createDocumentFragment();events.forEach(event=>fragment.append(rowFor(event,panel,data.view)));
       if(refresh) rows.replaceChildren(fragment);else rows.append(fragment);
       data.started=true;data.cursor=cursor;data.count=rows.children.length;
-      more.hidden=!data.cursor;more.textContent='Ещё даты';
-      status.textContent=events.length?result.coverage_note:'В этом периоде нет доступных сохранённых дат.';
+      more.hidden=!data.cursor;more.textContent=data.view==='history'?'Ранее':'Ещё даты';
+      status.textContent=data.count?'':data.view==='history'?'За последние 180 дней нет доступных сохранённых встреч.':'В ближайшие 30 дней нет доступных сохранённых встреч.';
       rows.inert=false;
       if(refresh && hadFocus) {
         const replacement=[...rows.querySelectorAll('a[href]')].find(link=>link.getAttribute('href')===focusedHref);
-        (replacement || (focus===more&&!more.hidden?more:panel.querySelector('summary'))).focus({preventScroll:true});
-      }
+        (replacement || (focus.isConnected && !rows.contains(focus) && !focus.hidden ? focus : panel.querySelector(':scope > summary'))).focus({preventScroll:true});
+      } else if(focus===more && more.hidden) panel.querySelector('[data-calendar-series-view][aria-pressed="true"]').focus({preventScroll:true});
     } catch(error) {
       if(!panel.isConnected || state.get(panel)!==data) return;
-      // A failed refresh must not leave revoked data visible indefinitely.
-      if(refresh || error.cursorExpired) {rows.replaceChildren();data.started=false;data.cursor=null;data.count=0;more.hidden=false;}
-      status.textContent=error.cursorExpired?'Список дат устарел. Загрузите его заново.':'Не удалось загрузить даты. Повторите попытку.';more.textContent=error.cursorExpired?'Загрузить заново':'Повторить';
-      if(refresh&&hadFocus) panel.querySelector('summary').focus({preventScroll:true});
+      // A failed refresh or access revocation must not retain previously visible data.
+      if(refresh || error.cursorExpired || error.accessDenied) {rows.replaceChildren();data.started=false;data.cursor=null;data.count=0;delete data.from;delete data.to;}
+      status.textContent=error.cursorExpired?'Список устарел. Загрузите его заново.':error.accessDenied?'Доступ к серии изменился. Обновите календарь или повторите попытку.':'Не удалось загрузить встречи. Повторите попытку.';
+      more.hidden=false;more.textContent=error.cursorExpired?'Загрузить заново':'Повторить';
+      if(hadRowFocus && !focus.isConnected) panel.querySelector(':scope > summary').focus({preventScroll:true});
     } finally {
-      data.busy=false;
-      if(state.get(panel)===data) {rows.inert=false;more.disabled=false;if(data.refreshRequested){data.refreshRequested=false;load(panel,{refresh:true});}}
+      clearTimeout(timer);data.busy=false;
+      if(state.get(panel)===data) {rows.inert=false;rows.removeAttribute('aria-busy');more.disabled=false;if(data.refreshRequested){data.refreshRequested=false;load(panel,{refresh:true});}}
     }
   }
   document.addEventListener('toggle',event=>{
     const panel=event.target;if(!panel.matches?.('[data-calendar-series]')) return;
-    if(panel.open) load(panel);
-    else {state.delete(panel);const rows=panel.querySelector('[data-calendar-series-rows]');rows.replaceChildren();rows.inert=false;const more=panel.querySelector('[data-calendar-series-more]');more.hidden=false;more.disabled=false;more.textContent='Загрузить даты';panel.querySelector('[data-calendar-series-status]').textContent='';}
+    if(panel.open) load(panel);else reset(panel);
   },true);
   document.addEventListener('graf:calendar-series-refresh',event=>{if(event.target.matches?.('[data-calendar-series][open]')) load(event.target,{refresh:true});});
-  document.addEventListener('click',event=>{const button=event.target.closest?.('[data-calendar-series-more]');if(button) load(button.closest('[data-calendar-series]'));});
+  document.addEventListener('click',event=>{
+    const button=event.target.closest?.('[data-calendar-series-view],[data-calendar-series-more]');if(!button) return;
+    const panel=button.closest('[data-calendar-series]');
+    if(button.hasAttribute('data-calendar-series-view')) {
+      if(state.get(panel)?.view===button.dataset.calendarSeriesView) return;
+      reset(panel,button.dataset.calendarSeriesView);
+    }
+    load(panel);
+  });
 })();

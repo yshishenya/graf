@@ -1,0 +1,7 @@
+# F283 validation
+
+1. Server: existing `test_calendar_series.py` and `test_calendar_join_series_contract.py` plus temporal view cases: all legacy, upcoming/history opposite ordering, ongoing boundary, cancelled/no-link, stable anchor pagination, mismatched cursor, masked fields, ACL/deletion.
+2. Browser: `apps/server/tests/browser/calendar_series.mjs` using production renderer/assets. Synthetic data only. Preserve browser/native Join tests. Add upcoming/history requests and switching, one shared help, exception names, multiple recordings, no-result truth, empty/loading/failure/retry, stale cursor, close/switch late responses, refresh rights/focus/selection, all-day/zone/masks.
+3. Visual: actual production synthetic browser screenshots at wide and narrow, dark/light, 200% zoom; inspect alignment, wrapping, contrast, target sizes and focus. All controls remain reachable at320px. Keep screenshots outside git; include metadata-only validation notes.
+4. Native: read local-development.md, status shared harness, build/promote/status/smoke only after approved validated commit. Manual series smoke in /Applications/GRAF Dev.app; no call, audio capture or VoiceOver. Do not claim this proof until run.
+5. Converge, owned changelog fragment, exact PR governance-fast/macos-pr/pr-metadata and checked base. Production release/deploy require separate permission and frozen release-full; local validation does not satisfy them.

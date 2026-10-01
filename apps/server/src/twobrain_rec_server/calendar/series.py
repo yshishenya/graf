@@ -242,9 +242,12 @@ def decode_occurrence_cursor(
     payload = _decode_cursor_payload(cursor, secret, now=now)
     try:
         saved = payload["context"]
-        if set(saved) != set(context) | {"from", "to"} or any(
+        window_fields = {"from", "to", "anchor"} if "view" in context else {"from", "to"}
+        if set(saved) != set(context) | window_fields or any(
             saved[key] != value for key, value in context.items()
         ):
+            raise ValueError()
+        if "view" in context and datetime.fromisoformat(saved["anchor"]).tzinfo is None:
             raise ValueError()
         start, end = datetime.fromisoformat(saved["from"]), datetime.fromisoformat(saved["to"])
         if (
@@ -260,17 +263,22 @@ def decode_occurrence_cursor(
         raise ValueError("invalid_calendar_cursor") from error
 
 
-async def series_occurrences(db, scope, preference, key, start, end, *, limit=20, after=None):
+async def series_occurrences(
+    db, scope, preference, key, start, end, *, limit=20, after=None, view="all", anchor=None
+):
     query = filtered_events(scope, preference, include_cancelled=True, history=True).where(
         Event.recurring_series_id.is_not(None),
         series_key_expression(scope.user_id) == key,
         Event.starts_at >= start,
         Event.starts_at < end,
     )
+    history = view == "history"
+    if view != "all":
+        query = query.where(Event.ends_at <= anchor if history else Event.ends_at > anchor)
     if after:
-        query = query.where(
-            tuple_(Event.starts_at, Event.id)
-            > tuple_(datetime.fromisoformat(after[0]), UUID(after[1]))
-        )
-    rows = list(await db.scalars(query.order_by(Event.starts_at, Event.id).limit(limit + 1)))
+        position = tuple_(Event.starts_at, Event.id)
+        last = tuple_(datetime.fromisoformat(after[0]), UUID(after[1]))
+        query = query.where(position < last if history else position > last)
+    order = (Event.starts_at.desc(), Event.id.desc()) if history else (Event.starts_at, Event.id)
+    rows = list(await db.scalars(query.order_by(*order).limit(limit + 1)))
     return rows[:limit], len(rows) > limit
