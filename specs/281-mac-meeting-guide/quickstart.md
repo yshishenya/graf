@@ -21,6 +21,8 @@ Production: https://rec.2brain.pro/guides — HTTP200, canonical self, две к
 ## Regression закрытия меню
 С уже подготовленными browser dependencies: `node apps/server/tests/browser/public-navigation-focus.test.cjs`. Проверяет реальный controller, полностью раскрытую анимацию, Escape → Tab без скрытых ссылок, resize и no-JS fallback; вся сеть заблокирована. Геометрия проверяется отдельно на отрендеренных пяти страницах.
 
+Этот harness вызывается обнаруживаемым pytest-тестом `tests/contract/test_public_guide_navigation.py::test_public_navigation_focus_and_article_reduced_motion_in_browser` (marker `browser`), поэтому входит в штатный CI. Требует уже установленные Node/Playwright; отсутствие ресурсов — failure, не skip. `GRAF_NODE_MODULES` может указывать существующую установку. Дополнительно проверяет фактический `scroll-behavior` корневого html всех трех шаблонов при reduce/no-preference; общий `landing.css` уже обеспечивает auto при reduced motion, менять CSS для замечания ревью не требуется.
+
 ## Дизайн статей
 
 Сравнить DOM текст/metadata/section IDs/ссылки до и после; focused существующие guide contract tests. Chromium360/390/768/1440, text200%, keyboard skip/focus, noJS, длинный копируемый шаблон. Нулевой diff main/download/policies/assets. Новые изображения/schema/аналитика не добавляются.

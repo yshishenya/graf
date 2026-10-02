@@ -40,7 +40,20 @@ const controller = fs.readFileSync(process.argv[2] || path.join(root, 'static/pu
     const fallback = await noJs.newPage();
     await fallback.setContent(`<style>${css}</style>${header}`);
     assert.equal(await fallback.locator('[data-mobile-nav] a[href="/guides"]').isVisible(), true);
+    const articleCss = fs.readFileSync(path.join(root, 'static/public/article.css'), 'utf8');
+    for (const name of ['mac_meeting_guide.html', 'meeting_protocol_guide.html', 'transcription_quality_guide.html']) {
+      const article = fs.readFileSync(path.join(root, 'templates/public', name), 'utf8');
+      const htmlClass = article.match(/<html\b[^>]*class="([^"]+)"/)[1];
+      const motion = await context.newPage();
+      await motion.emulateMedia({reducedMotion: 'reduce'});
+      await motion.setContent(`<html class="${htmlClass}"><head><style>${css}\n${articleCss}</style></head><body class="quality-page"><a href="#section">Contents</a><main id="section">Article</main></body></html>`);
+      assert.equal(await motion.evaluate(() => getComputedStyle(document.documentElement).scrollBehavior), 'auto', name);
+      await motion.emulateMedia({reducedMotion: 'no-preference'});
+      assert.equal(await motion.evaluate(() => getComputedStyle(document.documentElement).scrollBehavior), 'smooth', name);
+      await motion.close();
+    }
     console.log('public_navigation_focus=pass');
+    console.log('public_article_reduced_motion=pass');
   } finally {
     await browser.close();
   }
