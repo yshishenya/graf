@@ -1095,7 +1095,8 @@ private struct ContentView: View {
             startMeetingDetectionIfNeeded()
             return
         }
-        dismissMeetingDetectionPrompt()
+        // Restart only the activity observer. The detector preserves accepted
+        // offers, so the current prompt, token and original deadline must survive.
         meetingDetectionLogStream.restart()
         AppLog.writeRaw(
             event: "meeting_detection.observer_restart_requested",

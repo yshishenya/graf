@@ -1,13 +1,25 @@
-const {chromium} = require('playwright');
+const {chromium, webkit} = require('playwright');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs');
 (async () => {
-  const browser = await chromium.launch({headless:true});
+  const browser = await (process.env.GRAF_BROWSER === 'webkit' ? webkit : chromium).launch({headless:true});
   try {
     const page = await browser.newPage();
     const errors=[]; page.on('pageerror', e=>errors.push(e.message));
-    await page.setContent('<main data-meeting-id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"><h1 tabindex="-1">Synthetic</h1><section data-playback-state="unavailable" data-playback-reason="storage_capacity_exceeded"></section></main>');
-    await page.addScriptTag({path:path.join(__dirname,'../../src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js')});
+    const meetingId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    const html = (state, reason = '', id = meetingId, text = state) => `<main id="cabinet-main" data-meeting-id="${id}" data-playback-poll-url="/meeting" data-playback-poll-active="false"><h1 tabindex="-1">Synthetic</h1><p data-playback-live-status>${text}</p><section data-playback-transcript>Synthetic transcript</section></main><section class="detail-playback" data-playback-state="${state}" data-playback-reason="${reason}"><p>${text}</p></section>`;
+    let nextHtml = html('unavailable', 'storage_capacity_exceeded');
+    await page.route('https://graf.test/**', route => route.fulfill({contentType:'text/html', body:nextHtml}));
+    await page.goto('https://graf.test/meeting');
+    const source = fs.readFileSync(path.join(__dirname,'../../src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js'), 'utf8');
+    const hook = '  const initPlaybackRecoveryPolling = () => {';
+    assert.equal(source.split(hook).length, 2, 'test exports the actual recovery function once');
+    await page.addScriptTag({content:source.replace(hook, `  window.refreshLocalPlaybackTest = () => {
+      document.querySelector('main').dataset.playbackPollActive = 'true';
+      return refreshPlaybackRecovery();
+    };
+${hook}`)});
     const row={id:'local-a',meetingId:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',canOpen:true};
     const publish=rows=>page.evaluate(rows=>window.GRAFLocalRecordings.update(rows),rows);
     const button=page.locator('[data-graf-local-recording-action="open"]');
@@ -33,9 +45,48 @@ const path = require('node:path');
     assert.equal(await button.count(),0,'navigation removes stale action');
     await page.evaluate(()=>{document.querySelector('main').dataset.meetingId='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'; document.body.dispatchEvent(new CustomEvent('htmx:afterSwap'));});
     assert.equal(await button.count(),1,'fragment navigation reconciles local row');
+    // Poll the real recovery function without emitting an htmx swap or a native update.
+    nextHtml = html('preparing');
+    await page.evaluate(() => window.refreshLocalPlaybackTest());
+    assert.equal(await page.locator('.detail-playback').getAttribute('data-playback-state'), 'preparing');
+    assert.equal(await button.count(),1,'preparing replacement retains the authorized local action');
+    nextHtml = html('unavailable', 'storage_capacity_exceeded');
+    await page.evaluate(() => window.refreshLocalPlaybackTest());
+    assert.equal(await page.locator('.detail-playback').getAttribute('data-playback-reason'), 'storage_capacity_exceeded');
+    assert.equal(await button.count(),1,'direct preparing-to-quota polling restores local playback');
+    await button.focus();
+    await page.evaluate(() => { window.savedLocalButton = document.querySelector('[data-detail-local-playback]'); window.savedLocalPlayback = document.querySelector('.detail-playback'); });
+    await page.evaluate(() => window.refreshLocalPlaybackTest());
+    assert.equal(await button.evaluate(e=>e===window.savedLocalButton && e===document.activeElement),true,'unchanged server polling retains the same local button and keyboard focus');
+    assert.equal(await page.evaluate(() => window.savedLocalPlayback === document.querySelector('.detail-playback')),true,'native-only action is excluded from server change detection');
+    // The reason can change while the state and visible text remain identical.
+    nextHtml = html('unavailable', 'access_denied');
+    await page.evaluate(() => window.refreshLocalPlaybackTest());
+    assert.equal(await button.count(),0,'unchanged-state polling removes a stale local action on access denial');
+    nextHtml = html('unavailable', 'storage_capacity_exceeded');
+    await page.evaluate(() => window.refreshLocalPlaybackTest());
+    assert.equal(await button.count(),1,'unchanged-state polling restores an authorized local action');
+    nextHtml = html('unavailable', 'access_denied', meetingId, 'Доступ закрыт');
+    await page.evaluate(() => window.refreshLocalPlaybackTest());
+    assert.equal(await button.count(),0,'replacement polling also removes local action on access denial');
+    nextHtml = html('unavailable', 'storage_capacity_exceeded');
+    await page.evaluate(() => window.refreshLocalPlaybackTest());
+    assert.equal(await button.count(),1,'authorized replacement restores local action');
+    nextHtml = html('unavailable', 'access_denied', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
+    await page.evaluate(() => window.refreshLocalPlaybackTest());
+    assert.equal(await page.locator('.detail-playback').getAttribute('data-playback-reason'), 'storage_capacity_exceeded','a response for another route cannot replace current playback');
+    assert.equal(await button.count(),1,'another meeting response cannot remove current meeting local action');
+    for (const state of ['deleting', 'deleted']) {
+      nextHtml = html(state);
+      await page.evaluate(() => window.refreshLocalPlaybackTest());
+      assert.equal(await button.count(),0,`${state} polling removes a stale local action`);
+    }
+    nextHtml = html('unavailable', 'storage_capacity_exceeded');
+    await page.evaluate(() => window.refreshLocalPlaybackTest());
+    assert.equal(await button.count(),1,'authorized current meeting action returns before native deletion update');
     await publish([]);
     assert.equal(await button.count(),0,'deletion or account change removes action');
     assert.deepEqual(errors,[]);
-    console.log('detail local playback: matching identity, focus, access, deletion and fragment refresh PASS');
+    console.log('detail local playback: production sibling, direct polling transitions, identity, focus, access, deletion and fragment refresh PASS');
   } finally {await browser.close();}
-})();
+})().catch(error => { console.error(error); process.exitCode = 1; });

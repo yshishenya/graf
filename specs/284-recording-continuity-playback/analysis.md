@@ -10,3 +10,7 @@ Current spec/plan/tasks/design read after source-authority clarification. Read-o
 | FR008 | T001,T006 | Synthetic fixtures, bounded metadata, no private artifacts |
 
 No duplicated behavioral requirements; tasks ordered tests before fixes; two independently testable stories; no schema/tariff changes; consent/deletion/control gates preserved. Template runtime does not accept --require-spec: used supported --json --require-tasks --include-tasks and directly confirmed spec.md exists. Optional context-update/commit hooks skipped to preserve router/user commit gate. Task list was a preliminary reviewer input until reviewer PASS, then finalized without behavioral changes. Required external CI and hardware checks remain separate release evidence.
+
+## Дополнительная сходимость
+
+Замечания PR выявили невыполненные части FR001/FR005 и SC003. Добавлены T007 (рабочая разметка/прямой опрос локального аудио) и T008 (сохранение незавершённого предложения при restart). Обе задачи в прежних границах историй US1/US2; тарифы, данные и архитектура не меняются. Исполняемые регрессии выполнены; новая независимая проверка обязана подтвердить отсутствие оставшихся CRITICAL/HIGH.
