@@ -82,7 +82,7 @@
     if(event.cancelled) {row.classList.add('is-cancelled');actions.append(text('span','Отменена'));}
     if(view==='upcoming') {
       if(event.starts_at && event.temporal_state==='ongoing' && !event.cancelled) {
-        const live=text('span','Идёт сейчас');live.className='calendar-series__live';detail.append(live);
+        const live=text('span','Идет сейчас');live.className='calendar-series__live';detail.append(live);
       }
       if(event.open_meeting_available && !event.cancelled) {
         const join=text('a','Подключиться');join.className='button quiet';join.dataset.calendarJoin=event.event_id;
@@ -155,8 +155,8 @@
       events.forEach((event,index)=>{fragment.append(rowFor(event,data.view,previousTitle,(refresh?0:rows.children.length)+index+1));previousTitle=event.title;});
       if(refresh) rows.replaceChildren(fragment);else rows.append(fragment);
       data.started=true;data.cursor=cursor;data.count=rows.children.length;data.lastTitle=previousTitle;
-      more.hidden=!data.cursor;more.textContent=data.view==='history'?'Ранее':'Ещё даты';
-      status.textContent=data.count?'':data.view==='history'?'За последние 180 дней нет доступных сохранённых встреч.':'В ближайшие 30 дней нет доступных сохранённых встреч.';
+      more.hidden=!data.cursor;more.textContent=data.view==='history'?'Ранее':'Еще даты';
+      status.textContent=data.count?'':data.view==='history'?'За последние 180 дней нет доступных сохраненных встреч.':'В ближайшие 30 дней нет доступных сохраненных встреч.';
       rows.inert=false;
       if(refresh && hadFocus) {
         const replacement=[...rows.querySelectorAll('a[href]')].find(link=>link.getAttribute('href')===focusedHref);

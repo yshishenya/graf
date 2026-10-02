@@ -47,3 +47,7 @@ T001→T002→T003→T004→T005→T006→T007→T008→T009. Story tests indepe
 ## Implementation Strategy
 
 Extend existing scoped query/cursor and native controls, reuse theme/time/security helpers. No new packages, storage schema, recurrence editor, provider or recording behavior. Mark tasks [X] only after respective validation. T009 accepted on d0edffddfd766179ff46feb5bd8a5a71682015b1 with exact-SHA/base PR proof and installed GRAF Dev acceptance; final documentation-only head must retain verified code proof and current Dev identity. GitHub closeout follows merge; production release is a separate authorised operation.
+
+## Phase 7: Convergence before release
+
+- [X] T010 Согласовать canonical OpenAPI с уже реализованными optional view/temporal_state, привести новые подписи Python/JS к словарю GRAF без «ё», включить owned JS в существующую словарную проверку и проверить контракт/браузер до нового кандидата (FR-002/007/009, SC-003/004). (Issue #7439) — [#7439](https://github.com/yshishenya/graf/issues/7439)
