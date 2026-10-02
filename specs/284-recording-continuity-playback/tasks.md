@@ -19,3 +19,7 @@ Independent validation: local playback only own matched meeting, correct quota m
 
 ## Dependencies & Execution Order
 T001→T002→T003; T001→T004→T005; T003+T005→T006. Tests precede implementation. No parallel file ownership assigned. No implementation commit without explicit user approval after validation. Publication is authorized on 2026-10-02 and remains subject to the separate release gates.
+
+## Phase 5: Convergence
+- [X] T007 [US2] Исправить привязку локального аудио к соседнему блоку проигрывателя и сохранять/отзывать кнопку после прямого опроса в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js; проверить настоящую структуру страницы, смену состояния и access_denied в apps/server/tests/browser/local-recording-detail.test.cjs.
+- [X] T008 [US1] Сохранить незавершённое предложение записи при техническом перезапуске наблюдения в apps/macos/RecApp/App/TwoBrainRecApp.swift; проверить работоспособность исходного окна без повторного предложения в apps/macos/Shared/Tests/MeetingDetectionCountdownTests.swift.

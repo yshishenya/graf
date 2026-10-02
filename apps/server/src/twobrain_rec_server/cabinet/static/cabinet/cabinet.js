@@ -442,7 +442,7 @@
   const renderDetailLocalPlayback = () => {
     const detail = document.querySelector('main[data-meeting-id]');
     const existing = document.querySelector('[data-detail-local-playback]');
-    const playback = detail?.querySelector('[data-playback-state]');
+    const playback = detailPlayback(detail);
     const row = localRecordingRows.find(item => item.canOpen && item.meetingId?.toLowerCase() === detail?.dataset.meetingId?.toLowerCase());
     if (!row || !playback || ['deleted', 'deleting'].includes(playback.dataset.playbackState) || playback.dataset.playbackReason === 'access_denied') { existing?.remove(); return; }
     if (existing?.dataset.grafLocalRecordingId === row.id && existing.parentElement === playback) return;
@@ -7898,7 +7898,9 @@
         showPlaybackRecoveryNotice(detail);
         return;
       }
-      const documentFragment = new DOMParser().parseFromString(await response.text(), "text/html");
+      const responseText = await response.text();
+      if (!detail.isConnected || document.querySelector('main[data-meeting-id]') !== detail) return;
+      const documentFragment = new DOMParser().parseFromString(responseText, "text/html");
       const nextDetail = documentFragment.querySelector("[data-playback-poll-url]");
       const currentPlayback = detailPlayback(detail);
       const nextPlayback = detailPlayback(nextDetail);
@@ -7906,18 +7908,28 @@
       const nextTranscript = nextDetail?.querySelector("[data-playback-transcript]");
       const currentLiveStatus = detail.querySelector("[data-playback-live-status]");
       const nextLiveStatus = nextDetail?.querySelector("[data-playback-live-status]");
-      if (!nextDetail || !currentPlayback || !nextPlayback || !currentTranscript || !nextTranscript) {
+      if (!nextDetail || nextDetail.dataset.meetingId !== detail.dataset.meetingId
+        || !currentPlayback || !nextPlayback || !currentTranscript || !nextTranscript) {
         showPlaybackRecoveryNotice(detail);
         return;
       }
       clearPlaybackRecoveryNotice(detail);
       detail.dataset.playbackPollActive = nextDetail.dataset.playbackPollActive || "false";
-      const recoverySignature = (node) => [
-        node.dataset.playbackState || "",
-        node.dataset.sourceMode || "",
-        ...["meetingId", "workspaceId", "mediaRevisionId", "processingResultId", "commentsAvailable", "commentsCanComment"].map(key => node.dataset[key] || ""),
-        (node.textContent || "").trim()
-      ].join("\u001f");
+      const recoverySignature = (node) => {
+        // The native-only action is reconciled separately from the server fragment.
+        const text = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, {
+          acceptNode: child => child.parentElement?.closest("[data-detail-local-playback]")
+            ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+        });
+        let serverText = "";
+        while (text.nextNode()) serverText += text.currentNode.textContent;
+        return [
+          node.dataset.playbackState || "",
+          node.dataset.sourceMode || "",
+          ...["meetingId", "workspaceId", "mediaRevisionId", "processingResultId", "commentsAvailable", "commentsCanComment"].map(key => node.dataset[key] || ""),
+          serverText.trim()
+        ].join("\u001f");
+      };
       const playbackUnchanged = recoverySignature(currentPlayback) === recoverySignature(nextPlayback);
       const playbackChanged = !playbackUnchanged;
       const transcriptChanged = currentTranscript.innerHTML !== nextTranscript.innerHTML;
@@ -7926,6 +7938,7 @@
         currentLiveStatus.textContent = nextLiveStatus.textContent || "";
       }
       if (!playbackChanged && !transcriptChanged) {
+        renderDetailLocalPlayback();
         initPlaybackRecoveryPolling();
         return;
       }
@@ -7934,6 +7947,7 @@
         currentPlayback.replaceWith(nextPlayback);
       }
       if (transcriptChanged) currentTranscript.replaceWith(nextTranscript);
+      renderDetailLocalPlayback();
       initPlayback();
       initSpeakerTimelineResize();
       initSpeakerNameForms();
@@ -9372,6 +9386,7 @@
     initPlayback();
     initSpeakerTimelineResize();
     initMeetingDetailAuthorizationRecovery();
+    renderDetailLocalPlayback();
     initPlaybackRecoveryPolling();
     initSpeakerNameForms();
     initContentExport();
