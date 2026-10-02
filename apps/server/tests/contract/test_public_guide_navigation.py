@@ -1,5 +1,10 @@
+import os
+import shutil
+import subprocess
 from html.parser import HTMLParser
+from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from twobrain_rec_server.config import Settings
@@ -55,3 +60,23 @@ def test_landing_header_links_to_guides_in_both_presentations():
         assert sum(item["href"] == "/guides" for item in header.links) == 2
         assert 'aria-controls="mobile-navigation"' in response.text
         assert 'id="mobile-navigation"' in response.text
+
+
+@pytest.mark.browser
+def test_public_navigation_focus_and_article_reduced_motion_in_browser():
+    root = Path(__file__).resolve().parents[2]
+    node = shutil.which("node")
+    assert node is not None, "Node is required for the public navigation browser gate"
+    modules = os.environ.get("GRAF_NODE_MODULES", str(root / "tests/browser/node_modules"))
+    result = subprocess.run(
+        [node, str(root / "tests/browser/public-navigation-focus.test.cjs")],
+        cwd=root,
+        env={**os.environ, "NODE_PATH": modules},
+        capture_output=True,
+        text=True,
+        timeout=90,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "public_navigation_focus=pass" in result.stdout
+    assert "public_article_reduced_motion=pass" in result.stdout
