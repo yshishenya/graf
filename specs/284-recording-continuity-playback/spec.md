@@ -67,3 +67,11 @@
 Structured scan: scope, data, interaction, reliability, privacy, dependencies, failures, constraints, terminology and completion are Clear. No unresolved user decision: retain existing tariff and access policy; reuse retained local playback. These are defaults from current product contracts, not invented user answers. Platform implementation choice belongs to research.
 
 Quota navigation uses the existing /billing overview (shared access); capacity-management actions remain guarded by billing_owner. Copy asks to contact the workspace owner when appropriate. No new authority or purchase action is introduced.
+
+## Legacy Impact
+
+- Classification: `remove`
+- Removed paths: рабочая композиция больше не запускает журнальные дочерние процессы и не использует исторические события как подтверждение продолжающегося звонка.
+- Preserved paths: существующие parser и журнальный режим остаются для явной инъекции в регрессионных проверках; они не участвуют в рабочем наблюдении и не являются запасным источником при ошибке CoreAudio.
+- Новые совместимые имена, зависимости и запасные рабочие пути не введены; `legacy_new=0`, `unowned_legacy=0`, `expired_exceptions=0`.
+- Validation: исполняемые проверки native empty/unavailable с активным старым журналом подтверждают, что журнальные процессы в рабочем режиме не запускаются и не продлевают запись.

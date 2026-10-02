@@ -1,6 +1,6 @@
 # Validation — F284
 
-Source baseline: 77e6aed8ff79127d6e6b284ad18b58da5793ef51. Branch284-recording-continuity-playback. High-risk-feature. Initial local validation was completed before the implementation commit; no external CI claim is made in that initial evidence. On 2026-10-02 the user explicitly authorized commit, push, PR and release. Subsequent exact-SHA evidence is recorded separately.
+Source baseline: 77e6aed8ff79127d6e6b284ad18b58da5793ef51. Branch284-recording-continuity-playback. High-risk-product. Initial local validation was completed before the implementation commit; no external CI claim is made in that initial evidence. On 2026-10-02 the user explicitly authorized commit, push, PR and release. Subsequent exact-SHA evidence is recorded separately.
 
 ## Root localization and repair
 - The600s timer formerly aged the last *transition*, while the log supervisor restarted every300s and could fail its3.5s two-hour snapshot. New default observer reads current CoreAudio input metadata every2s; no legacy log child is launched in native mode, including on unavailable metadata. App no longer resets accepted/manual-suppressed detector state on generation/failure. Full current snapshots mark absent sources inactive with15s grace and renew active evidence.600s remains for real observation loss. Child executable is attributed to containing outer app with exact bundleID registry filtering.
@@ -34,3 +34,6 @@ Dev harness status: active source7c4f844a983f2fe10a5f51fa695310acd47abac1, app G
 FR001–008 and SC001–004 compared against current code/tests/design after implementation. No missing code change found. No new implementation tasks required. Baseline timezone failure is outside these two bugs. Hardware/clean candidate/CI/release evidence remains explicitly pending, so feature is not declared shipped and tracker issues stay open.
 
 Final independent review: PASS local code/regressions, requirements3/0+safety8/0. The access_denied stale-row gap was fixed and retested. Reviewer explicitly limits45min emulation to detector/start offers/timer decisions; no45min audio track was recorded. Full code/hardware/CI/release gates remain distinct.
+
+## PR preflight correction
+Implementation PR #7462 was opened on 2026-10-02. Initial governance-fast run37057788338 stopped in Development process preflight because spec.md lacked the required Legacy Impact section. The section now records removal of production log authority and retention of existing parser regression coverage. The local context category was also normalized to the supported high-risk-product value and its ownership/source pointer refreshed. No product behavior changed in this correction. Subsequent required checks must pass on the new head.
