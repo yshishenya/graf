@@ -162,3 +162,35 @@ apps/server/scripts/run_local_postgres_tests.sh --focused \
 4. Точный runnable профиль исполнителя записывается в `validation-provider-rejection.md`; перечень существующих suite выше — стартовая область, не заявление о PASS. Три независимых текущих обзора flow/security/browser → устранение применимых замечаний → converge → exact-SHA required PR gates/common validator → отдельный frozen Full → CD dry-run/execute → runtime SHA/публичная страница/выпуск. Live повторное чтение допустимо без списания; реальная финансовая приёмка F278 и T011/T012 сохраняются.
 
 Граница общего UI-признака: schema2/canceled/no provider_id/provider_rejected плюс int HTTP400/401/403/404/405/415/429. Матрица отрицаний включает schema1, bool/строку статуса, unknown class, provider_id и иной state; наличие query provider_unavailable не создаёт доказательства. Предотправочный отказ без сохранённого признака диспетчеризации не объявляется новым generic creation rejection. Для настоящей подтверждённой отмены сохраняется прежняя возможность повторить; запрет новой оплаты относится к неопределённому исходу, а не к подтверждённой отмене.
+
+
+## Промокод на месте — новый FR-024–030 / SC-010–012
+
+До реализации: `checklists/promo-inline.md` independent reviewer PASS → окончательные tasks T026–T028 → current analyze zero critical/high → canon deduplicated issue sync. Новый scope не переиспользует прежние Full/DOM результаты; reviewer-owned marks заполняет независимый reviewer. Во время подготовки только документы, тесты пока не запускались.
+
+### RED/GREEN и минимальные команды
+
+Добавить регрессии в существующие наборы. Чистые domain tests можно запускать обычным pytest; HTTP/SQL fixtures — только штатным изолированным PostgreSQL, не рабочей БД:
+
+```sh
+apps/server/.venv/bin/python -m pytest -q apps/server/tests/unit/test_billing_purchases.py --tb=short --show-capture=no
+apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_billing_promo_refresh.py tests/contract/test_billing_ui.py tests/contract/test_billing_clarity.py -q --tb=short --show-capture=no
+GRAF_PROMO_BROWSER=1 GRAF_BROWSER=chromium apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_billing_promo_refresh_browser.py -q --tb=short --show-capture=no
+GRAF_PROMO_BROWSER=1 GRAF_BROWSER=webkit apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_billing_promo_refresh_browser.py -q --tb=short --show-capture=no
+```
+
+При необходимости browser cases отделяются новым параметром внутри существующего harness, не новым bridge. Money path/return/provider denial regressions выполняются по прежним quickstart наборам после changes; новая RED запись обязательна до product изменения. Независимый tests worker владеет регрессиями, root production template/cabinet.js/purchases.py; пересечение заранее согласовать.
+
+### Обязательная матрица нового поведения
+
+1. На320/1280 в Chromium/WebKit: apply мышью/Enter, отклоненный/исправленный код, clear+apply, month/year. Доказать0 main-frame navigation неизменным window/document marker плюс event trace и0 новых history entries; summary/quote/current cycle из реального server ответа. Bridge по-прежнему может записывать preview303→GET200, XHR Playwright видит final200. Native start остается полноценной303 navigation. В адресе/analytics/storage нет code/quote/consent.
+2. Исходный `/billing/checkout?cycle=year` → inline month → обычный reload сохраняет month; обратный direction также. Replace текущего URL не создает историю. Проверить сохраненный код/исходный expiry300с, no cookie TTL extension от cycle/GET; quote10мин прежний.
+3. Каждый True/False × sessionStorage normal/throws × receipt verified/unverified: Apply/error/correction/remove/cycle несколько раз сохраняют bool там, где money checkbox допустима, сводка соответствует, offer всегда unchecked после нового результата. Session/workspace/user change не наследуют bool; отсутствие meta не создает authority. Unverified receipt допускает редактор, но не start/денежные согласия.
+4. Delay и rapid click/start: только один незавершенный preview; input/Apply/cycle/start блокируются до ответа. Нет operation/invoice/promo reservation/provider request от preview. Отдельные wrong method/CSRF/member/owner/session tests остаются FAIL-denial, не ослабляются ради транспорта.
+5. Timeout15с, sendError/500/429/swapError: ожидание снимается, есть понятная inline recovery и keyboard focus, прежний start отключен до свежего успешного ответа, offer unchecked. Ни автоматического start, ни принятой ошибочной скидки. Поздний/неожиданный auth/owner/full HTML или scope mismatch не вставляется как checkout; явное восстановление входа/кабинета доступно.
+6. Synthetic closed/disabled/expired/missing acceptance campaign дает понятный public отказ без «Проверочное окно оплаты закрыто» во всех relevant callers; remove пересчитывает ordinary customer. Dedicated workspace budget остается blocked даже без promo; сообщение не обещает обход. Final lock/reserve tests подтверждают unchanged conditions и отсутствие денег.
+7. Native JS-off: настоящие form POST303→GET, Apply/remove/cycle, цена/ошибка/оферта и receipt/owner защиты; не требовать unavailable междокументного storage persistence. Keyboard/focus/status/a11y и320px/200% обе темы; fixture screenshot не подменяет реальные маршруты.
+
+### Запись доказательств и выпуск
+
+`validation-promo-inline.md` хранит точные команды, SHA/hashes, RED и окончательные GREEN/count/duration/SQL cleanup, браузерные traces без секретов/кодов, неуспешные попытки отдельно. Три независимых текущих flow/security/browser review → исправления/перепроверка → `converge-promo-inline.md` без missing обязательной работы. После этого exact-SHA PR checks и validator, frozen release-full, CD dry-run/execute с прежним разрешением, runtime/publication evidence и `release-promo-inline-closeout.md`; публичный подписанный macOS пакет не перевыпускать этим server change. Реальные платежи/чеки/банк/возврат, GRAF Dev/люди/конверсия и T011/T012/F278 остаются отдельными, не закрываются synthetic PASS.

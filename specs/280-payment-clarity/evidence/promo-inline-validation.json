@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "feature_id": 280,
+  "source_files": {
+    "apps/server/src/twobrain_rec_server/billing/purchases.py": "d03b4743c9ef29d12025e149b130260d3b2fd335a6eb4557cd063bccc9cfc66c",
+    "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py": "ba7db4c90ec19f85e114a276e3983619cf8e6321e45f1e992ab831532c5b75b8",
+    "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "95f5d619f7cab0d70e1b604f0c6fccaba5ce47b91c756ae4fc9073ac75baeb34",
+    "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html": "9c68661848504e02b02f067f7e2a3f759fa0c04fd7f808354e4388c1d06d54b2",
+    "apps/server/tests/unit/test_billing_purchases.py": "feaa133ad61655b3fbd98474d5190ec028b45c5c1ea2f6fb5e21e0f1bb68a780",
+    "apps/server/tests/integration/test_billing_promo_refresh.py": "cb27aaeea4dc504175fcffaf4e5cec1b4970a97c9d5e95b5df406bd236d016ea",
+    "apps/server/tests/browser/billing-promo-refresh.test.cjs": "7c919063a7bdd74c696d02448da3805132c7b9ebfc6c6cd49955b78e3e95ec14",
+    "apps/server/tests/contract/test_billing_promo_refresh_browser.py": "342011795dda458e5f4b6e35073e56e3e88b9cce4bc7b007f4064788ba0801d3",
+    "apps/server/tests/contract/test_cabinet_static_assets_contract.py": "75b809f041dc7def246599493234e35245d68ef71c36f29459210c107705c823",
+    "apps/server/tests/contract/test_billing_clarity.py": "767342316438bd3e068a2581b2a05691c1bac5eb15f7da5b2f268a65e8da544f"
+  },
+  "completed_proofs": [
+    {
+      "artifact": "graf-f280-inline-copy-type-green-root.log",
+      "sha256": "f2c16949610cb6b233d8e02694e190f68088d504f7a808786bd2f6d48a824ef2",
+      "passed": 29,
+      "pytest_seconds": 0.05,
+      "isolated_cleanup": "not_applicable"
+    },
+    {
+      "artifact": "graf-f280-inline-recovery-reconciliation-tests-final.log",
+      "sha256": "7f8dc1b7bc166c6cb36f014efca8dc9005318f0f2e1171e13f83c6ecae8d70f3",
+      "passed": 30,
+      "pytest_seconds": 0.14,
+      "isolated_cleanup": "not_applicable"
+    },
+    {
+      "artifact": "graf-f280-inline-http-domain2-tests-final.log",
+      "sha256": "825efdd6b160f37464c2d30921fc8d93202b88963d32c450af6b61d4c877f0f3",
+      "passed": 205,
+      "pytest_seconds": 395.14,
+      "isolated_cleanup": true
+    },
+    {
+      "artifact": "graf-f280-inline-account-green-tests-final.log",
+      "sha256": "30cd81cb6a80326c5d168479bb2af34d29eefa295a6b3a5729198454adaa4e47",
+      "passed": 6,
+      "pytest_seconds": 36.23,
+      "isolated_cleanup": true
+    },
+    {
+      "artifact": "graf-f280-inline-money-regression-tests-final.log",
+      "sha256": "043e16009712ae384fa8696abd3825f1a30263ea131ae0e58cb61b45e1246ae1",
+      "passed": 237,
+      "pytest_seconds": 446.56,
+      "isolated_cleanup": true
+    },
+    {
+      "artifact": "graf-f280-inline-accessibility-chromium-2-tests-final.log",
+      "sha256": "fd5099b23d9be8519d43b86ea414a6e08185eee8028db94e5356e14d9f401e8e",
+      "passed": 16,
+      "pytest_seconds": 50.78,
+      "isolated_cleanup": "not_applicable"
+    },
+    {
+      "artifact": "graf-f280-inline-accessibility-webkit-2-tests-final.log",
+      "sha256": "b93d828f28dd84e5e316a04c83534c77d9e0f5b660045d1d7f9293ed80e18259",
+      "passed": 16,
+      "pytest_seconds": 65.23,
+      "isolated_cleanup": "not_applicable"
+    },
+    {
+      "artifact": "graf-f280-inline-chromium-boundary5-tests-final.log",
+      "sha256": "e976f9c8e513476b0144d512d1abffe41712d9b4158f4598f48a23bab2000619",
+      "passed": 4,
+      "pytest_seconds": 63.51,
+      "isolated_cleanup": true
+    },
+    {
+      "artifact": "graf-f280-inline-webkit-boundary5-tests-final.log",
+      "sha256": "4aaf0821b5e4fc744555482dd899900bcbb33cdf5bed6a28225ee05776e30707",
+      "passed": 4,
+      "pytest_seconds": 65.04,
+      "isolated_cleanup": true
+    },
+    {
+      "artifact": "graf-f280-inline-chromium-3-tests-final.log",
+      "sha256": "742cc94fafbf7a2961834815c5fa408078a53b32ac2eab08c8bb4cf4eb0959b2",
+      "passed": 28,
+      "pytest_seconds": 283.89,
+      "isolated_cleanup": true
+    },
+    {
+      "artifact": "graf-f280-inline-webkit-3-tests-final.log",
+      "sha256": "f8f2f9af810a7d98bbd0b3bcc9523d74e710fc9ee58b9d24b482677d021cb5e8",
+      "passed": 28,
+      "pytest_seconds": 404.66,
+      "isolated_cleanup": true
+    },
+    {
+      "artifact": "graf-f280-inline-static-contract-green.log",
+      "sha256": "a3182fad1db7136e0096e9f40334722d4df241e9d8b872e8ab5b31fd07259308",
+      "passed": 76,
+      "pytest_seconds": 2.37,
+      "isolated_cleanup": "not_applicable"
+    }
+  ],
+  "webkit_full": "pass",
+  "live_financial_acceptance": "not_performed",
+  "browser_collection": {
+    "per_engine": 28,
+    "digest": "a91f230d0d5e001e4b5a6bc582be774595e05504d88706d752d9b101838e219e"
+  },
+  "post_review_followups": [
+    {
+      "artifact": "graf-f280-inline-fast-diagnostic4.log",
+      "sha256": "fdc4c57a169694cb548964f8e2fba6453ca35a97a5b67750bcbaa656469f9a88",
+      "status": "pass",
+      "passed": null
+    },
+    {
+      "artifact": "graf-f280-inline-followups-contract-red.log",
+      "sha256": "fb328bd2d5f469af819f28ee85a3ad56c44702143fed24b73dfae5e5566bf9b4",
+      "status": "expected_red",
+      "passed": 0
+    },
+    {
+      "artifact": "graf-f280-inline-followups-chromium-red.log",
+      "sha256": "0422fcf97d6dd85ac408ac80a3b352904bd603fee8381e69dd2018502f585062",
+      "status": "expected_red",
+      "passed": 0
+    },
+    {
+      "artifact": "graf-f280-inline-followups-ui-green.log",
+      "sha256": "f6f300151e9f3ba41183374a5ff7cdd4858310dfff1a767e2c62cc038a0e618c",
+      "status": "pass",
+      "passed": 74
+    },
+    {
+      "artifact": "graf-f280-inline-followups-account-green.log",
+      "sha256": "8fc7b40faf27965fb2a2cd38bf682c40051466d40ad39bcf1d9e8d0f1e3e6631",
+      "status": "pass",
+      "passed": 6
+    },
+    {
+      "artifact": "graf-f280-inline-followups-chromium-green.log",
+      "sha256": "1e634bee7c6e611e93c2578fe0491d44216c6bdb05b207e10e11306669c526bd",
+      "status": "pass",
+      "passed": 2
+    },
+    {
+      "artifact": "graf-f280-inline-followups-webkit-green.log",
+      "sha256": "f59cc39c208363e5684bbcf55c441bc432af732e524a17b45801e2dfabbc9ab6",
+      "status": "pass",
+      "passed": 2,
+      "pytest_seconds": 21.89,
+      "isolated_cleanup": true
+    }
+  ]
+}

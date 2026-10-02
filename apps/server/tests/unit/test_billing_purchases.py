@@ -1,4 +1,6 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
@@ -199,3 +201,54 @@ def test_equal_current_target_still_prices_lower_prepaid_future_capacity(current
     assert len(quote.segments) == 1
     assert quote.segments[0].base_grant_id == future.base_grant_id
     assert quote.segments[0].starts_at == END
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["missing", "disabled", "expired", "malformed", "foreign"])
+async def test_acceptance_campaign_rejection_names_unavailable_promo_and_preserves_fence(failure):
+    from twobrain_rec_server.billing.purchases import validate_acceptance_campaign
+
+    workspace = uuid4()
+    budget = SimpleNamespace(id=uuid4(), enabled=failure != "disabled", expires_at=START + timedelta(hours=1))
+    if failure == "expired":
+        budget.expires_at = START
+    policy = {"workspace_id": str(workspace), "acceptance_budget_id": str(budget.id)}
+    if failure == "malformed":
+        policy["acceptance_budget_id"] = "synthetic-invalid-id"
+    if failure == "foreign":
+        policy["workspace_id"] = str(uuid4())
+    before = dict(vars(budget)), dict(policy)
+    db = SimpleNamespace(scalar=AsyncMock(return_value=None if failure == "missing" else budget), add=Mock(), flush=AsyncMock())
+    with pytest.raises(PurchaseError) as rejected:
+        await validate_acceptance_campaign(db, policy=policy, workspace_id=workspace, now=START)
+    message = str(rejected.value).lower()
+    assert "промокод" in message
+    assert any(action in message for action in ("проверьте", "другой", "уберите", "поддерж"))
+    assert "провероч" not in message and "бюджет" not in message
+    assert (dict(vars(budget)), policy) == before
+    db.add.assert_not_called()
+    db.flush.assert_not_awaited()
+    if failure == "malformed":
+        db.scalar.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["disabled", "expired", "exhausted"])
+async def test_acceptance_account_rejection_requires_support_without_promo_bypass(failure):
+    from twobrain_rec_server.billing.purchases import reserve_acceptance_budget
+
+    workspace, operation = uuid4(), uuid4()
+    budget = SimpleNamespace(id=uuid4(), enabled=failure != "disabled", expires_at=START + timedelta(hours=1),
+                             reserved_minor=100, spent_minor=100, limit_minor=200 if failure == "exhausted" else 1000)
+    if failure == "expired":
+        budget.expires_at = START
+    before = dict(vars(budget))
+    db = SimpleNamespace(scalar=AsyncMock(side_effect=[budget, SimpleNamespace(id=operation), None]), add=Mock(), flush=AsyncMock())
+    with pytest.raises(PurchaseError) as rejected:
+        await reserve_acceptance_budget(db, workspace_id=workspace, operation_id=operation, amount_minor=100, now=START)
+    message = str(rejected.value).lower()
+    assert "оплат" in message and "аккаунт" in message and "поддерж" in message
+    assert "провероч" not in message and "бюджет" not in message and "промокод" not in message
+    assert vars(budget) == before
+    db.add.assert_not_called()
+    db.flush.assert_not_awaited()

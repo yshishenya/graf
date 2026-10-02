@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import threading
+from contextlib import suppress
 from copy import deepcopy
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -29,6 +30,8 @@ from twobrain_rec_server.billing.promotions import promo_code_hash
 from twobrain_rec_server.billing.yookassa import YooKassaClient
 from twobrain_rec_server.cabinet.web_routes import billing as routes
 from twobrain_rec_server.db.models import (
+    BillingAcceptanceReservation,
+    BillingEntitlementGrant,
     BillingInvoice,
     BillingOperation,
     ExternalIdentity,
@@ -50,12 +53,21 @@ SCRIPT = ROOT / "apps/server/tests/browser/billing-promo-refresh.test.cjs"
     [pytest.param(True, None, None, id="verified"),
      pytest.param(False, None, None, id="unverified"),
      *(pytest.param(True, mode, width, id=f"provider_rejection-{mode}-{width}")
-       for mode in ("recurring", "generic", "uncertain") for width in (320, 1280))],
+       for mode in ("recurring", "generic", "uncertain") for width in (320, 1280)),
+     *(pytest.param(verified, f"inline-basic-{choice}-{storage}", width,
+                   id=f"inline-basic-{choice}-{storage}-{'verified' if verified else 'unverified'}-{width}")
+       for verified in (True, False) for choice in (("on", "off") if verified else ("on",))
+       for storage in ("normal", "blocked") for width in (320, 1280)),
+     *(pytest.param(True, f"inline-{mode}", width, id=f"inline-{mode}-{width}")
+       for mode in ("errors", "timeout", "guards", "native") for width in (320, 1280))],
 )
 def test_promo_survives_real_submit_reload_and_return(
     client, owner, tmp_path, monkeypatch, receipt_verified, error_mode, width
 ):
     workspace, _ = owner
+    inline_case = error_mode if error_mode and error_mode.startswith("inline-") else None
+    if inline_case:
+        error_mode = None
     seed_campaign(client, policy_snapshot={
         "workspace_id": str(workspace), "purposes": ["initial_checkout"],
     })
@@ -93,7 +105,7 @@ def test_promo_survives_real_submit_reload_and_return(
         assert error_mode != "uncertain", "unknown result must block a new payment"
         return provider.handle(request)
 
-    if receipt_verified:
+    if receipt_verified and not inline_case:
         monkeypatch.setattr(routes, "YooKassaClient", lambda settings: YooKassaClient(
             settings, transport=httpx.MockTransport(reject_recurring if error_mode else provider.handle)))
 
@@ -141,7 +153,7 @@ def test_promo_survives_real_submit_reload_and_return(
 
     async def no_money_side_effects():
         async with client.app_state["sessionmaker"]() as db:
-            for model in (BillingOperation, BillingInvoice, PromotionRedemption):
+            for model in (BillingOperation, BillingInvoice, PromotionRedemption, BillingAcceptanceReservation, BillingEntitlementGrant):
                 assert await db.scalar(select(model.id)) is None
         assert provider.create_payloads == []
     # Use the project's supported local HTTP cookie, retaining the actual issued
@@ -152,6 +164,7 @@ def test_promo_survives_real_submit_reload_and_return(
     monkeypatch.setattr(client.app.state.settings, "local_http_auth_cookie_enabled", True)
     client.cookies.clear()
     trace = []
+    preview_posts = []
     errors = []
 
     class Bridge(BaseHTTPRequestHandler):
@@ -177,11 +190,19 @@ def test_promo_survives_real_submit_reload_and_return(
                 # Supplying only browser Cookie prevents TestClient's jar from
                 # masking a browser that failed to persist or send the draft.
                 client.cookies.clear()
+                if self.command == "POST" and path == "/billing/checkout/preview":
+                    preview_posts.append(None)
+                    if inline_case == "inline-timeout" and len(preview_posts) == 3:
+                        # Exercise the browser's real 15s XHR timeout against a
+                        # slow loopback response, without pausing interception.
+                        threading.Event().wait(17)
                 response = client.request(
                     self.command, f"http://127.0.0.1:{self.server.server_port}{self.path}",
                     headers=headers, content=request_body, follow_redirects=False,
                 )
                 client.cookies.clear()
+                if inline_case:
+                    asyncio.run(no_money_side_effects())
                 if error_mode and dispatched:
                     asyncio.run(rejection_state())
             except Exception as exc:
@@ -195,7 +216,9 @@ def test_promo_survives_real_submit_reload_and_return(
                     self.send_header(key, value)
             self.send_header("Content-Length", str(len(response.content)))
             self.end_headers()
-            self.wfile.write(response.content)
+            # The synthetic timeout intentionally disposes this response.
+            with suppress(BrokenPipeError, ConnectionResetError):
+                self.wfile.write(response.content)
 
         do_GET = forward
         do_POST = forward
@@ -212,6 +235,7 @@ def test_promo_survives_real_submit_reload_and_return(
             "screenshots_dir": os.environ.get("GRAF_PROMO_BROWSER_SCREENSHOTS"),
             "receipt_verified": receipt_verified,
             **({"provider_rejection": error_mode, "width": width} if error_mode else {}),
+            **({"inline_case": inline_case, "width": width} if inline_case else {}),
         }, output)
     thread.start()
     try:
@@ -227,11 +251,30 @@ def test_promo_survives_real_submit_reload_and_return(
         )
         proof = json.loads(result.stdout)
         assert proof["engine"] == os.environ.get("GRAF_BROWSER", "chromium")
+        if inline_case:
+            assert proof["viewports"] == [width]
+            assert proof["inline_case"] == inline_case
+            assert proof["external_requests"] == 0
+            if inline_case == "inline-native":
+                assert proof["submit_redirects"] == 7
+            else:
+                assert proof["document_navigations"] == 0
+            if inline_case.startswith("inline-basic"):
+                assert proof["updates"] == 7
+            elif inline_case != "inline-native":
+                assert proof["busy_checks"] == 1
+                assert proof["recovery_checks"] == {"inline-errors": 7, "inline-timeout": 1, "inline-guards": 5}[inline_case]
+                assert proof["manual_recovery_navigations"] == int(inline_case == "inline-errors")
+            assert not errors
+            assert not any(row[0] == "POST" and row[1] == "/billing/checkout/start" for row in trace)
+            asyncio.run(no_money_side_effects())
+            return
         if error_mode:
             assert proof["viewports"] == [width]
             assert proof["provider_rejection"] == error_mode
             assert proof["external_requests"] == 0
-            assert proof["submit_redirects"] == 2
+            assert proof["submit_redirects"] == 1
+            assert proof["preview_updates"] == 1
             assert proof["provider_redirects"] == int(error_mode != "uncertain")
             assert not errors
             assert sum(row == ("POST", "/billing/checkout/preview", 303) for row in trace) == 1
@@ -242,7 +285,8 @@ def test_promo_survives_real_submit_reload_and_return(
             return
         assert proof["viewports"] == [320, 1280]
         assert proof["external_requests"] == 0
-        assert proof["submit_redirects"] == (38 if receipt_verified else 36)
+        assert proof["submit_redirects"] == (5 if receipt_verified else 4)
+        assert proof["preview_updates"] == (33 if receipt_verified else 32)
         assert proof["provider_redirects"] == int(receipt_verified)
         assert proof["receipt_verified"] == receipt_verified
         assert not errors

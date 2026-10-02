@@ -1,0 +1,32 @@
+{
+  "independent_readonly_verification": "pass",
+  "observed_at_utc": "2026-10-02T19:25:40.418866+00:00",
+  "database_read_only_confirmed": true,
+  "rolled_back": true,
+  "matched_previous_hash_campaign": true,
+  "window_hours": 24,
+  "expires_at": "2026-10-03T19:16:55.778326+00:00",
+  "cycle": "month",
+  "max_redemptions": 1,
+  "budget_limit_minor": 20000,
+  "budget_reserved_minor": 0,
+  "budget_spent_minor": 0,
+  "previews": [
+    {
+      "list_rub": 1000,
+      "payable_rub": 10,
+      "discount_percent": 99
+    },
+    {
+      "list_rub": 1000,
+      "payable_rub": 10,
+      "discount_percent": 99
+    }
+  ],
+  "audit_record_count": 2,
+  "latest_audit_matches_window": true,
+  "financial_rows_unchanged": true,
+  "recurring_allowed": false,
+  "provider_calls": 0,
+  "scope": "stored hash campaign, installed eligibility/budget/catalog/price helpers; no raw-code loader, browser or payment"
+}

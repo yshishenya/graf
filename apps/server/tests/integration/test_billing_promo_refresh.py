@@ -26,6 +26,9 @@ from twobrain_rec_server.cabinet.web_routes import billing as routes
 from twobrain_rec_server.db.models import (
     AuthSession,
     AuthSessionDeviceBinding,
+    BillingAcceptanceBudget,
+    BillingAcceptanceReservation,
+    BillingEntitlementGrant,
     BillingInvoice,
     BillingOperation,
     ExternalIdentity,
@@ -905,3 +908,109 @@ def test_query_selected_period_survives_refresh_and_start_rejection(
     page = client.get("/billing/checkout?cycle=year")
     assert promo_input(page) == ""
     assert_no_draft_renewal(page)
+
+
+@pytest.mark.parametrize("failure", ["missing", "disabled", "expired", "malformed"])
+def test_scoped_promo_unavailable_has_editable_public_message_without_financial_writes(client, owner, failure):
+    from uuid import uuid4
+
+    workspace, headers = owner
+    budget_id = uuid4()
+    async def prepare():
+        async with client.app_state["sessionmaker"]() as db:
+            if failure not in {"missing", "malformed"}:
+                db.add(BillingAcceptanceBudget(id=budget_id, workspace_id=workspace, limit_minor=10000,
+                    enabled=failure != "disabled", expires_at=datetime.now(UTC) + timedelta(hours=-1 if failure == "expired" else 1)))
+                await db.commit()
+    asyncio.run(prepare())
+    seed_campaign(client, policy_snapshot={"purposes": ["initial_checkout"], "workspace_id": str(workspace),
+        "acceptance_budget_id": "synthetic-invalid-id" if failure == "malformed" else str(budget_id)})
+    applied = submit(client, headers)
+    for _ in range(2):
+        page = client.get(applied.headers["location"], headers=headers)
+        error = re.search(r'<p id="billing-checkout-error"[^>]*>(.*?)</p>', page.text, re.S)
+        assert error, "ineligible promotion must show an actionable error"
+        message = unescape(error.group(1)).lower()
+        assert "промокод" in message and any(action in message for action in ("проверьте", "другой", "уберите", "поддерж"))
+        assert "провероч" not in message and "бюджет" not in message
+        assert promo_input(page) == SYNTH_CODE
+        assert 'action="/billing/checkout/start"' not in page.text
+    async def unchanged():
+        async with client.app_state["sessionmaker"]() as db:
+            assert await db.scalar(select(BillingAcceptanceReservation.id)) is None
+            budget = await db.get(BillingAcceptanceBudget, budget_id)
+            if budget:
+                assert budget.reserved_minor == budget.spent_minor == 0
+                assert budget.enabled is (failure != "disabled")
+                assert (budget.expires_at <= datetime.now(UTC)) is (failure == "expired")
+    asyncio.run(unchanged())
+
+
+@pytest.mark.parametrize("failure", ["disabled", "expired", "exhausted"])
+@pytest.mark.parametrize("remove_promo", [False, True], ids=["ordinary", "promo-removed"])
+def test_account_restriction_remains_actionable_without_promo_and_rolls_back_money(
+    client, owner, monkeypatch, failure, remove_promo
+):
+    workspace, headers = owner
+    provider_calls = []
+
+    async def forbidden_payment(*_args, **_kwargs):
+        provider_calls.append(True)
+        raise AssertionError("Account restriction must never dispatch a provider payment")
+
+    monkeypatch.setattr(routes, "_create_initial_checkout_payment", forbidden_payment)
+    if remove_promo:
+        seed_campaign(client)
+        applied = submit(client, headers)
+        assert promo_input(client.get(applied.headers["location"], headers=headers)) == SYNTH_CODE
+        cleared = submit(client, headers, code="")
+        assert promo_input(client.get(cleared.headers["location"], headers=headers)) == ""
+
+    now = datetime.now(UTC)
+    expires_at = now + timedelta(hours=-1 if failure == "expired" else 1)
+    reserved_minor = spent_minor = 10000 if failure == "exhausted" else 1000
+
+    async def restrict_account():
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(BillingAcceptanceBudget(
+                workspace_id=workspace, limit_minor=20000,
+                reserved_minor=reserved_minor, spent_minor=spent_minor,
+                enabled=failure != "disabled", expires_at=expires_at,
+            ))
+            await db.commit()
+    asyncio.run(restrict_account())
+    page = client.get("/billing/checkout?cycle=month", headers=headers)
+    assert_plain_checkout(page)
+    fields = checkout_start_fields(page)
+    fields.update(offer_consent="true", recurring_consent="false", promo_code="")
+    response = client.post("/billing/checkout/start", headers=headers, data=fields, follow_redirects=False)
+    assert response.status_code == 303
+    assert provider_calls == []
+    refused = client.get(response.headers["location"], headers=headers)
+    assert refused.status_code == 200
+    alerts = " ".join(unescape(text) for text in re.findall(r'<p[^>]*role="alert"[^>]*>(.*?)</p>', refused.text, re.S))
+    assert "аккаунта" in alerts and "поддерж" in alerts, "account restriction must explain contacting support"
+    assert "промокод" not in alerts.lower(), "removing a promo may never be suggested as an account-fence bypass"
+    assert "провероч" not in alerts.lower() and "бюджет" not in alerts.lower()
+    assert 'action="/billing/checkout/start"' not in refused.text
+    assert 'data-billing-primary' not in refused.text
+    assert 'name="quote_id"' not in refused.text
+    assert 'name="idempotency_key"' not in refused.text
+    assert 'name="offer_consent"' not in refused.text
+    assert 'name="recurring_consent"' not in refused.text
+    assert 'id="billing-promo"' not in refused.text
+    assert "Платеж уже создан" not in alerts
+
+    async def unchanged():
+        async with client.app_state["sessionmaker"]() as db:
+            for model in (BillingOperation, BillingInvoice, PromotionRedemption,
+                          BillingAcceptanceReservation, BillingEntitlementGrant):
+                assert await db.scalar(select(model.id)) is None, "rejected start must roll back every financial mutation"
+            budget = await db.scalar(select(BillingAcceptanceBudget).where(
+                BillingAcceptanceBudget.workspace_id == workspace))
+            assert budget.enabled is (failure != "disabled")
+            assert budget.expires_at == expires_at
+            assert budget.reserved_minor == reserved_minor
+            assert budget.spent_minor == spent_minor
+            assert budget.limit_minor == 20000
+    asyncio.run(unchanged())

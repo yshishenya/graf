@@ -1,6 +1,6 @@
 'use strict';
 
-// Real native form submission against ASGI routes/PostgreSQL, never setContent.
+// Real preview XHR and native payment forms against ASGI/PostgreSQL, never setContent.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -19,12 +19,14 @@ async function run() {
   }
   const browser = await ({ chromium, webkit })[engine].launch({ headless: true });
   let submitRedirects = 0;
+  let previewUpdates = 0;
   let externalRequests = 0;
   let providerRedirects = 0;
-  const viewports = config.provider_rejection ? [config.width] : [320, 1280];
+  const viewports = config.provider_rejection || config.inline_case ? [config.width] : [320, 1280];
   try {
     for (const width of viewports) {
-      const context = await browser.newContext({ viewport: { width, height: 1000 } });
+      const context = await browser.newContext({ viewport: { width, height: 1000 },
+        javaScriptEnabled: config.inline_case !== 'inline-native' });
       await context.addCookies([{
         name: config.cookie_name, value: config.session_token, url: base,
         httpOnly: true, sameSite: 'Lax', secure: false,
@@ -73,7 +75,7 @@ async function run() {
           const summary = normalized(await page.locator('.billing-order-summary').first().innerText());
           assert.ok(summary.includes(`К оплате сегодня ${today} ₽`));
           if (recurringChoice) {
-            assert.ok(summary.includes(`Автопродление ${renewal} ₽ за ${cycle === 'year' ? 'год' : 'месяц'}`));
+            assert.ok(summary.includes(`${config.inline_case === 'inline-native' ? 'При автопродлении' : 'Автопродление'} ${renewal} ₽ за ${cycle === 'year' ? 'год' : 'месяц'}`), 'renewal amount and period visible');
           } else {
             assert.ok(summary.includes('Отключено — автоматического списания не будет.'));
             assert.equal(await page.locator('[data-billing-next-attempt]').isVisible(), false);
@@ -88,6 +90,7 @@ async function run() {
           }
           if (config.receipt_verified) {
             assert.ok(normalized(await page.locator('[data-billing-primary]').innerText()).includes(`Оплатить ${today} ₽`));
+            assert.ok(await page.locator('[data-billing-primary]').isEnabled(), 'fresh valid calculation permits payment');
             const compactConsents = await page.locator('.billing-checkout-form').evaluate(form => {
               const px = value => Number.parseFloat(value) || 0;
               return [...form.querySelectorAll('.billing-consent')].every(label => {
@@ -113,6 +116,26 @@ async function run() {
       }
 
       async function submit(button, target = page, endpoint = '/billing/checkout/preview', keyboard = false) {
+        if (endpoint === '/billing/checkout/preview') {
+          await target.evaluate(() => {
+            window.grafPreviewSettled = false;
+            document.body.addEventListener('htmx:afterSettle', () => { window.grafPreviewSettled = true; }, {once: true});
+            window.grafPreviewMain = document.querySelector('main.billing-checkout-page');
+            window.grafPreviewDocument = document;
+          });
+          const response = target.waitForResponse(response => response.status() === 200
+            && response.request().resourceType() === 'xhr'
+            && new URL(response.url()).pathname === '/billing/checkout');
+          if (keyboard) await button.focus();
+          await (keyboard ? button.press('Enter') : button.click());
+          await (await response).finished();
+          await target.waitForFunction(() => window.grafPreviewMain !== document.querySelector('main.billing-checkout-page'));
+          await target.waitForFunction(() => window.grafPreviewSettled);
+          assert.equal(await target.evaluate(() => window.grafPreviewDocument === document), true,
+            'preview uses the existing document');
+          previewUpdates++;
+          return;
+        }
         const response = target.waitForResponse(response => response.request().method() === 'POST'
           && new URL(response.url()).pathname === endpoint);
         if (keyboard) await button.focus();
@@ -162,6 +185,278 @@ async function run() {
               JSON.stringify({ before, after: await layout() }));
           }
         }
+      }
+
+      if (config.inline_case) {
+        stage = `${width}:inline-initial`;
+        const native = config.inline_case === 'inline-native';
+        const blocked = config.inline_case.includes('-blocked');
+        if (blocked) await context.addInitScript(() => {
+          for (const method of ['getItem', 'setItem']) Storage.prototype[method] = () => { throw new DOMException('blocked', 'SecurityError'); };
+        });
+        await page.goto(`${base}/billing/checkout?cycle=year`, { waitUntil: 'domcontentloaded' });
+        recurringChoice = !config.receipt_verified || !config.inline_case.includes('-off-');
+        if (blocked) await page.evaluate(() => {
+          for (const method of ['getItem', 'setItem']) Storage.prototype[method] = () => { throw new DOMException('blocked', 'SecurityError'); };
+        });
+        if (config.receipt_verified) {
+          assert.equal(await page.locator('input[name="recurring_consent"]').isChecked(), true);
+          await page.locator('input[name="recurring_consent"]').setChecked(recurringChoice);
+        }
+        const marker = 'synthetic-inline-document';
+        let documentNavigations = 0;
+        let manualRecoveryNavigations = 0;
+        let checkingPreview = false;
+        page.on('request', request => {
+          if (checkingPreview && request.isNavigationRequest() && request.frame() === page.mainFrame()) documentNavigations++;
+          if (stage === `${width}:inline-annual-manual-recovery` && request.isNavigationRequest() && request.frame() === page.mainFrame()) manualRecoveryNavigations++;
+        });
+        if (!native) await page.evaluate(value => { window.grafInlineMarker = value; document.body.dataset.inlineMarker = value; }, marker);
+        const historyLength = await page.evaluate(() => history.length);
+        let updates = 0;
+        let recoveryChecks = 0;
+        let busyChecks = 0;
+        const main = () => page.locator('main.billing-checkout-page');
+        const quote = () => main().locator('input[name="quote_id"]').first().inputValue();
+        const consent = () => page.locator('input[name="offer_consent"]');
+        const openCoupon = async () => { if (!(await input.isVisible())) await page.getByText('Есть промокод?', { exact: true }).click(); };
+        const safeURL = async cycle => {
+          const url = new URL(page.url());
+          assert.equal(url.searchParams.get('cycle'), cycle);
+          for (const field of ['promo_code', 'quote_id', 'recurring_consent', 'offer_consent', ...(native ? [] : ['result'])]) assert.equal(url.searchParams.has(field), false, 'private calculation fields stay out of URL');
+        };
+        const identity = async () => {
+          assert.equal(await page.evaluate(() => window.grafInlineMarker), marker, 'preview retains window');
+          assert.equal(await page.locator('body').getAttribute('data-inline-marker'), marker, 'preview retains document');
+          assert.equal(documentNavigations, 0, 'preview sends no main document request');
+          assert.equal(await page.evaluate(() => history.length), historyLength, 'preview does not append history');
+        };
+        const inline = async (button, expected, keyboard = false) => {
+          if (config.receipt_verified && await consent().count()) await consent().check();
+          checkingPreview = true;
+          if (native) {
+            const response = page.waitForResponse(r => r.request().method() === 'POST' && new URL(r.url()).pathname === '/billing/checkout/preview');
+            await Promise.all([page.waitForNavigation({waitUntil: 'domcontentloaded'}), keyboard ? button.press('Enter') : button.click()]);
+            assert.equal((await response).status(), 303);
+            submitRedirects++;
+          } else {
+            await submit(button, page, '/billing/checkout/preview', keyboard);
+            await identity();
+            assert.equal(await main().getAttribute('aria-busy'), null);
+            assert.ok(await button.isEnabled());
+          }
+          checkingPreview = false;
+          await verify(expected);
+          await safeURL(expected.cycle);
+          if (!native) {
+            assert.equal(await page.evaluate(() => document.activeElement?.id === 'billing-promo'
+              || document.activeElement?.getAttribute('form') === 'billing-promo-preview'
+              || document.activeElement?.matches('.billing-coupon summary')), true, 'focus returns to visible input/action/summary');
+            if (!expected.error) assert.ok(await page.locator('[data-billing-preview-status]').filter({hasText: /К оплате/}).isVisible());
+          }
+          updates++;
+        };
+        const month = {code: 'SYNTH-PRESENTATION', cycle: 'month', today: '900', renewal: '1000'};
+        const year = {code: 'SYNTH-PRESENTATION', cycle: 'year', today: '9000', renewal: '10000'};
+        await openCoupon();
+        await input.fill(month.code);
+        stage = `${width}:inline-apply`;
+        await inline(apply, year);
+        if (native || config.inline_case.startsWith('inline-basic')) {
+          stage = `${width}:inline-month`;
+          await inline(page.locator('.billing-period-switch button[value="month"]'), month, true);
+          if (!native) {
+            for (let i = 0; i < 2; i++) {
+              await page.reload({waitUntil: 'domcontentloaded'});
+              recurringChoice = blocked ? true : recurringChoice;
+              await verify(month);
+              await safeURL('month');
+            }
+            await page.evaluate(value => { window.grafInlineMarker = value; document.body.dataset.inlineMarker = value; }, marker);
+          }
+          if (blocked && config.receipt_verified) {
+            recurringChoice = !config.receipt_verified || !config.inline_case.includes('-off-');
+            await page.locator('input[name="recurring_consent"]').setChecked(recurringChoice);
+          }
+          stage = `${width}:inline-invalid-twice`;
+          for (const code of ['AB', 'SYNTH-UNKNOWN']) {
+            await input.fill(code);
+            await inline(apply, {code, cycle: 'month', error: true}, code === 'AB');
+            assert.equal((await main().innerText()).includes('Проверочное окно'), false);
+          }
+          stage = `${width}:inline-correct-with-enter`;
+          await input.fill(month.code);
+          await inline(input, month, true);
+          stage = `${width}:inline-year`;
+          await inline(page.locator('.billing-period-switch button[value="year"]'), year);
+          stage = `${width}:inline-clear`;
+          await input.fill('');
+          await inline(apply, {code: '', cycle: 'year', today: '10000', renewal: '10000'});
+          if (!native) {
+            await page.reload({waitUntil: 'domcontentloaded'});
+            recurringChoice = blocked ? true : recurringChoice;
+            await verify({code: '', cycle: 'year', today: '10000', renewal: '10000'});
+            await safeURL('year');
+          }
+        } else {
+          // Hold the real response to prove the controls and duplicate/start guards.
+          stage = `${width}:inline-busy`;
+          let release;
+          let intercepted;
+          const held = new Promise(resolve => { intercepted = resolve; });
+          const gate = new Promise(resolve => { release = resolve; });
+          let requests = 0;
+          const holdRoute = async route => { requests++; intercepted(); await gate; await route.continue(); };
+          await page.route('**/billing/checkout/preview', holdRoute);
+          await apply.click();
+          await held;
+          assert.equal(await main().getAttribute('aria-busy'), 'true');
+          assert.equal(await main().locator('input:not(:disabled),button:not(:disabled)').count(), 0);
+          assert.ok(await page.getByRole('status').filter({hasText: 'Проверяем сумму'}).isVisible());
+          if (config.receipt_verified) {
+            assert.equal(await consent().isChecked(), false);
+            assert.equal(await page.locator('form[action="/billing/checkout/start"]').evaluate(form => {
+              const event = new Event('submit', {bubbles: true, cancelable: true}); form.dispatchEvent(event); return event.defaultPrevented;
+            }), true, 'start blocked during preview');
+          }
+          await page.locator('#billing-promo-preview').evaluate(form => form.requestSubmit());
+          assert.equal(requests, 1, 'duplicate preview dropped');
+          release();
+          await page.waitForFunction(() => !document.querySelector('main.billing-checkout-page[aria-busy="true"]'));
+          await page.unroute('**/billing/checkout/preview', holdRoute);
+          await verify(year);
+          await identity();
+          busyChecks++;
+          const failure = async (name, responder, beforeRelease = null) => {
+            stage = `${width}:inline-${name}`;
+            const previous = await quote();
+            const previousScope = await page.locator('meta[name="graf-workspace"]').getAttribute("content");
+            const handler = async route => {
+              const response = responder ? await responder(route) : null;
+              if (beforeRelease) await beforeRelease();
+              if (response) await route.fulfill(response);
+            };
+            await page.route('**/billing/checkout/preview', handler);
+            checkingPreview = true;
+            await apply.click();
+            await page.waitForFunction(() => document.querySelector('main.billing-checkout-page')?.dataset.billingPreviewState === 'recovery');
+            checkingPreview = false;
+            assert.equal(await quote(), previous, 'failed response does not replace authoritative quote');
+            assert.ok(await input.isEnabled());
+            assert.ok(await apply.isEnabled());
+            assert.equal(await main().getAttribute('aria-busy'), null);
+            assert.ok(await page.locator('[data-billing-preview-status][role="alert"]').isVisible());
+            assert.ok(await page.getByRole('link', {name: 'Открыть оплату заново'}).isVisible());
+            assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('value') === 'apply'), true);
+            if (config.receipt_verified) {
+              assert.ok(await page.locator('form[action="/billing/checkout/start"] button').isDisabled());
+              assert.equal(await consent().isChecked(), false);
+            }
+            await identity();
+            await page.unroute('**/billing/checkout/preview', handler);
+            recoveryChecks++;
+            await page.locator('meta[name="graf-workspace"]').evaluate((meta, value) => { meta.content = value; }, previousScope);
+            await inline(apply, year);
+          };
+          if (config.inline_case === 'inline-errors') {
+            for (const status of [500, 429, 401, 403]) await failure(`http-${status}`, async () => ({status, contentType: 'text/html', body: '<p>synthetic failure</p>'}));
+            await failure('network', async route => { await route.abort(); });
+            await failure('unexpected-html', async () => ({status: 200, contentType: 'text/html', body: '<main id="cabinet-main">synthetic unexpected</main>'}));
+            // No draft exists after removing the code. A selected annual period
+            // must therefore survive the recovery link itself, not a cookie.
+            const annualWithoutPromo = {code: '', cycle: 'year', today: '10000', renewal: '10000'};
+            await input.fill('');
+            await inline(apply, annualWithoutPromo);
+            recurringChoice = false;
+            await page.locator('input[name="recurring_consent"]').uncheck();
+            await consent().check();
+            const annualFailure = async route => route.fulfill({status: 500, contentType: 'text/html', body: '<p>synthetic annual failure</p>'});
+            await page.route('**/billing/checkout/preview', annualFailure);
+            checkingPreview = true;
+            await apply.click();
+            await page.waitForFunction(() => document.querySelector('main.billing-checkout-page')?.dataset.billingPreviewState === 'recovery');
+            checkingPreview = false;
+            await identity();
+            await safeURL('year');
+            assert.equal(await input.inputValue(), '');
+            assert.ok(await page.locator('form[action="/billing/checkout/start"] button').isDisabled());
+            assert.equal(await consent().isChecked(), false);
+            const recoveryLink = page.getByRole('link', {name: 'Открыть оплату заново'});
+            assert.ok(await recoveryLink.isVisible());
+            assert.equal(await recoveryLink.getAttribute('href'), '/billing/checkout?cycle=year');
+            await page.unroute('**/billing/checkout/preview', annualFailure);
+            recoveryChecks++;
+            stage = `${width}:inline-annual-manual-recovery`;
+            await Promise.all([page.waitForNavigation({waitUntil: 'domcontentloaded'}), recoveryLink.click()]);
+            assert.equal(manualRecoveryNavigations, 1, 'only explicit recovery navigates the document');
+            assert.equal(await page.evaluate(() => window.grafInlineMarker), undefined);
+            assert.equal(await page.locator('body').getAttribute('data-inline-marker'), null);
+            await safeURL('year');
+            await verify(annualWithoutPromo);
+
+          } else if (config.inline_case === 'inline-timeout') {
+            // The ASGI bridge holds this real response beyond the configured
+            // 15s timeout. Native XHR timeout starts differently under WebKit
+            // interception, so this handler lets the network run normally.
+            await failure('timeout', async route => { await route.continue(); });
+          } else if (config.inline_case === 'inline-guards') {
+            for (const name of ['graf-time-user', 'graf-workspace', 'graf-time-session']) {
+              await failure(`response-scope-${name}`, async route => {
+                const response = await route.fetch();
+                const body = (await response.text()).replace(new RegExp(`(<meta name="${name}" content=")[^"]*(")`), '$1synthetic-other$2');
+                return {response, body};
+              });
+            }
+            await failure('auth-html', async () => ({status: 200, contentType: 'text/html', body: '<main id="cabinet-main"><h1>Войти</h1></main>'}));
+            await failure('changed-current-scope', async route => {
+              const response = await route.fetch();
+              return {response, body: await response.text()};
+            }, async () => { await page.locator('meta[name="graf-workspace"]').evaluate(meta => { meta.content = 'synthetic-other'; }); });
+            // An already detached target may never receive a late response.
+            stage = `${width}:inline-detached-late`;
+            let releaseLate;
+            let lateSeen;
+            const lateGate = new Promise(resolve => { releaseLate = resolve; });
+            const lateIntercept = new Promise(resolve => { lateSeen = resolve; });
+            const late = async route => {
+              const response = await route.fetch(); lateSeen(); await lateGate;
+              await route.fulfill({response, body: await response.text()});
+            };
+            await page.route('**/billing/checkout/preview', late);
+            const freshMarkup = await main().evaluate(el => el.outerHTML);
+            await page.evaluate(() => {
+              window.grafLateRequestFinished = false;
+              const observePreview = event => {
+                if (event.detail?.elt?.id !== 'billing-promo-preview') return;
+                document.body.removeEventListener('htmx:beforeRequest', observePreview);
+                event.detail.xhr.addEventListener('loadend', () => { window.grafLateRequestFinished = true; }, {once: true});
+              };
+              document.body.addEventListener('htmx:beforeRequest', observePreview);
+            });
+            await apply.click();
+            await lateIntercept;
+            await main().evaluate((el, markup) => {
+              const replacement = document.createRange().createContextualFragment(markup).firstElementChild;
+              replacement.dataset.syntheticReplacement = 'true'; el.replaceWith(replacement);
+              window.htmx.process(replacement);
+            }, freshMarkup);
+            const previous = await quote();
+            const lateResponse = page.waitForResponse(r => new URL(r.url()).pathname === '/billing/checkout/preview');
+            releaseLate();
+            await (await lateResponse).finished();
+            await page.waitForFunction(() => window.grafLateRequestFinished);
+            await page.waitForFunction(() => document.querySelector('main.billing-checkout-page')?.dataset.syntheticReplacement === 'true');
+            assert.equal(await quote(), previous);
+            await page.unroute('**/billing/checkout/preview', late);
+            stage = `${width}:inline-detached-fresh-retry`;
+            await inline(apply, year);
+          }
+        }
+        await context.close();
+        process.stdout.write(JSON.stringify({engine, viewports, inline_case: config.inline_case,
+          external_requests: externalRequests, document_navigations: native ? undefined : documentNavigations,
+          submit_redirects: submitRedirects, updates, recovery_checks: recoveryChecks, busy_checks: busyChecks, manual_recovery_navigations: manualRecoveryNavigations}));
+        return;
       }
 
       if (config.provider_rejection) {
@@ -314,11 +609,7 @@ async function run() {
 
       stage = `${width}:enter-keeps-year`;
       await input.fill('SYNTH-PRESENTATION');
-      const enterResponse = page.waitForResponse(response => response.request().method() === 'POST'
-        && new URL(response.url()).pathname === '/billing/checkout/preview');
-      await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), input.press('Enter')]);
-      assert.equal((await enterResponse).status(), 303);
-      submitRedirects++;
+      await submit(input, page, '/billing/checkout/preview', true);
       await verify(year);
       await page.goto(`${base}/billing/checkout`, { waitUntil: 'domcontentloaded' });
       await verify(year);
@@ -461,7 +752,7 @@ async function run() {
       await context.close();
     }
     process.stdout.write(JSON.stringify({
-      engine, viewports, submit_redirects: submitRedirects, external_requests: externalRequests,
+      engine, viewports, submit_redirects: submitRedirects, preview_updates: previewUpdates, external_requests: externalRequests,
       receipt_verified: config.receipt_verified,
       provider_redirects: providerRedirects,
       ...(config.provider_rejection ? {provider_rejection: config.provider_rejection} : {}),
@@ -476,6 +767,7 @@ run().catch(error => {
   const reason = error.name === 'AssertionError' && !error.generatedMessage
     ? error.message.split('\n')[0] : error.name;
   const browserCode = error.message.match(/(?:net::)?ERR_[A-Z_]+|strict mode violation|Target (?:page|closed)|not a valid selector/)?.[0];
-  process.stderr.write(`Promo DOM proof failed at ${stage} (${reason}${browserCode ? `: ${browserCode}` : ''})\n`);
+  const location = error.stack?.match(/billing-promo-refresh\.test\.cjs:(\d+):(\d+)/)?.[0] || '';
+  process.stderr.write(`Promo DOM proof failed at ${stage} (${reason}${browserCode ? `: ${browserCode}` : ''}) ${location}\n`);
   process.exitCode = 1;
 });

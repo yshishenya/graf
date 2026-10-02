@@ -30,6 +30,10 @@ class PurchaseError(ValueError):
     """Bounded, user-safe explanation; never includes provider data."""
 
 
+class AcceptanceBudgetUnavailable(PurchaseError):
+    """Account restriction, distinct from promo or provider failures."""
+
+
 def utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise PurchaseError("Для расчёта требуется точное время с часовым поясом")
@@ -210,13 +214,13 @@ async def reserve_acceptance_budget(
         .with_for_update()
     )
     if not budget.enabled or utc(budget.expires_at) <= utc(now):
-        raise PurchaseError("Проверочное окно оплаты закрыто")
+        raise AcceptanceBudgetUnavailable("Оплата для этого аккаунта сейчас недоступна. Обратитесь в поддержку.")
     if existing is not None:
         if existing.amount_minor != amount_minor or existing.state == "released":
             raise PurchaseError("Состояние платёжной операции изменилось")
         return budget.id
     if budget.reserved_minor + budget.spent_minor + amount_minor > budget.limit_minor:
-        raise PurchaseError("Достигнут общий предел проверочных списаний")
+        raise AcceptanceBudgetUnavailable("Оплата для этого аккаунта сейчас недоступна. Обратитесь в поддержку.")
     budget.reserved_minor += amount_minor
     db.add(
         BillingAcceptanceReservation(
@@ -1024,7 +1028,7 @@ async def validate_acceptance_campaign(
     try:
         identifier = UUID(budget_id)
     except (TypeError, ValueError, AttributeError) as exc:
-        raise PurchaseError("Проверочная акция недоступна") from exc
+        raise PurchaseError("Промокод сейчас недоступен. Уберите его или введите другой.") from exc
     budget = await db.scalar(
         select(BillingAcceptanceBudget).where(
             BillingAcceptanceBudget.id == identifier,
@@ -1037,4 +1041,4 @@ async def validate_acceptance_campaign(
         or not budget.enabled
         or utc(budget.expires_at) <= utc(now)
     ):
-        raise PurchaseError("Проверочное окно оплаты закрыто")
+        raise PurchaseError("Промокод сейчас недоступен. Уберите его или введите другой.")
