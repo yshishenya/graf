@@ -7788,6 +7788,7 @@
   const recoverMeetingDetailFromResponse = async (response, { actionProblemCodes = new Set() } = {}) => {
     const detail = document.querySelector("[data-playback-poll-url]");
     if (!detail) return false;
+    const meetingId = detail.dataset.meetingId;
     let recoveryKind = "";
     if (response.redirected) {
       try {
@@ -7801,6 +7802,10 @@
     const problemCode = [403, 404, 410].includes(response.status)
       ? await responseProblemCode(response)
       : "";
+    // Decoding may finish after navigation; consume stale responses so callers
+    // cannot apply their results or neutralize the new meeting's private URL.
+    if (!detail.isConnected || document.querySelector("[data-playback-poll-url]") !== detail
+      || detail.dataset.meetingId !== meetingId) return true;
     if (!recoveryKind && (detailActionProblemCodes.has(problemCode) || actionProblemCodes.has(problemCode))) return false;
     if (!recoveryKind && [404, 410].includes(response.status)) recoveryKind = "unavailable";
     else if (!recoveryKind && (response.status === 401 || response.status === 403)) {
