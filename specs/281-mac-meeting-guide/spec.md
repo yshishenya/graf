@@ -59,3 +59,8 @@ Umbrella: #7391. Lane: tiny-low-risk content: фиксированная пуб�
 FR016: явный запрос владельца разрешает «Руководства» в desktop/mobile шапке главной; основной текст, metadata и footer сохранены.
 FR017: общая шапка hub/трёх статей: логотип домой, Главная, Руководства с aria-current, Войти и существующий download CTA; доступна без JavaScript.
 FR018: mobile/keyboard/focus, корректное закрытие меню главной; body статей, download, policies, analytics неизменны.
+
+## Единый дизайн статей
+
+FR019: Три руководства используют палитру и Onest лендинга, темный вводный блок и светлую колонку чтения. Текст, metadata, canonical, URL, section IDs и ссылки сохранены; главная/download/policies/analytics не меняются.
+FR020: Mobile360/390/768/1440, 200% text, no-JS content, keyboard focus и контраст текста не ниже4.5:1; никакого скрытия overflow вместо устранения причин.

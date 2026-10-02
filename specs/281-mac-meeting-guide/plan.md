@@ -31,3 +31,7 @@ Analyze: FR016–18 покрыты T010/T011; critical/high нет. Keyboard def
 
 ## Проверка завершённой анимации меню
 Дополнительный браузерный тест после полного раскрытия выявил фокус в закрывающемся меню: visibility меняется после .2s transition. Controller явно устанавливает inert сразу при закрытии и снимает при открытии. Без JS markup inert не содержит, ссылки доступны. Regression проверяет закрытие после350ms раскрытия, Tab немедленно после Escape, resize и повторное открытие.
+
+## Единый визуальный стиль статей
+
+Active Spec Kit slice, узкий визуальный срез без data/API/runtime changes. Старые guide/protocol/quality CSS заменяются общим article.css; первые две статьи получают существующую структуру dark intro + light reading из третьей. Существующие landing.css/content.css переиспользуются без изменения. Тексты/SEO/headings/section IDs/link graph инвариантны. FR019–20 → T012/T013. Analyze: critical/high contradictions нет; старое ограничение guide body относится к предыдущей шапке, новое поручение пользователя явно разрешает оформление статей. Публикация только по точному CI/Full/CD; failed smoke требует штатного восстановления.

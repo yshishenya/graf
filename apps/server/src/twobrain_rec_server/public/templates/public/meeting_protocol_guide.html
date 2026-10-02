@@ -7,19 +7,22 @@
   {% include "public/_meta.html" %}
   <meta name="description" content="{{ social_description }}">
   <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
-  <link rel="stylesheet" href="{{ public_static_asset_url('guide.css') }}">
-  <link rel="stylesheet" href="{{ public_static_asset_url('protocol-guide.css') }}">
+  <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('content.css') }}">
+  <link rel="stylesheet" href="{{ public_static_asset_url('article.css') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('content-header.css') }}">
 </head>
-<body>
+<body class="guides-page quality-page article-page">
   <a class="skip-link" href="#main">К содержанию</a>
   {% include "public/_content_header.html" %}
   <main id="main"><article>
+    <div class="guides-intro section-dark"><div class="quality-width">
     <nav class="content-breadcrumb" aria-label="Раздел"><a href="/guides">Все руководства</a></nav>
     <p class="eyebrow">Руководство · Редакция ГРАФ</p>
     <h1>Как составить протокол встречи из записи: пример решений и задач</h1>
-    <p class="lead">Чтобы составить протокол встречи, выделите из записи принятые решения, конкретные задачи и открытые вопросы. Для каждой задачи укажите действие, ответственного и срок, если они действительно прозвучали. Затем проверьте формулировки по исходному разговору.</p>
+    <p class="guides-lead">Чтобы составить протокол встречи, выделите из записи принятые решения, конкретные задачи и открытые вопросы. Для каждой задачи укажите действие, ответственного и срок, если они действительно прозвучали. Затем проверьте формулировки по исходному разговору.</p>
+    </div></div>
+    <div class="quality-body section-light"><div class="quality-width">
     <p>Ниже разберем короткий учебный диалог и составим по нему протокол. Пример показывает, как сохранить условия договоренностей, отделить предложение от решения и оставить неизвестное неизвестным.</p>
     <aside aria-label="Учебный пример"><strong>Важно: диалог, участники и ситуация вымышлены.</strong> Протокол составлен вручную для этой статьи. Это не результат обработки записи в ГРАФ и не демонстрация точности продукта.</aside>
     <nav class="contents" aria-label="Содержание"><h2>В этом руководстве</h2><ol><li><a href="#structure">Что включить в протокол</a></li><li><a href="#dialogue">Учебный диалог</a></li><li><a href="#protocol">Пример протокола</a></li><li><a href="#steps">Как составить свой протокол</a></li><li><a href="#template">Шаблон для копирования</a></li><li><a href="#ai">Проверка черновика ИИ</a></li></ol></nav>
@@ -106,7 +109,8 @@
     </section>
     <section class="start"><h2>Перед отправкой протокола проверьте четыре вещи</h2><ul><li>Предложения не попали в список принятых решений</li><li>У задач сохранены реальные ответственные, сроки и условия</li><li>Неизвестное явно отмечено и вынесено на уточнение</li><li>Получателям доступен только тот объем записи и итогов, который им нужен</li></ul><p>Хороший протокол позволяет понять, что уже согласовано, кто за что взялся и какой вопрос еще требует ответа.</p></section>
   {% include "public/_related_guide.html" %}
+    </div></div>
   </article></main>
-  <footer><a href="/">ГРАФ</a><a href="/privacy">Обработка данных</a><a href="/analytics-consent">Об аналитике</a></footer>
+  <footer class="article-footer"><a href="/">ГРАФ</a><a href="/privacy">Обработка данных</a><a href="/analytics-consent">Об аналитике</a></footer>
 </body>
 </html>

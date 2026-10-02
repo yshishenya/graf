@@ -7,19 +7,23 @@
   {% include "public/_meta.html" %}
   <meta name="description" content="{{ social_description }}">
   <link rel="icon" href="{{ cabinet_static_asset_url('favicon.ico') }}">
-  <link rel="stylesheet" href="{{ public_static_asset_url('guide.css') }}">
+  <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('content.css') }}">
+  <link rel="stylesheet" href="{{ public_static_asset_url('article.css') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('content-header.css') }}">
 </head>
-<body>
+<body class="guides-page quality-page article-page">
   <a class="skip-link" href="#main">К содержанию</a>
   {% include "public/_content_header.html" %}
   <main id="main">
     <article>
+    <div class="guides-intro section-dark"><div class="quality-width">
     <nav class="content-breadcrumb" aria-label="Раздел"><a href="/guides">Все руководства</a></nav>
       <p class="eyebrow">Руководство · Редакция ГРАФ</p>
       <h1>Как записать встречу на Mac без бота и получить итоги</h1>
-      <p class="lead">Чтобы сохранить обе стороны разговора без отдельного участника в звонке, приложению нужны системный звук Mac и ваш микрофон. После обработки записи можно вернуться к репликам, решениям и следующим действиям.</p>
+      <p class="guides-lead">Чтобы сохранить обе стороны разговора без отдельного участника в звонке, приложению нужны системный звук Mac и ваш микрофон. После обработки записи можно вернуться к репликам, решениям и следующим действиям.</p>
+    </div></div>
+    <div class="quality-body section-light"><div class="quality-width">
       <p>ГРАФ использует этот способ записи. В продукте доступны расшифровка по спикерам с таймкодами и итоги встречи. Это руководство поможет проверить весь путь на вашем Mac. Оно не заменяет пробную запись и не подтверждает совместимость с каждым приложением для звонков.</p>
       <aside aria-label="Совместимость"><strong>Проверьте Mac до встречи.</strong> Требуется macOS 14.5 или новее. Установщик предназначен для Apple Silicon и Intel. Захват звука зависит от приложения и разрешений macOS. Это руководство относится к Mac; оно не описывает запись на Windows или Linux.</aside>
       <nav class="contents" aria-label="Содержание"><h2>В этом руководстве</h2><ol>
@@ -64,8 +68,9 @@
       </section>
       <section class="start"><h2>Начните с короткого тестового звонка</h2><p>Проверьте обе стороны, дождитесь расшифровки и сравните итог с реальным разговором. Так вы оцените весь путь до рабочей встречи.</p><a class="cta" href="/download">Скачать ГРАФ для Mac</a><p>macOS 14.5+ · Apple Silicon и Intel</p></section>
     {% include "public/_related_guide.html" %}
+    </div></div>
   </article>
   </main>
-  <footer><a href="/">ГРАФ</a><a href="/privacy">Обработка данных</a><a href="/analytics-consent">Об аналитике</a></footer>
+  <footer class="article-footer"><a href="/">ГРАФ</a><a href="/privacy">Обработка данных</a><a href="/analytics-consent">Об аналитике</a></footer>
 </body>
 </html>
