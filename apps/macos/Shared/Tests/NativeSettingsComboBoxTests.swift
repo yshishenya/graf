@@ -5,6 +5,68 @@ import XCTest
 
 @MainActor
 final class NativeSettingsComboBoxTests: XCTestCase {
+    private final class FocusedWindow: NSWindow {
+        override var isKeyWindow: Bool { true }
+    }
+
+    func testActiveContourStaysInsideUnchangedBoundsInEveryAppearance() throws {
+        for name: NSAppearance.Name in [.aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua] {
+            let control = NativeSettingsComboBox.Control(frame: NSRect(x: 0, y: 0, width: 160, height: 32))
+            let window = FocusedWindow(contentRect: control.frame, styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = control
+            control.appearance = try XCTUnwrap(NSAppearance(named: name))
+            control.layoutSubtreeIfNeeded()
+            let bounds = control.bounds
+            XCTAssertTrue(window.makeFirstResponder(control.field))
+            XCTAssertNotNil(control.field.currentEditor())
+            XCTAssertEqual(control.field.focusRingType, .none)
+            let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 160, pixelsHigh: 32,
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                bytesPerRow: 0, bitsPerPixel: 0))
+            let context = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: bitmap))
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            var expected: NSColor!
+            var background: NSColor!
+            control.effectiveAppearance.performAsCurrentDrawingAppearance {
+                expected = NSColor(DesktopDesignTokens.focusRing).usingColorSpace(.deviceRGB)
+                background = NSColor.controlBackgroundColor.usingColorSpace(.deviceRGB)
+                control.draw(bounds)
+            }
+            NSGraphicsContext.restoreGraphicsState()
+            func luminance(_ color: NSColor) -> CGFloat {
+                zip([color.redComponent, color.greenComponent, color.blueComponent], [0.2126, 0.7152, 0.0722]).reduce(0) {
+                    $0 + ($1.0 <= 0.04045 ? $1.0 / 12.92 : pow(($1.0 + 0.055) / 1.055, 2.4)) * $1.1
+                }
+            }
+            let foregroundLuminance = luminance(expected), backgroundLuminance = luminance(background)
+            XCTAssertGreaterThanOrEqual((max(foregroundLuminance, backgroundLuminance) + 0.05) / (min(foregroundLuminance, backgroundLuminance) + 0.05), 3)
+            let border = try XCTUnwrap(NSColor(cgColor: try XCTUnwrap(control.layer?.borderColor))?.usingColorSpace(.deviceRGB))
+            XCTAssertEqual(border.redComponent, expected.redComponent, accuracy: 0.02)
+            XCTAssertEqual(border.greenComponent, expected.greenComponent, accuracy: 0.02)
+            XCTAssertEqual(border.blueComponent, expected.blueComponent, accuracy: 0.02)
+            XCTAssertEqual(border.alphaComponent, 1, accuracy: 0.02, "The backing layer must not overlay the contour with a separate gray border")
+            for x in [0, 1] {
+                let pixel = try XCTUnwrap(bitmap.colorAt(x: x, y: 16)?.usingColorSpace(.deviceRGB))
+                XCTAssertEqual(pixel.alphaComponent, 1, accuracy: 0.02, "Visible 2px contour: \(name)")
+                XCTAssertEqual(pixel.redComponent, expected.redComponent, accuracy: 0.02)
+                XCTAssertEqual(pixel.greenComponent, expected.greenComponent, accuracy: 0.02)
+                XCTAssertEqual(pixel.blueComponent, expected.blueComponent, accuracy: 0.02)
+            }
+            XCTAssertEqual(try XCTUnwrap(bitmap.colorAt(x: 3, y: 16)).alphaComponent, 0, accuracy: 0.02)
+            XCTAssertEqual(control.bounds, bounds)
+            XCTAssertTrue(window.makeFirstResponder(nil))
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            context.cgContext.clear(bounds)
+            control.draw(bounds)
+            NSGraphicsContext.restoreGraphicsState()
+            XCTAssertEqual(try XCTUnwrap(bitmap.colorAt(x: 1, y: 16)).alphaComponent, 0, accuracy: 0.02, "Blur removes the active contour")
+            window.close()
+        }
+    }
+
     private let options = [
         NativeSettingsComboBox.Option(id: "ask", label: "Спрашивать"),
         NativeSettingsComboBox.Option(id: "always", label: "Всегда"),

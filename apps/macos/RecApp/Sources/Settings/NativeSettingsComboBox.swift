@@ -124,10 +124,13 @@ struct NativeSettingsComboBox: NSViewRepresentable {
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         override func draw(_ dirtyRect: NSRect) {
             super.draw(dirtyRect)
+            updateColors()
             if field.currentEditor() != nil, window?.isKeyWindow == true {
                 NSGraphicsContext.saveGraphicsState()
-                NSFocusRingPlacement.only.set()
-                NSBezierPath(roundedRect: bounds, xRadius: 5, yRadius: 5).fill()
+                NSColor(DesktopDesignTokens.focusRing).setStroke()
+                let contour = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 4, yRadius: 4)
+                contour.lineWidth = 2
+                contour.stroke()
                 NSGraphicsContext.restoreGraphicsState()
             }
         }
@@ -136,7 +139,8 @@ struct NativeSettingsComboBox: NSViewRepresentable {
         private func updateColors() {
             effectiveAppearance.performAsCurrentDrawingAppearance {
                 layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-                layer?.borderColor = NSColor.separatorColor.cgColor
+                let active = field.currentEditor() != nil && window?.isKeyWindow == true
+                layer?.borderColor = (active ? NSColor(DesktopDesignTokens.focusRing) : .separatorColor).cgColor
             }
         }
     }
