@@ -28,3 +28,6 @@
 .article-footer a{display:inline-flex;align-items:center;min-height:44px;text-decoration:underline;text-underline-offset:4px}
 .article-page .guides-intro{overflow-wrap:break-word}
 @media(max-width:540px){.article-page .quality-body :is(aside,.contents,.start,.example-task,pre,.content-related){padding:20px}.article-footer{width:calc(100% - 36px);gap:4px 24px}.article-page .quality-body h3{font-size:20px}.article-page .guides-intro h1{font-size:clamp(30px,8.7vw,34px)}}
+
+.article-document{overflow-x:visible}
+.article-page .skip-link{background:#6944b4;color:#fff}
