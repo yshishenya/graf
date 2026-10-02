@@ -36,7 +36,15 @@ MEETING_PROTOCOL_GUIDE = PublicContentPage(
     ContentSection.GUIDES,
     "public_protocol_guide",
 )
-PUBLIC_CONTENT_PAGES = (MAC_MEETING_GUIDE, MEETING_PROTOCOL_GUIDE)
+QUALITY_GUIDE_PATH = "/guides/proverka-kachestva-rasshifrovki-vstrechi"
+TRANSCRIPTION_QUALITY_GUIDE = PublicContentPage(
+    QUALITY_GUIDE_PATH,
+    "Как проверить качество расшифровки встречи: спикеры, имена, числа и решения",
+    "Сверьте важные реплики с записью, проверьте авторство и отличите принятые решения от предложений.",
+    ContentSection.GUIDES,
+    "public_transcription_quality_guide",
+)
+PUBLIC_CONTENT_PAGES = (MAC_MEETING_GUIDE, MEETING_PROTOCOL_GUIDE, TRANSCRIPTION_QUALITY_GUIDE)
 PUBLISHED_CONTENT_PATHS = (GUIDES_PATH, *(page.path for page in PUBLIC_CONTENT_PAGES))
 PUBLIC_CONTENT_SURFACES = {
     GUIDES_PATH: "public_guides",

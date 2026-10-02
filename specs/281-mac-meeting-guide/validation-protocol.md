@@ -21,3 +21,15 @@ Focused measurement suite: 27 passed, 10.35 s; disposable container removed. Ruf
 Consent focus failure reproduced as a harness readiness race: vendored library schedules initial focus after 100 ms, while test waited only for DOM. Harness now waits for initial focus inside modal before keyboard assertions, preserving the assertion and real refusal behavior. Product JS/CSS/copy unchanged. Focused repair suite initially 28 passed including real modal; rerun validates the readiness fix.
 
 Repair validation: 28 focused tests passed, 13.64 s; real modal harness separately PASS after final bounded-wait options. Ruff/development-process/whitespace PASS.
+
+## Третье руководство: проверка расшифровки
+
+Baseline11196fe593e9a0320d70a140d1237ecd5d497409 — документальный closeout опубликованного540f. Active slice/T008T009/issue7429. Default-off provider contracts и readiness не изменены. Новые страницы добавлены только в existing closed L1/campaign registry.
+
+Учебные примеры явно вымышлены и не являются результатами ГРАФ. Источники Google Cloud diarization и Microsoft WER прочитаны 2026-10-02; используются для определения методов, не для доказательства провайдера/точности продукта. Ни редактор текста, ни поиск, ни автоматический пересчет не обещаны. Цены/checkout не дублируются.
+
+Focused local PostgreSQL/HTML/copy/aggregate contracts: 96 PASS,14.90s, disposable container removed. Первые два запуска остановились на неполном тестовом env (TWOBRAIN_DATABASE_URL и admin postgres database); исправлен только локальный harness, без продукта/production. Последний запуск покрывает source/landing/campaign перенос в download, повторные visits без повторной attribution row, секретный query не сохраняется, L1-off brake.
+
+Actual SSR/CSS/Onest mobile360/390/768/1440 для новой статьи и трехкарточного хаба: no overflow (проверены также границы элементов), один H1, skiplink first focus; screenshot390 visual review PASS. Ruff, development-process и whitespace PASS. Zero protected diff landing/download/all policies/landing assets; existing article body/metadata сохранены, связанный partial добавляет третью статью.
+
+Exact-SHA PR gates, frozen Full/backup/CD и production readback еще pending; локальные результаты не заменяют эти gates. Индексация, рост и organic activation не проверены.
