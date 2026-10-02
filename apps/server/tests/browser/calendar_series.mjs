@@ -88,7 +88,7 @@ const server=createServer((req,res)=>{
       open_meeting_available:!(revised&&n===0)&&n!==1&&n!==2,
       temporal_state:history?'history':['ongoing','masked'].includes(scenario)&&n===0?'ongoing':'upcoming',
       recordings_partial:true,
-      recordings:(!revised&&n===0)?[{meeting_id:'00000000-0000-0000-0000-000000000099'},{meeting_id:'00000000-0000-0000-0000-000000000098'}]:[]
+      recordings:scenario==='masked'&&history?[{meeting_id:`00000000-0000-0000-0000-${String(offset+n+101).padStart(12,'0')}`}]:(!revised&&n===0)?[{meeting_id:'00000000-0000-0000-0000-000000000099'},{meeting_id:'00000000-0000-0000-0000-000000000098'}]:[]
     }));
     res.end(JSON.stringify({occurrences,next_cursor:second||!occurrences.length?null:'second',coverage_range:{from:'2026-04-01T00:00:00Z',to:'2026-11-01T00:00:00Z'},coverage_note:'Показаны сохранённые доступные даты.'}));return;
   }
@@ -265,6 +265,25 @@ try {
      assert.equal(await page.getByText('Идёт сейчас',{exact:true}).count(),0);
      assert.equal(await page.locator('.calendar-series__date time').count(),0);
      assert.equal(await page.locator('.calendar-series__date').getByText('Время скрыто настройкой',{exact:true}).count(),5);
+     assert.equal(await page.locator('.calendar-home-upcoming [datetime]').count(),0);
+     assert.equal(await page.locator('.calendar-home-upcoming').getByText(/Планирование команды/).count(),0);
+     const maskedLabels=()=>page.locator('.calendar-series__date > span:first-child').allTextContents();
+     const uniqueNames=async selector=>{const names=await page.locator(selector).evaluateAll(links=>links.map(link=>link.getAttribute('aria-label')));assert.ok(names.length>1);assert.equal(new Set(names).size,names.length);};
+     assert.deepEqual(await maskedLabels(),Array.from({length:5},(_,n)=>`Встреча ${n+1}`));
+     await uniqueNames('.calendar-series__actions [data-calendar-join]');
+     await page.locator('[data-calendar-series-more]').click();
+     await page.waitForFunction(()=>document.querySelectorAll('.calendar-series__occurrence').length===12);
+     assert.deepEqual(await maskedLabels(),Array.from({length:12},(_,n)=>`Встреча ${n+1}`));
+     await uniqueNames('.calendar-series__actions [data-calendar-join]');
+     const maskedRefresh=page.waitForResponse(response=>response.url().includes('/series/') && response.url().includes('view=upcoming'));
+     await page.evaluate(()=>window.dispatchEvent(new Event('online')));
+     await maskedRefresh;
+     await page.waitForFunction(()=>!document.querySelector('[data-calendar-series-more]').disabled && document.querySelectorAll('.calendar-series__occurrence').length===12);
+     assert.deepEqual(await maskedLabels(),Array.from({length:12},(_,n)=>`Встреча ${n+1}`));
+     await page.locator('[data-calendar-series-view="history"]').click();
+     await page.waitForFunction(()=>document.querySelectorAll('.calendar-series__recording').length===5);
+     assert.deepEqual(await maskedLabels(),Array.from({length:5},(_,n)=>`Встреча ${n+1}`));
+     await uniqueNames('.calendar-series__recording');
      assert.equal(await page.locator('.calendar-home-upcoming [datetime]').count(),0);
      assert.equal(await page.locator('.calendar-home-upcoming').getByText(/Планирование команды/).count(),0);
    } else if(kind==='same-day') {

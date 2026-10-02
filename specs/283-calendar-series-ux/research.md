@@ -22,3 +22,5 @@ History has no Join. Multiple recordings have distinct numbered link names, no g
 ## Technical resolution
 
 Client filtering old all/ascending pages is rejected: old history fills first page before upcoming dates, and a partial page can falsely look empty. Add optional server view on existing query. Signed cursor binds fixed anchor and view, retaining owner/session/workspace/range checks. Current ends_at decides completed vs current; old all remains compatible. Cursor preserves comparison direction and ID tie-breaker. No new table/index/helper class.
+
+При скрытом времени полная дата не может различать действия. Использовать нейтральный порядковый номер «Встреча N» в текущем отображаемом списке и доступном имени действия. Это номер строки, не идентификатор экземпляра и не раскрытие времени; он продолжается между страницами, заново начинается при смене периода/обновлении. Проверить несколько подключений и разные записи при скрытых датах/названиях.

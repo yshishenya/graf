@@ -62,7 +62,7 @@
       clearTimeout(timer);if(pendingJoin===operation) pendingJoin=null;
     }
   });
-  function rowFor(event, view, previousTitle) {
+  function rowFor(event, view, previousTitle, ordinal) {
     const row=document.createElement('article');row.className='calendar-series__occurrence';row.dataset.eventId=event.event_id;
     const detail=document.createElement('div');detail.className='calendar-series__date';
     if(event.starts_at) {
@@ -72,7 +72,7 @@
       day.dateTime=event.starts_at;
       day.title=(event.all_day?window.GRAFTime?.format(event.starts_at.slice(0,10)):window.GRAFTime?.format(event.starts_at,{showZone:true})) || day.textContent;
       detail.append(day,text('span',event.all_day?'Весь день':new Intl.DateTimeFormat(locale,{timeZone:zone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(instant)));
-    } else detail.append(text('span','Время скрыто настройкой'));
+    } else detail.append(text('span',`Встреча ${ordinal}`),text('span','Время скрыто настройкой'));
     const dateLabel=detail.firstElementChild.title || detail.firstElementChild.textContent;
     if(event.title && event.title!==previousTitle) {
       const title=text('span',event.title);title.className='calendar-series__title';title.title=event.title;detail.append(title);
@@ -152,7 +152,7 @@
         data.from=result.coverage_range.from;data.to=result.coverage_range.to;
       } while(refresh && cursor && events.length<wanted && result.occurrences.length);
       const fragment=document.createDocumentFragment();let previousTitle=refresh?undefined:data.lastTitle;
-      events.forEach(event=>{fragment.append(rowFor(event,data.view,previousTitle));previousTitle=event.title;});
+      events.forEach((event,index)=>{fragment.append(rowFor(event,data.view,previousTitle,(refresh?0:rows.children.length)+index+1));previousTitle=event.title;});
       if(refresh) rows.replaceChildren(fragment);else rows.append(fragment);
       data.started=true;data.cursor=cursor;data.count=rows.children.length;data.lastTitle=previousTitle;
       more.hidden=!data.cursor;more.textContent=data.view==='history'?'Ранее':'Ещё даты';
