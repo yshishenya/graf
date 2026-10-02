@@ -6,6 +6,7 @@ from typing import Any
 
 from minio import Minio
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from twobrain_rec_server.config import Settings
@@ -15,6 +16,10 @@ from twobrain_rec_server.db.tenant_context import (
     apply_tenant_context_to_connection,
 )
 from twobrain_rec_server.deployment import SmokeCleanupRecord, build_smoke_identity_seed
+
+
+class _CleanupTransactionDeadlock(RuntimeError):
+    """Only an uncommitted cleanup transaction may enter the bounded retry."""
 
 
 async def _table_exists(conn, table_name: str) -> bool:
@@ -485,7 +490,7 @@ async def _database_residue(conn: Any, smoke_identity: dict[str, str]) -> list[s
     return residue
 
 
-async def cleanup_smoke_artifacts(
+async def _cleanup_smoke_artifacts_once(
     run_id: str,
     meeting_id: str | None = None,
     session_id: str | None = None,
@@ -503,6 +508,7 @@ async def cleanup_smoke_artifacts(
 
     meeting_ids: list[str] = []
     residue: list[str] = []
+    database_committed = False
     try:
         async with engine.begin() as conn:
             await apply_tenant_context_to_connection(conn, _maintenance_context())
@@ -735,6 +741,7 @@ async def cleanup_smoke_artifacts(
                     smoke_identity,
                 )
 
+        database_committed = True
         removed_objects, storage_residue = _remove_storage_prefix(
             settings,
             _smoke_storage_prefix(smoke_identity),
@@ -745,9 +752,32 @@ async def cleanup_smoke_artifacts(
         async with engine.begin() as conn:
             await apply_tenant_context_to_connection(conn, _maintenance_context())
             residue.extend(await _database_residue(conn, smoke_identity))
+    except DBAPIError as error:
+        # engine.begin() has rolled back before this handler; no SQL is retried
+        # inside an aborted transaction. Never repeat deletion after commit.
+        if not database_committed and getattr(error.orig, "sqlstate", None) == "40P01":
+            raise _CleanupTransactionDeadlock("uncommitted smoke cleanup deadlock") from None
+        raise
     finally:
         await engine.dispose()
     return removed_rows, removed_objects, residue
+
+
+async def cleanup_smoke_artifacts(
+    run_id: str,
+    meeting_id: str | None = None,
+    session_id: str | None = None,
+) -> tuple[int, int, list[str]]:
+    # PostgreSQL requires retrying the complete transaction after a deadlock.
+    # Each attempt recreates counters/context/engine for the same exact identity.
+    for delay in (0.0, 0.1, 0.3):
+        if delay:
+            await asyncio.sleep(delay)
+        try:
+            return await _cleanup_smoke_artifacts_once(run_id, meeting_id, session_id)
+        except _CleanupTransactionDeadlock:
+            continue
+    raise RuntimeError("smoke cleanup database deadlock retries exhausted") from None
 
 
 def main() -> None:

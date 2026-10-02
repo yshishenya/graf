@@ -1,0 +1,11 @@
+schema_version: 1
+feature_id: 21
+category: Fixed
+summary: "Очистка тестового smoke повторяет целую транзакцию после временной блокировки PostgreSQL"
+issue: 7438
+tasks: [T067, T068, T069, T070]
+compatibility: "Прежние synthetic identity, SQL/RLS фильтры, CLI/output и deployment gates сохранены; миграций нет"
+known_limitations:
+  - "Максимум три попытки; повторная блокировка после исчерпания по-прежнему останавливает выпуск"
+  - "Проверено на изолированном синтетическом стенде; production deploy не выполнен"
+release_notes: "Повтор только SQLSTATE40P01 до commit. Неуспешная попытка полностью откатывается; хранилище затрагивается после commit, ошибки проверки остатков не маскируются."
