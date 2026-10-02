@@ -1,6 +1,6 @@
 # Независимая проверка автоматических списаний F280
 
-Дата: 2026-10-02. Объект: `/Users/yshishenya/.codex/worktrees/release-f280/crisp`, ветка `codex/280-recurring-enablement`, точный HEAD `77e6aed8ff79127d6e6b284ad18b58da5793ef51`. Рабочая директория на начале проверки чистая.
+Дата: 2026-10-02. Объект: `рабочая копия F280`, ветка `codex/280-recurring-enablement`, точный HEAD `77e6aed8ff79127d6e6b284ad18b58da5793ef51`. Рабочая директория на начале проверки чистая.
 
 ## Вывод
 
@@ -47,7 +47,7 @@
 3. `tests/unit/test_payment_methods.py`, `tests/unit/test_billing_entitlements.py`, `tests/unit/test_renewal_charge.py`, `tests/unit/test_billing_reconciliation.py` — шифрование, смена владельца/версии, OFF, сохраненная карта, unknown/retries, подтверждение/чек.
 4. **Через изолированный PostgreSQL**: `tests/unit/test_billing_money_path_e2e.py`, `tests/integration/test_checkout_yookassa.py`, `tests/integration/test_renewal_lifecycle.py` — реальный HTTP→SQL путь с заглушкой провайдера, ON/OFF/omitted, grant/replay, poll/webhook, чек и продление.
 
-На момент чтения переданных отчетов `/tmp/graf-f280-recurring-unit-check.log` содержал `176 passed, 71 errors`: ошибки SQL-backed набора возникли при setup, потому что `TWOBRAIN_DATABASE_URL is required; run bash apps/server/scripts/run_local_postgres_tests.sh`. Их нельзя записывать как product FAIL либо как PASS. `/tmp/graf-f280-recurring-sql-check.log` содержал `6 passed` для двух integration suites. Финальные результаты повторного SQL запуска и обязательные проверки основного агента остаются его ответственностью.
+На момент чтения переданных отчетов `локальный артефакт graf-f280-recurring-unit-check.log` содержал `176 passed, 71 errors`: ошибки SQL-backed набора возникли при setup, потому что `TWOBRAIN_DATABASE_URL is required; run bash apps/server/scripts/run_local_postgres_tests.sh`. Их нельзя записывать как product FAIL либо как PASS. `локальный артефакт graf-f280-recurring-sql-check.log` содержал `6 passed` для двух integration suites. Финальные результаты повторного SQL запуска и обязательные проверки основного агента остаются его ответственностью.
 
 ## Что еще доказывает только контролируемая проверка у провайдера
 
@@ -60,17 +60,17 @@
 
 | Итоговый профиль | Проверенный журнал | Результат |
 |---|---|---|
-| Адаптер, карта, права доступа, списание и workflow продления | `/tmp/graf-f280-recurring-unit-final.log` | 176 PASS, 1.38 с; ошибок нет |
-| HTTP→PostgreSQL, заменена сеть провайдера | `/tmp/graf-f280-recurring-money-path-check.log` | 71 PASS, 63.06 с; штатный runner 69 с; cleanup: isolated_container_removed |
-| Checkout/renewal integration | `/tmp/graf-f280-recurring-sql-check.log` | 6 PASS, 0.04 с; cleanup: isolated_container_removed |
+| Адаптер, карта, права доступа, списание и workflow продления | `локальный артефакт graf-f280-recurring-unit-final.log` | 176 PASS, 1.38 с; ошибок нет |
+| HTTP→PostgreSQL, заменена сеть провайдера | `локальный артефакт graf-f280-recurring-money-path-check.log` | 71 PASS, 63.06 с; штатный runner 69 с; cleanup: isolated_container_removed |
+| Checkout/renewal integration | `локальный артефакт graf-f280-recurring-sql-check.log` | 6 PASS, 0.04 с; cleanup: isolated_container_removed |
 
 Collection digest набора из 71 проверки `730f03bf1a6c92701a74b5cfb5e5d06beb3a869edf81ec91a992e5541ea5d026` и набора из 6 проверок `51b788a6ee0e37c2bac0b09bfe4728e158185a26546f5e85e8049b9f0fa1efa4` совпадают в журналах и evidence JSON. Два предупреждения pytest о переписывании импортированного модуля и устаревающем интерфейсе TestClient не являются ошибками проверок. Все данные платежей в этих тестах синтетические.
 
 Сверка безопасных снимков:
 
-- `evidence.runtime` точно равен `services` из `/tmp/graf-f280-recurring-runtime-current.json`. Для каждой из трех служб самостоятельно пересчитаны SHA256 всех 11 локальных billing-файлов: все 33 сравнения совпадают с записанными хешами. Source SHA служб `e750ad90facf1f6ffa4aca341136474870a5a003` отличается от HEAD проверяемой рабочей копии; совпадение относится именно к этим 11 файлам, а не ко всему серверному исходному дереву. API и processing healthy, maintenance running; отдельный health у maintenance не заявлен. Публичная оплата, production/ожидаемый магазин и наблюдение провайдера включены в каждой службе.
-- `evidence.account_read` точно равен `/tmp/graf-f280-recurring-account-current.json`: GET `/v3/me` HTTP200, нужный enabled-магазин, test=false, fiscalization=true, bank_card среди доступных типов. Отдельного признака подключения recurring нет; вывод о живой привязке из этого ответа не сделан.
-- `evidence.state_read` точно равен `/tmp/graf-f280-recurring-state-current.json`. Снимок на `2026-10-02T19:03:25.293027+00:00`, режим `READ ONLY rollback`, последние 24 часа: один исторический canceled initial_checkout с 403 без provider ID; новых grants/webhooks нет. GET списка платежей: 0 результатов, следующей страницы нет. Recurring-разрешений 0; одна verified active saved method — глобальный исторический счетчик, который не доказывает новую привязку после сообщения менеджера.
+- `evidence.runtime` точно равен `services` из `локальный артефакт graf-f280-recurring-runtime-current.json`. Для каждой из трех служб самостоятельно пересчитаны SHA256 всех 11 локальных billing-файлов: все 33 сравнения совпадают с записанными хешами. Source SHA служб `e750ad90facf1f6ffa4aca341136474870a5a003` отличается от HEAD проверяемой рабочей копии; совпадение относится именно к этим 11 файлам, а не ко всему серверному исходному дереву. API и processing healthy, maintenance running; отдельный health у maintenance не заявлен. Публичная оплата, production/ожидаемый магазин и наблюдение провайдера включены в каждой службе.
+- `evidence.account_read` точно равен `локальный артефакт graf-f280-recurring-account-current.json`: GET `/v3/me` HTTP200, нужный enabled-магазин, test=false, fiscalization=true, bank_card среди доступных типов. Отдельного признака подключения recurring нет; вывод о живой привязке из этого ответа не сделан.
+- `evidence.state_read` точно равен `локальный артефакт graf-f280-recurring-state-current.json`. Снимок на `2026-10-02T19:03:25.293027+00:00`, режим `READ ONLY rollback`, последние 24 часа: один исторический canceled initial_checkout с 403 без provider ID; новых grants/webhooks нет. GET списка платежей: 0 результатов, следующей страницы нет. Recurring-разрешений 0; одна verified active saved method — глобальный исторический счетчик, который не доказывает новую привязку после сообщения менеджера.
 - Безопасная запись содержит 0 изменений провайдера, рабочей БД, попыток платежа, развёртывания и конфигурации. Независимый проход проверил сохраненные снимки и локальные байты; сам к рабочей БД/авторизованному API не обращался и финансовых операций не выполнял.
 
 **Окончательный вывод: PASS исходного пути и перечисленных 253 проверок (176 + 71 + 6), применимых блокирующих дефектов или расхождений в документах подтверждений не найдено.** Приемка реального нового платежа после подключения, succeeded/saved bank_card/нового разрешения, реального повторного списания, чеков/банковского зачисления/возвратов и пользовательской понятности/конверсии остается недоказанной. Историческая карта и письмо менеджера не закрывают эти пункты. Нулевая привязка не входит в проверяемый путь. Обновлен только этот отчет; код, другие документы, tasks, GitHub и развёртывание не менялись.

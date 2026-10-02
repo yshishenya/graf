@@ -2,7 +2,7 @@
 
 Дата: 2026-10-02, Europe/Istanbul. Пользователь сообщил новое подтверждение YooKassa: привязка банковских карт для рабочего магазина включена. Прежний статус «менеджер проверяет» больше не является текущим внешним блокером. Письмо принято как сообщение владельца; независимая живая привязка карты ещё не подтверждена.
 
-Lane: read-only investigation и docs-only / mechanical для этой записи. Реализация не меняется; применяется существующая high-risk-product F278/F280. Разрешение на публичную оплату и технический выпуск сохраняется. Новый флаг, переписывание оплаты и повторное развёртывание не нужны: необходимый серверный путь уже установлен. Старые отказы и принятые согласия не пересчитываются, деньги автоматически не отправляются.
+Lane: read-only investigation и docs-only / mechanical для этой записи. Реализация не меняется; применяется существующая high-risk-product F278/F280. Владелец явно разрешил публичную оплату и технический выпуск. Это решение о доступности оформления не подтверждает незавершённые финансовые пункты F278; они остаются открытыми до живых доказательств. Новый флаг, переписывание оплаты и повторное развёртывание не нужны: необходимый серверный путь уже установлен. Старые отказы и принятые согласия не пересчитываются, деньги автоматически не отправляются.
 
 ## Проверенный работающий сервер
 
@@ -30,6 +30,7 @@ Lane: read-only investigation и docs-only / mechanical для этой запи
 | --- | --- |
 | Адаптер, карта, доступ, списание, workflow продления | 176 PASS, 1.38с |
 | Checkout/renewal integration, штатный isolated PostgreSQL runner | 6 PASS, 0.04с; collection digest51b788a6ee0e37c2bac0b09bfe4728e158185a26546f5e85e8049b9f0fa1efa4 |
+| Восстановление initial checkout и сверка платежей | 30 PASS, 0.14с; повторная проверка после замечания review |
 | Полный money_path HTTP→PostgreSQL с заменой только сети провайдера | 71 PASS, 63.06с; runner69с; digest730f03bf1a6c92701a74b5cfb5e5d06beb3a869edf81ec91a992e5541ea5d026 |
 
 Все финансовые тесты синтетические. PostgreSQL cleanup PASS. Первый общий запуск ошибочно включил SQL-backed money_path без штатного PostgreSQL окружения: 176 PASS/71 setup ERROR с явным TWOBRAIN_DATABASE_URL required. Это ошибка запуска, не доказательство ошибки продукта. После разделения профилей money_path полностью прошёл в штатном isolated runner; пропуски/ожидания/защиты не менялись. Пробный неверный health URL /health/ready вернул404; настоящие маршруты /api/v1/health/live и /ready затем оба200. Ошибки не объявлены PASS.
@@ -40,6 +41,7 @@ Lane: read-only investigation и docs-only / mechanical для этой запи
 apps/server/.venv/bin/python -m pytest -q apps/server/tests/contract/test_yookassa_adapter.py apps/server/tests/unit/test_payment_methods.py apps/server/tests/unit/test_billing_entitlements.py apps/server/tests/unit/test_renewal_charge.py apps/server/tests/unit/test_billing_renewal_workflow.py --tb=short --show-capture=no
 apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_checkout_yookassa.py tests/integration/test_renewal_lifecycle.py -q --tb=short --show-capture=no
 apps/server/scripts/run_local_postgres_tests.sh --focused tests/unit/test_billing_money_path_e2e.py -q --tb=short --show-capture=no
+apps/server/.venv/bin/python -m pytest -q apps/server/tests/unit/test_initial_checkout_recovery.py apps/server/tests/unit/test_billing_reconciliation.py --tb=short --show-capture=no
 ```
 
 ## Живое чтение и оставшаяся приёмка
