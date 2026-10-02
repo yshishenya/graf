@@ -19,3 +19,8 @@ Reviewer-owned requirements checklist16checked/0unchecked; прежние gates 
 ## Независимая проверка коррекции общего test harness
 
 Отдельный read-only `static_contract_review` независимо воспроизвел3RED на исходной обвязке HEAD, перечитал17замен и запустил весь исправленный файл:76PASS2.13с. Вызов всех обработчиков соответствует DOM, assertions stale/focus/announcement/auth recovery сохранены. Production исходники не менялись; новых замечаний нет. Это дополнение не подменяет новый exact-SHA GitHub gate.
+
+
+## Повторная независимая проверка двух замечаний PR7465
+
+Дополнительный read-only reviewer inline_followup_independent на первоначальном b2ce252 подтвердил account CTA и recovery-cycle дефекты. После минимальных template правок повторный verdict PASS на SHA2569c68661848504e02b02f067f7e2a3f759fa0c04fd7f808354e4388c1d06d54b2: оба периода, неподтвержденная почта при account отказе, обычная доступная оплата и pending continuation проверены настоящим шаблонизатором; clarity21PASS и whitespacePASS. Reviewer не менял файлы. Браузерный recovery проверен исполнителем в Chromium2/WebKit2; границы отражены в validation-promo-inline.md. Нет применимых открытых замечаний. JS и серверные денежные исходники из предыдущих трех обзоров неизменны.

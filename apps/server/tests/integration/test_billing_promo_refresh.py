@@ -992,7 +992,14 @@ def test_account_restriction_remains_actionable_without_promo_and_rolls_back_mon
     assert "аккаунта" in alerts and "поддерж" in alerts, "account restriction must explain contacting support"
     assert "промокод" not in alerts.lower(), "removing a promo may never be suggested as an account-fence bypass"
     assert "провероч" not in alerts.lower() and "бюджет" not in alerts.lower()
-    assert promo_input(refused) == ""
+    assert 'action="/billing/checkout/start"' not in refused.text
+    assert 'data-billing-primary' not in refused.text
+    assert 'name="quote_id"' not in refused.text
+    assert 'name="idempotency_key"' not in refused.text
+    assert 'name="offer_consent"' not in refused.text
+    assert 'name="recurring_consent"' not in refused.text
+    assert 'id="billing-promo"' not in refused.text
+    assert "Платеж уже создан" not in alerts
 
     async def unchanged():
         async with client.app_state["sessionmaker"]() as db:

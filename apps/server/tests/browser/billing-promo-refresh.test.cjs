@@ -205,9 +205,11 @@ async function run() {
         }
         const marker = 'synthetic-inline-document';
         let documentNavigations = 0;
+        let manualRecoveryNavigations = 0;
         let checkingPreview = false;
         page.on('request', request => {
           if (checkingPreview && request.isNavigationRequest() && request.frame() === page.mainFrame()) documentNavigations++;
+          if (stage === `${width}:inline-annual-manual-recovery` && request.isNavigationRequest() && request.frame() === page.mainFrame()) manualRecoveryNavigations++;
         });
         if (!native) await page.evaluate(value => { window.grafInlineMarker = value; document.body.dataset.inlineMarker = value; }, marker);
         const historyLength = await page.evaluate(() => history.length);
@@ -360,6 +362,38 @@ async function run() {
             for (const status of [500, 429, 401, 403]) await failure(`http-${status}`, async () => ({status, contentType: 'text/html', body: '<p>synthetic failure</p>'}));
             await failure('network', async route => { await route.abort(); });
             await failure('unexpected-html', async () => ({status: 200, contentType: 'text/html', body: '<main id="cabinet-main">synthetic unexpected</main>'}));
+            // No draft exists after removing the code. A selected annual period
+            // must therefore survive the recovery link itself, not a cookie.
+            const annualWithoutPromo = {code: '', cycle: 'year', today: '10000', renewal: '10000'};
+            await input.fill('');
+            await inline(apply, annualWithoutPromo);
+            recurringChoice = false;
+            await page.locator('input[name="recurring_consent"]').uncheck();
+            await consent().check();
+            const annualFailure = async route => route.fulfill({status: 500, contentType: 'text/html', body: '<p>synthetic annual failure</p>'});
+            await page.route('**/billing/checkout/preview', annualFailure);
+            checkingPreview = true;
+            await apply.click();
+            await page.waitForFunction(() => document.querySelector('main.billing-checkout-page')?.dataset.billingPreviewState === 'recovery');
+            checkingPreview = false;
+            await identity();
+            await safeURL('year');
+            assert.equal(await input.inputValue(), '');
+            assert.ok(await page.locator('form[action="/billing/checkout/start"] button').isDisabled());
+            assert.equal(await consent().isChecked(), false);
+            const recoveryLink = page.getByRole('link', {name: 'Открыть оплату заново'});
+            assert.ok(await recoveryLink.isVisible());
+            assert.equal(await recoveryLink.getAttribute('href'), '/billing/checkout?cycle=year');
+            await page.unroute('**/billing/checkout/preview', annualFailure);
+            recoveryChecks++;
+            stage = `${width}:inline-annual-manual-recovery`;
+            await Promise.all([page.waitForNavigation({waitUntil: 'domcontentloaded'}), recoveryLink.click()]);
+            assert.equal(manualRecoveryNavigations, 1, 'only explicit recovery navigates the document');
+            assert.equal(await page.evaluate(() => window.grafInlineMarker), undefined);
+            assert.equal(await page.locator('body').getAttribute('data-inline-marker'), null);
+            await safeURL('year');
+            await verify(annualWithoutPromo);
+
           } else if (config.inline_case === 'inline-timeout') {
             // The ASGI bridge holds this real response beyond the configured
             // 15s timeout. Native XHR timeout starts differently under WebKit
@@ -421,7 +455,7 @@ async function run() {
         await context.close();
         process.stdout.write(JSON.stringify({engine, viewports, inline_case: config.inline_case,
           external_requests: externalRequests, document_navigations: native ? undefined : documentNavigations,
-          submit_redirects: submitRedirects, updates, recovery_checks: recoveryChecks, busy_checks: busyChecks}));
+          submit_redirects: submitRedirects, updates, recovery_checks: recoveryChecks, busy_checks: busyChecks, manual_recovery_navigations: manualRecoveryNavigations}));
         return;
       }
 

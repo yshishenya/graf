@@ -5,12 +5,13 @@
     "apps/server/src/twobrain_rec_server/billing/purchases.py": "d03b4743c9ef29d12025e149b130260d3b2fd335a6eb4557cd063bccc9cfc66c",
     "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py": "ba7db4c90ec19f85e114a276e3983619cf8e6321e45f1e992ab831532c5b75b8",
     "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "95f5d619f7cab0d70e1b604f0c6fccaba5ce47b91c756ae4fc9073ac75baeb34",
-    "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html": "4b17d26ee11577eeb30a6d7788d4a8eafabfa1649a4dcef2613d34ebd10db3b0",
+    "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html": "9c68661848504e02b02f067f7e2a3f759fa0c04fd7f808354e4388c1d06d54b2",
     "apps/server/tests/unit/test_billing_purchases.py": "feaa133ad61655b3fbd98474d5190ec028b45c5c1ea2f6fb5e21e0f1bb68a780",
-    "apps/server/tests/integration/test_billing_promo_refresh.py": "c01cfd362355ea4a68c55a03e19db33fb7cd6dffe14e5f32e0d96833d43d5cf7",
-    "apps/server/tests/browser/billing-promo-refresh.test.cjs": "e180e2c4fe54748e9ed20cf70849d2883b470af3ac4a5f65f50a054298ee82e5",
-    "apps/server/tests/contract/test_billing_promo_refresh_browser.py": "5ab899f007db8023b7d51906484cb04b79e757138ce20c0e572a7a8dcf22442b",
-    "apps/server/tests/contract/test_cabinet_static_assets_contract.py": "75b809f041dc7def246599493234e35245d68ef71c36f29459210c107705c823"
+    "apps/server/tests/integration/test_billing_promo_refresh.py": "cb27aaeea4dc504175fcffaf4e5cec1b4970a97c9d5e95b5df406bd236d016ea",
+    "apps/server/tests/browser/billing-promo-refresh.test.cjs": "7c919063a7bdd74c696d02448da3805132c7b9ebfc6c6cd49955b78e3e95ec14",
+    "apps/server/tests/contract/test_billing_promo_refresh_browser.py": "342011795dda458e5f4b6e35073e56e3e88b9cce4bc7b007f4064788ba0801d3",
+    "apps/server/tests/contract/test_cabinet_static_assets_contract.py": "75b809f041dc7def246599493234e35245d68ef71c36f29459210c107705c823",
+    "apps/server/tests/contract/test_billing_clarity.py": "767342316438bd3e068a2581b2a05691c1bac5eb15f7da5b2f268a65e8da544f"
   },
   "completed_proofs": [
     {
@@ -103,5 +104,51 @@
   "browser_collection": {
     "per_engine": 28,
     "digest": "a91f230d0d5e001e4b5a6bc582be774595e05504d88706d752d9b101838e219e"
-  }
+  },
+  "post_review_followups": [
+    {
+      "artifact": "graf-f280-inline-fast-diagnostic4.log",
+      "sha256": "fdc4c57a169694cb548964f8e2fba6453ca35a97a5b67750bcbaa656469f9a88",
+      "status": "pass",
+      "passed": null
+    },
+    {
+      "artifact": "graf-f280-inline-followups-contract-red.log",
+      "sha256": "fb328bd2d5f469af819f28ee85a3ad56c44702143fed24b73dfae5e5566bf9b4",
+      "status": "expected_red",
+      "passed": 0
+    },
+    {
+      "artifact": "graf-f280-inline-followups-chromium-red.log",
+      "sha256": "0422fcf97d6dd85ac408ac80a3b352904bd603fee8381e69dd2018502f585062",
+      "status": "expected_red",
+      "passed": 0
+    },
+    {
+      "artifact": "graf-f280-inline-followups-ui-green.log",
+      "sha256": "f6f300151e9f3ba41183374a5ff7cdd4858310dfff1a767e2c62cc038a0e618c",
+      "status": "pass",
+      "passed": 74
+    },
+    {
+      "artifact": "graf-f280-inline-followups-account-green.log",
+      "sha256": "8fc7b40faf27965fb2a2cd38bf682c40051466d40ad39bcf1d9e8d0f1e3e6631",
+      "status": "pass",
+      "passed": 6
+    },
+    {
+      "artifact": "graf-f280-inline-followups-chromium-green.log",
+      "sha256": "1e634bee7c6e611e93c2578fe0491d44216c6bdb05b207e10e11306669c526bd",
+      "status": "pass",
+      "passed": 2
+    },
+    {
+      "artifact": "graf-f280-inline-followups-webkit-green.log",
+      "sha256": "f59cc39c208363e5684bbcf55c441bc432af732e524a17b45801e2dfabbc9ab6",
+      "status": "pass",
+      "passed": 2,
+      "pytest_seconds": 21.89,
+      "isolated_cleanup": true
+    }
+  ]
 }

@@ -263,7 +263,8 @@ def test_promo_survives_real_submit_reload_and_return(
                 assert proof["updates"] == 7
             elif inline_case != "inline-native":
                 assert proof["busy_checks"] == 1
-                assert proof["recovery_checks"] == {"inline-errors": 6, "inline-timeout": 1, "inline-guards": 5}[inline_case]
+                assert proof["recovery_checks"] == {"inline-errors": 7, "inline-timeout": 1, "inline-guards": 5}[inline_case]
+                assert proof["manual_recovery_navigations"] == int(inline_case == "inline-errors")
             assert not errors
             assert not any(row[0] == "POST" and row[1] == "/billing/checkout/start" for row in trace)
             asyncio.run(no_money_side_effects())

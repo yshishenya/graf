@@ -98,6 +98,28 @@ def test_checkout_keeps_full_financial_terms_outside_optional_details(cycle, amo
     assert any(attrs.get("name") == "offer_version" and attrs.get("type") == "hidden" and attrs.get("value") == "synthetic-offer-version" for _, attrs in page.nodes)
 
 
+@pytest.mark.parametrize("blocked", [None, False])
+def test_checkout_unavailable_account_removes_payment_action_without_pending_claim(blocked):
+    context = {"checkout_result": "account_unavailable"}
+    if blocked is not None:
+        context["checkout_blocked"] = blocked
+    page = Page(checkout(**context))
+    assert "Оплата для этого аккаунта сейчас недоступна. Обратитесь в поддержку." in page.visible
+    assert "Платеж уже создан" not in page.visible
+    assert not any(tag == "form" and attrs.get("action") == "/billing/checkout/start" for tag, attrs in page.nodes)
+    assert not any(tag == "button" and "data-billing-primary" in attrs for tag, attrs in page.nodes)
+    assert not any(attrs.get("name") in {"quote_id", "idempotency_key", "offer_consent", "recurring_consent"} for _, attrs in page.nodes)
+
+
+@pytest.mark.parametrize("cycle,expected", [("month", "month"), ("year", "year"), ("unexpected", "month")])
+def test_checkout_manual_preview_recovery_retains_only_allowlisted_period(cycle, expected):
+    page = Page(checkout(checkout_cycle=cycle, checkout_promo_code="SYNTHETIC"))
+    links = [attrs for tag, attrs in page.nodes if tag == "a" and "data-billing-preview-recovery" in attrs]
+    assert len(links) == 1
+    assert links[0]["href"] == f"/billing/checkout?cycle={expected}"
+    assert "hidden" in links[0]
+
+
 def test_checkout_coupon_opens_for_error_but_never_enables_invalid_quote():
     page = Page(checkout(promo_preview_error="Проверьте промокод", checkout_promo_code="SYNTHETIC"))
     assert "Проверьте промокод" in page.visible

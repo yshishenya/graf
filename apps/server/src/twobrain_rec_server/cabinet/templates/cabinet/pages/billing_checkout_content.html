@@ -2,7 +2,7 @@
 {% set checkout_cycle = checkout_cycle|default("month") %}
 {% set checkout_result = checkout_result|default(None) %}
 {% set checkout_blocked = checkout_blocked|default(checkout_result == "pending") %}
-{% set checkout_available = billing_enabled and catalog_ready|default(True) %}
+{% set checkout_available = billing_enabled and catalog_ready|default(True) and checkout_result != "account_unavailable" %}
 {% set selected_price_label = annual_price_label|default("Цена недоступна", true) if checkout_cycle == "year" else monthly_price_label|default("Цена недоступна", true) %}
 {% if checkout_preview|default(None) %}{% set selected_price_label = checkout_preview.payable_amount_label %}{% endif %}
 <main id="cabinet-main" class="cabinet-main billing-page billing-checkout-page" tabindex="-1">
@@ -16,7 +16,7 @@
         </div>
         <p class="muted">Без лимита по минутам и встречам · {{ catalog_storage_label|default("5 ГБ") }} для записей.</p>
 
-        {% if billing_enabled and catalog_ready|default(True) and not checkout_blocked %}
+        {% if checkout_available and not checkout_blocked %}
         <form id="billing-promo-preview" action="/billing/checkout/preview" method="post"
               hx-post="/billing/checkout/preview" hx-target="#cabinet-main" hx-select="#cabinet-main"
               hx-swap="outerHTML" hx-push-url="false" hx-sync="this:drop" hx-request='{"timeout":15000}'>
@@ -54,7 +54,7 @@
         {% if checkout_storage_price_label|default(None) %}<details class="billing-coupon"><summary>Состав цены</summary><dl class="billing-order-summary"><div><dt>Тариф · 5 ГБ включено</dt><dd>{{ checkout_base_price_label }}</dd></div><div><dt>Хранение до {{ catalog_storage_label }}</dt><dd>{{ checkout_storage_price_label }}</dd></div></dl></details>{% endif %}
         {% endif %}
 
-        {% if billing_enabled and catalog_ready|default(True) and not checkout_blocked %}
+        {% if checkout_available and not checkout_blocked %}
         <details class="billing-coupon"{% if checkout_result in ["promo_invalid", "promo_expired"] or promo_preview_error|default(None) or checkout_promo_code|default("") %} open{% endif %}>
           <summary>Есть промокод?</summary>
           <div class="billing-coupon__form">
@@ -65,7 +65,7 @@
           <p class="muted">Применяется одна скидка. Чтобы убрать промокод, очистите поле и нажмите «Применить».</p>
         </details>
         <p data-billing-preview-status role="status" aria-live="polite" aria-atomic="true" hidden></p>
-        <a data-billing-preview-recovery href="/billing/checkout" hidden>Открыть оплату заново</a>
+        <a data-billing-preview-recovery href="/billing/checkout?cycle={{ 'year' if checkout_cycle == 'year' else 'month' }}" hidden>Открыть оплату заново</a>
 
         {% if not receipt_contact_ready|default(True) %}<p class="notice notice--warning" role="status">{{ receipt_contact_message|default("Подтвердите почту для чека.") }}</p><a class="button primary" href="{{ receipt_contact_action_url }}">Подтвердить почту</a>
         {% elif checkout_quote_id|default(None) and not promo_preview_error|default(None) %}

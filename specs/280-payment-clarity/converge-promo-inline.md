@@ -22,3 +22,6 @@
 Новых source findings missing/partial/contradicts/unrequested0, CRITICAL/HIGH/MEDIUM/LOW0 после устранения M1, H1 и M2. Новых обязательных исполнительных задач не требуется; все оставшиеся проверки и выпуск уже находятся в T028. Invocation converge не переписывает tasks и не добавляет пустой phase. Это source-converged с завершенными локальными проверками и незавершенными воротами выпуска, не полное закрытие F280 или финансовой приемки.
 
 Текущий JS SHA256 `95f5d619f7cab0d70e1b604f0c6fccaba5ce47b91c756ae4fc9073ac75baeb34`. Окончательные факты дополняются из validation-promo-inline.md, review-promo-inline-final.md и release-promo-inline-closeout.md только после завершения соответствующих проверок.
+
+
+Повторная сверка после двух замечаний PR7465: account_unavailable убирает денежные действия без ложного pending, recovery href сохраняет только проверенный cycle. FR024/025/027–029 и SC010/012 уточнений intent не требуют; пять RED contract и browser RED сменились UI74/account6/Chromium2/WebKit2 GREEN. Независимая повторная проверка template PASS, clarity21PASS. Проверенные количества требований/решений/принципов прежние; новых обязательных задач0. Все оставшиеся gates относятся к действующей T028. Converge не изменяет tasks.
