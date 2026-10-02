@@ -221,3 +221,30 @@ Alternatives: показывать всем403 отказ recurring — отве
 Limits: одно подтверждённое отклонение не доказывает доступность разового live checkout, поддержку автоплатежей у магазина, успешную оплату, чек, банковское зачисление или рост конверсии. Эти результаты нельзя вывести из synthetic PASS или общей работоспособности служб.
 
 Официальная зависимость: [ЮKassa — автоплатежи](https://yookassa.ru/docs/support/payments/extra/autopayment), прочитано ведущим агентом в браузере 2026-10-01, требует обращения к менеджеру для подключения. Исправление GRAF объясняет отказ, но не включает эту возможность на стороне провайдера. Отправка обращения менеджеру требует отдельного пользовательского поручения и не входит в кодовый срез.
+
+
+## Продолжение 2026-10-02: промокод на месте
+
+**Decision**: Переиспользовать HTMX2.0.10 в существующей preview form и серверную POST303→GET200 цепочку. hx-select/target извлекает checkout main из обычного ответа; native fallback остается. **Rationale**: Apply/cycle/remove сейчас обычная форма, общий GET уже дает проверенный итог/quote/cookie; смена транспорта не требует дублирования расчетов. **Alternatives**: новый fetch/JSON API и изменение общего shell отвергнуты как лишние пути; явный HX fragment допустим только при доказанной необходимости и общем context. `templates.py:129-150` дает безопасные headers, не выбирает fragment сам; `rendering_shared.py:7-61` всегда собирает full shell.
+
+**Decision**: Текущий bool продления дополнительно переносится в памяти того же документа/request, привязан к метаданным user/workspace/session; оферта не переносится. **Rationale**: `cabinet.js:1811-1843` умеет storage restore, но catch при storage-denied не сохраняет False после замены main. `afterSwap:9051-9087` уже вызывает initCabinet. **Alternatives**: расширение promo cookie или финансового snapshot клиентским state отвергнуто; новые tab IDs и постоянное сохранение кодов не нужны. Проверять настоящий storage-denied, обе checkbox states и несколько последовательных ошибок/исправлений.
+
+**Decision**: Только один preview одновременно, занятое состояние/timeout15с/блокировка start/input/Apply/cycle; network/server/auth/unexpected HTML дает ручное восстановление без принятой оферты. Поздний ответ проверяется по текущему request и exact scope. **Rationale**: старый quote/сумма не должны стать основанием оплаты после недостоверной проверки; GET создаёт/переиспользует server quote без финансового резервирования. **Alternatives**: автоматический повтор и конкурентные swap без защиты отвергнуты; queued unrelated money requests не допускаются.
+
+**Decision**: Изменять текущую запись адреса только до актуального cycle (или убирать stale cycle), без новой history entry и без code/quote/offer. **Rationale**: GET `billing.py:3325,3522-3530` предпочитает явный query cycle и сохраняет его в draft; no URL update на первоначальном year + inline month вернет year при обычном reload. **Alternatives**: push history создает лишние состояния; глобальное изменение приоритета query ломает принятый договор ссылок выбора тарифа и старых вкладок. Narrow replace не требует новой навигации.
+
+**Decision**: Понятная public ошибка кампании и отдельная public ошибка недоступной оплаты аккаунта в существующем `purchases.py`. **Rationale**: `_load_checkout_promo:1088-1150` передает отказ `validate_acceptance_campaign:1017` в5callers; `_reserve_purchase_promo` вызывает эту проверку напрямую. `reserve_acceptance_budget:173-214` содержит отдельный workspace-wide fence даже без promo. **Alternatives**: только текст GET/шаблона не покрывает всех callers; отключение/продление бюджета меняет финансовое право и исключено. Общую причину «недоступен» использовать без выдуманного expiry, когда проверка включает также disabled/missing/scope mismatch.
+
+**Decision**: Сохранить разные сроки draft300с и quote10мин, MAX48/подпись/binding; никаких миграций. **Rationale**: `billing.py:195,416-479`, `purchases.py:430-499` подтверждают различные жизненные циклы. **Alternatives**: единый TTL300 для quote — отдельный денежный контракт, не запрошен. Подмена нового provider success письмом менеджера, синтетическим DOM или историческим saved method запрещена.
+
+**Источники/границы**: Независимая read-only source справка `promo-inline-exploration` выполнена перед требованиями; текущие локальные файлы перечислены выше, primary research S02/S03/S11 сохраняют применимость. Новое поведение еще не реализовано/проверено; полный источник и пользовательский точный промокод не раскрывались, provider/productionDB не опрашивались. Тестовая harness `billing-promo-refresh.test.cjs`/`test_billing_promo_refresh_browser.py` уже дает настоящий bridge/browser/SQL; старые waitForNavigation/303 expectations надо разделить для inline preview и native start.
+
+
+### Узкие официальные источники продолжения
+
+Текущие публичные страницы прочитаны2026-10-02 основным агентом; содержательные выдержки повторно прочитаны автором этого дополнения. Применимость ограничена транспортом и доступными статусами, не доказывает платеж/конверсию:
+
+- https://htmx.org/attributes/hx-select/ — CSS selector выбирает часть существующего ответа; дает минимум без второго renderer/API.
+- https://htmx.org/attributes/hx-sync/ — drop игнорирует новый request при текущем незавершенном; подходит к одному preview плюс видимой блокировке. replace/queue не нужны для этой формы.
+- https://htmx.org/events/ — beforeRequest/beforeSwap/afterSwap/afterRequest дают lifecycle/ошибки/проверку ответа; afterRequest бывает после network failure и сам по себе не подтверждает успешный расчет.
+- https://www.w3.org/WAI/WCAG22/Understanding/status-messages.html — status messages определяются role/properties для озвучивания без ненужного перевода фокуса; input/error linkage и сохранение focus проверяются отдельно.

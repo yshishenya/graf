@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "feature_id": 280,
+  "source_files": {
+    "apps/server/src/twobrain_rec_server/billing/purchases.py": "d03b4743c9ef29d12025e149b130260d3b2fd335a6eb4557cd063bccc9cfc66c",
+    "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py": "ba7db4c90ec19f85e114a276e3983619cf8e6321e45f1e992ab831532c5b75b8",
+    "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "95f5d619f7cab0d70e1b604f0c6fccaba5ce47b91c756ae4fc9073ac75baeb34",
+    "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html": "4b17d26ee11577eeb30a6d7788d4a8eafabfa1649a4dcef2613d34ebd10db3b0",
+    "apps/server/tests/unit/test_billing_purchases.py": "feaa133ad61655b3fbd98474d5190ec028b45c5c1ea2f6fb5e21e0f1bb68a780",
+    "apps/server/tests/integration/test_billing_promo_refresh.py": "c01cfd362355ea4a68c55a03e19db33fb7cd6dffe14e5f32e0d96833d43d5cf7",
+    "apps/server/tests/browser/billing-promo-refresh.test.cjs": "e180e2c4fe54748e9ed20cf70849d2883b470af3ac4a5f65f50a054298ee82e5",
+    "apps/server/tests/contract/test_billing_promo_refresh_browser.py": "5ab899f007db8023b7d51906484cb04b79e757138ce20c0e572a7a8dcf22442b"
+  },
+  "completed_proofs": [
+    {
+      "artifact": "graf-f280-inline-copy-type-green-root.log",
+      "sha256": "f2c16949610cb6b233d8e02694e190f68088d504f7a808786bd2f6d48a824ef2",
+      "passed": 29,
+      "pytest_seconds": 0.05,
+      "isolated_cleanup": "not_applicable"
+    },
+    {
+      "artifact": "graf-f280-inline-recovery-reconciliation-tests-final.log",
+      "sha256": "7f8dc1b7bc166c6cb36f014efca8dc9005318f0f2e1171e13f83c6ecae8d70f3",
+      "passed": 30,
+      "pytest_seconds": 0.14,
+      "isolated_cleanup": "not_applicable"
+    },
+    {
+      "artifact": "graf-f280-inline-http-domain2-tests-final.log",
+      "sha256": "825efdd6b160f37464c2d30921fc8d93202b88963d32c450af6b61d4c877f0f3",
+      "passed": 205,
+      "pytest_seconds": 395.14,
+      "isolated_cleanup": true
+    },
+    {
+      "artifact": "graf-f280-inline-account-green-tests-final.log",
+      "sha256": "30cd81cb6a80326c5d168479bb2af34d29eefa295a6b3a5729198454adaa4e47",
+      "passed": 6,
+      "pytest_seconds": 36.23,
+      "isolated_cleanup": true
+    },
+    {
+      "artifact": "graf-f280-inline-money-regression-tests-final.log",
+      "sha256": "043e16009712ae384fa8696abd3825f1a30263ea131ae0e58cb61b45e1246ae1",
+      "passed": 237,
+      "pytest_seconds": 446.56,
+      "isolated_cleanup": true
+    },
+    {
+      "artifact": "graf-f280-inline-accessibility-chromium-2-tests-final.log",
+      "sha256": "fd5099b23d9be8519d43b86ea414a6e08185eee8028db94e5356e14d9f401e8e",
+      "passed": 16,
+      "pytest_seconds": 50.78,
+      "isolated_cleanup": "not_applicable"
+    },
+    {
+      "artifact": "graf-f280-inline-accessibility-webkit-2-tests-final.log",
+      "sha256": "b93d828f28dd84e5e316a04c83534c77d9e0f5b660045d1d7f9293ed80e18259",
+      "passed": 16,
+      "pytest_seconds": 65.23,
+      "isolated_cleanup": "not_applicable"
+    },
+    {
+      "artifact": "graf-f280-inline-chromium-boundary5-tests-final.log",
+      "sha256": "e976f9c8e513476b0144d512d1abffe41712d9b4158f4598f48a23bab2000619",
+      "passed": 4,
+      "pytest_seconds": 63.51,
+      "isolated_cleanup": true
+    },
+    {
+      "artifact": "graf-f280-inline-webkit-boundary5-tests-final.log",
+      "sha256": "4aaf0821b5e4fc744555482dd899900bcbb33cdf5bed6a28225ee05776e30707",
+      "passed": 4,
+      "pytest_seconds": 65.04,
+      "isolated_cleanup": true
+    },
+    {
+      "artifact": "graf-f280-inline-chromium-3-tests-final.log",
+      "sha256": "742cc94fafbf7a2961834815c5fa408078a53b32ac2eab08c8bb4cf4eb0959b2",
+      "passed": 28,
+      "pytest_seconds": 283.89,
+      "isolated_cleanup": true
+    },
+    {
+      "artifact": "graf-f280-inline-webkit-3-tests-final.log",
+      "sha256": "f8f2f9af810a7d98bbd0b3bcc9523d74e710fc9ee58b9d24b482677d021cb5e8",
+      "passed": 28,
+      "pytest_seconds": 404.66,
+      "isolated_cleanup": true
+    }
+  ],
+  "webkit_full": "pass",
+  "live_financial_acceptance": "not_performed",
+  "browser_collection": {
+    "per_engine": 28,
+    "digest": "a91f230d0d5e001e4b5a6bc582be774595e05504d88706d752d9b101838e219e"
+  }
+}

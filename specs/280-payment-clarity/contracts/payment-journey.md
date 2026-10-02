@@ -61,3 +61,38 @@ Empty preview или `/billing/discounts/remove` очищает текущий �
 GET свежего оформления: recurring checked/not-required, offer unchecked/required. Явный False сохраняется в sessionStorage текущей вкладки по тройке meta user/workspace/session после Apply/remove/ошибки/cycle/reload и отказов303/409. Неполный контекст или отказ storage не ломает текущую форму, но перенос best effort; новая вкладка без переноса/сессия начинается True. Без JS обычная отправка работает, перенос предпочтения отсутствует; будущая сумма/дата в базовом HTML обозначены условно «При автопродлении», чтобы снятая галочка не противоречила безусловному обещанию списания. При False сводка сообщает «Автопродление отключено», автоматического следующего списания не обещает; период/итог/скидка остаются актуальными. Управление клавиатурой и экранным диктором доступно, 320px/200% сохраняет кнопку оплаты. Без JS обычная форма остаётся работоспособной: missing recurring form field означает False.
 
 POST start: offer=true обязателен, recurring missing/false допускается как False, true как True; invalid значение формы не превращается в True. Request+invoice фиксируют bool выбранного режима. Общий initial creator требует корректный bool, отправляет save_payment_method таким же bool. Провайдерный результат подтверждает один период при обоих режимах; при False новая карта не сохраняется и recurring_allowed выключен. Операция с прежним True/False продолжает тот же режим при повторе/timeout recovery. Версия authority и свежий quote защищают отмену, смену владельца и устаревшие условия; уже отправленный платёж продолжает сверяться. Не изменяются оферта, цена, receipt, return URL policy, CSRF/owner/tenant/idempotency или публичная доступность.
+
+
+## Промокод на месте — FR-024–030 / SC-010–012, 2026-10-02
+
+Этот раздел заменяет прежнее разрешение document navigation только для JS-enabled preview. Native формы без JS остаются обычными303→GET. Общий POST/GET финансовый контракт и `data-model.md` не меняются; best effort storage fallback усиливается в пределах одного документа, как ниже.
+
+### Транспорт и выбор
+
+`#billing-promo-preview` улучшен HTMX: POST `/billing/checkout/preview`; target/select `#cabinet-main`, swap outerHTML, без push history; max wait15s. Apply кнопка и Enter = preview_action apply, remove = empty input + apply, cycle = month/year submit button. Associated external input/buttons сохраняют обычный form контракт. Response303 оставляет прежние signed cookie semantics; final GET200 дает server-calculated checkout main из full shell. Обновлять только main, не base/sidebar/scripts. No-JS идет тем же action/method как native form.
+
+При успешной смене периода текущий адрес может только replace-обновиться до текущего `cycle=month|year` (либо убрать устаревший cycle), без новой history entry, без promo/result/quote/consent. Reload не возвращает исходный query period. Никакой source of truth из URL; GET/конечный POST вновь проверяют цену/условия, signed draft остается прежним. Cookie code<=48/cycle/expiry/user/workspace/session, TTL300с и quote10мин отдельно; чтение/смена периода не начинают новый срок. User/workspace/session поля нельзя подменить клиентскими финансовыми полномочиями.
+
+### Локальные состояния представления
+
+| Состояние | Допустимое действие/переход | Деньги и согласия |
+|---|---|---|
+| ready | Apply/Enter/remove/cycle → checking | Start разрешается только при валидном server form/quote/receipt, с явной офертой |
+| checking | Один текущий request; Apply/cycle/input/start временно заблокированы | Предыдущая оферта снимается; повторный preview/start не отправляется |
+| ready после успешного свежего ответа | Новый итог/скидка/период, логичный focus/status | True/False прежние в той же scope; offer unchecked; серверные blocked/error условия сохранены |
+| promo denied | Поле раскрыто, aria-invalid/связанный alert, исправить/clear+apply | Нет valid start для ошибочной скидки; bool сохраняется в документе |
+| recovery required | После network/15s timeout/500/429/swapError: inline причина и ручной повтор | Busy снят, start заблокирован до успешного нового server расчета; offer unchecked |
+| auth/context invalid | Login/owner/unexpected scope/page не вставляются как checkout; явный вход/открыть кабинет | Старый start заблокирован; чужой bool не переносится |
+| authoritative operation pending | Достоверный GET может показать существующий blocker/continuation | Нет новой оплаты или разрешения старого start |
+
+Временная память UI содержит только выбранный bool и точную scope текущего документа/request, не цену/право/принятую оферту. Она не теряет False/True на последовательных promo errors/recovery/cycle даже при sessionStorage denied. При отсутствующей/изменившейся scope не переносить предпочтение; sessionStorage прежнего ключа не становится authority. Общее afterSwap reinit сохраняется; scoped restoration/focus происходит после него и не запускает еще один initializer. Ответ detached/stale/request mismatch или main вне checkout не применяется; новая scope сбрасывает временное состояние. Сбой swap не оставляет устаревшую форму активной.
+
+### Отказ без внутренней терминологии
+
+`validate_acceptance_campaign` и все5loader callers плюс непосредственный reserve caller получают понятное «Промокод сейчас недоступен. Уберите его или введите другой» (точная редакция допустима с тем же смыслом). Не объявлять срок истекшим, если причиной может быть выключение/missing/scope mismatch. `reserve_acceptance_budget` может запретить сам аккаунт без промокода; отдельный текст «Оплата для этого аккаунта сейчас недоступна. Обратитесь в поддержку». В основном пути нет «проверочное окно», технического budget ID или обещания обхода запрета удалением кода. Условия финансовых fences/сроков/резервов unchanged.
+
+### Неизменяемые финансовые и визуальные границы
+
+Owner/tenant/session/CSRF/rate limit/catalog/receipt/pending/quote/offer/authority/idempotency прежние. Preview может создать server quote, но не operation/invoice/promo reservation/provider call. Start native и только явный; фактический bool/offer сохраняются в immutable accepted purchase, recovery не переписывает их. Никакой автоматической оплаты или восстановления recurring из локального UI. Неподтвержденная почта дает preview editor/account path, без start формы/денежных согласий. Статусы/подсказки не обещают provider availability или банковское зачисление.
+
+Focus после Apply/Enter/cycle/remove остается логично связан с измененным элементом; error связан с input, busy/result один раз озвучивается status/alert, tabindex и видимый focus сохранены. Ошибка auth/network отличается от promo denied.320px/1280px/200%,light/dark,Chromium/WebKit обязательны. Нативный JS-off результат подтверждается отдельными реальными HTTP/browser forms; placeholder fixture не заменяет это доказательство.

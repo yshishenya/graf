@@ -1791,11 +1791,12 @@
   };
 
   // A tab-local display preference, never payment authority or offer acceptance.
-  const billingRenewalPreferenceKey = () => {
+  const billingRenewalPreferenceKey = (root = document) => {
     const scope = ["graf-time-user", "graf-workspace", "graf-time-session"].map(name =>
-      document.querySelector(`meta[name="${name}"]`)?.content || "");
+      root.querySelector(`meta[name="${name}"]`)?.content || "");
     return scope.every(Boolean) ? `graf-checkout-renewal:${scope.join(":")}` : null;
   };
+  let billingRenewalPreference = null;
 
   const renderBillingRenewalChoice = (page, enabled) => {
     page.querySelectorAll("[data-billing-renewal-on], [data-billing-next-attempt]")
@@ -1817,12 +1818,15 @@
     if (checkbox?.dataset.renewalReady && checkbox.dataset.renewalScope !== (key || "")) {
       enabled = checkbox.defaultChecked;
     }
-    if (key) {
+    if (!key || billingRenewalPreference?.key !== key) billingRenewalPreference = null;
+    if (billingRenewalPreference) enabled = billingRenewalPreference.enabled;
+    else if (key) {
       try {
         const saved = sessionStorage.getItem(key);
         if (saved === "true" || saved === "false") enabled = saved === "true";
       } catch (_) { /* The current native checkbox remains usable without storage. */ }
     }
+    if (key) billingRenewalPreference = { key, enabled };
     if (checkbox) {
       checkbox.checked = enabled;
       checkbox.dataset.renewalScope = key || "";
@@ -1830,6 +1834,7 @@
         checkbox.dataset.renewalReady = "true";
         checkbox.addEventListener("change", () => {
           const currentKey = billingRenewalPreferenceKey();
+          billingRenewalPreference = currentKey ? { key: currentKey, enabled: checkbox.checked } : null;
           if (currentKey) {
             try { sessionStorage.setItem(currentKey, String(checkbox.checked)); } catch (_) { /* Optional storage. */ }
           }
@@ -1839,6 +1844,102 @@
     }
     renderBillingRenewalChoice(page, enabled);
   };
+
+  let billingPreviewRequest = null;
+  const finishBillingPreview = (state, failed = false) => {
+    if (billingPreviewRequest !== state) return;
+    billingPreviewRequest = null;
+    if (!state.page.isConnected) return;
+    state.page.removeAttribute("aria-busy");
+    state.page.dataset.billingPreviewState = failed ? "recovery" : "ready";
+    state.controls.forEach(([control, disabled]) => { control.disabled = disabled; });
+    if (!failed) return;
+    state.page.querySelectorAll('form[action="/billing/checkout/start"] button')
+      .forEach(button => { button.disabled = true; });
+    const status = state.page.querySelector("[data-billing-preview-status]");
+    if (status) {
+      status.hidden = false;
+      status.setAttribute("role", "alert");
+      status.textContent = [401, 403].includes(state.xhr.status) || state.invalidContext
+        ? "Сеанс или доступ изменился. Откройте оплату заново."
+        : state.xhr.status === 429 ? "Слишком много попыток. Повторите проверку позже."
+        : "Не удалось проверить сумму. Нажмите «Применить», чтобы повторить проверку.";
+    }
+    const recovery = state.page.querySelector("[data-billing-preview-recovery]");
+    if (recovery) recovery.hidden = false;
+    state.page.querySelector(state.focus)?.focus({ preventScroll: true });
+  };
+  document.body.addEventListener("submit", (event) => {
+    if (event.target.matches?.('form[action="/billing/checkout/start"]')
+        && ["checking", "recovery"].includes(event.target.closest("main")?.dataset.billingPreviewState)) {
+      event.preventDefault();
+    }
+  }, true);
+  document.body.addEventListener("htmx:beforeRequest", (event) => {
+    if (event.detail?.elt?.id !== "billing-promo-preview") return;
+    const page = event.detail.elt.closest("main.billing-checkout-page");
+    if (!page || billingPreviewRequest) { event.preventDefault(); return; }
+    const active = document.activeElement;
+    const action = event.detail.requestConfig?.parameters?.preview_action;
+    const state = {
+      page, xhr: event.detail.xhr, key: billingRenewalPreferenceKey(),
+      focus: active?.id === "billing-promo" ? "#billing-promo"
+        : `[form="billing-promo-preview"][value="${["month", "year"].includes(action) ? action : "apply"}"]`,
+      controls: [...page.querySelectorAll("input, button")].map(control => [control, control.disabled]),
+    };
+    billingPreviewRequest = state;
+    state.xhr.grafBillingPreview = state;
+    // HTMX events from a removed form may no longer reach the document body.
+    state.xhr.addEventListener("loadend", () => finishBillingPreview(state, true), { once: true });
+    page.dataset.billingPreviewState = "checking";
+    page.setAttribute("aria-busy", "true");
+    const offer = page.querySelector('input[name="offer_consent"]');
+    if (offer) offer.checked = false;
+    state.controls.forEach(([control]) => { control.disabled = true; });
+    const status = page.querySelector("[data-billing-preview-status]");
+    if (status) { status.hidden = false; status.setAttribute("role", "status"); status.textContent = "Проверяем сумму…"; }
+  });
+  document.body.addEventListener("htmx:beforeSwap", (event) => {
+    const state = event.detail?.xhr?.grafBillingPreview;
+    if (!state) return;
+    const response = new DOMParser().parseFromString(event.detail.serverResponse || "", "text/html");
+    const responseKey = billingRenewalPreferenceKey(response);
+    const valid = billingPreviewRequest === state && state.page.isConnected
+      && event.detail.target === state.page && event.detail.shouldSwap
+      && state.xhr.status === 200 && state.key && state.key === billingRenewalPreferenceKey()
+      && state.key === responseKey && response.querySelector("main#cabinet-main.billing-checkout-page");
+    if (!valid) {
+      event.detail.shouldSwap = false;
+      state.invalidContext = state.xhr.status === 200;
+      finishBillingPreview(state, true);
+    }
+  });
+  document.body.addEventListener("htmx:afterSwap", (event) => {
+    const state = event.detail?.xhr?.grafBillingPreview;
+    if (!state || billingPreviewRequest !== state) return;
+    finishBillingPreview(state);
+    const page = document.querySelector("main.billing-checkout-page");
+    if (!page) return;
+    page.dataset.focusReady = "true";
+    const cycle = page.querySelector('#billing-promo-preview input[name="cycle"]')?.value;
+    if (["month", "year"].includes(cycle)) history.replaceState(history.state, "", `/billing/checkout?cycle=${cycle}`);
+    const focusTarget = page.querySelector(state.focus);
+    const disclosure = focusTarget?.closest("details");
+    if (disclosure) disclosure.open = true;
+    focusTarget?.focus({ preventScroll: true });
+    const status = page.querySelector("[data-billing-preview-status]");
+    const amount = page.querySelector(".billing-order-summary__total dd")?.textContent.trim();
+    if (status && amount && !page.querySelector("#billing-checkout-error")) {
+      status.hidden = false;
+      status.textContent = `Расчет обновлен. К оплате ${amount}.`;
+    }
+  });
+  ["htmx:afterRequest", "htmx:sendError", "htmx:timeout", "htmx:swapError"].forEach(name => {
+    document.body.addEventListener(name, event => {
+      const state = event.detail?.xhr?.grafBillingPreview;
+      if (state) finishBillingPreview(state, true);
+    });
+  });
 
   const initAuthTransition = () => {
     const page = document.querySelector(".auth-page");
@@ -7072,7 +7173,8 @@
       );
       const narrowMedia = window.matchMedia("(max-width: 640px)");
       const railKey = shell.dataset.activeNav === "settings" ? "graf-settings-rail" : "graf-cabinet-rail";
-      const storedRailState = sessionStorage.getItem(railKey);
+      let storedRailState = null;
+      try { storedRailState = sessionStorage.getItem(railKey); } catch (_) { /* Use the responsive default without storage. */ }
       let manuallySet = ["expanded", "collapsed"].includes(storedRailState);
       let preferredPinned = manuallySet
         ? storedRailState === "expanded"
@@ -7088,7 +7190,7 @@
       const setManualRailState = (pinned) => {
         manuallySet = true;
         preferredPinned = pinned;
-        sessionStorage.setItem(railKey, pinned ? "expanded" : "collapsed");
+        try { sessionStorage.setItem(railKey, pinned ? "expanded" : "collapsed"); } catch (_) { /* The rail remains usable without storage. */ }
         setRailPinned(shell, toggle, pinned);
       };
       setRailPinned(shell, toggle, (settingsRail && expandedMedia.matches || preferredPinned) && !(narrowMedia.matches && shell.querySelector("main")?.contains(document.activeElement)));

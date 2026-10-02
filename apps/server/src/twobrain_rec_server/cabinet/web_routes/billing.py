@@ -72,6 +72,7 @@ from twobrain_rec_server.billing.promotions import (
 )
 from twobrain_rec_server.billing.provider_events import validate_provider_identifier
 from twobrain_rec_server.billing.purchases import (
+    AcceptanceBudgetUnavailable,
     PurchaseError,
     accept_base_price,
     accept_storage_price,
@@ -4126,6 +4127,11 @@ async def start_billing_checkout(
         OSError,
     ) as exc:
         await db.rollback()
+        if isinstance(exc, AcceptanceBudgetUnavailable):
+            return _checkout_result_redirect(
+                request, "account_unavailable", cycle=cycle, promo_code=promo_code,
+                principal=principal, tenant_scope=tenant_scope,
+            )
         if "intent" in locals():
             await lock_storage_workspace(db, tenant_scope.workspace_id)
             unresolved = await db.scalar(

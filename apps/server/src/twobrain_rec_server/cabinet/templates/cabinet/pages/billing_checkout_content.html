@@ -17,7 +17,9 @@
         <p class="muted">Без лимита по минутам и встречам · {{ catalog_storage_label|default("5 ГБ") }} для записей.</p>
 
         {% if billing_enabled and catalog_ready|default(True) and not checkout_blocked %}
-        <form id="billing-promo-preview" action="/billing/checkout/preview" method="post">
+        <form id="billing-promo-preview" action="/billing/checkout/preview" method="post"
+              hx-post="/billing/checkout/preview" hx-target="#cabinet-main" hx-select="#cabinet-main"
+              hx-swap="outerHTML" hx-push-url="false" hx-sync="this:drop" hx-request='{"timeout":15000}'>
           <button type="submit" name="preview_action" value="apply" hidden tabindex="-1" aria-hidden="true"></button>
           {{ sections.csrf_field(csrf_token|default(None)) }}
           <input type="hidden" name="cycle" value="{{ checkout_cycle }}">
@@ -37,6 +39,7 @@
         {% elif checkout_result == "owner_only" %}<p class="notice notice--error" role="alert">Оплатить тариф может только владелец пространства.</p>
         {% elif checkout_result == "offer_required" %}<p class="notice notice--warning" role="alert">Откройте и примите оферту перед оплатой.</p>
         {% elif checkout_result == "catalog_not_approved" %}<p class="notice notice--warning" role="alert">Оплата временно недоступна. Попробуйте позже.</p>
+        {% elif checkout_result == "account_unavailable" %}<p class="notice notice--error" role="alert">Оплата для этого аккаунта сейчас недоступна. Обратитесь в поддержку.</p>
         {% elif checkout_result == "unavailable" %}<p class="notice notice--warning" role="alert">Оплата временно недоступна. Повторите попытку позже.</p>
         {% elif checkout_result == "promo_invalid" %}<p id="billing-checkout-error" role="alert" class="notice notice--error">Промокод недействителен, не подходит для выбранного периода или уже использован. Проверьте код и отправьте форму еще раз.</p>{% endif %}
 
@@ -61,6 +64,8 @@
           </div>
           <p class="muted">Применяется одна скидка. Чтобы убрать промокод, очистите поле и нажмите «Применить».</p>
         </details>
+        <p data-billing-preview-status role="status" aria-live="polite" aria-atomic="true" hidden></p>
+        <a data-billing-preview-recovery href="/billing/checkout" hidden>Открыть оплату заново</a>
 
         {% if not receipt_contact_ready|default(True) %}<p class="notice notice--warning" role="status">{{ receipt_contact_message|default("Подтвердите почту для чека.") }}</p><a class="button primary" href="{{ receipt_contact_action_url }}">Подтвердить почту</a>
         {% elif checkout_quote_id|default(None) and not promo_preview_error|default(None) %}
