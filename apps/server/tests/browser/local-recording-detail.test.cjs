@@ -15,7 +15,8 @@ const fs = require('node:fs');
     const source = fs.readFileSync(path.join(__dirname,'../../src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js'), 'utf8');
     const hook = '  const initPlaybackRecoveryPolling = () => {';
     assert.equal(source.split(hook).length, 2, 'test exports the actual recovery function once');
-    await page.addScriptTag({content:source.replace(hook, `  window.refreshLocalPlaybackTest = () => {
+    await page.addScriptTag({content:source.replace(hook, `  window.recoverDetailTest = recoverMeetingDetailFromResponse;
+    window.refreshLocalPlaybackTest = () => {
       document.querySelector('main').dataset.playbackPollActive = 'true';
       return refreshPlaybackRecovery();
     };
@@ -86,7 +87,52 @@ ${hook}`)});
     assert.equal(await button.count(),1,'authorized current meeting action returns before native deletion update');
     await publish([]);
     assert.equal(await button.count(),0,'deletion or account change removes action');
+    // A 403 may finish decoding after fragment navigation has installed another meeting.
+    const recoveryTemplate = '<template data-meeting-detail-recovery-template><main tabindex="-1"><section data-cabinet-state><h1 id="recovery-title"></h1><p class="cabinet-state__description"></p><div class="cabinet-state__action"><a></a></div></section></main></template>';
+    const nextMeetingId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+    for (const {mode, reuseDetail} of [
+      {mode:'json', reuseDetail:false}, {mode:'read-error', reuseDetail:false},
+      {mode:'json', reuseDetail:true}, {mode:'read-error', reuseDetail:true},
+    ]) {
+      const label = `${mode}, ${reuseDetail ? 'same main' : 'replaced main'}`;
+      await page.evaluate(({markup, recoveryTemplate, meetingId, mode}) => {
+        document.body.innerHTML = markup + recoveryTemplate;
+        history.replaceState({}, '', `/desktop/meetings/${meetingId}`);
+        document.title = 'Synthetic old meeting';
+        window.delayedProblemReadStarted = false;
+        const problem = new Promise((resolve, reject) => {
+          window.finishDelayedProblemRead = () => mode === 'json'
+            ? resolve({code:'access_denied'}) : reject(new Error('Synthetic body read failure'));
+        });
+        const response = {status:403, redirected:false, headers:new Headers(), clone:() => ({json:() => {
+          window.delayedProblemReadStarted = true;
+          return problem;
+        }})};
+        window.delayedRecovery = window.recoverDetailTest(response).then(consumed => {
+          if (!consumed) document.querySelector('main').dataset.staleCallerApplied = 'true';
+          return consumed;
+        });
+      }, {markup:html('unavailable', 'storage_capacity_exceeded'), recoveryTemplate, meetingId, mode});
+      assert.equal(await page.evaluate(() => window.delayedProblemReadStarted),true,'the old response is suspended in clone().json()');
+      await page.evaluate(({markup, nextMeetingId, reuseDetail}) => {
+        if (reuseDetail) document.querySelector('main').dataset.meetingId = nextMeetingId;
+        else document.querySelector('main').replaceWith(new DOMParser().parseFromString(markup, 'text/html').querySelector('main'));
+        history.replaceState({}, '', `/desktop/meetings/${nextMeetingId}`);
+        document.title = 'Synthetic new meeting';
+        window.newMeetingDetail = document.querySelector('main');
+        window.finishDelayedProblemRead();
+      }, {markup:html('unavailable', 'storage_capacity_exceeded', nextMeetingId), nextMeetingId, reuseDetail});
+      assert.equal(await page.evaluate(() => window.delayedRecovery),true,`${label}: discarded recovery consumes the stale response`);
+      assert.equal(new URL(page.url()).pathname, `/desktop/meetings/${nextMeetingId}`, `${label}: old 403 must retain the new private detail route`);
+      assert.equal(await page.title(), 'Synthetic new meeting', `${label}: old 403 must retain the new title`);
+      assert.equal(await page.evaluate(() => window.newMeetingDetail === document.querySelector('main') && window.newMeetingDetail.isConnected),true,`${label}: the new meeting remains connected`);
+      assert.equal(await page.locator('[data-stale-caller-applied]').count(),0,`${label}: the caller must not apply a discarded response`);
+    }
+    // A current denial still clears its own meeting and private URL.
+    assert.equal(await page.evaluate(() => window.recoverDetailTest({status:403, redirected:false, headers:new Headers(), clone:() => ({json:async () => ({code:'access_denied'})})})),true);
+    assert.equal(new URL(page.url()).pathname,'/desktop/meetings','current denial still neutralizes its own private route');
+    assert.equal(await page.locator('main[data-meeting-id]').count(),0,'current denial still removes private meeting detail');
     assert.deepEqual(errors,[]);
-    console.log('detail local playback: production sibling, direct polling transitions, identity, focus, access, deletion and fragment refresh PASS');
+    console.log('detail local playback: production sibling, direct polling transitions, delayed denial/navigation, identity, focus, access, deletion and fragment refresh PASS');
   } finally {await browser.close();}
 })().catch(error => { console.error(error); process.exitCode = 1; });
