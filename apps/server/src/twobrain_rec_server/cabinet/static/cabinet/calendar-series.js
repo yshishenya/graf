@@ -62,7 +62,7 @@
       clearTimeout(timer);if(pendingJoin===operation) pendingJoin=null;
     }
   });
-  function rowFor(event, panel, view) {
+  function rowFor(event, view, previousTitle) {
     const row=document.createElement('article');row.className='calendar-series__occurrence';row.dataset.eventId=event.event_id;
     const detail=document.createElement('div');detail.className='calendar-series__date';
     if(event.starts_at) {
@@ -71,12 +71,11 @@
       const day=text('time',new Intl.DateTimeFormat(locale,{timeZone:zone,day:'numeric',month:'short',weekday:'short',year:'numeric'}).format(instant));
       day.dateTime=event.starts_at;
       day.title=(event.all_day?window.GRAFTime?.format(event.starts_at.slice(0,10)):window.GRAFTime?.format(event.starts_at,{showZone:true})) || day.textContent;
-      day.setAttribute('aria-label',day.title);
       detail.append(day,text('span',event.all_day?'Весь день':new Intl.DateTimeFormat(locale,{timeZone:zone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(instant)));
     } else detail.append(text('span','Время скрыто настройкой'));
-    const seriesTitle=panel.closest('.calendar-home-upcoming__row')?.querySelector(':scope > div > strong')?.textContent;
-    if(event.title && event.title!==seriesTitle) {
-      const exception=text('span',event.title);exception.className='calendar-series__exception';exception.title=event.title;detail.append(exception);
+    const dateLabel=detail.firstElementChild.title || detail.firstElementChild.textContent;
+    if(event.title && event.title!==previousTitle) {
+      const title=text('span',event.title);title.className='calendar-series__title';title.title=event.title;detail.append(title);
     }
     row.append(detail);
     const actions=document.createElement('div');actions.className='calendar-series__actions';
@@ -87,14 +86,14 @@
       }
       if(event.open_meeting_available && !event.cancelled) {
         const join=text('a','Подключиться');join.className='button quiet';join.dataset.calendarJoin=event.event_id;
-        join.href=`/api/v1/calendar/events/${event.event_id}/open`;join.target='_blank';join.rel='noopener noreferrer';join.setAttribute('aria-label',`Подключиться · ${detail.firstElementChild.textContent}`);actions.append(join);
+        join.href=`/api/v1/calendar/events/${event.event_id}/open`;join.target='_blank';join.rel='noopener noreferrer';join.setAttribute('aria-label',`Подключиться · ${dateLabel}`);actions.append(join);
       } else if(!event.cancelled) actions.append(text('span','Без ссылки'));
     } else {
       const recordings=(event.recordings || []).filter(recording=>uuid.test(recording.meeting_id));
       recordings.forEach((recording,index)=>{
         const link=text('a',recordings.length===1?'Открыть запись':`Запись ${index+1}`);
         link.className='calendar-series__recording';
-        link.setAttribute('aria-label',`Открыть ${recordings.length===1?'запись':`запись ${index+1}`} · ${detail.firstElementChild.textContent}`);
+        link.setAttribute('aria-label',`Открыть ${recordings.length===1?'запись':`запись ${index+1}`} · ${dateLabel}`);
         link.href=`${location.pathname.startsWith('/desktop/')?'/desktop':''}/meetings/${recording.meeting_id}`;
         actions.append(link);
       });
@@ -152,9 +151,10 @@
         cursor=result.next_cursor;
         data.from=result.coverage_range.from;data.to=result.coverage_range.to;
       } while(refresh && cursor && events.length<wanted && result.occurrences.length);
-      const fragment=document.createDocumentFragment();events.forEach(event=>fragment.append(rowFor(event,panel,data.view)));
+      const fragment=document.createDocumentFragment();let previousTitle=refresh?undefined:data.lastTitle;
+      events.forEach(event=>{fragment.append(rowFor(event,data.view,previousTitle));previousTitle=event.title;});
       if(refresh) rows.replaceChildren(fragment);else rows.append(fragment);
-      data.started=true;data.cursor=cursor;data.count=rows.children.length;
+      data.started=true;data.cursor=cursor;data.count=rows.children.length;data.lastTitle=previousTitle;
       more.hidden=!data.cursor;more.textContent=data.view==='history'?'Ранее':'Ещё даты';
       status.textContent=data.count?'':data.view==='history'?'За последние 180 дней нет доступных сохранённых встреч.':'В ближайшие 30 дней нет доступных сохранённых встреч.';
       rows.inert=false;
@@ -165,7 +165,7 @@
     } catch(error) {
       if(!panel.isConnected || state.get(panel)!==data) return;
       // A failed refresh or access revocation must not retain previously visible data.
-      if(refresh || error.cursorExpired || error.accessDenied) {rows.replaceChildren();data.started=false;data.cursor=null;data.count=0;delete data.from;delete data.to;}
+      if(refresh || error.cursorExpired || error.accessDenied) {rows.replaceChildren();data.started=false;data.cursor=null;data.count=0;delete data.from;delete data.to;delete data.lastTitle;}
       status.textContent=error.cursorExpired?'Список устарел. Загрузите его заново.':error.accessDenied?'Доступ к серии изменился. Обновите календарь или повторите попытку.':'Не удалось загрузить встречи. Повторите попытку.';
       more.hidden=false;more.textContent=error.cursorExpired?'Загрузить заново':'Повторить';
       if(hadRowFocus && !focus.isConnected) panel.querySelector(':scope > summary').focus({preventScroll:true});

@@ -6356,7 +6356,7 @@ html[data-theme="dark"] .app-shell[data-active-nav="settings"] {
 .calendar-series__date { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; min-width: 0; font-size: var(--font-size-body-compact); }
 .calendar-series__date time { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
 .calendar-series__date > span { color: var(--muted); font-variant-numeric: tabular-nums; }
-.calendar-series__date .calendar-series__exception { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; flex-basis: 100%; overflow-wrap: anywhere; color: var(--text); font-size: var(--font-size-helper); }
+.calendar-series__date .calendar-series__title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; flex-basis: 100%; overflow-wrap: anywhere; color: var(--text); font-size: var(--font-size-helper); }
 .calendar-series__date .calendar-series__live { color: var(--green); font-size: var(--font-size-caption); }
 .calendar-series__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; max-width: 260px; min-width: 0; font-size: var(--font-size-helper); }
 .calendar-series__actions > span { color: var(--muted); }

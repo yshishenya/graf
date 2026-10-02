@@ -26,7 +26,8 @@ surface=replace(surface,overview_loaded=True,overview=(replace(upcoming_preview_
 def render(value):
     return render_meeting_list_page(_meeting_response(),calendar_surface=value,embedded=True,display_timezone='Europe/Istanbul',csrf_token='synthetic')
 masked=replace(surface,preferences=replace(surface.preferences,show_upcoming_title=False,show_upcoming_time=False))
-print(json.dumps({'normal':render(surface),'masked':render(masked)}))
+renamed=replace(surface,overview=(replace(surface.overview[0],title='Отдельная повестка ближайшей даты'),))
+print(json.dumps({'normal':render(surface),'masked':render(masked),'renamed':render(renamed)}))
 `],{cwd:serverRoot,env:{...process.env,PYTHONPATH:path.join(serverRoot,'src')},encoding:'utf8'}));
 const html=rendered.normal;
 const bridge=readFileSync(path.join(serverRoot,'../macos/RecApp/Sources/Cabinet/EmbeddedCabinetCalendarJoinBridge.swift'),'utf8').split('static let documentScript = #"""')[1].split('"""#')[0];
@@ -81,8 +82,8 @@ const server=createServer((req,res)=>{
     const offset=second?5:0;
     const occurrences=scenario==='empty'?[]:Array.from({length:second?7:5},(_,n)=>({
       event_id:offset+n===0?selectedID:`00000000-0000-0000-0000-${String(offset+n+1).padStart(12,'0')}`,
-      title:scenario==='masked'?'Название скрыто настройкой':n===1?'Планирование команды: отдельная повестка '+(scenario==='long'?'очень длинное название '.repeat(14):''):'Планирование команды',
-      starts_at:scenario==='masked'?null:scenario==='dst'?new Date(Date.UTC(2026,2,29,n%2,30)).toISOString():new Date(Date.UTC(2026,9,history?-offset-n:5+offset+n,12)).toISOString(),
+      title:scenario==='masked'?'Название скрыто настройкой':scenario==='renamed'?(!history&&offset+n===0?'Отдельная повестка ближайшей даты':'Планирование команды'):n===1?'Планирование команды: отдельная повестка '+(scenario==='long'?'очень длинное название '.repeat(14):''):'Планирование команды',
+      starts_at:scenario==='masked'?null:scenario==='dst'?new Date(Date.UTC(2026,2,29,n%2,30)).toISOString():scenario==='same-day'?new Date(Date.UTC(2026,9,5,12+offset+n)).toISOString():new Date(Date.UTC(2026,9,history?-offset-n:5+offset+n,12)).toISOString(),
       all_day:scenario==='all-day',cancelled:(revised&&n===0)||n===2,
       open_meeting_available:!(revised&&n===0)&&n!==1&&n!==2,
       temporal_state:history?'history':['ongoing','masked'].includes(scenario)&&n===0?'ongoing':'upcoming',
@@ -91,7 +92,7 @@ const server=createServer((req,res)=>{
     }));
     res.end(JSON.stringify({occurrences,next_cursor:second||!occurrences.length?null:'second',coverage_range:{from:'2026-04-01T00:00:00Z',to:'2026-11-01T00:00:00Z'},coverage_note:'Показаны сохранённые доступные даты.'}));return;
   }
-  res.setHeader('Content-Type','text/html; charset=utf-8');res.end(scenario==='masked'?rendered.masked:html);
+  res.setHeader('Content-Type','text/html; charset=utf-8');res.end(rendered[scenario] || html);
 });
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 const browser=await (process.env.CALENDAR_ENGINE==='webkit'?webkit:chromium).launch({headless:true,...(process.env.CHROMIUM_EXECUTABLE?{executablePath:process.env.CHROMIUM_EXECUTABLE}:{})});
@@ -118,7 +119,10 @@ try {
  assert.equal(await page.locator('.calendar-series__occurrence a[href="/desktop/meetings"]').count(),0);
  assert.equal(await page.getByText('Здесь показана ограниченная выборка записей.',{exact:true}).count(),0);
  assert.equal(await page.locator('.calendar-series__recording').count(),0);
- assert.equal(await page.locator('.calendar-series__exception').count(),2);
+ assert.deepEqual(await page.locator('.calendar-series__date > span[title]').allTextContents(),[
+   'Планирование команды','Планирование команды: отдельная повестка ','Планирование команды',
+   'Планирование команды: отдельная повестка ','Планирование команды'
+ ]);
  assert.equal(await page.getByText('Идёт сейчас',{exact:true}).count(),0);
  assert.ok(await page.getByText('Без ссылки',{exact:true}).count()>0);
  const historyButton=page.locator('[data-calendar-series-view="history"]');
@@ -204,6 +208,11 @@ try {
  await page.locator('.calendar-home-upcoming').screenshot({path:path.join(screenshotDir,'upcoming-dark.png')});
  await page.evaluate(()=>document.documentElement.dataset.theme='light');
  await page.locator('.calendar-home-upcoming').screenshot({path:path.join(screenshotDir,'upcoming-light.png')});
+ const dateSnapshot=await page.locator('.calendar-series__date').first().ariaSnapshot();
+ assert.equal((dateSnapshot.match(/15:00/g)||[]).length,1,dateSnapshot);
+ const dateReading=await page.locator('.calendar-series__date').first().evaluate(node=>[...node.children]
+   .filter(child=>child.getAttribute('aria-hidden')!=='true').map(child=>child.getAttribute('aria-label')||child.textContent).join(' '));
+ assert.equal((dateReading.match(/15:00/g)||[]).length,1,dateReading);
  for(const width of [641,700,760]) {
    await page.setViewportSize({width,height:850});
    assert.equal(await page.locator('.calendar-series').evaluate(panel=>{
@@ -231,7 +240,7 @@ try {
  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
  assert.equal(await page.locator('[data-calendar-series-view="upcoming"]').getAttribute('aria-pressed'),'true');
  assert.equal(await page.locator('.calendar-series__occurrence').count(),5);
- for(const kind of ['empty','all-day','masked','long','ongoing','dst']) {
+ for(const kind of ['empty','all-day','masked','long','ongoing','dst','renamed','same-day']) {
    scenario=kind;await page.reload();
    if(kind==='dst') await page.evaluate(()=>window.GRAFTime.setTimezone('Europe/Berlin'));
    await page.locator('.calendar-series > summary').click();
@@ -252,6 +261,25 @@ try {
      assert.equal(await page.locator('.calendar-series__date').getByText('Время скрыто настройкой',{exact:true}).count(),5);
      assert.equal(await page.locator('.calendar-home-upcoming [datetime]').count(),0);
      assert.equal(await page.locator('.calendar-home-upcoming').getByText(/Планирование команды/).count(),0);
+   } else if(kind==='same-day') {
+     const names=await page.locator('.calendar-series__actions [data-calendar-join]').evaluateAll(links=>links.map(link=>link.getAttribute('aria-label')));
+     assert.equal(new Set(names).size,names.length);
+     assert.match(names[0],/15:00/);assert.match(names[1],/18:00/);
+   } else if(kind==='renamed') {
+     const titleLabels=()=>page.locator('.calendar-series__date > span[title]').allTextContents();
+     assert.deepEqual(await titleLabels(),['Отдельная повестка ближайшей даты','Планирование команды']);
+     await page.locator('[data-calendar-series-more]').click();
+     await page.waitForFunction(()=>document.querySelectorAll('.calendar-series__occurrence').length===12);
+     assert.deepEqual(await titleLabels(),['Отдельная повестка ближайшей даты','Планирование команды']);
+     await page.locator('[data-calendar-series-view="history"]').click();
+     await page.waitForFunction(()=>document.querySelectorAll('.calendar-series__recording').length===2);
+     assert.deepEqual(await titleLabels(),['Планирование команды']);
+     await page.locator('[data-calendar-series-view="upcoming"]').click();
+     await page.waitForFunction(()=>document.querySelectorAll('.calendar-series__recording').length===0 && document.querySelectorAll('.calendar-series__occurrence').length===5);
+     assert.deepEqual(await titleLabels(),['Отдельная повестка ближайшей даты','Планирование команды']);
+     await page.evaluate(()=>document.querySelector('.calendar-series').dispatchEvent(new Event('graf:calendar-series-refresh')));
+     await page.waitForFunction(()=>!document.querySelector('[data-calendar-series-more]').disabled);
+     assert.deepEqual(await titleLabels(),['Отдельная повестка ближайшей даты','Планирование команды']);
    }
    await page.setViewportSize({width:320,height:850});
    assert.equal(await page.locator('.calendar-home-upcoming').evaluate(node=>node.scrollWidth<=node.clientWidth+1),true);

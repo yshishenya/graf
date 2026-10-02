@@ -31,3 +31,14 @@ Implementation reads this gate and cannot change markers. Reviewer records evide
 - CHK006 — PASS: Spec Assumptions, plan Release Gate/Validation Plan, quickstart п.4–5 отделяют разработку, единственный GRAF Dev через штатный harness после validated approved commit, exact-SHA PR checks и отдельно разрешённый frozen release-full/cd dry-run production release.
 
 Итог после перечитывания: **6 checked / 0 unchecked**. Подробности и границы: [checklist-review.md](../checklist-review.md).
+
+
+## Повторное ревью уточнения названий дат — 2026-10-02
+
+PASS качества требований сохраняется: **6 checked / 0 unchecked**. Перечитаны spec/plan/research/data-model/contract/quickstart/tasks и оба checklist.
+
+- CHK001/CHK002/CHK004: уточнение относится к подписям уже разрешённых экземпляров; авторизация, series identity, стабильный период/cursor, совместимость all и Join/recording границы не меняются. Новое canonical master или полномочие из названия не вводятся.
+- CHK003/CHK005: US3.3, FR-003/006/007, plan и research совместно задают сброс контекста названий при refresh/view, очистку close/поздних ответов и использование только разрешённого названия. Скрытые поля не должны влиять на раскрываемые подписи, подсказки или доступные имена; прежние требования повторной ACL/privacy проверки сохранены.
+- CHK006: tasks T009 явно открыт; требования штатного GRAF Dev и отдельного production gate сохранены. Ручная native acceptance и повторная проверка VoiceOver этим review не заявляются.
+
+Этот результат подтверждает согласованность требований, а не выполненные runtime-проверки. Предыдущая запись ревью сохранена; подробности — в последнем разделе [checklist-review.md](../checklist-review.md).

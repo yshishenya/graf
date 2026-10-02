@@ -16,7 +16,7 @@
 ## Phase 3: US1 — Ближайшая встреча
 
 **Goal**: компактный обзор и конкретные будущие даты.
-**Independent test**: upcoming view, ongoing/cancelled/no-link, exception title, trusted Join.
+**Independent test**: upcoming view, ongoing/cancelled/no-link, permitted title runs, renamed first date/history/page boundary/refresh, same-day actions, trusted Join.
 
 - [X] T004 [US1] Переработать обзор, переключатели и строки расписания в apps/server/src/twobrain_rec_server/cabinet/rendering.py, static/cabinet/calendar-series.js и static/cabinet/cabinet.css (FR-001/002/003/004/009, SC-001/002). — [#7424](https://github.com/yshishenya/graf/issues/7424)
 
