@@ -33,7 +33,7 @@
         <ol class="guide-cards" role="list">
           {% for guide in guides %}
           <li class="guide-card">
-            <span class="guide-step">0{{ loop.index }} · {{ 'Запись встречи' if loop.first else 'Работа с итогами' }}</span>
+            <span class="guide-step">0{{ loop.index }} · {{ 'Запись встречи' if loop.first else ('Протокол встречи' if loop.index == 2 else 'Проверка качества') }}</span>
             <h2><a href="{{ guide.path }}">{{ guide.title }}<span class="guide-card-hit" aria-hidden="true"></span></a></h2>
             <p>{{ guide.summary }}</p>
             <span class="guide-read" aria-hidden="true">Читать руководство <span>↗</span></span>

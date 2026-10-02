@@ -15,7 +15,7 @@ from twobrain_rec_server.public.content import (
 )
 
 
-def test_hub_is_indexable_and_links_join_the_two_published_guides():
+def test_hub_is_indexable_and_links_join_the_published_guides():
     with TestClient(create_app(Settings(public_base_url="https://rec.2brain.pro"))) as client:
         response = client.get(GUIDES_PATH + "?utm_source=example")
         assert response.status_code == 200
@@ -28,19 +28,20 @@ def test_hub_is_indexable_and_links_join_the_two_published_guides():
         assert "noindex" not in parser.meta.get("robots", "")
         assert "noindex" not in response.headers.get("x-robots-tag", "")
         assert "Руководства по записи" in response.text
-        assert response.text.count('class="guide-card"') == 2
-        first, second = PUBLIC_CONTENT_PAGES
+        assert response.text.count('class="guide-card"') == 3
+        first, second, third = PUBLIC_CONTENT_PAGES
         assert response.text.index(first.path) < response.text.index(second.path)
         for link in parser.links:
             if link.startswith("#"):
                 assert link[1:] in parser.ids
             else:
                 assert client.get(link).status_code == 200
-        for page, sibling in ((first, second), (second, first)):
+        for page in PUBLIC_CONTENT_PAGES:
             article = client.get(page.path)
             p = Parser()
             p.feed(article.text)
-            assert GUIDES_PATH in p.links and sibling.path in p.links
+            assert GUIDES_PATH in p.links
+            assert all(sibling.path in p.links for sibling in PUBLIC_CONTENT_PAGES if sibling != page)
             assert p.canonical == ["https://rec.2brain.pro" + page.path]
         xml = ElementTree.fromstring(client.get("/sitemap.xml").text)
         urls = [node.text for node in xml.findall("{*}url/{*}loc")]
@@ -56,7 +57,7 @@ def test_hub_is_indexable_and_links_join_the_two_published_guides():
 
 
 def test_unpublished_sections_have_no_entries_or_measurement_surfaces():
-    assert len(content_for_section(ContentSection.GUIDES)) == 2
+    assert len(content_for_section(ContentSection.GUIDES)) == 3
     assert content_for_section(ContentSection.HELP) == ()
     assert content_for_section(ContentSection.NEWS) == ()
     assert "/help" not in PUBLIC_CONTENT_SURFACES
@@ -67,6 +68,7 @@ def test_unpublished_sections_have_no_entries_or_measurement_surfaces():
     "path,surface",
     [
         ("/guides", "public_guides"),
+        ("/guides/proverka-kachestva-rasshifrovki-vstrechi", "public_transcription_quality_guide"),
         ("/guides/zapis-vstrechi-na-mac-bez-bota", "public_mac_meeting_guide"),
     ],
 )

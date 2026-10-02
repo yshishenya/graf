@@ -25,10 +25,10 @@ from twobrain_rec_server.public.analytics import (
 from twobrain_rec_server.public.content import (
     GUIDE_PATH,
     GUIDES_PATH,
-    MAC_MEETING_GUIDE,
-    MEETING_PROTOCOL_GUIDE,
     PROTOCOL_GUIDE_PATH,
+    PUBLIC_CONTENT_PAGES,
     PUBLISHED_CONTENT_PATHS,
+    QUALITY_GUIDE_PATH,
     ContentSection,
     content_for_section,
 )
@@ -178,7 +178,7 @@ async def public_mac_meeting_guide(
         request,
         "public/mac_meeting_guide.html",
         db=db,
-        related_content=MEETING_PROTOCOL_GUIDE,
+        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path != GUIDE_PATH),
         page_title="Как записать встречу на Mac без бота и получить итоги — ГРАФ",
         social_description="Как проверить запись обеих сторон на Mac и получить расшифровку с итогами. Пошаговая подготовка и ограничения ГРАФ.",
     )
@@ -192,10 +192,25 @@ async def public_meeting_protocol_guide(
     return await public_page_response(
         request,
         "public/meeting_protocol_guide.html",
-        related_content=MAC_MEETING_GUIDE,
+        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path != PROTOCOL_GUIDE_PATH),
         db=db,
         page_title="Протокол встречи из записи: пример решений и задач — ГРАФ",
         social_description="Как превратить расшифровку в протокол встречи: учебный диалог, пример решений и задач, шаблон и проверка ответственных, сроков и договоренностей.",
+    )
+
+
+@router.get(QUALITY_GUIDE_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_transcription_quality_guide(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
+    return await public_page_response(
+        request,
+        "public/transcription_quality_guide.html",
+        db=db,
+        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path != QUALITY_GUIDE_PATH),
+        page_title="Как проверить качество расшифровки встречи — ГРАФ",
+        social_description="Как сверить расшифровку с записью: спикеры, имена, числа, отрицания и решения. Учебные примеры, порядок проверки и чеклист перед отправкой итогов.",
     )
 
 

@@ -13,3 +13,7 @@ Hub: добавить `test_public_guides_hub.py`, `test_product_analytics_anony
 Проверка hub в изолированной среде: 23 PostgreSQL контракта PASS, контейнер удален; HTML guides regressions6 PASS. Chromium360/390/768/1440: overflow0, одинH1, две карточки, первый фокус skip-link. Источник лендинга при удалении новой footer-строки побайтово равен baseline; download/policies/landing assets zero diff. T007 завершена: baseline v2026.10.02.1 опубликован отдельно; hub опубликован в v2026.10.02.2 с Full36941465329, CD, backup и production readback PASS.
 
 Production: https://rec.2brain.pro/guides — HTTP200, canonical self, две карточки, sitemap10 уникальных URL, mobile360/390/768/1440 PASS. Main допускает только одну footer-ссылку; download и политики сохранены. Боты отмечены automated и не считаются органическими активациями.
+
+## Проверка качества расшифровки (следующий срез)
+
+Проверить новую статью, query-free canonical, sitemap uniqueness, три карточки и взаимные ссылки, явную маркировку вымышленных примеров, внешние источники, отсутствие JS/noindex/неподтвержденных функций. Focused HTML + isolated DB campaign/consent/off tests; viewport360/390/768 и клавиатура. Проверить zero diff landing/download/policies/их assets. До выпуска обязательны exact-SHA PR checks, frozen Full, backup/CD; после — production GET/sitemap/protected readback без платежей и записей людей.

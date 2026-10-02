@@ -1,5 +1,9 @@
-<section class="content-related" aria-label="Связанное руководство">
+<section class="content-related" aria-label="Связанные руководства">
   <h2>По теме</h2>
-  <a href="{{ related_content.path }}">{{ related_content.title }}</a>
-  <p>{{ related_content.summary }}</p>
+  {% for related_content in related_contents %}
+  <div>
+    <a href="{{ related_content.path }}">{{ related_content.title }}</a>
+    <p>{{ related_content.summary }}</p>
+  </div>
+  {% endfor %}
 </section>

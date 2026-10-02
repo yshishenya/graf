@@ -20,3 +20,7 @@ T007: required exact-SHA GitHub checks + общий validator; fresh production/
 ## Analyze
 
 FR006–FR010 имеют задачи и проверки; scope/clarification явные, пустые разделы исключены. Перед implementation выполнить read-only cross-artifact analysis; critical/high findings блокируют работу.
+
+## Следующий узкий срез: качество расшифровки
+
+Active Spec Kit slice, tiny-low-risk editorial content. Новый фиксированный маршрут/шаблон и запись в существующем реестре; shared related partial выводит все опубликованные соседние guides. Используются существующие landing/guide/content CSS, новые стили только для учебных примеров при необходимости; CMS/search/editor не добавляются. Исходная реализация ASR/AI не меняется. Current base11196fe59 содержит только документальный closeout поверх опубликованного540f. FR011–FR015 покрываются T008/T009. Google Cloud speaker diarization и Microsoft WER docs прочитаны 2026-10-02; оба источника определяют общие понятия, не являются доказательством использования этих провайдеров в ГРАФ.
