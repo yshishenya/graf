@@ -58,3 +58,7 @@ Umbrella: #7448.
 - [X] T010 Исправить устаревшую timezone fixture в apps/server/tests/browser/local-recording-focus.test.cjs: задавать существующий graf-time-preferred для выбранного пользователем пояса; повторить все keyboard/stable-node/dialog-removal проверки без изменения production user-time.js. Исходная проверка одинаково отказала на baseline и F285. Ownership: #7452.
 
 Локальный checkpoint: T008 — тесты/changelog/converge и итоговый независимый review выполнены; explicit approval пользователя после валидации получено: «Да, зафиксируй и продолжай выпуск». T009 — Dev/PR/release/public/installed pending. Доказательства: validation.md.
+
+## Phase 7: Convergence — точные PR-проверки
+
+- [X] T011 Устранить два отказа первого CI на SHA 00dc275bf9bfcdea1dfacbb31c2754fdbfb13a36: добавить обязательный Legacy Impact в spec.md и разбить вычисление яркости NativeSettingsComboBoxTests.swift на явные CGFloat выражения для компилятора Swift CI; сохранить формулу и все assertions, повторить профильные проверки и независимый review. Код продукта не меняется. Ownership: #7452.

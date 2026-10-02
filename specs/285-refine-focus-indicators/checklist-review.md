@@ -100,3 +100,24 @@ cabinet.css:6385–6403 применяет единый контур тольк�
 До завершения T009 остаются pending: единственный GRAF Dev на чистом SHA исправления, ручные Stop/start/Tab/notification/поля/диалоги, фактический VoiceOver и встроенный WKWebView; GitHub проверки на точном SHA и актуальной основе; merge, frozen release-full, CD dry-run/execute; Developer ID/notarization/stapling/Gatekeeper/Sparkle, опубликованные ZIP/PKG/appcast и фактически установленная версия. Открытость этих этапов не означает пробела требований и не превращает локальный PASS в runtime/release/production PASS.
 
 После записи отчёт и оба чеклиста перечитаны. Итоги: requirements 4 checked / 0 unchecked; ux 7 checked / 0 unchecked; всего 11 checked / 0 unchecked. Итоговая независимая проверка рассмотренного кода: PASS без блокирующих замечаний в доступной области. Проверяющий изменил только checklist-review.md.
+
+
+## Независимая сверка исправлений первого CI — T011
+
+2026-10-02: прочитан текущий diff NativeSettingsComboBoxTests.swift, spec.md и append-only T011 (ownership #7452). Рабочий diff содержит только эти три файла до записи настоящего отчёта; производственные Shell/NativeSettingsComboBox/CSS не менялись.
+
+В luminance удалена сложная связка zip/reduce, вместо неё введена linearize с явными входом и результатом CGFloat и три отдельных взвешенных компонента. Ветвление на 0.04045, деление на 12.92, добавка 0.055, делитель 1.055, степень 2.4 и коэффициенты 0.2126/0.7152/0.0722 сохранены. Суммирование имеет прежний порядок red→green→blue; assertions, порог контраста 3 и перечень проверяемых appearance не изменены. Ослабления проверки не обнаружено.
+
+Legacy Impact содержит единственную Classification: untouched и нулевые legacy_new/unowned_legacy/expired_exceptions. Это соответствует ограниченному исправлению контура/лишних Tab stops без изменения старых API, форматов данных или совместимости. Проверяющий отдельно выполнил python3 scripts/validate-legacy-impact.py --feature specs/285-refine-focus-indicators/spec.md: legacy-impact: OK. T011 сохраняет связь с исходным неуспешным CI на 00dc275bf9bfcdea1dfacbb31c2754fdbfb13a36 и требует повторной независимой проверки.
+
+Лично прочитаны предоставленные журналы повторного запуска:
+
+- /tmp/graf-f285-swift-ci-fix.log: NativeSettingsComboBoxTests завершён 2026-10-02 23:10:53, 28 tests / 0 failures; XCTest выполнен, отдельный завершающий Swift Testing вывод 0 tests не подменяет этот результат.
+- /tmp/graf-f285-pytest-final.log: 102 passed, 1 существующий PytestAssertRewriteWarning, 7.49s.
+- /tmp/graf-f285-local-recording-final.log: полный local recording focus сценарий stable keyed nodes/changed controls/checkbox handoff/time context/safe removal PASS.
+
+Повторная SHA-256 сверка таблицы validation.md подтверждает неизменность остальных семи файлов, включая все три производственных файла. Единственный новый хеш NativeSettingsComboBoxTests.swift: 51420bb9378b0809c420cb82b0979c370ae1154a9ef610384c7245742be2b8b8. В прочитанном validation.md пока указан прежний хеш; основному агенту требуется дополнить доказательства T011 и обновить эту строку перед новым checkpoint/коммитом. Проверяющий validation.md не изменял. Прежняя запись 8 совпадений описывает исторический проход до T011.
+
+Код и требования T011: PASS, блокирующих замечаний по реализации нет. Локальные результаты не доказывают успешный повторный GitHub CI на новом SHA; он остаётся отдельным обязательным этапом. Ручная матрица единственного GRAF Dev, фактический VoiceOver/WKWebView и выпуск/прод по-прежнему pending T009.
+
+После записи отчёт и оба reviewer-owned чеклиста перечитаны: requirements 4 checked / 0 unchecked; ux 7 checked / 0 unchecked; всего 11 checked / 0 unchecked. Проверяющий изменил только checklist-review.md, не менял код, spec/tasks/validation, Git/GitHub, приложение или выпуск.

@@ -36,9 +36,14 @@ final class NativeSettingsComboBoxTests: XCTestCase {
             }
             NSGraphicsContext.restoreGraphicsState()
             func luminance(_ color: NSColor) -> CGFloat {
-                zip([color.redComponent, color.greenComponent, color.blueComponent], [0.2126, 0.7152, 0.0722]).reduce(0) {
-                    $0 + ($1.0 <= 0.04045 ? $1.0 / 12.92 : pow(($1.0 + 0.055) / 1.055, 2.4)) * $1.1
+                func linearize(_ component: CGFloat) -> CGFloat {
+                    if component <= 0.04045 { return component / 12.92 }
+                    return pow((component + 0.055) / 1.055, 2.4)
                 }
+                let red = linearize(color.redComponent) * 0.2126
+                let green = linearize(color.greenComponent) * 0.7152
+                let blue = linearize(color.blueComponent) * 0.0722
+                return red + green + blue
             }
             let foregroundLuminance = luminance(expected), backgroundLuminance = luminance(background)
             XCTAssertGreaterThanOrEqual((max(foregroundLuminance, backgroundLuminance) + 0.05) / (min(foregroundLuminance, backgroundLuminance) + 0.05), 3)
