@@ -9,8 +9,8 @@ CoreAudio подтверждает текущую входную активно�
 **Primary Dependencies**: CoreAudio/AppKit, existing WKWebView, FastAPI/Jinja; no new dependencies.
 **Storage**: Existing local queue/manifests; unchanged Postgres/MinIO/quota.
 **Testing**: Existing XCTest, pytest, Playwright tests.
-**Risk / Validation Lane**: high-risk-feature (capture, storage access, UX).
-**Release Gate**: no deploy; user-authorized validated implementation commit required before clean-SHA Dev harness or release.
+**Risk / Validation Lane**: high-risk-product (capture, storage access, UX).
+**Release Gate**: user explicitly authorized commit/push/PR/release on 2026-10-02; clean-SHA GRAF Dev, exact-SHA PR checks, frozen-candidate release-full and public notarization/Sparkle gates remain mandatory.
 **Target Platform**: macOS 14.5+ and server cabinet.
 **Project Type**: desktop-app/web-service.
 **Performance Goals**: Current metadata snapshot every two seconds; no audio reads for detection or repeated hashes for UI projection.
