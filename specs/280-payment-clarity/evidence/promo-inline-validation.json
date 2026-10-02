@@ -9,7 +9,8 @@
     "apps/server/tests/unit/test_billing_purchases.py": "feaa133ad61655b3fbd98474d5190ec028b45c5c1ea2f6fb5e21e0f1bb68a780",
     "apps/server/tests/integration/test_billing_promo_refresh.py": "c01cfd362355ea4a68c55a03e19db33fb7cd6dffe14e5f32e0d96833d43d5cf7",
     "apps/server/tests/browser/billing-promo-refresh.test.cjs": "e180e2c4fe54748e9ed20cf70849d2883b470af3ac4a5f65f50a054298ee82e5",
-    "apps/server/tests/contract/test_billing_promo_refresh_browser.py": "5ab899f007db8023b7d51906484cb04b79e757138ce20c0e572a7a8dcf22442b"
+    "apps/server/tests/contract/test_billing_promo_refresh_browser.py": "5ab899f007db8023b7d51906484cb04b79e757138ce20c0e572a7a8dcf22442b",
+    "apps/server/tests/contract/test_cabinet_static_assets_contract.py": "75b809f041dc7def246599493234e35245d68ef71c36f29459210c107705c823"
   },
   "completed_proofs": [
     {
@@ -88,6 +89,13 @@
       "passed": 28,
       "pytest_seconds": 404.66,
       "isolated_cleanup": true
+    },
+    {
+      "artifact": "graf-f280-inline-static-contract-green.log",
+      "sha256": "a3182fad1db7136e0096e9f40334722d4df241e9d8b872e8ab5b31fd07259308",
+      "passed": 76,
+      "pytest_seconds": 2.37,
+      "isolated_cleanup": "not_applicable"
     }
   ],
   "webkit_full": "pass",
