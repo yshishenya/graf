@@ -142,3 +142,30 @@ def test_occurrence_cursor_restores_window_and_preserves_scope_and_expiry():
         invalid = encode_cursor(changed, last, "test-secret", now=100)
         with pytest.raises(ValueError):
             decode_occurrence_cursor(invalid, scope, "test-secret", now=101)
+
+
+def test_view_cursor_binds_period_and_restores_issued_anchor():
+    from twobrain_rec_server.calendar.series import decode_occurrence_cursor
+
+    scope = {"owner": "o", "session": "s", "workspace": "w", "series": "series", "view": "history"}
+    context = {
+        **scope,
+        "anchor": NOW.isoformat(),
+        "from": (NOW - timedelta(days=180)).isoformat(),
+        "to": (NOW + timedelta(days=31)).isoformat(),
+    }
+    cursor = encode_cursor(context, (NOW.isoformat(), str(UUID(int=1))), "test-secret", now=100)
+    saved = decode_occurrence_cursor(cursor, scope, "test-secret", now=101)[3]
+    assert saved == context
+    for view in ("upcoming", "all"):
+        with pytest.raises(ValueError):
+            decode_occurrence_cursor(cursor, {**scope, "view": view}, "test-secret", now=101)
+    for anchor in ("invalid", NOW.replace(tzinfo=None).isoformat()):
+        invalid = encode_cursor(
+            {**context, "anchor": anchor},
+            (NOW.isoformat(), str(UUID(int=1))),
+            "test-secret",
+            now=100,
+        )
+        with pytest.raises(ValueError):
+            decode_occurrence_cursor(invalid, scope, "test-secret", now=101)
