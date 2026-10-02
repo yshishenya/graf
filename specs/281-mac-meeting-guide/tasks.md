@@ -11,7 +11,7 @@ Umbrella issue: #7391
 
 Предыдущая публикация подтверждена: первый материал `v2026.09.30.2`, второй `v2026.10.01.3`, PR7411/7415, source/runtime/tag216ab38e6eeb112aefa23f8c87cf69bf6f064b08; Full36927435763 SUCCESS и production200/readback PASS.
 
-- [x] T006 Реализовать и проверить `/guides`, типы/реестр публичного контента, взаимные ссылки и единственную footer-ссылку главной; FR006–FR010, issue #7419, parent #7391.
-- [x] T007 Пройти exact-SHA CI/provenance и штатную публикацию hub с backup, Full/CD и protected production readback; FR010, issue #7419, parent #7391.
+- [x] T006 Реализовать и проверить `/guides`, типы/реестр публичного контента, взаимные ссылки и единственную footer-ссылку главной; FR006–FR010, (Issue #7419), parent #7391.
+- [x] T007 Пройти exact-SHA CI/provenance и штатную публикацию hub с backup, Full/CD и protected production readback; FR010, (Issue #7419), parent #7391.
 
 Hub опубликован в v2026.10.02.2: source/runtime/tag540f322b4de8016d3b920c74fb8a72c3881ad915, Full36941465329 PASS, CD/backup/smoke cleanup/public readback PASS. Доказательства: evidence/guides-hub-publication.json.

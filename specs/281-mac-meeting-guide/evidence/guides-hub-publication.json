@@ -11,7 +11,7 @@
   "pr_gates": "PASS",
   "cd_result": "PASS",
   "backup_result": "PASS",
-  "backup_reference": "/opt/projects/2brain-rec/backups/20261002T000033Z",
+  "backup_reference": "backup-20261002T000033Z",
   "publication_attestation": {
     "attestation_id": "pa-rc-20261001T233303Z-079362d46959",
     "attested_at": "2026-10-02T00:11:24Z",
