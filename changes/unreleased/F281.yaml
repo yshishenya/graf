@@ -1,0 +1,10 @@
+schema_version: 1
+feature_id: 281
+category: Fixed
+summary: "Закрытое меню главной сразу исключается из клавиатурного фокуса"
+issue: 7431
+tasks: [T010, T011]
+compatibility: "Исправление только controller шапки; контент, политики и аналитические режимы сохранены"
+known_limitations:
+  - "Публикация общей шапки требует успешного повторного CD после очистки synthetic smoke"
+release_notes: "inert закрывает короткое окно фокуса в анимации меню; без JavaScript ссылки остаются доступными."

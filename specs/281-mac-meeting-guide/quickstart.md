@@ -17,3 +17,6 @@ Production: https://rec.2brain.pro/guides — HTTP200, canonical self, две к
 ## Проверка качества расшифровки (следующий срез)
 
 Проверить новую статью, query-free canonical, sitemap uniqueness, три карточки и взаимные ссылки, явную маркировку вымышленных примеров, внешние источники, отсутствие JS/noindex/неподтвержденных функций. Focused HTML + isolated DB campaign/consent/off tests; viewport360/390/768 и клавиатура. Проверить zero diff landing/download/policies/их assets. До выпуска обязательны exact-SHA PR checks, frozen Full, backup/CD; после — production GET/sitemap/protected readback без платежей и записей людей.
+
+## Regression закрытия меню
+С уже подготовленными browser dependencies: `node apps/server/tests/browser/public-navigation-focus.test.cjs`. Проверяет реальный controller, полностью раскрытую анимацию, Escape → Tab без скрытых ссылок, resize и no-JS fallback; вся сеть заблокирована. Геометрия проверяется отдельно на отрендеренных пяти страницах.

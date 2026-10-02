@@ -28,3 +28,6 @@ Active Spec Kit slice, tiny-low-risk editorial content. Новый фиксир�
 ## Шапка: narrow low-risk navigation
 Baseline721b5125d, опубликованный v2026.10.02.3. Общий Jinja partial четырёх content routes и scoped CSS; mobile links видимы во второй строке без JS. Главная получает одну ссылку в двух представлениях, aria-controls и Escape/resize; скрытые ссылки не фокусируются. Проверка current/no-JS/focus/mobile36039076898010241440, protected HTML outside-header equality.
 Analyze: FR016–18 покрыты T010/T011; critical/high нет. Keyboard defect opacity-menu исправляется в разрешённой шапке. Recovery retained baseline/verify previous/finish restored проверен предыдущим выпуском; перед CD привязать к точному candidate/baseline.
+
+## Проверка завершённой анимации меню
+Дополнительный браузерный тест после полного раскрытия выявил фокус в закрывающемся меню: visibility меняется после .2s transition. Controller явно устанавливает inert сразу при закрытии и снимает при открытии. Без JS markup inert не содержит, ссылки доступны. Regression проверяет закрытие после350ms раскрытия, Tab немедленно после Escape, resize и повторное открытие.

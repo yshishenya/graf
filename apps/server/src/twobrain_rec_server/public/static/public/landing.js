@@ -8,8 +8,10 @@ if (menuButton && mobileNav) {
     menuButton.setAttribute('aria-expanded', String(open));
     menuButton.setAttribute('aria-label', open ? 'Закрыть меню' : 'Открыть меню');
     mobileNav.classList.toggle('open', open);
+    mobileNav.inert = !open;
     if (returnFocus) menuButton.focus();
   };
+  setMenuOpen(false);
   menuButton.addEventListener('click', () => setMenuOpen(menuButton.getAttribute('aria-expanded') !== 'true'));
   mobileNav.querySelectorAll('a').forEach((link) => link.addEventListener('click', () => setMenuOpen(false)));
   document.addEventListener('keydown', (event) => {
