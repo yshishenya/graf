@@ -306,7 +306,7 @@ final class MeetingDetectionCountdownTests: XCTestCase {
             let p = f.presenter()
             let detector = MacOSMeetingActivityDetector(debounceSeconds: 0)
             let stream = MacOSAudioOwnershipLogStream(
-                snapshotProvider: { [bundleID] }, snapshotIntervalNanoseconds: 10_000_000
+                snapshotProvider: { .init(activeBundleIDs: [bundleID]) }, snapshotIntervalNanoseconds: 10_000_000
             )
             defer { stream.stop(); p.dismissAllCards() }
             var promptToken: UUID?
@@ -323,9 +323,9 @@ final class MeetingDetectionCountdownTests: XCTestCase {
             observationLoop: for await observation in stream.observations() {
                 switch observation {
                 case .reconcile(let generation): generations.append(generation)
-                case .snapshot(let events, let generation):
+                case .snapshot(let events, let isComplete, let generation):
                     let observedAt = try XCTUnwrap(events.first?.observedAt)
-                    detector.reconcileSnapshot(activeBundleIDs: Set(events.map(\.bundleID)), observedAt: observedAt)
+                    detector.reconcileSnapshot(activeBundleIDs: Set(events.map(\.bundleID)), observedAt: observedAt, isComplete: isComplete)
                     let outputs = detector.advance(now: observedAt, registry: registry, settings: .init())
                     for output in outputs {
                         guard case .promptEligible(_, let offeredBundleID) = output else {

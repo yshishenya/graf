@@ -1032,7 +1032,7 @@ private struct ContentView: View {
                         event: "meeting_detection.observer_reconcile",
                         detail: "generation=\(generation)"
                     )
-                case .snapshot(let events, let generation):
+                case .snapshot(let events, let isComplete, let generation):
                     let activeBundleIDs = Set(events.filter { $0.state == .active }.map(\.bundleID))
                     for event in events {
                         AppLog.writeRaw(
@@ -1041,14 +1041,14 @@ private struct ContentView: View {
                         )
                     }
                     let observedAt = events.first?.observedAt ?? Date()
-                    meetingDetectionDetector.reconcileSnapshot(activeBundleIDs: activeBundleIDs, observedAt: observedAt)
+                    meetingDetectionDetector.reconcileSnapshot(activeBundleIDs: activeBundleIDs, observedAt: observedAt, isComplete: isComplete)
                     reconcileMeetingDetectionRecording(
                         activeBundleIDs: activeBundleIDs,
                         observedAt: observedAt
                     )
                     AppLog.writeRaw(
                         event: "meeting_detection.snapshot_reconciled",
-                        detail: "generation=\(generation) activeCount=\(events.count)"
+                        detail: "generation=\(generation) activeCount=\(events.count) complete=\(isComplete)"
                     )
                     await advanceMeetingDetection(reason: "snapshot_reconciled")
                 case .lifecycle(let phase, let generation):

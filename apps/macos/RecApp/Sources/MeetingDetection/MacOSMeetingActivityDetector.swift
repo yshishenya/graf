@@ -109,9 +109,9 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
         return true
     }
 
-    /// A complete current snapshot replaces all prior source states without replaying accepted offers.
-    public func reconcileSnapshot(activeBundleIDs: Set<String>, observedAt: Date) {
-        for tracked in Array(trackedEvents.values) where !activeBundleIDs.contains(tracked.bundleID) {
+    /// Only complete coverage proves absence; partial samples contribute current positive evidence.
+    public func reconcileSnapshot(activeBundleIDs: Set<String>, observedAt: Date, isComplete: Bool = true) {
+        for tracked in Array(trackedEvents.values) where isComplete && !activeBundleIDs.contains(tracked.bundleID) {
             for source in tracked.activeSources {
                 reconcile(event: .init(bundleID: tracked.bundleID, source: source, state: .inactive, observedAt: observedAt))
             }
