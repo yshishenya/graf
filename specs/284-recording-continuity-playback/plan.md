@@ -33,3 +33,7 @@ Tests precede fixes. CoreAudio identity/failed snapshots, observer lifecycle and
 **Structure Decision**: Extend existing paths; no new service or playback implementation.
 
 Quota navigation uses the existing /billing overview (shared access); capacity-management actions remain guarded by billing_owner. Copy asks to contact the workspace owner when appropriate. No new authority or purchase action is introduced.
+
+## Сходимость T010
+
+Сбор метаданных различает отказ списка процессов и недоступность отдельного процесса. Пакет снимка содержит текущие активные точные bundleID и полноту покрытия. Полный снимок сохраняет прежнюю15s семантику отсутствия; неполный передаёт достоверные положительные события без ложного окончания отсутствующего источника. Таймер600s обновляется только текущим подтверждением записываемого приложения. Исполняемые проверки чтения отдельных процессов, внешнего bundle для Qt helper, смешанного снимка и общего detector/recording predicate должны доказать непрерывность45min с недоступным соседним процессом; неполный пустой снимок не должен превращаться в завершение через15s. Нового журнального запасного пути нет.

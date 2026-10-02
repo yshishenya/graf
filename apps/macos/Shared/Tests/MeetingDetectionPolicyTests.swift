@@ -1,3 +1,4 @@
+import CoreAudio
 import Foundation
 @testable import TwoBrainRecAppCore
 import TwoBrainRecShared
@@ -504,7 +505,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
 
         for await observation in stream.observations() {
             switch observation {
-            case .snapshot(let events, generation: 1):
+            case .snapshot(let events, isComplete: true, generation: 1):
                 snapshotEvents = events
             case .lifecycle(.liveStarted, generation: 1):
                 stream.stop()
@@ -1169,16 +1170,18 @@ final class MeetingDetectionPolicyTests: XCTestCase {
     func testNativeSnapshotsNeverRunOldLogActiveEvenWhenUnavailable() async {
         // Would emit stale active indefinitely if the journal child were launched.
         let staleLog = #"printf '%s\n' 'ControlCenter [com.apple.controlcenter:sensor-indicators] Active activity attributions changed to ["mic:ru.yandex.desktop.telemost"]'"#
-        for available in [true, false] {
+        for snapshot: MacOSAudioInputActivitySnapshot.Value? in [.init(activeBundleIDs: []), .init(activeBundleIDs: [], isComplete: false), nil] {
             let stream = MacOSAudioOwnershipLogStream(
                 configuration: .init(executableURL: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", staleLog], snapshotArguments: ["-c", staleLog]),
-                snapshotProvider: { available ? [] : nil }, snapshotIntervalNanoseconds: 1_000_000
+                snapshotProvider: { snapshot }, snapshotIntervalNanoseconds: 1_000_000
             )
             var samples = 0, logActiveCount = 0
             for await observation in stream.observations() {
                 switch observation {
-                case .snapshot(let events, _):
-                    XCTAssertTrue(events.isEmpty); samples += 1
+                case .snapshot(let events, let isComplete, _):
+                    XCTAssertTrue(events.isEmpty)
+                    XCTAssertEqual(isComplete, snapshot?.isComplete)
+                    samples += 1
                 case .lifecycle(.snapshotUnavailable, _): samples += 1
                 case .ownership: logActiveCount += 1
                 default: break
@@ -1193,12 +1196,12 @@ final class MeetingDetectionPolicyTests: XCTestCase {
     func testNativeObserverRestartDoesNotReplayRecordingOffer() async throws {
         let registry = try Self.registry(), detector = MacOSMeetingActivityDetector(debounceSeconds: 0)
         let bundleID = "ru.yandex.desktop.telemost"
-        let stream = MacOSAudioOwnershipLogStream(snapshotProvider: { [bundleID] }, snapshotIntervalNanoseconds: 1_000_000)
+        let stream = MacOSAudioOwnershipLogStream(snapshotProvider: { .init(activeBundleIDs: [bundleID]) }, snapshotIntervalNanoseconds: 1_000_000)
         var snapshots = 0, offers = 0, generations: [Int] = []
         for await observation in stream.observations() {
             switch observation {
             case .reconcile(let generation): generations.append(generation)
-            case .snapshot(let events, _):
+            case .snapshot(let events, _, _):
                 let observedAt = try XCTUnwrap(events.first?.observedAt)
                 detector.reconcileSnapshot(activeBundleIDs: Set(events.map(\.bundleID)), observedAt: observedAt)
                 let outputs = detector.advance(now: observedAt, registry: registry, settings: .init())
@@ -1217,6 +1220,229 @@ final class MeetingDetectionPolicyTests: XCTestCase {
     func testCoreAudioAttributionSelectsOuterAppNotNestedHelper() {
         XCTAssertEqual(MacOSAudioInputActivitySnapshot.containingApplicationURL(for: URL(fileURLWithPath: "/Applications/Telemost.app/Contents/Frameworks/QtWebEngineProcess.app/Contents/MacOS/QtWebEngineProcess"))?.path, "/Applications/Telemost.app")
         XCTAssertNil(MacOSAudioInputActivitySnapshot.containingApplicationURL(for: URL(fileURLWithPath: "/usr/bin/unknown")))
+    }
+
+    func testMixedCurrentInputSnapshotRetainsReliableMeetingBesideUnreadableProcess() throws {
+        let meetingID = "ru.yandex.desktop.telemost"
+        for processes: [AudioObjectID] in [[10, 20], [20, 10]] {
+            let readings = MacOSAudioInputActivitySnapshot.Readings(
+                propertyData: { object, selector in
+                    if selector == kAudioHardwarePropertyProcessObjectList {
+                        return processes.withUnsafeBytes { Data($0) }
+                    }
+                    guard object == 10 else { return nil }
+                    var value: UInt32 = selector == kAudioProcessPropertyIsRunningInput ? 1 : 100
+                    return withUnsafeBytes(of: &value) { Data($0) }
+                },
+                executableURL: { _ in URL(fileURLWithPath: "/Applications/Telemost.app/Contents/MacOS/Telemost") },
+                applicationBundleID: { _ in meetingID }
+            )
+            XCTAssertEqual(MacOSAudioInputActivitySnapshot.activeBundleIDs(readings: readings)?.activeBundleIDs, [meetingID], "An unreadable neighbor must not discard current meeting evidence")
+        }
+    }
+
+    func testMixedSnapshotsIsolateEveryUnreadableProcessInBothOrders() throws {
+        let failures: [(String, InputProcess)] = [
+            ("unreadable input", .init(runningData: nil)),
+            ("malformed input size", .init(runningData: Data([1]))),
+            ("invalid input flag", .init(runningData: Self.scalarData(UInt32(2)))),
+            ("unreadable PID", .init(pidData: nil)),
+            ("invalid PID", .init(pidData: Self.scalarData(pid_t(0)))),
+            ("malformed PID size", .init(pidData: Data([100]))),
+            ("unreadable path", .init(executablePath: nil)),
+            ("missing app bundle", .init(appBundleID: nil)),
+            ("malformed app bundle", .init(appBundleID: "ru..telemost")),
+            ("exited process", .init(runningData: nil, pidData: nil, executablePath: nil))
+        ]
+        for (reason, unreadable) in failures {
+            for processes: [AudioObjectID] in [[10, 20], [20, 10]] {
+                let readings = Self.inputReadings(processes: processes, samples: [10: .meeting, 20: unreadable])
+                let snapshot = try XCTUnwrap(MacOSAudioInputActivitySnapshot.activeBundleIDs(readings: readings), reason)
+                XCTAssertEqual(snapshot.activeBundleIDs, [Self.meetingBundleID], reason)
+                XCTAssertFalse(snapshot.isComplete, reason)
+            }
+        }
+    }
+
+    func testCurrentProcessListFailureAndMalformedSizesRemainUnavailable() {
+        for data: Data? in [nil, Data([1]), Data([1, 2, 3, 4, 5])] {
+            var readings = Self.inputReadings(processes: [], samples: [:])
+            readings.propertyData = { _, _ in data }
+            XCTAssertNil(MacOSAudioInputActivitySnapshot.activeBundleIDs(readings: readings))
+        }
+        XCTAssertEqual(MacOSAudioInputActivitySnapshot.activeBundleIDs(readings: Self.inputReadings(processes: [], samples: [:])), .init(activeBundleIDs: [], isComplete: true))
+    }
+
+    func testKnownInactiveAndNonAppProcessesDoNotMakeCoverageIncomplete() throws {
+        let readings = Self.inputReadings(processes: [10, 20, 30], samples: [
+            10: .meeting,
+            20: .init(runningData: Self.scalarData(UInt32(0)), pidData: nil, executablePath: nil),
+            30: .init(executablePath: "/usr/bin/known-tool", appBundleID: nil, processBundleID: Self.meetingBundleID)
+        ])
+        let snapshot = try XCTUnwrap(MacOSAudioInputActivitySnapshot.activeBundleIDs(readings: readings))
+        XCTAssertEqual(snapshot, .init(activeBundleIDs: [Self.meetingBundleID], isComplete: true))
+    }
+
+    func testDirectCurrentBundleIDFallbackIsExactAndOuterAppRemainsAuthoritative() throws {
+        for fallback: InputProcess in [
+            .init(pidData: nil, processBundleID: Self.meetingBundleID),
+            .init(executablePath: nil, processBundleID: Self.meetingBundleID)
+        ] {
+            let snapshot = try XCTUnwrap(MacOSAudioInputActivitySnapshot.activeBundleIDs(readings: Self.inputReadings(processes: [20], samples: [20: fallback])))
+            XCTAssertEqual(snapshot, .init(activeBundleIDs: [Self.meetingBundleID], isComplete: false))
+        }
+        for malformedID in ["", "QtWebEngineProcess", "ru..telemost", "ru.yandex.desktop.telemost\n", "Telemost app"] {
+            let snapshot = try XCTUnwrap(MacOSAudioInputActivitySnapshot.activeBundleIDs(readings: Self.inputReadings(processes: [20], samples: [20: .init(executablePath: nil, processBundleID: malformedID)])))
+            XCTAssertEqual(snapshot, .init(activeBundleIDs: [], isComplete: false), malformedID)
+        }
+        let helperPath = "/Applications/Telemost.app/Contents/Frameworks/QtWebEngineProcess.app/Contents/MacOS/QtWebEngineProcess"
+        let outer = Self.inputReadings(processes: [20], samples: [20: .init(executablePath: helperPath, appBundleID: Self.meetingBundleID, processBundleID: "org.qt-project.QtWebEngineProcess")])
+        XCTAssertEqual(MacOSAudioInputActivitySnapshot.activeBundleIDs(readings: outer), .init(activeBundleIDs: [Self.meetingBundleID], isComplete: true))
+        // An app path with unreadable outer identity must not adopt a different helper identity.
+        let malformedOuter = Self.inputReadings(processes: [20], samples: [20: .init(executablePath: helperPath, appBundleID: nil, processBundleID: Self.meetingBundleID)])
+        XCTAssertEqual(MacOSAudioInputActivitySnapshot.activeBundleIDs(readings: malformedOuter), .init(activeBundleIDs: [], isComplete: false))
+    }
+
+    func testUnapprovedExactBundleIDDoesNotBecomeRecordingTarget() throws {
+        let unknownID = "org.test.unapproved"
+        let snapshot = try XCTUnwrap(MacOSAudioInputActivitySnapshot.activeBundleIDs(readings: Self.inputReadings(processes: [20], samples: [20: .init(executablePath: nil, processBundleID: unknownID)])))
+        XCTAssertEqual(snapshot.activeBundleIDs, [unknownID])
+        let detector = MacOSMeetingActivityDetector(debounceSeconds: 0)
+        let now = Date(timeIntervalSince1970: 100)
+        detector.reconcileSnapshot(activeBundleIDs: snapshot.activeBundleIDs, observedAt: now, isComplete: snapshot.isComplete)
+        let outputs = detector.advance(now: now.addingTimeInterval(300), registry: try Self.registry(), settings: .init())
+        for output in outputs {
+            if case .autoRecordEligible = output { XCTFail("Unapproved ID cannot auto-record") }
+            if case .promptEligible = output { XCTFail("Unapproved ID cannot offer a recording") }
+        }
+    }
+
+    func testMixedSnapshotObserverDetectorAndRecordingPredicatePreserveFortyFiveMinutes() async throws {
+        let registry = try Self.registry()
+        for processOrder: [AudioObjectID] in [[10, 20], [20, 10]] {
+            let readings = Self.inputReadings(processes: processOrder, samples: [10: .meeting, 20: .init(runningData: nil)])
+            let clock = SnapshotClock()
+            let stream = MacOSAudioOwnershipLogStream(
+                snapshotProvider: { MacOSAudioInputActivitySnapshot.activeBundleIDs(readings: readings) },
+                snapshotIntervalNanoseconds: 1_000_000,
+                snapshotClock: { clock.next() }
+            )
+            defer { stream.stop() }
+            let detector = MacOSMeetingActivityDetector()
+            var lastEvidence = Date(timeIntervalSince1970: 0)
+            var snapshots = 0, offers = 0
+            for await observation in stream.observations() {
+                guard case .snapshot(let events, let isComplete, _) = observation else { continue }
+                let observedAt = try XCTUnwrap(events.first?.observedAt)
+                let bundleIDs = Set(events.map(\.bundleID))
+                XCTAssertFalse(isComplete)
+                XCTAssertEqual(bundleIDs, [Self.meetingBundleID])
+                detector.reconcileSnapshot(activeBundleIDs: bundleIDs, observedAt: observedAt, isComplete: isComplete)
+                // Same current-target renewal condition and expiry predicate as the app.
+                if bundleIDs.contains(Self.meetingBundleID) { lastEvidence = observedAt }
+                for output in detector.advance(now: observedAt, registry: registry, settings: .init()) {
+                    guard case .promptEligible = output else { XCTFail("Unexpected lifecycle output: \(output)"); continue }
+                    offers += 1
+                    detector.recordConsumerOutcome(bundleID: Self.meetingBundleID, outcome: .accepted, at: observedAt)
+                }
+                XCTAssertFalse(MacOSMeetingActivityDetector.recordingEvidenceExpired(lastObservedAt: lastEvidence, now: observedAt))
+                snapshots += 1
+                if observedAt.timeIntervalSince1970 >= 2700 { stream.stop(); break }
+            }
+            XCTAssertEqual(snapshots, 1351)
+            XCTAssertEqual(offers, 1)
+            XCTAssertTrue(detector.isActive(bundleID: Self.meetingBundleID))
+        }
+    }
+
+    func testPartialEmptyOrUnknownSnapshotsNeverEndAtFifteenSecondsOrRenewEvidence() async throws {
+        let registry = try Self.registry()
+        for sample: InputProcess in [.init(runningData: nil), .init(executablePath: nil, processBundleID: "org.test.unapproved")] {
+            let readings = Self.inputReadings(processes: [20], samples: [20: sample])
+            let clock = SnapshotClock()
+            let stream = MacOSAudioOwnershipLogStream(
+                snapshotProvider: { MacOSAudioInputActivitySnapshot.activeBundleIDs(readings: readings) },
+                snapshotIntervalNanoseconds: 1_000_000,
+                snapshotClock: { clock.next() }
+            )
+            defer { stream.stop() }
+            let detector = MacOSMeetingActivityDetector(debounceSeconds: 0)
+            let initial = Date(timeIntervalSince1970: 0)
+            detector.reconcileSnapshot(activeBundleIDs: [Self.meetingBundleID], observedAt: initial)
+            XCTAssertEqual(detector.advance(now: initial, registry: registry, settings: .init()).count, 1)
+            detector.recordConsumerOutcome(bundleID: Self.meetingBundleID, outcome: .accepted, at: initial)
+            var lastEvidence = initial
+            var snapshots = 0
+            for await observation in stream.observations() {
+                guard case .snapshot(let events, let isComplete, _) = observation else { continue }
+                // Empty observations carry no event timestamp; their injected clock advances by2s.
+                let observedAt = events.first?.observedAt ?? Date(timeIntervalSince1970: Double(snapshots * 2))
+                let bundleIDs = Set(events.map(\.bundleID))
+                XCTAssertFalse(isComplete)
+                XCTAssertFalse(bundleIDs.contains(Self.meetingBundleID))
+                detector.reconcileSnapshot(activeBundleIDs: bundleIDs, observedAt: observedAt, isComplete: isComplete)
+                if bundleIDs.contains(Self.meetingBundleID) { lastEvidence = observedAt }
+                let outputs = detector.advance(now: observedAt, registry: registry, settings: .init())
+                XCTAssertFalse(outputs.contains(.ended(bundleID: Self.meetingBundleID)))
+                XCTAssertTrue(detector.isActive(bundleID: Self.meetingBundleID))
+                XCTAssertEqual(lastEvidence, initial)
+                XCTAssertEqual(MacOSMeetingActivityDetector.recordingEvidenceExpired(lastObservedAt: lastEvidence, now: observedAt), observedAt.timeIntervalSince(initial) >= 600)
+                snapshots += 1
+                if observedAt.timeIntervalSince(initial) >= 600 { stream.stop(); break }
+            }
+            XCTAssertEqual(snapshots, 301)
+            // A later complete empty snapshot still proves absence and preserves the15s grace.
+            let endedAt = Date(timeIntervalSince1970: 602)
+            detector.reconcileSnapshot(activeBundleIDs: [], observedAt: endedAt, isComplete: true)
+            XCTAssertFalse(detector.isActive(bundleID: Self.meetingBundleID))
+            XCTAssertTrue(detector.advance(now: endedAt.addingTimeInterval(14), registry: registry, settings: .init()).isEmpty)
+            XCTAssertEqual(detector.advance(now: endedAt.addingTimeInterval(15), registry: registry, settings: .init()), [.ended(bundleID: Self.meetingBundleID)])
+        }
+    }
+
+    private static let meetingBundleID = "ru.yandex.desktop.telemost"
+
+    private struct InputProcess: Sendable {
+        var runningData: Data? = MeetingDetectionPolicyTests.scalarData(UInt32(1))
+        var pidData: Data? = MeetingDetectionPolicyTests.scalarData(pid_t(200))
+        var executablePath: String? = "/Applications/Neighbor.app/Contents/MacOS/Neighbor"
+        var appBundleID: String? = "org.test.neighbor"
+        var processBundleID: String?
+        static var meeting: Self {
+            .init(pidData: MeetingDetectionPolicyTests.scalarData(pid_t(100)), executablePath: "/Applications/Telemost.app/Contents/MacOS/Telemost", appBundleID: MeetingDetectionPolicyTests.meetingBundleID)
+        }
+    }
+
+    private static func scalarData<T>(_ value: T) -> Data {
+        var value = value
+        return withUnsafeBytes(of: &value) { Data($0) }
+    }
+
+    private static func inputReadings(processes: [AudioObjectID], samples: [AudioObjectID: InputProcess]) -> MacOSAudioInputActivitySnapshot.Readings {
+        .init(propertyData: { object, selector in
+            if selector == kAudioHardwarePropertyProcessObjectList { return processes.withUnsafeBytes { Data($0) } }
+            if selector == kAudioProcessPropertyIsRunningInput { return samples[object]?.runningData }
+            if selector == kAudioProcessPropertyPID { return samples[object]?.pidData }
+            return nil
+        }, executableURL: { pid in
+            guard let sample = samples.values.first(where: { $0.pidData == Self.scalarData(pid) }), let path = sample.executablePath else { return nil }
+            return URL(fileURLWithPath: path)
+        }, applicationBundleID: { appURL in
+            samples.values.first(where: { sample in
+                guard let path = sample.executablePath else { return false }
+                return MacOSAudioInputActivitySnapshot.containingApplicationURL(for: URL(fileURLWithPath: path)) == appURL
+            })?.appBundleID
+        }, processBundleID: { samples[$0]?.processBundleID })
+    }
+
+    private final class SnapshotClock: @unchecked Sendable {
+        private let lock = NSLock()
+        private var tick = 0
+        func next() -> Date {
+            lock.lock(); defer { lock.unlock() }
+            defer { tick += 1 }
+            return Date(timeIntervalSince1970: Double(tick * 2))
+        }
     }
 
     private static func registry() throws -> MeetingTargetRegistryDocument {
