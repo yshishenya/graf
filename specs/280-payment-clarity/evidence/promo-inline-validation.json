@@ -11,7 +11,7 @@
     "apps/server/tests/browser/billing-promo-refresh.test.cjs": "7c919063a7bdd74c696d02448da3805132c7b9ebfc6c6cd49955b78e3e95ec14",
     "apps/server/tests/contract/test_billing_promo_refresh_browser.py": "342011795dda458e5f4b6e35073e56e3e88b9cce4bc7b007f4064788ba0801d3",
     "apps/server/tests/contract/test_cabinet_static_assets_contract.py": "75b809f041dc7def246599493234e35245d68ef71c36f29459210c107705c823",
-    "apps/server/tests/contract/test_billing_clarity.py": "767342316438bd3e068a2581b2a05691c1bac5eb15f7da5b2f268a65e8da544f"
+    "apps/server/tests/contract/test_billing_clarity.py": "570b7b24db080dffa8ef79d28f8bdc0a6b68b6e662cd64fe9453b710a5054341"
   },
   "completed_proofs": [
     {
@@ -150,5 +150,11 @@
       "pytest_seconds": 21.89,
       "isolated_cleanup": true
     }
-  ]
+  ],
+  "source_digest_correction": {
+    "file": "apps/server/tests/contract/test_billing_clarity.py",
+    "previous_sha256": "767342316438bd3e068a2581b2a05691c1bac5eb15f7da5b2f268a65e8da544f",
+    "final_sha256": "570b7b24db080dffa8ef79d28f8bdc0a6b68b6e662cd64fe9453b710a5054341",
+    "reason": "executor removed one blank line before commit; final file passed current GitHub PR and frozen Full; production unchanged"
+  }
 }
