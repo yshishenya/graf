@@ -32,7 +32,7 @@
 **Goal**: ясные пустые/ошибочные состояния и безопасное обновление.
 **Independent test**: failure/retry, expiry, switch/close late response, scope masks and refresh focus.
 
-- [X] T006 [US3] Сохранить выбранный период/фокус, отмену запросов и очистку при обновлении прав в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/calendar-series.js; обеспечить формат даты/часового пояса и privacy DOM (FR-003/006/007/008, SC-004). — [#7424](https://github.com/yshishenya/graf/issues/7424)
+- [X] T006 [US3] Сохранить выбранный период/фокус, отмену запросов и очистку при обновлении прав в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/calendar-series.js и общий refresh в cabinet.js; обеспечить формат даты/часового пояса и privacy DOM (FR-003/006/007/008, SC-004). — [#7424](https://github.com/yshishenya/graf/issues/7424)
 - [X] T007 [US3] Обновить production browser checks apps/server/tests/browser/calendar_series.mjs для всех периодов/состояний, сохранив Join guards и численные бюджеты (FR-001–010, SC-001–004). — [#7424](https://github.com/yshishenya/graf/issues/7424)
 
 ## Phase 6: Validation and delivery

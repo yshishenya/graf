@@ -5826,8 +5826,9 @@
         const active = document.activeElement;
         const samePrivacy = region.dataset.calendarShowTitle === replacement.dataset.calendarShowTitle
           && region.dataset.calendarShowTime === replacement.dataset.calendarShowTime;
-        const openSeries = samePrivacy ? [...region.querySelectorAll('[data-calendar-series][open]')] : [];
-        const seriesFocus = openSeries.some(panel => panel.contains(active)) ? active : null;
+        const preservedSeries = samePrivacy ? [...region.querySelectorAll('[data-calendar-series]')]
+          .filter(panel => panel.open || panel.contains(active)) : [];
+        const seriesFocus = preservedSeries.some(panel => panel.contains(active)) ? active : null;
         const focusedLink = region.contains(active) && active instanceof HTMLAnchorElement
           ? active.getAttribute("href") : null;
         // Preserve the details element itself (and its open state).
@@ -5838,7 +5839,7 @@
         } else {
           region.innerHTML = replacement.innerHTML;
         }
-        openSeries.forEach(panel => {
+        preservedSeries.forEach(panel => {
           const nextPanel = [...region.querySelectorAll('[data-calendar-series]')]
             .find(item => item.dataset.calendarSeries === panel.dataset.calendarSeries);
           if (nextPanel) {

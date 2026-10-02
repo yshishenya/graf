@@ -111,7 +111,13 @@ try {
  await button.click();assert.equal(await page.evaluate(()=>window.joinMessages.length),2);
  await page.evaluate(()=>window.GRAFCalendarJoin.reply(window.joinMessages[1].requestId,'handed_off'));
  assert.match(page.url(),/desktop\/meetings$/);
- const summary=page.locator('.calendar-series > summary');await summary.focus();await page.keyboard.press('Space');
+ const summary=page.locator('.calendar-series > summary');
+ await summary.focus();
+ await page.evaluate(()=>{window.closedSeriesRow=document.querySelector('.calendar-home-upcoming__row');window.dispatchEvent(new Event('online'));});
+ await page.waitForFunction(()=>document.querySelector('.calendar-home-upcoming__row')!==window.closedSeriesRow);
+ assert.equal(await page.evaluate(()=>document.activeElement.matches('.calendar-series > summary')),true);
+ assert.equal(await page.locator('.calendar-series').getAttribute('open'),null);
+ await page.keyboard.press('Space');
  await page.waitForFunction(()=>document.querySelectorAll('.calendar-series__occurrence').length===5);
  await page.locator('[data-calendar-series-more]').click();
  await page.waitForFunction(()=>document.querySelectorAll('.calendar-series__occurrence').length===12);
