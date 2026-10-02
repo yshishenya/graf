@@ -10,10 +10,11 @@
   <link rel="stylesheet" href="{{ public_static_asset_url('guide.css') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('protocol-guide.css') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('content.css') }}">
+  <link rel="stylesheet" href="{{ public_static_asset_url('content-header.css') }}">
 </head>
 <body>
   <a class="skip-link" href="#main">К содержанию</a>
-  <header><a href="/" aria-label="ГРАФ — главная">ГРАФ</a><nav aria-label="Навигация"><a href="/guides/zapis-vstrechi-na-mac-bez-bota">Запись на Mac</a></nav></header>
+  {% include "public/_content_header.html" %}
   <main id="main"><article>
     <nav class="content-breadcrumb" aria-label="Раздел"><a href="/guides">Все руководства</a></nav>
     <p class="eyebrow">Руководство · Редакция ГРАФ</p>

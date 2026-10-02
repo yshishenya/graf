@@ -4,18 +4,20 @@ const menuButton = document.querySelector('[data-menu-button]');
 const mobileNav = document.querySelector('[data-mobile-nav]');
 
 if (menuButton && mobileNav) {
-  menuButton.addEventListener('click', () => {
-    const isOpen = menuButton.getAttribute('aria-expanded') === 'true';
-    menuButton.setAttribute('aria-expanded', String(!isOpen));
-    mobileNav.classList.toggle('open', !isOpen);
+  const setMenuOpen = (open, returnFocus = false) => {
+    menuButton.setAttribute('aria-expanded', String(open));
+    menuButton.setAttribute('aria-label', open ? 'Закрыть меню' : 'Открыть меню');
+    mobileNav.classList.toggle('open', open);
+    if (returnFocus) menuButton.focus();
+  };
+  menuButton.addEventListener('click', () => setMenuOpen(menuButton.getAttribute('aria-expanded') !== 'true'));
+  mobileNav.querySelectorAll('a').forEach((link) => link.addEventListener('click', () => setMenuOpen(false)));
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && menuButton.getAttribute('aria-expanded') === 'true') {
+      setMenuOpen(false, true);
+    }
   });
-
-  mobileNav.querySelectorAll('a').forEach((link) => {
-    link.addEventListener('click', () => {
-      menuButton.setAttribute('aria-expanded', 'false');
-      mobileNav.classList.remove('open');
-    });
-  });
+  window.matchMedia('(max-width: 980px)').addEventListener('change', () => setMenuOpen(false));
 }
 
 const header = document.querySelector('[data-header]');

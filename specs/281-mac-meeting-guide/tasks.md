@@ -17,4 +17,8 @@ Umbrella issue: #7391
 Hub опубликован в v2026.10.02.2: source/runtime/tag540f322b4de8016d3b920c74fb8a72c3881ad915, Full36941465329 PASS, CD/backup/smoke cleanup/public readback PASS. Доказательства: evidence/guides-hub-publication.json.
 
 - [x] T008 Подготовить третью статью о проверке качества расшифровки, учебные пометки/первоисточники, route/registry/sitemap/related links и прежний L1 surface; FR011–FR015 (Issue #7429).
-- [ ] T009 Проверить copy/metadata/links/mobile/measurements/protected diff, exact-SHA CI и штатную публикацию с production readback; FR011–FR015 (Issue #7429).
+- [x] T009 Проверить copy/metadata/links/mobile/measurements/protected diff, exact-SHA CI и штатную публикацию с production readback; FR011–FR015 (Issue #7429).
+
+Третья статья опубликована v2026.10.02.3, source721b5125d, Full36949473232 PASS, CD/backup/readback PASS.
+- [x] T010 Реализовать и проверить общую шапку и ссылку главной, current/mobile/keyboard/no-JS/unchanged body; FR016–18 (Issue #7431).
+- [ ] T011 Пройти exact-SHA PR/Full/CD, backup/recovery и live readback; FR016–18 (Issue #7431).

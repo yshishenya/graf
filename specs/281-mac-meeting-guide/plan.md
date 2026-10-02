@@ -24,3 +24,7 @@ FR006–FR010 имеют задачи и проверки; scope/clarification �
 ## Следующий узкий срез: качество расшифровки
 
 Active Spec Kit slice, tiny-low-risk editorial content. Новый фиксированный маршрут/шаблон и запись в существующем реестре; shared related partial выводит все опубликованные соседние guides. Используются существующие landing/guide/content CSS, новые стили только для учебных примеров при необходимости; CMS/search/editor не добавляются. Исходная реализация ASR/AI не меняется. Current base11196fe59 содержит только документальный closeout поверх опубликованного540f. FR011–FR015 покрываются T008/T009. Google Cloud speaker diarization и Microsoft WER docs прочитаны 2026-10-02; оба источника определяют общие понятия, не являются доказательством использования этих провайдеров в ГРАФ.
+
+## Шапка: narrow low-risk navigation
+Baseline721b5125d, опубликованный v2026.10.02.3. Общий Jinja partial четырёх content routes и scoped CSS; mobile links видимы во второй строке без JS. Главная получает одну ссылку в двух представлениях, aria-controls и Escape/resize; скрытые ссылки не фокусируются. Проверка current/no-JS/focus/mobile36039076898010241440, protected HTML outside-header equality.
+Analyze: FR016–18 покрыты T010/T011; critical/high нет. Keyboard defect opacity-menu исправляется в разрешённой шапке. Recovery retained baseline/verify previous/finish restored проверен предыдущим выпуском; перед CD привязать к точному candidate/baseline.

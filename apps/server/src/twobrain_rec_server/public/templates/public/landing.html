@@ -80,6 +80,7 @@
         ]
       }
     </script>
+    <link rel="stylesheet" href="{{ public_static_asset_url('content-header.css') }}">
     <script src="{{ public_static_asset_url('landing.js') }}" defer></script>
   </head>
   <body>
@@ -94,6 +95,7 @@
           <a href="#for-whom">Для кого</a>
           <a href="#how">Как работает</a>
           <a href="#faq">Вопросы</a>
+          <a href="/guides">Руководства</a>
           {% if public_offer.catalog_ready %}<a href="#price">Тариф</a>{% endif %}
         </nav>
         <div class="header-actions">
@@ -101,15 +103,16 @@
           <a class="button button-small" href="/download" data-analytics-cta="header_download" data-analytics-target="download_page">
             Скачать
           </a>
-          <button class="menu-button" type="button" aria-label="Открыть меню" aria-expanded="false" data-menu-button>
+          <button class="menu-button" type="button" aria-label="Открыть меню" aria-expanded="false" aria-controls="mobile-navigation" data-menu-button>
             <span></span><span></span>
           </button>
         </div>
       </div>
-      <nav class="mobile-nav" aria-label="Мобильная навигация" data-mobile-nav>
+      <nav class="mobile-nav" id="mobile-navigation" aria-label="Мобильная навигация" data-mobile-nav>
         <a href="#for-whom">Для кого</a>
         <a href="#how">Как работает</a>
         <a href="#faq">Вопросы</a>
+          <a href="/guides">Руководства</a>
         {% if public_offer.catalog_ready %}<a href="#price">Тариф</a>{% endif %}
         <a href="/login?next=/meetings" data-analytics-cta="header_login" data-analytics-target="login">Войти</a>
       </nav>

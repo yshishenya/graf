@@ -11,13 +11,11 @@
   <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('content.css') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('quality-guide.css') }}">
+  <link rel="stylesheet" href="{{ public_static_asset_url('content-header.css') }}">
 </head>
 <body class="guides-page quality-page">
   <a class="skip-link" href="#main">К содержанию</a>
-  <header class="site-header guides-header"><div class="shell header-inner">
-    <a class="brand" href="/" aria-label="ГРАФ — на главную"><img src="{{ cabinet_static_asset_url('graf-wordmark-dark@2x.png') }}" alt="ГРАФ"></a>
-    <nav aria-label="Основная навигация"><a class="button button-small" href="/download">Скачать для Mac</a></nav>
-  </div></header>
+  {% include "public/_content_header.html" %}
   <main id="main"><article>
     <div class="guides-intro section-dark"><div class="quality-width">
       <nav class="content-breadcrumb" aria-label="Раздел"><a href="/guides">Все руководства</a></nav>
