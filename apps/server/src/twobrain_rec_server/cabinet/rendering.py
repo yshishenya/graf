@@ -1824,10 +1824,10 @@ def _render_calendar_series(key: str, *, embedded: bool) -> str:
           </div>
           <div data-calendar-series-rows></div>
           <p class="calendar-series__status" role="status" aria-live="polite" data-calendar-series-status></p>
-          <button type="button" class="calendar-series__more" data-calendar-series-more hidden>Ещё даты</button>
+          <button type="button" class="calendar-series__more" data-calendar-series-more hidden>Еще даты</button>
           <details class="calendar-series__help">
             <summary>{_ui_icon("info")}<span>О данных календаря</span></summary>
-            <p>Здесь доступны сохранённые даты за последние 180 дней и ближайшие 30 дней.
+            <p>Здесь доступны сохраненные даты за последние 180 дней и ближайшие 30 дней.
               Полная история календаря может быть недоступна. Показаны найденные связанные записи;
               отсутствие ссылки не означает, что записи нет.</p>
             <a href="{'/desktop' if embedded else ''}/meetings">Ко всем встречам</a>

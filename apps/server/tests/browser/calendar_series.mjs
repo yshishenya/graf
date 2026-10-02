@@ -90,7 +90,7 @@ const server=createServer((req,res)=>{
       recordings_partial:true,
       recordings:scenario==='masked'&&history?[{meeting_id:`00000000-0000-0000-0000-${String(offset+n+101).padStart(12,'0')}`}]:(!revised&&n===0)?[{meeting_id:'00000000-0000-0000-0000-000000000099'},{meeting_id:'00000000-0000-0000-0000-000000000098'}]:[]
     }));
-    res.end(JSON.stringify({occurrences,next_cursor:second||!occurrences.length?null:'second',coverage_range:{from:'2026-04-01T00:00:00Z',to:'2026-11-01T00:00:00Z'},coverage_note:'Показаны сохранённые доступные даты.'}));return;
+    res.end(JSON.stringify({occurrences,next_cursor:second||!occurrences.length?null:'second',coverage_range:{from:'2026-04-01T00:00:00Z',to:'2026-11-01T00:00:00Z'},coverage_note:'Показаны сохраненные доступные даты.'}));return;
   }
   res.setHeader('Content-Type','text/html; charset=utf-8');res.end(rendered[scenario] || html);
 });
@@ -129,7 +129,7 @@ try {
    'Планирование команды','Планирование команды: отдельная повестка ','Планирование команды',
    'Планирование команды: отдельная повестка ','Планирование команды'
  ]);
- assert.equal(await page.getByText('Идёт сейчас',{exact:true}).count(),0);
+ assert.equal(await page.getByText('Идет сейчас',{exact:true}).count(),0);
  assert.ok(await page.getByText('Без ссылки',{exact:true}).count()>0);
  const historyButton=page.locator('[data-calendar-series-view="history"]');
  await historyButton.click();
@@ -250,7 +250,7 @@ try {
    scenario=kind;await page.reload();
    if(kind==='dst') await page.evaluate(()=>window.GRAFTime.setTimezone('Europe/Berlin'));
    await page.locator('.calendar-series > summary').click();
-   await page.waitForFunction(()=>!document.querySelector('[data-calendar-series-more]').disabled);
+   await page.waitForFunction(()=>!document.querySelector('[data-calendar-series-more]').disabled && (document.querySelector('[data-calendar-series-status]').textContent || document.querySelectorAll('.calendar-series__occurrence').length));
    if(kind==='empty') {
      assert.match(await page.locator('[data-calendar-series-status]').textContent(),/ближайшие 30/);
      await page.locator('[data-calendar-series-view="history"]').click();
@@ -260,9 +260,9 @@ try {
      assert.match(await page.locator('.calendar-series__date').nth(0).textContent(),/01:30/);
      assert.match(await page.locator('.calendar-series__date').nth(1).textContent(),/03:30/);
    }
-   else if(kind==='ongoing') assert.equal(await page.getByText('Идёт сейчас',{exact:true}).count(),1);
+   else if(kind==='ongoing') assert.equal(await page.getByText('Идет сейчас',{exact:true}).count(),1);
    else if(kind==='masked') {
-     assert.equal(await page.getByText('Идёт сейчас',{exact:true}).count(),0);
+     assert.equal(await page.getByText('Идет сейчас',{exact:true}).count(),0);
      assert.equal(await page.locator('.calendar-series__date time').count(),0);
      assert.equal(await page.locator('.calendar-series__date').getByText('Время скрыто настройкой',{exact:true}).count(),5);
      assert.equal(await page.locator('.calendar-home-upcoming [datetime]').count(),0);

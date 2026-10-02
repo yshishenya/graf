@@ -262,6 +262,17 @@ paths:
           minimum: 1
           default: 20
           title: Limit
+      - name: view
+        in: query
+        required: false
+        schema:
+          enum:
+          - all
+          - upcoming
+          - history
+          type: string
+          default: all
+          title: View
       - name: X-User-Id
         in: header
         required: false
@@ -11994,6 +12005,15 @@ components:
           type: boolean
           title: Recordings Partial
           default: false
+        temporal_state:
+          anyOf:
+          - type: string
+            enum:
+            - upcoming
+            - ongoing
+            - history
+          - type: 'null'
+          title: Temporal State
       type: object
       required:
       - event_id
