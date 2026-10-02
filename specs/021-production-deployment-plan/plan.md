@@ -151,3 +151,17 @@ No constitution violations or unnecessary extra project layers are introduced.
 | US2 Operator can run migration and backup safely | Backup-before-migration commands, restore rehearsal, rollback decision evidence. |
 | US3 Operator can perform first production smoke | Smoke identity/device setup, small-artifact upload, readiness/log checks, degraded-awareness record. |
 | US4 Operator can roll back or halt rollout | Rollback/halt criteria, cleanup/residue accounting, final verdict contract. |
+
+## Узкий high-risk cleanup срез 2026-10-02
+
+Lane: high-risk deployment/deletion maintenance, существующая F021; полномочия только на изолированную реализацию/проверку/draft PR. Исходная база56325f8cc; F283 только base, не меняется и не публикуется.
+
+Диагноз: Postgres09:13:10.736UTC зафиксировал взаимную блокировку между DELETE processing_workflows и INSERT processing_results. Точный набор и порядок заблокированных строк production не доказаны; описанная ниже FK гонка — проверяемая модель, а не утверждение о полном production lock graph. Helper удерживает synthetic workspace FOR UPDATE в одной транзакции; worker сохраняет результат и ссылается FK на workflow/workspace. Required cleanup не повторяет транзакцию; EXIT best_effort повторяет helper после провала, но исходный gate закономерно остается failed.
+
+Решение: private single-attempt функция с флагом committed. Только DBAPIError.orig.sqlstate40P01 до commit преобразуется в private retry signal; публичная функция сохраняет signature и ограничивает3 попытками. Первые две транзакции полностью закрыты/откачены до задержки; Settings/engine и счетчики создаются заново на каждой попытке. Storage/residue вне retry после commit; никаких изменений SQL фильтров/delete order/tenant contexts. Не повторять отдельный DELETE в aborted transaction и не превращать exhausted вsuccess.
+
+Источник: PostgreSQL17 требует повторять всю транзакцию при deadlock, не отдельный statement: https://www.postgresql.org/docs/17/mvcc-serialization-failure-handling.html. Не выбран новый root-lock order, поскольку он требует отдельного согласования discovery/новых FK-child races.
+
+Стенд: одноразовая loopback PostgreSQL17, только deterministic synthetic graph и соседний не-smoke graph. Два соединения/события координируют workspace lock + workflow FK insert; PostgreSQL должен вернуть40P01 именно helper. Наблюдение rollback и повторной transaction, проверка точного удаления, counts/storage-after-commit, exhaustion и non-retry errors. DB fixture удаляется.
+
+Constitution: capture/auth/egress/analytics untouched; maintenance RLS прежний; пользовательские записи не используются. Legacy Impact untouched, новых alias/fallback/flags/dependencies нет. FR023–27 → T067–T070. Перед кодом reviewer-owned cleanup-safety checklist и analyze; после focused proof/independent review, required exact-SHA PR checks. Full/CD отдельный последующий согласованный кандидат.
