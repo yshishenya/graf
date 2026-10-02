@@ -54,3 +54,8 @@ Umbrella: #7391. Lane: tiny-low-risk content: фиксированная пуб�
 - FR013: диаризация не обещает распознавания личности; WER требует эталон и не является гарантией правильности решений. Прямые ссылки на первоисточники Google Cloud/Microsoft Learn; нет неподтвержденных действий редактора/поиска/пересчета внутри продукта.
 - FR014: одна новая карточка после прежних двух, контекстные ссылки из обоих guides и возврат к hub; прежние URL/body/metadata сохранены, кроме новых связанных ссылок. Landing/download/policies/assets без diff. Новая страница следует существующим HTML/CSS/mobile/keyboard подходам.
 - FR015: новый closed surface только в текущих L1/campaign inventories, существующий DB dependency и consent/off contracts; без нового provider/событий/JS/PII/env. Synthetic isolated tests и production bot readback не означают organic activation. Exact-SHA PR gates и frozen Full/backup/CD обязательны; scope стороннего F282 исключен.
+
+## Общая навигация руководств
+FR016: явный запрос владельца разрешает «Руководства» в desktop/mobile шапке главной; основной текст, metadata и footer сохранены.
+FR017: общая шапка hub/трёх статей: логотип домой, Главная, Руководства с aria-current, Войти и существующий download CTA; доступна без JavaScript.
+FR018: mobile/keyboard/focus, корректное закрытие меню главной; body статей, download, policies, analytics неизменны.

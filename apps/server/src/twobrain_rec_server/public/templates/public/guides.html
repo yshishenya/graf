@@ -11,15 +11,11 @@
   <link rel="preload" href="{{ public_static_asset_url('fonts/onest-cyrillic.woff2') }}" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="{{ public_static_asset_url('landing.css') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('content.css') }}">
+  <link rel="stylesheet" href="{{ public_static_asset_url('content-header.css') }}">
 </head>
 <body class="guides-page">
   <a class="skip-link" href="#main">К содержанию</a>
-  <header class="site-header guides-header">
-    <div class="shell header-inner">
-      <a class="brand" href="/" aria-label="ГРАФ — на главную"><img src="{{ cabinet_static_asset_url('graf-wordmark-dark@2x.png') }}" alt="ГРАФ"></a>
-      <nav aria-label="Основная навигация"><a class="button button-small" href="/download">Скачать для Mac</a></nav>
-    </div>
-  </header>
+  {% include "public/_content_header.html" %}
   <main id="main">
     <section class="guides-intro section-dark">
       <div class="shell">
