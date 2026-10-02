@@ -38,7 +38,7 @@
 ## Phase 6: Validation and delivery
 
 - [X] T008 Проверить production синтетические screenshots в двух темах,1280px/320px/200%, клавиатуру и видимый focus; записать только безопасное evidence в specs/283-calendar-series-ux/validation.md и changes/unreleased/F283.yaml (FR-009/010, SC-003). — [#7424](https://github.com/yshishenya/graf/issues/7424)
-- [ ] T009 Выполнить quickstart server/browser, converge и обязательные exact-SHA/base PR checks; после одобренного commit проверить единственный GRAF Dev через harness; зафиксировать gates и остаток в specs/283-calendar-series-ux/validation.md (SC-003/004). — [#7425](https://github.com/yshishenya/graf/issues/7425)
+- [X] T009 Выполнить quickstart server/browser, converge и обязательные exact-SHA/base PR checks; после одобренного commit проверить единственный GRAF Dev через harness; зафиксировать gates и остаток в specs/283-calendar-series-ux/validation.md (SC-003/004). — [#7425](https://github.com/yshishenya/graf/issues/7425)
 
 ## Dependencies & Execution Order
 
@@ -46,4 +46,4 @@ T001→T002→T003→T004→T005→T006→T007→T008→T009. Story tests indepe
 
 ## Implementation Strategy
 
-Extend existing scoped query/cursor and native controls, reuse theme/time/security helpers. No new packages, storage schema, recurrence editor, provider or recording behavior. Mark tasks [X] only after respective validation. T009 stays open until exact-SHA PR and Dev evidence; production release is a separate authorised operation.
+Extend existing scoped query/cursor and native controls, reuse theme/time/security helpers. No new packages, storage schema, recurrence editor, provider or recording behavior. Mark tasks [X] only after respective validation. T009 accepted on d0edffddfd766179ff46feb5bd8a5a71682015b1 with exact-SHA/base PR proof and installed GRAF Dev acceptance; final documentation-only head must retain verified code proof and current Dev identity. GitHub closeout follows merge; production release is a separate authorised operation.
