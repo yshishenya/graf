@@ -1,0 +1,8 @@
+# Contracts
+- Native metadata snapshots every2s; success→snapshot(events with current timestamp), failure→no activity assertion. Native mode never launches or consumes historical/live log children. Explicit legacy mode is only compatibility testing, not selected by application. Restart keeps last-known state until successful current snapshot; native failure keeps it only until stale timer600s.
+- Full success snapshot updates detector active targets and marks absent active sources inactive; repeated active must preserve accepted/terminal consumer outcome. Inactive→active before15s grace cancels ending without new prompt.
+- Bridge keeps action/id shape. List open/send/delete unchanged. Detail allows ONLY open and exact UUID match of route and current row; unsupported/unknown route, stale rows, false canOpen rejected. Main-frame/origin/session/deletion/hash fences retained.
+- Native row rendering adds accessible button near existing playback; refresh removes or updates it if identity/access disappears. No paths or audio bytes sent to web. No action in ordinary browser.
+- Server maps storage_capacity_exceeded to the same public reason with Russian/English quota copy and existing cabinet billing/storage link. No claim of corrupt audio and no false automatic-retry promise.
+
+Quota navigation uses the existing /billing overview (shared access); capacity-management actions remain guarded by billing_owner. Copy asks to contact the workspace owner when appropriate. No new authority or purchase action is introduced.

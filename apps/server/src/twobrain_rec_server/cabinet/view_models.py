@@ -488,6 +488,7 @@ CALENDAR_CONTEXT_STATE_COPY: dict[str, dict[str, str]] = {
 }
 
 PLAYBACK_TERMINAL_REASON: dict[str, PlaybackPreparationReasonCode] = {
+    "storage_capacity_exceeded": "storage_capacity_exceeded",
     "empty_source": "empty_source",
     "no_audio": "no_audio",
     "ambiguous_audio_tracks": "ambiguous_audio_tracks",
@@ -514,6 +515,7 @@ PLAYBACK_REASON_COPY: dict[str, dict[str, str]] = {
         "canonical_artifact_missing": "GRAF автоматически восстанавливает аудио",
         "canonical_ready": "Аудио готово",
         "access_denied": "Аудио недоступно",
+        "storage_capacity_exceeded": "Недостаточно места в хранилище для аудио",
         "empty_source": "В исходном файле нет данных",
         "no_audio": "В файле нет пригодной аудиодорожки",
         "ambiguous_audio_tracks": "В файле несколько равноправных аудиодорожек",
@@ -540,6 +542,7 @@ PLAYBACK_REASON_COPY: dict[str, dict[str, str]] = {
         "canonical_artifact_missing": "GRAF is automatically recovering the audio",
         "canonical_ready": "Audio is ready",
         "access_denied": "Audio is unavailable",
+        "storage_capacity_exceeded": "Not enough storage space for audio",
         "empty_source": "The source file is empty",
         "no_audio": "The file has no usable audio track",
         "ambiguous_audio_tracks": "The file has multiple equally valid audio tracks",

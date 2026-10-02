@@ -109,6 +109,22 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
         return true
     }
 
+    /// A complete current snapshot replaces all prior source states without replaying accepted offers.
+    public func reconcileSnapshot(activeBundleIDs: Set<String>, observedAt: Date) {
+        for tracked in Array(trackedEvents.values) where !activeBundleIDs.contains(tracked.bundleID) {
+            for source in tracked.activeSources {
+                reconcile(event: .init(bundleID: tracked.bundleID, source: source, state: .inactive, observedAt: observedAt))
+            }
+        }
+        for bundleID in activeBundleIDs {
+            reconcile(event: .init(bundleID: bundleID, source: .coreAudioInput, state: .active, observedAt: observedAt))
+        }
+    }
+
+    public static func recordingEvidenceExpired(lastObservedAt: Date, now: Date) -> Bool {
+        now.timeIntervalSince(lastObservedAt) >= 600
+    }
+
     public func advance(
         now: Date? = nil,
         registry: MeetingTargetRegistryDocument,

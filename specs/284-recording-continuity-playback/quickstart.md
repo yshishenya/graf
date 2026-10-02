@@ -1,0 +1,7 @@
+# Quickstart
+All fixtures synthetic; no capture of the user's microphone.
+1. Run `swift test --package-path apps/macos --filter MeetingDetection` and focused ownership/native/bridge/queue/deletion tests. New regression checks first fail on old code, then pass. Simulated clock covers45minutes, repeated snapshot failure/restarts, empty/inactive15s, unknown600s, manual suppression and permissions. Run actual shared evidence predicate and detector with advancing synthetic clock; source-string assertions alone do not qualify. Native empty + old log active must still end15–17s; native unavailable + cached log active must expire600s. Native-mode stream must never run a configured old-log-active script. Nested helper attribution and unapproved target suppression have negative cases.
+2. From apps/server run available Python environment: `python -m pytest tests/contract/test_playback_status_contract.py` plus quota-copy and cabinet playback focused checks.
+3. Run new detail local-playback Playwright check and existing local-recording-focus/handoff, playback-refresh checks with existing Playwright NODE_PATH.
+4. Run `python3 scripts/check_spec_kit_governance.py` and relevant changelog validator. Record commands/results in validation.md, including unavailable gates.
+5. Live acceptance: first dev-harness status; clean authorized commit needed before build/promote. Only /Applications/GRAF Dev.app. Synthetic controlled long-call; no new capture of personal meeting content. Hardware acceptance and GitHub exact-SHA checks remain separate gates.

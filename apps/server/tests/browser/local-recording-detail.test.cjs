@@ -1,0 +1,41 @@
+const {chromium} = require('playwright');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+(async () => {
+  const browser = await chromium.launch({headless:true});
+  try {
+    const page = await browser.newPage();
+    const errors=[]; page.on('pageerror', e=>errors.push(e.message));
+    await page.setContent('<main data-meeting-id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"><h1 tabindex="-1">Synthetic</h1><section data-playback-state="unavailable" data-playback-reason="storage_capacity_exceeded"></section></main>');
+    await page.addScriptTag({path:path.join(__dirname,'../../src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js')});
+    const row={id:'local-a',meetingId:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',canOpen:true};
+    const publish=rows=>page.evaluate(rows=>window.GRAFLocalRecordings.update(rows),rows);
+    const button=page.locator('[data-graf-local-recording-action="open"]');
+    assert.equal(await button.count(),0,'ordinary browser has no local action');
+    await publish([row]);
+    assert.equal(await button.count(),1,'authorized local copy is available from detail');
+    assert.equal(await button.textContent(),'Слушать запись с этого Mac');
+    await button.focus();
+    await publish([row]);
+    assert.equal(await button.evaluate(e=>e===document.activeElement),true,'polling retains keyboard focus');
+    await page.evaluate(()=>{document.querySelector('[data-playback-state]').dataset.playbackReason='access_denied';});
+    await publish([row]);
+    assert.equal(await button.count(),0,'server access denial hides stale native row');
+    await page.evaluate(()=>{document.querySelector('[data-playback-state]').dataset.playbackReason='storage_capacity_exceeded';});
+    await publish([row]);
+    assert.equal(await button.count(),1,'authorized quota fallback returns');
+    await publish([{...row,canOpen:false}]);
+    assert.equal(await button.count(),0,'access loss removes action');
+    await publish([{...row,meetingId:'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'}]);
+    assert.equal(await button.count(),0,'another meeting cannot be opened');
+    await publish([row]);
+    await page.evaluate(()=>{document.querySelector('main').dataset.meetingId='bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'; document.body.dispatchEvent(new CustomEvent('htmx:afterSwap'));});
+    assert.equal(await button.count(),0,'navigation removes stale action');
+    await page.evaluate(()=>{document.querySelector('main').dataset.meetingId='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'; document.body.dispatchEvent(new CustomEvent('htmx:afterSwap'));});
+    assert.equal(await button.count(),1,'fragment navigation reconciles local row');
+    await publish([]);
+    assert.equal(await button.count(),0,'deletion or account change removes action');
+    assert.deepEqual(errors,[]);
+    console.log('detail local playback: matching identity, focus, access, deletion and fragment refresh PASS');
+  } finally {await browser.close();}
+})();

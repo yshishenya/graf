@@ -1028,8 +1028,6 @@ private struct ContentView: View {
             for await observation in logStream.observations() {
                 switch observation {
                 case .reconcile(let generation):
-                    meetingDetectionDetector.reset()
-                    dismissMeetingDetectionPrompt()
                     AppLog.writeRaw(
                         event: "meeting_detection.observer_reconcile",
                         detail: "generation=\(generation)"
@@ -1041,11 +1039,12 @@ private struct ContentView: View {
                             event: "meeting_detection.source_transition",
                             detail: "source=\(event.source.rawValue) bundleID=\(event.bundleID) state=\(event.state.rawValue) snapshot=true"
                         )
-                        meetingDetectionDetector.reconcile(event: event)
                     }
+                    let observedAt = events.first?.observedAt ?? Date()
+                    meetingDetectionDetector.reconcileSnapshot(activeBundleIDs: activeBundleIDs, observedAt: observedAt)
                     reconcileMeetingDetectionRecording(
                         activeBundleIDs: activeBundleIDs,
-                        observedAt: Date()
+                        observedAt: observedAt
                     )
                     AppLog.writeRaw(
                         event: "meeting_detection.snapshot_reconciled",
@@ -1053,10 +1052,6 @@ private struct ContentView: View {
                     )
                     await advanceMeetingDetection(reason: "snapshot_reconciled")
                 case .lifecycle(let phase, let generation):
-                    if phase == .unexpectedFinish {
-                        meetingDetectionDetector.reset()
-                        dismissMeetingDetectionPrompt()
-                    }
                     AppLog.writeRaw(
                         event: "meeting_detection.observer_lifecycle",
                         detail: "generation=\(generation) phase=\(phase.rawValue)"
@@ -1565,24 +1560,17 @@ private struct ContentView: View {
         activeBundleIDs: Set<String>,
         observedAt: Date
     ) {
-        if let activeMeetingDetectionBundleID {
-            if activeBundleIDs.contains(activeMeetingDetectionBundleID) {
-                lastMeetingDetectionEvidenceAt = observedAt
-            } else {
-                stopMeetingDetectionRecordingIfNeeded(bundleID: activeMeetingDetectionBundleID)
-            }
+        if let activeMeetingDetectionBundleID, activeBundleIDs.contains(activeMeetingDetectionBundleID) {
+            lastMeetingDetectionEvidenceAt = observedAt
         }
-        if let manuallyStoppedMeetingDetectionBundleID,
-           !activeBundleIDs.contains(manuallyStoppedMeetingDetectionBundleID) {
-            self.manuallyStoppedMeetingDetectionBundleID = nil
-        }
+        // Absence and manual suppression end together through the detector's 15-second grace.
     }
 
     @MainActor
     private func stopStaleMeetingDetectionRecordingIfNeeded(now: Date) {
         guard let bundleID = activeMeetingDetectionBundleID,
               let lastMeetingDetectionEvidenceAt,
-              now.timeIntervalSince(lastMeetingDetectionEvidenceAt) >= 600
+              MacOSMeetingActivityDetector.recordingEvidenceExpired(lastObservedAt: lastMeetingDetectionEvidenceAt, now: now)
         else { return }
         AppLog.writeRaw(
             event: "meeting_detection.recording_stop_requested",

@@ -389,7 +389,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
             snapshotArguments: ["-c", "exit 0"],
             restartDelayNanoseconds: 1_000_000
         )
-        let stream = MacOSAudioOwnershipLogStream(configuration: configuration)
+        let stream = MacOSAudioOwnershipLogStream(configuration: configuration, snapshotProvider: nil)
         var reconciledGenerations: [Int] = []
         var phases: [MacOSAudioOwnershipObserverPhase] = []
 
@@ -421,7 +421,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
             snapshotArguments: ["-c", "exit 0"],
             restartDelayNanoseconds: 1_000_000
         )
-        let stream = MacOSAudioOwnershipLogStream(configuration: configuration)
+        let stream = MacOSAudioOwnershipLogStream(configuration: configuration, snapshotProvider: nil)
         var reconciledGenerations: [Int] = []
         var liveGenerations: [Int] = []
 
@@ -448,7 +448,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
             snapshotArguments: ["-c", "exit 0"],
             restartDelayNanoseconds: 1_000_000
         )
-        let stream = MacOSAudioOwnershipLogStream(configuration: configuration)
+        let stream = MacOSAudioOwnershipLogStream(configuration: configuration, snapshotProvider: nil)
         stream.stop()
         var didReconcile = false
 
@@ -469,7 +469,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
             snapshotArguments: ["-c", "exit 0"],
             restartDelayNanoseconds: 1_000_000
         )
-        let stream = MacOSAudioOwnershipLogStream(configuration: configuration)
+        let stream = MacOSAudioOwnershipLogStream(configuration: configuration, snapshotProvider: nil)
         var reconciledGenerations: [Int] = []
 
         for await observation in stream.observations() {
@@ -499,7 +499,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
             snapshotTimeoutNanoseconds: 1_000_000_000,
             restartDelayNanoseconds: 1_000_000
         )
-        let stream = MacOSAudioOwnershipLogStream(configuration: configuration)
+        let stream = MacOSAudioOwnershipLogStream(configuration: configuration, snapshotProvider: nil)
         var snapshotEvents: [MacOSAudioOwnershipEvent] = []
 
         for await observation in stream.observations() {
@@ -527,7 +527,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
             snapshotTimeoutNanoseconds: 1_000_000,
             restartDelayNanoseconds: 1_000_000
         )
-        let stream = MacOSAudioOwnershipLogStream(configuration: configuration)
+        let stream = MacOSAudioOwnershipLogStream(configuration: configuration, snapshotProvider: nil)
         var phases: [MacOSAudioOwnershipObserverPhase] = []
 
         for await observation in stream.observations() {
@@ -553,7 +553,7 @@ final class MeetingDetectionPolicyTests: XCTestCase {
             snapshotArguments: ["-c", snapshotScript],
             snapshotTimeoutNanoseconds: 1_000_000_000
         )
-        let stream = MacOSAudioOwnershipLogStream(configuration: configuration)
+        let stream = MacOSAudioOwnershipLogStream(configuration: configuration, snapshotProvider: nil)
         var snapshotWasPublished = false
         var phases: [MacOSAudioOwnershipObserverPhase] = []
 
@@ -1122,6 +1122,101 @@ final class MeetingDetectionPolicyTests: XCTestCase {
             sourceAppEligibility: .eligible,
             evaluatedAt: Date(timeIntervalSince1970: 1_779_887_120)
         )
+    }
+
+    func testCurrentSnapshotsPreserveOneFortyFiveMinuteCallAndEndGrace() throws {
+        let registry = try Self.registry()
+        let detector = MacOSMeetingActivityDetector()
+        let settings = MeetingDetectionSettings()
+        let bundleID = "ru.yandex.desktop.telemost"
+        var lastEvidence = Date(timeIntervalSince1970: 0)
+        var offers = 0
+        for seconds in stride(from: 0, through: 2700, by: 2) {
+            let now = Date(timeIntervalSince1970: Double(seconds))
+            detector.reconcileSnapshot(activeBundleIDs: [bundleID], observedAt: now)
+            lastEvidence = now
+            let outputs = detector.advance(now: now, registry: registry, settings: settings)
+            offers += outputs.count
+            if !outputs.isEmpty { detector.recordConsumerOutcome(bundleID: bundleID, outcome: .accepted, at: now) }
+            XCTAssertFalse(MacOSMeetingActivityDetector.recordingEvidenceExpired(lastObservedAt: lastEvidence, now: now))
+        }
+        XCTAssertEqual(offers, 1)
+        // A successful full native snapshot must also clear prior legacy source state.
+        detector.reconcile(event: .init(bundleID: bundleID, source: .audioHAL, state: .active, observedAt: lastEvidence))
+        let endedAt = Date(timeIntervalSince1970: 2702)
+        detector.reconcileSnapshot(activeBundleIDs: [], observedAt: endedAt)
+        XCTAssertFalse(detector.isActive(bundleID: bundleID))
+        detector.reconcileSnapshot(activeBundleIDs: [], observedAt: endedAt.addingTimeInterval(10))
+        XCTAssertTrue(detector.advance(now: endedAt.addingTimeInterval(14), registry: registry, settings: settings).isEmpty)
+        XCTAssertEqual(detector.advance(now: endedAt.addingTimeInterval(15), registry: registry, settings: settings), [.ended(bundleID: bundleID)])
+        // No observations (including unavailable snapshots) means no renewal.
+        XCTAssertFalse(MacOSMeetingActivityDetector.recordingEvidenceExpired(lastObservedAt: lastEvidence, now: lastEvidence.addingTimeInterval(599)))
+        XCTAssertTrue(MacOSMeetingActivityDetector.recordingEvidenceExpired(lastObservedAt: lastEvidence, now: lastEvidence.addingTimeInterval(600)))
+    }
+
+    func testCurrentSnapshotsPreserveManualSuppressionAndTransientInactivity() throws {
+        let registry = try Self.registry(), settings = MeetingDetectionSettings()
+        let detector = MacOSMeetingActivityDetector()
+        let bundleID = "ru.yandex.desktop.telemost", now = Date(timeIntervalSince1970: 100)
+        detector.reconcileSnapshot(activeBundleIDs: [bundleID], observedAt: now)
+        XCTAssertEqual(detector.advance(now: now.addingTimeInterval(5), registry: registry, settings: settings).count, 1)
+        detector.recordConsumerOutcome(bundleID: bundleID, outcome: .terminal(reason: "manually_stopped_current_meeting"), at: now)
+        detector.reconcileSnapshot(activeBundleIDs: [], observedAt: now.addingTimeInterval(10))
+        detector.reconcileSnapshot(activeBundleIDs: [bundleID], observedAt: now.addingTimeInterval(12))
+        XCTAssertTrue(detector.advance(now: now.addingTimeInterval(2700), registry: registry, settings: settings).isEmpty)
+    }
+
+    func testNativeSnapshotsNeverRunOldLogActiveEvenWhenUnavailable() async {
+        // Would emit stale active indefinitely if the journal child were launched.
+        let staleLog = #"printf '%s\n' 'ControlCenter [com.apple.controlcenter:sensor-indicators] Active activity attributions changed to ["mic:ru.yandex.desktop.telemost"]'"#
+        for available in [true, false] {
+            let stream = MacOSAudioOwnershipLogStream(
+                configuration: .init(executableURL: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", staleLog], snapshotArguments: ["-c", staleLog]),
+                snapshotProvider: { available ? [] : nil }, snapshotIntervalNanoseconds: 1_000_000
+            )
+            var samples = 0, logActiveCount = 0
+            for await observation in stream.observations() {
+                switch observation {
+                case .snapshot(let events, _):
+                    XCTAssertTrue(events.isEmpty); samples += 1
+                case .lifecycle(.snapshotUnavailable, _): samples += 1
+                case .ownership: logActiveCount += 1
+                default: break
+                }
+                if samples == 3 { stream.stop() }
+            }
+            XCTAssertEqual(samples, 3)
+            XCTAssertEqual(logActiveCount, 0)
+        }
+    }
+
+    func testNativeObserverRestartDoesNotReplayRecordingOffer() async throws {
+        let registry = try Self.registry(), detector = MacOSMeetingActivityDetector(debounceSeconds: 0)
+        let bundleID = "ru.yandex.desktop.telemost"
+        let stream = MacOSAudioOwnershipLogStream(snapshotProvider: { [bundleID] }, snapshotIntervalNanoseconds: 1_000_000)
+        var snapshots = 0, offers = 0, generations: [Int] = []
+        for await observation in stream.observations() {
+            switch observation {
+            case .reconcile(let generation): generations.append(generation)
+            case .snapshot(let events, _):
+                let observedAt = try XCTUnwrap(events.first?.observedAt)
+                detector.reconcileSnapshot(activeBundleIDs: Set(events.map(\.bundleID)), observedAt: observedAt)
+                let outputs = detector.advance(now: observedAt, registry: registry, settings: .init())
+                offers += outputs.count
+                detector.recordConsumerOutcome(bundleID: bundleID, outcome: .accepted, at: observedAt)
+                snapshots += 1
+                if snapshots == 1 { stream.restart() }
+                if snapshots == 3 { stream.stop() }
+            default: break
+            }
+        }
+        XCTAssertEqual(generations, [1,2])
+        XCTAssertEqual(offers, 1)
+    }
+
+    func testCoreAudioAttributionSelectsOuterAppNotNestedHelper() {
+        XCTAssertEqual(MacOSAudioInputActivitySnapshot.containingApplicationURL(for: URL(fileURLWithPath: "/Applications/Telemost.app/Contents/Frameworks/QtWebEngineProcess.app/Contents/MacOS/QtWebEngineProcess"))?.path, "/Applications/Telemost.app")
+        XCTAssertNil(MacOSAudioInputActivitySnapshot.containingApplicationURL(for: URL(fileURLWithPath: "/usr/bin/unknown")))
     }
 
     private static func registry() throws -> MeetingTargetRegistryDocument {

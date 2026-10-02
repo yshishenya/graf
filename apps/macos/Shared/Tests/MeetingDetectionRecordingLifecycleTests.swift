@@ -10,7 +10,7 @@ final class MeetingDetectionRecordingLifecycleTests: XCTestCase {
         XCTAssertTrue(source.contains("meeting_detection_target_ended_during_start"))
         XCTAssertTrue(source.contains("activeMeetingDetectionBundleID == bundleID"))
         XCTAssertTrue(source.contains("reconcileMeetingDetectionRecording("))
-        XCTAssertTrue(source.contains("now.timeIntervalSince(lastMeetingDetectionEvidenceAt) >= 600"))
+        XCTAssertTrue(source.contains("MacOSMeetingActivityDetector.recordingEvidenceExpired("))
         XCTAssertTrue(source.contains("manuallyStoppedMeetingDetectionBundleID = detectorBundleID"))
         XCTAssertTrue(source.contains("manually_stopped_current_meeting"))
         XCTAssertTrue(source.contains("guard activeMeetingDetectionBundleID == bundleID else { return }"))

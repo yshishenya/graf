@@ -439,6 +439,23 @@
       list.append(row);
     }
   };
+  const renderDetailLocalPlayback = () => {
+    const detail = document.querySelector('main[data-meeting-id]');
+    const existing = document.querySelector('[data-detail-local-playback]');
+    const playback = detail?.querySelector('[data-playback-state]');
+    const row = localRecordingRows.find(item => item.canOpen && item.meetingId?.toLowerCase() === detail?.dataset.meetingId?.toLowerCase());
+    if (!row || !playback || ['deleted', 'deleting'].includes(playback.dataset.playbackState) || playback.dataset.playbackReason === 'access_denied') { existing?.remove(); return; }
+    if (existing?.dataset.grafLocalRecordingId === row.id && existing.parentElement === playback) return;
+    existing?.remove();
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'button';
+    button.dataset.detailLocalPlayback = '';
+    button.dataset.grafLocalRecordingAction = 'open';
+    button.dataset.grafLocalRecordingId = row.id;
+    button.textContent = 'Слушать запись с этого Mac';
+    playback.append(button);
+  };
   window.GRAFLocalRecordings = {
     deletionCompleted(requestId, result) {
       nativeDeletionReplies.get(requestId)?.(result);
@@ -490,6 +507,7 @@
       localRecordingRows = nextRows;
       renderLocalRecordingRows();
       applyNativeDeletionOperations(nativeDeletionOperations);
+      renderDetailLocalPlayback();
       renderNativeDeletionStatus(nativeDeletionOperations);
       updateMixedResultCount();
       reconcileMeetingSelection();
@@ -9439,6 +9457,7 @@
   });
 
   document.body.addEventListener("htmx:afterSwap", (event) => {
+    renderDetailLocalPlayback();
     const target = event.detail?.target;
     const source = shareRequestSource(event);
     if (source && target instanceof Element && target.id === "meeting-share-host") {
