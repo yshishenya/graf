@@ -1,0 +1,5 @@
+# Data Model
+No persisted schema changes.
+Current ownership snapshot: optional Set<bundleID>; nil=unavailable, empty=confirmed no input. PID executable resolved to outer app bundle; unknown active PID invalidates snapshot. Native snapshots are the sole authority in the application; historical/live log mode is never selected or used as fallback on failure. A complete snapshot reconciles all source states, including old audioHAL/sensorIndicator states. Detector preserves accepted/suppressed lifetime across repeated active snapshots, emits ended only after15s absence, renews recording evidence on active snapshots. App's600s timer remains for genuine observation loss.
+Local row: existing id, meetingId, canOpen; lifecycle fences project canOpen=false or omit row. Route: trusted main-frame attached WebView and allowed cabinet origin plus meetingUUID. Open allowed only when matching authorized row. Native open still revalidates lifecycle/integrity; player closes on existing deletion/account reconciliation.
+Server terminal reason: storage_capacity_exceeded preserves reason code; no quota/state/migration modifications.

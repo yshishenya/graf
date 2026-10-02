@@ -141,6 +141,7 @@ def test_terminal_source_truth_is_safe_and_has_no_repair_action(client) -> None:
 def test_terminal_reason_copy_is_bounded_and_safe_for_every_public_category(client) -> None:
     seeds = seed_cabinet_meetings(client)
     expected = {
+        "storage_capacity_exceeded": ("storage_capacity_exceeded", "Недостаточно места в хранилище для аудио"),
         "empty_source": ("empty_source", "В исходном файле нет данных"),
         "no_audio": ("no_audio", "В файле нет пригодной аудиодорожки"),
         "ambiguous_audio_tracks": (
@@ -316,3 +317,37 @@ def test_playback_recovery_has_no_public_mutation_endpoint_or_repair_control(cli
     assert all(set(schema["paths"][path]) <= {"get"} for path in playback_paths)
     forbidden = ("retry", "reprocess-playback", "backfill", "повторить", "конвертировать")
     assert not any(word in html.text.casefold() for word in forbidden)
+
+
+def test_storage_quota_has_truthful_copy_and_no_admission_bypass() -> None:
+    from twobrain_rec_server.cabinet.view_models import (
+        playback_reason_copy,
+        playback_terminal_reason,
+    )
+
+    reason = playback_terminal_reason("storage_capacity_exceeded")
+    assert reason == "storage_capacity_exceeded"
+    assert playback_reason_copy(reason) == "Недостаточно места в хранилище для аудио"
+    assert "storage" in playback_reason_copy(reason, locale="en").lower()
+
+
+def test_quota_playback_copy_offers_existing_billing_overview() -> None:
+    from tests.unit.test_cabinet_web_shell import _review
+    from twobrain_rec_server.cabinet.rendering import _render_playback
+    from twobrain_rec_server.cabinet.view_models import playback_reason_copy
+
+    review = _review()
+    review.playback.state = "unavailable"
+    review.playback.reason_code = "storage_capacity_exceeded"
+    review.playback.label = playback_reason_copy(review.playback.reason_code)
+    html = _render_playback(review, embedded=True, csrf_token=None)
+    assert "Недостаточно места в хранилище" in html
+    assert 'href="/billing"' in html
+    assert "владельцу пространства" in html
+    assert "кодек" not in html
+    assert "<audio" not in html
+    # Sharing never exposes the workspace billing destination.
+    from uuid import UUID
+
+    shared_html = _render_playback(review, embedded=False, csrf_token=None, shared_workspace_id=UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
+    assert 'href="/billing"' not in shared_html

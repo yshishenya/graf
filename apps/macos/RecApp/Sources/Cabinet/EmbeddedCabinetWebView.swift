@@ -1120,7 +1120,8 @@ public enum EmbeddedCabinetLocalRecordingBridge {
 
     public static func allowedAction(
         from body: Any,
-        rows: [EmbeddedCabinetLocalRecordingRow]
+        rows: [EmbeddedCabinetLocalRecordingRow],
+        route: DesktopCabinetRoute? = nil
     ) -> (action: String, id: String)? {
         guard let object = body as? [String: Any],
               let action = object["action"] as? String,
@@ -1130,6 +1131,17 @@ public enum EmbeddedCabinetLocalRecordingBridge {
               action == openAction ? row.canOpen : (action == sendAction ? row.canSend : row.canDelete)
         else {
             return nil
+        }
+        if let route {
+            switch route.kind {
+            case .meetingList: break
+            case .meetingDetail:
+                guard action == openAction,
+                      let meetingID = row.meetingId.flatMap(UUID.init(uuidString:)),
+                      let routeID = route.meetingId.flatMap(UUID.init(uuidString:)),
+                      meetingID == routeID else { return nil }
+            default: return nil
+            }
         }
         return (action, id)
     }
@@ -2143,7 +2155,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                         guard isActive, webView.url == sourceURL else { return }
                         webView.evaluateJavaScript("window.GRAFLocalRecordings?.deletionCompleted('\(selection.requestID.uuidString.lowercased())', \(payload))", completionHandler: nil)
                     }
-                } else if route.kind == .meetingList, let action = EmbeddedCabinetLocalRecordingBridge.allowedAction(from: message.body, rows: localRecordingRows) {
+                } else if let action = EmbeddedCabinetLocalRecordingBridge.allowedAction(from: message.body, rows: localRecordingRows, route: route) {
                     onLocalRecordingAction(action.action, action.id)
                 }
                 return

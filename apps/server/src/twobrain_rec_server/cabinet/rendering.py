@@ -2395,6 +2395,12 @@ def _render_playback(
             <span class="sr-only" data-playback-listen-status role="status"></span>
           </section>
         """
+    storage_action = (
+        '<span>Освободите место или обратитесь к владельцу пространства. '
+        '<a href="/billing">Объём хранилища</a></span>'
+        if review.playback.reason_code == "storage_capacity_exceeded" and shared_workspace_id is None
+        else ""
+    )
     focus_attribute = "" if review.playback.state == "preparing" else ' role="status" tabindex="0" aria-live="off"'
     state_classes = "is-unavailable"
     if review.playback.state != "unavailable":
@@ -2402,6 +2408,7 @@ def _render_playback(
     return f"""
       <section class="playback-bar detail-playback {state_classes}" data-playback-state="{escape(review.playback.state)}" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" aria-label="Воспроизведение записи" aria-describedby="playback-live-status"{focus_attribute}>
         <span>{escape(review.playback.label)}</span>
+        {storage_action}
         <span>{cabinet_view_models.format_duration(review.playback.duration_seconds)}</span>
       </section>
     """
