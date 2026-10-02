@@ -854,8 +854,8 @@ async def calendar_series_occurrences(
                 status=422, code="invalid_calendar_cursor", title="Invalid calendar cursor"
             ) from error
     else:
-        # Stable half-open day boundaries include the overview's entire thirtieth day.
-        today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        # Stable half-open day boundaries use the same instant as the temporal filter.
+        today = anchor.replace(hour=0, minute=0, second=0, microsecond=0)
         start, end = (
             starts_from or today - timedelta(days=180),
             starts_to or today + timedelta(days=31),

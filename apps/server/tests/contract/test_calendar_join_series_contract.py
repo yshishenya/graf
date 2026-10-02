@@ -929,3 +929,37 @@ def test_temporal_views_order_boundary_stable_cursor_and_masks(client, monkeypat
             and row["title"] == "Название скрыто настройкой"
             for row in hidden.json()["occurrences"]
         )
+
+
+def test_occurrence_default_window_uses_one_anchor_when_request_crosses_midnight(
+    client, monkeypatch
+):
+    from datetime import UTC, datetime, timedelta
+
+    from tests.contract.test_ingest_openapi_contract import auth_headers
+    from twobrain_rec_server.api import calendar as api
+
+    seed_series(client)
+    headers = auth_headers()
+    key = client.get("/api/v1/calendar/overview", headers=headers).json()["cards"][0]["series_key"]
+    url = f"/api/v1/calendar/series/{key}/occurrences"
+    assert client.get(url, headers=headers).status_code == 200
+    issued = datetime.now(UTC).replace(hour=23, minute=59, second=59, microsecond=0)
+    today = issued.replace(hour=0, minute=0, second=0)
+
+    class Clock(datetime):
+        calls = 0
+
+        @classmethod
+        def now(cls, tz=None):
+            cls.calls += 1
+            return issued if cls.calls == 1 else issued + timedelta(seconds=3)
+
+    monkeypatch.setattr(api, "datetime", Clock)
+    for view in ("all", "upcoming", "history"):
+        Clock.calls = 0
+        response = client.get(url, params={"view": view}, headers=headers)
+        assert response.status_code == 200, response.text
+        window = response.json()["coverage_range"]
+        assert datetime.fromisoformat(window["from"]) == today - timedelta(days=180)
+        assert datetime.fromisoformat(window["to"]) == today + timedelta(days=31)
