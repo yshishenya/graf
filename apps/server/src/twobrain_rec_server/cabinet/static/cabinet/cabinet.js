@@ -1957,14 +1957,73 @@
     ledger.blocked ||= blocked;
     window.clearTimeout(ledger.timer);
     window.clearTimeout(ledger.deadlineTimer);
+    window.clearTimeout(ledger.controlTimer);
+  };
+  // This timer updates only the manual control; it never starts a payment check.
+  const updateBillingStatusControl = (ledger) => {
+    if (!ledger) return;
+    window.clearTimeout(ledger.controlTimer);
+    const page = billingStatusPage();
+    if (!page || billingStatusKey(page) !== ledger.key) return;
+    const button = page.querySelector("#billing-status-check");
+    if (!button || ledger.blocked || billingStatusRequest) return;
+    const now = performance.now();
+    const remaining = ledger.lastStarted === null ? 0 : Math.max(0, ledger.lastStarted + 10000 - now);
+    const waiting = remaining > 0;
+    const expired = now - ledger.started >= 60000;
+    const ended = expired || ledger.stopped || ledger.attempts >= 6;
+    button.setAttribute("aria-disabled", String(waiting));
+    button.classList.toggle("primary", !waiting);
+    button.classList.toggle("quiet", waiting);
+    button.classList.toggle("is-disabled", waiting);
+    const message = page.querySelector("[data-billing-status-message]");
+    const cooldown = page.querySelector("[data-billing-status-cooldown]");
+    // Ending automatic observation takes precedence over the manual cooldown.
+    // If both apply, keep the ending and explain the short wait separately.
+    if (cooldown) cooldown.hidden = !(waiting && ended);
+    if (ended && message) {
+      message.hidden = false;
+      delete message.dataset.billingCooldown;
+      message.removeAttribute("aria-live");
+      const endingMessage = "Подтверждение пока не получено. Проверьте оплату позже. Повторно платить не нужно.";
+      if (message.textContent !== endingMessage) message.textContent = endingMessage;
+    }
+    if (waiting) {
+      button.setAttribute("aria-describedby", ended
+        ? "billing-status-message billing-status-cooldown" : "billing-status-message");
+      if (!ended && message) {
+        message.hidden = false;
+        message.dataset.billingCooldown = "true";
+        // The unchanged financial result is announced by the main status region.
+        // Keep repetitive cooldown feedback readable through aria-describedby.
+        message.setAttribute("aria-live", "off");
+        message.textContent = "Следующая проверка станет доступна через несколько секунд.";
+      }
+      if (!document.hidden) ledger.controlTimer = window.setTimeout(() => updateBillingStatusControl(ledger), remaining);
+    } else {
+      button.removeAttribute("aria-describedby");
+      if (!ended && message?.dataset.billingCooldown === "true") {
+        message.hidden = true;
+        delete message.dataset.billingCooldown;
+        message.removeAttribute("aria-live");
+      }
+    }
   };
   const recoverBillingStatus = (state) => {
     stopBillingStatus(state.ledger, true);
     const page = billingStatusPage();
-    if (!page || billingStatusKey(page) !== state.key) return;
+    // Recover only the original node; an unrelated replacement is left alone.
+    if (!page || page !== state.page || !page.isConnected) return;
+    if (billingStatusKey(page) !== state.key) {
+      billingStatusContextStopped = true;
+      state.invalidContext = true;
+    }
+    const cooldown = page.querySelector("[data-billing-status-cooldown]");
+    if (cooldown) cooldown.hidden = true;
     const message = page.querySelector("[data-billing-status-message]");
     if (message) {
       message.hidden = false;
+      message.removeAttribute("aria-live");
       message.setAttribute("role", "alert");
       message.textContent = state.invalidContext || [401, 403].includes(state.xhr.status)
         ? "Сеанс или доступ изменился. Откройте результат оплаты заново."
@@ -1989,9 +2048,12 @@
       if (page && !key) {
         if (billingStatusLedger) billingStatusContextStopped = true;
         page.querySelectorAll("form button").forEach(button => { button.disabled = true; });
+        const cooldown = page.querySelector("[data-billing-status-cooldown]");
+        if (cooldown) cooldown.hidden = true;
         const message = page.querySelector("[data-billing-status-message]");
         if (message) {
           message.hidden = false;
+          message.removeAttribute("aria-live");
           message.setAttribute("role", "alert");
           message.textContent = "Сеанс или доступ изменился. Откройте результат оплаты заново.";
         }
@@ -2030,10 +2092,13 @@
     }
     if (ledger.blocked) {
       page.querySelectorAll("form button").forEach(button => { button.disabled = true; });
+      const cooldown = page.querySelector("[data-billing-status-cooldown]");
+      if (cooldown) cooldown.hidden = true;
       if (billingStatusContextStopped) {
         const message = page.querySelector("[data-billing-status-message]");
         if (message) {
           message.hidden = false;
+          message.removeAttribute("aria-live");
           message.setAttribute("role", "alert");
           message.textContent = "Сеанс или доступ изменился. Откройте результат оплаты заново.";
         }
@@ -2044,13 +2109,10 @@
     if (ledger.blocked || billingStatusRequest) return;
     if (ledger.attempts >= 6 || performance.now() - ledger.started >= 60000) {
       stopBillingStatus(ledger);
-      const message = page.querySelector("[data-billing-status-message]");
-      if (message) {
-        message.hidden = false;
-        message.textContent = "Подтверждение пока не получено. Проверьте оплату позже. Повторно платить не нужно.";
-      }
+      updateBillingStatusControl(ledger);
       return;
     }
+    updateBillingStatusControl(ledger);
     if (ledger.stopped || deferScheduling) return;
     window.clearTimeout(ledger.timer);
     const delay = ledger.lastStarted === null ? 0 : Math.max(0, ledger.lastStarted + 10000 - performance.now());
@@ -2076,20 +2138,26 @@
         || (ledger.automatic && (ledger.stopped || ledger.attempts >= 6 || now - ledger.started >= 60000))
         || (ledger.lastStarted !== null && now - ledger.lastStarted < 10000)) {
       event.preventDefault();
+      updateBillingStatusControl(ledger);
       return;
     }
     window.clearTimeout(ledger.timer);
+    window.clearTimeout(ledger.controlTimer);
     ledger.lastStarted = now;
     ledger.attempts++;
     const active = document.activeElement;
     const state = { page, key, ledger, xhr: event.detail.xhr, invalidContext: false,
       restoreFocus: page.contains(active), focusId: active?.id,
       controls: [...page.querySelectorAll("form button")].map(control => [control, control.disabled]) };
+    state.disabledFocus = state.controls.some(([control]) => control === active);
     billingStatusRequest = state;
     state.xhr.grafBillingStatus = state;
     state.xhr.addEventListener("loadend", () => finishBillingStatus(state, true), { once: true });
     page.setAttribute("aria-busy", "true");
     state.controls.forEach(([control]) => { control.disabled = true; });
+  });
+  document.body.addEventListener("focusin", () => {
+    if (billingStatusRequest) billingStatusRequest.disabledFocus = false;
   });
   document.body.addEventListener("htmx:beforeSwap", (event) => {
     const state = event.detail?.xhr?.grafBillingStatus;
@@ -2107,13 +2175,25 @@
       finishBillingStatus(state, true);
       return;
     }
+    // Capture the user's current choice just before replacement, not at request start.
+    // Keep a disabled button's focus only if native disabling moved it to body
+    // and the user has not focused another element while the request was running.
+    const active = document.activeElement;
+    if (active !== document.body || !state.disabledFocus) {
+      state.restoreFocus = state.page.contains(active);
+      state.focusId = active?.id;
+    }
+    state.page.querySelectorAll("details[id]").forEach(details => {
+      const replacement = incoming.querySelector(`#${details.id}`);
+      if (replacement) replacement.open = details.open;
+    });
     const status = incoming.querySelector('[role="status"]');
     const currentStatus = state.page.querySelector('[role="status"]');
     if (status && currentStatus && status.textContent.replace(/\s+/g, " ").trim()
         === currentStatus.textContent.replace(/\s+/g, " ").trim()) {
       status.setAttribute("aria-live", "off");
-      event.detail.serverResponse = response.documentElement.outerHTML;
     }
+    event.detail.serverResponse = response.documentElement.outerHTML;
   });
   document.body.addEventListener("htmx:afterSwap", (event) => {
     const state = event.detail?.xhr?.grafBillingStatus;
@@ -2144,6 +2224,7 @@
   };
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) stopBillingStatusOnDeparture();
+    else updateBillingStatusControl(billingStatusLedger);
   });
   window.addEventListener("pagehide", stopBillingStatusOnDeparture);
 

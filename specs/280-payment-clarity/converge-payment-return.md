@@ -28,3 +28,18 @@
 Метод $speckit-converge: actual code против FR031–038/SC013 и plan/tasks; read-only оценка, отметки tasks обновляются отдельно. Dev каноническая ограниченная роль готовится после migration до maintenance startup (T034); window60с прекращает новые начала, own15с активного запроса сохраняется (T035); idle60с явно завершает ожидание с ручным шагом (T036); после slow reply дальнейшая проверка начинается после подготовки HTMX формы, немедленные guards/context сохраняются в afterSwap (T037).
 
 Причинные RED и окончательная36+36PASS матрица, реальные PostgreSQL проверки и три независимых SOURCE/TEST PASS подтверждают построенный срез. Требования17/0; critical/high/исправимыеmedium0. Findings missing0/partial0/contradicts0/unrequested0 для source. Новых задач0: tasks во время свода не переписывались, пустой Phase не добавлен. T032 уже полностью описывает оставшуюся обязательную работу выпуска/live payment, поэтому дубль не создан. F278/T011/T012/human gates не закрыты. Legacy Impact untouched, schema/financial/provenance boundaries сохранены.
+
+
+## Дополнительное сведение T038–T040 — 2026-10-03
+
+Свежий GitHub review добавил T038/#7487 и T039/#7488. Причинные Chromium6FAIL/WebKit6FAIL воспроизвели исходные UI gaps. Первый окончательный current-source v3 дал40PASS4FAIL каждого engine: пересечение короткой паузы с завершением60с и скрытый внешний focus target. Исправление отображения и строгая доступность manual62с после старта52с подтверждены v4:44PASS Chromium201.83с,44PASS WebKit216.44с наJS2d3f6a/template d32487, test1e7aba. Это не полный конечный допуск: два независимых CLI обзора выявили отдельный текущий контекст, меняющийся во время запроса, и пробелы visual/disabledFocus тестов. T040/#7489 создана до изменения source; requirements reviewer подтвердил17/0 и отсутствие formulation blockers. T031/T032 открыты; настоящий deployment ещё не выполнен.
+
+
+T040 полный текущий прогон54/54PASS ещё не дал окончательный допуск: independent runtime reviewer обнаружил конкретный partial FR033/036, окончание шестой попытки53с скрыто ручной паузой до62с. Метод $speckit-converge append-only добавил T041; canon ensure/deduplication → #7490 до source fix. Не требуются новые деньги/API/лимиты; один existing T032 остаётся выпуском. T031 открыт, новая causalbrowser проверка и окончательная матрица обязательны.
+
+
+## Окончательное сведение T029–T041 — 2026-10-03
+
+Метод $speckit-converge, read-only сравнение actual implementation с FR031–038/SC013/plan/tasks: построенный срез converged, missing0/partial0/contradicts0/unrequested0; новых задач0. T032 уже содержит все оставшиеся выпуск/production/live gates и не дублируется. Три независимых final reviewers runtime/browser/requirements самостоятельно сверили currentsource и завершённые v2 логи: SOURCE/TESTPASS, critical0/high0/исправимыеmedium0, checklist17/0. Отчеты review-payment-return-t041-final-*.md.
+
+Текущая матрица Chromium56PASS235.20с/WebKit56PASS254.85с, без failed/skipped; адресные6PASS каждого; static74PASS, syntax/diff/governancePASS. Все четыре source/test SHA256 до/после/текущие совпали. Первоначальные54PASS2FAIL каждого T041 сохранены как исторические: противоречивое требование паузы в основном сообщении шестого ответа усилено точным окончанием + отдельным пояснением, остальные assertions восстановлением старого блока в памяти дают точный прежнийhash81573e. RED4fail каждого — два уникальных размера повторены дважды, не четыре уникальных случая. T031/T038–T041 отмечены по этим доказательствам отдельно от append-only convergence. T032 и исторические финансовые/человеческие gates ещё открыты.

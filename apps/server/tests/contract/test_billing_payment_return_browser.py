@@ -39,7 +39,7 @@ if ENABLED:
 ROOT = Path(__file__).resolve().parents[4]
 SCRIPT = ROOT / "apps/server/tests/browser/billing-payment-return.test.cjs"
 CASES = ["success", "historical", "pending", "canceled", "cancel-on-check", "refused", "service-gap",
-         "errors", "guards", "lifecycle", "timeout", "native", "a11y", "provider-unavailable", "deadline-success", "deadline-pending", "deadline-timeout", "idle-five"]
+         "errors", "guards", "lifecycle", "timeout", "native", "a11y", "provider-unavailable", "deadline-success", "deadline-pending", "deadline-timeout", "idle-five", "six-final-cooldown", "manual-cooldown", "focus-controls", "focus-latest", "focus-success", "current-context-in-flight-user", "current-context-in-flight-workspace", "current-context-in-flight-session", "current-context-in-flight-invoice", "current-context-in-flight-replacement"]
 
 
 @pytest.mark.parametrize("width", [320, 1280])
@@ -64,6 +64,8 @@ def test_real_payment_return(client, tmp_path, monkeypatch, width, case):
                 if not deadline_release_path.exists():
                     return httpx.Response(503, json={"code": "fixture_gate_timeout"})
             if request.method != "GET" or case in {"success", "native", "historical"} or (
+                case == "focus-success" and self.read_count >= 2
+            ) or (
                 deadline_case and self.read_count >= 6 and case != "deadline-pending"
             ):
                 return response
@@ -201,7 +203,7 @@ def test_real_payment_return(client, tmp_path, monkeypatch, width, case):
         assert proof["initial_document_requests"] == len(proof["scenarios"])
         assert not errors
         assert len(provider.create_payloads) == 1, "browser return never creates a second payment"
-        expected_grants = int(case in {"success", "native", "historical", "deadline-success", "deadline-timeout"})
+        expected_grants = int(case in {"success", "native", "historical", "deadline-success", "deadline-timeout", "focus-success"})
         assert asyncio.run(count_rows()) == [1, 1, expected_grants]
         state = _money_state(client, checkout.workspace_id, key)
         if expected_grants:

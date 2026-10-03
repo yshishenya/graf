@@ -45,9 +45,9 @@
         </div>
 
         {% if needs_service_review %}
-        <a class="button primary" data-billing-primary href="{{ help_url }}">Написать в поддержку</a>
+        <a id="billing-status-primary" class="button primary" data-billing-primary href="{{ help_url }}">Написать в поддержку</a>
         {% elif can_refresh_payment|default(False) and read_only_recovery %}
-        <a class="button primary" data-billing-primary href="{{ local_status_url }}">Обновить результат</a>
+        <a id="billing-status-primary" class="button primary" data-billing-primary href="{{ local_status_url }}">Обновить результат</a>
         {% elif can_refresh_payment|default(False) %}
         <form id="billing-status-refresh" action="/billing/checkout/status/{{ invoice.safe_number }}/refresh" method="post"
           hx-post="/billing/checkout/status/{{ invoice.safe_number }}/refresh"
@@ -57,29 +57,30 @@
           <button id="billing-status-check" class="button primary" data-billing-primary type="submit">Проверить оплату</button>
         </form>
         {% if can_continue_payment|default(False) and status_result|default(None) in ["unchanged", "refreshed"] %}
-        <form action="/billing/checkout/status/{{ invoice.safe_number }}/continue" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button quiet" type="submit">Вернуться к оплате</button></form>
+        <form action="/billing/checkout/status/{{ invoice.safe_number }}/continue" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button id="billing-status-continue" class="button quiet" type="submit">Вернуться к оплате</button></form>
         {% endif %}
         {% elif can_continue_payment|default(False) %}
-        <form action="/billing/checkout/status/{{ invoice.safe_number }}/continue" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button primary" data-billing-primary type="submit">Продолжить оплату</button></form>
+        <form action="/billing/checkout/status/{{ invoice.safe_number }}/continue" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button id="billing-status-continue" class="button primary" data-billing-primary type="submit">Продолжить оплату</button></form>
         {% elif operation_state == "succeeded" %}
-        <a class="button primary" data-billing-primary href="{{ return_to_work_url|default('/desktop/meetings' if embedded|default(False) else '/meetings') }}">К встречам</a>
+        <a id="billing-status-primary" class="button primary" data-billing-primary href="{{ return_to_work_url|default('/desktop/meetings' if embedded|default(False) else '/meetings') }}">К встречам</a>
         {% elif operation_state in ["canceled", "failed"] %}
-        {% if billing_enabled|default(False) %}<a class="button primary" data-billing-primary href="{{ retry_payment_url|default('/billing/checkout') }}">{% if recurring_not_available|default(False) %}Вернуться к оплате{% else %}Попробовать снова{% endif %}</a>{% endif %}
+        {% if billing_enabled|default(False) %}<a id="billing-status-primary" class="button primary" data-billing-primary href="{{ retry_payment_url|default('/billing/checkout') }}">{% if recurring_not_available|default(False) %}Вернуться к оплате{% else %}Попробовать снова{% endif %}</a>{% endif %}
         {% elif operation_state == "method_required" %}
-        <a class="button primary" data-billing-primary href="/billing/payment-method">Проверить способ оплаты</a>
+        <a id="billing-status-primary" class="button primary" data-billing-primary href="/billing/payment-method">Проверить способ оплаты</a>
         {% else %}
-        <a class="button primary" data-billing-primary href="{{ help_url }}">Уточнить результат</a>
+        <a id="billing-status-primary" class="button primary" data-billing-primary href="{{ help_url }}">Уточнить результат</a>
         {% endif %}
 
-        <p data-billing-status-message role="status" aria-atomic="true" hidden></p>
-        <a class="button quiet" data-billing-status-recovery href="{{ local_status_url }}" hidden>Обновить результат</a>
+        <p id="billing-status-message" data-billing-status-message role="status" aria-atomic="true" hidden></p>
+        <p id="billing-status-cooldown" data-billing-status-cooldown aria-live="off" hidden>Следующая проверка станет доступна через несколько секунд.</p>
+        <a id="billing-status-recovery" class="button quiet" data-billing-status-recovery href="{{ local_status_url }}" hidden>Обновить результат</a>
 
-        <details class="billing-coupon"><summary>Сведения о платеже</summary>
+        <details id="billing-status-details" class="billing-coupon"><summary id="billing-status-details-summary">Сведения о платеже</summary>
           <dl class="settings-definition-list"><div><dt>Номер</dt><dd>{{ invoice.safe_number }}</dd></div><div><dt>Создан</dt><dd>{{ invoice.created_at_label|default("время уточняется") }}</dd></div><div><dt>Последняя проверка</dt><dd>{{ updated_at_label or "еще не выполнялась" }}</dd></div></dl>
         </details>
-        <p><a href="/billing/invoices/{{ invoice.safe_number }}">Платеж и чек</a></p>
+        <p><a id="billing-status-invoice" href="/billing/invoices/{{ invoice.safe_number }}">Платеж и чек</a></p>
       </section>
-      <div class="billing-page__footer"><a class="button quiet" href="/billing">К тарифу и оплате</a>{% if not needs_service_review %}<a href="{{ help_url }}">Помощь с оплатой</a>{% endif %}</div>
+      <div class="billing-page__footer"><a id="billing-status-billing" class="button quiet" href="/billing">К тарифу и оплате</a>{% if not needs_service_review %}<a id="billing-status-help" href="{{ help_url }}">Помощь с оплатой</a>{% endif %}</div>
     </div>
   </div>
 </main>
