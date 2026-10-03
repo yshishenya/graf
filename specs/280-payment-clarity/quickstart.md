@@ -270,3 +270,5 @@ apps/server/scripts/run_local_postgres_tests.sh --focused tests/unit/test_billin
 ```
 
 Короткая локальная дата остается в основных фактах, полный срок/время/зона в закрытом native «Способ оплаты и условия»; не ослаблять webhook/reconcile/paid-through/recurring и первую попытку72h. Причинный RED179/1 и окончательный full71PASS сохранены в validation-subscription-clarity.md, независимый review-subscription-t049.md.
+
+T050: `apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_billing_return.py -q --tb=short --show-capture=no` — full82PASS0skips. Не ослаблять проверку off состояния, возможности завершения старого платежа, отсутствия ложного обещания и exact result-link. Независимый review-subscription-t050.md.
