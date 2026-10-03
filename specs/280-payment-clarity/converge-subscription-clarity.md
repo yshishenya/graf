@@ -45,3 +45,15 @@ T049 после исправления: targeted1PASS/full71PASS0skips; неза
 Выявлен partial HIGH gap по FR-039/040/042 в прежнем интеграционном тесте: требует удаленную повторяющуюся фразу вместо явного поля «Автопродление — Отключено». Причинный PostgreSQL RED1/81deselected,6.37с; отображение и предупреждение о возможности завершения отправленного платежа правильны. Добавлена T050/Phase20, без новых требований или изменений продукта. До GREEN/review и текущих exact-SHA gates выпуск запрещен.
 
 T050 завершена: full82PASS0skips110.57с, независимый review-subscription-t050.md PASS0 замечаний. Остальные23functions интеграционного файла и финансовые assertions прежние. Повторный converge: новых mandatory implementation gaps0; новых задач не добавлено. Требуются новые exact-SHA PR gates и выпуск T048.
+
+## Внешний обзор — T051
+
+Два P2 независимо подтверждены: безусловный view-only provider_key_expired fence расходится с общей денежной политикой; pending ветка скрывает method_required и приписывает отправку. Предыдущие PASS сохраняются как исторические, текущий выпуск HOLD до T051. Узко уточнен FR042/plan/contract без новой денежной политики: существующий blocking set, сохранение безопасной проверки карты, отсутствие необоснованного вывода об отправке. Добавлена T051 Phase21; сначала независимый refresh требований и analyze/issue sync, затем causal RED/GREEN/review/current gates.
+
+Согласован один выпуск с соседним пользовательским чатом «Упростить и улучшить интерфейс»: root владеет canonical F280 docs и подпиской, соседний срез владеет invoice/status/support/contextual manual-renewal consent, зарезервированы T052–T056/FR046+. Freeze до готовности обоих PR, реальных платежей0; новая checkout default FR019 сохраняется. Дополнения будут интегрированы после получения однозначного supplement и независимого checklist gate.
+
+## Итог T051 и согласование invoice, 2026-10-04
+
+Оба P2 исправлены минимально в существующем GET/шаблоне. Причинный RED11/24; текущий targeted25 и полный DB150 PASS, UI80 PASS, проверка точной даты1 PASS, Chromium16/WebKit16 PASS и независимые12NoJS PASS. Три свежих independent source/browser/UX заключения0critical/0high/0применимыхmedium; requirements14checked/0unchecked. CSS/денежные handlers/sharedset/API/DB/JS не меняются. Missing/partial/contradicts/unrequested0/0/0/0 для T051; новых задач этого среза нет. Точные хеши/пределы template drift зафиксированы в отдельных текущих отчетах. T051 реализована и проверена локально; exact-SHA PR и общий выпуск остаются открытыми T048.
+
+Предыдущая строка про contextual manual-renewal consent не действует: владелец явно сохранил FR019 checked default везде, включая ручное продление. Invoice не меняет checkout/consent/JS. Дополнение FR046–052/SC016/017 и T052–056 интегрировано, width720 согласована; независимый invoice checklist ведется в другом срезе, до его PASS код не начинается. Текущая сходимость подписки не утверждает, что открытые invoice задачи выполнены. Ни чужие draft .04.1/.04.2, ни занятый GRAF Dev не изменяются.

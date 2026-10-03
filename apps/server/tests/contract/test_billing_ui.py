@@ -1675,7 +1675,7 @@ def test_subscription_off_without_card_is_normal_and_has_one_cycle_preserving_pr
     assert re.search(r'<a[^>]*href="/billing/checkout\?cycle=' + cycle + r'"[^>]*>Продлить подписку</a>', html)
     assert 'action="/billing/subscription/resume"' not in html
     assert 'action="/billing/subscription/early-preview"' not in html
-    conditions = re.search(r'<details[^>]*>\s*<summary>Способ оплаты и условия</summary>(.*?)</details>', html, re.S)
+    conditions = re.search(r'<details[^>]*>\s*<summary>Способ оплаты, условия и история</summary>(.*?)</details>', html, re.S)
     assert conditions and "03.11.2026, 12:19 (UTC+03:00)" in conditions[1]
     assert "03.11.2026, 12:19 (UTC+03:00)" not in html.replace(conditions[0], "")
     assert 'href="/billing/history"' in html
@@ -1779,3 +1779,35 @@ async def test_subscription_route_uses_effective_plan_and_viewer_local_calendar_
         assert captured["trial_ends_short_label"] == expected_local_day
         assert captured["trial_ends_at_label"] == expected_local_day + ", 02:30 (UTC+03:00)"
     assert captured["manual_checkout_url"] == "/billing/checkout?cycle=year"
+
+
+def test_subscription_expired_observation_does_not_hide_existing_manual_checkout():
+    subscription = SimpleNamespace(
+        plan_code="personal", state="active", cycle="month", paid_through=datetime(2026, 11, 3, tzinfo=UTC),
+        recurring_allowed=False, recurring_authority_version=7, renewal_resolution="provider_key_expired",
+    )
+    html = _subscription_view(subscription=subscription)
+    assert 'href="/billing/checkout?cycle=month"' in html
+    assert "Повторно платить не нужно" not in html
+
+
+@pytest.mark.parametrize("recurring_allowed", [False, True])
+def test_subscription_unresolved_method_keeps_safe_recovery_without_claiming_dispatch(recurring_allowed):
+    subscription = SimpleNamespace(
+        plan_code="personal", state="active", cycle="month", paid_through=datetime(2026, 11, 3, tzinfo=UTC),
+        recurring_allowed=recurring_allowed, recurring_authority_version=7, renewal_resolution="method_required",
+    )
+    html = _subscription_view(
+        subscription=subscription, pending_charge_amount_label="1 000 ₽",
+        pending_payment_url="/billing/checkout/status/INV-SYNTHETIC",
+        renewal_notice="Автопродление приостановлено. Проверьте способ оплаты.",
+        renewal_action_url="/billing/payment-method", renewal_action_label="Проверить способ оплаты",
+    )
+    before_details = html.split("<details", 1)[0]
+    assert 'href="/billing/payment-method"' in before_details
+    assert 'href="/billing/checkout/status/INV-SYNTHETIC"' in before_details
+    assert "Уже отправленный" not in html
+    assert "Повторно платить не нужно" in html
+    assert 'href="/billing/checkout?cycle=month"' not in html
+    assert 'action="/billing/subscription/resume"' not in html
+    assert 'action="/billing/subscription/early-preview"' not in html

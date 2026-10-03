@@ -666,7 +666,7 @@ def test_subscription_page_names_the_real_charge_day(client, monkeypatch, tmp_pa
     assert paid_until is not None
     assert paid_until.group(1) == local_datetime(PAID_THROUGH).strftime("%d.%m.%Y")
     assert period_end not in paid_until.group(1)
-    conditions = re.search(r"(<details[^>]*>)\s*<summary>Способ оплаты и условия</summary>(.*?)</details>", page.text, re.S)
+    conditions = re.search(r"(<details[^>]*>)\s*<summary>Способ оплаты, условия и история</summary>(.*?)</details>", page.text, re.S)
     assert conditions is not None
     assert "open" not in conditions.group(1)
     assert "<details" not in conditions.group(2)

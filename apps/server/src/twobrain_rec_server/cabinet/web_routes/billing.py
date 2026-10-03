@@ -2839,7 +2839,7 @@ async def billing_subscription_page(
             .join(BillingOperation, BillingOperation.id == BillingInvoice.operation_id)
             .where(
                 BillingInvoice.workspace_id == tenant_scope.workspace_id,
-                BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES | {"provider_key_expired"}),
+                BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
             )
             .order_by(BillingInvoice.created_at.desc())
         )
@@ -2860,7 +2860,7 @@ async def billing_subscription_page(
         and method_available
         and pending_invoice is None
         and subscription.renewal_resolution not in {
-            "pending", "unknown", "unknown_pending", "provider_key_expired", "receipt_contact_required",
+            "pending", "unknown", "unknown_pending", "receipt_contact_required",
         }
     ):
         try:
