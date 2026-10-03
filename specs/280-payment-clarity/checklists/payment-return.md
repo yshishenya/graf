@@ -65,3 +65,8 @@ Requirements PASS: checked17 / unchecked0. Все CHK001–CHK017 перечит
 CHK013/016 имеют конкретную task/evidence связь: T035/#7483 требует шестой старт50с→success после60с и отдельный over15с отказ в Chromium/WebKit320/1280 через browser→ASGI→PostgreSQL; T034/#7482 требует настоящий limited maintenance role после миграций в isolated dev PostgreSQL, без development exemption. CHK017/010/012 сохраняют FR-038/035: guard, NOSUPERUSER/NOBYPASSRLS, RLS и финансовые переходы не ослаблены; plan §T034 предусматривает role preparation dependency до всех maintenance задач. T031 повторно открыт, T032 release отдельно; предыдущий source/convergence PASS исторический.
 
 Данный допуск относится к достаточности/согласованности требований перед исправлением, а не к готовности JS/dev role. UI-R7/UI-R8 остаются открытыми до реализации и causal GREEN с независимым source review. Реальная приемка/production/банк/возврат/автосписание этим checklist не подтверждаются.
+
+
+## Независимый допуск требований T042–T044 — 2026-10-03
+
+**Requirements PASS: checked17 / unchecked0.** Все CHK001–CHK017 перечитаны, markers сохранены. T042 требует периоды связанных прав хранения схемы2; T043 — штатное доказательство применения конкретной старой покупки, без требования нового grant и без опоры на текущую подписку; T044 — переносимые доказательства с сохранением исторических отказов. FR-031/035 и существующий план достаточны для этого среза. Полные основания и условия окончательного обзора: [review-payment-return-storage-requirements.md](../review-payment-return-storage-requirements.md). Допуск требований не означает завершения реализации/испытаний/выпуска или финансовой приёмки; после исправлений нужен отдельный независимый SOURCE/TEST обзор.

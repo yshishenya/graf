@@ -3,7 +3,7 @@
 Дата: 2026-10-03. Режим: `high-risk-product / active Spec Kit slice`.
 Исполнитель владеет только двумя тестами и этим отчётом. Исходники контроллера
 и шаблона принадлежат root. Прочитаны действующие задачи, план, требования,
-quickstart, checklist `payment-return.md` и `/tmp/graf-f280-t041-task.md`;
+quickstart, checklist `payment-return.md` и `graf-f280-t041-task.md`;
 текущий независимый допуск требований17/0. Отметки checklist не менялись.
 
 ## Сценарий и сохранённые проверки
@@ -33,7 +33,7 @@ POST сверяется с чтениями поставщика. Существ
 
 - `node --check apps/server/tests/browser/billing-payment-return.test.cjs`: PASS.
 - Сбор через канонический PostgreSQL runner с `--collect-only`: **56 тестов**,
-  28 групп×320/1280. Журнал `/tmp/graf-f280-t041-collection56.log`.
+  28 групп×320/1280. Журнал `graf-f280-t041-collection56.log`.
 - SHA256 перечня тестов: `f61d5bb9ed1bb294054f821962c07ce747e94abbc7814825dcc25616e09f4d12`.
 - Адресный сбор `-k six-final-cooldown`:2 теста на движок. Для четырёх
   причинных отказов на движок приготовлены два одинаковых запуска этих двух
@@ -51,22 +51,22 @@ Worker-сессия не имеет доступа к Docker socket. Запро�
 текст — «Следующая проверка станет доступна через несколько секунд.», вместо
 точного сообщения окончания. Нет ошибок сборки/подготовки. Четыре SHA
 совпадают до и после всех RED запусков. Доказательство:
-`/tmp/graf-f280-t041-red-ready.json`, `valid:true`.
+`graf-f280-t041-red-ready.json`, `valid:true`.
 
 Root изменил исходник только после валидного RED. Файл
-`/tmp/graf-f280-t041-source-ready.json` содержит фактический новый SHA
+`graf-f280-t041-source-ready.json` содержит фактический новый SHA
 `1444c3ac7cda96d8f5468236f172fc89a0e961b752104afc3faf4e1f34e13a05`.
 Адресный GREEN дал Chromium2 PASS/12,78с, WebKit2 PASS/13,59с; оба56-case
 набора начали полную проверку после фиксации всех четырёх SHA.
 
 | Этап | Движок | Результат | Время pytest | Журнал |
 |---|---|---|---|---|
-| RED, повтор1 | Chromium |2 FAIL,54 deselected |12,19с | `/tmp/graf-f280-t041-red-chromium-1-v3.log` |
-| RED, повтор2 | Chromium |2 FAIL,54 deselected |11,91с | `/tmp/graf-f280-t041-red-chromium-2-v3.log` |
-| RED, повтор1 | WebKit |2 FAIL,54 deselected |12,87с | `/tmp/graf-f280-t041-red-webkit-1-v3.log` |
-| RED, повтор2 | WebKit |2 FAIL,54 deselected |12,60с | `/tmp/graf-f280-t041-red-webkit-2-v3.log` |
-| GREEN | Chromium |2 PASS,54 deselected |12,78с | `/tmp/graf-f280-t041-green-chromium.log` |
-| GREEN | WebKit |2 PASS,54 deselected |13,59с | `/tmp/graf-f280-t041-green-webkit.log` |
+| RED, повтор1 | Chromium |2 FAIL,54 deselected |12,19с | `graf-f280-t041-red-chromium-1-v3.log` |
+| RED, повтор2 | Chromium |2 FAIL,54 deselected |11,91с | `graf-f280-t041-red-chromium-2-v3.log` |
+| RED, повтор1 | WebKit |2 FAIL,54 deselected |12,87с | `graf-f280-t041-red-webkit-1-v3.log` |
+| RED, повтор2 | WebKit |2 FAIL,54 deselected |12,60с | `graf-f280-t041-red-webkit-2-v3.log` |
+| GREEN | Chromium |2 PASS,54 deselected |12,78с | `graf-f280-t041-green-chromium.log` |
+| GREEN | WebKit |2 PASS,54 deselected |13,59с | `graf-f280-t041-green-webkit.log` |
 
 Каждый из шести фактических запусков завершил каноническую очистку:
 `postgres_test_cleanup=isolated_container_removed`.
@@ -75,7 +75,7 @@ Root изменил исходник только после валидного 
 
 | Журналы | Результат | Значение |
 |---|---|---|
-| `/tmp/graf-f280-t041-red-{chromium,webkit}-{1,2}.log` | shell сообщил ошибку `collection_args[@]: unbound variable`, exit0 из cleanup | system Bash3; браузер и БД не запускались |
+| `graf-f280-t041-red-{chromium,webkit}-{1,2}.log` | shell сообщил ошибку `collection_args[@]: unbound variable`, exit0 из cleanup | system Bash3; браузер и БД не запускались |
 | те же имена с `-v2.log` | exit2, запрет записи в стандартный uv cache | сбор не выполнен |
 | первичная попытка `-v3`, затем путь повторно использован root | exit1, адресный сбор2 выполнен, Docker недоступен | первоначальный текст сохранён в выводе worker; текущие `-v3.log` относятся к настоящему RED root |
 
@@ -97,7 +97,7 @@ WebKit54 PASS/2 FAIL,251,63с. Во всех случаях единственн
 ожидание `/через|секунд/` в основном сообщении `manual-cooldown` после шестого
 ответа. T041 теперь требует окончания и отдельного пояснения паузы. Ошибок
 подготовки нет; обе базы удалены. Журналы `matrix56-{chromium,webkit}.log` и
-машинный результат `initial-green-matrix-result.json` сохранены в `/tmp`.
+машинный результат `initial-green-matrix-result.json` сохранены в локальный временный каталог.
 
 Только после завершения обоих запусков уточнено ожидание шестого ответа:
 точный текст окончания, отдельное видимое пояснение паузы и его связь с
@@ -116,7 +116,7 @@ WebKit54 PASS/2 FAIL,251,63с. Во всех случаях единственн
 
 Адресные `six-final-cooldown`, `manual-cooldown`, `idle-five` ×320/1280:
 Chromium6 PASS/27,47с, WebKit6 PASS/29,39с; отказов и пропусков нет.
-Журналы `/tmp/graf-f280-t041-green-{chromium,webkit}-v2.log`; фазы31/33с,
+Журналы `graf-f280-t041-green-{chromium,webkit}-v2.log`; фазы31/33с,
 в обеих случаях `postgres_test_cleanup=isolated_container_removed`.
 Повторная полная матрица выполнена на зафиксированном SHA браузерного
 теста `129b83a264f1c35b4f7a0fc1a9602eb4bc4231e1d7f8baa8717946ef8b01bf64`;
@@ -135,10 +135,10 @@ runner подтвердил удаление своей изолированно
 
 | Этап | Движок | Результат | Время pytest | Журнал | SHA256 журнала |
 |---|---|---|---|---|---|
-| green | chromium | 6 PASS | 27.47с | `/tmp/graf-f280-t041-green-chromium-v2.log` | `280fe5f8839f4ba219ae2135a89cbbeb399d77d95c8fe3ee20bba38909ee56a6` |
-| green | webkit | 6 PASS | 29.39с | `/tmp/graf-f280-t041-green-webkit-v2.log` | `b6323970427c8e0eae987f0a6f9d168f3e19dd5b74a51dc5c568942dcc127f56` |
-| matrix56 | chromium | 56 PASS | 235.20с | `/tmp/graf-f280-t041-matrix56-chromium-v2.log` | `4bbc27674116baf3c0b9aa289d4826780a51fc099c76c33e15e968ec68c63984` |
-| matrix56 | webkit | 56 PASS | 254.85с | `/tmp/graf-f280-t041-matrix56-webkit-v2.log` | `7783cefb2710aac351c618e0280df0f0c8c13d7f973ee84bf079993b3020d005` |
+| green | chromium | 6 PASS | 27.47с | `graf-f280-t041-green-chromium-v2.log` | `280fe5f8839f4ba219ae2135a89cbbeb399d77d95c8fe3ee20bba38909ee56a6` |
+| green | webkit | 6 PASS | 29.39с | `graf-f280-t041-green-webkit-v2.log` | `b6323970427c8e0eae987f0a6f9d168f3e19dd5b74a51dc5c568942dcc127f56` |
+| matrix56 | chromium | 56 PASS | 235.20с | `graf-f280-t041-matrix56-chromium-v2.log` | `4bbc27674116baf3c0b9aa289d4826780a51fc099c76c33e15e968ec68c63984` |
+| matrix56 | webkit | 56 PASS | 254.85с | `graf-f280-t041-matrix56-webkit-v2.log` | `7783cefb2710aac351c618e0280df0f0c8c13d7f973ee84bf079993b3020d005` |
 
 | Файл окончательной проверки | SHA256 до = после = текущий |
 |---|---|
@@ -147,12 +147,12 @@ runner подтвердил удаление своей изолированно
 | `apps/server/tests/browser/billing-payment-return.test.cjs` | `129b83a264f1c35b4f7a0fc1a9602eb4bc4231e1d7f8baa8717946ef8b01bf64` |
 | `apps/server/tests/contract/test_billing_payment_return_browser.py` | `6718e667e9a831e98471b5186f31a54c036603fa306352f69406a08f66d62716` |
 
-Машинные доказательства: `/tmp/graf-f280-t041-red-ready.json`,
-`/tmp/graf-f280-t041-source-ready.json`,
-`/tmp/graf-f280-t041-final-tests-refreeze.json`,
-`/tmp/graf-f280-t041-green-matrix-result.json`. Первая матрица с двумя
+Машинные доказательства: `graf-f280-t041-red-ready.json`,
+`graf-f280-t041-source-ready.json`,
+`graf-f280-t041-final-tests-refreeze.json`,
+`graf-f280-t041-green-matrix-result.json`. Первая матрица с двумя
 неуспешными ожиданиями на движок сохранена отдельно в
-`/tmp/graf-f280-t041-initial-green-matrix-result.json`; она не считается PASS.
+`graf-f280-t041-initial-green-matrix-result.json`; она не считается PASS.
 
 Для воспроизведения использовать `GRAF_PAYMENT_RETURN_BROWSER=1`,
 `GRAF_BROWSER=chromium` либо `webkit`, существующий `GRAF_NODE_MODULES`,

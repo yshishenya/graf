@@ -807,6 +807,34 @@ def _billing_datetime_label(value: datetime | None) -> str | None:
     return format_user_datetime(value, show_zone=True) if value is not None else None
 
 
+def _legacy_storage_period_label(snapshot: Mapping[str, object]) -> str | None:
+    """Read the period validated by the legacy storage projector, without current quota."""
+    target = snapshot.get("addon_capacity_bytes", snapshot.get("capacity_bytes"))
+    if (
+        snapshot.get("purchase_schema") not in (None, 1)
+        or type(target) is not int
+        or target not in (PERSONAL_STORAGE_BYTES, *ADDON_CAPACITY_BYTES)
+        or snapshot.get("cycle") not in ("month", "year")
+    ):
+        return None
+    period = []
+    for key in ("effective_at", "ends_at"):
+        value = snapshot.get(key)
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            return None
+        period.append(parsed.astimezone(UTC))
+    starts_at, ends_at = period
+    if starts_at >= ends_at:
+        return None
+    return f"{_billing_datetime_label(starts_at)} — {_billing_datetime_label(ends_at)}"
+
+
 def _billing_amount_label(amount_minor: int | None, currency: str = "RUB") -> str | None:
     if amount_minor is None:
         return None
@@ -2062,9 +2090,13 @@ async def billing_checkout_status_page(
         or (operation and operation.request_snapshot.get("reconciliation_detail"))
         or (invoice.plan_snapshot or {}).get("service_resolution")
     )
-    if operation_state == "succeeded" and not service_gap:
+    if operation_state in {"succeeded", "succeeded_projected"} and not service_gap:
         if invoice.status != "succeeded":
             service_gap = True
+        elif operation_state == "succeeded_projected":
+            if operation.kind == "storage_upgrade":
+                service_period_label = _legacy_storage_period_label(operation.request_snapshot)
+            service_gap = service_period_label is None
         elif operation.kind in {"initial_checkout", "renewal", "early_renewal"}:
             grant = await db.scalar(select(BillingEntitlementGrant).where(
                 BillingEntitlementGrant.workspace_id == tenant_scope.workspace_id,
@@ -2077,12 +2109,24 @@ async def billing_checkout_status_page(
                     f"{_billing_datetime_label(grant.ends_at)}"
                 )
         elif operation.kind == "storage_upgrade":
-            service_gap = await db.scalar(select(BillingStorageEntitlementGrant.id).where(
+            grants = list(await db.scalars(select(BillingStorageEntitlementGrant).where(
                 BillingStorageEntitlementGrant.workspace_id == tenant_scope.workspace_id,
                 BillingStorageEntitlementGrant.invoice_id == invoice.id,
-            ).limit(1)) is None
+            ).order_by(
+                BillingStorageEntitlementGrant.starts_at,
+                BillingStorageEntitlementGrant.ends_at,
+                BillingStorageEntitlementGrant.id,
+            )))
+            service_gap = not grants
+            if grants:
+                service_period_label = "; ".join(
+                    f"{_billing_datetime_label(grant.starts_at)} — "
+                    f"{_billing_datetime_label(grant.ends_at)}"
+                    for grant in grants
+                )
         else:
             service_gap = True
+    payment_applied = operation_state in {"succeeded", "succeeded_projected"} and not service_gap
     provider_failure = operation.request_snapshot.get("provider_failure") if operation else None
     if not isinstance(provider_failure, dict):
         provider_failure = {}
@@ -2176,6 +2220,7 @@ async def billing_checkout_status_page(
         retry_payment_url=retry_payment_url,
         support_email=settings.billing_support_email,
         purchase_purpose_label=purchase_purpose_label(invoice.plan_snapshot or {}),
+        payment_applied=payment_applied,
         service_gap=service_gap,
         service_period_label=service_period_label,
         return_to_work_url="/desktop/meetings" if _is_embedded_request(request) else "/meetings",

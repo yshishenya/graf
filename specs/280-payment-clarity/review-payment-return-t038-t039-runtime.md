@@ -2,9 +2,9 @@
 
 **Итог HOLD: critical0/high0/исправимых medium1.** Актуальная матрица завершилась **Chromium54 PASS / WebKit54 PASS**, но обнаруженный ниже допустимый сценарий шестого раннего окончания не входит в неё. Прежние три замечания v3 устранены; исторические FAIL ниже сохранены и не подменены новым результатом.
 
-Обзор выполнен в режиме `Read-only investigation` с навыком `code-reviewer`. Единственное изменение reviewer — этот отчёт; source/tests/spec/tasks/checklist/Git/GitHub/release/production не менял. Самостоятельно прочитал полные законченные журналы `/tmp/graf-f280-payment-return-final54-chromium.log` (225,79с) и `/tmp/graf-f280-payment-return-final54-webkit.log` (244,88с):54 теста каждого движка, обе ширины320/1280, успешная фаза и `isolated_container_removed`. Оба журнала показывают один collection digest `64e4f443479651bfef14c483a97a35a09da966d2df59e3299ba0fb83a1399972`. Предупреждения переписывания assertion/import и устаревающего TestClient не являются сбоями проверок.
+Обзор выполнен в режиме `Read-only investigation` с навыком `code-reviewer`. Единственное изменение reviewer — этот отчёт; source/tests/spec/tasks/checklist/Git/GitHub/release/production не менял. Самостоятельно прочитал полные законченные журналы `graf-f280-payment-return-final54-chromium.log` (225,79с) и `graf-f280-payment-return-final54-webkit.log` (244,88с):54 теста каждого движка, обе ширины320/1280, успешная фаза и `isolated_container_removed`. Оба журнала показывают один collection digest `64e4f443479651bfef14c483a97a35a09da966d2df59e3299ba0fb83a1399972`. Предупреждения переписывания assertion/import и устаревающего TestClient не являются сбоями проверок.
 
-Независимая повторная SHA256 после завершения обоих прогонов совпадает с `/tmp/graf-f280-t040-final54-start-hashes.txt` и sourcefreeze:
+Независимая повторная SHA256 после завершения обоих прогонов совпадает с `graf-f280-t040-final54-start-hashes.txt` и sourcefreeze:
 
 | Файл | SHA256 |
 |---|---|
@@ -13,7 +13,7 @@
 | browser test | `49054a1f0ce82ebef55d6504550c7ce7116a84e1cdfed4bd86f8b840881180e9` |
 | Python bridge | `51e218671598ec12527acf63cacd8657ad9d2771516fe43e6bdf98be4076766f` |
 
-Прочитаны и причинные журналы T040 `/tmp/graf-f280-t040-red10-{chromium,webkit}-v3.log`:10 ожидаемых FAIL каждого движка на прежнем контроллере, включая четыре изменения текущего контекста и заменённый main. Промежуточный `/tmp/graf-f280-t040-green14-chromium.log` —14 PASS; окончательная54+54 подтверждает оба движка. Это подтверждает причинную связь T040 и устранение прежнего дефекта, но не закрывает новый пробел ветки шестого ответа.
+Прочитаны и причинные журналы T040 `graf-f280-t040-red10-{chromium,webkit}-v3.log`:10 ожидаемых FAIL каждого движка на прежнем контроллере, включая четыре изменения текущего контекста и заменённый main. Промежуточный `graf-f280-t040-green14-chromium.log` —14 PASS; окончательная54+54 подтверждает оба движка. Это подтверждает причинную связь T040 и устранение прежнего дефекта, но не закрывает новый пробел ветки шестого ответа.
 
 T038 cooldown/actual manual POST, T039 current focus/native disabling/details/outside focus и T040 same-main/replacement recovery в проверенных случаях — **PASS**. Один запрос,≥10с между началами, собственные15с,<=6 автоматических начал, сохранение ledger при reinit и fencing чужих/поздних ответов сохранены. Financial assertions bridge проверяют один payment/invoice/operation, корректное число связанных grant и recurring=false; HTML не выдаёт доступ самостоятельно. Полный независимый допуск T031 — **HOLD по одному новому замечанию**. T032/release/live настоящего оплаченного платежа не проверялись, выпуск этим отчётом не подтверждён.
 
@@ -45,7 +45,7 @@ T038 cooldown/actual manual POST, T039 current focus/native disabling/details/ou
 
 1. **MEDIUM — ожидание между запросами скрывает окончание автоматического окна на 60-й секунде.**
 
-   Причина в [cabinet.js:1978](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js:1978): ветка `waiting` имеет приоритет над сообщением об остановленной последовательности.
+   Причина в [cabinet.js:1978](../../apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js#L1978): ветка `waiting` имеет приоритет над сообщением об остановленной последовательности.
 
    При предусмотренном T036 расписании начала идут на `0/14/28/42/52с`, пятый ответ завершается около `53с`. На `60с` автоматическая последовательность останавливается, но до следующего допустимого ручного начала остаются две секунды. Контроллер сохраняет:
 
@@ -57,13 +57,13 @@ T038 cooldown/actual manual POST, T039 current focus/native disabling/details/ou
 
    Сообщение «Подтверждение пока не получено. Проверьте оплату позже. Повторно платить не нужно.» появится лишь около `62с`. Интервал ≥10 секунд соблюдается, однако обязательное сообщение об окончании автоматического ожидания на границе окна отсутствует.
 
-   **Подтверждено настоящими завершёнными прогонами:** `idle-five-320` и `idle-five-1280` падают в Chromium и WebKit на [billing-payment-return.test.cjs:468](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/tests/browser/billing-payment-return.test.cjs:468), именно на различии этих сообщений. Ошибок bridge нет; в журнале пять настоящих POST с ответами 303 и последующими GET.
+   **Подтверждено настоящими завершёнными прогонами:** `idle-five-320` и `idle-five-1280` падают в Chromium и WebKit на [billing-payment-return.test.cjs:468](../../apps/server/tests/browser/billing-payment-return.test.cjs#L468), именно на различии этих сообщений. Ошибок bridge нет; в журнале пять настоящих POST с ответами 303 и последующими GET.
 
    Есть и связанное противоречие приёмки: следующий assertion требует `isEnabled() === true` уже на `60с`, хотя после начала на `52с` десятисекундный интервал истекает на `62с`. Требуется согласовать отображение окончания окна и оставшуюся недоступность ручного действия. Проверки ≥10 секунд и окончания автоматического ожидания нельзя удалять или обходить ради прохождения.
 
 2. **MEDIUM — изменение текущего контекста во время запроса оставляет прежнюю форму без понятного восстановления.**
 
-   В [cabinet.js:2021](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js:2021) `finishBillingStatus()` сначала восстанавливает исходные значения `disabled`. Затем `recoverBillingStatus()` прекращает работу, если текущий ключ страницы отличается от ключа запроса — [cabinet.js:2006](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js:2006).
+   В [cabinet.js:2021](../../apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js#L2021) `finishBillingStatus()` сначала восстанавливает исходные значения `disabled`. Затем `recoverBillingStatus()` прекращает работу, если текущий ключ страницы отличается от ключа запроса — [cabinet.js:2006](../../apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js#L2006).
 
    Если тот же `main` остаётся на месте, но его текущая session/user/workspace/invoice меняется до ответа, `beforeSwap` правильно отвергает ответ и блокирует старый счётчик попыток. При этом форма может снова выглядеть доступной, а сообщение и ссылка безопасного восстановления остаются скрытыми. Отклонённая замена не вызывает `afterSwap`, поэтому рассчитывать на последующую инициализацию нельзя.
 
@@ -80,15 +80,15 @@ T038 cooldown/actual manual POST, T039 current focus/native disabling/details/ou
 
    Это дефект интерфейса восстановления; обход серверной авторизации или финансовых ограничений не установлен.
 
-   Существующие проверки текущего контекста его не покрывают: они меняют контекст **после завершённой первой проверки**, затем явно вызывают `reinit()` — [billing-payment-return.test.cjs:340](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/tests/browser/billing-payment-return.test.cjs:340). Нужен сценарий с удержанным ответом, изменением текущего контекста до его доставки и проверкой сообщения, блокировки форм и безопасного восстановления **без ручной повторной инициализации**. Восстановление при этом не должно затрагивать уже открытый другой кабинет или платёж.
+   Существующие проверки текущего контекста его не покрывают: они меняют контекст **после завершённой первой проверки**, затем явно вызывают `reinit()` — [billing-payment-return.test.cjs:340](../../apps/server/tests/browser/billing-payment-return.test.cjs#L340). Нужен сценарий с удержанным ответом, изменением текущего контекста до его доставки и проверкой сообщения, блокировки форм и безопасного восстановления **без ручной повторной инициализации**. Восстановление при этом не должно затрагивать уже открытый другой кабинет или платёж.
 
 3. **MEDIUM — выбранный `rail-toggle` всё ещё скрыт; проверка внешнего фокуса не достигает нужного поведения.**
 
-   Текущий тест действительно выбирает `[data-cabinet-rail-toggle]`, но предположение о его видимости не подтвердилось. В обоих завершённых прогонах `focus-latest-320` и `focus-latest-1280` падают на `outside.isVisible() === true` — [billing-payment-return.test.cjs:310](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/tests/browser/billing-payment-return.test.cjs:310).
+   Текущий тест действительно выбирает `[data-cabinet-rail-toggle]`, но предположение о его видимости не подтвердилось. В обоих завершённых прогонах `focus-latest-320` и `focus-latest-1280` падают на `outside.isVisible() === true` — [billing-payment-return.test.cjs:310](../../apps/server/tests/browser/billing-payment-return.test.cjs#L310).
 
    Следовательно, assertions о переводе фокуса наружу и отсутствии его перехвата после замены ещё не выполнены. Этот отказ сам по себе не доказывает дефект восстановления фокуса в рабочем коде.
 
-   Для ширины 1280 есть явное применимое правило скрытия кнопки при закреплённой панели настроек — [cabinet.css:6193](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css:6193). Нужно выбрать реально отображаемый доступный элемент за пределами `#cabinet-main` для каждой ширины, сохранив строгие проверки видимости, положения, фактического фокуса и отсутствия его перехвата. Удаление проверки видимости или искусственный показ скрытого элемента не закрывает приёмку.
+   Для ширины 1280 есть явное применимое правило скрытия кнопки при закреплённой панели настроек — [cabinet.css:6193](../../apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css#L6193). Нужно выбрать реально отображаемый доступный элемент за пределами `#cabinet-main` для каждой ширины, сохранив строгие проверки видимости, положения, фактического фокуса и отсутствия его перехвата. Удаление проверки видимости или искусственный показ скрытого элемента не закрывает приёмку.
 
 По остальным проверенным изменениям:
 
@@ -105,7 +105,7 @@ T038 cooldown/actual manual POST, T039 current focus/native disabling/details/ou
 | Chromium | **40 PASS / 4 FAIL**, 202,07 с | `idle-five` и `focus-latest`, обе ширины |
 | WebKit | **40 PASS / 4 FAIL**, 218,49 с | Те же четыре сценария |
 
-Прочитаны полные журналы [Chromium v3](/tmp/graf-f280-payment-return-final44-chromium-v3.log) и [WebKit v3](/tmp/graf-f280-payment-return-final44-webkit-v3.log), а также [начальные контрольные суммы](/tmp/graf-f280-t038-t039-final-v3-start-hashes.txt). Оба журнала содержат итоговый `status=fail` и подтверждение удаления изолированного контейнера. Старые 72 PASS, предварительные 9 PASS / 1 FAIL и прерванные прогоны `v1/v2` допуском не являются.
+Прочитаны полные журналы Chromium v3 (артефакт `graf-f280-payment-return-final44-chromium-v3.log`) и WebKit v3 (артефакт `graf-f280-payment-return-final44-webkit-v3.log`), а также начальные контрольные суммы (артефакт `graf-f280-t038-t039-final-v3-start-hashes.txt`). Оба журнала содержат итоговый `status=fail` и подтверждение удаления изолированного контейнера. Старые 72 PASS, предварительные 9 PASS / 1 FAIL и прерванные прогоны `v1/v2` допуском не являются.
 
 Мои завершённые проверки синтаксиса обоих JavaScript-файлов, разбора Python и `git diff --check` прошли. Также прочитан завершённый узкий журнал с 53 PASS; он не заменяет браузерную приёмку.
 

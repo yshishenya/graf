@@ -23,7 +23,10 @@ from twobrain_rec_server.db.models import (
     BillingEntitlementGrant,
     BillingInvoice,
     BillingOperation,
+    BillingStorageEntitlementGrant,
+    BillingStoragePriceVersion,
     ExternalIdentity,
+    Workspace,
     WorkspaceSubscription,
 )
 from twobrain_rec_server.public.offers import PUBLIC_APPROVED_OFFER_VERSION
@@ -385,3 +388,221 @@ def test_local_status_recovery_never_restarts_payment_check(client, owner):
     assert status + "?view=local" in recovered.text
     assert ">Оплачено</h2>" not in recovered.text
     assert payment_counts(client) == (1, 1)
+
+
+_STORAGE_PERIODS = [
+    (datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 2, 1, tzinfo=UTC)),
+    (datetime(2025, 3, 1, tzinfo=UTC), datetime(2025, 4, 1, tzinfo=UTC)),
+]
+
+
+def seed_storage_status(client, workspace, *, state="succeeded", schema=2,
+                        periods=(), snapshot_changes=None, invoice_status="succeeded",
+                        kind="storage_upgrade", service_resolution=None):
+    """Synthetic purchase proof, independent of the subscription's current capacity."""
+    async def run():
+        async with client.app_state["sessionmaker"]() as db:
+            snapshot = {
+                "billing_actor_user_id": str(USER_ID), "cycle": "month",
+                "addon_capacity_bytes": 10_000_000_000,
+                "effective_at": _STORAGE_PERIODS[0][0].isoformat(),
+                "ends_at": _STORAGE_PERIODS[0][1].isoformat(),
+            }
+            if schema is not None:
+                snapshot["purchase_schema"] = schema
+            snapshot.update(snapshot_changes or {})
+            operation = BillingOperation(workspace_id=workspace, kind=kind, state=state,
+                idempotency_key=str(uuid4()), provider_id=f"synthetic-{uuid4().hex}",
+                request_snapshot=snapshot)
+            db.add(operation)
+            await db.flush()
+            invoice = BillingInvoice(workspace_id=workspace, operation_id=operation.id,
+                safe_number=f"INV-STORAGE-{uuid4().hex}", amount_minor=100000,
+                currency="RUB", status=invoice_status,
+                plan_snapshot={"cycle": "month", "purpose": "storage_upgrade",
+                    **({"service_resolution": service_resolution} if service_resolution else {})})
+            db.add(invoice)
+            await db.flush()
+            if periods:
+                price = await db.scalar(select(BillingStoragePriceVersion).where(
+                    BillingStoragePriceVersion.capacity_bytes == 10_000_000_000,
+                    BillingStoragePriceVersion.cycle == "month"))
+                if price is None:
+                    price = BillingStoragePriceVersion(version=1, capacity_bytes=10_000_000_000,
+                        cycle="month", amount_minor=100000, currency="RUB",
+                        effective_from=datetime(2024, 1, 1, tzinfo=UTC))
+                    db.add(price)
+                    await db.flush()
+                # Base periods belong to separate purchases; each storage right is
+                # nevertheless bound to this exact storage invoice and workspace.
+                for start, end in reversed(periods):
+                    base_operation = BillingOperation(workspace_id=workspace, kind="renewal",
+                        state="succeeded", idempotency_key=str(uuid4()), request_snapshot={})
+                    db.add(base_operation)
+                    await db.flush()
+                    base_invoice = BillingInvoice(workspace_id=workspace,
+                        operation_id=base_operation.id, safe_number=f"INV-BASE-{uuid4().hex}",
+                        amount_minor=100000, currency="RUB", status="succeeded", plan_snapshot={})
+                    db.add(base_invoice)
+                    await db.flush()
+                    base = BillingEntitlementGrant(workspace_id=workspace,
+                        invoice_id=base_invoice.id, provider_payment_id=f"synthetic-{uuid4().hex}",
+                        plan_code="personal", cycle="month", starts_at=start, ends_at=end,
+                        amount_minor=100000, currency="RUB")
+                    db.add(base)
+                    await db.flush()
+                    db.add(BillingStorageEntitlementGrant(workspace_id=workspace,
+                        invoice_id=invoice.id, base_grant_id=base.id, starts_at=start, ends_at=end,
+                        capacity_bytes=10_000_000_000, catalog_version_id=price.id,
+                        full_period_amount_minor=price.amount_minor))
+            await db.commit()
+            return invoice.safe_number
+    return asyncio.run(run())
+
+
+def billing_rows_snapshot(client):
+    """Compare persisted billing row values, including timestamps, before/after GET."""
+    async def run():
+        async with client.app_state["sessionmaker"]() as db:
+            result = {}
+            for name, table in BillingInvoice.metadata.tables.items():
+                if name.startswith("billing_") or name == "workspace_subscriptions":
+                    rows = (await db.execute(select(table))).mappings().all()
+                    result[name] = sorted(repr(dict(row)) for row in rows)
+            return result
+    return asyncio.run(run())
+
+
+@pytest.mark.parametrize("surface", ["web", "desktop", "local", "desktop_local"])
+@pytest.mark.parametrize("proof", ["single_grant", "disjoint_grants", "legacy_projected"])
+def test_storage_return_shows_only_purchased_historical_periods(client, owner, surface, proof):
+    workspace, headers = owner
+    set_subscription(client, workspace, plan_code="free", state="free", cycle="year",
+        capacity_bytes=5_000_000_000, paid_through=datetime(2024, 1, 1, tzinfo=UTC))
+    periods = _STORAGE_PERIODS if proof == "disjoint_grants" else _STORAGE_PERIODS[:1]
+    legacy = proof == "legacy_projected"
+    number = seed_storage_status(client, workspace,
+        state="succeeded_projected" if legacy else "succeeded",
+        schema=None if legacy else 2, periods=() if legacy else periods)
+    before = billing_rows_snapshot(client)
+    if "desktop" in surface:
+        headers = {**headers, "X-GRAF-Client": "desktop"}
+    query = "?view=local" if "local" in surface else ""
+    response = client.get(f"/billing/checkout/status/{number}{query}", headers=headers)
+    assert response.status_code == 200
+    main = re.search(r'<main id="cabinet-main".*?</main>', response.text, re.S).group()
+    assert '>Оплачено</h2>' in main
+    assert 'Оплата прошла, оплаченный доступ предоставлен.' in main
+    expected = [f"{routes._billing_datetime_label(start)} — {routes._billing_datetime_label(end)}"
+                for start, end in periods]
+    assert f"Оплаченный срок: {'; '.join(expected)}." in main
+    assert "01.01.2024" not in main
+    if proof == "disjoint_grants":
+        assert f"{routes._billing_datetime_label(periods[0][0])} — {routes._billing_datetime_label(periods[-1][1])}" not in main
+    path = "/desktop/meetings" if "desktop" in surface else "/meetings"
+    assert f'href="{path}">К встречам</a>' in main
+    assert f'data-billing-state="{"succeeded_projected" if legacy else "succeeded"}"' in main
+    assert 'data-billing-auto-check="false"' in main
+    assert 'method="post"' not in main
+    assert 'Написать в поддержку</a>' not in main
+    assert billing_rows_snapshot(client) == before
+
+
+@pytest.mark.parametrize("case", [
+    "missing_grant", "other_invoice_grant", "other_workspace_grant", "unprojected",
+    "schema2_projected", "other_kind", "pending_invoice", "malformed_start", "missing_end",
+    "naive_start", "naive_end", "reversed", "zero_period", "bad_cycle", "bool_capacity",
+    "unknown_capacity", "reconciliation_marker", "service_marker",
+])
+def test_storage_return_requires_proof_for_this_purchase(client, owner, case):
+    workspace, headers = owner
+    # A large current quota must never stand in for proof of this purchase.
+    set_subscription(client, workspace, plan_code="personal", state="personal",
+        capacity_bytes=50_000_000_000, paid_through=datetime(2027, 1, 1, tzinfo=UTC))
+    legacy = case not in {"missing_grant", "other_invoice_grant", "other_workspace_grant"}
+    changes = {
+        "malformed_start": {"effective_at": "invalid"}, "missing_end": {"ends_at": None},
+        "naive_start": {"effective_at": "2025-01-01T00:00:00"},
+        "naive_end": {"ends_at": "2025-02-01T00:00:00"},
+        "reversed": {"effective_at": "2025-03-01T00:00:00+00:00"},
+        "zero_period": {"ends_at": _STORAGE_PERIODS[0][0].isoformat()},
+        "bad_cycle": {"cycle": "week"}, "bool_capacity": {"addon_capacity_bytes": True},
+        "unknown_capacity": {"addon_capacity_bytes": 42},
+        "reconciliation_marker": {"reconciliation_detail": {"code": "unapplied"}},
+    }.get(case, {})
+    number = seed_storage_status(client, workspace,
+        state="succeeded" if case == "unprojected" or not legacy else "succeeded_projected",
+        schema=2 if not legacy or case == "schema2_projected" else None,
+        kind="renewal" if case == "other_kind" else "storage_upgrade",
+        invoice_status="pending" if case == "pending_invoice" else "succeeded",
+        snapshot_changes=changes, service_resolution="unapplied" if case == "service_marker" else None)
+    if case in {"other_invoice_grant", "other_workspace_grant"}:
+        grant_workspace = workspace
+        if case == "other_workspace_grant":
+            async def another_workspace():
+                async with client.app_state["sessionmaker"]() as db:
+                    own = await db.get(Workspace, workspace)
+                    other = Workspace(organization_id=own.organization_id,
+                        slug=f"synthetic-{uuid4().hex}", name="Synthetic billing scope")
+                    db.add(other)
+                    await db.commit()
+                    return other.id
+            grant_workspace = asyncio.run(another_workspace())
+        seed_storage_status(client, grant_workspace, periods=_STORAGE_PERIODS[:1])
+    before = billing_rows_snapshot(client)
+    response = client.get(f"/billing/checkout/status/{number}?view=local", headers=headers)
+    assert response.status_code == 200
+    main = re.search(r'<main id="cabinet-main".*?</main>', response.text, re.S).group()
+    assert '>Оплачено</h2>' not in main
+    assert "оплаченный доступ предоставлен" not in main
+    assert "Оплаченный срок:" not in main
+    assert "К встречам</a>" not in main
+    assert 'data-billing-auto-check="false"' in main
+    assert 'method="post"' not in main
+    assert billing_rows_snapshot(client) == before
+
+
+def test_storage_return_does_not_expose_another_workspace_invoice(client, owner):
+    workspace, headers = owner
+    async def another_workspace():
+        async with client.app_state["sessionmaker"]() as db:
+            own = await db.get(Workspace, workspace)
+            other = Workspace(organization_id=own.organization_id,
+                slug=f"synthetic-{uuid4().hex}", name="Synthetic isolated billing")
+            db.add(other)
+            await db.commit()
+            return other.id
+    other = asyncio.run(another_workspace())
+    number = seed_storage_status(client, other, periods=_STORAGE_PERIODS)
+    before = billing_rows_snapshot(client)
+    response = client.get(f"/billing/checkout/status/{number}", headers=headers,
+        follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/billing/history?result=not_found"
+    assert number not in response.text
+    assert billing_rows_snapshot(client) == before
+
+
+def test_storage_return_recognizes_actual_legacy_projection_after_subscription_expires(client, owner):
+    from twobrain_rec_server.billing.maintenance import _reconcile_storage_addon_operations
+
+    workspace, headers = owner
+    set_subscription(client, workspace, plan_code="personal", state="personal", cycle="month",
+        capacity_bytes=5_000_000_000, paid_through=_STORAGE_PERIODS[0][1])
+    number = seed_storage_status(client, workspace, state="succeeded", schema=None)
+    async def project():
+        async with client.app_state["sessionmaker"]() as db:
+            result = await _reconcile_storage_addon_operations(db,
+                current=datetime(2025, 1, 15, tzinfo=UTC), workspace_id=workspace)
+            assert result["storage_addon_operations_projected"] == 1
+            await db.commit()
+    asyncio.run(project())
+    set_subscription(client, workspace, plan_code="free", state="free", cycle="year",
+        capacity_bytes=5_000_000_000, paid_through=datetime(2024, 1, 1, tzinfo=UTC))
+    before = billing_rows_snapshot(client)
+    response = client.get(f"/billing/checkout/status/{number}", headers=headers)
+    assert response.status_code == 200
+    assert '>Оплачено</h2>' in response.text
+    assert 'data-billing-state="succeeded_projected"' in response.text
+    assert "01.01.2025" in response.text and "01.02.2025" in response.text
+    assert billing_rows_snapshot(client) == before

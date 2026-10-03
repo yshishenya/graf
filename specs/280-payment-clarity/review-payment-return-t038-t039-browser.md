@@ -6,15 +6,15 @@
 
 1. **Medium — охлаждение кнопки вытесняет сообщение об окончании автоматического ожидания на границе 60 секунд.**
 
-   В [cabinet.js:1978](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js:1978) ветка `waiting` имеет приоритет над отображением остановленной последовательности. После пятого начала около 52 секунд и ответа около 53 секунд обработчик предельного срока останавливает автоматические проверки, но в 60 секунд показывает только «Следующая проверка станет доступна через несколько секунд».
+   В [cabinet.js:1978](../../apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js#L1978) ветка `waiting` имеет приоритет над отображением остановленной последовательности. После пятого начала около 52 секунд и ответа около 53 секунд обработчик предельного срока останавливает автоматические проверки, но в 60 секунд показывает только «Следующая проверка станет доступна через несколько секунд».
 
-   Это подтверждено настоящей завершённой матрицей: `idle-five-320` и `idle-five-1280` падают в обоих браузерах на [billing-payment-return.test.cjs:468](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/tests/browser/billing-payment-return.test.cjs:468). Ожидаемый текст об окончании автоматического ожидания отсутствует.
+   Это подтверждено настоящей завершённой матрицей: `idle-five-320` и `idle-five-1280` падают в обоих браузерах на [billing-payment-return.test.cjs:468](../../apps/server/tests/browser/billing-payment-return.test.cjs#L468). Ожидаемый текст об окончании автоматического ожидания отсутствует.
 
    Нужно одновременно сохранить понятное окончание автоматической последовательности в 60 секунд и запрет ручного начала раньше 62 секунд — десяти секунд после предыдущего начала. Здесь есть и несогласованность теста: следующая проверка `isEnabled()` сейчас стоит непосредственно в 60 секунд. Её момент должен соответствовать ограничению ≥10 секунд, с сохранением строгих проверок сообщения, доступности и фактически работающего ручного POST. Просто разрешить кнопку в 60 секунд или убрать проверку сообщения нельзя.
 
 2. **Medium — новый элемент для проверки внешнего фокуса фактически скрыт на обеих ширинах.**
 
-   В [billing-payment-return.test.cjs:308](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/tests/browser/billing-payment-return.test.cjs:308) выбран `[data-cabinet-rail-toggle]`. На 1280 кнопка скрыта правилом для закреплённой панели настроек в [cabinet.css:6193](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css:6193). На 320 скрыт содержащий её `sidebar`, согласно [cabinet.css:5784](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css:5784).
+   В [billing-payment-return.test.cjs:308](../../apps/server/tests/browser/billing-payment-return.test.cjs#L308) выбран `[data-cabinet-rail-toggle]`. На 1280 кнопка скрыта правилом для закреплённой панели настроек в [cabinet.css:6193](../../apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css#L6193). На 320 скрыт содержащий её `sidebar`, согласно [cabinet.css:5784](../../apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css#L5784).
 
    `focus-latest-320` и `focus-latest-1280` падают в обоих браузерах на строгой проверке `outside.isVisible()`. Следовательно, сохранение фокуса за пределами заменяемого блока в текущей матрице **не проверено до конца**.
 
@@ -22,21 +22,21 @@
 
 3. **Medium — смена текущего контекста во время запроса оставляет интерфейс без безопасного восстановления.**
 
-   [finishBillingStatus:2025](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js:2025) сначала восстанавливает прежнюю доступность кнопок. Затем [recoverBillingStatus:2006](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js:2006) выходит при несовпадении текущего ключа с ключом запроса — до сообщения, блокировки форм и показа безопасной GET-ссылки.
+   [finishBillingStatus:2025](../../apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js#L2025) сначала восстанавливает прежнюю доступность кнопок. Затем [recoverBillingStatus:2006](../../apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js#L2006) выходит при несовпадении текущего ключа с ключом запроса — до сообщения, блокировки форм и показа безопасной GET-ссылки.
 
-   Проверка фактических обработчиков JS в памяти воспроизвела последовательность: начать запрос → изменить текущую session meta → обработать ответ. Замена отклонена, но обе кнопки снова доступны, сообщение и ссылка восстановления скрыты. Вариант с повторной инициализацией во время запроса даёт тот же результат: возврат в [cabinet.js:2051](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js:2051) откладывает обработку изменённого контекста.
+   Проверка фактических обработчиков JS в памяти воспроизвела последовательность: начать запрос → изменить текущую session meta → обработать ответ. Замена отклонена, но обе кнопки снова доступны, сообщение и ссылка восстановления скрыты. Вариант с повторной инициализацией во время запроса даёт тот же результат: возврат в [cabinet.js:2051](../../apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js#L2051) откладывает обработку изменённого контекста.
 
    Существующие `guards` меняют текущий контекст **после завершения** первоначальной проверки, поэтому этот случай не обнаруживают. Требуется сценарий с удержанным ответом и изменением контекста во время запроса. Если исходная страница всё ещё подключена, она должна получить понятное восстановление и блокировку устаревших форм; чужую новую страницу обработчик менять не должен. Это подтверждённая проблема интерфейса восстановления, а не доказанный обход серверной защиты.
 
 4. **Medium — тест охлаждения не защищает требуемое визуальное состояние кнопки.**
 
-   [manual-cooldown:215](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/tests/browser/billing-payment-return.test.cjs:215) проверяет недоступность, сообщение, запрет раннего запроса и последующую работоспособность. Однако он не проверяет `quiet`, удаление `primary`, `is-disabled` и связь сообщения через `aria-describedby`.
+   [manual-cooldown:215](../../apps/server/tests/browser/billing-payment-return.test.cjs#L215) проверяет недоступность, сообщение, запрет раннего запроса и последующую работоспособность. Однако он не проверяет `quiet`, удаление `primary`, `is-disabled` и связь сообщения через `aria-describedby`.
 
    Поэтому удаление визуальной части исправления оставит тест проходящим, хотя кнопка снова сможет выглядеть доступной — исходная проблема T038. Нужны проверки классов и связи с пояснением до разрешённого момента, а затем их правильного восстановления. Текущий production JS эти изменения выполняет; замечание относится к защите поведения тестом.
 
 5. **Medium — не проверено перемещение фокуса после отключения исходной кнопки.**
 
-   В [focus-latest:301](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/tests/browser/billing-payment-return.test.cjs:301) исходный фокус стоит на `summary`, поэтому `state.disabledFocus` изначально ложен. Тест не проверяет новую ветку сброса этого признака через `focusin` в [cabinet.js:2139](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js:2139).
+   В [focus-latest:301](../../apps/server/tests/browser/billing-payment-return.test.cjs#L301) исходный фокус стоит на `summary`, поэтому `state.disabledFocus` изначально ложен. Тест не проверяет новую ветку сброса этого признака через `focusin` в [cabinet.js:2139](../../apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js#L2139).
 
    `focus-controls` и `focus-success` проверяют сохранение или исчезновение отключаемой кнопки, но не пользовательское перемещение фокуса после начала такого запроса. Нужен удержанный запрос с исходным фокусом на кнопке, её отключением, последующим перемещением на другой элемент и проверкой последнего выбора перед заменой. Для возврата через `document.body` следует явно установить, какой путь действительно произошёл в браузере. Дефект этой ветки production-кода не установлен; её существенная часть пока не защищена причинным тестом.
 
@@ -55,9 +55,9 @@
 | Полная текущая браузерная матрица | **HOLD: 80 PASS / 8 FAIL** |
 | T031 / T032, выпуск и живой результат | **HOLD**; публичный выпуск T032 не выполнен |
 
-Завершённые журналы: [Chromium v3](/tmp/graf-f280-payment-return-final44-chromium-v3.log) — 202,07 секунды; [WebKit v3](/tmp/graf-f280-payment-return-final44-webkit-v3.log) — 218,49 секунды. Оба содержат итоговые результаты и подтверждение удаления изолированного контейнера PostgreSQL. Старые 72 PASS, предварительные 9 PASS / 1 FAIL и прерванные версии матрицы не использованы как окончательный допуск.
+Завершённые журналы: Chromium v3 (артефакт `graf-f280-payment-return-final44-chromium-v3.log`) — 202,07 секунды; WebKit v3 (артефакт `graf-f280-payment-return-final44-webkit-v3.log`) — 218,49 секунды. Оба содержат итоговые результаты и подтверждение удаления изолированного контейнера PostgreSQL. Старые 72 PASS, предварительные 9 PASS / 1 FAIL и прерванные версии матрицы не использованы как окончательный допуск.
 
-Прочитанные файлы совпали с [SHA256 начала v3](/tmp/graf-f280-t038-t039-final-v3-start-hashes.txt) и при повторной сверке:
+Прочитанные файлы совпали с SHA256 начала v3 (артефакт `graf-f280-t038-t039-final-v3-start-hashes.txt`) и при повторной сверке:
 
 ```text
 cabinet.js       c151252e3d8a211ad6492243e47883fb7aac934bbf9f072efe0287bf5c6dad2d

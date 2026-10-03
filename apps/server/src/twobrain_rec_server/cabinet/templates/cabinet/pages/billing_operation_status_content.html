@@ -15,7 +15,7 @@
       {{ ui.settings_header("Статус платежа") }}
       <section class="settings-section cabinet-card" aria-labelledby="billing-operation-title">
         <div role="status" aria-atomic="true">
-        <h2 id="billing-operation-title">{% if needs_service_review %}Оплата получена. Проверяем доступ{% elif creation_rejected|default(False) %}Не удалось начать оплату{% elif operation_state == "succeeded" %}Оплачено{% elif can_refresh_payment|default(False) %}Проверяем оплату{% else %}{{ operation_state_label }}{% endif %}</h2>
+        <h2 id="billing-operation-title">{% if needs_service_review %}Оплата получена. Проверяем доступ{% elif creation_rejected|default(False) %}Не удалось начать оплату{% elif payment_applied|default(False) %}Оплачено{% elif can_refresh_payment|default(False) %}Проверяем оплату{% else %}{{ operation_state_label }}{% endif %}</h2>
         <p>{{ purchase_purpose_label|default("Оплата тарифа") }} · <strong>{{ amount_label }}</strong></p>
         {% if creation_rejected|default(False) %}<p class="notice notice--error">Оплата не началась.{% if recurring_not_available|default(False) %} Автопродление недоступно. Вернитесь к оплате и снимите галочку автоматических списаний, чтобы оплатить один период.{% else %} Попробуйте еще раз или напишите в поддержку.{% endif %}</p>
         {% elif status_result|default(None) == "provider_unavailable" %}<p class="notice notice--error">Не удалось проверить оплату. Обновите результат позже. Повторно платить не нужно.</p>
@@ -28,7 +28,7 @@
         <p>{% if read_only_recovery %}Подтверждение пока не получено. Проверьте результат позже. Повторно платить не нужно.{% else %}Повторно платить не нужно. Результат появится здесь.{% endif %}</p>
         {% elif can_continue_payment|default(False) %}
         <p>Продолжите этот платеж. Сумма и номер платежа сохранятся.</p>
-        {% elif operation_state == "succeeded" %}
+        {% elif payment_applied|default(False) %}
         <p>Оплата прошла, оплаченный доступ предоставлен.</p>
         {% if service_period_label|default(None) %}<p>Оплаченный срок: {{ service_period_label }}.</p>{% endif %}
         {% elif operation_state in ["canceled", "failed"] %}
@@ -61,7 +61,7 @@
         {% endif %}
         {% elif can_continue_payment|default(False) %}
         <form action="/billing/checkout/status/{{ invoice.safe_number }}/continue" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button id="billing-status-continue" class="button primary" data-billing-primary type="submit">Продолжить оплату</button></form>
-        {% elif operation_state == "succeeded" %}
+        {% elif payment_applied|default(False) %}
         <a id="billing-status-primary" class="button primary" data-billing-primary href="{{ return_to_work_url|default('/desktop/meetings' if embedded|default(False) else '/meetings') }}">К встречам</a>
         {% elif operation_state in ["canceled", "failed"] %}
         {% if billing_enabled|default(False) %}<a id="billing-status-primary" class="button primary" data-billing-primary href="{{ retry_payment_url|default('/billing/checkout') }}">{% if recurring_not_available|default(False) %}Вернуться к оплате{% else %}Попробовать снова{% endif %}</a>{% endif %}

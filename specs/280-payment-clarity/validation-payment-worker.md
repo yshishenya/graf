@@ -16,11 +16,11 @@ Scope: только регистрация существующего reconcilia
 bash apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_billing_rls.py -k reconciliation_activity
 ```
 
-Итог: **1failed/1passed/11deselected**,4.17сpytest,8сphase. `test_reconciliation_activity_rejects_real_app_role_before_empty_success` дал **DID NOT RAISE RuntimeError**: настоящий `session_user=twobrain_rec_app`, правильный maintenance context и существующий pending webhook, но activity вернула успешный пустой результат. Контрольный maintenance/replay сценарий уже passed, доказывая штатную финансовую логику. Лог: `/tmp/graf-f280-payment-worker-causal-red.log`. Изолированный PostgreSQL контейнер удален.
+Итог: **1failed/1passed/11deselected**,4.17сpytest,8сphase. `test_reconciliation_activity_rejects_real_app_role_before_empty_success` дал **DID NOT RAISE RuntimeError**: настоящий `session_user=twobrain_rec_app`, правильный maintenance context и существующий pending webhook, но activity вернула успешный пустой результат. Контрольный maintenance/replay сценарий уже passed, доказывая штатную финансовую логику. Лог: `graf-f280-payment-worker-causal-red.log`. Изолированный PostgreSQL контейнер удален.
 
-2. Registry contract на старом processing worker: **1failed/3passed**,0.17с; reconciliation workflow еще зарегистрирован в processing. Лог: `/tmp/graf-f280-payment-worker-registry-red.log`.
+2. Registry contract на старом processing worker: **1failed/3passed**,0.17с; reconciliation workflow еще зарегистрирован в processing. Лог: `graf-f280-payment-worker-registry-red.log`.
 
-Первый подготовительный SQL запуск до причинного RED упал на отсутствующем synthetic provider secret в Settings fixture (2failed); исправлена только fixture. Это не причинный RED. Лог: `/tmp/graf-f280-payment-worker-red.log`; cleanup выполнен.
+Первый подготовительный SQL запуск до причинного RED упал на отсутствующем synthetic provider secret в Settings fixture (2failed); исправлена только fixture. Это не причинный RED. Лог: `graf-f280-payment-worker-red.log`; cleanup выполнен.
 
 ## Реализация и границы
 
@@ -38,13 +38,13 @@ cd apps/server
 uv run --extra dev --extra evaluation pytest tests/contract/test_billing_reconciliation_workflow.py tests/unit/test_billing_reconciliation_activity.py tests/unit/test_maintenance_worker.py -q
 ```
 
-**25passed**; лог `/tmp/graf-f280-payment-worker-unit-final-green.log`. Проверены registry names/queue/actual wrapper delegation, обязательная identity проверка до maintenance, unsafe role/current role/row_security/superuser/BYPASSRLS/context denial, не-PostgreSQL отказ, startup refusal до любых loops/poller, сохранение calendar при Temporal outage, cleanup при cancel/error/normal return, повторное подключение без двух pollers, role refusal после подключения с закрытием клиента.
+**25passed**; лог `graf-f280-payment-worker-unit-final-green.log`. Проверены registry names/queue/actual wrapper delegation, обязательная identity проверка до maintenance, unsafe role/current role/row_security/superuser/BYPASSRLS/context denial, не-PostgreSQL отказ, startup refusal до любых loops/poller, сохранение calendar при Temporal outage, cleanup при cancel/error/normal return, повторное подключение без двух pollers, role refusal после подключения с закрытием клиента.
 
 ```sh
 bash apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_billing_rls.py tests/integration/test_billing_stuck_operation_recovery.py
 ```
 
-**19passed**; лог `/tmp/graf-f280-payment-worker-postgres-final-green.log`. Настоящие PostgreSQL app/maintenance роли, фактический session_user и действующие RLS policies. App activity явно отказывает до provider GET и без изменений invoice/webhook/grants. Maintenance видит событие, применяет подтвержденный10₽ к personal subscription и одному grant. Повторный durable signal делает второй GET, но сохраняет тот же paid_through,1grant/1invoice/1operation; create0. Отдельный startup verifier на настоящей app роли отказывает, на maintenance проходит. Existing финансовая/межпространственная изоляция и stuck operation recovery сохранены. Cleanup: isolated_container_removed.
+**19passed**; лог `graf-f280-payment-worker-postgres-final-green.log`. Настоящие PostgreSQL app/maintenance роли, фактический session_user и действующие RLS policies. App activity явно отказывает до provider GET и без изменений invoice/webhook/grants. Maintenance видит событие, применяет подтвержденный10₽ к personal subscription и одному grant. Повторный durable signal делает второй GET, но сохраняет тот же paid_through,1grant/1invoice/1operation; create0. Отдельный startup verifier на настоящей app роли отказывает, на maintenance проходит. Existing финансовая/межпространственная изоляция и stuck operation recovery сохранены. Cleanup: isolated_container_removed.
 
 До добавления последних startup/normal-return/reconnect-denial сценариев промежуточные GREEN были23unit/18SQL; окончательные результаты выше относятся к текущему коду. Ruff для всех7принадлежащих файлов — PASS. `git diff --check` — PASS.
 

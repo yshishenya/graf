@@ -8,12 +8,12 @@
 
 | Движок | Результат | Время pytest | Время фазы | Законченный журнал |
 |---|---|---|---|---|
-| Chromium | 54 PASS, 2 предупреждения | 225,79 с | 230 с | `/tmp/graf-f280-payment-return-final54-chromium.log` |
-| WebKit | 54 PASS, 2 предупреждения | 244,88 с | 249 с | `/tmp/graf-f280-payment-return-final54-webkit.log` |
+| Chromium | 54 PASS, 2 предупреждения | 225,79 с | 230 с | `graf-f280-payment-return-final54-chromium.log` |
+| WebKit | 54 PASS, 2 предупреждения | 244,88 с | 249 с | `graf-f280-payment-return-final54-webkit.log` |
 
 Оба журнала содержат `postgres_test_result=pass` и `postgres_test_cleanup=isolated_container_removed`. Итог получен из фактической коллекции: `collection_count=54`, digest `64e4f443479651bfef14c483a97a35a09da966d2df59e3299ba0fb83a1399972`. Предупреждения — прежние уведомления о повторном импорте pytest-модуля и устаревающем использовании Starlette TestClient; они не скрывают пропуски.
 
-Перед запуском и после обоих завершённых прогонов совпали все четыре SHA-256. Снимок начала: `/tmp/graf-f280-t040-final54-start-hashes.txt`; итоговый `sha256sum -c` — четыре `OK`. Эти байты соответствуют заморозке отдельного автора исходников `/tmp/graf-f280-t040-source-frozen.json`.
+Перед запуском и после обоих завершённых прогонов совпали все четыре SHA-256. Снимок начала: `graf-f280-t040-final54-start-hashes.txt`; итоговый `sha256sum -c` — четыре `OK`. Эти байты соответствуют заморозке отдельного автора исходников `graf-f280-t040-source-frozen.json`.
 
 | Файл | SHA-256 |
 |---|---|
@@ -40,29 +40,29 @@ T040: пять отдельных групп `current-context-in-flight-user/wor
 
 | Этап | Доказательство и ограничение |
 |---|---|
-| Исходный T038/T039 RED | На исходном `cabinet.js` SHA `4ca35f0a…` новые три группы дали Chromium 6 FAIL / 17,65 с и WebKit 6 FAIL / 20,46 с: понятная доступность после быстрого ответа, фокус элементов без id и текущий фокус перед заменой. Журналы `/tmp/graf-f280-t038-t039-red-chromium.log`, `-red-webkit.log`. |
-| Подготовительный четырёхгрупповой запуск | `/tmp/graf-f280-t038-t039-red-final-chromium.log`: 6 FAIL / 2 PASS, 21,86 с; исходники менялись в ходе запуска. Это смешанная диагностика, не полный причинный RED и не финальный PASS. |
-| Первая короткая проверка | `/tmp/graf-f280-t038-t039-green-chromium.log`: 9 PASS / 1 FAIL, 33,44 с. Новая проверка выбрала скрытую дублирующую ссылку меню; попытка использовать rail-toggle также оказалась неверной. Окончательный внешний элемент — настоящая доступная с клавиатуры ссылка «К содержимому», с проверкой видимости и фокуса. |
+| Исходный T038/T039 RED | На исходном `cabinet.js` SHA `4ca35f0a…` новые три группы дали Chromium 6 FAIL / 17,65 с и WebKit 6 FAIL / 20,46 с: понятная доступность после быстрого ответа, фокус элементов без id и текущий фокус перед заменой. Журналы `graf-f280-t038-t039-red-chromium.log`, `-red-webkit.log`. |
+| Подготовительный четырёхгрупповой запуск | `graf-f280-t038-t039-red-final-chromium.log`: 6 FAIL / 2 PASS, 21,86 с; исходники менялись в ходе запуска. Это смешанная диагностика, не полный причинный RED и не финальный PASS. |
+| Первая короткая проверка | `graf-f280-t038-t039-green-chromium.log`: 9 PASS / 1 FAIL, 33,44 с. Новая проверка выбрала скрытую дублирующую ссылку меню; попытка использовать rail-toggle также оказалась неверной. Окончательный внешний элемент — настоящая доступная с клавиатуры ссылка «К содержимому», с проверкой видимости и фокуса. |
 | Полные v1/v2 | Прерваны SIGINT при изменении исходников; обе изолированные базы каждой пары удалены. v1: Chromium 32 PASS до прерывания / 141,00 с, WebKit 20 PASS / 85,62 с. v2: Chromium 16 PASS / 48,02 с, WebKit 15 PASS / 48,02 с. Ни один не полный PASS. |
-| Завершённые v3 | На SHA `c151252e…` оба движка дали 40 PASS / 4 FAIL: точный текст окончания скрывался cooldown на 60 с; внешний rail-toggle был скрыт. Chromium 202,07 с, WebKit 218,49 с. Отказы сохранены в `/tmp/graf-f280-payment-return-final44-{chromium,webkit}-v3.log`. Исправлены источник окончания и адресат фокуса; ошибочное ожидание доступности на 60 с усилено описанным выше образом. |
-| Завершённые v4 | На промежуточном SHA `2d3f6a12…`: Chromium 44 PASS / 201,83 с, WebKit 44 PASS / 216,44 с; оба cleanup подтверждены. `/tmp/graf-f280-payment-return-final44-{chromium,webkit}-v4.log` доказывают предыдущие исправления, ещё не T040. |
+| Завершённые v3 | На SHA `c151252e…` оба движка дали 40 PASS / 4 FAIL: точный текст окончания скрывался cooldown на 60 с; внешний rail-toggle был скрыт. Chromium 202,07 с, WebKit 218,49 с. Отказы сохранены в `graf-f280-payment-return-final44-{chromium,webkit}-v3.log`. Исправлены источник окончания и адресат фокуса; ошибочное ожидание доступности на 60 с усилено описанным выше образом. |
+| Завершённые v4 | На промежуточном SHA `2d3f6a12…`: Chromium 44 PASS / 201,83 с, WebKit 44 PASS / 216,44 с; оба cleanup подтверждены. `graf-f280-payment-return-final44-{chromium,webkit}-v4.log` доказывают предыдущие исправления, ещё не T040. |
 | Подготовка T040 | Начальные журналы `t040-red-chromium`, `t040-red10-chromium`, `t040-red10-chromium-v2`, `t040-red10-webkit` содержали ошибки подготовки: неверные имена meta (`graf-current-user`/`graf-current-workspace` вместо фактических `graf-time-user`/`graf-workspace`) и временно некорректный `continue` после разделения групп. Они сохранены, не считаются полным причинным RED. Имена сверены с настоящим `base.html` и функцией ключа; синтаксис исправлен до окончательного причинного запуска. |
-| Действительный T040 RED | На неизменном SHA `2d3f6a12…`: Chromium 10 FAIL / 24,23 с, WebKit 10 FAIL / 27,69 с; все четыре поля × две ширины и отдельная настоящая замена main × две ширины. Только ожидаемые assertion-отказы: нет немедленного восстановления прежнего узла, либо изменён уже заменивший его узел. Ошибок синтаксиса/подготовки нет. Журналы `/tmp/graf-f280-t040-red10-{chromium,webkit}-v3.log`; краткая запись `/tmp/graf-f280-t040-red-ready.json`. |
-| Уточнение визуального ожидания | `/tmp/graf-f280-t038-t039-enhanced-chromium.log`: 2 PASS / 2 FAIL, 14,02 с. Новый тест предполагал `pointer-events:none`, хотя настоящий существующий CSS использует opacity `.72` и `cursor:not-allowed`. Ожидание исправлено на реальные требуемые признаки: вычисленное приглушение/курсор, объяснение через aria-describedby, действительный запрет раннего запроса и восстановление вида. Повтор `-enhanced-chromium-v2.log`: 4 PASS / 17,25 с. |
-| Причинный GREEN и окончательная матрица | `/tmp/graf-f280-t040-green14-chromium.log`: 14 PASS / 39,12 с, фаза 43 с. Затем полные 54 + 54 PASS на четырёх окончательных неизменных файлах из таблицы выше. |
+| Действительный T040 RED | На неизменном SHA `2d3f6a12…`: Chromium 10 FAIL / 24,23 с, WebKit 10 FAIL / 27,69 с; все четыре поля × две ширины и отдельная настоящая замена main × две ширины. Только ожидаемые assertion-отказы: нет немедленного восстановления прежнего узла, либо изменён уже заменивший его узел. Ошибок синтаксиса/подготовки нет. Журналы `graf-f280-t040-red10-{chromium,webkit}-v3.log`; краткая запись `graf-f280-t040-red-ready.json`. |
+| Уточнение визуального ожидания | `graf-f280-t038-t039-enhanced-chromium.log`: 2 PASS / 2 FAIL, 14,02 с. Новый тест предполагал `pointer-events:none`, хотя настоящий существующий CSS использует opacity `.72` и `cursor:not-allowed`. Ожидание исправлено на реальные требуемые признаки: вычисленное приглушение/курсор, объяснение через aria-describedby, действительный запрет раннего запроса и восстановление вида. Повтор `-enhanced-chromium-v2.log`: 4 PASS / 17,25 с. |
+| Причинный GREEN и окончательная матрица | `graf-f280-t040-green14-chromium.log`: 14 PASS / 39,12 с, фаза 43 с. Затем полные 54 + 54 PASS на четырёх окончательных неизменных файлах из таблицы выше. |
 
 ## Воспроизведение
 
-Команды запускаются из `/Users/yshishenya/.codex/worktrees/release-f280/crisp`, используют существующие зависимости и создают отдельную PostgreSQL базу. Не применять к production DB.
+Команды запускаются из `.`, используют существующие зависимости и создают отдельную PostgreSQL базу. Не применять к production DB.
 
 ```sh
 GRAF_PAYMENT_RETURN_BROWSER=1 GRAF_BROWSER=chromium \
-GRAF_NODE_MODULES=/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/tests/browser/node_modules \
+GRAF_NODE_MODULES="$PWD/apps/server/tests/browser/node_modules" \
 apps/server/scripts/run_local_postgres_tests.sh --focused \
   tests/contract/test_billing_payment_return_browser.py -q --tb=short --show-capture=no
 
 GRAF_PAYMENT_RETURN_BROWSER=1 GRAF_BROWSER=webkit \
-GRAF_NODE_MODULES=/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/tests/browser/node_modules \
+GRAF_NODE_MODULES="$PWD/apps/server/tests/browser/node_modules" \
 apps/server/scripts/run_local_postgres_tests.sh --focused \
   tests/contract/test_billing_payment_return_browser.py -q --tb=short --show-capture=no
 ```

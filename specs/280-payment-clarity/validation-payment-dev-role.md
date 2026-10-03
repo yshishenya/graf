@@ -16,7 +16,7 @@ Documented Dev `rec-maintenance` наследовал URL владельца Б�
 bash apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_dev_maintenance_database_role.py
 ```
 
-`/tmp/graf-f280-payment-dev-role-red.log`:1FAILED/1PASSED,8.44s pytest/12s phase, isolated_container_removed. Тест берет username из прежнего actual Dev Compose, подключается им к отдельному мигрированному PostgreSQL и вызывает настоящий `verify_billing_maintenance_database`; отказ BillingMaintenanceDatabaseError «requires a protected maintenance database role». Контроль реального прежнего superuser тоже успешно подтверждает отказ. Это RED продукта/конфигурации, не missing import или недоступный Docker.
+`graf-f280-payment-dev-role-red.log`:1FAILED/1PASSED,8.44s pytest/12s phase, isolated_container_removed. Тест берет username из прежнего actual Dev Compose, подключается им к отдельному мигрированному PostgreSQL и вызывает настоящий `verify_billing_maintenance_database`; отказ BillingMaintenanceDatabaseError «requires a protected maintenance database role». Контроль реального прежнего superuser тоже успешно подтверждает отказ. Это RED продукта/конфигурации, не missing import или недоступный Docker.
 
 ## Окончательный GREEN
 
@@ -24,7 +24,7 @@ bash apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration
 bash apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_dev_maintenance_database_role.py tests/contract/test_dev_maintenance_database_role.py
 ```
 
-`/tmp/graf-f280-payment-dev-role-complete-green.log`: **8PASSED**,8.21s pytest/12s phase,2 existing warnings, isolated_container_removed. Тесты используют свои отдельные PostgreSQL17 containers и настоящие миграции; installed GRAF Dev/его БД не запускаются и не читаются.
+`graf-f280-payment-dev-role-complete-green.log`: **8PASSED**,8.21s pytest/12s phase,2 existing warnings, isolated_container_removed. Тесты используют свои отдельные PostgreSQL17 containers и настоящие миграции; installed GRAF Dev/его БД не запускаются и не читаются.
 
 Покрытие: Compose resolved anchors/роль/порядок запуска/image/restart; отказ helper вне development до bootstrap; canonical helper delegation; временные600 files/cleanup и env restore при успехе и exception; настоящий login session_user=current_user=twobrain_rec_maintenance, row_security=on, rolsuper=false, rolbypassrls=false; startup billing guard PASS; повторный вызов bootstrap с тем же результатом; действующий rec_maintenance_allowed и реальный SELECT для календаря, уведомлений, удаления, генерации результатов и восстановления обработки; прежний superuser снова отклоняется.
 
@@ -32,8 +32,8 @@ bash apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration
 
 ## Дополнительные адресные проверки
 
-- Настоящий `docker compose -f infra/docker-compose.dev.yml config --format json`, только parse без запуска: PASS. Разобранные значения подтвердили bootstrap deps={rec-migrate,rec-postgres}, maintenance→bootstrap completed, существующий migration image, прежние API storage deps. Metadata `/tmp/graf-f280-payment-dev-role-compose.log`.
-- `apps/server/.venv/bin/python -m pytest tests/governance/test_dev_harness.py -q`: **23PASS**,0.52s; metadata `/tmp/graf-f280-payment-dev-role-harness-green.log`. Fixture harness, не реальная установка/переключение GRAF Dev.
+- Настоящий `docker compose -f infra/docker-compose.dev.yml config --format json`, только parse без запуска: PASS. Разобранные значения подтвердили bootstrap deps={rec-migrate,rec-postgres}, maintenance→bootstrap completed, существующий migration image, прежние API storage deps. Metadata `graf-f280-payment-dev-role-compose.log`.
+- `apps/server/.venv/bin/python -m pytest tests/governance/test_dev_harness.py -q`: **23PASS**,0.52s; metadata `graf-f280-payment-dev-role-harness-green.log`. Fixture harness, не реальная установка/переключение GRAF Dev.
 - `uv run --directory apps/server --extra dev ruff check scripts/bootstrap_dev_database_roles.py tests/contract/test_dev_maintenance_database_role.py tests/integration/test_dev_maintenance_database_role.py`: PASS.
 - py_compile нового helper и scoped git diff --check: PASS.
 

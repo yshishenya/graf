@@ -10,9 +10,9 @@
 Последний прочитанный и повторно проверенный SHA256:
 `4ca35f0a1e8b9f96c96ff69933e2e8acb06b657bb7c863197a713ac5a70d9324`.
 
-**На версии `4516…` подтверждён один medium дефект, исправленный в текущих исходниках.** В [cabinet.js:9258](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js:9258) обработчик общего `afterSwap` пропускал всю инициализацию статуса оплаты. Причинный сценарий: первая проверка завершена → меняется текущий контекст пользователя → повторная инициализация через `afterSwap` → таймер прекращает последовательность, но понятное сообщение и восстановление не появляются. Настоящие прогоны обоих браузеров упали в [browser test:242](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/tests/browser/billing-payment-return.test.cjs:242): `role="status"` вместо ожидаемого `alert`, `bridge_errors=[]`. Это подтверждённый разрыв восстановления; выдача чужого доступа этими отказами не установлена.
+**На версии `4516…` подтверждён один medium дефект, исправленный в текущих исходниках.** В [cabinet.js:9258](../../apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js#L9258) обработчик общего `afterSwap` пропускал всю инициализацию статуса оплаты. Причинный сценарий: первая проверка завершена → меняется текущий контекст пользователя → повторная инициализация через `afterSwap` → таймер прекращает последовательность, но понятное сообщение и восстановление не появляются. Настоящие прогоны обоих браузеров упали в [browser test:242](../../apps/server/tests/browser/billing-payment-return.test.cjs#L242): `role="status"` вместо ожидаемого `alert`, `bridge_errors=[]`. Это подтверждённый разрыв восстановления; выдача чужого доступа этими отказами не установлена.
 
-В `4ca35…` инициализация выполняет проверки контекста сразу, а `deferScheduling` откладывает только назначение следующего запроса — [cabinet.js:1985](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js:1985), [cabinet.js:2054](/Users/yshishenya/.codex/worktrees/release-f280/crisp/apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js:2054). Автоматическое продолжение после замены формы остаётся на `afterSettle`; первоначальный запуск сохранён. Причина замечания устранена в коде, окончательная браузерная перепроверка ещё требуется.
+В `4ca35…` инициализация выполняет проверки контекста сразу, а `deferScheduling` откладывает только назначение следующего запроса — [cabinet.js:1985](../../apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js#L1985), [cabinet.js:2054](../../apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js#L2054). Автоматическое продолжение после замены формы остаётся на `afterSettle`; первоначальный запуск сохранён. Причина замечания устранена в коде, окончательная браузерная перепроверка ещё требуется.
 
 Покрытие и причинность доказательств оценил так:
 
@@ -53,8 +53,8 @@ test_billing_payment_return_browser.py:
 
 | Browser → ASGI → PostgreSQL | Проверенный результат |
 |---|---|
-| [Chromium v2](/tmp/graf-f280-payment-return-final36-chromium-v2.log) | **36 PASS, 184,79 с** |
-| [WebKit v2](/tmp/graf-f280-payment-return-final36-webkit-v2.log) | **36 PASS, 201,58 с** |
+| Chromium v2 (артефакт `graf-f280-payment-return-final36-chromium-v2.log`) | **36 PASS, 184,79 с** |
+| WebKit v2 (артефакт `graf-f280-payment-return-final36-webkit-v2.log`) | **36 PASS, 201,58 с** |
 
 В обоих есть `postgres_test_result=pass` и `isolated_container_removed`; пропусков и отказов нет.
 

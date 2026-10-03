@@ -7,12 +7,12 @@
 Команда:
 
 ```sh
-GRAF_PAYMENT_RETURN_BROWSER=1 GRAF_BROWSER=chromium GRAF_NODE_MODULES=/tmp/airis-optout-native-deps/node_modules apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_billing_payment_return_browser.py -k 'success and 320' -q --tb=short --show-capture=no
+GRAF_PAYMENT_RETURN_BROWSER=1 GRAF_BROWSER=chromium GRAF_NODE_MODULES=airis-optout-native-deps/node_modules apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_billing_payment_return_browser.py -k 'success and 320' -q --tb=short --show-capture=no
 ```
 
 Результат: **1 FAILED / 1 deselected**, Chromium320. Настоящий HTTP→ASGI→PostgreSQL и синтетический transport ЮKassa; initial checkout создан существующим штатным тестовым helper, invoice/operation по одной, grant0 до возврата. Новый денежный POST запрещен мостом; browser expected automatic success, но locator «Оплачено» исчерпал5с (`automatic-success`, `TimeoutError`). Все24 записанных HTTP запросов были GET200; refresh POST0, bridge errors0. Это ожидаемый RED поведения отсутствующей автопроверки; production JS/template еще прежние. Root уже отдельно менял server routes после собственного server RED.
 
-Локальный log: `/tmp/graf-f280-payment-browser-red.log` (только синтетический trace/stage/count; без session/cookie/payload). Duration23с с подготовкой; call9.72с включает запуск браузера и timeout5с.
+Локальный log: `graf-f280-payment-browser-red.log` (только синтетический trace/stage/count; без session/cookie/payload). Duration23с с подготовкой; call9.72с включает запуск браузера и timeout5с.
 
 Исходники перед RED:
 
@@ -25,13 +25,13 @@ CHK001 повторно подтвержден в reviewer-owned отчете: �
 
 ## Промежуточная проверка контроллера и исправления стенда
 
-Реальный Chromium320 → HTTP → ASGI → PostgreSQL: `-k '320 and (errors or guards or lifecycle or timeout)'` дал **4passed/24deselected** после серверного исправления local recovery. Лог `/tmp/graf-f280-payment-browser-controller-debug2.log`,55.37сpytest. HTTP401/403/429/500, network/unexpected HTML, incoming/current user/workspace/session/invoice/missing scope, busy/double trigger/reinit, hidden/visible, detached target, actual navigation и настоящий XHR timeout15с с исходным серверным POST, продолжающим жить до17с. Recovery GET не начинает второй POST. Cookie/timezone/CSRF и HTML настоящие; provider synthetic; новых create/operation/invoice/grants нет.
+Реальный Chromium320 → HTTP → ASGI → PostgreSQL: `-k '320 and (errors or guards or lifecycle or timeout)'` дал **4passed/24deselected** после серверного исправления local recovery. Лог `graf-f280-payment-browser-controller-debug2.log`,55.37сpytest. HTTP401/403/429/500, network/unexpected HTML, incoming/current user/workspace/session/invoice/missing scope, busy/double trigger/reinit, hidden/visible, detached target, actual navigation и настоящий XHR timeout15с с исходным серверным POST, продолжающим жить до17с. Recovery GET не начинает второй POST. Cookie/timezone/CSRF и HTML настоящие; provider synthetic; новых create/operation/invoice/grants нет.
 
 Предыдущие полные прогоны12failed/16passed не являются GREEN. Исправлены именно ошибки стенда: page-level route.continue пропускал нижний счётчик; глобальный locator видел меню «К встречам»; фокусируемый элемент — main, не h1; result provider error называется unavailable; Playwright routing не перехватывает следующий URL redirect, поэтому named faults теперь fetch настоящие POST303→GET до изменения ответа; timeout assertions ждут окончания исходного server thread перед проверкой SQL. Таймер0 может исполниться даже при paused clock, поэтому fault/hold устанавливаются до initial GET, а current-scope меняется после первого доказанного check. Нельзя трактовать preparatory failures как дефекты продукта или ослаблять финансовые assertions.
 
 ## Независимая находка и ее закрытие: вторичное продолжение pending
 
-Первоначальный **HOLD**, подтверждено actual DOM RED3октября: `/tmp/graf-f280-payment-browser-continuation-red.log`; команда того же runner с `-k 'pending and 320'`,1FAILED/27deselected. Настоящий provider GET успешно оставляет этот же payment pending, локальные invoice/operation pending/provider_pending. В карточке отсутствует «Вернуться к оплате» (expected1, actual0). Новой денежной операции нет.
+Первоначальный **HOLD**, подтверждено actual DOM RED3октября: `graf-f280-payment-browser-continuation-red.log`; команда того же runner с `-k 'pending and 320'`,1FAILED/27deselected. Настоящий provider GET успешно оставляет этот же payment pending, локальные invoice/operation pending/provider_pending. В карточке отсутствует «Вернуться к оплате» (expected1, actual0). Новой денежной операции нет.
 
 Причина: `_status_refresh_result()` при processed1/pending1/failed0 возвращает `refreshed`; template открывает вторичный continue лишь для `status_result == "unchanged"`. Существующий can_continue_payment проверяет допустимый invoice.pending + operation.provider_pending + actor + trusted confirmation URL, но этот безопасный доступный путь скрыт после каждой успешной проверки. Это противоречит contracts/payment-journey.md:108 и FR-034/приёмке pending. Assertion добавлен; production этим reviewer не менялся.
 
@@ -53,17 +53,17 @@ CHK001 повторно подтвержден в reviewer-owned отчете: �
 Общая команда полного прогона (для каждого ENGINE отдельно):
 
 ```sh
-GRAF_PAYMENT_RETURN_BROWSER=1 GRAF_BROWSER=ENGINE GRAF_NODE_MODULES=/tmp/airis-optout-native-deps/node_modules apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_billing_payment_return_browser.py -q --tb=short --show-capture=no
+GRAF_PAYMENT_RETURN_BROWSER=1 GRAF_BROWSER=ENGINE GRAF_NODE_MODULES=airis-optout-native-deps/node_modules apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_billing_payment_return_browser.py -q --tb=short --show-capture=no
 ```
 
 | Движок/прогон | Реальный результат | Доказательство |
 | --- | --- | --- |
-| Chromium, полная матрица320/1280 | 27PASS/1FAIL;250.71сpytest. Единственный FAIL — initial page.goto5с, bridge trace пустой; сценарий платежа не начался. Это не полный зеленый прогон. | `/tmp/graf-f280-payment-browser-chromium-final.log` |
-| WebKit, полная матрица320/1280 | 28PASS;287.67сpytest | `/tmp/graf-f280-payment-browser-webkit-final.log` |
-| Chromium, pending320/1280 после исправления root | 2PASS/26deselected;32.08сpytest. Прочитан итог выполненного root прогона, собственный дубликат не запускался. | `/tmp/graf-f280-pending-continuation-chromium-green.log` |
-| WebKit, pending320/1280 после исправления root | 2PASS/26deselected;35.97сpytest. Прочитан итог выполненного root прогона, собственный дубликат не запускался. | `/tmp/graf-f280-pending-continuation-webkit-green.log` |
-| Chromium, клавиатура/фокус/темы/200% после появления вторичной кнопки | 2PASS/26deselected;29.00сpytest | `/tmp/graf-f280-continuation-a11y-chromium.log` |
-| WebKit, клавиатура/фокус/темы/200% после появления вторичной кнопки | 2PASS/26deselected;32.16сpytest | `/tmp/graf-f280-continuation-a11y-webkit.log` |
+| Chromium, полная матрица320/1280 | 27PASS/1FAIL;250.71сpytest. Единственный FAIL — initial page.goto5с, bridge trace пустой; сценарий платежа не начался. Это не полный зеленый прогон. | `graf-f280-payment-browser-chromium-final.log` |
+| WebKit, полная матрица320/1280 | 28PASS;287.67сpytest | `graf-f280-payment-browser-webkit-final.log` |
+| Chromium, pending320/1280 после исправления root | 2PASS/26deselected;32.08сpytest. Прочитан итог выполненного root прогона, собственный дубликат не запускался. | `graf-f280-pending-continuation-chromium-green.log` |
+| WebKit, pending320/1280 после исправления root | 2PASS/26deselected;35.97сpytest. Прочитан итог выполненного root прогона, собственный дубликат не запускался. | `graf-f280-pending-continuation-webkit-green.log` |
+| Chromium, клавиатура/фокус/темы/200% после появления вторичной кнопки | 2PASS/26deselected;29.00сpytest | `graf-f280-continuation-a11y-chromium.log` |
+| WebKit, клавиатура/фокус/темы/200% после появления вторичной кнопки | 2PASS/26deselected;32.16сpytest | `graf-f280-continuation-a11y-webkit.log` |
 
 Дополнительные выборки используют тот же runner с `-k pending` либо `-k a11y`. Составное покрытие дает успешное доказательство всех28случаев каждого движка; это не переименование Chromium27/1 в полный28PASS. После минимального исправления root повторены именно затронутые pending/доступность. Полная матрица ранее запускалась параллельно; 5сinitial navigation timeout не повторился в обоих targeted pending ширинах.
 
@@ -107,11 +107,11 @@ Node syntax и Ruff owned Python проверены без ошибок. Тек�
 Для каждого ENGINE = chromium / webkit выполнено:
 
 ```sh
-GRAF_PAYMENT_RETURN_BROWSER=1 GRAF_BROWSER=ENGINE GRAF_NODE_MODULES=/tmp/airis-optout-native-deps/node_modules apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_billing_payment_return_browser.py -k a11y -q --tb=short --show-capture=no
+GRAF_PAYMENT_RETURN_BROWSER=1 GRAF_BROWSER=ENGINE GRAF_NODE_MODULES=airis-optout-native-deps/node_modules apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_billing_payment_return_browser.py -k a11y -q --tb=short --show-capture=no
 ```
 
-- Chromium: **2PASS/26deselected**,14.87сpytest,22сphase; `/tmp/graf-f280-rebased-a11y-chromium.log`.
-- WebKit: **2PASS/26deselected**,16.14сpytest,23сphase; `/tmp/graf-f280-rebased-a11y-webkit.log`.
+- Chromium: **2PASS/26deselected**,14.87сpytest,22сphase; `graf-f280-rebased-a11y-chromium.log`.
+- WebKit: **2PASS/26deselected**,16.14сpytest,23сphase; `graf-f280-rebased-a11y-webkit.log`.
 
 Обе ширины читают настоящий HTTP→ASGI→PostgreSQL status и настоящие текущие cabinet.css/cabinet.js. Проверены focus restoration после HTMX замены, переход Tab/Option+Tab к следующему actionable control, unchanged status aria-live suppression, светлая/темная темы,200%zoom без горизонтального переполнения, hidden stop без возобновления auto, сохранение document/runner marker и отрицательные SQL/provider create/grant assertions. Изолированные PostgreSQL контейнеры удалены. Полная28-case матрица не повторялась, поскольку изменены CSS/native base, а не денежная логика; ее исходные/адресные доказательства остаются выше.
 
@@ -119,20 +119,20 @@ GRAF_PAYMENT_RETURN_BROWSER=1 GRAF_BROWSER=ENGINE GRAF_NODE_MODULES=/tmp/airis-o
 
 ```sh
 cd apps/server
-NODE_PATH=/tmp/airis-optout-native-deps/node_modules GRAF_BROWSER=chromium uv run --extra dev --extra evaluation pytest tests/contract/test_focus_indicators_browser.py tests/contract/test_cabinet_static_assets_contract.py tests/contract/test_settings_ui_contract.py -q --tb=short
+NODE_PATH=airis-optout-native-deps/node_modules GRAF_BROWSER=chromium uv run --extra dev --extra evaluation pytest tests/contract/test_focus_indicators_browser.py tests/contract/test_cabinet_static_assets_contract.py tests/contract/test_settings_ui_contract.py -q --tb=short
 ```
 
-**102PASS**,12.43с; `/tmp/graf-f280-rebased-f285-web-contracts.log`. Существующие PytestAssertRewriteWarning и StarletteDeprecationWarning не являются отказами. F285 browser entrypoint действительно исполнился, не был skipped.
+**102PASS**,12.43с; `graf-f280-rebased-f285-web-contracts.log`. Существующие PytestAssertRewriteWarning и StarletteDeprecationWarning не являются отказами. F285 browser entrypoint действительно исполнился, не был skipped.
 
 Из корня checkout дополнительно:
 
 ```sh
-NODE_PATH=/tmp/airis-optout-native-deps/node_modules GRAF_BROWSER=webkit node apps/server/tests/browser/focus-indicators.test.cjs
-NODE_PATH=/tmp/airis-optout-native-deps/node_modules node apps/server/tests/browser/local-recording-focus.test.cjs
+NODE_PATH=airis-optout-native-deps/node_modules GRAF_BROWSER=webkit node apps/server/tests/browser/focus-indicators.test.cjs
+NODE_PATH=airis-optout-native-deps/node_modules node apps/server/tests/browser/local-recording-focus.test.cjs
 node apps/server/tests/browser/meeting-delete-focus.test.cjs
 ```
 
-Все exit0/PASS: `/tmp/graf-f280-rebased-f285-focus-webkit.log`, `/tmp/graf-f280-rebased-local-recording-focus.log`, `/tmp/graf-f280-rebased-meeting-delete-focus.log`. Общий focus-indicators проверяет actual CSS на синтетических control fixtures: один контур поля, contrast≥3:1, неизменную геометрию, отсутствие активации от focus, кнопки/ссылки/summary/checkbox/radio/range/file, обе темы и increased contrast; Chromium также forced colors. Local recording проверяет stable keyed nodes, controls/checkbox handoff, time context и removal/restoration в браузере. Meeting delete — существующий JavaScript VM contract всех направлений Tab, не отдельный real-browser proof.
+Все exit0/PASS: `graf-f280-rebased-f285-focus-webkit.log`, `graf-f280-rebased-local-recording-focus.log`, `graf-f280-rebased-meeting-delete-focus.log`. Общий focus-indicators проверяет actual CSS на синтетических control fixtures: один контур поля, contrast≥3:1, неизменную геометрию, отсутствие активации от focus, кнопки/ссылки/summary/checkbox/radio/range/file, обе темы и increased contrast; Chromium также forced colors. Local recording проверяет stable keyed nodes, controls/checkbox handoff, time context и removal/restoration в браузере. Meeting delete — существующий JavaScript VM contract всех направлений Tab, не отдельный real-browser proof.
 
 ### Нативные относящиеся проверки: результат с явными пропусками
 
@@ -143,7 +143,7 @@ cd apps/macos
 swift test --filter 'AppControlAccessibilityTests|NativeSettingsComboBoxTests|DesktopNotificationAccessibilityTests'
 ```
 
-Лог `/tmp/graf-f280-rebased-native-focus.log`, exit0; build21.41с, selected test execution16.107с:
+Лог `graf-f280-rebased-native-focus.log`, exit0; build21.41с, selected test execution16.107с:
 
 - **AppControlAccessibilityTests:25PASS/0skip/0failure** — source bindings/контейнеры informational recording не создают обычных keyboard stops; assistive targets/navigation сохранены.
 - **NativeSettingsComboBoxTests:28PASS/0skip/0failure** — рисунок контура и CALayer, обе темы/Increase Contrast, неизменные bounds, keyboard/edit/commit/popup contracts.
@@ -174,10 +174,10 @@ GO root получен после T035/#7483, уточнения FR033/034/spec/
 Команда RED:
 
 ```sh
-GRAF_PAYMENT_RETURN_BROWSER=1 GRAF_BROWSER=chromium GRAF_NODE_MODULES=/tmp/airis-optout-native-deps/node_modules apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_billing_payment_return_browser.py -k 'deadline-success and 320' -q --tb=short --show-capture=no
+GRAF_PAYMENT_RETURN_BROWSER=1 GRAF_BROWSER=chromium GRAF_NODE_MODULES=airis-optout-native-deps/node_modules apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_billing_payment_return_browser.py -k 'deadline-success and 320' -q --tb=short --show-capture=no
 ```
 
-**1FAILED/33deselected**: actual sixth HTTP POST дошел до provider после5завершённых check; при пересечении global60с прежний JS снял aria-busy и завершил запрос, вместо сохранения его собственного15с. Assertion `60s start window must not abort sixth in-flight XHR`: expected true, actual null. Bridge errors0;6real POST303. После отказа cleanup освободил исходный provider gate, дождался настоящей ASGI/SQL transaction и удалил PostgreSQL контейнер. Лог `/tmp/graf-f280-deadline-causal-red.log`. Это product causal RED, не ошибка стенда.
+**1FAILED/33deselected**: actual sixth HTTP POST дошел до provider после5завершённых check; при пересечении global60с прежний JS снял aria-busy и завершил запрос, вместо сохранения его собственного15с. Assertion `60s start window must not abort sixth in-flight XHR`: expected true, actual null. Bridge errors0;6real POST303. После отказа cleanup освободил исходный provider gate, дождался настоящей ASGI/SQL transaction и удалил PostgreSQL контейнер. Лог `graf-f280-deadline-causal-red.log`. Это product causal RED, не ошибка стенда.
 
 Ранее подтвержденная14-group/28case матрица не покрывала этот новый deadline case. Новый состав17groups/34cases на движок; до исправления root и targeted GREEN новые случаи не считаются пройденными. Итог/текущие source SHA после исправления будут добавлены отдельно. Reviewer не меняет JS/GitHub/commits.
 
@@ -189,11 +189,11 @@ GRAF_PAYMENT_RETURN_BROWSER=1 GRAF_BROWSER=chromium GRAF_NODE_MODULES=/tmp/airis
 Для каждого ENGINE=chromium/webkit исполнено:
 
 ```sh
-GRAF_PAYMENT_RETURN_BROWSER=1 GRAF_BROWSER=ENGINE GRAF_NODE_MODULES=/tmp/airis-optout-native-deps/node_modules apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_billing_payment_return_browser.py -k deadline -q --tb=short --show-capture=no
+GRAF_PAYMENT_RETURN_BROWSER=1 GRAF_BROWSER=ENGINE GRAF_NODE_MODULES=airis-optout-native-deps/node_modules apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_billing_payment_return_browser.py -k deadline -q --tb=short --show-capture=no
 ```
 
-- Chromium: **6PASS/28deselected**,56.96сpytest/61сphase; `/tmp/graf-f280-deadline-chromium-green.log`.
-- WebKit: **6PASS/28deselected**,60.55сpytest/65сphase; `/tmp/graf-f280-deadline-webkit-green.log`.
+- Chromium: **6PASS/28deselected**,56.96сpytest/61сphase; `graf-f280-deadline-chromium-green.log`.
+- WebKit: **6PASS/28deselected**,60.55сpytest/65сphase; `graf-f280-deadline-webkit-green.log`.
 
 Оба браузера и ширины320/1280 проверили каждый из трех новых сценариев. Шестой настоящий POST начинает provider GET около50с; пересечение60с сохраняет aria-busy и исходный запрос. `deadline-success` принимает настоящую серверную paid-проекцию после границы; `deadline-pending` сохраняет ожидание с честным объяснением и ручным следующим шагом. `deadline-timeout` подтверждает собственный нативный XHR timeout около15реальных секунд, не заменяя его управляемыми часами страницы; завершившийся после timeout серверный успех не меняет уже восстановленную DOM-проекцию, явный GET local recovery читает оплаченный результат без нового/перекрывающего POST. Во всех случаях отсутствуют седьмой автоматический старт и новый платеж; SQL подтверждает одну operation/invoice/provider create и ожидаемое число связанных grant/period. При обычной замене сохраняются document/независимый runner markers, контекст и интервалы≥10с. Изолированные PostgreSQL контейнеры удалены.
 
@@ -211,26 +211,26 @@ GRAF_PAYMENT_RETURN_BROWSER=1 GRAF_BROWSER=ENGINE GRAF_NODE_MODULES=/tmp/airis-o
 
 ### T035 затронутые регрессии, те же исходные SHA256
 
-- Chromium: `-k 'pending or errors or guards or lifecycle or timeout or cancel-on-check'`, **16PASS/18deselected**,139.84сpytest/145сphase, `/tmp/graf-f280-deadline-chromium-regressions.log`. Выражение также выбрало четыре уже проверенных deadline-pending/deadline-timeout case; это повтор, а не четыре дополнительных уникальных сценария.
-- WebKit: `-k 'not deadline and (pending or errors or guards or lifecycle or timeout or cancel-on-check)'`, **12PASS/22deselected**,99.98сpytest/104сphase, `/tmp/graf-f280-deadline-webkit-regressions.log`.
+- Chromium: `-k 'pending or errors or guards or lifecycle or timeout or cancel-on-check'`, **16PASS/18deselected**,139.84сpytest/145сphase, `graf-f280-deadline-chromium-regressions.log`. Выражение также выбрало четыре уже проверенных deadline-pending/deadline-timeout case; это повтор, а не четыре дополнительных уникальных сценария.
+- WebKit: `-k 'not deadline and (pending or errors or guards or lifecycle or timeout or cancel-on-check)'`, **12PASS/22deselected**,99.98сpytest/104сphase, `graf-f280-deadline-webkit-regressions.log`.
 
 В обоих браузерах/320/1280 прошли шесть затронутых прежних групп: pending, errors, guards, lifecycle, timeout, cancel-on-check. Это реальные loopback HTTP→ASGI→PostgreSQL сценарии с fake provider transport; сохраняются SQL/new-payment-negative/context/document assertions. Оба runner завершились status=pass и удалили изолированные контейнеры. Исходный JS/browser/Python hash повторно проверен после прогонов и не изменился. Scoped diff --check PASS. UI-R9/T036 остается отдельным незакрытым случаем до новых тестов/исправления.
 
 
 ### T036 первый preparatory runner failure
 
-Первый `idle-five` запуск `/tmp/graf-f280-idle-five-causal-red.log`1FAIL/35deselected после остановки зависшего Node не является causal RED продукта. Пятая проверка планировалась около52.03с из-за30мс после каждого завершения, а тест продвинул часы только до52.00с и бесконечно ждал gate. Harness исправлен: ожидается actual четвертый start+10000+1мс и все gate waits теперь bounded6с. Production hash до нового прогона по-прежнему `26fb5eab58ff2983989001f59b16ab370ea42f2fa5b49726c28190b855020ed9`.
+Первый `idle-five` запуск `graf-f280-idle-five-causal-red.log`1FAIL/35deselected после остановки зависшего Node не является causal RED продукта. Пятая проверка планировалась около52.03с из-за30мс после каждого завершения, а тест продвинул часы только до52.00с и бесконечно ждал gate. Harness исправлен: ожидается actual четвертый start+10000+1мс и все gate waits теперь bounded6с. Production hash до нового прогона по-прежнему `26fb5eab58ff2983989001f59b16ab370ea42f2fa5b49726c28190b855020ed9`.
 
-Второй preparatory runner `/tmp/graf-f280-idle-five-actual-red.log`1FAIL/35deselected15.23с завершился bounded ConditionTimeout и trace содержал только первыйPOST; intended idle message assertion не достигнут. Это также не product RED. Добавлен отдельный1мс controlled clock step после завершения ответа для немедленного следующего таймера; source не изменен.
+Второй preparatory runner `graf-f280-idle-five-actual-red.log`1FAIL/35deselected15.23с завершился bounded ConditionTimeout и trace содержал только первыйPOST; intended idle message assertion не достигнут. Это также не product RED. Добавлен отдельный1мс controlled clock step после завершения ответа для немедленного следующего таймера; source не изменен.
 
 
 ### T036 диагностика задержанного первого ответа
 
-Дополнительные bounded preparatory runners `idle-five-causal-red-final.log`13.58с и `idle-five-causal-red-ready.log`13.07с также не достигли idle deadline assertion: ответ2 не начался даже после clock step1/50мс. `idle-five-diagnostic.log`12.86с подтвердил, что afterSwap первого ответа произошел и фактическая pending-проекция permits checks. Последний `/tmp/graf-f280-idle-five-diagnostic-phase.log` упал на отдельном phase assertion, а не на intended T036: после первого pending ответа14с и продвижения часов до14.080с observed={starts:[0],finished:1,swaps:1,timeouts:0,hidden:false,busy:null,auto:true,error:false,form:billing-status-refresh,visibleMessage:null}. Bridge errors=[] и ровно1POST303. Нельзя выдавать это за product RED idle-after60s. Требуется разобраться с immediate automatic trigger после задержанного ответа прежде, чем чинить T036; possible HTMX processing-before-settle timing пока только гипотеза, нового source изменения reviewer не делал.
+Дополнительные bounded preparatory runners `idle-five-causal-red-final.log`13.58с и `idle-five-causal-red-ready.log`13.07с также не достигли idle deadline assertion: ответ2 не начался даже после clock step1/50мс. `idle-five-diagnostic.log`12.86с подтвердил, что afterSwap первого ответа произошел и фактическая pending-проекция permits checks. Последний `graf-f280-idle-five-diagnostic-phase.log` упал на отдельном phase assertion, а не на intended T036: после первого pending ответа14с и продвижения часов до14.080с observed={starts:[0],finished:1,swaps:1,timeouts:0,hidden:false,busy:null,auto:true,error:false,form:billing-status-refresh,visibleMessage:null}. Bridge errors=[] и ровно1POST303. Нельзя выдавать это за product RED idle-after60s. Требуется разобраться с immediate automatic trigger после задержанного ответа прежде, чем чинить T036; possible HTMX processing-before-settle timing пока только гипотеза, нового source изменения reviewer не делал.
 
 
 ### Новый причинный RED: немедленный сигнал до HTMX обработки новой формы
 
-Read-only browser instrumentation использует события `billing-status-check`, `htmx:afterProcessNode`, `htmx:afterSettle` и признак initHash в фактической bundled HTMX2.0.10. `/tmp/graf-f280-slow-reply-process-diagnostic.log`: **1FAIL/35deselected**,7.29сpytest/12сphase, bridge_errors=[],1realPOST303, cleanup=isolated_container_removed. Source hash остается `26fb5eab58ff2983989001f59b16ab370ea42f2fa5b49726c28190b855020ed9`, browser test hash `d13ce7a2d2a0d211a30161cf47e844265901046b0b5621079d1075b2a8b53971`.
+Read-only browser instrumentation использует события `billing-status-check`, `htmx:afterProcessNode`, `htmx:afterSettle` и признак initHash в фактической bundled HTMX2.0.10. `graf-f280-slow-reply-process-diagnostic.log`: **1FAIL/35deselected**,7.29сpytest/12сphase, bridge_errors=[],1realPOST303, cleanup=isolated_container_removed. Source hash остается `26fb5eab58ff2983989001f59b16ab370ea42f2fa5b49726c28190b855020ed9`, browser test hash `d13ce7a2d2a0d211a30161cf47e844265901046b0b5621079d1075b2a8b53971`.
 
 Observed exact causal order: first automatic trigger at1мс processed=true; pending response released14.001с; next trigger at14.001с processed=false; new form actual afterProcessNode/afterSettle only at14.021с. At14.081с: starts=[1],finished=1,swaps=1,timeouts=0,hidden=false,busy=null,auto=true,error=false,visibleMessage=null. Assertion `next due check phase` expected2starts got1. This is a new real dropped-automatic-check defect, not intended idle-after60s RED. Bundled HTMX source schedules o.tasks (including form processing) in settle callback20мс after afterSwap; controller schedules0 delay before that processing. No manual reinit or injected successful payment hides the failure. Root must task-back this newly discovered source fix before returning to T036 idle-five causal RED/GREEN. Current source convergence HOLD.
