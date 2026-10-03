@@ -1634,3 +1634,174 @@ def test_manual_checkout_recovery_offers_continue_instead_of_noop_refresh() -> N
     assert "Продолжить оплату" not in pending_html
     assert "Новую оплату не создаем" in processing_html
     assert "Операция не найдена" not in processing_html
+
+
+def _subscription_view(**changes) -> str:
+    """Synthetic state shared by the subscription presentation regressions."""
+    return render_template(
+        "cabinet/pages/billing_subscription_content.html",
+        **{
+            "subscription": SimpleNamespace(
+                plan_code="personal", state="active", cycle="month",
+                paid_through=datetime(2026, 11, 3, 9, 19, tzinfo=UTC),
+                recurring_allowed=False, recurring_authority_version=7,
+                renewal_resolution=None,
+            ),
+            "active": True, "subscription_trial_active": False, "result": None,
+            "subscription_plan_label": "Личный", "subscription_cycle_label": "месяц",
+            "paid_through_label": "03.11.2026, 12:19 (UTC+03:00)",
+            "paid_through_short_label": "03.11.2026",
+            "next_charge_amount_label": "1 000 ₽", "next_charge_label": "31.10.2026, 12:19 (UTC+03:00)",
+            "resume_charge_label": "31.10.2026, 12:19 (UTC+03:00)",
+            "billing_enabled": True, "method_available": False,
+            "manual_checkout_url": "/billing/checkout?cycle=month",
+            "csrf_token": "synthetic-csrf", "receipt_contact_ready": True,
+            **changes,
+        },
+    )
+
+
+@pytest.mark.parametrize("cycle", ["month", "year"])
+def test_subscription_off_without_card_is_normal_and_has_one_cycle_preserving_primary(cycle):
+    html = _subscription_view(manual_checkout_url=f"/billing/checkout?cycle={cycle}")
+    assert "Возобновление пока недоступно" not in html
+    assert html.count("data-billing-primary") == 1
+    assert re.search(r'<a[^>]*href="/billing/checkout\?cycle=' + cycle + r'"[^>]*>Продлить подписку</a>', html)
+    assert 'action="/billing/subscription/resume"' not in html
+    assert 'action="/billing/subscription/early-preview"' not in html
+    conditions = re.search(r'<details[^>]*>\s*<summary>Способ оплаты, условия и история</summary>(.*?)</details>', html, re.S)
+    assert conditions and "03.11.2026, 12:19 (UTC+03:00)" in conditions[1]
+    assert "03.11.2026, 12:19 (UTC+03:00)" not in html.replace(conditions[0], "")
+    assert 'href="/billing/history"' in html
+    assert 'href="/billing/history#billing-help"' in html
+
+
+def test_subscription_resume_is_a_native_disclosure_with_unaccepted_bound_consent():
+    html = _subscription_view(method_available=True, payment_method_label="•••• 4242", resume_quote_id="synthetic-resume")
+    resume = re.search(r'<details[^>]*>\s*<summary>Включить автопродление</summary>(.*?)</details>', html, re.S)
+    assert resume and " open" not in resume[0].split(">", 1)[0]
+    assert "1 000 ₽" in resume[1] and "31.10.2026, 12:19 (UTC+03:00)" in resume[1]
+    assert "•••• 4242" in resume[1] and "<details" not in resume[1]
+    assert 'action="/billing/subscription/resume" method="post"' in resume[1]
+    assert 'name="csrf_token" value="synthetic-csrf"' in resume[1]
+    assert 'name="expected_authority_version" value="7"' in resume[1]
+    assert 'name="resume_quote_id" value="synthetic-resume"' in resume[1]
+    consent = re.search(r'<input[^>]*name="resume_consent"[^>]*>', resume[1])
+    assert consent and "required" in consent[0] and "checked" not in consent[0]
+
+
+@pytest.mark.parametrize("resolution", ["pending", "unknown", "unknown_pending", "provider_key_expired"])
+@pytest.mark.parametrize("active", [False, True])
+@pytest.mark.parametrize("amount", [None, "1 000 ₽"])
+def test_subscription_uncertain_payment_never_offers_competing_purchase_or_resume(resolution, active, amount):
+    subscription = SimpleNamespace(
+        plan_code="personal", state="active", cycle="month", paid_through=datetime(2026, 11, 3, tzinfo=UTC),
+        recurring_allowed=False, recurring_authority_version=7, renewal_resolution=resolution,
+    )
+    html = _subscription_view(
+        subscription=subscription, active=active, method_available=True,
+        payment_method_label="•••• 4242", resume_quote_id="synthetic-resume",
+        pending_charge_amount_label=amount, pending_payment_url="/billing/checkout/status/INV-SYNTHETIC",
+    )
+    assert 'href="/billing/checkout?cycle=month"' not in html
+    assert 'action="/billing/subscription/resume"' not in html
+    assert 'action="/billing/subscription/early-preview"' not in html
+    assert ('href="/billing/checkout/status/INV-SYNTHETIC"' in html or 'href="/billing/history#billing-help"' in html)
+    assert 'role="status"' in html
+
+
+def test_subscription_prepared_renewal_keeps_early_preview_and_direct_cancel():
+    subscription = SimpleNamespace(
+        plan_code="personal", state="active", cycle="month", paid_through=datetime(2026, 11, 3, tzinfo=UTC),
+        recurring_allowed=True, recurring_authority_version=7, renewal_resolution=None,
+    )
+    html = _subscription_view(subscription=subscription, method_available=True, payment_method_label="•••• 4242", prepared_charge_amount_label="1 000 ₽")
+    assert 'action="/billing/subscription/early-preview" method="post"' in html
+    assert 'action="/billing/subscription/cancel" method="post"' in html
+    assert "31.10.2026, 12:19 (UTC+03:00)" in html and "1 000 ₽" in html
+    assert "Подготовлено" in html and "Уже отправленный платеж" not in html
+
+
+def test_subscription_trial_never_claims_free_or_paid_access():
+    html = _subscription_view(
+        subscription=SimpleNamespace(plan_code="trial", cycle="month", paid_through=None, recurring_allowed=False),
+        active=False, subscription_trial_active=True, subscription_plan_label="Пробный период",
+        trial_ends_at_label="03.11.2026, 12:19 (UTC+03:00)", trial_ends_short_label="03.11.2026",
+    )
+    assert "Пробный" in html and "03.11.2026" in html
+    assert "Сейчас действует бесплатный тариф" not in html
+    assert "Оплачено до" not in html
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("plan_code", ["personal", "trial", "free"])
+async def test_subscription_route_uses_effective_plan_and_viewer_local_calendar_day(monkeypatch, plan_code):
+    from twobrain_rec_server.cabinet import user_time
+
+    cutoff = (datetime.now(UTC) + timedelta(days=30)).replace(hour=23, minute=30, second=0, microsecond=0)
+    principal = SimpleNamespace(user_id=UUID(int=1), session_id=None, auth_via_session=False)
+    subscription = SimpleNamespace(
+        plan_code=plan_code, state=plan_code, cycle="year", paid_through=cutoff,
+        trial_ends_at=cutoff if plan_code == "trial" else None,
+        billing_owner_id=principal.user_id, recurring_allowed=False,
+        recurring_authority_version=7, renewal_resolution=None, next_capacity_bytes=None,
+    )
+    db = SimpleNamespace(scalar=AsyncMock(side_effect=[subscription, None]), execute=AsyncMock(return_value=[]))
+    captured = {}
+    monkeypatch.setattr(billing_routes, "_billing_role", AsyncMock(return_value="owner"))
+    monkeypatch.setattr(billing_routes, "_next_renewal_label", AsyncMock(return_value=None))
+    monkeypatch.setattr(billing_routes, "_verified_receipt_contact", AsyncMock(return_value=None))
+    monkeypatch.setattr(billing_routes, "_approved_personal_catalog", AsyncMock(return_value={}))
+    monkeypatch.setattr(billing_routes, "_page_shell", lambda _title, **context: captured.update(context) or "subscription")
+    monkeypatch.setattr(billing_routes, "_csrf_token_for_principal", lambda *_a, **_k: "synthetic")
+    monkeypatch.setattr(billing_routes, "billing_checkout_allowed", lambda *_a: True)
+    monkeypatch.setattr(billing_routes, "build_request_browser_provider_context", lambda *_a, **_k: {})
+    request = Request({"type": "http", "method": "GET", "scheme": "https", "server": ("graf.test", 443), "path": "/billing/subscription", "headers": [], "query_string": b"", "app": SimpleNamespace(state=SimpleNamespace(settings=SimpleNamespace()))})
+    token = user_time._display_timezone.set("Europe/Istanbul")
+    try:
+        response = await billing_routes.billing_subscription_page(request, tenant_scope=SimpleNamespace(workspace_id=UUID(int=2), device_id=UUID(int=3)), principal=principal, db=db)
+    finally:
+        user_time._display_timezone.reset(token)
+    assert response.status_code == 200
+    assert captured["active"] is (plan_code == "personal")
+    assert captured["subscription_trial_active"] is (plan_code == "trial")
+    expected_local_day = (cutoff + timedelta(hours=3)).strftime("%d.%m.%Y")
+    if plan_code == "personal":
+        assert captured["paid_through_short_label"] == expected_local_day
+        assert captured["paid_through_label"] == expected_local_day + ", 02:30 (UTC+03:00)"
+    elif plan_code == "trial":
+        assert captured["trial_ends_short_label"] == expected_local_day
+        assert captured["trial_ends_at_label"] == expected_local_day + ", 02:30 (UTC+03:00)"
+    assert captured["manual_checkout_url"] == "/billing/checkout?cycle=year"
+
+
+def test_subscription_expired_observation_does_not_hide_existing_manual_checkout():
+    subscription = SimpleNamespace(
+        plan_code="personal", state="active", cycle="month", paid_through=datetime(2026, 11, 3, tzinfo=UTC),
+        recurring_allowed=False, recurring_authority_version=7, renewal_resolution="provider_key_expired",
+    )
+    html = _subscription_view(subscription=subscription)
+    assert 'href="/billing/checkout?cycle=month"' in html
+    assert "Повторно платить не нужно" not in html
+
+
+@pytest.mark.parametrize("recurring_allowed", [False, True])
+def test_subscription_unresolved_method_keeps_safe_recovery_without_claiming_dispatch(recurring_allowed):
+    subscription = SimpleNamespace(
+        plan_code="personal", state="active", cycle="month", paid_through=datetime(2026, 11, 3, tzinfo=UTC),
+        recurring_allowed=recurring_allowed, recurring_authority_version=7, renewal_resolution="method_required",
+    )
+    html = _subscription_view(
+        subscription=subscription, pending_charge_amount_label="1 000 ₽",
+        pending_payment_url="/billing/checkout/status/INV-SYNTHETIC",
+        renewal_notice="Автопродление приостановлено. Проверьте способ оплаты.",
+        renewal_action_url="/billing/payment-method", renewal_action_label="Проверить способ оплаты",
+    )
+    before_details = html.split("<details", 1)[0]
+    assert 'href="/billing/payment-method"' in before_details
+    assert 'href="/billing/checkout/status/INV-SYNTHETIC"' in before_details
+    assert "Уже отправленный" not in html
+    assert "Повторно платить не нужно" in html
+    assert 'href="/billing/checkout?cycle=month"' not in html
+    assert 'action="/billing/subscription/resume"' not in html
+    assert 'action="/billing/subscription/early-preview"' not in html

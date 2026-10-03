@@ -228,3 +228,82 @@ T038/T039 дополнительно: быстрый pending ответ оста
 T040: текущие session/user/workspace/invoice меняются на том же физическом main во время удержанного ответа; без искусственного reinit отклонение должно дать явный alert, блокировку старых форм и local GET. Уже заменённый main не меняется старым запросом. Реальная операция на сервере может завершаться штатно; браузерное отклонение HTML не отменяет финансовую обработку. Проверить также native disabling исходной кнопки → пользователь фокусирует другой элемент → latest focus сохраняется; CSS/readable disabled appearance и aria-describedby до/после разрешённого начала. Новую финальную матрицу привязать к точным неизменным bytes после T040;44+44 v4 относятся к промежуточному срезу.
 
 T040: во время удержанного ответа изменить по отдельности текущего пользователя, пространство, сессию и счёт без reinit. На том же физическом main ответ отвергается, немедленно видны alert и локальная GET-ссылка, формы заблокированы и нового POST нет. Если main уже заменён настоящей другой страницей, прежний ответ не меняет новый узел. Дополнительно проверить вычисленные прозрачность/курсор кнопки и aria-describedby; исходную отключённую кнопку → пользовательское перемещение фокуса → сохранение последнего выбора. Историческая матрица54/54 описана в validation-payment-return-t038-t040-browser.md; окончательная56/56 после T041 — в validation-payment-return-t041-browser.md.
+
+
+## Простое управление подпиской — US4, FR-039–045 / SC-014
+
+До кода независимый reviewer полностью проверяет `checklists/subscription-clarity.md`. Затем окончательные T046–T048, analyze и GitHub issue sync. Проверки используют синтетический аккаунт/одноразовый PostgreSQL, реальные templates/CSS и установленные Chromium/WebKit. Не использовать live payment provider или частную сессию; не проводить новые платежи/списания/возвраты/grants.
+
+Из корня, focused HTTP/DB регрессии в существующих clarity/purchase/security наборах:
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused \
+  tests/integration/test_billing_clarity.py \
+  tests/integration/test_billing_purchase_journey.py \
+  tests/contract/test_billing_security.py \
+  tests/contract/test_billing_safety_contract.py \
+  -q --tb=short --show-capture=no
+```
+
+Из `apps/server`, существующий browser accessibility набор для обоих движков:
+
+```sh
+uv run --extra dev pytest tests/contract/test_billing_accessibility.py -q --tb=short
+GRAF_BROWSER=webkit uv run --extra dev pytest tests/contract/test_billing_accessibility.py -q --tb=short
+```
+
+1. Зафиксировать исходный active/auto-off/no-card synthetic HTML baseline a7553db61b2625e767b3afa147c7b61c097fe918; подсчитать видимые поясняющие слова при закрытых details, исключая labels/числа/даты/навигацию. После изменения сравнить тот же fixture: ≥50% сокращение. Карточка и main CTA согласованы с SC-014; месяц/год сохраняются в GET href, точная локальная дата доступна.
+2. Route→DB проверяет active off/no method и trial/free/expired/неизвестный срок; реальная effective plan проекция. GET не создает invoice/operation/provider calls и не включает recurring; существующая подготовка resume quote при ready не считается денежной операцией. Resume/cancel/early сохраняют authority version/quote/CSRF/owner/tenant и предыдущие финансовые assertions.
+3. On: сумма/дата попытки и отмена доступны без раскрытия; off/ready: раскрыть resume, увидеть сумму/полную дату/карту и непринятое required consent. Stale version/quote/чужая сессия/роль отвергаются; пропущенное согласие не включает списание. Ошибка early-preview раскрывает existing форму; выбранный следующий объем и подготовленное списание правдивы.
+4. Pending/unknown/unknown_pending/key expired с pending amount и без него для renewal/early_renewal/initial_checkout/storage_upgrade, price/contact/method restrictions и отключенная оплата: реальные notices/пути проверки сохраняются, нет доступных новых/manual/early/resume действий при неподтвержденном списании. Не скрывать неопределенность либо утверждать «не списано».
+5. Реальные браузеры320/1280, светлая/темная тема, клавиатура/видимый фокус и200%; main CTA не перекрывается, нет общей горизонтальной прокрутки. Native details keyboard и JS-off позволяют раскрыть сведения, открыть карту/историю и использовать защищенные формы. Синтетические снимки подтверждают только перечисленные условия.
+6. Три независимых текущих обзора (понятность/тексты, финансовые состояния/guards, браузер/доступность), исправление и повтор замечаний; затем converge. Evidence в `validation-subscription-clarity.md`, `review-subscription-clarity-final.md`, `converge-subscription-clarity.md`; release evidence отдельно. Проверить `git diff --check`, governance и применимый Ruff; exact-SHA PR checks и новый frozen release-full/CD/tag/runtime/publication после этого.
+
+SC-005/006/T011/T012/F278 остаются отдельными; эта проверка не доказывает реальные будущие списания, чек/банк/возврат, человеческую приемку либо рост конверсии. Для ручного/сквозного macOS допускается только GRAF Dev и штатный harness по `local-development.md`; изменение native route policy не требуется.
+
+### T049: прежняя сквозная проверка полного срока
+
+Перед окончательными PR gates выполнить существующий изолированный денежный набор:
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused tests/unit/test_billing_money_path_e2e.py -q --tb=short --show-capture=no
+```
+
+Короткая локальная дата остается в основных фактах, полный срок/время/зона в закрытом native «Способ оплаты и условия»; не ослаблять webhook/reconcile/paid-through/recurring и первую попытку72h. Причинный RED179/1 и окончательный full71PASS сохранены в validation-subscription-clarity.md, независимый review-subscription-t049.md.
+
+T050: `apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_billing_return.py -q --tb=short --show-capture=no` — full82PASS0skips. Не ослаблять проверку off состояния, возможности завершения старого платежа, отсутствия ложного обещания и exact result-link. Независимый review-subscription-t050.md.
+
+T051: expired ключ сам по себе не вводит новый запрет; provider_key_expired/observation_expired сохраняют действующую общую политику, manual_resolution остается блокирующим. Проверить method_required с manual_resolution и provider_id None/известным: проверка карты и результата видны, утверждения отправки нет, новые действия/quote/provider calls отсутствуют. Реальный PostgreSQL и оба браузера; RED/GREEN и независимый refresh требований/source review.
+
+## Продолжение «Платеж и чек», 2026-10-04
+
+На одноразовом PostgreSQL, не live DB, выдуманные номера/контакты/карты, никаких действующих payment provider/mail/refund операций:
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused \
+  tests/integration/test_billing_clarity.py \
+  tests/integration/test_billing_review_regressions.py \
+  tests/integration/test_billing_return.py \
+  tests/contract/test_payment_history_support.py \
+  tests/contract/test_billing_purchase_ui.py \
+  tests/contract/test_billing_safety_contract.py \
+  tests/unit/test_billing_copy_and_redaction.py \
+  -q --tb=short --show-capture=no
+```
+
+Дополнить имеющийся тестовый файл focused invoice projection/read-only cases, если он не покрывает требования; не делать параллельную систему fixtures. Сначала причинный RED для неправильной темы и отсутствующей даты/краткого периода; GREEN после изменения. Фактические результаты и точные команды записать в `validation-invoice-consistency.md` (новый canonical report), не объявлять весь старый набор свежепройденным.
+
+Из `apps/server`:
+
+```sh
+uv run --extra dev pytest tests/contract/test_billing_accessibility.py -q --tb=short
+GRAF_BROWSER=webkit uv run --extra dev pytest tests/contract/test_billing_accessibility.py -q --tb=short
+```
+
+Дополнить существующие `tests/contract/test_billing_accessibility.py` и `tests/browser/billing-accessibility.test.cjs` invoice synthetic contexts, если ещё отсутствуют. Матрица320/390/768/1280, light/dark,200%, клавиатура; native details, оба mailto намерения без отправки, номер copy, service-gap вне details, receipt/no-URL, long masked fields и множественные storage intervals. Отдельный HTTP JS-off подтверждает доступность документа/помощи/раскрытий без client money mutation. Если status template меняется, повторить действующий `tests/contract/test_billing_payment_return_browser.py` в Chromium/WebKit через его штатный documented runner и полный текущий status matrix, не ослабляя assertions/лимиты.
+
+Сверить число финансовых записей до/после GET, как минимум owner/foreign workspace/changed owner privacy, malformed period/unknown cycle, UTC-cross-midnight и viewer-local date. Не использовать реальные данные карточек/кодов/встреч в evidence.
+
+Рутинно: `git diff --check`, Ruff по измененным Python файлам, `python3 scripts/check_spec_kit_governance.py`. До кода: независимые требования PASS, separate analyze0/0/0fixablemedium, canon issues sync. После кода: независимые требования/source/browser обзоры с фактическим current SHA, converge. GitHub checks на точном PR SHA и base через текущий validator.
+
+GRAF Dev занят другим срезом; не собирать/не запускать/не promote без согласования. Web synthetic и серверные проверки не объявлять установленной приемкой. После обоих merged PR release оператор выбирает новый незанятый CalVer, замораживает один candidate, получает release-full PASS, выполняет dry-run и авторизованный execute, проверяет публичное/live здоровье и текущий защищенный UI только чтением, записывает `docs/deployments/2brain-rec/release-v<selected-CalVer>.md`. Прежний/чужой draft не изменять. Любая новая code change инвалидирует прежний SHA-bound gate.

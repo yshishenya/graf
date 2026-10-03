@@ -188,6 +188,38 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
             "pending_payment_url": "/billing/checkout/status/INV-SYNTHETIC",
         },
     )
+    for name, changes in {
+        "subscription-key-expired": {
+            "subscription": {**surface_context["subscription"], "recurring_allowed": False,
+                             "renewal_resolution": "provider_key_expired"},
+            "method_available": False, "payment_method_label": None,
+        },
+        "subscription-method-pending": {
+            "subscription": {**surface_context["subscription"], "recurring_allowed": False,
+                             "renewal_resolution": "method_required"},
+            "method_available": False, "payment_method_label": None,
+            "pending_charge_amount_label": "1 000 ₽",
+            "pending_payment_url": "/billing/checkout/status/INV-SYNTHETIC",
+            "renewal_notice": "Автопродление приостановлено. Проверьте способ оплаты.",
+            "renewal_action_url": "/billing/payment-method",
+            "renewal_action_label": "Проверить способ оплаты",
+        },
+    }.items():
+        pages[name] = render_template(
+            "cabinet/pages/billing_subscription_content.html",
+            **{**surface_context, **changes},
+        )
+    pages["subscription-method-pending-on"] = render_template(
+        "cabinet/pages/billing_subscription_content.html",
+        **{**surface_context,
+           "subscription": {**surface_context["subscription"], "renewal_resolution": "method_required"},
+           "method_available": False, "payment_method_label": None,
+           "pending_charge_amount_label": "1 000 ₽",
+           "pending_payment_url": "/billing/checkout/status/INV-SYNTHETIC",
+           "renewal_notice": "Автопродление приостановлено. Проверьте способ оплаты.",
+           "renewal_action_url": "/billing/payment-method",
+           "renewal_action_label": "Проверить способ оплаты"},
+    )
     pages["overview-expired-pending"] = render_template(
         "cabinet/pages/billing_overview_content.html",
         **{
@@ -204,6 +236,41 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         "cabinet/pages/billing_subscription_content.html",
         **{**surface_context, "prepared_charge_amount_label": "1 000 ₽"},
     )
+    subscription_off = {
+        **surface_context,
+        "subscription": {**surface_context["subscription"], "recurring_allowed": False},
+        "paid_through_label": "03.11.2026, 12:19 (UTC+03:00)",
+        "paid_through_short_label": "03.11.2026",
+        "method_available": False, "payment_method_label": None,
+        "resume_quote_id": None,
+    }
+    for name, changes in {
+        "subscription-off-no-card": {},
+        "subscription-off-ready": {
+            "method_available": True, "payment_method_label": "•••• 4242",
+            "resume_quote_id": "synthetic-resume",
+            "resume_charge_label": "31.10.2026, 12:19 (UTC+03:00)",
+        },
+        "subscription-trial": {
+            "active": False, "subscription_trial_active": True, "subscription_plan_label": "Пробный период",
+            "subscription": {**subscription_off["subscription"], "plan_code": "trial", "paid_through": None},
+            "paid_through_label": None, "paid_through_short_label": None,
+            "trial_ends_at_label": "03.11.2026, 12:19 (UTC+03:00)",
+            "trial_ends_short_label": "03.11.2026",
+        },
+        "subscription-free": {
+            "active": False, "subscription": None, "subscription_plan_label": "Бесплатный",
+            "paid_through_label": None, "paid_through_short_label": None,
+        },
+        **{f"subscription-uncertain-{state}": {
+            "subscription": {**subscription_off["subscription"], "renewal_resolution": state},
+            "method_available": True, "payment_method_label": "•••• 4242",
+            "resume_quote_id": "synthetic-resume", "pending_charge_amount_label": None,
+        } for state in ("pending", "unknown", "unknown_pending")},
+    }.items():
+        pages[name] = render_template(
+            "cabinet/pages/billing_subscription_content.html", **{**subscription_off, **changes},
+        )
     pages["discounts-error"] = render_template(
         "cabinet/pages/billing_discounts_content.html",
         **{**surface_context, "result": "invalid", "discount_promo_code": "DEMO"},
@@ -254,7 +321,7 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
     )
     from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 
-    for name in ("checkout", "plans", "packages", "discounts", "discounts-history-year", "discounts-history-unknown", "discounts-error"):
+    for name in ("checkout", "plans", "packages", "discounts", "discounts-history-year", "discounts-history-unknown", "discounts-error", "subscription-off-no-card", "subscription-off-ready", "subscription"):
         pages[f"shell-{name}"] = _page_shell(
             "Оплата", content=pages[name], embedded=False,
             csrf_token="synthetic", active_nav="settings", settings_active="billing",
@@ -266,7 +333,7 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         ["node", str(script), str(fixture)],
         capture_output=True,
         text=True,
-        timeout=90,
+        timeout=120,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
