@@ -1,6 +1,8 @@
 # Валидация F285 — реализация и выпуск
 
-Дата: 2026-10-02. Lane: `high-risk-ux`, полный Spec Kit.
+Актуальный итог: F285 выпущен 2026-10-04 как v2026.10.04.1; см. раздел «Окончательный выпуск». Предыдущие разделы сохраняют историю проверок и промежуточных ограничений, а не текущее состояние.
+
+Дата начала: 2026-10-02. Lane: `high-risk-ux`, полный Spec Kit.
 Ветка: `285-refine-focus-indicators`.
 Основа: `77e6aed8ff79127d6e6b284ad18b58da5793ef51`.
 Проверены незакоммиченные файлы поверх этой основы, перечисленные ниже. Это локальное доказательство, не PR exact-SHA или release evidence.
@@ -180,3 +182,56 @@ Converge: локальная реализация FR-009/010 готова; T015 
 Независимый read-only code review через codex review --uncommitted: actionable defects 0, CSS/templates/focus-routing/regression review PASS, JS syntax и diff --check PASS. Независимый повтор браузеров не выполнен из-за read-only sandbox запрета создавать Playwright artifacts; проверяющий не объявил runtime PASS. Основные Chromium/WebKit журналы остаются отдельным успешным доказательством. Журнал /tmp/graf-f285-followup-code-review.log.
 
 Пользователь отдельно одобрил именно новый проверенный коммит 2026-10-04: «Да, зафиксируй и продолжай выпуск». Повторного разрешения на прод не требуется. T015 локально завершена; T009 остаётся выпускной задачей.
+
+
+## Окончательный выпуск — 2026-10-04
+
+F285 выпущен: [v2026.10.04.1](https://github.com/yshishenya/graf/releases/tag/v2026.10.04.1).
+Candidate/source SHA: `d8fa0edb62d4b034f70e15b2c1321bdcb73ef3ac`.
+Эта итоговая запись заменяет прежние pending/blocked статусы выше; исторические результаты не переписаны. Итоговая документация относится к docs-only lane и не меняет замороженный продуктовый выпуск.
+
+### Исходники и CI
+
+- PR #7461 merged: head `9f2aca9805e5788a9fd7cea7a83ff6aafea9f608`, merge `f3ec4dd95c3aa68fc7246338bd7c58908d24aee2`; governance-fast [37059519887](https://github.com/yshishenya/graf/actions/runs/37059519887), macos-pr [37059519988](https://github.com/yshishenya/graf/actions/runs/37059519988), pr-metadata [37059748853](https://github.com/yshishenya/graf/actions/runs/37059748853) PASS.
+- Дополнение PR #7501 merged: head `944a8e4ab99d71e64890538d28f60eecf67ba76a`, merge `5f4054d57613515348408c2a6531c46c96fd0fd4`; governance-fast [37157213645](https://github.com/yshishenya/graf/actions/runs/37157213645), macos-pr [37157213644](https://github.com/yshishenya/graf/actions/runs/37157213644), pr-metadata [37157213756](https://github.com/yshishenya/graf/actions/runs/37157213756) PASS.
+- Подготовка PR #7505 merged: head `bc8cf301bfb9113112759485cff91d309564da9a`, merge `d8fa0edb62d4b034f70e15b2c1321bdcb73ef3ac`; governance-fast [37158043123](https://github.com/yshishenya/graf/actions/runs/37158043123), macos-pr [37158043145](https://github.com/yshishenya/graf/actions/runs/37158043145), pr-metadata [37158043169](https://github.com/yshishenya/graf/actions/runs/37158043169) PASS, допустимый metadata-only skip нативных тестов.
+- Единственный authoritative release-full: [37158276896](https://github.com/yshishenya/graf/actions/runs/37158276896), точный candidate SHA, authoritative_full=true, skipped_gates=[]; PASS. Повторный release-full для отчёта не требуется.
+- Candidate `rc-20261003T222323Z-b9bed1d5aadb`, decision go, train `train-20261003T222230Z-d8fa0edb62d4`; publication attestation `pa-rc-20261003T222323Z-b9bed1d5aadb` создана штатным помощником.
+
+### Установленный GRAF Dev
+
+На `dev-d8fa0edb62d4` штатные build/promote/status/smoke PASS, 13 проверок. Проверены запись → Stop → «Запись остановлена» без большой рамки, Tab/Shift+Tab действий, один контур поиска, нативный часовой пояс (focus/down/Escape/Return), Light/System, раскрытие сохранности, Escape/возврат фокуса уведомлений. Тема System восстановлена, часовой пояс/подпись/права сохранены.
+
+Переход notification → конкретная запись фактически не проверен: подходящей цели в стенде не было. Source/regression проверки маршрута прошли; runtime PASS этого перехода не заявляется. VoiceOver не включался и не проверялся согласно разрешению пользователя. Ограничение записано в опубликованных release notes.
+
+После настроек снимок окна показывал пустую область при наличии списка в дереве доступности; изменение размера возвращало изображение. Пользователь подтвердил: «Список виден нормально» в настоящем GRAF Dev. Это ограничение снимка окна, подтверждённого дефекта приложения нет. Сравнение с baseline через штатный rollback отказало по exact-SHA readiness; автоматическая компенсация восстановила d8fa, повторные 13 smoke PASS. Обходов стенда нет. По завершении окно проверки передано F284; его текущий стенд для F285 не менялся.
+
+### Сервер
+
+CD dry-run и execute PASS, exit 0. Fresh backup PASS, timestamp `20261003T233024Z`; deployed_sha/runtime_sha совпадают с candidate. Smoke и повторные Temporal/processing-worker readiness PASS, readiness_verdict=infra_smoke_ready, deploy_total=209 секунд. Публичные cabinet.css/content.css побайтно совпадают с выпущенными исходниками.
+
+Стандартный CD сохраняет required_post_deploy для отдельных automatic_retry, backfill_inventory, range_playback, normalization_cleanup сценариев. Эта CSS-фича не объявляет их самостоятельную продуктовую приёмку PASS.
+
+### macOS и публичные артефакты
+
+- Developer ID Application/Installer: PASS. Apple Accepted ZIP request `48167538-3c02-47cc-9670-f9e1143d5f53`, PKG request `c15ebd8c-628a-4f28-ac54-04ef0291fa4f`.
+- Скачанные app/PKG: codesign --verify --deep --strict, stapler validate и pkgutil --check-signature PASS.
+- spctl app/pkg: accepted, source=Notarized Developer ID, override=security disabled. На этом Mac принудительный Gatekeeper уже выключен; настройки не менялись. Проверка на машине с включённым принудительным Gatekeeper не заявляется.
+- Официальный pinned Sparkle 2.9.4 sign_update --verify проверил скачанный ZIP и живой signed appcast; PASS. validate-app-updates.sh с GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1 подтвердил Developer ID predecessor 2026.09.30.1 → 2026.10.04.1, designated requirement, feed/archive/previous и continuity=in-app.
+- Публикация ZIP прежде appcast, transaction finalized; appcast_publish/public_feed PASS. [Живой appcast](https://rec.2brain.pro/static/public/downloads/graf-appcast.xml) HTTP 200, версия 2026.10.04.1.
+
+| Артефакт | Размер, байт | SHA-256 |
+| --- | ---: | --- |
+| GRAF-2026.10.04.1.zip (GitHub и сервер) | 9451008 | `6663a212d9946c395aa4daea71ecf194cad017a2969357e863a9eb3af8b46513` |
+| GRAF-2026.10.04.1.pkg | 9261943 | `486279e65dd9faae5404d4ce1917dddd27cb9fa5f17c120e7e97de92b6adf6ed` |
+| graf-appcast.xml | 5015 | `2ad6402778a78bbda089045c2f73d78f448b7c9d02db2bdada33b713f388e009` |
+
+### Установленный production GRAF
+
+Штатный Sparkle «Install and Relaunch» обновил уже установленный `/Applications/GRAF.app` с 2026.09.30.1 до 2026.10.04.1 и перезапустил приложение. До обновления активной записи не было; после запуска доступно «Начать запись», статус «Готово к записи». CFBundleShortVersionString/CFBundleVersion=2026.10.04.1, SUFeedURL соответствует живому appcast. Info.plist и executable побайтно совпадают со скачанным опубликованным ZIP. SHA-256 executable: `e97d005a7bf75585349fa3901e1e6c9bc05abd1f9f5a157687aaf2e2e21faab3`. codesign/stapler установленного приложения PASS. Новые разрешения не запрашивались.
+
+### Задачи и границы результата
+
+T001–T015 выполнены с отдельными каноническими Issue links в каждой строке tasks.md. Reviewer-owned чеклисты не изменялись; требования 14 checked/0 unchecked и независимый code review без actionable defects остаются доказательствами реализации. Closeout PR содержит явные связи с #7450/#7451/#7452/#7453/#7499; подробные комментарии и live validator обязательны до закрытия, umbrella #7448 последняя.
+
+Новых API, данных, миграций или зависимостей нет. Неподтверждённые runtime VoiceOver/notification target и ограничение Gatekeeper явно сохранены; они не выдаются за успешные проверки.
