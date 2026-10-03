@@ -136,7 +136,7 @@ from twobrain_rec_server.billing.yookassa import (
 from twobrain_rec_server.cabinet.queries import get_account_profile_view
 from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
-from twobrain_rec_server.cabinet.user_time import format_user_datetime
+from twobrain_rec_server.cabinet.user_time import format_user_datetime, local_datetime
 from twobrain_rec_server.cabinet.web_routes.auth_email_flow import _set_browser_auth_cookie
 from twobrain_rec_server.cabinet.web_routes.support import (
     LoginDbDependency,
@@ -2781,11 +2781,18 @@ async def billing_subscription_page(
     if not _can_manage_billing(role=role, subscription=subscription, principal=principal):
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     now = datetime.now(UTC)
-    active = (
-        subscription is not None
-        and subscription.paid_through is not None
-        and subscription.paid_through > now
+    effective_plan = (
+        effective_plan_code(
+            plan_code=subscription.plan_code,
+            state=subscription.state,
+            now=now,
+            paid_through=subscription.paid_through,
+            trial_ends_at=subscription.trial_ends_at,
+        )
+        if subscription is not None
+        else "free"
     )
+    active = effective_plan == "personal"
     next_charge_label = (
         await _next_renewal_label(db, subscription, now=now) if active and db is not None else None
     )
@@ -2826,13 +2833,13 @@ async def billing_subscription_page(
         next_charge_amount_label = _billing_amount_label(
             cycle_catalog.amount_minor if cycle_catalog is not None else None
         )
+    if db is not None:
         awaiting_invoices = await db.execute(
             select(BillingInvoice, BillingOperation)
             .join(BillingOperation, BillingOperation.id == BillingInvoice.operation_id)
             .where(
                 BillingInvoice.workspace_id == tenant_scope.workspace_id,
-                BillingOperation.kind.in_(("renewal", "early_renewal")),
-                BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
+                BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES | {"provider_key_expired"}),
             )
             .order_by(BillingInvoice.created_at.desc())
         )
@@ -2851,7 +2858,10 @@ async def billing_subscription_page(
         and not subscription.recurring_allowed
         and billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id)
         and method_available
-        and subscription.renewal_resolution != "receipt_contact_required"
+        and pending_invoice is None
+        and subscription.renewal_resolution not in {
+            "pending", "unknown", "unknown_pending", "provider_key_expired", "receipt_contact_required",
+        }
     ):
         try:
             resume_snapshot = await _resume_renewal_snapshot(db, subscription=subscription, now=now)
@@ -2886,6 +2896,13 @@ async def billing_subscription_page(
         paid_through_label=_billing_datetime_label(subscription.paid_through)
         if active and subscription is not None
         else None,
+        paid_through_short_label=local_datetime(subscription.paid_through).strftime("%d.%m.%Y")
+        if active else None,
+        subscription_trial_active=effective_plan == "trial",
+        trial_ends_short_label=local_datetime(subscription.trial_ends_at).strftime("%d.%m.%Y")
+        if effective_plan == "trial" and subscription.trial_ends_at is not None else None,
+        trial_ends_at_label=_billing_datetime_label(subscription.trial_ends_at)
+        if effective_plan == "trial" else None,
         next_charge_label=next_charge_label,
         resume_charge_label=resume_charge_label,
         resume_quote_id=resume_quote_id,
@@ -2913,19 +2930,7 @@ async def billing_subscription_page(
         if subscription and subscription.next_capacity_bytes
         else None,
         billing_enabled=billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id),
-        subscription_plan_label=(
-            plan_descriptor(
-                effective_plan_code(
-                    plan_code=subscription.plan_code,
-                    state=subscription.state,
-                    now=now,
-                    paid_through=subscription.paid_through,
-                    trial_ends_at=subscription.trial_ends_at,
-                )
-            ).label
-            if subscription is not None
-            else "Бесплатный"
-        ),
+        subscription_plan_label={"personal": "Личный", "trial": "Пробный период", "free": "Бесплатный"}[effective_plan],
         result=request.query_params.get("result"),
     )
     return cabinet_html_response(content)
