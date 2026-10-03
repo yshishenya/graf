@@ -289,7 +289,12 @@ def test_storage_terminal_retry_reopens_same_volume_with_fresh_calculation(clien
     status = client.get("/billing/checkout/status/INV-CLARITY", headers=headers)
     assert 'href="/billing/storage?package_count=2"' in status.text
     payment_card = status.text.split('aria-labelledby="billing-operation-title">', 1)[1].split("</section>", 1)[0]
-    assert payment_card.count('role="status"') == 1
+    # The result is announced by the visible status region; the separate
+    # waiting/error message stays hidden until the controller needs it.
+    status_regions = re.findall(r'<[^>]+\brole="status"[^>]*>', payment_card)
+    assert len(status_regions) == 2
+    assert len([tag for tag in status_regions if not re.search(r"\shidden(?:\s|>|=)", tag)]) == 1
+    assert re.search(r'<p\b[^>]*\bid="billing-status-message"[^>]*\shidden(?:\s|>)', payment_card)
     returned = client.get("/billing/storage?package_count=2", headers=headers)
     assert re.search(r'<option value="2"[^>]*\sselected[^>]*>', returned.text)
     assert 'action="/billing/storage/preview"' in returned.text

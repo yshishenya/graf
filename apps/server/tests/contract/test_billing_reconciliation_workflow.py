@@ -33,9 +33,9 @@ def test_reconciliation_workflow_is_bounded_and_uses_a_dedicated_queue() -> None
     assert policy.maximum_attempts == 12
     assert "BillingReconciliationInvalidPayload" in policy.non_retryable_error_types
     worker_names = set(workflow_worker.run_worker.__code__.co_names)
-    assert "BillingReconciliationWorkflow" in worker_names
-    assert "BILLING_RECONCILIATION_ACTIVITY_NAME" in worker_names
-    assert "billing_reconciliation_task_queue" in worker_names
+    assert "BillingReconciliationWorkflow" not in worker_names
+    assert "BILLING_RECONCILIATION_ACTIVITY_NAME" not in worker_names
+    assert "billing_reconciliation_task_queue" not in worker_names
 
 
 @pytest.mark.anyio

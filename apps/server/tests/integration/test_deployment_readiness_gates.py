@@ -727,6 +727,91 @@ def test_remote_deploy_turns_signals_into_nonzero_exit_for_rollback_trap() -> No
     assert "trap 'exit 143' TERM" in runtime
 
 
+@pytest.mark.parametrize("stop_exit", [0, 23])
+def test_remote_deploy_stops_previous_reconciliation_consumers_before_runtime_up(
+    tmp_path: Path, stop_exit: int,
+) -> None:
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+    baseline = runtime.index("\ncapture_processing_runtime_baseline\n")
+    end = runtime.index('\nif [[ -n "$prompt_worker_was_running" ]]', baseline)
+    trace_path = tmp_path / "queue-transfer-trace"
+    fixture_script = """
+set -euo pipefail
+compose=(compose_stub)
+trap 'printf "exit:%s\\n" "$?" >>"$TRACE_PATH"' EXIT
+capture_processing_runtime_baseline() { printf 'baseline\\n' >>"$TRACE_PATH"; }
+sync_public_download() { printf 'public_download\\n' >>"$TRACE_PATH"; }
+compose_stub() {
+  if [[ "$1" == "ps" ]]; then return 0; fi
+  printf 'compose:%s\\n' "$*" >>"$TRACE_PATH"
+  if [[ "$1:$2" == "stop:rec-api" ]]; then
+    test "$runtime_mutated" = 1
+    return "$STOP_EXIT"
+  fi
+}
+run_step() { shift; "$@"; }
+env() { while [[ "$1" == *=* ]]; do shift; done; "$@"; }
+""" + runtime[baseline:end]
+    result = subprocess.run(
+        ["bash", "-c", fixture_script], check=False, capture_output=True, text=True,
+        env={**os.environ, "TRACE_PATH": str(trace_path), "STOP_EXIT": str(stop_exit)},
+    )
+    trace = trace_path.read_text().splitlines()
+    assert result.returncode == stop_exit, result.stderr
+    assert trace[:2] == ["baseline", "compose:stop rec-api rec-processing-worker rec-maintenance"]
+    if stop_exit:
+        assert trace == [*trace[:2], f"exit:{stop_exit}"]
+    else:
+        assert any(line.startswith("compose:up ") for line in trace)
+    assert "trap rollback_on_exit EXIT" in runtime
+    assert "restore_previous_runtime" in runtime
+
+
+@pytest.mark.parametrize("stop_exit", [0, 23])
+def test_remote_recovery_stops_consumers_before_any_runtime_restore(
+    tmp_path: Path, stop_exit: int,
+) -> None:
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+    start = runtime.index("restore_previous_runtime()")
+    end = runtime.index("rollback_on_exit()", start)
+    trace_path = tmp_path / "recovery-trace"
+    fixture_script = """
+set -euo pipefail
+compose=(compose_stub)
+dispatch_opened=0
+previous_schema_head=0041_share_account_created_email
+expected_schema_head=$previous_schema_head
+backup_reference=synthetic
+feature_truth_count() { printf '0\\n'; }
+restore_compatibility_runtime() { printf 'compatibility\\n' >>"$TRACE_PATH"; }
+restore_previous_safe_processing_runtime() { printf 'previous\\n' >>"$TRACE_PATH"; }
+compose_stub() {
+  case "$1" in
+    ps) return 0 ;;
+    exec) printf '%s\\n' "$previous_schema_head" ;;
+    stop)
+      printf 'compose:%s\\n' "$*" >>"$TRACE_PATH"
+      case "$*" in *rec-processing-worker*) return "$STOP_EXIT" ;; esac ;;
+    *) return 2 ;;
+  esac
+}
+""" + runtime[start:end] + "\nrestore_previous_runtime\n"
+    result = subprocess.run(
+        ["bash", "-c", fixture_script], check=False, capture_output=True, text=True,
+        env={**os.environ, "TRACE_PATH": str(trace_path), "STOP_EXIT": str(stop_exit)},
+    )
+    trace = trace_path.read_text().splitlines()
+    assert trace[0] == "compose:stop rec-processing-worker rec-maintenance"
+    if stop_exit:
+        assert result.returncode != 0
+        assert trace == [trace[0]]
+        assert "rollback_result=blocked" in result.stdout
+        assert "rollback_target=forward_fix_required" in result.stdout
+    else:
+        assert result.returncode == 0, result.stderr
+        assert trace[-1] == "compatibility"
+
+
 def test_remote_deploy_publishes_and_verifies_the_public_installer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
