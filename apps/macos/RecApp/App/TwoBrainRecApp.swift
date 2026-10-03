@@ -3717,7 +3717,9 @@ private enum AppLog {
 
     static func writeCaptureTiming(_ detail: String) {
         DispatchQueue.global(qos: .utility).async {
-            writeRaw(event: "capture.timing_anomaly", detail: detail)
+            let event = detail.hasPrefix("recording_writer_progress ")
+                ? "capture.writer_progress" : "capture.timing_anomaly"
+            writeRaw(event: event, detail: detail)
         }
     }
 

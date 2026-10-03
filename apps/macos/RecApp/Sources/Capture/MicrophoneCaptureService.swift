@@ -89,6 +89,10 @@ public final class AppOwnedMicrophoneSampleSource: TimestampedLocalRecordingSamp
         bufferedSource.readTimestampedBatch(maximumFrameCount: maximumFrameCount)
     }
 
+    public var timestampedDiagnostics: RecordingSampleSourceDiagnostics? {
+        bufferedSource.timestampedDiagnostics
+    }
+
     public var hasTimestampedOverflow: Bool {
         bufferedSource.hasTimestampedOverflow
     }

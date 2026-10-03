@@ -60,6 +60,26 @@ public final class PrivacySuppressingSampleSource: TimestampedLocalRecordingSamp
         )
     }
 
+    /// A live drain may retain one microphone batch across a user control.
+    /// Silence it after the durable pause checkpoint, without changing its PTS
+    /// or double-counting a batch that was already suppressed at read time.
+    func suppressPrefetchedBatch(_ batch: RecordingAudioBatch) -> RecordingAudioBatch {
+        let shouldSuppress = lock.withLock {
+            guard state.suppressesLocalMicrophone, !lastReadSuppressed, !batch.samples.isEmpty else { return false }
+            totalSuppressedSampleCount += Int64(batch.samples.count)
+            lastReadSuppressed = true
+            return true
+        }
+        guard shouldSuppress else { return batch }
+        return RecordingAudioBatch(samples: Array(repeating: 0, count: batch.samples.count),
+            format: batch.format, presentationTime: batch.presentationTime,
+            discontinuity: batch.discontinuity, routeGeneration: batch.routeGeneration)
+    }
+
+    public var timestampedDiagnostics: RecordingSampleSourceDiagnostics? {
+        base.timestampedDiagnostics
+    }
+
     public var hasTimestampedOverflow: Bool {
         base.hasTimestampedOverflow
     }
