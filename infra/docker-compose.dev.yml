@@ -92,6 +92,28 @@ services:
       rec-minio-init:
         condition: service_completed_successfully
 
+  rec-db-runtime-bootstrap:
+    labels: *dev-labels
+    image: "${GRAF_DEV_MIGRATION_IMAGE:-graf-dev-rec-migrate:latest}"
+    build:
+      <<: *server-build
+    restart: "no"
+    environment:
+      TWOBRAIN_ENV: development
+      TWOBRAIN_DB_HOST: rec-postgres
+      TWOBRAIN_DB_PORT: "5432"
+      # Synthetic local-stack passwords; production uses its own secret files.
+      TWOBRAIN_DB_OWNER_PASSWORD: twobrain_rec
+      TWOBRAIN_DB_APP_PASSWORD: twobrain_rec_app_dev_secret
+      TWOBRAIN_DB_MAINTENANCE_PASSWORD: twobrain_rec_maintenance_dev_secret
+      TWOBRAIN_DB_MEDIA_PASSWORD: twobrain_rec_media_dev_secret
+    command: ["python", "/app/scripts/bootstrap_dev_database_roles.py"]
+    depends_on:
+      rec-migrate:
+        condition: service_completed_successfully
+      rec-postgres:
+        condition: service_healthy
+
   rec-processing-worker:
     labels: *dev-labels
     image: "${GRAF_DEV_PROCESSING_WORKER_IMAGE:-graf-dev-rec-processing-worker:latest}"
@@ -128,10 +150,13 @@ services:
     environment:
       <<: *server-env
       TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
+      TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec_maintenance:twobrain_rec_maintenance_dev_secret@rec-postgres:5432/twobrain_rec
     volumes:
       - "${GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE:?GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE is required}:/run/secrets/graf_credential_encryption_key:ro"
     command: ["python", "-m", "twobrain_rec_server.workflows.maintenance_worker"]
     depends_on:
+      rec-db-runtime-bootstrap:
+        condition: service_completed_successfully
       rec-migrate:
         condition: service_completed_successfully
       rec-postgres:

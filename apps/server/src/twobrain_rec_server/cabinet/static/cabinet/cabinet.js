@@ -1982,7 +1982,7 @@
     state.controls.forEach(([control, disabled]) => { control.disabled = disabled; });
     if (failed) recoverBillingStatus(state);
   };
-  const initBillingStatusRefresh = () => {
+  const initBillingStatusRefresh = ({ deferScheduling = false } = {}) => {
     const page = billingStatusPage();
     const key = billingStatusKey(page);
     if (!page || !key || document.hidden) {
@@ -2012,12 +2012,11 @@
         stopped: billingStatusContextStopped, blocked: billingStatusContextStopped,
         timer: null, deadlineTimer: null, automatic: false };
       billingStatusLedgers.set(key, ledger);
+      // The deadline limits new starts; an in-flight check keeps its own 15s timeout.
       ledger.deadlineTimer = window.setTimeout(() => {
-        const request = billingStatusRequest;
-        stopBillingStatus(ledger, Boolean(request?.ledger === ledger));
-        if (request?.ledger === ledger) {
-          recoverBillingStatus(request);
-          request.xhr.abort();
+        stopBillingStatus(ledger);
+        if (billingStatusLedger === ledger && !billingStatusRequest && !document.hidden) {
+          initBillingStatusRefresh();
         }
       }, 60000);
     }
@@ -2042,7 +2041,7 @@
       const recovery = page.querySelector("[data-billing-status-recovery]");
       if (recovery) recovery.hidden = false;
     }
-    if (ledger.stopped || billingStatusRequest) return;
+    if (ledger.blocked || billingStatusRequest) return;
     if (ledger.attempts >= 6 || performance.now() - ledger.started >= 60000) {
       stopBillingStatus(ledger);
       const message = page.querySelector("[data-billing-status-message]");
@@ -2052,6 +2051,7 @@
       }
       return;
     }
+    if (ledger.stopped || deferScheduling) return;
     window.clearTimeout(ledger.timer);
     const delay = ledger.lastStarted === null ? 0 : Math.max(0, ledger.lastStarted + 10000 - performance.now());
     ledger.timer = window.setTimeout(() => {
@@ -2126,8 +2126,9 @@
       const focus = state.focusId ? document.getElementById(state.focusId) : null;
       (focus || page).focus({ preventScroll: true });
     }
-    initBillingStatusRefresh();
   });
+  // HTMX has prepared the replacement form by this phase, including after a slow reply.
+  document.body.addEventListener("htmx:afterSettle", () => initBillingStatusRefresh());
   ["htmx:afterRequest", "htmx:sendError", "htmx:timeout", "htmx:swapError"].forEach(name => {
     document.body.addEventListener(name, event => {
       const state = event.detail?.xhr?.grafBillingStatus;
@@ -9244,7 +9245,7 @@
     event.returnValue = "";
   });
 
-  const initCabinet = () => {
+  const initCabinet = ({ deferBillingStatus = false } = {}) => {
     initMeetingTitleEditor();
     initAuthTransition();
     initCabinetRail();
@@ -9254,7 +9255,7 @@
     initCodeForms();
     initOutcomeFocus();
     initBillingRenewalChoice();
-    initBillingStatusRefresh();
+    initBillingStatusRefresh({ deferScheduling: deferBillingStatus });
     initBillingFocus();
     initMeetingList();
     announceUploadProgress();
@@ -9391,7 +9392,7 @@
       restoreMeetingListRequestFocus(event);
       restoreListRefreshFocus();
     }
-    initCabinet();
+    initCabinet({ deferBillingStatus: true });
   });
 
   window.addEventListener("pageshow", (event) => {

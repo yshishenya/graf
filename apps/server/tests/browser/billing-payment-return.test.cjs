@@ -51,10 +51,22 @@ async function eventually(check, timeout = 6000) {
       await page.clock.pauseAt(new Date('2026-10-03T12:00:01Z'));
     }
     await page.addInitScript(() => {
-      window.paymentEvents = {starts: [], finished: 0, swaps: 0};
+      window.paymentEvents = {starts: [], finished: 0, swaps: 0, timeouts: 0, triggerPhases: [], processPhases: [], settlePhases: []};
+      document.addEventListener('billing-status-check', event => {
+        const form = event.target;
+        if (form?.id === 'billing-status-refresh') window.paymentEvents.triggerPhases.push({
+          time: performance.now(), processed: form['htmx-internal-data']?.initHash !== undefined});
+      });
+      document.addEventListener('htmx:afterProcessNode', event => {
+        if (event.detail?.elt?.id === 'billing-status-refresh') window.paymentEvents.processPhases.push(performance.now());
+      });
+      document.addEventListener('htmx:afterSettle', event => {
+        if (event.detail?.xhr?.grafBillingStatus) window.paymentEvents.settlePhases.push(performance.now());
+      });
       document.addEventListener('htmx:beforeRequest', event => {
         if (event.defaultPrevented || event.detail?.elt?.id !== 'billing-status-refresh') return;
         window.paymentEvents.starts.push(performance.now());
+        event.detail.xhr.addEventListener('timeout', () => { window.paymentEvents.timeouts++; }, {once: true});
         event.detail.xhr.addEventListener('loadend', () => { window.paymentEvents.finished++; }, {once: true});
       });
       document.addEventListener('htmx:afterSwap', event => {
@@ -277,6 +289,134 @@ async function eventually(check, timeout = 6000) {
         if (variant !== 'navigation') await stable();
         else assert.equal(await main().count(), 0);
       }
+    } else if (config.case === 'idle-five') {
+      function delayedReply() {
+        let release;
+        const gate = new Promise(resolve => { release = resolve; });
+        const reply = {gate, release, arrived: false};
+        reply.seen = () => { reply.arrived = true; };
+        return reply;
+      }
+      let pendingReply = delayedReply();
+      await open(config.case, '', {hold: pendingReply});
+      await page.clock.runFor(1);
+      await eventually(() => pendingReply.arrived);
+      const firstStart = await page.evaluate(() => window.paymentEvents.starts[0]);
+      const finishes = [14000, 28000, 42000, 50000, 53000];
+      for (let index = 0; index < finishes.length; index++) {
+        stage = `idle-five-reply-${index + 1}`;
+        await eventually(() => pendingReply.arrived); // Actual POST303 -> ASGI GET HTML has completed.
+        const now = await page.evaluate(() => performance.now());
+        await page.clock.runFor(Math.max(0, firstStart + finishes[index] - now));
+        const nextReply = index < 4 ? delayedReply() : null;
+        hold = nextReply;
+        pendingReply.release();
+        await waitFinished(index + 1);
+        const observed = await page.evaluate(() => {
+          const current = document.querySelector('main#cabinet-main.billing-operation-status-page');
+          const message = current?.querySelector('[data-billing-status-message]');
+          return {events: window.paymentEvents, busy: current?.getAttribute('aria-busy'),
+            auto: current?.dataset.billingAutoCheck, error: current?.dataset.billingStatusError,
+            visibleMessage: message && !message.hidden ? message.textContent : null};
+        });
+        assert.equal(observed.events.swaps, index + 1, 'actual reply swaps before next phase: ' + JSON.stringify(observed));
+        assert.equal(await main().getAttribute('data-billing-auto-check'), 'true', 'actual pending response permits checks');
+        assert.equal(await main().getAttribute('data-billing-status-error'), 'false', 'pending is not a server error');
+        pendingReply = nextReply;
+        if (index < 3) {
+          await page.clock.runFor(50);
+          await sleep(100);
+          const phase = await page.evaluate(() => {
+            const current = document.querySelector('main#cabinet-main.billing-operation-status-page');
+            const message = current?.querySelector('[data-billing-status-message]');
+            return {events: window.paymentEvents, now: performance.now(), hidden: document.hidden,
+              busy: current?.getAttribute('aria-busy'), auto: current?.dataset.billingAutoCheck,
+              error: current?.dataset.billingStatusError, form: current?.querySelector('#billing-status-refresh')?.id,
+              visibleMessage: message && !message.hidden ? message.textContent : null};
+          });
+          assert.equal(phase.events.starts.length, index + 2, 'next due check phase: ' + JSON.stringify(phase));
+        }
+        if (index === 3) {
+          const clockNow = await page.evaluate(() => performance.now());
+          const fifthStart = await page.evaluate(() => window.paymentEvents.starts[3] + 10000);
+          await page.clock.runFor(Math.max(0, fifthStart + 1 - clockNow));
+        }
+      }
+      stage = 'idle-five-deadline';
+      const starts = await page.evaluate(() => window.paymentEvents.starts);
+      assert.equal(starts.length, 5, 'exactly five actual checks finish before60s');
+      [0, 14000, 28000, 42000, 52000].forEach((target, index) => {
+        assert.ok(Math.abs(starts[index] - firstStart - target) < 100,
+          'starts follow0/14/28/42/52s response-dependent schedule');
+      });
+      assert.equal(await main().getAttribute('aria-busy'), null, 'fifth finishes around53s, then idle');
+      const beforeDeadline = await page.evaluate(() => performance.now());
+      await page.clock.runFor(Math.max(0, firstStart + 60000 - beforeDeadline));
+      assert.equal(refreshPosts, 5, 'sixth planned at62s never starts after60s');
+      assert.equal(await page.evaluate(() => window.paymentEvents.finished), 5);
+      assert.equal(await main().getAttribute('aria-busy'), null, 'deadline does not fabricate an in-flight request');
+      assert.equal(await page.locator('[data-billing-status-message]').isVisible(), true,
+        'idle deadline reveals honest pending message without reinit');
+      assert.equal(await page.locator('[data-billing-status-message]').innerText(),
+        'Подтверждение пока не получено. Проверьте оплату позже. Повторно платить не нужно.');
+      assert.equal(await page.getByRole('button', {name: 'Проверить оплату', exact: true}).isEnabled(), true);
+      assert.equal(await main().getByRole('button', {name: 'Вернуться к оплате', exact: true}).isEnabled(), true);
+      await stable(); await noMore(5); await reinit(); await noMore(5);
+      await page.getByRole('button', {name: 'Проверить оплату', exact: true}).click();
+      await waitFinished(6); await noMore(6); await stable();
+    } else if (config.case.startsWith('deadline-')) {
+      await open(config.case); await initialCheck();
+      for (let count = 2; count <= 5; count++) {
+        await reinit(); await page.clock.runFor(10000); await waitFinished(count);
+        assert.equal(refreshPosts, count, 'only one automatic check per interval before sixth');
+      }
+      const sixthRealStart = Date.now();
+      await page.clock.runFor(10000);
+      await eventually(() => fs.existsSync(config.deadline_ready_path));
+      const starts = await page.evaluate(() => window.paymentEvents.starts);
+      assert.equal(starts.length, 6, 'sixth real POST reached provider transport');
+      assert.ok(starts[5] - starts[0] >= 50000 && starts[5] - starts[0] < 51000, 'sixth begins around50s');
+      assert.ok(starts.every((value, i) => i === 0 || value - starts[i - 1] >= 10000));
+      await page.clock.runFor(12000); // Cross60s with the original real XHR still in flight.
+      assert.equal(refreshPosts, 6, 'no seventh automatic POST at the start deadline');
+      assert.equal(await main().getAttribute('aria-busy'), 'true', '60s start window must not abort sixth in-flight XHR');
+      assert.equal(await page.evaluate(() => window.paymentEvents.finished), 5, 'sixth keeps its own15s request budget');
+      await stable();
+      if (config.case === 'deadline-timeout') {
+        // XHR.timeout is a native browser timer, not the controlled window clock.
+        await eventually(async () => await page.locator('[data-billing-status-message]').isVisible(), 22000);
+        assert.equal(await page.evaluate(() => window.paymentEvents.timeouts), 1, 'own native15s timeout fires after global start window');
+        assert.ok(Date.now() - sixthRealStart >= 14000, 'deadline does not masquerade as own15s timeout');
+        assert.equal(await page.locator('[data-billing-status-message]').getAttribute('role'), 'alert');
+        assert.equal(await page.getByRole('button', {name: 'Проверить оплату', exact: true}).isDisabled(), true);
+      }
+      fs.writeFileSync(config.deadline_release_path, '1', {mode: 0o600, flag: 'wx'});
+      await eventually(() => fs.existsSync(config.deadline_complete_path));
+      if (config.case === 'deadline-timeout') {
+        await sleep(100);
+        assert.equal(await page.getByRole('heading', {name: 'Проверяем оплату', exact: true}).count(), 1, 'late successful server response cannot replace timed-out document');
+        assert.equal(await page.getByRole('heading', {name: 'Оплачено', exact: true}).count(), 0);
+        await noMore(6); await stable();
+        await page.locator('[data-billing-status-recovery]').click(); intentionalNavigations++;
+        await page.waitForLoadState('domcontentloaded'); await paid();
+        assert.equal(await main().locator('form[method=post]').count(), 0, 'local recovery creates no competing billing POST');
+      } else {
+        await waitFinished(6);
+        assert.equal(await page.evaluate(() => window.paymentEvents.timeouts), 0, 'valid post60s response is within its own native timeout');
+        if (config.case === 'deadline-success') await paid();
+        else {
+          assert.equal(await page.getByRole('heading', {name: 'Проверяем оплату', exact: true}).count(), 1);
+          const message = page.locator('[data-billing-status-message]');
+          assert.equal(await message.isVisible(), true, 'last pending response explains end of automatic waiting');
+          assert.ok((await message.innerText()).includes('Подтверждение пока не получено'), 'pending has honest result');
+          assert.ok((await message.innerText()).includes('Проверьте оплату позже'), 'manual recovery is understandable');
+          assert.equal(await page.getByRole('button', {name: 'Проверить оплату', exact: true}).isEnabled(), true);
+          assert.equal(await main().getByRole('button', {name: 'Вернуться к оплате', exact: true}).isEnabled(), true);
+        }
+        await stable();
+      }
+      await noMore(6); await reinit(); await noMore(6);
+      assert.equal(refreshPosts, 6, 'start-window expiry cannot schedule seventh auto even after reinit');
     } else if (config.case === 'timeout') {
       await open('timeout');
       await eventually(async () => await page.locator('[data-billing-status-message]').isVisible(), 22000);

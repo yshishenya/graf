@@ -13,6 +13,7 @@ from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from time import monotonic
 from urllib.parse import urlsplit
 
 import httpx
@@ -38,16 +39,33 @@ if ENABLED:
 ROOT = Path(__file__).resolve().parents[4]
 SCRIPT = ROOT / "apps/server/tests/browser/billing-payment-return.test.cjs"
 CASES = ["success", "historical", "pending", "canceled", "cancel-on-check", "refused", "service-gap",
-         "errors", "guards", "lifecycle", "timeout", "native", "a11y", "provider-unavailable"]
+         "errors", "guards", "lifecycle", "timeout", "native", "a11y", "provider-unavailable", "deadline-success", "deadline-pending", "deadline-timeout", "idle-five"]
 
 
 @pytest.mark.parametrize("width", [320, 1280])
 @pytest.mark.parametrize("case", CASES)
 def test_real_payment_return(client, tmp_path, monkeypatch, width, case):
+    deadline_case = case.startswith("deadline-")
+    deadline_ready_path = tmp_path / "sixth-provider-ready"
+    deadline_release_path = tmp_path / "sixth-provider-release"
+    deadline_complete_path = tmp_path / "sixth-server-complete"
+    deadline_completed = threading.Event()
+
     class Provider(_FakeYooKassa):
         def handle(self, request):
             response = super().handle(request)
-            if request.method != "GET" or case in {"success", "native", "historical"}:
+            if request.method == "GET" and deadline_case and self.read_count == 6:
+                # Hold the actual provider transport before ASGI applies success;
+                # the browser controls only static fixture phase marker files.
+                deadline_ready_path.write_text("1", encoding="utf-8")
+                until = monotonic() + 20
+                while not deadline_release_path.exists() and monotonic() < until:
+                    deadline_completed.wait(0.02)
+                if not deadline_release_path.exists():
+                    return httpx.Response(503, json={"code": "fixture_gate_timeout"})
+            if request.method != "GET" or case in {"success", "native", "historical"} or (
+                deadline_case and self.read_count >= 6 and case != "deadline-pending"
+            ):
                 return response
             if case == "provider-unavailable":
                 return httpx.Response(503, json={"type": "error", "code": "internal_server_error"})
@@ -137,6 +155,9 @@ def test_real_payment_return(client, tmp_path, monkeypatch, width, case):
                 trace.append((self.command, is_refresh, response.status_code))
             if is_refresh:
                 refresh_completed.set()
+                if deadline_case and provider.read_count == 6:
+                    deadline_complete_path.write_text("1", encoding="utf-8")
+                    deadline_completed.set()
             with suppress(BrokenPipeError, ConnectionResetError):
                 self.send_response(response.status_code)
                 for name, value in response.headers.multi_items():
@@ -160,11 +181,16 @@ def test_real_payment_return(client, tmp_path, monkeypatch, width, case):
     descriptor = os.open(config_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(descriptor, "w", encoding="utf-8") as output:
         json.dump({"base_url": f"http://127.0.0.1:{server.server_port}", "cookie_name": DEV_AUTH_SESSION_COOKIE_NAME,
-                   "session_token": token, "status_path": status_path, "width": width, "case": case}, output)
+                   "session_token": token, "status_path": status_path, "width": width, "case": case,
+                   "deadline_ready_path": str(deadline_ready_path), "deadline_release_path": str(deadline_release_path),
+                   "deadline_complete_path": str(deadline_complete_path)}, output)
     thread.start()
     try:
         result = subprocess.run(["node", str(SCRIPT), str(config_path)], capture_output=True, text=True,
                                 check=False, timeout=180)
+        if deadline_case:
+            deadline_release_path.touch(exist_ok=True)
+            assert deadline_completed.wait(5), "sixth provider/ASGI transaction completes before SQL assertions"
         if case == "timeout":
             delay_release.set()
             assert refresh_completed.wait(5), "original timed-out server POST finishes before financial assertions"
@@ -175,7 +201,7 @@ def test_real_payment_return(client, tmp_path, monkeypatch, width, case):
         assert proof["initial_document_requests"] == len(proof["scenarios"])
         assert not errors
         assert len(provider.create_payloads) == 1, "browser return never creates a second payment"
-        expected_grants = int(case in {"success", "native", "historical"})
+        expected_grants = int(case in {"success", "native", "historical", "deadline-success", "deadline-timeout"})
         assert asyncio.run(count_rows()) == [1, 1, expected_grants]
         state = _money_state(client, checkout.workspace_id, key)
         if expected_grants:
@@ -195,6 +221,7 @@ def test_real_payment_return(client, tmp_path, monkeypatch, width, case):
         if case != "timeout":
             assert provider.read_count - provider_reads_before_browser == browser_posts
     finally:
+        deadline_release_path.touch(exist_ok=True)
         delay_release.set()
         server.shutdown()
         server.server_close()
