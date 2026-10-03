@@ -2,6 +2,7 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
+    JSON,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -72,6 +73,8 @@ class UserIdentity(Base):
     locale: Mapped[str] = mapped_column(String(16), nullable=False, default="ru-RU")
     timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     theme: Mapped[str] = mapped_column(String(16), nullable=False, default="system")
+    # Consent receipt and first-milestone delivery metadata, never event content.
+    product_analytics_state: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="active")
     merged_into_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))
     merged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

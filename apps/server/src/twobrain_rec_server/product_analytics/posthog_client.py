@@ -134,6 +134,7 @@ class PostHogClientWrapper:
         distinct_id: str,
         properties: Mapping[str, Any],
         timestamp: datetime | None = None,
+        explicit_event_id: str | None = None,
     ) -> ProviderDeliveryResult:
         if not self.enabled:
             return ProviderDeliveryResult("posthog", "disabled", "PostHog product analytics is disabled")
@@ -204,6 +205,11 @@ class PostHogClientWrapper:
             "timestamp": (timestamp or datetime.now(UTC)).isoformat(),
             "properties": dict(properties),
         }
+        if explicit_event_id is not None:
+            # This value is derived by the authenticated explicit-funnel route,
+            # never supplied by the desktop or forwarded from request headers.
+            body["uuid"] = explicit_event_id
+            body["properties"].update({"$geoip_disable": True, "$ip": None})
         try:
             response = self.transport(
                 f"{self.host}/capture/",
@@ -220,6 +226,17 @@ class PostHogClientWrapper:
                 metadata={"error": exc.__class__.__name__},
             )
         if 200 <= response.status_code < 300:
+            if explicit_event_id is not None:
+                try:
+                    receipt = json.loads(response.body)
+                except (ValueError, TypeError):
+                    receipt = None
+                if not isinstance(receipt, dict) or receipt.get("status") not in (1, "ok"):
+                    return ProviderDeliveryResult(
+                        "posthog", "provider_receipt_invalid",
+                        "PostHog HTTP response did not acknowledge capture",
+                        retryable=True,
+                    )
             return ProviderDeliveryResult(
                 "posthog",
                 "live_safe_sent",

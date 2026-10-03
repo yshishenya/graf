@@ -257,3 +257,7 @@ infra/scripts/cd-remote.sh --execute
 ```
 
 Passing provider smoke is not paid campaign launch approval.
+
+## Минимальная воронка: проверка текущего среза
+
+Синтетические пользователи A/B; отказ, unknown, устаревшая версия и отзыв дают 0 provider requests. Согласие текущей версии возвращает server-owned user pseudonym; workspace/forged identity не меняют человека. Auth change очищает desktop state. Вехи запуска -> записи -> ready result -> полезной сессии несут один ID; provider 503/blocked позволяет повтор, повтор успешного события не создаёт ещё одну активацию. Ни payload, ни evidence не содержат встреч/PII/IP/ключей. HTTP accepted отдельно от synthetic ClickHouse ingestion proof. Ни production fixtures, ни payments, ни policy/UI изменения, ни TTL purge.

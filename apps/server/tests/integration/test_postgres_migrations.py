@@ -194,15 +194,19 @@ def test_production_share_head_upgrades_to_regeneration_merge(
                 ).all()
                 source_defaults = {
                     (row.table_name, row.column_name): row.column_default
-                    for row in await connection.execute(text(
-                        "select table_name, column_name, column_default "
-                        "from information_schema.columns where table_schema = 'public' "
-                        "and ((table_name = 'mediascribe_jobs' and column_name = 'request_mode') "
-                        "or (table_name = 'media_revisions' and column_name = 'source_kind'))"
-                    ))
+                    for row in await connection.execute(
+                        text(
+                            "select table_name, column_name, column_default "
+                            "from information_schema.columns where table_schema = 'public' "
+                            "and ((table_name = 'mediascribe_jobs' and column_name = 'request_mode') "
+                            "or (table_name = 'media_revisions' and column_name = 'source_kind'))"
+                        )
+                    )
                 }
                 assert "single_track" in source_defaults[("mediascribe_jobs", "request_mode")]
-                assert "initial_mixed_recording" in source_defaults[("media_revisions", "source_kind")]
+                assert (
+                    "initial_mixed_recording" in source_defaults[("media_revisions", "source_kind")]
+                )
                 tables = set(
                     (
                         await connection.scalars(
@@ -225,6 +229,16 @@ def test_production_share_head_upgrades_to_regeneration_merge(
                         )
                     ).all()
                 }
+                consent_column = (
+                    await connection.execute(
+                        text(
+                            "select data_type, is_nullable, column_default from information_schema.columns "
+                            "where table_schema = 'public' and table_name = 'user_identities' "
+                            "and column_name = 'product_analytics_state'"
+                        )
+                    )
+                ).one()
+                assert tuple(consent_column) == ("json", "YES", None)
                 maintenance_helper = await connection.scalar(
                     text("select pg_get_functiondef('rec_maintenance_allowed()'::regprocedure)")
                 )
@@ -259,7 +273,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         promotion_counter_function,
         promotion_counter_config,
     ) = asyncio.run(inspect_schema())
-    assert versions == ["0101_storage_packages"]
+    assert versions == ["0102_explicit_analytics_consent"]
     assert "public.promotion_campaigns" in promotion_counter_function
     assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {

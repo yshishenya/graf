@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.product_analytics.explicit_funnel import configuration_allowed
 from twobrain_rec_server.product_analytics.identity import build_safe_identity
 from twobrain_rec_server.product_analytics.page_inventory import (
     get_page_class_policy,
@@ -55,7 +56,9 @@ def build_browser_provider_context(
     yandex_active = bool(yandex_context["enabled"])
     browser_consent = {
         "copy_version": settings.public_analytics_consent_copy_version,
-        "revision": public_analytics_consent_revision(settings.public_analytics_consent_copy_version),
+        "revision": public_analytics_consent_revision(
+            settings.public_analytics_consent_copy_version
+        ),
         "storage_key": PUBLIC_ANALYTICS_CONSENT_STORAGE_KEY,
         "categories": ["necessary", "analytics", "advertising_attribution", "behavior_replay"],
         "states": list(public_analytics_consent_states()),
@@ -98,7 +101,9 @@ def build_browser_provider_context(
             "distinct_id": None,
             "identity_rule": "no_stable_identifier_before_authentication",
             "replay_enabled": False,
-            "project_key": "configured_redacted" if provider_config.posthog.project_key_configured else "not_configured",
+            "project_key": "configured_redacted"
+            if provider_config.posthog.project_key_configured
+            else "not_configured",
             "host": "configured_redacted" if provider_config.posthog.host else "not_configured",
             "credential_suppression": list(policy.credential_suppression),
             "retention_deletion_truth": "provider_lifecycle_documented",
@@ -143,6 +148,23 @@ def build_request_browser_provider_context(
         environ=dict(os.environ),
     )
     if principal is None:
+        return provider
+
+    if configuration_allowed(settings):
+        identity = build_safe_identity(user_source_id=str(principal.user_id)).posthog_distinct_id
+        # Reuse the existing browser notice, not the legacy July product copy.
+        # Separate storage prevents another account/public cookie from granting consent.
+        key = "graf_explicit_consent_" + identity.removeprefix("graf_pseudo_user_")
+        provider["enabled"] = True  # notice/action only, never provider startup
+        provider["posthog"]["enabled"] = False
+        provider["posthog"]["autocapture_enabled"] = False
+        provider["yandex"]["enabled"] = False
+        provider["consent_storage_key"] = key
+        provider["browser_consent"]["storage_key"] = key
+        provider["explicit_funnel"] = {
+            "user_pseudonym": identity,
+            "copy_version": settings.public_analytics_consent_copy_version,
+        }
         return provider
 
     workspace_source_id = getattr(tenant_scope, "workspace_id", None)

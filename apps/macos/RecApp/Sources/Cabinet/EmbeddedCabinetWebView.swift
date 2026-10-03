@@ -920,6 +920,25 @@ public enum EmbeddedCabinetUpdateBridge {
     }
 }
 
+public enum EmbeddedCabinetAnalyticsConsentBridge {
+    public static let messageHandlerName = "grafAnalyticsConsent"
+    public static let notification = Notification.Name("pro.2brain.graf.analyticsConsentDidChange")
+    public static let documentScript = """
+      window.addEventListener('graf:explicit-analytics-consent', event => {
+        if (event.detail === 'pending' || event.detail === 'changed') {
+          window.webkit.messageHandlers.grafAnalyticsConsent.postMessage(event.detail);
+        }
+      });
+      """
+    @MainActor
+    @discardableResult
+    public static func publish(_ body: Any) -> Bool {
+        guard let stage = body as? String, ["pending", "changed"].contains(stage) else { return false }
+        NotificationCenter.default.post(name: notification, object: stage)
+        return true
+    }
+}
+
 public enum EmbeddedCabinetAppearanceBridge {
     public static let messageHandlerName = "grafAppAppearance"
     public static let documentScript = """
@@ -1599,6 +1618,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             context.coordinator,
             name: EmbeddedCabinetAppearanceBridge.messageHandlerName
         )
+        configuration.userContentController.addUserScript(WKUserScript(
+            source: EmbeddedCabinetAnalyticsConsentBridge.documentScript,
+            injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        configuration.userContentController.add(context.coordinator, name: EmbeddedCabinetAnalyticsConsentBridge.messageHandlerName)
         configuration.userContentController.addUserScript(
             WKUserScript(
                 source: EmbeddedCabinetUpdateBridge.documentScript,
@@ -1756,6 +1779,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         container.webView.configuration.userContentController.removeScriptMessageHandler(
             forName: EmbeddedCabinetAppearanceBridge.messageHandlerName
         )
+        container.webView.configuration.userContentController.removeScriptMessageHandler(forName: EmbeddedCabinetAnalyticsConsentBridge.messageHandlerName)
         container.webView.configuration.userContentController.removeScriptMessageHandler(
             forName: EmbeddedCabinetRecordingSettingsBridge.handlerName, contentWorld: .page
         )
@@ -2113,6 +2137,14 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                         isCurrent: isCurrent) }, reply: { [weak webView] state in
                         webView?.evaluateJavaScript("window.GRAFCalendarJoin?.reply('\(join.requestID.uuidString.lowercased())', '\(state)')", in: nil, in: EmbeddedCabinetCalendarJoinBridge.contentWorld, completionHandler: { _ in })
                     })
+                return
+            }
+            if message.name == EmbeddedCabinetAnalyticsConsentBridge.messageHandlerName {
+                guard isActive, message.frameInfo.isMainFrame,
+                      let webView = message.webView, navigationController.isAttached(to: webView),
+                      let sourceURL = message.frameInfo.documentRequestURL, sourceURL == webView.url,
+                      routePolicy.decision(for: sourceURL).decision == .allow else { return }
+                EmbeddedCabinetAnalyticsConsentBridge.publish(message.body)
                 return
             }
             if message.name == EmbeddedCabinetAppearanceBridge.messageHandlerName {
