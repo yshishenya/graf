@@ -9,9 +9,8 @@
 .guide-card h2{margin:22px 0 0;font-size:clamp(25px,2.6vw,32px);font-weight:590;line-height:1.22;letter-spacing:-.035em}
 .guide-card p{margin:20px 0 28px;color:var(--muted);font-size:17px;line-height:1.65}
 .guide-card-hit{position:absolute;inset:0;border-radius:var(--radius)}
-.guide-card a:focus-visible{outline:0}
-.guide-card a:focus-visible .guide-card-hit{outline:3px solid #6944b4;outline-offset:4px}
-.guide-card:hover,.guide-card:focus-within{border-color:#8c5cff;box-shadow:0 12px 35px rgba(18,12,37,.08)}
+.guide-card a:focus-visible{outline:0;text-decoration:underline;text-decoration-thickness:3px;text-underline-offset:.18em}
+.guide-card:hover{border-color:#8c5cff;box-shadow:0 12px 35px rgba(18,12,37,.08)}
 .guide-read{display:flex;justify-content:space-between;gap:16px;margin-top:auto;padding-top:22px;border-top:1px solid var(--line);color:#6944b4;font-size:15px;font-weight:650}
 .guides-footer{padding:30px 0 36px;color:#b6bac5;font-size:14px}
 .guides-footer>.shell{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}

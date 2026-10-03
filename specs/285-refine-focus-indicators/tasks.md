@@ -1,6 +1,6 @@
 # Tasks: Понятное выделение активных элементов
 
-Lane: `high-risk-ux`. Требования/дизайн независимо проверены: 11/11 PASS; фактическая реализация и выпуск проверяются отдельно.
+Lane: `high-risk-ux`. Требования/дизайн независимо проверены: 14/14 PASS; фактическая реализация и выпуск проверяются отдельно.
 
 ## Phase 1: Setup
 
@@ -62,3 +62,14 @@ Umbrella: #7448.
 ## Phase 7: Convergence — точные PR-проверки
 
 - [X] T011 Устранить два отказа первого CI на SHA 00dc275bf9bfcdea1dfacbb31c2754fdbfb13a36: добавить обязательный Legacy Impact в spec.md и разбить вычисление яркости NativeSettingsComboBoxTests.swift на явные CGFloat выражения для компилятора Swift CI; сохранить формулу и все assertions, повторить профильные проверки и независимый review. Код продукта не меняется. Ownership: #7452.
+
+## Phase 8: Convergence — повторный аудит 2026-10-04
+
+- [X] T012 Уточнить FR-009/FR-010, независимые reviewer-owned требования и analyze; связать новые задачи с GitHub issue до кода.
+- [X] T013 [US3] Дополнить apps/server/tests/browser/focus-indicators.test.cjs программными/интерактивными целями и карточкой руководства; подтвердить отказ на старом CSS.
+- [X] T014 [US3] В apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css убрать рамки информационных программных целей, сохранив выделение настоящих действий; в apps/server/src/twobrain_rec_server/public/static/public/content.css заменить рамку карточки подчёркиванием заголовка.
+- [X] T015 [US3] Проверить Chromium/WebKit/темы/forced colors/restore, независимый review и converge; записать отчёт specs/285-refine-focus-indicators/validation.md и changes/unreleased/F285.yaml; получить одобрение нового проверенного коммита перед PR/выпуском.
+
+Ownership дополнения 2026-10-04: #7499 — T012–T015; выпуск всей F285 остаётся #7453/T009.
+
+Checkpoint дополнения: T012–T015 выполнены локально; независимые требования 14/0 и read-only code review без дефектов, локальные проверки PASS, явное одобрение нового коммита получено. T009 остаётся открыта до Dev/PR/release/public/installed.

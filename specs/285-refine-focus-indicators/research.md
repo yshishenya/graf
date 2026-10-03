@@ -27,3 +27,7 @@ Alternatives: отключение draw лишает редактируемое 
 WebKit native select не рисует inset box-shadow: один 2px outline с offset -2px покрывает собственную границу без изменения appearance/стрелки/размеров. Forced-colors по-прежнему оставляет один Highlight outline. Regression проверяет это отдельно в Chromium и WebKit.
 
 CALayer.borderWidth=1 рисуется поверх backing contents. Проверка выявила сохранённый separatorColor при активном поле; updateColors теперь одновременно перекрашивает существующую границу в focusRing, поэтому она не закрывает наружный пиксель внутренней линии. Blur возвращает separatorColor. Проверяется цвет слоя и bitmap во всех четырёх appearance.
+
+## Аудит 2026-10-04
+
+Chromium и WebKit с настоящим cabinet.css воспроизводят outline 2px offset 2px у main размером 900x500, h1 и role=status после программного focus; источник — [tabindex]:focus-visible и широкие settings/calendar/notification правила. Удаление tabindex или focus нарушило бы переход/возврат, поэтому меняется только CSS. Public content.css рисует 3px outline на абсолютном span .guide-card-hit, занимающем карточку; underline заголовка сохраняет локальное клавиатурное выделение без рамки карточки. W3C https://www.w3.org/WAI/WCAG22/Understanding/focus-visible.html требует видимого клавиатурного фокуса, форма рамки не обязательна; локальный PRD §29 также требует видимого фокуса. Web Interface Guidelines: :focus-visible для действий, outline:none лишь с заменой либо для неинтерактивной цели.
