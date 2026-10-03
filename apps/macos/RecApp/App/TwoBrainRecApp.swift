@@ -543,6 +543,14 @@ private struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAttributionHandoffDidArrive)) { _ in
             openCabinetSignInWithAttributionHandoff(reason: "attribution_handoff")
         }
+        .onReceive(NotificationCenter.default.publisher(for: EmbeddedCabinetAnalyticsConsentBridge.notification)) { event in
+            let generation = activationReporter.beginConsentUpdate()
+            guard let stage = event.object as? String, stage == "changed" else { return }
+            Task {
+                await activationReporter.completeConsentUpdate(generation: generation)
+                await activationReporter.noteFirstLaunch(appVersion: currentApplicationVersion, installChannel: currentInstallChannel)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange)) { _ in
             activationReporter.invalidateContext()
             Task {

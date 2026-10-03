@@ -164,6 +164,7 @@ public final class ProductActivationAnalyticsReporter {
     private var explicitClient: ProductActivationAnalyticsClient?
     private var serverIdentity: String?
     private var contextGeneration: UInt64 = 0
+    private var consentUpdatePending = false
     private let transport: any ProductActivationAnalyticsTransport
     private let handoffs: ProductAttributionHandoffStore
     private let ledger: any ProductActivationMilestoneLedger
@@ -225,6 +226,25 @@ public final class ProductActivationAnalyticsReporter {
         serverIdentity = nil
     }
 
+    @discardableResult
+    public func beginConsentUpdate() -> UInt64 {
+        consentUpdatePending = true
+        invalidateContext()
+        return contextGeneration
+    }
+
+    public func consentUpdate(_ stage: String) async {
+        let generation = beginConsentUpdate()
+        guard stage == "changed" else { return }
+        await completeConsentUpdate(generation: generation)
+    }
+
+    public func completeConsentUpdate(generation: UInt64) async {
+        guard generation == contextGeneration else { return }
+        consentUpdatePending = false
+        await refreshContext() // The bridge signal cannot grant consent.
+    }
+
     public func refreshContext() async {
         invalidateContext()
         let generation = contextGeneration
@@ -234,7 +254,7 @@ public final class ProductActivationAnalyticsReporter {
         guard let client = currentClient else { return }
         do {
             guard let context = try await transport.context(using: client),
-                  generation == contextGeneration, context.enabled,
+                  generation == contextGeneration, !consentUpdatePending, context.enabled,
                   context.telemetryGateState == "accepted",
                   let identity = context.stablePseudonymousUserId,
                   identity.range(of: "^graf_pseudo_user_[0-9a-f]{32}$", options: .regularExpression) != nil

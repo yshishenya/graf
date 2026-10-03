@@ -20,6 +20,7 @@ def settings():
         product_analytics_legal_approved=True,
         product_analytics_privacy_approved=True,
         product_analytics_consent_copy_version="synthetic-existing-notice-v1",
+        public_analytics_consent_copy_version="synthetic-existing-notice-v1",
         product_analytics_posthog_autocapture_enabled=False,
         product_analytics_posthog_web_direct_enabled=False,
     )
@@ -258,7 +259,7 @@ def test_closed_categories_reject_content_and_nested_identity_before_provider(pr
     [
         {"product_analytics_explicit_funnel_enabled": False},
         {"product_analytics_legal_approved": False},
-        {"product_analytics_consent_copy_version": "new-version"},
+        {"public_analytics_consent_copy_version": "new-version"},
     ],
 )
 def test_withdrawal_remains_durable_when_mode_readiness_or_version_changes(changes):

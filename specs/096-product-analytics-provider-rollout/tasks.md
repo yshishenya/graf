@@ -320,10 +320,12 @@ checked historical task record while closing the current integration gap.
 
 ## Phase 10: Минимальная явная воронка 2026-10-03
 
-- [ ] T105 [P1] [privacy] Зафиксировать и проверить серверный consent/identity contract минимального режима без автоматического согласия и изменения policy copy.
-- [ ] T106 [P1] [desktop] Подключить обновление и сброс согласия/псевдонима пользователя в desktop и проверить смену аккаунта.
-- [ ] T107 [P1] [analytics] Исправить delivery receipt и повтор первой вехи при provider error; проверить идемпотентность синтетического потока.
-- [ ] T108 [P1] [privacy] Ограничить минимальную отправку allowlist/noIP; подготовить supported retention/dashboard config без production mutation или purge.
+- [X] T105 [P1] [privacy] Зафиксировать и проверить серверный consent/identity contract минимального режима без автоматического согласия и изменения policy copy.
+- [X] T106 [P1] [desktop] Подключить обновление и сброс согласия/псевдонима пользователя в desktop и проверить смену аккаунта.
+- [X] T107 [P1] [analytics] Исправить delivery receipt и повтор первой вехи при provider error; проверить идемпотентность синтетического потока.
+- [X] T108 [P1] [privacy] Ограничить минимальную отправку allowlist/noIP; подготовить supported retention/dashboard config без production mutation или purge.
 - [ ] T109 [P1] [validation] Выполнить изолированные проверки согласия/identity/delivery/dedupe, получить exact PR CI и явно перечислить operational blockers.
 
 Issue #7472 owns Spec Kit task IDs: T105, T106, T107, T108, T109. Production acceptance and operational proofs remain separate.
+
+Consent UI continuation evidence: [consent-ui-evidence.md](consent-ui-evidence.md). T105–108 checked only for implementation/test/proposal scope; production acceptance/retention/runtime no-IP are not claimed. T109 remains open until real isolated PostHog/ClickHouse readback; exact CI receipt is bound to the current PR SHA.

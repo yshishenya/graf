@@ -79,6 +79,7 @@ class ProductAnalyticsEventRequest(BaseModel):
 class ExplicitAnalyticsConsentRequest(BaseModel):
     accepted: bool
     copy_version: str = Field(min_length=1, max_length=64)
+    expected_pseudonymous_user_id: str | None = Field(default=None, max_length=80)
 
 
 class PostHogAutocaptureEventRequest(BaseModel):
@@ -217,6 +218,18 @@ async def explicit_analytics_consent(
     _csrf: None = Depends(require_web_csrf),
 ) -> dict[str, Any]:
     user = await _explicit_user(db, principal)
+    current = context_for(
+        _settings_from_request(request),
+        user_id=str(principal.user_id),
+        state=user.product_analytics_state,
+    )
+    if (
+        body.expected_pseudonymous_user_id is not None
+        and body.expected_pseudonymous_user_id != current["stable_pseudonymous_user_id"]
+    ):
+        raise ProblemDetail(
+            status=403, code="analytics_identity_changed", title="Analytics identity changed"
+        )
     try:
         user.product_analytics_state = change_consent(
             _settings_from_request(request),

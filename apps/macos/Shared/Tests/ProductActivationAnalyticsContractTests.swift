@@ -648,6 +648,43 @@ final class ProductActivationAnalyticsContractTests: XCTestCase {
         XCTAssertEqual(transport.payloads.count, 2)
     }
 
+    @MainActor
+    func testConsentPendingAndChangedSignalNeverGrantWithoutServerContext() async throws {
+        let transport = RecordingProductActivationTransport()
+        let reporter = try Self.makeReporter(transport: transport)
+        transport.setContext(identity: "graf_pseudo_user_" + String(repeating: "a", count: 32))
+        await reporter.refreshContext()
+        await reporter.consentUpdate("pending")
+        await reporter.refreshContext() // Unrelated refresh cannot reopen an ambiguous choice.
+        let pending = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "developer_id")
+        XCTAssertEqual(pending, .telemetryGateClosed(.desktopFirstOpened))
+        await reporter.consentUpdate("changed")
+        let accepted = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "developer_id")
+        XCTAssertTrue(accepted.wasDelivered)
+        transport.setContext(identity: "graf_pseudo_user_" + String(repeating: "a", count: 32), state: "withdrawn")
+        await reporter.consentUpdate("pending")
+        await reporter.consentUpdate("changed")
+        let withdrawn = await reporter.noteFirstValueSessionCompleted(usefulResultType: "transcript")
+        XCTAssertEqual(withdrawn, .telemetryGateClosed(.firstValueSessionCompleted))
+        XCTAssertFalse(EmbeddedCabinetAnalyticsConsentBridge.publish(["accepted": true]))
+        XCTAssertFalse(EmbeddedCabinetAnalyticsConsentBridge.publish("accepted"))
+    }
+
+    @MainActor
+    func testOlderChangedTaskCannotClearNewerPendingConsent() async throws {
+        let transport = RecordingProductActivationTransport()
+        let reporter = try Self.makeReporter(transport: transport)
+        transport.setContext(identity: "graf_pseudo_user_" + String(repeating: "a", count: 32))
+        await reporter.refreshContext()
+        let olderChanged = reporter.beginConsentUpdate()
+        reporter.beginConsentUpdate() // A newer pending arrives before the changed task runs.
+        await reporter.completeConsentUpdate(generation: olderChanged)
+        await reporter.refreshContext()
+        let result = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "developer_id")
+        XCTAssertEqual(result, .telemetryGateClosed(.desktopFirstOpened))
+        XCTAssertTrue(transport.payloads.isEmpty)
+    }
+
     private static func readRepositoryFile(_ relativePath: String) throws -> String {
         try String(contentsOf: repositoryRoot().appendingPathComponent(relativePath), encoding: .utf8)
     }

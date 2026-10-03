@@ -21,8 +21,8 @@ def configuration_allowed(settings: Settings) -> bool:
         settings.product_analytics_explicit_funnel_enabled
         and settings.product_analytics_legal_approved
         and settings.product_analytics_privacy_approved
-        and settings.product_analytics_consent_copy_version
-        and not settings.product_analytics_consent_copy_version.startswith("pending")
+        and settings.public_analytics_consent_copy_version
+        and not settings.public_analytics_consent_copy_version.startswith("pending")
         and not settings.product_analytics_posthog_autocapture_enabled
         and not settings.product_analytics_posthog_web_direct_enabled
         and not settings.product_analytics_replay_enabled
@@ -40,20 +40,18 @@ def context_for(settings: Settings, *, user_id: str, state: dict | None) -> dict
     if allowed and consent.get("state") == "accepted":
         gate = (
             "accepted"
-            if consent.get("copy_version") == settings.product_analytics_consent_copy_version
+            if consent.get("copy_version") == settings.public_analytics_consent_copy_version
             else "terms_update_required"
         )
-    elif allowed and consent.get("state") == "withdrawn":
+    elif consent.get("state") == "withdrawn":
         gate = "withdrawn"
     return {
         "enabled": allowed,
         "telemetry_gate_state": gate,
-        "copy_version": settings.product_analytics_consent_copy_version,
+        "copy_version": settings.public_analytics_consent_copy_version,
         "stable_pseudonymous_user_id": build_safe_identity(
             user_source_id=user_id
-        ).posthog_distinct_id
-        if allowed
-        else None,
+        ).posthog_distinct_id,
         "event_route": "/api/v1/product-analytics/explicit-events",
         "delivery_mode": "server_mediated",
     }
@@ -64,7 +62,7 @@ def change_consent(
 ) -> dict:
     if accepted and not configuration_allowed(settings):
         raise ValueError("explicit analytics consent configuration is not ready")
-    if accepted and copy_version != settings.product_analytics_consent_copy_version:
+    if accepted and copy_version != settings.public_analytics_consent_copy_version:
         raise ValueError("analytics disclosure version is not current")
     updated = dict(state or {})
     updated["consent"] = {

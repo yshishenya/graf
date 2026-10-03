@@ -1,4 +1,4 @@
-# Переход к минимальной воронке: предложение, не выполнено
+# Минимальная воронка: consent UI проверен, rollout заблокирован
 
 Пользователь подтвердил режим: явные события, псевдоним аккаунта, без клиентского IP, содержимого встреч, автосбора и replay; хранение 365 дней. Псевдоним связуем с аккаунтом внутри ГРАФ: это не необратимая анонимизация. Desktop передаёт события своему серверу, без прямого доступа к PostHog.
 
@@ -6,7 +6,7 @@
 
 Серверные маршруты context/consent/events с текущей авторизацией, tenant context и существующей CSRF-защитой; nullable consent/receipt state на UserIdentity без переноса старых согласий. Контекст native сбрасывается при смене аккаунта и обновляется перед отправкой. Provider receipt отделён от HTTP 200 и фактического ingestion; повтор получает тот же UUID. Новый флаг выключен по умолчанию; production не менялся.
 
-Отзыв личного согласия сохраняется при выключенном режиме, readiness blocker и смене версии. Повторное включение не превращает withdrawn в accepted. API готов, но реальный UI личного принятия текущего notice ещё не подключён и не подтверждён. Operator approval не заменяет согласие человека. Политики и их тексты менять нельзя.
+Отзыв личного согласия сохраняется при выключенном режиме, readiness blocker и смене версии. Повторное включение не превращает withdrawn в accepted. API и кнопки существующего notice подключены. Реальный headless click→cookie-auth/CSRF API→одноразовая PostgreSQL→readback подтверждён на двух synthetic accounts; native generation gates проверены 30 Swift tests. Это не production принятие и не проверка установленного desktop приложения. См. consent-ui-evidence.md. Operator approval не заменяет согласие человека. Политики и их тексты менять нельзя.
 
 ## Поддерживаемый вход и владельцы действий
 
@@ -33,3 +33,7 @@ Ops report: project event retention — 84 месяца, TTL отсутству�
 Свободные campaign/content/term и bridge ID исключены. Source/medium — закрытые клиентские категории с weak/unknown, не подтверждённая связь серверного реестра. Unknown не считается direct или AI. Полная атрибуция требует отдельной проверки существующего реестра.
 
 Изолированный PostHog/ClickHouse test должен проверить синтетические UUID, capture receipt, readback events/uuid/distinct_id, повтор после timeout и duplicate, отсутствие IP/GeoIP/PII. Текущие fake-provider/API/Postgres тесты этого не доказывают; production fixtures запрещены. Подготовленные HogQL-запросы не установлены и не выполнены. D7, реальные платежи и возвраты требуют отдельного повторяемого сигнала и серверной сверки; пять одноразовых вех их не доказывают.
+
+## Изолированный стенд
+
+PostHog/ClickHouse/Kafka и полный official pipeline здесь не установлены. Локальные образы отсутствуют, shared Docker располагает около 8 GiB RAM. [План](isolated-delivery-plan.md) закрепляет upstream source, отсутствие runtime proof, ресурсы и bounded install request. До отдельного разрешения отсутствующие зависимости не скачивать; HTTP/API proof не называть ingestion.
