@@ -1,0 +1,11 @@
+schema_version: 1
+feature_id: 96
+category: Fixed
+summary: "Подготовлен минимальный путь аналитики с личным согласием и единым псевдонимом"
+issue: 7472
+tasks: [T105, T106, T107, T108, T109]
+compatibility: "Режим выключен по умолчанию; nullable migration 0102 без переноса согласий; политики и публичные страницы сохранены"
+known_limitations:
+  - "Production не включён; legal/access/backup/retention и реальный ingestion не подтверждены"
+  - "Личный UI-путь текущего раскрытия требует проверки; operator approval не заменяет согласие"
+release_notes: "Серверный контекст согласия и user pseudonym, сброс desktop при смене аккаунта, receipt и устойчивый ключ первой вехи; noIP explicit transport. HTTP accepted не доказывает ClickHouse ingestion."

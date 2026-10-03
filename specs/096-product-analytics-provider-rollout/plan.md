@@ -190,3 +190,21 @@ Generated artifacts:
 ## Complexity Tracking
 
 No constitution violations are accepted in this plan. The broad PostHog autocapture posture is a product-approved first-party analytics requirement from clarification, not an exception to evidence, secret, or Yandex boundaries.
+
+## План минимального среза 2026-10-03
+
+Lane: high-risk privacy/auth/backend. Используем существующие 094/096 события и PostHog wrapper; отдельной analytics subsystem нет. Историческая live-ready запись не переносится на свежий runtime.
+
+1. Зафиксировать authenticated consent/identity contract; server-owned status не выводится из payload или workspace. Неизвестная/неодобренная версия раскрытия fail-closed.
+2. Подключить refresh контекста в desktop при появлении/смене auth; сброс на смену пользователя. Подтверждение конкретного пользователя не синтезируется автоматически.
+3. Исправить provider receipt и одноразовую веху: blocked/error не навсегда потребляет ключ; синтетический тест покрывает повтор и двойную отправку.
+4. Минимальный режим запрещает broad browser/direct desktop routes и IP enrichment; разрешает только каталог. Настройки supported project retention и dashboard/query — предложение, без production mutation или удаления.
+5. Изолированный тест: отдельные synthetic consent/identity fixtures, provider receipt, dedupe; ClickHouse readback только при доступном локальном стенде. HTTP accepted и реально ingested различаются. Обязательные exact PR CI; release/deploy отдельно.
+
+Блокеры выпуска: актуальное legal сопоставление существующих notices; supported management session/access; текущие backup/restore/access proofs; безопасная wiring capture key; реальный ingestion smoke/readback. Подтверждение категории/срока не маркирует эти доказательства выполненными.
+
+### Контракт записи согласия и зависимости
+
+Минимальный draft хранит отдельную запись текущего согласия на существующей user row (JSON, additive nullable migration); organization/user principal и существующий tenant RLS обязательны. В запись входят state/current copy version/accepted timestamp только после личного действия подтверждения; источник — authenticated consent endpoint, не query/event payload. Эндпоинт и запись default-off; тексты раскрытия не меняются. Пока существующая версия не получила реального legal/privacy readiness, context возвращает закрытый gate и запись принятия недоступна. Стенд явно использует synthetic configured version и fixture approval; такие значения не предлагаются для production.
+
+Desktop получает context от собственного API с существующим session transport, передаёт server pseudonym в event contract; accepted snapshot не живёт между аккаунтами. Событие перепроверяет серверную запись, поэтому отозванный snapshot клиента не позволяет продолжать сбор. UI подтверждения на существующем disclosure не считается внедрённым, пока реальный user-action путь не проверен; normal product workflows не блокируются новым default-off режимом. Outbox/delivery proof и dashboard freshness проверяются отдельно от согласия.

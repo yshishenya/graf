@@ -573,6 +573,56 @@ final class ProductActivationAnalyticsContractTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testExplicitContextUsesServerUserIdentityAndResetsOnAuthChange() async throws {
+        let transport = RecordingProductActivationTransport()
+        let reporter = try Self.makeReporter(transport: transport)
+        transport.setContext(identity: "graf_pseudo_user_" + String(repeating: "a", count: 32))
+        await reporter.refreshContext()
+        _ = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "stable")
+        XCTAssertEqual(transport.payloads.last?.stablePseudonymousUserId, "graf_pseudo_user_" + String(repeating: "a", count: 32))
+        XCTAssertTrue(transport.explicitRoutesOnly)
+        reporter.invalidateContext()
+        let denied = await reporter.noteFirstValueSessionCompleted(usefulResultType: "transcript")
+        XCTAssertEqual(denied, .telemetryGateClosed(.firstValueSessionCompleted))
+        transport.setContext(identity: "graf_pseudo_user_" + String(repeating: "b", count: 32))
+        await reporter.refreshContext()
+        _ = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "stable")
+        XCTAssertEqual(transport.payloads.count, 2)
+        XCTAssertEqual(transport.payloads.last?.stablePseudonymousUserId, "graf_pseudo_user_" + String(repeating: "b", count: 32))
+    }
+
+    @MainActor
+    func testWithdrawnAndWorkspaceContextRemainClosed() async throws {
+        let transport = RecordingProductActivationTransport()
+        let reporter = try Self.makeReporter(transport: transport)
+        for (identity, state) in [("graf_pseudo_workspace_" + String(repeating: "a", count: 32), "accepted"),
+                                  ("graf_pseudo_user_" + String(repeating: "a", count: 32), "withdrawn")] {
+            transport.setContext(identity: identity, state: state)
+            await reporter.refreshContext()
+            let denied = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "stable")
+            XCTAssertEqual(denied, .telemetryGateClosed(.desktopFirstOpened))
+        }
+        XCTAssertTrue(transport.payloads.isEmpty)
+    }
+
+    @MainActor
+    func testFailedExplicitDeliveryDoesNotConsumeFirstMilestone() async throws {
+        let transport = RecordingProductActivationTransport()
+        let reporter = try Self.makeReporter(transport: transport)
+        transport.setContext(identity: "graf_pseudo_user_" + String(repeating: "a", count: 32))
+        await reporter.refreshContext()
+        transport.status = 503
+        let failed = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "stable")
+        XCTAssertEqual(failed, .deliveryFailed(.desktopFirstOpened, status: 503))
+        transport.status = 200
+        let succeeded = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "stable")
+        XCTAssertTrue(succeeded.wasDelivered)
+        let duplicate = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "stable")
+        XCTAssertEqual(duplicate, .alreadyCounted(.desktopFirstOpened))
+        XCTAssertEqual(transport.payloads.count, 2)
+    }
+
     private static func readRepositoryFile(_ relativePath: String) throws -> String {
         try String(contentsOf: repositoryRoot().appendingPathComponent(relativePath), encoding: .utf8)
     }
@@ -597,6 +647,21 @@ final class ProductActivationAnalyticsContractTests: XCTestCase {
 private final class RecordingProductActivationTransport: ProductActivationAnalyticsTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [ProductActivationAnalyticsPayload] = []
+    private var contextValue: ProductActivationAnalyticsContext?
+    private var routes: [Bool] = []
+    var status = 202
+    var explicitRoutesOnly: Bool { lock.withLock { !routes.isEmpty && routes.allSatisfy { $0 } } }
+
+    func setContext(identity: String, state: String = "accepted") {
+        let data = try! JSONSerialization.data(withJSONObject: ["enabled": true, "telemetry_gate_state": state,
+                                                               "stable_pseudonymous_user_id": identity])
+        let value = try! JSONDecoder().decode(ProductActivationAnalyticsContext.self, from: data)
+        lock.withLock { contextValue = value }
+    }
+
+    func context(using client: ProductActivationAnalyticsClient) async throws -> ProductActivationAnalyticsContext? {
+        lock.withLock { contextValue }
+    }
 
     var payloads: [ProductActivationAnalyticsPayload] {
         lock.withLock { storage }
@@ -606,8 +671,8 @@ private final class RecordingProductActivationTransport: ProductActivationAnalyt
         _ payload: ProductActivationAnalyticsPayload,
         using client: ProductActivationAnalyticsClient
     ) async throws -> Int {
-        lock.withLock { storage.append(payload) }
-        return 202
+        lock.withLock { storage.append(payload); routes.append(client.explicitFunnel) }
+        return status
     }
 }
 #endif

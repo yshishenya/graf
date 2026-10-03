@@ -4,27 +4,50 @@ import TwoBrainRecShared
 
 /// Канал доставки вехи на сервер.
 public protocol ProductActivationAnalyticsTransport: Sendable {
+    func context(using client: ProductActivationAnalyticsClient) async throws -> ProductActivationAnalyticsContext?
     func send(
         _ payload: ProductActivationAnalyticsPayload,
         using client: ProductActivationAnalyticsClient
     ) async throws -> Int
 }
 
+public extension ProductActivationAnalyticsTransport {
+    func context(using client: ProductActivationAnalyticsClient) async throws -> ProductActivationAnalyticsContext? { nil }
+}
+
 /// Обычная отправка через сервер: приложение не ходит к счётчикам напрямую.
 public struct URLSessionProductActivationAnalyticsTransport: ProductActivationAnalyticsTransport {
     public init() {}
+
+    public func context(using client: ProductActivationAnalyticsClient) async throws -> ProductActivationAnalyticsContext? {
+        let (data, response) = try await URLSession.shared.data(for: client.contextRequest())
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { throw URLError(.badServerResponse) }
+        return try JSONDecoder().decode(ProductActivationAnalyticsContext.self, from: data)
+    }
 
     public func send(
         _ payload: ProductActivationAnalyticsPayload,
         using client: ProductActivationAnalyticsClient
     ) async throws -> Int {
         let request = try client.request(for: payload)
-        let (_, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw URLError(.badServerResponse)
         }
+        if client.explicitFunnel && (200..<300).contains(http.statusCode) {
+            // GRAF acceptance is distinct from PostHog ingestion. Only this
+            // server-owned provider receipt may advance the local ledger.
+            let receipt = try JSONDecoder().decode(ExplicitProviderReceipt.self, from: data)
+            guard receipt.accepted && receipt.providerAccepted else { return 503 }
+        }
         return http.statusCode
     }
+}
+
+private struct ExplicitProviderReceipt: Decodable {
+    let accepted: Bool
+    let providerAccepted: Bool
+    enum CodingKeys: String, CodingKey { case accepted; case providerAccepted = "provider_accepted" }
 }
 
 /// Журнал уже отправленных первых вех (FR-025).
@@ -137,6 +160,9 @@ public final class ProductActivationAnalyticsReporter {
     ]
 
     private let client: ProductActivationAnalyticsClient?
+    private var explicitClient: ProductActivationAnalyticsClient?
+    private var serverIdentity: String?
+    private var contextGeneration: UInt64 = 0
     private let transport: any ProductActivationAnalyticsTransport
     private let handoffs: ProductAttributionHandoffStore
     private let ledger: any ProductActivationMilestoneLedger
@@ -180,8 +206,35 @@ public final class ProductActivationAnalyticsReporter {
             handoffs: ProductAttributionHandoffStore(defaults: defaults),
             ledger: UserDefaultsProductActivationMilestoneLedger(defaults: defaults),
             telemetryGateState: telemetryGateState,
-            identityProvider: { configuration.flatMap { $0.workspaceId.flatMap(ProductActivationPseudonymousIdentity.workspace) } }
+            identityProvider: { nil }
         )
+    }
+
+    public func invalidateContext() {
+        contextGeneration &+= 1
+        telemetryGateState = .notSeen
+        explicitClient = nil
+        serverIdentity = nil
+    }
+
+    public func refreshContext() async {
+        invalidateContext()
+        let generation = contextGeneration
+        guard let client else { return }
+        do {
+            guard let context = try await transport.context(using: client),
+                  generation == contextGeneration, context.enabled,
+                  context.telemetryGateState == "accepted",
+                  let identity = context.stablePseudonymousUserId,
+                  identity.range(of: "^graf_pseudo_user_[0-9a-f]{32}$", options: .regularExpression) != nil
+            else { return }
+            var headers = client.headers
+            if let csrf = context.csrfToken { headers["X-CSRF-Token"] = csrf }
+            explicitClient = ProductActivationAnalyticsClient(rawBaseURL: client.baseURL.absoluteString,
+                                                              headers: headers, explicitFunnel: true)
+            serverIdentity = identity
+            telemetryGateState = .accepted
+        } catch { /* Fail closed without logging context, credentials or identifiers. */ }
     }
 
     // MARK: - Настоящие пути продукта
@@ -304,10 +357,10 @@ public final class ProductActivationAnalyticsReporter {
         guard telemetryGateState.allowsProductAnalytics else {
             return .telemetryGateClosed(event)
         }
-        guard let client else {
+        guard let client = explicitClient ?? client else {
             return .analyticsNotConfigured(event)
         }
-        let identity = identityProvider()
+        let identity = serverIdentity ?? identityProvider()
         let ledgerKey = Self.ledgerKey(event: event, identity: identity)
         if ledger.hasCounted(ledgerKey) {
             return .alreadyCounted(event)
@@ -323,6 +376,21 @@ public final class ProductActivationAnalyticsReporter {
             merged["bridge_present"] = "false"
             merged["attribution_reliability"] = ProductActivationAttributionReliability.unknown.rawValue
             merged["campaign_label_state"] = ProductAttributionHandoff.campaignLabelStateUnknown
+        }
+        if client.explicitFunnel {
+            // Never forward arbitrary campaign labels or bridge identifiers.
+            // Only coarse, unverified client categories are retained here.
+            let sources: Set<String> = ["google", "yandex", "bing", "telegram", "productradar", "chatgpt", "perplexity"]
+            let media: Set<String> = ["organic", "referral", "social", "email", "cpc"]
+            for key in ["graf_attribution_id", "utm_campaign", "utm_content", "utm_term", "utm_id"] {
+                merged.removeValue(forKey: key)
+            }
+            if let source = merged["utm_source"], !sources.contains(source) { merged.removeValue(forKey: "utm_source") }
+            if let medium = merged["utm_medium"], !media.contains(medium) { merged.removeValue(forKey: "utm_medium") }
+            let known = merged["utm_source"] != nil || merged["utm_medium"] != nil
+            merged["bridge_present"] = "false"
+            merged["attribution_reliability"] = known ? "weak" : "unknown"
+            merged["campaign_label_state"] = known ? "known" : "unknown"
         }
         do {
             let payload = try ProductActivationAnalyticsPayload(

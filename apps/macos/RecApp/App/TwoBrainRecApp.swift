@@ -463,6 +463,7 @@ private struct ContentView: View {
             // Первый запуск приложения: веха отправляется из настоящего пути,
             // когда пользователь уже принял раскрытие о телеметрии (FR-021).
             Task {
+                await activationReporter.refreshContext()
                 await activationReporter.noteFirstLaunch(
                     appVersion: currentApplicationVersion,
                     installChannel: currentInstallChannel
@@ -543,6 +544,11 @@ private struct ContentView: View {
             openCabinetSignInWithAttributionHandoff(reason: "attribution_handoff")
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange)) { _ in
+            activationReporter.invalidateContext()
+            Task {
+                await activationReporter.refreshContext()
+                await activationReporter.noteFirstLaunch(appVersion: currentApplicationVersion, installChannel: currentInstallChannel)
+            }
             // Аккаунт подключён: саму веху отправляет серверная авторизация,
             // приложение запоминает связь и передаёт метки кампании во вход.
             activationReporter.noteAccountConnected()

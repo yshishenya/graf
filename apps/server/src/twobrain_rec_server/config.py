@@ -110,6 +110,8 @@ class Settings(BaseSettings):
     public_analytics_replay_enabled: bool = False
     public_analytics_consent_copy_version: str = "2026-09-15.1"
     product_analytics_enabled: bool = False
+    # Minimal authenticated explicit funnel; never enables provider delivery.
+    product_analytics_explicit_funnel_enabled: bool = False
     product_analytics_validation_mode: str = "disabled"
     product_analytics_provider_mode: str = "disabled"
     # Level 1 of feature 273: the anonymous page aggregate keeps no identifier,
