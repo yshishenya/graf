@@ -344,7 +344,7 @@ def test_disabling_renewal_does_not_promise_to_cancel_a_sent_payment(client, own
             await db.commit()
     asyncio.run(disable())
     page = client.get("/billing/subscription", headers=headers)
-    assert "Новые автоматические списания отключены" in page.text
+    assert "<dt>Автопродление</dt><dd>Отключено</dd>" in page.text
     assert "еще может завершиться" in page.text
     assert "Автоматического списания не будет" not in page.text
     assert 'href="/billing/checkout/status/INV-CLARITY"' in page.text
