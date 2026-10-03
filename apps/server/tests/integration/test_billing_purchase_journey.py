@@ -683,3 +683,143 @@ def test_expired_quote_and_changed_catalog_never_reach_provider(client, monkeypa
             )
 
     assert asyncio.run(invoice_count()) == 0
+
+
+@pytest.mark.parametrize("kind", ["initial_checkout", "storage_upgrade", "early_renewal", "renewal"])
+@pytest.mark.parametrize("mode", ["background", "boundary", "late_manual", "wrong_scope", "wrong_amount", "wrong_test", "wrong_metadata", "get_failure", "owner_missing"])
+def test_completed_purchase_recovers_late_receipt_without_replaying_money(
+    client, monkeypatch, tmp_path, kind, mode
+):
+    """Real DB and owner routes; receipt-only GET never replays financial projection."""
+    from uuid import uuid4
+
+    from tests.conftest import USER_ID
+    from twobrain_rec_server.db.models import BillingEntitlementGrant
+
+    _configure_billing(client, tmp_path)
+    workspace, headers = _prepare_owner_session(client)
+    now = datetime.now(UTC)
+    class ReceiptClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now.astimezone(tz)
+
+    monkeypatch.setattr(webhook_reconciliation, "datetime", ReceiptClock)
+    op_id, inv_id = uuid4(), uuid4()
+    number = f"INV-RECEIPT-{uuid4().hex}"
+    snapshot = {"cycle": "year", "receipt_registration": "pending"}
+
+    async def seed():
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(BillingOperation(
+                id=op_id, workspace_id=workspace, kind=kind, state="succeeded",
+                idempotency_key=f"receipt-{op_id}", provider_id="pay-synthetic-receipt",
+                created_at=now - timedelta(hours=25 if mode == "late_manual" else 24 if mode == "boundary" else 1),
+                request_snapshot={"purchase_schema": 2, "provider_environment": "test",
+                                  "provider_shop_id": "shop-money-path"},
+            ))
+            await db.flush()
+            db.add(BillingInvoice(id=inv_id, operation_id=op_id, workspace_id=workspace,
+                                  safe_number=number, amount_minor=12500, currency="RUB",
+                                  status="succeeded", plan_snapshot=snapshot))
+            subscription = await db.get(WorkspaceSubscription, workspace)
+            if subscription is None:
+                subscription = WorkspaceSubscription(workspace_id=workspace)
+                db.add(subscription)
+            subscription.billing_owner_id = USER_ID
+            subscription.plan_code, subscription.cycle = "personal", "year"
+            subscription.capacity_bytes, subscription.recurring_allowed = 10_000_000_000, False
+            subscription.paid_through = now + timedelta(days=365)
+            db.add(BillingAcceptanceBudget(workspace_id=workspace, limit_minor=20000,
+                                          spent_minor=12500, reserved_minor=0,
+                                          enabled=False, expires_at=now - timedelta(hours=1)))
+            await db.flush()
+            db.add(BillingEntitlementGrant(workspace_id=workspace, invoice_id=inv_id,
+                   provider_payment_id="pay-synthetic-receipt", plan_code="personal",
+                   cycle="year", starts_at=now, ends_at=now + timedelta(days=365),
+                   amount_minor=12500, currency="RUB"))
+            await db.commit()
+
+    asyncio.run(seed())
+    calls = []
+    receipt_status = "pending"
+
+    def handle(request):
+        calls.append(request.method)
+        assert request.method == "GET"
+        assert request.url.path == "/v3/payments/pay-synthetic-receipt"
+        if mode == "get_failure":
+            raise httpx.ConnectError("synthetic outage", request=request)
+        return httpx.Response(200, json={
+            "id": "pay-synthetic-receipt", "status": "succeeded", "test": mode != "wrong_test",
+            "created_at": now.isoformat(), "paid": True,
+            "recipient": {"account_id": "wrong" if mode == "wrong_scope" else "shop-money-path"},
+            "amount": {"value": "250.00" if mode == "wrong_amount" else "125.00", "currency": "RUB"},
+            "metadata": {"workspace_id": str(workspace), "operation_id": str(uuid4()) if mode == "wrong_metadata" else str(op_id),
+                         "invoice_number": number},
+            "receipt_registration": receipt_status,
+        })
+
+    monkeypatch.setattr(webhook_reconciliation, "YooKassaClient",
+                        lambda settings: YooKassaClient(settings, transport=httpx.MockTransport(handle)))
+    client.app.state.settings.billing_checkout_enabled = False
+    client.app.state.settings.billing_provider_observation_enabled = True
+
+    async def observe():
+        async with client.app_state["sessionmaker"]() as db:
+            result = await webhook_reconciliation.reconcile_pending_initial_checkout_operations(
+                db, client.app.state.settings, commit_each_operation=True
+            )
+            await db.commit()
+            return result
+
+    detail = client.get(f"/billing/invoices/{number}")
+    assert detail.status_code == 200 and "Проверить чек" in detail.text
+    if mode == "owner_missing":
+        from twobrain_rec_server.db.models import WorkspaceMembership
+        async def revoke_owner():
+            async with client.app_state["sessionmaker"]() as db:
+                membership = await db.scalar(select(WorkspaceMembership).where(
+                    WorkspaceMembership.workspace_id == workspace,
+                    WorkspaceMembership.user_id == USER_ID,
+                ))
+                membership.status = "revoked"
+                await db.commit()
+        asyncio.run(revoke_owner())
+    result = asyncio.run(observe())
+    if mode == "owner_missing":
+        assert result["failed"] == 1 and calls == []
+    elif mode == "late_manual":
+        assert result["processed"] == 0 and calls == []
+    else:
+        assert result["processed"] == 1 and calls == ["GET"]
+    receipt_status = "succeeded"
+    if mode == "late_manual":
+        response = client.post(f"/billing/checkout/status/{number}/refresh", headers=headers,
+                               follow_redirects=False)
+        assert response.status_code == 303
+    else:
+        asyncio.run(observe())
+    succeeded = mode in {"background", "boundary", "late_manual"}
+    async def verify():
+        async with client.app_state["sessionmaker"]() as db:
+            invoice, operation = await db.get(BillingInvoice, inv_id), await db.get(BillingOperation, op_id)
+            assert operation.state == invoice.status == "succeeded"
+            assert invoice.amount_minor == 12500
+            assert invoice.plan_snapshot == {**snapshot, "receipt_registration": "succeeded" if succeeded else "pending"}
+            subscription = await db.get(WorkspaceSubscription, workspace)
+            assert not subscription.recurring_allowed and subscription.paid_through == now + timedelta(days=365)
+            assert subscription.capacity_bytes == 10_000_000_000
+            budget = await db.scalar(select(BillingAcceptanceBudget).where(BillingAcceptanceBudget.workspace_id == workspace))
+            assert (budget.spent_minor, budget.reserved_minor, budget.enabled) == (12500, 0, False)
+            assert await db.scalar(select(func.count()).select_from(BillingEntitlementGrant)) == 1
+            assert await db.scalar(select(func.count()).select_from(BillingStorageEntitlementGrant)) == 0
+            assert await db.scalar(select(func.count()).select_from(BillingNotificationDelivery)) == (1 if succeeded else 0)
+    asyncio.run(verify())
+    before = len(calls)
+    asyncio.run(observe())
+    if succeeded:
+        assert len(calls) == before  # Registered receipts leave the bounded candidate set.
+        assert "Чек зарегистрирован" in client.get(f"/billing/invoices/{number}").text
+        assert "Проверить чек" not in client.get(f"/billing/invoices/{number}").text
+    asyncio.run(verify())
