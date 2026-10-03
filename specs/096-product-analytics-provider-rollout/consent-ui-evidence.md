@@ -22,6 +22,6 @@ Scope: продолжение draft PR7477 / issue7472, source `40a3606efe447ba9
 
 ## Граница доставки
 
-Provider в тестах synthetic fake; consent UI сам capture не делает. HTTP 200/`provider_accepted` не доказывают ClickHouse ingestion, provider deduplication, runtime no-IP/GeoIP или retention365. Эти критерии остаются BLOCKED, а T109 открыт. [План стенда и bounded install request](isolated-delivery-plan.md) фиксирует отсутствующие зависимости и лимиты следующей операции. Required PR checks проверяются отдельно на exact pushed SHA; локальные тесты их не заменяют.
+Provider в тестах synthetic fake; consent UI сам capture не делает. HTTP 200/`provider_accepted` не доказывают ClickHouse ingestion, provider deduplication, runtime no-IP/GeoIP или retention365. Эти критерии остаются BLOCKED, а T109 открыт. [Разрешённая попытка стенда](isolated-delivery-attempt.md) завершилась OOM на официальном bootstrap до capture; ресурсы удалены, T109 открыт. [План](isolated-delivery-plan.md) описывает границу следующего окна. Required PR checks проверяются отдельно на exact pushed SHA; локальные тесты их не заменяют.
 
 Внешнее включение требует неизменённого notice legal mapping, актуальных backup/restore/offsite proofs, существующего доступа и MFA, отдельной secure secret-file wiring и retention assessment/action-time approval. Production остаётся выключен. D7/payment/refund вне scope.

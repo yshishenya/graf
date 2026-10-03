@@ -36,4 +36,6 @@ Ops report: project event retention — 84 месяца, TTL отсутству�
 
 ## Изолированный стенд
 
-PostHog/ClickHouse/Kafka и полный official pipeline здесь не установлены. Локальные образы отсутствуют, shared Docker располагает около 8 GiB RAM. [План](isolated-delivery-plan.md) закрепляет upstream source, отсутствие runtime proof, ресурсы и bounded install request. До отдельного разрешения отсутствующие зависимости не скачивать; HTTP/API proof не называть ingestion.
+Разрешённая попытка 03.10.2026 21:27–22:57 UTC остановлена на официальных PostgreSQL-миграциях: 3029 записей, два исчерпанных retry и OOM. Capture/ingestion и синтетический проект не запускались; доставка, provider dedupe и persisted no-IP не доказаны. Все ресурсы стенда удалены до дедлайна; Desktop RAM/restart и shared контейнеры этой попыткой не менялись. См. [отчёт](isolated-delivery-attempt.md) и [обновлённый план](isolated-delivery-plan.md). T109 открыт.
+
+Отдельный production блокер: по переданному ops report project1 имеет `anonymize_ips=false`. Официальный ingestion может добавить IP соединения при `$ip:null`; удаление зависит от проектной настройки. До включения нужны отдельное согласование этого config action и реальный no-IP readback установленной версии. Настройка production не менялась; synthetic `anonymize_ips=true` лишь подготовлена, её выполнение и отсутствие IP не подтверждены.

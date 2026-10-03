@@ -7,5 +7,5 @@ tasks: [T105, T106, T107, T108, T109]
 compatibility: "Режим выключен по умолчанию; nullable migration 0102 без переноса согласий; политики и публичные страницы сохранены"
 known_limitations:
   - "Production не включён; legal/access/backup/retention и реальный ingestion не подтверждены"
-  - "Consent UI проверен на synthetic accounts; установленный native runtime и PostHog ingestion требуют отдельного proof"
+  - "Consent UI проверен на synthetic accounts; PostHog bootstrap остановлен после OOM, capture/readback не выполнены; установленный native runtime требует отдельного proof"
 release_notes: "Существующий notice связан с личным API consent, native pending/generation/readback; server user pseudonym, сброс desktop при смене аккаунта, receipt и устойчивый ключ первой вехи; noIP explicit transport. HTTP accepted не доказывает ClickHouse ingestion."

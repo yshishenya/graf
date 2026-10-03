@@ -1,33 +1,36 @@
 # Изолированная доставка PostHog: план и граница доказательств
 
-03.10.2026. Это предложение, стенд не установлен и ingestion не подтверждён.
+Обновлено после разрешённой попытки 03.10.2026 UTC. Runtime delivery не подтверждён; [отчёт](isolated-delivery-attempt.md) и [metadata receipt](validation/isolated-posthog-attempt.json) сохраняют фактический результат.
 
-## Фактический preflight
+## Закреплённый официальный путь
 
-- Docker Desktop 29.6.1, aarch64, 10 CPU, 8 216 862 720 bytes RAM. Общий Docker уже обслуживает GRAF Dev и другие задачи; их контейнеры/тома/настройки не менялись.
-- Локальных образов PostHog, ClickHouse, Kafka/Redpanda, Redis, ZooKeeper и SeaweedFS нет. Имеющихся PostgreSQL и браузерных зависимостей достаточно для consent/API теста, но не для ingestion.
-- `infra/posthog/docker-compose.posthog.yml` прямо объявлен metadata-only handoff; он не содержит полный ingestion pipeline. Его запуск не докажет доставку.
-- Исследованы официальные [base](https://github.com/PostHog/posthog/blob/36259e3a58f40d0d09cbc98f179066a4addbb3db/docker-compose.base.yml), [hobby](https://github.com/PostHog/posthog/blob/36259e3a58f40d0d09cbc98f179066a4addbb3db/docker-compose.hobby.yml) и [dev](https://github.com/PostHog/posthog/blob/36259e3a58f40d0d09cbc98f179066a4addbb3db/docker-compose.dev.yml) Compose. Upstream master SHA прочитан через GitHub API: `36259e3a58f40d0d09cbc98f179066a4addbb3db`. Ранее скачанные `/tmp` копии не являются проверенным runtime и не считаются закреплёнными на этом SHA.
-- Hobby/dev используют дополнительные source mounts, registry variables, floating image references и optional build services. Нельзя обрезать pipeline до HTTP stub/ClickHouse-only и назвать результат PostHog delivery. Совместимость закреплённых upstream app/node/capture образов с aarch64 ещё не проверена; эмуляция не разрешена по умолчанию.
+Upstream source `36259e3a58f40d0d09cbc98f179066a4addbb3db`: официальные [base](https://github.com/PostHog/posthog/blob/36259e3a58f40d0d09cbc98f179066a4addbb3db/docker-compose.base.yml), [hobby](https://github.com/PostHog/posthog/blob/36259e3a58f40d0d09cbc98f179066a4addbb3db/docker-compose.hobby.yml) и [dev](https://github.com/PostHog/posthog/blob/36259e3a58f40d0d09cbc98f179066a4addbb3db/docker-compose.dev.yml). Все 11 aarch64 images были загружены по конкретным ARM64 digests; upstream tag/revision/digest записаны раздельно. App image совпадает с source SHA, node/capture/personhog имеют свои официальные revisions. Их runtime-совместимость не доказана: bootstrap не завершён.
 
-## Ограниченная следующая операция, требующая разрешения
+Выбран реальный event pipeline: GRAF default transport → официальный capture → Redpanda/Kafka → официальный ingestion-general/personhog → ClickHouse. PostgreSQL, Redis, ZooKeeper и SeaweedFS — его disposable зависимости. Не использованы HTTP stub, прямая SQL-вставка событий, worker/replay/browserless/AI/Temporal services или широкий hobby installer. Repository `infra/posthog/docker-compose.posthog.yml` остаётся metadata-only handoff, не готовым runtime.
 
-Установить официальный synthetic test runtime только в отдельный Docker project `graf-pr7477-synthetic`, из закреплённого source SHA выше. Нужен checkout официального PostHog и загрузка его отсутствующих образов/зависимостей. Это установка вне уже существующего набора зависимостей; здесь она не выполнялась.
+Сеть `graf-pr7477-synthetic` internal, отдельный непересекающийся subnet; единственный ingress — loopback `127.0.0.1:18977`. Readback предполагался через Docker exec только fixture rows, без публикации ClickHouse. Официальные source mounts readonly; users-dev.xml и штатная restrictive autoresearch policy применены как upstream dev fixtures, без ручных grants или auth bypass. Runtime migrations использовали штатные postgres/clickhouse/persons scopes; до последних двух выполнение не дошло.
 
-Предлагаемый лимит одной попытки: не более 10 GiB сетевых загрузок, 20 GiB дополнительных файлов/томов, 4 CPU и 4 GiB совокупной памяти контейнеров, 45 минут runtime. До старта проверить image digests/architecture, полный capture → Kafka → ingestion → ClickHouse pipeline и ресурсный бюджет. Если official runtime не помещается или требует иных компонентов, остановиться с точной новой оценкой; не повышать Docker Desktop ресурсы, не отключать другие задачи, не переключать архитектуру и не скачивать floating latest по предположению.
+## Разрешение и результат
 
-Отдельная internal Docker network и только loopback ingress `127.0.0.1:18977`. Никаких production/shared volumes, runtime env files, пользовательских cookies, SSH к production, новых операторов, keys/PAT/grants и реальных данных. Runtime bootstrap допускает только upstream synthetic test fixtures с явно тестовыми несекретными значениями; создание настоящих учётных данных не входит в запрос. Если upstream требует аккаунт/ключ/внешний доступ сверх этого, остановиться. Не применять TTL DDL или purge даже на основании production retention approval. После попытки удалить только принадлежащие этому проекту контейнеры/сеть/тома; глобальный prune запрещён.
+User разрешил одну попытку: 90 минут, ≤6 GiB загрузок, ≤20 GiB дополнительного диска, ≤4 CPU/10 GiB container RAM; допускаемый Desktop RAM 16 GiB с restart. Фиксированное окно: 21:27–22:57 UTC. Bootstrap остановлен в 22:37:29, финальный cleanup receipt — 22:42:46 UTC. Продления и второй попытки не было.
 
-## Приёмочный сценарий после разрешённой установки
+Desktop остался 8092 MiB: исходный detached контейнер `AutoRemove=true` мог быть удалён при выходе daemon, поэтому restart/RAM change не выполнены. Runtime caps ограничены 4 CPU/7040 MiB; консервативно downloads≤4,10 GiB, disk≤11,17 GiB. Официальный PostgreSQL bootstrap достиг 3029 применённых migrations, но два retry исчерпаны после убийства процесса. OOMKilled и малые MemAvailable/swap подтверждены; cgroup limit и global OOM не разделены. Core services/Kafka initialization успели запуститься, capture/ingestion/team fixture — нет. HTTP200, delivery, no-IP и provider dedupe не заявлены.
 
-1. Через существующие GRAF consent/context/events и синтетическую auth fixture принять текущий test notice. Production readiness флаги не трогать; fixture approval явно test-only.
-2. Записать пять разрешённых вех для двух synthetic users. Проверить серверный псевдоним, отсутствие content/IP/raw identifiers и запреты до согласия, после отзыва и при смене аккаунта.
-3. Отправить capture через настоящий GRAF PostHog wrapper, без подмены provider transport. Сохранить status receipt, UUID и безопасные счётчики. `HTTP 200`/`status=1` остаются только capture acceptance.
-4. Ограниченным опросом прочитать только fixture rows через ClickHouse в этом отдельном project. Сверить UUID/event/distinct_id и ожидаемые счётчики. Прямая вставка событий SQL не допускается.
-5. Потерять ответ после настоящего capture, повторить тот же UUID и проверить readback/deduplication отдельно для raw rows и supported final query. Не объявлять exactly-once по одному ответу или client ledger.
-6. Проверить отсутствие непустого `$ip`, IP/provider ingress-derived fields, GeoIP country/city/coordinates и PII в сохранённых fixture events. `$ip:null` и `$geoip_disable:true` в отправленном JSON сами по себе не дают runtime proof. Отдельно учитывать service ingress IP и свойства, добавленные ingestion.
-7. Отчёт содержит pinned upstream/image identities, bounded resources, counts/dedup/readback verdict и cleanup receipt; не содержит payload/private data/credentials.
+Удалены только own 9 containers, 9 volumes, network, 11 новых pinned image references и скачанный source cache. Shared initial/used images защищены, global prune не применялся. Действия этой попытки не останавливали и не пересоздавали shared контейнеры. Все 15 исходных IDs не сохранились: семь GRAF Dev заменены, AIRIS candidate exited0/OOM=false; actor по snapshots не установлен. Текущие GRAF Dev: шесть healthy, maintenance running; исходный AutoRemove контейнер имеет прежний StartedAt/OOM=false.
+
+## Условие следующего окна
+
+Требуется безопасное согласованное окно с достаточной свободной RAM. Владелец AutoRemove workload должен сначала завершить его штатно либо отдельно согласовать проверенный способ сохранения; чужую работу нельзя пересоздавать ради стенда. После этого возможна одна новая ограниченная попытка: Desktop16 GiB, ≤4 CPU/10 GiB container RAM, ≤6 GiB downloads/20 GiB disk, ≤90 минут, только тот же pinned disposable project с own cleanup. Нынешнее разрешение не продлевается и новая попытка не начата. Установка host packages, новая архитектура, внешняя VM/access, новые реальные credentials/operators/grants требуют отдельного bounded approval.
+
+## Приёмочный сценарий после успешного bootstrap
+
+1. Existing GRAF consent/context/events, настоящие synthetic auth/session/device fixtures; test-only readiness явно не operational proof. Upstream public inert test token, без новых реальных ключей/операторов. Production не участвует.
+2. Пять вех для двух synthetic users; server account milestone, псевдонимы и запреты до согласия, после отзыва, stale copy и forged identity.
+3. Настоящий default PostHog transport; реальный capture receipt отдельно от delivery. Потеря ответа после actual acceptance — явно fault injection, затем повтор того же UUID.
+4. ClickHouse raw и supported FINAL query: точные UUID/event/distinct_id, counts до/после retry; не count(DISTINCT) и не claim exactly-once по client ledger.
+5. Persisted event/person properties: непустые IP и ingress-derived поля, GeoIP и PII/content отсутствуют. `$ip:null/$geoip_disable:true` недостаточны. Synthetic `anonymize_ips=true` — условие теста, не изменение production. Необязательную negative canary исключать из основной выборки точным UUID/identity.
+6. Metadata-only receipt с source/digests/resources/counts/verdict/cleanup; никакого purge для подготовки proof.
 
 ## Оставшиеся production шаги
 
-Реальное сопоставление неизменённого notice с approved режимом; актуальные backup + isolated restore + offsite proofs; существующие operators и подтверждение MFA; отдельная secure secret-file wiring; exact 365-day retention assessment, dry-run/status, затем отдельное разрешение на DDL/purge. По переданному ops report production `78f9a12`: GRAF flags/host/key unset, project1 содержит 46 July events, retention84 months, TTL отсутствует, IP anonymization=false, 2 admins без подтверждённого TOTP. Эти факты не перепроверены и не исправлены этим срезом. D7/payment/refund остаются отдельной задачей.
+Legal mapping неизменённого notice; актуальные backup + isolated restore + offsite proofs; существующие operator access и MFA; отдельные secure capture-key wiring и IP anonymization config/readback; exact365-day retention assessment/dry-run/status, затем отдельное approval на необратимые TTL/purge действия. По переданному report production78f9a12: GRAF flags/host/key unset, project1 содержит46 July events, retention84 months/noTTL/anonymize_ips=false,2admins без подтверждённого TOTP. Это не перепроверялось и не исправлялось. D7/payment/refund — отдельный scope.
