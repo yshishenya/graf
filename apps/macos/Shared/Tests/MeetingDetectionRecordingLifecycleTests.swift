@@ -16,6 +16,19 @@ final class MeetingDetectionRecordingLifecycleTests: XCTestCase {
         XCTAssertTrue(source.contains("guard activeMeetingDetectionBundleID == bundleID else { return }"))
     }
 
+    func testRegistryUnavailableDoesNotBypassProductionLifecycleAdvance() throws {
+        let source = try Self.desktopAppSource()
+        let start = try XCTUnwrap(source.range(of: "private func advanceMeetingDetection(reason _: String) async {"))
+        let end = try XCTUnwrap(source.range(of: "private func processMeetingDetectionOutputs(", range: start.upperBound..<source.endIndex))
+        let advance = String(source[start.upperBound..<end.lowerBound])
+        XCTAssertTrue(advance.contains("let registry = meetingDetectionRegistry"))
+        XCTAssertTrue(advance.contains("meetingDetectionDetector.advance("))
+        XCTAssertTrue(advance.contains("processMeetingDetectionOutputs(outputs, registry: registry)"))
+        XCTAssertFalse(advance.contains("guard let registry"))
+        XCTAssertTrue(source.contains("registry: MeetingTargetRegistryDocument?"))
+        XCTAssertTrue(source.contains("} else {\n            meetingDetectionDetector.reconcile(event: event)"))
+    }
+
     private static func desktopAppSource() throws -> String {
         var candidate = URL(fileURLWithPath: #filePath)
         while candidate.path != "/" {

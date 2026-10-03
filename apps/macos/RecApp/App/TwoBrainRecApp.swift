@@ -1325,16 +1325,15 @@ private struct ContentView: View {
                 prerequisites: meetingDetectionPrerequisites()
             )
             processMeetingDetectionOutputs(outputs, registry: registry)
+        } else {
+            meetingDetectionDetector.reconcile(event: event)
         }
         await advanceMeetingDetection(reason: "mic_event")
     }
 
     @MainActor
     private func advanceMeetingDetection(reason _: String) async {
-        guard let registry = meetingDetectionRegistry else {
-            stopStaleMeetingDetectionRecordingIfNeeded(now: Date())
-            return
-        }
+        let registry = meetingDetectionRegistry
         let outputs = meetingDetectionDetector.advance(
             registry: registry,
             settings: meetingDetectionSettings,
@@ -1347,12 +1346,13 @@ private struct ContentView: View {
     @MainActor
     private func processMeetingDetectionOutputs(
         _ outputs: [MacOSMeetingActivityDetectorOutput],
-        registry: MeetingTargetRegistryDocument
+        registry: MeetingTargetRegistryDocument?
     ) {
         var didHandleRecordingTrigger = false
         for output in outputs {
             switch output {
             case .promptEligible(let targetID, let bundleID):
+                guard let registry else { continue }
                 AppLog.writeRaw(
                     event: "meeting_detection.detector_offer",
                     detail: "kind=prompt targetId=\(targetID) bundleID=\(bundleID)"
@@ -1390,6 +1390,7 @@ private struct ContentView: View {
                 recordMeetingDetectionConsumerOutcome(bundleID: bundleID, outcome: .accepted)
                 meetingDetectionStatus = .meetingFound(displayName)
             case .autoRecordEligible(let targetID, let bundleID):
+                guard let registry else { continue }
                 AppLog.writeRaw(
                     event: "meeting_detection.detector_offer",
                     detail: "kind=auto_record targetId=\(targetID) bundleID=\(bundleID)"
@@ -1446,6 +1447,7 @@ private struct ContentView: View {
                 observation: let observation,
                 decision: let decision
             ):
+                guard let registry else { continue }
                 AppLog.writeRaw(
                     event: "meeting_detection.detector_offer",
                     detail: "kind=candidate bundleID=\(bundleID) score=\(score)"

@@ -1400,6 +1400,49 @@ final class MeetingDetectionPolicyTests: XCTestCase {
         }
     }
 
+    func testRegistryUnavailableStillEndsAcceptedRecordingAfterGraceExactlyOnce() throws {
+        let detector = MacOSMeetingActivityDetector()
+        let now = Date(timeIntervalSince1970: 100)
+        let registry = try Self.registry()
+        detector.reconcileSnapshot(activeBundleIDs: [Self.meetingBundleID], observedAt: now)
+        XCTAssertEqual(detector.advance(now: now.addingTimeInterval(5), registry: registry, settings: .init()).count, 1)
+        detector.recordConsumerOutcome(bundleID: Self.meetingBundleID, outcome: .accepted)
+        let inactiveAt = now.addingTimeInterval(10)
+        detector.reconcileSnapshot(activeBundleIDs: [], observedAt: inactiveAt)
+        XCTAssertTrue(detector.advance(now: inactiveAt.addingTimeInterval(14.999), registry: nil, settings: .init()).isEmpty)
+        XCTAssertEqual(detector.advance(now: inactiveAt.addingTimeInterval(15), registry: nil, settings: .init()), [.ended(bundleID: Self.meetingBundleID)])
+        XCTAssertTrue(detector.advance(now: inactiveAt.addingTimeInterval(16), registry: registry, settings: .init()).isEmpty)
+    }
+
+    func testRegistryUnavailableNeverOffersAndRestorationUsesCurrentPolicy() throws {
+        let detector = MacOSMeetingActivityDetector()
+        let now = Date(timeIntervalSince1970: 100)
+        detector.reconcileSnapshot(activeBundleIDs: [Self.meetingBundleID], observedAt: now)
+        XCTAssertTrue(detector.advance(now: now.addingTimeInterval(600), registry: nil, settings: .init()).isEmpty)
+        XCTAssertEqual(detector.advance(now: now.addingTimeInterval(601), registry: try Self.registry(), settings: .init()), [.promptEligible(targetID: "yandex_telemost", bundleID: Self.meetingBundleID)])
+    }
+
+    func testRegistryUnavailablePreservesPartialSnapshotsReactivationAndManualSuppression() throws {
+        for outcome: MacOSMeetingActivityDetectorConsumerOutcome in [.accepted, .terminal(reason: "manually_stopped_current_meeting")] {
+            let detector = MacOSMeetingActivityDetector()
+            let registry = try Self.registry()
+            let now = Date(timeIntervalSince1970: 100)
+            detector.reconcileSnapshot(activeBundleIDs: [Self.meetingBundleID], observedAt: now)
+            XCTAssertEqual(detector.advance(now: now.addingTimeInterval(5), registry: registry, settings: .init()).count, 1)
+            detector.recordConsumerOutcome(bundleID: Self.meetingBundleID, outcome: outcome)
+            detector.reconcileSnapshot(activeBundleIDs: [], observedAt: now.addingTimeInterval(10), isComplete: false)
+            XCTAssertTrue(detector.advance(now: now.addingTimeInterval(25), registry: nil, settings: .init()).isEmpty)
+            XCTAssertTrue(detector.isActive(bundleID: Self.meetingBundleID))
+            detector.reconcileSnapshot(activeBundleIDs: [], observedAt: now.addingTimeInterval(30))
+            detector.reconcileSnapshot(activeBundleIDs: [Self.meetingBundleID], observedAt: now.addingTimeInterval(44))
+            XCTAssertTrue(detector.advance(now: now.addingTimeInterval(45), registry: nil, settings: .init()).isEmpty)
+            XCTAssertTrue(detector.advance(now: now.addingTimeInterval(46), registry: registry, settings: .init()).isEmpty)
+            let inactiveAt = now.addingTimeInterval(50)
+            detector.reconcileSnapshot(activeBundleIDs: [], observedAt: inactiveAt)
+            XCTAssertEqual(detector.advance(now: inactiveAt.addingTimeInterval(15), registry: nil, settings: .init()), [.ended(bundleID: Self.meetingBundleID)])
+        }
+    }
+
     private static let meetingBundleID = "ru.yandex.desktop.telemost"
 
     private struct InputProcess: Sendable {

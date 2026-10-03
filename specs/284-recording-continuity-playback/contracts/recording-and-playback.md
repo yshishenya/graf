@@ -13,3 +13,7 @@ Quota navigation uses the existing /billing overview (shared access); capacity-m
 ## FR012 — атомарная граница производителя
 
 Отдельный timestampedDiagnostics snapshot не гарантирует успешный resume. Источник должен синхронно фиксировать точный queuedFrameCount и применить callback смены подавления под той же FIFO блокировкой, что append/read. Все принятые до границы кадры остаются заглушены; новые после неё возобновляются. Default операции без гарантии возвращает отказ и callback не вызывает. Wrapper удерживает свою блокировку до FIFO операции, callback не обращается обратно к source; порядок wrapper→FIFO. Некорректная/недоступная граница сохраняет paused/open checkpoint, system audio и Stop. PTS/формат/пределы неизменны.
+
+## FR013 — завершение без реестра
+
+advance обрабатывает inactive/grace независимо от наличия registry; nil registry исключает новые предложения/телеметрию, но сохраняет ended для принятого события. Полный/неполный снимок, ручное подавление, отложенная Stop и600s неизвестность сохраняют прежнюю семантику.

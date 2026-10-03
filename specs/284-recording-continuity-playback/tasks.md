@@ -42,3 +42,6 @@ T012 и T013 блокируют слияние. Независимые файл�
 - [ ] T014 [US1] Устранить гонку добавления микрофонных кадров между снимком FIFO и resume в apps/macos/RecApp/Sources/Capture/PrivacySuppressingSampleSource.swift, RecordingSampleSources.swift и MicrophoneCaptureService.swift; детерминированный red/green, атомарный producer/read boundary, forwarding, сохранённые приватность/checkpoint/пределы в apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift; независимое ревью, текущие Dev/CI/release gates.
 
 T014 — новое замечание PR4171728042 на e4b1ebb774d661348098bc89fbff398a8ea0a165. Блокирует слияние; не закрывается прежним T012 снимком,80/0 или45min приёмкой.
+
+## Phase 9: Завершение без реестра
+- [ ] T015 [US1] Сохранять15s ended при nil registry в MacOSMeetingActivityDetector и TwoBrainRecApp; исполняемые полное/неполное отсутствие,14.999/15s, повторная активность, отсутствие новых предложений/телеметрии и восстановление реестра; production wiring, независимое ревью, актуальные Dev/CI.

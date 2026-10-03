@@ -127,7 +127,7 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
 
     public func advance(
         now: Date? = nil,
-        registry: MeetingTargetRegistryDocument,
+        registry: MeetingTargetRegistryDocument?,
         settings: MeetingDetectionSettings,
         prerequisites: MeetingDetectionCapturePrerequisites = MeetingDetectionCapturePrerequisites()
     ) -> [MacOSMeetingActivityDetectorOutput] {
@@ -146,7 +146,8 @@ public final class MacOSMeetingActivityDetector: @unchecked Sendable {
                 continue
             }
 
-            guard !tracked.isHandled,
+            guard let registry,
+                  !tracked.isHandled,
                   value.timeIntervalSince(tracked.firstObservedAt) >= debounceSeconds
             else {
                 continue

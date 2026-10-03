@@ -33,8 +33,8 @@
     "apps/server/tests/contract/test_cabinet_static_assets_contract.py": "d68eeb34e9ee9f6f942228370b9f836972091881e1b47a6d728f8cedbabf816b",
     "apps/macos/RecApp/Sources/Capture/MicrophoneCaptureService.swift": "03885facc914712ebe10d81dc5625445d22fafb1be90804a6ad325b54197d391"
   },
-  "fresh_dev_acceptance": "pending_mac_locked",
-  "release": "pending_apple_required_agreement_403",
+  "fresh_dev_acceptance": "repeat_control_in_progress_1e78",
+  "release": "pending_release_full_publication",
   "contract_fixture_review": {
     "critical": 0,
     "high": 0,
@@ -57,5 +57,44 @@
     "focused_duration_seconds": 26.085,
     "paused_mic_delta_wav": 0.0,
     "paused_mic_delta_m4a": 0.0
+  },
+  "reviewed_source_sha": "e498ff765fcfdd41a07668960766b6e3e54942ec",
+  "apple_preflight": "PASS_graf_notary_history_2026_10_04",
+  "rebase": {
+    "source_sha": "1e78bfc1751ebe28ad97dab90b0cc2c17f797e80",
+    "base_sha": "a7553db61b2625e767b3afa147c7b61c097fe918",
+    "all_11_feature_patches_unchanged": true,
+    "macos_tree_unchanged": true,
+    "historical_hashes_preserved": true,
+    "base_changed_cabinet_js_sha256": "1d1e115497bc028e9f1b1b9c8ca05eaf896186ea0a544d27eac8f05f2997db4b"
+  },
+  "registry_lifecycle_requirements_review": {
+    "checked": 4,
+    "unchecked": 0,
+    "critical": 0,
+    "high": 0,
+    "medium": 0
+  },
+  "registry_lifecycle_tests": {
+    "red_tests": 3,
+    "red_assertion_failures": 4,
+    "red_boundary": "optional_API_adapter_with_preexisting_early_nil_exit",
+    "green_tests": 68,
+    "green_failures": 0,
+    "duration_seconds": 8.864,
+    "runtime": "pending_updated_Dev_after_current_control"
+  },
+  "registry_lifecycle_implementation_review": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "requirements_checked": 4,
+    "requirements_unchecked": 0,
+    "files_sha256": {
+      "apps/macos/RecApp/App/TwoBrainRecApp.swift": "e3eeddc511f791feb8787f4d9f7d689d8510126d69942667b987354b6893cd3f",
+      "apps/macos/RecApp/Sources/MeetingDetection/MacOSMeetingActivityDetector.swift": "208d77e532b7bfa34949ce6f11a0638d538d73965e79e41067a7fe1e7cfbbd56",
+      "apps/macos/Shared/Tests/MeetingDetectionPolicyTests.swift": "80afcafcb6300aed3a3a3d0f7ce3bc4227199debc22ea2dcac04e080839919ac",
+      "apps/macos/Shared/Tests/MeetingDetectionRecordingLifecycleTests.swift": "0c95503dfd0279d3c5c58d665b59e25e068305fe36c1a73ac33beed732a75d3e"
+    }
   }
 }
