@@ -160,6 +160,7 @@ public final class ProductActivationAnalyticsReporter {
     ]
 
     private let client: ProductActivationAnalyticsClient?
+    private let contextClientProvider: (() -> ProductActivationAnalyticsClient?)?
     private var explicitClient: ProductActivationAnalyticsClient?
     private var serverIdentity: String?
     private var contextGeneration: UInt64 = 0
@@ -174,6 +175,7 @@ public final class ProductActivationAnalyticsReporter {
     public init(
         client: ProductActivationAnalyticsClient?,
         transport: any ProductActivationAnalyticsTransport = URLSessionProductActivationAnalyticsTransport(),
+        contextClientProvider: (() -> ProductActivationAnalyticsClient?)? = nil,
         handoffs: ProductAttributionHandoffStore = ProductAttributionHandoffStore(),
         ledger: any ProductActivationMilestoneLedger = UserDefaultsProductActivationMilestoneLedger(),
         telemetryGateState: ProductTelemetryGateState = .notSeen,
@@ -181,6 +183,7 @@ public final class ProductActivationAnalyticsReporter {
         now: @escaping () -> Date = { Date() }
     ) {
         self.client = client
+        self.contextClientProvider = contextClientProvider
         self.transport = transport
         self.handoffs = handoffs
         self.ledger = ledger
@@ -203,6 +206,11 @@ public final class ProductActivationAnalyticsReporter {
         return ProductActivationAnalyticsReporter(
             client: client,
             transport: transport,
+            contextClientProvider: {
+                DesktopCabinetConfiguration.configured(from: environment, defaults: defaults).flatMap {
+                    ProductActivationAnalyticsClient(rawBaseURL: $0.baseURL.absoluteString, headers: $0.headers)
+                }
+            },
             handoffs: ProductAttributionHandoffStore(defaults: defaults),
             ledger: UserDefaultsProductActivationMilestoneLedger(defaults: defaults),
             telemetryGateState: telemetryGateState,
@@ -220,7 +228,10 @@ public final class ProductActivationAnalyticsReporter {
     public func refreshContext() async {
         invalidateContext()
         let generation = contextGeneration
-        guard let client else { return }
+        let currentClient: ProductActivationAnalyticsClient?
+        if let contextClientProvider { currentClient = contextClientProvider() }
+        else { currentClient = client }
+        guard let client = currentClient else { return }
         do {
             guard let context = try await transport.context(using: client),
                   generation == contextGeneration, context.enabled,

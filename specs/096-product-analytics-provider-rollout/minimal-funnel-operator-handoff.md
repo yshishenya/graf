@@ -1,37 +1,35 @@
-# Операторский переход к минимальной воронке (предложение, не выполнено)
+# Переход к минимальной воронке: предложение, не выполнено
 
-Режим пользователя: явные события и псевдоним user, без клиентского IP/содержимого/автосбора/replay/directdesktop;365дней. Это псевдонимы, связуемые с аккаунтом внутри ГРАФ, не необратимая анонимизация.
+Пользователь подтвердил режим: явные события, псевдоним аккаунта, без клиентского IP, содержимого встреч, автосбора и replay; хранение 365 дней. Псевдоним связуем с аккаунтом внутри ГРАФ: это не необратимая анонимизация. Desktop передаёт события своему серверу, без прямого доступа к PostHog.
 
-## Выполнено в изолированном коде
+## Подготовлено
 
-Authenticated explicit-context/consent/events, запись согласия и первых вех на существующейuser row с RLS/CSRF, серверныйuserID, default-off. Desktop refresh/reset, receipt200 отдельно от provider ack и ingestion; stableUUID на retry. Исторический ingest с client claim в minimalmode закрыт. Product settings/provider modes не включены в production.
+Серверные маршруты context/consent/events с текущей авторизацией, tenant context и существующей CSRF-защитой; nullable consent/receipt state на UserIdentity без переноса старых согласий. Контекст native сбрасывается при смене аккаунта и обновляется перед отправкой. Provider receipt отделён от HTTP 200 и фактического ingestion; повтор получает тот же UUID. Новый флаг выключен по умолчанию; production не менялся.
 
-## Недостающие операционные доказательства
+Отзыв личного согласия сохраняется при выключенном режиме, readiness blocker и смене версии. Повторное включение не превращает withdrawn в accepted. API готов, но реальный UI личного принятия текущего notice ещё не подключён и не подтверждён. Operator approval не заменяет согласие человека. Политики и их тексты менять нельзя.
 
-По отдельному read-only ops report02:13UTC2026-10-03: известные restore receipts18July вне30дней; documentedbackups/scripts/timers/receipts на проверенном пути не установлены, offsite success не подтверждён. Иные backupmethods не проверены. Два существующихadmin, подтверждённыйTOTP/orgMFA не обнаружены. Это повод проверить/выполнить установленный контроль, не создавать новыйдоступ или объявлять полного отсутствия резервных копий.
+## Поддерживаемый вход и владельцы действий
 
-Оператор входит обычным поддерживаемымlogin существующего self-hostedPostHog. Не создавать PAT/grant, не переносить пароль/ключ/cookies через чат или чужую БД. MFA/security steps выполняются существующимиоператорами с отдельным action-timeapproval. Capturekey будет доступен только собственномуserver через существующий защищённыйsecret-file путь после отдельногоsecureapproval; management и capture права различаются.
+Существующий оператор входит в [PostHog](https://analytics.2brain.pro/login), проект 1. Не создавать PAT, grants и пользователей; не переносить пароли, ключи или cookies через чат и не обходить вход через БД. Capture key не является management-доступом.
 
-## Конфигурация после доказательств
+Владелец сервиса и существующие операторы должны подтвердить доступ и операционные меры. По отдельному read-only ops report от 03.10.2026 02:13 UTC: известные restore receipts от 18 июля вне 30-дневного окна; документированные backup scripts/timers/receipts на проверенном пути не установлены, offsite success не подтверждён. Иные способы резервирования не проверены. Два существующих admin; подтверждённый TOTP/org MFA не обнаружен. Это не доказательство отсутствия любых резервных копий.
 
-Предлагаем explicit_funnel_enabled=true только вместе с существующим approved provider gate; provider_enabled/live_provider_delivery остаются off до personalconsent/nativepath и isolatedingestionproof. Autocapture/webdirect/desktopdirect/directegress/replay/Yandexoffline=false. Существующуюверсию consent не изменять; legal/privacy reviewer сопоставляет реальный текст и новуюкатегорию, а не ставитфлаг по предположению. Operatorapproval не согласие человека.
+MFA и другие security steps требуют отдельного action-time approval. Capture key можно подключать только через существующий защищённый server secret-file путь после отдельного согласования этого действия. Ключи в пакет не добавлены.
 
-В envexample новая настройка commentedfalse, Compose defaultfalse. Сначала migration nullablecolumn без backfill consent, затем контракт API/native. ПубличныйmacOSпакет нельзя подменять тестовойсборкой; отдельныйDeveloperID/notarization/release gate остаётся.
+## Конфигурация после проверок
 
-## 365дней не означает немедленное удаление
+Предложение: explicit funnel только с существующими provider gates. Provider/live delivery остаются выключены до личного согласия, native path и изолированного ingestion proof. Autocapture, web direct, desktop direct, direct egress, replay и Yandex offline выключены. Legal/privacy reviewer должен сопоставить текущий неизменённый notice с категорией данных, а не выставлять флаги по предположению. Native выпуск требует штатного Developer ID/notarization/release gate.
 
-Opsreport: projecteventretention84months/noTTL; прежнийAPIfailure касался replay90days, не event365days. Нужно через поддерживаемыйUI проверить поля установленнойверсии и plan. Для точных365days имеется существующий apply-posthog-event-ttl.sh --dry-run --days365 и отдельный --status. Ни execute, ни rawDB PostHog mutations не выполнялись. ДоDDL оценить aggregateoldrows, все проекты/реплики/таблицы, backup+restore и последствия ужеистекшихстрок; затем отдельноеapproval конкретнойнеобратимойоперации. Не считать projectmonthsравным365days или установленныйминимум в GRAF доказательствомTTL.
+## 365 дней и удаление истории
 
-## Метрики и проверка
+Ops report: project event retention — 84 месяца, TTL отсутствует; прежняя ошибка retention API касалась replay 90 дней. Через поддерживаемый UI проверить возможности установленной версии. Для точных 365 дней существующий скрипт имеет `--dry-run --days 365` и `--status`. Эти команды здесь не выполнялись; `--execute` и raw DB mutations не применялись.
 
-Считать уникальных pseudonymoususers с текущимсогласием: первый наблюдаемый после согласия запуск -> подключенныйaccount -> первая запись -> readyresultview -> полезнаясессия. До согласия история не восстанавливается; download не означает установку, consentedactivation не totalactivation. Источник из существующего consentedhandoff/campaigncontext; unknown остаётсяunknown и не AI. Серверная accountmilestone может иметь unknownsource; известныйlaunchsource не затирать.
+До TTL DDL оценить число истёкших строк без содержимого, охват проектов/таблиц/реплик, backup/restore и последствия удаления. Затем получить отдельное разрешение на конкретную необратимую операцию. Согласие на срок хранения не является разрешением немедленно очистить историю; месяцы в UI не равны точным 365 дням.
 
-Отдельный ingestiontest нужен в изолированном PostHog/ClickHouse: syntheticonly UUIDfixtures, captureack, readback именноevents/uuid/distinctid, повтор после timeout/duplicate, пустыеIP/geoip и запретpayloadPII. Текущие fakeprovider/API/DB tests этого не доказывают. Productionfixtures не создавать.
+## Измерения и критерии включения
 
-Нужен реальный путь личного action под текущимнеизменённымnotice: API consentготов, но историческая ProductTelemetryGateViewModel не подключена к экрануacceptance. Не подменять это согласиемнастройками. После решенияlegal/runtime UIwiring должен быть отдельно доказан до выпуска; текстыполитик/лендингне трогать.
+Воронка: первый наблюдаемый после личного согласия запуск → подключённый аккаунт → запись → просмотр результата → полезная сессия. До согласия история не восстанавливается; скачивание не равно установке, consented activation не равно всем активациям.
 
-## Граница атрибуции подготовленного пакета
+Свободные campaign/content/term и bridge ID исключены. Source/medium — закрытые клиентские категории с weak/unknown, не подтверждённая связь серверного реестра. Unknown не считается direct или AI. Полная атрибуция требует отдельной проверки существующего реестра.
 
-Явный маршрут отклоняет свободный текст и вложенные identity properties. Desktop не передаёт произвольные campaign/content/term и bridge ID: только закрытые категории source/medium, weak/unknown. Это не готовая сверка campaign bridge с серверным реестром и не доказательство organic activation. Неизвестное происхождение остаётся unknown. Полная связь источника требует отдельного подтверждения действующего реестра на стенде; не следует включать режим, обещая полную атрибуцию.
-
-Отзыв личного согласия сохраняется при выключенном флаге, readiness blocker и смене версии. Повторное включение режима не превращает withdrawn в accepted.
+Изолированный PostHog/ClickHouse test должен проверить синтетические UUID, capture receipt, readback events/uuid/distinct_id, повтор после timeout и duplicate, отсутствие IP/GeoIP/PII. Текущие fake-provider/API/Postgres тесты этого не доказывают; production fixtures запрещены. Подготовленные HogQL-запросы не установлены и не выполнены. D7, реальные платежи и возвраты требуют отдельного повторяемого сигнала и серверной сверки; пять одноразовых вех их не доказывают.

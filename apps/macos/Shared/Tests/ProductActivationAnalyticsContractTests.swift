@@ -623,6 +623,31 @@ final class ProductActivationAnalyticsContractTests: XCTestCase {
         XCTAssertEqual(transport.payloads.count, 2)
     }
 
+    @MainActor
+    func testExplicitRefreshUsesCurrentAuthHeadersAndDoesNotFallbackAfterLogout() async throws {
+        let transport = RecordingProductActivationTransport()
+        let store = try XCTUnwrap(UserDefaults(suiteName: "graf.product.activation.tests.\(UUID().uuidString)"))
+        let original = try XCTUnwrap(ProductActivationAnalyticsClient(rawBaseURL: "https://rec.2brain.pro", headers: ["X-Test-Auth": "synthetic-A"]))
+        var current: ProductActivationAnalyticsClient? = original
+        let reporter = ProductActivationAnalyticsReporter(client: original, transport: transport,
+            contextClientProvider: { current }, handoffs: ProductAttributionHandoffStore(defaults: store),
+            ledger: UserDefaultsProductActivationMilestoneLedger(defaults: store))
+        transport.setContext(identity: "graf_pseudo_user_" + String(repeating: "a", count: 32))
+        await reporter.refreshContext()
+        _ = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "developer_id")
+        XCTAssertEqual(transport.lastClientHeaders["X-Test-Auth"], "synthetic-A")
+        current = ProductActivationAnalyticsClient(rawBaseURL: "https://rec.2brain.pro", headers: ["X-Test-Auth": "synthetic-B"])
+        transport.setContext(identity: "graf_pseudo_user_" + String(repeating: "b", count: 32))
+        await reporter.refreshContext()
+        _ = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "developer_id")
+        XCTAssertEqual(transport.lastClientHeaders["X-Test-Auth"], "synthetic-B")
+        current = nil
+        await reporter.refreshContext()
+        let denied = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "developer_id")
+        XCTAssertEqual(denied, .telemetryGateClosed(.desktopFirstOpened))
+        XCTAssertEqual(transport.payloads.count, 2)
+    }
+
     private static func readRepositoryFile(_ relativePath: String) throws -> String {
         try String(contentsOf: repositoryRoot().appendingPathComponent(relativePath), encoding: .utf8)
     }
@@ -647,6 +672,8 @@ final class ProductActivationAnalyticsContractTests: XCTestCase {
 private final class RecordingProductActivationTransport: ProductActivationAnalyticsTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [ProductActivationAnalyticsPayload] = []
+    private var clientHeaders: [String: String] = [:]
+    var lastClientHeaders: [String: String] { lock.withLock { clientHeaders } }
     private var contextValue: ProductActivationAnalyticsContext?
     private var routes: [Bool] = []
     var status = 202
@@ -671,7 +698,7 @@ private final class RecordingProductActivationTransport: ProductActivationAnalyt
         _ payload: ProductActivationAnalyticsPayload,
         using client: ProductActivationAnalyticsClient
     ) async throws -> Int {
-        lock.withLock { storage.append(payload); routes.append(client.explicitFunnel) }
+        lock.withLock { storage.append(payload); routes.append(client.explicitFunnel); clientHeaders = client.headers }
         return status
     }
 }
