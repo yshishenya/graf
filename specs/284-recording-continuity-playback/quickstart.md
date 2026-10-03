@@ -18,3 +18,7 @@
 11. T014: управляемый барьерами append на границе resume; подтвердить red прежнего snapshot/state, затем producer/read/state under same FIFO lock. Обе стороны границы, forwarding AppOwnedMicrophoneSampleSource, отсутствие точной гарантии, отрицательная граница, повторная пауза, bounded Stop и WAV/M4A.
 
 12. T015: принятая запись, затем nil registry; полный пустой снимок даёт ended ровно на15s (не14.999), один раз. Неполное отсутствие и повторная активность не завершают; нет новых предложений без реестра; восстановление реестра возвращает прежний путь. Проверить production wiring и актуальный штатный Dev после сохранения контроля.
+
+13. T016: ожидающее Ask → auth/registry forced dismissal → nil registry/current snapshots → восстановление. Должно быть одно повторное предложение с прежним countdown и без изменения remember choice. Accepted/Skip/Stop и отсутствие prompt не получают retry. Проверить оба production callers и штатный Dev; прежний hardware не заменяет новое подключение.
+
+T016 ordering: presenter.invalidate первым и native registry invalidation первым; настоящий callback должен давать retry ровно ожидающему prompt. Неавторизационный dismissAllCards не меняет authEpoch и остаётся terminal.

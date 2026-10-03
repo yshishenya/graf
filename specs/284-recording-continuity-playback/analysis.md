@@ -64,3 +64,9 @@ FR012→T014→SC008 реализован атомарной операцией 
 PR review локализовал противоречие SC002 и раннего выхода при nil registry в производственной композиции. FR013/SC009, план, контракт, quickstart и T015 согласуют единственный existing advance и запрет новых предложений без реестра. Новый самостоятельный продуктовый сценарий/разрешение не требуется. Независимая проверка требований обязательна до исправления; код/регрессии/Dev/CI ещё не приняты.
 
 T015 analyze до issue sync: CRITICAL0/HIGH0/MEDIUM0;13 functional requirements/15tasks, FR013+SC009→T015, нет непокрытых новых требований/задач, противоречий конституции и запроса уточнения. Issue ownership T015: #7504 (создана после поиска по всем состояниям, дублей нет). before_taskstoissues ensure PASS; after_taskstoissues validate записывается отдельным результатом.
+
+## T016 analyze — 2026-10-04
+
+FR014/SC010, план, контракт, quickstart13 и T016 согласованы. Coverage FR001–014: T002/T003/T008/T010/T015/T016 для lifecycle, T004/T005/T007/T009/T013 для playback/access, T006 для diagnostics/release, T011/T012/T014 для audio/privacy.14 FR,16 задач,100% coverage; ambiguity0, duplication0, C0/H0/M0. Требования reviewer-owned проверяются независимо до code. Это новый авторизованный bugfix, без новой продуктовой функции или решения пользователя.
+
+T016 уточнение HIGH: обе последовательности observers включены в FR014/plan/contracts/quickstart. Используется существующий authEpoch, generic invalidation остаётся terminal. Повторный analyze C0/H0/M0, FR014→T016,14/14 coverage; reviewer CHK005 требуется до правки callback.

@@ -67,3 +67,9 @@ Constitution Check PASS: сохранены звук/PTS/формат, исто�
 ## T015 — независимость завершения от реестра
 
 Переиспользовать существующий MacOSMeetingActivityDetector.advance: optional registry, существующий inactive/grace путь выполняется до guard registry, новые предложения требуют реестр. TwoBrainRecApp всегда вызывает advance и обрабатывает ended; registry нужен лишь ветвям новых предложений/телеметрии. Событие ownership при nil registry всё равно reconciled. Не сохранять устаревший реестр и не добавлять второй таймер/детектор. Прежние Stop/deferred start/manual suppression/600s сохраняются. Тесты используют существующую синтетическую шкалу, без реального аудио. Рабочая45min запись1e78 заморожена до завершения; новый код устанавливается только после её сохранения.
+
+## T016 — повтор после временного закрытия окна
+
+Constitution Check PASS: использовать существующий recordMeetingDetectionConsumerOutcome(.retryable) только для текущего ожидающего prompt. Общая dismissMeetingDetectionPrompt принимает необязательную причину retryable; оба auth/registry пути передают её, остальные callers сохраняют прежние accepted/terminal/Stop. Не сбрасывать весь детектор, не менять правила, согласие,8s countdown,2s retry, реестр или доступ. Исполняемые detector/notification tests и отдельная production wiring проверка; red прежнего helper, green, независимое ревью и актуальная Dev-приёмка.
+
+T016 reviewer HIGH: NotificationPresenter может invalidate первым. В present сохранить его существующий authEpoch; onInvalidated при изменённом epoch вызывает тот же retryable dismiss, иначе прежний terminal invalidated. Два порядка проверяются через настоящий presenter.invalidate; generic invalidation/lock/sleep остаются terminal. Не добавлять поле presenter, состояние или новое событие.

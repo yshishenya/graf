@@ -1,0 +1,84 @@
+{
+  "status": "saved",
+  "failure_reason": "none",
+  "source_sha": "1e78bfc1751ebe28ad97dab90b0cc2c17f797e80",
+  "tracks": [
+    {
+      "role": "mixed_meeting_audio",
+      "duration_ms": 2981308,
+      "byte_count": 95401914,
+      "full_decode_pass": true,
+      "decode_error_lines": 0
+    },
+    {
+      "role": "review_playback",
+      "duration_ms": 2981308,
+      "byte_count": 24124706,
+      "full_decode_pass": true,
+      "decode_error_lines": 0
+    }
+  ],
+  "echo_health": {
+    "aecDelayMs": 16,
+    "clippedSampleCount": 14808,
+    "echoReturnLossDb": -30,
+    "echoReturnLossEnhancementDb": 0.17551203072071075,
+    "estimatedDriftPpm": 45.61615346494744,
+    "hostOverrunCount": 0,
+    "hostUnderrunCount": 0,
+    "nonFiniteSampleCount": 0,
+    "processErrorCount": 0,
+    "processedFrameCount": 298362,
+    "processingTimeP95Ms": 1,
+    "ptsGapCount": 0,
+    "resetCount": 0,
+    "state": "completed"
+  },
+  "privacy_segments": [
+    {
+      "control": "pause",
+      "durationMs": 16515,
+      "startMonotonicMs": 52958,
+      "endMonotonicMs": 69473,
+      "localMicTreatment": "silenced"
+    },
+    {
+      "control": "pause",
+      "durationMs": 6683,
+      "startMonotonicMs": 77324,
+      "endMonotonicMs": 84007,
+      "localMicTreatment": "silenced"
+    }
+  ],
+  "tone_window_rms": 0.002795962174367851,
+  "tone_window_nonzero": true,
+  "private_content_included": false,
+  "started_at": "2026-10-03T22:02:34Z",
+  "stopped_at": "2026-10-03T22:52:15Z",
+  "telemost_audio_stopped_at": "2026-10-03T22:51:59Z",
+  "automatic_stop_delay_seconds": 16,
+  "saved_delay_seconds": 17,
+  "one_recording_directory": true,
+  "prompts": 1,
+  "starts": 1,
+  "timing_anomalies": 0,
+  "max_target_active_gap_seconds": 3.0,
+  "native_playback_beginning_and_end_pass": true,
+  "local_action_after_reload_pass": true,
+  "scope": "T012/T014 production capture byte-identical to6dc8; T015/T016 pending separate current Dev",
+  "system_log_review": {
+    "events": 10012,
+    "overrun": 0,
+    "overflow": 0,
+    "overload_events": 5,
+    "overload_time_relative_seconds": 828,
+    "capture_pts_gap_or_host_overrun_after_overload": 0,
+    "error_substrings_include_method_names": true,
+    "actual_error_or_fault_events": 125
+  },
+  "repeat_prompts": 0,
+  "monitor_samples": 61,
+  "all_monitor_samples_active": true,
+  "monitor_end_relative_seconds": 2726.2,
+  "monitor_does_not_cover_final_stop": true
+}

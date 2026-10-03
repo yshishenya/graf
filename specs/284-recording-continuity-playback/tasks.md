@@ -33,15 +33,20 @@ T001→T002→T003; T001→T004→T005; T003+T005→T006. Tests precede implemen
 T011 принята после физического контроля45min40s на продуктовой версии6f1b44175181 и независимой проверки доказательств: hardware-acceptance.json и validation.md. Прежний detector-only45min не заменяет эту приёмку. Слияние требует текущих CI финального документационного SHA; выпуск сохраняет отдельные release-full/Apple/публичные и установленные ворота.
 
 ## Phase 7: Закрытие замечаний PR
-- [ ] T012 [US1] Сохранять заглушение всех ожидающих микрофонных кадров через быстрый resume до drain в apps/macos/RecApp/Sources/Capture/PrivacySuppressingSampleSource.swift и существующих источниках/тестах; red/green очереди и интеграционного writer, независимое ревью и актуальная Dev-приёмка.
+- [X] T012 [US1] Сохранять заглушение всех ожидающих микрофонных кадров через быстрый resume до drain в apps/macos/RecApp/Sources/Capture/PrivacySuppressingSampleSource.swift и существующих источниках/тестах; red/green очереди и интеграционного writer, независимое ревью и актуальная Dev-приёмка.
 - [X] T013 [US2] Связать все ответы playback poll с meetingId до запроса и отбросить устаревшие recovery/body/error в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js; исполняемый red и браузерные проверки повторно используемого main в local-recording-detail.test.cjs и сохранить полный контракт действующего отзыва доступа в apps/server/tests/contract/test_cabinet_static_assets_contract.py.
 
 T012 и T013 блокируют слияние. Независимые файлы могут проверяться параллельно после reviewer-owned checklist/analyze/issue-sync PASS.
 
 ## Phase 8: Граница производителя
-- [ ] T014 [US1] Устранить гонку добавления микрофонных кадров между снимком FIFO и resume в apps/macos/RecApp/Sources/Capture/PrivacySuppressingSampleSource.swift, RecordingSampleSources.swift и MicrophoneCaptureService.swift; детерминированный red/green, атомарный producer/read boundary, forwarding, сохранённые приватность/checkpoint/пределы в apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift; независимое ревью, текущие Dev/CI/release gates.
+- [X] T014 [US1] Устранить гонку добавления микрофонных кадров между снимком FIFO и resume в apps/macos/RecApp/Sources/Capture/PrivacySuppressingSampleSource.swift, RecordingSampleSources.swift и MicrophoneCaptureService.swift; детерминированный red/green, атомарный producer/read boundary, forwarding, сохранённые приватность/checkpoint/пределы в apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift; независимое ревью, текущие Dev/CI/release gates.
 
 T014 — новое замечание PR4171728042 на e4b1ebb774d661348098bc89fbff398a8ea0a165. Блокирует слияние; не закрывается прежним T012 снимком,80/0 или45min приёмкой.
 
 ## Phase 9: Завершение без реестра
 - [ ] T015 [US1] Сохранять15s ended при nil registry в MacOSMeetingActivityDetector и TwoBrainRecApp; исполняемые полное/неполное отсутствие,14.999/15s, повторная активность, отсутствие новых предложений/телеметрии и восстановление реестра; production wiring, независимое ревью, актуальные Dev/CI.
+
+## Phase 10: Восстановление предложения
+- [ ] T016 [US1] Вернуть только ожидающее предложение в retryable при auth/registry закрытии в apps/macos/RecApp/App/TwoBrainRecApp.swift; red/green detector/notification и production wiring в apps/macos/Shared/Tests/MeetingDetectionCountdownTests.swift и MeetingDetectionRecordingLifecycleTests.swift; сохранить nil registry/accepted/Skip/Stop/2s/8s, независимое ревью и текущие Dev/CI (FR014/SC010).
+
+T012/T014:49min41s на1e78, Capture byte-identical6dc8, один start/no timing failures, два pause/resume, saved/decode/player/reload PASS. Точная приватность подтверждена детерминированным84/0/delta0.0. Итоговые SHA/CI и выпуск остаются отдельными воротами; T015/T016 Dev ещё открыты.

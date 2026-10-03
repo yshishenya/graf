@@ -170,3 +170,33 @@ Reviewer-owned requirements: прежние 22/0 и producer-boundary 5/0, вс�
 Работающий45min Telemost1e78 не обновлён. Подтверждение нового T015 требует независимого ревью, нового SHA/CI и штатного Dev после сохранения контроля; текущий аппаратный прогон не объявляется тестом обновлённой композиции.
 
 Независимое ревью T015 реализации C0/H0/M0, требования перечитаны4/0; checked production outputs/current-start/Stop/deferred/600s и4source hashes. Физическая проверка новой композиции и окончательные exact-SHA CI остаются открытыми.
+
+## Контроль Telemost — 2026-10-04,49min41s
+
+Единственный GRAF Dev1e78bfc1751ebe28ad97dab90b0cc2c17f797e80, штатный harness/smoke13/13.22 исходных Capture файла побайтно совпадают с6dc8d369656d171d1a81488a9ec1b3dd58d0e9aa; T015 изменяет только композицию/детектор и отдельно ожидает Dev. Запись22:02:34–22:52:15Z, один prompt22:02:31Z, один start, одна директория,0 повторных prompt/ошибочных остановок/тайминговых аномалий, текущая активность Telemost с максимальным интервалом3s. Оба pause/resume сегмента завершены,16.515s и6.683s. Системный контрольный сигнал присутствует в WAV (RMS0.002796). Это аппаратная работоспособность паузы; точную приватность FIFO/producer подтверждают прежние детерминированные84/0 и WAV/M4A delta0.0, аппаратный mix не заменяет их.
+
+Оба файла saved/failure none, duration2981308ms. WAV95401914bytes, M4A24124706bytes; полное ffmpeg decode и ffprobe PASS,0 строк ошибок. Физический UI: карточка49min/Сохранено на Mac, кнопка локального аудио открывает штатный плеер, начало продвигается, seek49:35 воспроизводится до49:41/paused; reload карточки сохраняет кнопку. Также серверный player продвигается при blocked_config расшифровки; Dev не содержит MediaScribe настройки и не отправляет запрос поставщику.
+
+Telemost закрыто пользователем только как окно: CUA подтвердил продолжающийся фоновый звонок49min и кнопку Завершить звонок. Штатное нажатие завершило звонок; Telemost01:51:59.450 call running=false/01:51:59.685 stop streams; GRAF22:52:15Z meeting_ended stop,22:52:16Z saved. Автоматический stop16s, saved17s от фактического окончания звука. Предыдущее время намерения root не используется.
+
+Итоговая completed AEC health: processed298362frames, overrun0/underrun0/PTSgap0/processError0/nonFinite0,clipped14808,p95 processing1ms. Нулевые active placeholders не используются. Системный журнал10012events: replayd7960/coreaudiod2052,125 error/fault записей; большая доля связана с aggregate channel-layout/vocal-isolation и camera/ScreenCaptureKit setup/teardown. В01:16:21 отмечен один эпизод HAL client-timeout/overload(5 строк), без разрыва GRAF PTS или host overrun. Причина внутри macOS не установлена и не приписывается CPU. Все обычные logs и audio остаются локальными; git содержит только hardware-acceptance-2026-10-04.json без путей/ID/содержимого.
+
+Короткий предварительный запуск1e78 отказал render_reference_missing: входящий SCK PTS gap16.0416ms, размеры960/48000/mono согласованы,callback max0.362875ms. Реальные потери остаются отказом FR009; защита не ослаблялась. Этот отказ сохранён как ограничение, не засчитан в PASS49min.
+
+Общий exact-head PR proof6dc8/base d8fa: governance-fast37159017529,macos-pr37159017528,metadata37159567661 PASS, проверены общим validate-pr-checks. Более ранний metadata failure относится к устаревшему описанию. Новые изменения T016 и итоговые docs требуют новых SHA/CI; T015/T016 Dev и выпуск открыты.
+
+## T016: восстановление ожидающего предложения
+
+Новый review4175168241 локализован в обоих auth/registry callers общего dismiss. FR014/SC010/T016/контракт/quickstart, independent requirements5/0,analyze C0/H0/M0,issue#7509 и canon PASS. Первый helper подавал retryable лишь из native auth path. Wiring-red2tests/6 source assertions на6dc8; behavioral-red1/1 с минимальным адаптером прежнего dismiss; первыйgreen70/0 не доказывал порядок observers.
+
+Независимое implementation review H001 обнаружило синхронный NotificationPresenter auth invalidation прежде SwiftUI: onInvalidated ставил terminal и очищал prompt раньше helper. Настоящий presenter.invalidate reproducer дал1test/1failure восстановленного offer; источник callback адаптирован явно, не неизменный исторический SHA. Уточнение требований5/0 задаёт два порядка и generic invalidation terminal. Callback сравнивает существующий authEpoch с захваченным при показе; только auth transition даёт retryable текущему prompt. Вторых таймеров, новых state/fields, reset всего detector нет.
+
+Итоговый ordering-green:70tests/0failures,7.674s. Настоящий notification presenter.invalidate вызывается в обоих порядках, обычный dismissAllCards сохраняет terminal; восстановленный offer один,2s/8s и nil registry/accepted/Skip/Stop сохранены. Отдельный wiring охватывает оба callers, authEpoch callback и outcome-before-clear. Первыйgreen/historical review сохранены как история, не итоговая приёмка. Независимое повторное ревью и текущий Dev ещё требуются.
+
+## Converge итоговой реализации — 2026-10-04
+
+Применён speckit-converge после implement T016; штатный prerequisite поддерживает --require-tasks/--include-tasks, upstream --require-spec отсутствует, spec/plan/tasks проверены явно. До/после hooks converge не зарегистрированы.14 FR и10 SC,7 именованных групп проектных решений и применимые8 принципов constitution проверены по существующим source/callers/tests. Buildable gaps missing0/partial0/contradicts0/unrequested0,C0/H0/M0. Текущий CoreAudio/partial coverage,15s/600s/manual suppression, локальная привязка/доступ/удаление/целостность/квота, PTS interleave и атомарная приватность, nil registry lifecycle и authEpoch recovery согласованы.
+
+Новых задач не добавлено: T015/T016 уже содержат актуальную Dev/CI приёмку и остаются открыты до неё. Во время converge tasks.md побайтно не изменялся. Hardware49min41s закрывает T012/T014, не T015/T016. Внешние merge/release-full/CD/Apple/feed/install ворота остаются. Это проверка соответствия реализации, не объявление завершённого выпуска.
+
+Независимое повторное ревью T016 C0/H0/M0, H001 устранён; требования перечитаны5/0, всего reviewer-owned36/0. Три итоговых product hashes в prompt-recovery-review.md. Исторический H1 и первый70/0 сохранены как история. Текущий Dev/CI/release не объявлены пройденными.

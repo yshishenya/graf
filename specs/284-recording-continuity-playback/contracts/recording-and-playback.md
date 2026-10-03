@@ -17,3 +17,7 @@ Quota navigation uses the existing /billing overview (shared access); capacity-m
 ## FR013 — завершение без реестра
 
 advance обрабатывает inactive/grace независимо от наличия registry; nil registry исключает новые предложения/телеметрию, но сохраняет ended для принятого события. Полный/неполный снимок, ручное подавление, отложенная Stop и600s неизвестность сохраняют прежнюю семантику.
+
+FR014: временное auth/registry закрытие ожидающего предложения переводит только его bundleID в retryable до очистки prompt/token. Nil registry запрещает новые предложения. Восстановление и текущая активность допускают один новый Ask с прежними8s/2s. Нет prompt — accepted/terminal/manual Stop не меняются.
+
+T016: изменившийся authEpoch в onInvalidated означает auth-driven dismissal и retryable; неизменный authEpoch сохраняет terminal. Оба порядка observers обязательны в проверке.

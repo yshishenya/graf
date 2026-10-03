@@ -1164,7 +1164,7 @@ private struct ContentView: View {
         meetingDetectionRegistryRequiresRemoteRefresh = true
         meetingDetectionRegistryAuthRejected = false
         meetingDetectionRegistry = nil
-        dismissMeetingDetectionPrompt()
+        dismissMeetingDetectionPrompt(retryableReason: "registry_unavailable")
         meetingDetectionStatus = meetingDetectionStatusText()
         AppLog.writeRaw(
             event: "meeting_detection.registry_auth_invalidated",
@@ -1245,7 +1245,7 @@ private struct ContentView: View {
                     !meetingDetectionRegistryAuthRejected
                 meetingDetectionRegistryAuthRejected = meetingDetectionRegistryAuthRejected || authFailure
                 meetingDetectionRegistry = nil
-                dismissMeetingDetectionPrompt()
+                dismissMeetingDetectionPrompt(retryableReason: "registry_unavailable")
             } else {
                 do {
                     try resolveMeetingDetectionRegistry(remoteData: nil, remoteETag: nil)
@@ -1668,6 +1668,7 @@ private struct ContentView: View {
     @MainActor
     private func presentMeetingDetectionPrompt(_ prompt: MeetingDetectionPrompt) {
         let token = UUID()
+        let authEpoch = DesktopNotificationPresenter.shared.authEpoch
         meetingDetectionPromptToken = token
         meetingDetectionPromptRememberChoice = false
         let shown = DesktopNotificationPresenter.shared.presentRecordingPrompt(
@@ -1706,7 +1707,11 @@ private struct ContentView: View {
             },
             onInvalidated: { [self] in
                 guard isCurrentMeetingDetectionPrompt(prompt, token: token) else { return }
-                self.dismissMeetingDetectionPrompt(prompt, reason: .invalidated)
+                if DesktopNotificationPresenter.shared.authEpoch != authEpoch {
+                    self.dismissMeetingDetectionPrompt(retryableReason: "registry_unavailable")
+                } else {
+                    self.dismissMeetingDetectionPrompt(prompt, reason: .invalidated)
+                }
             }
         )
         guard shown else {
@@ -1727,8 +1732,14 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func dismissMeetingDetectionPrompt() {
+    private func dismissMeetingDetectionPrompt(retryableReason: String? = nil) {
         if let meetingDetectionPrompt {
+            if let retryableReason {
+                recordMeetingDetectionConsumerOutcome(
+                    bundleID: meetingDetectionPrompt.bundleID,
+                    outcome: .retryable(reason: retryableReason)
+                )
+            }
             AppLog.writeRaw(
                 event: "meeting_detection.prompt_dismissed",
                 detail: "targetId=\(meetingDetectionPrompt.targetID) bundleID=\(meetingDetectionPrompt.bundleID)"
