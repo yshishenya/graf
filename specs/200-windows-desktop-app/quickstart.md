@@ -375,3 +375,132 @@ pass/fail result, exact supported Windows 11 build set, skipped ARM64 lane (ес
 После каждой общей новой функции добавлять соответствующую строку матрицы и
 оба набора проверок. PASS компонента не закрывает строку установленного приложения;
 непроверенные и проваленные строки препятствуют итоговой приёмке.
+
+## 12. Защищённое хранение: проект проверки T115–T118
+
+Исходная таблица ниже сохраняется для metadata v1. Поправка больших media
+objects от2026-10-03 дополнительно проверяется по §14; v1 metadata singleton/
+delete rollback tests не заменяются live media proof.
+
+Статус2026-10-02: T114 исследование PASS/independent APPROVED; **продуктового
+protected storage ещё нет**. Проектирование T115 принято по независимому
+review112/112, storage analyze CRITICAL=0/HIGH=0 и issue-sync PASS. Contract:
+`contracts/windows-protected-local-custody.md`. Не запускать миграцию рабочих
+записей для проверки проекта. Существующие CTest/`-CustodyFaults` и стенды T114
+не подтверждают эту полную цепочку. Теперь разрешены regressions и
+implementation T116/T117; T118 и общая приёмка остаются обязательными.
+
+После реализации использовать disposable generated inventory и standard-user
+Windows, отдельные собственные profile fixtures без удаления рабочих keys.
+Сборка/CTest/native solution — существующий Windows путь из §2; MSIX —
+§8. Новые проверочные условия включаются в существующие Core/Contract/Package
+tests, а не отдельный постоянно работающий сервис. Команды ниже — только
+проверка документации сегодня, не доказательство продукта:
+
+```sh
+python3 scripts/check_spec_kit_governance.py
+speckit-bootstrap . --doctor --frozen
+git diff --check
+```
+
+| Проверка после T116/T117 | Обязательный ожидаемый результат |
+| --- | --- |
+| Wire / тип / bounds | LE exact header/entry, overflow/truncated/extra/unknown role rejected до large allocation; broken encrypted не читается как legacy |
+| Logical IO | full/tail/ZERO identity; Clone independent cursor/same generation; SetSize shrink/grow/seek/CopyTo/EOF; errors sticky/got0, no padding |
+| Whole v5 path | generated canonical→protected WAV/AAC→manifest/state→restart→inspect/hash; exact v5 bytes/UUID/time/role/hash сохранены, native seek/EOS |
+| Disk snapshots | до/после каждого checkpoint/finalize/metadata/atomic temporary/quarantine; no app-written plaintext media/JSON/private content; legacy leftovers явно исключают encrypted claim |
+| Commit / GC / budget | cuts before/after every write/flush/publish/ack; last validated checkpoint retained; ambiguous blocks writer/GC; ≤64objects/pass, process shared cache/budget/pins bounded |
+| Authority metadata | g1 birth в двух slots до ACK; g1→ACK g2/delete intent→lost slot1→restart blocked; partial birth/любая missing или invalid slot/reference даёт recovery-required, не old ledger/empty queue |
+| New payload codec | strict UTF-8 exact schemas §8.1, duplicate/unknown/missing/null/enum/number/depth/ref bounds; own IDs/generation и stage/refs conflicts rejected; v5/v3 bytes unchanged |
+| Async / fences | UI/callback no disk crypto; typed pending/committed/not_committed/ambiguous; prepare/drain/finalizer/delete continuation ждут ACK; stale UI не запускает effect, но committed storage generation принимается; flight/result/busy/lease retained |
+| Upload / restart | server accepted exact logical ranges/part hashes; reconcile не теряет v3 deletion/purge ops; частичный upload после restart без нового UUID/перекодирования |
+| Delete / discard | durable intent, close admission/cancel/shutdown/release pins, actual recycle/purge proof, durable ack; short marker last, повторный запуск не возвращает upload |
+| Migration / downgrade | cut после каждого old-name действия, особенно rename до sentinel: actual old load отказывает по заранее durable .quarantine, не empty v3; source stamp changes blocked; original exact bytes preserved до authorized cleanup; strict intent recovery, retirement owner/expiry proven |
+| First transition / inter-object cuts | verified legacy → reserved IDs → prepared intent pair → closing bootstrap pair → destination pair → switch/receipt; prepared fence не требует готовую queue; допустимые промежуточные состояния §8, singleton metadata retained blocked; никаких effects до reconciliation |
+| Historical barrier / restart GC | g1 prepared block → g2 ref → g3/g4 replacement обоих index slots → restart/standalone validator → bounded GC → тот же transaction; tampered ref/context/generation rejected; transitive roots обоих metadata slots restored прежде GC, tombstone survives terminal pin release |
+| Failure matrix | actual profile/key refusal, corruption/disk full/power-loss, no plaintext fallback/no normal claim; original preservation и retries без erase keys |
+| Installed matrix | exact SHA/MSIX/EXE, standard-user/offline, Home/Pro/N prerequisites, Win10/11, install/update/rollback; privacy/readiness не выводятся из одной API-сборки |
+
+Повторить100cycles SC-005, измерить owned/MF memory, CPU/IO/latency/Stop и
+PRD quota/80%/95%, free disk reserve=min(10GB,10%capacity), включая peak groups/
+indices/orphans/pins/legacy/temp. Admission не допускает пересечения reserve;
+стендовые64GiB/64MiB не продуктовые доказательства.
+Physical x64/60min/AEC и T083/T087/T088 остаются отдельными gates. Звуковой
+device тест не нужен для generated storage regressions и не назначается
+потому, что проверяется формат файлов. Недоступный hardware честно NOT RUN.
+
+Порядок разработки уточнён 2026-10-02: storage §12 разрешено реализовать после
+его собственных T115/checklist/analyze/taskstoissues gates, не ожидая clock
+T094–T096 или T119. Искусственные storage-регрессии не требуют микрофона.
+Общий clock/installed/physical acceptance этим не принимается; вся матрица §12
+сохраняется, неподключённый storage primitive не закрывает T116/T118.
+
+## 13. Календарное подключение T119
+
+Контракт — `contracts/windows-native-web-bridge.md` §10. До реальной ссылки
+использовать fake resolver/launcher и синтетические UUID; private URLs/auth
+не выводить. В Windows portable/contract tests покрыть exact payload/response,
+UUID/duplicate/extra/type/size/depth, frame/origin/route/nonce/replay, one busy,
+401/404/503/network/redirect, stale callbacks/token/owner/document switch,
+HTMX same UUID/replacement/removal, trusted/untrusted click, terminal not-ready,
+launch false/exception и dialog cancel. Browser recovery получает новый resolver
+result, сохраняет query/fragment/port и IgnoreAppUriHandlers=true; shared F279
+host corpus проходит и в Mac, и в Windows без изменения expected cases.
+Fake resolver: provider_family=calendar/unknown со ссылкой
+https://zoom.us/j/12345678901 выбирает тот же Zoom candidate, что и любое другое
+допустимое семейство; provider_family=zoom с https://example.org/meeting остаётся
+browser-only. Источник календаря не подменяет проверку host/path приложения.
+
+После реализации на точном установленном MSIX: кабинет/card/menu × Zoom/Teams/
+Телемост/unsupported host/path HTTPS × installed/unavailable client; keyboard click, двойное
+нажатие, network recovery, logout/navigation во время resolver/dialog/launch.
+Каждый случай заканчивается handed_off/failed/cancelled без подвисшей кнопки;
+нет второго launch/Record от stale result. Handoff не называется входом в звонок.
+Join-and-record: только native current action после handoff и readiness; native
+fault оставляет indicator/Stop. Card failure/retry сохраняет исходный срок и
+bounded5min explicit failure retention, background failure не продлевает его.
+Проверить одинаковый общий сценарий текущего Mac, accessible «Открываем…»/status,
+browser recovery без повторного native handler. Fake parser tests не закрывают
+T119/T097/SC-002; реально отсутствующий клиент отдельно от отказа installed.
+Дополнительно: QueryUriSupport Available/absent/unknown/error, без Store popup
+при отсутствующем клиенте; trickle response не продлевает resolver15s deadline,
+timeout/cancel снимает pending, но повтор до фактического worker exit не создаёт
+второго worker/launch. Подтверждённый OS dispatch нельзя считать отменённым
+постфактум: отменяется лишь его влияние на новое UI и последующий Record.
+Для Телемоста отдельно проверить installed client при выбранном и не выбранном
+HTTPS app handler: QueryUriSupportAsync Available и LaunchUriAsync true не
+доказывают личность получателя. Приёмка native parity требует наблюдаемого запуска
+именно клиента; открытие браузера не засчитывается как запуск Телемоста.
+
+## 14. Packed media v2 — проверка поправки T115, 2026-10-03
+
+До product edits нужны текущие independent checklist/analyze и owner T116;
+решение владельца в spec.md не runtime PASS. Нормативный wire/proof только
+`contracts/windows-protected-packed-custody.md`, не ненормативный research.
+В начале tests RED, затем реализация; live audio/private inventory не нужны.
+
+| Группа | Проверяемый результат |
+| --- | --- |
+| Exact wire/context | prefix128/header128/ref64/descriptor128, LE/magic/schema/type/role/ID/offset/selector/version, overflow/truncation/reserved/padding/unknown rejected; child-before-parent и exact envelope SHA |
+| Native DPAPI | FALSE, TRUE+corrupt/short/oversize, failed hash, allocation refusal → no accepted data/head; output очищен, no plaintext fallback, caps не обещанный native allocation bound |
+| Live delta | proven base→candidate, ровно разрешённые changed paths, forged unchanged-child/root/owner stamp rejected; ≤1 DATA+3 nodes per sequential block при коротком и64GiB logical edge |
+| Generation/peer | candidate=selected base+1; jump/stale-base/wrong-peer/u64 overflow отказ до append/head; после readback другая cell exact selected base, adjacent pair и slot rule; g1 tie выбирает slot0 |
+| NODE/root Ref | самосогласованный plaintext checksum при несовпадающем expected envelope length/SHA всё равно rejected до decode/child-ref use; DATA и все три NODE levels, включая cold retained roots |
+| Cold full | same owner release/reacquire, crash, ambiguous publication invalidates proof/cache; обе heads + reachable closure до normal use; no mtime/EOF/new empty recovery |
+| Detection-time | после ACK испортить старый DATA; live next-checkpoint не обязан fresh-reread его, но read/cache semantics честны; fresh disk read/full reopen отказывают без normal upload; actual observed fault sticky |
+| Birth/heads | обе empty g1 cells independently protected, incomplete/torn birth не достраивается; equal g>1/conflict/nonadjacent pair/invalid slot → no normal authority |
+| Cuts/async | каждый records/head write/flush/readback cut; head I/O started → ambiguous до reconciliation; stale/cancel не отменяет committed disk fact, owner/buffers до actual completion |
+| Read/Clone/seek | independent cursor/same pinned root, EOF/got0, partial tail, shrink→grow ZERO, больших ZERO ranges без flat arrays, no unsupported read-write shortcuts |
+| Ownership/bounds | existing writable handle/mapping и confinement/ACL/ADS/reparse faults rejected; writer release при Clone сохраняет actual owner; owned64MiB/cache2MiB/dirty4/pins32/jobs4 с admission до allocation |
+| Whole-object delete | durable intent и current-authority retirement внешних live retainers → actual jobs/guards completion → container absence → removed ACK; собственные heads/идентифицирующий receipt не удерживают вечно; unknown/ambiguous external refs блокируют purge |
+| Regression | все v1 metadata g2/delete-intent→missing slot→restart no rollback; logical v5 bytes/hash/ranges unchanged; unknown explicit representation не decode fallback |
+| Versioned metadata | package.v2 refs10 fields/migration.v2 sources11 fields строго по §6.1; unexpected/duplicate/null/stamp conflicts rejected; same original logical SHA/ranges; retained roots обоих metadata slots восстановлены и full-verified перед GC, включая roots вне current heads |
+
+После wire/owner/tree gates, не вместо них: повторяемый synthetic source на
+48kHz mono Float32, full block cadence262144/192000s=1.365333s. Измерить рост
+last-checkpoint и actual record/read counts при1/2/4/8/16/32/64MiB, отдельно
+cold verification, peak memory/native allocation/disk и Stop/tail/seek.
+Нельзя принять sustained capture по одному лучшему замеру или одному big-O.
+Generated v5/MF/playback/upload/delete/100cycles, точный installed MSIX,
+physical x64/audio/accessibility/signature/install/rollback остаются §12/T118
+и общей приёмкой. Неподключённый codec/дерево не закрывают T116.

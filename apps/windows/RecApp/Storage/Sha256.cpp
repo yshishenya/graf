@@ -1,11 +1,17 @@
 #include "Sha256.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <fstream>
-#include <iomanip>
-#include <sstream>
-#include <vector>
+#include <limits>
+#include <stdexcept>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <bcrypt.h>
+#endif
 
 namespace graf::windows {
 namespace {
@@ -29,17 +35,64 @@ constexpr std::uint32_t rotateRight(std::uint32_t value, std::uint32_t count) no
     return (value >> count) | (value << (32 - count));
 }
 
-std::string digest(const std::string& input) {
-    std::vector<std::uint8_t> data(input.begin(), input.end());
-    const auto bitLength = static_cast<std::uint64_t>(data.size()) * 8;
-    data.push_back(0x80);
-    while ((data.size() % 64) != 56) data.push_back(0);
-    for (int shift = 56; shift >= 0; shift -= 8) data.push_back(static_cast<std::uint8_t>(bitLength >> shift));
-    auto hash = kInitial;
-    for (std::size_t offset = 0; offset < data.size(); offset += 64) {
+std::string hexDigest(const std::array<std::uint8_t, 32>& bytes) {
+    constexpr char digits[] = "0123456789abcdef";
+    std::string result;
+    result.reserve(64);
+    for (const auto byte : bytes) {
+        result += digits[byte >> 4];
+        result += digits[byte & 15];
+    }
+    return result;
+}
+
+// Preserve the existing provider-independent digest for in-memory identity callers.
+class PortableHash {
+public:
+    bool update(std::string_view bytes) {
+        if (bytes.size() > std::numeric_limits<std::uint64_t>::max() / 8 - total_) return false;
+        total_ += bytes.size();
+        while (!bytes.empty()) {
+            const auto count = std::min(bytes.size(), buffer_.size() - used_);
+            std::memcpy(buffer_.data() + used_, bytes.data(), count);
+            used_ += count;
+            bytes.remove_prefix(count);
+            if (used_ == buffer_.size()) {
+                compress(buffer_.data());
+                used_ = 0;
+            }
+        }
+        return true;
+    }
+
+    std::string finish() {
+        std::array<std::uint8_t, 32> digest{};
+        buffer_[used_++] = 0x80;
+        if (used_ > 56) {
+            std::fill(buffer_.begin() + used_, buffer_.end(), std::uint8_t{0});
+            compress(buffer_.data());
+            used_ = 0;
+        }
+        std::fill(buffer_.begin() + used_, buffer_.begin() + 56, std::uint8_t{0});
+        const auto bitLength = total_ * 8;
+        for (std::size_t index = 0; index < 8; ++index)
+            buffer_[56 + index] = static_cast<std::uint8_t>(bitLength >> (56 - index * 8));
+        compress(buffer_.data());
+        for (std::size_t index = 0; index < digest.size(); ++index)
+            digest[index] = static_cast<std::uint8_t>(hash_[index / 4] >> (24 - (index % 4) * 8));
+        return hexDigest(digest);
+    }
+
+private:
+    std::array<std::uint32_t, 8> hash_ = kInitial;
+    std::array<std::uint8_t, 64> buffer_{};
+    std::size_t used_ = 0;
+    std::uint64_t total_ = 0;
+
+    void compress(const std::uint8_t* data) {
         std::array<std::uint32_t, 64> words{};
         for (std::size_t index = 0; index < 16; ++index) {
-            const auto base = offset + index * 4;
+            const auto base = index * 4;
             words[index] = (static_cast<std::uint32_t>(data[base]) << 24) |
                 (static_cast<std::uint32_t>(data[base + 1]) << 16) |
                 (static_cast<std::uint32_t>(data[base + 2]) << 8) | data[base + 3];
@@ -49,8 +102,8 @@ std::string digest(const std::string& input) {
             const auto s1 = rotateRight(words[index - 2], 17) ^ rotateRight(words[index - 2], 19) ^ (words[index - 2] >> 10);
             words[index] = words[index - 16] + s0 + words[index - 7] + s1;
         }
-        auto a = hash[0], b = hash[1], c = hash[2], d = hash[3];
-        auto e = hash[4], f = hash[5], g = hash[6], h = hash[7];
+        auto a = hash_[0], b = hash_[1], c = hash_[2], d = hash_[3];
+        auto e = hash_[4], f = hash_[5], g = hash_[6], h = hash_[7];
         for (std::size_t index = 0; index < words.size(); ++index) {
             const auto s1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
             const auto choose = (e & f) ^ ((~e) & g);
@@ -60,25 +113,81 @@ std::string digest(const std::string& input) {
             const auto temp2 = s0 + majority;
             h = g; g = f; f = e; e = d + temp1; d = c; c = b; b = a; a = temp1 + temp2;
         }
-        hash[0] += a; hash[1] += b; hash[2] += c; hash[3] += d;
-        hash[4] += e; hash[5] += f; hash[6] += g; hash[7] += h;
+        hash_[0] += a; hash_[1] += b; hash_[2] += c; hash_[3] += d;
+        hash_[4] += e; hash_[5] += f; hash_[6] += g; hash_[7] += h;
     }
-    std::ostringstream output;
-    output << std::hex << std::setfill('0');
-    for (const auto word : hash) output << std::setw(8) << word;
-    return output.str();
-}
+};
+
+#ifdef _WIN32
+class NativeHash {
+public:
+    NativeHash() {
+        ready_ = BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &hash_, nullptr, 0, nullptr, 0, 0) >= 0;
+    }
+    ~NativeHash() {
+        if (hash_) BCryptDestroyHash(hash_);
+    }
+    NativeHash(const NativeHash&) = delete;
+    NativeHash& operator=(const NativeHash&) = delete;
+    bool update(std::string_view bytes) {
+        if (!ready_) return false;
+        while (!bytes.empty()) {
+            const auto count = std::min(bytes.size(), std::size_t(64 * 1024));
+            if (BCryptHashData(hash_, reinterpret_cast<PUCHAR>(const_cast<char*>(bytes.data())),
+                               static_cast<ULONG>(count), 0) < 0) return false;
+            bytes.remove_prefix(count);
+        }
+        return true;
+    }
+    std::string finish() {
+        std::array<std::uint8_t, 32> digest{};
+        if (!ready_ || BCryptFinishHash(hash_, digest.data(), static_cast<ULONG>(digest.size()), 0) < 0)
+            return {};
+        return hexDigest(digest);
+    }
+private:
+    BCRYPT_HASH_HANDLE hash_ = nullptr;
+    bool ready_ = false;
+};
+#endif
 
 } // namespace
 
-std::string sha256(std::string_view bytes) { return digest(std::string(bytes)); }
+std::string sha256(std::string_view bytes) {
+    PortableHash hash;
+    if (!hash.update(bytes)) throw std::length_error("SHA-256 input too large");
+    return hash.finish();
+}
+
+std::string sha256Stream(std::istream& input) {
+    if (!input.good()) return {};
+#ifdef _WIN32
+    NativeHash hash;
+#else
+    PortableHash hash;
+#endif
+    std::array<char, 64 * 1024> buffer{};
+    for (;;) {
+        try {
+            input.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        } catch (...) {
+            // EOF can throw with failbit exceptions enabled; a failed read cannot be hashed.
+            if (input.bad() || !input.eof()) return {};
+        }
+        if (input.bad() || (input.fail() && !input.eof())) return {};
+        const auto count = input.gcount();
+        if (count < 0 || count > static_cast<std::streamsize>(buffer.size()) ||
+            !hash.update(std::string_view(buffer.data(), static_cast<std::size_t>(count)))) return {};
+        if (input.eof()) return hash.finish();
+    }
+}
 
 std::string sha256File(const std::filesystem::path& path) {
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(path, error) || error) return {};
     std::ifstream input(path, std::ios::binary);
     if (!input) return {};
-    std::ostringstream bytes;
-    bytes << input.rdbuf();
-    return digest(bytes.str());
+    return sha256Stream(input);
 }
 
 } // namespace graf::windows

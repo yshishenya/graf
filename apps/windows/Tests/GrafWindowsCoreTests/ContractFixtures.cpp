@@ -3,6 +3,7 @@
 #include "../../RecApp/Diagnostics/MetadataSafeDiagnostics.h"
 #include "../../RecApp/Permissions/WindowsReadinessGate.h"
 #include "../../RecApp/Storage/AtomicFileStore.h"
+#include "../../RecApp/Storage/Sha256.h"
 #include "../../RecApp/Upload/DesktopApiClient.h"
 
 #ifdef NDEBUG
@@ -13,10 +14,15 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <sstream>
 #include <utility>
 
 int main() {
     using namespace graf::windows;
+
+    assert(sha256("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    std::istringstream hashInput("abc");
+    assert(sha256Stream(hashInput) == sha256("abc"));
 
     assert(kManifestSchemaVersion == "local-recording-manifest.v5");
     assert(kCanonicalMixProfile == "canonical-mix.v1");
@@ -95,6 +101,7 @@ int main() {
     const std::string contents((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     assert(contents == "{\"state\":\"ready\"}");
     input.close();
+    assert(sha256File(path) == sha256(contents));
     std::filesystem::remove(path);
 
     const auto meeting = DesktopApiClient::createMeetingRequest("recording-001", "recording-001--initial", 60);

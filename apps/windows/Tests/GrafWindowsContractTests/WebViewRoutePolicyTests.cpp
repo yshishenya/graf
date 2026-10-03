@@ -88,7 +88,40 @@ static void paymentAndResponseContract() {
     assert(policy.recoveryUrl(WebResponseDecision::accessDenied, billing, true) == origin + "/desktop/meetings");
 }
 
+static void billingActionParityContract() {
+    using namespace graf::windows;
+    const WebViewRoutePolicy policy;
+    const auto origin = policy.trustedOrigin();
+    for (const auto path : {"/billing/storage/preview", "/billing/storage/cancel-selection",
+                           "/billing/subscription/early-preview", "/billing/purchases/confirm"}) {
+        const auto url = origin + path;
+        const auto route = policy.evaluate(url);
+        assert(route.decision == RouteDecision::allow && route.kind == RouteKind::billing);
+        assert(policy.evaluate(url + "?cycle=month#summary").kind == RouteKind::billing);
+        assert(policy.canStartPayment(url, "https://api.yookassa.ru/confirm"));
+        assert(!policy.canStartPayment(url, "https://api.yookassa.ru.evil.test/confirm"));
+        // Navigation to an action does not authorize replay after auth recovery.
+        assert(policy.safeRecoveryUrl(url, "GET").empty());
+        assert(policy.safeRecoveryUrl(url, "POST").empty());
+        assert(policy.recoveryUrl(WebResponseDecision::expiredSession, url, true) ==
+            origin + "/login?next=%2Fbilling");
+        for (const auto suffix : {"/", "/extra", "-extra", "/../checkout", "/%2fextra"}) {
+            const auto invalid = url + suffix;
+            assert(policy.evaluate(invalid).decision == RouteDecision::deny);
+            assert(!policy.allowsNativeBridge(invalid));
+            assert(!policy.canStartPayment(invalid, "https://api.yookassa.ru/confirm"));
+        }
+        assert(policy.evaluate(origin + "/desktop" + path).decision == RouteDecision::deny);
+        const auto external = std::string("https://evil.test") + path;
+        assert(policy.evaluate(external).decision == RouteDecision::openExternal);
+        assert(!policy.allowsNativeBridge(external));
+        assert(!policy.canStartPayment(external, "https://api.yookassa.ru/confirm"));
+        assert(policy.safeRecoveryUrl(external).empty());
+    }
+}
+
 int main() {
+    billingActionParityContract();
     paymentAndResponseContract();
     using namespace graf::windows;
     WebViewRoutePolicy policy;

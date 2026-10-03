@@ -2,6 +2,15 @@
 
 Дата исследования: 2026-08-23
 
+Актуальное дополнение2026-10-03: владелец принял live incremental ACK
+больших media objects с обязательным full verification после ownership gap
+и более поздним обнаружением скрытой old-DATA corruption. Выбор per-record
+DPAPI+SHA/packed radix64/depth3 обоснован исследованием
+`checklists/research-2026-10-03-scalable-custody-proof.md` §11, без собственного
+AES/DEK/nonce lifecycle. Точный нормативный кандидат —
+`contracts/windows-protected-packed-custody.md`; v1 metadata остаются с full
+resolver/no rollback. Это проект, не measured sustained/installed proof.
+
 Исследование опирается на текущую архитектуру GRAF/macOS и официальные
 материалы Microsoft, доступные на дату выше. Выводы ниже — дизайн-решения для
 планирования, а не утверждение о готовой Windows-реализации.
@@ -1266,3 +1275,1572 @@ Primary source pin:
 [layout/SetRatio/Resample](https://github.com/okarlsen/webrtc-audio-processing/blob/846fe90a289f58b7c9303a635142aa2c7caa93e5/webrtc/common_audio/resampler/sinc_resampler.cc).
 Exact source/artifact hashes, commands, counters and limitations находятся в
 validation-2026-10-01.md, round126; production artifacts/tasks не изменились.
+
+### T114 / RQ30-H1: совместный DPAPI/file-backed/MF опыт — 2026-10-01
+
+**Decision:** сохранить выбранный native DPAPI + immutable256KiB blocks +
+два protected indexes как исследовательский кандидат. Совместимость seekable
+IStream → IMFByteStream с AAC encoder и SourceReader теперь проверена на
+Windows, но Phase0 ещё не завершена; production формат не принят.
+
+**Rationale:** один disposable стенд переиспользует прежние native DPAPI,
+decoded-envelope CNG hash, DACL-before-write и checked file barriers. Он пишет
+только ciphertext на Windows-local NTFS, а Media Foundation получает null URL
+и logical byte stream. Искусственные3840123 canonical bytes после закрытия
+совпадают в64 диапазонах и после исправления стенда проверены целиком, включая
+короткий хвост;30s generated silent PCM кодируются в366529 logical
+M4A bytes, декодируются до EOS, затем SourceReader переходит к10s и обратно1s.
+Повторное открытие/декодирование/оба seek в отдельном процессе завершаются0.
+Это не native MediaEngine playback и не испытание звуковых устройств.
+
+17 собственных canonical и6 media files проверены по DPAPI и ожидаемой
+context/digest envelope до намеренного повреждения. Corrupted tail заставляет
+восстановить явно ограниченное предыдущее поколение3670016B с invalid-slot1
+и полным совпадением его искусственных bytes;
+повреждение второго index отвергает открытие. Это исследовательский fallback,
+не разрешение выдавать усечённую запись/пустой ledger за обычный успех.
+Проверка охватывает только собственный каталог стенда, не все возможные
+внутренние файлы Windows/MF, pagefile, crash dumps или весь диск.
+
+Фактический restricted same-user medium запуск не принят: дочерний процесс
+создаётся, но завершает инициализацию с0xc0000142 без результата теста.
+Причина не установлена; это не доказательство несовместимости DPAPI с обычным
+пользователем. UAC, системные desktop DACL, профили и службы не менялись.
+Отдельная standard-user account/Home/установленная сборка остаются непроверенными.
+
+**Alternatives considered:** plaintext media URL/temporary decode copy не
+используются. Новый crypto key lifecycle/библиотека не нужны для этого опыта.
+Изолированный DPAPI benchmark и memory-only MF stream сами по себе не
+доказывали совместный путь; теперь этот узкий пробел закрыт проверкой, не
+вся T114. Fixture имеет64MiB cap, один256KiB cache и index≤256entries;
+SetSize допускает только неизменную длину, Clone/CopyTo не реализованы,
+GC отсутствует. Измеренный private-memory delta не является peak/bound.
+Нет power-loss, большого index, failure injection всех publish barriers,
+ключа другого профиля, pinned-reader lifecycle, dispatcher5s fence,
+MediaEngine playback или полной аппаратной приёмки. T114 остаётся открытой.
+Exact sources/artifacts/commands и числа — validation round133.
+
+Первичные источники:
+[IStream adapter](https://learn.microsoft.com/en-us/windows/win32/api/mfidl/nf-mfidl-mfcreatemfbytestreamonstream),
+[sink writer existing stream](https://learn.microsoft.com/en-us/windows/win32/api/mfreadwrite/nf-mfreadwrite-mfcreatesinkwriterfromurl),
+[restricted token](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-createrestrictedtoken),
+[same-user restricted process](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessasuserw).
+
+### T114 / RQ30-H1: исправление medium launcher и совместный опыт — 2026-10-01
+
+**Decision:** ошибка0xc0000142 предыдущего restricted launcher не принимается
+за требование administrator/несовместимость DPAPI. Исправлена только модель
+проверочного запуска: native SetEntriesInAclW добавляет право текущего TokenUser
+в DefaultDacl нового временного restricted token перед CreateProcessAsUser.
+Существующие ACE сохраняются; исходный token, учётная запись, UAC, системные
+desktop/file DACL и приложение не меняются. Новый crypto/storage механизм не нужен.
+
+**Rationale:** read-only native context показывает medium8192/noadmin,
+доступ к проверенным минимальным операциям WinSta0/desktop, valid pipe stdin,
+но DefaultDacl без user allow ACE и с admin allow ACE. На одном exact x64
+EXE контроль без user grant завершает child с0xc0000142; добавление только
+user grant даёт child0 с внутренней проверкой medium/noadmin. Ранний одинаковый
+minimal source в x64 и native ARM64 падает одинаково, без MF/storage операций.
+Это контролируемая причина отказа этого launcher, не объяснение аудиочасов
+и не доказательство любых прав на desktop по одному минимальному mask.
+
+Затем неизменённые ProtectedMfProof source141b…/EXE60cc… проходят весь
+round133 generated-data опыт через исправленный launcher в actual medium
+nonadmin процессе: полные canonical/fallback bytes, DPAPI envelopes, AAC,
+reopen/decode/SourceReader seek и отдельный child reopen. Новый собственный
+native Job Object удерживает только дерево этого опыта; не меняет глобальные
+правила и не даёт продуктовой гарантии dispatcher drain. Подробные hashes,
+контроли, counts и ограничения — validation round134.
+
+**Alternatives considered:** не менялись UAC, системные desktop ACL, профиль,
+частоты, audio flags или clock thresholds; native ARM64 не выбрана как новая
+архитектура приложения. Standard-user account/Home/installed app, native
+MediaEngine playback, big-index/peak/resource и power-loss/migration/fences
+остаются непроверенными. Закрыт узкий пробел restricted-process proof,
+не T114/Phase0 и не полная FR-012. Optional after_plan hook пока не исполняется.
+
+### T114 / RQ30-H1: native MediaEngine playback и повреждение — 2026-10-01
+
+**Decision:** продолжить исследование существующего protected IStream через
+штатный MFCreateMFByteStreamOnStream → IMFMediaEngineEx::SetSourceFromByteStream.
+Audio-only MediaEngine не требует отдельного проигрывателя, открытого media URL
+или plaintext temporary copy. Это выбранный исследовательский путь, ещё не
+принятый продуктовый контракт и не замена действующего ShellExecute в GRAF.
+
+**Rationale:** disposable стенд на generated silence прошёл внутри actual
+same-user restricted medium/noadmin процесса: загрузка 30s AAC, движение времени,
+пауза со стабильной позицией, переходы на10s/1s/конец, два продолжения, событие
+ENDED после перехода к хвосту, Shutdown16ms и MF_E_SHUTDOWN при новом Play.
+Все шесть собственных файлов проверены как DPAPI envelopes до и после positive
+опыта. На тех же exact bytes отдельный fresh fixture с повреждённым первым
+блоком после validated reopen вызвал native ERROR0x8003001e; контроль IStream
+подтвердил sticky read fault без выдачи байтов. Shutdown и запрет нового Play
+прошли также при повреждении. Exact hashes/receipts/ограничения — round135.
+
+**Alternatives considered:** не добавлялись codec/crypto библиотека, shell
+player, новый пароль или открытая дисковая копия. Callback содержит только
+атомарные счётчики и ошибки; существующие DPAPI/storage helpers переиспользованы.
+Ввод устройств и рабочие записи не использованы; заглушённый audio-only engine
+может открыть выход Windows, поэтому это не `devices=false`. Это не полные30s
+непрерывного прослушивания, не доказательство удаления всех системных кэшей,
+предела памяти/IO, finalizer/dispatcher5s, pinned readers/GC, fault publication,
+key loss, power loss, миграции или installed standard-user/Home/hardware.
+T114 и Phase0 остаются открытыми; after_plan hook пока не выполняется.
+
+Первичные источники:
+[MediaEngine audio-only/callback](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nf-mfmediaengine-imfmediaengineclassfactory-createinstance),
+[источник из byte stream](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nf-mfmediaengine-imfmediaengineex-setsourcefrombytestream),
+[события playback/seek/error](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/ne-mfmediaengine-mf_media_engine_event),
+[закрытие MediaEngine](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nf-mfmediaengine-imfmediaengine-shutdown).
+
+### T114 / RQ30-H1: сбои публикации и повтор после оставшихся блоков — 2026-10-01
+
+**Decision:** в disposable protected-stream стенде сохранять immutable версии
+после сбоя и выбирать следующий номер выше всех найденных block names, а не
+только записей выбранного индекса. Имена временного индекса содержат generation
+и block version. Это минимальное исправление доказанной коллизии CREATE_NEW,
+без удаления прежних объектов, overwrite или новой библиотеки. Обход ограничен
+1024 объектами/256 block positions/64MiB; это границы стенда, не окончательный
+large-layout recovery/GC contract T115.
+
+**Rationale:** baseline actual restricted medium/noadmin опыт прошёл 28 случаев
+сохранения контрольных bytes, но отдельно выявил отказ продолжения: оставшийся
+неопубликованный блок занимал номер, который writer повторно выбирал из
+последнего индекса. CREATE_NEW отвергал повтор; старый checkpoint оставался
+целым. После учёта оставшихся версий тот же класс generated append/rewrite
+опытов прошёл 28 случаев и 16 повторов после допубликационных сбоев. Новые
+полные bytes совпадают с oracle, reader, открытый после сбоя до повтора,
+по-прежнему читает прежние полные bytes, снятые после сбоя block/temp hashes
+не меняются во время повтора. Это не reader, открытый до исходного сбоя.
+
+Шесть точек — half/full block write, half/full candidate-index write, после
+MoveFileEx и после published-index Flush/Close. Проверены введённое исключение
+и ExitProcess(77); для исключения отдельно требуется точное достижение hook,
+не только общий STG_E_WRITEFAULT. При 1–4 выбирается прежний checkpoint,
+при 5–6 наблюдается новая целая версия. Это process-cut proof на текущем NTFS,
+не гарантия при отключении питания. 12 failed writers отвергают новые Read,
+Write и Commit; got/wrote остаются нулевыми. Hashes/receipts — round136.
+
+**Alternatives considered:** удаление оставшихся блоков и повторная запись
+с тем же именем отвергнуты: они не нужны для устранения коллизии и затронули бы
+preservation/reader boundaries. Metadata inventory не заменяет production
+identity/path/overflow/GC design. Не проверены большие объёмы, multi-block
+atomic operation, серия повторных сбоев, полная потеря ключа, resource peak,
+Stop/dispatcher fence, миграция, установленный GRAF и аппаратная матрица.
+T114/Phase0 остаются открытыми; T115–T118 не начаты, product storage не менялся.
+
+### T114 / RQ30-H1: combined resources и максимальный index envelope — 2026-10-01
+
+**Decision:** сохранить native block/index кандидат, но full-block validation
+делать вне foreground/UI/readiness и не принимать общий1MiB helper cap как
+окончательный типизированный protocol. Existing LocalMetadataScan и
+open-validation/UploadRecoveryScheduler workers уже существуют; новая scanner
+служба не нужна. Потребуются их lifetime/account/delete fences и ресурсный
+контракт T115, не простое добавление синхронного reopen в constructor.
+
+**Rationale:** actual restricted medium/noadmin x64 процесс прошёл generated
+stream cases1MiB+123/16MiB+123/64MiB-123, полный byte oracle и все собственные
+DPAPI envelopes, без MF playback/выхода устройств. Lifetime peak commit
+после трёх stream cases13.57MB, peak working set21.17MB; это весь отдельный
+процесс, не только layer-owned buffers, и не установленный GRAF. Полный
+validated reopen самого крупного случая9.44s, короткий final-tail commit24ms,
+самая долгая Write430ms и index publication388ms: факт VM, не гарантированные
+пороги. Background путь обязателен, чтобы не нарушить быстрый локальный старт.
+
+Затем тот же процесс завершил native MF protected AAC30s, decode/seek и
+envelope validation: Finalize/reset/Commit226ms. После separate maximum-index
+native envelope4198400B protect/unprotect+compare280/262ms lifetime peak
+commit37.26MB и working set59.31MB. Peak — с начала процесса; private samples
+не объявлены мгновенным peak, IO counters охватывают все операции процесса,
+file_bytes — сумма размеров файлов, не filesystem allocated sectors.
+Exact bytes/IO/CPU/timing/receipts — round137.
+
+**Alternatives considered:** whole-file plaintext copy, новый codec/crypto
+механизм и GC не добавлялись. Native max-index envelope проверен только в
+памяти, не как принятый semantic index/durable disk snapshot; общий helper
+его ожидаемо отвергает по1MiB guard. Поднимать этот cap для всех объектов
+нельзя: block/index limits должны различаться. Current64MiB fixture не
+представляет2637block-hour или64GiB layout; peak/resource sampling и accelerated
+CPU не принимают60min±100ppm/reference-x64 SC-003. Полный Stop/dispatcher5s,
+key-loss, migration, large recovery/GC/readers и installed acceptance остаются
+открытыми. T114/Phase0 не закрыты; after_plan hook не выполняется.
+
+Первичные определения измерений:
+[PROCESS_MEMORY_COUNTERS_EX](https://learn.microsoft.com/en-us/windows/win32/api/psapi/ns-psapi-process_memory_counters_ex),
+[GetProcessIoCounters](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-getprocessiocounters),
+[IO_COUNTERS](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-io_counters).
+
+### T114 / RQ30-H1: максимальный ZERO-only индекс — 2026-10-01, round138
+
+**Decision:** выбранный предел индекса допускается к дальнейшему Phase0
+исследованию; полный T114 не принят. Отдельный парсер проверил 262144 явных
+ZERO-записей: размерность 64GiB без создания или чтения медиа этого объёма.
+Предел общего helper по умолчанию остаётся1MiB; только эта исследовательская
+единица компиляции использует index bound4198400B. Product code не менялся.
+
+**Rationale:** actual restricted medium/noadmin процесс опубликовал два
+DPAPI-защищённых индекса с payload4194336B каждый; прочитал оба, проверил
+envelope/семантику и выбрал generation2. После порчи нового ciphertext выбран
+generation1; после порчи обоих индексов authority отсутствует. Две введённые
+ошибки на границе чтения до native unprotect также отвергают выбор версии,
+сохраняя ciphertext. Это не фактическая потеря DPAPI profile/master keys.
+Десять отрицательных случаев парсера прошли. Публикация двух индексов609ms,
+повторное чтение обоих551ms; lifetime peak commit27.15MB/working set39.80MB
+относится к отдельному процессу, не к приложению и не к SC-003.
+
+**Alternatives considered:** увеличение всех block limits или создание64GiB
+файла не нужны для этого опыта и не выполнялись. ZERO-only metadata не
+заменяет большой mixed/nonzero layout, проверку каждого реального блока,
+повтор после прерванной большой публикации, power loss, Stop/fence или
+реальную недоступность ключа. Дисковый reader стенда принимает только точный
+max payload; это не готовый универсальный reader. Независимый review —
+APPROVED NARROW, полный T114 NOT READY. Exact receipts/hashes и ограничения
+покрытия записаны в validation round138; T115–T118 остаются открытыми.
+
+### T114 / RQ30-H1: настоящий dispatcher и protected Stop — 2026-10-01, round139
+
+**Decision:** для будущего protected writer использовать существующие FIFO,
+typed EOS, callback fence и polling Finalizer контроллера. Новый dispatcher
+или второй lifecycle не нужны. Это кандидат архитектуры, не изменение кода
+приложения и не полная приёмка T114.
+
+**Rationale:** отдельный x64 medium/nonadmin процесс связал настоящий
+WindowsCaptureSessionController с исследовательским ProtectedStream. Пять
+generated cases прошли: normal, overflow, sink rejection, sink exception,
+реальная задержка первого sink5100ms. При одном in-flight batch очередь
+принимает254data и два EOS; поздний batch не меняет её и не приходит в sink.
+FIFO и точные raw float bytes подтверждены после protected Commit/reopen.
+Отказы не дают normal savedLocal. UI Stop вернулся за11–680us; pending
+асинхронный finalizer запущен один раз, удерживает lease до terminal.
+
+Native MF в этом worker независимо кодирует generated zero PCM той же
+принятой длительности, завершает защищённый AAC и проверяет его декодирование.
+Это проверка coexistence/завершения, не преобразование сохранённых float bytes
+в v5 и не доказательство нормализации/AEC/timeline. Самый долгий worker560ms
+включает ожидание своей gate, tail commit, encode и полное decode; не равен
+чистому AAC Finalize или времени полного пользовательского Stop.
+
+**Alternatives considered:** отдельная тестовая копия dispatcher отвергнута;
+переиспользован существующий friend CaptureSessionTestPeer. Только acquisition
+обойдён, native workers не созданы и их cleanup не принят. Порог5s и объём
+256items не менялись, неправильные ошибки не переименовывались в успех.
+Изолированный опыт не принимает product package/manifest/queue, short-recording
+discard, installed UI, key loss, большой nonzero layout или SC-003. Exact
+source/EXE/receipts и независимый review — validation round139. T114 открыт.
+
+Дополнение round139: независимый review нашёл P2 в проверочном условии sink
+exception, не controller. После минимального exact-throw marker вне callback
+свежие сборка и все пять runtime cases снова прошли; UI Stop4–357us,
+protected job27.8–122.5ms. Первые timings выше остаются историческими.
+Повтор не принимает timeline/v5/workers или весь T114; финальные hashes и
+границы повторной независимой проверки записаны append-only в validation.
+
+Финальный независимый результат round139 — APPROVED NARROW, P2 CLOSED;
+полный T114/Phase0 NOT READY. Дальше нужен native read-failure опыт и большой
+индекс с nonzero references; нынешний marker не симулирует потерю ключей.
+
+Первичные источники для следующего read-boundary опыта:
+[CryptUnprotectData](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptunprotectdata)
+привязывает user-scope decrypt к Windows identity и требует проверки результата
+и содержимого, а не одного GetLastError. Возможный nondestructive эксперимент
+с временной anonymous identity ограничен собственным test thread; это не
+удаление профиля и не доказательство настоящей потери ключей.
+[ImpersonateAnonymousToken](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-impersonateanonymoustoken)
+может отказать для restricted процесса: нельзя ослаблять ограничения ради
+PASS. Отказ перехода identity не равен достигнутому отказу DPAPI.
+[RevertToSelf](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-reverttoself)
+должен завершить временную identity; при отказе завершать собственный
+исследовательский процесс. Этот опыт ещё не реализован и не запускался;
+профиль/UAC/ключи/глобальные ACL не меняются.
+
+### T114 / RQ30-H1: mixed large index и native отказ — 2026-10-01, round140
+
+**Decision:** раздельные size guards для block/index и выбор последнего полностью
+validated snapshot пригодны для дальнейшего проектирования; T114 ещё не принят.
+Максимальная размерность индекса проверена с3 настоящими references в начале,
+середине и конце, включая короткий tail, без выделения64GiB медиа.
+
+**Rationale:** medium/nonadmin процесс выбрал2, при повреждении last-v2 выбрал1,
+при authenticated-but-invalid generation3 сохранил2, при двух непригодных
+snapshot отказал без изменения ciphertext. Exact bytes проверены для8 boundary
+ranges и3 полных referenced blocks. Два реальных DPAPI refusal с неверным
+optional entropy сохранили6 файлов; это key-context mismatch, не потеря профиля.
+Шесть parser negatives прошли. Совокупный опыт5.44s, lifetime peak commit32.69MB,
+resident45.04MB; these are isolated process measurements, not app limits.
+
+**Alternatives considered:** общий расширенный block cap, полное64GiB медиа,
+новые crypto/stream классы и изменение профиля не нужны для этого опыта.
+Переиспользованы research helpers с guard до allocation; отдельный max-dimension
+reader ограничен3 refs и не заменяет generic IStream/T116. Wrong entropy нельзя
+называть потерей ключа или проверкой другого пользователя. Полная file/failure
+matrix и установленный клиент остаются отдельными доказательствами. Exact hashes,
+receipts и пределы опыта — validation round140; независимый review ещё ожидается.
+
+По source-only review round140 усилен oracle для encrypted invalid generation3:
+перед fallback требуется успешно открыть DPAPI/envelope, подтвердитьg3/точное
+invalid поле и получить semantic parser rejection/reset. Пересборка и полный
+повтор прошли; ранний crypto отказ больше не удовлетворяет этому сценарию.
+Первый run сохраняет историческое значение до исправления. Fresh elapsed8.09s
+включает дополнительные scans, не считается временем одного reopen/Stop;
+commit peak32.65MB/resident44.77MB. Independent rereview pending.
+
+Финальный independent rereview: APPROVED NARROW, P2 CLOSED. Согласованность
+fresh source/build/runtime hashes проверена; дополнительный negative run
+reviewer не выполнял. T114 не закрыт: отдельный exit audit должен сопоставить
+его буквальные Phase0 критерии с результатами всех combined опытов, не
+подменять их будущей installed/migration/100cycles приёмкой T118.
+
+### T114 / RQ30-H1: combined MF IO — 2026-10-02, round141
+
+**Decision:** завершено недостающее количественное измерение совместного MF-пути;
+aggregate T114 exit ожидает независимого review, задачи пока не переотмечены.
+Новый механизм не добавлен: используется прежний generated30s case и native
+process IO counters, window исключает последующий verifyCipherFiles.
+
+**Rationale:** encode/Finalize/reset/Commit → validated reopen → full decode/EOS
+и seek10s/1s → reader release дали2086190B read/729376B write при366529B logical
+AAC и4 checkpoints/2 rewrites. Whole window561718us, Finalize+reset+Commit246767us,
+6 ciphertext files728676B; lifetime commit31.99MB/resident43.47MB, не app quota.
+Raw/tail/index cases повторно прошли;64MiB validated reopen9.58s требует прежнего
+background пути. IO counters — process transfer accounting, не physical disk.
+
+**Alternatives considered:** новый stream/codec, больший media benchmark,
+дополнительный профиль или полная installed матрица не нужны для literal Phase0
+measurement gap и не добавлены. Полные product key-loss/power-loss/migration/
+100cycles/SC-003 gates остаются T118; задача T115 определит окончательный format
+и ownership. Exact source/build/runtime hashes, scope и limitations записаны
+в `validation-2026-10-02.md`, round141. Product code не менялся.
+
+**Окончательный Decision:** независимый aggregate review
+`checklists/review-2026-10-02-phase0-exit.md` принял буквальный T114 (APPROVED).
+Недостающее combined IO измерение достаточно; T114 отмечен выполненным.
+RQ30-H1 в исследовательском объёме завершён, выбранный DPAPI/block/two-index
+механизм передаётся в T115 для окончательного protocol/ownership design.
+Исследовательские границы не объявлены реализованными квотами. Реальная потеря
+ключей профиля, power-loss, full product pipeline и установленная матрица
+остаются T115–T118; clock T094–T096 остаётся независимым открытым исследованием.
+
+### T094/T095: наблюдённая поддержка фильтра и остаток EOS — 2026-10-02
+
+**Decision:** результат round148 рассматривается как новый механический
+кандидат для обсуждения EOS, не как принятая политика дополнения звука.
+Прежний запрет выдавать ненаблюдённые отсчёты сохраняется. Product code,
+контракт §5 и настройки захвата не изменены; независимый review запрошен.
+
+**Rationale:** actual pinned SincResampler использует 32 входных отсчёта
+`[floor(x)-16, floor(x)+15]` для каждого выходного центра x. На sealed EOS
+частичный последний fixed request можно исследовать отдельно от выдачи:
+два конечных заполнителя вне реального N (17 и −73) и comparator с настоящим
+искусственным продолжением дают побитно одинаковые значения только на
+полностью наблюдённой поддержке. В disposable Windows x64 опыте176 вариантов
+прошли; отрицательный контроль за границей поддержки меняет результат.
+При N100/request64/ratio1 доступны69 наблюдённых центров вместо прежних32;
+при N128 —97 вместо96. Это уточнение механической причины потери API-хвоста,
+не принятие всех исходных/канонических frames и не waveform/SC-003 acceptance.
+
+Курсор повторяет сложения и wrap actual pinned implementation, не `j*ratio`;
+проверены request64/512, малые N17–1024, дробные ratios и SetRatio между
+output samples. Zero-history старта и последние неподдержанные центры не
+выдаются. Связь будущего adapter с sealed EOS, retained real count, строгим
+pre-output fence и запретом обработки filler как input coverage должна быть
+отдельно согласована до реализации. Pin/исходники/стенд/хеши — round148.
+
+**Alternatives considered:** принимать весь последний callback как настоящий
+звук, выдать все вычисленные значения, разрешить padding до EOS или скрыть
+невыданные края как complete recording — запрещено. Новая библиотека и
+редактирование vendor не нужны. Исследование использует имеющийся native pin.
+
+### T094: отрицательный результат постоянного causal affine fit — 2026-10-02
+
+**Decision:** не выбирать единственную постоянную affine frequency estimate
+для всей записи. На round149 найден generated counterexample; этот кандидат
+исключён из дальнейшего проектирования. Causal time-varying estimator,
+uncertainty/slew и связь с continuous source phase всё ещё открыты.
+
+**Rationale:** bounded fit использует только прошлые anchor-relative метки,
+пересекает допустимые slopes ±100ppm и прежний остаток1ms+1source frame,
+не получает true rate из генератора. При постоянных −100/0/+100ppm и
+ограниченном jitter он проходит искусственный час; устойчивые250ppm отвергает.
+Но допустимая смена +100→−100→+100ppm с непрерывной фазой на input steps2000/4000
+(номинальные20/40s, не точные физические моменты) делает пересечение пустым
+на step2755/номинальные27.55s при44.1 и48k. Настоящий текущий
+ClockMapper принимает этот generated поток по действующему bounded residual
+правилу. Поэтому простое накопление constraints для постоянной частоты
+не годится для её изменения, даже без packet loss и неизвестного будущего.
+
+**Alternatives considered:** сбросить fit/phase на каждой метке, получать
+истинную частоту от fixture/oracle либо расширить пороги после отказа — не
+доказанное исправление. Нужна одна согласованная меняющаяся clock/phase модель;
+оценка номинальной длительности сама по себе не доказывает совпадения волн.
+Actual-source/ASan/UBSan proof и limitations — round149. Числа этого стенда
+не устанавливают новых продуктовых допусков.
+
+**Независимый итог EOS:** отдельный read-only code review завершился
+APPROVED NARROW для frozen source round148. Подтверждены support и inclusive
+right boundary,69/97 centers, cursor при Resample(1) и честный negative control.
+Finite filler фактически существует внутри callback, но не влияет на выбранный
+output; это не claim «padding отсутствует». Scalar/SSE/AVX2 support проверены
+чтением, runtime выбирает одну CPU ветку; vendor NDEBUG не принимает DCHECK.
+Крупные output partitions, NaN/Inf, reset, AEC/writer/clock policy и полный
+EOS не приняты. Подробный результат добавлен к round148 ниже в validation.
+
+### T094/T095: блочная выдача и граница приёма Stop — 2026-10-02
+
+**Decision:** сохранить выбранный support-contained EOS путь как механически
+подтверждённый кандидат, теперь и для больших output chunks. Это не разрешение
+production padding или завершение clock/normalizer интеграции.
+
+**Rationale:** round150 на том же actual pinned SincResampler прошёл384cases.
+Каждый центр проверяется до Resample(chunk), chunk обрезается до первой
+неподдержанной позиции и до ближайшей смены ratio. Fixed480 и variable
+1/479/31/997/480/7/1024/211 побитно совпали с отдельным Resample(1), с двумя
+finite filler и observed generated continuation на выбранном интервале.
+Добавлено N65536 для большого числа region wraps. Independent static review
+APPROVED NARROW принял механику и honest boundary claim; exact hashes ниже
+в validation. Startup/unobserved EOS остаются невыданными,128N даёт97
+поддержанных центров,100N —69. Число384=12N×2requests×4ratios×2ratio modes×2chunks.
+
+**Интеграционная граница:** actual WasapiCaptureWorker нормализует до callback;
+controller.enqueueBatch возвращает true также при намеренном игнорировании
+закрытого admission; Stop закрывает acceptingBatches перед EOS. Следовательно,
+bool callback success не доказывает приём исходных отсчётов. Нельзя добавить
+worker-tail через обычный callback после Stop или считать всё normalizer
+состояние автоматически admitted. Future EOS должен закрыть именно accepted
+input prefix за существующим FIFO fence, не открывать capture заново.
+Это ограничение будущего adapter, не новый доказанный дефект текущего Stop.
+Выбор owner/admission representation для такого хвоста ещё не принят.
+
+**Alternatives considered:** снять Stop fence, принять callback=true как
+постоянный receipt, дописать текущий worker buffer после finalizer или считать
+весь fixed callback реальным source coverage — запрещено. Новый service/queue
+или второй capture pipeline не вводится исследованием.
+
+### T094: предел имеющегося clock evidence — 2026-10-02
+
+Actual worker GetPosition передаёт nullptr для QPC output и использует stream
+position только как supplementary monotonicity check. Отдельный PacketProbe
+читает current position/QPC pair; schema6 PacketStats показывает накопленные
+span errors и pairShift относительно первой принятой точки, не текущую
+packet/current-clock latency. Единицы уже пересчитаны правильно: packet
+position — frames, current clock — position/GetFrequency, QPC обеих API100ns.
+Вывод о VM/driver cause либо выбор current-clock replacement из пяти span
+checkpoints не доказан. Следующее исследование должно различить current pair
+correlation, packet-origin latency и first-anchor effect на bounded metadata;
+это не разрешение проигнорировать count/flags или переопределить packet PTS.
+
+Primary contracts перечитаны: Microsoft
+[GetPosition](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock-getposition)
+и [GetBuffer](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudiocaptureclient-getbuffer).
+Диагностика и метод сопоставления должны быть определены до следующего device
+теста; в round150 устройств/нового metadata capture не было.
+
+### T094: instantaneous pair diagnostic, schema7 — 2026-10-02
+
+**Decision:** исследовать текущую связь двух WASAPI pairs отдельно от ошибок
+span относительно первого anchor. Это disposable диагностика, не выбранный
+PTS estimator и не изменение численного clock contract.
+
+**Rationale:** schema7 сохраняет exact mapper, guard, ReleaseBuffer/Stop,
+visible indicator/Stop, whole-case5s и parent12s из frozen schema6; меняются
+только bounded arithmetic/checkpoints и JSON. На samples1/8/32/64 и первом
+mapper fault экспортируются [count, position delta, QPC delta, residual]
+в100ns, максимум5points. Position delta = currentPosition/GetFrequency −
+packetFrames/sampleRate; QPC delta = currentClockQpc − packetQpc; residual =
+QPC delta − position delta. Position comparison предполагает общий stream
+origin; residual сам по себе не доказывает корректность ни одного clock.
+Абсолютные позиции/QPC/device ID и PCM не экспортируются. Delta вне±0.5s
+становится null, не нулём и не разрешением принять аудио. Квотиент/остаток
+считаются до вычитания больших origins; округление position difference<100ns.
+
+Подготовка: strict MSVCx64 build PASS;2000 generated arithmetic cases PASS;
+те же portable cases под ASan/UBSan PASS. Отрицательный generated контроль
+показывает: ошибочный первый current QPC влияет на последующий span error,
+хотя последующие instantaneous residual равны0. Это пример неоднозначности,
+не установленная причина VM fault. Bounded summary check929bytes PASS.
+Source и runner frozen вне Git в f200-clock-pair.LXFJPO; live test разрешается
+только после независимого narrow review, свежего process/hash check и одним
+явно выбранным default48000case. Нет новых аудионастроек/44100/MMCSS в этом
+эксперименте. Подготовка не считается T094/SC003 acceptance.
+
+**Alternatives considered:** переиспользовать span errors как текущую latency,
+переписать GetPosition position в packet frames без frequency, повышать drift
+threshold, очищать sticky fault либо читать PCM для этого вопроса — отвергнуто.
+
+**Единственный live результат:** после независимого APPROVED NARROW review и
+fresh process/hash checks один default48000case завершился за441ms;
+41/41packets released, Stop0, process0после.39metadata observations имеют
+gaps0; packet41получил post-startup DATA_DISCONTINUITY, guard остановил опыт.
+На samples1/8/32 position delta10ms, QPC delta14.6458/3.7205/0.042ms,
+residual+4.6458/−6.2795/−9.958ms. Это дополнительные различия текущих pairs,
+не proof причин VM/driver/scheduler и не воспроизведение clock_drift в этом
+run. Replacement packet timestamp через current-clock pair не принят;
+порог/flags/count guards не меняются. Истинная phase/frequency модель всё ещё
+должна пройти generated changing-rate/waveform и аппаратную проверку. Полный
+согласованный estimator нельзя заменить повторением одинаковых коротких probes.
+Safe JSON/frozen hashes/cleanup и ограничения — validation round151.
+
+### T094: диапазон достижимого времени при переменной частоте — 2026-10-02
+
+**Decision:** сохранить локальное распространение диапазона времени как
+исследовательский кандидат. Постоянный наклон на всю запись, отвергнутый в
+round149, здесь не нужен. Середину каждого диапазона нельзя автоматически
+публиковать как PTS или использовать как оценку частоты для resampler.
+
+**Rationale:** если частота в каждый момент находится внутри±100ppm, прирост
+времени для dn кадров находится между dn·10⁷/(rate·1.0001) и
+dn·10⁷/(rate·0.9999). К прежнему диапазону добавляется этот прирост; результат
+пересекается с текущей относительной меткой±(1ms+1source frame). Состояние O(1).
+Это явно заданная гипотеза: первая метка считается точной, последующие ошибки
+ограничены относительно неё, а предел частоты — мгновенный. Действующий
+продуктовый guard проверяет накопленный интервал; эти правила не тождественны.
+Кандидат НЕ заменяет guard, не доказывает свойства реальных временных меток.
+
+Стенд48instantiations прошёл в Windows MSVC и на Mac Clang ASan/UBSan:
+44.1/48k, fixed10ms/variable partitions, постоянные−100/0/+100ppm, смена
++100→−100→+100 на номинальных source20/40s и плавно меняющаяся частота.
+Плавный случай задаёт dt/dframe с коэффициентом99ppm, что даёт частоты
+примерно−98.9902…+99.0098ppm, не симметричную frequency sine. Генератор использует
+jitter400µs; observer получает только номинальную rate и текущие n/q. Известная
+истинная шкала используется только для проверок. Отдельный+250ppm случай
+вызывает неизменный отказ, как и текущий mapper; другие проверки отвергают
+обратный ход, повтор метки, слишком большой диапазон/шаг и выброс. Флаги/native
+API/count custody здесь не реализованы и не считаются проверенными.
+
+18,494,460 — число вызовов за всю матрицу, включая повторные отказы после
+отрицательного случая, не число принятых пакетов. Позиции проверены до source
+nominal3600s; последний объявленный packet count может выходить за этот
+горизонт, EOS/точная длительность не приняты. double/long double в обеих
+средах имеют53bits mantissa, поэтому это не две разные точности. Origin
+вычитается в unsigned до float; nextafter расширяет границы наружу.
+Сравнение с генератором допускает0.001tick, не новый продуктовый допуск.
+
+**Найденное ограничение:** на допустимых generated случаях implied frequency
+между соседними midpoint достигает4970.21ppm при отсутствии обратного хода.
+Таким образом, containment каждого диапазона не обеспечивает согласованную
+скорость публикации. Это не доказательство невозможности другой траектории.
+Для production нужны выбранная единая шкала, управление фазой/ratio, waveform,
+допуски/границы начала и конца, actual admission/EOS integration и review.
+Применимость гипотезы к WASAPI/Parallels, неизвестный first-anchor error и
+обработка observed clock_drift/discontinuity остаются открытыми.
+
+**Alternatives considered:** хранить все прошлые constraints для постоянной
+частоты, получать true rate/будущие метки от генератора, публиковать midpoint
+без rate/slew proof или расширять пороги после отрицательного результата —
+отвергнуто. Независимый read-only review APPROVED NARROW принял математику и
+границы результата, не готовый estimator. Source/hashes/reproduce — round152.
+
+### T094: причинное управление SincResampler на искусственном звуке — 2026-10-02
+
+**Decision:** оставить фазовую обратную связь исследовательским кандидатом,
+не переносить её в приложение по одному успешному стенду. Общий exact epoch,
+1s correction horizon и command±500ppm — параметры опыта, не утверждённые
+правила захвата. ReachablePhase здесь только дополнительная проверка принятых
+меток; его interval не выбирает ratio. Действующий ClockMapper неизменён.
+
+**Rationale:** actual pinned SincResampler получает ratio только из уже
+полученных n/q, nominal rate, собственного cursor и output count. Истинная
+шкала доступна генератору и измерениям, но не controller. Неизменённый mapper
+проверяет metadata до допуска samples. Полный callback prefetch обязан быть
+наблюдаемым до EOS; support каждого опубликованного sample целиком внутри
+принятого prefix. Внутренний EOS filler17/−73 не меняет trusted output
+побитово. Fault запечатывает оба prefix; тело отказного пакета не допускается.
+Actual RecordingAudioTimeline принимает общий grid48k/480frames с epoch100s,
+без переноса первого trusted sample на ноль и без drift trim. AEC — identity,
+writer/worker admission не используются.
+
+Свежие9коротких случаев PASS: baseline, opposite±100ppm fixed/variable,
+reverse rates44.1/48k, changing/smooth rates, request512, nominal-only negative,
+clockDrift и injected discontinuity. На nominal-only phase error5.99997ms;
+на controlled healthy≤0.120253ms. Отдельный generated3600s run PASS:
+172799520canonical frames, phase_max0.111918ms, duration_error9.625ms,
+system RMS−0.000076223dB, nofault/no trim. Это симуляция часа, не часовой
+захват микрофона и не измерение времени исполнения. Независимый source review
+APPROVED NARROW относится к свежему guarded source, не собственным запускам
+reviewer. Exact source/EXE/library hashes и результаты — validation round153.
+
+**Ограничения:** системный RMS ограничен1dB; waveform_max_error и
+joint_max_error только выводятся, не имеют acceptance bounds. На часовом
+run они0.16402036/0.27000016, поэтому waveform fidelity и межканальная
+точность НЕ приняты. Действующий mapper по-прежнему отвергнет реальные
+clock_drift/discontinuity, наблюдавшиеся в VM. Не доказаны неизвестный
+first-anchor error, разные реальные origins, native query timing, иной
+jitter, реальные flags/ReleaseBuffer, Stop/dispatcher races, AEC, writer,
+аппаратная матрица и SC003. Нет основания повышать пороги guard.
+
+**Alternatives considered:** oracle true frequency/будущие метки, midpoint
+из round152 как ratio, reset epoch, midstream filler или признание identity
+AEC реальным подавлением эха — отвергнуто. Следующая полезная граница —
+реальный native AEC на generated echo/near-voice и согласованный production
+контракт admission/start/EOS, а не повтор тех же коротких live probes.
+
+### T094/T096: native AEC на generated echo/near-end — 2026-10-02
+
+**Decision:** не принимать качество AEC по construction/self-check или
+успешному native вызову. Новые generated проверки не прошли предлагаемые
+исследовательские границы echo reduction≥10dB и near-band change≤1dB;
+эти границы не ослаблялись и не внесены как новый продуктовый контракт.
+Готовность Windows/SC003 не подтверждена.
+
+**Rationale:** actual GrafAEC3WebRtcAdapter вызывается через actual timeline,
+reverse-before-near-end, microphone/output in-place; raw input копируется
+только внутри measuring wrapper до обработки. Renderer сначала tone/chirp,
+потом отдельно deterministic continuous interpolated noise+997Hz; microphone
+0.65·render(t−4ms)+independent2111/1777Hz tones. After4s warm-up измеряются
+1s quadrature band energies до/после AEC. При baseline44.1→48k/48k tone/chirp
+echo band−0.112213dB/near band−0.124398dB; broadband−2.328237/−2.270941dB.
+Оба executable exit1 на первом случае. Остальные заявленные в main случаи,
+включая identity negative, НЕ выполнены и не считаются проверенными.
+
+Для разделения native алгоритма и resampler выполнен отдельный direct48k
+diagnostic, три6000-block generated случая. Metrics reset после24s не меняет
+native state;36полных1s окон. Echo-only: echo−0.195884dB, near-band−0.129654dB
+(голоса в этом случае нет). Near from start: echo−35.656151dB, near-band
+−18.277412dB. Near after20s training: echo−3.589465dB, near-band−3.438458dB.
+Diagnostic exit0 означает только завершённые вызовы/finite metrics, НЕ
+suppression acceptance. Ни один результат не подтверждает одновременно
+необходимую очистку эха и сохранение near-end компонента.
+
+Pinned первичный render_signal_analyzer.cc содержит narrow-band adaptation
+masking. Это объясняет необходимость отдельной broadband проверки, но НЕ
+доказывает причину результатов. Не доказаны неисправность installed app,
+ошибка resampler, проблема VM или достаточность другого training режима.
+Двухтональный near-end не равен речи; broadband шум также имеет энергию в
+2111Hz, поэтому near-band metric — не изолированный voice gain и не MOS/
+широкополосное ERLE измерение. System/cleaned joint error не alignment oracle.
+
+**Alternatives considered:** считать weak reduction готовым AEC, перенести
+threshold, включить raw-mic fallback, скрыть failed baseline или приписать
+проблему VM по одному результату — отвергнуто. Следующий причинный шаг —
+сопоставить native reference fixture/configuration и API units/delay с этим
+адаптером; сначала независимая проверка измерений. Production source unchanged.
+Exact sources/hashes, builds/runtime и review scope — validation round154.
+
+### T094/T096: alias и задержка, найденный Mac reference — 2026-10-02
+
+**Decision:** не менять Windows output alias или подставлять40ms задержку
+как исправление. Fresh paired native experiment исключил alias как причину
+разницы в этих fixtures:6000blocks×6cases, два независимых actual adapter,
+identical input, separate/in-place outputs полностью побитово равны.
+Синтетические acoustic4/40ms не являются measured stream buffer delay.
+
+**Rationale:** на40ms echo-only997Hz reduction37.904452dB лучше, чем0.195884dB
+на4ms; near-from-start и trained40ms997Hz reduction35.519303/39.482100dB,
+но2111Hz band−21.120643/−15.059707dB. Совместная исследовательская граница
+не пройдена. Это эффект изменения искусственного пути эха в этих данных,
+не установленная причина плохого качества в installed app. Внешняя задержка
+buffer API имеет другое определение; нельзя передавать acoustic delay oracle.
+Все прежние failed результаты сохранены, пороги не изменялись.
+
+Primary pinned audio_processing.h подтверждает deinterleaved float[-1,1],
+10ms frames и допустимый input/output alias. Native source при отсутствии
+external buffer delay использует default buffer reset; встроенная оценка
+задержки по config enabled. set_stream_delay_ms отсутствие пока только
+наблюдённое отличие вызовов, не подтверждённая причина качества.
+
+Найден существующий approved-reference test
+`apps/macos/Shared/Tests/RecordingAEC3QualityTests.swift` и полностью прочитаны
+Mac native bridge/Swift wrapper. Pin одинаковый Windows/Mac. Mac bridge
+перед capture вызывает set_stream_delay_ms, Swift передаёт0; Windows adapter
+этот вызов пропускает. Mac fixtures — smoothed LCG noise с envelope и voiced
+harmonics, а не stationary997/2111tones: room delay20/80/150/300ms, RT60
+0.2/0.5/0.8s; far-only≥20dB после5s; near-only level±1dB/correlation≥.98/
+lag≤480; double-talk echo≥10dB/near projection±3dB/no silent run>960;
+также acoustic delay80→85ms и canonical mix. Их наличие в исходниках НЕ
+доказывает свежий Mac/Windows runtime PASS.
+
+**Alternatives considered:** менять buffer по результату alias experiment,
+объяснить оба failures VM, продолжать искать новый acceptance signal вместо
+существующего Mac fixture или молча заменить прежние failed tone gates —
+отвергнуто. Следующий шаг — воспроизвести существующий Mac quality fixture
+на Windows native adapter и Mac bridge, с одними generated входами/метриками.
+Порт ещё не создан/не запущен; исходники Mac и installed app не менялись.
+Exact alias experiment evidence — validation round155.
+
+### T094/T096: существующий Mac quality reference и изолированный mix candidate — 2026-10-02
+
+**Decision:** переиспользовать существующие проверки
+`apps/macos/Shared/Tests/RecordingAEC3QualityTests.swift` вместо объявления
+общей неисправности AEC по прежним двухтональным fixtures. Для проектирования
+Windows закрепить найденную формулу Mac `0.5 * (system + cleanedMicrophone)`;
+однострочный кандидат проверен только вне продуктового дерева. Production,
+численные clock guards, установленное приложение и задачи не изменены.
+
+**Rationale:** actual Windows adapter и точная копия actual Mac C ABI bridge
+собраны с одним pinned WebRTC под Windows. Оба получают одни generated входы:
+12 room cases, near-only, double-talk и acoustic delay drift. Все30 core gates
+прошли, хотя результаты движков не полностью равны. Это Windows runtime двух
+обвязок, не запуск Mac/Swift и не byte identity генераторов разных языков.
+
+Дополнительный actual Windows timeline gate не прошёл: смесь384000samples
+на6.02059991328dB выше формулы Mac, max difference0.324655056. Source trace
+подтвердил `clamp(system + cleanedMicrophone)` в Windows timeline; Mac timeline
+умножает сумму на0.5. AppMain передаёт эти frames writer без коррекции; writer
+сохраняет mixed float и кодирует без компенсации gain. Отрицательный остаток
+−5.72882613074dB содержит лишнюю половину system reference и не измеряет
+изолированное качество AEC.
+
+Отдельная копия timeline меняет ровно этот коэффициент, сохраняя clamp,
+count/PTS/admission/guards/EOS/AEC. Те же неизменные31 gates прошли: delta0dB,
+max difference0, clipped0, residual reduction22.9561882573dB. Это причинное
+устранение mix mismatch на данной generated matrix. Для arbitrary over-range
+или nonfinite output эквивалентность с Mac без clamp не объявляется. Старые
+суммарные ожидания Windows tests должны быть рассмотрены при разрешённой
+реализации; нельзя просто объявить установленную запись исправленной.
+
+**Alternatives considered:** ослабить20dB gate, компенсировать громкость во
+writer или UI, поменять native alias/buffer delay, признать native self-check
+полной AEC приёмкой — отвергнуто. Исправление относится к общей формуле смеси,
+не к каждому consumer отдельно. Независимый source review APPROVED NARROW;
+числа запуска получены Main. Evidence/hashes/ограничения — validation round156.
+Clock estimator/resampler/start/EOS и protected-custody gates остаются открыты.
+
+### T094/T096: native AEC вместе с causal resampler и контроль окна — 2026-10-02
+
+**Decision:** не считать совместную цепочку полностью принятой и не объявлять
+resampler причиной снижения RMS suppression на длинном fixture. Порог20dB
+существующего Mac reference относится к окну5–12s. Дополнительный опыт5–60s
+является новым исследовательским условием, а не скрытым изменением FR/SC.
+Исходные проверки не ослаблены; все отрицательные результаты сохранены.
+
+**Rationale:** frozen causal Source/actual ClockMapper/native SincResampler
+из прежнего стенда получает физически sampled linear-interpolated speech/room/
+voice, не stationary tones. Actual Windows native AEC вызывается in-place
+в timeline с изолированным0.5mix candidate. Четыре60s конфигурации проверяют
+48/44.1k, opposite±100ppm, reverse rates и changing rates, fixed/variable
+partitions. Только observed packet metadata управляет ratio; true physical
+time используется генератором/метриками, не controller. First anchors exact
+и один общий epoch остаются исследовательскими предположениями.
+
+Во всех13 cases exact canonical prefix2879520frames, no drift trim,
+poison-independent trusted output и mix difference0. Phase max≤.111907ms,
+duration error≤9.625ms. Near-only level≈−.50405dB/corr≈.99975969/lag434;
+double-talk echo projection27.79898–58.19463dB, near−1.66786…−1.51482dB,
+no long silence. Identity far negative correctly rejected at0dB. Но четыре
+far-only aggregate5–60s дают16.44563–16.52975dB, а не20dB: original run
+exit1,13checks/4failures. Это не общий PASS.
+
+Причинный control без resampler на тех же60s generated arrays также FAIL
+по aggregate5–60s: Windows16.63493dB, Mac bridge on Windows16.63462dB.
+Их prefix5–12s22.47718/22.47953dB проходит существующий reference. В отдельном
+derivative combined stand только добавлены четыре соответствующих prefix gates;
+прежние13 не заменены. Combined5–12s22.25206–22.29796dB PASS; итог derivative
+17checks/4failures. Смена длины/окна достаточна для наблюдения снижения и без
+resampler; причиной этого native long-result либо полной Mac quality parity
+эти измерения не являются. Два native engines не объявлены тождественными.
+
+**Alternatives considered:** выдавать17checks за17PASS, уменьшить20dB,
+выбросить long failures, исправлять controller по некорректно приписанной
+причине, считать borrowed Mac bridge запуском MacOS — отвергнуто. Нужны
+согласованный quantitative clock/start/EOS contract, waveform/joint bounds и
+живой installed capture; no-fault generated model не исправляет VM clock_drift.
+Exact frozen source/build/EXE и transport-recovery ограничения — round157.
+
+### T094/T096: независимые начала источников и дробная сетка — 2026-10-02, round158
+
+**Decision:** сохранить исследовательскую модель с независимым началом каждого
+источника из его первой полученной QPC-метки. Это проверенный кандидат механики,
+не принятая производственная модель часов. Полный Phase 0 остаётся открытым.
+
+**Rationale:** новый OriginAlignment не передаёт физическое начало генератора
+контроллеру: последний использует полученные q−anchorQ, счётчик принятых входов
+и курсор. Целочисленное округление на сетку48k сохраняет дробный остаток;
+первый уже непубликуемый шаг закреплённого Sinc задаёт фазу без сброса курсора.
+Проверены четыре пары частот/дрейфа с разнесёнными стартами0.1375/3.7123/17.0153ms,
+независимыми device origins, включая device counter около UINT64_MAX.
+Admission, опора ядра, равенство двух заполнителей, общий интервал и EOS сохранены.
+Ошибка фазы≤0.111902ms, длительности≤6.075ms; system RMS−0.172…−0.126dB,
+ошибка формулы Mac mix0. Начальный непересекающийся префикс исключает timeline;
+отсутствие drift trim не означает отсутствия этого стартового исключения.
+
+Из16 quality gates12 PASS/4 FAIL: короткие far окна22.25417–22.31108dB,
+near gain≈−0.50405dB/correlation≈0.99975969/lag434, DT echo22.909–55.423dB,
+near projection−1.537…−1.438dB/no dropout. Все четыре дополнительные длинные
+far окна16.454–16.550dB FAIL при неизменном20dB. Exit1 сохранён. Отдельный
+reset-origin negative ожидаемо отклонён общим phase-or-mix утверждением;
+это не17-й quality gate и не замена прежнего Identity AEC negative.
+
+Независимый reviewer APPROVED NARROW по исходникам/механике и честному16/4:
+runtime/EXE получены Main, reviewer не запускал. Первые метки в генераторе всё
+ещё физически точны; near-UINT64_MAX относится только к device counter.
+Короткое окно отсчитано от collected prefix, не буквально от прежней физической
+Mac шкалы. DT использует ideal PTS references, включая эффект нормализации;
+near-only system metric0 означает неприменимость. Производственные ресурсы,
+SIMD matrix, macOS runtime и live capture этим не подтверждены.
+
+**Alternatives considered:** общий искусственный q0, потеря дробной фазы,
+обнуление обоих origins, снятие длинных quality gates или перенос кандидата
+в продукт до coherent contract/review/analyze — отвергнуты.
+
+### T094/T096: точность первой временной метки — 2026-10-02, round159
+
+**Decision:** отделить наблюдаемую относительную непрерывность от абсолютной
+точности первого отсчёта и межисточникового выравнивания. До Phase 1 требуется
+обоснованная корреляция sample↔QPC либо явно измеренные границы этой точности.
+Новая численная гарантия не придумана, текущий ClockMapper не ослаблен.
+
+**Rationale:** независимая проверка вывела действующий guard
+|Δn−FΔq|≤10^-4 FΔq+0.001F+1. При q=t+e он ограничивает разность e_i−e_0,
+а не e_0: постоянное смещение первой метки не обнаруживается. Portable
+AnchorModel проверил actual mapper на12000 observations: стабильные две
+шкалы с разностью0.8ms принимаются одинаково при реальном разнесении стартов
+и при постоянном timestamp bias; из этих данных различить случаи нельзя.
+Первый абсолютный error+1ms и следующий−1ms дают observed8ms вместо10ms:
+96frames residual превышает49.0384frames budget, actual sticky clockDrift.
+Таким образом guard не эквивалентен независимому допуску±1ms для каждой метки.
+Это математические контрпримеры, не доказательство дефекта WASAPI/Parallels.
+
+По официальным контрактам GetBuffer возвращает position/QPC первого frame
+пакета, GetPosition — текущую позицию с собственной QPC, в единицах GetFrequency.
+GetFrequency номинальна и не измеряет drift/jitter. Подмена текущей позиции
+первой позицией пакета без преобразования недопустима; заявленной численной
+гарантии абсолютного anchor в этих API нет. Источники:
+[GetBuffer](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudiocaptureclient-getbuffer),
+[GetPosition](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock-getposition),
+[GetFrequency](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock-getfrequency).
+
+**Alternatives considered:** считать shared QPC epoch доказательством точного
+начала, удвоить error budget, приписать контрпример VM или молча принять
+generator truth за device evidence — отвергнуто. Следующий узкий вопрос:
+может ли paired native clock/QPC подтвердить packet anchor при явно проверенных
+единицах, stream origin, свежести и границах погрешности. Пока это гипотеза,
+не новая authority для захвата. Новых микрофонных тестов в round158–159 нет.
+
+### T094/T096: область paired clock диагностики — 2026-10-02, round160
+
+**Decision:** schema6 checkpoints не использовать как доказательство абсолютной
+корреляции первого frame. Прежние JSON сохраняют смысл измерения относительных
+изменений; их pairShift не является текущим абсолютным смещением часов.
+
+**Rationale:** PacketStats независимо вычитает первые device/QPC и clock/QPC.
+pairShift=ΔclockQpc−ΔpacketQpc. Portable PairModel на actual PacketStats и
+actual ClockMapper показал192 generated observations: constant packet bias
+0.8ms и common packet/current bias0.8ms оставляют все checkpoints и mapper
+verdicts идентичными reference. При явно заданном одном stream origin,
+корректной конверсии clockFrequency/sampleRate проекция current QPC назад к
+packet first frame обнаруживает только packet bias; common bias остаётся
+ненаблюдаемым. В fixture residual0/−8000/0ticks соответственно. Это bounded
+synthetic assertion, не готовый native projection/estimator и не аппаратная
+граница ошибки. В actual worker GetPosition получает nullptr для paired QPC;
+добавление этого выхода само по себе не исправило бы clock mapping.
+
+**Alternatives considered:** трактовать прежние≈−10ms clock_points как
+доказанную постоянную задержку, заменить packet timestamp текущим clock QPC
+либо объявить native clock независимым физическим oracle — отвергнуто.
+Следующий проект должен явно разделить доверенный контракт API, проверяемую
+непрерывность/корреляцию и неподтверждённую аппаратную точность. Параметры
+общего estimator/start/EOS не выбираются по этой короткой модели.
+
+## Round161 — один конкретный clock candidate, 2026-10-02
+
+**Decision:** проверить `contracts/windows-clock-candidate.md`, а не требовать
+измерить абсолютную аппаратную точность первой метки до описания архитектуры.
+API anchor, raw continuity checks и отдельная hardware acceptance явно разделены.
+§5 и численные пределы отказа не изменены; это ещё не принятый план реализации.
+
+**Rationale:** независимый requirements review подтвердил отсутствие такого
+предварительного hardware требования. Модели rounds159–160 показывают предел
+наблюдаемости, но не запрещают доверять семантике GetBuffer. Кандидат фиксирует
+параметры реально исследованного Source вместо неопределённого «estimator».
+
+**Alternatives considered:** новые бесконечные контрпримеры того же constant bias,
+GetPosition как независимый аппаратный oracle и исключение из raw guard ради VM
+отвергнуты. Следующий шаг — независимый review выбранной формулы, памяти,
+first-phase/full-support EOS и проверки всего admitted envelope. Отказ mapper
+на фактических VM метках остаётся самостоятельной нерешённой проблемой.
+
+## Round162 — отрицательная проверка полного admission против ровной output PTS
+
+**Decision:** не принимать candidate только по прежнему Sinc fixture. Отдельный
+generated counter model с actual ClockMapper/AudioNormalizer/Timeline показал
+48-frame failure, который кандидат с ровной PTS может скрыть. Исследовать
+сохранение existing adjacent timestamp-gap guard перед публикацией.
+
+**Rationale:**48000 наблюдений/8rates прошли actual cumulative guard, но step
+−4ms→+4ms на50s дал old gap384frames/actual Timeline clockDiscontinuity и
+candidate ideal-cursor phase8000us. Cumulative allowance не равен ограничению
+скачка между соседними пакетами. Полная семантика §5 включает оба ограничения.
+R_i=round(ΔQPC×48000−inputStart×48000/rate) даёт actual old gap через разность
+с предыдущим R во всех проверенных случаях; это ограниченная sampled equivalence,
+не общая доказанная замена старого механизма и не oracle physical phase.
+
+**Alternatives considered:** объявить mapper PASS достаточным для новой ровной
+сетки или добавить ReachablePhase oracle из физически точного генератора —
+отвергнуто. Сохранение прежнего численного guard проверяется независимо.
+Этот контрпример не объясняет фактический VM clock_drift, который возникает
+раньше нормализации; согласованный план этого отказа всё ещё нужен.
+
+## Round163 — простой соседний residual не эквивалентен timeline end
+
+**Decision:** не внедрять R_i−R_prev как готовую замену existing48-frame guard.
+Independent review: P1 ровная PTS скрывает отказ; P2 пустые выходы и полный trim
+меняют опору сравнения. Два дополнительных actual-core generated теста это
+подтвердили; независимый reviewer их source/runtime повторно не принимал.
+
+**Rationale:** при192kHz после3s два1-frame входа дают raw residual30/60.
+Actual mapper принимает оба; первый не выдаёт samples. Следующий emitted gap60
+обязан отказать, хотя соседние raw deltas30/30 проходят. При48kHz размеры1000/1/1
+и residual0/−48/+1 дают полностью trimmed1-frame выход, end остаётся прежним;
+последний actual gap2 допускается, хотя raw difference49 отверг бы его.
+Для точной старой семантики нужны виртуальные непустые output boundaries и
+end=max(previousEnd,newEnd), не просто предыдущий пакет/QPC.
+
+**Alternatives considered:** второй полный legacy normalizer ради проверки,
+сброс опоры на каждом принятом raw packet или автоматическое tightening49→fail
+отвергнуты как невыбранные решения. Нужно определить численное gap правило для
+новой нормализации и согласовать изменения §5 явно; старый output count не
+подменять новым молча. Производственная реализация пока не разрешена.
+
+## Round164 — без legacy shadow; native staging и relative witness rounding
+
+**Decision:** одно преобразование Sinc и существующий RecordingAudioTimeline
+как единственный alignment owner. Реальная QPC-привязка выходного sample center
+передаётся в timeline до canonical publication; actual interpolation/trim/failure
+не заменяются виртуальным end. Candidate revision164, всё ещё pending.
+
+**Rationale:** independent requirements review подтвердил, что условный пример
+441/441 не закрепляет linear algorithm. Exact legacy decision-set equivalence
+не является новым требованием; safety semantics и exact-signal partitionization
+сохраняются. Предлагаемая relative witness formula учитывает integer origin
+residue и packet anchor для соответствующего центра, а не callback read end.
+Упаковка sink не может скрыть смену опоры.
+
+Native disposable staging probe повторяет реальный pinned Sinc callback/cursor,
+input sizes1/479/31/4800/480/7/1024/211, origins независимые, two EOS poisons.
+11rates8000/8001/16000/44100/44101/47999/48000/48001/96000/191999/192000:
+peak unread4863frames<=4864,2189 full blocks zero, no trims. Counter bound
+не доказывает allocation layout/quota; fixture Source физически генерирует
+samples по запросу, не реализует product-owned fixed FIFO. ReachablePhase
+oracle остаётся research-only дополнительным предположением, не raw admission.
+
+Portable relative-witness rounding:625 q0 residues и epochs0/nearUINT64MAX,
+11rates, positions128…1023, anchors0/31-grid/center floor, double/long double.
+73920000 assertions PASS; naive absolute-floating control35620594 несовпадений.
+На этом Mac оба типа53bit: это два host types, не независимый extended precision.
+Проверяется формула nominal точного source center, не native accumulated phase,
+значения Sinc waveform, изменяющаяся ratio, tag resource bound или VM clocks.
+
+**Alternatives considered:** второй legacy normalizer, отдельный виртуальный
+timeline end без реального trim, q0+outputIndex до clock corrections и округление
+большого absolute floating time отвергнуты. Raw thresholds и §5 не ослаблены;
+candidate не заменяет нормативный контракт без оставшихся проверок и review.
+
+## Rounds165–166 — полный witness путь: safety PASS не равен качеству
+
+**Decision:** не переносить concrete round164 packet-center witnessPTS
+реконструкцию в продукт. Actual native AEC quality выявила регрессию на входе,
+который actual raw mapper допускает. Пороги и нормативный контракт не меняются.
+
+**Rationale:** paired zero sources на11rates и двух one-frame stress проходят,
+six8ms jumps после50s отвергаются actual timeline при healthy mapper.
+Кольцо160 tags достигает measured peaks3/81/84, не универсального bound proof.
+Независимый reviewer обнаружил повторное использование разошедшегося курсора
+после flush failure; terminal guard исправлен в disposable Source и повторён
+native. Приёмка reviewer ограничена этой правкой, не clock plan.
+
+Ненулевые generated far/near/DT fixtures используют actual Windows AEC3,
+существующие Mac metric helpers и unchanged thresholds. При48000 render /
+44100 mic, own fractional origins и variable input до4800,12s:
+metadata jitter0.4ms far0.945745dB FAIL20, near-.504dB/corr.999706/lag434 PASS,
+DT9.82036dB FAIL10. 1199 canonical blocks, trimmed1876/1731.
+Контроль без jitter: те же блоки, trim0/0, far22.4148dB PASS иDT28.4251dB PASS.
+Третья проверка отключила только ratio control: с jitter far0.946011dB FAIL,
+DT9.74786dB FAIL, trim1802/1675; без jitter все3PASS. Значит SetRatio controller
+не необходим для регрессии; direct packet-QPC / real timeline corrector path
+уже достаточен в этой fixture. Trim отдельно от interpolation и packetwise
+phase этим опытом не изолирован, аппаратная причинность не доказана.
+
+**Alternatives considered:** ослабить20/10dB thresholds, убрать jitter fixture,
+считать safety PASS приёмкой качества или просто выключить controller —
+отвергнуты. Нужно отделить timestamp uncertainty от actual drift и сохранить
+обнаружение разрывов; новый конкретный estimator/contract пока не выбран.
+Исследование не исправило живой VM raw clock_drift, не закрывает длинные far
+FAIL предыдущих раундов, SC-003, protected custody или installed/UI acceptance.
+
+## Round167 — continuous Sinc, innovation guard и исполнимый input bound
+
+**Decision:** продолжить исследование phase-driven conversion вместо direct
+packet witness reconstruction. Concrete successor ещё не принят, нормативный
+§5 и thresholds не меняются. Plain uniform PTS без проверки часов не возвращён:
+actual raw mapper и отдельный terminal phase guard проверяют input metadata
+до дальнейшего resampling/publication.
+
+**Rationale:** native generated tests подтверждают12/12 прежних quality
+criteria при nominal/opposite±100ppm/sinusoidal99ppm, jitter0.4ms, paired48k/44.1k,
+variable1…4800, own origins,12s. Far21.82…21.86dB/DT27.90…40.42dB, no trim;
+near PASS относится только к pre/post-AEC обработанному входу, DT к общей
+projection metric, не отдельно очищенной echo component. Waveform/hardware
+exhaustiveness, partition invariance,60min/CPU/writer ещё не доказаны.
+
+Controller прежний candidate1s/±500ppm; innovation сравнивает received
+input-relative QPC с accumulated actual Sinc cursor offset в48k frames.
+Separate rejection>48 не заменяет raw100ppm+1ms+frame.13healthy zero cases
+8–192k/two one-frame stress и6cumulative-admitted8ms jumps прошли native;
+fault prevents further Source advancement, но global second-source fence
+и владение сессией не проверены.
+
+Independent review нашёл P1:94admit без drain могло дать83161 input и
+применить последнюю команду−386.8ppm ко всей очереди, computed−4.02165ms.
+Bounded derivative требует callback unread<64 до packet admission; native
+regression отвергает третий вызов при480 input и неизменном callback0,
+late drain не возобновляет выход. Это не real-owned allocation quota proof.
+Неиспользуемый old witness negative driver, не распознающий phaseRejected,
+и другие frozen drivers удалены из derivative;242 строки меньше.
+
+**Alternatives considered:** запретить jitter fixture, ослабить AEC metrics,
+перенести playback arrival timestamps OBS либо relaxed integrity handling
+WebRTC — не выбраны. WebRTC
+[CoreAudioInput](https://webrtc.googlesource.com/src/+/d2c106be9c34f71b756e45b2b7fd9e97f553a549/modules/audio_device/win/core_audio_input_win.cc#318)
+использует captured QPC для periodic latency estimate, а payload передаёт
+в FineAudioBuffer; warning-only flags/restart не являются готовым GRAF gate.
+OBS
+[ProcessCaptureData](https://github.com/obsproject/obs-studio/blob/2c4e446a2201d5ef66b8909190f7f15afe092ace/plugins/win-wasapi/win-wasapi.cpp#L930-L1017)
+допускает callback-time timestamp в обычном capture, но этот путь запрещён
+нашим контрактом. Чужой код/новая dependency не внесены.
+
+Открытый counterexample: две innovation величины около±47.52 могут пройти
+abs48, хотя adjacent change≈95frames. Это существенно и не равно прежнему
+timeline jump rule. Следующее исследование — именно его native replay и
+согласование guard, не новое объявление проекта принятым по12 коротким PASS.
+VM raw clock_drift всё ещё требует отдельного решения до работающего capture.
+
+## Round168 — adjacent counterexample воспроизведён и guard проверен native
+
+**Decision:** конкретный successor дополняется отдельной проверкой соседнего
+raw phase residual. Не считать abs innovation48 сохранением jump rule без неё.
+Normative §5 пока не заменён; исследование остаётся Phase0.
+
+**Rationale:** same bounded Source/actual mapper/Sinc/timeline, generated
+metadata ±40canonicalframes после2s,48000Hz/fixed480/no actual physical drift:
+native modelwithoutstepguard принял79.9968frames между соседними опорами,
+maxinnovation41.5589<48,299pairedblocks. Дополнительная проверка
+step=(observedOffset−previousObservedOffset)*48000/rate не использует consumed
+offset и не может компенсировать raw jump прошлой resampler коррекцией.
+В новой версии step79.9968 прекращает Source приinnovation40.2224<48;
+raw mapperhealthy,200blocks trusted, late calls не возобновляют выдачу.
+
+Новая native source025eccaf… повторила12quality PASS без изменения чисел,
+13healthy zero/6eight-ms faults/94queued-admit negative PASS. Independent
+read-only reviewer узко Approved формулу и порядок; не запускал tests и не
+принимает весь contract. Отказ доcommand/ratio/accepted/packet mutation;
+actual mapper/tag текущего пакета уже обновлены, что названо явно.
+
+**Alternatives considered:** надеяться, что отдельная величина innovation
+всегда обнаружит переход, или удалить counterexample — отвергнуты. Новый guard
+не обещает exact старые output decisions для empty output/full trim. Нужно
+согласовать эту явную консервативную semantics и доказать остальные границы
+до внедрения. Current raw VM clock_drift/SC003/hardware/full UI всё ещё открыты.
+
+## Round169 — nominal waveform partition и точность команды
+
+**Decision:** сохранить полученный FAIL предыдущего prototype и исследовать
+минимальную command-only зону нечувствительности в один100ns тик. Не повышать
+существующий sample tolerance0.00001 и не ослаблять raw clock/refusal guards.
+
+**Rationale:** тот же абсолютный generated сигнал700+1900Hz,0.5s, nominal
+physical rate и rounded QPC,11rates8–192k. Fixed10ms baseline сравнивается
+с variable1…4800 и one-frame packets; drain480/479/1 также меняется.
+Без controller22/22 exact, с controller7/22FAIL при сохранённых counts/PTS;
+наибольшая ошибка0.0000411868. Это обнаруженная зависимость команды/выхода от
+комбинации разбиения и обработки, не доказанный аппаратный dropout.
+
+После command-only floor `abs(observedOffset-consumedOffset)<=rate/1e7`
+команда нулевая:44/44comparisons exact. Pinned SetRatio реагирует на изменения
+больше double epsilon и пересчитывает ядро; порога1e-6 в нём нет.
+One-tick rationale относится к двум идеальным меткам, округлённым до ближайшего
+тика, не к реальной точности WASAPI. В feedback входят и остаток Sinc, и
+численные погрешности; универсальный long-duration double bound ещё не доказан.
+Independent reviewer принял этот эксперимент условно, не нормативный §5.
+
+Первое independent review предупредило: сравнительный PASS сам по себе может
+скрыть одинаковую потерю во всех вариантах. Следующий driver проверил независимо
+полные nominal границы kernel support, непустоту, PTS/count обоих источников
+и число480-frame блоков.66прогонов/44сравнения PASS, max_error0; reviewer
+проверил формулы для11rates точной рациональной арифметикой. Dynamic ratio и
+другие origins этим не охвачены.12/12actual-native-AEC metrics и13healthy,
+6eight-ms faults, отдельные adjacent/backlog negatives также PASS.
+
+**Alternatives considered:** увеличить sample tolerance, исключить нечётные
+частоты, отключить controller для всех входов, публиковать только удобный
+480-frame prefix — не выбраны. Команда меняется минимально, existing mapper/
+phase/step/staging проверки неизменны; доказательства ограничены generated
+native chain. Продуктовая запись/VM clock_drift/SC003/полный дизайн не приняты.
+
+## Round170 — first origin и фактические native kernel boundaries
+
+**Decision:** сохранять strict ideal FAIL отдельно, а полноту реально выдаваемого
+native диапазона проверять непосредственно по actual convolution read window,
+не только по зеркальному double cursor или ideal rational формуле. Не менять
+допуски часов, sample tolerance либо библиотеку ради совпадения двух моделей.
+
+**Rationale:** firstorigin0/8k/count400 дал SourcefirstPTS97/generated2311,
+тогда как ideal oracle ожидал96/2310; длина2214 одинаковая. Независимое чтение
+фактического input_ptr с прежним native convolution вызовом показало j96 window
+[-1,30],j97[0,31],j2310[368,399],j2311[369,400]. Поэтому Source правильно
+исключает unobserved startup и сохраняет полный настоящий хвост.
+Это numeric distinction, не доказательство hardware dropout/Sourceloss.
+
+Матрица11rates×6QPCorigins×6start offsets×3partition/drain variants:
+1188complete Source runs/native references PASS по границам/длине/значениям
+с existing1e-5,792partition comparisons exact0. Full native reference equality
+не объявлена bitwise0 по всей matrix; вывелись только subsetreferror0.
+Source raw admission/control/guards unchanged; controllable generatedq0,
+checked fixture integer sum и relative-only phase measurement добавлены отдельно.
+Исследовательский seam использует существующий FRIEND_TEST без patch/newlib;
+он последовательный, не гарантирует exception reuse/nonfinite/concurrent tests.
+Reviewer по source узко Approved; native runs выполнял основной агент.
+
+First-origin conversion имеет отдельный integer proof: q×3/625,period625,
+maxG88544371553805848,maxremainderproduct479999952000,absresidue<=4992000,
+firstRatio>=nominal×0.5008. BigInt cross-check3491q/6epochs совпал с current
+quotient/remainder формулой. Largeabsolute metadata проверены отдельно от
+large elapsed/input counts; последние и dynamic saturation ещё открыты.
+
+**Alternatives considered:** epsilon-расширение support bounds, округление
+курсора перед публикацией, принудительная выдача unobserved startup, patch Sinc,
+переписывание retained FAIL в PASS — не выбраны. Проверяем фактическое закреплённое
+ядро, сохраняем оба результата и не меняем normative§5 без полного review.
+
+## Round171 — малый остаток и локальный центр вместо больших double
+
+**Decision:** в research successor считать масштабированные целые значения
+через quotient/remainder, объединять целочисленные residuals до double;
+соседний step считать из packet delta и сохранять integer local native center.
+Предел input2^52 взят из существующего AudioNormalizer, не выбран заново.
+
+**Rationale:** на16896 введённых matched numeric states старые формулы дали
+2003 ложные команды/949 несовпадений центра. Первый найденный old feedback
+−0.09375 при rate8000/accepted281474976710657 вместо0; base281474976710640 и
+index16.98 также округлялись на соседний центр. Это крайне большие counters,
+не наблюдавшаяся ошибка короткой записи. До1h maxoldfeedback1.1920928955e−7;
+для всей матрицы stablemax7.1054273576e−15. Native reachable state/длительная
+запись не доказаны. На этой матрице naive split residuals тоже не дали false
+command, их дефект без отдельного counterexample не утверждается.
+
+Общий helper проверяет domain/overflow/nonfinite до преобразований.10 guard
+checks, actual native support792comparisons/1188runs,quality12 и прежние
+healthy/jump/adjacent/backlog scenarios PASS. Подробности/fingerprints находятся
+в validation Round171; нельзя переносить эти результаты на старый installed EXE.
+
+**Alternatives considered:** увеличение one-tick зоны/clock budget, перевод
+native cursor в ideal rational модель и переписывание старого FAIL не выбраны.
+Нет необходимости менять pinned native library или добавлять зависимость.
+Полный clock design/§5 и причина raw VM clock_drift пока не приняты/не решены.
+
+## T119: один нативный Join вместо запуска snapshot URL — 2026-10-02
+
+**Decision:** повторить F279 resolver/one-operation/fresh browser recovery через
+существующий Windows transport/bridge/dispatcher, без второй web страницы.
+**Rationale:** на master721b5125d799ea798a4af0b3625e18d3c1109039 Mac
+EmbeddedCabinetCalendarJoinBridge принимает exact action/eventId/requestId с
+двумя UUID, требует main meetingList document и ревалидирует session/document.
+CalendarMeetingOpener использует один eventOpening, fresh GET и явное browser
+recovery. Windows AppMain пока открывает snapshot meetingUrl через ShellExecute;
+WebViewBridge принимает лишь шесть intents, join-target в DesktopApiClient нет.
+Это подтверждённое отсутствие общего сценария, не проблема Windows web дизайна.
+
+Для Windows используется штатный
+[Launcher.LaunchUriAsync](https://learn.microsoft.com/en-us/uwp/api/windows.system.launcher.launchuriasync):
+bool подтверждает передачу приложению, не подключение к встрече; API доступен
+desktop caller. Для явного browser-only пути
+[IgnoreAppUriHandlers](https://raw.githubusercontent.com/MicrosoftDocs/winrt-api/docs/windows.system/launcheroptions_ignoreappurihandlers.md)
+исключает HTTPS app handler и выбирает default browser. Native installed
+associations всех трёх продуктов ещё НЕ проверены. Новый URI scheme/path по имени
+продукта не выдумывается; успешная compilation не считается native parity.
+
+**Alternatives considered:** snapshot URL/старый 303, общий ShellExecute browser
+retry, generic run_process/web URL, отдельный HTTP client и Windows HTML copy
+отвергнуты: stale access, повторный app handler, лишние полномочия или дублирование.
+Спецификация/bridge/data-model/plan/quickstart уточнены; reviewer/analyze/code/live
+остаются дальнейшими проверками, clock/storage/billing не приняты этим решением.
+
+[QueryUriSupportAsync](https://learn.microsoft.com/en-us/uwp/api/windows.system.launcher.queryurisupportasync)
+проверяет поддержку URI и для desktop applications. До custom-scheme launch
+отсутствие handler отличается от unknown/error; нельзя отправлять пользователя
+в Store вместо браузерного сценария Mac. Resolver ограничен общим15s deadline.
+В Windows11 VM без запуска URL проверены создание WinRT LauncherOptions и
+IgnoreAppUriHandlers=true (exit0, BROWSER_ONLY_OPTION=True). Первая PowerShell
+попытка без WinRT type metadata и encoded argv завершилась exit1; исправлен только
+способ диагностического вызова. Это доступность свойства, не compilation C++
+продукта, не проверка native client/browser launch и не приёмка T119.
+
+## Round174 — явная association key: проверка механизма, не Телемоста
+
+**Decision:** оставить `SEE_MASK_CLASSKEY` исследовательским кандидатом для
+передачи неизменной HTTPS ссылки известной регистрации Windows-клиента.
+Продуктовый Launcher contract не заменён; U1 и T119 остаются открытыми.
+
+**Rationale:** текущий VM `AssocQueryStringW` с IS_PROTOCOL и отдельно
+FIXED_PROGID для telemost вернул существующий объект Parallels `.ico`, не native
+EXE. Это lookup, не доказательство фактического запуска ОС. ByKey query от явно
+открытой read-only HKCU Classes key вернул YandexTelemost.exe, product Yandex
+Telemost, Authenticode Valid. Native App Paths для EXE в HKCU/HKLM не найдены.
+Полные command templates, локальные пути и частные ссылки не записаны.
+
+[SHELLEXECUTEINFOW](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/ns-shellapi-shellexecuteinfow)
+поддерживает явную association key с KEY_READ, отдельно от default handler.
+Собственный одноразовый класс/консольный sink без App Paths/UseUrl получил4/4
+синтетических HTTPS ссылки: root, percent-encoded quote/query/fragment,
+percent-encoded UTF-8 и double-encoded value. Args=2, UTF-8 length/SHA-256 точно
+совпали; процессы завершились, exit0. `unicode` содержит percent-encoded UTF-8,
+не буквальные Unicode символы. Это доказывает механизм лишь для собственного
+обработчика, не принятие HTTPS настоящим Телемостом или подключение к встрече.
+
+Cleanup запрещён до dispatch и разрешён только при известном process_complete.
+Exception/unknown сохраняют собственные keys и прекращают следующие cases.
+Receipt атомарный; ожидание Stopwatch вместо wall clock. Process/receipt waits
+не ограничивают ShellExecuteEx, whole-call deadline не заявлен. Reviewer принял
+две правки исходников, не runtime/native/product результат. Последующая отдельная
+read-only проверка точного fixture ID подтвердила отсутствие keys и sink процессов.
+
+**Alternatives considered:** угадывание custom URI/EXE, ручная process command,
+смена defaults и признание HTTPS Available доказательством native parity не
+выбраны. Открытая key не фиксирует её значения/EXE; выбор актуального получателя
+и фактическую поддержку HTTPS нужно проверить отдельно. Existing
+WindowsTargetDetector/VerifiedTargetRegistry не заменяются второй системой
+определения приложений; просмотр их кода не означает готовый launcher.
+Mac locked, реальные приложения/URL/встречи/микрофон не запускались. Defaults,
+UAC и постоянная PowerShell policy не менялись. Детали/hash — validation
+2026-10-02, Раунд174; полный план и нормативный bridge не изменены.
+
+## Round175 — насыщение команды нативного Sinc
+
+**Decision:** отдельно проверить ранее не достигавшийся предел controller
+±500ppm, не повторять12 прежних quality cases и не менять raw clock allowance.
+Текущий NumericPhaseSource сохранён; исследовательский derivative меняет только
+подключение прежнего helper и amplitude metadata noise4000→8000ticks.
+
+**Rationale:** actual native Sinc, split residual arithmetic, прежние raw mapper/
+innovation/step guards и Source drain прошли22 cases:11rates8–192k, два firstQPC
+origin, physical−100/+100ppm, jitter0.8ms. Обе команды каждого Source достигли
+−500/+500ppm; каждый case дал399 непрерывных480-frame blocks без trim и max
+generated phase error<=0.210121ms. Завершение проверяет full-support по прежнему
+Source cursor и bitwise equality двух EOS fillers. Независимого наблюдения
+реального convolution input_ptr в этом новом saturation запуске нет.
+
+**Alternatives considered:** увеличение timestamp/phase guards, сброс cursor
+при saturation, повтор старой shortquality матрицы вместо насыщения и объявление
+проверки SC003 не выбраны. В driver используется IdentityStage/zero generated
+signal, не actual AEC execution: quality preservation им не доказывается.
+Fixed около10ms packets/4s duration не покрывают variable/long/ownedFIFO/Stop.
+Build/run exit0; wrapper фиксирует2 sources+helper, не все transitive sources/
+linked libraries. Это не hermetic build attestation. Narrow source review
+направлен тому же живому reviewer, пока не завершён; нормативный §5 не изменён.
+
+## Round176 — фактический native запуск и причина фазового отказа
+
+**Decision:** сохранить launcher как исследовательский кандидат до проверки
+сценария подключения; проверить увеличение силы коррекции, а не допуска ошибки
+часов. Это продолжение high-risk speckit-plan Phase0, не готовая реализация.
+
+**Rationale:** Mac разблокирован. Fixed public root через read-only явную
+association key открыл домашнее окно настоящего Windows Yandex Telemost
+2.42.4.9707. Отдельно подтверждены один процесс/одно окно, соответствие пути
+проверенной регистрации и Valid signature. Встреча/микрофон/Record не запускались.
+Обработчик Parallels по умолчанию не менялся. Это не доказательство Join
+произвольной допустимой ссылки, URL fidelity клиента или отсутствия гонки
+проверки регистрации с запуском; U1/T119 остаются открытыми.
+
+Generated quality test при jitter0.8ms,12s,48000/44100 Hz выявил отказ старой
+команды±500ppm: innovation48.1112550067frames на packet471 микрофона, raw mapper
+здоров, adjacent step14.1744 и staging отказа нет. Три номинальных quality cases
+PASS, следующая пара−100/+100ppm остановлена до оценки качества. Скалярная
+рекуррентная модель с проверкой innovation ДО обновления correction воспроизвела
+первое пересечение на packet471; она не наблюдает native cursor/rounding.
+
+Derivative с единственным runtime изменением clamp±1000ppm прошёл actual
+native Sinc/AEC3 quality12/12 без изменения thresholds и с дополнительным
+generated phase<=1ms assert. Все1199blocks/case непрерывны, trim0/0;
+maxinnovation43.424079frames, maxphase0.122486ms. Положительный результат
+обосновывает дальнейшую проверку управления, не принятие §5/SC003/rawVM.
+Source review round175 узко Approved; он не закрывает четыре design gap:
+смысл выходного PTS/отказов, dynamic partition independence, owned FIFO,
+полный пригодный хвост принятого входа перед Stop/EOS.
+
+**Alternatives considered:** увеличение допустимой ошибки, пропуск guard,
+обвинение VM/AEC без причинного доказательства и признание короткого zero test
+доказательством качества не выбраны. Исходный Source и failure log сохранены;
+новые источники находятся вне Git. Нет новой зависимости, смены установленного
+приложения, серверной/macOS логики или политики безопасности.
+
+Последующее узкое source review derivative Approved, mandatory P1/P2 нет.
+Сохранённый отказный corpus повторно прошёл13 healthy/6jump/1adjacent/1backlog,
+включая terminal повторные вызовы; amplitude4000ticks для variable fixtures
+сохранена явно. Это не variable0.8ms/productionStop/hardware proof и не закрытие
+четырёх design gap. Точные hashes и ограничения — validation round176.
+
+## Раунд 177 — длительный потоковый generated стенд
+
+**Decision:** продолжить проверку Command1000 без переноса в продукт. Один час
+искусственного сигнала прошёл actual native Sinc → RecordingAudioTimeline →
+native AEC3 без хранения массива записи или звуковых файлов. Пара 48000/44100 Hz,
+physical−100/+100ppm, metadata jitter0.8ms, фиксированные пакеты около10ms;
+timeline ограничен4800frames на источник. Это одна пара, не полная матрица.
+
+**Rationale:**359999 непрерывных блоков/3599.99s; разница длительности10ms,
+trim0/0, maxphase0.122556ms, maxinnovation43.435980frames. Пиковый unread512/504,
+anchors2/2. RMS render сравнивается с аналитическим уровнем генератора, не с
+независимым Mac recording. Память измерена только отдельными snapshots; CPU
+всего приложения, real-time scheduling и бюджет памяти продукта не доказаны.
+
+**Alternatives considered:** накопление часового массива и объявление такого
+прогона реальной SC-003 приёмкой не выбраны. Нет WASAPI, writer/WAV/M4A,
+пользовательского звука, installed update, Stop5s/fence или аппаратной проверки.
+Source не изменён; wrapper не закрепляет все transitive inputs/toolchain.
+Четыре design gap и исходный VM clock_drift остаются открытыми. Fingerprints,
+первый compile failure и границы доказательства — validation round177.
+
+## Раунд 178 — воспроизведена зависимость dynamic команды от входных пакетов
+
+**Decision:** Command1000 не принимать для продукта по long/quality PASS.
+Новый counterexample закрывает неизвестность существования dynamic partition
+регрессии, но не устраняет её. Один неизменный сигнал/first QPC/count при
+constant physical−100/+100ppm, без metadata jitter и со всеми raw guards,
+в вариантах fixed/variable/one-frame даёт разные значения при controller=true.
+
+**Rationale:** на44100/48000Hz за0.5s8 из24 сравнений FAIL при прежнем допуске
+0.00001; maxerror0.00257591158152. Начало и длина совпали. Все12 comparisons
+controller=false и4 nominal controller=true PASS с error0. Отдельный derivative
+оставил drain480 для всех input partitions: те же8 failures/численные ошибки.
+Следовательно, varying caller drain limit не необходим для воспроизведения.
+Здесь source signal и rounded continuous QPC одинаковой physical модели;
+меняется sampling/admission cadence metadata, не waveform generator.
+
+**Alternatives considered:** расширить error tolerance, отключить контроллер
+в продукте либо ограничить норму §5 только nominal case не выбрано. Нужен
+согласованный способ вычисления команды, не зависящий от произвольной границы
+пакета. Изменение команды на fixed processing grid — лишь направление для
+исследования: пока не выбраны lookup/lookahead/rounding/EOS правила и bounds.
+IdentityStage вместо AEC используется намеренно, независимые dynamic full-
+support bounds не доказаны. Fingerprints/exit codes — validation round178.
+
+Независимый reviewer предложил сохранить FIFO/Sinc у существующего worker
+и изменить admission/producer-complete/EOS порядок вместо переноса raw queue
+в dispatcher. Это минимальное размещение без нового worker/service, но не
+готовый проект: queue/tail capacities, output после Stop, прежний healthy tail
+после новой fault метки и preparation/recorded граница требуют доказательства.
+Предложение и ограничения сохранены в candidate contract; оно не принимается
+как разрешение runtime или как решение нового partition failure.
+
+## Раунды 179–180 — фиксированная сетка и точные неноминальные метки
+
+**Decision:** исследовать перенос команды на каждые480 generated output frames,
+не снимать partition gate. Numeric interpolation на11rates/3linear patterns/
+2origins прошла66cases/2676grid points; maxtruth error0.5tick, разность между
+partitions0.954143tick. Однако offline native grid с повторным rounding дал
+1/24FAIL, сохранение fractional QPC —4/24FAIL. Следовательно, простой перенос
+на сетку/удаление rounding не считается исправлением rounded cases.
+
+**Rationale:** независимое чтение §5 не нашло nominal-only исключения, но
+различило точные метки и их округление. Дополнительная fixture убирает эту
+неопределённость: declared48001Hz/physical48000Hz (−20.833ppm), QPC=n*625/3,
+все packet starts кратны3; asserts подтверждают целые точные метки без jitter.
+Прежний packet-cadenced controller FAIL2/4 с maxerror0.000456225127;
+fixed-grid fractional controller PASS4/4/maxerror0 при прежнем допуске0.00001.
+Одинаковые start/count/generated. Это локализует самостоятельную cadence
+ошибку: QPC quantization не необходима для её воспроизведения.
+
+**Alternatives considered:** расширение допуска, nominal-only трактовка,
+признание заранее известной будущей метки живой опорой или исключение хвоста
+не выбраны. Grid опыт намеренно preload-ит metadata и заранее знает конец:
+команда заморожена на последних4800input frames, Source выдаёт свой хвост
+полностью. Это не bounded live FIFO/Stop/EOS либо quality/SC-003. Нужны
+causal availability/latency/bounds/unknown-end правила и работа с неопределённостью
+меток. Mac использует исходный CMSampleBuffer PTS, не callback time; готового
+такого fixed-grid helper в прочитанных capture clock paths не найдено.
+Frozen Source round176 не изменён; ExactGridSource меняет лишь fixture-profile
+и разрешённые кратные3 partitions. Fingerprints/границы — validation179–180.
+
+## Раунды 181–183 — причинный bounded grid без предзагрузки
+
+**Decision:** заменить только внешний prototype: Sinc получает реально
+скопированный owned ring, команда на480-output cell использует уже принятые
+packet-start anchors с lookahead4800. EOS hold-tail появляется после фактического
+EOS, не из заранее известного конца. Source/grid fixed buffers16384 находятся
+на heap; initial stackoverflow сохранён как отрицательный запуск. Product
+worker/normalizer/dispatcher ещё не меняются. Exactprofile PASS4/4 на0.5s и3s;
+на3s190 fractional projection cells, error0. Фиксированная непрерывная
+неноминальная шкала больше не требует заранее загруженных будущих опор.
+
+**Rationale:** read-only review допускает техническое разделение precise/noisy
+observations без исключения неноминальной шкалы либо округления из требований.
+Rounded matrix11rates/3linear patterns/three partitions проходит guards, но
+11/132 waveform comparisons FAIL при прежнем0.00001. Этот FAIL и historical179
+не заменены новой интерпретацией PASS. Nominal44100 regression/rounded±100ppm/
+jitter/AEC quality/SC-003 сохраняются. Uncertainty model и measurable quality
+behaviour остаются техническим проектом, не выбором пользователя ослабить звук.
+
+**Alternatives considered:** увеличивать tolerance, считать raw envelope quality
+proof, использовать future generator metadata либо fixed4864 input bound не
+выбрано. Новый cap16384/peak10045 — только research limit/measurement, не
+принятый app allocation/latency guarantee. Нужны worst-case capacities, настоящая
+admission/Stop/producer completion цепь и independent full-support completeness.
+IdentityStage не доказывает AEC; sources/receipts — validation181–183.
+
+## Раунды 184–185 — получатель ссылки и качество причинной звуковой сетки
+
+**Decision:** предварительный lookup + удерживаемый class handle нельзя считать
+закреплением прежнего получателя. Собственная ассоциация A→B при открытом ключе
+запустила B с точным синтетическим URI; пользовательские defaults не менялись,
+ключ/процессы опыта отсутствуют после завершения. Узкий source review Approved,
+но T119/U1 остаются открытыми. Нельзя заменить доказательство конкретного
+клиента фактом successful ShellExecuteExW или домашним окном Telemost174/176.
+
+**Rationale:** causal grid теперь проверен с actual AEC3, не IdentityStage.
+Повторно использованы quality fixtures/thresholds:12/12PASS на rounded0.8ms
+noise,48000/44100Hz и четырёх прежних physical patterns. Mirrored-cursor phase<=.142306ms,
+echo reduction>=21.980963dB, near correlation>=.9997597, double-talk>=27.014941dB,
+trims0/0 наблюдаются, но не asserted; owned peak5324/cap16384. Это measurable
+AEC quality только fixed packets, не независимая проверка timing до Sinc;
+historical rounded partition FAIL остаются, uncertainty model ещё не принят.
+
+**Alternatives considered:** ослаблять waveform/quality/clock tolerances,
+объявлять registry handle неизменяемым снимком либо считать synthetic quality
+живой записью не выбрано. Следующий шаг — те же quality gates на переменных
+пакетах и interval/physical-truth proof; product FIFO/Stop/custody и installed
+UI остаются отдельными gates. Fingerprints/exit codes — validation184–185.
+
+Переменные пакеты с той же0.8ms noise остановились до quality verdict:
+adjacent step53.109frames>48; raw/staging не причина. Отказ не переименован в
+PASS. При metadataNoise=false, но rounded100ns,12/12 прежних quality gates
+проходят, mirrored phase<=.100103ms/owned peak10086. Это отделяет adjacent noise
+refusal от clean variable quality, не решает uncertainty/partition invariant
+и не исключает jitter из покрытия. Fingerprints — validation186.
+
+Round187 дополнил9run/18gate actual AEC независимым наблюдением fractional
+позиции настоящего Sinc через existing test seam, без изменения pinned library
+или feeding truth в controller. Система48000/−100ppm,mic44101/+100ppm,q0/q±0.8ms,
+12s/fixed packets. Actual phase<=.121870ms, physical near corr>=.998522,
+gain≈−.5047dB, render gain≈−.1271dB; прежние echo/near/doubletalk thresholds PASS.
+Received slope intervals содержат independent constant physical truth; E
+только fixture premise, exact known origin не uncertain anchor subtraction.
+Это не замена waveform invariant/variable jitter/Stop/FIFO/SC-003; historical
+FAIL остаются. Fingerprints и границы — validation187.
+
+Round188 исправил два P2 truth driver (повторный detach при counter failure и
+неполный passed), сохранив old bytes. Follow-up review Approved,9/9runs/18gates
+PASS воспроизведены. Общий+2ms PTS shift отказан точной actual-time причиной;
+counter mismatch после detach отказан корректно, без crash. Это проверяет
+детектор и error path, не новый audio tolerance. Current accepted research
+driver — CausalQualityTruthReviewed, не первоначальный truth source. Product
+adoption/unknown-end/full-support/FIFO/Stop/custody/live gates остаются открыты.
+
+## Раунды 189–190 — фактическая поддержка и пределы причинного буфера
+
+**Decision:** сохранить received-only grid как исследование, не подключать к
+продукту. Independent actual native kernel proof прошёл47/47 и source review:
+проверены поддержанные значения/PTS/common full blocks и фактический следующий
+образец после раннего EOS. Умышленно отброшенный хвост обнаружен точной причиной.
+EOS наступает после целого accepted packet, не точного порога; zero-packet EOS/
+31–32 границы не покрыты. Это completeness фактической последовательности,
+не correctness команд/AEC/production Stop. float== не отдельный bit identity.
+
+**Rationale:** source capacity audit выявил зависимость границы памяти от
+обслуживания и накопленного100ppm отставания; innovation48 не ограничивает n−C
+постоянной. Frozen grid q<1e9ticks ограничен<100s; условный high-rate bound16710
+не доказывает ни достаточность16384, ни достижимое переполнение. Actual native
+опыт неизменных Source/Grid достиг10075 unread на8000Hz до первого вывода без
+EOS, опровергая4864. Delayed consumer отказал35-й480packet при16320 unread без
+перезаписи input/metadata/позднего продвижения. Это fail-closed, не обещание
+здоровой записи при произвольной задержке потребителя. Conditional lookahead
+latency600ms на8000Hz/25ms на192000Hz не пользовательский SLA.
+
+**Alternatives considered:** увеличить буфер по измеренному peak, ослабить guards,
+переименовать healthy-prefix capacity refusal в PASS записи или объявить
+короткий low-rate EOS тест открытым controller proof не выбрано. Следующий
+минимальный вопрос — достижимая high-rate граница и численная/lifetime область
+контроллера; waveform11/132FAIL/variable-noise/rawVM refusals сохраняются.
+Production twoEOS/Stop/writer/custody/SC-003/installed UI остаются отдельными.
+Полные hashes/premises/exits и границы source review — validation189–190.
+
+## Раунды 191–193 — достигнутый рост FIFO и обратная QPC-проекция
+
+**Decision:** nominal-input readiness не годится как bounded длинный тракт:
+actual native192000Hz/−100ppm/variable healthy input достиг staging refusal
+примерно332.64s при unread15927+next480>16384 даже с полным drain после каждого
+приёма. Сначала frozen grid отказал своим<100s fixture domain; отдельная
+одно-строчная расширенная research область<3601s позволила отделить эти причины.
+Целочисленный residual безопасен в рассмотренной часовой области по условному
+source review,но native accumulation/quality/hardware этим не доказаны.
+
+**Rationale:** nominal n−consumed C накапливает drift внутри owned input.
+Readiness по полученному QPC/output grid времени и обратная соседняя q→input
+проекция устраняют эту причину в Ready600s generatedZero:peak10043,два finished/
+timeline close/59999blocks. Первый Qpc вариант ошибся на ещё пустом втором
+источнике: FAIL сохранён,Ready допускает wait только до первого accepted packet,
+не ослабляет origin/lost metadata. Pruned дополнительно делает cleanup общим
+для controlled/uncontrolled/holdTail; Ready600s не переносится на него.
+Pruned прошёл unchanged47actual-support и negative-tail checks. Однако waveform
+matrix132 дала20FAIL при прежнем.00001,хуже прежних11FAIL. Номинальные44 и
+uncontrolled66 сравнений PASS/error0,но это не снимает nonnominal rounded gate.
+
+**Alternatives considered:** увеличить cap,ослабить timestamp/phase/waveform
+пороги,считать zero PCM качеством AEC или заменить старые FAIL новой успешной
+длительностью не выбрано. QPC inverse prototype пока не принимается в runtime.
+Дальнейший вопрос — отделить measurement quantization/uncertainty от cadence
+waveform invariance с прежними требованиями,после этого quality/длительный
+actual Pruned/полный FIFO bound/production Stop/custody/live. Старые artifacts
+и отрицательные результаты сохранены; details/hashes/source review — validation191–193.
+
+## Раунды194–196 — временной fit и native kernel boundary
+
+**Decision:** принятие inverse-QPC runtime по-прежнему отложено. Weighted
+local fit n(q) по полученным metadata уменьшил прежние20/132FAIL до13,но
+.00001 не пройден. Actual convolution trace локализовал максимальный spike
+по разные стороны integercell; отдельное одноratio endpoint сравнение
+воспроизвело4.3008476e−5 gap безcallback/WASAPI/частного звука.
+
+**Rationale:** это независимый отVM timestamp источник waveform error в одном
+случае,не универсальная причина всехrefusals. Minimal external window trial
+делитель31/zeroedges уменьшил matrix до5FAIL,но изменил windowcenter15.5vs
+sinc16 и частотную характеристику. Остаточный actualtrace worstnearEOS
+в однойintegercell,positiondelta.00044581189frames,поэтому нужны rounding/
+uncertainty/heldcommand объяснение и корректная симметрия фильтра.
+Математика exactaffinefit/sourcecausality одобрена только read-onlyresearch;
+roundedpartition/cap16384/quality/Stop sufficiency этим не доказаны.
+
+**Alternatives considered:** менять .00001,rawclock guard,считать native0
+диагностики waveformPASS,внедрить окно безqualityreview или объявить
+Parallels единственной причиной не выбрано. Следующий опыт должен опираться
+на обнаруженный временной остаток,не произвольный перебор настроек. Source/
+hashes/native exits/границы независимогоreview — validation194–196; noadoption.
+
+## Раунды197–199 — до-EOS bias и constant-period interval probe
+
+**Decision:** runtime не принимать. Actual received-fit/native-position trace
+показал расхождение ещёнаopen stream;holdTail только сохраняет/увеличивает его.
+Простейшее пересечениеperiod bounds отпринятыхquantized anchors сократило
+132matrix до1FAIL при прежнем .00001,ноconstantperiod/exactfirst/.5tick
+premises относятсякгенератору,неWASAPI. Это не новыйузкийцелевойпродукт.
+
+**Rationale:** point interpolation treats разныеrounded anchor sets какточную
+геометрию,давая небольшойbias даже без потерикадров. Interval model сохраняет
+полученные ограничения вдвухчислах инеиспользуетfixturetruth;разныеfeasible
+intervals всёравноимеют разныеmidpoints. Outward quotient/firstn0/domain guards
+и3checks улучшили численнуюзащиту,неубралипоследнийwaveformFAIL. Исходный
+синтаксическийcompilefail сохранён;fixedsourceconditionalreview неhardwareproof.
+
+**Alternatives considered:** увеличитьtolerance/gainhorizon,обвинитьтолькоEOS,
+подменить noisy/changingWASAPI clock идеальнымconstantperiod илисчитать131PASS
+полнойматрицейневыбрано. Next:доказатьclockuncertainty/неизвестное начало и
+совместимость exactcontinuousmapping,затемquality/kernel/lifetime/Stop/custody.
+Details/sourcepremises/exits/fingerprints — validation197–199.
+
+## Раунды200–202 — симметрия фильтра и границы идеальных часов
+
+**Decision:** симметричный native window prototype остаётся исследовательским;
+constant-period/exact-first вариант не выбирать общим решением для устройств.
+
+**Rationale:** окно с центром16+fraction и поддержкой[1,31] прошло5445 native
+coefficient/endpoint checks, но прежняя Fit matrix сохраняет5/132 FAIL.
+Девять generated quality/physical случаев именно нового EXE дали18/18 PASS
+с actual AEC,0/±.8ms noise; полного спектра и переменных packet boundaries
+это не доказывает. Четыре metadata-only примера, все принятые actual mapper,
+обнуляют пересечение ideal affine bounds при неизвестной первой дроби,
+first-only measurement error, changing rate и шуме. Одного численного
+расширения outward quotient для реальных часов недостаточно.
+
+**Alternatives considered:** сохранять смещённое окно31, увеличить .00001,
+поменять raw guard или объявить частный quality PASS общей приёмкой не выбрано.
+Следующий проект — общий causal clock расчёт с неизвестной первой опорой и
+изменением частоты; реальные требования, bounded memory и Stop сохраняются.
+Source/VM verdicts/failure history/fingerprints — validation200–202.

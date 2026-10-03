@@ -13,9 +13,19 @@ file(GLOB_RECURSE GRAF_WINDOWS_COMMON CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Native/GrafAEC3/GrafAEC3.cpp")
 list(FILTER GRAF_WINDOWS_COMMON EXCLUDE REGEX ".*/AppMain\\.cpp$")
+list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Storage/Sha256.cpp")
+list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Storage/ProtectedCustodyFiles.cpp")
+list(REMOVE_ITEM GRAF_WINDOWS_COMMON "${CMAKE_CURRENT_SOURCE_DIR}/RecApp/Storage/ProtectedCustodyPrimitives.cpp")
 
 set(GRAF_WINDOWS_TESTS
     "Tests/GrafWindowsCoreTests/ContractFixtures.cpp"
+    "Tests/GrafWindowsCoreTests/Sha256Tests.cpp"
+    "Tests/GrafWindowsCoreTests/ProtectedCustodyCodecTests.cpp"
+    "Tests/GrafWindowsCoreTests/ProtectedPackedCustodyFormatTests.cpp"
+    "Tests/GrafWindowsCoreTests/ProtectedPackedCustodyCodecTests.cpp"
+    "Tests/GrafWindowsCoreTests/ProtectedPackedCustodyOwnerTests.cpp"
+    "Tests/GrafWindowsCoreTests/ProtectedPackedCustodyTreeTests.cpp"
+    "Tests/GrafWindowsCoreTests/ProtectedCustodyFilesTests.cpp"
     "Tests/GrafWindowsCoreTests/WindowsDesktopSessionTests.cpp"
     "Tests/GrafWindowsCoreTests/RecordingAudioTimelineTests.cpp"
     "Tests/GrafWindowsCoreTests/DesktopUploadQueueV2Tests.cpp"
@@ -49,6 +59,22 @@ set(GRAF_WINDOWS_TESTS
     "Tests/GrafWindowsPackageTests/RecordingIndicatorTests.cpp")
 
 enable_testing()
+add_library(graf_windows_hash OBJECT "RecApp/Storage/Sha256.cpp")
+add_library(graf_windows_custody_files OBJECT "RecApp/Storage/ProtectedCustodyFiles.cpp")
+add_library(graf_windows_custody_primitives OBJECT "RecApp/Storage/ProtectedCustodyPrimitives.cpp")
+target_compile_options(graf_windows_custody_primitives PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
+target_compile_options(graf_windows_custody_files PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
+target_compile_options(graf_windows_hash PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
+if(WIN32)
+    list(APPEND GRAF_WINDOWS_TESTS "Tests/GrafWindowsCoreTests/NativeHashFailureTests.cpp")
+    list(APPEND GRAF_WINDOWS_TESTS "Tests/GrafWindowsCoreTests/NativeCustodyProtectionFailureTests.cpp")
+endif()
 add_library(graf_windows_common OBJECT ${GRAF_WINDOWS_COMMON})
 target_include_directories(graf_windows_common PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/RecApp"
@@ -59,6 +85,17 @@ target_compile_options(graf_windows_common PRIVATE
 foreach(test_source IN LISTS GRAF_WINDOWS_TESTS)
     get_filename_component(test_name "${test_source}" NAME_WE)
     add_executable("${test_name}" "${test_source}" $<TARGET_OBJECTS:graf_windows_common>)
+    # Native fault tests compile the real SHA source with TU-local CNG wrappers.
+    if(NOT WIN32 OR (NOT test_name STREQUAL "NativeHashFailureTests" AND NOT test_name STREQUAL "ProtectedCustodyFilesTests"))
+        target_sources("${test_name}" PRIVATE $<TARGET_OBJECTS:graf_windows_hash>)
+    endif()
+    if(NOT WIN32 OR (NOT test_name STREQUAL "ProtectedCustodyFilesTests" AND NOT test_name STREQUAL "ProtectedPackedCustodyOwnerTests"))
+        target_sources("${test_name}" PRIVATE $<TARGET_OBJECTS:graf_windows_custody_files>)
+    endif()
+    # This executable compiles the real primitive with TU-local DPAPI wrappers.
+    if(NOT WIN32 OR NOT test_name STREQUAL "NativeCustodyProtectionFailureTests")
+        target_sources("${test_name}" PRIVATE $<TARGET_OBJECTS:graf_windows_custody_primitives>)
+    endif()
     target_include_directories("${test_name}" PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/RecApp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Native/GrafAEC3")
@@ -66,7 +103,7 @@ foreach(test_source IN LISTS GRAF_WINDOWS_TESTS)
         $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/EHsc;/utf-8>
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
     if(WIN32)
-        target_link_libraries("${test_name}" PRIVATE mfplat mfreadwrite mfuuid ole32 avrt advapi32 shell32 winhttp wintrust bcrypt ws2_32)
+        target_link_libraries("${test_name}" PRIVATE mfplat mfreadwrite mfuuid ole32 avrt advapi32 shell32 winhttp wintrust bcrypt crypt32 ws2_32)
     endif()
     add_test(NAME "${test_name}" COMMAND "${test_name}")
 endforeach()

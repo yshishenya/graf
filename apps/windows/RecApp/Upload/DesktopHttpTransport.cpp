@@ -174,8 +174,10 @@ std::optional<std::vector<LocalTrack>> packageTracks(const UploadCustodyItem& it
     if (std::filesystem::file_size(playbackPath, error) != *playbackBytes || error) return std::nullopt;
     if (durationMs.value() == 0 || durationMs.value() > 24ULL * 60 * 60 * 1000) return std::nullopt;
     *durationSeconds = static_cast<std::uint32_t>((durationMs.value() + 999) / 1000);
+    const auto manifestDigest = sha256File(manifestPath);
+    if (!isSha256(manifestDigest)) return std::nullopt;
     return std::vector<LocalTrack>{
-        {"manifest", manifestPath, "json", 1, 1, 1, manifestSize, sha256File(manifestPath)},
+        {"manifest", manifestPath, "json", 1, 1, 1, manifestSize, manifestDigest},
         {"media", mediaPath, "wav-pcm-s16le", 16'000, 1, *durationSeconds, *mediaBytes, *mediaDigest},
         {"playback", playbackPath, "m4a-aac-lc", 48'000, 1, *durationSeconds, *playbackBytes, *playbackDigest},
     };
@@ -585,7 +587,8 @@ DesktopTransportResult uploadFile(const DesktopHttpConfig& config, const Desktop
                                   std::array<std::uint64_t, 3>* accepted) {
     std::ifstream input(track.path, std::ios::binary);
     if (!input) return {DesktopTransportStatus::invalidPackage, std::nullopt};
-    if (sha256File(track.path) != track.sha256) return {DesktopTransportStatus::invalidPackage, std::nullopt};
+    if (!isSha256(track.sha256) || sha256File(track.path) != track.sha256)
+        return {DesktopTransportStatus::invalidPackage, std::nullopt};
     const auto partSize = std::clamp(config.partSizeBytes, std::size_t(64 * 1024), kMaxPartBytes);
     for (const auto range : ranges) {
         for (std::uint64_t offset = range.start; offset < range.end;) {

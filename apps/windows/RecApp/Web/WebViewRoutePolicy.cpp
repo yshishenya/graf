@@ -91,6 +91,8 @@ bool billingRoute(std::string_view path) {
     for (const auto allowed : {"/billing", "/billing/plans", "/billing/usage", "/billing/subscription",
         "/billing/payment-method", "/billing/checkout", "/billing/history", "/billing/discounts", "/billing/storage",
         "/billing/checkout/preview", "/billing/checkout/start", "/billing/discounts/apply", "/billing/discounts/remove",
+        "/billing/storage/preview", "/billing/storage/cancel-selection", "/billing/subscription/early-preview",
+        "/billing/purchases/confirm",
         "/billing/trial/activate", "/billing/payment-method/delete", "/billing/subscription/cancel",
         "/billing/subscription/resume", "/billing/checkout/return"}) if (path == allowed) return true;
     constexpr std::string_view status = "/billing/checkout/status/";

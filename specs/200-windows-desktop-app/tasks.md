@@ -499,3 +499,85 @@ F277 на 51bcff6b. Проверены FR-002/004/016, SC-002/004, решени�
 за которым pollHealth открывает приём без повторной проверки решения.
 
 - [ ] T113 [US1] Проверять окончательный допуск автоматического старта в `apps/windows/RecApp/Capture/WindowsCaptureSessionController.*`, `MeetingDetection/AutomaticRecordingPolicy.*` и `AppMain.cpp` непосредственно перед `starting → recording`/открытием приёма пакетов: решение относится к текущей сессии и поколению, цель/процесс/свежесть обнаружения/правило/готовность актуальны, отмена не принята. Не считать starting принятым стартом. Все пути pollHealth проходят один синхронный допуск; отказ завершает workers без writer append и без отправляемого пакета. Проверить задержанный второй worker со Stop/сменой правила/исчезновением или заменой процесса/устаревшим снимком; старое разрешение A не разрешает B, повтор не запускает дважды; после прерывания до допуска recovery и ручная отправка не вызывают transport; валидный старт/финализация/recovery сохраняются. Новое durable поле обязательно только если аудио допускается до окончательной проверки или появляется асинхронный промежуток: тогда pending/ошибка запрещают все upload/recovery пути. Выполнить автоматические регрессии и свежую проверку установленной сборки per FR-002/FR-004/FR-016, SC-002/SC-004, spec Session2026-09-28 / F277 FR-026–028 (partial, HIGH).
+
+## Phase 18: Convergence — защита всей локальной цепочки (2026-10-01)
+
+Самостоятельный high-risk срез хранения, отделённый от clock Phase0 по явному
+решению владельца 2026-10-02. До собственных gates код не разрешён.
+Проверены FR-012/013/014/022, SC-003/005/006/008, решения storage,
+playback и migration в plan/research и принципы II/III/IV/VI. Полная F200
+convergence не объявлена; прочие открытые задачи не дублируются.
+
+| Пробел | Тип / важность | Проверенный источник | Оставшаяся работа |
+| --- | --- | --- | --- |
+| E1: encrypted-at-rest full pipeline отсутствует | missing / CRITICAL | FR-012; V5LocalRecordingWriter пишет canonical/WAV и AAC по URL, AtomicFileStore пишет открытые bytes | T116: подключить полный защищённый поток, а не только manifest |
+| E2: combined storage/resource proof не закончен | partial / HIGH | plan: открытая Phase0; research: RQ30-H1 выбранный layout и арифметический proof | T114: проверить совместимость выбранного механизма и границы |
+| E3: финальный format/authority/lifetime contract отсутствует | missing / HIGH | plan: Phase1 ещё не завершена; data-model/contracts не определяют защищённый format | T115: принять protocol и требования до кода |
+| E4: restart-safe переход старого inventory отсутствует | missing / HIGH | FR-012/013/022; прямые file readers и существующие queue/deletion operations | T117: реализовать проверенный переход без потери старых данных |
+| E5: сквозная приёмка защищённого installed клиента отсутствует | missing / HIGH | FR-012; SC-003/005/006/008; нынешние тесты не проверяют полный ciphertext-only путь | T118: доказать защиту, совместимость и отказы |
+
+Итог: 5 находок (missing4/partial1; critical1/high4), 8 FR/SC, 3 решения
+плана, 4 применимых принципа. Новая cryptographic-erasure гарантия не вводится.
+T009/T022/T037/T038 остаются исторически выполненными в прежнем объёме;
+их отметки не принимают полную редакцию FR-012. T083/T087/T088 и T094–T096
+сохраняют своих владельцев. Это не повторная генерация прежних113 задач.
+
+Порядок: T114 → T115 → independent checklist review → read-only analyze →
+taskstoissues → T116 → T117 → T118. До завершения storage Phase0/Phase1 и
+его gates T116–T118 **не исполняются**. Clock T094–T096 и календарный T119
+не являются зависимостями реализации этого среза; их открытые проверки
+по-прежнему блокируют общую приёмку Windows и выпуск, а не разработку хранения.
+Analyze перед кодом проверяет весь storage-срез на отсутствие unresolved
+CRITICAL/HIGH; остальные открытые срезы явно перечисляет отдельно, без выдачи
+общего PASS. T114 — только disposable generated-data
+исследование, T115 — документация, не новая product implementation. Нет [P]:
+работы зависят друг от друга и затрагивают те же stream/queue boundaries.
+Новые issues до принятия executable design не создавались; старые не закрыты.
+
+Дополнение к исторической таблице Requirements traceability выше:
+
+| Требование | Новое покрытие, не доказательство выполнения |
+| --- | --- |
+| FR-012 | T114–T118: полный encrypted-at-rest поток и переход старых копий |
+| FR-013 | T114–T118: защищённая очередь, authority, quarantine и recovery |
+| FR-014 | T115, T116, T118: исходные logical upload bytes/ranges |
+| FR-022 | T115–T118: delete intent, pinned readers, подтверждённая очистка |
+| SC-003 | T114, T116, T118: bounded IO/memory и неизменённые audio/resource gates |
+| SC-005 | T115, T116, T117, T118: restart/reconcile и 100 циклов |
+| SC-006 | T114, T115, T116, T118: key/content boundary и safe failures |
+| SC-008 | T115, T117, T118: update/rollback и сохранность inventory |
+
+Владельцы независимого storage-среза, сверены 2026-10-02:
+[T115 — #7443](https://github.com/yshishenya/graf/issues/7443),
+[T116 — #7444](https://github.com/yshishenya/graf/issues/7444),
+[T117 — #7445](https://github.com/yshishenya/graf/issues/7445),
+[T118 — #7446](https://github.com/yshishenya/graf/issues/7446).
+Все issues открыты; связь не означает выполнение или приёмку реализации.
+
+Поправка2026-10-03: владелец принял изменение detection-time при media ACK.
+T115 переоткрывается для `contracts/windows-protected-packed-custody.md` и
+согласованности spec/plan/data-model/quickstart; прежнее принятие v1 остаётся
+историческим, но не принимает v2. Это reconciliation существующей задачи,
+не повторная генерация/новый task ID. T116 использует новый media protocol
+только после повторного scoped review/analyze, сначала wire/owner/tree tests
+§14 quickstart; downstream versioned package/migration gates не считаются
+пройденными по одному такому gate. T117/T118 и общая приёмка не сокращаются.
+
+- [X] T114 [US3] Завершить ограниченное исследование RQ30-H1 в `specs/200-windows-desktop-app/research.md` и metadata-only validation: на disposable generated-data стенде проверить выбранные native user-scope DPAPI/256KiB immutable blocks/два protected indexes совместно с seek/rewrite IStream → IMFByteStream, AAC finalization и native playback/seek. Измерить combined IO, память, диск, короткий tail и Stop/fence; проверить partial block/index publish, key/integrity failure и сохранность последнего validated checkpoint. Bounds выбранного layout из research не заменяют runtime proof; SC-003 и 5s dispatcher drain не ослаблять. Не читать устройства, не мигрировать рабочие файлы и не вводить продуктовые классы. При неподтверждённом пути записать отказ и оставить Phase0 открытой; per FR-012/FR-013, SC-003/SC-006, plan: RQ30-H1 (partial, HIGH).
+- [X] T115 [US3] После T114 определить окончательный защищённый protocol в `specs/200-windows-desktop-app/contracts/windows-protected-local-custody.md` и media поправке `contracts/windows-protected-packed-custody.md`, согласовать `data-model.md`, `plan.md` и `quickstart.md`: schema/version, explicit byte encoding, identity/block version/index generation/exact length/integrity, durable commit authority и ambiguous failure, ограниченные cache/IO/GC и pinned readers, callback/account/delete/shutdown fences, package/ledger migration intent и единственное restart-safe переключение. Для packed media определить continuous GuardOwner, проверенный delta ACK, обязательный cold full verify после ownership gap, fixed-head non-atomic publication, exact wire/structural diff и явно принятое время обнаружения старой порчи; v1 metadata no-rollback не ослаблять. Описать все временные media/metadata/quarantine пути, стандартного пользователя/offline/поддерживаемые редакции, запрет plaintext fallback и key-loss recovery claims, владеемый owner/expiry/removal trigger перехода старого reader. Сохранить logical v5 bytes/hash/ranges/UUID/delete intent, short-recording discard и прежние product limits; не объявлять исследовательские bounds доказанными. Получить независимую проверку затронутых reviewer-owned checklists и текущий analyze до taskstoissues/реализации; per FR-012/FR-013/FR-014/FR-022, SC-005/SC-006/SC-008, Constitution VI (design accepted 2026-10-03; round215 follow-up, HIGH).
+- [ ] T116 [US1] CRITICAL: только после T115 и обязательных gates подключить полный защищённый logical IO по принятому contract в `apps/windows/RecApp/Storage/`, `Recording/V5LocalRecordingWriter.*`, `Recording/LocalRecordingPackage.*`, `Storage/Sha256.*`, `Upload/DesktopUploadQueueService.*`, `Upload/DesktopHttpTransport.*` и существующем playback-пути `AppMain.cpp`. До дискового write защищены canonical temporary/WAV/AAC/manifest/recovery/queue/deletion/quarantine и atomic temporary bytes; writer/encoder/recovery/hash/upload/playback не создают открытые content-bearing копии. Переиспользовать native DPAPI/CNG, существующий lifecycle и MF adapter, заменить whole-file hashing bounded incremental logical read; UI/capture callback не выполняют disk/crypto IO. Сначала регрессии в `apps/windows/Tests/GrafWindowsCoreTests/`, `GrafWindowsContractTests/` и `GrafWindowsPackageTests/` на byte identity/ranges, seek/rewrite, cutoff и failure fences. При key/integrity/commit failure сохранять артефакты и блокировать unsafe writes/GC, не создавать пустой ledger или normal claim; per FR-012/FR-013/FR-014/FR-022, SC-003/SC-005/SC-006, plan: полный protected-storage поток (missing, CRITICAL).
+- [ ] T117 [US3] После T116 реализовать принятый restart-safe переход прежних незашифрованных пакетов и реестров в существующих `apps/windows/RecApp/Upload/DesktopUploadQueueService.*`, `Upload/DesktopUploadRecoveryScheduler.*`, `Upload/DesktopLocalPurgeService.*`, `Recording/LocalRecordingPackage.*` и `Storage/` по contract T115. Streaming copy/hash/length verification и durable intent предшествуют смене единственного authority; UUID, exact v5 bytes, accepted ranges, deletion operations и purge acknowledgements сохраняются. Проверить прерывание на каждой границе и повторный launch без re-encode, дублей upload или утраты original; malformed encrypted object не читается как plaintext. Existing/oversized/key-loss копии не обрезать, не удалять автоматически и не считать защищёнными до проверенного перехода и безопасной очистки. Доказать retirement временного old-reader исключения; per FR-012/FR-013/FR-022, SC-005/SC-008, plan: migration authority (missing, HIGH).
+- [ ] T118 [US3] После T116/T117 выполнить полный protected-custody acceptance по `specs/200-windows-desktop-app/quickstart.md` в `apps/windows/Tests/GrafWindowsContractTests/`, `GrafWindowsPackageTests/` и существующем `apps/windows/scripts/validate-audio-contract.ps1`: generated v5 запись → encrypted checkpoint/finalize → restart → inspect/hash → playback/seek → partial upload/reconcile → controlled local deletion/recovery. Проверить disk snapshots на отсутствие plaintext media/metadata/temp/key, 100 циклов SC-005, повреждение/key loss/disk full/power-loss boundaries и ограниченность memory/IO/Stop на принятом формате; no empty ledger/no normal success/no plaintext fallback. Зафиксировать exact source/package/installed EXE и отдельно standard-user/offline/поддерживаемые редакции и install/update/rollback. Дополнить, не заменить T083/T087/T088/T063/T071: Parallels не принимает физическую x64/60min/AEC матрицу, device audio не нужен для generated-data регрессий; per FR-012/FR-013/FR-014/FR-022, SC-003/SC-005/SC-006/SC-008 (missing, HIGH).
+
+## Phase 19: Convergence — нативное подключение к календарной встрече
+
+Область: общий пользовательский сценарий актуального Mac по FR-002 и SC-002,
+точный WebView bridge по FR-005/006. Текущий Windows bridge принимает только
+шесть прежних intents и не реализует `joinCalendarEvent`/`join-target`.
+T103 покрывает auth HTML/recovery, T104 — напоминания: ни одна не владеет
+общим нативным подключением из кабинета. Новая задача не заменяет их.
+До кода нужны согласованные spec/bridge contract/plan, reviewer-owned review,
+текущий analyze и issue sync; наличие задачи не расширяет runtime allowlist.
+Звуковые и protected-custody gates остаются независимыми открытыми работами.
+
+- [ ] T119 [US2] Восстановить нативное «Подключиться» к календарной встрече в Windows по актуальному общему сценарию Mac: сначала согласовать точный typed intent/route/capability/result в `specs/200-windows-desktop-app/spec.md`, `contracts/windows-native-web-bridge.md`, `plan.md` и `quickstart.md`, затем после обязательных gates реализовать в `apps/windows/RecApp/Web/WebViewBridge.*`, `WebView2Host.*`, `Upload/DesktopApiClient.*` и `AppMain.cpp` существующий authenticated GET `/api/v1/calendar/events/{event_id}/join-target` и один общий нативный opener для кабинета/напоминания/меню. Принимать только UUID события/request и явное актуальное действие доверенного главного документа; URL из сообщения не принимать. Перепроверять owner/session/document/operation после каждого ожидания, отменять при logout/navigation/замене действия; двойное нажатие не создаёт второй переход. Проверять HTTPS/server safe-host policy и Windows-native запуск Zoom/Teams/Телемоста с явным свежим «Открыть в браузере» при отказе, без передачи GRAF cookies/auth целевому адресу и без произвольных custom schemes. Возвращать resolving/opening/handed_off/failed/cancelled без URL/private content; HTMX сохраняет действие и доступный явный повтор, временная неготовность trusted document снимает pending конечной отменой. «Подключиться и начать запись» допускает Record только после успешной передачи и повторной проверки актуальности; общий backend/браузерная бизнес-логика не дублируются и сервер не меняется. Добавить регрессии strict payload/origin/route/nonce, stale callback, 401/404/503, смены аккаунта/документа, native отказа и browser recovery в `apps/windows/Tests/GrafWindowsContractTests/` и `GrafWindowsCoreTests/`; затем проверить точный установленный MSIX и тот же сценарий Mac в T097/T063, без раскрытия credentials/ссылок встреч. per FR-002/FR-005/FR-006/FR-015, SC-002/SC-006/SC-009, plan: shared cabinet/native ownership (missing, HIGH).

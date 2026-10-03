@@ -388,6 +388,9 @@ public:
     void setClock(std::function<std::uint64_t()> clock);
     [[nodiscard]] std::uint64_t nowMs() const;
 
+    // Shared package-directory identity boundary, also used by protected custody IO.
+    [[nodiscard]] static bool validIdentity(std::string_view value) noexcept;
+
 private:
     LedgerWriter ledgerWriter_;
     static void applyServerTruth(UploadCustodyItem& item, const UploadServerTruth& truth);
@@ -396,7 +399,6 @@ private:
                                                const std::vector<DeletionOperationRecord>& operations,
                                                const std::vector<LocalPurgeAcknowledgement>& purgeAcknowledgements,
                                                std::uint64_t updatedAtMs);
-    [[nodiscard]] static bool validIdentity(std::string_view value) noexcept;
     [[nodiscard]] static bool validSafeReason(std::string_view value) noexcept;
     [[nodiscard]] static bool validServerOrigin(std::string_view value) noexcept;
     [[nodiscard]] UploadCustodyItem* find(std::string_view localRecordingId) noexcept;

@@ -271,7 +271,7 @@ Rules:
 - native validates `Source`, exact origin, route kind, version, direction,
   message id, payload size and command-specific payload before action;
 - only `request_app_quit`, `local_recording`, `app_appearance`,
-  `native_settings`, `delete_selection` and `request_app_update` are accepted as requests;
+  `native_settings`, `delete_selection`, `request_app_update` and `calendar_join` are accepted as requests;
   their exact payloads and current-state checks are defined in the bridge
   contract; obsolete settings/diagnostics/repair/acknowledgement aliases fail;
 - web receives `native_ready`, typed settings replies, deletion outcomes and
@@ -281,6 +281,14 @@ Rules:
   are rejected with a bounded error and no side effect;
 - no web acknowledgement is accepted or treated as proof that audio was saved,
   uploaded or removed; only local custody/server truth can establish that.
+
+T119 добавляет эфемерный CalendarJoinOperation по bridge contract §10:
+event/request UUID, operation ID, origin/owner/workspace/auth generation,
+document/nonce либо native action identity/epoch/deadline, state и safe reason.
+Session token/https_url нужны только в памяти текущей операции, не сохраняются
+и не проецируются в web reply/history. Один busy owner для всех Join entrypoints;
+terminal/stale callback не изменяет новую операцию. Record не является payload
+моста; native joinAndRecord проходит отдельную проверку после handoff.
 
 ## 9. VerifiedTargetIdentity
 
@@ -404,3 +412,78 @@ include counts and durations, but never the content that was spoken or recorded.
 в этом журнале. Контекст ограничивает доступ и очистку системных заявок.
 Повреждение/неизвестная схема не разрешают повтор; диагностика только кодом.
 Журнал не является доказательством фактического показа или звука.
+
+## 12. Защищённый custody v1 — проектирование T115, 2026-10-02
+
+Этот раздел определяет v1 metadata и исходные flat-index objects. Поправка
+больших media objects описана ниже отдельно; ошибка packed decoder не
+разрешает вернуться к v1 по одному совпадению logical role.
+
+Статус: проектирование принято, runtime ещё не принят. Нормативный wire/authority:
+`contracts/windows-protected-local-custody.md`. T114/T115 завершены в своих
+исследовательском/проектном объёмах; independent review112/112, storage analyze
+CRITICAL=0/HIGH=0 и issue-sync PASS. T116–T118 остаются открыты.
+Схемы logical v5/v3/v2 выше остаются; их physical representation меняется,
+серверная таблица/role set не создаётся. Указание «directory содержит v5 файлы»
+в §6 означает логический пакет; открытые physical content files не допустимы
+после проверенного перехода. Historical notification §11 не внедряется.
+
+| Сущность | Поля / отношения | Правило |
+| --- | --- | --- |
+| ProtectedObject | store_id,object_id,role,logical_length,index_generation | IDs opaque16B; native user-scope; decoder/role/length bounds до allocation |
+| BlockVersion | position,version,exact payload bytes,digest,cipher size | immutable; index implicit position; DATA либо explicit ZERO, missing не ZERO |
+| ProtectedIndex | generation,length,entries,checksum | metadata birth g1 в обоих slots до ACK; singleton после restart blocked, включая g1; refs/exact tail verified; no generation wrap |
+| PinnedSnapshot | object/index identity,cursor,context epoch,lease | Clone sharing cache; owner сохраняется до callback/MF Shutdown/worker exit |
+| ProtectedPackageState | strict UTF-8 schema `graf.custody.package.v1`, own IDs/generation/directory,phase,reason,short predicate,refs≤5 | live refs только capture/recovery; sealed после manifest; GC сохраняет refs обоих state slots |
+| ProtectedBootstrap | strict UTF-8 schema `graf.custody.bootstrap.v1`, own IDs/generation,mode,queue ID,transaction/subject/directory или null | prepared intent до closing fence; reserved queue ID без indices допустим только initial migrating/prepared, не regular authority; protected после reconciliation; fixed location, no JSON redirects |
+| ProtectedMigrationIntent | strict UTF-8 schema `graf.custody.migration.v1`, IDs/generation,subject,stage,ledger anchor,sources≤6,historical barrier ref,cleanup authorization | exact fields/enums/null/identity по contract §8.1; direct birth-block validator не требует старого mutable index; persistent roots обоих slots восстанавливаются до GC; old .quarantine durable до rename; original до authorized cleanup |
+| PendingLedgerMutation | immutable candidate,ticket ID,base/target generation,context epoch,typed outcome | pending/committed/not_committed/ambiguous; network/reply/handled только ACK; physical committed adoption даже при stale UI, lease/result до actual completion |
+
+Media checkpoint fallback даёт degraded prefix, не normal package. Любая
+unreadable slot/reference authority metadata блокирует mutations/upload/unsafe
+GC, чтобы прежний ledger не отменил delete intent. Сохранность неизвестных
+objects не означает возможность их расшифровать при потере DPAPI profile.
+
+New authority payloads имеют единственный строгий codec contract §8.1, не
+неопределённые schema1 field lists. Unknown/duplicate/missing keys, numeric
+overflow, inconsistent refs/stages/contexts отвергаются. Existing logical v5/
+v3/v2 не меняются. Первое store.id допускается для verified legacy inventory
+без protected traces, но никогда для восстановления потерянного encrypted ID.
+Migration делает ledger source/range stamp по whole logical hash/length;
+Initial prepared/fence/destination birth и cuts определены contract §8: closing
+fence не является уже открытой queue. Mutable queue после switch может иметь
+новые generations/ranges; migration copy receipt не отменяет current authority.
+cleanup receipt не заменяет свежую проверку owner/delete rights. Все temp/
+quarantine роли замкнуты §8.2; plaintext leftovers исключают encrypted claim.
+
+Protected logical bytes/hash/ranges являются единственным представлением для
+инспектора/кодера/проигрывателя/HTTP. Canonical recovery обрезает **выбранный
+logical prefix в памяти**, floor(length/1920)×1920, не original artifact.
+Старый plaintext reader ограничен миграцией и owner/expiry/removal gate §8
+контракта; обычная отправка/прослушивание им не пользуются. Все stages/pins/
+budgets требуют тестов T116–T118; принятие требований T115 не доказывает runtime.
+
+## 13. Packed media v2 — поправка T115, 2026-10-03
+
+Точный wire/proof: `contracts/windows-protected-packed-custody.md`.
+Metadata v1/его rollback barrier остаются §12; logical v5/v3/v2 неизменны.
+
+| Сущность | Поля / отношения | Правило |
+| --- | --- | --- |
+| PackedContainer | store/object/container opaque IDs, role, verified native identity, two head cells, append records | Один confined default stream и непрерывный GuardOwner; heads не atomic, DATA/nodes immutable |
+| PackedRoot | generation, logical length≤64GiB, committed extent, root ref, block/radix/depth parameters | Exact protected descriptor128B; highest valid paired generation, EOF не authority |
+| PackedRef | kind, envelope length, offset, version, payload length, reserved0, ciphertext SHA | Exact64B; expected path/kind/selector/context, child before parent; inline ZERO только explicit extension |
+| PackedProof | full либо inherited_live, owner epoch/native identity, exact root stamp | RAM-only; меняется только проверенным base→candidate transition; любой ownership gap уничтожает proof |
+| PackedSnapshot | proof/root stamp≤4KiB, independent cursor, owner pin | Clone/read/job совместно сохраняют owner до actual completion; pin≤32/process |
+
+Новый DATA и обе heads независимо проверяются перед live ACK. Старые unchanged
+bytes не reread при каждом ACK: скрытая порча обнаруживается при read либо
+полном cold verify. Это явно принятое свойство, не гарантия свежей full scan.
+Всё выданное DATA проходит exact context/envelope/payload checks. Read/cache
+при наблюдаемой ошибке sticky failed; невозможен plaintext/default ZERO fallback.
+Protected package.v2 refs и migration.v2 sources требуют explicit representation/
+stamp и strict codec по packed contract §6.1 до подключения к приложению.
+Служебный physical codec остаётся v1; старый payload schema1 не разрешает
+packed decode. Persistent root stamps обоих metadata slots восстанавливаются
+и full-verified до GC даже вне current media heads. Migration gates T117
+остаются отдельными, новый field list не принимается как runtime implementation.

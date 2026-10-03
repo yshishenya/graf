@@ -48,8 +48,7 @@ std::string hexDigest(const unsigned char* bytes, std::size_t count) {
     return result;
 }
 
-// The existing sha256File reads the whole file into memory. Use the native
-// streaming primitive for executable files, with a bounded file size/buffer.
+// Keep the exact verified file handle: reopening by path could hash a replacement.
 std::string executableDigest(HANDLE file) {
     LARGE_INTEGER size{};
     if (!GetFileSizeEx(file, &size) || size.QuadPart <= 0 || size.QuadPart > 256LL * 1024 * 1024) return {};

@@ -116,6 +116,7 @@ The initial allowlist is intentionally small:
 | `native_settings` | versioned request to exact recording/notification settings handler on its matching settings route; no arbitrary method invocation | yes; recording state still gates capture-related changes |
 | `delete_selection` | typed version 1 `deleteSelection`, valid request ID, at most 100 unique known local IDs/server meeting UUIDs; current route and native capability rechecked | active capture/upload targets cannot be purged |
 | `request_app_update` | exact empty payload; open native package-update UI, no URL/path/installer arguments | checking is allowed; installation is deferred until capture/finalization ends |
+| `calendar_join` | exact action/event UUID/request UUID; freshly resolve authorized target, see §10 | Join does not alter capture; native Join-and-record is separately gated |
 
 No compatibility aliases are accepted. `open_native_settings`,
 `request_native_settings`, `open_native_diagnostics`, `request_diagnostics`,
@@ -363,3 +364,106 @@ output: graf_attribution_ref/graf_attribution_fallback=1 и разрешённы
 Проверки: неизвестный id, подмена действия/лишние поля, смена документа,
 повтор сообщения, устаревшие разрешения, активная запись/отправка, отмена
 подтверждения, ошибка хранилища. Ни одна ошибка не выдаётся за успешное удаление.
+
+## 10. Календарное подключение T119 — 2026-10-02
+
+Общий источник: F279 `contracts/calendar.md`, Mac
+`EmbeddedCabinetCalendarJoinBridge`/`CalendarMeetingOpener` на master
+`721b5125d799ea798a4af0b3625e18d3c1109039`. Это целевой контракт, не нынешний
+runtime allowlist. Он заменяет прямой запуск сохранённого `meetingUrl` для Join,
+не меняя F277 настройки/сроки карточек и не создавая Windows web UI.
+
+### Запрос, документ и результат
+
+Envelope §3, command `calendar_join`, payload ровно три строковых поля:
+`action="joinCalendarEvent"`, `eventId`, `requestId`. Оба IDs — UUID8-4-4-4-12 hex
+без скобок/лишних символов; сравнение после нормализации регистра. Request UUID
+отличается от outer message_id. Extra/duplicate fields, URL/path/record flag,
+неверные типы/UUID/replay отвергаются до resolver. Только current attached main
+document approved origin с разрешённым `RouteKind::meetings` и актуальным nonce;
+используется существующий точный list/inbox набор, без wildcard/API navigation.
+Auth/settings/billing/payment/detail/review/external/frame не получают Join.
+
+Shim перехватывает только `event.isTrusted` click `[data-calendar-join]` в capture
+phase до standalone обработчика, включая keyboard activation; synthetic click
+не отправляет intent. Делегированный listener работает после HTMX. До handshake
+pending не создаётся. Одна pending операция во всём native приложении включает
+кабинет/меню/карточки, resolver/launcher/browser dialog. Busy не ставит второй
+launch в очередь: корректный запрос получает terminal cancelled. Корректный
+запрос временно неготового, но всё ещё trusted document также получает cancelled;
+malformed/untrusted не получает ответа. Invalidation отменяет операцию и снимает
+pending ещё текущего документа перед отзывом nonce, не отвечает новому документу.
+
+Display reply: command `calendar_join_reply`, nonce, request_id(UUID), state
+`resolving/opening/handed_off/failed/cancelled`, optional safe reason enum
+`busy/not_ready/stale/auth_required/event_unavailable/dependency_unavailable/
+invalid_target/launch_failed/cancelled`; без URL/title/token/raw exception.
+Shim сверяет nonce/request UUID/pending event и допустимый переход; terminal
+снимает aria-disabled. Status/live region сообщает «Открываем…», «Ссылка передана
+приложению», ошибку/отмену с явным повтором. Handoff не подтверждает вход во встречу.
+
+### Resolver и актуальность
+
+Existing authenticated GET `/api/v1/calendar/events/{event_id}/join-target`,
+без redirects и URL во входе. HTTP200 JSON: event_id совпадает с запросом,
+provider_family — строка≤64bytes, https_url — строка≤8192 UTF-8 bytes; whole
+response≤64KiB/depth8. Existing strict JSON reader отвергает duplicate/missing/
+неверные типы. provider_family сам по себе не разрешает и не запрещает custom
+scheme: кандидат определяется только validated HTTPS host/path ниже. URL не кэшируется,
+не логируется, не передаётся странице. 401 снимает только актуальный auth context;
+404 — единая недоступность;503/network — временный отказ; malformed/URL/launch —
+failed. Redirect/ошибка никогда не означает handed_off.
+Resolver имеет общий монотонный deadline15s, не бесконечно обновляемый receive
+timeout. Expiry даёт terminal failed/dependency_unavailable и отмену worker;
+busy/lease держатся до actual completion. Новый явный запрос при ещё занятом
+worker получает cancelled/busy; старый результат не выполняет launch.
+
+Dispatch фиксирует origin/owner/workspace/auth generation/session token,
+operation ID, document generation/nonce либо native action identity/epoch/deadline.
+Token только в памяти transport. До/после каждого await, после dialog и прямо
+перед launch/Record сверяется весь снимок. Logout/navigation/recreate, смена
+контекста, close/replacement/expiry отменяют действие. HTMX обновление узла того
+же доступного UUID сохраняет pending; исчезновение/смена UUID отменяет его.
+Смена token отменяет даже при прежнем owner. Stale callback не освобождает busy
+новой операции. Cancelled операция не создаёт отложенную очередь переходов.
+
+### URL и Windows launcher
+
+Один общий validator/opener заменяет reminder safeMeetingUrl + прямой ShellExecute.
+HTTPS без userinfo/control/backslash authority; percent/IDNA host normalization,
+numeric IPv4 inet_aton forms и IPv4-mapped IPv6 проходят Python3.13 is_global policy
+сервер/Mac с global exceptions. Expected corpus:
+`apps/server/tests/fixtures/calendar_join_host_policy.json` на указанном SHA;
+его не менять. DNS hostname не доказывает адрес после DNS: новый DNS-pinning не
+обещается. Query/fragment подключения сохраняются, порт0..65535 допустим.
+
+Zoom/Teams candidates — только из validated HTTPS по exact host/path Mac
+(zoommtg/msteams), не из provider_family. Телемост получает validated HTTPS через
+штатную Windows association без выдуманного EXE пути/bundle ID/custom scheme.
+provider_family описывает источник календаря и не выбирает приложение встречи:
+значения calendar/unknown/zoom или другое допустимое значение не меняют выбор
+по validated host/path. Например, provider_family=calendar со ссылкой
+https://zoom.us/j/12345678901 допускает Zoom candidate; provider_family=zoom
+с https://example.org/meeting не создаёт Zoom candidate. Native conversion только
+без порта/на443; другой допустимый порт или отсутствие поддерживаемого сочетания
+host/path приложения — browser-only. Для browser-only/recovery:
+`Launcher::LaunchUriAsync` + `LauncherOptions.IgnoreAppUriHandlers=true`; для
+native candidate — штатная URI association с preflight
+`QueryUriSupportAsync(candidate, LaunchQuerySupportType::Uri)`. Available допускает
+launch; подтверждённое отсутствие handler даёт validated HTTPS/browser-only,
+как отсутствие приложения на Mac, без Store recommendation. Unknown/query
+error/installed-unavailable не объявляются отсутствием: failed с явным recovery.
+Перед OS dispatch проверяется current; уже переданную ОС ссылку нельзя отозвать,
+но stale completion не меняет новый UI и не запускает Record. False/exception — отказ. Не передавать
+GRAF auth/cookies/headers, не менять browser defaults, не запускать shell command.
+Windows native association/результат API требуют отдельной installed проверки.
+
+Native отказ предлагает «Открыть в браузере»/«Отмена», без второго автоматического
+launch. Подтверждение запускает свежий resolver того же UUID и current/URL checks;
+старый URL не используется. Menu/card «Повторить подключение» также разрешает
+цель заново. Card закрывается только при handed_off. Background refresh failure
+сохраняет failed Join той же сессии максимум5min после явной попытки и не продлевает
+срок; auth/404/context/replacement/close/expiry/успешная новая проекция снимают его.
+Join-and-record существует только нативно: handed_off → current → existing capture
+prerequisites → Record; active/starting/paused/stopping/finalizing не допускают
+предложения второй записи. Индикатор/Stop и автозапись не меняются.

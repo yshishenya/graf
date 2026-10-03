@@ -204,6 +204,19 @@ recovery в Windows WebView2 и в обычном браузере; сравни
 3. **Given** пользователь перемещается по кабинету, **When** native shell
    получает route/load failure, **Then** он показывает bounded offline/auth/error
    state, а не подменяет серверный кабинет второй локальной встречной лентой.
+4. **Given** доступно календарное событие, **When** пользователь нажимает
+   «Подключиться» в кабинете, напоминании или нативном меню, **Then** GRAF заново
+   проверяет доступ и актуальную ссылку, передаёт её приложению встречи либо
+   браузеру и показывает результат без второго перехода от двойного нажатия.
+5. **Given** приложение встречи не открылось, **When** пользователь явно выбирает
+   «Открыть в браузере», **Then** GRAF заново проверяет событие и открывает свежую
+   ссылку именно в браузере. Отмена ничего не открывает; ошибка допускает явный
+   повтор. Успешная передача не называется подтверждённым входом во встречу.
+6. **Given** подключение выполняется, **When** меняются аккаунт/пространство,
+   закрывается/заменяется исходное действие или истекает его срок, **Then** поздний
+   результат не открывает ссылку и не запускает запись. Нативное «Подключиться и
+   начать запись» допускает Record только после успешной передачи ссылки,
+   повторной проверки действия и технической готовности.
 
 ### User Story 3 - Не потерять локальную запись и догрузить её после сбоя (Priority: P1)
 
@@ -350,6 +363,9 @@ meeting-приложений с обратимой настройкой и ви�
 - High Contrast, DPI 200%, narrow window, keyboard-only, screen reader и
   Reduce Motion не скрывают indicator, Stop, permission state или важное
   degraded сообщение.
+- Истёкший вход, отменённое событие, временный отказ сервера или приложения
+  встречи завершают ожидание подключения с понятным результатом и доступным
+  повтором. Частичное обновление страницы не создаёт браузерный дубль перехода.
 
 ## Out of Scope
 
@@ -380,7 +396,7 @@ meeting-приложений с обратимой настройкой и ви�
   any Windows support or performance claim is made.
 - **FR-002**: The product MUST preserve the macOS user-visible semantics for
   Record, Pause, Resume, Stop, recording states, permission recovery, local
-  custody, upload status, auth recovery and deletion truth. OS-native window and
+  custody, upload status, auth recovery, calendar Join and deletion truth. OS-native window and
   tray conventions MAY differ only where Windows has no equivalent macOS surface.
 - **FR-003**: The client MUST load the server-owned cabinet from the configured
   approved HTTPS origin, with production default
@@ -407,12 +423,16 @@ meeting-приложений с обратимой настройкой и ви�
   `local_recordings` display messages use the separate `command/nonce/rows/operations/recoveryRequired`
   shape, bound to the current approved document and nonce, and grant no native
   authority. Only typed `request_app_quit`, `local_recording`, `app_appearance`,
-  `native_settings`, `delete_selection` and `request_app_update` requests are accepted, each on its
+  `native_settings`, `delete_selection`, `request_app_update` and `calendar_join` requests are accepted, each on its
   exact approved route with its own payload/capability checks; no web
   acknowledgement establishes capture, upload or deletion truth.
   `request_app_update` is only a bounded intent to open the native update UI;
   it accepts no URL, path, command or installer payload and cannot install software
   directly from the web document.
+  `calendar_join` accepts only event/request identities for an explicit current
+  calendar action, never a URL or process command. Native code resolves the
+  authorized target afresh and cancels stale actions; bounded replies reveal
+  no meeting link and grant no recording authority. See bridge contract §10.
 - **FR-007**: The Feature 200 baseline system track MUST use WASAPI shared-mode loopback on the
   current/default render endpoint and MUST NOT require `Stereo Mix`, a hardware
   loopback device, a virtual driver or exclusive mode.
@@ -433,8 +453,9 @@ meeting-приложений с обратимой настройкой и ви�
   existing accepted track/queue roles. WAV/M4A/timeline duration difference MUST
   be no more than 100 ms for a normal package.
 - **FR-012**: Local recordings MUST be written below the user-scoped Windows
-  application-data directory with user-only ACLs, temp-file plus atomic-rename
-  finalization, bounded flush/error handling and no credentials, cookies, raw
+  application-data directory with user-only ACLs, protected commit publication
+  and bounded flush/error handling (v1 temp-file plus atomic-rename; packed v2
+  verified two-head publication without an atomic-overwrite claim), and no credentials, cookies, raw
   transcript or raw audio in diagnostics.
   The inherited encrypted-local-buffer requirement applies to Windows: custody
   audio, manifests/recovery metadata, and content-bearing temporary files MUST
@@ -448,6 +469,15 @@ meeting-приложений с обратимой настройкой и ви�
   creating an unprotected temporary audio copy. Protection/key/integrity failure
   MUST preserve existing artifacts, block unsafe writes and report a recoverable
   storage failure; it MUST NOT substitute an empty ledger or claim normal saving.
+  For the packed media representation, a live checkpoint MAY inherit the proof
+  of unchanged data only while the same verified file owner remains continuously
+  held. New data and the publication MUST be independently read back and checked
+  before acknowledgment; every data read MUST check the requested data. After
+  any ownership gap, a full bounded-memory verification MUST precede normal
+  use. Latent corruption of unchanged data may therefore be detected at a later
+  read or full verification, not at the next live checkpoint. This explicitly
+  accepted detection-time tradeoff does not permit unchecked new data, plaintext
+  fallback, metadata rollback or a normal result after an observed failure.
   Pre-existing unprotected packages need an explicit, restart-safe compatibility
   transition before protection is claimed; no automatic deletion or destructive
   replacement is permitted. Verified local deletion does not imply forensic
@@ -604,6 +634,52 @@ Classification: remove
 Трассировка удаления и проверки: T080–T084, quickstart.md и validation-2026-09-06.md.
 
 ## Clarifications
+
+### Session 2026-10-03
+
+- Q: Разрешается ли вместо полного перечитывания всех ранее сохранённых
+  данных при каждом подтверждении сохранения проверять новые данные сразу,
+  наследовать проверку неизменённых данных только при непрерывном владении
+  файлом и полностью проверять их после повторного открытия, учитывая, что
+  скрытая порча старых данных может обнаружиться позднее при чтении? → A:
+  «Разрешаю» — последнее подтверждение владельца в текущем чате.
+- User-scope DPAPI и SHA-256 сохраняются. Это изменение алгоритма проверки
+  больших media objects, не разрешение собственного AES/key/nonce lifecycle,
+  открытой временной копии, увеличения аудиодопусков или выпуска. Небольшие
+  authority metadata остаются в v1 с полной проверкой и запретом rollback.
+- Поправка требует нового независимого design/checklist/analyze gate T115
+  перед соответствующей реализацией T116. Прежнее принятие v1 и измерения
+  примитивов не принимают packed путь, скорость или установленное приложение.
+
+### Session 2026-10-02 — независимый срез защищённого хранения
+
+- Q: Разрешается ли реализовать защищённое хранение записей отдельно,
+  параллельно с исправлением аудиочасов, сохранив обязательные проверки записи,
+  удаления, восстановления и выпуска? → A: «Разрешаю».
+- T115–T118 составляют самостоятельный high-risk срез FR-012/013/014/022.
+  После принятия T115, независимых checklist/analyze и синхронизации задач
+  разрешена его последовательная реализация без ожидания clock T094–T096
+  или календарного запуска T119. Начальные проверки используют искусственные
+  данные, не реальные записи пользователя и не аудиоустройства.
+- Это изменение порядка разработки, не исключение из требований: весь
+  защищённый путь, сохранность старых данных, отказ без открытой запасной копии,
+  общая приёмка звука и точного установленного пакета остаются обязательными.
+  Срез хранения не разрешает перенос непринятого clock-кандидата, миграцию
+  рабочих записей без её собственных gates или выпуск незавершённого Windows.
+
+### Session 2026-10-02 — календарное подключение T119
+
+- Дополнительных продуктовых вопросов нет: поручение полного паритета включает
+  подключение актуального Mac. F277 остаётся эталоном уведомлений; F279 в master
+  определяет общее подключение, не заменяет выбранный дизайн и не разрешает
+  перенос чужой рабочей ветки или deployment.
+- Область, роли, состояния, отказы, приватность, доступность и завершение
+  определены US2/FR-002/005/006 и bridge contract §10. Передача ссылки отличается
+  от входа; только явный native Join-and-record допускает Record. Нет
+  автоматического browser retry, URL из страницы или новой интеграции провайдера.
+  Способ запуска Windows — решение плана, не новый продуктовый выбор.
+- Это уточнение требований, не подтверждение реализации T119, общего analyze
+  или исправления аудиочасов.
 
 ### Session 2026-09-30 — часы и унаследованная защита хранения
 
