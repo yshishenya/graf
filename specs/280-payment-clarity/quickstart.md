@@ -272,3 +272,38 @@ apps/server/scripts/run_local_postgres_tests.sh --focused tests/unit/test_billin
 Короткая локальная дата остается в основных фактах, полный срок/время/зона в закрытом native «Способ оплаты и условия»; не ослаблять webhook/reconcile/paid-through/recurring и первую попытку72h. Причинный RED179/1 и окончательный full71PASS сохранены в validation-subscription-clarity.md, независимый review-subscription-t049.md.
 
 T050: `apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_billing_return.py -q --tb=short --show-capture=no` — full82PASS0skips. Не ослаблять проверку off состояния, возможности завершения старого платежа, отсутствия ложного обещания и exact result-link. Независимый review-subscription-t050.md.
+
+T051: expired ключ сам по себе не вводит новый запрет; provider_key_expired/observation_expired сохраняют действующую общую политику, manual_resolution остается блокирующим. Проверить method_required с manual_resolution и provider_id None/известным: проверка карты и результата видны, утверждения отправки нет, новые действия/quote/provider calls отсутствуют. Реальный PostgreSQL и оба браузера; RED/GREEN и независимый refresh требований/source review.
+
+## Продолжение «Платеж и чек», 2026-10-04
+
+На одноразовом PostgreSQL, не live DB, выдуманные номера/контакты/карты, никаких действующих payment provider/mail/refund операций:
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused \
+  tests/integration/test_billing_clarity.py \
+  tests/integration/test_billing_review_regressions.py \
+  tests/integration/test_billing_return.py \
+  tests/contract/test_payment_history_support.py \
+  tests/contract/test_billing_purchase_ui.py \
+  tests/contract/test_billing_safety_contract.py \
+  tests/unit/test_billing_copy_and_redaction.py \
+  -q --tb=short --show-capture=no
+```
+
+Дополнить имеющийся тестовый файл focused invoice projection/read-only cases, если он не покрывает требования; не делать параллельную систему fixtures. Сначала причинный RED для неправильной темы и отсутствующей даты/краткого периода; GREEN после изменения. Фактические результаты и точные команды записать в `validation-invoice-consistency.md` (новый canonical report), не объявлять весь старый набор свежепройденным.
+
+Из `apps/server`:
+
+```sh
+uv run --extra dev pytest tests/contract/test_billing_accessibility.py -q --tb=short
+GRAF_BROWSER=webkit uv run --extra dev pytest tests/contract/test_billing_accessibility.py -q --tb=short
+```
+
+Дополнить существующие `tests/contract/test_billing_accessibility.py` и `tests/browser/billing-accessibility.test.cjs` invoice synthetic contexts, если ещё отсутствуют. Матрица320/390/768/1280, light/dark,200%, клавиатура; native details, оба mailto намерения без отправки, номер copy, service-gap вне details, receipt/no-URL, long masked fields и множественные storage intervals. Отдельный HTTP JS-off подтверждает доступность документа/помощи/раскрытий без client money mutation. Если status template меняется, повторить действующий `tests/contract/test_billing_payment_return_browser.py` в Chromium/WebKit через его штатный documented runner и полный текущий status matrix, не ослабляя assertions/лимиты.
+
+Сверить число финансовых записей до/после GET, как минимум owner/foreign workspace/changed owner privacy, malformed period/unknown cycle, UTC-cross-midnight и viewer-local date. Не использовать реальные данные карточек/кодов/встреч в evidence.
+
+Рутинно: `git diff --check`, Ruff по измененным Python файлам, `python3 scripts/check_spec_kit_governance.py`. До кода: независимые требования PASS, separate analyze0/0/0fixablemedium, canon issues sync. После кода: независимые требования/source/browser обзоры с фактическим current SHA, converge. GitHub checks на точном PR SHA и base через текущий validator.
+
+GRAF Dev занят другим срезом; не собирать/не запускать/не promote без согласования. Web synthetic и серверные проверки не объявлять установленной приемкой. После обоих merged PR release оператор выбирает новый незанятый CalVer, замораживает один candidate, получает release-full PASS, выполняет dry-run и авторизованный execute, проверяет публичное/live здоровье и текущий защищенный UI только чтением, записывает `docs/deployments/2brain-rec/release-v<selected-CalVer>.md`. Прежний/чужой draft не изменять. Любая новая code change инвалидирует прежний SHA-bound gate.

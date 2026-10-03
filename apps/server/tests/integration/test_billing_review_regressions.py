@@ -1528,7 +1528,9 @@ def test_paid_period_consumes_only_its_storage_choice_and_rejects_stale_cancel(
      for kind in ("initial_checkout", "storage_upgrade", "renewal", "early_renewal")
      for state in ("provider_pending", "provider_key_expired")]
     + [(has_subscription, "initial_checkout", "observation_expired") for has_subscription in (True, False)]
-    + [(True, "resolution", state) for state in ("pending", "unknown", "unknown_pending", "provider_key_expired")],
+    + [(True, "resolution", state) for state in ("pending", "unknown", "unknown_pending", "provider_key_expired")]
+    + [(True, "method_required", dispatch) for dispatch in ("before_dispatch", "after_dispatch")]
+    + [(True, "initial_checkout", "manual_resolution")],
 )
 def test_subscription_existing_payment_of_every_kind_blocks_new_actions_without_mutation(
     client, tmp_path, monkeypatch, kind, state, has_subscription,
@@ -1552,24 +1554,29 @@ def test_subscription_existing_payment_of_every_kind_blocks_new_actions_without_
             subscription = await db.scalar(select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == workspace))
             if has_subscription:
                 subscription.recurring_allowed = False
-                subscription.renewal_resolution = state if kind == "resolution" else None
-                db.add(BillingPaymentMethod(
-                    workspace_id=workspace, owner_user_id=USER_ID, encrypted_provider_ref="synthetic",
-                    key_version="synthetic", masked_label="•••• 4242", state="active", is_default=True,
-                    verified_at=datetime.now(UTC),
-                ))
+                subscription.renewal_resolution = "method_required" if kind == "method_required" else state if kind == "resolution" else None
+                if kind != "method_required":
+                    db.add(BillingPaymentMethod(
+                        workspace_id=workspace, owner_user_id=USER_ID, encrypted_provider_ref="synthetic",
+                        key_version="synthetic", masked_label="•••• 4242", state="active", is_default=True,
+                        verified_at=datetime.now(UTC),
+                    ))
             elif subscription is not None:
                 await db.delete(subscription)
             if kind != "resolution":
                 operation = BillingOperation(
-                    workspace_id=workspace, kind=kind, state=state, idempotency_key=str(uuid4()),
-                    provider_id="synthetic-existing", request_snapshot={},
+                    workspace_id=workspace, kind="renewal" if kind == "method_required" else kind,
+                    state="manual_resolution" if kind == "method_required" else state,
+                    idempotency_key=str(uuid4()),
+                    provider_id=None if state == "before_dispatch" else "synthetic-existing",
+                    request_snapshot={"purchase_schema": 2} if kind == "method_required" or state == "manual_resolution" else {},
                 )
                 db.add(operation)
                 await db.flush()
                 db.add(BillingInvoice(
                     workspace_id=workspace, operation_id=operation.id, safe_number=number,
-                    amount_minor=100000, currency="RUB", status="pending", plan_snapshot={"cycle": "month"},
+                    amount_minor=100000, currency="RUB", status="pending",
+                    plan_snapshot={"cycle": "month", "purchase_schema": 2} if kind == "method_required" or state == "manual_resolution" else {"cycle": "month"},
                 ))
             await db.commit()
 
@@ -1588,7 +1595,7 @@ def test_subscription_existing_payment_of_every_kind_blocks_new_actions_without_
     response = client.get("/billing/subscription", headers=headers)
     assert response.status_code == 200
     after = asyncio.run(snapshot())
-    if state == "observation_expired":
+    if state in {"observation_expired", "provider_key_expired"}:
         assert f'href="/billing/checkout/status/{number}"' not in response.text
         assert 'href="/billing/checkout?cycle=month"' in response.text
         # A ready resume GET may bind one non-financial quote; no money changes.
@@ -1604,4 +1611,10 @@ def test_subscription_existing_payment_of_every_kind_blocks_new_actions_without_
         assert 'action="/billing/subscription/early-preview"' not in response.text
         assert 'name="resume_quote_id"' not in response.text
         assert after == before
+        if kind == "method_required":
+            # Both existing-payment review and safe card repair must stay reachable.
+            card = re.search(r'<a[^>]*href="/billing/payment-method"[^>]*>Проверить способ оплаты</a>', response.text)
+            assert card is not None
+            assert card[0] in re.sub(r"<details\b.*?</details>", "", response.text, flags=re.S)
+            assert "Уже отправленный платеж" not in response.text
     assert create.await_count == 0

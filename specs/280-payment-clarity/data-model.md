@@ -28,3 +28,18 @@ Absent → explicit apply/replace → draft; повторное чтение о�
 Существующий request_snapshot.recurring_consent и invoice.plan_snapshot.recurring_consent — строго bool, фактический выбор денежного POST; True/False оба допустимы, missing/string/number в provider snapshot отвергаются. False→provider save_payment_method=False→подтверждённый оплаченный период→recurring_allowed=False; неожиданная saved card не сохраняется. True сохраняет нынешнюю проверку bank card, key и актуального владельца. Версия recurring_authority_version защищает более новую отмену от позднего результата; не заменяется клиентским выбором. Повтор той же операции не меняет снимок.
 
 Визуальный выбор оформления: sessionStorage bool true/false, ключ из существующих meta UUID user/workspace/session; это не авторизация и не подписанный promo draft. Нет цены/quote/принятия оферты/карты/права списания. Новая вкладка без перенесённого выбора→True; explicit False→False в той же вкладке через promo/cycle/reload/errors до завершения браузерной сессии. Неизвестное значение/неполный контекст→default, чужая тройка не читается. API/cookie schema без изменений. Стандартный opener может клонировать sessionStorage браузером. При storage failure выбор работает внутри документа, перенос best effort. Ни promo, ни quote, ни offer не хранятся в URL или JavaScript storage. Immutable bool принятой операции остаётся только авторитетным снимком денег; визуальное предпочтение не включает существующую отменённую подписку.
+
+## Продолжение «Платеж и чек», 2026-10-04
+
+Новых БД таблиц/колонок, cookies, browser state или переходов нет. Только invoice read-model:
+
+| Поле представления | Источник/ограничение |
+| --- | --- |
+| краткий оплаченный срок | Те же service_starts_at/service_ends_at invoice snapshot, viewer timezone; обе даты должны быть пригодны; nullable без выдуманного срока |
+| точный оплаченный срок | Те же границы и текущая exact formatting с зоной; все storage_segments сохраняются |
+| дата создания | Только invoice.created_at, viewer-local exact; подпись «Дата создания платежа», не paid_at |
+| подпись цикла | Только известные month/year; неизвестное значение не становится месяцем |
+| question_mailto/refund_mailto | Настроенный проверенный support email + валидный safe_number + статический intent, nullable; ни payer privacy, ни разрешение финансовых действий не расширяются |
+| receipt/status/service | Прежние проверенные invoice snapshot + access/URL guards; compact layout не создает новые состояния |
+
+Read-only detail GET и disclosure не записывают деньги/чек/полномочия. Старый API helper refund по умолчанию сохраняет тему и проверки; новый question intent применим только к собственному безопасному письму.

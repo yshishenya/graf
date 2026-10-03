@@ -39,3 +39,13 @@ Next: canon ensure, all-state ownership dedup T046–T048, canonical issue sync 
 T049/#7507 реализует существующие FR-039/041 и SC-014 в прежнем money-path тесте: short date в основных фактах, полный срок в native условиях. Входной RED179/1 явно сохранен; денежные assertions, продуктовый код, границы owner/tenant/provider и независимый reviewer gate неизменны. Новое требование, неоднозначность, миграция или новый consent не вводятся; повторное уточнение/checklist не требуется. Покрытие T049:2/2FR, конфликтов/новых critical/high/medium/low0. Зависимость: существующий reviewerPASS/analyze → canonensure/dedup/issuesync/validate → T049GREEN/независимыйreview → повторные exact-SHA gates → T048 выпуск.
 
 T050 обнаружена перед full release при поиске старых subscription assertions: isolated RED1/81deselected, только требование удаленной повторяющейся фразы. Покрывает прежние FR-039/040/042 и сохранение sent-payment truth; новое требование, consent, правка продукта или неоднозначность отсутствуют. Scope: один assertion прежнего integration test, причинный GREEN/full82/независимыйreview и текущие gates. Конфликтов/новых analyze critical/high/medium/low0; карта3/3FR; требования/checklist ранее PASS сохраняются.
+
+## T051 — анализ до синхронизации задачи
+
+Подтвержденные внешние P2 требуют узкого уточнения FR042 и сохранения FR044: существующая политика CHECKOUT_BLOCKING_STATES без view-only expired расширения, method_required recovery одновременно с pending без необоснованного факта отправки. Spec/plan/contract/quickstart/T051 согласованы; покрытие2/2FR, новые API/DB/JS/денежные переходы0; blocker только независимый requirements refresh перед кодом. Исторические PASS прежних редакций не подтверждают уточненную редакцию. T051 закрывает оба P2; T048 остается выпуском. Неопределенности0/новых критических и высоких конфликтов0. Требуется синхронизация canonical issue и validate, затем RED/GREEN/browser/source review.
+
+После независимого refresh T051 requirements PASS14/0 проверена окончательная редакция: название раскрытия обещает также историю; CHK007/008 согласованы. Analyze conflicts0; canonical issue7511 создан и validate300PASS. Причинный RED/implementation разрешен; выпуск HOLD до новой проверки.
+
+## Итоговая согласованность T051
+
+Текущие FR042/044 и T051 покрывают2/2 выявленных P2; новый source/DB/browser/UX evidence поддерживает существующие критерии. Дополнение invoice не меняет требований подписки: FR019/020 сохранены по прямому уточнению, width720 прежняя. Конфликтов/непокрытых обязательств T0510; exact-SHA CI и выпуск остаются T048.

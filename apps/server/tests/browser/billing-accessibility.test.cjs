@@ -175,7 +175,7 @@ async function checkTextContrast(page, label) {
           const renew = page.getByRole('link', { name: 'Продлить подписку', exact: true });
           assert(await renew.isVisible());
           assert.equal(await renew.getAttribute('href'), '/billing/checkout?cycle=month');
-          const conditions = page.locator('summary', { hasText: 'Способ оплаты и условия' });
+          const conditions = page.locator('summary', { hasText: 'Способ оплаты, условия и история' });
           assert.equal(await conditions.locator('..').getAttribute('open'), null);
           assert.equal(await page.getByText('03.11.2026, 12:19 (UTC+03:00)', { exact: true }).isVisible(), false);
           await conditions.focus();
@@ -210,6 +210,22 @@ async function checkTextContrast(page, label) {
           assert.equal(await page.locator('a[href="/billing/checkout?cycle=month"]').count(), 0);
           assert.equal(await page.locator('form[action="/billing/subscription/resume"], form[action="/billing/subscription/early-preview"]').count(), 0);
           assert(await page.getByRole('status').first().isVisible());
+        }
+        if (name === 'subscription-key-expired') {
+          assert(await page.getByRole('link', { name: 'Продлить подписку', exact: true }).isVisible());
+          assert(!(await page.locator('main').innerText()).includes('Повторно платить не нужно'));
+        }
+        if (name.startsWith('subscription-method-pending')) {
+          const recovery = page.getByRole('link', { name: 'Проверить способ оплаты', exact: true });
+          assert(await recovery.isVisible());
+          assert.equal(await recovery.getAttribute('href'), '/billing/payment-method');
+          await recovery.focus();
+          assert(await recovery.evaluate(el => el === document.activeElement));
+          assert(await page.getByRole('link', { name: 'Проверить платёж', exact: true }).isVisible());
+          assert.equal(await page.locator('a[href="/billing/checkout?cycle=month"]').count(), 0);
+          assert.equal(await page.locator('form[action="/billing/subscription/resume"], form[action="/billing/subscription/early-preview"]').count(), 0);
+          assert(!(await page.locator('main').innerText()).includes('Уже отправленный'));
+          if (name.endsWith('-on')) assert(await page.getByRole('button', { name: 'Отключить автопродление', exact: true }).isVisible());
         }
         if (name === 'subscription-trial') {
           assert(!(await page.locator('main').innerText()).includes('Сейчас действует бесплатный тариф'));

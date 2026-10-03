@@ -106,3 +106,7 @@ git diff --check
 Команда: `apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_billing_return.py -q --tb=short --show-capture=no`. Полный existingfile:82passed/0failed/0skipped,110.57с pytest/118с runner; collectiondigest355468009a2a415ee678c6b52e5aaf6aca2ecc32382c033337be12cf75e5ebba, isolatedcontainerremoved. Ruff/diffcheckPASS.
 
 Тестовый файл SHA-256: ef277f0b725a6a66bfbf61655c3e32896dce93c871ce1fb96acf11c70fe5b033. Independent review и новые exact-SHA gates требуются отдельно; реальных финансовых действий нет.
+
+## T051 — дополнительные внешние P2
+
+Три новых представления сначала RED3/77deselected (expired-alone, method_required off/on), затем окончательный full UI80PASS. Прежние названия раскрытия адаптированы к «Способ оплаты, условия и история», точная дата/zone/unchecked consent/CSRF/version неизменны. Causal DB24RED11FAIL/13PASS125deselected73.66с, runner83с, isolatedcontainerremoved; modern manual_resolution добавлена отдельной положительной защитной проверкой. Полный DB/browser/source review фиксируются в новых T051 reports. Предыдущие PASS и failed gate histories сохраняются; release еще HOLD.
