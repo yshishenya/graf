@@ -144,3 +144,39 @@ PASS остановки и отсутствия большой рамки отн
 фокуса в установленном приложении остаётся неподтверждённым. VoiceOver PASS
 не заявляется. Spec SC-003, quickstart, plan и T009 согласованы с разрешением;
 остальные проверки, точные SHA, release-full и доверие macOS обязательны.
+
+## Повторный аудит и дополнение 2026-10-04
+
+Lane: high-risk-ux, продолжение F285. База a7553db61b2625e767b3afa147c7b61c097fe918; новые правки пока не закоммичены. Пользователь подтвердил: «Да, убрать лишние рамки, сохранить выделение действий».
+
+Source audit: общие cabinet [tabindex]:focus-visible, settings/calendar и notification-panel селекторы выделяли main, заголовки и status/alert после программного focus. Chromium/WebKit воспроизводили outline 2px offset 2px вокруг синтетического main 900x500. Рамка не означает выбор/ошибку/запись. Native после PR #7461 не содержит обычных focusable capture/custody targets; кнопки уведомления остаются интерактивными.
+
+Решение: одно typed CSS правило без JS изменений подавляет outline информационных отрицательных tabindex. Общий селектор действий сохранён; role controls, contenteditable и .button защищены. У руководств контур абсолютного hit span удалён; 3px underline заголовка обозначает текущую ссылку. Область клика, hover, переносы и основная посадочная страница сохраняются.
+
+Уточнение clarify/analyze: 10 FR, 15 tasks с ownership #7499 для T012–T015; CRITICAL 0/HIGH 0, нет блокирующих вопросов; старые требования/задачи не отменены. Независимые requirements/ux checklist: 14 checked/0 unchecked; см. checklist-review.md. Issue canon ensure/validate PASS.
+
+Проверки:
+- Regression до CSS: Chromium FAIL на light/settings-page/main/keyboard, solid вместо none — /tmp/graf-f285-followup-before.log.
+- Chromium и WebKit: PASS полей и действий, служебных целей в settings/calendar/notifications в обеих темах, Tab continuity, интерактивных negative/zero/positive tabindex, contenteditable, .button, role=option/menuitem; карточки 960/340px, многострочный заголовок, 3px underline, полная область клика, mouse без focus-visible. Forced-colors Chromium PASS.
+- meeting-delete-focus, local-recording-focus: PASS — /tmp/graf-f285-followup-delete.log и /tmp/graf-f285-followup-recording.log.
+- public-navigation-focus и article reduced motion: PASS — /tmp/graf-f285-followup-public-nav.log.
+- Официальный run_local_postgres_tests.sh --focused: 23 passed, 0 failures, 1 существующее PytestAssertRewriteWarning — /tmp/graf-f285-followup-pytest-isolated.log. Использована отдельная временная PostgreSQL, удалена штатной очисткой; Dev не затронут. Первый прямой pytest запуск дал 17 passed/6 setup errors из-за отсутствия isolated PostgreSQL и GRAF_NODE_MODULES; не считался PASS, окружение исправлено штатным runner.
+- check_spec_kit_governance.py и git diff --check: PASS. Новые зависимости и изменения основной посадочной страницы отсутствуют.
+
+Текущие раздельные состояния:
+- Исходное F285 merged PR #7461, merge f3ec4dd95c3aa68fc7246338bd7c58908d24aee2. Новое дополнение pending commit/PR.
+- Сервер: GitHub Release v2026.10.03.3, source bbe1fc772896e1d88fb9f601daefba4b6e5609b2, опубликован 2026-10-03T09:23:45Z, assets=[]; исходное серверное F285 включено. Новое дополнение ещё не выложено.
+- Публичный Sparkle appcast и установленный /Applications/GRAF.app: 2026.09.30.1. Native F285 ещё не доставлено пользователю.
+- Apple: notarytool history graf-notary PASS после принятия соглашения; история доступна. Это проверка доступа, не Accepted нового ZIP/PKG. Developer ID Application/Installer разрешаются существующим dry-run.
+- GRAF Dev: manifest dev-e498ff765fcf, source e498ff765fcfdd41a07668960766b6e3e54942ec, feature 284; другой чат сообщает о продолжающейся контрольной записи. Стенд не останавливался и не обновлялся.
+- VoiceOver не включался, не проверялся; настройки сохранены. Переход уведомление → capture/custody остаётся неподтверждённым, ограничение сохранено в новом changes/unreleased/F285.yaml.
+
+SHA-256 проверяемых файлов: cabinet.css 4910caa708cbdb01518900410efda9047e0bffe14b6ea15c5a6775a8ebbd351f; content.css 5289ff49bd2a622a02af3f605101acb046aba6e9d9f3e732889b45936dc1fc86; focus-indicators.test.cjs 702e338be58de29ec5dcff2180e958138c1626296c3aa3ece60e0bc8645af222.
+
+Converge: локальная реализация FR-009/010 готова; T015 остаётся открытой до согласования нового коммита, T009 — до штатного Dev, точных PR checks, frozen release-full, CD, Developer ID/notary/stapling/Gatekeeper/Sparkle/public/installed. Локальные PASS не подменяют эти ворота. Прод ранее разрешён; нового разрешения на него не требуется.
+
+Проверка реализации основным агентом: source inventory tabindex=-1 и вызовы focus прочитаны; нейтральный override не применяется к role=option/menu/menuitem/tab, native a/button/input/select/textarea/summary, .button и contenteditable. Pointer/Tab пути и исходные CSS действия проверены синтетически. Новые JavaScript/API/Swift изменения отсутствуют. Защищённая основная посадочная страница и её assets byte-identical базе. Независимый отчёт в checklist-review.md относится к требованиям, не объявляется независимым code review нового среза.
+
+Независимый read-only code review через codex review --uncommitted: actionable defects 0, CSS/templates/focus-routing/regression review PASS, JS syntax и diff --check PASS. Независимый повтор браузеров не выполнен из-за read-only sandbox запрета создавать Playwright artifacts; проверяющий не объявил runtime PASS. Основные Chromium/WebKit журналы остаются отдельным успешным доказательством. Журнал /tmp/graf-f285-followup-code-review.log.
+
+Пользователь отдельно одобрил именно новый проверенный коммит 2026-10-04: «Да, зафиксируй и продолжай выпуск». Повторного разрешения на прод не требуется. T015 локально завершена; T009 остаётся выпускной задачей.

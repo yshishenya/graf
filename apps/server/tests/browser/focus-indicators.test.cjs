@@ -126,6 +126,104 @@ const actions = {
       await page.keyboard.press('Tab');
       assert.equal((await styles(target('button'))).outline, 'solid');
     }
+    const service = await browser.newPage();
+    const neutral = {
+      main: '<main tabindex="-1">Page</main>', heading: '<h1 tabindex="-1">Heading</h1>',
+      h2: '<h2 tabindex="-1">Heading</h2>', section: '<section tabindex="-1">Info</section>',
+      div: '<div tabindex="-1">Info</div>', paragraph: '<p tabindex="-1">Info</p>',
+      status: '<section role="status" tabindex="-1">Result</section>',
+      alert: '<p role="alert" tabindex="-1">Error</p>',
+      panel: '<section role="tabpanel" tabindex="-1">Result panel</section>',
+      region: '<section role="region" tabindex="-1">Info region</section>',
+      ariaHeading: '<div role="heading" tabindex="-1">Heading</div>',
+    };
+    const interactive = {
+      button: '<button tabindex="-1">Action</button>', link: '<a href="#" tabindex="-1">Link</a>',
+      option: '<div role="option" tabindex="-1">Option</div>',
+      menuitem: '<div role="menuitem" tabindex="-1">Action</div>',
+      custom: '<div class="button" tabindex="-1">Action</div>',
+      editable: '<div contenteditable="true" tabindex="-1">Edit</div>',
+      zero: '<div tabindex="0">Custom control</div>', positive: '<div tabindex="1">Custom control</div>',
+    };
+    const serviceStyle = locator => locator.evaluate(el => ({
+      active: document.activeElement === el, outline: getComputedStyle(el).outlineStyle,
+      tabindex: el.getAttribute('tabindex'), width: el.getBoundingClientRect().width,
+    }));
+    for (const theme of ['light', 'dark']) {
+      for (const wrapper of ['settings-page', 'calendar-settings', 'notification-panel']) {
+        await service.setContent(`<div class="${wrapper}">${Object.entries({...neutral, ...interactive}).map(([id, html]) =>
+          `<div data-service="${id}"><input data-before aria-label="Before">${html}<button data-after>After</button></div>`).join('')}</div>`);
+        await service.addStyleTag({path: css});
+        await service.evaluate(theme => document.documentElement.dataset.theme = theme, theme);
+        for (const [id] of Object.entries(neutral)) {
+          const row = service.locator(`[data-service="${id}"]`), target = row.locator(':scope > :nth-child(2)');
+          const before = await serviceStyle(target);
+          for (const modality of ['mouse', 'keyboard']) {
+            await row.locator('[data-before]').click();
+            if (modality === 'keyboard') await service.keyboard.press(engine === 'webkit' ? 'Alt+Tab' : 'Tab');
+            await target.focus();
+            const style = await serviceStyle(target), label = `${theme}/${wrapper}/${id}/${modality}`;
+            assert.equal(style.active, true, label); assert.equal(style.outline, 'none', label);
+            assert.equal(style.tabindex, '-1', label); assert.equal(style.width, before.width, label);
+            await service.keyboard.press(engine === 'webkit' ? 'Alt+Tab' : 'Tab');
+            assert.equal(await row.locator('[data-after]').evaluate(el => document.activeElement === el), true, `Tab after ${label}`);
+          }
+        }
+        for (const id of Object.keys(interactive)) {
+          const row = service.locator(`[data-service="${id}"]`), target = row.locator(':scope > :nth-child(2)');
+          await row.locator('[data-before]').focus();
+          await service.keyboard.press(engine === 'webkit' ? 'Alt+Tab' : 'Tab');
+          await target.focus();
+          assert.equal((await serviceStyle(target)).active, true, `interactive ${id}`);
+          assert.equal((await serviceStyle(target)).outline, 'solid', `preserved ${theme}/${wrapper}/${id}`);
+        }
+      }
+    }
+    if (engine === 'chromium') {
+      await service.emulateMedia({forcedColors: 'active'});
+      await service.locator('[data-service="main"] main').focus();
+      assert.equal((await serviceStyle(service.locator('[data-service="main"] main'))).outline, 'none');
+      await service.locator('[data-service="option"] [role="option"]').focus();
+      assert.equal((await serviceStyle(service.locator('[data-service="option"] [role="option"]'))).outline, 'solid');
+    }
+    await service.close();
+
+    const guides = await browser.newPage();
+    const publicCss = path.join(__dirname, '../../src/twobrain_rec_server/public/static/public');
+    for (const width of [960, 340]) {
+      await guides.setViewportSize({width, height: 800});
+      await guides.setContent('<input aria-label="Before"><div class="guides-page section-light"><ol class="guide-cards"><li class="guide-card"><h2><a href="#guide">Synthetic long guide heading for wrapped keyboard focus<span class="guide-card-hit" aria-hidden="true"></span></a></h2><p>Synthetic description</p><span class="guide-read">Read guide</span></li></ol></div>');
+      for (const file of ['landing.css', 'content.css']) await guides.addStyleTag({path: path.join(publicCss, file)});
+      await guides.evaluate(() => { window.guideClicks = 0; document.querySelector('a').addEventListener('click', event => {event.preventDefault(); window.guideClicks++;}); });
+      const link = guides.locator('.guide-card a'), hit = guides.locator('.guide-card-hit'), card = guides.locator('.guide-card');
+      const guideStyles = () => link.evaluate(el => ({line: getComputedStyle(el).textDecorationLine,
+        thickness: getComputedStyle(el).textDecorationThickness, outline: getComputedStyle(el).outlineStyle,
+        cardOutline: getComputedStyle(el.closest('.guide-card')).outlineStyle,
+        hitOutline: getComputedStyle(el.querySelector('.guide-card-hit')).outlineStyle,
+        visible: el.matches(':focus-visible')}));
+      await guides.locator('input').focus(); await guides.keyboard.press(engine === 'webkit' ? 'Alt+Tab' : 'Tab');
+      assert.equal(await link.evaluate(el => document.activeElement === el), true, 'guide Tab target');
+      let style = await guideStyles();
+      assert.equal(style.line, 'underline'); assert.equal(style.thickness, '3px');
+      assert.equal(style.outline, 'none'); assert.equal(style.hitOutline, 'none'); assert.equal(style.cardOutline, 'none');
+      const cardBox = await card.boundingBox(), hitBox = await hit.boundingBox();
+      assert.ok(Math.abs(hitBox.width - cardBox.width) <= 2 && Math.abs(hitBox.height - cardBox.height) <= 2, 'whole card hit area');
+      if (width === 340) assert.ok(await link.evaluate(el => el.getClientRects().length > 1), 'multiline heading');
+      await guides.locator('input').click();
+      await guides.mouse.click(cardBox.x + cardBox.width / 2, cardBox.y + cardBox.height - 12);
+      assert.equal(await guides.evaluate(() => window.guideClicks), 1, 'whole card click preserved');
+      assert.equal((await guideStyles()).visible, false, 'mouse focus remains quiet');
+      if (engine === 'chromium') {
+        await guides.emulateMedia({forcedColors: 'active'});
+        await guides.locator('input').focus(); await guides.keyboard.press('Tab');
+        style = await guideStyles(); assert.equal(style.line, 'underline'); assert.equal(style.thickness, '3px');
+        assert.equal(style.hitOutline, 'none');
+        await guides.emulateMedia({forcedColors: 'none'});
+      }
+    }
+    await guides.close();
+    console.log(`${engine}: service targets, interactive negative tabindex, Tab continuity and guide heading focus PASS`);
+
     assert.deepEqual(errors, []);
     console.log(`${engine}: field contours, keyboard actions, geometry, themes and contrast PASS`);
   } finally { await browser.close(); }

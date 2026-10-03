@@ -22,3 +22,7 @@
 Три обязательных checks на точном PR SHA через scripts/validate-pr-checks.py. Затем frozen release candidate, один authoritative release-full, CD dry-run/execute и metadata-only smoke. Public macOS: Developer ID, notarization/stapling/Gatekeeper, Sparkle previous/new validation, публичные ZIP/PKG/appcast bytes. Установленная версия отделяется от публикации. Данные тестов и screenshots с частным содержимым не сохраняются.
 
 На macOS WebKit полная навигация по действиям проверяется Option+Tab, обычный Tab следует системной настройке; это не пропуск keyboard proof. Перед чтением computed styles тест ждёт окончания существующих transition.
+
+## Дополнение 2026-10-04
+
+В focus-indicators.test.cjs проверить программные цели main/heading/status/alert/tabpanel/section/p в обеих темах, после mouse и keyboard, без outline с сохранённым activeElement. Проверить интерактивные отрицательные/нулевые/положительные tabindex, custom role controls и contenteditable. Public synthetic fixture: карточка без outline, заголовок underline 3px, перенос строк, вся область клика сохранена, click не включает клавиатурное оформление, forced-colors Chromium. Затем существующие meeting-delete-focus/local-recording-focus, focused pytest, governance и diff --check. Не запускать VoiceOver.

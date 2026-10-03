@@ -6401,3 +6401,9 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
     outline-offset: -2px;
   }
 }
+
+/* Programmatic information targets keep focus routing without framing the page. */
+:is(main, h1, h2, h3, h4, h5, h6, section, p, div)[tabindex="-1"]:not([role]):not([contenteditable]):not(.button):focus,
+[tabindex="-1"]:is([role="main"], [role="heading"], [role="status"], [role="alert"], [role="tabpanel"], [role="region"]):not([contenteditable]):focus {
+  outline: none;
+}

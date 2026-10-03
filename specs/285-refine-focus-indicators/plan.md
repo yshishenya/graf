@@ -41,3 +41,7 @@ Swift/SwiftUI/AppKit и существующий cabinet CSS. macOS 14+, embedde
 ## Complexity Tracking
 
 Новых абстракций нет. Не менять notification keyboard loop, native combo без подтверждённого дефекта, JS restoration, focus traps и семантические рамки выбора/ошибок/источников. Не менять глобальные настройки macOS.
+
+## Дополнение 2026-10-04 — служебные цели и руководства
+
+FR-009/FR-010, high-risk-ux, без новой фичи или зависимостей. cabinet.css: сохранить общий селектор действий и подавить outline отдельным правилом только у main/heading/section/p/div с tabindex=-1 и нейтральной/информационной семантикой. Селектор исключает contenteditable и .button; специфичность перекрывает широкие settings/calendar/notification правила. Отрицательный tabindex сам по себе не означает информационную цель. Проверить custom role controls, contenteditable, tabindex=0/positive и roving tabindex=-1. content.css: заменить outline .guide-card-hit на подчёркивание заголовка 3px, убрать focus-within акцент всего контейнера; hover и область клика сохраняются. Никаких JS изменений. Остальные контуры реально интерактивных контролов остаются. Полный существующий путь PR/release, запрет VoiceOver сохраняется. Коммит нового среза после отдельного явного одобрения проверенного diff.

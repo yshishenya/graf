@@ -19,3 +19,5 @@ Single contour: outline none для border-bearing полей, border focus colo
 WebKit native select не рисует inset box-shadow: один 2px outline с offset -2px покрывает собственную границу без изменения appearance/стрелки/размеров. Forced-colors по-прежнему оставляет один Highlight outline. Regression проверяет это отдельно в Chromium и WebKit.
 
 В forced-colors браузер вправе перекрасить прозрачную нативную границу. Highlight outline2px расположен внутри с offset -2px и покрывает её; дополнительной внешней линии нет.
+
+Дополнение 2026-10-04: программный focus main/heading/status/alert/tabpanel/нейтральной секции сохраняется без outline; interactive tabindex=-1 (roving menu/option/button/link), contenteditable и обычные Tab stops сохраняют выделение. Карточка руководства: mouse без нового контура, Tab подчёркивает заголовок 3px; hit span не рисует outline. Semantic selection/error/recording borders сохраняются.
