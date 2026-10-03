@@ -80,3 +80,21 @@ apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test
 Дополнительное текущее чтение Chromium/WebKit при320px/dark/200%, JavaScript disabled: native «Способ оплаты и условия» раскрывается Space, полная дата/время/зона видимы; фокус фактически на summary, вычисленный outline solid2px. CSS встроен в synthetic документ заранее; попытка addStyleTag при JavaScript disabled была остановлена из-за ограничения тестового API и не является дефектом продукта. Снимки `focus-chromium-320-dark-200.png` и `focus-webkit-320-dark-200.png` вне git. После всех итоговых прогонов SHA-256 семи source/test файлов перечитаны и совпали с замороженными значениями таблицы.
 
 После rebase актуальной общей CSS F285 выполнена независимая повторная проверка: Chromium16 PASS61.93с, WebKit16 PASS90.65с,44 focus checks PASS. Шаблон и маршрут совпадают с таблицей; актуальная CSS SHA-25624074ca3bc01545a1ab794c8df222e36622fa1cbe171a6a327dfe840fe200a64. Отчет: review-subscription-clarity-browser.md; предыдущие хеши описывают исходный прогон до интеграции. Архив fragment v2026.10.04.1 сохранен побайтово, текущее изменение находится в changes/unreleased/F280.yaml только с T046–T048.
+
+
+## T049 — прежнее ожидание полной даты в основной сводке
+
+Причинный GitHub CI RED: `governance-fast` run `37159387757` на SHA `4eda104af2522b435fb7d38f6e45c490cb28e221`, выбранный денежный набор180case:179passed/1failed. Единственный отказ — `test_subscription_page_names_the_real_charge_day`: прежний assertion ожидал полную дату/время/зону внутри основного «Оплачено до», тогда как утвержденные FR-039/041 требуют короткую локальную дату и полные условия в native details. Новый T049/#7507 оформлен и синхронизирован до изменения; требования не расширены.
+
+Изменен только существующий `apps/server/tests/unit/test_billing_money_path_e2e.py`: добавлен импорт уже существующего `local_datetime`; последнее markup ожидание заменено проверкой точного значения короткой viewer-local даты в основном `billing-subscription-facts`, отсутствия полного срока в том же поле, закрытого native раскрытия «Способ оплаты и условия» без вложенных details и точного полного срока в поле «Точный срок доступа». Все прежние checkout/webhook/reconcile/paid-through/recurring assertions и проверка реальной первой попытки за72ч сохранены. Эта правка не меняет код продукта или денежные переходы.
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused tests/unit/test_billing_money_path_e2e.py -k test_subscription_page_names_the_real_charge_day -q --tb=short --show-capture=no
+apps/server/scripts/run_local_postgres_tests.sh --focused tests/unit/test_billing_money_path_e2e.py -q --tb=short --show-capture=no
+apps/server/.venv/bin/ruff check apps/server/tests/unit/test_billing_money_path_e2e.py
+git diff --check
+```
+
+Целевой PostgreSQL GREEN: **1passed/70deselected**,5.71с pytest/10с runner. Полный существующий файл: **71passed/0failed/0skipped**,63.50с pytest/68с runner; collection digest `730f03bf1a6c92701a74b5cfb5e5d06beb3a869edf81ec91a992e5541ea5d026`. Оба одноразовых контейнера удалены штатным runner; `ruff` и whitespace checks PASS. Этот полный файл содержит71case, исходные180case относятся к объединенной выбранной CI-группе; результаты не смешаны. Два прежних предупреждения fixture plugin/Starlette не являются skip.
+
+Исходники template/CSS/route не менялись в этом срезе; независимый test review и новые exact-SHA CI доказательства оформляет основной агент. Реальных новых платежей, списаний, возвратов или grants нет. Тестовый файл SHA-256 после обоих GREEN: `93ae6b4eed0ca2dd5de3c7ed9fc0539dc4dca75531bf1e851e1f2b7f7d34681d`.
