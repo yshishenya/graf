@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="Current" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|ARM64">
+      <Configuration>Debug</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|ARM64">
+      <Configuration>Release</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup>
+    <ProjectGuid>{4B4C31DA-2000-4E1A-9D4A-6BF7B4B25001}</ProjectGuid>
+    <!-- wapproj does not automatically import Directory.Build.props. Keep the
+         package graph on the same stable SDK as the native projects. -->
+    <TargetPlatformIdentifier>UAP</TargetPlatformIdentifier>
+    <TargetPlatformVersion Condition="'$(TargetPlatformVersion)' == ''">10.0.26100.0</TargetPlatformVersion>
+    <SDKIdentifier>UAP</SDKIdentifier>
+    <!-- SDKVersion is the packaging pipeline generation (10.0); the concrete
+         installed SDK is selected by TargetPlatformVersion above. -->
+    <SDKVersion Condition="'$(SDKVersion)' == ''">10.0</SDKVersion>
+    <TargetPlatformMinVersion>10.0.19045.0</TargetPlatformMinVersion>
+    <DefaultLanguage>ru-RU</DefaultLanguage>
+    <WindowsPackageType>MSIX</WindowsPackageType>
+    <AppxPackage>true</AppxPackage>
+    <!-- The payload is a native C++ WinUI 3 executable. Microsoft.DesktopBridge.props
+         normally suppresses the .NET CoreRuntime imports, but this project does not
+         import that props file, so Microsoft.Common.targets would pull
+         Microsoft.Net.CoreRuntime.ImportAfter.targets in (TargetPlatformIdentifier is
+         UAP and AppxPackage is true) and inject a Microsoft.NET.CoreRuntime.1.1
+         package dependency. A native app must not carry it, and that dependency asks
+         for a framework a clean Windows image does not have, which blocks install.
+         Setting the same suppression here, before the imports at the end of the file
+         are evaluated, is the minimal equivalent of that props file. -->
+    <NetfxCoreRuntimeTargets>Empty</NetfxCoreRuntimeTargets>
+    <NetfxCoreRuntimeSettingsTargets>Empty</NetfxCoreRuntimeSettingsTargets>
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+    <AppxBundle>Never</AppxBundle>
+    <SkipCopyBuildProduct>true</SkipCopyBuildProduct>
+    <EntryPointProjectUniqueName>..\RecApp\GrafWindowsApp.vcxproj</EntryPointProjectUniqueName>
+    <EntryPointExe>GrafWindowsApp.exe</EntryPointExe>
+    <AppxPackageDir>$(MSBuildThisFileDirectory)out\</AppxPackageDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <PlatformTarget>x64</PlatformTarget>
+    <OutputPath>out\x64\Debug\</OutputPath>
+    <IntermediateOutputPath>out\obj\GrafWindows.Package\x64\Debug\</IntermediateOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <PlatformTarget>x64</PlatformTarget>
+    <OutputPath>out\x64\Release\</OutputPath>
+    <IntermediateOutputPath>out\obj\GrafWindows.Package\x64\Release\</IntermediateOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+    <PlatformTarget>ARM64</PlatformTarget>
+    <OutputPath>out\ARM64\Debug\</OutputPath>
+    <IntermediateOutputPath>out\obj\GrafWindows.Package\ARM64\Debug\</IntermediateOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">
+    <PlatformTarget>ARM64</PlatformTarget>
+    <OutputPath>out\ARM64\Release\</OutputPath>
+    <IntermediateOutputPath>out\obj\GrafWindows.Package\ARM64\Release\</IntermediateOutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The packaged payload takes its Windows App SDK runtime from package
+         identity instead of bootstrapping it, so the entry project must be built
+         with WindowsPackageType=MSIX. The standalone validation build keeps the
+         default None. -->
+    <ProjectReference Include="..\RecApp\GrafWindowsApp.vcxproj">
+      <AdditionalProperties>GrafWindowsPackageType=MSIX</AdditionalProperties>
+    </ProjectReference>
+    <AppxManifest Include="Package.appxmanifest" />
+    <Content Include="Assets\Graf.ico" />
+    <Content Include="Assets\StoreLogo.png" />
+    <Content Include="Assets\Square150x150Logo.png" />
+    <Content Include="Assets\Square44x44Logo.png" />
+  </ItemGroup>
+  <Import Project="$(MSBuildExtensionsPath)\Microsoft\DesktopBridge\Microsoft.DesktopBridge.targets" Condition="Exists('$(MSBuildExtensionsPath)\Microsoft\DesktopBridge\Microsoft.DesktopBridge.targets')" />
+  <!-- Import last so Microsoft.Common.targets cannot overwrite Appx packaging hooks. -->
+  <Import Project="$(MSBuildExtensionsPath)\Microsoft\VisualStudio\v$(VisualStudioVersion)\AppxPackage\Microsoft.AppxPackage.Targets"
+          Condition="Exists('$(MSBuildExtensionsPath)\Microsoft\VisualStudio\v$(VisualStudioVersion)\AppxPackage\Microsoft.AppxPackage.Targets')" />
+</Project>
