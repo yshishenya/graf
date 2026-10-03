@@ -1672,10 +1672,6 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   background: var(--surface-2);
   caret-color: var(--accent);
 }
-.code-slot:focus {
-  border-color: var(--focus-ring);
-  box-shadow: 0 0 0 1px var(--focus-ring);
-}
 .code-slot:not(:placeholder-shown) { background: var(--surface); }
 .code-entry-fallback { width: 100%; }
 .code-hint { text-align: center; color: var(--muted); font-size: var(--font-size-caption); font-weight: 650; }
@@ -5989,7 +5985,7 @@ html:not([data-cabinet-js="ready"]) .detail-page-main:not([data-processing-repla
 }
 .meeting-title-display { cursor: text; white-space: normal; overflow-wrap: anywhere; }
 .meeting-title-display:hover { background: var(--line-soft); }
-.meeting-title-input { width: 100%; outline: 2px solid var(--accent); outline-offset: 2px; }
+.meeting-title-input { width: 100%; --field-focus-width: 2px; }
 .meeting-title-display:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .meeting-title-error { margin: 8px 0 0; color: var(--danger-text); font-size: var(--font-size-body-compact); overflow-wrap: anywhere; }
 
@@ -6248,7 +6244,6 @@ html[data-theme="dark"] .app-shell[data-active-nav="settings"] {
 .settings-combobox--filter { max-width: 380px; }
 .settings-combobox > input { width: 100%; min-width: 0; padding-right: 32px; text-overflow: ellipsis; }
 .settings-combobox > select[hidden] { display: none !important; }
-.settings-combobox > input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .settings-combobox__toggle { position: absolute; top: 0; right: 0; width: 32px; height: 100%; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
 .settings-combobox__popup { position: fixed; margin: 0; inset: auto; box-sizing: border-box; z-index: 30; max-height: 260px; padding: 0; overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radius-xs); background: var(--panel); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
 .settings-combobox__popup[hidden] { display: none; }
@@ -6386,3 +6381,23 @@ html[data-theme="dark"] .app-shell[data-active-nav="settings"] {
   .calendar-series__actions { justify-content: flex-start; max-width: none; }
 }
 @media (prefers-reduced-motion: reduce) { .calendar-series > summary .ui-icon { transition: none; } }
+
+/* Editable fields share one contour inside their border; actions keep :focus-visible. */
+:is(input:not([type="checkbox"]):not([type="radio"]):not(:is([type="range"], [type="file"], [type="button"], [type="submit"], [type="reset"], [type="image"], [type="hidden"], [type="color"])), textarea):focus {
+  outline: none;
+  border-color: var(--focus-ring);
+  box-shadow: inset 0 0 0 var(--field-focus-width, 1px) var(--focus-ring);
+}
+select:focus, .settings-page select:focus, .calendar-settings select:focus {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+  box-shadow: none;
+}
+@media (forced-colors: active) {
+  :is(input:not([type="checkbox"]):not([type="radio"]):not(:is([type="range"], [type="file"], [type="button"], [type="submit"], [type="reset"], [type="image"], [type="hidden"], [type="color"])), select, textarea):focus {
+    border-color: transparent;
+    box-shadow: none;
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}
