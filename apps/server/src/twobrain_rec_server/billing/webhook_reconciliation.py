@@ -313,6 +313,22 @@ async def reconcile_pending_initial_checkout_operations(
                 BillingOperation.created_at >= datetime.now(UTC) - timedelta(hours=24),
             ),
         )
+    receipt_filter = and_(
+        BillingOperation.state == "succeeded",
+        BillingOperation.provider_id.is_not(None),
+        select(BillingInvoice.id).where(
+            BillingInvoice.operation_id == BillingOperation.id,
+            BillingInvoice.workspace_id == BillingOperation.workspace_id,
+            BillingInvoice.status == "succeeded",
+            BillingInvoice.plan_snapshot["receipt_registration"].as_string() == "pending",
+        ).exists(),
+    )
+    if operation_id is None:
+        receipt_filter = and_(
+            receipt_filter,
+            BillingOperation.created_at >= datetime.now(UTC) - timedelta(hours=24),
+        )
+    state_filter = or_(state_filter, receipt_filter)
     filters = [
         BillingOperation.kind.in_(
             ("initial_checkout", "storage_upgrade", "early_renewal", "renewal")
@@ -342,6 +358,33 @@ async def reconcile_pending_initial_checkout_operations(
         ):
             return "pending"
         payload = await provider.get_payment(operation.provider_id or "")
+        if operation.state == "succeeded":
+            # A late receipt must not replay grants, mandates or budget settlement.
+            invoice = await db.scalar(select(BillingInvoice).where(
+                BillingInvoice.operation_id == operation.id,
+                BillingInvoice.workspace_id == operation.workspace_id,
+            ).with_for_update())
+            if invoice is None or validate_purchase_payment(
+                payload, operation=operation, invoice=invoice, scope=scope
+            ) != "succeeded":
+                raise ProviderObservationError("completed payment receipt scope conflicts")
+            observation = extract_payment_observation(payload, scope=scope)
+            if observation.receipt_registration is not None:
+                invoice.plan_snapshot, available = merge_receipt_registration(
+                    invoice.plan_snapshot, status=observation.receipt_registration
+                )
+                subscription = await db.get(WorkspaceSubscription, operation.workspace_id)
+                if available and subscription is not None and subscription.billing_owner_id is not None:
+                    await enqueue_billing_notification(
+                        db, workspace_id=operation.workspace_id,
+                        recipient_id=subscription.billing_owner_id,
+                        event_id=f"receipt:{invoice.id}:available",
+                        kind=BillingNotification.RECEIPT_AVAILABLE,
+                        payload={"invoice": invoice.safe_number,
+                                 "action_path": f"/billing/invoices/{invoice.safe_number}"},
+                        marketing_allowed=False,
+                    )
+            return "succeeded"
         result = await apply_confirmed_purchase(
             db,
             settings,
@@ -425,14 +468,15 @@ async def reconcile_pending_initial_checkout_operations(
                     else:
                         valid_operations.append(operation)
                     continue
-                operation.state = "manual_resolution"
-                invoice = await db.scalar(
-                    select(BillingInvoice)
-                    .where(BillingInvoice.operation_id == operation.id)
-                    .with_for_update()
-                )
-                if invoice is not None:
-                    invoice.status = "manual_resolution"
+                if operation.state != "succeeded":
+                    operation.state = "manual_resolution"
+                    invoice = await db.scalar(
+                        select(BillingInvoice)
+                        .where(BillingInvoice.operation_id == operation.id)
+                        .with_for_update()
+                    )
+                    if invoice is not None:
+                        invoice.status = "manual_resolution"
                 counters["failed"] += 1
                 if commit_each_operation:
                     await db.commit()

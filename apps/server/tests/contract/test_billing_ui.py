@@ -135,6 +135,7 @@ async def test_cabinet_catalog_uses_the_same_guard_as_the_public_offer() -> None
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("observation_enabled", [True, False])
 @pytest.mark.parametrize(
     ("registration", "expected_url"),
     (("succeeded", "https://yookassa.test/receipt/1"), ("pending", None), ("invalid", None)),
@@ -143,6 +144,7 @@ async def test_invoice_receipt_link_requires_registered_receipt(
     monkeypatch: pytest.MonkeyPatch,
     registration: str,
     expected_url: str | None,
+    observation_enabled: bool,
 ) -> None:
     invoice = SimpleNamespace(
         safe_number="INV-RECEIPT1",
@@ -189,7 +191,10 @@ async def test_invoice_receipt_link_requires_registered_receipt(
             "headers": [],
             "query_string": b"",
             "app": SimpleNamespace(
-                state=SimpleNamespace(settings=SimpleNamespace(billing_support_email=None))
+                state=SimpleNamespace(settings=SimpleNamespace(
+                    billing_support_email=None, billing_checkout_enabled=False,
+                    billing_provider_observation_enabled=observation_enabled,
+                ))
             ),
         }
     )
@@ -208,6 +213,7 @@ async def test_invoice_receipt_link_requires_registered_receipt(
     invoice_context = captured["invoice"]
     assert isinstance(invoice_context, dict)
     assert invoice_context["receipt_url"] == expected_url
+    assert invoice_context["can_refresh_receipt"] is (registration == "pending" and observation_enabled)
     assert invoice_context["receipt_label"] == receipt_label(
         _receipt_registration_state(registration)
     )

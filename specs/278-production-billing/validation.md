@@ -582,3 +582,19 @@ reconcile_pending_webhook_events: processed=2, reconciled=2, pending=0, failed=0
 v2026.09.29.1 с уже слитой F279 / PR7363 и новой приёмкой F278.
 Полный прогон, публикация, развёртывание и реальные покупки нового выпуска
 на момент этой записи не выполнены. Критерии финансовой приёмки остаются открыты.
+
+## T031 — отложенный чек после успешной покупки, 2026-10-04
+
+Срез существующей F278, high-risk-product; база свежего master d8fa0edb62d4b034f70e15b2c1321bdcb73ef3ac, ветка codex/278-receipt-recovery. Производственная приёмка выявила registered-чек годовой покупки при локальном pending. В обычной выборке succeeded не наблюдался повторно. Новый фон выбирает только succeeded-операции с известным provider_id и pending-чеком того же workspace/invoice в первых 24ч. Позднее владелец использует «Проверить чек» в сведениях платежа через существующие owner/CSRF/rate-limit guards. Отдельная ветка GET проверяет идентичность/магазин/окружение/сумму/валюту, обновляет только монотонный receipt snapshot и однократное уведомление. Финансовое предоставление, бюджет и согласие не повторяются. Отсутствие active owner не переводит уже успешную оплату в manual_resolution.
+
+Analyze после добавления T031: 0 critical/high по scoped требованиям FR-027/028/031/032, US5/AC2; задача и план связаны, ограничение фонового окна и позднее явное действие определены. Независимый reviewer requirements PASS, все 40 custom checklist items подтверждены (включая новые8), самопроверка requirements16/0. Canon ensure и validate PASS; task owner #7512, дубль не найден. Auto-commit hooks выключены, before/after analyze/converge активных hooks нет.
+
+До реализации новая PostgreSQL-проверка воспроизвела отсутствующее действие проверки чека. Первый исправленный набор16PASS. Расширение проверок выявило неполный SimpleNamespace settings в старом contract fixture; fixture приведён к двум существующим runtime-флагам, добавлены проверки наличия кнопки при включённом/выключенном observation. Итоговая команда:
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_billing_purchase_journey.py tests/unit/test_billing_purchase_observation.py tests/unit/test_billing_entitlements.py tests/contract/test_billing_ui.py tests/contract/test_billing_purchase_ui.py -q --tb=short
+```
+
+Результат: 157 passed, 2 существующих предупреждения зависимостей, 41.49с тестов, временный контейнер удалён. Новые36 сценариев: четыре назначения × фон/точная граница24ч/поздняя ручная проверка/неверные shop, amount, test, metadata/ошибка GET/отсутствие active owner. Проверяются отсутствие POST, сохранённые grant/budget/paid_through/10ГБ/recurringfalse, однократное уведомление и прекращение запросов после зарегистрированного чека. Общие существующие journey/entitlement/UI проверки включены. Ruff PASS, git diff --check PASS, check_spec_kit_governance PASS.
+
+Convergence реализации T031: нового непокрытого обязательства в выбранном срезе не обнаружено. T031 остаётся unchecked: точный PR SHA/CI, новый полный выпуск и фактическое обновление годового чека в production ещё не выполнены. Реальная банковская выплата всех пяти приёмочных платежей подтверждена владельцем; точный реестр удержаний не получен. Полный/частичный внешние возвраты и независимая человеческая/Dev приёмка F278 остаются открытыми. Настоящие платёжные реквизиты, идентификаторы операций, email и сырой provider payload в этих доказательствах отсутствуют. Legacy Impact: untouched.

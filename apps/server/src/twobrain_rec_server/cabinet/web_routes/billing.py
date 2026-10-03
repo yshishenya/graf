@@ -4490,6 +4490,10 @@ async def billing_invoice_detail_page(
             "receipt_contact_label": _masked_receipt_contact(invoice.receipt_contact_snapshot) if can_manage else None,
             "receipt_label": receipt_label(receipt_state) if can_manage else "Чек доступен плательщику",
             "receipt_url": receipt_url,
+            "can_refresh_receipt": can_manage and invoice.status == "succeeded"
+            and receipt_state is ReceiptState.PENDING
+            and (request.app.state.settings.billing_provider_observation_enabled
+                 or request.app.state.settings.billing_checkout_enabled),
             "refund_mailto": refund_mailto,
         },
         support_email=support_email,
