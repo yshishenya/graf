@@ -26,3 +26,8 @@ T001→T002→T003; T001→T004→T005; T003+T005→T006. Tests precede implemen
 - [X] T009 [US2] Отбросить запоздалый отказ доступа предыдущей карточки после асинхронного чтения ошибки в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js; проверить переход на другую встречу с отложенным 403 в apps/server/tests/browser/local-recording-detail.test.cjs.
 
 - [X] T010 [US1] Изолировать недоступные процессы в текущем снимке CoreAudio, передавать подтверждённую активность без ложного окончания по неполному снимку; добавить исполняемые проверки смешанного снимка, точного bundleID и45min непрерывности в apps/macos/RecApp/Sources/MeetingDetection/, apps/macos/RecApp/App/TwoBrainRecApp.swift и apps/macos/Shared/Tests/MeetingDetectionPolicyTests.swift.
+
+## Phase 6: Аппаратная сходимость
+- [ ] T011 [US1] Воспроизвести source_overflow контрольного Telemost в исполняемой проверке writer с разными размерами пакетов; исправить доказанный порядок обработки накопленных источников и добавить безопасные относительные счётчики переполнения в apps/macos/RecApp/Sources/Capture/V5LocalRecordingWriter.swift и RecordingAudioTimeline.swift, RecordingSampleSources.swift, MicrophoneCaptureService.swift и PrivacySuppressingSampleSource.swift; отдельно маршрутизировать обычную диагностику в apps/macos/RecApp/App/TwoBrainRecApp.swift; сохранить отрицательные overflow/gap/format/stop проверки в apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift; повторить разрешённый45min физический звонок и доступ к обоим файлам.
+
+T011 является блокирующей приёмкой F284. До физического PASS прежний успешный detector-only45min не разрешает merge/release.

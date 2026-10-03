@@ -234,6 +234,69 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertFalse(profile.isUploadable)
     }
 
+    func testLiveDrainOrdersUnequalNativeBatchesWithoutArtificialTimelineOverflow() async throws {
+        try await verifyNativeBatchBacklog(microphoneBatchFrames: 512, systemBatchFrames: 4_096)
+    }
+
+    func testLiveDrainAlsoOrdersLargeMicrophoneAndSmallSystemBatches() async throws {
+        try await verifyNativeBatchBacklog(microphoneBatchFrames: 4_096, systemBatchFrames: 512)
+    }
+
+    func testLiveWriterPauseAtRetainedBatchBoundaryKeepsFullTimeline() async throws {
+        let control = PendingMicrophonePrivacyControl()
+        try await verifyNativeBatchBacklog(microphoneBatchFrames: 512, systemBatchFrames: 4_096, privacyControl: control)
+        XCTAssertTrue(control.didPauseAndResume)
+        XCTAssertGreaterThan(control.pendingFrameCount, 0)
+        XCTAssertLessThanOrEqual(control.pendingFrameCount, 8_192)
+    }
+
+    private func verifyNativeBatchBacklog(microphoneBatchFrames: Int, systemBatchFrames: Int,
+                                         privacyControl: PendingMicrophonePrivacyControl? = nil) async throws {
+        let root = makeSystemWriterRoot("v5-native-batch-backlog")
+        defer { try? FileManager.default.removeItem(at: root) }
+        // Physical microphone capacity is 30 seconds mono; system capacity is
+        // 10 seconds stereo. The backlog models delayed callbacks, not loss.
+        let microphone = BackloggedMicrophoneSource()
+        let totalFrames = 48_000 * 25
+        for offset in stride(from: 0, to: totalFrames, by: microphoneBatchFrames) {
+            microphone.append(systemBatch(
+                samples: Array(repeating: 0.05, count: min(microphoneBatchFrames, totalFrames - offset)),
+                seconds: 100 + Double(offset) / 48_000
+            ))
+        }
+        let system = DelayedContinuousSystemSource(totalFrames: totalFrames, batchFrames: systemBatchFrames)
+        let writer = LocalRecordingWriter(store: LocalRecordingStore(rootURL: root),
+            microphoneSampleSourceFactory: { microphone }, incomingSampleSourceFactory: { system },
+            diagnosticLogger: { privacyControl?.observe($0) })
+        privacyControl?.writer = writer
+        let directory = try writer.start(sessionId: "native-backlog", startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: systemScopeApproval(), permissions: systemGrantedPermissions())
+
+        let deadline = Date().addingTimeInterval(15)
+        var failure: String?
+        repeat {
+            failure = await writer.currentLevelsAsync().integrityFailureCode
+            if failure != nil || (system.isDrained && microphone.readableFrameCountForTest == 0) { break }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        } while Date() < deadline
+        XCTAssertNil(failure, "Continuous native batches must not overflow merely because their sizes differ")
+        XCTAssertTrue(system.isDrained)
+        XCTAssertFalse(microphone.hasTimestampedOverflow)
+        XCTAssertFalse(system.hasTimestampedOverflow)
+        let manifest = try await writer.stopAsync(stoppedAt: Date(timeIntervalSince1970: 35))
+        XCTAssertTrue(manifest.isComplete)
+        XCTAssertEqual(manifest.failureReason, .none)
+        XCTAssertEqual(manifest.echoProcessingHealth?.hostOverrunCount, 0)
+        if privacyControl != nil { XCTAssertEqual(manifest.privacySegments?.count, 1) }
+        let transcription = try XCTUnwrap(manifest.tracks.first { $0.role == .mixedMeetingAudio })
+        let playback = try XCTUnwrap(manifest.tracks.first { $0.role == .reviewPlayback })
+        XCTAssertEqual(transcription.frameCount, 16_000 * 25)
+        XCTAssertEqual(transcription.durationMs, 25_000)
+        XCTAssertLessThanOrEqual(abs(playback.durationMs - 25_000), 100)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.transcriptionAudioURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.reviewAudioURL.path))
+    }
+
     func testTimestampedQueueOverflowFailsWithoutPublishingPartialPackage() throws {
         let root = makeSystemWriterRoot("v5-overflow")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -300,6 +363,112 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: directory.transcriptionAudioURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: directory.reviewAudioURL.path))
+    }
+
+    func testStopKeepsFinitePerSourceLimitWhenBothSourcesProduceSmallBatchesForever() async throws {
+        let root = makeSystemWriterRoot("v5-small-infinite")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let writer = makeSystemV5Writer(root: root,
+            microphone: InfiniteTimestampedSampleSource(), system: InfiniteTimestampedSampleSource())
+        _ = try await writer.startAsync(sessionId: "small-infinite", startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: systemScopeApproval(), permissions: systemGrantedPermissions())
+        let manifest = try await writer.stopAsync(stoppedAt: Date(timeIntervalSince1970: 11))
+        XCTAssertEqual(manifest.status, .failed)
+        XCTAssertEqual(manifest.captureFailureCode, "stop_drain_limit_exceeded")
+        XCTAssertFalse(manifest.isComplete)
+        XCTAssertFalse(writer.isRecording)
+    }
+
+    func testWriterRejectsIncomparableClocksBeforePendingBatchOrdering() async throws {
+        for microphoneFirst in [true, false] {
+            let root = makeSystemWriterRoot("v5-incomparable-clock")
+            defer { try? FileManager.default.removeItem(at: root) }
+            let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+            let system = BufferedLocalRecordingSampleSource(channelCount: 1)
+            microphone.append(systemBatch(samples: Array(repeating: 0.1, count: 480), seconds: microphoneFirst ? 100 : 200))
+            system.append(RecordingAudioBatch(samples: Array(repeating: 0.2, count: 480),
+                format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 1),
+                presentationTime: RecordingAudioPresentationTimestamp(seconds: microphoneFirst ? 200 : 100, clockDomain: .wallClock)))
+            let writer = makeSystemV5Writer(root: root, microphone: microphone, system: system)
+            _ = try await writer.startAsync(sessionId: "clock", startedAt: Date(timeIntervalSince1970: 10),
+                scopeApproval: systemScopeApproval(), permissions: systemGrantedPermissions())
+            let manifest = try await writer.stopAsync(stoppedAt: Date(timeIntervalSince1970: 11))
+            XCTAssertEqual(manifest.captureFailureCode, "uncomparable_presentation_times")
+            XCTAssertFalse(manifest.isComplete)
+            XCTAssertEqual(manifest.echoProcessingHealth?.reason, .timebaseChanged)
+        }
+    }
+
+    func testInvalidPendingTimestampCannotWaitBehindValidSource() async throws {
+        for invalidTime in [Double.nan, Double.infinity, -Double.infinity] {
+            let root = makeSystemWriterRoot("v5-invalid-pending")
+            defer { try? FileManager.default.removeItem(at: root) }
+            let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+            microphone.append(systemBatch(samples: [0.1], seconds: invalidTime))
+            let writer = makeSystemV5Writer(root: root, microphone: microphone, system: InfiniteTimestampedSampleSource())
+            _ = try await writer.startAsync(sessionId: "invalid-time", startedAt: Date(timeIntervalSince1970: 10),
+                scopeApproval: systemScopeApproval(), permissions: systemGrantedPermissions())
+            let manifest = try await writer.stopAsync(stoppedAt: Date(timeIntervalSince1970: 11))
+            XCTAssertEqual(manifest.captureFailureCode, "invalid_timestamp")
+            XCTAssertFalse(manifest.isComplete)
+        }
+    }
+
+    func testPauseSilencesPrefetchedMicrophoneOnceAndResumeKeepsItsTimeline() throws {
+        let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let privacy = PrivacySuppressingSampleSource(base: microphone)
+        var output: [Float] = []
+        let timeline = RecordingAudioTimeline(configuration: .init(reorderWindowFrames: 0),
+            processEchoFrame: { _, microphone in microphone }, frameSink: { output += $0.samples })
+        for offset in 0..<3 {
+            microphone.append(systemBatch(samples: Array(repeating: 0.1, count: 480), seconds: 100 + Double(offset) * 0.01))
+        }
+        let first = try XCTUnwrap(privacy.readTimestampedBatch(maximumFrameCount: 8_192))
+        try timeline.append(source: .microphone, batch: first)
+        try timeline.append(source: .systemAudio, batch: systemBatch(samples: Array(repeating: 0, count: 480), seconds: 100))
+        // This is the same retained bounded batch consumed by the writer after
+        // its next control operation, rather than another read from the source.
+        let prefetched = try XCTUnwrap(privacy.readTimestampedBatch(maximumFrameCount: 8_192))
+        privacy.update(state: .paused)
+        let pending = privacy.suppressPrefetchedBatch(prefetched)
+        XCTAssertEqual(pending.samples, Array(repeating: 0, count: 480))
+        XCTAssertEqual(pending.presentationTime, prefetched.presentationTime)
+        XCTAssertEqual(pending.format, prefetched.format)
+        XCTAssertEqual(pending.discontinuity, prefetched.discontinuity)
+        XCTAssertEqual(pending.routeGeneration, prefetched.routeGeneration)
+        XCTAssertEqual(privacy.suppressPrefetchedBatch(pending).samples, pending.samples)
+        XCTAssertEqual(privacy.suppressedSampleCount, 480)
+        privacy.update(state: .capturing)
+        try timeline.append(source: .microphone, batch: pending)
+        try timeline.append(source: .systemAudio, batch: systemBatch(samples: Array(repeating: 0, count: 480), seconds: 100.01))
+        let resumed = try XCTUnwrap(privacy.readTimestampedBatch(maximumFrameCount: 8_192))
+        try timeline.append(source: .microphone, batch: resumed)
+        try timeline.append(source: .systemAudio, batch: systemBatch(samples: Array(repeating: 0, count: 480), seconds: 100.02))
+        try timeline.finish()
+        XCTAssertEqual(output.count, 1_440)
+        XCTAssertTrue(output[480..<960].allSatisfy { $0 == 0 })
+        XCTAssertTrue(output[960...].allSatisfy { abs($0 - 0.05) < 0.00001 })
+        XCTAssertEqual(timeline.metrics.ptsGapCount, 0)
+        XCTAssertEqual(timeline.metrics.hostOverrunCount, 0)
+    }
+
+    func testOptionalSourceDiagnosticsTrackQueueAndFrontierThroughWrappers() throws {
+        XCTAssertNil(InfiniteTimestampedSampleSource().timestampedDiagnostics)
+        let microphone = AppOwnedMicrophoneSampleSource()
+        let source = PrivacySuppressingSampleSource(base: microphone)
+        let batch = systemBatch(samples: Array(repeating: 0.1, count: 4_800), seconds: 100)
+        microphone.appendCapturedBatch(batch)
+        let captured = try XCTUnwrap(source.timestampedDiagnostics)
+        XCTAssertEqual(captured.queuedFrameCount, 4_800)
+        XCTAssertEqual(captured.capturedFrontier?.seconds, 100.1)
+        XCTAssertEqual(captured.lastBatchFrameCount, 4_800)
+        XCTAssertEqual(captured.lastBatchFormat, batch.format)
+        XCTAssertNotNil(captured.lastCapturedUptime)
+        _ = source.readTimestampedBatch(maximumFrameCount: 512)
+        let drained = try XCTUnwrap(source.timestampedDiagnostics)
+        XCTAssertEqual(drained.queuedFrameCount, 4_288)
+        XCTAssertEqual(drained.capturedFrontier?.seconds, captured.capturedFrontier?.seconds)
+        XCTAssertEqual(drained.lastBatchFrameCount, captured.lastBatchFrameCount)
     }
 
     func testBufferedSourceSplitsBatchesWithTheirOriginalPTS() throws {
@@ -382,6 +551,75 @@ private final class DrainAcknowledgedSampleSource: TimestampedLocalRecordingSamp
         lock.unlock()
         completion?.fulfill()
         return batch
+    }
+}
+
+/// Exercise the actual writer queue exactly after its bounded live pass,
+/// when diagnostics report a retained microphone batch. No timer sleeps or
+/// production scheduling hooks are required to place the privacy transition.
+private final class PendingMicrophonePrivacyControl: @unchecked Sendable {
+    weak var writer: LocalRecordingWriter?
+    private(set) var didPauseAndResume = false
+    private(set) var pendingFrameCount = 0
+    func observe(_ message: String) {
+        guard !didPauseAndResume, message.contains("source=microphone"),
+              let field = message.split(separator: " ").first(where: { $0.hasPrefix("pending_frames=") }),
+              let count = Int(field.dropFirst("pending_frames=".count)), count > 0,
+              let writer else { return }
+        pendingFrameCount = count
+        do {
+            try writer.pausePrivacyOnQueue(startedAt: Date(timeIntervalSince1970: 11))
+            try writer.resumePrivacyOnQueue(endedAt: Date(timeIntervalSince1970: 12))
+            didPauseAndResume = true
+        } catch { XCTFail("Privacy control at retained-batch boundary failed: \(error)") }
+    }
+}
+
+/// Bounded real microphone queue with a read counter for completion only.
+private final class BackloggedMicrophoneSource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
+    private let base = BufferedLocalRecordingSampleSource(capacity: 48_000 * 30, channelCount: 1)
+    private let lock = NSLock()
+    private var unreadFrames = 0
+    var hasTimestampedOverflow: Bool { base.hasTimestampedOverflow }
+    var timestampedDiagnostics: RecordingSampleSourceDiagnostics? { base.timestampedDiagnostics }
+    var readableFrameCountForTest: Int { lock.withLock { unreadFrames } }
+    func append(_ batch: RecordingAudioBatch) {
+        base.append(batch)
+        lock.withLock { unreadFrames += batch.samples.count }
+    }
+    func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
+        let batch = base.readTimestampedBatch(maximumFrameCount: maximumFrameCount)
+        if let batch { lock.withLock { unreadFrames -= batch.samples.count } }
+        return batch
+    }
+}
+
+/// Deliver delayed, continuous system callbacks only as the preceding callback
+/// is consumed. Every callback passes through the actual 10-second stereo ring.
+private final class DelayedContinuousSystemSource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
+    private let base = BufferedLocalRecordingSampleSource(capacity: 48_000 * 20, channelCount: 2)
+    private let lock = NSLock()
+    private let totalFrames: Int
+    private let batchFrames: Int
+    private var deliveredFrames = 0
+    init(totalFrames: Int, batchFrames: Int) {
+        self.totalFrames = totalFrames
+        self.batchFrames = batchFrames
+    }
+    var hasTimestampedOverflow: Bool { base.hasTimestampedOverflow }
+    var isDrained: Bool { lock.withLock { deliveredFrames == totalFrames } }
+    func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
+        lock.withLock {
+            if let existing = base.readTimestampedBatch(maximumFrameCount: maximumFrameCount) { return existing }
+            guard deliveredFrames < totalFrames else { return nil }
+            let frameCount = min(batchFrames, totalFrames - deliveredFrames)
+            base.append(RecordingAudioBatch(samples: Array(repeating: 0.02, count: frameCount * 2),
+                format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 2),
+                presentationTime: RecordingAudioPresentationTimestamp(
+                    seconds: 100 + Double(deliveredFrames) / 48_000, clockDomain: .hostTime)))
+            deliveredFrames += frameCount
+            return base.readTimestampedBatch(maximumFrameCount: maximumFrameCount)
+        }
     }
 }
 

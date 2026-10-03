@@ -12,3 +12,7 @@ Umbrella: https://github.com/yshishenya/graf/issues/7447
 - T007: https://github.com/yshishenya/graf/issues/7463
 - T008: https://github.com/yshishenya/graf/issues/7464
 - T009: https://github.com/yshishenya/graf/issues/7466
+
+- T010: https://github.com/yshishenya/graf/issues/7468
+
+- T011: https://github.com/yshishenya/graf/issues/7471
