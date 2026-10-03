@@ -13,7 +13,7 @@
       {% elif result == "method_required" %}<p class="notice notice--warning" role="alert">Автопродление не включено. <a href="/billing/payment-method">Проверьте способ оплаты</a>.</p>
       {% elif result == "unavailable" %}<p class="notice notice--warning" role="alert">Управление подпиской временно недоступно.</p>{% endif %}
       {% set resolution = subscription.renewal_resolution|default(None) if subscription else None %}
-      {% set payment_unresolved = pending_payment_url|default(None) or pending_charge_amount_label|default(None) or resolution in ["pending", "unknown", "unknown_pending", "provider_key_expired"] %}
+      {% set payment_unresolved = pending_payment_url|default(None) or pending_charge_amount_label|default(None) or resolution in ["pending", "unknown", "unknown_pending"] %}
       <section class="billing-checkout-card" aria-labelledby="billing-subscription-state-title">
         {% set displayed_plan_label = subscription_plan_label|default({"personal": "Личный", "trial": "Пробный период", "free": "Бесплатный"}.get(subscription.plan_code if subscription else "free", "Бесплатный")) %}
         <div class="billing-checkout-card__heading">
@@ -21,8 +21,9 @@
           {% if active %}<span class="billing-plan-badge">Активна</span>{% endif %}
         </div>
         {% if payment_unresolved %}
-        <p class="notice notice--warning" role="status">{% if pending_charge_amount_label|default(None) %}Уже отправленный платеж на <strong>{{ pending_charge_amount_label }}</strong> еще может завершиться.{% else %}Результат платежа еще не подтвержден.{% endif %} Повторно платить не нужно.</p>
+        <p class="notice notice--warning" role="status">{% if pending_charge_amount_label|default(None) %}{% if resolution == "method_required" %}Результат платежа на <strong>{{ pending_charge_amount_label }}</strong> еще не подтвержден.{% else %}Уже отправленный платеж на <strong>{{ pending_charge_amount_label }}</strong> еще может завершиться.{% endif %}{% else %}Результат платежа еще не подтвержден.{% endif %} Повторно платить не нужно.</p>
         <a class="button primary" data-billing-primary href="{{ pending_payment_url|default('/billing/history#billing-help', true) }}">Проверить платёж</a>
+        {% if resolution == "method_required" and renewal_notice|default(None) %}<p class="notice notice--warning" role="status">{{ renewal_notice }} <a href="{{ renewal_action_url }}">{{ renewal_action_label }}</a></p>{% endif %}
         {% elif renewal_notice|default(None) %}<p class="notice notice--warning" role="status">{{ renewal_notice }} <a href="{{ renewal_action_url }}">{{ renewal_action_label }}</a></p>
         {% elif resolution in ["acceptance_budget", "provider_unavailable", "catalog_not_approved", "provider_floor"] %}<p class="notice notice--warning" role="status">Автопродление приостановлено. Уже оплаченный срок сохранен. <a href="/billing/history#billing-help">Обратиться в поддержку</a>.</p>
         {% elif resolution == "late_success" %}<p class="notice" role="status">Подтверждение оплаты получено. Доступ обновлен.</p>{% endif %}
@@ -48,7 +49,7 @@
 
         {% if subscription and subscription.recurring_allowed and subscription.paid_through %}
         <form action="/billing/subscription/cancel" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><button class="button quiet" type="submit">Отключить автопродление</button></form>
-        <p>{% if active %}Оплаченный доступ сохранится. {% endif %}Возврат не оформляется.{% if payment_unresolved %} Уже отправленный платеж продолжит проверяться.{% endif %}</p>
+        <p>{% if active %}Оплаченный доступ сохранится. {% endif %}Возврат не оформляется.{% if payment_unresolved %} Этот платеж продолжит проверяться.{% endif %}</p>
         {% endif %}
 
         {% if active and not subscription.recurring_allowed and billing_enabled|default(False) and method_available|default(False) and resume_quote_id|default(None) and not payment_unresolved and not renewal_notice|default(None) %}
@@ -65,7 +66,7 @@
         <form action="/billing/subscription/early-preview" method="post" class="billing-checkout-form">{{ sections.csrf_field(csrf_token|default(None)) }}<label for="early-promo">Промокод, если есть</label><input id="early-promo" name="promo_code" value="{{ early_promo_code|default('') }}" maxlength="48" autocomplete="off" spellcheck="false"><button type="submit" class="button quiet">Проверить сумму и срок</button></form>
         {% endif %}</details>
         {% endif %}
-        <details class="billing-coupon"><summary>Способ оплаты и условия</summary>
+        <details class="billing-coupon"><summary>Способ оплаты, условия и история</summary>
           <dl class="billing-order-summary">
             {% if active %}<div><dt>Точный срок доступа</dt><dd>{{ paid_through_label|default("дата уточняется", true) }}</dd></div>{% endif %}
             {% if subscription_trial_active|default(False) %}<div><dt>Точный срок пробного периода</dt><dd>{{ trial_ends_at_label|default("дата уточняется", true) }}</dd></div>{% endif %}
