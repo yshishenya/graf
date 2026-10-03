@@ -87,10 +87,16 @@ public protocol TimestampedLocalRecordingSampleSource: Sendable {
     func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch?
     var hasTimestampedOverflow: Bool { get }
     var timestampedDiagnostics: RecordingSampleSourceDiagnostics? { get }
+    /// Invoke body once, synchronously, with the exact unread FIFO frame count
+    /// while excluding producer appends and reads. Return body's result; an
+    /// unsupported source returns false without invoking body. The callback
+    /// must only update bounded control state, without reentering this source.
+    func withQueuedFrameCountSnapshot(_ body: (Int64) -> Bool) -> Bool
 }
 
 public extension TimestampedLocalRecordingSampleSource {
     var timestampedDiagnostics: RecordingSampleSourceDiagnostics? { nil }
+    func withQueuedFrameCountSnapshot(_ body: (Int64) -> Bool) -> Bool { false }
 }
 
 public final class BufferedLocalRecordingSampleSource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
@@ -175,6 +181,10 @@ public final class BufferedLocalRecordingSampleSource: TimestampedLocalRecording
         lastBatchFormat = nil
         lastCapturedUptime = nil
         lock.unlock()
+    }
+
+    public func withQueuedFrameCountSnapshot(_ body: (Int64) -> Bool) -> Bool {
+        lock.withLock { body(timestampedQueuedFrameCount) }
     }
 
     public var timestampedDiagnostics: RecordingSampleSourceDiagnostics? {

@@ -37,3 +37,8 @@ T011 принята после физического контроля45min40s �
 - [X] T013 [US2] Связать все ответы playback poll с meetingId до запроса и отбросить устаревшие recovery/body/error в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js; исполняемый red и браузерные проверки повторно используемого main в local-recording-detail.test.cjs и сохранить полный контракт действующего отзыва доступа в apps/server/tests/contract/test_cabinet_static_assets_contract.py.
 
 T012 и T013 блокируют слияние. Независимые файлы могут проверяться параллельно после reviewer-owned checklist/analyze/issue-sync PASS.
+
+## Phase 8: Граница производителя
+- [ ] T014 [US1] Устранить гонку добавления микрофонных кадров между снимком FIFO и resume в apps/macos/RecApp/Sources/Capture/PrivacySuppressingSampleSource.swift, RecordingSampleSources.swift и MicrophoneCaptureService.swift; детерминированный red/green, атомарный producer/read boundary, forwarding, сохранённые приватность/checkpoint/пределы в apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift; независимое ревью, текущие Dev/CI/release gates.
+
+T014 — новое замечание PR4171728042 на e4b1ebb774d661348098bc89fbff398a8ea0a165. Блокирует слияние; не закрывается прежним T012 снимком,80/0 или45min приёмкой.
