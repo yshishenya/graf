@@ -34,6 +34,6 @@ T011 принята после физического контроля45min40s �
 
 ## Phase 7: Закрытие замечаний PR
 - [ ] T012 [US1] Сохранять заглушение всех ожидающих микрофонных кадров через быстрый resume до drain в apps/macos/RecApp/Sources/Capture/PrivacySuppressingSampleSource.swift и существующих источниках/тестах; red/green очереди и интеграционного writer, независимое ревью и актуальная Dev-приёмка.
-- [X] T013 [US2] Связать все ответы playback poll с meetingId до запроса и отбросить устаревшие recovery/body/error в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js; исполняемый red и браузерные проверки повторно используемого main в local-recording-detail.test.cjs.
+- [X] T013 [US2] Связать все ответы playback poll с meetingId до запроса и отбросить устаревшие recovery/body/error в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js; исполняемый red и браузерные проверки повторно используемого main в local-recording-detail.test.cjs и сохранить полный контракт действующего отзыва доступа в apps/server/tests/contract/test_cabinet_static_assets_contract.py.
 
 T012 и T013 блокируют слияние. Независимые файлы могут проверяться параллельно после reviewer-owned checklist/analyze/issue-sync PASS.
