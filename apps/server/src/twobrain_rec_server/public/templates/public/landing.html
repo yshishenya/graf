@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    {% if request.url.hostname == "rec.2brain.pro" %}
+    {% if request is defined and request.url.hostname == "rec.2brain.pro" %}
     <meta name="yandex-verification" content="de5457f669a9f4ed">
     {% endif %}
     <title>{{ page_title }}</title>
