@@ -150,11 +150,13 @@ from twobrain_rec_server.db.models import (
     AuthSession,
     AuthSessionDeviceBinding,
     BillingAuditEvent,
+    BillingEntitlementGrant,
     BillingInvoice,
     BillingOperation,
     BillingPaymentMethod,
     BillingPlanVersion,
     BillingPurchaseQuote,
+    BillingStorageEntitlementGrant,
     ExternalIdentity,
     FreeUsageWindow,
     PromotionCampaign,
@@ -2054,6 +2056,33 @@ async def billing_checkout_status_page(
     if invoice is None:
         return RedirectResponse("/billing/history?result=not_found", status_code=303)
     operation_state = operation.state if operation is not None else None
+    service_period_label = None
+    service_gap = bool(
+        operation_state == "succeeded_refused"
+        or (operation and operation.request_snapshot.get("reconciliation_detail"))
+        or (invoice.plan_snapshot or {}).get("service_resolution")
+    )
+    if operation_state == "succeeded" and not service_gap:
+        if invoice.status != "succeeded":
+            service_gap = True
+        elif operation.kind in {"initial_checkout", "renewal", "early_renewal"}:
+            grant = await db.scalar(select(BillingEntitlementGrant).where(
+                BillingEntitlementGrant.workspace_id == tenant_scope.workspace_id,
+                BillingEntitlementGrant.invoice_id == invoice.id,
+            ))
+            service_gap = grant is None
+            if grant is not None:
+                service_period_label = (
+                    f"{_billing_datetime_label(grant.starts_at)} — "
+                    f"{_billing_datetime_label(grant.ends_at)}"
+                )
+        elif operation.kind == "storage_upgrade":
+            service_gap = await db.scalar(select(BillingStorageEntitlementGrant.id).where(
+                BillingStorageEntitlementGrant.workspace_id == tenant_scope.workspace_id,
+                BillingStorageEntitlementGrant.invoice_id == invoice.id,
+            ).limit(1)) is None
+        else:
+            service_gap = True
     provider_failure = operation.request_snapshot.get("provider_failure") if operation else None
     if not isinstance(provider_failure, dict):
         provider_failure = {}
@@ -2093,6 +2122,7 @@ async def billing_checkout_status_page(
     )
     can_continue_payment = bool(
         operation is not None
+        and invoice.status == "pending"
         and billing_checkout_allowed(settings, tenant_scope.workspace_id)
         and actor_matches
         and (
@@ -2146,16 +2176,14 @@ async def billing_checkout_status_page(
         retry_payment_url=retry_payment_url,
         support_email=settings.billing_support_email,
         purchase_purpose_label=purchase_purpose_label(invoice.plan_snapshot or {}),
-        service_gap=bool(
-            operation_state == "succeeded_refused"
-            or (operation and operation.request_snapshot.get("reconciliation_detail"))
-            or (invoice.plan_snapshot or {}).get("service_resolution")
-        ),
+        service_gap=service_gap,
+        service_period_label=service_period_label,
         return_to_work_url="/desktop/meetings" if _is_embedded_request(request) else "/meetings",
         operation_state_label=_operation_state_label(operation_state),
         billing_enabled=billing_checkout_allowed(settings, tenant_scope.workspace_id),
-        can_continue_payment=can_continue_payment,
+        can_continue_payment=can_continue_payment and request.query_params.get("view") != "local",
         can_refresh_payment=can_refresh_payment,
+        read_only_recovery=request.query_params.get("view") == "local",
         updated_at_label=_billing_datetime_label(
             operation.updated_at if operation is not None else None
         ),
@@ -2282,6 +2310,10 @@ async def continue_billing_checkout(
         )
         .with_for_update()
     )
+    if invoice.status != "pending" or (
+        operation is not None and operation.state in {"succeeded", "succeeded_refused", "canceled", "failed"}
+    ):
+        return RedirectResponse(_checkout_status_location(safe_number), status_code=303)
     if operation is not None and operation.kind == "storage_upgrade":
         if (
             operation.request_snapshot.get("billing_actor_user_id") != str(principal.user_id)
@@ -2325,7 +2357,7 @@ async def continue_billing_checkout(
         await db.commit()
     if operation.provider_id is not None:
         confirmation_url = operation.request_snapshot.get("confirmation_url")
-        if is_allowed_confirmation_url(confirmation_url):
+        if operation.state == "provider_pending" and is_allowed_confirmation_url(confirmation_url):
             return _checkout_operation_redirect(confirmation_url, status_code=303)
         return RedirectResponse(
             _checkout_status_location(safe_number, result="unchanged"), status_code=303

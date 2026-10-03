@@ -96,3 +96,21 @@ POST start: offer=true обязателен, recurring missing/false допус�
 Owner/tenant/session/CSRF/rate limit/catalog/receipt/pending/quote/offer/authority/idempotency прежние. Preview может создать server quote, но не operation/invoice/promo reservation/provider call. Start native и только явный; фактический bool/offer сохраняются в immutable accepted purchase, recovery не переписывает их. Никакой автоматической оплаты или восстановления recurring из локального UI. Неподтвержденная почта дает preview editor/account path, без start формы/денежных согласий. Статусы/подсказки не обещают provider availability или банковское зачисление.
 
 Focus после Apply/Enter/cycle/remove остается логично связан с измененным элементом; error связан с input, busy/result один раз озвучивается status/alert, tabindex и видимый focus сохранены. Ошибка auth/network отличается от promo denied.320px/1280px/200%,light/dark,Chromium/WebKit обязательны. Нативный JS-off результат подтверждается отдельными реальными HTTP/browser forms; placeholder fixture не заменяет это доказательство.
+
+
+## Возвращение после платежа — F280 (2026-10-03)
+
+| Авторитетное состояние | Основной экран/действие | Недопустимо |
+|---|---|---|
+| Payment succeeded + локальный доступ предоставлен | «Оплачено», действительные тариф/сумма/срок, «К встречам» | Ожидание или continue |
+| Деньги подтверждены, доступ еще не применен | «Оплата получена. Проверяем доступ», проверка/помощь | Активный тариф без доказательства, новая оплата |
+| Pending/результат еще неизвестен | «Проверяем оплату», «Повторно платить не нужно», refresh главный | Обещание успеха из return/query; основное «Продолжить оплату» |
+| Invoice.pending + operation.provider_pending и допустимое подтверждение | После/вне активной проверки вторичный continue текущего платежа | Новая invoice/payment; продолжение terminal invoice |
+| Canceled | Понятная отмена и безопасный возврат | Продолжение отмененного платежа, автопроверка |
+| Network/auth/контекст/timeout | Явная причина/вход/помощь, безопасный локальный GET | Ложный статус, неожиданный или поздний swap, параллельный POST |
+
+GET return/status чистый, POST refresh защищенный существующим CSRF/owner/tenant/session и30/15мин. Browser не вызывает YooKassa API. Проверенный HTMX ответ обновляет `#cabinet-main`, полный документ не навигируется. Scope=непустые user/workspace/invoice/session; incoming/current meta всех4сверяются, смена session останавливает sequence без сброса ledger; один запрос, document-local6attempts/60с/≥10с/15с timeout, без перезапуска после swap/hidden/error/terminal/context change. Abort не останавливает сервер; timeout прекращает auto POST и допускает локальное чтение, не повторное списание. JS-off оставляет manual protected refresh. Stale continue проверяет текущую invoice и operation, включая initial checkout. Денежные объекты/цена/consent/квитанция/recurring/доступ не подменяются UI. FR-031–037 и SC-013 задают проверяемую границу.
+
+FR-038: billing reconciliation исполняется только maintenance worker на существующей выделенной очереди с фактически проверенной maintenance ролью без superuser/BYPASSRLS; processing сохраняет app роль и перестает опрашивать очередь. Неправильная DB роль явно отклоняется до сверки, а не дает completed0. RLS и финансовая транзакция/idempotency неизменны; delayed webhook обрабатывается штатно, повторная сверка не создает второй grant/payment. Снимок provider success/free local требует этой причинной проверки, не только service-gap сообщения.
+
+Успех invoice/operation для initial_checkout/renewal/early_renewal подтверждает связанный BillingEntitlementGrant; период показывается из него. Storage использует существующий факт применения storage purchase. Подтвержденный счет без соответствующего результата — service-review. Истекшая текущая подписка не превращает исторический оплаченный счет в pending. Это уточнение FR-031, без изменения финансовой транзакции.

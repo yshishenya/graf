@@ -20,6 +20,7 @@ from tests.unit.test_billing_money_path_e2e import (
 )
 from twobrain_rec_server.cabinet.web_routes import billing as routes
 from twobrain_rec_server.db.models import (
+    BillingEntitlementGrant,
     BillingInvoice,
     BillingOperation,
     ExternalIdentity,
@@ -69,7 +70,7 @@ def unverify_email(client):
 
 
 def seed_payment(client, workspace, *, state="unknown", cycle="year", detail=None,
-                 kind="initial_checkout", confirmation_url=None):
+                 kind="initial_checkout", confirmation_url=None, granted=False):
     async def run():
         async with client.app_state["sessionmaker"]() as db:
             snapshot = {"cycle": cycle, "billing_actor_user_id": str(USER_ID)}
@@ -85,13 +86,20 @@ def seed_payment(client, workspace, *, state="unknown", cycle="year", detail=Non
             )
             db.add(operation)
             await db.flush()
-            db.add(BillingInvoice(
+            invoice = BillingInvoice(
                 workspace_id=workspace, operation_id=operation.id,
                 safe_number="INV-CLARITY", amount_minor=100000, currency="RUB",
                 status="succeeded" if state.startswith("succeeded") else
                 state if state in {"canceled", "failed", "manual_resolution"} else "pending",
                 plan_snapshot={"cycle": cycle},
-            ))
+            )
+            db.add(invoice)
+            if granted:
+                await db.flush()
+                db.add(BillingEntitlementGrant(workspace_id=workspace, invoice_id=invoice.id,
+                    provider_payment_id=operation.provider_id, plan_code="personal", cycle=cycle,
+                    starts_at=datetime(2026, 1, 1, tzinfo=UTC), ends_at=datetime(2027, 1, 1, tzinfo=UTC),
+                    amount_minor=invoice.amount_minor, currency=invoice.currency))
             await db.commit()
 
     asyncio.run(run())
@@ -185,7 +193,13 @@ def test_pending_status_continues_same_hosted_payment(client, owner, kind):
     hosted_url = "https://yookassa.test/checkout/synthetic-existing"
     seed_payment(client, workspace, kind=kind, state="provider_pending", confirmation_url=hosted_url)
     response = client.get("/billing/checkout/status/INV-CLARITY", headers=headers)
-    assert 'action="/billing/checkout/status/INV-CLARITY/continue"' in response.text
+    assert "Проверяем оплату" in response.text
+    assert "Повторно платить не нужно" in response.text
+    assert 'id="billing-status-refresh"' in response.text
+    assert 'action="/billing/checkout/status/INV-CLARITY/continue"' not in response.text
+    checked = client.get("/billing/checkout/status/INV-CLARITY?result=unchanged", headers=headers)
+    assert 'action="/billing/checkout/status/INV-CLARITY/continue"' in checked.text
+    assert 'class="button quiet" type="submit">Вернуться к оплате' in checked.text
     resumed = client.post("/billing/checkout/status/INV-CLARITY/continue", headers=headers,
                           follow_redirects=False)
     assert resumed.status_code == 303 and resumed.headers["location"] == hosted_url
@@ -223,7 +237,7 @@ def test_confirmed_money_with_service_gap_has_neutral_honest_result(client, owne
 @pytest.mark.parametrize("desktop", [False, True])
 def test_confirmed_success_returns_to_meetings_in_current_surface(client, owner, desktop):
     workspace, headers = owner
-    seed_payment(client, workspace, state="succeeded")
+    seed_payment(client, workspace, state="succeeded", granted=True)
     if desktop:
         headers = {**headers, "X-GRAF-Client": "desktop"}
     response = client.get("/billing/checkout/status/INV-CLARITY?result=unchanged", headers=headers)
@@ -294,3 +308,80 @@ def test_purchase_conflict_links_to_existing_payment_without_creating_another(cl
     assert response.status_code == 303
     assert response.headers["location"] == "/billing/checkout/status/INV-CLARITY"
     assert payment_counts(client) == before
+
+
+@pytest.mark.parametrize("state", ["succeeded", "canceled", "failed"])
+@pytest.mark.parametrize("kind", ["initial_checkout", "storage_upgrade"])
+def test_stale_continue_cannot_reopen_terminal_payment(client, owner, state, kind):
+    workspace, headers = owner
+    seed_payment(client, workspace, kind=kind, state=state,
+                 confirmation_url="https://yookassa.test/checkout/synthetic-existing")
+    response = client.post("/billing/checkout/status/INV-CLARITY/continue", headers=headers,
+                           follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"].startswith("/billing/checkout/status/INV-CLARITY")
+    assert payment_counts(client) == (1, 1)
+
+
+@pytest.mark.parametrize("kind", ["initial_checkout", "storage_upgrade"])
+def test_stale_pending_operation_with_terminal_invoice_cannot_continue(client, owner, kind):
+    workspace, headers = owner
+    seed_payment(client, workspace, kind=kind, state="provider_pending",
+                 confirmation_url="https://yookassa.test/checkout/synthetic-existing")
+    async def settle_invoice():
+        async with client.app_state["sessionmaker"]() as db:
+            invoice = await db.scalar(select(BillingInvoice))
+            invoice.status = "succeeded"
+            await db.commit()
+    asyncio.run(settle_invoice())
+    response = client.post("/billing/checkout/status/INV-CLARITY/continue", headers=headers,
+                           follow_redirects=False)
+    assert response.headers["location"].startswith("/billing/checkout/status/INV-CLARITY")
+    assert payment_counts(client) == (1, 1)
+
+
+def test_succeeded_subscription_invoice_requires_linked_grant(client, owner):
+    workspace, headers = owner
+    seed_payment(client, workspace, state="succeeded")
+    response = client.get("/billing/checkout/status/INV-CLARITY", headers=headers)
+    assert "Оплата получена. Проверяем доступ" in response.text
+    assert "оплаченный доступ предоставлен" not in response.text
+    assert "К встречам</a>" not in response.text
+
+
+def test_paid_historical_invoice_uses_its_grant_period(client, owner):
+    workspace, headers = owner
+    seed_payment(client, workspace, state="succeeded")
+    async def grant():
+        async with client.app_state["sessionmaker"]() as db:
+            invoice = await db.scalar(select(BillingInvoice))
+            operation = await db.scalar(select(BillingOperation))
+            db.add(BillingEntitlementGrant(workspace_id=workspace, invoice_id=invoice.id,
+                provider_payment_id=operation.provider_id, plan_code="personal", cycle="year",
+                starts_at=datetime(2025, 1, 1, tzinfo=UTC), ends_at=datetime(2026, 1, 1, tzinfo=UTC),
+                amount_minor=invoice.amount_minor, currency=invoice.currency))
+            await db.commit()
+    asyncio.run(grant())
+    response = client.get("/billing/checkout/status/INV-CLARITY", headers=headers)
+    assert ">Оплачено</h2>" in response.text
+    assert "01.01.2025" in response.text and "01.01.2026" in response.text
+    assert "К встречам</a>" in response.text
+    assert payment_counts(client) == (1, 1)
+
+
+def test_local_status_recovery_never_restarts_payment_check(client, owner):
+    workspace, headers = owner
+    seed_payment(client, workspace, state="provider_pending",
+                 confirmation_url="https://yookassa.test/checkout/synthetic-existing")
+    status = "/billing/checkout/status/INV-CLARITY"
+    ordinary = client.get(status, headers=headers)
+    assert 'data-billing-auto-check="true"' in ordinary.text
+    recovered = client.get(status + "?view=local", headers=headers)
+    assert recovered.status_code == 200
+    assert 'data-billing-auto-check="false"' in recovered.text
+    assert 'id="billing-status-refresh"' not in recovered.text
+    recovery_main = re.search(r'<main id="cabinet-main".*?</main>', recovered.text, re.S).group()
+    assert 'method="post"' not in recovery_main
+    assert status + "?view=local" in recovered.text
+    assert ">Оплачено</h2>" not in recovered.text
+    assert payment_counts(client) == (1, 1)

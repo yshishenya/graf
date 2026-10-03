@@ -1629,8 +1629,8 @@ def test_manual_checkout_recovery_offers_continue_instead_of_noop_refresh() -> N
 
     assert "Продолжить оплату" in recovery_html
     assert "/continue" in recovery_html
-    assert "Проверить статус" not in recovery_html
-    assert "Проверить статус" in pending_html
+    assert "Проверить оплату" not in recovery_html
+    assert "Проверить оплату" in pending_html
     assert "Продолжить оплату" not in pending_html
     assert "Новую оплату не создаем" in processing_html
     assert "Операция не найдена" not in processing_html

@@ -21,6 +21,7 @@ from twobrain_rec_server.auth.email_delivery import (
     send_billing_notification,
     send_meeting_invitation,
 )
+from twobrain_rec_server.billing.database import require_billing_maintenance_database
 from twobrain_rec_server.billing.entitlements import grant_confirmed_renewal
 from twobrain_rec_server.billing.maintenance import reconcile_billing_maintenance
 from twobrain_rec_server.billing.notifications import (
@@ -107,9 +108,6 @@ from twobrain_rec_server.processing.submit import (
 )
 from twobrain_rec_server.storage.minio_client import get_storage
 from twobrain_rec_server.workflows.billing_reconciliation_workflow import (
-    BILLING_RECONCILIATION_ACTIVITY_NAME,
-    BillingReconciliationWorkflow,
-    billing_reconciliation_task_queue,
     start_billing_reconciliation_workflow,
     validate_billing_reconciliation_payload,
 )
@@ -898,6 +896,7 @@ async def run_billing_reconciliation_activity(payload: dict[str, str]) -> dict[s
     try:
         async with sessionmaker() as db:
             await apply_tenant_context(db, context)
+            await require_billing_maintenance_database(db)
             counters = await reconcile_billing_maintenance(db)
             # Maintenance locks stale operation rows. Release them before the
             # webhook path acquires workspace advisory locks, otherwise a
@@ -2717,9 +2716,6 @@ async def run_worker() -> None:
     billing_renewal_activity = activity.defn(name=BILLING_RENEWAL_ACTIVITY_NAME)(
         run_billing_renewal_activity
     )
-    billing_reconciliation_activity = activity.defn(name=BILLING_RECONCILIATION_ACTIVITY_NAME)(
-        run_billing_reconciliation_activity
-    )
     outcome_activities = [
         activity.defn(name="resolve_outcome_prompt_config_activity")(
             resolve_outcome_prompt_config_activity
@@ -2764,14 +2760,7 @@ async def run_worker() -> None:
         activities=[billing_renewal_activity],
         identity=f"{processing_worker_identity()}:billing-renewal",
     )
-    billing_reconciliation_worker = Worker(
-        processing_client,
-        task_queue=billing_reconciliation_task_queue(settings),
-        workflows=[BillingReconciliationWorkflow],
-        activities=[billing_reconciliation_activity],
-        identity=f"{processing_worker_identity()}:billing-reconciliation",
-    )
-    workers = [processing_worker, billing_renewal_worker, billing_reconciliation_worker]
+    workers = [processing_worker, billing_renewal_worker]
     if settings.outcome_generation_enabled:
         traced_client = await connect_temporal_client(
             settings,

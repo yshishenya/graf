@@ -194,3 +194,20 @@ GRAF_PROMO_BROWSER=1 GRAF_BROWSER=webkit apps/server/scripts/run_local_postgres_
 ### Запись доказательств и выпуск
 
 `validation-promo-inline.md` хранит точные команды, SHA/hashes, RED и окончательные GREEN/count/duration/SQL cleanup, браузерные traces без секретов/кодов, неуспешные попытки отдельно. Три независимых текущих flow/security/browser review → исправления/перепроверка → `converge-promo-inline.md` без missing обязательной работы. После этого exact-SHA PR checks и validator, frozen release-full, CD dry-run/execute с прежним разрешением, runtime/publication evidence и `release-promo-inline-closeout.md`; публичный подписанный macOS пакет не перевыпускать этим server change. Реальные платежи/чеки/банк/возврат, GRAF Dev/люди/конверсия и T011/T012/F278 остаются отдельными, не закрываются synthetic PASS.
+
+
+## Проверка возвращения после оплаты — F280 (2026-10-03)
+
+Предусловие реализации: независимый PASS `checklists/payment-return.md`, окончательные T029–T031, анализ и canon issue sync. Настоящая база PostgreSQL, сервер ASGI и synthetic provider; production payment за пользователя не создавать. Проверять текущую реализацию, не статическую подставную страницу.
+
+1. Chromium и WebKit, 320/1280 CSS px: существующий pending → provider succeeded, локальный доступ применен. После return страница сама показывает «Оплачено», действительный тариф/сумму/срок и «К встречам». Проверить постоянный document marker, отсутствие document navigation и новых payment/invoice/operation/provider create calls.
+2. Provider pending: первичное «Проверяем оплату»/«Повторно платить не нужно», один POST, максимум6/60с, начала≥10с. После исчерпания — ручная проверка, допустимый continue вторичен; swap/reinit счетчик не сбрасывает. Двойное нажатие/инициализация не дают пересекающихся запросов.
+3. Pending → canceled и provider succeeded → непримененный доступ: разные достоверные экраны, автоматическая проверка остановлена, нет повторной оплаты/ложного активного тарифа. Stale POST continue проверять для первоначального и остальных типов покупки; завершенная invoice с прежней pending operation тоже не переходит к провайдеру.
+4. Network/HTTP401,403,429/error/неправильный контекст/поздний HTML: остановка, понятная ручная помощь, чужой/неожиданный экран не вставлен. Уход/hidden/возврат visible прекращает прежнюю sequence. Длинный запрос вызывает15с timeout; сервер может продолжить, поэтому до безопасного локального чтения/явного восстановления новый POST не отправлен. Проверить отрицательные финансовые эффекты.
+5. JS-off: native POST refresh/303/GET показывает тот же подтвержденный успех или честное ожидание; CSRF/owner/tenant/rate protections реально проверены. Обычный GET return/status не делает provider call/финансовых записей.
+6. Клавиатура/видимый focus, status announcement без повторной озвучки одинакового pending, 200%,light/dark; существующее применение промокода без reload и выключенное продление проходят regressions.
+7. Три независимых обзора и повторная проверка исправлений, converge; точные PR checks/Full/CD/runtime/publication по общей процедуре. Считать отдельно технический выпуск и доступные факты настоящей оплаты владельца. Не закрывать T011/T012/F278 из browser/provider тестов.
+
+Для FR-038 после установления причины повторить delayed webhook/refresh на существующем succeeded payment: локальный статус и доступ должны согласоваться через штатную транзакцию, повторная сверка не создает дополнительный grant/payment. Отдельно проверить live read-only evidence после выпуска; симуляция не закрывает наблюдавшийся настоящий разрыв.
+
+Дополнительная projection regression: invoice/operation success без связанного grant не показывает обычный paid экран; исторический success с grant и истекшей текущей подпиской остается «Оплачено» с исходным оплаченным периодом. Для storage проверяется существующий факт применения покупки, а не несуществующий subscription grant.

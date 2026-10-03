@@ -784,6 +784,13 @@ restore_previous_safe_processing_runtime() {
 restore_previous_runtime() {
   local rollback_failed=0 media_container current_schema truth_count
   echo "rollback_result=started"
+  # A failed forward stop must not leave an old queue consumer during recovery.
+  if ! "${compose[@]}" stop rec-processing-worker rec-maintenance >/dev/null 2>&1; then
+    echo "rollback_result=blocked"
+    echo "rollback_target=forward_fix_required"
+    echo "rollback_backup_reference=${backup_reference:-unavailable}"
+    return 1
+  fi
   media_container="$("${compose[@]}" ps -q rec-media-worker 2>/dev/null || true)"
   "${compose[@]}" stop rec-media-worker rec-maintenance rec-api rec-prompt-optimization-worker >/dev/null 2>&1 || true
   [[ -z "$media_container" ]] || docker rm -f "$media_container" >/dev/null 2>&1 || true
@@ -1152,7 +1159,8 @@ echo "profile_contract_result=pass"
 capture_processing_runtime_baseline
 prompt_worker_was_running="$("${compose[@]}" ps -q rec-prompt-optimization-worker)"
 runtime_mutated=1
-"${compose[@]}" stop rec-api >/dev/null
+# Stop previous queue consumers before the maintenance worker takes ownership.
+"${compose[@]}" stop rec-api rec-processing-worker rec-maintenance >/dev/null
 sync_public_download
 "${compose[@]}" stop rec-media-worker >/dev/null 2>&1 || true
 run_step runtime_up env \

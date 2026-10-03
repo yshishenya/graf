@@ -1941,6 +1941,211 @@
     });
   });
 
+  // The bounded return check survives HTMX replacement within this document.
+  const billingStatusLedgers = new Map();
+  let billingStatusRequest = null;
+  let billingStatusLedger = null;
+  let billingStatusContextStopped = false;
+  const billingStatusPage = () => document.querySelector("main#cabinet-main.billing-operation-status-page");
+  const billingStatusKey = (page, root = document) => {
+    const scope = billingRenewalPreferenceKey(root);
+    return scope && page?.dataset.billingInvoice ? `${scope}:${page.dataset.billingInvoice}` : null;
+  };
+  const stopBillingStatus = (ledger, blocked = false) => {
+    if (!ledger) return;
+    ledger.stopped = true;
+    ledger.blocked ||= blocked;
+    window.clearTimeout(ledger.timer);
+    window.clearTimeout(ledger.deadlineTimer);
+  };
+  const recoverBillingStatus = (state) => {
+    stopBillingStatus(state.ledger, true);
+    const page = billingStatusPage();
+    if (!page || billingStatusKey(page) !== state.key) return;
+    const message = page.querySelector("[data-billing-status-message]");
+    if (message) {
+      message.hidden = false;
+      message.setAttribute("role", "alert");
+      message.textContent = state.invalidContext || [401, 403].includes(state.xhr.status)
+        ? "Сеанс или доступ изменился. Откройте результат оплаты заново."
+        : state.xhr.status === 429 ? "Слишком много проверок. Откройте результат оплаты позже."
+        : "Не удалось проверить оплату. Обновите результат. Повторно платить не нужно.";
+    }
+    page.querySelectorAll("form button").forEach(button => { button.disabled = true; });
+    const recovery = page.querySelector("[data-billing-status-recovery]");
+    if (recovery) recovery.hidden = false;
+  };
+  const finishBillingStatus = (state, failed = false) => {
+    if (billingStatusRequest !== state) return;
+    billingStatusRequest = null;
+    state.page.removeAttribute("aria-busy");
+    state.controls.forEach(([control, disabled]) => { control.disabled = disabled; });
+    if (failed) recoverBillingStatus(state);
+  };
+  const initBillingStatusRefresh = () => {
+    const page = billingStatusPage();
+    const key = billingStatusKey(page);
+    if (!page || !key || document.hidden) {
+      if (page && !key) {
+        if (billingStatusLedger) billingStatusContextStopped = true;
+        page.querySelectorAll("form button").forEach(button => { button.disabled = true; });
+        const message = page.querySelector("[data-billing-status-message]");
+        if (message) {
+          message.hidden = false;
+          message.setAttribute("role", "alert");
+          message.textContent = "Сеанс или доступ изменился. Откройте результат оплаты заново.";
+        }
+        const recovery = page.querySelector("[data-billing-status-recovery]");
+        if (recovery) recovery.hidden = false;
+      }
+      stopBillingStatus(billingStatusLedger, Boolean(billingStatusRequest));
+      return;
+    }
+    if (billingStatusLedger && billingStatusLedger.key !== key) {
+      billingStatusContextStopped = true;
+      stopBillingStatus(billingStatusLedger, true);
+      if (billingStatusRequest) return;
+    }
+    let ledger = billingStatusLedgers.get(key);
+    if (!ledger) {
+      ledger = { key, started: performance.now(), attempts: 0, lastStarted: null,
+        stopped: billingStatusContextStopped, blocked: billingStatusContextStopped,
+        timer: null, deadlineTimer: null, automatic: false };
+      billingStatusLedgers.set(key, ledger);
+      ledger.deadlineTimer = window.setTimeout(() => {
+        const request = billingStatusRequest;
+        stopBillingStatus(ledger, Boolean(request?.ledger === ledger));
+        if (request?.ledger === ledger) {
+          recoverBillingStatus(request);
+          request.xhr.abort();
+        }
+      }, 60000);
+    }
+    billingStatusLedger = ledger;
+    if (billingStatusContextStopped) stopBillingStatus(ledger, true);
+    if (page.dataset.billingStatusError === "true") {
+      stopBillingStatus(ledger, true);
+    } else if (page.dataset.billingAutoCheck !== "true") {
+      stopBillingStatus(ledger);
+      return;
+    }
+    if (ledger.blocked) {
+      page.querySelectorAll("form button").forEach(button => { button.disabled = true; });
+      if (billingStatusContextStopped) {
+        const message = page.querySelector("[data-billing-status-message]");
+        if (message) {
+          message.hidden = false;
+          message.setAttribute("role", "alert");
+          message.textContent = "Сеанс или доступ изменился. Откройте результат оплаты заново.";
+        }
+      }
+      const recovery = page.querySelector("[data-billing-status-recovery]");
+      if (recovery) recovery.hidden = false;
+    }
+    if (ledger.stopped || billingStatusRequest) return;
+    if (ledger.attempts >= 6 || performance.now() - ledger.started >= 60000) {
+      stopBillingStatus(ledger);
+      const message = page.querySelector("[data-billing-status-message]");
+      if (message) {
+        message.hidden = false;
+        message.textContent = "Подтверждение пока не получено. Проверьте оплату позже. Повторно платить не нужно.";
+      }
+      return;
+    }
+    window.clearTimeout(ledger.timer);
+    const delay = ledger.lastStarted === null ? 0 : Math.max(0, ledger.lastStarted + 10000 - performance.now());
+    ledger.timer = window.setTimeout(() => {
+      const current = billingStatusPage();
+      if (!current || billingStatusKey(current) !== key || document.hidden) {
+        stopBillingStatus(ledger, true);
+        return;
+      }
+      ledger.automatic = true;
+      window.htmx?.trigger(current.querySelector("#billing-status-refresh"), "billing-status-check");
+      ledger.automatic = false;
+    }, delay);
+  };
+  document.body.addEventListener("htmx:beforeRequest", (event) => {
+    if (event.detail?.elt?.id !== "billing-status-refresh") return;
+    const page = event.detail.elt.closest("main.billing-operation-status-page");
+    const key = billingStatusKey(page);
+    const ledger = billingStatusLedgers.get(key);
+    const now = performance.now();
+    if (!ledger || ledger.blocked || billingStatusRequest || document.hidden || !page?.isConnected
+        || key !== billingStatusLedger?.key
+        || (ledger.automatic && (ledger.stopped || ledger.attempts >= 6 || now - ledger.started >= 60000))
+        || (ledger.lastStarted !== null && now - ledger.lastStarted < 10000)) {
+      event.preventDefault();
+      return;
+    }
+    window.clearTimeout(ledger.timer);
+    ledger.lastStarted = now;
+    ledger.attempts++;
+    const active = document.activeElement;
+    const state = { page, key, ledger, xhr: event.detail.xhr, invalidContext: false,
+      restoreFocus: page.contains(active), focusId: active?.id,
+      controls: [...page.querySelectorAll("form button")].map(control => [control, control.disabled]) };
+    billingStatusRequest = state;
+    state.xhr.grafBillingStatus = state;
+    state.xhr.addEventListener("loadend", () => finishBillingStatus(state, true), { once: true });
+    page.setAttribute("aria-busy", "true");
+    state.controls.forEach(([control]) => { control.disabled = true; });
+  });
+  document.body.addEventListener("htmx:beforeSwap", (event) => {
+    const state = event.detail?.xhr?.grafBillingStatus;
+    if (!state) return;
+    const response = new DOMParser().parseFromString(event.detail.serverResponse || "", "text/html");
+    const pages = response.querySelectorAll("main#cabinet-main");
+    const incoming = pages.length === 1 && pages[0].matches(".billing-operation-status-page") ? pages[0] : null;
+    const valid = billingStatusRequest === state && state.page.isConnected && !document.hidden
+      && event.detail.target === state.page && event.detail.shouldSwap && state.xhr.status === 200
+      && !state.ledger.blocked && state.key === billingStatusKey(billingStatusPage())
+      && state.key === billingStatusKey(incoming, response);
+    if (!valid) {
+      event.detail.shouldSwap = false;
+      state.invalidContext = state.xhr.status === 200;
+      finishBillingStatus(state, true);
+      return;
+    }
+    const status = incoming.querySelector('[role="status"]');
+    const currentStatus = state.page.querySelector('[role="status"]');
+    if (status && currentStatus && status.textContent.replace(/\s+/g, " ").trim()
+        === currentStatus.textContent.replace(/\s+/g, " ").trim()) {
+      status.setAttribute("aria-live", "off");
+      event.detail.serverResponse = response.documentElement.outerHTML;
+    }
+  });
+  document.body.addEventListener("htmx:afterSwap", (event) => {
+    const state = event.detail?.xhr?.grafBillingStatus;
+    if (!state || billingStatusRequest !== state) return;
+    finishBillingStatus(state);
+    const page = billingStatusPage();
+    if (!page) return;
+    page.dataset.focusReady = "true";
+    if (state.restoreFocus) {
+      const focus = state.focusId ? document.getElementById(state.focusId) : null;
+      (focus || page).focus({ preventScroll: true });
+    }
+    initBillingStatusRefresh();
+  });
+  ["htmx:afterRequest", "htmx:sendError", "htmx:timeout", "htmx:swapError"].forEach(name => {
+    document.body.addEventListener(name, event => {
+      const state = event.detail?.xhr?.grafBillingStatus;
+      if (state) finishBillingStatus(state, true);
+    });
+  });
+  const stopBillingStatusOnDeparture = () => {
+    stopBillingStatus(billingStatusLedger, Boolean(billingStatusRequest));
+    if (billingStatusRequest) {
+      recoverBillingStatus(billingStatusRequest);
+      billingStatusRequest.xhr.abort();
+    }
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopBillingStatusOnDeparture();
+  });
+  window.addEventListener("pagehide", stopBillingStatusOnDeparture);
+
   const initAuthTransition = () => {
     const page = document.querySelector(".auth-page");
     if (!page || page.dataset.authTransitionReady === "true") return;
@@ -9049,6 +9254,7 @@
     initCodeForms();
     initOutcomeFocus();
     initBillingRenewalChoice();
+    initBillingStatusRefresh();
     initBillingFocus();
     initMeetingList();
     announceUploadProgress();
