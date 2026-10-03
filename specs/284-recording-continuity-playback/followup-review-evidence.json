@@ -3,7 +3,8 @@
   "risk_lane": "high-risk-product",
   "tasks": [
     "T012",
-    "T013"
+    "T013",
+    "T014"
   ],
   "review_verdict": {
     "critical": 0,
@@ -11,11 +12,11 @@
     "medium": 0
   },
   "checks": {
-    "capture_tests": 80,
+    "capture_tests": 84,
     "capture_failures": 0,
     "browser_chromium": "PASS",
     "browser_webkit": "PASS",
-    "requirements_checked": 22,
+    "requirements_checked": 27,
     "requirements_unchecked": 0,
     "static_assets_contract_tests": 76,
     "static_assets_contract_failures": 0,
@@ -23,13 +24,14 @@
     "related_scoped_failures": 0
   },
   "files_sha256": {
-    "apps/macos/RecApp/Sources/Capture/PrivacySuppressingSampleSource.swift": "e3463d41aad3bef0c5c38bd57306fcbef04fff742fa3f50dc5f0e4c276308fc9",
-    "apps/macos/RecApp/Sources/Capture/RecordingSampleSources.swift": "e03c36494f322c19753c0a5e8cfe375710acc3c389591f25d7fcfb67284ed76e",
+    "apps/macos/RecApp/Sources/Capture/PrivacySuppressingSampleSource.swift": "ca8d3b86defb99d1945d18cc81795c0f528cfdbcc9add3ddea591caea920cd32",
+    "apps/macos/RecApp/Sources/Capture/RecordingSampleSources.swift": "dd851b69c5c41ffd27295a5ab0b3725f9debb8c1108a480ab31488f705210af5",
     "apps/macos/RecApp/Sources/Capture/V5LocalRecordingWriter.swift": "044061b32fea07979229474337c934f7c4620ab42ffe5da910b5b944294a5b23",
-    "apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift": "2a740cf4e051c0e08c05ce536c1ca745dda5f812707e09dc3aaf4a75ad70cc9b",
+    "apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift": "cbfc942e9529badf1efa0f811c2572a6787ed55b0158a2b21b6b3dbf2dbe789c",
     "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "6d77a78040a754c3a8746f5c43adf93a7d94adbe84dc5c340fda492e76f8c9a6",
     "apps/server/tests/browser/local-recording-detail.test.cjs": "4060d0b3d0edda9196f68c19c2fef8b2d80ac1c8ef5aa874a85564fbb6322196",
-    "apps/server/tests/contract/test_cabinet_static_assets_contract.py": "d68eeb34e9ee9f6f942228370b9f836972091881e1b47a6d728f8cedbabf816b"
+    "apps/server/tests/contract/test_cabinet_static_assets_contract.py": "d68eeb34e9ee9f6f942228370b9f836972091881e1b47a6d728f8cedbabf816b",
+    "apps/macos/RecApp/Sources/Capture/MicrophoneCaptureService.swift": "03885facc914712ebe10d81dc5625445d22fafb1be90804a6ad325b54197d391"
   },
   "fresh_dev_acceptance": "pending_mac_locked",
   "release": "pending_apple_required_agreement_403",
@@ -38,5 +40,22 @@
     "high": 0,
     "medium": 0,
     "product_code_changed": false
+  },
+  "producer_boundary_review": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "production_forwarding": "PASS",
+    "lock_order": "wrapper_then_FIFO",
+    "atomic_append_read_exclusion": "PASS",
+    "unsupported_boundary": "paused_checkpoint_preserved",
+    "red_tests": 3,
+    "red_assertion_failures": 6,
+    "targeted_green_tests": 7,
+    "focused_green_tests": 84,
+    "focused_green_failures": 0,
+    "focused_duration_seconds": 26.085,
+    "paused_mic_delta_wav": 0.0,
+    "paused_mic_delta_m4a": 0.0
   }
 }

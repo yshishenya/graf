@@ -89,6 +89,10 @@ public final class AppOwnedMicrophoneSampleSource: TimestampedLocalRecordingSamp
         bufferedSource.readTimestampedBatch(maximumFrameCount: maximumFrameCount)
     }
 
+    public func withQueuedFrameCountSnapshot(_ body: (Int64) -> Bool) -> Bool {
+        bufferedSource.withQueuedFrameCountSnapshot(body)
+    }
+
     public var timestampedDiagnostics: RecordingSampleSourceDiagnostics? {
         bufferedSource.timestampedDiagnostics
     }

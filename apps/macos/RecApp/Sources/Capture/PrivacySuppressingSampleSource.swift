@@ -34,16 +34,20 @@ public final class PrivacySuppressingSampleSource: TimestampedLocalRecordingSamp
     }
 
     /// A FIFO snapshot is the finite boundary between frames accepted during
-    /// mute and frames accepted after resume. Missing diagnostics must leave
-    /// the source muted rather than guessing or waiting for an empty queue.
+    /// mute and frames accepted after resume. Snapshot and state change share
+    /// the producer's FIFO lock; diagnostics alone cannot authorize resume.
     @discardableResult
     public func update(state: ProductPrivacyControlState) -> Bool {
         lock.withLock {
             if self.state.suppressesLocalMicrophone && !state.suppressesLocalMicrophone {
-                guard let snapshot = base.timestampedDiagnostics, snapshot.queuedFrameCount >= 0 else { return false }
-                // Replace, rather than add: a second pause also covers any
-                // remaining frames from the first pause already in this FIFO.
-                queuedFramesToSuppress = snapshot.queuedFrameCount
+                return base.withQueuedFrameCountSnapshot { queuedFrameCount in
+                    guard queuedFrameCount >= 0 else { return false }
+                    // Replace, rather than add: a second pause also covers any
+                    // remaining frames from the first pause already in FIFO.
+                    queuedFramesToSuppress = queuedFrameCount
+                    self.state = state
+                    return true
+                }
             }
             self.state = state
             return true

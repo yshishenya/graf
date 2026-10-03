@@ -561,6 +561,121 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         }
     }
 
+    func testProducerAppendCannotCrossResumeSnapshotAndStateBoundary() throws {
+        let microphone = ProducerResumeBoundarySource()
+        let privacy = PrivacySuppressingSampleSource(base: microphone, state: .paused)
+        let result = PrivacyResumeResult()
+        let resumeFinished = DispatchSemaphore(value: 0)
+        let appendStarted = DispatchSemaphore(value: 0)
+        let appendFinished = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            result.set(privacy.update(state: .capturing))
+            resumeFinished.signal()
+        }
+        XCTAssertEqual(microphone.boundaryEntered.wait(timeout: .now() + 2), .success)
+        DispatchQueue.global().async {
+            appendStarted.signal()
+            microphone.appendFromProducer([0.5, 0.5], at: 100 + 2.0 / 48_000)
+            appendFinished.signal()
+        }
+        XCTAssertEqual(appendStarted.wait(timeout: .now() + 2), .success)
+        // The old getter releases the production FIFO lock before this gate.
+        // Force that append to finish before permitting the old state change.
+        // The atomic callback must instead hold the FIFO lock until release.
+        let appendedBeforeFlip: Bool
+        if microphone.usedAtomicBoundary {
+            appendedBeforeFlip = appendFinished.wait(timeout: .now() + 0.05) == .success
+        } else {
+            appendedBeforeFlip = appendFinished.wait(timeout: .now() + 2) == .success
+            XCTAssertTrue(appendedBeforeFlip, "Old-path append must precede the state change")
+        }
+        XCTAssertFalse(appendedBeforeFlip, "Producer must share the resume boundary lock")
+        microphone.releaseBoundary.signal()
+        XCTAssertEqual(resumeFinished.wait(timeout: .now() + 2), .success)
+        if !appendedBeforeFlip {
+            XCTAssertEqual(appendFinished.wait(timeout: .now() + 2), .success)
+        }
+        XCTAssertEqual(result.value, true)
+        XCTAssertEqual(privacy.readTimestampedBatch(maximumFrameCount: 8)?.samples, [0, 0])
+        XCTAssertEqual(privacy.readTimestampedBatch(maximumFrameCount: 8)?.samples,
+            appendedBeforeFlip ? [0, 0] : [0.5, 0.5])
+        microphone.appendFromProducer([0.6, 0.6], at: 100 + 4.0 / 48_000)
+        XCTAssertEqual(privacy.readTimestampedBatch(maximumFrameCount: 8)?.samples, [0.6, 0.6])
+        XCTAssertEqual(privacy.suppressedSampleCount, appendedBeforeFlip ? 4 : 2)
+    }
+
+    func testProductionAtomicBoundaryExcludesReadsAndAppendsDuringCallback() throws {
+        let microphone = AppOwnedMicrophoneSampleSource()
+        microphone.appendCapturedBatch(systemBatch(samples: [0.4, 0.4], seconds: 100))
+        let result = PrivacyResumeResult()
+        let readResult = PrivacyReadResult()
+        let callbackEntered = DispatchSemaphore(value: 0)
+        let releaseCallback = DispatchSemaphore(value: 0)
+        let callbackFinished = DispatchSemaphore(value: 0)
+        let readStarted = DispatchSemaphore(value: 0)
+        let readFinished = DispatchSemaphore(value: 0)
+        let appendStarted = DispatchSemaphore(value: 0)
+        let appendFinished = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            let applied = microphone.withQueuedFrameCountSnapshot { count in
+                XCTAssertEqual(count, 2)
+                callbackEntered.signal()
+                guard releaseCallback.wait(timeout: .now() + 2) == .success else { return false }
+                return true
+            }
+            result.set(applied)
+            callbackFinished.signal()
+        }
+        XCTAssertEqual(callbackEntered.wait(timeout: .now() + 2), .success)
+        DispatchQueue.global().async {
+            readStarted.signal()
+            readResult.set(microphone.readTimestampedBatch(maximumFrameCount: 2))
+            readFinished.signal()
+        }
+        DispatchQueue.global().async {
+            appendStarted.signal()
+            microphone.appendCapturedBatch(systemBatch(samples: [0.5, 0.5], seconds: 100 + 2.0 / 48_000))
+            appendFinished.signal()
+        }
+        XCTAssertEqual(readStarted.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(appendStarted.wait(timeout: .now() + 2), .success)
+        let earlyRead = readFinished.wait(timeout: .now() + 0.05)
+        let earlyAppend = appendFinished.wait(timeout: .now() + 0.05)
+        XCTAssertEqual(earlyRead, .timedOut)
+        XCTAssertEqual(earlyAppend, .timedOut)
+        releaseCallback.signal()
+        XCTAssertEqual(callbackFinished.wait(timeout: .now() + 2), .success)
+        if earlyRead != .success { XCTAssertEqual(readFinished.wait(timeout: .now() + 2), .success) }
+        if earlyAppend != .success { XCTAssertEqual(appendFinished.wait(timeout: .now() + 2), .success) }
+        XCTAssertEqual(result.value, true)
+        XCTAssertEqual(readResult.batch?.samples, [0.4, 0.4])
+        XCTAssertEqual(microphone.readTimestampedBatch(maximumFrameCount: 2)?.samples, [0.5, 0.5])
+        XCTAssertEqual(microphone.timestampedDiagnostics?.queuedFrameCount, 0)
+    }
+
+    func testDiagnosticsAloneCannotAuthorizePrivacyResume() throws {
+        let microphone = DiagnosticsOnlyPrivacySource()
+        XCTAssertFalse(microphone.withQueuedFrameCountSnapshot { _ in
+            XCTFail("Unsupported source must not invoke the callback")
+            return true
+        })
+        let privacy = PrivacySuppressingSampleSource(base: microphone, state: .paused)
+        microphone.append(systemBatch(samples: [0.4, 0.5], seconds: 100))
+        XCTAssertFalse(privacy.update(state: .capturing))
+        microphone.append(systemBatch(samples: [0.6, 0.7], seconds: 100 + 2.0 / 48_000))
+        XCTAssertEqual(privacy.readTimestampedBatch(maximumFrameCount: 8)?.samples, [0, 0])
+        XCTAssertEqual(privacy.readTimestampedBatch(maximumFrameCount: 8)?.samples, [0, 0])
+        XCTAssertEqual(privacy.suppressedSampleCount, 4)
+    }
+
+    func testNegativePrivacyBoundaryLeavesSourcePaused() throws {
+        let microphone = NegativePrivacyBoundarySource()
+        let privacy = PrivacySuppressingSampleSource(base: microphone, state: .paused)
+        XCTAssertFalse(privacy.update(state: .resuming))
+        XCTAssertEqual(privacy.readTimestampedBatch(maximumFrameCount: 8)?.samples, [0])
+        XCTAssertEqual(privacy.suppressedSampleCount, 1)
+    }
+
     func testWriterFastResumeKeepsAllPausedMicrophoneBatchesSilentInBothFiles() async throws {
         _ = try await verifyWriterPrivacyQueueFiles(includeSystemAudio: false)
     }
@@ -675,6 +790,17 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertEqual(drained.queuedFrameCount, 4_288)
         XCTAssertEqual(drained.capturedFrontier?.seconds, captured.capturedFrontier?.seconds)
         XCTAssertEqual(drained.lastBatchFrameCount, captured.lastBatchFrameCount)
+        source.update(state: .paused)
+        microphone.appendCapturedBatch(systemBatch(samples: [0.4, 0.4], seconds: 100.1))
+        XCTAssertTrue(source.update(state: .capturing))
+        microphone.appendCapturedBatch(systemBatch(samples: [0.6, 0.6], seconds: 100.1 + 2.0 / 48_000))
+        let queuedBeforePause = try XCTUnwrap(source.readTimestampedBatch(maximumFrameCount: 8_192))
+        XCTAssertTrue(queuedBeforePause.samples.allSatisfy { $0 == 0 })
+        let admittedDuringPause = try XCTUnwrap(source.readTimestampedBatch(maximumFrameCount: 8_192))
+        XCTAssertEqual(admittedDuringPause.samples, [0, 0])
+        XCTAssertEqual(admittedDuringPause.presentationTime.seconds, 100.1)
+        XCTAssertEqual(source.readTimestampedBatch(maximumFrameCount: 8_192)?.samples, [0.6, 0.6])
+        XCTAssertEqual(source.suppressedSampleCount, 4_290)
     }
 
     func testBufferedSourceSplitsBatchesWithTheirOriginalPTS() throws {
@@ -788,6 +914,9 @@ private final class BackloggedMicrophoneSource: TimestampedLocalRecordingSampleS
     private var unreadFrames = 0
     var hasTimestampedOverflow: Bool { base.hasTimestampedOverflow }
     var timestampedDiagnostics: RecordingSampleSourceDiagnostics? { base.timestampedDiagnostics }
+    func withQueuedFrameCountSnapshot(_ body: (Int64) -> Bool) -> Bool {
+        base.withQueuedFrameCountSnapshot(body)
+    }
     var readableFrameCountForTest: Int { lock.withLock { unreadFrames } }
     func append(_ batch: RecordingAudioBatch) {
         base.append(batch)
@@ -829,6 +958,67 @@ private final class DelayedContinuousSystemSource: TimestampedLocalRecordingSamp
     }
 }
 
+private final class PrivacyResumeResult: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: Bool?
+    var value: Bool? { lock.withLock { stored } }
+    func set(_ value: Bool) { lock.withLock { stored = value } }
+}
+
+/// Gate the real production microphone path between snapshot and state flip.
+private final class ProducerResumeBoundarySource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
+    private let base = AppOwnedMicrophoneSampleSource()
+    private let flagLock = NSLock()
+    private var atomicBoundary = false
+    let boundaryEntered = DispatchSemaphore(value: 0)
+    let releaseBoundary = DispatchSemaphore(value: 0)
+    var usedAtomicBoundary: Bool { flagLock.withLock { atomicBoundary } }
+    init() { appendFromProducer([0.4, 0.4], at: 100) }
+    func appendFromProducer(_ samples: [Float], at seconds: Double) {
+        base.appendCapturedBatch(systemBatch(samples: samples, seconds: seconds))
+    }
+    var hasTimestampedOverflow: Bool { base.hasTimestampedOverflow }
+    var timestampedDiagnostics: RecordingSampleSourceDiagnostics? {
+        let snapshot = base.timestampedDiagnostics
+        boundaryEntered.signal()
+        _ = releaseBoundary.wait(timeout: .now() + 2)
+        return snapshot
+    }
+    func withQueuedFrameCountSnapshot(_ body: (Int64) -> Bool) -> Bool {
+        base.withQueuedFrameCountSnapshot { count in
+            flagLock.withLock { atomicBoundary = true }
+            boundaryEntered.signal()
+            guard releaseBoundary.wait(timeout: .now() + 2) == .success else { return false }
+            return body(count)
+        }
+    }
+    func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
+        base.readTimestampedBatch(maximumFrameCount: maximumFrameCount)
+    }
+}
+
+private final class DiagnosticsOnlyPrivacySource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
+    private let base = BufferedLocalRecordingSampleSource(channelCount: 1)
+    func append(_ batch: RecordingAudioBatch) { base.append(batch) }
+    var hasTimestampedOverflow: Bool { base.hasTimestampedOverflow }
+    var timestampedDiagnostics: RecordingSampleSourceDiagnostics? { base.timestampedDiagnostics }
+    func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
+        base.readTimestampedBatch(maximumFrameCount: maximumFrameCount)
+    }
+}
+
+private final class NegativePrivacyBoundarySource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
+    var hasTimestampedOverflow: Bool { false }
+    var timestampedDiagnostics: RecordingSampleSourceDiagnostics? {
+        RecordingSampleSourceDiagnostics(queuedFrameCount: -1, capturedFrontier: nil,
+            lastBatchFrameCount: 0, lastBatchFormat: nil, lastCapturedUptime: nil)
+    }
+    func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
+        systemBatch(samples: [0.4], seconds: 100)
+    }
+    func withQueuedFrameCountSnapshot(_ body: (Int64) -> Bool) -> Bool { body(-1) }
+}
+
 private final class PrivacyReadResult: @unchecked Sendable {
     private let lock = NSLock()
     private var storedBatch: RecordingAudioBatch?
@@ -844,6 +1034,9 @@ private final class BlockingPrivacySampleSource: TimestampedLocalRecordingSample
     init() { base.append(systemBatch(samples: Array(repeating: 0.4, count: 4), seconds: 100)) }
     var hasTimestampedOverflow: Bool { base.hasTimestampedOverflow }
     var timestampedDiagnostics: RecordingSampleSourceDiagnostics? { base.timestampedDiagnostics }
+    func withQueuedFrameCountSnapshot(_ body: (Int64) -> Bool) -> Bool {
+        base.withQueuedFrameCountSnapshot(body)
+    }
     func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
         if blockNextRead {
             blockNextRead = false
@@ -861,6 +1054,9 @@ private final class CoalescedPrivacySampleSource: TimestampedLocalRecordingSampl
     private var readFrames = 0
     func append(_ values: [Float]) { lock.withLock { samples += values } }
     var hasTimestampedOverflow: Bool { false }
+    func withQueuedFrameCountSnapshot(_ body: (Int64) -> Bool) -> Bool {
+        lock.withLock { body(Int64(samples.count / 2)) }
+    }
     var timestampedDiagnostics: RecordingSampleSourceDiagnostics? {
         lock.withLock { RecordingSampleSourceDiagnostics(queuedFrameCount: Int64(samples.count / 2),
             capturedFrontier: nil, lastBatchFrameCount: 0, lastBatchFormat: nil, lastCapturedUptime: nil) }

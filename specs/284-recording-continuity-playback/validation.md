@@ -146,3 +146,17 @@ T012 green: `swift test --package-path apps/macos --filter 'LocalRecordingWriter
 GRAF Dev dev-6c91a6b4165e штатно promoted2026-10-03T04:24:30Z; отдельный live smoke PASS13/13. Mac повторно заблокирован при попытке открыть Telemost. Новая аппаратная приёмка T012 и release Apple403 остаются открытыми.
 
 Независимое read-only ревью исправленной контрактной карточки:CRITICAL0/HIGH0/MEDIUM0. Проверены настоящая разметка, обе строки и сохранение всех утверждений отзыва доступа; других необходимых изменений не найдено.
+
+## T014 — новое замечание производителя
+
+Общий GitHub proof e4b1ebb774d661348098bc89fbff398a8ea0a165 прошёл обе source проверки:governance-fast37097156141,macos-pr37097156195; обновлённое описание также governance-fast37097577754,macos-pr37097577759,pr-metadata37097578185 PASS. Новый review4171728042 локализовал producer race между diagnostics snapshot и сменой состояния; отдельное read-only исследование подтвердило прямой appendCapturedBatch под другой блокировкой. Это новый блокирующий дефект поверх прежнего T012, даже при80/0 и успешных CI. T014 issue7486 и новые FR012/SC008/plan/contracts/checklist зарегистрированы; независимый requirements PASS5/0,C0/H0/M0. Исправление producer атомарности, red/green и новая приёмка выполняются отдельно.
+
+Единственный GRAF Dev dev-e4b1ebb774d6 promoted2026-10-03T04:39:25Z и live smoke13/13PASS. Повторная попытка UI подтверждает заблокированный Mac; аппаратная приёмка остаётся открытой. Apple403 сохраняется.
+
+### T014 — атомарная граница производителя: локальные проверки и независимое ревью PASS
+
+Окончательная реализация передаёт withQueuedFrameCountSnapshot через AppOwnedMicrophoneSampleSource в BufferedLocalRecordingSampleSource. Размер FIFO и переход privacy wrapper выполняются под одной блокировкой очереди, общей с append/read; порядок wrapper→FIFO. Производственный callback меняет только конечный счётчик и состояние. Unsupported/default callback не вызывается; отрицательная граница сохраняет паузу и открытый checkpoint. Новый буфер или ожидание пустой очереди не добавлены.
+
+На прежнем e4b1 коде барьерное воспроизведение: 3 проверки / 6 assertion failures. После исправления targeted 7/0, окончательный focused набор 84/0 за 26.085s. Проверены обе стороны границы, исключение параллельных append/read на производственном источнике, diagnostics-only отказ, negative boundary, repeated pause и bounded Stop/open checkpoint. Итоговые WAV/M4A проверки сохранены; paused_mic_delta=0.0 в обеих дорожках при сравнении с нулевым микрофонным образцом. Независимое read-only ревью стабильных четырёх файлов: C0/H0/M0; проверены production factory, forwarding, порядок блокировок и локальные результаты. Контрольные суммы записаны в followup-review-evidence.json.
+
+Reviewer-owned requirements: прежние 22/0 и producer-boundary 5/0, всего 27/0. Аппаратная приёмка текущей T012/T014 остаётся открытой: Mac заблокирован. Предыдущие 45min40s не перенесены на новый код. Новые exact-SHA CI, штатная установка Dev и выпуск остаются отдельными воротами.
