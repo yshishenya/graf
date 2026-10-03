@@ -33,3 +33,7 @@ Constitution: явные согласия и безопасность сохра
 Добавление только issue links не меняет семантику задач.
 
 Next: canon ensure, all-state ownership dedup T046–T048, canonical issue sync и canon validate. RED разрешен только после этих gates.
+
+## Дополнительная задача T049 после CI RED
+
+T049/#7507 реализует существующие FR-039/041 и SC-014 в прежнем money-path тесте: short date в основных фактах, полный срок в native условиях. Входной RED179/1 явно сохранен; денежные assertions, продуктовый код, границы owner/tenant/provider и независимый reviewer gate неизменны. Новое требование, неоднозначность, миграция или новый consent не вводятся; повторное уточнение/checklist не требуется. Покрытие T049:2/2FR, конфликтов/новых critical/high/medium/low0. Зависимость: существующий reviewerPASS/analyze → canonensure/dedup/issuesync/validate → T049GREEN/независимыйreview → повторные exact-SHA gates → T048 выпуск.
