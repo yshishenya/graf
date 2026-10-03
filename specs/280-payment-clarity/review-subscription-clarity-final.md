@@ -32,3 +32,5 @@ release-full, GO, CD dry-run/execute, CalVer и runtime/publication/rollback
 списания, возвраты или grants для проверки не создавались. T011/T012,
 SC-005/006, финансовая/человеческая приемка F278 и umbrella этим срезом не
 закрываются.
+
+Дополнение после первого CI: T049/#7507 исправляет только устаревшее expectation прежнего money-path теста. Production source неизменен, предыдущие три итоговых заключения по этим байтам сохраняются. Отдельный независимый [обзор T049](review-subscription-t049.md) подтвердил сохранение всех денежных assertions и остальных18functions; targeted1/full71PASS0skips. Отказ governance-fast37159387757 остается историческим; новый точный SHA должен пройти все обязательные gates.

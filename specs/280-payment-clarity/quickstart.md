@@ -260,3 +260,13 @@ GRAF_BROWSER=webkit uv run --extra dev pytest tests/contract/test_billing_access
 6. Три независимых текущих обзора (понятность/тексты, финансовые состояния/guards, браузер/доступность), исправление и повтор замечаний; затем converge. Evidence в `validation-subscription-clarity.md`, `review-subscription-clarity-final.md`, `converge-subscription-clarity.md`; release evidence отдельно. Проверить `git diff --check`, governance и применимый Ruff; exact-SHA PR checks и новый frozen release-full/CD/tag/runtime/publication после этого.
 
 SC-005/006/T011/T012/F278 остаются отдельными; эта проверка не доказывает реальные будущие списания, чек/банк/возврат, человеческую приемку либо рост конверсии. Для ручного/сквозного macOS допускается только GRAF Dev и штатный harness по `local-development.md`; изменение native route policy не требуется.
+
+### T049: прежняя сквозная проверка полного срока
+
+Перед окончательными PR gates выполнить существующий изолированный денежный набор:
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused tests/unit/test_billing_money_path_e2e.py -q --tb=short --show-capture=no
+```
+
+Короткая локальная дата остается в основных фактах, полный срок/время/зона в закрытом native «Способ оплаты и условия»; не ослаблять webhook/reconcile/paid-through/recurring и первую попытку72h. Причинный RED179/1 и окончательный full71PASS сохранены в validation-subscription-clarity.md, независимый review-subscription-t049.md.
