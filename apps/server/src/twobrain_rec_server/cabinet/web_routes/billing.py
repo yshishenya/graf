@@ -546,6 +546,23 @@ def _initial_checkout_can_continue(
     )
 
 
+def _checkout_invoice_can_continue(
+    invoice: BillingInvoice, operation: BillingOperation | None
+) -> bool:
+    if invoice.status == "pending":
+        return True
+    return bool(
+        invoice.status == "manual_resolution"
+        and operation is not None
+        and _initial_checkout_can_continue(operation)
+        and invoice.operation_id == operation.id
+        and invoice.workspace_id == operation.workspace_id
+        and type(operation.request_snapshot.get("payable_amount_minor")) is int
+        and operation.request_snapshot["payable_amount_minor"] == invoice.amount_minor
+        and invoice.currency == "RUB"
+    )
+
+
 def _initial_checkout_failure_metadata(
     exc: BaseException,
     *,
@@ -2166,7 +2183,7 @@ async def billing_checkout_status_page(
     )
     can_continue_payment = bool(
         operation is not None
-        and invoice.status == "pending"
+        and _checkout_invoice_can_continue(invoice, operation)
         and billing_checkout_allowed(settings, tenant_scope.workspace_id)
         and actor_matches
         and (
@@ -2227,6 +2244,7 @@ async def billing_checkout_status_page(
         operation_state_label=_operation_state_label(operation_state),
         billing_enabled=billing_checkout_allowed(settings, tenant_scope.workspace_id),
         can_continue_payment=can_continue_payment and request.query_params.get("view") != "local",
+        awaiting_payment_result=can_continue_payment or can_refresh_payment,
         can_refresh_payment=can_refresh_payment,
         read_only_recovery=request.query_params.get("view") == "local",
         updated_at_label=_billing_datetime_label(
@@ -2355,7 +2373,7 @@ async def continue_billing_checkout(
         )
         .with_for_update()
     )
-    if invoice.status != "pending" or (
+    if not _checkout_invoice_can_continue(invoice, operation) or (
         operation is not None and operation.state in {"succeeded", "succeeded_refused", "canceled", "failed"}
     ):
         return RedirectResponse(_checkout_status_location(safe_number), status_code=303)

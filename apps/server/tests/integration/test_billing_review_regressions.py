@@ -387,7 +387,7 @@ def test_rejected_creation_releases_reservations_but_unknown_result_keeps_them(
             assert "Не удалось начать оплату" not in page.text
             assert RECURRING_UNAVAILABLE_MESSAGE not in page.text
             if http_status in {500, "timeout"}:
-                assert "Проверить статус" in page.text
+                assert "Проверить оплату" in page.text
                 assert 'href="/billing/checkout?cycle=' not in page.text
                 assert 'href="/billing/storage"' not in page.text
     assert calls == (["setup"] if http_status in {"setup", "secret_io"} else ["POST"])
@@ -501,8 +501,8 @@ def test_creation_rejection_status_uses_only_authoritative_snapshot(
             cta = "Вернуться к оплате" if recurring_not_available else "Попробовать снова"
             assert f">{cta}</a>" in page.text
         elif changes.get("state") in {"unknown", "manual_resolution"}:
-            assert "Подтверждение еще не получено. Повторно платить не нужно." in page.text
-            assert "Проверить статус" in page.text
+            assert "Повторно платить не нужно. Результат появится здесь." in page.text
+            assert "Проверить оплату" in page.text
             assert 'href="/billing/checkout?cycle=year"' not in page.text
         else:
             assert '<h2 id="billing-operation-title">Платеж отменен</h2>' in page.text
