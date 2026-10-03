@@ -16,7 +16,7 @@ Swift/SwiftUI/AppKit и существующий cabinet CSS. macOS 14+, embedde
 
 ## Constitution Check
 
-До исследования PASS: I/II — аудиотракт, видимость/Stop/согласие не меняются; III — данные/секреты не появляются; V — существующие Developer ID, notarization и Sparkle обязательны; VI — полный Spec Kit; VII — исправление известного дефекта и доступности на текущей поверхности GRAF, новые сторонние assets отсутствуют. После дизайна те же ворота PASS, исключений нет. Применимы docs/agent-guidance/{spec-kit-flow,product-gates,local-development,release-and-validation,macos-notarization,tracker-policy,github-issue-canon}.md и PRD §29.
+До исследования PASS: I/II — аудиотракт, видимость/Stop/согласие не меняются; III — данные/секреты не появляются; V — существующие Developer ID, notarization и Sparkle обязательны; VI — полный Spec Kit; VII — исправление известного дефекта и доступности на текущей поверхности GRAF, новые сторонние assets отсутствуют. После дизайна те же ворота PASS. 2026-10-03 пользователь явно разрешил выпуск F285 без фактической проверки перехода VoiceOver и запретил включать или проверять VoiceOver. Это исключение касается только ручного runtime-сценария capture/custody; доступность сохраняется по коду, результат не объявляется PASS. Ограничение записывается в отчёте и заметках выпуска. Применимы docs/agent-guidance/{spec-kit-flow,product-gates,local-development,release-and-validation,macos-notarization,tracker-policy,github-issue-canon}.md и PRD §29.
 
 ## Phase 0 — Research
 

@@ -31,7 +31,7 @@ Lane: `high-risk-ux`. Требования/дизайн независимо п�
 ## Phase 5: Проверки и выпуск
 
 - [X] T008 Провести локальные проверки high-risk-ux и независимый просмотр реализации по quickstart, выполнить converge; записать доказательства/ограничения в specs/285-refine-focus-indicators/validation.md и русский changelog в changes/unreleased/F285.yaml; получить требуемое AGENTS.md одобрение коммита после валидации.
-- [ ] T009 После одобренного коммита выполнить GRAF Dev build/promote/status/smoke и ручную матрицу, точные PR checks, merge, frozen release-full, CD dry-run/execute, Developer ID/notarization/stapling/Gatekeeper и публичный Sparkle appcast/ZIP/PKG; записать отдельные доказательства source/server/public/installed в specs/285-refine-focus-indicators/validation.md и сверить закрытие issues.
+- [ ] T009 После одобренного коммита выполнить GRAF Dev build/promote/status/smoke и разрешённую ручную матрицу (исключение пользователя 2026-10-03: VoiceOver не включать/не проверять; его runtime-переход остаётся неподтверждённым и записывается в отчёте/заметках выпуска), точные PR checks, merge, frozen release-full, CD dry-run/execute, Developer ID/notarization/stapling/Gatekeeper и публичный Sparkle appcast/ZIP/PKG; записать отдельные доказательства source/server/public/installed в specs/285-refine-focus-indicators/validation.md и сверить закрытие issues.
 
 ## Dependencies & execution order
 

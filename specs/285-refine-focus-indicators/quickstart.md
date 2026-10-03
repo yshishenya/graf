@@ -14,7 +14,7 @@
 - Tab/Shift+Tab: нет остановок на capture/custody informational containers; доступные кнопки выделяются при системной навигации macOS. Не менять системную настройку автоматически; если текущая настройка ограничивает Tab, зафиксировать лимит и использовать существующий автоматический AppKit check.
 - Поиск/имя/часовой пояс/code/textarea/редактор названия: один контур, прежние размеры; light/dark, high contrast/forced-colors на синтетических browser fixtures.
 - NativeSettingsComboBox: мышь и Tab, один 2px контур внутри bounds; обе темы и Increase Contrast; стрелки/Return/Escape и редактирование сохраняются, popup не открывается от focus.
-- Notification → recording: панель раскрывается и прокручивается к цели; VoiceOver target сохраняется. Не создавать реальное уведомление/запись чужой встречи.
+- Notification → recording: панель раскрывается и прокручивается к цели. Не создавать реальное уведомление/запись чужой встречи. Фактический перенос VoiceOver к capture/custody не проверяется: 2026-10-03 пользователь прямо разрешил выпуск F285 с этим ограничением и запретил включать/проверять VoiceOver. Привязки остаются проверенными по исходникам; runtime VoiceOver не считается PASS. Ограничение обязательно в отчёте и заметках выпуска.
 - Dialog: Tab trap и Escape restoration; disabled actions остаются disabled.
 
 ## PR и прод
