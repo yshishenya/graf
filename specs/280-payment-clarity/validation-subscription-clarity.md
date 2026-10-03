@@ -98,3 +98,11 @@ git diff --check
 Целевой PostgreSQL GREEN: **1passed/70deselected**,5.71с pytest/10с runner. Полный существующий файл: **71passed/0failed/0skipped**,63.50с pytest/68с runner; collection digest `730f03bf1a6c92701a74b5cfb5e5d06beb3a869edf81ec91a992e5541ea5d026`. Оба одноразовых контейнера удалены штатным runner; `ruff` и whitespace checks PASS. Этот полный файл содержит71case, исходные180case относятся к объединенной выбранной CI-группе; результаты не смешаны. Два прежних предупреждения fixture plugin/Starlette не являются skip.
 
 Исходники template/CSS/route не менялись в этом срезе; независимый test review и новые exact-SHA CI доказательства оформляет основной агент. Реальных новых платежей, списаний, возвратов или grants нет. Тестовый файл SHA-256 после обоих GREEN: `93ae6b4eed0ca2dd5de3c7ed9fc0539dc4dca75531bf1e851e1f2b7f7d34681d`.
+
+## T050 — прежняя повторяющаяся фраза при отключенном продлении
+
+После поиска старых subscription assertions перед full release причинный PostgreSQL RED воспроизвел только прежнее текстовое ожидание:1failed/81deselected,6.37с, disposablecontainerremoved. Для T050/#7510 до правки выполнены analyze/canonensure/dedup/issuesync/canonvalidate. Изменен один assertion в test_disabling_renewal_does_not_promise_to_cancel_a_sent_payment: точное видимое поле `<dt>Автопродление</dt><dd>Отключено</dd>` вместо удаленной повторяющейся фразы. Прежние предупреждение «еще может завершиться», запрет ложного обещания «Автоматического списания не будет» и exact существующий result-link сохранены. Код продукта и остальные assertions не менялись.
+
+Команда: `apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_billing_return.py -q --tb=short --show-capture=no`. Полный existingfile:82passed/0failed/0skipped,110.57с pytest/118с runner; collectiondigest355468009a2a415ee678c6b52e5aaf6aca2ecc32382c033337be12cf75e5ebba, isolatedcontainerremoved. Ruff/diffcheckPASS.
+
+Тестовый файл SHA-256: ef277f0b725a6a66bfbf61655c3e32896dce93c871ce1fb96acf11c70fe5b033. Independent review и новые exact-SHA gates требуются отдельно; реальных финансовых действий нет.
