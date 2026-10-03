@@ -5414,6 +5414,10 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .billing-comparison__row:last-child > span { border-bottom: 0; }
 .billing-comparison__row--head { background: var(--surface-2); font-weight: 700; }
 
+.billing-subscription-page .settings-page__content { width: min(720px, 100%); }
+.billing-subscription-page .billing-checkout-card__heading h2 { margin: 0; }
+.billing-subscription-page .billing-checkout-card > p { margin: 0; }
+
 .billing-checkout-page .billing-page__content { width: min(620px, 100%); }
 .billing-checkout-card {
   display: grid;
