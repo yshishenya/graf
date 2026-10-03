@@ -6,3 +6,6 @@
 - Server maps storage_capacity_exceeded to the same public reason with Russian/English quota copy and existing cabinet billing/storage link. No claim of corrupt audio and no false automatic-retry promise.
 
 Quota navigation uses the existing /billing overview (shared access); capacity-management actions remain guarded by billing_owner. Copy asks to contact the workspace owner when appropriate. No new authority or purchase action is introduced.
+
+- Privacy Pause remains durable before source suppression. A successful Resume fixes an exact FIFO queued-frame boundary; accepted pending/queued microphone frames remain zero across Resume while subsequent frames regain normal treatment. Reads/control transitions serialize, partial reads preserve format/PTS/frame count, and suppression counts each sample once. Missing exact boundary explicitly rejects Resume and keeps paused/open checkpoint with the existing user-visible error, system capture and bounded Stop; it never waits for an empty continuously producing source.
+- Playback poll binds the original meeting ID before fetch. Connected element/current main/ID are checked before recovery and after awaited recovery/text or rejection; stale responses cannot change the new route/title/body/native action/focus. Current denial still revokes its own detail.

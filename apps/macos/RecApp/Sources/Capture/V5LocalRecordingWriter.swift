@@ -454,7 +454,9 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     func resumePrivacyOnQueue(endedAt: Date) throws {
         dispatchPrecondition(condition: .onQueue(queue))
         guard let active else { throw LocalRecordingWriterError.notRecording }
-        active.privacySource?.update(state: .capturing)
+        guard active.privacySource?.update(state: .capturing) != false else {
+            throw LocalRecordingPrivacyError.resumeBoundaryUnavailable
+        }
         finalizePrivacySegment(for: active, endedAt: endedAt)
         // Keep the last durable checkpoint conservative if this write fails:
         // an open segment is safer than losing evidence of user-requested mute.

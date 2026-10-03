@@ -1,0 +1,31 @@
+{
+  "reviewed_at": "2026-10-03",
+  "risk_lane": "high-risk-product",
+  "tasks": [
+    "T012",
+    "T013"
+  ],
+  "review_verdict": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0
+  },
+  "checks": {
+    "capture_tests": 80,
+    "capture_failures": 0,
+    "browser_chromium": "PASS",
+    "browser_webkit": "PASS",
+    "requirements_checked": 22,
+    "requirements_unchecked": 0
+  },
+  "files_sha256": {
+    "apps/macos/RecApp/Sources/Capture/PrivacySuppressingSampleSource.swift": "e3463d41aad3bef0c5c38bd57306fcbef04fff742fa3f50dc5f0e4c276308fc9",
+    "apps/macos/RecApp/Sources/Capture/RecordingSampleSources.swift": "e03c36494f322c19753c0a5e8cfe375710acc3c389591f25d7fcfb67284ed76e",
+    "apps/macos/RecApp/Sources/Capture/V5LocalRecordingWriter.swift": "044061b32fea07979229474337c934f7c4620ab42ffe5da910b5b944294a5b23",
+    "apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift": "2a740cf4e051c0e08c05ce536c1ca745dda5f812707e09dc3aaf4a75ad70cc9b",
+    "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "6d77a78040a754c3a8746f5c43adf93a7d94adbe84dc5c340fda492e76f8c9a6",
+    "apps/server/tests/browser/local-recording-detail.test.cjs": "4060d0b3d0edda9196f68c19c2fef8b2d80ac1c8ef5aa874a85564fbb6322196"
+  },
+  "fresh_dev_acceptance": "pending_mac_locked",
+  "release": "pending_apple_required_agreement_403"
+}

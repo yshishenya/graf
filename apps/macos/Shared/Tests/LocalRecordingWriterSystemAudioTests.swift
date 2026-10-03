@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 @testable import TwoBrainRecAppCore
 import TwoBrainRecShared
@@ -447,9 +448,214 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         try timeline.finish()
         XCTAssertEqual(output.count, 1_440)
         XCTAssertTrue(output[480..<960].allSatisfy { $0 == 0 })
-        XCTAssertTrue(output[960...].allSatisfy { abs($0 - 0.05) < 0.00001 })
+        // The third batch was also already queued when resume ran.
+        XCTAssertTrue(output[960...].allSatisfy { $0 == 0 })
         XCTAssertEqual(timeline.metrics.ptsGapCount, 0)
         XCTAssertEqual(timeline.metrics.hostOverrunCount, 0)
+    }
+
+    func testPrivacyResumeSilencesEveryQueuedBatchAndRestoresNewFrames() throws {
+        let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let privacy = PrivacySuppressingSampleSource(base: microphone)
+        privacy.update(state: .paused)
+        for offset in 0..<3 {
+            microphone.append(systemBatch(samples: [0.4, 0.5], seconds: 100 + Double(offset * 2) / 48_000))
+        }
+        privacy.update(state: .capturing)
+        microphone.append(systemBatch(samples: [0.6, 0.7], seconds: 100 + 6.0 / 48_000))
+        for offset in 0..<3 {
+            let batch = try XCTUnwrap(privacy.readTimestampedBatch(maximumFrameCount: 8))
+            XCTAssertEqual(batch.samples, [0, 0])
+            XCTAssertEqual(batch.presentationTime.seconds, 100 + Double(offset * 2) / 48_000)
+            XCTAssertEqual(batch.format.channelCount, 1)
+        }
+        XCTAssertEqual(privacy.readTimestampedBatch(maximumFrameCount: 8)?.samples, [0.6, 0.7])
+        XCTAssertEqual(privacy.suppressedSampleCount, 6)
+        XCTAssertFalse(privacy.lastReadWasSuppressed)
+    }
+
+    func testPrivacyResumeBoundarySplitsStereoBatchAndPrefetchCountsOnlyUnsilencedSamples() throws {
+        let microphone = CoalescedPrivacySampleSource()
+        let privacy = PrivacySuppressingSampleSource(base: microphone)
+        microphone.append([0.1, 0.2, 0.3, 0.4])
+        privacy.update(state: .paused)
+        privacy.update(state: .resuming)
+        privacy.update(state: .capturing)
+        microphone.append([0.5, 0.6, 0.7, 0.8])
+        let partial = try XCTUnwrap(privacy.readTimestampedBatch(maximumFrameCount: 3))
+        XCTAssertEqual(partial.samples, [0, 0, 0, 0, 0.5, 0.6])
+        XCTAssertTrue(privacy.lastReadWasSuppressed)
+        XCTAssertEqual(privacy.suppressedSampleCount, 4)
+        XCTAssertEqual(partial.presentationTime.observedHostTimeSeconds, 123)
+        XCTAssertEqual(partial.routeGeneration, 7)
+        privacy.update(state: .paused)
+        let pending = privacy.suppressPrefetchedBatch(partial)
+        XCTAssertEqual(pending.samples, Array(repeating: 0, count: 6))
+        XCTAssertEqual(privacy.suppressedSampleCount, 6)
+        _ = privacy.suppressPrefetchedBatch(pending)
+        XCTAssertEqual(privacy.suppressedSampleCount, 6)
+        privacy.update(state: .capturing)
+        microphone.append([0.9, 1.0])
+        let rest = try XCTUnwrap(privacy.readTimestampedBatch(maximumFrameCount: 8))
+        XCTAssertEqual(rest.samples, [0, 0, 0.9, 1.0])
+        XCTAssertEqual(rest.presentationTime.seconds, 100 + 3.0 / 48_000)
+        XCTAssertEqual(rest.format, partial.format)
+        XCTAssertEqual(privacy.suppressedSampleCount, 8)
+    }
+
+    func testRepeatedPrivacyPauseReplacesRemainingQueueBoundary() throws {
+        let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let privacy = PrivacySuppressingSampleSource(base: microphone)
+        privacy.update(state: .paused)
+        microphone.append(systemBatch(samples: Array(repeating: 0.4, count: 6), seconds: 100))
+        privacy.update(state: .capturing)
+        XCTAssertEqual(privacy.readTimestampedBatch(maximumFrameCount: 2)?.samples, [0, 0])
+        privacy.update(state: .paused)
+        microphone.append(systemBatch(samples: [0.5, 0.6], seconds: 100 + 6.0 / 48_000))
+        XCTAssertEqual(privacy.readTimestampedBatch(maximumFrameCount: 1)?.samples, [0])
+        privacy.update(state: .capturing)
+        microphone.append(systemBatch(samples: [0.7, 0.8], seconds: 100 + 8.0 / 48_000))
+        XCTAssertEqual(privacy.readTimestampedBatch(maximumFrameCount: 8)?.samples, [0, 0, 0])
+        XCTAssertEqual(privacy.readTimestampedBatch(maximumFrameCount: 8)?.samples, [0, 0])
+        XCTAssertEqual(privacy.readTimestampedBatch(maximumFrameCount: 8)?.samples, [0.7, 0.8])
+        XCTAssertEqual(privacy.suppressedSampleCount, 8)
+    }
+
+    func testConcurrentResumeCannotUnmuteAnInFlightPausedRead() throws {
+        let microphone = BlockingPrivacySampleSource()
+        let privacy = PrivacySuppressingSampleSource(base: microphone, state: .paused)
+        let result = PrivacyReadResult()
+        let readFinished = DispatchSemaphore(value: 0)
+        let resumeStarted = DispatchSemaphore(value: 0)
+        let resumeFinished = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            result.set(privacy.readTimestampedBatch(maximumFrameCount: 4))
+            readFinished.signal()
+        }
+        XCTAssertEqual(microphone.readEntered.wait(timeout: .now() + 2), .success)
+        DispatchQueue.global().async {
+            resumeStarted.signal()
+            privacy.update(state: .capturing)
+            resumeFinished.signal()
+        }
+        XCTAssertEqual(resumeStarted.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(resumeFinished.wait(timeout: .now() + 0.05), .timedOut)
+        microphone.releaseRead.signal()
+        XCTAssertEqual(readFinished.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(resumeFinished.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(result.batch?.samples, [0, 0, 0, 0])
+        microphone.base.append(systemBatch(samples: [0.6], seconds: 100 + 4.0 / 48_000))
+        XCTAssertEqual(privacy.readTimestampedBatch(maximumFrameCount: 4)?.samples, [0.6])
+        XCTAssertEqual(privacy.suppressedSampleCount, 4)
+    }
+
+    func testPrivacyWithoutExactQueueBoundaryRemainsMutedDespiteContinuousProducer() throws {
+        for resumeState in [ProductPrivacyControlState.capturing, .resuming] {
+            let privacy = PrivacySuppressingSampleSource(base: InfiniteTimestampedSampleSource())
+            privacy.update(state: .paused)
+            XCTAssertFalse(privacy.update(state: resumeState))
+            for _ in 0..<256 {
+                XCTAssertEqual(privacy.readTimestampedBatch(maximumFrameCount: 8)?.samples, [0])
+            }
+            XCTAssertEqual(privacy.suppressedSampleCount, 256)
+        }
+    }
+
+    func testWriterFastResumeKeepsAllPausedMicrophoneBatchesSilentInBothFiles() async throws {
+        _ = try await verifyWriterPrivacyQueueFiles(includeSystemAudio: false)
+    }
+
+    func testWriterPrivacyPausePreservesSystemAudioAndFinalFiles() async throws {
+        let queuedSignal = try await verifyWriterPrivacyQueueFiles(includeSystemAudio: true)
+        let zeroMicrophone = try await verifyWriterPrivacyQueueFiles(includeSystemAudio: true, queuedMicrophoneLevel: 0)
+        for (index, pair) in zip(queuedSignal, zeroMicrophone).enumerated() {
+            XCTAssertEqual(pair.0.samples.count, pair.1.samples.count)
+            XCTAssertEqual(pair.0.sampleRate, pair.1.sampleRate)
+            let pausedFrames = 0..<Int(pair.0.sampleRate * 0.27)
+            let maximumDifference = pausedFrames.map { abs(pair.0.samples[$0] - pair.1.samples[$0]) }.max() ?? 0
+            // The reference contains literal zero microphone samples through
+            // the same system/AEC/codec path. A queue leak would differ here.
+            XCTAssertEqual(maximumDifference, 0, accuracy: 0.000001)
+            let tailFrames = Int(pair.0.sampleRate * 0.22)..<Int(pair.0.sampleRate * 0.27)
+            let zeroMicTailPeak = tailFrames.map { abs(pair.1.samples[$0]) }.max() ?? 0
+            print("T012 synthetic system-reference track=\(index) paused_mic_delta=\(maximumDifference) zero_mic_tail_peak=\(zeroMicTailPeak)")
+        }
+    }
+
+    private func verifyWriterPrivacyQueueFiles(includeSystemAudio: Bool, queuedMicrophoneLevel: Float = 0.4) async throws
+        -> [(samples: [Float], sampleRate: Double)] {
+        let root = makeSystemWriterRoot("v5-privacy-queued")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+        microphone.append(systemBatch(samples: Array(repeating: queuedMicrophoneLevel, count: 4_800), seconds: 100))
+        let control = QueueBoundaryPrivacyControl(microphone: microphone, queuedMicrophoneLevel: queuedMicrophoneLevel)
+        let system = PrivacyControlSystemSource(control: control, includeSystemAudio: includeSystemAudio)
+        let writer = makeSystemV5Writer(root: root, microphone: microphone, system: system)
+        control.writer = writer
+        let directory = try await writer.startAsync(sessionId: "queued-privacy", startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: systemScopeApproval(), permissions: systemGrantedPermissions())
+        let manifest = try await writer.stopAsync(stoppedAt: Date(timeIntervalSince1970: 13))
+        XCTAssertTrue(control.didResume)
+        XCTAssertTrue(manifest.isComplete)
+        XCTAssertEqual(manifest.failureReason, .none)
+        let segment = try XCTUnwrap(manifest.privacySegments?.first)
+        XCTAssertEqual(manifest.privacySegments?.count, 1)
+        XCTAssertEqual(segment.startedAt, Date(timeIntervalSince1970: 11))
+        XCTAssertEqual(segment.endedAt, Date(timeIntervalSince1970: 12))
+        XCTAssertEqual(segment.localMicTreatment, .silenced)
+        let checkpoint = try LocalRecordingManifestService().read(from: directory.manifestURL)
+        XCTAssertEqual(checkpoint.privacySegments, manifest.privacySegments)
+        var decodedFiles: [(samples: [Float], sampleRate: Double)] = []
+        for url in [directory.transcriptionAudioURL, directory.reviewAudioURL] {
+            let file = try AVAudioFile(forReading: url)
+            let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)))
+            try file.read(into: buffer)
+            let samples = try XCTUnwrap(buffer.floatChannelData).pointee
+            let rate = file.processingFormat.sampleRate
+            XCTAssertGreaterThanOrEqual(Double(buffer.frameLength) / rate, 0.39)
+            XCTAssertLessThan(Double(buffer.frameLength) / rate, 0.55)
+            if includeSystemAudio {
+                let incomingFrames = Int(rate * 0.13)..<Int(rate * 0.17)
+                XCTAssertTrue(incomingFrames.contains { abs(samples[$0]) > 0.01 }, "System audio must continue through microphone pause")
+            } else {
+                // Zero render reference isolates microphone leakage from AEC
+                // and codec tails caused by the separate system-audio signal.
+                let quietFrames = 0..<Int(rate * 0.27)
+                XCTAssertTrue(quietFrames.allSatisfy { abs(samples[$0]) < 0.0001 }, "Paused queue leaked to \(url.lastPathComponent)")
+            }
+            let liveStart = Int(rate * 0.34)
+            XCTAssertTrue((liveStart..<Int(buffer.frameLength)).contains { abs(samples[$0]) > 0.01 }, "New frames must become audible")
+            decodedFiles.append((Array(UnsafeBufferPointer(start: samples, count: Int(buffer.frameLength))), rate))
+        }
+        return decodedFiles
+    }
+
+    func testWriterMissingQueueBoundaryRejectsResumeAndKeepsOpenCheckpointUntilBoundedStop() async throws {
+        let root = makeSystemWriterRoot("v5-privacy-no-boundary")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let microphone = InfiniteTimestampedSampleSource()
+        let writer = makeSystemV5Writer(root: root, microphone: microphone, system: InfiniteTimestampedSampleSource())
+        let directory = try await writer.startAsync(sessionId: "missing-boundary", startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: systemScopeApproval(), permissions: systemGrantedPermissions())
+        try await writer.pausePrivacyAsync(startedAt: Date(timeIntervalSince1970: 11))
+        var rejected = false
+        do { try await writer.resumePrivacyAsync(endedAt: Date(timeIntervalSince1970: 12)) }
+        catch LocalRecordingPrivacyError.resumeBoundaryUnavailable { rejected = true }
+        catch { XCTFail("Unexpected resume error: \(error)") }
+        XCTAssertTrue(rejected)
+        let checkpoint = try LocalRecordingManifestService().read(from: directory.manifestURL)
+        let openSegment = try XCTUnwrap(checkpoint.privacySegments?.first)
+        XCTAssertNil(openSegment.endedAt)
+        XCTAssertNil(openSegment.endMonotonicMs)
+        XCTAssertEqual(openSegment.localMicTreatment, .silenced)
+        let stillRecording = await writer.isRecordingAsync()
+        XCTAssertTrue(stillRecording)
+        let stopStart = Date()
+        let stopped = try await writer.stopAsync(stoppedAt: Date(timeIntervalSince1970: 13))
+        XCTAssertLessThan(Date().timeIntervalSince(stopStart), 2)
+        XCTAssertEqual(stopped.captureFailureCode, "stop_drain_limit_exceeded")
+        XCTAssertEqual(stopped.privacySegments?.count, 1)
+        XCTAssertEqual(stopped.privacySegments?.first?.endedAt, Date(timeIntervalSince1970: 13))
     }
 
     func testOptionalSourceDiagnosticsTrackQueueAndFrontierThroughWrappers() throws {
@@ -620,6 +826,102 @@ private final class DelayedContinuousSystemSource: TimestampedLocalRecordingSamp
             deliveredFrames += frameCount
             return base.readTimestampedBatch(maximumFrameCount: maximumFrameCount)
         }
+    }
+}
+
+private final class PrivacyReadResult: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedBatch: RecordingAudioBatch?
+    var batch: RecordingAudioBatch? { lock.withLock { storedBatch } }
+    func set(_ batch: RecordingAudioBatch?) { lock.withLock { storedBatch = batch } }
+}
+
+private final class BlockingPrivacySampleSource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
+    let base = BufferedLocalRecordingSampleSource(channelCount: 1)
+    let readEntered = DispatchSemaphore(value: 0)
+    let releaseRead = DispatchSemaphore(value: 0)
+    private var blockNextRead = true
+    init() { base.append(systemBatch(samples: Array(repeating: 0.4, count: 4), seconds: 100)) }
+    var hasTimestampedOverflow: Bool { base.hasTimestampedOverflow }
+    var timestampedDiagnostics: RecordingSampleSourceDiagnostics? { base.timestampedDiagnostics }
+    func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
+        if blockNextRead {
+            blockNextRead = false
+            readEntered.signal()
+            guard releaseRead.wait(timeout: .now() + 2) == .success else { return nil }
+        }
+        return base.readTimestampedBatch(maximumFrameCount: maximumFrameCount)
+    }
+}
+
+/// Models a producer that combines old and new stereo frames in one FIFO read.
+private final class CoalescedPrivacySampleSource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
+    private let lock = NSLock()
+    private var samples: [Float] = []
+    private var readFrames = 0
+    func append(_ values: [Float]) { lock.withLock { samples += values } }
+    var hasTimestampedOverflow: Bool { false }
+    var timestampedDiagnostics: RecordingSampleSourceDiagnostics? {
+        lock.withLock { RecordingSampleSourceDiagnostics(queuedFrameCount: Int64(samples.count / 2),
+            capturedFrontier: nil, lastBatchFrameCount: 0, lastBatchFormat: nil, lastCapturedUptime: nil) }
+    }
+    func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
+        lock.withLock {
+            guard !samples.isEmpty else { return nil }
+            let count = min(samples.count, maximumFrameCount * 2)
+            let values = Array(samples.prefix(count))
+            samples.removeFirst(count)
+            let timestamp = 100 + Double(readFrames) / 48_000
+            readFrames += count / 2
+            return RecordingAudioBatch(samples: values, format: RecordingAudioFormat(sampleRate: 48_000, channelCount: 2),
+                presentationTime: RecordingAudioPresentationTimestamp(seconds: timestamp, clockDomain: .hostTime,
+                    observedHostTimeSeconds: 123), discontinuity: .none, routeGeneration: 7)
+        }
+    }
+}
+
+/// Called on the actual writer queue after it prefetched microphone audio.
+private final class QueueBoundaryPrivacyControl: @unchecked Sendable {
+    weak var writer: LocalRecordingWriter?
+    let microphone: BufferedLocalRecordingSampleSource
+    private(set) var didResume = false
+    private let queuedMicrophoneLevel: Float
+    init(microphone: BufferedLocalRecordingSampleSource, queuedMicrophoneLevel: Float) {
+        self.microphone = microphone
+        self.queuedMicrophoneLevel = queuedMicrophoneLevel
+    }
+    func run() {
+        guard let writer else { return XCTFail("Missing writer") }
+        do {
+            try writer.pausePrivacyOnQueue(startedAt: Date(timeIntervalSince1970: 11))
+            for offset in 1...2 {
+                microphone.append(systemBatch(samples: Array(repeating: queuedMicrophoneLevel, count: 4_800), seconds: 100 + Double(offset) * 0.1))
+            }
+            try writer.resumePrivacyOnQueue(endedAt: Date(timeIntervalSince1970: 12))
+            microphone.append(systemBatch(samples: Array(repeating: 0.4, count: 4_800), seconds: 100.3))
+            didResume = true
+        } catch { XCTFail("Writer privacy controls failed: \(error)") }
+    }
+}
+
+private final class PrivacyControlSystemSource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
+    private let base = BufferedLocalRecordingSampleSource(channelCount: 1)
+    private var control: QueueBoundaryPrivacyControl?
+    init(control: QueueBoundaryPrivacyControl, includeSystemAudio: Bool) {
+        self.control = control
+        var samples = Array(repeating: Float.zero, count: 19_200)
+        if includeSystemAudio {
+            samples.replaceSubrange(4_800..<9_600, with: repeatElement(Float(0.1), count: 4_800))
+        }
+        base.append(systemBatch(samples: samples, seconds: 100))
+    }
+    var hasTimestampedOverflow: Bool { base.hasTimestampedOverflow }
+    var timestampedDiagnostics: RecordingSampleSourceDiagnostics? { base.timestampedDiagnostics }
+    func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
+        let pending = control
+        control = nil
+        pending?.run()
+        return base.readTimestampedBatch(maximumFrameCount: maximumFrameCount)
     }
 }
 

@@ -9,6 +9,10 @@ public enum LocalRecordingWriterError: Error {
     case echoProcessorUnavailable
 }
 
+public enum LocalRecordingPrivacyError: Error {
+    case resumeBoundaryUnavailable
+}
+
 public struct LiveRecordingLevels: Equatable, Sendable {
     public var isRecording: Bool
     public var microphoneLevel: Double
@@ -62,6 +66,7 @@ public struct LiveRecordingLevels: Equatable, Sendable {
 }
 
 public struct RecordingSampleSourceDiagnostics: Sendable {
+    /// Exact unread FIFO frame count, captured under the source read lock.
     public let queuedFrameCount: Int64
     public let capturedFrontier: RecordingAudioPresentationTimestamp?
     public let lastBatchFrameCount: Int

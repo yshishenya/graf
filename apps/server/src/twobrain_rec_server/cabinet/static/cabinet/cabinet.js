@@ -7886,6 +7886,10 @@
     if (!detail || detail.dataset.playbackPollActive !== "true" || playbackRecoveryRequest) return;
     const pollUrl = detail.dataset.playbackPollUrl;
     if (!pollUrl) return;
+    const meetingId = detail.dataset.meetingId;
+    const isCurrentDetail = () => detail.isConnected
+      && document.querySelector('main[data-meeting-id]') === detail
+      && detail.dataset.meetingId === meetingId;
     playbackRecoveryRequest = fetch(pollUrl, {
       method: "GET",
       credentials: "same-origin",
@@ -7897,14 +7901,15 @@
     });
     try {
       const response = await playbackRecoveryRequest;
-      if (!detail.isConnected) return;
+      if (!isCurrentDetail()) return;
       if (await recoverMeetingDetailFromResponse(response)) return;
+      if (!isCurrentDetail()) return;
       if (!response.ok) {
         showPlaybackRecoveryNotice(detail);
         return;
       }
       const responseText = await response.text();
-      if (!detail.isConnected || document.querySelector('main[data-meeting-id]') !== detail) return;
+      if (!isCurrentDetail()) return;
       const documentFragment = new DOMParser().parseFromString(responseText, "text/html");
       const nextDetail = documentFragment.querySelector("[data-playback-poll-url]");
       const currentPlayback = detailPlayback(detail);
@@ -7958,6 +7963,7 @@
       initSpeakerNameForms();
       initPlaybackRecoveryPolling();
     } catch {
+      if (!isCurrentDetail()) return;
       showPlaybackRecoveryNotice(detail);
       return;
     } finally {

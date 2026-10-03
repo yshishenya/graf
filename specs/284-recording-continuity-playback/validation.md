@@ -118,3 +118,21 @@ T009/#7466: общий recoverMeetingDetailFromResponse запоминает и�
 Общий validate-pr-checks.py подтвердил SHA6f1b441… и базуf3ec4dd95c3aa68fc7246338bd7c58908d24aee2: governance-fast37090084881, macos-pr37090084876, pr-metadata37090742893 PASS. Следующий документационный коммит требует собственных текущих CI; повтор физического звука при неизменном продуктовом коде не требуется. Apple preflight вновь403 missing/expired agreement; публичный выпуск, release-full и установленная production-приёмка остаются отдельными незакрытыми воротами.
 
 Независимая оценка окончательной аппаратной приёмки: PASS,61 снимок перепроверен; обе дорожки росли во всех59 интервалах до финализации, повторное проигрывание подтверждено. T011 может быть закрыта; непостроенных обязательных частей F284 нет. Чеклисты качества требований остаются requirements5/0+safety12/0.
+
+## T012–T013: дополнительные замечания PR
+
+Риск high-risk-product. Требования уточнены после независимого BLOCK по отсутствующей конечной границе nil-diagnostics; revised reviewer-owned pr-followup PASS5/0. Issue-sync #7480/#7481 и canon/governance/changelog PASS. Первоначальный аппаратный PASS45min40s6f1b441 сохраняется историческим доказательством. Новые продуктовые файлы требуют актуальных регрессий, независимого ревью, Dev и exact-SHA CI.
+
+T013 предварительная браузерная регрессия: на прежнем коде stale403 менял URL новой встречи на список; после исходного meetingId до fetch и проверок актуальности passed Chromium/WebKit. Итоговые команды и независимая оценка записываются после завершения исполнителя.
+
+T013 итог: существующий NODE_PATH=/Users/yshishenya/Documents/crisp/apps/server/tests/browser/node_modules (Playwright1.63.0), `node apps/server/tests/browser/local-recording-detail.test.cjs` и `node apps/server/tests/browser/playback-refresh.test.cjs` — exit0 в Chromium и с GRAF_BROWSER=webkit. Задержанные fetch403/404/500/success/network rejection и отдельное text-body сохраняют новый main/ID/URL/title/markup/button/focus; текущий403 отзывает собственный доступ. node syntax/diff PASS. Root независимо прочитал изменённые функции, всех relevant recovery callers и проверки: исходный ID фиксирован до await; recovery дополнительно защищён во время JSON, ни один путь устаревшего notice/replacement не остался. Новых замечаний к T013 не найдено.
+
+T012 red: прежний код исполнил6 новых проверок с533 assertion failures, в том числе подтвердил ненулевые паузные порции и утечку в оба итоговых файла; отказ источника без границы не сохранял открытый checkpoint. Это исполняемое red-доказательство, не только отсутствие API.
+
+T012 green: `swift test --package-path apps/macos --filter 'LocalRecordingWriter|RecordingAudioTimeline|SystemAudioSampleExtractor|PrivacySuppressingSampleSource|MicrophoneCapture'` —80tests,0failures,28.206s. Несколько FIFO-порций, частичная стереопорция, повторная пауза, совместное чтение/resume, nil-diagnostics с непрерывным пополнением, явный отказ resume/open checkpoint/конечный Stop, оба декодированных итоговых файла, сохранение системного звука и новых микрофонных кадров. Точные нулевые значения источника и строгий файловый порог0.0001 сохранены.
+
+Промежуточный nonzero-system fixture дал паузный хвост около0.001 в WAV/M4A. Контроль с буквальными нулевыми микрофонными порциями через тот же system/AEC/codec path воспроизвёл эти же значения; итоговая паузная разница файлов0.0, проверяется с допуском0.000001. Строгая zero-render проверка микрофона отдельно остаётся. Промежуточный отказ не скрыт ослаблением порога; результаты окончательного набора80/0 привязаны к окончательным файлам.
+
+Независимое ревью T012: CRITICAL0/HIGH0/MEDIUM0, без изменения кода и без дублирующего запуска тестов. Сериализация, конечная граница, предварительно прочитанные/частичные порции, двойной учёт, производственные callers и прежние отрицательные ограничения проверены. Runtime/release readiness не заявляется.
+
+2026-10-03 повторная CUA-проверка вернула системную блокировку Mac. Физическая приёмка новых файлов ожидает ручного разблокирования; ранее пройденные45min40s относятся к6f1b441. Read-only Apple preflight вновь HTTP403 required agreement missing/expired. Приёмка, merge и выпуск остаются открытыми; ни сборка без подтверждения Apple, ни прежние runtime/CI доказательства не заменяют обязательные ворота нового SHA.
