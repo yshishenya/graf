@@ -16,7 +16,11 @@
     "browser_chromium": "PASS",
     "browser_webkit": "PASS",
     "requirements_checked": 22,
-    "requirements_unchecked": 0
+    "requirements_unchecked": 0,
+    "static_assets_contract_tests": 76,
+    "static_assets_contract_failures": 0,
+    "related_scoped_tests": 112,
+    "related_scoped_failures": 0
   },
   "files_sha256": {
     "apps/macos/RecApp/Sources/Capture/PrivacySuppressingSampleSource.swift": "e3463d41aad3bef0c5c38bd57306fcbef04fff742fa3f50dc5f0e4c276308fc9",
@@ -24,8 +28,15 @@
     "apps/macos/RecApp/Sources/Capture/V5LocalRecordingWriter.swift": "044061b32fea07979229474337c934f7c4620ab42ffe5da910b5b944294a5b23",
     "apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift": "2a740cf4e051c0e08c05ce536c1ca745dda5f812707e09dc3aaf4a75ad70cc9b",
     "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "6d77a78040a754c3a8746f5c43adf93a7d94adbe84dc5c340fda492e76f8c9a6",
-    "apps/server/tests/browser/local-recording-detail.test.cjs": "4060d0b3d0edda9196f68c19c2fef8b2d80ac1c8ef5aa874a85564fbb6322196"
+    "apps/server/tests/browser/local-recording-detail.test.cjs": "4060d0b3d0edda9196f68c19c2fef8b2d80ac1c8ef5aa874a85564fbb6322196",
+    "apps/server/tests/contract/test_cabinet_static_assets_contract.py": "d68eeb34e9ee9f6f942228370b9f836972091881e1b47a6d728f8cedbabf816b"
   },
   "fresh_dev_acceptance": "pending_mac_locked",
-  "release": "pending_apple_required_agreement_403"
+  "release": "pending_apple_required_agreement_403",
+  "contract_fixture_review": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "product_code_changed": false
+  }
 }

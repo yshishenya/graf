@@ -3759,6 +3759,7 @@ const recoveryTemplate = {
 };
 const detail = new FakeElement("main");
 detail.id = "cabinet-main";
+detail.dataset.meetingId = "private-id";
 detail.dataset.playbackPollActive = "true";
 detail.dataset.playbackPollUrl = "/meetings/private-id";
 detail.dataset.mediaRevisionId = "private-revision-id";
@@ -3783,6 +3784,7 @@ global.document = {
     if (selector === "[data-meeting-detail-recovery-template]") return recoveryTemplate;
     if (selector === "[data-playback-poll-url]") return currentMain === detail ? detail : null;
     if (selector === "#cabinet-main") return currentMain;
+    if (selector === "main[data-meeting-id]") return currentMain === detail ? detail : null;
     return null;
   },
   querySelectorAll() { return []; },
