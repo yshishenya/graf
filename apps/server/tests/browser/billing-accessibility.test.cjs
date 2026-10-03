@@ -164,6 +164,58 @@ async function checkTextContrast(page, label) {
         assert(await consent.isChecked());
         assert(await page.getByRole('button', { name: /^(Оплатить|Сохранить выбор)/ }).isVisible());
       }
+      if (name.startsWith('subscription') || name.startsWith('shell-subscription')) {
+        const facts = page.locator('.billing-subscription-facts');
+        for (const value of await facts.locator('dd:visible').all()) {
+          assert.equal(await value.evaluate(el => getComputedStyle(el).marginInlineStart), '0px', `${name}: no browser-default dd indentation`);
+        }
+        if (name.includes('off-no-card')) {
+          assert.equal(await page.getByText('Возобновление пока недоступно.', { exact: false }).count(), 0);
+          assert.equal(await page.locator('main [data-billing-primary]:visible').count(), 1);
+          const renew = page.getByRole('link', { name: 'Продлить подписку', exact: true });
+          assert(await renew.isVisible());
+          assert.equal(await renew.getAttribute('href'), '/billing/checkout?cycle=month');
+          const conditions = page.locator('summary', { hasText: 'Способ оплаты и условия' });
+          assert.equal(await conditions.locator('..').getAttribute('open'), null);
+          assert.equal(await page.getByText('03.11.2026, 12:19 (UTC+03:00)', { exact: true }).isVisible(), false);
+          await conditions.focus();
+          await page.keyboard.press('Space');
+          assert(await page.getByText('03.11.2026, 12:19 (UTC+03:00)', { exact: true }).isVisible());
+          await page.keyboard.press('Space');
+        }
+        if (name.includes('off-ready')) {
+          const disclosure = page.locator('summary', { hasText: 'Включить автопродление' });
+          const form = page.locator('form[action="/billing/subscription/resume"]');
+          assert.equal(await form.isVisible(), false);
+          await disclosure.focus();
+          await page.keyboard.press('Space');
+          assert(await form.isVisible());
+          const consent = form.getByRole('checkbox');
+          assert.equal(await consent.isChecked(), false);
+          assert.equal(await form.evaluate(el => el.checkValidity()), false);
+          assert(await page.getByText('31.10.2026, 12:19 (UTC+03:00)', { exact: false }).isVisible());
+          await consent.focus();
+          await page.keyboard.press('Space');
+          assert(await consent.isChecked());
+          assert(await form.evaluate(el => el.checkValidity()));
+          const serialized = await form.evaluate(el => Object.fromEntries(new FormData(el)));
+          assert.equal(serialized.csrf_token, 'synthetic');
+          assert.equal(serialized.expected_authority_version, '1');
+          assert.equal(serialized.resume_quote_id, 'synthetic-resume');
+          assert.equal(serialized.resume_consent, 'true');
+          await disclosure.focus();
+          await page.keyboard.press('Space');
+        }
+        if (name.includes('uncertain-')) {
+          assert.equal(await page.locator('a[href="/billing/checkout?cycle=month"]').count(), 0);
+          assert.equal(await page.locator('form[action="/billing/subscription/resume"], form[action="/billing/subscription/early-preview"]').count(), 0);
+          assert(await page.getByRole('status').first().isVisible());
+        }
+        if (name === 'subscription-trial') {
+          assert(!(await page.locator('main').innerText()).includes('Сейчас действует бесплатный тариф'));
+          assert(await page.getByText('03.11.2026', { exact: false }).first().isVisible());
+        }
+      }
       if (name.includes('discounts')) {
         const promo = page.getByRole('textbox', { name: 'Промокод', exact: true });
         assert(await promo.isVisible());
@@ -332,6 +384,41 @@ async function checkTextContrast(page, label) {
       assert.equal(submitted.get('offer_consent'), 'true');
       assert.equal(submitted.get('recurring_consent'), recurring ? 'true' : null);
       await noScriptPage.close();
+    }
+    // Native disclosure and consent work without page scripting; no provider is called.
+    for (const name of ['subscription-off-ready', 'subscription']) {
+      const page = await browser.newPage({ javaScriptEnabled: false });
+      const posts = [];
+      await page.route('https://graf.test/**', route => {
+        const request = route.request();
+        if (request.method() === 'POST') posts.push(request);
+        return route.fulfill({ contentType: 'text/html; charset=utf-8', body: request.method() === 'POST'
+          ? '<meta charset="utf-8"><p>Синтетическая отправка принята</p>'
+          : `<html lang="ru"><meta charset="utf-8"><body>${pages[name]}</body></html>` });
+      });
+      await page.goto('https://graf.test/billing/subscription');
+      const resuming = name === 'subscription-off-ready';
+      if (resuming) {
+        await page.locator('summary', { hasText: 'Включить автопродление' }).focus();
+        await page.keyboard.press('Space');
+        await page.getByRole('button', { name: 'Включить автопродление', exact: true }).click();
+        assert.equal(posts.length, 0, 'native resume consent is required without JavaScript');
+        const consent = page.getByRole('checkbox');
+        assert.equal(await consent.isChecked(), false);
+        await consent.check();
+      }
+      const action = resuming ? 'resume' : 'cancel';
+      await Promise.all([
+        page.waitForURL(`https://graf.test/billing/subscription/${action}`),
+        page.getByRole('button', { name: resuming ? 'Включить автопродление' : 'Отключить автопродление', exact: true }).click(),
+      ]);
+      assert.equal(posts.length, 1);
+      const fields = new URLSearchParams(posts[0].postData());
+      assert.equal(fields.get('csrf_token'), 'synthetic');
+      assert.equal(fields.get('expected_authority_version'), '1');
+      assert.equal(fields.get('resume_consent'), resuming ? 'true' : null);
+      assert.equal(fields.get('resume_quote_id'), resuming ? 'synthetic-resume' : null);
+      await page.close();
     }
     console.log('billing: initial/error focus, native consent keyboard, no focus steal, single status region passed');
   } finally {
