@@ -10,7 +10,17 @@ const fs = require('node:fs');
     const meetingId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
     const html = (state, reason = '', id = meetingId, text = state) => `<main id="cabinet-main" data-meeting-id="${id}" data-playback-poll-url="/meeting" data-playback-poll-active="false"><h1 tabindex="-1">Synthetic</h1><p data-playback-live-status>${text}</p><section data-playback-transcript>Synthetic transcript</section></main><section class="detail-playback" data-playback-state="${state}" data-playback-reason="${reason}"><p>${text}</p></section>`;
     let nextHtml = html('unavailable', 'storage_capacity_exceeded');
-    await page.route('https://graf.test/**', route => route.fulfill({contentType:'text/html', body:nextHtml}));
+    let delayedPoll = null;
+    await page.route('https://graf.test/**', async route => {
+      if (delayedPoll && route.request().headers()['hx-request'] === 'true') {
+        const pending = delayedPoll;
+        pending.started();
+        const result = await pending.result;
+        if (result.networkError) return route.abort('failed');
+        return route.fulfill({status:result.status, contentType:result.contentType, body:result.body});
+      }
+      return route.fulfill({contentType:'text/html', body:nextHtml});
+    });
     await page.goto('https://graf.test/meeting');
     const source = fs.readFileSync(path.join(__dirname,'../../src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js'), 'utf8');
     const hook = '  const initPlaybackRecoveryPolling = () => {';
@@ -90,6 +100,83 @@ ${hook}`)});
     // A 403 may finish decoding after fragment navigation has installed another meeting.
     const recoveryTemplate = '<template data-meeting-detail-recovery-template><main tabindex="-1"><section data-cabinet-state><h1 id="recovery-title"></h1><p class="cabinet-state__description"></p><div class="cabinet-state__action"><a></a></div></section></main></template>';
     const nextMeetingId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+    // Suspend the real poll before fetch resolves, then reuse the same main for
+    // another meeting. Delayed body reading is a separate asynchronous boundary.
+    for (const mode of ['fetch-403', 'fetch-404', 'fetch-500', 'fetch-success', 'fetch-network-error', 'body-success']) {
+      const bodyDelay = mode === 'body-success';
+      await page.evaluate(({markup, recoveryTemplate, meetingId, bodyDelay}) => {
+        document.body.innerHTML = markup + recoveryTemplate;
+        history.replaceState({}, '', `/desktop/meetings/${meetingId}`);
+        document.title = 'Synthetic old meeting';
+        window.originalPollDetail = document.querySelector('main');
+        if (bodyDelay) {
+          window.originalPollFetch = window.fetch;
+          window.pollBodyReadStarted = false;
+          const bodyReady = new Promise(resolve => { window.releasePollBody = resolve; });
+          window.fetch = async (...args) => {
+            const response = await window.originalPollFetch(...args);
+            const readText = response.text.bind(response);
+            response.text = async () => {
+              window.pollBodyReadStarted = true;
+              await bodyReady;
+              return readText();
+            };
+            return response;
+          };
+        }
+      }, {markup:html('unavailable', 'storage_capacity_exceeded'), recoveryTemplate, meetingId, bodyDelay});
+      let releasePoll, markStarted;
+      const started = new Promise(resolve => { markStarted = resolve; });
+      delayedPoll = {started:markStarted, result:new Promise(resolve => { releasePoll = resolve; })};
+      await page.evaluate(() => { window.pendingPlaybackPoll = window.refreshLocalPlaybackTest(); });
+      await started;
+      const status = mode === 'fetch-403' ? 403 : mode === 'fetch-404' ? 404 : mode === 'fetch-500' ? 500 : 200;
+      const result = {
+        status,
+        networkError:mode === 'fetch-network-error',
+        contentType:status === 200 ? 'text/html' : 'application/json',
+        body:status === 200 ? html('available', '', meetingId, 'Old response')
+          : JSON.stringify({code:status === 403 ? 'access_denied' : status === 404 ? 'meeting_not_found' : 'internal_error'}),
+      };
+      if (bodyDelay) {
+        releasePoll(result);
+        await page.waitForFunction(() => window.pollBodyReadStarted === true);
+      }
+      await page.evaluate(({markup, nextMeetingId, row}) => {
+        const currentDetail = document.querySelector('main');
+        const fragment = new DOMParser().parseFromString(markup, 'text/html');
+        const newDetail = fragment.querySelector('main');
+        currentDetail.dataset.meetingId = nextMeetingId;
+        currentDetail.dataset.playbackPollUrl = '/new-meeting';
+        currentDetail.dataset.playbackPollActive = 'false';
+        currentDetail.innerHTML = newDetail.innerHTML;
+        currentDetail.nextElementSibling.replaceWith(newDetail.nextElementSibling);
+        history.replaceState({}, '', `/desktop/meetings/${nextMeetingId}`);
+        document.title = 'Synthetic new meeting';
+        window.GRAFLocalRecordings.update([{...row,id:'local-b',meetingId:nextMeetingId}]);
+        window.newPollDetail = currentDetail;
+        window.newPollButton = document.querySelector('[data-graf-local-recording-action="open"]');
+        window.newPollButton.focus();
+        window.newPollMarkup = document.body.innerHTML;
+      }, {markup:html('unavailable', 'storage_capacity_exceeded', nextMeetingId, 'New meeting'), nextMeetingId, row});
+      if (bodyDelay) await page.evaluate(() => window.releasePollBody());
+      else releasePoll(result);
+      await page.evaluate(async bodyDelay => {
+        await window.pendingPlaybackPoll;
+        if (bodyDelay) window.fetch = window.originalPollFetch;
+      }, bodyDelay);
+      delayedPoll = null;
+      assert.equal(new URL(page.url()).pathname, `/desktop/meetings/${nextMeetingId}`, `${mode}: stale response retains the new private route`);
+      assert.equal(await page.title(), 'Synthetic new meeting', `${mode}: stale response retains the new title`);
+      assert.deepEqual(await page.evaluate(() => [
+        window.originalPollDetail === window.newPollDetail,
+        window.newPollDetail === document.querySelector('main') && window.newPollDetail.isConnected,
+        document.body.innerHTML === window.newPollMarkup,
+        window.newPollButton === document.querySelector('[data-graf-local-recording-action="open"]'),
+        window.newPollButton === document.activeElement,
+      ]), [true,true,true,true,true], `${mode}: reused main, new contents, local action and keyboard focus stay intact`);
+      assert.equal(await page.locator('[data-playback-recovery-copy]').count(),0,`${mode}: stale response cannot add an error to the new meeting`);
+    }
     for (const {mode, reuseDetail} of [
       {mode:'json', reuseDetail:false}, {mode:'read-error', reuseDetail:false},
       {mode:'json', reuseDetail:true}, {mode:'read-error', reuseDetail:true},
@@ -132,7 +219,19 @@ ${hook}`)});
     assert.equal(await page.evaluate(() => window.recoverDetailTest({status:403, redirected:false, headers:new Headers(), clone:() => ({json:async () => ({code:'access_denied'})})})),true);
     assert.equal(new URL(page.url()).pathname,'/desktop/meetings','current denial still neutralizes its own private route');
     assert.equal(await page.locator('main[data-meeting-id]').count(),0,'current denial still removes private meeting detail');
+    // The same denial through an active real poll must still enforce access.
+    await page.evaluate(({markup, recoveryTemplate, meetingId}) => {
+      document.body.innerHTML = markup + recoveryTemplate;
+      history.replaceState({}, '', `/desktop/meetings/${meetingId}`);
+    }, {markup:html('unavailable', 'storage_capacity_exceeded'), recoveryTemplate, meetingId});
+    delayedPoll = {started:() => {},result:Promise.resolve({
+      status:403,contentType:'application/json',body:JSON.stringify({code:'access_denied'}),
+    })};
+    await page.evaluate(() => window.refreshLocalPlaybackTest());
+    delayedPoll = null;
+    assert.equal(new URL(page.url()).pathname,'/desktop/meetings','current poll denial still neutralizes its own private route');
+    assert.equal(await page.locator('main[data-meeting-id]').count(),0,'current poll denial still removes private meeting detail');
     assert.deepEqual(errors,[]);
-    console.log('detail local playback: production sibling, direct polling transitions, delayed denial/navigation, identity, focus, access, deletion and fragment refresh PASS');
+    console.log('detail local playback: production sibling, direct polling transitions, delayed fetch/body/navigation, identity, focus, access, deletion and fragment refresh PASS');
   } finally {await browser.close();}
 })().catch(error => { console.error(error); process.exitCode = 1; });

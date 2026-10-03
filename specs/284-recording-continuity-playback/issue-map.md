@@ -16,3 +16,6 @@ Umbrella: https://github.com/yshishenya/graf/issues/7447
 - T010: https://github.com/yshishenya/graf/issues/7468
 
 - T011: https://github.com/yshishenya/graf/issues/7471
+
+- T012: https://github.com/yshishenya/graf/issues/7480
+- T013: https://github.com/yshishenya/graf/issues/7481

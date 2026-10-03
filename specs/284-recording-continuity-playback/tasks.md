@@ -31,3 +31,9 @@ T001→T002→T003; T001→T004→T005; T003+T005→T006. Tests precede implemen
 - [X] T011 [US1] Воспроизвести source_overflow контрольного Telemost в исполняемой проверке writer с разными размерами пакетов; исправить доказанный порядок обработки накопленных источников и добавить безопасные относительные счётчики переполнения в apps/macos/RecApp/Sources/Capture/V5LocalRecordingWriter.swift и RecordingAudioTimeline.swift, RecordingSampleSources.swift, MicrophoneCaptureService.swift и PrivacySuppressingSampleSource.swift; отдельно маршрутизировать обычную диагностику в apps/macos/RecApp/App/TwoBrainRecApp.swift; сохранить отрицательные overflow/gap/format/stop проверки в apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift; повторить разрешённый45min физический звонок и доступ к обоим файлам.
 
 T011 принята после физического контроля45min40s на продуктовой версии6f1b44175181 и независимой проверки доказательств: hardware-acceptance.json и validation.md. Прежний detector-only45min не заменяет эту приёмку. Слияние требует текущих CI финального документационного SHA; выпуск сохраняет отдельные release-full/Apple/публичные и установленные ворота.
+
+## Phase 7: Закрытие замечаний PR
+- [ ] T012 [US1] Сохранять заглушение всех ожидающих микрофонных кадров через быстрый resume до drain в apps/macos/RecApp/Sources/Capture/PrivacySuppressingSampleSource.swift и существующих источниках/тестах; red/green очереди и интеграционного writer, независимое ревью и актуальная Dev-приёмка.
+- [X] T013 [US2] Связать все ответы playback poll с meetingId до запроса и отбросить устаревшие recovery/body/error в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js; исполняемый red и браузерные проверки повторно используемого main в local-recording-detail.test.cjs.
+
+T012 и T013 блокируют слияние. Независимые файлы могут проверяться параллельно после reviewer-owned checklist/analyze/issue-sync PASS.
