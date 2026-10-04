@@ -78,13 +78,43 @@ def test_invoice_detail_ui_exposes_only_safe_copy_and_mailto_actions() -> None:
 
     assert "Скопировать номер платежа" in template
     assert 'data-copy-value="{{ invoice.safe_number }}"' in template
-    assert "Написать в поддержку" in template
+    assert "Вопрос об оплате" in template
+    assert "Запросить возврат" in template
     assert "Открытие письма не отправляет запрос и не оформляет возврат" in template
     assert "Данные карты отправлять не нужно" in template
     assert "Результат возврата уточняйте у поддержки: GRAF не показывает его статус" in template
     assert "Возврат не отключает автопродление" in template
     assert 'href="/billing/subscription"' in template
     assert 'href="{{ invoice.refund_mailto }}"' in template
-    assert 'href="mailto:{{ support_email }}"' in template
+    assert 'href="{{ invoice.question_mailto }}"' in template
+    assert 'href="mailto:{{ support_email }}"' not in template
     assert "invoice.receipt_url" in template
     assert "<form" not in template.lower()
+
+
+def test_invoice_question_and_refund_have_distinct_safe_subjects() -> None:
+    from urllib.parse import parse_qs, urlsplit
+
+    from twobrain_rec_server.billing import refund_email
+
+    values = {"support_email": "billing@example.test", "safe_invoice_number": "INV-2026-0001"}
+    question = refund_email.build_question_mailto(**values)
+    refund = build_refund_mailto(**values)
+    assert parse_qs(urlsplit(question).query)["subject"] == ["Вопрос об оплате INV-2026-0001"]
+    assert parse_qs(urlsplit(refund).query)["subject"] == ["Возврат по платежу INV-2026-0001"]
+    assert parse_qs(urlsplit(question).query)["body"] == parse_qs(urlsplit(refund).query)["body"]
+
+
+@pytest.mark.parametrize("address", ["billing%0d%0aBcc@example.test", "billing\r\nBcc:evil@example.test"])
+def test_support_mailto_rejects_encoded_header_injection(address) -> None:
+    from twobrain_rec_server.billing import refund_email
+
+    for builder in (refund_email.build_question_mailto, build_refund_mailto):
+        with pytest.raises(ValueError):
+            builder(support_email=address, safe_invoice_number="INV-SYNTHETIC")
+
+
+def test_support_address_cannot_inject_mailto_query() -> None:
+    from urllib.parse import parse_qs, urlsplit
+    mailto = build_refund_mailto(support_email="billing?cc=evil@example.test", safe_invoice_number="INV-SYNTHETIC")
+    assert set(parse_qs(urlsplit(mailto).query)) == {"subject", "body"}
