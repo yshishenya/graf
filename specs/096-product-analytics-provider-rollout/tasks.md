@@ -332,4 +332,4 @@ Consent UI continuation evidence: [consent-ui-evidence.md](consent-ui-evidence.m
 
 ## Phase 11: Согласованный режим без PostHog backup
 
-- [ ] T110 [P1] [analytics] Добавить явную policy required|owner_accepted_loss для минимальной PostHog воронки, сохранить campaign/retention/access/legal/consent gates и truthful metadata, проверить границы и повторное включение required, получить независимый review и exact PR CI. Owner: issue #7472; FR-034a. Production acceptance остаётся отдельной.
+- [X] T110 [P1] [analytics] Добавить явную policy required|owner_accepted_loss для минимальной PostHog воронки, сохранить campaign/retention/access/legal/consent gates и truthful metadata, проверить границы и повторное включение required, получить независимый review и exact PR CI. Owner: issue #7472; FR-034a. Production acceptance остаётся отдельной.
