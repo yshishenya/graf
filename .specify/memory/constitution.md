@@ -1,4 +1,18 @@
 <!--
+
+Sync Impact Report — 2026-10-04, owner-approved loss of minimal PostHog analytics
+Version change: 7.1.0 -> 8.0.0 (narrow redefinition of deployment backup obligation).
+Owner decision: «не нужно ниакого резервирования», then «конечно запускай без резерного постхога».
+The only exception is explicit owner_accepted_loss for minimal authenticated,
+server-mediated PostHog analytics with possible unrecoverable measurement loss.
+No new analytics backup/offsite is required; existing copies are not deleted.
+GRAF PostgreSQL/MinIO backups, release/deploy, consent, access/MFA, legal,
+no-IP/365-day retention and actual delivery proof remain required. No fake
+backup/restore receipts, global campaign readiness or generic capture waiver.
+Dependent guidance: product-gates.md; feature096 spec/plan/tasks/quickstart.
+Templates reviewed: spec/plan/tasks templates read constitution at runtime;
+none defines an independent mandatory PostHog backup obligation, no edits needed.
+This amendment alone changes no runtime, secrets, credentials or provider data.
 Sync Impact Report — 2026-09-20, automatic independent checklist review
 Version change: 7.0.0 -> 7.1.0
 Added governance gate: before implementation of an active slice with a reviewer-owned checklist, an independent read-only reviewer agent is started automatically; it checks every item against evidence, marks only supported items, records reasons for unsupported items, rereads the checklist and reports totals. The reviewer may edit only the checklist and separate review report; failed or unverifiable review leaves the gate unsatisfied.
@@ -504,6 +518,15 @@ Required quality gates:
   reference wording is allowed and is not itself a provenance failure.
 - Deployment features require Docker secrets, health checks, backups, restore,
   rollback, log redaction, and disk-full behavior.
+- An explicitly recorded owner decision MAY waive only PostHog analytics
+  backup/restore/offsite requirements for the minimal authenticated,
+  server-mediated explicit funnel. This requires a separate default-required
+  owner_accepted_loss policy, visible unrecoverable-analytics-loss caveat and
+  original missing/stale proofs; it MUST NOT claim recoverability or full
+  campaign readiness. Autocapture/replay/direct delivery/Yandex remain off.
+  Product PostgreSQL/MinIO backup/deployment obligations, access/MFA, legal,
+  personal consent, no-IP, retention and actual delivery proof are unchanged.
+  Existing backups MUST NOT be deleted as part of this exception.
 - Production deployment runs only when a release/deploy gate is explicitly met.
 
 ## Governance
@@ -527,4 +550,4 @@ Amendment procedure:
 - Every implementation review MUST verify that tasks and code preserve the
   applicable constitution gates.
 
-**Version**: 7.1.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-09-20
+**Version**: 8.0.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-10-04

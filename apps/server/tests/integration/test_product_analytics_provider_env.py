@@ -25,6 +25,7 @@ def test_096_provider_env_reaches_only_rec_api() -> None:
     worker_env = compose["services"]["rec-processing-worker"]["environment"]
     migrate_env = compose["services"]["rec-migrate"]["environment"]
     expected_api_keys = {
+        "TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_BACKUP_POLICY",
         "TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_AUTOCAPTURE_ENABLED",
         "TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_CREDENTIAL_SUPPRESSION_ENABLED",
         "TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_WEB_DIRECT_ENABLED",
@@ -39,6 +40,7 @@ def test_096_provider_env_reaches_only_rec_api() -> None:
         "TWOBRAIN_PRODUCT_ANALYTICS_LIVE_PROVIDER_DELIVERY_APPROVED",
     }
 
+    assert api_env["TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_BACKUP_POLICY"].endswith(":-required}")
     assert expected_api_keys <= set(api_env)
     assert expected_api_keys.isdisjoint(worker_env)
     assert expected_api_keys.isdisjoint(migrate_env)

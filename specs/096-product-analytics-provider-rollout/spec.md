@@ -186,3 +186,33 @@ An operator needs clear smoke, dashboard evidence, rollback steps, and blocker s
 - Internal, support, smoke, and test activity may appear in dashboards by default and must be disclosed rather than silently filtered in this feature.
 - PostHog autocapture is intentionally broad because PostHog is self-hosted inside the owner-controlled contour; Yandex and paid advertising surfaces do not inherit this broader first-party allowance.
 - Direct desktop provider egress to self-hosted PostHog is allowed in 096 as an explicitly disclosed, tested, rollback-safe first-party route; direct desktop provider egress to Yandex remains blocked unless a later explicit approval expands the route.
+
+## Уточнение режима 2026-10-03: минимальная явная воронка
+
+Новый согласованный режим этого среза заменяет историческое разрешение на широкий сбор для данного выпуска: псевдонимные пользовательские ID, без IP, содержимого встреч, autocapture, replay и прямого выхода desktop к PostHog; срок хранения 365 дней. Лендинг и policy/consent copy неизменны. Production enablement, новые credentials/grants и удаление истории не разрешены этим срезом. Старые доказательства июля не подтверждают нынешнюю готовность.
+
+FR-030. Подтверждение аналитики принадлежит аутентифицированному пользователю и текущей существующей версии раскрытия. Отсутствие, устаревание или отзыв подтверждения закрывает сбор. Вход в аккаунт, регистрация, cookies и operator approval сами по себе не означают согласия конкретного человека. Неизвестное legal соответствие сохраняет readiness blocker.
+FR-031. Сервер связывает события только с pseudonym(user_id) разрешённого principal. Присланные workspace/user pseudonym не дают возможности выдавать себя за другого человека. Приложение получает тот же псевдоним и актуальный статус согласия от собственного сервера; при смене/выходе аккаунта сбрасывает прежний контекст до новой проверки.
+FR-032. Первая веха не считается доставленной по одному HTTP 200 от GRAF. Недоступность PostHog и блокировки readiness оставляют повтор возможным. Доставка имеет устойчивый idempotency key; proof ingestion требует отдельного чтения ClickHouse только на синтетическом стенде.
+FR-033. Единственная минимальная отправка использует allowlist существующей воронки запуска, аккаунта, записи, просмотра результата и первой полезной сессии. Повторное событие не умножает активации. D7, оплаты/refunds, Yandex offline, raw IDs, IP и любые свободные поля за пределами каталога не входят.
+FR-034. Перед отправкой PostHog явно отключается GeoIP/IP enrichment. Настройки проекта 365 дней — отдельная supported операция с предварительной оценкой удалений; решения о сроке недостаточно для TTL/purge. Внешняя конфигурация и существующие backup/restore/access/legal proofs проверяются независимо; никакие bool-переключатели не заменяют доказательства.
+
+Критерии: отказ/неизвестный/отозванный consent -> 0 отправок; accepted current consent -> серверный user pseudonym на всех вехах; чужой ID не принимается; provider failure -> повтор не потерян; одинаковый idempotency key -> одна активация на изолированном ingestion; payload не содержит IP/PII/содержимого/секретов; default production flags остаются off.
+
+## Legacy Impact
+
+Classification: untouched
+
+Существующий режим остаётся при выключенном новом флаге. Новый явный маршрут не является адаптером старого клиентского согласия: он требует личной серверной записи согласия и авторизованного пользователя. Данные и поведение анонимного L1, публичные страницы и политики не меняются. legacy_new=0; unowned_legacy=0; expired_exceptions=0.
+
+В минимальном пакете допускаются только закрытые категории значений. Свободные UTM campaign/content/term и клиентские bridge/identity properties исключены. Источник — ограниченная клиентская категория с weak/unknown, не доказанная связь реестра; неизвестный источник не считается direct или AI.
+
+## Уточнение 2026-10-04: PostHog без резервирования
+
+Прямая инструкция владельца: «не нужно ниакого резервирования», затем «конечно запускай без резерного постхога». Новые backup/offsite, покупки, аккаунты и копирования отменены; существующие копии не удаляются. Владелец принимает возможную невосстановимую потерю аналитики при сбое PostHog. Обычное резервирование продуктовой PostgreSQL/MinIO ГРАФ и штатные release/deploy gates сохраняются.
+
+FR-034a. Явная политика `required` (по умолчанию) либо `owner_accepted_loss` допускает отсутствие только PostHog backup/restore/offsite proofs. Исключение применяется исключительно к provider=posthog, posthog_primary и минимальной authenticated explicit funnel; autocapture/replay/web-direct/desktop-direct/direct-egress/Yandex выключены. Неподходящая конфигурация блокируется. Generic capture без explicit milestone UUID не получает это исключение. Общая/campaign readiness сохраняет исходные operational blockers и не объявляется готовой.
+
+Оригинальные отсутствующие/устаревшие backup/restore proofs остаются видимыми в metadata как не применяемые к этому ограниченному режиму. Это не успешный backup/restore receipt. Access/MFA, legal mapping, личное согласие, псевдонимы, no-IP, 365 дней, настоящий delivery/readback, retry/dedupe, защищённое подключение существующего ключа и штатный выпуск остаются обязательными. История не очищается по этой инструкции; без необратимых TTL/purge операций.
+
+При возвращении политики `required` исходные backup/restore blockers немедленно восстанавливаются. Разрешение запуска не превращает непройденные остальные проверки в доказательства.

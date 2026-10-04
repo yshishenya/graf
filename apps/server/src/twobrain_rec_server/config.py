@@ -110,6 +110,8 @@ class Settings(BaseSettings):
     public_analytics_replay_enabled: bool = False
     public_analytics_consent_copy_version: str = "2026-09-15.1"
     product_analytics_enabled: bool = False
+    # Minimal authenticated explicit funnel; never enables provider delivery.
+    product_analytics_explicit_funnel_enabled: bool = False
     product_analytics_validation_mode: str = "disabled"
     product_analytics_provider_mode: str = "disabled"
     # Level 1 of feature 273: the anonymous page aggregate keeps no identifier,
@@ -129,6 +131,8 @@ class Settings(BaseSettings):
     product_analytics_visit_attribution_admission_limit: PositiveInt = Field(default=10_000)
     product_analytics_visit_attribution_admission_window_seconds: PositiveInt = Field(default=3_600)
     product_analytics_posthog_enabled: bool = False
+    # Explicit owner acceptance of analytics loss; never waives product backups.
+    product_analytics_posthog_backup_policy: Literal["required", "owner_accepted_loss"] = "required"
     product_analytics_posthog_host: AnyUrl | None = None
     product_analytics_posthog_project_key_file: Path | None = None
     product_analytics_posthog_autocapture_enabled: bool = True

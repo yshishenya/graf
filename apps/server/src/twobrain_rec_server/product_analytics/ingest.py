@@ -55,6 +55,10 @@ class ProductAnalyticsIngestService:
     ) -> ProductAnalyticsIngestResult:
         if not self.settings.product_analytics_enabled:
             return ProductAnalyticsIngestResult(False, "disabled", None, [])
+        if self.settings.product_analytics_explicit_funnel_enabled:
+            # The minimal route must load current consent and user identity
+            # from authenticated durable state. A payload claim is insufficient.
+            return ProductAnalyticsIngestResult(False, "explicit_context_required", None, [])
         if not analytics_collection_allowed(telemetry_gate_state):
             return ProductAnalyticsIngestResult(False, "telemetry_gate_required", None, [])
         event = build_activation_event(
