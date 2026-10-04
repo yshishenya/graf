@@ -44,9 +44,9 @@ T012 и T013 блокируют слияние. Независимые файл�
 T014 — новое замечание PR4171728042 на e4b1ebb774d661348098bc89fbff398a8ea0a165. Блокирует слияние; не закрывается прежним T012 снимком,80/0 или45min приёмкой.
 
 ## Phase 9: Завершение без реестра
-- [ ] T015 [US1] Сохранять15s ended при nil registry в MacOSMeetingActivityDetector и TwoBrainRecApp; исполняемые полное/неполное отсутствие,14.999/15s, повторная активность, отсутствие новых предложений/телеметрии и восстановление реестра; production wiring, независимое ревью, актуальные Dev/CI.
+- [X] T015 [US1] Сохранять15s ended при nil registry в MacOSMeetingActivityDetector и TwoBrainRecApp; исполняемые полное/неполное отсутствие,14.999/15s, повторная активность, отсутствие новых предложений/телеметрии и восстановление реестра; production wiring, независимое ревью, актуальные Dev/CI.
 
 ## Phase 10: Восстановление предложения
-- [ ] T016 [US1] Вернуть только ожидающее предложение в retryable при auth/registry закрытии в apps/macos/RecApp/App/TwoBrainRecApp.swift; red/green detector/notification и production wiring в apps/macos/Shared/Tests/MeetingDetectionCountdownTests.swift и MeetingDetectionRecordingLifecycleTests.swift; сохранить nil registry/accepted/Skip/Stop/2s/8s, независимое ревью и текущие Dev/CI (FR014/SC010).
+- [X] T016 [US1] Вернуть только ожидающее предложение в retryable при auth/registry закрытии в apps/macos/RecApp/App/TwoBrainRecApp.swift; red/green detector/notification и production wiring в apps/macos/Shared/Tests/MeetingDetectionCountdownTests.swift и MeetingDetectionRecordingLifecycleTests.swift; сохранить nil registry/accepted/Skip/Stop/2s/8s, независимое ревью и текущие Dev/CI (FR014/SC010).
 
-T012/T014:49min41s на1e78, Capture byte-identical6dc8, один start/no timing failures, два pause/resume, saved/decode/player/reload PASS. Точная приватность подтверждена детерминированным84/0/delta0.0. Итоговые SHA/CI и выпуск остаются отдельными воротами; T015/T016 Dev ещё открыты.
+T012/T014:49min41s на1e78, Capture byte-identical6dc8, один start/no timing failures, два pause/resume, saved/decode/player/reload PASS. Точная приватность подтверждена детерминированным84/0/delta0.0. Физическая T015/T016 приёмка c031 подтверждена в lifecycle-acceptance-2026-10-04.json. Итоговые SHA/CI и выпуск остаются отдельными воротами.
