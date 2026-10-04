@@ -27,3 +27,7 @@
 Прямое уточнение владельца «Сделать карточку плотнее» удовлетворяется двумя invoice-only CSS правилами в пределах FR046/T054; canonical narrownotes добавляет root. После правки свежие Chromium16/WebKit16 PASS и independent source/visual0/0/0, всё существенное и размер controls сохранены. Новый слой, задача, зависимость или денежное правило не требуются.
 
 После завершения локальных ворот — разрешённый пользователем коммит, перенос только invoice commit на fresh master после подписки, текущие GitHub gates. Затем release оператор замораживает общий новый кандидат; одно авторитетное release-full, CD dry-run/execute/live. Hooks after_converge отсутствуют в `.specify/extensions.yml`; дополнительных действий hook не запускалось.
+
+## Финальная совместимость T059
+
+Три causal отказа объединенного набора устранены минимальной правкой текста и содержательного теста. Действующая F278 receipt-only форма сохранена; refund/money forms остаются запрещены. Требования14/0, contracts186PASS, focusedinvoice+receiptDB74PASS до copy-only правок, окончательные Chromium16PASS/WebKit16PASS при прежних assertions/timeouts. Первый WebKit timeout сохранен; не подменен успешным повтором. Подписка меняет один знак и три соответствующих точных browser selectors, handlers/guards не изменены. Команды/границы: validation-invoice-t059.md. Доказательства code/source/visual относятся к текущим frozen bytes; actual rebase equivalence и exact PR/base CI еще проверяются отдельно. T055 и T056 не объявлены выполненными этим локальным append.

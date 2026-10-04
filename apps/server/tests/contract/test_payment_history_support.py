@@ -1,4 +1,5 @@
 import inspect
+import re
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -7,6 +8,7 @@ import pytest
 from twobrain_rec_server.billing.history import mask_payment_method
 from twobrain_rec_server.billing.refund_email import build_refund_mailto
 from twobrain_rec_server.billing.yookassa import YooKassaClient
+from twobrain_rec_server.cabinet.templates import render_template
 
 HISTORY_TEMPLATE = (
     Path(__file__).parents[2]
@@ -89,7 +91,31 @@ def test_invoice_detail_ui_exposes_only_safe_copy_and_mailto_actions() -> None:
     assert 'href="{{ invoice.question_mailto }}"' in template
     assert 'href="mailto:{{ support_email }}"' not in template
     assert "invoice.receipt_url" in template
-    assert "<form" not in template.lower()
+    assert "formaction" not in template.lower()
+    help_section = template.split('<summary>Помощь и возврат</summary>', 1)[1]
+    assert "<form" not in help_section.lower()
+    assert "submit" not in help_section.lower()
+    assert not hasattr(YooKassaClient, "create_refund")
+    assert '"POST", "/v3/refunds' not in inspect.getsource(YooKassaClient)
+    for allowed, unavailable in ((None, False), (False, False), (False, True), (True, False)):
+        invoice = {"safe_number": "INV-SYNTHETIC", "amount_label": "1 000 ₽",
+                   "receipt_url": None, "receipt_label": "Чек готовится", "refund_mailto": None,
+                   "discount_label": None, "payment_method_label": None, "receipt_contact_label": None,
+                   "receipt_refresh_failed": unavailable}
+        if allowed is not None:
+            invoice["can_refresh_receipt"] = allowed
+        html = render_template("cabinet/pages/billing_invoice_content.html",
+                               invoice=invoice, csrf_token="synthetic-csrf")
+        forms = re.findall(r"<form\b[^>]*>.*?</form>", html, re.IGNORECASE | re.DOTALL)
+        assert len(re.findall(r"<form\b", html, re.IGNORECASE)) == (1 if allowed else 0)
+        assert len(forms) == (1 if allowed else 0)
+        if forms:
+            form = forms[0]
+            assert form.startswith('<form action="/billing/checkout/status/INV-SYNTHETIC/refresh?return_to=invoice" method="post">')
+            assert 'type="hidden" name="csrf_token" value="synthetic-csrf"' in form
+            assert re.findall(r'<input\b[^>]*name="([^"]+)"', form) == ["csrf_token"]
+            assert form.count('type="submit"') == 1
+            assert 'type="submit">Проверить чек</button>' in form
 
 
 def test_invoice_question_and_refund_have_distinct_safe_subjects() -> None:
