@@ -5415,6 +5415,12 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .billing-comparison__row--head { background: var(--surface-2); font-weight: 700; }
 
 .billing-subscription-page .settings-page__content { width: min(720px, 100%); }
+.billing-invoice-page .settings-page__content { width: min(720px, 100%); }
+.billing-invoice-page .billing-checkout-card { gap: 12px; padding: 16px 20px; }
+.billing-invoice-page .billing-order-summary > div { padding-block: 8px; }
+.billing-invoice-page .billing-checkout-card > p,
+.billing-invoice-page .billing-invoice-back { margin: 0; }
+.billing-invoice-page .billing-order-summary ul { margin: 0; padding-inline-start: 18px; }
 .billing-subscription-page .billing-checkout-card__heading h2 { margin: 0; }
 .billing-subscription-page .billing-checkout-card > p { margin: 0; }
 

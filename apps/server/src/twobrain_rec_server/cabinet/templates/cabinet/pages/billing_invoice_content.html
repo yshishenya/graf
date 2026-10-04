@@ -1,19 +1,20 @@
 {% import "cabinet/components/primitives.html" as ui %}
 {% import "cabinet/components/sections.html" as sections %}
-<main id="cabinet-main" class="cabinet-main billing-page" tabindex="-1">
+<main id="cabinet-main" class="cabinet-main billing-page billing-invoice-page" tabindex="-1">
   <div class="cabinet-workspace settings-page">
     <div class="settings-page__content billing-page__content">
       {{ ui.settings_header("Платеж и чек") }}
-      <section class="settings-section cabinet-card" aria-labelledby="invoice-detail-title">
+      <p class="billing-invoice-back"><a href="/billing/history">К истории платежей</a></p>
+      <section class="billing-checkout-card" aria-labelledby="invoice-detail-title">
         <h2 id="invoice-detail-title">{{ invoice.purpose_label|default("Оплата тарифа") }}</h2>
-        <dl class="settings-definition-list">
-          <div><dt>Сумма</dt><dd><strong>{{ invoice.amount_label }}</strong></dd></div>
+        <dl class="billing-order-summary">
+          <div class="billing-order-summary__total"><dt>Сумма</dt><dd>{{ invoice.amount_label }}</dd></div>
           <div><dt>Статус</dt><dd>{{ invoice.status_label|default("Статус уточняется") }}</dd></div>
-          {% if invoice.service_label|default(None) %}<div><dt>Доступ</dt><dd>{{ invoice.service_label }}. Напишите в поддержку с номером этого платежа.</dd></div>{% endif %}
-          {% if invoice.service_period_label|default(None) %}<div><dt>Оплаченный срок</dt><dd>{{ invoice.service_period_label }}</dd></div>{% else %}<div><dt>Период</dt><dd>{{ invoice.cycle_label }}</dd></div>{% endif %}
+          {% if invoice.service_period_short_label|default(None) %}<div><dt>Оплаченный срок</dt><dd>{{ invoice.service_period_short_label }}</dd></div>{% else %}<div><dt>Период</dt><dd>{{ invoice.cycle_label|default("Период не указан") }}</dd></div>{% endif %}
           {% if invoice.capacity_label|default(None) %}<div><dt>Общий объем хранения</dt><dd>{{ invoice.capacity_label }}</dd></div>{% endif %}
           <div><dt>Чек</dt><dd>{% if invoice.receipt_url %}<a href="{{ invoice.receipt_url }}" rel="noopener noreferrer">Открыть чек</a>{% else %}{{ invoice.receipt_label }}{% endif %}</dd></div>
         </dl>
+        {% if invoice.service_label|default(None) %}<p class="notice notice--warning">{{ invoice.service_label }}. Напишите в поддержку с номером {{ invoice.safe_number }}.</p>{% endif %}
         {% if invoice.receipt_refresh_failed|default(False) %}
         <p role="status">Не удалось проверить чек. Попробуйте позже. Оплата остается подтвержденной.</p>
         {% endif %}
@@ -25,26 +26,25 @@
         </form>
         {% endif %}
         {% if invoice.status_url|default(None) %}<a class="button primary" data-billing-primary href="{{ invoice.status_url }}">{{ invoice.status_action_label }}</a>{% endif %}
-        <details class="billing-coupon"><summary>Сведения о платеже</summary>
-          <dl class="settings-definition-list">
+        <details class="settings-disclosure"><summary>Сведения о платеже</summary>
+          <dl class="billing-order-summary">
             <div><dt>Номер</dt><dd>{{ invoice.safe_number }}</dd></div>
+            <div><dt>Дата создания платежа</dt><dd>{{ invoice.created_at_label|default("Дата не указана", true) }}</dd></div>
+            {% if invoice.service_period_label|default(None) %}<div><dt>Точный оплаченный срок</dt><dd>{{ invoice.service_period_label }}</dd></div>{% endif %}
             {% if invoice.discount_label %}<div><dt>Скидка</dt><dd>{{ invoice.discount_label }}</dd></div>{% endif %}
             {% if invoice.payment_method_label %}<div><dt>Способ оплаты</dt><dd>{{ invoice.payment_method_label }}</dd></div>{% endif %}
             {% if invoice.receipt_contact_label %}<div><dt>Адрес для чека</dt><dd>{{ invoice.receipt_contact_label }}</dd></div>{% endif %}
-            {% if invoice.storage_intervals|default([]) %}<div><dt>Оплаченные интервалы хранения</dt><dd><ul>{% for period in invoice.storage_intervals %}<li>{{ period.start }} — {{ period.end }}: {{ period.capacity }}</li>{% endfor %}</ul></dd></div>{% endif %}
+            {% if invoice.storage_intervals|default([]) %}<div><dt>Оплаченные интервалы хранения</dt><dd><ul>{% for period in invoice.storage_intervals %}<li>{{ period.period|default(None) or "Срок не указан" }}: {{ period.capacity }}</li>{% endfor %}</ul></dd></div>{% endif %}
           </dl>
           <button class="button quiet" type="button" data-copy-value="{{ invoice.safe_number }}">Скопировать номер платежа</button>
         </details>
       </section>
-      <section class="settings-section settings-boundary-card" aria-labelledby="invoice-refund-title">
-        <details class="billing-coupon"><summary id="invoice-refund-title">Помощь и возврат</summary>
+      <details class="settings-disclosure"><summary>Помощь и возврат</summary>
         <p>По вопросам оплаты и возврата напишите в поддержку, указав номер {{ invoice.safe_number }}.</p>
-        {% if invoice.refund_mailto %}<a class="button quiet" href="{{ invoice.refund_mailto }}">Написать в поддержку</a>{% elif support_email %}<a href="mailto:{{ support_email }}">Написать в поддержку</a>{% else %}<a href="/billing/history#billing-help">Помощь с оплатой</a>{% endif %}
+        {% if invoice.question_mailto|default(None) and invoice.refund_mailto %}<div class="settings-actions"><a href="{{ invoice.question_mailto }}">Вопрос об оплате</a><a href="{{ invoice.refund_mailto }}">Запросить возврат</a></div>{% else %}<p>Адрес поддержки сейчас недоступен. <a href="/billing/history#billing-help">Помощь с оплатой</a>.</p>{% endif %}
         <p class="muted">Открытие письма не отправляет запрос и не оформляет возврат. Данные карты отправлять не нужно.</p>
         <p>Результат возврата уточняйте у поддержки: GRAF не показывает его статус. Возврат не отключает автопродление. <a href="/billing/subscription">Управлять автопродлением</a>.</p>
-        </details>
-      </section>
-      <a class="button quiet" href="/billing/history">К истории платежей</a>
+      </details>
     </div>
   </div>
 </main>

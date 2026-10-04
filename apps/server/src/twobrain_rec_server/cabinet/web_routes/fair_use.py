@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.billing.fair_use import appeal_persisted_review
+from twobrain_rec_server.billing.refund_email import build_support_mailto, normalize_support_email
 from twobrain_rec_server.billing.trial import merged_user_lineage
 from twobrain_rec_server.cabinet.queries import get_account_profile_view
 from twobrain_rec_server.cabinet.rendering_shared import _page_shell
@@ -128,7 +129,8 @@ async def _render_fair_use_page(
             "already_appealed": "Апелляция уже отправлена и находится на проверке.",
             "unavailable": "Проверка сейчас недоступна. Попробуйте позже.",
         }.get(result),
-        support_email=request.app.state.settings.billing_support_email,
+        support_email=normalize_support_email(request.app.state.settings.billing_support_email),
+        support_mailto=build_support_mailto(request.app.state.settings.billing_support_email),
         appeal_base_path="/desktop/account/fair-use" if embedded else "/account/fair-use",
         back_href="/desktop/meetings" if embedded else "/meetings",
     )

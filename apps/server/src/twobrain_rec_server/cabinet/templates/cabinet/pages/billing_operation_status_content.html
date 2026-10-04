@@ -6,7 +6,7 @@
 {% set awaiting_payment_result = awaiting_payment_result|default(can_refresh_payment|default(False) or can_continue_payment|default(False)) %}
 {% set local_status_url = "/billing/checkout/status/" ~ invoice.safe_number ~ "?view=local" %}
 {% set auto_check = can_refresh_payment|default(False) and not needs_service_review and not check_error and not read_only_recovery %}
-{% set help_url = "mailto:" ~ support_email if support_email|default(None) else "/billing/history#billing-help" %}
+{% set help_url = support_mailto|default(None) or "/billing/history#billing-help" %}
 <main id="cabinet-main" class="cabinet-main billing-page billing-operation-status-page" tabindex="-1"
   data-billing-invoice="{{ invoice.safe_number }}" data-billing-state="{{ operation_state }}"
   data-billing-auto-check="{{ 'true' if auto_check else 'false' }}"
@@ -78,7 +78,7 @@
         <a id="billing-status-recovery" class="button quiet" data-billing-status-recovery href="{{ local_status_url }}" hidden>Обновить результат</a>
 
         <details id="billing-status-details" class="billing-coupon"><summary id="billing-status-details-summary">Сведения о платеже</summary>
-          <dl class="settings-definition-list"><div><dt>Номер</dt><dd>{{ invoice.safe_number }}</dd></div><div><dt>Создан</dt><dd>{{ invoice.created_at_label|default("время уточняется") }}</dd></div><div><dt>Последняя проверка</dt><dd>{{ updated_at_label or "еще не выполнялась" }}</dd></div></dl>
+          <dl class="billing-order-summary"><div><dt>Номер</dt><dd>{{ invoice.safe_number }}</dd></div><div><dt>Создан</dt><dd>{{ invoice.created_at_label|default("время уточняется") }}</dd></div><div><dt>Последняя проверка</dt><dd>{{ updated_at_label or "еще не выполнялась" }}</dd></div></dl>
         </details>
         <p><a id="billing-status-invoice" href="/billing/invoices/{{ invoice.safe_number }}">Платеж и чек</a></p>
       </section>

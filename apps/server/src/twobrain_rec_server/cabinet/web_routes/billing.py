@@ -96,7 +96,12 @@ from twobrain_rec_server.billing.receipts import (
     receipt_state_for_registration,
 )
 from twobrain_rec_server.billing.referrals import referral_token_hash, validate_referral_token
-from twobrain_rec_server.billing.refund_email import build_refund_mailto
+from twobrain_rec_server.billing.refund_email import (
+    build_question_mailto,
+    build_refund_mailto,
+    build_support_mailto,
+    normalize_support_email,
+)
 from twobrain_rec_server.billing.renewal_charge import (
     cancel_unsent_renewals,
     next_renewal_attempt,
@@ -2236,7 +2241,8 @@ async def billing_checkout_status_page(
         creation_rejected=creation_rejected,
         recurring_not_available=recurring_not_available,
         retry_payment_url=retry_payment_url,
-        support_email=settings.billing_support_email,
+        support_email=normalize_support_email(settings.billing_support_email),
+        support_mailto=build_support_mailto(settings.billing_support_email),
         purchase_purpose_label=purchase_purpose_label(invoice.plan_snapshot or {}),
         payment_applied=payment_applied,
         service_gap=service_gap,
@@ -4384,7 +4390,8 @@ async def billing_history_page(
         ),
         content_template="cabinet/pages/billing_history_content.html",
         invoices=invoices,
-        support_email=request.app.state.settings.billing_support_email,
+        support_email=normalize_support_email(request.app.state.settings.billing_support_email),
+        support_mailto=build_support_mailto(request.app.state.settings.billing_support_email),
     )
     return cabinet_html_response(content)
 
@@ -4401,6 +4408,26 @@ def _invoice_capacity_label(snapshot: Mapping[str, object]) -> str | None:
         if type(value) is int and value > 0:
             return _capacity_label(value)
     return None
+
+
+def _invoice_period_labels(starts_at: object, ends_at: object) -> tuple[str | None, str | None]:
+    period = []
+    for value in (starts_at, ends_at):
+        try:
+            instant = datetime.fromisoformat(value) if isinstance(value, str) else value
+        except ValueError:
+            return None, None
+        if not isinstance(instant, datetime) or instant.tzinfo is None or instant.utcoffset() is None:
+            return None, None
+        period.append(instant)
+    if period[0] >= period[1]:
+        return None, None
+    try:
+        short = " — ".join(format_user_datetime(local_datetime(value).date()) for value in period)
+        exact = " — ".join(format_user_datetime(value, show_zone=True) for value in period)
+    except (ValueError, OverflowError):
+        return None, None
+    return short, exact
 
 
 @router.get("/billing/invoices/{safe_number}", response_class=HTMLResponse, include_in_schema=False)
@@ -4457,15 +4484,22 @@ async def billing_invoice_detail_page(
     receipt_url = snapshot.get("receipt_url") if receipt_state is ReceiptState.AVAILABLE else None
     if not can_manage or not is_allowed_confirmation_url(receipt_url):
         receipt_url = None
-    refund_mailto = None
+    refund_mailto = question_mailto = None
     support_email = request.app.state.settings.billing_support_email
     if support_email:
         try:
             refund_mailto = build_refund_mailto(
                 support_email=support_email, safe_invoice_number=invoice.safe_number
             )
+            question_mailto = build_question_mailto(
+                support_email=support_email, safe_invoice_number=invoice.safe_number
+            )
         except ValueError:
-            refund_mailto = None
+            refund_mailto = question_mailto = None
+    short_period, exact_period = _invoice_period_labels(
+        snapshot.get("service_starts_at"), snapshot.get("service_ends_at")
+    )
+    segments = snapshot.get("storage_segments")
     content = _page_shell(
         "Платеж",
         embedded=_is_embedded_request(request),
@@ -4480,40 +4514,35 @@ async def billing_invoice_detail_page(
         invoice={
             "safe_number": invoice.safe_number,
             "created_at": invoice.created_at,
+            "created_at_label": _billing_datetime_label(invoice.created_at),
             "amount_label": _billing_amount_label(invoice.amount_minor, invoice.currency)
             or "Сумма недоступна",
             "status": invoice.status,
             "status_url": _checkout_status_location(invoice.safe_number)
             if can_manage and invoice.status in {"pending", "unknown", "manual_resolution", "failed", "canceled"} else None,
             "status_action_label": "Открыть статус платежа",
-            "cycle_label": "Год" if snapshot.get("cycle") == "year" else "Месяц",
+            "cycle_label": "Год" if snapshot.get("cycle") == "year" else "Месяц"
+            if snapshot.get("cycle") == "month" else "Период не указан",
             "purpose_label": purchase_purpose_label(snapshot),
             "capacity_label": _invoice_capacity_label(snapshot),
             "storage_intervals": [
                 {
-                    "start": _billing_datetime_label(item["starts_at"]),
-                    "end": _billing_datetime_label(item["ends_at"]),
+                    "period": _invoice_period_labels(item.get("starts_at"), item.get("ends_at"))[1],
                     "capacity": _capacity_label(item["capacity_bytes"]),
                 }
-                for item in snapshot.get("storage_segments", [])
+                for item in (segments if isinstance(segments, list) else [])
                 if isinstance(item, dict)
-                and item.get("starts_at") and item.get("ends_at")
-                and isinstance(item.get("capacity_bytes"), int)
+                and type(item.get("capacity_bytes")) is int and item["capacity_bytes"] > 0
             ],
             "service_label": "Оплата подтверждена; услуга требует сверки"
             if snapshot.get("service_resolution")
             else None,
-            "service_period_label": (
-                _billing_datetime_label(snapshot.get("service_starts_at"))
-                + " — "
-                + _billing_datetime_label(snapshot.get("service_ends_at"))
-            )
-            if snapshot.get("service_starts_at") and snapshot.get("service_ends_at")
-            else None,
+            "service_period_short_label": short_period,
+            "service_period_label": exact_period,
             "status_label": _invoice_status_label(invoice.status),
             "discount_label": (
                 f"Скидка {snapshot.get('discount_percent')}%"
-                if isinstance(snapshot.get("discount_percent"), int)
+                if type(snapshot.get("discount_percent")) is int and 0 < snapshot["discount_percent"] <= 100
                 else ("Реферальная скидка" if snapshot.get("referral_discount") else None)
             ),
             "payment_method_label": mask_payment_method(
@@ -4528,6 +4557,7 @@ async def billing_invoice_detail_page(
             and request.query_params.get("result") == "unavailable",
             "can_refresh_receipt": can_refresh_receipt,
             "refund_mailto": refund_mailto,
+            "question_mailto": question_mailto,
         },
         support_email=support_email,
     )

@@ -4,7 +4,7 @@ import asyncio
 import re
 from datetime import UTC, datetime, timedelta
 from html import unescape
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 from uuid import uuid4
 
 import pytest
@@ -606,3 +606,245 @@ def test_storage_return_recognizes_actual_legacy_projection_after_subscription_e
     assert 'data-billing-state="succeeded_projected"' in response.text
     assert "01.01.2025" in response.text and "01.02.2025" in response.text
     assert billing_rows_snapshot(client) == before
+
+
+def seed_invoice_projection(client, workspace, snapshot, *, state="succeeded", privacy=None):
+    """Insert immutable synthetic purchase data before exercising read-only invoice GET."""
+    from twobrain_rec_server.db.models import UserIdentity
+
+    async def seed():
+        async with client.app_state["sessionmaker"]() as db:
+            viewer = await db.get(UserIdentity, USER_ID)
+            viewer.timezone = "Europe/Istanbul"
+            target = workspace
+            if privacy == "foreign":
+                other = Workspace(organization_id=viewer.organization_id,
+                    slug=f"invoice-foreign-{uuid4().hex}", name="Synthetic foreign", kind="corporate")
+                db.add(other)
+                await db.flush()
+                target = other.id
+            elif privacy == "previous_owner":
+                payer = UserIdentity(organization_id=viewer.organization_id,
+                    external_subject=f"invoice-previous-{uuid4().hex}")
+                db.add(payer)
+                await db.flush()
+                subscription = await db.scalar(select(WorkspaceSubscription).where(
+                    WorkspaceSubscription.workspace_id == workspace))
+                if subscription is None:
+                    subscription = WorkspaceSubscription(workspace_id=workspace)
+                    db.add(subscription)
+                subscription.billing_owner_id = payer.id
+            operation = BillingOperation(workspace_id=target, kind="initial_checkout",
+                state=state, idempotency_key=f"invoice-read-{uuid4().hex}", request_snapshot={})
+            db.add(operation)
+            await db.flush()
+            db.add(BillingInvoice(workspace_id=target, operation_id=operation.id,
+                safe_number="INV-PROJECTION", amount_minor=125000, currency="RUB", status=state,
+                plan_snapshot=snapshot, receipt_contact_snapshot="synthetic-payer@example.test",
+                created_at=datetime(2026, 10, 3, 21, 30, tzinfo=UTC)))
+            await db.commit()
+    asyncio.run(seed())
+
+
+def invoice_main(html):
+    return re.search(r'<main\b[^>]*>(.*?)</main>', html, re.S)[1]
+
+
+@pytest.mark.parametrize("year", [2025, 2027])
+def test_invoice_projection_short_and_exact_local_dates_are_read_only(client, owner, year):
+    workspace, headers = owner
+    seed_invoice_projection(client, workspace, {"cycle": "month",
+        "service_starts_at": f"{year}-11-03T21:30:00+00:00",
+        "service_ends_at": f"{year}-12-03T21:30:00+00:00"})
+    before = billing_rows_snapshot(client)
+    response = client.get("/billing/invoices/INV-PROJECTION", headers=headers)
+    assert response.status_code == 200
+    main = invoice_main(response.text)
+    overview = main.split("<details", 1)[0]
+    assert f"04.11.{year} — 04.12.{year}" in overview
+    assert "00:30" not in overview
+    assert f"04.11.{year}, 00:30 (UTC+03:00)" in main
+    assert f"04.12.{year}, 00:30 (UTC+03:00)" in main
+    assert "Дата создания платежа" in main and "04.10.2026, 00:30 (UTC+03:00)" in main
+    assert "Тариф действует" not in overview and "Активна" not in overview
+    assert billing_rows_snapshot(client) == before
+
+
+@pytest.mark.parametrize("snapshot,known_cycle", [
+    ({}, None), ({"cycle": "week"}, None), ({"cycle": "month"}, "месяц"),
+    ({"cycle": "year"}, "год"),
+    ({"cycle": "week", "service_starts_at": "garbage", "service_ends_at": "2027-12-03"}, None),
+    ({"cycle": "week", "service_starts_at": "2027-12-03T21:30:00+00:00",
+      "service_ends_at": "2027-11-03T21:30:00+00:00"}, None),
+    ({"cycle": "week", "service_starts_at": "2027-11-03T21:30:00",
+      "service_ends_at": "2027-12-03T21:30:00"}, None),
+    ({"cycle": "week", "service_starts_at": "9999-12-31T20:00:00+00:00",
+      "service_ends_at": "9999-12-31T23:59:59+00:00"}, None),
+    ({"cycle": "week", "service_starts_at": "0001-01-01T00:00:00+14:00",
+      "service_ends_at": "0001-01-01T01:00:00+14:00"}, None),
+])
+def test_invoice_projection_invalid_period_never_invents_a_month(client, owner, snapshot, known_cycle):
+    workspace, headers = owner
+    seed_invoice_projection(client, workspace, snapshot)
+    before = billing_rows_snapshot(client)
+    response = client.get("/billing/invoices/INV-PROJECTION", headers=headers)
+    assert response.status_code == 200
+    main = invoice_main(response.text)
+    overview = re.sub(r"<[^>]+>", " ", main.split("<details", 1)[0]).lower()
+    assert "оплаченный срок" not in overview
+    if known_cycle:
+        assert known_cycle in overview
+    else:
+        assert "месяц" not in overview and "год" not in overview
+    assert "без даты" not in main.lower() and "garbage" not in main
+    assert billing_rows_snapshot(client) == before
+
+
+@pytest.mark.parametrize("state,registration,url,label", [
+    ("succeeded", "succeeded", None, "Чек зарегистрирован"),
+    ("pending", "pending", None, "Чек формируется"),
+    ("unknown", None, None, "Чек пока не найден"),
+    ("canceled", "succeeded", "https://yookassa.ru/synthetic-receipt", "Открыть чек"),
+    ("manual_resolution", "succeeded", "https://evil.example.test/receipt", "Чек зарегистрирован"),
+])
+def test_invoice_projection_receipt_and_recovery_truth_is_read_only(client, owner, state, registration, url, label):
+    workspace, headers = owner
+    seed_invoice_projection(client, workspace, {"cycle": "month", "receipt_registration": registration,
+        "receipt_url": url, "service_resolution": "storage_period_elapsed"}, state=state)
+    before = billing_rows_snapshot(client)
+    response = client.get("/billing/invoices/INV-PROJECTION", headers=headers)
+    assert response.status_code == 200
+    main = invoice_main(response.text)
+    assert label in main
+    assert "услуга требует сверки" in main.split("<details", 1)[0]
+    assert ("Открыть чек" in main) == (url == "https://yookassa.ru/synthetic-receipt")
+    assert "https://evil.example.test/receipt" not in main
+    assert ("/billing/checkout/status/INV-PROJECTION" in main) == (state != "succeeded")
+    assert "отправлен на почту" not in main.lower()
+    assert billing_rows_snapshot(client) == before
+
+
+@pytest.mark.parametrize("privacy,gap,expected", [
+    ("foreign", None, 303), ("previous_owner", None, 303),
+    ("previous_owner", "owner_changed", 200),
+    ("previous_owner", "workspace_scope_invalid", 200),
+])
+def test_invoice_projection_preserves_previous_payer_and_workspace_privacy(client, owner, privacy, gap, expected):
+    workspace, headers = owner
+    seed_invoice_projection(client, workspace, {"cycle": "month", "service_resolution": gap,
+        "receipt_registration": "succeeded", "receipt_url": "https://yookassa.ru/synthetic-private-receipt",
+        "payment_method_label": "•••• 4242"}, privacy=privacy)
+    before = billing_rows_snapshot(client)
+    response = client.get("/billing/invoices/INV-PROJECTION", headers=headers, follow_redirects=False)
+    assert response.status_code == expected
+    assert "4242" not in response.text and "synthetic-payer" not in response.text
+    assert "synthetic-private-receipt" not in response.text
+    if expected == 303:
+        assert response.headers["location"] == "/billing/history?result=not_found"
+    else:
+        main = invoice_main(response.text)
+        assert "услуга требует сверки" in main.split("<details", 1)[0]
+        assert "Чек доступен плательщику" in main
+        assert "Открыть чек" not in main
+    assert billing_rows_snapshot(client) == before
+
+
+def test_invoice_projection_preserves_distinct_storage_intervals_without_inventing_invalid_dates(client, owner):
+    workspace, headers = owner
+    seed_invoice_projection(client, workspace, {"cycle": "month", "storage_segments": [
+        {"starts_at": "2027-11-03T21:30:00+00:00", "ends_at": "2027-12-03T21:30:00+00:00",
+         "capacity_bytes": 10_000_000_000},
+        {"starts_at": "2027-12-03T21:30:00+00:00", "ends_at": "2028-01-03T21:30:00+00:00",
+         "capacity_bytes": 15_000_000_000},
+        {"starts_at": "bad", "ends_at": "2028-01-03", "capacity_bytes": 20_000_000_000},
+    ]})
+    before = billing_rows_snapshot(client)
+    response = client.get("/billing/invoices/INV-PROJECTION", headers=headers)
+    assert response.status_code == 200
+    main = invoice_main(response.text)
+    assert "Оплаченные интервалы хранения" in main
+    intervals = re.search(r"Оплаченные интервалы хранения</dt><dd><ul>(.*?)</ul>", main, re.S)[1]
+    rows = re.findall(r"<li>(.*?)</li>", intervals, re.S)
+    assert len(rows) == 3
+    assert "04.11.2027, 00:30 (UTC+03:00) — 04.12.2027, 00:30 (UTC+03:00): 10 GB" in rows[0]
+    assert "04.12.2027, 00:30 (UTC+03:00) — 04.01.2028, 00:30 (UTC+03:00): 15 GB" in rows[1]
+    assert rows[2] == "Срок не указан: 20 GB"
+    assert billing_rows_snapshot(client) == before
+
+
+@pytest.mark.parametrize("support,discount", [
+    ("billing@example.test", 0), ("billing@example.test", 25),
+    ("not-an-email", 0), (None, 0),
+])
+def test_invoice_projection_support_intents_and_real_discount_are_read_only(client, owner, support, discount):
+    workspace, headers = owner
+    client.app.state.settings.billing_support_email = support
+    seed_invoice_projection(client, workspace, {"cycle": "month", "discount_percent": discount,
+        "payment_method_label": "•••• 4242", "provider_payment_id": "synthetic-private-provider"})
+    before = billing_rows_snapshot(client)
+    response = client.get("/billing/invoices/INV-PROJECTION", headers=headers)
+    assert response.status_code == 200
+    main = invoice_main(response.text)
+    assert ("Скидка 25%" in main) == (discount == 25)
+    assert "Скидка 0%" not in main
+    mailtos = [unescape(value) for value in re.findall(r'href="(mailto:[^"]+)"', main)]
+    if support == "billing@example.test":
+        assert "Вопрос об оплате" in main and "Запросить возврат" in main
+        assert len(mailtos) == 2
+        subjects = {parse_qs(urlsplit(value).query)["subject"][0] for value in mailtos}
+        assert subjects == {"Вопрос об оплате INV-PROJECTION", "Возврат по платежу INV-PROJECTION"}
+        for value in mailtos:
+            assert "4242" not in value and "synthetic-private-provider" not in value
+            assert "synthetic-payer" not in value
+            assert urlsplit(value).path == support
+    else:
+        assert mailtos == [] and "Адрес поддержки сейчас недоступен" in main
+        assert 'href="/billing/history#billing-help"' in main
+        assert "not-an-email" not in main
+    assert billing_rows_snapshot(client) == before
+
+
+@pytest.mark.parametrize("observation", [False, True])
+@pytest.mark.parametrize("support,normalized", [
+    (None, None), ("not-an-email", None), ("billing%0d%0a@example.test", None),
+    ("billing@example.test\r\nBcc:evil@example.test", None),
+    ("billing?cc=evil&tag@example.test", "billing?cc=evil&tag@example.test"),
+    ("billing+tag%box@example.test", "billing+tag%box@example.test"),
+    ("Support <billing@example.test>", "billing@example.test"),
+    ("\x00 <billing@example.test>", None), ("Support\x01 <billing@example.test>", None),
+    ("Support%00 <billing@example.test>", None), ("Support%7f <billing@example.test>", None),
+])
+def test_support_help_fallback_and_siblings_are_safe_without_checkout(client, owner, observation, support, normalized):
+    workspace, headers = owner
+    settings = client.app.state.settings
+    settings.billing_checkout_enabled = False
+    settings.billing_provider_observation_enabled = observation
+    settings.billing_support_email = support
+    seed_invoice_projection(client, workspace, {}, state="unknown")
+    before = billing_rows_snapshot(client)
+    invoice = client.get("/billing/invoices/INV-PROJECTION", headers=headers)
+    assert invoice.status_code == 200
+    if normalized is None:
+        assert 'href="/billing/history#billing-help"' in invoice_main(invoice.text)
+    for path in ("/billing/history", "/billing/checkout/status/INV-PROJECTION", "/referrals",
+                 "/account/fair-use", "/desktop/account/fair-use"):
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200, path
+        main = invoice_main(response.text)
+        links = [unescape(value) for value in re.findall(r'href="(mailto:[^"]+)"', main)]
+        if normalized is None:
+            assert links == [], path
+            assert "Скопировать адрес" not in main
+            if support:
+                assert support not in unescape(main)
+            if path == "/billing/history":
+                assert "Контакт поддержки пока не настроен" in main
+                assert 'href="/billing"' in main
+        else:
+            assert len(links) == (2 if path.startswith("/billing/checkout/status/") else 1), path
+            assert urlsplit(links[0]).query == "", path
+            assert urlsplit(links[0]).path == quote(normalized, safe="@."), path
+            assert unquote(urlsplit(links[0]).path) == normalized, path
+            if path == "/billing/history":
+                assert f'data-copy-value="{normalized}"' in unescape(main)
+        assert billing_rows_snapshot(client) == before, path
