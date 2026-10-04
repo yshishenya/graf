@@ -1,4 +1,5 @@
 import inspect
+import re
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -73,7 +74,7 @@ def test_history_ui_keeps_refund_as_email_only_and_warns_against_sensitive_data(
     assert '"POST", "/v3/refunds' not in inspect.getsource(YooKassaClient)
 
 
-def test_invoice_detail_ui_exposes_only_safe_copy_and_mailto_actions() -> None:
+def test_invoice_detail_ui_keeps_refund_email_only_with_receipt_refresh() -> None:
     template = INVOICE_TEMPLATE.read_text(encoding="utf-8")
 
     assert "Скопировать номер платежа" in template
@@ -87,4 +88,15 @@ def test_invoice_detail_ui_exposes_only_safe_copy_and_mailto_actions() -> None:
     assert 'href="{{ invoice.refund_mailto }}"' in template
     assert 'href="mailto:{{ support_email }}"' in template
     assert "invoice.receipt_url" in template
-    assert "<form" not in template.lower()
+    assert re.findall(r"<form\b[^>]*>", template, re.IGNORECASE) == [
+        '<form action="/billing/checkout/status/{{ invoice.safe_number }}/refresh?return_to=invoice" method="post">'
+    ]
+    assert "{{ sections.csrf_field(csrf_token|default(None)) }}" in template
+    assert template.count('<button class="button quiet" type="submit">') == 1
+    assert '<button class="button quiet" type="submit">Проверить чек</button>' in template
+    refund_section = template.split('aria-labelledby="invoice-refund-title"', 1)[1]
+    assert "<form" not in refund_section.lower()
+    assert "submit" not in refund_section.lower()
+    assert "formaction" not in template.lower()
+    assert not hasattr(YooKassaClient, "create_refund")
+    assert '"POST", "/v3/refunds' not in inspect.getsource(YooKassaClient)
