@@ -2310,8 +2310,11 @@ async def refresh_billing_checkout_status(
         defer_referral_reward=True,
     )
     await db.commit()
+    result = _status_refresh_result(counters)
     return RedirectResponse(
-        _checkout_status_location(safe_number, result=_status_refresh_result(counters)),
+        f"/billing/invoices/{quote(safe_number, safe='-')}?result={result}"
+        if request.query_params.get("return_to") == "invoice"
+        else _checkout_status_location(safe_number, result=result),
         status_code=303,
     )
 
@@ -4490,6 +4493,8 @@ async def billing_invoice_detail_page(
             "receipt_contact_label": _masked_receipt_contact(invoice.receipt_contact_snapshot) if can_manage else None,
             "receipt_label": receipt_label(receipt_state) if can_manage else "Чек доступен плательщику",
             "receipt_url": receipt_url,
+            "receipt_refresh_failed": can_manage
+            and request.query_params.get("result") == "unavailable",
             "can_refresh_receipt": can_manage and invoice.status == "succeeded"
             and receipt_state is ReceiptState.PENDING
             and (request.app.state.settings.billing_provider_observation_enabled

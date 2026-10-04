@@ -686,7 +686,7 @@ def test_expired_quote_and_changed_catalog_never_reach_provider(client, monkeypa
 
 
 @pytest.mark.parametrize("kind", ["initial_checkout", "storage_upgrade", "early_renewal", "renewal"])
-@pytest.mark.parametrize("mode", ["background", "boundary", "late_manual", "wrong_scope", "wrong_amount", "wrong_test", "wrong_metadata", "get_failure", "owner_missing"])
+@pytest.mark.parametrize("mode", ["background", "boundary", "late_manual", "manual_pending", "manual_get_failure", "wrong_scope", "wrong_amount", "wrong_test", "wrong_metadata", "get_failure", "owner_missing"])
 def test_completed_purchase_recovers_late_receipt_without_replaying_money(
     client, monkeypatch, tmp_path, kind, mode
 ):
@@ -699,6 +699,8 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
     _configure_billing(client, tmp_path)
     workspace, headers = _prepare_owner_session(client)
     now = datetime.now(UTC)
+    manual = mode in {"late_manual", "manual_pending", "manual_get_failure"}
+    operation_state = "succeeded_projected" if mode == "projected" else "succeeded"
     class ReceiptClock(datetime):
         @classmethod
         def now(cls, tz=None):
@@ -712,11 +714,11 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
     async def seed():
         async with client.app_state["sessionmaker"]() as db:
             db.add(BillingOperation(
-                id=op_id, workspace_id=workspace, kind=kind, state="succeeded",
+                id=op_id, workspace_id=workspace, kind=kind, state=operation_state,
                 idempotency_key=f"receipt-{op_id}", provider_id="pay-synthetic-receipt",
-                created_at=now - timedelta(hours=25 if mode == "late_manual" else 24 if mode == "boundary" else 1),
+                created_at=now - timedelta(hours=25 if manual else 24 if mode == "boundary" else 1),
                 request_snapshot={"purchase_schema": 2, "provider_environment": "test",
-                                  "provider_shop_id": "shop-money-path"},
+                                  "provider_shop_id": "shop-money-path"} if mode != "projected" else {},
             ))
             await db.flush()
             db.add(BillingInvoice(id=inv_id, operation_id=op_id, workspace_id=workspace,
@@ -748,7 +750,7 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
         calls.append(request.method)
         assert request.method == "GET"
         assert request.url.path == "/v3/payments/pay-synthetic-receipt"
-        if mode == "get_failure":
+        if mode in {"get_failure", "manual_get_failure"}:
             raise httpx.ConnectError("synthetic outage", request=request)
         return httpx.Response(200, json={
             "id": "pay-synthetic-receipt", "status": "succeeded", "test": mode != "wrong_test",
@@ -789,22 +791,31 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
     result = asyncio.run(observe())
     if mode == "owner_missing":
         assert result["failed"] == 1 and calls == []
-    elif mode == "late_manual":
+    elif manual:
         assert result["processed"] == 0 and calls == []
     else:
         assert result["processed"] == 1 and calls == ["GET"]
-    receipt_status = "succeeded"
-    if mode == "late_manual":
-        response = client.post(f"/billing/checkout/status/{number}/refresh", headers=headers,
+    receipt_status = "pending" if mode == "manual_pending" else "succeeded"
+    if manual:
+        response = client.post(f"/billing/checkout/status/{number}/refresh?return_to=invoice", headers=headers,
                                follow_redirects=False)
         assert response.status_code == 303
+        assert response.headers["location"].startswith(f"/billing/invoices/{number}?")
+        returned = client.get(response.headers["location"])
+        assert returned.status_code == 200 and "Платеж и чек" in returned.text
+        if mode == "manual_get_failure":
+            assert "Не удалось проверить чек" in returned.text and "Оплачен" in returned.text
+        elif mode == "manual_pending":
+            assert "Чек формируется" in returned.text and "Оплачен" in returned.text
+        else:
+            assert "Чек зарегистрирован" in returned.text
     else:
         asyncio.run(observe())
-    succeeded = mode in {"background", "boundary", "late_manual"}
+    succeeded = mode in {"background", "boundary", "late_manual", "projected"}
     async def verify():
         async with client.app_state["sessionmaker"]() as db:
             invoice, operation = await db.get(BillingInvoice, inv_id), await db.get(BillingOperation, op_id)
-            assert operation.state == invoice.status == "succeeded"
+            assert operation.state == operation_state and invoice.status == "succeeded"
             assert invoice.amount_minor == 12500
             assert invoice.plan_snapshot == {**snapshot, "receipt_registration": "succeeded" if succeeded else "pending"}
             subscription = await db.get(WorkspaceSubscription, workspace)
@@ -823,3 +834,72 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
         assert "Чек зарегистрирован" in client.get(f"/billing/invoices/{number}").text
         assert "Проверить чек" not in client.get(f"/billing/invoices/{number}").text
     asyncio.run(verify())
+
+
+def test_projected_storage_purchase_recovers_receipt_without_replaying_projection(
+    client, monkeypatch, tmp_path
+):
+    test_completed_purchase_recovers_late_receipt_without_replaying_money(
+        client, monkeypatch, tmp_path, "storage_upgrade", "projected"
+    )
+
+
+def test_pending_payment_precedes_older_receipt_when_batch_has_one_slot(
+    client, monkeypatch, tmp_path
+):
+    from uuid import uuid4
+
+    _configure_billing(client, tmp_path)
+    workspace, _ = _prepare_owner_session(client)
+    now = datetime.now(UTC)
+    pending_id = uuid4()
+    pending_number = "INV-SYNTHETIC-PENDING"
+
+    async def seed():
+        async with client.app_state["sessionmaker"]() as db:
+            for receipt_only in (True, False):
+                op_id = uuid4() if receipt_only else pending_id
+                db.add(BillingOperation(
+                    id=op_id, workspace_id=workspace, kind="initial_checkout",
+                    state="succeeded" if receipt_only else "provider_pending",
+                    idempotency_key=f"priority-{op_id}",
+                    provider_id="pay-old-receipt" if receipt_only else "pay-new-pending",
+                    created_at=now - timedelta(hours=2 if receipt_only else 1),
+                    updated_at=now - timedelta(hours=2 if receipt_only else 1),
+                    request_snapshot={"purchase_schema": 2, "provider_environment": "test",
+                                      "provider_shop_id": "shop-money-path"},
+                ))
+                await db.flush()
+                db.add(BillingInvoice(
+                    workspace_id=workspace, operation_id=op_id,
+                    safe_number="INV-SYNTHETIC-OLD" if receipt_only else pending_number,
+                    amount_minor=1000, currency="RUB",
+                    status="succeeded" if receipt_only else "pending",
+                    plan_snapshot={"receipt_registration": "pending"},
+                ))
+            await db.commit()
+    asyncio.run(seed())
+    calls = []
+    def handle(request):
+        calls.append(request.method)
+        assert request.method == "GET" and request.url.path == "/v3/payments/pay-new-pending"
+        return httpx.Response(200, json={
+            "id": "pay-new-pending", "status": "pending", "test": True,
+            "created_at": now.isoformat(), "recipient": {"account_id": "shop-money-path"},
+            "amount": {"value": "10.00", "currency": "RUB"},
+            "metadata": {"workspace_id": str(workspace), "operation_id": str(pending_id),
+                         "invoice_number": pending_number},
+        })
+    monkeypatch.setattr(webhook_reconciliation, "YooKassaClient",
+                        lambda settings: YooKassaClient(settings, transport=httpx.MockTransport(handle)))
+    async def observe():
+        async with client.app_state["sessionmaker"]() as db:
+            result = await webhook_reconciliation.reconcile_pending_initial_checkout_operations(
+                db, client.app.state.settings, limit=1, commit_each_operation=True
+            )
+            await db.commit()
+            return result
+    assert asyncio.run(observe()) == {
+        "processed": 1, "succeeded": 0, "canceled": 0, "pending": 1, "failed": 0
+    }
+    assert calls == ["GET"]

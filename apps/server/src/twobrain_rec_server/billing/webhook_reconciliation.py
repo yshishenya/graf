@@ -313,8 +313,9 @@ async def reconcile_pending_initial_checkout_operations(
                 BillingOperation.created_at >= datetime.now(UTC) - timedelta(hours=24),
             ),
         )
+    receipt_states = ("succeeded", "succeeded_projected")
     receipt_filter = and_(
-        BillingOperation.state == "succeeded",
+        BillingOperation.state.in_(receipt_states),
         BillingOperation.provider_id.is_not(None),
         select(BillingInvoice.id).where(
             BillingInvoice.operation_id == BillingOperation.id,
@@ -343,7 +344,11 @@ async def reconcile_pending_initial_checkout_operations(
         for operation in await db.scalars(
             select(BillingOperation)
             .where(*filters)
-            .order_by(BillingOperation.updated_at, BillingOperation.id)
+            .order_by(
+                BillingOperation.state.in_(receipt_states),
+                BillingOperation.updated_at,
+                BillingOperation.id,
+            )
             .limit(max(1, min(limit, 500)))
         )
     )
@@ -358,7 +363,7 @@ async def reconcile_pending_initial_checkout_operations(
         ):
             return "pending"
         payload = await provider.get_payment(operation.provider_id or "")
-        if operation.state == "succeeded":
+        if operation.state in receipt_states:
             # A late receipt must not replay grants, mandates or budget settlement.
             invoice = await db.scalar(select(BillingInvoice).where(
                 BillingInvoice.operation_id == operation.id,
@@ -468,7 +473,7 @@ async def reconcile_pending_initial_checkout_operations(
                     else:
                         valid_operations.append(operation)
                     continue
-                if operation.state != "succeeded":
+                if operation.state not in receipt_states:
                     operation.state = "manual_resolution"
                     invoice = await db.scalar(
                         select(BillingInvoice)

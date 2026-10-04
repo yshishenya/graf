@@ -14,9 +14,12 @@
           {% if invoice.capacity_label|default(None) %}<div><dt>Общий объем хранения</dt><dd>{{ invoice.capacity_label }}</dd></div>{% endif %}
           <div><dt>Чек</dt><dd>{% if invoice.receipt_url %}<a href="{{ invoice.receipt_url }}" rel="noopener noreferrer">Открыть чек</a>{% else %}{{ invoice.receipt_label }}{% endif %}</dd></div>
         </dl>
+        {% if invoice.receipt_refresh_failed|default(False) %}
+        <p role="status">Не удалось проверить чек. Попробуйте позже. Оплата остаётся подтверждённой.</p>
+        {% endif %}
         {% if invoice.can_refresh_receipt|default(False) %}
         <p>Оплата прошла. Проверка чека не создаёт нового списания.</p>
-        <form action="/billing/checkout/status/{{ invoice.safe_number }}/refresh" method="post">
+        <form action="/billing/checkout/status/{{ invoice.safe_number }}/refresh?return_to=invoice" method="post">
           {{ sections.csrf_field(csrf_token|default(None)) }}
           <button class="button quiet" type="submit">Проверить чек</button>
         </form>
