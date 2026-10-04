@@ -54,7 +54,7 @@ T012/T014:49min41s на1e78, Capture byte-identical6dc8, один start/no timin
 
 ## Phase 11: Convergence
 - [X] T017 Удалить личный домашний путь из specs/284-recording-continuity-playback/validation.md; нейтральное описание существующего Playwright, проверка активных доказательств и независимое ревью по FR008/Constitution privacy (contradicts, CRITICAL). (Issue #7522)
-- [ ] T018 [US2] Сохранить подсказку обратиться к владельцу в общей встрече при нехватке места без /billing в apps/server/src/twobrain_rec_server/cabinet/rendering.py; red/green embedded/web и own/shared в apps/server/tests/contract/test_playback_status_contract.py, независимое ревью, Dev и текущие CI по FR006/SC004 (partial, HIGH). (Issue #7523)
+- [X] T018 [US2] Сохранить подсказку обратиться к владельцу в общей встрече при нехватке места без /billing в apps/server/src/twobrain_rec_server/cabinet/rendering.py; red/green embedded/web и own/shared в apps/server/tests/contract/test_playback_status_contract.py, независимое ревью, Dev и текущие CI по FR006/SC004 (partial, HIGH). (Issue #7523)
 
 T017→T018, затем converge/validation; прежний af6e PASS не закрывает новые замечания.
 
