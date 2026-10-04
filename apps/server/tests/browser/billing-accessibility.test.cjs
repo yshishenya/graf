@@ -223,7 +223,7 @@ async function checkTextContrast(page, label) {
           assert.equal(await page.locator('a[href="/billing/checkout?cycle=month"]').count(), 0);
           assert.equal(await page.locator('form[action="/billing/subscription/resume"], form[action="/billing/subscription/early-preview"]').count(), 0);
           if (name === 'subscription-ambiguous-payment') {
-            const status = page.getByRole('link', { name: 'Проверить платёж', exact: true });
+            const status = page.getByRole('link', { name: 'Проверить платеж', exact: true });
             assert(await status.isVisible());
             assert.equal(await status.getAttribute('href'), '/billing/checkout/status/INV-SYNTHETIC');
           }
@@ -234,7 +234,7 @@ async function checkTextContrast(page, label) {
           assert.equal(await recovery.getAttribute('href'), '/billing/payment-method');
           await recovery.focus();
           assert(await recovery.evaluate(el => el === document.activeElement));
-          assert(await page.getByRole('link', { name: 'Проверить платёж', exact: true }).isVisible());
+          assert(await page.getByRole('link', { name: 'Проверить платеж', exact: true }).isVisible());
           assert.equal(await page.locator('a[href="/billing/checkout?cycle=month"]').count(), 0);
           assert.equal(await page.locator('form[action="/billing/subscription/resume"], form[action="/billing/subscription/early-preview"]').count(), 0);
           assert(!(await page.locator('main').innerText()).includes('Уже отправленный'));
@@ -494,7 +494,7 @@ async function checkTextContrast(page, label) {
       });
       await page.goto('https://graf.test/billing/subscription');
       if (name.startsWith('subscription-restriction-')) {
-        const primary = page.getByRole('link', { name: 'Проверить платёж', exact: true });
+        const primary = page.getByRole('link', { name: 'Проверить платеж', exact: true });
         assert(await primary.isVisible());
         await primary.focus();
         assert(await primary.evaluate(el => el === document.activeElement));
