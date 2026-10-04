@@ -272,3 +272,6 @@ T057 уточняет уже требуемую правдивость FR042: о
 
 
 Уточнение владельца «Сделать карточку плотнее» выполняется в T054 только двумя invoice-scoped CSS правилами: gap12px/padding16px20px для карточки и padding-block8px для строк order-summary. Ширина720 и размеры текста/контролов/фокуса прежние; global/subscription/status правила не изменяются. После двух правил — свежие Chromium/WebKit16 и независимый visual/source refresh; прежние browser results не подменяют current density evidence.
+
+
+T058: существующие сообщения причин приостановки выводить независимо от общей pending ветки. Для pending receipt_contact_required использовать короткую правдивую причину и действующую помощь; method/price safe GET сохранить, late_success подавить только при pending. Текущий цикл вычислять в шаблоне из subscription.cycle, а строку периода ограничить active+month/year; неизвестный цикл не месячный. Не менять _renewal_notice, его двух callers, GET-проекцию, invoice handlers и денежную политику. Lane high-risk-product continuation; сначала independent checklist refresh/analyze/canon, затем RED→minimal template→GREEN/reviews/new current PR gate.

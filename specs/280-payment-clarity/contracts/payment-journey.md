@@ -149,3 +149,5 @@ Status `/billing/checkout/status/{safe_number}`: только необходим
 Checkout contract FR019/020 остается во всех сценариях. Saved-card early-preview и hosted checkout остаются отдельными safe paths; invoice slice ни один из них не объединяет и не меняет.
 
 T057: subscription pending notice для всех видов: «Результат платежа [на сумму] еще не подтвержден. Платеж еще может завершиться. Повторно платить не нужно». Не утверждать «Уже отправленный», даже при сохраненном provider_id. Prepared scheduled без provider_id отдельно и не получает pending notice. Сумма из прежнего invoice, исключений денежной политики не добавляется.
+
+T058: pending не скрывает действующие price/contact/method/suspension причины. Главное действие — проверка существующего платежа, secondary только безопасный GET/помощь. При pending receipt не приглашает платить снова; без pending прежний recovery сохраняется. late_success не подтверждает текущий pending. «Период оплаты» только active paid+month/year; free/trial/expired/unknown не получают fabricatedmonth ни в одном из трех period labels. GET/денежная политика прежние.

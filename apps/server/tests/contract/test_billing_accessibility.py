@@ -268,6 +268,17 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
             "active": False, "subscription": None, "subscription_plan_label": "Бесплатный",
             "paid_through_label": None, "paid_through_short_label": None,
         },
+        "subscription-expired": {
+            "active": False, "subscription_plan_label": "Бесплатный",
+            "subscription": {**subscription_off["subscription"], "paid_through": "2026-09-28T12:00:00Z"},
+        },
+        "subscription-unknown-cycle": {
+            "subscription": {**subscription_off["subscription"], "cycle": "unknown"},
+        },
+        "subscription-year": {
+            "subscription": {**surface_context["subscription"], "cycle": "year"},
+            "subscription_cycle_label": "месяц", "next_charge_amount_label": "10 000 ₽",
+        },
         **{f"subscription-uncertain-{state}": {
             "subscription": {**subscription_off["subscription"], "renewal_resolution": state},
             "method_available": True, "payment_method_label": "•••• 4242",
@@ -276,6 +287,21 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
     }.items():
         pages[name] = render_template(
             "cabinet/pages/billing_subscription_content.html", **{**subscription_off, **changes},
+        )
+    from types import SimpleNamespace
+
+    from twobrain_rec_server.cabinet.web_routes.billing import _renewal_notice
+
+    for reason in ("price_changed", "receipt_contact_required", "acceptance_budget", "provider_unavailable",
+                   "catalog_not_approved", "provider_floor", "late_success"):
+        subscription = {**subscription_off["subscription"], "renewal_resolution": reason}
+        notice, url, label = _renewal_notice(SimpleNamespace(**subscription))
+        pages[f"subscription-restriction-{reason}"] = render_template(
+            "cabinet/pages/billing_subscription_content.html",
+            **{**subscription_off, "subscription": subscription,
+               "pending_charge_amount_label": "1 000 ₽",
+               "pending_payment_url": "/billing/checkout/status/INV-SYNTHETIC",
+               "renewal_notice": notice, "renewal_action_url": url, "renewal_action_label": label},
         )
     pages["discounts-error"] = render_template(
         "cabinet/pages/billing_discounts_content.html",

@@ -1531,6 +1531,9 @@ def test_paid_period_consumes_only_its_storage_choice_and_rejects_stale_cancel(
     + [(True, "resolution", state) for state in ("pending", "unknown", "unknown_pending", "provider_key_expired")]
     + [(True, "method_required", dispatch) for dispatch in ("before_dispatch", "after_dispatch")]
     + [(True, "initial_checkout", "manual_resolution")]
+    + [(True, f"restriction_{reason}", "provider_pending") for reason in (
+        "price_changed", "receipt_contact_required", "acceptance_budget", "provider_unavailable",
+        "catalog_not_approved", "provider_floor", "late_success")]
     + [(has_subscription, kind, "manual_resolution_before_dispatch")
        for has_subscription in (True, False)
        for kind in ("initial_checkout", "storage_upgrade", "renewal", "early_renewal")],
@@ -1557,7 +1560,8 @@ def test_subscription_existing_payment_of_every_kind_blocks_new_actions_without_
             subscription = await db.scalar(select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == workspace))
             if has_subscription:
                 subscription.recurring_allowed = False
-                subscription.renewal_resolution = "method_required" if kind == "method_required" else state if kind == "resolution" else None
+                subscription.renewal_resolution = (kind.removeprefix("restriction_") if kind.startswith("restriction_")
+                                                   else "method_required" if kind == "method_required" else state if kind == "resolution" else None)
                 if kind != "method_required":
                     db.add(BillingPaymentMethod(
                         workspace_id=workspace, owner_user_id=USER_ID, encrypted_provider_ref="synthetic",
@@ -1568,7 +1572,7 @@ def test_subscription_existing_payment_of_every_kind_blocks_new_actions_without_
                 await db.delete(subscription)
             if kind != "resolution":
                 operation = BillingOperation(
-                    workspace_id=workspace, kind="renewal" if kind == "method_required" else kind,
+                    workspace_id=workspace, kind="renewal" if kind == "method_required" or kind.startswith("restriction_") else kind,
                     state="manual_resolution" if kind == "method_required" or state == "manual_resolution_before_dispatch" else state,
                     idempotency_key=str(uuid4()),
                     provider_id=None if state in {"before_dispatch", "manual_resolution_before_dispatch"} else "synthetic-existing",
@@ -1623,4 +1627,77 @@ def test_subscription_existing_payment_of_every_kind_blocks_new_actions_without_
             assert card is not None
             assert card[0] in re.sub(r"<details\b.*?</details>", "", response.text, flags=re.S)
             assert "Уже отправленный платеж" not in response.text
+        if kind.startswith("restriction_"):
+            reason = kind.removeprefix("restriction_")
+            visible = re.sub(r"<details\b.*?</details>", "", response.text, flags=re.S)
+            assert response.text.count("data-billing-primary") == 1
+            assert "Подтверждение оплаты получено" not in response.text
+            if reason == "price_changed":
+                assert "Цена подписки или хранения изменилась" in visible
+                assert 'href="/billing/storage">Проверить новую цену</a>' in visible
+            elif reason == "receipt_contact_required":
+                assert "нужен адрес для чека" in visible
+                assert "Оплатите" not in response.text
+                assert "Оплатить следующий период вручную" not in response.text
+                assert 'href="/billing/history#billing-help"' in visible
+            elif reason != "late_success":
+                assert "Автопродление приостановлено" in visible
     assert create.await_count == 0
+
+
+@pytest.mark.parametrize(("plan", "active", "cycle"), [
+    (None, False, None), ("free", False, "month"), ("trial", False, "month"),
+    ("personal", False, "month"), ("personal", True, "unknown"),
+    ("personal", True, "month"), ("personal", True, "year"),
+])
+def test_subscription_real_get_period_is_only_a_truthful_active_paid_fact(client, tmp_path, monkeypatch, plan, active, cycle):
+    from unittest.mock import AsyncMock
+
+    from sqlalchemy import func
+
+    from twobrain_rec_server.billing.yookassa import YooKassaClient
+    from twobrain_rec_server.db.models import BillingPurchaseQuote
+
+    _configure_billing(client, tmp_path)
+    _approved_month_catalog(client)
+    workspace, headers = _prepare_owner_session(client)
+
+    async def seed():
+        async with client.app_state["sessionmaker"]() as db:
+            sub = await db.scalar(select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == workspace))
+            if sub is not None:
+                await db.delete(sub)
+                await db.flush()
+            if plan is not None:
+                db.add(WorkspaceSubscription(
+                    workspace_id=workspace, billing_owner_id=USER_ID, plan_code=plan,
+                    state="active", cycle=cycle, recurring_allowed=False,
+                    paid_through=datetime.now(UTC) + timedelta(days=30 if active else -1) if plan == "personal" else None,
+                    trial_ends_at=datetime.now(UTC) + timedelta(days=7) if plan == "trial" else None,
+                ))
+            await db.commit()
+
+    async def snapshot():
+        async with client.app_state["sessionmaker"]() as db:
+            counts = [await db.scalar(select(func.count()).select_from(model).where(model.workspace_id == workspace))
+                      for model in (BillingOperation, BillingInvoice, BillingEntitlementGrant, BillingPurchaseQuote)]
+            states = list(await db.execute(select(WorkspaceSubscription.plan_code, WorkspaceSubscription.state,
+                                                WorkspaceSubscription.cycle, WorkspaceSubscription.paid_through,
+                                                WorkspaceSubscription.trial_ends_at, WorkspaceSubscription.recurring_allowed,
+                                                WorkspaceSubscription.recurring_authority_version).where(
+                WorkspaceSubscription.workspace_id == workspace)))
+            return counts, states
+
+    asyncio.run(seed())
+    before = asyncio.run(snapshot())
+    create = AsyncMock(side_effect=AssertionError("subscription GET must not create a provider payment"))
+    monkeypatch.setattr(YooKassaClient, "create_payment", create)
+    response = client.get("/billing/subscription", headers=headers)
+    assert response.status_code == 200
+    assert asyncio.run(snapshot()) == before and create.await_count == 0
+    period = re.search(r"<dt>Период оплаты</dt><dd>(.*?)</dd>", response.text, re.S)
+    if active and cycle in {"month", "year"}:
+        assert period and period[1] == ("месяц" if cycle == "month" else "год")
+    else:
+        assert period is None
+        assert "за месяц" not in response.text and "за год" not in response.text

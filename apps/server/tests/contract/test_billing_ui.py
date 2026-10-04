@@ -529,6 +529,7 @@ def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> N
         subscription=SimpleNamespace(
             plan_code="personal",
             paid_through=datetime(2026, 9, 1, tzinfo=UTC),
+            cycle="month",
             recurring_allowed=False,
             recurring_authority_version=1,
         ),
@@ -1665,6 +1666,81 @@ def _subscription_view(**changes) -> str:
             **changes,
         },
     )
+
+
+@pytest.mark.parametrize("resolution", [
+    "price_changed", "receipt_contact_required", "method_required", "acceptance_budget",
+    "provider_unavailable", "catalog_not_approved", "provider_floor", "late_success",
+])
+def test_subscription_pending_preserves_restrictions_without_competing_recovery(resolution):
+    from twobrain_rec_server.cabinet.web_routes.billing import _renewal_notice
+
+    sub = SimpleNamespace(plan_code="personal", state="active", cycle="month",
+                          paid_through=datetime(2026, 11, 3, tzinfo=UTC),
+                          recurring_allowed=False, recurring_authority_version=7,
+                          renewal_resolution=resolution)
+    notice, url, label = _renewal_notice(sub)
+    html = _subscription_view(subscription=sub, pending_payment_url="/billing/checkout/status/INV-SYNTHETIC",
+                              pending_charge_amount_label="1 000 ₽", renewal_notice=notice,
+                              renewal_action_url=url, renewal_action_label=label,
+                              method_available=True, resume_quote_id="synthetic-resume")
+    visible = re.sub(r"<details\b.*?</details>", "", html, flags=re.S)
+    assert html.count("data-billing-primary") == 1
+    assert 'href="/billing/checkout/status/INV-SYNTHETIC"' in visible
+    assert 'href="/billing/checkout?cycle=' not in html
+    assert 'action="/billing/subscription/resume"' not in html
+    assert 'action="/billing/subscription/early-preview"' not in html
+    assert "Подтверждение оплаты получено" not in html
+    if resolution == "receipt_contact_required":
+        assert "нужен адрес для чека" in visible
+        assert "Оплатите" not in html and "Оплатить следующий период вручную" not in html
+        assert 'href="/billing/history#billing-help"' in visible
+    elif notice:
+        assert notice in visible
+        assert f'href="{url}"' in visible
+    elif resolution != "late_success":
+        assert "Автопродление приостановлено" in visible
+
+
+def test_subscription_receipt_recovery_without_pending_remains_available():
+    from twobrain_rec_server.cabinet.web_routes.billing import _renewal_notice
+
+    sub = SimpleNamespace(plan_code="personal", state="active", cycle="year",
+                          paid_through=datetime(2026, 11, 3, tzinfo=UTC), recurring_allowed=False,
+                          recurring_authority_version=7, renewal_resolution="receipt_contact_required")
+    notice, url, label = _renewal_notice(sub)
+    html = _subscription_view(subscription=sub, renewal_notice=notice, renewal_action_url=url,
+                              renewal_action_label=label)
+    assert notice in html and 'href="/billing/checkout?cycle=year"' in html
+    assert "Оплатить следующий период вручную" in html
+
+
+@pytest.mark.parametrize(("plan", "active", "cycle"), [
+    (None, False, None), ("free", False, "month"), ("trial", False, "month"),
+    ("personal", False, "month"), ("personal", True, "unknown"),
+    ("personal", True, None), ("personal", True, "month"), ("personal", True, "year"),
+    ("personal", True, "missing_attribute"),
+])
+def test_subscription_period_is_only_a_truthful_active_paid_fact(plan, active, cycle):
+    sub = None if plan is None else SimpleNamespace(
+        plan_code=plan, state="active", cycle=cycle, paid_through=datetime(2026, 11, 3, tzinfo=UTC),
+        recurring_allowed=True, recurring_authority_version=7, renewal_resolution=None)
+    if cycle == "missing_attribute":
+        del sub.cycle
+    # Deliberately stale presentation label must not invent the actual cycle.
+    html = _subscription_view(subscription=sub, active=active, subscription_cycle_label="месяц",
+                              subscription_trial_active=plan == "trial")
+    period = re.search(r"<dt>Период оплаты</dt><dd>(.*?)</dd>", html, re.S)
+    if active and cycle in {"month", "year"}:
+        expected = "месяц" if cycle == "month" else "год"
+        assert period and period[1] == expected
+        next_charge = re.search(r"<dt>Следующее списание</dt><dd>(.*?)</dd>", html, re.S)
+        next_price = re.search(r"<dt>Цена следующего периода</dt><dd>(.*?)</dd>", html, re.S)
+        assert next_charge and f"за {expected}" in next_charge[1]
+        assert next_price and f"за {expected}" in next_price[1]
+    else:
+        assert period is None
+        assert "за месяц" not in html and "за год" not in html
 
 
 @pytest.mark.parametrize("cycle", ["month", "year"])
