@@ -147,7 +147,7 @@ async def test_invoice_receipt_link_requires_registered_receipt(
     observation_enabled: bool,
 ) -> None:
     invoice = SimpleNamespace(
-        safe_number="INV-RECEIPT1",
+        safe_number="INV-RECEIPT1", operation_id=UUID(int=4), workspace_id=UUID(int=2),
         created_at=datetime(2026, 8, 26, tzinfo=UTC),
         amount_minor=1_000,
         currency="RUB",
@@ -162,7 +162,7 @@ async def test_invoice_receipt_link_requires_registered_receipt(
 
     class FakeSession:
         def __init__(self) -> None:
-            self.results = iter((None, invoice))
+            self.results = iter((None, invoice, UUID(int=4)))
 
         async def scalar(self, _statement: object) -> object:
             return next(self.results)

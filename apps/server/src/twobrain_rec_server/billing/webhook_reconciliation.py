@@ -62,6 +62,7 @@ if TYPE_CHECKING:
     from twobrain_rec_server.config import Settings
 
 
+RECEIPT_OBSERVATION_STATES = ("succeeded", "succeeded_projected", "succeeded_refused")
 RECONCILABLE_WEBHOOK_STATES = frozenset(("accepted", "pending_reconciliation"))
 MAX_REFUND_LIST_PAGES = 20
 
@@ -314,7 +315,7 @@ async def reconcile_pending_initial_checkout_operations(
                 BillingOperation.created_at >= datetime.now(UTC) - timedelta(hours=24),
             ),
         )
-    receipt_states = ("succeeded", "succeeded_projected", "succeeded_refused")
+    receipt_states = RECEIPT_OBSERVATION_STATES
     receipt_filter = and_(
         BillingOperation.state.in_(receipt_states),
         BillingOperation.provider_id.is_not(None),
@@ -495,6 +496,9 @@ async def reconcile_pending_initial_checkout_operations(
                     )
                     if invoice is not None:
                         invoice.status = "manual_resolution"
+                else:
+                    # Rotate inaccessible paid receipts without contacting the provider.
+                    operation.updated_at = datetime.now(UTC)
                 counters["failed"] += 1
                 if commit_each_operation:
                     await db.commit()

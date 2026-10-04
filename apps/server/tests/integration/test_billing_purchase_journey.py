@@ -1037,7 +1037,7 @@ def test_pending_payment_precedes_older_receipt_when_batch_has_one_slot(
     assert calls == ["GET"]
 
 
-@pytest.mark.parametrize("first_result", ["pending", "get_failure", "wrong_scope"])
+@pytest.mark.parametrize("first_result", ["pending", "get_failure", "wrong_scope", "ownerless"])
 def test_pending_receipts_rotate_with_one_batch_slot(client, monkeypatch, tmp_path, first_result):
     from uuid import uuid4
 
@@ -1048,15 +1048,25 @@ def test_pending_receipts_rotate_with_one_batch_slot(client, monkeypatch, tmp_pa
 
     async def seed():
         async with client.app_state["sessionmaker"]() as db:
+            ownerless = workspace
+            if first_result == "ownerless":
+                from twobrain_rec_server.db.models import Workspace
+                space = await db.get(Workspace, workspace)
+                ownerless = uuid4()
+                db.add(Workspace(id=ownerless, organization_id=space.organization_id,
+                                 slug=f"receipt-{ownerless}", name="Synthetic ownerless receipt",
+                                 kind="personal", owner_user_id=None))
+                await db.flush()
             for index, (operation_id, number, payment_id) in enumerate(identities):
-                db.add(BillingOperation(id=operation_id, workspace_id=workspace,
+                operation_workspace = ownerless if index == 0 else workspace
+                db.add(BillingOperation(id=operation_id, workspace_id=operation_workspace,
                     kind="initial_checkout", state="succeeded", provider_id=payment_id,
                     idempotency_key=str(operation_id), created_at=now - timedelta(hours=2),
                     updated_at=now - timedelta(minutes=2 - index),
                     request_snapshot={"purchase_schema": 2, "provider_environment": "test",
                                       "provider_shop_id": "shop-money-path"}))
                 await db.flush()
-                db.add(BillingInvoice(workspace_id=workspace, operation_id=operation_id,
+                db.add(BillingInvoice(workspace_id=operation_workspace, operation_id=operation_id,
                     safe_number=number, amount_minor=1000, currency="RUB", status="succeeded",
                     plan_snapshot={"receipt_registration": "pending"}))
             await db.commit()
@@ -1104,4 +1114,75 @@ def test_pending_receipts_rotate_with_one_batch_slot(client, monkeypatch, tmp_pa
     assert asyncio.run(financial_snapshot()) == before
     asyncio.run(observe())
     assert asyncio.run(financial_snapshot()) == before
-    assert calls == [item[2] for item in identities]
+    assert calls == [item[2] for item in (identities[1:] if first_result == "ownerless" else identities)]
+
+
+def test_invoice_hides_receipt_refresh_for_nonrecoverable_operation(client, monkeypatch, tmp_path):
+    from uuid import uuid4
+
+    from tests.conftest import USER_ID
+    from twobrain_rec_server.billing.entitlements import grant_confirmed_renewal
+
+    _configure_billing(client, tmp_path)
+    workspace, headers = _prepare_owner_session(client)
+    op_id, inv_id = uuid4(), uuid4()
+    number, now = f"INV-ACTOR-{uuid4().hex}", datetime.now(UTC)
+    async def seed():
+        async with client.app_state["sessionmaker"]() as db:
+            subscription = await db.get(WorkspaceSubscription, workspace)
+            if subscription is None:
+                subscription = WorkspaceSubscription(workspace_id=workspace)
+                db.add(subscription)
+            subscription.billing_owner_id = USER_ID
+            subscription.plan_code, subscription.cycle = "personal", "year"
+            subscription.recurring_allowed = False
+            db.add(BillingOperation(id=op_id, workspace_id=workspace, kind="renewal",
+                state="unknown", provider_id="pay-actor-receipt", idempotency_key=str(op_id),
+                request_snapshot={"purchase_schema": 2, "cycle": "year", "plan_code": "personal",
+                                  "billing_actor_user_id": str(uuid4())}))
+            await db.flush()
+            db.add(BillingInvoice(id=inv_id, workspace_id=workspace, operation_id=op_id,
+                safe_number=number, amount_minor=12500, currency="RUB", status="pending",
+                plan_snapshot={"receipt_registration": "pending"}))
+            await db.flush()
+            assert await grant_confirmed_renewal(db, workspace_id=workspace,
+                provider_payment_id="pay-actor-receipt", amount_minor=12500,
+                currency="RUB", grant_starts_at=now) == "owner_changed"
+            assert (await db.get(BillingOperation, op_id)).state == "reconciliation_gap"
+            await db.commit()
+    asyncio.run(seed())
+    calls = []
+    def handle(request):
+        calls.append(request.method)
+        raise AssertionError("Excluded receipt must not call provider")
+    monkeypatch.setattr(webhook_reconciliation, "YooKassaClient",
+        lambda settings: YooKassaClient(settings, transport=httpx.MockTransport(handle)))
+    page = client.get(f"/billing/invoices/{number}")
+    assert page.status_code == 200 and "Чек формируется" in page.text
+    assert "Проверить чек" not in page.text
+    response = client.post(f"/billing/checkout/status/{number}/refresh?return_to=invoice",
+                           headers=headers, follow_redirects=False)
+    assert response.status_code == 303 and not calls
+    async def operation_shape(state, kind, provider_id):
+        async with client.app_state["sessionmaker"]() as db:
+            operation = await db.get(BillingOperation, op_id)
+            operation.state, operation.kind, operation.provider_id = state, kind, provider_id
+            await db.commit()
+    for shape in (("sent", "renewal", "pay-actor-receipt"),
+                  ("succeeded", "renewal", None),
+                  ("succeeded", "unsupported", "pay-actor-receipt")):
+        asyncio.run(operation_shape(*shape))
+        page = client.get(f"/billing/invoices/{number}")
+        assert page.status_code == 200 and "Чек формируется" in page.text
+        assert "Проверить чек" not in page.text
+    asyncio.run(operation_shape("reconciliation_gap", "renewal", "pay-actor-receipt"))
+    assert not calls
+    async def verify():
+        async with client.app_state["sessionmaker"]() as db:
+            assert (await db.get(BillingOperation, op_id)).state == "reconciliation_gap"
+            invoice = await db.get(BillingInvoice, inv_id)
+            assert invoice.status == "succeeded" and invoice.plan_snapshot["receipt_registration"] == "pending"
+            assert invoice.plan_snapshot["service_resolution"] == "owner_changed"
+            assert not (await db.get(WorkspaceSubscription, workspace)).recurring_allowed
+            assert await db.scalar(select(func.count()).select_from(BillingStorageEntitlementGrant)) == 0
+    asyncio.run(verify())

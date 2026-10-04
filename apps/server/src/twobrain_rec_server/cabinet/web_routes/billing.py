@@ -122,6 +122,7 @@ from twobrain_rec_server.billing.trial import (
 )
 from twobrain_rec_server.billing.usage import format_duration, moscow_window_for
 from twobrain_rec_server.billing.webhook_reconciliation import (
+    RECEIPT_OBSERVATION_STATES,
     reconcile_pending_initial_checkout_operations,
 )
 from twobrain_rec_server.billing.yookassa import (
@@ -4436,6 +4437,18 @@ async def billing_invoice_detail_page(
     # authority and never exposes the previous payer's receipt or card.
     can_refresh = can_manage or await _is_paid_refused_receipt(db, invoice)
     receipt_state = _receipt_registration_state(snapshot.get("receipt_registration"))
+    can_refresh_receipt = can_refresh and invoice.status == "succeeded" and (
+        receipt_state is ReceiptState.PENDING
+    ) and (request.app.state.settings.billing_provider_observation_enabled
+           or request.app.state.settings.billing_checkout_enabled)
+    if can_refresh_receipt:
+        can_refresh_receipt = bool(await db.scalar(select(BillingOperation.id).where(
+            BillingOperation.id == invoice.operation_id,
+            BillingOperation.workspace_id == invoice.workspace_id,
+            BillingOperation.kind.in_(("initial_checkout", "storage_upgrade", "early_renewal", "renewal")),
+            BillingOperation.provider_id.is_not(None),
+            BillingOperation.state.in_(RECEIPT_OBSERVATION_STATES),
+        )))
     receipt_url = snapshot.get("receipt_url") if receipt_state is ReceiptState.AVAILABLE else None
     if not can_manage or not is_allowed_confirmation_url(receipt_url):
         receipt_url = None
@@ -4508,10 +4521,7 @@ async def billing_invoice_detail_page(
             "receipt_url": receipt_url,
             "receipt_refresh_failed": can_refresh
             and request.query_params.get("result") == "unavailable",
-            "can_refresh_receipt": can_refresh and invoice.status == "succeeded"
-            and receipt_state is ReceiptState.PENDING
-            and (request.app.state.settings.billing_provider_observation_enabled
-                 or request.app.state.settings.billing_checkout_enabled),
+            "can_refresh_receipt": can_refresh_receipt,
             "refund_mailto": refund_mailto,
         },
         support_email=support_email,
