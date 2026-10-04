@@ -218,3 +218,13 @@ Desktop получает context от собственного API с сущес
 Проверка: реальный browser click→API→Postgres, reload без autoaccept, A→B без переноса согласия, accept/revoke/error; native notify→context refresh и generation gate. Полный изолированный PostHog ingestion исследовать через существующий официальный dependency path, не через production credentials/fixtures или фиктивный ClickHouse INSERT.
 
 Native completion связан с поколением, полученным синхронно до создания Task: более старый changed не может снять более новый pending. Все trusted UI choices сериализуются; последний отличающийся выбор не теряется во время PUT. Реализационные доказательства и installation boundary: consent-ui-evidence.md / isolated-delivery-plan.md.
+
+## План продолжения 2026-10-04: отдельная политика потери аналитики
+
+Lane: high-risk-product, существующий срез096/issue7472. Уточнение владельца FR-034a заменяет требование нового резервирования только для минимального PostHog. Конституционная deployment граница должна явно разрешить это узкое исключение до реализации; продуктовые backup/release gates не меняются.
+
+1. Независимый reviewer проверяет требования/checklist; analyze подтверждает отсутствие unresolved critical/high и ownership T110 в issue7472.
+2. Settings/Compose/example получают required(default)|owner_accepted_loss. Общие operations evidence и campaign readiness остаются исходными. Только provider=posthog фильтрует восемь backup/restore blockers при строгом minimal scope и сообщает policy, waived blockers и unrecoverable-loss caveat. Retention/access/legal blockers не фильтруются.
+3. PostHog wrapper в этом режиме разрешает только explicit milestone path; generic capture блокируется до secret read/HTTP. Проверки: default/invalid policy; неподходящий scope; отсутствующие/stale/failed backup/restore; сохраняющиеся retention/access/legal блокировки; campaign/Yandex; явный UUID и восстановление required policy.
+4. Review/converge, focused tests, exact PR CI. Production использует обычный master release candidate/full CI/deploy dry-run; никаких прямых draft deploy, новых ключей/grants, extraction cookies или DB login обхода.
+5. Сначала реальные remaining ops proofs. При отсутствии operator доступа/365/noIP/readback/security approval сбор остаётся off; blocker сообщается конкретно. Новое резервирование не предлагается и не выполняется.

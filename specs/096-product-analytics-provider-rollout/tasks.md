@@ -329,3 +329,7 @@ checked historical task record while closing the current integration gap.
 Issue #7472 owns Spec Kit task IDs: T105, T106, T107, T108, T109. Production acceptance and operational proofs remain separate.
 
 Consent UI continuation evidence: [consent-ui-evidence.md](consent-ui-evidence.md). T105–108 checked only for implementation/test/proposal scope; production acceptance/retention/runtime no-IP are not claimed. T109 remains open until real isolated PostHog/ClickHouse readback; exact CI receipt is bound to the current PR SHA.
+
+## Phase 11: Согласованный режим без PostHog backup
+
+- [ ] T110 [P1] [analytics] Добавить явную policy required|owner_accepted_loss для минимальной PostHog воронки, сохранить campaign/retention/access/legal/consent gates и truthful metadata, проверить границы и повторное включение required, получить независимый review и exact PR CI. Owner: issue #7472; FR-034a. Production acceptance остаётся отдельной.

@@ -177,3 +177,9 @@ Use this file with `.specify/memory/constitution.md`,
   amended.
 - Deployment features require Docker secret handling, health checks, backups,
   restore, rollback, log redaction, and disk-full behavior.
+- Constitution8.0 permits only an explicit owner_accepted_loss exception for
+  minimal authenticated server-mediated PostHog analytics backup/restore/offsite.
+  Report missing proofs and possible unrecoverable analytics loss; preserve all
+  GRAF PostgreSQL/MinIO backup and release/deploy gates. Consent/access/MFA/legal,
+  no-IP/retention/delivery remain required; existing copies are not deleted.
+  Global campaign readiness and broad/direct/Yandex capture gain no exception.

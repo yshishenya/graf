@@ -86,15 +86,23 @@ class PostHogClientWrapper:
         *,
         environ: Mapping[str, str] | None = None,
     ) -> PostHogClientWrapper:
-        project_key_status = secret_file_status(
-            settings.product_analytics_posthog_project_key_file,
-            logical_name="POSTHOG_PROJECT_KEY",
+        # Loss-accepted clients defer key validation until the explicit path
+        # is admitted. Generic routes must not read credential contents.
+        project_key_present = (
+            settings.product_analytics_posthog_project_key_file is not None
+            if settings.product_analytics_posthog_backup_policy == "owner_accepted_loss"
+            else secret_file_status(
+                settings.product_analytics_posthog_project_key_file,
+                logical_name="POSTHOG_PROJECT_KEY",
+            ).present
         )
         return cls(
             enabled=settings.product_analytics_posthog_enabled,
-            host=str(settings.product_analytics_posthog_host) if settings.product_analytics_posthog_host else None,
+            host=str(settings.product_analytics_posthog_host)
+            if settings.product_analytics_posthog_host
+            else None,
             project_key_file=settings.product_analytics_posthog_project_key_file,
-            project_key_present=project_key_status.present,
+            project_key_present=project_key_present,
             validation_mode=settings.product_analytics_validation_mode,
             live_delivery_allowed=settings.product_analytics_live_provider_delivery_allowed(),
             settings=settings,
@@ -103,7 +111,9 @@ class PostHogClientWrapper:
 
     def capture(self, event: ProductActivationEvent) -> ProviderDeliveryResult:
         if not self.enabled:
-            return ProviderDeliveryResult("posthog", "disabled", "PostHog product analytics is disabled")
+            return ProviderDeliveryResult(
+                "posthog", "disabled", "PostHog product analytics is disabled"
+            )
         if not event.stable_pseudonymous_user_id:
             return ProviderDeliveryResult(
                 "posthog",
@@ -137,7 +147,37 @@ class PostHogClientWrapper:
         explicit_event_id: str | None = None,
     ) -> ProviderDeliveryResult:
         if not self.enabled:
-            return ProviderDeliveryResult("posthog", "disabled", "PostHog product analytics is disabled")
+            return ProviderDeliveryResult(
+                "posthog", "disabled", "PostHog product analytics is disabled"
+            )
+        if (
+            self.settings is not None
+            and self.settings.product_analytics_posthog_backup_policy == "owner_accepted_loss"
+        ):
+            # Generic routes never pass this server-derived milestone UUID.
+            # Keep the exception confined to the existing consent-bound route.
+            from uuid import NAMESPACE_URL, uuid5
+
+            from twobrain_rec_server.product_analytics.explicit_funnel import (
+                EXPLICIT_EVENTS,
+                closed_properties,
+            )
+
+            expected_id = str(
+                uuid5(NAMESPACE_URL, f"graf-explicit-funnel-v1:{distinct_id}:{event_name}")
+            )
+            try:
+                closed_properties(dict(properties))
+                if event_name not in EXPLICIT_EVENTS or explicit_event_id != expected_id:
+                    raise ValueError("not an explicit milestone")
+            except ValueError:
+                return ProviderDeliveryResult(
+                    "posthog",
+                    "live_safe_blocked",
+                    "PostHog loss-accepted mode requires the consent-bound explicit milestone path",
+                    retryable=False,
+                    metadata={"blockers": ["posthog_backup_exception_explicit_path_required"]},
+                )
         if not self.host or not self.project_key_file or not self.project_key_present:
             return ProviderDeliveryResult(
                 "posthog",
@@ -161,7 +201,9 @@ class PostHogClientWrapper:
                 metadata={"rejection": exc.__class__.__name__},
             )
         if self.validation_mode == "provider_smoke":
-            return ProviderDeliveryResult("posthog", "dry_run", "Provider smoke mode does not send live events")
+            return ProviderDeliveryResult(
+                "posthog", "dry_run", "Provider smoke mode does not send live events"
+            )
         if self.validation_mode != "live_safe" or not self.live_delivery_allowed:
             return ProviderDeliveryResult(
                 "posthog",
@@ -190,7 +232,9 @@ class PostHogClientWrapper:
                 metadata={"blockers": list(delivery_gate.blockers)},
             )
         try:
-            project_key = read_secret_file(self.project_key_file, logical_name="POSTHOG_PROJECT_KEY").value
+            project_key = read_secret_file(
+                self.project_key_file, logical_name="POSTHOG_PROJECT_KEY"
+            ).value
         except ProviderSecretError:
             return ProviderDeliveryResult(
                 "posthog",
@@ -233,7 +277,8 @@ class PostHogClientWrapper:
                     receipt = None
                 if not isinstance(receipt, dict) or receipt.get("status") not in (1, "ok"):
                     return ProviderDeliveryResult(
-                        "posthog", "provider_receipt_invalid",
+                        "posthog",
+                        "provider_receipt_invalid",
                         "PostHog HTTP response did not acknowledge capture",
                         retryable=True,
                     )
@@ -266,6 +311,10 @@ def _default_json_transport(
     req = request.Request(url, data=body, headers=dict(headers), method="POST")
     try:
         with request.urlopen(req, timeout=timeout_seconds) as response:
-            return ProviderTransportResponse(status_code=int(response.status), body=response.read(512).decode("utf-8"))
+            return ProviderTransportResponse(
+                status_code=int(response.status), body=response.read(512).decode("utf-8")
+            )
     except error.HTTPError as exc:
-        return ProviderTransportResponse(status_code=int(exc.code), body=exc.read(512).decode("utf-8"))
+        return ProviderTransportResponse(
+            status_code=int(exc.code), body=exc.read(512).decode("utf-8")
+        )

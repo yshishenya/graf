@@ -30,9 +30,12 @@ from twobrain_rec_server.product_analytics.legal_basis_lifecycle import (
     withdrawn_level_keys,
 )
 from twobrain_rec_server.product_analytics.provider_readiness import (
+    BLOCKER_BACKUP_EXCEPTION_SCOPE,
     ProductAnalyticsProviderReadiness,
     build_provider_readiness,
     operations_block_claim,
+    posthog_backup_loss_accepted,
+    posthog_operations_blockers,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -66,6 +69,8 @@ class ProviderDeliveryGate:
     withdrawals: BasisWithdrawalRegister
     access_blockers: tuple[str, ...]
     operations_blockers: tuple[str, ...]
+    waived_operations_blockers: tuple[str, ...] = ()
+    backup_policy: str = "required"
 
     @property
     def basis_state(self) -> str:
@@ -87,7 +92,15 @@ class ProviderDeliveryGate:
             "basis_state": self.basis_state,
             "access_blockers": list(self.access_blockers),
             "operations_blockers": list(self.operations_blockers),
-            "approval_gate": self.approval_gate.as_dict(),
+            "waived_operations_blockers": list(self.waived_operations_blockers),
+            "backup_policy": self.backup_policy,
+            "backup_loss_caveat": "analytics_may_be_unrecoverable"
+            if self.backup_policy == "owner_accepted_loss"
+            else "none",
+            "approval_gate": {
+                **self.approval_gate.as_dict(),
+                "campaign_launch_allowed": self.campaign_launch_allowed,
+            },
         }
 
 
@@ -146,9 +159,23 @@ def resolve_provider_delivery_gate(
         blockers.append(BLOCKER_PROVIDER_DELIVERY_NOT_APPROVED)
 
     blockers.extend(_provider_blockers(readiness, settings, provider))
+    if (
+        provider == "posthog"
+        and settings.product_analytics_posthog_backup_policy == "owner_accepted_loss"
+        and not posthog_backup_loss_accepted(settings)
+    ):
+        blockers.append(BLOCKER_BACKUP_EXCEPTION_SCOPE)
 
     operations_gate = operations_block_claim(settings)
-    operations_blockers = tuple(readiness.analytics_operations.blockers)
+    raw_operations_blockers = tuple(readiness.analytics_operations.blockers)
+    operations_blockers = (
+        posthog_operations_blockers(settings, raw_operations_blockers)
+        if provider == "posthog"
+        else raw_operations_blockers
+    )
+    waived_operations_blockers = tuple(
+        blocker for blocker in raw_operations_blockers if blocker not in operations_blockers
+    )
     if operations_gate and operations_blockers:
         blockers.append(BLOCKER_OPERATIONS_NOT_READY)
 
@@ -163,13 +190,18 @@ def resolve_provider_delivery_gate(
 
     level_key = _provider_level(provider)
     withdrawn = set(withdrawn_level_keys(basis_states))
-    if withdrawals.file_errors or (
-        provider == "campaign" and withdrawn
-    ) or (
-        provider != "campaign" and level_key in withdrawn
+    if (
+        withdrawals.file_errors
+        or (provider == "campaign" and withdrawn)
+        or (provider != "campaign" and level_key in withdrawn)
     ):
         blockers.append(BLOCKER_LEGAL_BASIS_WITHDRAWN)
-    if provider in {"posthog", "yandex", "yandex_offline", "yandex_all_pages"} and not _basis_processing_allowed(
+    if provider in {
+        "posthog",
+        "yandex",
+        "yandex_offline",
+        "yandex_all_pages",
+    } and not _basis_processing_allowed(
         basis_states,
         level_key=level_key,
     ):
@@ -189,11 +221,16 @@ def resolve_provider_delivery_gate(
             )
         )
     )
-    campaign_allowed = approval_gate.campaign_launch_allowed
+    # Scoped PostHog delivery is not an assertion of global recoverability or
+    # campaign readiness. The catalog/campaign path still sees raw blockers.
+    delivery_allowed = approval_gate.campaign_launch_allowed and not all_blockers
+    campaign_allowed = approval_gate.campaign_launch_allowed and not (
+        provider == "posthog" and posthog_backup_loss_accepted(settings)
+    )
     return ProviderDeliveryGate(
         provider=provider,
         level_key=level_key,
-        allowed=campaign_allowed and not all_blockers,
+        allowed=delivery_allowed,
         campaign_launch_allowed=campaign_allowed,
         blockers=all_blockers,
         readiness_blockers=readiness_blockers,
@@ -202,6 +239,8 @@ def resolve_provider_delivery_gate(
         withdrawals=withdrawals,
         access_blockers=tuple(access_blockers),
         operations_blockers=operations_blockers,
+        waived_operations_blockers=waived_operations_blockers,
+        backup_policy=settings.product_analytics_posthog_backup_policy if provider == "posthog" else "required",
     )
 
 

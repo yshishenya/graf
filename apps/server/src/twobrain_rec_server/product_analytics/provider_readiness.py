@@ -61,6 +61,45 @@ BLOCKER_RETENTION_TERM_BELOW_REQUIRED = "retention_term_below_required"
 BLOCKER_RETENTION_ENFORCEMENT_UNVERIFIED = "retention_enforcement_unverified"
 
 
+BACKUP_RESTORE_BLOCKERS = frozenset(
+    {
+        BLOCKER_BACKUP_STATE_UNAVAILABLE,
+        BLOCKER_BACKUP_MISSING,
+        BLOCKER_BACKUP_STALE,
+        BLOCKER_BACKUP_COPY_COUNT,
+        BLOCKER_BACKUP_OFFSITE_COPY,
+        BLOCKER_RESTORE_MISSING,
+        BLOCKER_RESTORE_FAILED,
+        BLOCKER_RESTORE_STALE,
+    }
+)
+BLOCKER_BACKUP_EXCEPTION_SCOPE = "posthog_backup_exception_scope_invalid"
+
+
+def posthog_backup_loss_accepted(settings: Settings) -> bool:
+    """Owner loss acceptance applies only to the minimal PostHog path."""
+    return bool(
+        settings.product_analytics_posthog_backup_policy == "owner_accepted_loss"
+        and settings.product_analytics_provider_mode == "posthog_primary"
+        and settings.product_analytics_posthog_enabled
+        and settings.product_analytics_explicit_funnel_enabled
+        and not settings.product_analytics_posthog_autocapture_enabled
+        and not settings.product_analytics_posthog_web_direct_enabled
+        and not settings.product_analytics_posthog_desktop_direct_enabled
+        and not settings.product_analytics_direct_desktop_egress_enabled
+        and not settings.product_analytics_replay_enabled
+        and not settings.product_analytics_yandex_all_pages_enabled
+        and not settings.product_analytics_yandex_offline_enabled
+    )
+
+
+def posthog_operations_blockers(settings: Settings, blockers: tuple[str, ...]) -> tuple[str, ...]:
+    """Keep original evidence; exempt only named backup/restore failures."""
+    if posthog_backup_loss_accepted(settings):
+        return tuple(blocker for blocker in blockers if blocker not in BACKUP_RESTORE_BLOCKERS)
+    return blockers
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderReadiness:
     provider: str
@@ -202,7 +241,9 @@ def _bounded_number(value: str | None, default: float) -> float:
     return parsed if parsed > 0 else default
 
 
-def _state_file_path(environ: Mapping[str, str], explicit_env: str, directory_env: str, default_dir: str, name: str) -> str:
+def _state_file_path(
+    environ: Mapping[str, str], explicit_env: str, directory_env: str, default_dir: str, name: str
+) -> str:
     explicit = environ.get(explicit_env)
     if explicit:
         return explicit
@@ -212,13 +253,21 @@ def _state_file_path(environ: Mapping[str, str], explicit_env: str, directory_en
 
 def backup_state_file_path(environ: Mapping[str, str]) -> str:
     return _state_file_path(
-        environ, BACKUP_STATE_FILE_ENV, BACKUP_STATE_DIR_ENV, DEFAULT_BACKUP_STATE_DIR, "backup-state"
+        environ,
+        BACKUP_STATE_FILE_ENV,
+        BACKUP_STATE_DIR_ENV,
+        DEFAULT_BACKUP_STATE_DIR,
+        "backup-state",
     )
 
 
 def restore_state_file_path(environ: Mapping[str, str]) -> str:
     return _state_file_path(
-        environ, RESTORE_STATE_FILE_ENV, BACKUP_STATE_DIR_ENV, DEFAULT_BACKUP_STATE_DIR, "restore-state"
+        environ,
+        RESTORE_STATE_FILE_ENV,
+        BACKUP_STATE_DIR_ENV,
+        DEFAULT_BACKUP_STATE_DIR,
+        "restore-state",
     )
 
 
@@ -305,9 +354,13 @@ def analytics_operations_blockers(
     restore_max_age_days = _bounded_number(
         environment.get(RESTORE_MAX_AGE_DAYS_ENV), float(DEFAULT_RESTORE_MAX_AGE_DAYS)
     )
-    minimum_copies = int(_bounded_number(environment.get(MINIMUM_COPIES_ENV), float(DEFAULT_MINIMUM_COPIES)))
+    minimum_copies = int(
+        _bounded_number(environment.get(MINIMUM_COPIES_ENV), float(DEFAULT_MINIMUM_COPIES))
+    )
     minimum_offsite_copies = int(
-        _bounded_number(environment.get(MINIMUM_OFFSITE_COPIES_ENV), float(DEFAULT_MINIMUM_OFFSITE_COPIES))
+        _bounded_number(
+            environment.get(MINIMUM_OFFSITE_COPIES_ENV), float(DEFAULT_MINIMUM_OFFSITE_COPIES)
+        )
     )
 
     blockers: list[str] = []
@@ -321,7 +374,10 @@ def analytics_operations_blockers(
             blockers.append(BLOCKER_BACKUP_STALE)
         if evidence.backup_copies_local is None or evidence.backup_copies_local < minimum_copies:
             blockers.append(BLOCKER_BACKUP_COPY_COUNT)
-        if evidence.backup_copies_offsite is None or evidence.backup_copies_offsite < minimum_offsite_copies:
+        if (
+            evidence.backup_copies_offsite is None
+            or evidence.backup_copies_offsite < minimum_offsite_copies
+        ):
             blockers.append(BLOCKER_BACKUP_OFFSITE_COPY)
 
     if not evidence.restore_state_available:
@@ -368,7 +424,11 @@ def build_analytics_operations_readiness(
     """Readiness of the analytics operations that keep measurement trustworthy."""
 
     environment = os.environ if environ is None else environ
-    collected = evidence if evidence is not None else collect_analytics_operations_evidence(environment, now=now)
+    collected = (
+        evidence
+        if evidence is not None
+        else collect_analytics_operations_evidence(environment, now=now)
+    )
     blockers = analytics_operations_blockers(collected, environment)
 
     retention_terms = ",".join(f"{category}={days}" for category, days in REQUIRED_RETENTION_TERMS)
@@ -378,27 +438,52 @@ def build_analytics_operations_readiness(
     )
     metadata = {
         "backup_policy": "scheduled_daily_with_required_offsite_copy",
-        "backup_max_age_hours": str(int(_bounded_number(environment.get(BACKUP_MAX_AGE_HOURS_ENV), float(DEFAULT_BACKUP_MAX_AGE_HOURS)))),
+        "backup_max_age_hours": str(
+            int(
+                _bounded_number(
+                    environment.get(BACKUP_MAX_AGE_HOURS_ENV), float(DEFAULT_BACKUP_MAX_AGE_HOURS)
+                )
+            )
+        ),
         "backup_last_result": collected.backup_result,
         "backup_last_success_age_hours": (
-            f"{collected.backup_age_hours:.1f}" if collected.backup_age_hours is not None else "unknown"
+            f"{collected.backup_age_hours:.1f}"
+            if collected.backup_age_hours is not None
+            else "unknown"
         ),
         "backup_copies_local": (
-            str(collected.backup_copies_local) if collected.backup_copies_local is not None else "unknown"
+            str(collected.backup_copies_local)
+            if collected.backup_copies_local is not None
+            else "unknown"
         ),
         "backup_copies_offsite": (
-            str(collected.backup_copies_offsite) if collected.backup_copies_offsite is not None else "unknown"
+            str(collected.backup_copies_offsite)
+            if collected.backup_copies_offsite is not None
+            else "unknown"
         ),
-        "backup_minimum_copies": str(int(_bounded_number(environment.get(MINIMUM_COPIES_ENV), float(DEFAULT_MINIMUM_COPIES)))),
+        "backup_minimum_copies": str(
+            int(_bounded_number(environment.get(MINIMUM_COPIES_ENV), float(DEFAULT_MINIMUM_COPIES)))
+        ),
         "backup_minimum_offsite_copies": str(
-            int(_bounded_number(environment.get(MINIMUM_OFFSITE_COPIES_ENV), float(DEFAULT_MINIMUM_OFFSITE_COPIES)))
+            int(
+                _bounded_number(
+                    environment.get(MINIMUM_OFFSITE_COPIES_ENV),
+                    float(DEFAULT_MINIMUM_OFFSITE_COPIES),
+                )
+            )
         ),
         "restore_verification_result": collected.restore_result,
         "restore_verification_age_days": (
-            f"{collected.restore_age_days:.1f}" if collected.restore_age_days is not None else "unknown"
+            f"{collected.restore_age_days:.1f}"
+            if collected.restore_age_days is not None
+            else "unknown"
         ),
         "restore_verification_max_age_days": str(
-            int(_bounded_number(environment.get(RESTORE_MAX_AGE_DAYS_ENV), float(DEFAULT_RESTORE_MAX_AGE_DAYS)))
+            int(
+                _bounded_number(
+                    environment.get(RESTORE_MAX_AGE_DAYS_ENV), float(DEFAULT_RESTORE_MAX_AGE_DAYS)
+                )
+            )
         ),
         "retention_result": collected.retention_result,
         "retention_required_terms": retention_terms,
@@ -428,7 +513,8 @@ def operations_block_claim(settings: Settings) -> bool:
     """
 
     return bool(
-        settings.product_analytics_enabled and settings.product_analytics_live_provider_delivery_allowed()
+        settings.product_analytics_enabled
+        and settings.product_analytics_live_provider_delivery_allowed()
     )
 
 
@@ -473,10 +559,18 @@ def build_provider_readiness(
 
     operations = build_analytics_operations_readiness(settings, environ, now=now)
     access_evidence = read_access_governance_state(environ)
-    access_blockers = access_governance_blockers(access_evidence, environ=environ, now=int(now) if now is not None else None)
+    access_blockers = access_governance_blockers(
+        access_evidence, environ=environ, now=int(now) if now is not None else None
+    )
     claim_gated = operations_block_claim(settings)
     if claim_gated:
-        posthog_blockers.extend(operations.blockers)
+        posthog_blockers.extend(posthog_operations_blockers(settings, operations.blockers))
+    loss_accepted = posthog_backup_loss_accepted(settings)
+    if (
+        settings.product_analytics_posthog_backup_policy == "owner_accepted_loss"
+        and not loss_accepted
+    ):
+        posthog_blockers.append(BLOCKER_BACKUP_EXCEPTION_SCOPE)
 
     access_metadata = access_evidence.as_dict()
     access_metadata["blockers"] = list(access_blockers)
@@ -496,7 +590,16 @@ def build_provider_readiness(
                 "dashboard_caveat": "required",
                 "deploy_handoff": "dry_run_documented",
                 "resource_thresholds": "configured",
-                "backup_restore": "documented",
+                "backup_restore": "not_required_owner_accepted_loss"
+                if loss_accepted
+                else "documented",
+                "backup_policy": settings.product_analytics_posthog_backup_policy,
+                "backup_loss_caveat": "analytics_may_be_unrecoverable" if loss_accepted else "none",
+                "waived_operations_blockers": [
+                    blocker
+                    for blocker in operations.blockers
+                    if loss_accepted and blocker in BACKUP_RESTORE_BLOCKERS
+                ],
                 "operations_claim_gate": "enforced" if claim_gated else "not_claimed",
             },
         ),

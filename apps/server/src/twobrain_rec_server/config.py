@@ -131,6 +131,8 @@ class Settings(BaseSettings):
     product_analytics_visit_attribution_admission_limit: PositiveInt = Field(default=10_000)
     product_analytics_visit_attribution_admission_window_seconds: PositiveInt = Field(default=3_600)
     product_analytics_posthog_enabled: bool = False
+    # Explicit owner acceptance of analytics loss; never waives product backups.
+    product_analytics_posthog_backup_policy: Literal["required", "owner_accepted_loss"] = "required"
     product_analytics_posthog_host: AnyUrl | None = None
     product_analytics_posthog_project_key_file: Path | None = None
     product_analytics_posthog_autocapture_enabled: bool = True
