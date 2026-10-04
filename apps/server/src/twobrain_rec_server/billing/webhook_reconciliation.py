@@ -313,7 +313,7 @@ async def reconcile_pending_initial_checkout_operations(
                 BillingOperation.created_at >= datetime.now(UTC) - timedelta(hours=24),
             ),
         )
-    receipt_states = ("succeeded", "succeeded_projected")
+    receipt_states = ("succeeded", "succeeded_projected", "succeeded_refused")
     receipt_filter = and_(
         BillingOperation.state.in_(receipt_states),
         BillingOperation.provider_id.is_not(None),

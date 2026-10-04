@@ -688,7 +688,7 @@ def test_expired_quote_and_changed_catalog_never_reach_provider(client, monkeypa
 @pytest.mark.parametrize("kind", ["initial_checkout", "storage_upgrade", "early_renewal", "renewal"])
 @pytest.mark.parametrize("mode", ["background", "boundary", "late_manual", "manual_pending", "manual_get_failure", "wrong_scope", "wrong_amount", "wrong_test", "wrong_metadata", "get_failure", "owner_missing"])
 def test_completed_purchase_recovers_late_receipt_without_replaying_money(
-    client, monkeypatch, tmp_path, kind, mode
+    client, monkeypatch, tmp_path, kind, mode, operation_state="succeeded"
 ):
     """Real DB and owner routes; receipt-only GET never replays financial projection."""
     from uuid import uuid4
@@ -700,7 +700,6 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
     workspace, headers = _prepare_owner_session(client)
     now = datetime.now(UTC)
     manual = mode in {"late_manual", "manual_pending", "manual_get_failure"}
-    operation_state = "succeeded_projected" if mode == "projected" else "succeeded"
     class ReceiptClock(datetime):
         @classmethod
         def now(cls, tz=None):
@@ -710,6 +709,13 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
     op_id, inv_id = uuid4(), uuid4()
     number = f"INV-RECEIPT-{uuid4().hex}"
     snapshot = {"cycle": "year", "receipt_registration": "pending"}
+    refused = operation_state == "succeeded_refused"
+    if refused:
+        snapshot["service_resolution"] = "workspace_scope_invalid"
+    operation_snapshot = {"purchase_schema": 2, "provider_environment": "test",
+                          "provider_shop_id": "shop-money-path"} if operation_state != "succeeded_projected" else {}
+    if refused:
+        operation_snapshot["reconciliation_detail"] = {"code": "workspace_scope_invalid"}
 
     async def seed():
         async with client.app_state["sessionmaker"]() as db:
@@ -717,8 +723,7 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
                 id=op_id, workspace_id=workspace, kind=kind, state=operation_state,
                 idempotency_key=f"receipt-{op_id}", provider_id="pay-synthetic-receipt",
                 created_at=now - timedelta(hours=25 if manual else 24 if mode == "boundary" else 1),
-                request_snapshot={"purchase_schema": 2, "provider_environment": "test",
-                                  "provider_shop_id": "shop-money-path"} if mode != "projected" else {},
+                request_snapshot=operation_snapshot,
             ))
             await db.flush()
             db.add(BillingInvoice(id=inv_id, operation_id=op_id, workspace_id=workspace,
@@ -731,15 +736,18 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
             subscription.billing_owner_id = USER_ID
             subscription.plan_code, subscription.cycle = "personal", "year"
             subscription.capacity_bytes, subscription.recurring_allowed = 10_000_000_000, False
+            if refused:
+                subscription.renewal_resolution = "workspace_scope_invalid"
             subscription.paid_through = now + timedelta(days=365)
             db.add(BillingAcceptanceBudget(workspace_id=workspace, limit_minor=20000,
                                           spent_minor=12500, reserved_minor=0,
                                           enabled=False, expires_at=now - timedelta(hours=1)))
             await db.flush()
-            db.add(BillingEntitlementGrant(workspace_id=workspace, invoice_id=inv_id,
-                   provider_payment_id="pay-synthetic-receipt", plan_code="personal",
-                   cycle="year", starts_at=now, ends_at=now + timedelta(days=365),
-                   amount_minor=12500, currency="RUB"))
+            if not refused:
+                db.add(BillingEntitlementGrant(workspace_id=workspace, invoice_id=inv_id,
+                       provider_payment_id="pay-synthetic-receipt", plan_code="personal",
+                       cycle="year", starts_at=now, ends_at=now + timedelta(days=365),
+                       amount_minor=12500, currency="RUB"))
             await db.commit()
 
     asyncio.run(seed())
@@ -811,19 +819,22 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
             assert "Чек зарегистрирован" in returned.text
     else:
         asyncio.run(observe())
-    succeeded = mode in {"background", "boundary", "late_manual", "projected"}
+    succeeded = mode in {"background", "boundary", "late_manual"}
     async def verify():
         async with client.app_state["sessionmaker"]() as db:
             invoice, operation = await db.get(BillingInvoice, inv_id), await db.get(BillingOperation, op_id)
             assert operation.state == operation_state and invoice.status == "succeeded"
+            assert operation.request_snapshot == operation_snapshot
             assert invoice.amount_minor == 12500
             assert invoice.plan_snapshot == {**snapshot, "receipt_registration": "succeeded" if succeeded else "pending"}
             subscription = await db.get(WorkspaceSubscription, workspace)
             assert not subscription.recurring_allowed and subscription.paid_through == now + timedelta(days=365)
             assert subscription.capacity_bytes == 10_000_000_000
+            if refused:
+                assert subscription.renewal_resolution == "workspace_scope_invalid"
             budget = await db.scalar(select(BillingAcceptanceBudget).where(BillingAcceptanceBudget.workspace_id == workspace))
             assert (budget.spent_minor, budget.reserved_minor, budget.enabled) == (12500, 0, False)
-            assert await db.scalar(select(func.count()).select_from(BillingEntitlementGrant)) == 1
+            assert await db.scalar(select(func.count()).select_from(BillingEntitlementGrant)) == (0 if refused else 1)
             assert await db.scalar(select(func.count()).select_from(BillingStorageEntitlementGrant)) == 0
             assert await db.scalar(select(func.count()).select_from(BillingNotificationDelivery)) == (1 if succeeded else 0)
     asyncio.run(verify())
@@ -840,7 +851,18 @@ def test_projected_storage_purchase_recovers_receipt_without_replaying_projectio
     client, monkeypatch, tmp_path
 ):
     test_completed_purchase_recovers_late_receipt_without_replaying_money(
-        client, monkeypatch, tmp_path, "storage_upgrade", "projected"
+        client, monkeypatch, tmp_path, "storage_upgrade", "background",
+        operation_state="succeeded_projected",
+    )
+
+
+@pytest.mark.parametrize("mode", ["background", "late_manual", "owner_missing"])
+def test_paid_refused_renewal_recovers_receipt_without_granting_access(
+    client, monkeypatch, tmp_path, mode
+):
+    test_completed_purchase_recovers_late_receipt_without_replaying_money(
+        client, monkeypatch, tmp_path, "renewal", mode,
+        operation_state="succeeded_refused",
     )
 
 
