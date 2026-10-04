@@ -340,14 +340,15 @@ def test_quota_playback_copy_offers_existing_billing_overview() -> None:
     review.playback.state = "unavailable"
     review.playback.reason_code = "storage_capacity_exceeded"
     review.playback.label = playback_reason_copy(review.playback.reason_code)
-    html = _render_playback(review, embedded=True, csrf_token=None)
-    assert "Недостаточно места в хранилище" in html
-    assert 'href="/billing"' in html
-    assert "владельцу пространства" in html
-    assert "кодек" not in html
-    assert "<audio" not in html
-    # Sharing never exposes the workspace billing destination.
     from uuid import UUID
 
-    shared_html = _render_playback(review, embedded=False, csrf_token=None, shared_workspace_id=UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
-    assert 'href="/billing"' not in shared_html
+    for embedded in (False, True):
+        for shared_workspace_id in (None, UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")):
+            html = _render_playback(
+                review, embedded=embedded, csrf_token=None, shared_workspace_id=shared_workspace_id,
+            )
+            assert "Недостаточно места в хранилище" in html
+            assert "владельцу пространства" in html
+            assert ('href="/billing"' in html) == (shared_workspace_id is None)
+            assert "кодек" not in html
+            assert "<audio" not in html

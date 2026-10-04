@@ -25,3 +25,6 @@ Umbrella: https://github.com/yshishenya/graf/issues/7447
 - T015: https://github.com/yshishenya/graf/issues/7504
 
 - T016: https://github.com/yshishenya/graf/issues/7509
+
+- T017: https://github.com/yshishenya/graf/issues/7522
+- T018: https://github.com/yshishenya/graf/issues/7523

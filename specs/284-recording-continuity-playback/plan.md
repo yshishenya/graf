@@ -27,12 +27,12 @@ Tests precede fixes. CoreAudio identity/failed snapshots, observer lifecycle and
 - apps/macos/RecApp/Sources/MeetingDetection/ — native metadata snapshot, stream, detector.
 - apps/macos/RecApp/App/TwoBrainRecApp.swift — composition and evidence renewal.
 - apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift — route-bound open.
-- apps/server/src/twobrain_rec_server/cabinet/{view_models.py,templates,static/cabinet/cabinet.js} — quota and local playback action.
+- apps/server/src/twobrain_rec_server/cabinet/{rendering.py, view_models.py,templates,static/cabinet/cabinet.js} — quota and local playback action.
 - apps/macos/Shared/Tests; apps/server/tests/{unit,contract,browser} — existing checks.
 - changes/unreleased/F284.yaml — owned change note.
 **Structure Decision**: Extend existing paths; no new service or playback implementation.
 
-Quota navigation uses the existing /billing overview (shared access); capacity-management actions remain guarded by billing_owner. Copy asks to contact the workspace owner when appropriate. No new authority or purchase action is introduced.
+Для собственной встречи сообщение о квоте содержит существующую ссылку /billing; управление объёмом сохраняет проверку billing_owner. Получатель общей встречи видит подсказку обратиться к владельцу пространства без ссылки /billing. Новые права и действия покупки не вводятся.
 
 ## Сходимость T010
 
@@ -73,3 +73,8 @@ Constitution Check PASS: сохранены звук/PTS/формат, исто�
 Constitution Check PASS: использовать существующий recordMeetingDetectionConsumerOutcome(.retryable) только для текущего ожидающего prompt. Общая dismissMeetingDetectionPrompt принимает необязательную причину retryable; оба auth/registry пути передают её, остальные callers сохраняют прежние accepted/terminal/Stop. Не сбрасывать весь детектор, не менять правила, согласие,8s countdown,2s retry, реестр или доступ. Исполняемые detector/notification tests и отдельная production wiring проверка; red прежнего helper, green, независимое ревью и актуальная Dev-приёмка.
 
 T016 reviewer HIGH: NotificationPresenter может invalidate первым. В present сохранить его существующий authEpoch; onInvalidated при изменённом epoch вызывает тот же retryable dismiss, иначе прежний terminal invalidated. Два порядка проверяются через настоящий presenter.invalidate; generic invalidation/lock/sleep остаются terminal. Не добавлять поле presenter, состояние или новое событие.
+
+
+## Замечания к квоте и приватности доказательств — T017/T018
+
+Constitution Check PASS. FR008 запрещает личные домашние пути в постоянных доказательствах: описывать существующие модули Playwright нейтрально, без замены фактов предыдущих проверок. FR006/SC004: общий _render_playback показывает получателю общей встречи подсказку обратиться к владельцу; /billing остаётся только для собственной встречи. Никаких новых прав, endpoints, действий оплаты, квоты, зависимости или изменения capture. Две комбинации embedded/web проверяются в существующем контракте сначала red, затем green; локальный Dev обновляется штатно после коммита. Capture/T015/T016 исходники неизменны и не требуют повторной записи; текущие PR/release ворота сохраняются.

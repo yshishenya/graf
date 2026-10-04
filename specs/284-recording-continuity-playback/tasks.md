@@ -50,3 +50,29 @@ T014 — новое замечание PR4171728042 на e4b1ebb774d661348098bc8
 - [X] T016 [US1] Вернуть только ожидающее предложение в retryable при auth/registry закрытии в apps/macos/RecApp/App/TwoBrainRecApp.swift; red/green detector/notification и production wiring в apps/macos/Shared/Tests/MeetingDetectionCountdownTests.swift и MeetingDetectionRecordingLifecycleTests.swift; сохранить nil registry/accepted/Skip/Stop/2s/8s, независимое ревью и текущие Dev/CI (FR014/SC010).
 
 T012/T014:49min41s на1e78, Capture byte-identical6dc8, один start/no timing failures, два pause/resume, saved/decode/player/reload PASS. Точная приватность подтверждена детерминированным84/0/delta0.0. Физическая T015/T016 приёмка c031 подтверждена в lifecycle-acceptance-2026-10-04.json. Итоговые SHA/CI и выпуск остаются отдельными воротами.
+
+
+## Phase 11: Convergence
+- [X] T017 Удалить личный домашний путь из specs/284-recording-continuity-playback/validation.md; нейтральное описание существующего Playwright, проверка активных доказательств и независимое ревью по FR008/Constitution privacy (contradicts, CRITICAL). (Issue #7522)
+- [ ] T018 [US2] Сохранить подсказку обратиться к владельцу в общей встрече при нехватке места без /billing в apps/server/src/twobrain_rec_server/cabinet/rendering.py; red/green embedded/web и own/shared в apps/server/tests/contract/test_playback_status_contract.py, независимое ревью, Dev и текущие CI по FR006/SC004 (partial, HIGH). (Issue #7523)
+
+T017→T018, затем converge/validation; прежний af6e PASS не закрывает новые замечания.
+
+## GitHub issue links
+
+- T001 (Issue #7454)
+- T002 (Issue #7455)
+- T003 (Issue #7456)
+- T004 (Issue #7457)
+- T005 (Issue #7458)
+- T006 (Issue #7459)
+- T007 (Issue #7463)
+- T008 (Issue #7464)
+- T009 (Issue #7466)
+- T010 (Issue #7468)
+- T011 (Issue #7471)
+- T012 (Issue #7480)
+- T013 (Issue #7481)
+- T014 (Issue #7486)
+- T015 (Issue #7504)
+- T016 (Issue #7509)
