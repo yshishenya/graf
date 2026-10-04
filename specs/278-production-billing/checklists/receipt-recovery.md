@@ -25,3 +25,10 @@
 Уточнение paid service-gap до реализации: RCP012 подтверждён планом/задачей и существующим producer; 12 checked / 0 unchecked, PASS качества требований. Локальный PASS предыдущих исправлений не подтверждает новую реализацию succeeded_refused. См. receipt-review.md.
 
 Последующая независимая фактическая сверка RCP012: текущий локальный diff и завершённый PostgreSQL журнал 186 passed подтверждают receipt-only для succeeded_refused с сохранением нулевых grants/service gap/финансовых полей/autooff и прежнего нетерминального пути. Требования перечитаны: 12 checked / 0 unchecked. Это не новый exact-SHA/release/production допуск; подробности — receipt-review.md.
+
+- [x] RCP013 Ограниченная успешная очередь чередует pending-чеки через время подтверждённого чтения, не меняет финансовую историю; задан limit=1 с двумя последовательными проверками.
+- [x] RCP014 Поздняя проверка при реальном owner_changed/mismatch разрешена действующему owner только для receipt-only paid succeeded_refused; исключены нетерминальная ветка, чужой tenant/member и раскрытие контакта/карты/ссылки прежнего плательщика.
+
+Независимое уточнение требований RCP013–014 до реализации: 14 checked / 0 unchecked, PASS. Основание: plan.md «Дополнение T031 по повторной проверке PR», дополнительные проверки T031 в tasks.md и неизменные FR-005/027/031/032. Runtime-справедливость и реальная owner-changed ветка этим gate ещё не подтверждены; отчёт — receipt-review.md.
+
+Последующая независимая фактическая сверка RCP013–014: локальный receipt diff и завершённый PostgreSQL журнал rotation-owner-complete (188 passed) подтверждают чередование и ограниченный late current-owner путь без новых финансовых полномочий/раскрытия данных прежнего плательщика. После перечитывания 14 checked / 0 unchecked; детали последовательности auth-negative и границы — receipt-review.md. Exact-SHA/release/production и T032 этой заметкой не закрыты.

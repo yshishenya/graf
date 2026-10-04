@@ -272,6 +272,7 @@ async def reconcile_pending_initial_checkout_operations(
     operation_id: object | None = None,
     defer_referral_reward: bool = False,
     commit_each_operation: bool = False,
+    receipt_only: bool = False,
 ) -> dict[str, int]:
     """Recover purchases with authenticated GET/list only, never another POST.
 
@@ -329,7 +330,7 @@ async def reconcile_pending_initial_checkout_operations(
             receipt_filter,
             BillingOperation.created_at >= datetime.now(UTC) - timedelta(hours=24),
         )
-    state_filter = or_(state_filter, receipt_filter)
+    state_filter = receipt_filter if receipt_only else or_(state_filter, receipt_filter)
     filters = [
         BillingOperation.kind.in_(
             ("initial_checkout", "storage_upgrade", "early_renewal", "renewal")
@@ -374,6 +375,7 @@ async def reconcile_pending_initial_checkout_operations(
             ) != "succeeded":
                 raise ProviderObservationError("completed payment receipt scope conflicts")
             observation = extract_payment_observation(payload, scope=scope)
+            operation.updated_at = datetime.now(UTC)
             if observation.receipt_registration is not None:
                 invoice.plan_snapshot, available = merge_receipt_registration(
                     invoice.plan_snapshot, status=observation.receipt_registration
