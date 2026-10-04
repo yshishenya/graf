@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "T015": {
+    "tracks": [
+      {
+        "role": "mixed_meeting_audio",
+        "duration_seconds": 55.941938,
+        "byte_count": 1790186,
+        "full_decode_pass": true,
+        "decode_error_lines": 0
+      },
+      {
+        "role": "review_playback",
+        "duration_seconds": 56.0,
+        "byte_count": 502771,
+        "full_decode_pass": true,
+        "decode_error_lines": 0
+      }
+    ],
+    "source_sha": "c0310f4a339af945cd3967e88fe7205b96379419",
+    "manifest_id": "dev-c0310f4a339a",
+    "scenario": "T015 accepted recording ends while registry unavailable",
+    "registry_invalidated_at": "2026-10-03T23:33:12Z",
+    "registry_refresh_error": "http_status_401:missing_auth_context",
+    "target_first_inactive_at": "2026-10-03T23:33:30Z",
+    "ended_at": "2026-10-03T23:33:45Z",
+    "saved_at": "2026-10-03T23:33:45Z",
+    "grace_seconds": 15,
+    "registry_recovered_at": "2026-10-03T23:34:56Z",
+    "status": "saved",
+    "failure_reason": "none",
+    "timing_anomalies": 0,
+    "private_content_included": false
+  },
+  "T016": {
+    "source_sha": "c0310f4a339af945cd3967e88fe7205b96379419",
+    "manifest_id": "dev-c0310f4a339a",
+    "scenario": "T016 pending prompt auth dismissal and restoration during same Telemost call",
+    "first_prompt_at": "2026-10-04T00:00:23Z",
+    "retryable_registry_unavailable_at": "2026-10-04T00:00:24Z",
+    "registry_invalidated_at": "2026-10-04T00:00:24Z",
+    "dev_started_before_recovery": false,
+    "registry_recovered_at": "2026-10-04T00:05:31Z",
+    "restored_prompt_at": "2026-10-04T00:05:32Z",
+    "prompt_accepted_at": "2026-10-04T00:05:40Z",
+    "accept_reason": "prompt_timeout",
+    "countdown_seconds": 8,
+    "dev_started_at": "2026-10-04T00:05:40Z",
+    "saved_at": "2026-10-04T00:06:26Z",
+    "status": "saved",
+    "failure_reason": "none",
+    "restored_prompt_count": 1,
+    "dev_start_count": 1,
+    "same_telemost_call": true,
+    "tracks": [
+      {
+        "role": "review_playback",
+        "duration_seconds": 44.608,
+        "byte_count": 412027,
+        "full_decode_pass": true,
+        "decode_error_lines": 0
+      },
+      {
+        "role": "mixed_meeting_audio",
+        "duration_seconds": 44.543,
+        "byte_count": 1425420,
+        "full_decode_pass": true,
+        "decode_error_lines": 0
+      }
+    ],
+    "echo_health": {
+      "aecDelayMs": 16,
+      "clippedSampleCount": 0,
+      "echoReturnLossDb": -30,
+      "echoReturnLossEnhancementDb": 0.17551203072071075,
+      "estimatedDriftPpm": -1103.6539881582923,
+      "hostOverrunCount": 0,
+      "hostUnderrunCount": 0,
+      "nonFiniteSampleCount": 0,
+      "processErrorCount": 0,
+      "processedFrameCount": 4458,
+      "processingTimeP95Ms": 1,
+      "ptsGapCount": 0,
+      "resetCount": 0,
+      "state": "completed"
+    },
+    "settings_hash_unchanged": true,
+    "test_account_restored": true,
+    "private_content_included": false,
+    "shared_log_separated_by_dev_directory": true
+  }
+}
