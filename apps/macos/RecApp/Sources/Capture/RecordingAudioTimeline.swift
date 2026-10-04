@@ -478,6 +478,7 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
         )
         let reserved = bootstrapBufferedCanonicalFrames[source, default: 0] + canonicalFrameCount
         guard reserved <= configuration.maximumBufferedFramesPerSource else {
+            diagnosticLogger?("recording_timeline_overflow phase=bootstrap source=\(source.rawValue) pending_frames=\(bootstrapBufferedCanonicalFrames[source, default: 0]) appended_frames=\(canonicalFrameCount) processed_frames=\(metrics.outputFrameCount)")
             metrics.hostOverrunCount += 1
             throw RecordingAudioTimelineError.sourceOverflow
         }
@@ -601,6 +602,7 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
             throw RecordingAudioTimelineError.lateBatch
         }
         guard Int64(state.bufferedFrameCount) + Int64(values.count) <= configuration.maximumBufferedFramesPerSource else {
+            diagnosticLogger?("recording_timeline_overflow phase=established source=\(source.rawValue) pending_frames=\(state.bufferedFrameCount) appended_frames=\(values.count) processed_frames=\(metrics.outputFrameCount)")
             metrics.hostOverrunCount += 1
             throw RecordingAudioTimelineError.sourceOverflow
         }

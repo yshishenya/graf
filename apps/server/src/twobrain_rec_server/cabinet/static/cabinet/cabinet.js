@@ -439,6 +439,23 @@
       list.append(row);
     }
   };
+  const renderDetailLocalPlayback = () => {
+    const detail = document.querySelector('main[data-meeting-id]');
+    const existing = document.querySelector('[data-detail-local-playback]');
+    const playback = detailPlayback(detail);
+    const row = localRecordingRows.find(item => item.canOpen && item.meetingId?.toLowerCase() === detail?.dataset.meetingId?.toLowerCase());
+    if (!row || !playback || ['deleted', 'deleting'].includes(playback.dataset.playbackState) || playback.dataset.playbackReason === 'access_denied') { existing?.remove(); return; }
+    if (existing?.dataset.grafLocalRecordingId === row.id && existing.parentElement === playback) return;
+    existing?.remove();
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'button';
+    button.dataset.detailLocalPlayback = '';
+    button.dataset.grafLocalRecordingAction = 'open';
+    button.dataset.grafLocalRecordingId = row.id;
+    button.textContent = 'Слушать запись с этого Mac';
+    playback.append(button);
+  };
   window.GRAFLocalRecordings = {
     deletionCompleted(requestId, result) {
       nativeDeletionReplies.get(requestId)?.(result);
@@ -490,6 +507,7 @@
       localRecordingRows = nextRows;
       renderLocalRecordingRows();
       applyNativeDeletionOperations(nativeDeletionOperations);
+      renderDetailLocalPlayback();
       renderNativeDeletionStatus(nativeDeletionOperations);
       updateMixedResultCount();
       reconcileMeetingSelection();
@@ -7770,6 +7788,7 @@
   const recoverMeetingDetailFromResponse = async (response, { actionProblemCodes = new Set() } = {}) => {
     const detail = document.querySelector("[data-playback-poll-url]");
     if (!detail) return false;
+    const meetingId = detail.dataset.meetingId;
     let recoveryKind = "";
     if (response.redirected) {
       try {
@@ -7783,6 +7802,10 @@
     const problemCode = [403, 404, 410].includes(response.status)
       ? await responseProblemCode(response)
       : "";
+    // Decoding may finish after navigation; consume stale responses so callers
+    // cannot apply their results or neutralize the new meeting's private URL.
+    if (!detail.isConnected || document.querySelector("[data-playback-poll-url]") !== detail
+      || detail.dataset.meetingId !== meetingId) return true;
     if (!recoveryKind && (detailActionProblemCodes.has(problemCode) || actionProblemCodes.has(problemCode))) return false;
     if (!recoveryKind && [404, 410].includes(response.status)) recoveryKind = "unavailable";
     else if (!recoveryKind && (response.status === 401 || response.status === 403)) {
@@ -7863,6 +7886,10 @@
     if (!detail || detail.dataset.playbackPollActive !== "true" || playbackRecoveryRequest) return;
     const pollUrl = detail.dataset.playbackPollUrl;
     if (!pollUrl) return;
+    const meetingId = detail.dataset.meetingId;
+    const isCurrentDetail = () => detail.isConnected
+      && document.querySelector('main[data-meeting-id]') === detail
+      && detail.dataset.meetingId === meetingId;
     playbackRecoveryRequest = fetch(pollUrl, {
       method: "GET",
       credentials: "same-origin",
@@ -7874,13 +7901,16 @@
     });
     try {
       const response = await playbackRecoveryRequest;
-      if (!detail.isConnected) return;
+      if (!isCurrentDetail()) return;
       if (await recoverMeetingDetailFromResponse(response)) return;
+      if (!isCurrentDetail()) return;
       if (!response.ok) {
         showPlaybackRecoveryNotice(detail);
         return;
       }
-      const documentFragment = new DOMParser().parseFromString(await response.text(), "text/html");
+      const responseText = await response.text();
+      if (!isCurrentDetail()) return;
+      const documentFragment = new DOMParser().parseFromString(responseText, "text/html");
       const nextDetail = documentFragment.querySelector("[data-playback-poll-url]");
       const currentPlayback = detailPlayback(detail);
       const nextPlayback = detailPlayback(nextDetail);
@@ -7888,18 +7918,28 @@
       const nextTranscript = nextDetail?.querySelector("[data-playback-transcript]");
       const currentLiveStatus = detail.querySelector("[data-playback-live-status]");
       const nextLiveStatus = nextDetail?.querySelector("[data-playback-live-status]");
-      if (!nextDetail || !currentPlayback || !nextPlayback || !currentTranscript || !nextTranscript) {
+      if (!nextDetail || nextDetail.dataset.meetingId !== detail.dataset.meetingId
+        || !currentPlayback || !nextPlayback || !currentTranscript || !nextTranscript) {
         showPlaybackRecoveryNotice(detail);
         return;
       }
       clearPlaybackRecoveryNotice(detail);
       detail.dataset.playbackPollActive = nextDetail.dataset.playbackPollActive || "false";
-      const recoverySignature = (node) => [
-        node.dataset.playbackState || "",
-        node.dataset.sourceMode || "",
-        ...["meetingId", "workspaceId", "mediaRevisionId", "processingResultId", "commentsAvailable", "commentsCanComment"].map(key => node.dataset[key] || ""),
-        (node.textContent || "").trim()
-      ].join("\u001f");
+      const recoverySignature = (node) => {
+        // The native-only action is reconciled separately from the server fragment.
+        const text = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, {
+          acceptNode: child => child.parentElement?.closest("[data-detail-local-playback]")
+            ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+        });
+        let serverText = "";
+        while (text.nextNode()) serverText += text.currentNode.textContent;
+        return [
+          node.dataset.playbackState || "",
+          node.dataset.sourceMode || "",
+          ...["meetingId", "workspaceId", "mediaRevisionId", "processingResultId", "commentsAvailable", "commentsCanComment"].map(key => node.dataset[key] || ""),
+          serverText.trim()
+        ].join("\u001f");
+      };
       const playbackUnchanged = recoverySignature(currentPlayback) === recoverySignature(nextPlayback);
       const playbackChanged = !playbackUnchanged;
       const transcriptChanged = currentTranscript.innerHTML !== nextTranscript.innerHTML;
@@ -7908,6 +7948,7 @@
         currentLiveStatus.textContent = nextLiveStatus.textContent || "";
       }
       if (!playbackChanged && !transcriptChanged) {
+        renderDetailLocalPlayback();
         initPlaybackRecoveryPolling();
         return;
       }
@@ -7916,11 +7957,13 @@
         currentPlayback.replaceWith(nextPlayback);
       }
       if (transcriptChanged) currentTranscript.replaceWith(nextTranscript);
+      renderDetailLocalPlayback();
       initPlayback();
       initSpeakerTimelineResize();
       initSpeakerNameForms();
       initPlaybackRecoveryPolling();
     } catch {
+      if (!isCurrentDetail()) return;
       showPlaybackRecoveryNotice(detail);
       return;
     } finally {
@@ -9354,6 +9397,7 @@
     initPlayback();
     initSpeakerTimelineResize();
     initMeetingDetailAuthorizationRecovery();
+    renderDetailLocalPlayback();
     initPlaybackRecoveryPolling();
     initSpeakerNameForms();
     initContentExport();
@@ -9439,6 +9483,7 @@
   });
 
   document.body.addEventListener("htmx:afterSwap", (event) => {
+    renderDetailLocalPlayback();
     const target = event.detail?.target;
     const source = shareRequestSource(event);
     if (source && target instanceof Element && target.id === "meeting-share-host") {
