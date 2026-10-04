@@ -249,3 +249,16 @@ Read-only spctl --status: assessments disabled на проверочном Mac. 
 
 
 Текущие PR проверки d3cc/base0d4283 подтверждены общим validate-pr-checks: governance-fast37165577527, macos-pr37165577526, metadata37165576848; последние text gates37165578219/37165578210 также PASS. Все11review threads resolved по текущему live snapshot. T018 завершена: реализация/red-green/review/Dev/CI пройдены.18tasks/14FR/10SC без buildable gaps,6reviewer-owned checklists36/0. Следующий коммит добавляет только эти документы и release limitation; product/test исходники побайтно совпадают с accepted d3cc. Для окончательного PR SHA обязательные проверки повторно подтверждаются перед merge; аппаратный контроль не повторяется. Публичный выпуск и issue closeout ещё не выполнены.
+
+
+## Первый кандидат релиза и T019 — 2026-10-04
+
+PR7462 слит1503cdf49183a1443cc472123568dd4bb820803d, PR7525 подготовки слитc8d67ccefe7848f731798b23d72d37757ad812f5; common PR proof подтвержден для обоих. Перед freeze исправлена подготовка чистого clone: загружены опубликованные predecessor tags, повторная загрузка полного pack вместо ошибочного thin delta успешна. Кандидат rc-20261004T010721Z-af274b91aa2e получил ровно один release-full37167044158. Он FAIL: existing test_cabinet_python_copy_has_no_forbidden_variants обнаружил «Объём хранилища» в rendering.py. Это механическая несогласованность с F268, не ошибка записи. Кандидат штатно отмечен abandoned; production/публичный appcast не менялись, выпуск не состоялся.
+
+App prepare отдельно отказал до сборки: в свежем clone отсутствовали pinned Sparkle tools. Штатный swift package --package-path apps/macos resolve восстановил Sparkle2.9.4 и проверенный binary artifact; dependency/source policy не ослабляется. Это подготовка среды, не доказательство Developer ID/notary PASS для v3. T019 добавлена как единственный remaining buildable gap FR006/SC004 + F268 convention; требований о capture/native нет, clarify новых решений не требует. Независимое reviewer-owned перечтение и ревью механической правки предшествуют текущим CI/новому кандидату.
+
+## T019 — локальная проверка и сходимость
+
+Существующий copy contract воспроизвел дефект:1failed/4passed/66deselected. Единственная продуктовая правка — одна буква в подписи существующей ссылки /billing; условия собственной/общей встречи, href и доступ сохранены. Штатный isolated PostgreSQL helper запустил весь copy convention и playback status contract:81passed/0failed,44.80s тестов/51s фазы,collection_count81,digest c9cd48f26849ea1d57ad2ad9364a39381e3c513a9d81949de214f38ca3b3a3da; временный контейнер удален.
+
+Повторный converge:14FR/10SC/19tasks; прежние23продуктовых/проверочных файла сверены с accepted d3cc:22побайтно неизменны, единственное различие rendering.py проверено как механическая подпись. FR006/SC004 и T019 удовлетворены без изменения прочих принятых требований. Missing0/partial0/contradicts0/unrequested0 по реализации. Tasks при самом converge не изменялся, пустая Phase не добавлена. Новый CI/кандидат/CD/Apple/public/install не заменены этим локальным результатом.
