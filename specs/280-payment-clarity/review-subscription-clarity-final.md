@@ -36,3 +36,7 @@ SC-005/006, финансовая/человеческая приемка F278 и
 Дополнение после первого CI: T049/#7507 исправляет только устаревшее expectation прежнего money-path теста. Production source неизменен, предыдущие три итоговых заключения по этим байтам сохраняются. Отдельный независимый [обзор T049](review-subscription-t049.md) подтвердил сохранение всех денежных assertions и остальных18functions; targeted1/full71PASS0skips. Отказ governance-fast37159387757 остается историческим; новый точный SHA должен пройти все обязательные gates.
 
 T050/#7510: отдельный независимый review-subscription-t050.md подтвердил ровно один измененный assertion, видимое off поле, sent-payment truth и прежний result-link; остальные23functions файла прежние. Full82PASS0skips. Production source совпадает с прежними тремя окончательными заключениями. Новых implementation gaps нет; текущие exact-SHA gates/release остаются обязательными.
+
+## Актуальный итог выпуска .04.5
+
+Прежние pending записи выше исторические. Технические ворота T048/T056/T061 подтверждены [итогом выпуска](release-subscription-clarity-closeout.md) и независимыми [subscription](review-subscription-release-final.md)/[invoice](review-invoice-production-final.md) отчетами. Source e50c, exact PR/base checks, authoritative Full37180461213, GO/CD/runtime/live/tag/Release/attestation совпадают. Финансовая/человеческая/installed приемка, T011/T012/SC005/006/F278 остаются открытыми.
