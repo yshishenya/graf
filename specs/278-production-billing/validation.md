@@ -582,3 +582,45 @@ reconcile_pending_webhook_events: processed=2, reconciled=2, pending=0, failed=0
 v2026.09.29.1 с уже слитой F279 / PR7363 и новой приёмкой F278.
 Полный прогон, публикация, развёртывание и реальные покупки нового выпуска
 на момент этой записи не выполнены. Критерии финансовой приёмки остаются открыты.
+
+## T031 — отложенный чек после успешной покупки, 2026-10-04
+
+Срез существующей F278, high-risk-product; база свежего master d8fa0edb62d4b034f70e15b2c1321bdcb73ef3ac, ветка codex/278-receipt-recovery. Производственная приёмка выявила registered-чек годовой покупки при локальном pending. В обычной выборке succeeded не наблюдался повторно. Новый фон выбирает только succeeded-операции с известным provider_id и pending-чеком того же workspace/invoice в первых 24ч. Позднее владелец использует «Проверить чек» в сведениях платежа через существующие owner/CSRF/rate-limit guards. Отдельная ветка GET проверяет идентичность/магазин/окружение/сумму/валюту, обновляет только монотонный receipt snapshot и однократное уведомление. Финансовое предоставление, бюджет и согласие не повторяются. Отсутствие active owner не переводит уже успешную оплату в manual_resolution.
+
+Analyze после добавления T031: 0 critical/high по scoped требованиям FR-027/028/031/032, US5/AC2; задача и план связаны, ограничение фонового окна и позднее явное действие определены. Независимый reviewer requirements PASS, все 40 custom checklist items подтверждены (включая новые8), самопроверка requirements16/0. Canon ensure и validate PASS; task owner #7512, дубль не найден. Auto-commit hooks выключены, before/after analyze/converge активных hooks нет.
+
+До реализации новая PostgreSQL-проверка воспроизвела отсутствующее действие проверки чека. Первый исправленный набор16PASS. Расширение проверок выявило неполный SimpleNamespace settings в старом contract fixture; fixture приведён к двум существующим runtime-флагам, добавлены проверки наличия кнопки при включённом/выключенном observation. Итоговая команда:
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_billing_purchase_journey.py tests/unit/test_billing_purchase_observation.py tests/unit/test_billing_entitlements.py tests/contract/test_billing_ui.py tests/contract/test_billing_purchase_ui.py -q --tb=short
+```
+
+Результат: 157 passed, 2 существующих предупреждения зависимостей, 41.49с тестов, временный контейнер удалён. Новые36 сценариев: четыре назначения × фон/точная граница24ч/поздняя ручная проверка/неверные shop, amount, test, metadata/ошибка GET/отсутствие active owner. Проверяются отсутствие POST, сохранённые grant/budget/paid_through/10ГБ/recurringfalse, однократное уведомление и прекращение запросов после зарегистрированного чека. Общие существующие journey/entitlement/UI проверки включены. Ruff PASS, git diff --check PASS, check_spec_kit_governance PASS.
+
+Convergence реализации T031: нового непокрытого обязательства в выбранном срезе не обнаружено. T031 остаётся unchecked: точный PR SHA/CI, новый полный выпуск и фактическое обновление годового чека в production ещё не выполнены. Реальная банковская выплата всех пяти приёмочных платежей подтверждена владельцем; точный реестр удержаний не получен. Полный/частичный внешние возвраты и независимая человеческая/Dev приёмка F278 остаются открытыми. Настоящие платёжные реквизиты, идентификаторы операций, email и сырой provider payload в этих доказательствах отсутствуют. Legacy Impact: untouched.
+
+GitHub governance-fast 37163191858 на ff94c4b5fbf2dbc1d7cc3ab11229de8ab8f0e159 выявил 2 старые проверки: тестовый SimpleNamespace без state и модульный запрет observation flag, затрагивающий новое отображение чека. Приложение не менялось; в test_billing_observation.py добавлено state=provider_pending и сохранён статический запрет observation во всех top-level участках финансовых модулей, кроме существующего read-only billing_invoice_detail_page, где отдельно запрещён create_payment. Локально `uv run --extra dev pytest tests/unit/test_billing_observation.py tests/contract/test_billing_ui.py -q --tb=short`: 72 passed, 2 существующих предупреждения, 1.50с; Ruff PASS. Требуется новый точный SHA и повтор обязательных GitHub проверок; прежний неуспешный прогон не считается допуском.
+
+
+### Замечания PR7520: повторная проверка исправлений
+
+На SHA661a1f85e22a65ab5d71447d2128853654fc5763 обязательные GitHub проверки прошли, но три замечания независимого ревью остановили слияние: существующие succeeded_projected доплаты не попадали в receipt-only выборку; кнопка возвращала на страницу статуса без результата чека; старые pending-чеки могли занять ограниченную пачку перед незавершёнными платежами. Уточнены plan/T031 и reviewer-owned RCP009–011 до исправления. Новые регрессии на прежнем коде воспроизвели все три причины: 6 failed / 46 deselected. Прежний PASS не используется для закрытия этих замечаний.
+
+Исправления читают оба существующих успешных состояния без повторной финансовой проекции, ставят незавершённые платежи первыми в общей выборке и возвращают действие чека на фиксированную страницу своего счёта. return_to допускает только буквальное invoice, не произвольный адрес. На странице видны фактические pending/succeeded и ошибка чтения; оплаченная услуга сохраняется.
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_billing_purchase_journey.py tests/unit/test_billing_observation.py tests/unit/test_billing_purchase_observation.py tests/unit/test_billing_entitlements.py tests/contract/test_billing_ui.py tests/contract/test_billing_purchase_ui.py -q --tb=short
+```
+
+Итог: 183 passed, 2 существующих предупреждения зависимостей, 76.66с тестов; временный PostgreSQL-контейнер удалён. Добавлены проверки pending/error после ручного чтения для четырёх назначений, projected-доплаты и очереди с limit=1. Проверки сохранения финансовых данных/прав/бюджета/отменённого согласия и отсутствия POST остаются частью набора. Ruff, git diff --check и check_spec_kit_governance PASS. Новый SHA потребует обязательных GitHub проверок и полного выпуска; T031 остаётся открытой до реального годового чека. Legacy Impact: untouched — читается сохранённая история, новый старый денежный путь не создаётся.
+
+Независимый reviewer после исправлений: PASS текущего diff поверх 661a1f85e22a65ab5d71447d2128853654fc5763, блокирующих замечаний нет. Перечитаны регрессии и завершённые журналы до/после. Receipt checklist11/0; весь набор59/0, reviewer-owned43/0. Scoped analyze/converge повторно: уточнения RCP009–011 покрыты кодом и регрессиями, critical/high0; новых задач реализации в T031 нет. Проверки нового SHA, выпуск и живая приёмка остаются отдельными условиями. Фиксация исправлений замечаний выполняется в рамках подтверждения владельца «Да, зафиксировать и выпустить» после локальной проверки 183PASS и независимого ревью.
+
+
+### Оплаченный service-gap, дополнительное замечание PR7520
+
+Перед слиянием d5dd7eb2015be698ef894633bf6087a4af33b195 новое независимое замечание выявило pending-чек уже оплаченного succeeded_refused продления. Producers проверены в purchases/entitlements/maintenance: успешные terminal состояния succeeded/succeeded_projected/succeeded_refused; нетерминальные reconciliation_gap/manual_resolution не переводятся в receipt-only по одному invoice.status. План и T031 уточнены до runtime-правки; независимый RCP012 requirements PASS, receipt12/0, reviewer-owned44/0, весь набор60/0. До исправления три PostgreSQL-регрессии дали 3 failed/52 deselected. Runtime-правка: одна строка расширения существующего receipt_states, с прежними проверками и ранним возвратом до финансовой выдачи.
+
+Общий набор той же команды шести файлов: **186 passed**, 2 существующих предупреждения, 69.92с, временный контейнер удалён. Дополнительно проверены фон/позднее ручное действие/отсутствие владельца для refused-продления: grants0, service_resolution/reconciliation_detail/renewal_resolution сохранены, бюджет/paid_through/autooff неизменны, повтор не вызывает новую выдачу. Общий сценарий принимает существующее operation_state вместо создания mode-алиаса. Ruff и git diff --check PASS. Новый точный SHA снова требует обязательных GitHub checks; старые проверки не переносятся на изменённый код. T031/выпуск/живой годовой чек пока открыты; Legacy Impact untouched.
+
+Независимая проверка фактической реализации RCP012: PASS, blockers0; проверены код и завершённые журналы до/после, checklist totals12/0, reviewer-owned44/0, весь набор60/0. Scoped analyze/converge: critical/high0, RCP012 покрыт тестами; T031 не закрывается раньше выпуска и production наблюдения. Поправка входит в ранее разрешённое владельцем исправление и выпуск PR7520.

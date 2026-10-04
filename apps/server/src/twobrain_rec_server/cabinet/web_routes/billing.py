@@ -122,6 +122,7 @@ from twobrain_rec_server.billing.trial import (
 )
 from twobrain_rec_server.billing.usage import format_duration, moscow_window_for
 from twobrain_rec_server.billing.webhook_reconciliation import (
+    RECEIPT_OBSERVATION_STATES,
     reconcile_pending_initial_checkout_operations,
 )
 from twobrain_rec_server.billing.yookassa import (
@@ -2255,6 +2256,19 @@ async def billing_checkout_status_page(
     return cabinet_html_response(content)
 
 
+async def _is_paid_refused_receipt(db, invoice) -> bool:
+    if invoice is None or invoice.status != "succeeded" or not isinstance(invoice.plan_snapshot, dict):
+        return False
+    if invoice.plan_snapshot.get("service_resolution") != "workspace_scope_invalid":
+        return False
+    return bool(await db.scalar(select(BillingOperation.id).where(
+        BillingOperation.id == invoice.operation_id,
+        BillingOperation.workspace_id == invoice.workspace_id,
+        BillingOperation.kind.in_(("renewal", "early_renewal")),
+        BillingOperation.state == "succeeded_refused",
+    )))
+
+
 @router.post(
     "/billing/checkout/status/{safe_number}/refresh",
     response_class=HTMLResponse,
@@ -2293,14 +2307,12 @@ async def refresh_billing_checkout_status(
             WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
         )
     )
-    if (
-        not _can_manage_billing(
-            role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
-            subscription=subscription,
-            principal=principal,
-        )
-        or invoice is None
-    ):
+    role = await _billing_role(db, tenant_scope=tenant_scope, principal=principal)
+    receipt_only = request.query_params.get("return_to") == "invoice"
+    can_refresh = _can_manage_billing(role=role, subscription=subscription, principal=principal)
+    if not can_refresh and role == "owner" and receipt_only:
+        can_refresh = await _is_paid_refused_receipt(db, invoice)
+    if not can_refresh or invoice is None:
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     counters = await reconcile_pending_initial_checkout_operations(
         db,
@@ -2308,10 +2320,14 @@ async def refresh_billing_checkout_status(
         limit=1,
         operation_id=invoice.operation_id,
         defer_referral_reward=True,
+        receipt_only=receipt_only,
     )
     await db.commit()
+    result = _status_refresh_result(counters)
     return RedirectResponse(
-        _checkout_status_location(safe_number, result=_status_refresh_result(counters)),
+        f"/billing/invoices/{quote(safe_number, safe='-')}?result={result}"
+        if request.query_params.get("return_to") == "invoice"
+        else _checkout_status_location(safe_number, result=result),
         status_code=303,
     )
 
@@ -4419,7 +4435,20 @@ async def billing_invoice_detail_page(
     # The current owner receives service-gap notices even when the payer's
     # mandate belongs to the previous owner. This view grants no payment
     # authority and never exposes the previous payer's receipt or card.
+    can_refresh = can_manage or await _is_paid_refused_receipt(db, invoice)
     receipt_state = _receipt_registration_state(snapshot.get("receipt_registration"))
+    can_refresh_receipt = can_refresh and invoice.status == "succeeded" and (
+        receipt_state is ReceiptState.PENDING
+    ) and (request.app.state.settings.billing_provider_observation_enabled
+           or request.app.state.settings.billing_checkout_enabled)
+    if can_refresh_receipt:
+        can_refresh_receipt = bool(await db.scalar(select(BillingOperation.id).where(
+            BillingOperation.id == invoice.operation_id,
+            BillingOperation.workspace_id == invoice.workspace_id,
+            BillingOperation.kind.in_(("initial_checkout", "storage_upgrade", "early_renewal", "renewal")),
+            BillingOperation.provider_id.is_not(None),
+            BillingOperation.state.in_(RECEIPT_OBSERVATION_STATES),
+        )))
     receipt_url = snapshot.get("receipt_url") if receipt_state is ReceiptState.AVAILABLE else None
     if not can_manage or not is_allowed_confirmation_url(receipt_url):
         receipt_url = None
@@ -4488,8 +4517,11 @@ async def billing_invoice_detail_page(
                 else None
             ),
             "receipt_contact_label": _masked_receipt_contact(invoice.receipt_contact_snapshot) if can_manage else None,
-            "receipt_label": receipt_label(receipt_state) if can_manage else "Чек доступен плательщику",
+            "receipt_label": receipt_label(receipt_state) if can_refresh else "Чек доступен плательщику",
             "receipt_url": receipt_url,
+            "receipt_refresh_failed": can_refresh
+            and request.query_params.get("result") == "unavailable",
+            "can_refresh_receipt": can_refresh_receipt,
             "refund_mailto": refund_mailto,
         },
         support_email=support_email,
