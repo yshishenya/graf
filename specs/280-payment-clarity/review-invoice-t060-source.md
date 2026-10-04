@@ -64,3 +64,15 @@ T060 CJS diff относительно31a пустой. В browser contract ед
 
 
 Финальный reread отчета и manifest:16/16MATCH; незакрытых SOURCE findings0/0/0. Изменен только этот внеgit отчет. Любой последующий product/test byte change требует refresh применимости.
+
+## Узкое дополнение: данные direct-render unit test после actualfast
+
+2026-10-04, независимый read-only обзор перед test-only commit. На момент просмотра HEAD `5e38bff3aaea02d988b7028f155ff94d1773c4cd`; dirty только `apps/server/tests/unit/test_cabinet_audit_fixes.py`. Root сообщает GitHub actualfast37176355320:1FAIL/2287PASS; этот GitHub run лично reviewer не загружал, его результат здесь атрибутирован root. Локальный причинный лог прочитан лично: `/tmp/f280-invoice-t060-unit-context-red.log` —1failed/1passed/33deselected0.43s, единственный отказ valid support@graf.test из-за отсутствующего support_mailto в прямом synthetic render context.
+
+Diff только названного unit файла добавляет локальный импорт существующего build_support_mailto и аргумент `support_mailto=build_support_mailto(email)` в render_template. Это соответствует настоящему route projection: передает обычный адрес и отдельно encoded destination. None остаетсяNone; допустимый support@graf.test дает прежний expected mailto. Ни продукт, ни template safety guard ради теста не меняются.
+
+AST comparison с HEAD: изменена только функция test_empty_history_has_real_help_or_honest_unavailable. Все **7 assertions совпадают**, параметры `[None, "support@graf.test"]` и decorators совпадают; проверки наличия realhelp, unavailable текста и запрещенного invitation не ослаблены/не удалены. Другие unit функции неизменны. Terminal `/tmp/f280-invoice-t060-unit-context-green.log` прочитан: **35passed0.20s**, две прежние предупреждающие записи; suites reviewer не запускал.
+
+Новый manifest `/tmp/f280-invoice-t060-final-hashes.json`: **17/17MATCH = прежние16/16 побайтно неизменны + один новый unit файл**. Прежний SOURCE0/0/0 и source/browser/DB применимость к16 файлам сохраняются; новый unit file SHA-256 `6d4763abbc5755b3d73769160deaf67ea78eebfbc8be5afa0921a4c409ab0e27`. Это поправка только тестовых данных, без изменения assertions, параметров или исполнения продукта.
+
+**NARROW SOURCE PASS: critical0 / high0 / исправимых medium0.** После дополнения reviewer перечитал diff, оба terminal logs и17manifest. Этот PASS не объявляет старый actualfast успешным, не заменяет будущий новыйSHA/base CI, слияние либо выпуск. Reviewer изменил только это дополнение внеgit отчета; tracked code/spec/tasks/checklist/Git/GitHub read-only.

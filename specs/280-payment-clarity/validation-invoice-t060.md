@@ -39,3 +39,9 @@ apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test
 GRAF_PAYMENT_RETURN_BROWSER=1 apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_billing_payment_return_browser.py -q --tb=short --show-capture=no
 GRAF_PAYMENT_RETURN_BROWSER=1 GRAF_BROWSER=webkit apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_billing_payment_return_browser.py -q --tb=short --show-capture=no
 ```
+
+## Исправления подготовки PR после первых GitHub запусков
+
+Первый source fast37176174993 остановился на лишней пустой строке в конце нового requirementsreport; reviewerowner удалил ровно один newline, содержание16/0 неизменно. Новый requirementsreportSHA256cf54be0cce38fe4faf8a666aad1192b13d0aeb0723c50fe71c37b4a290fb07a1 заменяет прежний85bad только для этого форматирования. Прежние отчеты/rootreceipts сохраняются как история. Полный gitdiffcheck относительно actualbase и stagednewfiles проходит; initial локальный пустойworkingdiffcheck не покрывал untrackedreport и был недостаточен.
+
+Следующий sourcefast37176355320 дал1FAIL/2287PASS59.24s: существующий unit direct-render emptyhistory передавал толькоsupport_email. Серверные маршруты уже передают отдельный validatedsupport_mailto, но unitfixture отстал. Локальный causalRED1FAIL/1PASS33deselected0.43s; добавлено толькоbuild_support_mailto(email) к rendercontext через существующий helper, прежние assertions/два параметра сохранены. Fulltest_cabinet_audit_fixes35PASS0.20s и RuffPASS. Производственные16bytes неизменны; manifest расширен до17 только этим unitфайлом. Product/browsers/DB повторно не запускаются из-за неизменности кода; GitHubexactnewSHA gates всё равно обязательны.
