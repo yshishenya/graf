@@ -37,7 +37,7 @@ from twobrain_rec_server.billing import webhook_reconciliation
 from twobrain_rec_server.billing.catalog import CatalogNotApproved, validate_plan_version
 from twobrain_rec_server.billing.promotions import promo_code_hash
 from twobrain_rec_server.billing.yookassa import YooKassaClient
-from twobrain_rec_server.cabinet.user_time import format_user_datetime
+from twobrain_rec_server.cabinet.user_time import format_user_datetime, local_datetime
 from twobrain_rec_server.cabinet.web_routes import billing as billing_routes
 from twobrain_rec_server.db.models import (
     AuthSessionDeviceBinding,
@@ -659,8 +659,20 @@ def test_subscription_page_names_the_real_charge_day(client, monkeypatch, tmp_pa
     assert next_charge is not None
     assert first_attempt in next_charge.group(1)
     assert period_end not in next_charge.group(1)
-    # Оплаченный период по-прежнему показан его собственной датой.
-    assert f"<dt>Оплачено до</dt><dd><strong>{period_end}</strong>" in page.text
+    # FR-039/041: compact cutoff stays visible; exact time/zone are native details.
+    facts = re.search(r'<dl class="billing-order-summary billing-subscription-facts">(.*?)</dl>', page.text, re.S)
+    assert facts is not None
+    paid_until = re.search(r"<dt>Оплачено до</dt><dd><strong>(.*?)</strong></dd>", facts.group(1), re.S)
+    assert paid_until is not None
+    assert paid_until.group(1) == local_datetime(PAID_THROUGH).strftime("%d.%m.%Y")
+    assert period_end not in paid_until.group(1)
+    conditions = re.search(r"(<details[^>]*>)\s*<summary>Способ оплаты, условия и история</summary>(.*?)</details>", page.text, re.S)
+    assert conditions is not None
+    assert "open" not in conditions.group(1)
+    assert "<details" not in conditions.group(2)
+    exact_cutoff = re.search(r"<dt>Точный срок доступа</dt><dd>(.*?)</dd>", conditions.group(2), re.S)
+    assert exact_cutoff is not None
+    assert exact_cutoff.group(1) == period_end
 
 
 @pytest.mark.parametrize("purchase_schema", [1, 2])

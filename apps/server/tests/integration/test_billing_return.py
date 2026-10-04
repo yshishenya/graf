@@ -344,7 +344,7 @@ def test_disabling_renewal_does_not_promise_to_cancel_a_sent_payment(client, own
             await db.commit()
     asyncio.run(disable())
     page = client.get("/billing/subscription", headers=headers)
-    assert "Новые автоматические списания отключены" in page.text
+    assert "<dt>Автопродление</dt><dd>Отключено</dd>" in page.text
     assert "еще может завершиться" in page.text
     assert "Автоматического списания не будет" not in page.text
     assert 'href="/billing/checkout/status/INV-CLARITY"' in page.text
@@ -700,7 +700,8 @@ def test_prepared_renewal_allows_early_payment_but_sent_or_unknown_still_block(
     assert page.status_code == 200
     assert ('action="/billing/subscription/early-preview"' in page.text) == safe_prepared
     assert ("Подготовлено автоматическое списание" in page.text) == safe_prepared
-    assert ("Уже отправленный платеж" in page.text) != safe_prepared
+    assert ("Результат платежа" in page.text) != safe_prepared
+    assert "Уже отправленный" not in page.text
     before = payment_counts(client)
     preview = client.post("/billing/subscription/early-preview", headers=headers,
                           data={"promo_code": "SYNTHEARLY"})

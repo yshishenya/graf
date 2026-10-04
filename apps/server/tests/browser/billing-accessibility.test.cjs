@@ -164,6 +164,122 @@ async function checkTextContrast(page, label) {
         assert(await consent.isChecked());
         assert(await page.getByRole('button', { name: /^(Оплатить|Сохранить выбор)/ }).isVisible());
       }
+      if (name.startsWith('subscription') || name.startsWith('shell-subscription')) {
+        const facts = page.locator('.billing-subscription-facts');
+        for (const value of await facts.locator('dd:visible').all()) {
+          assert.equal(await value.evaluate(el => getComputedStyle(el).marginInlineStart), '0px', `${name}: no browser-default dd indentation`);
+        }
+        if (name.includes('off-no-card')) {
+          assert.equal(await page.getByText('Возобновление пока недоступно.', { exact: false }).count(), 0);
+          assert.equal(await page.locator('main [data-billing-primary]:visible').count(), 1);
+          const renew = page.getByRole('link', { name: 'Продлить подписку', exact: true });
+          assert(await renew.isVisible());
+          assert.equal(await renew.getAttribute('href'), '/billing/checkout?cycle=month');
+          const conditions = page.locator('summary', { hasText: 'Способ оплаты, условия и история' });
+          assert.equal(await conditions.locator('..').getAttribute('open'), null);
+          assert.equal(await page.getByText('03.11.2026, 12:19 (UTC+03:00)', { exact: true }).isVisible(), false);
+          await conditions.focus();
+          await page.keyboard.press('Space');
+          assert(await page.getByText('03.11.2026, 12:19 (UTC+03:00)', { exact: true }).isVisible());
+          await page.keyboard.press('Space');
+        }
+        if (name.includes('off-ready')) {
+          const disclosure = page.locator('summary', { hasText: 'Включить автопродление' });
+          const form = page.locator('form[action="/billing/subscription/resume"]');
+          assert.equal(await form.isVisible(), false);
+          await disclosure.focus();
+          await page.keyboard.press('Space');
+          assert(await form.isVisible());
+          const consent = form.getByRole('checkbox');
+          assert.equal(await consent.isChecked(), false);
+          assert.equal(await form.evaluate(el => el.checkValidity()), false);
+          assert(await page.getByText('31.10.2026, 12:19 (UTC+03:00)', { exact: false }).isVisible());
+          await consent.focus();
+          await page.keyboard.press('Space');
+          assert(await consent.isChecked());
+          assert(await form.evaluate(el => el.checkValidity()));
+          const serialized = await form.evaluate(el => Object.fromEntries(new FormData(el)));
+          assert.equal(serialized.csrf_token, 'synthetic');
+          assert.equal(serialized.expected_authority_version, '1');
+          assert.equal(serialized.resume_quote_id, 'synthetic-resume');
+          assert.equal(serialized.resume_consent, 'true');
+          await disclosure.focus();
+          await page.keyboard.press('Space');
+        }
+        if (name.includes('uncertain-')) {
+          assert.equal(await page.locator('a[href="/billing/checkout?cycle=month"]').count(), 0);
+          assert.equal(await page.locator('form[action="/billing/subscription/resume"], form[action="/billing/subscription/early-preview"]').count(), 0);
+          assert(await page.getByRole('status').first().isVisible());
+        }
+        if (name === 'subscription-key-expired') {
+          assert(await page.getByRole('link', { name: 'Продлить подписку', exact: true }).isVisible());
+          assert(!(await page.locator('main').innerText()).includes('Повторно платить не нужно'));
+        }
+        if (name === 'subscription-ambiguous-payment' || name.includes('uncertain-')) {
+          const text = await page.locator('main').innerText();
+          assert(text.includes('Результат платежа'));
+          assert(text.includes('еще может завершиться'));
+          assert(!text.includes('Уже отправленный'));
+          assert.equal(await page.locator('a[href="/billing/checkout?cycle=month"]').count(), 0);
+          assert.equal(await page.locator('form[action="/billing/subscription/resume"], form[action="/billing/subscription/early-preview"]').count(), 0);
+          if (name === 'subscription-ambiguous-payment') {
+            const status = page.getByRole('link', { name: 'Проверить платёж', exact: true });
+            assert(await status.isVisible());
+            assert.equal(await status.getAttribute('href'), '/billing/checkout/status/INV-SYNTHETIC');
+          }
+        }
+        if (name.startsWith('subscription-method-pending')) {
+          const recovery = page.getByRole('link', { name: 'Проверить способ оплаты', exact: true });
+          assert(await recovery.isVisible());
+          assert.equal(await recovery.getAttribute('href'), '/billing/payment-method');
+          await recovery.focus();
+          assert(await recovery.evaluate(el => el === document.activeElement));
+          assert(await page.getByRole('link', { name: 'Проверить платёж', exact: true }).isVisible());
+          assert.equal(await page.locator('a[href="/billing/checkout?cycle=month"]').count(), 0);
+          assert.equal(await page.locator('form[action="/billing/subscription/resume"], form[action="/billing/subscription/early-preview"]').count(), 0);
+          assert(!(await page.locator('main').innerText()).includes('Уже отправленный'));
+          if (name.endsWith('-on')) assert(await page.getByRole('button', { name: 'Отключить автопродление', exact: true }).isVisible());
+        }
+        if (name === 'subscription-trial') {
+          assert(!(await page.locator('main').innerText()).includes('Сейчас действует бесплатный тариф'));
+          assert(await page.getByText('03.11.2026', { exact: false }).first().isVisible());
+        }
+        const period = page.getByText('Период оплаты', { exact: true });
+        if (['subscription-free', 'subscription-trial', 'subscription-expired', 'subscription-expired-pending', 'subscription-unknown-cycle'].includes(name)) {
+          assert.equal(await period.count(), 0, 'inactive or unknown-cycle access must not invent a paid period');
+          assert(!/за месяц|за год/.test(await page.locator('main').innerText()));
+        } else if (name === 'subscription-year') {
+          const conditions = page.locator('summary', { hasText: 'Способ оплаты, условия и история' });
+          await conditions.focus();
+          await page.keyboard.press('Space');
+          assert.equal(await period.locator('..').locator('dd').innerText(), 'год');
+          assert.match(await facts.innerText(), /за год/);
+          assert.match(await page.getByText('Цена следующего периода', { exact: true }).locator('..').innerText(), /за год/);
+          await page.keyboard.press('Space');
+        }
+        if (name.startsWith('subscription-restriction-')) {
+          const reason = name.replace('subscription-restriction-', '');
+          const mainText = await page.locator('main').innerText();
+          const primary = page.locator('[data-billing-primary]');
+          assert.equal(await primary.count(), 1);
+          assert.equal(await primary.getAttribute('href'), '/billing/checkout/status/INV-SYNTHETIC');
+          assert(!mainText.includes('Подтверждение оплаты получено'));
+          assert.equal(await page.locator('a[href^="/billing/checkout?"], form[action="/billing/subscription/resume"], form[action="/billing/subscription/early-preview"]').count(), 0);
+          if (reason === 'price_changed') {
+            const recovery = page.getByRole('link', { name: 'Проверить новую цену', exact: true });
+            assert(await recovery.isVisible());
+            assert.equal(await recovery.getAttribute('href'), '/billing/storage');
+            await recovery.focus();
+            assert(await recovery.evaluate(el => el === document.activeElement));
+          } else if (reason === 'receipt_contact_required') {
+            assert(mainText.includes('нужен адрес для чека'));
+            assert(!/Оплатите|Оплатить следующий период вручную/.test(mainText));
+            assert(await page.locator('.notice a[href="/billing/history#billing-help"]').isVisible());
+          } else if (reason !== 'late_success') {
+            assert(mainText.includes('Автопродление приостановлено'));
+          }
+        }
+      }
       if (name.includes('discounts')) {
         const promo = page.getByRole('textbox', { name: 'Промокод', exact: true });
         assert(await promo.isVisible());
@@ -332,6 +448,75 @@ async function checkTextContrast(page, label) {
       assert.equal(submitted.get('offer_consent'), 'true');
       assert.equal(submitted.get('recurring_consent'), recurring ? 'true' : null);
       await noScriptPage.close();
+    }
+    // Native disclosure and consent work without page scripting; no provider is called.
+    for (const name of ['subscription-off-ready', 'subscription']) {
+      const page = await browser.newPage({ javaScriptEnabled: false });
+      const posts = [];
+      await page.route('https://graf.test/**', route => {
+        const request = route.request();
+        if (request.method() === 'POST') posts.push(request);
+        return route.fulfill({ contentType: 'text/html; charset=utf-8', body: request.method() === 'POST'
+          ? '<meta charset="utf-8"><p>Синтетическая отправка принята</p>'
+          : `<html lang="ru"><meta charset="utf-8"><body>${pages[name]}</body></html>` });
+      });
+      await page.goto('https://graf.test/billing/subscription');
+      const resuming = name === 'subscription-off-ready';
+      if (resuming) {
+        await page.locator('summary', { hasText: 'Включить автопродление' }).focus();
+        await page.keyboard.press('Space');
+        await page.getByRole('button', { name: 'Включить автопродление', exact: true }).click();
+        assert.equal(posts.length, 0, 'native resume consent is required without JavaScript');
+        const consent = page.getByRole('checkbox');
+        assert.equal(await consent.isChecked(), false);
+        await consent.check();
+      }
+      const action = resuming ? 'resume' : 'cancel';
+      await Promise.all([
+        page.waitForURL(`https://graf.test/billing/subscription/${action}`),
+        page.getByRole('button', { name: resuming ? 'Включить автопродление' : 'Отключить автопродление', exact: true }).click(),
+      ]);
+      assert.equal(posts.length, 1);
+      const fields = new URLSearchParams(posts[0].postData());
+      assert.equal(fields.get('csrf_token'), 'synthetic');
+      assert.equal(fields.get('expected_authority_version'), '1');
+      assert.equal(fields.get('resume_consent'), resuming ? 'true' : null);
+      assert.equal(fields.get('resume_quote_id'), resuming ? 'synthetic-resume' : null);
+      await page.close();
+    }
+    for (const name of Object.keys(pages).filter(name => name.startsWith('subscription-restriction-') ||
+      ['subscription-free', 'subscription-trial', 'subscription-expired', 'subscription-unknown-cycle', 'subscription-year'].includes(name))) {
+      const page = await browser.newPage({ javaScriptEnabled: false, viewport: { width: 320, height: 900 } });
+      const requests = [];
+      await page.route('https://graf.test/**', route => {
+        requests.push(route.request());
+        return route.fulfill({ contentType: 'text/html; charset=utf-8', body: `<html lang="ru"><meta charset="utf-8"><body>${pages[name]}</body></html>` });
+      });
+      await page.goto('https://graf.test/billing/subscription');
+      if (name.startsWith('subscription-restriction-')) {
+        const primary = page.getByRole('link', { name: 'Проверить платёж', exact: true });
+        assert(await primary.isVisible());
+        await primary.focus();
+        assert(await primary.evaluate(el => el === document.activeElement));
+        const text = await page.locator('main').innerText();
+        assert(!text.includes('Подтверждение оплаты получено'));
+        if (name.endsWith('receipt_contact_required')) assert(text.includes('нужен адрес для чека') && !text.includes('Оплатите'));
+        else if (!name.endsWith('late_success')) assert(text.includes('Автопродление приостановлено'));
+        assert.equal(await page.locator('a[href^="/billing/checkout?"], form[action="/billing/subscription/resume"], form[action="/billing/subscription/early-preview"]').count(), 0);
+        await Promise.all([page.waitForURL('https://graf.test/billing/checkout/status/INV-SYNTHETIC'), page.keyboard.press('Enter')]);
+        assert.equal(requests.length, 2);
+        assert(requests.every(request => request.method() === 'GET'), 'native status navigation must not send money requests');
+      } else {
+        await page.locator('summary', { hasText: 'Способ оплаты, условия и история' }).focus();
+        await page.keyboard.press('Space');
+        const period = page.getByText('Период оплаты', { exact: true });
+        if (name === 'subscription-year') {
+          assert(await period.isVisible());
+          assert.equal(await period.locator('..').locator('dd').innerText(), 'год');
+        } else assert.equal(await period.count(), 0);
+        assert.equal(requests.length, 1);
+      }
+      await page.close();
     }
     console.log('billing: initial/error focus, native consent keyboard, no focus steal, single status region passed');
   } finally {

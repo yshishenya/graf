@@ -1,0 +1,83 @@
+# F280 US4 — сходимость простого управления подпиской
+
+2026-10-04. Lane: high-risk-product, активный Spec Kit срез FR-039–045 / SC-014,
+T046–T048. Выполнен `$speckit-converge` после реализации и причинных проверок.
+Prerequisites подтвердили `280-payment-clarity`; обязательств новых hooks нет.
+Существующие задачи при этой проверке не переписывались, новых не добавлено.
+
+| Обязательство | Текущее состояние реализации и доказательства |
+| --- | --- |
+| FR-039: простая оплаченная карточка | Действительный тариф, статус, короткая локальная дата, состояние продления и один основной GET с сохранением month/year; ложное предупреждение no-card удалено. Контракты и браузерные сценарии, независимый UX PASS. |
+| FR-040: включенное продление | Сумма/следующая попытка и прямая отмена видимы; последствия отмены правдивы, исходная защищенная форма сохранена. Существующие финансовые проверки и независимый security PASS. |
+| FR-041: условия и явное восстановление | Native details одного уровня; точный срок/зона, цена, карта и история доступны. В resume сумма/срок/карта и required unchecked consent до подтверждения; CSRF/version/quote неизменны. Досрочная форма и открытие при ошибке сохранены. |
+| FR-042: незавершенные платежи | Чтение всех видов invoice, включая отсутствие subscription и view-only key expiry. При pending/resolution отсутствуют новые действия и подготовка resume quote. Реальные blockers/prepared состояние сохранены. PostgreSQL 147 PASS, включая 22 новых сценария. |
+| FR-043: trial/free/expired | Представление использует один существующий effective_plan_code, корректный пробный срок и viewer-local дату. Неизвестный срок не выдумывается; owner gate остается до чтения. |
+| FR-044: границы и защита | AST сравнение с интегрированным master: изменена только GET функция billing_subscription_page; денежные функции не изменены. Нет API/JS/миграций/зависимостей; денежные guards и legacy observation_expired сохранены. Реальных финансовых действий при проверке нет. |
+| FR-045: аналогия и доступность | Официальный исторический Krisp reference с пределами наблюдения; GRAF код/ресурсы независимы. Native disclosure/forms, две темы, узко/широко, клавиатура и NoJS. После интеграции F285 CSS требуется отдельный актуальный browser review, уже предусмотренный T048. |
+| SC-014 / пять сценариев | Причинные RED и окончательные GREEN сохранены. Строгий подсчет 14→7 = 50%; UX/security PASS. Третье независимое заключение и выпуск остаются существующей T048, а не новой реализацией. |
+
+Проверено 7 FR, 1 buildable SC, 5 сценариев приемки, 5 решений плана:
+повторное использование native UI; единая effective модель; локальные сроки;
+минимальный view-only поиск; сохранение финансовых обработчиков. Проверены
+применимые ограничения конституции II/III/VI/VII: явное согласие, отсутствие
+чужих ресурсов/нового внешнего обмена, изоляция и доказательства выпуска.
+
+Новых обязательных задач реализации нет: missing/partial/contradicts/unrequested
+0/0/0/0; critical/high/medium/low 0/0/0/0. Реализация среза сошлась с намерением
+spec/plan/tasks. T048 остается открытой до трех окончательных независимых
+заключений, exact-SHA PR checks, слияния и release-full/GO/CD/publication.
+Это существующая задача выпуска, дублировать ее новым номером нельзя.
+
+T011/T012, SC-005/006 и финансовая приемка F278/umbrella не закрываются этим
+срезом. Синтетические проверки не доказывают конверсию, желание оплатить,
+человеческую приемку, банковское зачисление, возврат или живое автосписание.
+
+После интеграции master независимый browser review завершен: Chromium16/WebKit16 PASS, 44 focus checks PASS, замечаний0. Сводка трех окончательных заключений: review-subscription-clarity-final.md. Новых implementation gaps нет; оставшиеся ворота T048 — PR и выпуск.
+
+## Повторная сходимость после CI RED
+
+GitHub governance-fast37159387757 на4eda104 выявил один partial HIGH gap по FR-039/041: прежний money-path тест ожидал полный оплаченный срок в основных фактах; фактическое представление намеренно переносит его в native условия.180cases:179PASS/1FAIL, остальные финансовые assertions текущего сценария прошли. Для причинного исправления именно проверки добавлена T049, Phase19; новые требования и код продукта не требуются. До GREEN/review/повторных обязательных PR gates выпуск запрещен. Исторический отказ сохраняется.
+
+T049 после исправления: targeted1PASS/full71PASS0skips; независимый review-subscription-t049.md PASS0/0/0/0. Все денежные assertions сохранены, источник продукта прежний. Повторная сходимость: обязательных непокрытых implementation gaps0; нового Phase/tasks не требуется. T048 остаётся открытой до новых exact-SHA PR gates и выпуска.
+
+## Следующая сходимость перед full release
+
+Выявлен partial HIGH gap по FR-039/040/042 в прежнем интеграционном тесте: требует удаленную повторяющуюся фразу вместо явного поля «Автопродление — Отключено». Причинный PostgreSQL RED1/81deselected,6.37с; отображение и предупреждение о возможности завершения отправленного платежа правильны. Добавлена T050/Phase20, без новых требований или изменений продукта. До GREEN/review и текущих exact-SHA gates выпуск запрещен.
+
+T050 завершена: full82PASS0skips110.57с, независимый review-subscription-t050.md PASS0 замечаний. Остальные23functions интеграционного файла и финансовые assertions прежние. Повторный converge: новых mandatory implementation gaps0; новых задач не добавлено. Требуются новые exact-SHA PR gates и выпуск T048.
+
+## Внешний обзор — T051
+
+Два P2 независимо подтверждены: безусловный view-only provider_key_expired fence расходится с общей денежной политикой; pending ветка скрывает method_required и приписывает отправку. Предыдущие PASS сохраняются как исторические, текущий выпуск HOLD до T051. Узко уточнен FR042/plan/contract без новой денежной политики: существующий blocking set, сохранение безопасной проверки карты, отсутствие необоснованного вывода об отправке. Добавлена T051 Phase21; сначала независимый refresh требований и analyze/issue sync, затем causal RED/GREEN/review/current gates.
+
+Согласован один выпуск с соседним пользовательским чатом «Упростить и улучшить интерфейс»: root владеет canonical F280 docs и подпиской, соседний срез владеет invoice/status/support/contextual manual-renewal consent, зарезервированы T052–T056/FR046+. Freeze до готовности обоих PR, реальных платежей0; новая checkout default FR019 сохраняется. Дополнения будут интегрированы после получения однозначного supplement и независимого checklist gate.
+
+## Итог T051 и согласование invoice, 2026-10-04
+
+Оба P2 исправлены минимально в существующем GET/шаблоне. Причинный RED11/24; текущий targeted25 и полный DB150 PASS, UI80 PASS, проверка точной даты1 PASS, Chromium16/WebKit16 PASS и независимые12NoJS PASS. Три свежих independent source/browser/UX заключения0critical/0high/0применимыхmedium; requirements14checked/0unchecked. CSS/денежные handlers/sharedset/API/DB/JS не меняются. Missing/partial/contradicts/unrequested0/0/0/0 для T051; новых задач этого среза нет. Точные хеши/пределы template drift зафиксированы в отдельных текущих отчетах. T051 реализована и проверена локально; exact-SHA PR и общий выпуск остаются открытыми T048.
+
+Предыдущая строка про contextual manual-renewal consent не действует: владелец явно сохранил FR019 checked default везде, включая ручное продление. Invoice не меняет checkout/consent/JS. Дополнение FR046–052/SC016/017 и T052–056 интегрировано, width720 согласована; независимый invoice checklist ведется в другом срезе, до его PASS код не начинается. Текущая сходимость подписки не утверждает, что открытые invoice задачи выполнены. Ни чужие draft .04.1/.04.2, ни занятый GRAF Dev не изменяются.
+
+## Новый внешний P2 — T057
+
+Свежий review4175482831 на71d12ae4 подтвердил partialHIGH gap FR042: общая pending ветка initial/storage/manual_resolution безproviderID все еще приписывает отправку. T051 method_required case исправлен, но generic wording неполон. НовыйT057/Phase23 без изменения денежных handlers/query; текущий merge/release HOLD. Прежние исходники/tests/hash-bound3reviews и exact71 CI PASS сохранены как история. Сначала independent requirements refresh, затем causal RED всех modern kinds/безproviderID, минимальный neutral notice, существующие full regression/return +browsers/reviews/current gates.
+
+
+## Окончательная сходимость T057
+
+Нейтральный результат во всех ambiguous видах реализован одной строкой шаблона. RED8/2 и полный GREEN240+82, Chromium16/WebKit16, три distinct независимых source/UX/browser PASS0/0/0 подтверждают FR042/044. Prepared scheduled/no-provider, безопасная проверка карты, запрет повтора и денежные guards сохранены. Missing/partial/contradicts/unrequested0/0/0/0; новых задач реализации нет. T057 остается открытой до текущих exactSHA/base PR gates; T048/T056 — до общего выпуска. Исторические отказы и пределы финансовой/человеческой приемки сохранены.
+
+
+## Сходимость T058 на окончательном шаблоне
+
+Применен `$speckit-converge` в границах существующего дополнения FR039/042/044/045 и T058. Поддерживаемый prerequisite `--json --require-tasks --include-tasks` подтвердил активную F280; spec/plan/task/contract прочитаны явно. В `.specify/extensions.yml` before/after_converge hooks отсутствуют. Требования reviewer-owned14/0 и analyze/canon уже PASS; состояния чеклиста основной исполнитель не менял.
+
+При pending причины price/method/contact и четыре общие причины видны отдельно от результата; проверка платежа остается единственным главным действием. Pending contact не предлагает повторную оплату; без pending прежнее восстановление сохранено. Late_success не подтверждает другую ожидающую операцию. Все три подписи текущего периода берутся из настоящего cycle, строка периода ограничена active+month/year. Unknown/missing/free/trial/expired не получают месячный период. Это только существующий шаблон, SHA256 `2ffc49465a9a7c4e11c95cb6780d5c1afde145fc755ea101878128e36c0353ca`; GET/денежные обработчики/API/DB/JS/CSS/invoice прежние. Проверены четыре применимых FR, два уточнения поведения, минимальная граница plan и ограничения безопасности/доступности/самостоятельной реализации конституции.
+
+Missing/partial/contradicts/unrequested в реализации T058:0/0/0/0; новых исполнительных задач не требуется, tasks.md этим convergence не изменяется. Причинные RED13contract/11realGET и текущий UI100PASS сохранены. Первый DB254PASS и Chromium16PASS записываются как исторические из-за смены защитного guard/testfixture; окончательные full254/Chromium16/WebKit16 и три независимых terminal заключения пока ожидаются. Небольшое независимое замечание к synthetic expired label поручено тестовому исполнителю, продукт не меняется. Это source-converged, а не release PASS. Current exactSHA/base PR gates и общий frozen выпуск остаются T048/T056; финансовая/человеческая приемка F278 и T011/T012/SC005/006 не закрываются.
+
+
+Окончательные проверки T058: UI100PASS/0.71s, полный PostgreSQL254PASS/232.81s (172regression+82return, container removed), Chromium16PASS/61.34s и WebKit16PASS/76.37s. Все семь final fingerprints совпали, drift0. Historical mixed-source результаты отделены в validation-subscription-t058.md. Synthetic expired label исправлена до final браузеров. SOURCE logic и UX предварительные независимые PASS0/0/0 прочитаны; terminal browser/UX evidence refresh завершается. Product implementation gaps остаются0, текущие exactSHA/base PR и выпуск по-прежнему открыты.
+
+
+Три distinct окончательных заключения T058 лично прочитаны: `review-subscription-t058-source.md`, `review-subscription-t058-browser.md`, `review-subscription-t058-ux-final.md` — каждый PASS0critical/0high/0fixablemedium на final bytes. Дополнительный предварительный UX отчет сохранен как история. Требования14/0, actual source/test rehash7/7, terminal100/254/16+16 и independentvisual согласованы. Сходимость реализации чистая; никаких новых задач, денежных изменений или вопросов владельцу не требуется. T057/T058 остаются открыты до текущих exactPRSHA/base gates, T048/T056 — до общего выпуска.
