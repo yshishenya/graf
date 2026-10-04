@@ -295,7 +295,57 @@ async function checkTextContrast(page, label) {
           assert(!/Год|Месяц|·/.test(history));
         }
       }
-      for (const width of [320, 360, 768, 1280]) {
+      if (name.includes('invoice-')) {
+        assert(await page.getByText('03.11.2026 — 03.12.2026', { exact: true }).isVisible(), `${name}: compact paid period on view`);
+        const exactPeriod = page.getByText('03.11.2026, 12:19 (UTC+03:00) — 03.12.2026, 12:19 (UTC+03:00)', { exact: true });
+        const information = page.locator('summary', { hasText: 'Сведения о платеже' });
+        assert.equal(await exactPeriod.isVisible(), false, `${name}: exact period is a secondary detail`);
+        if (name.includes('service-gap')) {
+          assert(await page.getByText('Оплата подтверждена; услуга требует сверки', { exact: false }).isVisible());
+          assert.equal(await page.getByText('Оплата подтверждена; услуга требует сверки', { exact: false }).evaluate(el => Boolean(el.closest('details'))), false, 'service gap must not be hidden in disclosure');
+        }
+        await information.focus();
+        await page.keyboard.press('Space');
+        assert(await exactPeriod.isVisible(), `${name}: native keyboard disclosure reveals precise dates`);
+        assert(await page.getByText('Дата создания платежа', { exact: true }).isVisible());
+        assert(await page.getByText('04.10.2026, 12:19 (UTC+03:00)', { exact: true }).isVisible());
+        const copy = page.getByRole('button', { name: 'Скопировать номер платежа', exact: true });
+        assert.equal(await copy.getAttribute('data-copy-value'), 'INV-SYNTHETIC');
+        await page.evaluate(() => {
+          window.syntheticClipboard = [];
+          Object.defineProperty(navigator, 'clipboard', { configurable: true,
+            value: { writeText: async value => window.syntheticClipboard.push(value) } });
+        });
+        await copy.click();
+        assert.deepEqual(await page.evaluate(() => window.syntheticClipboard), ['INV-SYNTHETIC'], 'real copy handler passes only safe number to synthetic clipboard');
+        const help = page.locator('summary', { hasText: 'Помощь и возврат' });
+        await help.focus();
+        await page.keyboard.press('Space');
+        const question = page.getByRole('link', { name: 'Вопрос об оплате', exact: true });
+        const refund = page.getByRole('link', { name: 'Запросить возврат', exact: true });
+        for (const [link, subject] of [[question, 'Вопрос об оплате INV-SYNTHETIC'], [refund, 'Возврат по платежу INV-SYNTHETIC']]) {
+          assert(await link.isVisible());
+          const destination = new URL(await link.getAttribute('href'));
+          assert.equal(destination.protocol, 'mailto:');
+          assert.equal(destination.pathname, 'support@example.test');
+          assert.equal(destination.searchParams.get('subject'), subject);
+          await link.focus();
+          assert(await link.evaluate(el => el === document.activeElement));
+        }
+        assert(await page.getByText('Открытие письма не отправляет запрос и не оформляет возврат', { exact: false }).isVisible());
+        const receipt = page.getByRole('link', { name: 'Открыть чек', exact: true });
+        if (name.endsWith('invoice-receipt')) {
+          assert(await receipt.isVisible());
+          assert.equal(await receipt.getAttribute('href'), 'https://graf.test/synthetic-receipt');
+        } else assert.equal(await receipt.count(), 0, `${name}: no fabricated document action`);
+        if (name.includes('intervals')) {
+          assert(await page.getByText('03.01.2027, 12:19 (UTC+03:00): 10 ГБ', { exact: false }).isVisible());
+        }
+        for (const value of await page.locator('main dd:visible').all()) {
+          assert.equal(await value.evaluate(el => getComputedStyle(el).marginInlineStart), '0px', `${name}: no browser-default dd indentation`);
+        }
+      }
+      for (const width of [320, 360, 390, 768, 1280]) {
         await page.setViewportSize({ width, height: 900 });
         for (const theme of ['light', 'dark']) {
           for (const zoom of [1, 2]) {
@@ -309,6 +359,10 @@ async function checkTextContrast(page, label) {
                 document.documentElement.scrollWidth > window.innerWidth + 1;
             });
             assert(!overflow, `${name}: content clipped at ${width}px, ${theme}, ${zoom * 100}%`);
+            if (name.includes('invoice-') && width === 1280 && zoom === 1) {
+              const contentWidth = await page.locator('main .settings-page__content').evaluate(el => el.getBoundingClientRect().width);
+              assert.equal(Math.round(contentWidth), 720, `${name}: invoice uses the agreed subscription content width`);
+            }
             const smallTargets = await page.evaluate(() => [...document.querySelectorAll(
               'main button, main .button, main summary, main select, main input[type=text], main label.billing-consent',
             )].filter(el => el.checkVisibility() && !el.matches(':disabled')).filter(el => {
@@ -516,6 +570,30 @@ async function checkTextContrast(page, label) {
         } else assert.equal(await period.count(), 0);
         assert.equal(requests.length, 1);
       }
+      await page.close();
+    }
+    // Invoice disclosures and document/support links are native HTML with JS off.
+    // We inspect mailto targets but never invoke an external mail application.
+    for (const name of ['invoice-future', 'invoice-receipt', 'invoice-receipt-no-url']) {
+      const page = await browser.newPage({ javaScriptEnabled: false });
+      const posts = [];
+      await page.route('https://graf.test/**', route => {
+        if (route.request().method() !== 'GET') posts.push(route.request().method());
+        return route.fulfill({ contentType: 'text/html; charset=utf-8', body: `<html lang="ru"><meta charset="utf-8"><body>${pages[name]}</body></html>` });
+      });
+      await page.goto('https://graf.test/billing/invoices/INV-SYNTHETIC');
+      assert(await page.getByText('03.11.2026 — 03.12.2026', { exact: true }).isVisible());
+      for (const label of ['Сведения о платеже', 'Помощь и возврат']) {
+        const summary = page.locator('summary', { hasText: label });
+        await summary.focus();
+        await page.keyboard.press('Space');
+        assert(await summary.locator('..').evaluate(el => el.open), `${name}: JS-off keyboard disclosure`);
+      }
+      assert(await page.getByText('Дата создания платежа', { exact: true }).isVisible());
+      assert(await page.getByRole('link', { name: 'Вопрос об оплате', exact: true }).isVisible());
+      assert(await page.getByRole('link', { name: 'Запросить возврат', exact: true }).isVisible());
+      assert.equal(await page.getByRole('link', { name: 'Открыть чек', exact: true }).count(), name === 'invoice-receipt' ? 1 : 0);
+      assert.deepEqual(posts, [], 'reading and disclosing invoice sends no mutations');
       await page.close();
     }
     console.log('billing: initial/error focus, native consent keyboard, no focus steal, single status region passed');

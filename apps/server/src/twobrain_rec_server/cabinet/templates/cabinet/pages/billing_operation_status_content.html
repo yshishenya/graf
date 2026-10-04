@@ -78,7 +78,7 @@
         <a id="billing-status-recovery" class="button quiet" data-billing-status-recovery href="{{ local_status_url }}" hidden>Обновить результат</a>
 
         <details id="billing-status-details" class="billing-coupon"><summary id="billing-status-details-summary">Сведения о платеже</summary>
-          <dl class="settings-definition-list"><div><dt>Номер</dt><dd>{{ invoice.safe_number }}</dd></div><div><dt>Создан</dt><dd>{{ invoice.created_at_label|default("время уточняется") }}</dd></div><div><dt>Последняя проверка</dt><dd>{{ updated_at_label or "еще не выполнялась" }}</dd></div></dl>
+          <dl class="billing-order-summary"><div><dt>Номер</dt><dd>{{ invoice.safe_number }}</dd></div><div><dt>Создан</dt><dd>{{ invoice.created_at_label|default("время уточняется") }}</dd></div><div><dt>Последняя проверка</dt><dd>{{ updated_at_label or "еще не выполнялась" }}</dd></div></dl>
         </details>
         <p><a id="billing-status-invoice" href="/billing/invoices/{{ invoice.safe_number }}">Платеж и чек</a></p>
       </section>

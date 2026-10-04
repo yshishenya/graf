@@ -1,6 +1,7 @@
 import json
 import subprocess
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
@@ -175,6 +176,44 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
     for name in ("overview", "subscription", "payment_method", "history", "invoice", "usage", "discounts"):
         pages[name] = render_template(
             f"cabinet/pages/billing_{name}_content.html", **surface_context,
+        )
+    invoice_future = {
+        **invoice,
+        "status_label": "Оплачено", "status_url": None,
+        "purpose_label": "Оплата тарифа", "capacity_label": "5 ГБ",
+        "created_at_label": "04.10.2026, 12:19 (UTC+03:00)",
+        "service_period_short_label": "03.11.2026 — 03.12.2026",
+        "service_period_label": (
+            "03.11.2026, 12:19 (UTC+03:00) — 03.12.2026, 12:19 (UTC+03:00)"
+        ),
+        "question_mailto": "mailto:support@example.test?subject=" + quote(
+            "Вопрос об оплате INV-SYNTHETIC"
+        ),
+        "refund_mailto": "mailto:support@example.test?subject=" + quote(
+            "Возврат по платежу INV-SYNTHETIC"
+        ),
+    }
+    for name, changes in {
+        "invoice-future": {},
+        "invoice-service-gap": {"service_label": "Оплата подтверждена; услуга требует сверки"},
+        "invoice-receipt": {
+            "receipt_url": "https://graf.test/synthetic-receipt",
+            "receipt_label": "Чек зарегистрирован",
+        },
+        "invoice-receipt-no-url": {"receipt_label": "Чек зарегистрирован"},
+        "invoice-intervals": {
+            "storage_intervals": [
+                {"period": "03.11.2026, 12:19 (UTC+03:00) — 03.12.2026, 12:19 (UTC+03:00)",
+                 "capacity": "5 ГБ"},
+                {"period": "03.12.2026, 12:19 (UTC+03:00) — 03.01.2027, 12:19 (UTC+03:00)",
+                 "capacity": "10 ГБ"},
+            ],
+            "receipt_contact_label": "billing.team.with.long.address@example.test",
+        },
+    }.items():
+        pages[name] = render_template(
+            "cabinet/pages/billing_invoice_content.html",
+            **{**surface_context, "invoice": {**invoice_future, **changes}},
         )
     pages["subscription-expired-pending"] = render_template(
         "cabinet/pages/billing_subscription_content.html",
@@ -353,7 +392,7 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
     )
     from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 
-    for name in ("checkout", "plans", "packages", "discounts", "discounts-history-year", "discounts-history-unknown", "discounts-error", "subscription-off-no-card", "subscription-off-ready", "subscription"):
+    for name in ("checkout", "plans", "packages", "discounts", "discounts-history-year", "discounts-history-unknown", "discounts-error", "subscription-off-no-card", "subscription-off-ready", "subscription", "invoice-future", "invoice-service-gap", "invoice-receipt", "invoice-receipt-no-url", "invoice-intervals"):
         pages[f"shell-{name}"] = _page_shell(
             "Оплата", content=pages[name], embedded=False,
             csrf_token="synthetic", active_nav="settings", settings_active="billing",
