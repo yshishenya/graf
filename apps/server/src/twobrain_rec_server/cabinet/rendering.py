@@ -2397,7 +2397,7 @@ def _render_playback(
         """
     storage_action = (
         '<span>Освободите место или обратитесь к владельцу пространства. '
-        '<a href="/billing">Объём хранилища</a></span>'
+        '<a href="/billing">Объем хранилища</a></span>'
         if review.playback.reason_code == "storage_capacity_exceeded" and shared_workspace_id is None
         else '<span>Обратитесь к владельцу пространства, чтобы освободить место для аудио.</span>'
         if review.playback.reason_code == "storage_capacity_exceeded"

@@ -240,3 +240,115 @@ owned app/test файла из feature.json с принятым
 rendering.py и его существующий контракт. Проверка относится именно к
 владению F284; посторонние изменения базовой ветки не принимаются этим ревью.
 Окончательный результат реализации C0/H0/M0; требования36/0 сохраняются.
+
+## Независимая проверка требований T019 до механической правки
+
+Проверка поверх HEAD c8d67ccefe7848f731798b23d72d37757ad812f5 на
+codex/284-recording-continuity-playback. Активный путь подтверждён
+feature.json и штатным prerequisite command; новый путь фичи не создаётся.
+Прочитаны дополненные plan/tasks/quickstart/validation, все reviewer-owned
+списки и существующий test_copy_convention_contract.py. Дополнительно
+прочитаны исходные F268 clarification и contracts/ui-tokens-and-copy.md§5:
+пользовательские строки кабинета должны использовать «е» вместо «ё».
+
+Итог качества требований: **PASS, CRITICAL0/HIGH0/MEDIUM0**. T019
+ограничивает изменение одной буквой подписи «Объём хранилища»→«Объем
+хранилища». Значение текста, href=/billing, quota reason, own/shared,
+нативный захват и доступ остаются прежними. Это механическая правка
+текста внутри действующего Spec Kit среза, без нового продуктового решения
+или исключения из F268. AST контракт уже сканирует строковые литералы
+rendering.py, поэтому новый дублирующий тест не требуется. Quickstart15
+сохраняет отрицательное правило и требует весь существующий copy contract
+вместе с playback contract по штатному isolated PostgreSQL пути.
+
+Все прежние требования FR001–014/SC001–010 остаются согласованными;
+CHK005 safety сохраняет правдивую квоту, CHK006 локализацию, CHK007 приватность
+и CHK008/CHK012 отдельные SHA/CI/release ворота. Прочитанный validation
+честно описывает отказ первого кандидата и подготовку Sparkle, не объявляя
+их Developer ID/notary PASS. Новый frozen release-full и текущие проверки
+SHA обязательны; failed/abandoned кандидат не используется для публикации.
+
+Код во время данного прохода ещё не изменён. Первый release-full FAIL
+37167044158 описан в validation; reviewer не обращался к GitHub и не
+переобъявляет его собственным live доказательством. Подпись с «ё» независимо
+прочитана в текущем rendering.py; правило сканера подтверждено исходником.
+Тесты, приложение, сборка и runtime reviewer не запускал. Реализация
+одной буквы и green остаются следующим отдельным этапом ревью.
+
+После проверки все списки перечитаны и пересчитаны:
+
+- pr-followup.md: checked5/unchecked0.
+- producer-boundary.md: checked5/unchecked0.
+- prompt-recovery.md: checked5/unchecked0.
+- registry-lifecycle.md: checked4/unchecked0.
+- requirements.md: checked5/unchecked0.
+- safety.md: checked12/unchecked0.
+
+Итого **checked36/unchecked0**. Отметки менять не требуется.
+Скан текущих .md/.json F284 по домашним/живым временным путям снова0.
+Изменён только этот отчёт; код/spec/plan/tasks/git/GitHub/runtime не менялись.
+Все записи этого прохода завершены до окончательного ответа.
+
+Отпечатки прочитанных дополнений:
+
+- plan.md: `5f3e25d51c5a20365611922c8196fd384eb79aec2068e53425f8c9229fafc64f`.
+- quickstart.md: `54095c5e11b54e7b12529fe24db6578ffb00f85c2ea605943e6f9402c130779f`.
+- tasks.md: `6acfa98fdb73c36df7d65053359ca3fe1ff6c76bcb1f084e9fb9fcb8e48dde67`.
+- validation.md: `3a402d34854e8f34a6217e1917ea22df01c1427ee9441bc1286a83f71a60771e`.
+
+## Окончательное независимое ревью реализации T019
+
+Проверено рабочее изменение поверх c8d67ccefe7848f731798b23d72d37757ad812f5.
+Итог данного изменения: **CRITICAL0/HIGH0/MEDIUM0**. Замечаний нет.
+
+Независимое сравнение целого rendering.py с HEAD подтвердило: прежний
+литерал «Объём хранилища» встречался ровно один раз; замена только этой
+буквы на «е» даёт побайтно текущее содержимое файла. Иных продуктовых
+изменений в apps нет. Существующий href=/billing, условия
+storage_capacity_exceeded/shared_workspace_id, owner guidance для shared,
+can_play ветвь, escape/access/focus и все вызывающие пути неизменны.
+Billing/security/quota/native поведения эта правка не касается.
+Существующие проверки и их отрицательное правило не изменены.
+
+Reviewer прочитал представленные локальные журналы после завершения green;
+сам тесты или приложение не запускал:
+
+- Red:1 failed/4 passed/66 deselected,2 warnings,0.28s. Падает именно
+  существующий AST copy-convention contract для cabinet/rendering.py на
+  прежней букве «ё» в подписи /billing. Это настоящий локальный red
+  существующей проверки, дополнительно к сообщённому release-full FAIL.
+- Green: полный copy-convention и playback contracts через штатный
+  isolated PostgreSQL helper:81 passed,2 warnings,44.80s. В журнале
+  focused status=pass и isolated_container_removed. Прежние предупреждения
+  pytest import rewriting и httpx/TestClient не объявляются ошибками
+  либо новыми выполненными воротами.
+
+Playback contract сохраняет все четыре own/shared × web/embedded
+комбинации и прежние запреты выдачи неподтверждённого аудио/repair endpoint.
+Новый дублирующий тест для одной буквы не нужен: существующий scanner
+выполнился целиком без ослабления.
+
+Все шесть reviewer-owned списков перечитаны после ревью. Требования
+сохраняют согласованный договор F284/F268; их отметки не изменены:
+
+- pr-followup.md: checked5/unchecked0.
+- producer-boundary.md: checked5/unchecked0.
+- prompt-recovery.md: checked5/unchecked0.
+- registry-lifecycle.md: checked4/unchecked0.
+- requirements.md: checked5/unchecked0.
+- safety.md: checked12/unchecked0.
+
+Итого **checked36/unchecked0**. Повторный скан текущих .md/.json F284
+по домашним/живым временным путям дал0 файлов. Изменён только этот отчёт;
+код/spec/plan/tasks/git/GitHub/runtime reviewer не менял.
+
+Текущие exact-SHA GitHub проверки, новый frozen release-full, Developer ID/
+Apple/public/Sparkle/installed ворота остаются отдельными. Старый failed
+кандидат не превращается в PASS этой локальной проверкой. Все записи
+данного прохода завершены до FINAL; поздних append после ответа нет.
+
+Отпечатки финального прочитанного файла и журналов:
+
+- apps/server/src/twobrain_rec_server/cabinet/rendering.py: `7d5677866e555fb89da7d41bcff6bdeda60ae62955e027325d51b44525b68919`.
+- Локальный copy журнал red: `c4319bbed30d9659ee5ba83861798e50b59baa35c4077cf463940f610b44260d`.
+- Локальный copy журнал green: `1b57852fc3f4e2888c0df90df6e739939ad1540f7a6f586450530c84edb54f52`.

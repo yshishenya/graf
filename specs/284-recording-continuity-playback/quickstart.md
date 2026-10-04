@@ -24,3 +24,5 @@
 T016 ordering: presenter.invalidate первым и native registry invalidation первым; настоящий callback должен давать retry ровно ожидающему prompt. Неавторизационный dismissAllCards не меняет authEpoch и остаётся terminal.
 
 14. T017/T018: в постоянных доказательствах отсутствуют личные домашние пути; существующий контракт _render_playback для embedded/web и own/shared показывает правдивую квоту, owner guidance и скрытый /billing у shared. Предыдущий код обязан дать red отсутствующей общей подсказки, после исправления green. Проверить все production callers, Dev cabinet и независимое ревью; native capture и локальный доступ не менять.
+
+15. T019: существующий test_copy_convention_contract.py проверяет все шаблоны и presentation Python strings, включая подпись /billing. Сохранить его отрицательное правило; red известен из первого полного CI, затем проверить весь этот контракт и test_playback_status_contract.py штатным isolated PostgreSQL helper. Никакой новой проверки, дублирующей существующий AST scanner, не требуется.

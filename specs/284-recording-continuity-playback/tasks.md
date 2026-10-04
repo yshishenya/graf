@@ -76,3 +76,11 @@ T017→T018, затем converge/validation; прежний af6e PASS не за�
 - T014 (Issue #7486)
 - T015 (Issue #7504)
 - T016 (Issue #7509)
+
+
+## Phase 12: Полный релизный CI — текст хранилища
+- [X] T019 [US2] Заменить букву «ё» на «е» в подписи существующей ссылки /billing в apps/server/src/twobrain_rec_server/cabinet/rendering.py; сохранить ссылку/own-shared и проверить существующий tests/contract/test_copy_convention_contract.py вместе с quota контрактом. (Issue #7526). Результат первого release-full37167044158 — red по правилу F268; новая версия проходит текущие PR и отдельный замороженный release-full.
+
+Это механическая правка текста в активной F284; параметры записи, права, квота и пути воспроизведения не меняются.
+
+T019 реализация: локальный red1failed/4passed, green81/0 copy+playback; независимое ревью отдельно записано. Checkbox отмечает реализацию; текущие GitHub checks и новый frozen release-full остаются отдельными воротами выпуска/закрытия issue.
