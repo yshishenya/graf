@@ -21,9 +21,9 @@
       <p class="billing-help"><a class="button quiet" href="#billing-help">Нужна помощь с оплатой?</a></p>
       <section class="settings-section cabinet-card" id="billing-help" tabindex="-1" aria-labelledby="billing-refund-title">
         <h2 id="billing-refund-title">Помощь с оплатой и возвратом</h2>
-        {% if support_email %}
+        {% if support_email and support_mailto|default(None) %}
         <p>Напишите в поддержку. Номер платежа можно скопировать в его сведениях.</p>
-        <p><a href="mailto:{{ support_email }}">{{ support_email }}</a> <button class="button quiet" type="button" data-copy-value="{{ support_email }}">Скопировать адрес</button></p>
+        <p><a href="{{ support_mailto }}">{{ support_email }}</a> <button class="button quiet" type="button" data-copy-value="{{ support_email }}">Скопировать адрес</button></p>
         <p class="muted">Не отправляйте данные карты, идентификаторы ЮKassa, ссылки или содержимое встреч.</p>
         <p class="muted">Запрос на возврат отправьте письмом в поддержку.</p>
         {% else %}

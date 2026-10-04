@@ -96,7 +96,12 @@ from twobrain_rec_server.billing.receipts import (
     receipt_state_for_registration,
 )
 from twobrain_rec_server.billing.referrals import referral_token_hash, validate_referral_token
-from twobrain_rec_server.billing.refund_email import build_question_mailto, build_refund_mailto
+from twobrain_rec_server.billing.refund_email import (
+    build_question_mailto,
+    build_refund_mailto,
+    build_support_mailto,
+    normalize_support_email,
+)
 from twobrain_rec_server.billing.renewal_charge import (
     cancel_unsent_renewals,
     next_renewal_attempt,
@@ -2236,7 +2241,8 @@ async def billing_checkout_status_page(
         creation_rejected=creation_rejected,
         recurring_not_available=recurring_not_available,
         retry_payment_url=retry_payment_url,
-        support_email=settings.billing_support_email,
+        support_email=normalize_support_email(settings.billing_support_email),
+        support_mailto=build_support_mailto(settings.billing_support_email),
         purchase_purpose_label=purchase_purpose_label(invoice.plan_snapshot or {}),
         payment_applied=payment_applied,
         service_gap=service_gap,
@@ -4384,7 +4390,8 @@ async def billing_history_page(
         ),
         content_template="cabinet/pages/billing_history_content.html",
         invoices=invoices,
-        support_email=request.app.state.settings.billing_support_email,
+        support_email=normalize_support_email(request.app.state.settings.billing_support_email),
+        support_mailto=build_support_mailto(request.app.state.settings.billing_support_email),
     )
     return cabinet_html_response(content)
 

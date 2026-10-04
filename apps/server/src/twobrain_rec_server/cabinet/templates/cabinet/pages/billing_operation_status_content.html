@@ -6,7 +6,7 @@
 {% set awaiting_payment_result = awaiting_payment_result|default(can_refresh_payment|default(False) or can_continue_payment|default(False)) %}
 {% set local_status_url = "/billing/checkout/status/" ~ invoice.safe_number ~ "?view=local" %}
 {% set auto_check = can_refresh_payment|default(False) and not needs_service_review and not check_error and not read_only_recovery %}
-{% set help_url = "mailto:" ~ support_email if support_email|default(None) else "/billing/history#billing-help" %}
+{% set help_url = support_mailto|default(None) or "/billing/history#billing-help" %}
 <main id="cabinet-main" class="cabinet-main billing-page billing-operation-status-page" tabindex="-1"
   data-billing-invoice="{{ invoice.safe_number }}" data-billing-state="{{ operation_state }}"
   data-billing-auto-check="{{ 'true' if auto_check else 'false' }}"

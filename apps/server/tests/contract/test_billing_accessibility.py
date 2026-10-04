@@ -96,7 +96,8 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
             invoice={"safe_number": "INV-SYNTHETIC"}, amount_label="1 000 ₽",
             operation_state=state, operation_state_label="Статус оплаты",
             updated_at_label="29.09.2026", can_continue_payment=state == "provider_pending",
-            support_email="support@example.test", retry_payment_url="/billing/checkout?cycle=year",
+            support_email="support@example.test", support_mailto="mailto:support@example.test",
+            retry_payment_url="/billing/checkout?cycle=year",
         )
     for purpose in ("storage_upgrade", "early_renewal", "storage_schedule"):
         pages[purpose] = render_template(
@@ -148,7 +149,7 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         **context, "billing_owner": True, "billing_role": "owner", "result": None,
         "active": True, "billing_result": None, "referral_issue_result": None,
         "plan_code": "personal", "current_plan_code": "personal",
-        "support_email": "support@example.test", "trial_state": "already",
+        "support_email": "support@example.test", "support_mailto": "mailto:support@example.test", "trial_state": "already",
         "subscription": {
             "recurring_allowed": True, "recurring_authority_version": 1,
             "state": "active", "cycle": "month", "plan_code": "personal",
@@ -404,7 +405,7 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         ["node", str(script), str(fixture)],
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=300,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 

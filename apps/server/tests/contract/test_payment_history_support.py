@@ -1,7 +1,8 @@
 import inspect
 import re
+from html import unescape
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import quote, unquote, urlsplit
 
 import pytest
 
@@ -64,7 +65,8 @@ def test_refund_mailto_rejects_unsafe_addresses_and_references(
 def test_history_ui_keeps_refund_as_email_only_and_warns_against_sensitive_data() -> None:
     template = HISTORY_TEMPLATE.read_text(encoding="utf-8")
 
-    assert 'href="mailto:{{ support_email }}"' in template
+    assert 'href="{{ support_mailto }}"' in template
+    assert 'href="mailto:{{ support_email }}"' not in template
     assert 'data-copy-value="{{ support_email }}">Скопировать адрес' in template
     assert 'href="{{ invoice.detail_url }}"' in template
     assert "Номер платежа можно скопировать в его сведениях" in template
@@ -144,3 +146,70 @@ def test_support_address_cannot_inject_mailto_query() -> None:
     from urllib.parse import parse_qs, urlsplit
     mailto = build_refund_mailto(support_email="billing?cc=evil@example.test", safe_invoice_number="INV-SYNTHETIC")
     assert set(parse_qs(urlsplit(mailto).query)) == {"subject", "body"}
+
+
+@pytest.mark.parametrize("page", ["billing_history", "billing_operation_status", "referrals", "fair_use"])
+@pytest.mark.parametrize("address", ["not-an-email", "billing%0d%0a@example.test", "billing?cc=evil&tag@example.test"])
+def test_support_templates_use_only_validated_encoded_destination(page, address):
+    destination = "mailto:" + quote(address, safe="@.") if "?" in address else None
+    html = render_template(
+        f"cabinet/pages/{page}_content.html", support_email=address, support_mailto=destination,
+        invoices=[], invoice={"safe_number": "INV-SYNTHETIC"}, amount_label="1 000 ₽",
+        operation_state="unknown", operation_state_label="Статус уточняется", updated_at_label=None,
+        referral_issue_result=None, referral_history=[], referral_issued=False,
+        reviews=[], unavailable=False, fair_use_result=None, csrf_token="synthetic-csrf",
+    )
+    links = [unescape(value) for value in re.findall(r'href="(mailto:[^"]+)"', html)]
+    assert links == ([destination] * (2 if page == "billing_operation_status" else 1) if destination else [])
+    if destination:
+        assert urlsplit(links[0]).query == ""
+        assert unquote(urlsplit(links[0]).path) == address
+        if page == "billing_history":
+            assert f'data-copy-value="{address.replace("&", "&amp;")}"' in html
+    elif page == "billing_history":
+        assert address not in html and "Скопировать адрес" not in html
+        assert "Контакт поддержки пока не настроен" in html
+
+
+@pytest.mark.parametrize("address", ["billing%0d%0a@example.test", "billing?cc=evil&tag@example.test"])
+def test_account_merge_support_keeps_headers_and_uri_parameters_safe(address):
+    from urllib.parse import parse_qs
+    from uuid import UUID
+
+    from twobrain_rec_server.cabinet.web_routes.account_merge import account_merge_blockers
+
+    blockers = account_merge_blockers(
+        ("workspace_role_conflict",), intent_id=UUID(int=1), embedded=False, support_email=address,
+    )
+    if "%0d" in address:
+        assert not any((item.action_href or "").startswith("mailto:") for item in blockers)
+    else:
+        href = blockers[0].action_href
+        assert unquote(urlsplit(href).path) == address
+        assert set(parse_qs(urlsplit(href).query)) == {"subject"}
+
+
+@pytest.mark.parametrize("value,normalized", [
+    (None, None), ("", None), ("not-an-email", None),
+    ("billing%0d%0a@example.test", None), ("billing@example.test\r\nBcc:evil@example.test", None),
+    (" billing@example.test ", "billing@example.test"),
+    ("Support <billing@example.test>", "billing@example.test"),
+    ("\x00 <billing@example.test>", None), ("Support\x01 <billing@example.test>", None),
+    ("Support%00 <billing@example.test>", None), ("Support%7f <billing@example.test>", None),
+    ("billing?cc=evil&tag@example.test", "billing?cc=evil&tag@example.test"),
+    ("billing+tag%box@example.test", "billing+tag%box@example.test"),
+])
+def test_shared_support_address_is_plain_and_uri_is_encoded(value, normalized):
+    from twobrain_rec_server.billing.refund_email import (
+        build_support_mailto,
+        normalize_support_email,
+    )
+
+    assert normalize_support_email(value) == normalized
+    destination = build_support_mailto(value)
+    if normalized is None:
+        assert destination is None
+    else:
+        assert destination == "mailto:" + quote(normalized, safe="@.")
+        assert urlsplit(destination).query == "" and urlsplit(destination).fragment == ""
+        assert unquote(urlsplit(destination).path) == normalized

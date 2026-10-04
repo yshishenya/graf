@@ -41,7 +41,7 @@
       <section class="settings-section settings-boundary-card" aria-labelledby="fair-use-safety-title">
         <h2 id="fair-use-safety-title">Что сохраняется</h2>
         <p class="muted">Локальная запись и остановка, существующие данные, экспорт и удаление остаются доступны в пределах контроля GRAF. Техническая проверка не является скрытым лимитом минут.</p>
-        {% if support_email %}<p><a class="button quiet" href="mailto:{{ support_email|e }}">Обратиться в поддержку</a></p>{% endif %}
+        {% if support_mailto|default(None) %}<p><a class="button quiet" href="{{ support_mailto }}">Обратиться в поддержку</a></p>{% endif %}
       </section>
     </div>
   </div>

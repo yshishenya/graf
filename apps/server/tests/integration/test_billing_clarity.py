@@ -4,7 +4,7 @@ import asyncio
 import re
 from datetime import UTC, datetime, timedelta
 from html import unescape
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 from uuid import uuid4
 
 import pytest
@@ -802,3 +802,49 @@ def test_invoice_projection_support_intents_and_real_discount_are_read_only(clie
         assert 'href="/billing/history#billing-help"' in main
         assert "not-an-email" not in main
     assert billing_rows_snapshot(client) == before
+
+
+@pytest.mark.parametrize("observation", [False, True])
+@pytest.mark.parametrize("support,normalized", [
+    (None, None), ("not-an-email", None), ("billing%0d%0a@example.test", None),
+    ("billing@example.test\r\nBcc:evil@example.test", None),
+    ("billing?cc=evil&tag@example.test", "billing?cc=evil&tag@example.test"),
+    ("billing+tag%box@example.test", "billing+tag%box@example.test"),
+    ("Support <billing@example.test>", "billing@example.test"),
+    ("\x00 <billing@example.test>", None), ("Support\x01 <billing@example.test>", None),
+    ("Support%00 <billing@example.test>", None), ("Support%7f <billing@example.test>", None),
+])
+def test_support_help_fallback_and_siblings_are_safe_without_checkout(client, owner, observation, support, normalized):
+    workspace, headers = owner
+    settings = client.app.state.settings
+    settings.billing_checkout_enabled = False
+    settings.billing_provider_observation_enabled = observation
+    settings.billing_support_email = support
+    seed_invoice_projection(client, workspace, {}, state="unknown")
+    before = billing_rows_snapshot(client)
+    invoice = client.get("/billing/invoices/INV-PROJECTION", headers=headers)
+    assert invoice.status_code == 200
+    if normalized is None:
+        assert 'href="/billing/history#billing-help"' in invoice_main(invoice.text)
+    for path in ("/billing/history", "/billing/checkout/status/INV-PROJECTION", "/referrals",
+                 "/account/fair-use", "/desktop/account/fair-use"):
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200, path
+        main = invoice_main(response.text)
+        links = [unescape(value) for value in re.findall(r'href="(mailto:[^"]+)"', main)]
+        if normalized is None:
+            assert links == [], path
+            assert "Скопировать адрес" not in main
+            if support:
+                assert support not in unescape(main)
+            if path == "/billing/history":
+                assert "Контакт поддержки пока не настроен" in main
+                assert 'href="/billing"' in main
+        else:
+            assert len(links) == (2 if path.startswith("/billing/checkout/status/") else 1), path
+            assert urlsplit(links[0]).query == "", path
+            assert urlsplit(links[0]).path == quote(normalized, safe="@."), path
+            assert unquote(urlsplit(links[0]).path) == normalized, path
+            if path == "/billing/history":
+                assert f'data-copy-value="{normalized}"' in unescape(main)
+        assert billing_rows_snapshot(client) == before, path
