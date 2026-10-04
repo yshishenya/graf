@@ -60,4 +60,3 @@ Requirements gate разрешает перейти к запланирован�
 | `tasks.md` | `4569be64b41be05bf0079f468e9becff595309c9877a03db4af0543ea65b24b5` |
 | `analyze-subscription-clarity.md` | `2621945c7ecc95d78cdd53ec47f70e605a47e1f6b982903b1e37c8c82160bcd6` |
 | `checklists/invoice-consistency.md` | `622d1670076143310393d65a396fe22bf56fad4dcf08284adea22a49b563bcdf` |
-
