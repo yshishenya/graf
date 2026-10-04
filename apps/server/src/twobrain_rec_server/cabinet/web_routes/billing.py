@@ -2255,10 +2255,10 @@ async def billing_checkout_status_page(
     return cabinet_html_response(content)
 
 
-async def _is_owner_changed_receipt(db, invoice) -> bool:
+async def _is_paid_refused_receipt(db, invoice) -> bool:
     if invoice is None or invoice.status != "succeeded" or not isinstance(invoice.plan_snapshot, dict):
         return False
-    if invoice.plan_snapshot.get("service_resolution") != "owner_changed":
+    if invoice.plan_snapshot.get("service_resolution") != "workspace_scope_invalid":
         return False
     return bool(await db.scalar(select(BillingOperation.id).where(
         BillingOperation.id == invoice.operation_id,
@@ -2310,7 +2310,7 @@ async def refresh_billing_checkout_status(
     receipt_only = request.query_params.get("return_to") == "invoice"
     can_refresh = _can_manage_billing(role=role, subscription=subscription, principal=principal)
     if not can_refresh and role == "owner" and receipt_only:
-        can_refresh = await _is_owner_changed_receipt(db, invoice)
+        can_refresh = await _is_paid_refused_receipt(db, invoice)
     if not can_refresh or invoice is None:
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     counters = await reconcile_pending_initial_checkout_operations(
@@ -4434,7 +4434,7 @@ async def billing_invoice_detail_page(
     # The current owner receives service-gap notices even when the payer's
     # mandate belongs to the previous owner. This view grants no payment
     # authority and never exposes the previous payer's receipt or card.
-    can_refresh = can_manage or await _is_owner_changed_receipt(db, invoice)
+    can_refresh = can_manage or await _is_paid_refused_receipt(db, invoice)
     receipt_state = _receipt_registration_state(snapshot.get("receipt_registration"))
     receipt_url = snapshot.get("receipt_url") if receipt_state is ReceiptState.AVAILABLE else None
     if not can_manage or not is_allowed_confirmation_url(receipt_url):

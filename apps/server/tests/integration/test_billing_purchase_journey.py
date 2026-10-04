@@ -26,6 +26,7 @@ from twobrain_rec_server.billing.yookassa import YooKassaClient
 from twobrain_rec_server.cabinet.web_routes import billing as routes
 from twobrain_rec_server.db.models import (
     BillingAcceptanceBudget,
+    BillingAuditEvent,
     BillingInvoice,
     BillingNotificationDelivery,
     BillingOperation,
@@ -711,7 +712,7 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
     snapshot = {"cycle": "year", "receipt_registration": "pending"}
     refused = operation_state == "succeeded_refused"
     owner_changed = mode == "owner_changed_late"
-    resolution = "owner_changed" if owner_changed else "workspace_scope_invalid"
+    resolution = "workspace_scope_invalid"
     if owner_changed:
         snapshot.update({"payment_method_label": "•••• 4321",
                          "receipt_url": "https://yookassa.ru/private-demo"})
@@ -722,7 +723,22 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
     if refused:
         operation_snapshot["reconciliation_detail"] = {"code": resolution}
 
+    async def service_gap_history(db):
+        records = []
+        for model, predicate in (
+            (BillingAuditEvent, BillingAuditEvent.target_ref == number),
+            (BillingNotificationDelivery,
+             BillingNotificationDelivery.event_id == f"payment:{inv_id}:service_gap"),
+        ):
+            rows = list(await db.scalars(select(model).where(predicate).order_by(model.id)))
+            assert len(rows) == 1
+            records.append([{column.key: getattr(row, column.key) for column in model.__table__.columns}
+                            for row in rows])
+        return records
+
+    produced_history = None
     async def seed():
+        nonlocal operation_snapshot, snapshot, produced_history
         async with client.app_state["sessionmaker"]() as db:
             db.add(BillingOperation(
                 id=op_id, workspace_id=workspace, kind=kind, state=operation_state,
@@ -762,6 +778,21 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
                        provider_payment_id="pay-synthetic-receipt", plan_code="personal",
                        cycle="year", starts_at=now, ends_at=now + timedelta(days=365),
                        amount_minor=12500, currency="RUB"))
+            if owner_changed:
+                from twobrain_rec_server.billing.entitlements import grant_confirmed_renewal
+                operation = await db.get(BillingOperation, op_id)
+                invoice = await db.get(BillingInvoice, inv_id)
+                operation.state, invoice.status = "unknown", "pending"
+                operation.request_snapshot = {**operation_snapshot, "cycle": "year", "plan_code": "personal"}
+                invoice.plan_snapshot = {key: value for key, value in snapshot.items()
+                                         if key != "service_resolution"}
+                assert await grant_confirmed_renewal(db, workspace_id=workspace,
+                    provider_payment_id=operation.provider_id, amount_minor=12500,
+                    currency="RUB", grant_starts_at=now) == "refused"
+                assert operation.state == "succeeded_refused"
+                assert invoice.plan_snapshot["service_resolution"] == "workspace_scope_invalid"
+                operation_snapshot, snapshot = dict(operation.request_snapshot), dict(invoice.plan_snapshot)
+                produced_history = await service_gap_history(db)
             await db.commit()
 
     asyncio.run(seed())
@@ -830,6 +861,27 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
         asyncio.run(no_financial_fallback())
         assert calls == []
         asyncio.run(change_access())
+        async def actor_mismatch_is_not_receipt_only():
+            from twobrain_rec_server.billing.entitlements import grant_confirmed_renewal
+            async with client.app_state["sessionmaker"]() as db:
+                operation = await db.get(BillingOperation, op_id)
+                subscription = await db.get(WorkspaceSubscription, workspace)
+                subscription.billing_owner_id = USER_ID
+                operation.state = "unknown"
+                operation.request_snapshot = {**operation_snapshot, "billing_actor_user_id": str(uuid4())}
+                assert await grant_confirmed_renewal(db, workspace_id=workspace,
+                    provider_payment_id=operation.provider_id, amount_minor=12500,
+                    currency="RUB", grant_starts_at=now) == "owner_changed"
+                invoice = await db.get(BillingInvoice, inv_id)
+                assert operation.state == "reconciliation_gap"
+                assert invoice.plan_snapshot["service_resolution"] == "owner_changed"
+                assert not await routes._is_paid_refused_receipt(db, invoice)
+                counters = await webhook_reconciliation.reconcile_pending_initial_checkout_operations(
+                    db, client.app.state.settings, operation_id=op_id, receipt_only=True)
+                assert counters["processed"] == 0
+                await db.rollback()
+        asyncio.run(actor_mismatch_is_not_receipt_only())
+        assert calls == []
     if mode == "owner_missing":
         from twobrain_rec_server.db.models import WorkspaceMembership
         async def revoke_owner():
@@ -877,11 +929,13 @@ def test_completed_purchase_recovers_late_receipt_without_replaying_money(
             assert subscription.capacity_bytes == 10_000_000_000
             if refused:
                 assert subscription.renewal_resolution == resolution
+            if owner_changed:
+                assert await service_gap_history(db) == produced_history
             budget = await db.scalar(select(BillingAcceptanceBudget).where(BillingAcceptanceBudget.workspace_id == workspace))
             assert (budget.spent_minor, budget.reserved_minor, budget.enabled) == (12500, 0, False)
             assert await db.scalar(select(func.count()).select_from(BillingEntitlementGrant)) == (0 if refused else 1)
             assert await db.scalar(select(func.count()).select_from(BillingStorageEntitlementGrant)) == 0
-            assert await db.scalar(select(func.count()).select_from(BillingNotificationDelivery)) == (1 if succeeded else 0)
+            assert await db.scalar(select(func.count()).select_from(BillingNotificationDelivery)) == (1 if succeeded else 0) + (1 if owner_changed else 0)
     asyncio.run(verify())
     before = len(calls)
     asyncio.run(observe())
@@ -983,7 +1037,8 @@ def test_pending_payment_precedes_older_receipt_when_batch_has_one_slot(
     assert calls == ["GET"]
 
 
-def test_pending_receipts_rotate_with_one_batch_slot(client, monkeypatch, tmp_path):
+@pytest.mark.parametrize("first_result", ["pending", "get_failure", "wrong_scope"])
+def test_pending_receipts_rotate_with_one_batch_slot(client, monkeypatch, tmp_path, first_result):
     from uuid import uuid4
 
     _configure_billing(client, tmp_path)
@@ -1013,9 +1068,12 @@ def test_pending_receipts_rotate_with_one_batch_slot(client, monkeypatch, tmp_pa
         payment_id = request.url.path.rsplit("/", 1)[-1]
         calls.append(payment_id)
         operation_id, number, _ = next(item for item in identities if item[2] == payment_id)
+        first = payment_id == identities[0][2]
+        if first and first_result == "get_failure":
+            raise httpx.ConnectError("synthetic outage", request=request)
         return httpx.Response(200, json={"id": payment_id, "status": "succeeded", "paid": True,
             "test": True, "created_at": now.isoformat(), "receipt_registration": "pending",
-            "recipient": {"account_id": "shop-money-path"},
+            "recipient": {"account_id": "wrong" if first and first_result == "wrong_scope" else "shop-money-path"},
             "amount": {"value": "10.00", "currency": "RUB"},
             "metadata": {"workspace_id": str(workspace), "operation_id": str(operation_id),
                          "invoice_number": number}})
@@ -1027,6 +1085,23 @@ def test_pending_receipts_rotate_with_one_batch_slot(client, monkeypatch, tmp_pa
             await webhook_reconciliation.reconcile_pending_initial_checkout_operations(
                 db, client.app.state.settings, limit=1, commit_each_operation=True)
             await db.commit()
+    async def financial_snapshot():
+        async with client.app_state["sessionmaker"]() as db:
+            result = []
+            for model in (BillingOperation, BillingInvoice, WorkspaceSubscription,
+                          BillingAcceptanceBudget, BillingEntitlementGrant,
+                          BillingStorageEntitlementGrant, BillingAuditEvent,
+                          BillingNotificationDelivery):
+                rows = list(await db.scalars(select(model).order_by(*model.__table__.primary_key.columns)))
+                result.append([{column.key: getattr(row, column.key)
+                                for column in model.__table__.columns
+                                if not (model is BillingOperation and column.key == "updated_at")}
+                               for row in rows])
+            return result
+    from twobrain_rec_server.db.models import BillingEntitlementGrant
+    before = asyncio.run(financial_snapshot())
     asyncio.run(observe())
+    assert asyncio.run(financial_snapshot()) == before
     asyncio.run(observe())
+    assert asyncio.run(financial_snapshot()) == before
     assert calls == [item[2] for item in identities]

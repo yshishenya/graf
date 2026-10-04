@@ -456,6 +456,7 @@ async def reconcile_pending_initial_checkout_operations(
                             YooKassaClient(settings)
                         )
                     if commit_each_operation:
+                        receipt_attempt = operation.state in receipt_states
                         try:
                             assert provider is not None and scope is not None
                             outcome = await reconcile_operation(operation, provider, scope)
@@ -469,6 +470,16 @@ async def reconcile_pending_initial_checkout_operations(
                             httpx.HTTPError,
                         ):
                             await db.rollback()
+                            if receipt_attempt:
+                                await lock_storage_workspace(db, candidate_workspace_id)
+                                receipt_operation = await db.scalar(select(BillingOperation).where(
+                                    BillingOperation.id == candidate_id,
+                                    BillingOperation.workspace_id == candidate_workspace_id,
+                                    receipt_filter,
+                                ).with_for_update())
+                                if receipt_operation is not None:
+                                    receipt_operation.updated_at = datetime.now(UTC)
+                                await db.commit()
                             counters["failed"] += 1
                         else:
                             await db.commit()
@@ -501,6 +512,8 @@ async def reconcile_pending_initial_checkout_operations(
                     ValueError,
                     httpx.HTTPError,
                 ):
+                    if operation.state in receipt_states:
+                        operation.updated_at = datetime.now(UTC)
                     counters["failed"] += 1
     except (YooKassaConfigurationError, ValueError):
         if commit_each_operation:
