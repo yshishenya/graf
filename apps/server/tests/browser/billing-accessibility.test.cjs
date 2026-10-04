@@ -215,6 +215,19 @@ async function checkTextContrast(page, label) {
           assert(await page.getByRole('link', { name: 'Продлить подписку', exact: true }).isVisible());
           assert(!(await page.locator('main').innerText()).includes('Повторно платить не нужно'));
         }
+        if (name === 'subscription-ambiguous-payment' || name.includes('uncertain-')) {
+          const text = await page.locator('main').innerText();
+          assert(text.includes('Результат платежа'));
+          assert(text.includes('еще может завершиться'));
+          assert(!text.includes('Уже отправленный'));
+          assert.equal(await page.locator('a[href="/billing/checkout?cycle=month"]').count(), 0);
+          assert.equal(await page.locator('form[action="/billing/subscription/resume"], form[action="/billing/subscription/early-preview"]').count(), 0);
+          if (name === 'subscription-ambiguous-payment') {
+            const status = page.getByRole('link', { name: 'Проверить платёж', exact: true });
+            assert(await status.isVisible());
+            assert.equal(await status.getAttribute('href'), '/billing/checkout/status/INV-SYNTHETIC');
+          }
+        }
         if (name.startsWith('subscription-method-pending')) {
           const recovery = page.getByRole('link', { name: 'Проверить способ оплаты', exact: true });
           assert(await recovery.isVisible());

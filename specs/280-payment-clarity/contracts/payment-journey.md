@@ -147,3 +147,5 @@ Receipt AVAILABLE без URL не дает кнопку; чужой/недопу
 Status `/billing/checkout/status/{safe_number}`: только необходимое оформление dl существующим order-summary; все data-billing attributes/status live region/forms/action ordering и route semantics неизменны. Полный auto-check FR033–036 сохраняется. Для этого среза не нужны новые POST/native allowlists/JS.
 
 Checkout contract FR019/020 остается во всех сценариях. Saved-card early-preview и hosted checkout остаются отдельными safe paths; invoice slice ни один из них не объединяет и не меняет.
+
+T057: subscription pending notice для всех видов: «Результат платежа [на сумму] еще не подтвержден. Платеж еще может завершиться. Повторно платить не нужно». Не утверждать «Уже отправленный», даже при сохраненном provider_id. Prepared scheduled без provider_id отдельно и не получает pending notice. Сумма из прежнего invoice, исключений денежной политики не добавляется.

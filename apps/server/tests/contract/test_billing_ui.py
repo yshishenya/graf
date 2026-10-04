@@ -1811,3 +1811,18 @@ def test_subscription_unresolved_method_keeps_safe_recovery_without_claiming_dis
     assert 'href="/billing/checkout?cycle=month"' not in html
     assert 'action="/billing/subscription/resume"' not in html
     assert 'action="/billing/subscription/early-preview"' not in html
+
+
+@pytest.mark.parametrize("amount", [None, "1 000 ₽"])
+def test_subscription_any_unconfirmed_payment_uses_neutral_wording(amount):
+    html = _subscription_view(
+        pending_charge_amount_label=amount,
+        pending_payment_url="/billing/checkout/status/INV-SYNTHETIC",
+    )
+    assert "Результат платежа" in html and "еще не подтвержден" in html
+    assert "Уже отправленный" not in html
+    assert "еще может завершиться" in html and "Повторно платить не нужно" in html
+    assert 'href="/billing/checkout/status/INV-SYNTHETIC"' in html
+    assert 'href="/billing/checkout?cycle=month"' not in html
+    assert 'action="/billing/subscription/resume"' not in html
+    assert 'action="/billing/subscription/early-preview"' not in html

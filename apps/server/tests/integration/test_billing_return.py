@@ -700,7 +700,8 @@ def test_prepared_renewal_allows_early_payment_but_sent_or_unknown_still_block(
     assert page.status_code == 200
     assert ('action="/billing/subscription/early-preview"' in page.text) == safe_prepared
     assert ("Подготовлено автоматическое списание" in page.text) == safe_prepared
-    assert ("Уже отправленный платеж" in page.text) != safe_prepared
+    assert ("Результат платежа" in page.text) != safe_prepared
+    assert "Уже отправленный" not in page.text
     before = payment_counts(client)
     preview = client.post("/billing/subscription/early-preview", headers=headers,
                           data={"promo_code": "SYNTHEARLY"})

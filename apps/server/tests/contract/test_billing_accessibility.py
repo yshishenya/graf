@@ -194,6 +194,12 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
                              "renewal_resolution": "provider_key_expired"},
             "method_available": False, "payment_method_label": None,
         },
+        "subscription-ambiguous-payment": {
+            "subscription": {**surface_context["subscription"], "recurring_allowed": False,
+                             "renewal_resolution": None},
+            "pending_charge_amount_label": "1 000 ₽",
+            "pending_payment_url": "/billing/checkout/status/INV-SYNTHETIC",
+        },
         "subscription-method-pending": {
             "subscription": {**surface_context["subscription"], "recurring_allowed": False,
                              "renewal_resolution": "method_required"},

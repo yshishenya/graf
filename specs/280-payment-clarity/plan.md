@@ -267,3 +267,8 @@ Constitution до/после дизайна: допускается собств
 Ворота: интеграция specify/clarify/plan → checklist → tasks → separate analyze с0CRITICAL/0HIGH/0исправимыхMEDIUM → canon sync → implementation RED/GREEN → независимые reviews → converge → current exact-SHA required PR checks → объединенный frozen release-full → dry-run/execute/live согласно release guidance. Не обходить задержку одного среза/чужой release candidate.
 
 Согласованная максимальная ширина подписки и документа — 720px; существующий checkout620px остается без изменения. Ширина720 уже прошла обе браузерные матрицы подписки; для общего оформления нет причины повторно менять проверенную геометрию. Invoice worker меняет только свой класс.
+
+T057 уточняет уже требуемую правдивость FR042: одна нейтральная формулировка для любой неподтвержденной оплаты с известной/неизвестной суммой, не выводить подтвержденную отправку из operation kind/state/provider_id. Возможность завершения существующего платежа и запрет конкурирующей оплаты сохраняются. Query/handlers unchanged; prepared scheduled/no-provider остается отдельным состоянием. До кода independent reviewer refresh существующего subscription checklist, clean analyze и canon issue sync.
+
+
+Уточнение владельца «Сделать карточку плотнее» выполняется в T054 только двумя invoice-scoped CSS правилами: gap12px/padding16px20px для карточки и padding-block8px для строк order-summary. Ширина720 и размеры текста/контролов/фокуса прежние; global/subscription/status правила не изменяются. После двух правил — свежие Chromium/WebKit16 и независимый visual/source refresh; прежние browser results не подменяют current density evidence.

@@ -21,7 +21,7 @@
           {% if active %}<span class="billing-plan-badge">Активна</span>{% endif %}
         </div>
         {% if payment_unresolved %}
-        <p class="notice notice--warning" role="status">{% if pending_charge_amount_label|default(None) %}{% if resolution == "method_required" %}Результат платежа на <strong>{{ pending_charge_amount_label }}</strong> еще не подтвержден.{% else %}Уже отправленный платеж на <strong>{{ pending_charge_amount_label }}</strong> еще может завершиться.{% endif %}{% else %}Результат платежа еще не подтвержден.{% endif %} Повторно платить не нужно.</p>
+        <p class="notice notice--warning" role="status">Результат платежа{% if pending_charge_amount_label|default(None) %} на <strong>{{ pending_charge_amount_label }}</strong>{% endif %} еще не подтвержден. Платеж еще может завершиться. Повторно платить не нужно.</p>
         <a class="button primary" data-billing-primary href="{{ pending_payment_url|default('/billing/history#billing-help', true) }}">Проверить платёж</a>
         {% if resolution == "method_required" and renewal_notice|default(None) %}<p class="notice notice--warning" role="status">{{ renewal_notice }} <a href="{{ renewal_action_url }}">{{ renewal_action_label }}</a></p>{% endif %}
         {% elif renewal_notice|default(None) %}<p class="notice notice--warning" role="status">{{ renewal_notice }} <a href="{{ renewal_action_url }}">{{ renewal_action_label }}</a></p>

@@ -1530,7 +1530,10 @@ def test_paid_period_consumes_only_its_storage_choice_and_rejects_stale_cancel(
     + [(has_subscription, "initial_checkout", "observation_expired") for has_subscription in (True, False)]
     + [(True, "resolution", state) for state in ("pending", "unknown", "unknown_pending", "provider_key_expired")]
     + [(True, "method_required", dispatch) for dispatch in ("before_dispatch", "after_dispatch")]
-    + [(True, "initial_checkout", "manual_resolution")],
+    + [(True, "initial_checkout", "manual_resolution")]
+    + [(has_subscription, kind, "manual_resolution_before_dispatch")
+       for has_subscription in (True, False)
+       for kind in ("initial_checkout", "storage_upgrade", "renewal", "early_renewal")],
 )
 def test_subscription_existing_payment_of_every_kind_blocks_new_actions_without_mutation(
     client, tmp_path, monkeypatch, kind, state, has_subscription,
@@ -1566,17 +1569,17 @@ def test_subscription_existing_payment_of_every_kind_blocks_new_actions_without_
             if kind != "resolution":
                 operation = BillingOperation(
                     workspace_id=workspace, kind="renewal" if kind == "method_required" else kind,
-                    state="manual_resolution" if kind == "method_required" else state,
+                    state="manual_resolution" if kind == "method_required" or state == "manual_resolution_before_dispatch" else state,
                     idempotency_key=str(uuid4()),
-                    provider_id=None if state == "before_dispatch" else "synthetic-existing",
-                    request_snapshot={"purchase_schema": 2} if kind == "method_required" or state == "manual_resolution" else {},
+                    provider_id=None if state in {"before_dispatch", "manual_resolution_before_dispatch"} else "synthetic-existing",
+                    request_snapshot={"purchase_schema": 2} if kind == "method_required" or state.startswith("manual_resolution") else {},
                 )
                 db.add(operation)
                 await db.flush()
                 db.add(BillingInvoice(
                     workspace_id=workspace, operation_id=operation.id, safe_number=number,
                     amount_minor=100000, currency="RUB", status="pending",
-                    plan_snapshot={"cycle": "month", "purchase_schema": 2} if kind == "method_required" or state == "manual_resolution" else {"cycle": "month"},
+                    plan_snapshot={"cycle": "month", "purchase_schema": 2} if kind == "method_required" or state.startswith("manual_resolution") else {"cycle": "month"},
                 ))
             await db.commit()
 
@@ -1611,6 +1614,9 @@ def test_subscription_existing_payment_of_every_kind_blocks_new_actions_without_
         assert 'action="/billing/subscription/early-preview"' not in response.text
         assert 'name="resume_quote_id"' not in response.text
         assert after == before
+        assert "Результат платежа" in response.text
+        assert "Уже отправленный" not in response.text
+        assert "еще может завершиться" in response.text
         if kind == "method_required":
             # Both existing-payment review and safe card repair must stay reachable.
             card = re.search(r'<a[^>]*href="/billing/payment-method"[^>]*>Проверить способ оплаты</a>', response.text)
