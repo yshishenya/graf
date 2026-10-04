@@ -740,6 +740,7 @@ set -euo pipefail
 compose=(compose_stub)
 trap 'printf "exit:%s\\n" "$?" >>"$TRACE_PATH"' EXIT
 capture_processing_runtime_baseline() { printf 'baseline\\n' >>"$TRACE_PATH"; }
+verify_billing_notification_runtime() { return 0; }
 sync_public_download() { printf 'public_download\\n' >>"$TRACE_PATH"; }
 compose_stub() {
   if [[ "$1" == "ps" ]]; then return 0; fi
@@ -1241,3 +1242,122 @@ def test_remote_deploy_marks_dispatch_open_before_enabling_worker_reconciliation
     )
 
     assert marker_index < enabled_worker_index
+
+
+@pytest.mark.parametrize("enabled, checkout, observation, failed_service, expected", [
+    ("false", "false", "false", "", 0),
+    ("false", "true", "false", "", 1),
+    ("false", "false", "true", "", 1),
+    ("true", "true", "true", "", 0),
+    ("true", "false", "false", "", 0),
+    ("true", "true", "true", "rec-api", 1),
+    ("true", "true", "true", "rec-processing-worker", 1),
+    ("true", "true", "true", "rec-maintenance", 1),
+])
+@pytest.mark.parametrize("mode", ["run", "exec"])
+def test_billing_mail_runtime_gate_checks_every_service_and_fails_closed(
+    tmp_path, enabled, checkout, observation, failed_service, expected, mode
+):
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+    start = runtime.index("verify_billing_notification_runtime()")
+    helper = runtime[start:runtime.index("verify_processing_runtime_health()", start)]
+    script = f"""
+set -euo pipefail
+compose=(compose_stub)
+{helper}
+compose_stub() {{
+  for arg in "$@"; do
+    case "$arg" in
+      rec-api|rec-processing-worker|rec-maintenance)
+        printf '%s\\n' "$arg" >> "$TRACE_PATH"
+        if [[ "$arg" == "$FAILED_SERVICE" ]]; then
+          echo 'private-secret-do-not-print'
+          echo 'private-key-path-do-not-print' >&2
+          return 1
+        fi
+        ;;
+    esac
+  done
+  echo billing_notification_probe_result=pass
+}}
+verify_billing_notification_runtime {mode}
+"""
+    trace = tmp_path / "services"
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+        env={**os.environ, "TWOBRAIN_EMAIL_LOGIN_DELIVERY_ENABLED": enabled,
+             "TWOBRAIN_BILLING_CHECKOUT_ENABLED": checkout,
+             "TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED": observation,
+             "FAILED_SERVICE": failed_service, "TRACE_PATH": str(trace)})
+    assert result.returncode == expected
+    assert "private-" not in result.stdout + result.stderr
+    if enabled == "false":
+        assert not trace.exists()
+        assert ("=disabled" in result.stdout) == (expected == 0)
+    elif not failed_service:
+        assert trace.read_text().splitlines() == ["rec-api", "rec-processing-worker", "rec-maintenance"]
+        assert "billing_notification_config_result=pass" in result.stdout
+    assert runtime.index("run_step billing_notification_preflight") < runtime.index("runtime_mutated=1")
+    assert runtime.index("run_step billing_notification_runtime") < runtime.index("dispatch_opened=1")
+
+
+@pytest.mark.parametrize("failure", ["none", "production", "production_missing_workspace", "disabled", "missing_key", "empty_key", "network", "settings"])
+def test_billing_mail_probe_only_reads_configuration_and_connects(
+    monkeypatch, tmp_path, capsys, failure
+):
+    import socket
+    from types import SimpleNamespace
+
+    from twobrain_rec_server import config
+    from twobrain_rec_server.auth.email_delivery import PostalEmailLoginClient
+
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+    start = runtime.index("verify_billing_notification_runtime()")
+    helper = runtime[start:runtime.index("verify_processing_runtime_health()", start)]
+    probe = helper.split("python -c '\n", 1)[1].split("\n' 2>/dev/null)", 1)[0]
+    key = tmp_path / "synthetic-secret"
+    if failure != "missing_key":
+        key.write_text("" if failure == "empty_key" else "synthetic-do-not-print")
+    settings = SimpleNamespace(email_login_delivery_enabled=failure != "disabled",
+        public_base_url="https://graf.example", postal_api_url="http://postal.example:5000",
+        postal_api_key_file=key, email_login_from_address="graf@example.invalid",
+        email_login_from_name="GRAF", postal_host_header="postal.example",
+        postal_request_timeout_seconds=10)
+    def get_settings():
+        if failure == "settings":
+            raise ValueError("synthetic-secret-sensitive-address")
+        if failure.startswith("production"):
+            from tests.unit.test_config_validation import _production_settings
+            return _production_settings(web_runtime_enabled=False,
+                email_login_delivery_enabled=True,
+                public_base_url="https://rec.2brain.pro",
+                postal_api_url="http://postal.example:5000", postal_api_key_file=key,
+                email_login_from_address="graf@example.invalid",
+                web_login_workspace_id=None if failure == "production_missing_workspace"
+                else "20000000-0000-0000-0000-000000000010")
+        return settings
+    monkeypatch.setattr(config, "get_settings", get_settings)
+    connections = []
+    def connect(address, timeout):
+        connections.append((address, timeout))
+        if failure == "network":
+            raise OSError("synthetic-secret-sensitive-address")
+    from contextlib import contextmanager
+    @contextmanager
+    def connection(address, timeout):
+        connect(address, timeout)
+        yield
+    monkeypatch.setattr(socket, "create_connection", connection)
+    def forbid_send(*args, **kwargs):
+        raise AssertionError("readiness must not send")
+    monkeypatch.setattr(PostalEmailLoginClient, "_post_message", forbid_send)
+    if failure in {"none", "production"}:
+        exec(compile(probe, "billing-mail-readiness", "exec"), {})
+        assert connections == [(("postal.example", 5000), 5)]
+    else:
+        with pytest.raises(SystemExit) as error:
+            exec(compile(probe, "billing-mail-readiness", "exec"), {})
+        assert error.value.code == 1
+    output = capsys.readouterr()
+    assert output.err == ""
+    assert output.out == "billing_notification_probe_result=" + (
+        "pass" if failure in {"none", "production"} else "connection" if failure == "network" else "configuration") + "\n"

@@ -218,7 +218,11 @@ class PostalEmailLoginClient:
             raise EmailLoginDeliveryError(
                 "postal_malformed_response", retryable=False, outcome_unknown=True
             ) from exc
-        if not isinstance(data, dict) or data.get("status") != "success":
+        if not isinstance(data, dict) or data.get("status") not in ("success", "error"):
+            raise EmailLoginDeliveryError(
+                "postal_malformed_response", retryable=False, outcome_unknown=True
+            )
+        if data["status"] == "error":
             raise EmailLoginDeliveryError("postal_delivery_rejected", retryable=True)
 
 
