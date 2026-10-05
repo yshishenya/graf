@@ -22,7 +22,7 @@ x-server-env: &server-env
   # Loopback-only Dev: exercise synthetic documents; real email stays disabled.
   TWOBRAIN_SHARE_PUBLIC_LINKS_ENABLED: "true"
   TWOBRAIN_SHARE_PUBLIC_LINKS_ABUSE_GATE_APPROVED: "true"
-  TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED: "true"
+  TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED: "false"
   TWOBRAIN_LOCAL_HTTP_AUTH_COOKIE_ENABLED: "true"
   TWOBRAIN_LOCAL_EMAIL_LOGIN_CODE: "000000"
   TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:twobrain_rec@rec-postgres:5432/twobrain_rec
