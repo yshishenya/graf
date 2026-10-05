@@ -71,6 +71,7 @@ async def test_calendar_runs_during_temporal_outage_and_all_tasks_stop(
         "run_deletion_purge_reconciler",
         "run_processing_start_reconciler",
         "run_dispatch_reconciler",
+        "run_summary_sharing_reconciler",
     ):
         monkeypatch.setattr(worker, name, dependent)
     task = asyncio.create_task(worker.run_maintenance_worker())
@@ -210,7 +211,7 @@ async def test_billing_poller_reconnect_waits_for_old_tasks_and_closes_clients(
     async def dependent(*_args):
         nonlocal active_loops
         active_loops += 1
-        if active_loops == 5:
+        if active_loops == 6:
             first_loops_started.set()
         try:
             await asyncio.Event().wait()
@@ -251,6 +252,7 @@ async def test_billing_poller_reconnect_waits_for_old_tasks_and_closes_clients(
         "run_account_closure_reconciler", "run_billing_renewal_reconciler",
         "run_billing_reconciliation_reconciler", "run_deletion_purge_reconciler",
         "run_processing_start_reconciler",
+        "run_summary_sharing_reconciler",
     ):
         monkeypatch.setattr(worker, name, dependent)
     task = asyncio.create_task(worker.run_maintenance_worker())

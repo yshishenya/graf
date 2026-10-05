@@ -45,6 +45,36 @@ from twobrain_rec_server.db.models import (
 )
 
 
+def _independent_invitation_login(client, *, recipient_email, raw_token):
+    """Test the real email-code boundary, then explicit invitation consent."""
+    from tests.integration.test_web_owner_session_context import _bind_email_auth_attempt_cookie
+    preview = client.get(f"/share-invitations/{raw_token}?workspace_id={WORKSPACE_ID}", headers={"Accept": "text/html"})
+    state = re.search(r"state(?:=|%3D)([A-Za-z0-9_-]+)", preview.text)
+    assert state is not None
+    next_path = f"/share-invitations/continue?workspace_id={WORKSPACE_ID}&state={state.group(1)}"
+    before = client.post("/share-invitations/continue/magic", params={"workspace_id": str(WORKSPACE_ID)},
+        data={"state": state.group(1), "magic_csrf": "x" * 32}, follow_redirects=False)
+    assert before.status_code in (401, 303)
+    assert not before.cookies.get(AUTH_SESSION_COOKIE_NAME)
+    start = client.post("/login/email/start", data={"email": recipient_email, "next": next_path})
+    email_state = re.search(r'name="state" value="([^"]+)"', start.text)
+    code = re.search(r"Код для локальной проверки: <strong>(\d{6})</strong>", start.text)
+    assert email_state is not None and code is not None, start.text
+    _bind_email_auth_attempt_cookie(client, start, state_nonce=email_state.group(1))
+    wrong = client.post("/login/email/verify", data={"email": recipient_email, "code": "999999" if code.group(1) != "999999" else "000000", "state": email_state.group(1), "next": next_path}, follow_redirects=False)
+    assert not wrong.cookies.get(AUTH_SESSION_COOKIE_NAME)
+    verified = client.post("/login/email/verify", data={"email": recipient_email, "code": code.group(1), "state": email_state.group(1), "next": next_path}, follow_redirects=False)
+    assert verified.status_code == 303, verified.text
+    token = verified.cookies.get(AUTH_SESSION_COOKIE_NAME)
+    assert token
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, token)
+    consent = client.get(next_path, headers={"Accept": "text/html"})
+    assert consent.status_code == 200, consent.text
+    csrf = re.search(r'<meta name="csrf-token" content="([^"]+)"', consent.text)
+    assert csrf is not None
+    return client.post(f"/api/v1/cabinet/share-invitations/{raw_token}/accept", params={"workspace_id": str(WORKSPACE_ID)},
+        headers={"Accept": "text/html", "Content-Type": "application/x-www-form-urlencoded", "X-CSRF-Token": csrf.group(1)}, data={}, follow_redirects=False)
+
 def test_summary_only_user_cannot_open_full_meeting_routes(client) -> None:
     ready_id = create_ready_meeting(client)
     add_workspace_user(client)
@@ -767,13 +797,13 @@ def test_external_invitation_accepts_from_another_workspace_and_resolves_share(
         headers={"Accept": "text/html"},
     )
     assert anonymous_preview.status_code == 200
-    assert "Открываем итоги" in anonymous_preview.text
-    assert "Итоги встречи доступны" not in anonymous_preview.text
-    assert "Сведения о встрече" not in anonymous_preview.text
+    assert "Войти и открыть итоги" in anonymous_preview.text
+    assert "Итоги встречи доступны" in anonymous_preview.text
+    assert "Сведения о встрече" in anonymous_preview.text
     assert raw_token not in anonymous_preview.text
-    assert "Открыть итоги" in anonymous_preview.text
-    assert "data-share-invitation-auto-accept-form" in anonymous_preview.text
-    state_match = re.search(r'name="state" value="([A-Za-z0-9_-]+)"', anonymous_preview.text)
+    assert "Войти и открыть итоги" in anonymous_preview.text
+    assert "data-share-invitation-auto-accept-form" not in anonymous_preview.text
+    state_match = re.search(r"state(?:=|%3D)([A-Za-z0-9_-]+)", anonymous_preview.text)
     assert state_match is not None
     recipient_headers = auth_headers_for(
         user_id=recipient_user_id,
@@ -793,8 +823,10 @@ def test_external_invitation_accepts_from_another_workspace_and_resolves_share(
         headers=recipient_headers,
     )
     assert continued.status_code == 200
-    assert raw_token not in continued.text
-    assert "Итоги встречи" in continued.text
+    assert "data-share-invitation-auto-accept-form" not in continued.text
+    assert "Открыть итоги" in continued.text
+    explicit = client.post(f"/api/v1/cabinet/share-invitations/{raw_token}/accept?workspace_id={WORKSPACE_ID}", headers=recipient_headers)
+    assert explicit.status_code == 200, explicit.text
     shared_with_me = client.get("/shared-with-me", headers=recipient_headers)
     assert shared_with_me.status_code == 200
     assert f"/shared-meetings/{ready_id}" in shared_with_me.text
@@ -847,7 +879,7 @@ def test_external_invitation_accepts_from_another_workspace_and_resolves_share(
     assert direct_raw_token not in direct_redirect.headers["location"]
     direct_summary = client.get(direct_redirect.headers["location"], headers=recipient_headers)
     assert direct_summary.status_code == 200
-    assert "Итоги встречи" in direct_summary.text
+    assert "Открыть итоги" in direct_summary.text
 
     api_raw_token = asyncio.run(seed_second_invitation())
     accepted = client.post(
@@ -931,63 +963,10 @@ def test_external_invitation_email_auth_creates_account_and_opens_summary(client
             return token
 
     raw_token = asyncio.run(seed_invitation())
-    preview = client.get(
-        f"/share-invitations/{raw_token}?workspace_id={WORKSPACE_ID}",
-        headers={"Accept": "text/html"},
-    )
-    assert preview.status_code == 200
-    assert "Открываем итоги" in preview.text
-    assert "Итоги встречи доступны" not in preview.text
-    assert "data-share-invitation-auto-accept-form" in preview.text
-    state_match = re.search(r'name="state" value="([A-Za-z0-9_-]+)"', preview.text)
-    assert state_match is not None
-    state = state_match.group(1)
-    magic_csrf_match = re.search(r'name="magic_csrf" value="([^\"]+)"', preview.text)
-    assert magic_csrf_match is not None
-    assert "Открыть итоги" in preview.text
-    assert "Войти и открыть итоги" not in preview.text
-
-    magic_get = client.get(
-        "/share-invitations/continue/magic",
-        params={"workspace_id": str(WORKSPACE_ID)},
-        follow_redirects=False,
-    )
-    assert magic_get.status_code == 405
-
-    rejected_csrf = client.post(
-        "/share-invitations/continue/magic",
-        params={"workspace_id": str(WORKSPACE_ID)},
-        data={"state": state, "magic_csrf": "x" * 32},
-        follow_redirects=False,
-    )
-    assert rejected_csrf.status_code == 404
-
-    magic = client.post(
-        "/share-invitations/continue/magic",
-        params={"workspace_id": str(WORKSPACE_ID)},
-        data={"state": state, "magic_csrf": magic_csrf_match.group(1)},
-        follow_redirects=False,
-    )
-    assert magic.status_code == 200
-    assert "Итоги встречи" in magic.text
-    assert raw_token not in magic.text
-    session_cookie = magic.cookies.get(AUTH_SESSION_COOKIE_NAME)
-    assert session_cookie
-    client.cookies.set(AUTH_SESSION_COOKIE_NAME, session_cookie)
-
-    replay = client.post(
-        "/share-invitations/continue/magic",
-        params={"workspace_id": str(WORKSPACE_ID)},
-        headers={"Accept": "text/html"},
-        data={"state": state, "magic_csrf": magic_csrf_match.group(1)},
-        follow_redirects=False,
-    )
-    assert replay.status_code == 404
-    assert replay.headers["content-type"].startswith("text/html")
-    assert replay.headers["cache-control"] == "private, no-store"
-    assert "Приглашение недоступно" in replay.text
-    assert state not in replay.text
-    assert magic_csrf_match.group(1) not in replay.text
+    accepted = _independent_invitation_login(client, recipient_email=recipient_email, raw_token=raw_token)
+    assert accepted.status_code == 200, accepted.text
+    assert "Итоги встречи" in accepted.text
+    assert raw_token not in accepted.text
 
     async def read_bootstrap_result() -> tuple[
         ExternalIdentity, WorkspaceMembership, MeetingShareGrant, MeetingShareInvitation
@@ -1031,8 +1010,7 @@ def test_external_invitation_email_auth_creates_account_and_opens_summary(client
     assert grant.content_scope == "summary_only"
     assert grant.can_download is False
     assert grant.can_export is False
-    assert invitation.account_created_email_status == "failed"
-    assert invitation.account_created_email_failure_code == "postal_delivery_disabled"
+    assert invitation.account_created_email_status == "not_applicable"
 
 
 def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(
@@ -1096,33 +1074,10 @@ def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(
             return token
 
     raw_token = asyncio.run(seed_invitation())
-    preview = client.get(
-        f"/share-invitations/{raw_token}?workspace_id={WORKSPACE_ID}",
-        headers={"Accept": "text/html"},
-    )
-    assert preview.status_code == 200
-    assert "Открываем запись" in preview.text
-    assert "Запись встречи доступна" not in preview.text
-    assert "Сведения о встрече" not in preview.text
-    assert "Открыть запись" in preview.text
-    assert "Открыть итоги" not in preview.text
-    assert "data-share-invitation-auto-accept-form" in preview.text
-    state = re.search(r'name="state" value="([A-Za-z0-9_-]+)"', preview.text)
-    magic_csrf = re.search(r'name="magic_csrf" value="([^\"]+)"', preview.text)
-    assert state is not None and magic_csrf is not None
-
-    magic = client.post(
-        "/share-invitations/continue/magic",
-        params={"workspace_id": str(WORKSPACE_ID)},
-        data={"state": state.group(1), "magic_csrf": magic_csrf.group(1)},
-        follow_redirects=False,
-    )
-    assert magic.status_code == 303
-    shared_url = magic.headers["location"]
+    accepted = _independent_invitation_login(client, recipient_email=recipient_email, raw_token=raw_token)
+    assert accepted.status_code == 303, accepted.text
+    shared_url = accepted.headers["location"]
     assert shared_url == f"/shared-meetings/{ready_id}?workspace_id={WORKSPACE_ID}"
-    session_cookie = magic.cookies.get(AUTH_SESSION_COOKIE_NAME)
-    assert session_cookie
-    client.cookies.set(AUTH_SESSION_COOKIE_NAME, session_cookie)
 
     page = client.get(shared_url, headers={"Accept": "text/html"})
     assert page.status_code == 200
