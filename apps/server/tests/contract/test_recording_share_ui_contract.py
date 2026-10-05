@@ -49,6 +49,15 @@ def test_reader_has_one_voluntary_own_meeting_action() -> None:
     assert "'/sign-up?next=%2Fmeetings'" in source
     assert "Получайте такие итоги своих встреч" in source
     assert "workspace_id" not in source
+    from twobrain_rec_server.cabinet.rendering import render_shared_meeting_summary_page
+
+    html = render_shared_meeting_summary_page(
+        meeting_title="Тестовые итоги", occurred_at=None, duration_seconds=60,
+        summary_sections=[], authenticated=False,
+    )
+    assert "public-summary-shell" in html
+    assert "cabinet-sidebar" not in html
+    assert html.count(">Начать со своей встречи</a>") == 1
 
 
 def test_no_javascript_form_reports_the_actual_delivery_result() -> None:

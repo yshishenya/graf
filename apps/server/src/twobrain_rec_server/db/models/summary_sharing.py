@@ -30,6 +30,7 @@ class PublishedMeetingSummary(Base):
             ["meeting_id", "workspace_id"],
             ["meetings.id", "meetings.workspace_id"],
             name="fk_published_summary_meeting_scope",
+            onupdate="CASCADE",
         ),
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -60,6 +61,7 @@ class SummaryDeliveryBatch(Base):
                 "published_meeting_summaries.meeting_id",
             ],
             name="fk_summary_batch_publication_scope",
+            onupdate="CASCADE",
         ),
         Index("ix_summary_batch_meeting", "workspace_id", "meeting_id"),
         Index("ix_summary_batch_due", "state", "scheduled_at"),
@@ -106,6 +108,7 @@ class SummaryRecipientDelivery(Base):
             ["batch_id", "workspace_id"],
             ["summary_delivery_batches.id", "summary_delivery_batches.workspace_id"],
             name="fk_summary_recipient_batch_scope",
+            onupdate="CASCADE",
         ),
         Index("ix_summary_recipient_batch", "workspace_id", "batch_id"),
     )

@@ -31,6 +31,7 @@ class MeetingShareGrant(Base):
                 "published_meeting_summaries.meeting_id",
             ],
             name="fk_grant_publication_scope",
+            onupdate="CASCADE",
         ),
         Index(
             "uq_meeting_share_grants_active_user",
@@ -97,6 +98,7 @@ class MeetingShareInvitation(Base):
                 "published_meeting_summaries.meeting_id",
             ],
             name="fk_invitation_publication_scope",
+            onupdate="CASCADE",
         ),
         Index(
             "uq_meeting_share_invitations_address_status",

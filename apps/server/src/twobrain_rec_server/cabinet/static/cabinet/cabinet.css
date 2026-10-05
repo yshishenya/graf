@@ -6425,6 +6425,7 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 .summary-share-dialog form,
 .summary-share-dialog [data-summary-share-editor] { display: grid; gap: 14px; }
 .summary-share-dialog p { margin: 0; overflow-wrap: anywhere; }
+.summary-share-dialog .share-recipient-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
 .summary-share-tabs { display: flex; gap: 4px; padding: 4px; border-radius: var(--radius-card); background: var(--surface-2); }
 .summary-share-tabs button { flex: 1; min-height: 40px; border: 0; background: transparent; }
 .summary-share-tabs button[aria-selected="true"] { background: var(--panel); color: var(--text); box-shadow: var(--shadow-card); }
@@ -6448,8 +6449,10 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 .summary-sharing-settings ul { list-style: none; padding: 0; }
 .summary-sharing-settings li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0; }
 .summary-sharing-settings li span { min-width: 0; overflow-wrap: anywhere; }
+.public-summary-shell { max-width: 808px; margin: 0 auto; padding: 24px; }
+.public-summary-shell > header { margin-bottom: 24px; }
+.public-summary-shell .main { padding: 0; min-width: 0; }
 @media (max-width: 390px) {
   .summary-share-dialog .share-dialog__surface { padding: 18px; gap: 16px; }
-  .summary-share-dialog .share-recipient-row { flex-wrap: wrap; }
-  .summary-share-dialog .share-recipient-row input { flex-basis: 100%; }
+  .summary-share-dialog .share-recipient-row { grid-template-columns: minmax(0, 1fr); }
 }
