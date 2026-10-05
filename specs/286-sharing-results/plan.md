@@ -50,3 +50,7 @@ No constitution exception. One snapshot table instead of generic version framewo
 ## Safe rollback
 
 Disable new link creation/batches/rules and scheduling first; pause AUTO and cancel all unreserved recipients. Drain reserved attempts; interrupted sending becomes unknown and is never replayed. Roll back only to code compatible with additive nullable columns/tables; keep data schema until all readers/workers are stopped and cleanup is proven. Never restore revoked grants, cancelled jobs, prior ciphertext or expired tokens from rollback. Metadata-only backup/restore and runtime role checks precede deploy.
+
+## Проверенная совместимость аккаунтов
+
+Миграции 0102–0104 добавочные. Пять составных связей publication/delivery graph используют `ON UPDATE CASCADE`: при подтвержденном объединении аккаунтов область переносится за встречей до прохода по metadata. Явный flush родителя сохраняет порядок; исходные документы, адресаты и согласие не изменяются. Старый владелец теряет право на неначатую доставку. Старые URL с прежним workspace закрыты, владелец получает текущую ссылку. Anonymous reader использует отдельный узкий shell без навигации кабинета.

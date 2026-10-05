@@ -81,3 +81,9 @@ Parallel examples after foundation: backend US1/US2 services; AUTO dedicated rul
 ## Implementation strategy
 
 Complete and validate US1, then recipient delivery/US2 and AUTO/US3 integration; all four stories remain required by user. Publish production only after all release gates. No new service/dependency or unrelated governance changes.
+
+## Дополнительная проверка совместимости после реализации
+
+- [X] T019 Сохранить граф опубликованных итогов при подтвержденном объединении аккаунтов: пять scoped FK `ON UPDATE CASCADE` в миграции 0104 и моделях, явный flush родительской встречи перед переносом metadata; реальная app-role регрессия проверяет RLS, документы, pending/accepted/unknown, историческое согласие и отмену неначатой доставки. Ранее отправленная ссылка с прежним workspace остается закрытой; владелец получает актуальную ссылку. Evidence: test_summary_sharing_account_merge.py, 53 passed related merge/delivery/deletion.
+
+T019: https://github.com/yshishenya/graf/issues/7566

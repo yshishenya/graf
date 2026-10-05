@@ -24,3 +24,11 @@
 ## Совместимость и старые пути
 
 Legacy Impact: remove — bearer invitation больше не создаёт session; legacy magic endpoint отвечает отказом для безопасной обработки прежних писем. Ранее принятые full_meeting ACL сохраняются по существующему контракту. Новые legacy aliases/dependencies/services не добавлялись. Публичные подписанные macOS артефакты выпуск сервера сохраняет; native route policy уже допускает meeting share/settings маршруты.
+
+## Проверка развернутого Dev и найденная совместимость
+
+- GRAF Dev exact SHA `664886c3b232484a51ab28be0f57c73837196fcd`: штатные build/promote и полный smoke PASS; миграция 0103. Холодная пара PostgreSQL/MinIO сохранялась harness до допуска новых writers. Предыдущая попытка безопасно восстановила старую версию при несовместимости настроек Dev: внешние приглашения включены при выключенной реальной почте; исправлено без ослабления Settings guard.
+- Синтетическая встреча в личном пространстве: фактические open dialog, две вкладки, preview выбранного документа, create/copy link, закрытие и возврат фокуса на «Поделиться», публичный документ и добровольный CTA. Reader работает без JavaScript; no-JS owner form доступна. Настройки: ASK включен, ни одного AUTO правила по умолчанию, global pause и точечное управление представлены.
+- На ширине 320 обнаружено переполнение кнопки добавления получателя. Исправлено нативной CSS grid; требуется повторная actual проверка нового SHA. Anonymous reader использовал навигацию кабинета: заменено узким документным shell с одной добровольной CTA; rendered contract + UI/no-JS 7 passed (5.24s), Node state tests PASS.
+- Дополнительный CI выявил устаревший schema head и неполный identity FK inventory. Историческое согласие, адресаты и AUTO authority не перепривязываются при объединении; 19 соответствующих unit/runtime checks PASS.
+- Отдельная app-role регрессия выявила необходимость каскадного переноса области публикации и delivery graph. Миграция 0104 и явный flush родителя исправляют граф, включая recipient rows без meeting_id. Реальная app role без SUPERUSER/BYPASSRLS: неверный merge context закрыт; confirmed merge, original data/states/tokens preserved; pending старого владельца отменяется без Postal. Связанный набор merge/comments/delivery/deletion: 53 passed, 39.46s. Старые URL с прежним workspace после merge закрываются, актуальную ссылку получает новый владелец.

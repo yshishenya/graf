@@ -433,6 +433,7 @@ def render_shared_meeting_summary_page(
     return _page_shell(
         "Итоги встречи",
         embedded=embedded,
+        page_template="cabinet/pages/shell.html" if authenticated else "cabinet/pages/public_summary_shell.html",
         content_template="cabinet/pages/shared_meeting_summary_content.html",
         meeting_title=meeting_title,
         occurred_at=occurred_at,
