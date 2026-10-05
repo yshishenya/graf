@@ -131,6 +131,10 @@ from twobrain_rec_server.workflows.processing_workflow import (
     PROCESSING_ACTIVITY_MAX_ATTEMPTS,
     MediaScribeProcessingWorkflow,
 )
+from twobrain_rec_server.workflows.summary_delivery import (
+    SummaryDeliveryWorkflow,
+    deliver_summary_batch_activity,
+)
 from twobrain_rec_server.workflows.temporal_client import (
     connect_temporal_client,
     outcome_generation_task_queue,
@@ -2188,6 +2192,7 @@ async def deliver_meeting_invitation_activity(payload: dict[str, str]) -> dict[s
                     MeetingShareInvitation.id == invitation_id,
                     MeetingShareInvitation.workspace_id == workspace_id,
                     MeetingShareInvitation.status == "pending",
+                    MeetingShareInvitation.published_summary_id.is_(None),
                 )
                 .with_for_update()
                 .execution_options(populate_existing=True)
@@ -2779,9 +2784,11 @@ async def run_worker() -> None:
         workflows=[
             MediaScribeProcessingWorkflow,
             InvitationDeliveryWorkflow,
+            SummaryDeliveryWorkflow,
             AccountCreatedEmailWorkflow,
         ],
-        activities=[processing_activity, invitation_activity, account_created_email_activity],
+        activities=[processing_activity, invitation_activity, account_created_email_activity,
+                    deliver_summary_batch_activity],
         identity=processing_worker_identity(),
     )
     billing_renewal_worker = Worker(

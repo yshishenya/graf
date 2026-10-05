@@ -19,6 +19,10 @@ x-server-env: &server-env
   GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE: /run/secrets/graf_credential_encryption_key
   TWOBRAIN_WEB_LOGIN_WORKSPACE_ID: 20000000-0000-0000-0000-000000000001
   TWOBRAIN_EMAIL_LOGIN_DELIVERY_ENABLED: "false"
+  # Loopback-only Dev: exercise synthetic documents; real email stays disabled.
+  TWOBRAIN_SHARE_PUBLIC_LINKS_ENABLED: "true"
+  TWOBRAIN_SHARE_PUBLIC_LINKS_ABUSE_GATE_APPROVED: "true"
+  TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED: "true"
   TWOBRAIN_LOCAL_HTTP_AUTH_COOKIE_ENABLED: "true"
   TWOBRAIN_LOCAL_EMAIL_LOGIN_CODE: "000000"
   TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec:twobrain_rec@rec-postgres:5432/twobrain_rec

@@ -6417,3 +6417,39 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
 [tabindex="-1"]:is([role="main"], [role="heading"], [role="status"], [role="alert"], [role="tabpanel"], [role="region"]):not([contenteditable]):focus {
   outline: none;
 }
+
+/* F286: same dialog, two short ways to share only the selected summary. */
+.summary-share-dialog { width: min(480px, calc(100vw - 24px)); }
+.summary-share-dialog [hidden] { display: none !important; }
+.summary-share-dialog section[role="tabpanel"],
+.summary-share-dialog form,
+.summary-share-dialog [data-summary-share-editor] { display: grid; gap: 14px; }
+.summary-share-dialog p { margin: 0; overflow-wrap: anywhere; }
+.summary-share-tabs { display: flex; gap: 4px; padding: 4px; border-radius: var(--radius-card); background: var(--surface-2); }
+.summary-share-tabs button { flex: 1; min-height: 40px; border: 0; background: transparent; }
+.summary-share-tabs button[aria-selected="true"] { background: var(--panel); color: var(--text); box-shadow: var(--shadow-card); }
+.summary-share-document { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.summary-share-expiry { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.summary-share-primary { width: 100%; min-height: 44px; }
+.summary-share-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.summary-share-recipients { display: grid; gap: 8px; padding: 0; margin: 0; list-style: none; }
+.summary-share-recipients li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-bottom: 1px solid var(--line-soft); padding: 8px 0; min-width: 0; }
+.summary-share-recipients li > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.summary-share-recipients small { color: var(--muted); overflow-wrap: anywhere; }
+.summary-share-preview { border: 1px solid var(--line); border-radius: var(--radius-card); padding: 16px; max-height: 240px; overflow: auto; overscroll-behavior: contain; }
+.summary-share-preview h3,.summary-share-preview h4 { margin: 10px 0; }
+.summary-share-preview p { white-space: pre-wrap; margin: 8px 0; }
+.summary-share-auto { border-top: 1px solid var(--line); padding-top: 14px; }
+.summary-share-auto summary { cursor: pointer; }
+.summary-share-auto > p,.summary-share-auto > label { display: block; margin-top: 12px; }
+[data-summary-auto-roster] label { display: flex; align-items: start; gap: 8px; overflow-wrap: anywhere; margin: 10px 0; }
+[data-summary-auto-roster] input { flex: none; }
+.summary-share-dialog input[type="url"] { width: 100%; min-width: 0; }
+.summary-sharing-settings ul { list-style: none; padding: 0; }
+.summary-sharing-settings li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0; }
+.summary-sharing-settings li span { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 390px) {
+  .summary-share-dialog .share-dialog__surface { padding: 18px; gap: 16px; }
+  .summary-share-dialog .share-recipient-row { flex-wrap: wrap; }
+  .summary-share-dialog .share-recipient-row input { flex-basis: 100%; }
+}

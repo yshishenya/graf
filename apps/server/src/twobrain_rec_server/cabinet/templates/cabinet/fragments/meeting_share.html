@@ -1,94 +1,63 @@
-<dialog class="share-dialog" id="meeting-share-dialog" role="dialog" aria-modal="true" aria-labelledby="share-dialog-title" aria-describedby="share-dialog-status-{{ meeting_id }}" data-share-dialog data-share-workspace-id="{{ share_workspace_id or '' }}" data-share-can-manage-roles="{{ 'true' if share.can_manage_roles else 'false' }}" data-share-external-invitations="{{ share.external_invitation_state }}">
+<dialog class="share-dialog summary-share-dialog" id="meeting-share-dialog" role="dialog" aria-modal="true" aria-labelledby="share-dialog-title" aria-describedby="share-dialog-status-{{ meeting_id }}" data-share-dialog data-summary-share-dialog data-meeting-id="{{ meeting_id }}" data-share-workspace-id="{{ share_workspace_id or '' }}">
   <section class="share-dialog__surface">
     <header class="share-dialog__header">
-      <div>
-        <h2 id="share-dialog-title">Поделиться встречей</h2>
-        <p>{% if share.can_manage_roles %}Выберите доступ к записи и обсуждениям для получателя.{% else %}Участник рабочей области получит итоги, а приглашенный по email — доступ к записи.{% endif %}</p>
-      </div>
-      <button type="button" class="icon-button" aria-label="Закрыть" data-share-dialog-close>×</button>
+      <h2 id="share-dialog-title" tabindex="-1" data-summary-share-title>Поделиться итогами</h2>
+      <button type="button" class="icon-button" aria-label="Закрыть" data-summary-share-close>×</button>
     </header>
-
-    <div class="share-dialog__capability" data-share-capability-state="{{ share.capability_state }}" aria-live="polite">
-      {% if share.capability_state == "available" %}
-      <strong>Внешний доступ: запись · просмотр</strong>
-      <p>Итоги, расшифровка, прослушивание и скачивание аудио. Доступ можно отозвать в любой момент.</p>
-      {% else %}
-      <strong>Внешний доступ недоступен</strong>
-      {% if share.capability_reason %}<p>{{ share.capability_reason }}</p>{% endif %}
-      {% endif %}
-      {% if share.external_invitation_state == "disabled" %}
-        <p class="muted" data-share-external-disabled>Внешняя отправка email пока отключена. Найдите участника рабочей области или подключенного календаря.</p>
-      {% endif %}
-    </div>
-
-    {% if share.can_manage_roles %}
-    <label class="share-role-label">Права получателя
-      <select data-share-comment-role aria-label="Права получателя">
-        <option value="viewer">Просмотр</option>
-        <option value="commenter">Комментирование</option>
-        <option value="editor">Редактирование</option>
-      </select>
-    </label>
-    {% endif %}
-    <form class="share-recipient-form" method="get" action="/api/v1/cabinet/meetings/{{ meeting_id }}/share-recipients" data-share-recipient-form data-meeting-id="{{ meeting_id }}">
-      <label for="share-recipient-{{ meeting_id }}">Кому отправить</label>
-      <p class="muted">Найдите человека и нажмите «Пригласить», чтобы открыть доступ.</p>
-      <div class="share-recipient-row">
-        <input id="share-recipient-{{ meeting_id }}" name="query" type="text" placeholder="Имя или email…" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="share-recipient-results-{{ meeting_id }}" aria-describedby="share-dialog-status-{{ meeting_id }}" data-share-recipient-input>
-        <button type="submit">Найти</button>
+    <div data-summary-share-editor>
+      <div class="summary-share-tabs" role="tablist" aria-label="Как поделиться">
+        <button type="button" role="tab" id="summary-link-tab" aria-controls="summary-link-panel" aria-selected="true" data-summary-share-tab="link">По ссылке</button>
+        <button type="button" role="tab" id="summary-email-tab" aria-controls="summary-email-panel" aria-selected="false" tabindex="-1" data-summary-share-tab="email">По почте</button>
       </div>
-    </form>
-    <div class="share-recipient-results" id="share-recipient-results-{{ meeting_id }}" role="listbox" aria-label="Найденные люди" data-share-recipient-results hidden></div>
-    <div class="share-recipient-confirmation-host" id="share-recipient-confirmation-{{ meeting_id }}" data-share-recipient-confirmation hidden></div>
-
-    <details class="share-scope-disclosure">
-      <summary>Что увидит получатель</summary>
-      <p>Для email: итоги, расшифровка, прослушивание и скачивание аудио. Рабочая область, календарь и служебные данные не открываются.</p>
-    </details>
-
-    <div class="share-viewers" aria-live="polite" data-share-viewers>
-        <h3>Доступ уже есть</h3>
-      {% if share and share.active_grants %}
-        {% for grant in share.active_grants %}
-          <div class="share-viewer-row" data-share-viewer-row>
-            <span>
-              <strong>{{ grant.display_name }}</strong>
-              <span data-share-role-label>{{ "Редактирование" if grant.can_edit else "Комментирование" if grant.can_comment else "Просмотр" }}</span>
-              <small class="muted"><span data-share-scope-label>{% if grant.content_scope == "full_meeting" %}Запись{% else %}Итоги{% endif %}</span>{% if grant.expires_at %} · до {{ user_time_element(grant.expires_at, show_zone=True) }}{% else %} · без срока{% endif %}</small>
-            </span>
-            <span class="share-viewer-row__actions">
-              {% if share.can_manage_roles and grant.audience_type != "link" %}
-              <select data-share-existing-role data-share-permissions-url="/api/v1/cabinet/meetings/{{ meeting_id }}/shares/{{ grant.grant_id }}/permissions" aria-label="Права {{ grant.display_name }}">
-                <option value="viewer" {% if not grant.can_comment and not grant.can_edit %}selected{% endif %}>Просмотр</option>
-                <option value="commenter" {% if grant.can_comment and not grant.can_edit %}selected{% endif %}>Комментирование</option>
-                <option value="editor" {% if grant.can_edit %}selected{% endif %}>Редактирование</option>
-              </select>
-              {% endif %}
-              <button type="button" data-share-copy-button data-share-rotate-url="/api/v1/cabinet/meetings/{{ meeting_id }}/shares/{{ grant.grant_id }}/rotate">Создать и скопировать новую ссылку</button>
-              <button type="button" data-share-revoke-url="/api/v1/cabinet/meetings/{{ meeting_id }}/shares/{{ grant.grant_id }}">Отозвать</button>
-            </span>
+      <p class="summary-share-document"><span data-summary-share-format>Выбранные итоги</span> <button type="button" class="button quiet" data-summary-share-preview>Посмотреть</button></p>
+      <div class="summary-share-preview" data-summary-share-preview-content hidden tabindex="-1" aria-label="Итоги для получателя"></div>
+      <section id="summary-link-panel" role="tabpanel" aria-labelledby="summary-link-tab" data-summary-share-panel="link">
+        <p>Любой со ссылкой сможет прочитать итоги.</p>
+        <p class="muted">Запись и расшифровка останутся закрыты.</p>
+        <label class="summary-share-expiry">Срок ссылки
+          <select name="expires_in_days" data-summary-share-expiry><option value="7">7 дней</option><option value="30" selected>30 дней</option><option value="90">90 дней</option></select>
+        </label>
+        <p class="muted" data-summary-share-expiry-date></p>
+        <label data-summary-share-url-label hidden>Ссылка на итоги<input readonly type="url" autocomplete="off" spellcheck="false" data-summary-share-url></label>
+        <button type="button" class="button primary summary-share-primary" data-summary-share-copy>Скопировать ссылку</button>
+        <details data-summary-link-controls hidden>
+          <summary>Настройки ссылки</summary>
+          <p class="muted">Изменения итогов появятся по ссылке только после обновления.</p>
+          <div class="summary-share-actions">
+            <button type="button" class="button quiet" data-summary-link-action="update">Обновить итоги</button>
+            <button type="button" class="button quiet" data-summary-link-action="expiry">Изменить срок</button>
+            <button type="button" class="button quiet" data-summary-link-action="rotate">Заменить ссылку</button>
+            <button type="button" class="button quiet" data-summary-link-action="revoke">Отключить ссылку</button>
           </div>
-        {% endfor %}
-      {% else %}
-        <p class="muted" data-share-empty>Пока доступ есть только у владельца.</p>
-      {% endif %}
-      {% for invitation in share.active_invitations %}
-        <div class="share-viewer-row share-viewer-row--invitation" data-share-invitation-row>
-          <span>
-            <strong>{{ invitation.display_label or "Приглашение" }}</strong>
-            <small class="muted">
-              {% if invitation.status == "pending" %}Письмо готовится к отправке
-              {% elif invitation.status == "sending" %}Письмо отправляется
-              {% elif invitation.status == "sent" %}Письмо передано в отправку
-              {% elif invitation.status == "outcome_unknown" %}Письмо не подтверждено — не отправляйте повторно сразу
-              {% else %}{{ invitation.status }}{% endif %}
-              · {% if invitation.content_scope == "full_meeting" %}запись{% else %}итоги{% endif %} · до {{ user_time_element(invitation.expires_at, show_zone=True) }}
-            </small>
-          </span>
-          <button type="button" data-share-invitation-revoke-url="/api/v1/cabinet/meetings/{{ meeting_id }}/share-invitations/{{ invitation.invitation_id }}">Отменить</button>
-        </div>
-      {% endfor %}
+        </details>
+      </section>
+      <section id="summary-email-panel" role="tabpanel" aria-labelledby="summary-email-tab" data-summary-share-panel="email" hidden>
+        <form data-summary-share-email-form>
+          <label for="share-recipient-{{ meeting_id }}">Кому отправить</label>
+          <div class="share-recipient-row">
+            <input id="share-recipient-{{ meeting_id }}" name="recipient_query" type="text" placeholder="Имя или email…" autocomplete="off" spellcheck="false" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="false" aria-controls="share-recipient-results-{{ meeting_id }}" data-share-recipient-input>
+            <button type="button" data-summary-share-add>Добавить</button>
+          </div>
+          <div id="share-recipient-results-{{ meeting_id }}" class="share-recipient-results" role="listbox" aria-label="Найденные люди" data-share-recipient-results hidden></div>
+          <ul class="summary-share-recipients" aria-label="Получатели" data-summary-share-recipients></ul>
+          <p class="muted">Получатели увидят только выбранные итоги. Чтобы открыть их, нужно войти с указанной почтой.</p>
+          <button type="submit" class="button primary summary-share-primary" data-summary-share-send>Отправить</button>
+        </form>
+        <details class="summary-share-auto" data-summary-autosend-controls hidden>
+          <summary>Отправлять автоматически</summary>
+          <p class="muted">Через 5 минут после готовности итогов. Только подтверждённым участникам пространства.</p>
+          <label>Для каких встреч<select data-summary-auto-scope><option value="meeting">Для этой встречи</option><option value="series">Для следующих встреч серии</option></select></label>
+          <div data-summary-auto-roster></div>
+          <p data-summary-auto-status role="status" aria-live="polite"></p>
+          <div class="summary-share-actions"><button type="button" data-summary-auto-enable>Включить</button><button type="button" data-summary-auto-disable hidden>Выключить</button><button type="button" data-summary-auto-cancel hidden>Отменить отправку</button></div>
+        </details>
+      </section>
     </div>
-    <p class="share-dialog__status" id="share-dialog-status-{{ meeting_id }}" role="status" aria-live="polite" data-share-status></p>
+    <section data-summary-share-result hidden>
+      <ul class="summary-share-recipients" data-summary-share-result-recipients></ul>
+      <p data-summary-share-result-copy></p>
+      <div class="summary-share-actions"><button type="button" class="button quiet" data-summary-share-check>Проверить</button><button type="button" class="button quiet" data-summary-share-cancel hidden>Отменить отправку</button><button type="button" class="button primary" data-summary-share-done>Готово</button></div>
+    </section>
+    <p class="share-dialog__status" id="share-dialog-status-{{ meeting_id }}" role="status" aria-live="polite" aria-atomic="true" data-share-status></p>
   </section>
 </dialog>

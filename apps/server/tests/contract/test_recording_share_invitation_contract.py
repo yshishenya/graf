@@ -46,7 +46,7 @@ def test_unavailable_invitation_page_reuses_safe_cabinet_state() -> None:
     rendered = render_share_invitation_unavailable_page()
 
     assert "Приглашение недоступно" in rendered
-    assert "Ссылка уже использована, отозвана или срок ее действия истек." in rendered
+    assert "Ссылка отозвана или срок её действия истёк." in rendered
     assert 'href="/meetings"' in rendered
     assert 'class="cabinet-main cabinet-state-page"' in rendered
     assert 'class="cabinet-state cabinet-state--unavailable cabinet-unavailable cabinet-card"' in rendered
@@ -123,60 +123,26 @@ def test_invitation_acceptance_uses_a_separate_grant_token_and_safe_onboarding_c
         magic_csrf_token="synthetic-magic-csrf-token",
         auto_accept=True,
     )
-    assert "Открываем итоги" in rendered
-    assert "Открыть итоги" in rendered
-    assert "data-share-invitation-auto-accept-form" in rendered
-    assert "Планирование релиза" not in rendered
-    assert "Сведения о встрече" not in rendered
+    assert "Войти и открыть итоги" in rendered
+    assert "data-share-invitation-auto-accept-form" not in rendered
+    assert "Планирование релиза" in rendered
+    assert "Сведения о встрече" in rendered
     assert "Создать аккаунт GRAF" not in rendered
     assert "транскрипт" not in rendered.lower()
     assert "audio" not in rendered.lower()
 
 
-def test_magic_link_flushes_email_audit_before_switching_workspace() -> None:
-    browser_source = Path(
-        "src/twobrain_rec_server/cabinet/web_routes/browser.py"
-    ).read_text(encoding="utf-8")
-    magic_link = browser_source.split(
-        "async def share_invitation_magic_link", 1
-    )[1].split(
-        '@router.get("/share-invitations/{share_token}"', 1
-    )[0]
-    audit_offset = magic_link.index("await _record_email_login_audit(")
-    after_audit = magic_link[audit_offset:]
-    flush_offset = after_audit.index("await session.flush()")
-    context_switch_offset = after_audit.index("await apply_tenant_context(")
-
-    assert flush_offset < context_switch_offset
-    assert "no_autoflush" not in after_audit
-
-    rls_migration = Path(
-        "src/twobrain_rec_server/db/migrations/versions/0005_rls_hardening.py"
-    ).read_text(encoding="utf-8")
-    assert '"auth_audit_events":' in rls_migration
-    assert "workspace_id = rec_current_workspace_id()" in rls_migration
-
-
-def test_invitation_notification_failure_stays_after_commit_and_bounded() -> None:
-    browser_source = Path(
-        "src/twobrain_rec_server/cabinet/web_routes/browser.py"
-    ).read_text(encoding="utf-8")
-    magic_link = browser_source.split(
-        "async def share_invitation_magic_link", 1
-    )[1].split(
-        '@router.get("/share-invitations/{share_token}"', 1
-    )[0]
-    committed = magic_link.index("await session.commit()")
-    notification = magic_link.index("await _dispatch_account_created_email(", committed)
-    assert committed < notification
-
-    dispatcher = browser_source.split(
-        "async def _dispatch_account_created_email", 1
-    )[1].split(
-        '@router.post("/share-invitations/continue/magic"', 1
-    )[0]
-    assert "except Exception:" in dispatcher
-    assert "Access is already committed" in dispatcher
+def test_invitation_token_never_bootstraps_login_or_submits_on_get() -> None:
+    source = Path("src/twobrain_rec_server/cabinet/web_routes/browser.py").read_text()
+    magic = source.split("async def share_invitation_magic_link", 1)[1].split('@router.get("/share-invitations/{share_token}"', 1)[0]
+    assert 'status=401' in magic or 'status=401,' in magic
+    assert "issue_auth_session" not in magic
+    assert "create_email_identity" not in magic
+    assert "accept_share_invitation" not in magic
+    template = Path("src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html").read_text()
+    assert 'name="csrf_token"' in template
+    assert '{{ login_href }}' in template
+    assert 'data-share-invitation-auto-accept-form' not in template
 
 
 def test_full_invitation_contract_exposes_recording_package_without_workspace_membership() -> None:
@@ -199,11 +165,10 @@ def test_full_invitation_contract_exposes_recording_package_without_workspace_me
         auto_accept=True,
     )
 
-    assert "Открываем запись" in rendered
-    assert "Открыть запись" in rendered
-    assert "data-share-invitation-auto-accept-form" in rendered
-    assert "Планирование релиза" not in rendered
-    assert "Сведения о встрече" not in rendered
+    assert "Войти и открыть запись" in rendered
+    assert "data-share-invitation-auto-accept-form" not in rendered
+    assert "Планирование релиза" in rendered
+    assert "Сведения о встрече" in rendered
     assert "Открыть итоги" not in rendered
     assert "/shared-meetings/" in browser_source
     assert "/cabinet/shared-meetings/{meeting_id}/playback" in api_source

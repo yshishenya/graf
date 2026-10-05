@@ -343,6 +343,14 @@ def render_meeting_unavailable_page(
     )
 
 
+def render_shared_summary_unavailable_page(*, temporary: bool = False) -> str:
+    return _page_shell(
+        "Итоги недоступны", embedded=False,
+        content_template="cabinet/pages/shared_summary_unavailable_content.html",
+        temporary=temporary,
+    )
+
+
 def render_share_invitation_unavailable_page() -> str:
     return _page_shell(
         "Приглашение недоступно",
@@ -393,6 +401,20 @@ def render_share_invitation_accept_page(
         magic_state=magic_state,
         magic_csrf_token=magic_csrf_token,
         auto_accept=auto_accept,
+    )
+
+
+def render_summary_sharing_form(*, meeting_id, csrf_token, template_key, share_workspace_id=None, link=None, batch=None, error=None, idempotency_key=None) -> str:
+    from uuid import uuid4
+
+    action = f"/api/v1/cabinet/meetings/{meeting_id}/summary-sharing/form"
+    if share_workspace_id is not None:
+        action += f"?workspace_id={share_workspace_id}"
+    return _page_shell(
+        "Поделиться итогами", embedded=False, csrf_token=csrf_token,
+        content_template="cabinet/pages/summary_sharing_form_content.html",
+        meeting_id=meeting_id, template_key=template_key, form_action=action,
+        link=link, batch=batch, error=error, idempotency_key=idempotency_key or str(uuid4()),
     )
 
 
@@ -1427,6 +1449,12 @@ def _render_meeting_workspace_actions(
     share_url = f"{_base_path(embedded)}/{review.meeting.meeting_id}/share"
     if shared_workspace_id is not None:
         share_url += f"?workspace_id={shared_workspace_id}"
+    form_url = f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/summary-sharing/form"
+    form_query = {"template_key": review.template.reason or "meeting_minutes"}
+    if shared_workspace_id is not None:
+        form_query["workspace_id"] = str(shared_workspace_id)
+    form_url += "?" + urlencode(form_query)
+    form_link = f'<noscript><a href="{escape(form_url)}">Поделиться итогами</a></noscript>' if share_available else ""
     more_action = ""
     if more_actions_available:
         more_action = """
@@ -1437,6 +1465,7 @@ def _render_meeting_workspace_actions(
     return f"""
       <button type="button" data-share-dialog-open aria-controls="meeting-share-dialog" hx-get="{share_url}" hx-target="#meeting-share-host" hx-swap="innerHTML"{share_attributes}>Поделиться</button>
       {share_reason}
+      {form_link}
       {more_action}
     """
 

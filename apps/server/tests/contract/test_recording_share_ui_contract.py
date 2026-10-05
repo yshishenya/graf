@@ -1,118 +1,102 @@
 from pathlib import Path
+from types import SimpleNamespace
+
+from twobrain_rec_server.cabinet.templates import render_template
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-FRAGMENT = REPO_ROOT / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/meeting_share.html"
-CSS = REPO_ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css"
-JS = REPO_ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
+STATIC = REPO_ROOT / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet"
+TEMPLATES = REPO_ROOT / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet"
 
 
-def test_share_fragment_is_simple_first_and_accessible() -> None:
-    source = FRAGMENT.read_text(encoding="utf-8")
-
-    assert 'role="dialog"' in source
-    assert 'aria-modal="true"' in source
-    assert 'id="meeting-share-dialog"' in source
-    assert "data-share-dialog open" not in source
-    assert 'data-share-recipient-input' in source
-    assert 'role="combobox"' in source
-    assert 'aria-controls="share-recipient-results-{{ meeting_id }}"' in source
-    assert 'role="listbox"' in source
-    assert "Найти" in source
-    assert "Скопировать ссылку" in JS.read_text(encoding="utf-8")
-    assert "Открыть доступ к итогам" in JS.read_text(encoding="utf-8")
-    assert "Календарь и рабочая область" in JS.read_text(encoding="utf-8")
-    assert "Что увидит получатель" in source
-    assert "Открыть итоги" in (
-        REPO_ROOT
-        / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html"
-    ).read_text(encoding="utf-8")
-    assert "Открыть запись" in (
-        REPO_ROOT
-        / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html"
-    ).read_text(encoding="utf-8")
-    invitation_page = (
-        REPO_ROOT
-        / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/share_invitation_content.html"
-    ).read_text(encoding="utf-8")
-    assert "data-share-invitation-auto-accept-form" in invitation_page
-    assert "Открываем запись" in invitation_page
-    assert "Открываем итоги" in invitation_page
-    assert "Приглашение недоступно" in invitation_page
-    assert "Ссылка уже использована, отозвана или срок ее действия истек." in invitation_page
-    assert "Расшифровка и итоги" in (
-        REPO_ROOT
-        / "apps/server/src/twobrain_rec_server/cabinet/rendering.py"
-    ).read_text(encoding="utf-8")
-    assert "Отозвать" in source
-    assert "data-share-recipient-results" in source
-    assert "data-share-recipient-confirmation" in source
-    assert "data-share-revoke-url" in source
-    assert "data-share-rotate-url" in source
-    assert "data-share-capability-state" in source
-    assert "Матрица ролей" not in source
-    assert "can_download" not in source
-    assert "can_export" not in source
-
-
-def test_share_capability_block_switches_copy_by_state() -> None:
-    from types import SimpleNamespace
-
-    from twobrain_rec_server.cabinet.templates import render_template
-
-    def render(capability_state: str, capability_reason: str | None, can_manage_roles: bool) -> str:
-        return render_template(
-            "cabinet/fragments/meeting_share.html",
-            meeting_id="meeting-1",
-            share=SimpleNamespace(
-                capability_state=capability_state,
-                capability_reason=capability_reason,
-                can_manage_roles=can_manage_roles,
-                external_invitation_state="available",
-                active_grants=[],
-                active_invitations=[],
-            ),
-            share_workspace_id=None,
-        )
-
-    available = render("available", None, True)
-    assert "Внешний доступ: запись · просмотр" in available
-    assert (
-        "Итоги, расшифровка, прослушивание и скачивание аудио. Доступ можно отозвать в любой момент."
-        in available
+def test_share_fragment_is_summary_only_and_accessible() -> None:
+    html = render_template(
+        "cabinet/fragments/meeting_share.html", meeting_id="synthetic-meeting",
+        share_workspace_id=None, share=SimpleNamespace(),
     )
-    assert "Внешний доступ недоступен" not in available
+    for text in ("Поделиться итогами", "По ссылке", "По почте", "Скопировать ссылку", "Отправить"):
+        assert text in html
+    assert 'aria-modal="true"' in html
+    assert 'role="combobox"' in html
+    assert 'role="listbox"' in html
+    assert 'aria-controls="share-recipient-results-synthetic-meeting"' in html
+    assert 'aria-live="polite"' in html
+    assert "Любой со ссылкой сможет прочитать итоги" in html
+    assert "Запись и расшифровка останутся закрыты" in html
+    assert "can_download" not in html and "can_export" not in html
+    assert "Редактирование" not in html and "Комментирование" not in html
+    assert 'data-summary-link-action="revoke"' in html
+    assert 'data-summary-link-action="rotate"' in html
+    assert 'data-summary-share-result hidden' in html
 
-    unavailable = render(
-        "auth_required",
-        "Для управления доступом войдите в аккаунт с правом владельца.",
-        False,
-    )
-    assert "Внешний доступ недоступен" in unavailable
-    assert "Для управления доступом войдите в аккаунт с правом владельца." in unavailable
-    assert "Внешний доступ: запись · просмотр" not in unavailable
-    assert (
-        "Итоги, расшифровка, прослушивание и скачивание аудио. Доступ можно отозвать в любой момент."
-        not in unavailable
-    )
+
+def test_only_one_sharing_handler_owns_dialog() -> None:
+    legacy = (STATIC / "cabinet.js").read_text()
+    script = (STATIC / "summary-sharing.js").read_text()
+    assert 'dialog.hasAttribute("data-summary-share-dialog")' in legacy
+    assert "dialog.showModal()" in script and "opener?.focus" in script
+    assert "navigator.clipboard.writeText" in script
+    assert "data-summary-share-url" in script
+    assert "idempotency_key:sendKey" in script
+    assert "recipient.can_retry" in script
+    assert "window.confirm" in script
+    assert "full_meeting" not in script
+    assert "summary-sharing.js" in (TEMPLATES / "base.html").read_text()
 
 
-def test_share_focus_and_isolated_styles_are_registered() -> None:
-    javascript = JS.read_text(encoding="utf-8")
-    assert "initShareDialogs" in javascript
-    assert "dialog.showModal()" in javascript
-    assert 'event.key !== "Tab"' in javascript
-    assert 'content_scope: collaborationRole ? "full_meeting" : "summary_only"' in javascript
-    assert 'role === "commenter" || role === "editor"' in javascript
-    assert 'can_edit: role === "editor"' in javascript
-    assert "content_scope: \"full_meeting\"" in javascript
-    assert "can_download: true" in javascript
-    assert "can_export: true" in javascript
-    assert "data-share-revoke-url" in javascript
-    assert "renderExternalInvitationConfirmation" in javascript
-    assert "setConfirmationVisible" in javascript
-    assert "Отправить приглашение" in javascript
-    assert "shareRequestErrorMessage" in javascript
-    assert "Повторить" in javascript
-    assert "initShareInvitationAutoAccept" in javascript
-    assert "form.requestSubmit()" in javascript
-    assert ".share-dialog" in CSS.read_text(encoding="utf-8")
+def test_reader_has_one_voluntary_own_meeting_action() -> None:
+    source = (TEMPLATES / "pages/shared_meeting_summary_content.html").read_text()
+    assert source.count(">Начать со своей встречи</a>") == 1
+    assert "'/sign-up?next=%2Fmeetings'" in source
+    assert "Получайте такие итоги своих встреч" in source
+    assert "workspace_id" not in source
+
+
+def test_no_javascript_form_reports_the_actual_delivery_result() -> None:
+    from twobrain_rec_server.cabinet.rendering import render_summary_sharing_form
+
+    for states, title in (
+        (["accepted"], "Итоги отправлены"),
+        (["accepted", "failed", "unknown"], "Отправлено не всем"),
+        (["accepted", "unknown"], "Проверьте отправку"),
+        (["pending", "unknown"], "Отправляем…"),
+    ):
+        batch = {
+            "batch_id": "synthetic-batch",
+            "counts": {state: states.count(state) for state in set(states)},
+            "recipients": [{"email": "recipient@example.test", "state": state, "can_retry": state == "failed", "recipient_id": str(index)} for index, state in enumerate(states)],
+            "can_cancel": "pending" in states,
+        }
+        html = render_summary_sharing_form(meeting_id="synthetic-meeting", csrf_token="synthetic-csrf", template_key="meeting_minutes", batch=batch)
+        assert f"<h1>{title}</h1>" in html
+        assert ">Готово</a>" in html
+        assert ('value="retry"' in html) == ("failed" in states)
+        assert ('value="cancel"' in html) == ("pending" in states)
+
+
+def test_unavailable_public_reader_returns_a_human_page(client) -> None:
+    response = client.get("/api/v1/cabinet/public-shares/synthetic-missing?workspace_id=20000000-0000-0000-0000-000000000001", headers={"Accept": "text/html"})
+    assert response.status_code in (404, 503)
+    assert "Итоги временно недоступны" in response.text if response.status_code == 503 else "Итоги недоступны" in response.text
+    assert "application/problem+json" not in response.headers["content-type"]
+    assert response.headers["cache-control"] == "private, no-store"
+    assert response.headers["referrer-policy"] == "no-referrer"
+
+
+def test_temporary_reader_error_preserves_retry_header() -> None:
+    from twobrain_rec_server.api.problems import ProblemDetail, _summary_unavailable_response
+
+    response = _summary_unavailable_response(ProblemDetail(status=429, code="share_rate_limited", title="Limit", headers={"Retry-After": "60"}))
+    assert response.headers["retry-after"] == "60"
+    assert "Итоги временно недоступны" in response.body.decode()
+    assert "Попросите отправителя" not in response.body.decode()
+
+
+def test_no_javascript_forms_return_to_login_when_session_expires(client) -> None:
+    from urllib.parse import parse_qs, urlsplit
+
+    for path in ("/api/v1/cabinet/summary-sharing/preferences/form", "/api/v1/cabinet/meetings/20000000-0000-0000-0000-000000000001/summary-sharing/form"):
+        response = client.get(path, headers={"Accept": "text/html"}, follow_redirects=False)
+        assert response.status_code == 303
+        location = urlsplit(response.headers["location"])
+        assert location.path == "/login"
+        assert parse_qs(location.query)["next"] == [path]

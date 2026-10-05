@@ -182,7 +182,20 @@ class PostalEmailLoginClient:
         }
         await self._post_message(payload)
 
-    async def _post_message(self, payload: dict[str, Any]) -> None:
+    async def send_summary_delivery(self, *, recipient_email: str, read_url: str,
+                                    delivery_key: str, meeting_title: str,
+                                    automatic: bool = False, opt_out_url: str | None = None) -> str | None:
+        title = _safe_email_label(meeting_title, fallback="Встреча")
+        plain = f"Итоги встречи «{title}» готовы.\n\nПрочитать итоги: {read_url}"
+        html = f'<h1>Итоги встречи готовы</h1><p>{escape(title)}</p><p><a href="{escape(read_url, quote=True)}">Прочитать итоги</a></p>'
+        if automatic and opt_out_url:
+            plain += f"\n\nОтключить автоматические письма от этого отправителя: {opt_out_url}"
+            html += f'<p><a href="{escape(opt_out_url, quote=True)}">Отключить автоматические письма</a></p>'
+        return await self._post_message({"to": [recipient_email], "from": formataddr((self.from_name, self.from_address)),
+            "subject": "Итоги встречи в GRAF", "plain_body": plain, "html_body": html,
+            "tag": "meeting-summary", "headers": {"X-2brain-Email-Purpose": "meeting-summary", "X-2brain-Delivery-Key": delivery_key}})
+
+    async def _post_message(self, payload: dict[str, Any]) -> str | None:
         timeout = httpx.Timeout(self.timeout_seconds)
         headers = {"X-Server-API-Key": self.api_key, "Content-Type": "application/json"}
         if self.host_header:
@@ -224,6 +237,15 @@ class PostalEmailLoginClient:
             )
         if data["status"] == "error":
             raise EmailLoginDeliveryError("postal_delivery_rejected", retryable=True)
+        # Postal may return recipient message identifiers. They are evidence of
+        # acceptance only, never a claim that the recipient opened the message.
+        message_data = data.get("data")
+        messages = message_data.get("messages") if isinstance(message_data, dict) else None
+        if isinstance(messages, dict):
+            for receipt in messages.values():
+                if isinstance(receipt, dict) and receipt.get("id") is not None:
+                    return str(receipt["id"])[:240]
+        return None
 
 
 def _meeting_invitation_bodies(

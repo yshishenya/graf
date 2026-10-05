@@ -9,13 +9,20 @@ from twobrain_rec_server.billing.database import (
     BillingMaintenanceDatabaseError,
     verify_billing_maintenance_database,
 )
+from twobrain_rec_server.cabinet.summary_autosend import (
+    list_autosend_readiness_candidates,
+    reconcile_meeting_autosend,
+)
 from twobrain_rec_server.calendar.worker import run_calendar_sync_reconciler
 from twobrain_rec_server.config import Settings, get_settings
+from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
 from twobrain_rec_server.workflows.billing_reconciliation_workflow import (
     BILLING_RECONCILIATION_ACTIVITY_NAME,
     BillingReconciliationWorkflow,
     billing_reconciliation_task_queue,
 )
+from twobrain_rec_server.workflows.summary_delivery import reconcile_summary_delivery_once
 from twobrain_rec_server.workflows.temporal_client import connect_temporal_client
 from twobrain_rec_server.workflows.worker import (
     run_account_closure_reconciler,
@@ -88,6 +95,7 @@ async def _run_temporal_maintenance(settings) -> None:
                     run_billing_reconciliation_reconciler,
                     run_deletion_purge_reconciler,
                     run_processing_start_reconciler,
+                    run_summary_sharing_reconciler,
                 )
             )
             if settings.outcome_generation_enabled:
@@ -112,6 +120,39 @@ async def _run_temporal_maintenance(settings) -> None:
                         "Temporal client close failed; error_type=%s", type(error).__name__
                     )
         await asyncio.sleep(TEMPORAL_RETRY_SECONDS)
+
+
+async def run_summary_sharing_reconciler(settings, temporal_client) -> None:
+    """Bounded readiness scan and durable delivery recovery on the existing poller."""
+    engine = create_engine(settings)
+    sessionmaker = create_sessionmaker(engine)
+    context = MaintenanceTenantContext(
+        operation_name="summary_delivery_reconciliation", actor_id="graf-maintenance",
+        reason_category="summary_readiness_recovery", feature_area="sharing",
+    )
+    try:
+        while True:
+            try:
+                async with sessionmaker() as db:
+                    await apply_tenant_context(db, context)
+                    targets = await list_autosend_readiness_candidates(db, limit=25)
+                    await db.commit()
+                for workspace_id, meeting_id in targets:
+                    async with sessionmaker() as db:
+                        await apply_tenant_context(db, context)
+                        await reconcile_meeting_autosend(
+                            db, settings=settings, workspace_id=workspace_id,
+                            meeting_id=meeting_id,
+                        )
+                        await db.commit()
+                await reconcile_summary_delivery_once(
+                    sessionmaker, settings=settings, temporal_client=temporal_client, limit=50,
+                )
+            except Exception as error:
+                logger.error("summary sharing recovery failed; error_type=%s", type(error).__name__)
+            await asyncio.sleep(5)
+    finally:
+        await engine.dispose()
 
 
 def main() -> None:

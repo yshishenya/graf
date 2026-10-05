@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
@@ -22,6 +23,15 @@ from twobrain_rec_server.db.base import Base
 class MeetingShareGrant(Base):
     __tablename__ = "meeting_share_grants"
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["published_summary_id", "workspace_id", "meeting_id"],
+            [
+                "published_meeting_summaries.id",
+                "published_meeting_summaries.workspace_id",
+                "published_meeting_summaries.meeting_id",
+            ],
+            name="fk_grant_publication_scope",
+        ),
         Index(
             "uq_meeting_share_grants_active_user",
             "workspace_id",
@@ -45,17 +55,28 @@ class MeetingShareGrant(Base):
     grant_type: Mapped[str] = mapped_column(String(32), nullable=False)
     grantee_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))
     share_token_hash: Mapped[str | None] = mapped_column(String(128))
-    created_by_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    share_token_ciphertext: Mapped[str | None] = mapped_column(String)
+    published_summary_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("published_meeting_summaries.id")
+    )
+    publication_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    created_by_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("user_identities.id"), nullable=False
+    )
     revoked_by_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))
     status: Mapped[str] = mapped_column(String(32), default="active")
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
     audience_type: Mapped[str] = mapped_column(String(32), nullable=False, default="user")
     audience_id: Mapped[UUID | None] = mapped_column()
-    content_scope: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="summary_only"
+    content_scope: Mapped[str] = mapped_column(String(32), nullable=False, default="summary_only")
+    can_comment: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
     )
-    can_comment: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
-    can_edit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    can_edit: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     can_download: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     can_export: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -68,13 +89,24 @@ class MeetingShareGrant(Base):
 class MeetingShareInvitation(Base):
     __tablename__ = "meeting_share_invitations"
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["published_summary_id", "workspace_id", "meeting_id"],
+            [
+                "published_meeting_summaries.id",
+                "published_meeting_summaries.workspace_id",
+                "published_meeting_summaries.meeting_id",
+            ],
+            name="fk_invitation_publication_scope",
+        ),
         Index(
             "uq_meeting_share_invitations_address_status",
             "workspace_id",
             "meeting_id",
             "normalized_address_hash",
             unique=True,
-            postgresql_where=text("status IN ('pending', 'sending', 'sent')"),
+            postgresql_where=text(
+                "status IN ('pending', 'sending', 'sent') AND published_summary_id IS NULL"
+            ),
         ),
         Index(
             "ix_meeting_share_invitations_token_hash",
@@ -95,6 +127,10 @@ class MeetingShareInvitation(Base):
     invited_by_user_id: Mapped[UUID] = mapped_column(
         ForeignKey("user_identities.id"), nullable=False
     )
+    published_summary_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("published_meeting_summaries.id")
+    )
+    read_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     normalized_address_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     encrypted_delivery_address: Mapped[str] = mapped_column(String, nullable=False)
     # Retained only until acceptance/revoke/expiry so magic-link bootstrap can
@@ -105,11 +141,13 @@ class MeetingShareInvitation(Base):
     continuation_token_ciphertext: Mapped[str | None] = mapped_column(String)
     continuation_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     continuation_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    content_scope: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="summary_only"
+    content_scope: Mapped[str] = mapped_column(String(32), nullable=False, default="summary_only")
+    can_comment: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
     )
-    can_comment: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
-    can_edit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    can_edit: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     can_download: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     can_export: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -123,9 +161,7 @@ class MeetingShareInvitation(Base):
     account_created_email_status: Mapped[str] = mapped_column(
         String(32), nullable=False, default="not_applicable", server_default="not_applicable"
     )
-    account_created_email_sent_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
+    account_created_email_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     account_created_email_failure_code: Mapped[str | None] = mapped_column(String(120))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -162,7 +198,9 @@ class MeetingShareRateLimitBucket(Base):
 class MeetingArtifactPolicy(Base):
     __tablename__ = "meeting_artifact_policies"
     __table_args__ = (
-        UniqueConstraint("workspace_id", "meeting_id", name="uq_meeting_artifact_policies_workspace_meeting"),
+        UniqueConstraint(
+            "workspace_id", "meeting_id", name="uq_meeting_artifact_policies_workspace_meeting"
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -203,7 +241,9 @@ class ExportPackage(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
-    requested_by_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    requested_by_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("user_identities.id"), nullable=False
+    )
     status: Mapped[str] = mapped_column(String(32), default="requested")
     included_artifacts: Mapped[list] = mapped_column(JSON, default=list)
     excluded_artifacts: Mapped[list] = mapped_column(JSON, default=list)

@@ -1,0 +1,2 @@
+{% import "cabinet/components/sections.html" as sections %}
+{{ sections.full_page_state("Итоги временно недоступны" if temporary else "Итоги недоступны", "Попробуйте открыть эту страницу немного позже." if temporary else "Ссылка отключена, срок доступа истёк или встреча удалена. Попросите отправителя поделиться итогами ещё раз.", "Открыть GRAF", "/meetings", heading_id="shared-summary-unavailable-title") }}

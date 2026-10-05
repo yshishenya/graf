@@ -143,9 +143,27 @@ from twobrain_rec_server.db.models.product_analytics import (
     ClientAcquisitionAttribute,
     PublicVisitAttribution,
 )
+from twobrain_rec_server.db.models.summary_autosend import (
+    SummaryAutoSendException,
+    SummaryAutoSendRule,
+    SummarySharingPreference,
+)
+from twobrain_rec_server.db.models.summary_sharing import (
+    PublishedMeetingSummary,
+    SummaryDeliveryBatch,
+    SummaryEmailSuppression,
+    SummaryRecipientDelivery,
+)
 from twobrain_rec_server.db.models.support import SupportIncident, SupportIncidentRateLimitBucket
 
 __all__ = [
+    "SummaryAutoSendException",
+    "SummaryAutoSendRule",
+    "SummarySharingPreference",
+    "PublishedMeetingSummary",
+    "SummaryDeliveryBatch",
+    "SummaryEmailSuppression",
+    "SummaryRecipientDelivery",
     "BillingStoragePriceVersion",
     "BillingStorageEntitlementGrant",
     "BillingPurchaseQuote",

@@ -8511,7 +8511,7 @@
 
   const initShareDialogs = () => {
     document.querySelectorAll("[data-share-dialog]").forEach((dialog) => {
-      if (!(dialog instanceof HTMLDialogElement) || dialog.dataset.shareReady === "true") return;
+      if (!(dialog instanceof HTMLDialogElement) || dialog.hasAttribute("data-summary-share-dialog") || dialog.dataset.shareReady === "true") return;
       dialog.dataset.shareReady = "true";
       const opener = document.querySelector(`[aria-controls="${dialog.id}"]`);
       const status = dialog.querySelector("[data-share-status]");
