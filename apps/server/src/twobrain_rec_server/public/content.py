@@ -16,7 +16,7 @@ class PublicContentPage:
     title: str
     summary: str
     section: ContentSection
-    analytics_surface: str
+    analytics_surface: str | None = None
 
 
 GUIDES_PATH = "/guides"
@@ -45,7 +45,22 @@ TRANSCRIPTION_QUALITY_GUIDE = PublicContentPage(
     "public_transcription_quality_guide",
 )
 PUBLIC_CONTENT_PAGES = (MAC_MEETING_GUIDE, MEETING_PROTOCOL_GUIDE, TRANSCRIPTION_QUALITY_GUIDE)
-PUBLISHED_CONTENT_PATHS = (GUIDES_PATH, *(page.path for page in PUBLIC_CONTENT_PAGES))
+# Help is editorial-only: it is deliberately outside the measurement inventories.
+HELP_PATH = "/help"
+ONE_SIDED_AUDIO_PATH = "/help/na-mac-slyshno-tolko-odnu-storonu"
+ONE_SIDED_AUDIO_HELP = PublicContentPage(
+    ONE_SIDED_AUDIO_PATH,
+    "В записи на Mac слышно только меня или только собеседника",
+    "Проверьте микрофон, системный звук и разрешения macOS; отличите проблему записи от ошибки расшифровки.",
+    ContentSection.HELP,
+)
+PUBLIC_HELP_PAGES = (ONE_SIDED_AUDIO_HELP,)
+PUBLISHED_CONTENT_PATHS = (
+    GUIDES_PATH,
+    *(page.path for page in PUBLIC_CONTENT_PAGES),
+    HELP_PATH,
+    *(page.path for page in PUBLIC_HELP_PAGES),
+)
 PUBLIC_CONTENT_SURFACES = {
     GUIDES_PATH: "public_guides",
     **{page.path: page.analytics_surface for page in PUBLIC_CONTENT_PAGES},
@@ -53,4 +68,4 @@ PUBLIC_CONTENT_SURFACES = {
 
 
 def content_for_section(section: ContentSection) -> tuple[PublicContentPage, ...]:
-    return tuple(page for page in PUBLIC_CONTENT_PAGES if page.section == section)
+    return tuple(page for page in (*PUBLIC_CONTENT_PAGES, *PUBLIC_HELP_PAGES) if page.section == section)

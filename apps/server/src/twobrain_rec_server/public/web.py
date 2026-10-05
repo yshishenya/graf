@@ -25,6 +25,9 @@ from twobrain_rec_server.public.analytics import (
 from twobrain_rec_server.public.content import (
     GUIDE_PATH,
     GUIDES_PATH,
+    HELP_PATH,
+    ONE_SIDED_AUDIO_HELP,
+    ONE_SIDED_AUDIO_PATH,
     PROTOCOL_GUIDE_PATH,
     PUBLIC_CONTENT_PAGES,
     PUBLISHED_CONTENT_PATHS,
@@ -211,6 +214,28 @@ async def public_transcription_quality_guide(
         related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path != QUALITY_GUIDE_PATH),
         page_title="Как проверить качество расшифровки встречи — ГРАФ",
         social_description="Как сверить расшифровку с записью: спикеры, имена, числа, отрицания и решения. Учебные примеры, порядок проверки и чеклист перед отправкой итогов.",
+    )
+
+
+@router.get(HELP_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_help(request: Request) -> HTMLResponse:
+    return public_template_response(
+        request,
+        "public/help.html",
+        page_title="Помощь с записью на Mac — ГРАФ",
+        social_description="Что проверить, если в записи встречи на Mac отсутствует ваш голос или голос собеседника: источники звука, разрешения и границы диагностики.",
+        help_pages=content_for_section(ContentSection.HELP),
+    )
+
+
+@router.get(ONE_SIDED_AUDIO_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_one_sided_audio_help(request: Request) -> HTMLResponse:
+    return public_template_response(
+        request,
+        "public/one_sided_audio_help.html",
+        page_title=ONE_SIDED_AUDIO_HELP.title + " — ГРАФ",
+        social_description=ONE_SIDED_AUDIO_HELP.summary,
+        related_contents=PUBLIC_CONTENT_PAGES,
     )
 
 

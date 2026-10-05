@@ -3,7 +3,8 @@
     <a class="content-brand" href="/" aria-label="ГРАФ — на главную"><img src="{{ cabinet_static_asset_url('graf-wordmark-dark@2x.png') }}" alt="ГРАФ" width="96" height="32"></a>
     <nav class="content-header-nav" aria-label="Основная навигация">
       <a href="/">Главная</a>
-      <a href="/guides" aria-current="{{ 'page' if canonical_url.endswith('/guides') else 'location' }}">Руководства</a>
+      <a href="/guides" {% if request.url.path.startswith('/guides') %}aria-current="{{ 'page' if request.url.path == '/guides' else 'location' }}"{% endif %}>Руководства</a>
+      <a href="/help" {% if request.url.path.startswith('/help') %}aria-current="{{ 'page' if request.url.path == '/help' else 'location' }}"{% endif %}>Помощь</a>
       <a href="/login?next=/meetings">Войти</a>
     </nav>
     <a class="content-header-download" href="/download">Скачать для Mac</a>

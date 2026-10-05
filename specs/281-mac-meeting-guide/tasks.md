@@ -25,3 +25,8 @@ Hub опубликован в v2026.10.02.2: source/runtime/tag540f322b4de8016d3
 
 - [x] T012 Унифицировать оформление трех статей с лендингом; сохранить текст/SEO/ссылки и проверить mobile/text200%/keyboard; FR019–20 (Issue #7435).
 - [ ] T013 Пройти exact-SHA CI и штатную публикацию общего дизайна с protected readback; FR019–20 (Issue #7435).
+
+## Предметная помощь по двум источникам звука
+
+- [x] T014 [US4] Подготовить и локально проверить `/help` и статью одной стороны записи в `public/content.py`, `public/web.py`, `public/templates/public/help.html`, `one_sided_audio_help.html`, общую навигацию и `tests/contract/test_public_audio_help.py`; FR021–26 (Issue #7544).
+- [ ] T015 [US4] Создать узкий draft PR, проверить exact-SHA `governance-fast`, `macos-pr`, `pr-metadata` общим `scripts/validate-pr-checks.py` и записать ограничения в `specs/281-mac-meeting-guide/audio-help-evidence.md`; FR026 (Issue #7544). Merge/release/deploy не входят.

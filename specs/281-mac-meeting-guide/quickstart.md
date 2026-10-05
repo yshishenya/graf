@@ -26,3 +26,7 @@ Production: https://rec.2brain.pro/guides — HTTP200, canonical self, две к
 ## Дизайн статей
 
 Сравнить DOM текст/metadata/section IDs/ссылки до и после; focused существующие guide contract tests. Chromium360/390/768/1440, text200%, keyboard skip/focus, noJS, длинный копируемый шаблон. Нулевой diff main/download/policies/assets. Новые изображения/schema/аналитика не добавляются.
+
+## Помощь: одна сторона записи
+
+Focused: `test_public_audio_help.py`, существующие public guide/hub/navigation/copy/landing contracts. Новые Help pages не добавляются в analytics inventories: test spies/cookie-free response доказывают отсутствие вызова recorder; прежние measured pages сохраняются. Sitemap содержит Help/hub по одному разу, News404. Mobile320/390/768/1440, text200%, keyboard skip/current, noJS, safe screenshots only. Protected templates/assets побайтово совпадают с master. Текущий текст сверить с SystemAudioStatusLabels, CaptureControlViewCore, DesktopPermissionOnboardingView, SystemAudioCaptureService, MicrophoneCaptureService и Apple mac-help14/15/26. Не запускать микрофон или экран ради проверки документации. Draft-only: точный PR SHA/CI отдельно от functional Mac compatibility и публикации.

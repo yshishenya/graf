@@ -41,7 +41,7 @@ def test_content_header_is_consistent_crawlable_and_marks_section():
             header = Header()
             header.feed(response.text)
             assert [item["href"] for item in header.links] == [
-                "/", "/", "/guides", "/login?next=/meetings", "/download"
+                "/", "/", "/guides", "/help", "/login?next=/meetings", "/download"
             ]
             active = [item for item in header.links if "aria-current" in item]
             assert len(active) == 1 and active[0]["href"] == "/guides"
