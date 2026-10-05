@@ -713,6 +713,10 @@ services:
       TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
       TWOBRAIN_WEB_LOGIN_WORKSPACE_ID: ${TWOBRAIN_WEB_LOGIN_WORKSPACE_ID:-}
       TWOBRAIN_EMAIL_LOGIN_DELIVERY_ENABLED: ${TWOBRAIN_EMAIL_LOGIN_DELIVERY_ENABLED:-false}
+      TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED: ${TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED:-false}
+      TWOBRAIN_SHARE_PUBLIC_LINKS_ENABLED: ${TWOBRAIN_SHARE_PUBLIC_LINKS_ENABLED:-false}
+      TWOBRAIN_SHARE_PUBLIC_LINKS_ABUSE_GATE_APPROVED: ${TWOBRAIN_SHARE_PUBLIC_LINKS_ABUSE_GATE_APPROVED:-false}
+      TWOBRAIN_SHARE_IDENTITY_HASH_SECRET_FILE: /run/secrets/graf_share_identity_hash_secret
       TWOBRAIN_EMAIL_LOGIN_FROM_ADDRESS: ${TWOBRAIN_EMAIL_LOGIN_FROM_ADDRESS:-}
       TWOBRAIN_EMAIL_LOGIN_FROM_NAME: ${TWOBRAIN_EMAIL_LOGIN_FROM_NAME:-GRAF}
       TWOBRAIN_POSTAL_API_URL: ${TWOBRAIN_POSTAL_API_URL:-}
@@ -761,6 +765,11 @@ services:
         target: twobrain_postgres_password
       - source: graf_credential_encryption_key
         target: graf_credential_encryption_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: graf_share_identity_hash_secret
+        target: graf_share_identity_hash_secret
         uid: "100"
         gid: "101"
         mode: 0440
