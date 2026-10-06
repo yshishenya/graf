@@ -4,7 +4,7 @@
 
 База master: `df9c8f4ee4b538cba6c42e1fad6007595e22774a`, повторно проверена через git ls-remote перед коммитом. Чистый отдельный worktree; основная рабочая копия не изменялась. Список всех семи открытых PR прочитан через GitHub connector и gh API: нового материала об одной стороне нет. PR7433 — закрытие меню; 7400 — другие поисковые страницы; опубликованные три guides/учебный протокол — отдельные задачи. На master Help — только enum и отрицательные HTTP404 tests. Минимальный scope объявлен до реализации: список одной статьи и fixed route, без CMS/поиска/deploy.
 
-Lane: tiny-low-risk editorial content within F281. Тексты о диагностике не меняют диагностический сбор или capture/permissions/auth/storage код. Трекер #7544, T014/T015; deployment и старые T011/T013 этим PR не закрываются.
+Lane: tiny-low-risk editorial content within F281. Тексты о диагностике не меняют диагностический сбор или capture/permissions/auth/storage код. Трекер #7544, T014/T015; отдельно разрешенная публикация — T016. Старые T011/T013 этим PR не закрываются.
 
 ## Источники утверждений
 
@@ -29,4 +29,14 @@ Lane: tiny-low-risk editorial content within F281. Тексты о диагно�
 
 ## Онлайн gate
 
-T014 implementation/local verification завершена. T015: draft PR и exact-SHA required CI проверяются после push; здесь не заявлен успех еще не запущенного CI. Источником текущего статуса будет PR и общий `scripts/validate-pr-checks.py`. Merge/release/deploy/публикация исключены; native recording compatibility не проверялась.
+T014 implementation/local verification и исходная T015 завершены. PR7545, исходный head `6fe34ead257b8c10fecde4605c5ca7f4af17a4b6`: governance-fast37364831663 attempt2, macos-pr37364831594 attempt2, pr-metadata37364833578 attempt1 SUCCESS; общий validator exit0. Первые metadata-попытки двух workflows не получили hosted runner во время официального инцидента Actions; после подтвержденного восстановления выполнен один полный retry каждого существующего workflow, без повторения успешной metadata. CI доказал исходный код и метаданные, не функциональную запись на Mac.
+
+## Свежая база и граница владельцев выпуска
+
+2026-10-06 владелец явно разрешил публикацию и обязательную штатную свежую копию GRAF для Help, без нового хранилища/резервного PostHog. Master обновлен до `de255e0d7f72ed5123f9f0ffffe34f586723cba6`; чистая собственная ветка Help перенесена на эту базу без изменений чужих файлов. Старый source SHA/CI нельзя выдавать за текущий proof обновленной ветки.
+
+Read-only проверка: production checkout и SHA-метка работающего rec-api совпали с de255e0d; контейнер был недавно перезапущен и healthy. Занятой deploy lock не обнаружено, но это не доказывает завершение release closeout. v2026.10.06.1 остается draft, release-full37396717004 SUCCESS относится только к F286/de255e0d. Последний опубликованный stable — v2026.10.04.6/source02c79e14. Диапазон до master:94файла,+10479/−1205, включая sharing/AUTO, nginx/compose и миграции0102–0104. Совместный выпуск автоматически не разрешен; оператор F286 должен завершить свой frozen release и публикацию baseline либо отдельно согласовать совместный scope. Help CD, backup и production mutations до этого не выполняются.
+
+Focused на базе de255e0d: **120 passed**,23.28s pytest; isolated PostgreSQL cleanup PASS. Реальный Chromium снова проверил Help320/390/768/1440,text200%,keyboard/noJS и общую навигацию. Ruff,node syntax,agent-context,development-process,changelog-fragments,git diff --check PASS. Protected diff относительно новой базы пуст; Help runtime/browser implementation побайтово совпал с исходным6fe34ead. Diff именно F286 от прежней базыdf9c8f4e:90файлов,+10406/−1201.
+
+Новый exact-SHA proof проверяется после push; прежний PASS не объявляется доказательством нового head. T016/production200/canonical/sitemap/navigation/mobile еще не закрыты. Native recording compatibility не проверялась; прежнее переполнение guides остается отдельным замечанием.
