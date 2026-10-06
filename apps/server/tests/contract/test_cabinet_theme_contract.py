@@ -342,9 +342,11 @@ def test_synthetic_share_routes_render_real_dialog(theme_client, prefix: str) ->
     assert response.status_code == 200
     page = _Page(response.text)
     assert page.marked("data-share-dialog")[0]["id"] == "meeting-share-dialog"
-    assert page.marked("data-share-recipient-form")[0]["data-meeting-id"] == str(
+    assert page.marked("data-summary-share-dialog")[0]["data-meeting-id"] == str(
         SYNTHETIC_MEETING_ID
     )
+    assert page.marked("data-summary-share-email-form")
+    assert page.marked("data-summary-share-send")
     assert page.marked("data-share-status")[0]["role"] == "status"
     assert theme_client.get(
         f"{prefix}/meetings/00000000-0000-4000-8000-000000000241/share"

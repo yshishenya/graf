@@ -426,6 +426,7 @@ def test_maintenance_runtime_is_explicit_hardened_and_has_no_user_runtime_secret
     assert secret_sources == {
         "twobrain_postal_api_key",
         "graf_credential_encryption_key",
+        "graf_share_identity_hash_secret",
         "twobrain_google_calendar_client_secret",
         "twobrain_postgres_maintenance_password",
         "twobrain_minio_api_access_key",
@@ -437,6 +438,17 @@ def test_maintenance_runtime_is_explicit_hardened_and_has_no_user_runtime_secret
         "twobrain_langfuse_public_key",
         "twobrain_langfuse_secret_key",
     }
+    identity_secret = next(
+        item for item in service["secrets"]
+        if item["source"] == "graf_share_identity_hash_secret"
+    )
+    assert identity_secret["target"] == "graf_share_identity_hash_secret"
+    assert (identity_secret["uid"], identity_secret["gid"], identity_secret["mode"]) == (
+        "100", "101", 0o440
+    )
+    assert service["environment"]["TWOBRAIN_SHARE_IDENTITY_HASH_SECRET_FILE"] == (
+        "/run/secrets/graf_share_identity_hash_secret"
+    )
     assert "twobrain_mediascribe_api_key" not in secret_sources
     assert "twobrain_web_csrf_secret" not in secret_sources
     assert service["environment"]["TWOBRAIN_GOOGLE_CALENDAR_CLIENT_SECRET_FILE"] == (

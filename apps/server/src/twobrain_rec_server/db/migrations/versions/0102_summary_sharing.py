@@ -3,8 +3,8 @@
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0102_summary_sharing"
-down_revision = "0101_storage_packages"
+revision: str = "0102_summary_sharing"
+down_revision: str | None = "0101_storage_packages"
 branch_labels = None
 depends_on = None
 TABLES = (
@@ -149,7 +149,6 @@ def upgrade():
         ["workspace_id", "auto_occurrence_key"],
         unique=True,
         postgresql_where=sa.text("automatic = true AND auto_occurrence_key IS NOT NULL"),
-        sqlite_where=sa.text("automatic = true AND auto_occurrence_key IS NOT NULL"),
     )
     op.create_table(
         TABLES[2],

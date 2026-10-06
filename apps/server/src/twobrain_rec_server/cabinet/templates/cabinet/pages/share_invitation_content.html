@@ -1,6 +1,6 @@
 {% import "cabinet/components/sections.html" as sections %}
 {% if not invitation_available %}
-{{ sections.full_page_state("Приглашение недоступно", "Ссылка отозвана или срок её действия истёк.", "Открыть GRAF", meeting_list_href, heading_id="share-invitation-title") }}
+{{ sections.full_page_state("Приглашение недоступно", "Ссылка отозвана или срок ее действия истек.", "Открыть GRAF", meeting_list_href, heading_id="share-invitation-title") }}
 {% else %}
 <main id="cabinet-main" class="main" tabindex="-1">
   <section class="panel compact-panel" aria-labelledby="share-invitation-title">

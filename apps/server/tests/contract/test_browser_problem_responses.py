@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from urllib.parse import parse_qs, urlsplit
+
 import pytest
 
 
 @pytest.mark.parametrize("accept", [None, "*/*", "text/html"])
-def test_browser_invitation_replay_is_html_for_browser_accepts(client, accept: str | None) -> None:
+def test_browser_invitation_replay_requires_independent_login(client, accept: str | None) -> None:
     headers = {} if accept is None else {"Accept": accept}
 
     response = client.post(
@@ -18,11 +20,15 @@ def test_browser_invitation_replay_is_html_for_browser_accepts(client, accept: s
         follow_redirects=False,
     )
 
-    assert response.status_code == 404
-    assert response.headers["content-type"].startswith("text/html")
-    assert response.headers["cache-control"] == "private, no-store"
-    assert "Приглашение недоступно" in response.text
-    assert "Ссылка уже использована, отозвана или срок ее действия истек." in response.text
+    assert response.status_code == 303
+    location = urlsplit(response.headers["location"])
+    assert location.scheme == location.netloc == ""
+    assert location.path == "/login"
+    assert parse_qs(location.query) == {
+        "next": ["/meetings"],
+        "error": ["independent_login_required"],
+    }
+    assert "set-cookie" not in response.headers
     for secret in (
         "synthetic-continuation-state",
         "synthetic-magic-csrf-token",
@@ -30,6 +36,7 @@ def test_browser_invitation_replay_is_html_for_browser_accepts(client, accept: s
         "meeting-secret",
     ):
         assert secret not in response.text
+        assert secret not in response.headers["location"]
 
 
 def test_explicit_json_invitation_errors_keep_problem_details(client) -> None:
@@ -44,9 +51,13 @@ def test_explicit_json_invitation_errors_keep_problem_details(client) -> None:
         follow_redirects=False,
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 401
     assert response.headers["content-type"].startswith("application/problem+json")
-    assert response.json()["code"] == "invitation_not_found"
+    assert response.json()["code"] == "independent_login_required"
+    assert "set-cookie" not in response.headers
+    assert "location" not in response.headers
+    assert "synthetic-continuation-state" not in response.text
+    assert "synthetic-magic-csrf-token" not in response.text
     assert "Приглашение недоступно" not in response.text
 
 

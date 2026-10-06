@@ -14,13 +14,16 @@ SECURITY_MIGRATION = REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrati
 def test_share_fragment_is_meeting_bound_and_has_truthful_capability_copy() -> None:
     source = FRAGMENT.read_text(encoding="utf-8")
 
-    assert "/api/v1/cabinet/meetings/{{ meeting_id }}/share-recipients" in source
-    assert "data-share-capability-state" in source
-    assert "data-share-external-disabled" in source
-    assert "data-share-rotate-url" in source
+    assert 'data-meeting-id="{{ meeting_id }}"' in source
+    assert "data-summary-share-dialog" in source
+    assert "data-summary-share-email-form" in source
+    assert "data-summary-share-recipients" in source
+    assert 'data-summary-link-action="rotate"' in source
+    assert "data-share-existing-role" not in source
+    assert "data-share-comment-role" not in source
     assert "data-share-dialog open" not in source
     assert "расшифровка" in source.lower()
-    assert "аудио" in source.lower()
+    assert "Запись и расшифровка останутся закрыты" in source
 
 
 def test_share_client_keeps_external_disabled_flow_inert_and_handles_returned_url() -> None:
