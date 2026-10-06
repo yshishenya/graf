@@ -28,6 +28,7 @@ QUERY_OWNER_CLASSES = {
     "apps/server/src/twobrain_rec_server/api/cabinet.py": "api_read_and_candidate_compatibility",
     "apps/server/src/twobrain_rec_server/api/schemas.py": "api_contract",
     "apps/server/src/twobrain_rec_server/cabinet/egress.py": "egress_read",
+    "apps/server/src/twobrain_rec_server/cabinet/summary_autosend.py": "explicit_auto_current_slot_readiness",
     "apps/server/src/twobrain_rec_server/cabinet/exports.py": "export_read",
     "apps/server/src/twobrain_rec_server/cabinet/queries.py": "cabinet_read",
     "apps/server/src/twobrain_rec_server/cabinet/read_prefetch.py": "cabinet_read_batch_prefetch",

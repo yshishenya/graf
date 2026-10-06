@@ -2,8 +2,8 @@
 
 from alembic import op
 
-revision = "0104_summary_share_scope_cascade"
-down_revision = "0103_summary_autosend"
+revision: str = "0104_summary_share_scope_cascade"
+down_revision: str | None = "0103_summary_autosend"
 branch_labels = None
 depends_on = None
 

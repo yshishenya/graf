@@ -47,7 +47,7 @@ Independent test: anonymous summary first; own-meeting CTA cannot join author wo
 ## Phase 7 — Integration, validation and production
 
 - [X] T016 Подключить routers в `apps/server/src/twobrain_rec_server/main.py`, cleanup snapshot/ciphertext/address/cancel intents в `deletion/service.py`; проверить runtime-role RLS, deletion/revoke races и legacy ACL в `apps/server/tests/integration/test_summary_sharing.py`, `test_recording_workflow_deletion_races.py`; добавить feature fragment `changes/unreleased/F286.yaml` (FR-020,024).
-- [ ] T017 Проверить actual UI/no-JS 320/390 обе темы и keyboard/focus, tests по `specs/286-sharing-results/quickstart.md`, независимое code/security review и convergence; записать concrete source/evidence в `specs/286-sharing-results/validation.md`, дополнительные обязательные задачи только append (FR-001–024, SC-001–005).
+- [X] T017 Проверить actual UI/no-JS 320/390 обе темы и keyboard/focus, tests по `specs/286-sharing-results/quickstart.md`, независимое code/security review и convergence; записать concrete source/evidence в `specs/286-sharing-results/validation.md`, дополнительные обязательные задачи только append (FR-001–024, SC-001–005).
 - [ ] T018 Выполнить exact-SHA governance-fast/macos-pr/pr-metadata, merged CalVer release/train freeze, один authoritative release-full, CD dry-run/execute, public health/synthetic feature smoke; сохранить macOS installer/appcast, tag/GitHub Release и tracker closeout в `specs/286-sharing-results/release-evidence.md` и release tooling `infra/scripts/{release-candidate,cd-remote}.sh`, `scripts/prepare-release.sh` (FR-024, high-risk-feature).
 
 ## Dependencies and ownership
@@ -87,3 +87,9 @@ Complete and validate US1, then recipient delivery/US2 and AUTO/US3 integration;
 - [X] T019 Сохранить граф опубликованных итогов при подтвержденном объединении аккаунтов: пять scoped FK `ON UPDATE CASCADE` в миграции 0104 и моделях, явный flush родительской встречи перед переносом metadata; реальная app-role регрессия проверяет RLS, документы, pending/accepted/unknown, историческое согласие и отмену неначатой доставки. Ранее отправленная ссылка с прежним workspace остается закрытой; владелец получает актуальную ссылку. Evidence: test_summary_sharing_account_merge.py, 53 passed related merge/delivery/deletion.
 
 T019: https://github.com/yshishenya/graf/issues/7566
+
+## Исправления полной проверки перед production
+
+- [X] T020 Устранить замечания замороженной полной проверки: PostgreSQL-only миграция и typed revision declarations; орфография пользовательских текстов; актуальные проверки нового summary-only окна с сохранением клавиатуры/фокуса и закрытого аудио; подтвержденный независимый вход приглашения; актуальный inventory секрета maintenance/accepted summary slot и canonical OpenAPI. Старые полные права проверять через действующий API и реальный браузер, без восстановления удаленного выбора ролей в окне итогов. Отмененный кандидат не выпускать; после исправления создать новый замороженный кандидат и его единственную полную проверку.
+
+T020: https://github.com/yshishenya/graf/issues/7568

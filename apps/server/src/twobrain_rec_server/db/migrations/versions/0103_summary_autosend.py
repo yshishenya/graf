@@ -3,8 +3,8 @@
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0103_summary_autosend"
-down_revision = "0102_summary_sharing"
+revision: str = "0103_summary_autosend"
+down_revision: str | None = "0102_summary_sharing"
 branch_labels = None
 depends_on = None
 
