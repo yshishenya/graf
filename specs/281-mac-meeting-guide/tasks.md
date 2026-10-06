@@ -25,3 +25,14 @@ Hub опубликован в v2026.10.02.2: source/runtime/tag540f322b4de8016d3
 
 - [x] T012 Унифицировать оформление трех статей с лендингом; сохранить текст/SEO/ссылки и проверить mobile/text200%/keyboard; FR019–20 (Issue #7435).
 - [ ] T013 Пройти exact-SHA CI и штатную публикацию общего дизайна с protected readback; FR019–20 (Issue #7435).
+
+## Предметная помощь по двум источникам звука
+
+- [x] T014 [US4] Подготовить и локально проверить `/help` и статью одной стороны записи в `public/content.py`, `public/web.py`, `public/templates/public/help.html`, `one_sided_audio_help.html`, общую навигацию и `tests/contract/test_public_audio_help.py`; FR021–26 (Issue #7544).
+- [x] T015 [US4] Создать узкий draft PR, проверить exact-SHA `governance-fast`, `macos-pr`, `pr-metadata` общим `scripts/validate-pr-checks.py` и записать ограничения в `specs/281-mac-meeting-guide/audio-help-evidence.md`; FR026 (Issue #7544). Исходный draft-срез не включает merge/release/deploy.
+
+T015 подтверждена на исходном head `6fe34ead257b8c10fecde4605c5ca7f4af17a4b6`: PR7545, governance-fast37364831663 attempt2, macos-pr37364831594 attempt2, pr-metadata37364833578 attempt1 SUCCESS, общий exact-SHA validator PASS. При обновлении базы требуется новый proof; прежний PASS его не заменяет.
+
+- [ ] T016 [US4] Выполнить отдельно разрешенную публикацию Help: актуальный exact-SHA PR proof, завершенный чужой baseline, frozen Full, штатные backup/CD/health и production HTTP200/canonical/sitemap/navigation/mobile/protected readback; FR027–28 (Issue #7544). Свежая штатная копия GRAF разрешена владельцем 2026-10-06; новое хранилище и резервный PostHog исключены. Незавершенный F286 автоматически не выпускать.
+
+Условие отдельной базы T016 подтверждено: F286 v2026.10.06.1 опубликован 2026-10-06 на29264c66520ee36b1a2f287fa7edd6e92139dd9f, Full37527256994 SUCCESS; CD durable result deployed, migration0104, live/ready200 и lock освобожден. Это не proof собственного будущего Help Full/CD.

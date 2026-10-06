@@ -48,7 +48,7 @@ def test_hub_is_indexable_and_links_join_the_published_guides():
         assert len(urls) == len(set(urls))
         for path in PUBLIC_CONTENT_SURFACES:
             assert urls.count("https://rec.2brain.pro" + path) == 1
-        for empty in ("/help", "/news"):
+        for empty in ("/news",):
             assert client.get(empty).status_code == 404
             assert "https://rec.2brain.pro" + empty not in urls
         landing = client.get("/").text
@@ -58,7 +58,7 @@ def test_hub_is_indexable_and_links_join_the_published_guides():
 
 def test_unpublished_sections_have_no_entries_or_measurement_surfaces():
     assert len(content_for_section(ContentSection.GUIDES)) == 3
-    assert content_for_section(ContentSection.HELP) == ()
+    assert len(content_for_section(ContentSection.HELP)) == 1
     assert content_for_section(ContentSection.NEWS) == ()
     assert "/help" not in PUBLIC_CONTENT_SURFACES
     assert "/news" not in PUBLIC_CONTENT_SURFACES

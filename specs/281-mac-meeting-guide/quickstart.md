@@ -26,3 +26,11 @@ Production: https://rec.2brain.pro/guides — HTTP200, canonical self, две к
 ## Дизайн статей
 
 Сравнить DOM текст/metadata/section IDs/ссылки до и после; focused существующие guide contract tests. Chromium360/390/768/1440, text200%, keyboard skip/focus, noJS, длинный копируемый шаблон. Нулевой diff main/download/policies/assets. Новые изображения/schema/аналитика не добавляются.
+
+## Помощь: одна сторона записи
+
+Focused: `test_public_audio_help.py`, существующие public guide/hub/navigation/copy/landing contracts. Новые Help pages не добавляются в analytics inventories: test spies/cookie-free response доказывают отсутствие вызова recorder; прежние measured pages сохраняются. Sitemap содержит Help/hub по одному разу, News404. Mobile320/390/768/1440, text200%, keyboard skip/current, noJS, safe screenshots only. Protected templates/assets побайтово совпадают с master. Текущий текст сверить с SystemAudioStatusLabels, CaptureControlViewCore, DesktopPermissionOnboardingView, SystemAudioCaptureService, MicrophoneCaptureService и Apple mac-help14/15/26. Не запускать микрофон или экран ради проверки документации. Draft-only: точный PR SHA/CI отдельно от functional Mac compatibility и публикации.
+
+## Отдельно разрешенная публикация Help
+
+FR027–28/T016: сначала сверить свежие master, deployed image SHA, deploy lock и последний опубликованный stable Release. Открытый draft F286 не является опубликованным baseline. Пройти новый exact-SHA PR validator после обновления ветки; после завершения чужого выпуска подготовить собственный frozen candidate и одну authoritative Full. Затем штатные CD dry-run/execute с разрешенной свежей копией GRAF и health. Live readback: `/help` и статья200, self canonical, sitemap без дублей, контекстная ссылка руководства и current-навигация, mobile320/390, инварианты главной/download/политик/подписанных macOS артефактов. Личную запись и новые разрешения не использовать; installed-app audio compatibility остается непроверенной.

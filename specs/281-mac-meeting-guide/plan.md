@@ -35,3 +35,21 @@ Analyze: FR016–18 покрыты T010/T011; critical/high нет. Keyboard def
 ## Единый визуальный стиль статей
 
 Active Spec Kit slice, узкий визуальный срез без data/API/runtime changes. Старые guide/protocol/quality CSS заменяются общим article.css; первые две статьи получают существующую структуру dark intro + light reading из третьей. Существующие landing.css/content.css переиспользуются без изменения. Тексты/SEO/headings/section IDs/link graph инвариантны. FR019–20 → T012/T013. Analyze: critical/high contradictions нет; старое ограничение guide body относится к предыдущей шапке, новое поручение пользователя явно разрешает оформление статей. Публикация только по точному CI/Full/CD; failed smoke требует штатного восстановления.
+
+## Минимальная помощь: узкий редакционный срез
+
+Lane: tiny-low-risk editorial content within F281; нет изменений поведения capture/permissions/diagnostic bundle/auth/storage или аналитики. Прямое поручение задает предмет статьи, безопасность проверки, protected paths и draft-only выход; уточнять заново не требуется. Новые custom reviewer checklists не создаются для этого низкорискового текста.
+
+FR021–26 → T014/T015 (#7544). Fixed FastAPI routes `/help` + article, Jinja и текущие article/content/header CSS. Реестр PublicContentPage допускает отсутствие measurement surface; PUBLIC_HELP_PAGES отделены от прежних PUBLIC_CONTENT_PAGES, чтобы не менять closed analytics inventories. content_for_section и sitemap знают опубликованный Help, measurement map остается прежним. Help routes возвращают public_template_response без DB и record helpers. Это осознанная граница прямого запрета трогать analytics; не переносить Help в measured registry молча.
+
+Constitution check: нет личных записей, secrets/egress, capture behavior, новых зависимостей или legacy fallback. Главная/download/policies/assets инвариантны. Чтение исходников и Apple docs доказывает текст/названия, а не installed-app acceptance. Narrow direct lane допускает focused проверки без новой фичи и полного capture Spec Kit.
+
+Анализ согласованности этого дополнения: все FR021–26 имеют тесты/проверки и T014/T015; historical empty Help FR008 заменяется только после реального материала. Старые T011/T013 релизные хвосты остаются без изменения; новый draft их не закрывает. Critical/high contradictions в этом scope не найдены.
+
+## Продвижение к отдельно разрешенной публикации
+
+2026-10-06 владелец разрешил публикацию и обязательную свежую копию GRAF. FR027–28 → T016 (#7544); код статьи, аналитика и защищенные страницы не расширяются. Help переносится на актуальную базу master, проходит focused/regression и новый exact-SHA PR proof. Замороженный Full предыдущего F286 не является Full для будущего Help SHA.
+
+Перед отдельным выпуском требуется опубликованный stable baseline F286: release tooling считает диапазон от последнего опубликованного Release, а не от runtime SHA. Первоначальный CD de255e0d завершился, но после него activation smoke отказал на cleanup FK; исправление и новый Full/CD выполнял другой оператор. Параллельный CD и автоматическое объединение исключены.
+
+Граница подтверждена 2026-10-06: v2026.10.06.1 опубликован на29264c66520ee36b1a2f287fa7edd6e92139dd9f, Full37527256994 SUCCESS, durable CD result deployed, public live/ready200 ok/ready и deploy lock освобожден. Help переносится на этот опубликованный baseline и выпускается своим новым кандидатом; чужие миграции уже применены. Старые T011/T013 и переполнение прежнего guides остаются отдельно.
