@@ -265,4 +265,10 @@ no stage marks public distribution complete from mocked command results.
 
 ## Продолжение 2026-10-06 — точный набор PR выпуска
 
-- [ ] T098 Исправить учет разных PR с перекрывающимися checked ranges в `scripts/validate-pr-checks.py`; сохранить настоящий linear rebase одного PR, отрицательные proof/owner/identity gates и параллельность. Регрессии в `tests/governance/test_pr_checks.py`, независимые requirements/implementation review, focused checks и live verifier; включение в новый frozen train и Full/CD — отдельная приемка выпуска. (FR-008/FR-040/SC-019) (Issue #7578)
+- [x] T098 Исправить учет разных PR с перекрывающимися checked ranges в `scripts/validate-pr-checks.py`; сохранить настоящий linear rebase одного PR, отрицательные proof/owner/identity gates и параллельность. Регрессии в `tests/governance/test_pr_checks.py`, независимые requirements/implementation review, focused checks и live verifier; включение в новый frozen train и Full/CD — отдельная приемка выпуска. (FR-008/FR-040/SC-019) (Issue #7578)
+
+T098: PR7579 merged, exact head `a958270bd2184d46ed6f5a0d026f97cea26043f6`,
+required governance37535047449/macOS37535047378/metadata37535047505 SUCCESS,
+common validator PASS. Выпуск v2026.10.07.1 sourcead597c11 включает все5 PR,
+Full37537979359 SUCCESS, train/decision go, backup/CD/live/publication PASS;
+точные ссылки и границы — в конце `quickstart.md`.
