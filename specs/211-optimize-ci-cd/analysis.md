@@ -98,3 +98,22 @@ The executable contract and active documentation describe the same process.
 The optimization removes repeated full runs for small changes and makes the
 single production full explicit without weakening any independent production
 gate.
+
+## T098 — analyze до реализации, 2026-10-06
+
+Продолжение FR-008/FR-040/SC-019: требования каждого точного PR → T098 →
+перекрывающиеся checked ranges, пропуск каждого PR и propagation ранней ошибки;
+linear rebase → T098 → настоящие original/rebased Git commits одного owner;
+fail-closed ownership/identity → T098 → missing terminal, ambiguous intermediate,
+changing merge. Старые mixed-prs/parallel и proof negatives сохраняются.
+Независимый requirements gate PASS 5/5, checklist перечитан reviewer.
+Конституция и полный release train/proof/backup/CD договор сохранены.
+CRITICAL 0, HIGH 0; новых непокрытых требований или конфликтов нет.
+Отдельные gates: issue sync до кода, tests-before-fix, implementation review,
+exact SHA/base checks, живой range verifier и frozen Full/CD для выпуска.
+
+T098 implementation/converge: минимальная PR-number правка соответствует всем
+требованиям; независимый implementation review HIGH0/MEDIUM0, checklist5/5.
+Оставшиеся hosted merge/live source/Full/CD gates представлены как ожидающие,
+старый ошибочный rebase fixture не объявляется регрессией production-кода.
+Новых scope, зависимостей, proof fallback или ослаблений не добавлено.
