@@ -1,0 +1,10 @@
+schema_version: 1
+feature_id: 211
+category: Fixed
+summary: "Проверка выпуска учитывает каждый PR при перекрывающихся проверенных базах"
+issue: 7578
+tasks: [T098]
+compatibility: "Форматы proof и train, точные required checks, подписи macOS и production gates сохранены"
+known_limitations:
+  - "Локальные синтетические проверки не заменяют живые proof и Full замороженного кандидата"
+release_notes: "Отставшая checked base одного PR больше не исключает другой PR из обязательного диапазона выпуска. Linear rebase одного PR и отказ при неполных или неуспешных доказательствах сохранены."

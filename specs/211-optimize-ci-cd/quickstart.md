@@ -813,3 +813,38 @@ macOS34767005071, оба attempt2, SUCCESS; trusted metadata34888235153 SUCCESS.
 checks старого PR, но не исполнение на нём нового YAML. T063/T087 остаются
 ограниченными этой границей. Документы F264 уже включены отдельным #7000;
 release-prep #6999 не имеет F264 diff и не закрывает её задачи повторно.
+
+
+## T098 — точный набор PR выпуска, 2026-10-06
+
+```sh
+python -m pytest -q tests/governance/test_pr_checks.py \
+  tests/governance/test_release_candidate.py tests/governance/test_release_train.py
+ruff check scripts/validate-pr-checks.py tests/governance/test_pr_checks.py
+python scripts/check-development-process.py
+python scripts/check_spec_kit_governance.py
+python scripts/validate-changelog-fragments.py
+```
+
+Проверки используют настоящий временный Git и синтетическую API границу.
+Они не подтверждают production/CD или установленную macOS совместимость.
+Source b8d56ea должен содержать proofs для #7545/#7576/#7577; после merge
+новый train также содержит PR исправления и подготовки. Актуальные результаты
+и ссылки записываются после выполнения.
+
+Локально: `test_pr_checks.py` **135 PASS / 24,18 с**; два соседних consumer
+файла **28 PASS / 64,81 с**. Ruff, diff, agent-context, process/changelog,
+Spec Kit frozen governance **PASS**. Doctor использовал закреплённый bootstrap
+0.9.10 (SHA-256 совпадает с workflow) и Specify1.0.7 в отдельном PATH;
+tracked tooling не менялся, PYTHONDONTWRITEBYTECODE=1. Первый запуск consumers
+не прошёл из-за глобального python3/UV-cache sandbox; после корректного PATH
+выполнен полный consumer набор, ошибок кода не осталось.
+
+До исправления доказаны overlapping-checked-ranges и принятие списка только
+позднего PR; отдельные два отрицательных контроля показали скрытие точной
+ошибки missing/unsuccessful proof раннего PR. Первоначальный новый rebase fixture
+имел неточный checked base, замечание независимого reviewer устранено:
+original/rebased по3 Git commits, disjoint SHA, равные конечные деревья,
+checked base first для PR8. Существующая проверка checked_base/merged receipt
+и все прежние негативные сценарии сохранены. Это локальные синтетические
+проверки и review; hosted merge/Full/CD еще не объявляются пройденными.

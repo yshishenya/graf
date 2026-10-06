@@ -193,7 +193,9 @@ def test_later_attempt_of_older_run_cannot_hide_behind_newer_id(bundle, monkeypa
 
 
 @pytest.mark.parametrize("case", [
-    "two-prs", "rebase", "published-source", "unowned", "mixed-prs", "bad-policy", "no-base",
+    "two-prs", "overlapping-checked-ranges", "overlapping-omit-earlier",
+    "overlapping-omit-later", "overlapping-missing-earlier-proof",
+    "overlapping-failed-earlier-proof", "published-source", "unowned", "mixed-prs", "bad-policy", "no-base",
     "metadata-only", "metadata-extra", "metadata-bad-subject", "metadata-heading",
     "metadata-fragment-id", "metadata-secret", "metadata-old-version", "metadata-published-latest",
     "metadata-duplicate-field", "metadata-token", "metadata-double", "metadata-missing-marked",
@@ -298,33 +300,100 @@ def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
         try:
             if barrier is not None:
                 barrier.wait(timeout=2)
+            if number == 7 and case in {"overlapping-missing-earlier-proof", "overlapping-failed-earlier-proof"}:
+                raise ValueError("missing proof" if "missing" in case else "unsuccessful proof")
             return dict(pr_number=number, merge_commit_sha=source if number == 8 else first,
-                        base_sha=base if number == 7 or case == "rebase" else first,
+                        base_sha=base if number == 7 or case.startswith("overlapping-") else first,
                         target_sha=source)
         finally:
             with active_lock:
                 active -= 1
     monkeypatch.setattr(checks, "api", api)
     monkeypatch.setattr(checks, "verify", verify)
-    expected = [8] if case in {"rebase", "mixed-prs"} else [7, 8]
+    expected = [8] if case in {"mixed-prs", "overlapping-omit-earlier"} else [7, 8]
+    if case == "overlapping-omit-later":
+        expected = [7]
     if case == "metadata-only":
         expected = [7]
-    if case in {"unowned", "mixed-prs", "bad-policy", "no-base", "metadata-extra", "metadata-bad-subject",
+    if case in {"overlapping-omit-earlier", "overlapping-omit-later", "overlapping-missing-earlier-proof",
+                "overlapping-failed-earlier-proof", "unowned", "mixed-prs", "bad-policy", "no-base", "metadata-extra", "metadata-bad-subject",
                 "metadata-heading", "metadata-fragment-id", "metadata-secret", "metadata-old-version",
                 "metadata-published-latest", "metadata-duplicate-field", "metadata-token", "metadata-double",
                 "metadata-missing-marked"}:
-        with pytest.raises(ValueError):
+        reason = "missing proof" if case == "overlapping-missing-earlier-proof" else "unsuccessful proof" if case == "overlapping-failed-earlier-proof" else None
+        with pytest.raises(ValueError, match=reason):
             checks.verify_source("owner/repo", source, included_prs=expected)
     else:
         results = checks.verify_source("owner/repo", source, included_prs=expected)
         assert sorted(row["pr_number"] for row in results) == expected
         assert set(expected).issubset(visited)
-        if case == "rebase":
-            assert set(visited) == {7, 8}
-        else:
-            assert set(visited) == set(expected)
+        assert sorted(visited) == sorted(expected)
         if case == "two-prs":
             assert max_active >= 2
+
+
+@pytest.mark.parametrize("case", ["linear-rebase", "missing-terminal", "ambiguous-intermediate", "changing-merge"])
+def test_release_source_real_linear_rebase(snapshot, monkeypatch, case):
+    root, _, pr = snapshot
+    monkeypatch.chdir(root)
+    monkeypatch.setattr(checks, "ROOT", root)
+    base, first = pr["base"]["sha"], pr["head"]["sha"]
+    git(root, "checkout", "-qb", "original-pr", first)
+    monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-09-12T01:00:00Z")
+    original = []
+    for index in range(3):
+        (root / f"rebased-{index}").write_text(f"change {index}\n")
+        git(root, "add", f"rebased-{index}")
+        git(root, "commit", "-qm", f"PR8 change {index}")
+        original.append(git(root, "rev-parse", "HEAD"))
+    monkeypatch.setenv("GIT_COMMITTER_DATE", "2026-09-13T01:00:00Z")
+    git(root, "rebase", "--force-rebase", "--onto", first, first)
+    source = git(root, "rev-parse", "HEAD")
+    rebased = git(root, "rev-list", "--reverse", f"{first}..{source}").splitlines()
+    assert len(rebased) == len(original) == 3
+    assert not set(original) & set(rebased)
+    assert git(root, "rev-parse", f"{original[-1]}^{{tree}}") == git(root, "rev-parse", f"{source}^{{tree}}")
+    assert git(root, "rev-list", "--first-parent", f"{base}..{source}").splitlines() == [*reversed(rebased), first]
+    (root / ".github").mkdir()
+    (root / ".github/pr-check-policy.json").write_text(json.dumps(dict(
+        schema_version=1, repository="owner/repo", foundation_pr=1,
+        foundation_sha=base, activated_at="2026-09-01T00:00:00Z",
+    )))
+    visited = []
+
+    def api(_repo, endpoint, **_kwargs):
+        if endpoint.startswith("releases?"):
+            return [dict(tag_name="v2026.08.31.1", published_at="2026-08-31T00:00:00Z")]
+        if endpoint.startswith("git/ref/tags/"):
+            return dict(object=dict(type="commit", sha=base))
+        commit = endpoint.split("/")[1]
+        number = 7 if commit == first else 8
+        merge = first if number == 7 else original[-1] if case == "missing-terminal" else source
+        owners = [dict(number=number, merge_commit_sha=merge,
+                       merged_at="2026-09-13T00:00:00Z", base=dict(ref="master"))]
+        if case == "ambiguous-intermediate" and commit == rebased[1]:
+            owners.append(dict(number=9, merge_commit_sha=original[-1],
+                               merged_at="2026-09-13T00:00:00Z", base=dict(ref="master")))
+        return owners
+
+    def verify(_repo, number):
+        visited.append(number)
+        merge = first if number == 7 else original[-1] if case == "changing-merge" else source
+        return dict(pr_number=number, merge_commit_sha=merge, base_sha=base if number == 7 else first,
+                    target_sha=first if number == 7 else original[-1])
+
+    monkeypatch.setattr(checks, "api", api)
+    monkeypatch.setattr(checks, "verify", verify)
+    if case == "linear-rebase":
+        result = checks.verify_source("owner/repo", source, included_prs=[7, 8])
+        assert sorted(row["pr_number"] for row in result) == [7, 8]
+        assert sorted(visited) == [7, 8]
+        assert next(row for row in result if row["pr_number"] == 8)["merge_commit_sha"] == source
+    else:
+        reason = {"missing-terminal": "unique merged PR", "ambiguous-intermediate": "multiple merged pull requests",
+                  "changing-merge": "merge identity changed"}[case]
+        with pytest.raises(ValueError, match=reason):
+            checks.verify_source("owner/repo", source, included_prs=[7, 8])
 
 
 def test_initial_release_prep_accepts_archived_fragments(snapshot, monkeypatch):
