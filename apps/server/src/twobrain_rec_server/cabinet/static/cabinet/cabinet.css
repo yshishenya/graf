@@ -5083,7 +5083,7 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   width: min(248px, calc(var(--profile-menu-viewport-width, 100vw) - 16px));
   height: max-content;
   max-height: calc(var(--profile-menu-viewport-height, 100vh) - var(--profile-menu-bottom, 60px) - 8px);
-  overflow: visible;
+  overflow: auto;
   display: grid;
   grid-auto-rows: max-content;
   align-content: start;
@@ -5115,9 +5115,6 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .sidebar-profile-menu__disclosure > summary::after { content: "›"; margin-left: auto; color: var(--muted); }
 .sidebar-profile-menu__submenu {
   position: absolute;
-  z-index: 1;
-  top: -4px;
-  inset-inline-start: calc(100% + 8px);
   display: grid;
   gap: 2px;
   width: max-content;
@@ -5130,20 +5127,11 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   background: var(--panel);
   box-shadow: var(--shadow-popover);
 }
-.sidebar-profile-menu__submenu::before {
-  content: "";
-  position: absolute;
-  inset-block: 0;
-  inset-inline-start: -10px;
-  width: 10px;
-}
-.sidebar-profile-menu__disclosure.is-flipped > .sidebar-profile-menu__submenu {
-  inset-inline-start: auto;
-  inset-inline-end: calc(100% + 8px);
-}
-.sidebar-profile-menu__disclosure.is-flipped > .sidebar-profile-menu__submenu::before {
-  inset-inline-start: auto;
-  inset-inline-end: -10px;
+.sidebar-profile-menu__submenu[popover] {
+  position: fixed;
+  inset: var(--profile-submenu-top, 8px) auto auto var(--profile-submenu-left, 8px);
+  max-height: calc(var(--profile-menu-viewport-height, 100vh) - 16px);
+  overflow: auto;
 }
 .sidebar-profile-menu__item,
 .sidebar-profile-menu > a,
@@ -5195,7 +5183,7 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   .sidebar-profile-menu__submenu { border-color: currentColor; }
 }
 
-@media (max-width: 520px), (max-height: 620px) {
+@media (max-width: 520px) {
   .sidebar-profile-menu {
     overflow-y: auto;
     overflow-x: hidden;
@@ -5225,10 +5213,6 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   border: 0;
   box-shadow: none;
   background: transparent;
-}
-.sidebar-profile-menu__disclosure.is-inline > .sidebar-profile-menu__submenu::before,
-.cabinet-mobile-nav .sidebar-profile-menu__submenu::before {
-  display: none;
 }
 
 .calendar-provider-dialog.calendar-disconnect-dialog { border-color: var(--danger-border); }

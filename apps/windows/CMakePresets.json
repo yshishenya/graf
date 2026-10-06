@@ -1,0 +1,27 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "x64-release",
+      "displayName": "GRAF Windows x64 Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/x64/Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "x64-release",
+      "configurePreset": "x64-release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "x64-release",
+      "configurePreset": "x64-release",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}

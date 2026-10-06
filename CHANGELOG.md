@@ -9,22 +9,93 @@
 ## [Unreleased]
 
 ### Добавлено
-- _Пока нет записей._
+- Начата подготовка Windows desktop-среза Feature 200: WinUI 3/Windows App
+  SDK native shell, x64 test targets, проверяемый pinned AEC3 build boundary и
+  первый portable C++ contract/session/readiness/storage/upload fixture; это ещё
+  не заявление о поддерживаемой Windows-дистрибуции.
+- Добавлены portable C++ реализации bounded WASAPI/AEC3/timeline контрактов,
+  v5 WAV/AAC writer boundary, native indicator/permission recovery, exact-origin
+  WebView2 policy/bridge, local upload custody/recovery, fault projection и
+  verified-target auto-record policy; Windows hardware, WebView2 runtime и MSIX
+  остаются отдельными host-gates.
+- Native shell теперь содержит WinUI 3 lifecycle, внешний к WebView статусный
+  ряд Record/Pause/Stop, фактический WebView2 event bridge и WinHTTP upload
+  transport через существующие GRAF API; transport сверяет server truth,
+  возобновляет только missing ranges, проверяет принятые offset/length и
+  восстанавливает истёкшую upload session. Capture остаётся fail-closed до
+  прохождения AEC3, WASAPI, privacy, storage и AAC gates; Windows
+  hardware/package gates ещё не закрыты.
+- Второй local re-check исправил privacy Pause в timeline, WASAPI
+  discontinuity/fail-closed остановку callback-потока, digest-проверку перед
+  upload и русские статусы native indicator; Windows host/package evidence по-
+  прежнему не заявляется.
+- Native capture hardening подтверждает WASAPI startup до записи, использует
+  реальную QPC frequency, отклоняет неподдерживаемый/невалидный PCM вместо
+  тихой подмены нулями, не допускает финализацию normal package после worker
+  fault и удаляет partial WAV/M4A при ошибке v5 finalizer; pinned AEC3
+  adapter/library теперь собраны в Windows x64 VM, а hardware evidence
+  по-прежнему не заявляется.
+- AppX manifest теперь явно объявляет только необходимые `internetClient` и
+  `microphone` capabilities; подпись, approved assets и clean-image install
+  по-прежнему не заявляются.
+- Windows parity-срез повторяет последнюю macOS-доработку кабинета: общий
+  профильный menu и пункт «Закрыть GRAF» используют серверный marker и
+  отдельный exact-origin/nonce-allowlisted native quit bridge; это не даёт
+  кабинету полномочий управлять записью или файлами.
+- Windows native build явно использует UTF-8 для исходников, поэтому русские
+  статусы и кнопки в WinUI shell отображаются корректно; это не закрывает
+  отдельные AEC3, auth, hardware и signed-MSIX gates.
+- При первом запуске Windows shell открывается в рабочем размере 1080×620 с
+  раскрытой панелью управления записью; пользователь сразу видит Record,
+  Pause/Stop, состояние готовности и локальную сохранность, а не свернутую
+  полосу из двух компактных кнопок.
+- Повторная Windows x64 validation прошла после штатного NuGet restore:
+  CMake/CTest `20/20`, synthetic/custody/WebView smoke `2/2`, `3/3`, `4/4`,
+  pinned WebRTC AEC3 `440/440`, native Release MSBuild и запуск окна `GRAF`.
+-  `.wapproj` также собрал unsigned x64 MSIX, а static package smoke подтвердил
+  manifest, entry point, capabilities и embedded signing certificate тестового
+  пакета; clean-image install/update/rollback и доверенная release-подпись всё
+  ещё не заявляются.
 
 ### Изменено
-- _Пока нет записей._
+- Windows solution теперь содержит native `RecApp`, CMake/CTest contract surface
+  и x64 package metadata без driver, service, elevation или второго web UI.
 
 ### Исправлено
-- _Пока нет записей._
+- Ledger отклоняет числовые поля с лишними символами, а atomic write больше не
+  сообщает об ошибке после уже завершённой замены файла.
+- Windows upload recovery больше не помечает пакет как загруженный при ошибке
+  авторизации, отказе сервера или повреждённом пакете: статусы сохраняются как
+  `needsAuth`, retry или quarantine.
+- При входе по email после первой или второй ошибки код можно ввести повторно;
+  после третьей неверной проверки текущий код блокируется, а пользователь может
+  запросить новый.
 
 ### Безопасность
-- _Пока нет записей._
+- Native/Web boundary не принимает capture/file/token/cookie/process commands,
+  требует exact origin и ephemeral nonce, а очередь сохраняет accepted ranges и
+  quarantine вместо тихой замены повреждённого ledger.
+- Локальная custody-область ограничена canonical root, а atomic-файлы на Windows
+  получают ACL только для текущего пользователя; выход за root отклоняется до
+  создания файла или пакета.
+- Лимит проверки одного email-кода снижен до трёх попыток; остальные лимиты
+  отправки, email и IP не менялись.
 
 ### Документы
-- _Пока нет записей._
+- Зафиксированы Windows v5 wire-значения, parity source-of-truth и второй
+  consistency re-check; hardware, package и release gates остаются открытыми.
+- Зафиксирован повторный Windows/macOS validation pass: x64 host, native
+  Release MSBuild, свежий Windows CMake/Ninja и 20/20 Windows CTest-контрактов,
+  WebView/audio/custody smoke и 1240 fast-CI тестов; signed MSIX, clean-image,
+  authenticated cabinet и hardware/AEC3 evidence по-прежнему не заявлены.
+- Скрипт `apps/windows/scripts/validate-package-smoke.ps1` теперь выполняет
+  статическую проверку MSIX вместо сообщения-заглушки; clean-image сценарии
+  остаются отдельным host-gate.
 
 ### Операции
-- _Пока нет записей._
+- Добавлен `scripts/graf-mac.sh` — единая локальная команда для статуса,
+  health-check, preflight, запуска API, открытия GRAF Local и fast CI; helper
+  использует существующие скрипты и не меняет системные разрешения.
 
 ## [2026.10.06.1] - 2026-10-06
 
@@ -2540,7 +2611,6 @@ F254 — системная консоль администратора — в �
 
 ## [2026.08.25.2] - 2026-08-25
 
-
 ### Добавлено
 - _Пока нет записей._
 
@@ -2548,13 +2618,10 @@ F254 — системная консоль администратора — в �
 - _Пока нет записей._
 
 ### Исправлено
-- При входе по email после первой или второй ошибки код можно ввести повторно;
-  после третьей неверной проверки текущий код блокируется, а пользователь может
-  запросить новый.
+- _Пока нет записей._
 
 ### Безопасность
-- Лимит проверки одного email-кода снижен до трёх попыток; остальные лимиты
-  отправки, email и IP не менялись.
+- _Пока нет записей._
 
 ### Документы
 - _Пока нет записей._

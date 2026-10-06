@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AppInstaller Uri="https://rec.2brain.pro/windows/GRAF.appinstaller" Version="0.1.0.0" xmlns="http://schemas.microsoft.com/appx/appinstaller/2021">
+  <MainPackage Name="com.graf.desktop" Publisher="CN=GRAF" Version="0.1.0.0" Uri="https://rec.2brain.pro/windows/GRAF.msix" />
+  <UpdateSettings><OnLaunch HoursBetweenUpdateChecks="24" /></UpdateSettings>
+</AppInstaller>
