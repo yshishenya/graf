@@ -48,3 +48,68 @@ Focused на базе de255e0d: **120 passed**,23.28s pytest; isolated PostgreSQ
 Собственная Help ветка перенесена на29264c66. Старый локальный тег отмененного de255-кандидата удален только в изолированной копии; получен новый опубликованный tag, remote теги не менялись. Новый PR proof и отдельный Full/CD еще обязательны. Копия приложения macOS, billing, Windows, analytics и protected public files не входят в Help diff.
 
 Focused на опубликованной базе29264c66:120 passed,22.45s pytest; runner focused27s, isolated_container_removed. Chromium Help320/390/768/1440,text200%,keyboard/noJS PASS. Agent-context/development-process/changelog-fragments/node syntax/git diff --check PASS. Protected diff пуст; Help runtime/browser/test files побайтово равны проверенному72d2ef9f. Эти результаты не заменяют новый exact-SHA PR proof или будущий Full/CD.
+
+## Завершенная публикация Help — 2026-10-06
+
+По прямому разрешению владельца выполнены исправление блокера проверки F211,
+merge, один frozen Full, штатный CD и публикация. Risk lane исправления:
+active Spec Kit slice F211 / high-risk CI-governance; выпуска: release-deploy.
+Настоящий source важнее прежних промежуточных evidence выше.
+
+- [PR7545](https://github.com/yshishenya/graf/pull/7545): head
+  `4227b699ca8d2dd5d3333b7725fee554976cdac9`; source governance37529781951,
+  macos37529782085, metadata37531270850 SUCCESS. Common exact-SHA validator PASS.
+- Train `train-20261006T215826Z-ad597c114e3b` содержит каждый PR:
+  #7545/#7576/#7577/#7579/#7580, с отдельными live proofs. Предыдущая стабильная
+  база — опубликованный v2026.10.06.1 /29264c66; F286 уже завершен.
+- Candidate `rc-20261006T220142Z-95a12ddbc931`, source
+  `ad597c114e3bf9e627525c578ec68e353d54a44e`.
+  [Full37537979359](https://github.com/yshishenya/graf/actions/runs/37537979359)
+  SUCCESS; receipt authoritative/passed, requested/observed start/end и все
+  component SHA совпадают, skipped gates пусты. Train и decision go.
+- CD dry-run/execute PASS; attempt `599561ecaa474082b65ce28cfe345373`,
+  `infra_smoke_ready`, backup `/opt/projects/2brain-rec/backups/20261006T221459Z`.
+  Откат не потребовался. Штатная проверка восстановления предыдущего backup
+  в отдельные временные DB/bucket PASS, удаление обеих целей подтверждено.
+- [v2026.10.07.1](https://github.com/yshishenya/graf/releases/tag/v2026.10.07.1)
+  опубликован 22:25:10Z, не draft/prerelease. Annotated tag
+  `9bb87922f27cf607328a2d2d66a014ae056572eb` разрешается в source выше;
+  immutable publication attestation `pa-rc-20261006T220142Z-95a12ddbc931`
+  создана 22:25:18Z. Frozen checkout не менялся при последующем docs closeout.
+
+Живые `/help`, статья одной стороны и все guides HTTP200, один H1, правильные
+canonical; sitemap содержит каждый URL один раз, навигация доступна. Полученный
+production HTML и совпадающие с source CSS/шрифты/изображение проверены Chromium:
+320/390/768/1440, Help текст100%/200%, общие заголовки guides200%, клавиатура и
+без JavaScript PASS. Скриншоты — только безопасные публичные страницы.
+Прежнее замечание о полном тексте старого guide при320/200% этим не закрывается.
+
+Protected: семь исходных шаблонов главной/download/политик, их helpers,
+обработчики, аналитика и статика побайтово совпадают с29264c66. SHA15 файлов
+в работающем API совпадают с проверенным source. Два одинаковых HTTP запроса
+дают одинаковое стабильное содержимое после выделения только документированных
+per-render `graf_attribution_id` с его копиями в handoff и `bridge_expires_at`.
+Изначальная попытка сравнить весь HTML с прежним SHA закономерно не прошла:
+эти поля случайны/зависят от времени. Raw HTML before/after равенство не заявляется;
+никакие тексты, цены, настройки consent или иные поля из сравнения не исключены.
+
+Набор175 обычных нескрытых файлов zip/pkg/appcast сохранил точную SHA map:
+`0e909ffade44b7ee0c0d40a3fa912b37f4c5087005f63103a3e7e59c1617af6b`.
+Действующие graf.pkg/appcast/GRAF-2026.10.04.6.zip не изменены. Все482 исходных
+root filenames/sizes совпадают; mtime совпадает в числовой точности исходного
+JSON, точное равенство nanoseconds не заявляется. Сравнение рекурсивного after
+с root-only before не используется как проверка изменений. Это инвентаризация,
+а не утверждение о публичности или подписи каждого исторического файла.
+
+API/processing/maintenance/media работают на sourcead597c11, необходимые
+healthchecks healthy; maintenance running без отдельного healthcheck. F286
+share_public_links_enabled, share_public_links_abuse_gate_approved,
+share_external_invitations_enabled и email_login_delivery_enabled true.
+Публичные live/ready200 ok/ready, deploy lock освобожден. Реальные письма,
+личный экран/аудио и новые разрешения не использовались. Совместимость записи
+в установленном GRAF с каждой macOS/meeting-app не проверялась.
+
+Локальные metadata records сохранены в task `ci-evidence`: authoritative Full,
+train-go/decision/publication, release/CD/restore logs, live-readback,
+browser/screenshots, runtime/source hashes и before/after SHA maps. Секреты,
+частные аудио и содержимое резервных копий в документы не добавлены.

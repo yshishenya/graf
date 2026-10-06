@@ -848,3 +848,35 @@ original/rebased по3 Git commits, disjoint SHA, равные конечные 
 checked base first для PR8. Существующая проверка checked_base/merged receipt
 и все прежние негативные сценарии сохранены. Это локальные синтетические
 проверки и review; hosted merge/Full/CD еще не объявляются пройденными.
+
+### T098 — hosted и release приемка завершена
+
+[PR7579](https://github.com/yshishenya/graf/pull/7579) merged21:48:04Z:
+head `a958270bd2184d46ed6f5a0d026f97cea26043f6`, checked baseb8d56ea9,
+merge9f8872bc. Required governance37535047449/macOS37535047378/
+metadata37535047505 SUCCESS; common current exact validator PASS. Final prep
+PR7580 также получил все3 required SUCCESS и собственный exact proof.
+
+Новый train `train-20261006T215826Z-ad597c114e3b` сохранил весь набор
+#7545/#7576/#7577/#7579/#7580 и каждый отдельный proof. Candidate
+`rc-20261006T220142Z-95a12ddbc931`, source
+`ad597c114e3bf9e627525c578ec68e353d54a44e`.
+[Единственный Full37537979359](https://github.com/yshishenya/graf/actions/runs/37537979359)
+SUCCESS; authoritative receipt passed, requested/observed/component SHA
+совпадают, skipped gates пусты; train и decision go.
+
+Штатные dry-run/execute PASS, attempt `599561ecaa474082b65ce28cfe345373`,
+backup `/opt/projects/2brain-rec/backups/20261006T221459Z`, infra_smoke_ready,
+rollback не потребовался. Отдельная стандартная restore rehearsal предыдущего
+backup и уборка временных DB/bucket PASS.
+[v2026.10.07.1](https://github.com/yshishenya/graf/releases/tag/v2026.10.07.1)
+опубликован22:25:10Z; tag разрешается в точный source, immutable attestation
+создана22:25:18Z. Продуктовый source не меняется от docs closeout.
+
+Live Help/canonical/sitemap/navigation, public health, runtime/workers/F286
+flags и SHA map175 macOS файлов PASS. Production HTML проверен Chromium на
+320/390/768/1440,text200%,keyboard/noJS. Protected15 live source SHA совпадают;
+шаблоны/обработчики/аналитика/статика прежние. Стабильный HTTP ответ сравнен
+отдельно от случайных bridge ID/expiry; равенство полного HTML-хеша не заявлено.
+Полная причинная проверка — `specs/281-mac-meeting-guide/audio-help-evidence.md`.
+Native capture совместимость и реальные письма этим выпуском не проверялись.
