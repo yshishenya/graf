@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from twobrain_rec_server.config import Settings
@@ -40,6 +40,172 @@ DDL = (
     "create table processing_results(id uuid primary key, meeting_id uuid references meetings, workspace_id uuid references workspaces, processing_workflow_id uuid references processing_workflows, media_revision_id uuid references media_revisions)",
     "create table processing_dependency_states(meeting_id uuid references meetings, media_revision_id uuid references media_revisions)",
 )
+
+STORAGE_DDL = (
+    "create table track_artifacts(id uuid primary key, meeting_id uuid references meetings, workspace_id uuid references workspaces)",
+    "create table storage_reservations(id uuid primary key, workspace_id uuid references workspaces, artifact_id uuid constraint fk_storage_reservations_artifact_id_track_artifacts references track_artifacts)",
+)
+
+
+async def _storage_graph(conn, graph):
+    graph = graph | {"artifact": uuid4(), "reservation": uuid4(), "unbound": uuid4()}
+    await conn.execute(text("insert into track_artifacts values (:artifact, :meeting, :workspace)"), graph)
+    await conn.execute(text("insert into storage_reservations values (:reservation, :workspace, :artifact)"), graph)
+    await conn.execute(text("insert into storage_reservations values (:unbound, :workspace, null)"), graph)
+    return graph
+
+
+@pytest.mark.asyncio
+async def test_storage_reservation_cleanup_preserves_neighbor(
+    postgres_clean_database_url, monkeypatch,
+):
+    helper = _helper()
+    monkeypatch.setattr(helper, "Settings", lambda: Settings(database_url=postgres_clean_database_url))
+    storage_calls = []
+    monkeypatch.setattr(helper, "_remove_storage_prefix", lambda _settings, prefix:
+        (storage_calls.append(prefix) or (2, 0)))
+    engine = create_async_engine(postgres_clean_database_url)
+    run_id = "cleanup-storage-reservations"
+    try:
+        async with engine.begin() as conn:
+            for sql in (*DDL, *STORAGE_DDL):
+                await conn.execute(text(sql))
+            target = await _storage_graph(conn, await _graph(conn, run_id))
+            neighbor = await _storage_graph(conn, await _graph(conn, "storage-neighbor", ordinary=True))
+            before = await _snapshot(conn)
+            before_storage = {
+                table: (await conn.execute(text(f"select * from {table} order by id"))).all()
+                for table in ("track_artifacts", "storage_reservations")
+            }
+        # Reproduce the old ordering on the real FK, then prove the complete
+        # transaction rolls back and does not start object-storage cleanup.
+        original_delete = helper._delete_statement
+
+        async def old_order(conn, tables, table, sql, params):
+            if table == "storage_reservations" and "meeting_id" in params:
+                return 0
+            return await original_delete(conn, tables, table, sql, params)
+
+        monkeypatch.setattr(helper, "_delete_statement", old_order)
+        with pytest.raises(IntegrityError) as failure:
+            await helper.cleanup_smoke_artifacts(run_id)
+        assert failure.value.orig.sqlstate == "23503"
+        assert "fk_storage_reservations_artifact_id_track_artifacts" in str(failure.value.orig)
+        assert storage_calls == []
+        async with engine.connect() as conn:
+            assert await _snapshot(conn) == before
+            for table, rows in before_storage.items():
+                assert (await conn.execute(text(f"select * from {table} order by id"))).all() == rows
+        monkeypatch.setattr(helper, "_delete_statement", original_delete)
+        removed, objects, residue = await helper.cleanup_smoke_artifacts(run_id)
+        async with engine.connect() as conn:
+            after = await _snapshot(conn)
+            for table, rows in after.items():
+                assert rows == [row for row in before[table] if row[0] not in target.values()]
+            for table, rows in before_storage.items():
+                remaining = (await conn.execute(text(f"select * from {table} order by id"))).all()
+                assert remaining == [row for row in rows if row[0] in neighbor.values()]
+        assert removed == sum(map(len, before.values())) - sum(map(len, after.values())) + 3
+        assert (objects, residue) == (2, [])
+        assert storage_calls == [helper._smoke_storage_prefix({
+            "organization_id": str(build_smoke_identity_seed(run_id).organization_id),
+            "workspace_id": str(target["workspace"]),
+        })]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_artifact_parent_lock_blocks_late_reservation_insert(
+    postgres_clean_database_url, monkeypatch,
+):
+    helper = _helper()
+    engine = create_async_engine(postgres_clean_database_url)
+    at_reservations, insert_blocked = asyncio.Event(), asyncio.Event()
+    original_delete = helper._delete_statement
+
+    async def delete(conn, tables, table, sql, params):
+        if table == "storage_reservations":
+            at_reservations.set()
+            await asyncio.wait_for(insert_blocked.wait(), 5)
+        return await original_delete(conn, tables, table, sql, params)
+
+    monkeypatch.setattr(helper, "_delete_statement", delete)
+    try:
+        async with engine.begin() as conn:
+            for sql in (*DDL, *STORAGE_DDL):
+                await conn.execute(text(sql))
+            target = await _storage_graph(conn, await _graph(conn, "artifact-lock"))
+            neighbor = await _storage_graph(conn, await _graph(conn, "artifact-lock-neighbor", ordinary=True))
+            before = await _snapshot(conn)
+            neighbor_storage = {
+                table: (await conn.execute(text(
+                    f"select * from {table} where workspace_id=:workspace order by id"
+                ), neighbor)).all()
+                for table in ("track_artifacts", "storage_reservations")
+            }
+
+        async def writer():
+            # Deliberately use a different workspace: its parent is not locked
+            # by meeting cleanup, so only the artifact FK can block this INSERT.
+            async with engine.begin() as conn:
+                pid = await conn.scalar(text("select pg_backend_pid()"))
+                await asyncio.wait_for(at_reservations.wait(), 5)
+                pending = asyncio.create_task(conn.execute(text(
+                    "insert into storage_reservations values (:id, :workspace, :artifact)"
+                ), {"id": uuid4(), "workspace": neighbor["workspace"], "artifact": target["artifact"]}))
+                try:
+                    async with engine.connect() as observer:
+                        for _ in range(100):
+                            if await observer.scalar(text("select cardinality(pg_blocking_pids(:pid))"), {"pid": pid}):
+                                insert_blocked.set()
+                                break
+                            await asyncio.sleep(.01)
+                        else:
+                            pytest.fail("late reservation INSERT did not block on artifact parent")
+                    with pytest.raises(IntegrityError) as failure:
+                        await asyncio.wait_for(pending, 5)
+                    assert failure.value.orig.sqlstate == "23503"
+                    assert "fk_storage_reservations_artifact_id_track_artifacts" in str(failure.value.orig)
+                finally:
+                    if not pending.done():
+                        pending.cancel()
+                    await asyncio.gather(pending, return_exceptions=True)
+
+        writer_task = asyncio.create_task(writer())
+        try:
+            async with engine.begin() as conn:
+                available = await helper._available_tables(conn, {
+                    sql.split()[2].split("(")[0] for sql in (*DDL, *STORAGE_DDL)
+                })
+                removed = await helper._delete_smoke_meeting_rows(
+                    conn, meeting_id=str(target["meeting"]), session_ids=[],
+                    available_tables=available, processing_dependency_has_revision=True,
+                )
+            await asyncio.wait_for(writer_task, 5)
+        finally:
+            if not writer_task.done():
+                writer_task.cancel()
+            await asyncio.gather(writer_task, return_exceptions=True)
+        assert insert_blocked.is_set()
+        assert removed == 5  # meeting, revision, workflow, artifact, linked reservation
+        async with engine.connect() as conn:
+            after = await _snapshot(conn)
+            for table, rows in after.items():
+                deleted = {target["meeting"], target["revision"], target["workflow"]}
+                assert rows == [row for row in before[table] if row[0] not in deleted]
+            for table, rows in neighbor_storage.items():
+                assert (await conn.execute(text(
+                    f"select * from {table} where workspace_id=:workspace order by id"
+                ), neighbor)).all() == rows
+            assert await conn.scalar(text(
+                "select count(*) from storage_reservations where id=:unbound"
+            ), target) == 1
+            assert await conn.scalar(text(
+                "select count(*) from storage_reservations where id=:reservation"
+            ), target) == 0
+    finally:
+        await engine.dispose()
 
 
 async def _graph(conn, run_id, *, ordinary=False):

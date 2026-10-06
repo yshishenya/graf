@@ -150,6 +150,14 @@ async def _delete_smoke_meeting_rows(
                    select id from media_revisions where meeting_id=:meeting_id
                )
         """
+    if "track_artifacts" in available_tables:
+        # Freeze artifact parents before releasing reservations. FK inserts
+        # acquire key-share locks, so no new reservation can slip between the
+        # child delete and artifact delete, even from a different workspace.
+        await conn.execute(
+            text("select id from track_artifacts where meeting_id=:meeting_id for update"),
+            meeting_params,
+        )
     ordered_meeting_deletes = [
         (
             "calendar_audit_events",
@@ -317,6 +325,18 @@ async def _delete_smoke_meeting_rows(
         (
             "manifest_snapshots",
             "delete from manifest_snapshots where meeting_id=:meeting_id",
+        ),
+        (
+            "storage_reservations",
+            """
+            delete from storage_reservations
+            where workspace_id = (
+                select workspace_id from meetings where id=:meeting_id
+            )
+              and artifact_id in (
+                  select id from track_artifacts where meeting_id=:meeting_id
+              )
+            """,
         ),
         (
             "track_artifacts",
@@ -560,6 +580,7 @@ async def _cleanup_smoke_artifacts_once(
                 "ingest_audit_events",
                 "manifest_snapshots",
                 "track_artifacts",
+                "storage_reservations",
                 "temporary_upload_objects",
                 "upload_parts",
                 "upload_sessions",
