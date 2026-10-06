@@ -1,15 +1,15 @@
 {
-  "bootstrap_version": "0.9.10",
+  "bootstrap_version": "0.9.11",
   "extensions": {
     "agent_context": {
-      "manifest_hash": "sha256:9a1dc02d2d0139bb03860392ecacef79183be2c442feda2f9ccaa4e5907b1e47",
-      "tree_sha256": "e39e45b3f34b71d92fea9ee88f75c23a5276d1e99cbd64b3736d5cf2f0dfcb52",
-      "version": "1.0.0"
+      "manifest_hash": "sha256:132bcd2b1ab7a1e61e5072682340e0a7fef0d6aa815d4c42ac168cceb01e6308",
+      "tree_sha256": "bea26b5e8910c78ba6a1414a7764ca9c54b6c99d7b9079965770b8d09d263b13",
+      "version": "1.0.1"
     },
     "git": {
-      "manifest_hash": "sha256:89711dec9716473fba4afc54f7224bcb28ebd3c55fb5aaa30df854ab02b07a75",
-      "tree_sha256": "e3b5006407ef6ea4695cd60958c5ae03f6c1b7a8405fb0d1bf617b0d548d870a",
-      "version": "1.0.0"
+      "manifest_hash": "sha256:698cc7089602db44622de39730555db4999cda94ab47195bcfe18f41d08b430a",
+      "tree_sha256": "1fd35aa3de9b0ca1b9cca335e00e973020c554ef31a100e55d54ded7b9c660fa",
+      "version": "1.0.1"
     }
   },
   "github_issue_canon": {
@@ -28,12 +28,12 @@
     "version": "disabled"
   },
   "project_skills": {
-    "speckit-agent-context-update": "d570b8f69215eb2ed302adcd8e0db18facb789d5aa30f3297dac9e5cd3f68cf8",
+    "speckit-agent-context-update": "e37ae57657f9cad4c5c910f438f3da85ed0664016978a2395b90c8be27ac2992",
     "speckit-analyze": "5cc3e0dd9247e9839c5bfcc5f6a49d272e67db106304067229e253bc71fce908",
     "speckit-checklist": "ff959980bc31a8a7febd6bb4ec62456aefad93cdbe234d87ab5586b749213bac",
     "speckit-clarify": "0d9139ce76d3ece287aecb6679eaae2101d0561e55cb47e4c374db4d897a0d58",
     "speckit-constitution": "d1f9f19d0806ae98a256c0ec67d59fc9dccdb556e4329844824e10568999da10",
-    "speckit-converge": "87e7e60002e178a49bd34c89c165a68650ad9fccb706e505aa689be4d6a4c55c",
+    "speckit-converge": "bf15d5e17919ff4240e325f1114dc77c5d34746eee554acd8f40fa1855560fef",
     "speckit-git-commit": "fbc057b33689799cc479aeedcf5be33b9fd10bc01765ff399a9da5bb85fc2c58",
     "speckit-git-feature": "b10e4f8df5bd475fb7b91a408f2fcf6f8ab4c132b45691b75ef73d2f9818ab5b",
     "speckit-git-initialize": "6a67d259ceb2c4573c8d3f300a8b5810ff494d69c71f722434ac8a45e2f77800",
@@ -42,7 +42,7 @@
     "speckit-github-issue-canon-ensure": "d6cf7ebe9b29ceced8873e8a03118be1fbf44b5278c724480389b2accf77f3bc",
     "speckit-github-issue-canon-normalize": "07dea220f220434459311f963edc40e54b71bb3242ed473ee11b0adf65ebf020",
     "speckit-github-issue-canon-validate": "a1a6f3edc1fe53957169f30a386c9b922f3758fd38147731273d181890a6a431",
-    "speckit-implement": "9bbeada0d6757af9d44dc71c0ccae1374da66d6c44c0f66e98964b4c7979fd18",
+    "speckit-implement": "e9d87b05282f95cb17f2754c896ebfb5e49993ec040b18d03957a476bd317454",
     "speckit-plan": "f490bec01172e3ce64a5b0ec1af19bbba0e1b5a794166f6d2d9f9123eb795408",
     "speckit-specify": "9ec5eaabdeac1ac098e5bab4dbc2d7a7392f8500a101adbff36cbe6cf1f53a67",
     "speckit-tasks": "99c602a619e055858bb6384048b3e1d6643d0a1f2b6ecbc34abf01b63c5268d7",
@@ -50,14 +50,14 @@
   },
   "schema_version": 3,
   "spec_kit": {
-    "ref": "fe1d00e3ccaf495880aaf90fb0e17679e82f065b",
-    "source": "git+https://github.com/github/spec-kit.git@fe1d00e3ccaf495880aaf90fb0e17679e82f065b",
-    "version": "v1.0.7"
+    "ref": "e77daa9021d20db26b878f7dfa5640fe5a42d04e",
+    "source": "git+https://github.com/github/spec-kit.git@e77daa9021d20db26b878f7dfa5640fe5a42d04e",
+    "version": "v1.0.12"
   },
   "workflow": {
     "id": "speckit",
     "sha256": "9583f6c10ce259b179a626bdb593d9689a01b74792abb11d02ac4cc03446043f",
-    "source_url": "https://raw.githubusercontent.com/github/spec-kit/fe1d00e3ccaf495880aaf90fb0e17679e82f065b/workflows/speckit/workflow.yml",
+    "source_url": "https://raw.githubusercontent.com/github/spec-kit/e77daa9021d20db26b878f7dfa5640fe5a42d04e/workflows/speckit/workflow.yml",
     "version": "1.0.1"
   }
 }
