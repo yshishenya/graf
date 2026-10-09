@@ -22,6 +22,16 @@ MEDIA_READ_ONLY_TABLES = (
     "workspaces",
 )
 MEDIA_WORKFLOW_COLUMNS = ("workflow_id", "workspace_id", "meeting_id", "media_revision_id", "purpose", "status", "attempt_ordinal", "created_at")
+MEDIA_STORAGE_COLUMNS = {
+    "time_credit_ledger_entries": (
+        "workspace_id", "state", "applied_start", "applied_end", "capacity_snapshot_bytes",
+    ),
+    "billing_storage_entitlement_grants": (
+        "id", "workspace_id", "starts_at", "ends_at", "capacity_bytes",
+    ),
+    "billing_entitlement_grants": ("invoice_id", "workspace_id", "starts_at", "ends_at"),
+    "billing_invoices": ("id", "workspace_id", "plan_snapshot"),
+}
 MEDIA_READ_WRITE_TABLES = (
     "playback_backfill_runs",
     "playback_normalization_attempts",
@@ -233,6 +243,23 @@ async def _verify_runtime_roles(
     }:
         raise RuntimeError("media workflow metadata privileges are unsafe")
 
+    storage_grants = await connection.fetch(
+        "select table_name, column_name, privilege_type, is_grantable "
+        "from information_schema.role_column_grants "
+        "where grantee = $1 and table_schema = 'public' and table_name = any($2::text[])",
+        MEDIA_ROLE,
+        list(MEDIA_STORAGE_COLUMNS),
+    )
+    if {
+        (row["table_name"], row["column_name"], row["privilege_type"], row["is_grantable"])
+        for row in storage_grants
+    } != {
+        (table, column, "SELECT", "NO")
+        for table, columns in MEDIA_STORAGE_COLUMNS.items()
+        for column in columns
+    }:
+        raise RuntimeError("media storage column privileges are unsafe")
+
     for table_name, column_name in MEDIA_LOCK_COLUMNS:
         has_lock_column = await connection.fetchval(
             "select has_column_privilege($1::name, $2::text, $3::text, 'UPDATE')",
@@ -324,6 +351,20 @@ async def _bootstrap() -> None:
                 f"public.rec_playback_normalization_cleanup_page(integer) to {MEDIA_ROLE}",
             ):
                 await connection.execute(statement)
+            for table, columns in MEDIA_STORAGE_COLUMNS.items():
+                # Table-level REVOKE does not remove separately granted column rights.
+                all_columns = await connection.fetch(
+                    "select quote_ident(column_name) as name from information_schema.columns "
+                    "where table_schema = 'public' and table_name = $1 order by ordinal_position",
+                    table,
+                )
+                await connection.execute(
+                    f"revoke all privileges ({', '.join(row['name'] for row in all_columns)}) "
+                    f"on public.{table} from {MEDIA_ROLE}"
+                )
+                await connection.execute(
+                    f"grant select ({', '.join(columns)}) on public.{table} to {MEDIA_ROLE}"
+                )
             await _verify_runtime_roles(connection, database_name=database_name)
     finally:
         await connection.close()
