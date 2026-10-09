@@ -32,6 +32,7 @@ from twobrain_rec_server.public.content import (
     PUBLIC_CONTENT_PAGES,
     PUBLISHED_CONTENT_PATHS,
     QUALITY_GUIDE_PATH,
+    ZOOM_GUIDE_PATH,
     ContentSection,
     content_for_section,
 )
@@ -181,7 +182,7 @@ async def public_mac_meeting_guide(
         request,
         "public/mac_meeting_guide.html",
         db=db,
-        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path != GUIDE_PATH),
+        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path not in (GUIDE_PATH, ZOOM_GUIDE_PATH)),
         page_title="Как записать встречу на Mac без бота и получить итоги — ГРАФ",
         social_description="Как проверить запись обеих сторон на Mac и получить расшифровку с итогами. Пошаговая подготовка и ограничения ГРАФ.",
     )
@@ -195,7 +196,7 @@ async def public_meeting_protocol_guide(
     return await public_page_response(
         request,
         "public/meeting_protocol_guide.html",
-        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path != PROTOCOL_GUIDE_PATH),
+        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path not in (PROTOCOL_GUIDE_PATH, ZOOM_GUIDE_PATH)),
         db=db,
         page_title="Протокол встречи из записи: пример решений и задач — ГРАФ",
         social_description="Как превратить расшифровку в протокол встречи: учебный диалог, пример решений и задач, шаблон и проверка ответственных, сроков и договоренностей.",
@@ -211,9 +212,19 @@ async def public_transcription_quality_guide(
         request,
         "public/transcription_quality_guide.html",
         db=db,
-        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path != QUALITY_GUIDE_PATH),
+        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path not in (QUALITY_GUIDE_PATH, ZOOM_GUIDE_PATH)),
         page_title="Как проверить качество расшифровки встречи — ГРАФ",
         social_description="Как сверить расшифровку с записью: спикеры, имена, числа, отрицания и решения. Учебные примеры, порядок проверки и чеклист перед отправкой итогов.",
+    )
+
+
+@router.get(ZOOM_GUIDE_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_zoom_recording_guide(request: Request) -> HTMLResponse:
+    return public_template_response(
+        request,
+        "public/zoom_recording_guide.html",
+        page_title="Как расшифровать запись Zoom в текст — ГРАФ",
+        social_description="Найдите запись Zoom, выберите M4A или MP4 с голосами участников и загрузите в ГРАФ. Пошаговая инструкция, проверка результата и частые ошибки.",
     )
 
 
@@ -235,7 +246,7 @@ async def public_one_sided_audio_help(request: Request) -> HTMLResponse:
         "public/one_sided_audio_help.html",
         page_title=ONE_SIDED_AUDIO_HELP.title + " — ГРАФ",
         social_description=ONE_SIDED_AUDIO_HELP.summary,
-        related_contents=PUBLIC_CONTENT_PAGES,
+        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path != ZOOM_GUIDE_PATH),
     )
 
 

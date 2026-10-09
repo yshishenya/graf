@@ -10,6 +10,7 @@ from twobrain_rec_server.public.content import (
     GUIDES_PATH,
     PUBLIC_CONTENT_PAGES,
     PUBLIC_CONTENT_SURFACES,
+    ZOOM_GUIDE_PATH,
     ContentSection,
     content_for_section,
 )
@@ -28,9 +29,10 @@ def test_hub_is_indexable_and_links_join_the_published_guides():
         assert "noindex" not in parser.meta.get("robots", "")
         assert "noindex" not in response.headers.get("x-robots-tag", "")
         assert "Руководства по записи" in response.text
-        assert response.text.count('class="guide-card"') == 3
-        first, second, third = PUBLIC_CONTENT_PAGES
+        assert response.text.count('class="guide-card"') == 4
+        first, second, third, zoom = PUBLIC_CONTENT_PAGES
         assert response.text.index(first.path) < response.text.index(second.path)
+        assert response.text.index(third.path) < response.text.index(zoom.path)
         for link in parser.links:
             if link.startswith("#"):
                 assert link[1:] in parser.ids
@@ -41,7 +43,7 @@ def test_hub_is_indexable_and_links_join_the_published_guides():
             p = Parser()
             p.feed(article.text)
             assert GUIDES_PATH in p.links
-            assert all(sibling.path in p.links for sibling in PUBLIC_CONTENT_PAGES if sibling != page)
+            assert all(sibling.path in p.links for sibling in PUBLIC_CONTENT_PAGES if sibling != page and sibling.path != ZOOM_GUIDE_PATH)
             assert p.canonical == ["https://rec.2brain.pro" + page.path]
         xml = ElementTree.fromstring(client.get("/sitemap.xml").text)
         urls = [node.text for node in xml.findall("{*}url/{*}loc")]
@@ -57,7 +59,7 @@ def test_hub_is_indexable_and_links_join_the_published_guides():
 
 
 def test_unpublished_sections_have_no_entries_or_measurement_surfaces():
-    assert len(content_for_section(ContentSection.GUIDES)) == 3
+    assert len(content_for_section(ContentSection.GUIDES)) == 4
     assert len(content_for_section(ContentSection.HELP)) == 1
     assert content_for_section(ContentSection.NEWS) == ()
     assert "/help" not in PUBLIC_CONTENT_SURFACES
