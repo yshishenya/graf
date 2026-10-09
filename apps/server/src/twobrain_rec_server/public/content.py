@@ -44,7 +44,16 @@ TRANSCRIPTION_QUALITY_GUIDE = PublicContentPage(
     ContentSection.GUIDES,
     "public_transcription_quality_guide",
 )
-PUBLIC_CONTENT_PAGES = (MAC_MEETING_GUIDE, MEETING_PROTOCOL_GUIDE, TRANSCRIPTION_QUALITY_GUIDE)
+ZOOM_GUIDE_PATH = "/guides/rasshifrovka-zapisi-zoom"
+ZOOM_RECORDING_GUIDE = PublicContentPage(
+    ZOOM_GUIDE_PATH,
+    "Расшифровка готовой записи Zoom",
+    "Найдите нужный файл, загрузите его и проверьте текст по исходному разговору.",
+    ContentSection.GUIDES,
+)
+PUBLIC_CONTENT_PAGES = (
+    MAC_MEETING_GUIDE, MEETING_PROTOCOL_GUIDE, TRANSCRIPTION_QUALITY_GUIDE, ZOOM_RECORDING_GUIDE,
+)
 # Help is editorial-only: it is deliberately outside the measurement inventories.
 HELP_PATH = "/help"
 ONE_SIDED_AUDIO_PATH = "/help/na-mac-slyshno-tolko-odnu-storonu"
@@ -63,7 +72,7 @@ PUBLISHED_CONTENT_PATHS = (
 )
 PUBLIC_CONTENT_SURFACES = {
     GUIDES_PATH: "public_guides",
-    **{page.path: page.analytics_surface for page in PUBLIC_CONTENT_PAGES},
+    **{page.path: page.analytics_surface for page in PUBLIC_CONTENT_PAGES if page.analytics_surface},
 }
 
 
