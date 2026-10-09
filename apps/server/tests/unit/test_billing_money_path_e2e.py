@@ -651,6 +651,12 @@ def test_subscription_page_names_the_real_charge_day(client, monkeypatch, tmp_pa
     assert state.subscription.paid_through == PAID_THROUGH
     assert state.subscription.recurring_allowed is True
 
+    class BillingClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return PAID_AT.astimezone(tz or UTC)
+
+    monkeypatch.setattr(billing_routes, "datetime", BillingClock)
     page = client.get("/billing/subscription", headers=opened.headers)
     assert page.status_code == 200, page.text
     first_attempt = format_user_datetime(PAID_THROUGH - timedelta(hours=72), show_zone=True)

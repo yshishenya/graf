@@ -37,7 +37,7 @@
 
 Документы: `specs/287-audio-storage-permissions/{spec,plan,research,data-model,quickstart,tasks}.md`, `contracts/media-storage-read.md`, reviewer-owned `checklists/{security,infra}.md`.
 Код: `apps/server/src/twobrain_rec_server/billing/purchases.py`, `apps/server/scripts/bootstrap_runtime_database_roles.py`.
-Проверки: `apps/server/tests/fixtures/postgres_test_database.py`, `apps/server/tests/integration/test_playback_normalization_postgres.py`, `apps/server/tests/integration/test_rls_postgres_policies.py`, `apps/server/tests/unit/test_storage_packages.py`, `apps/server/tests/unit/test_billing_entitlements.py`, `apps/server/tests/unit/test_renewal_charge.py`.
+Проверки: `apps/server/tests/fixtures/postgres_test_database.py`, `apps/server/tests/integration/test_playback_normalization_postgres.py`, `apps/server/tests/integration/test_rls_postgres_policies.py`, `apps/server/tests/unit/test_storage_packages.py`, `apps/server/tests/unit/test_billing_entitlements.py`, `apps/server/tests/unit/test_renewal_charge.py`, `apps/server/tests/unit/test_billing_money_path_e2e.py` (только закрепление времени страницы подписки, обнаруженное CI).
 Фрагмент изменений: `changes/unreleased/F287.yaml`.
 
 **Structure Decision**: Продолжить существующий путь настройки ролей и тестов; без нового приложения, подсистемы прав или восстановителя.
