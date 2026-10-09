@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -33,6 +34,14 @@ class _FakeDb:
         self.invoices = [item for item in values if isinstance(item, BillingInvoice)]
         self.payment_methods = payment_methods or []
         self.added: list[object] = []
+
+    async def execute(self, query):
+        assert len(query.column_descriptions) == 1
+        assert query.column_descriptions[0]["name"] in {
+            "capacity_snapshot_bytes", "plan_snapshot",
+        }
+        row = await self.scalar(query)
+        return SimpleNamespace(first=lambda: row)
 
     async def scalar(self, _query: object) -> object:
         entity = _query.column_descriptions[0].get("entity")

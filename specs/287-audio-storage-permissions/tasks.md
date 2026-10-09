@@ -7,7 +7,7 @@
 ## Phase 2: User Story 1 — платное хранение
 
 - [X] T002 [US1] Добавить причинную проверку подготовки personal под настоящей медиаролью и матрицу существующего расчёта в apps/server/tests/integration/test_playback_normalization_postgres.py; воспроизвести RED до изменения кода. FR001/002/006/007, SC001/004.
-- [X] T003 [US1] Сузить только форму чтения bonus/invoice в apps/server/src/twobrain_rec_server/billing/purchases.py и согласовать apps/server/tests/unit/test_storage_packages.py; сохранить отсутствие строки/NULL и все финансовые ветки. FR002/003, SC001.
+- [X] T003 [US1] Сузить только форму чтения bonus/invoice в apps/server/src/twobrain_rec_server/billing/purchases.py и согласовать apps/server/tests/unit/test_storage_packages.py и существующие помощники test_billing_entitlements.py/test_renewal_charge.py; сохранить отсутствие строки/NULL и все финансовые ветки. FR002/003, SC001.
 
 ## Phase 3: User Story 2 — границы доступа
 
