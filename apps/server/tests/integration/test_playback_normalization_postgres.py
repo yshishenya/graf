@@ -13,6 +13,7 @@ from pathlib import Path
 from types import ModuleType
 from uuid import UUID, uuid4
 
+import asyncpg
 import pytest
 from alembic import command
 from alembic.config import Config
@@ -29,13 +30,16 @@ from tests.integration.test_playback_normalization_workflow import (
     FakeNormalizationPipeline,
 )
 from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.billing.catalog import FREE_STORAGE_BYTES, TRIAL_STORAGE_BYTES
 from twobrain_rec_server.config import get_settings
 from twobrain_rec_server.db.models import (
     Meeting,
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
     ProcessingWorkflow,
+    StorageReservation,
     TrackArtifact,
+    WorkspaceSubscription,
 )
 from twobrain_rec_server.db.tenant_context import (
     MaintenanceTenantContext,
@@ -199,6 +203,10 @@ async def _create_media_test_role(owner_url: str) -> tuple[str, bool]:
                     f"to {quoted_role}"
                 )
             )
+            for table, columns in bootstrap.MEDIA_STORAGE_COLUMNS.items():
+                await conn.execute(text(
+                    f"grant select ({', '.join(columns)}) on public.{table} to {quoted_role}"
+                ))
             for table_name, column_name in bootstrap.MEDIA_LOCK_COLUMNS:
                 await conn.execute(
                     text(f"grant update ({column_name}) on public.{table_name} to {quoted_role}")
@@ -638,7 +646,36 @@ async def test_runtime_role_bootstrap_is_idempotent_and_verifies_privileges(
         bootstrap = _load_runtime_role_bootstrap()
         created_roles = True
         await bootstrap._bootstrap()
-        await bootstrap._bootstrap()
+        verification_connection = await asyncpg.connect(
+            owner_url.set(drivername="postgresql").render_as_string(hide_password=False)
+        )
+        try:
+            # Removing a required field must fail before accepting a runtime role.
+            await verification_connection.execute(
+                "revoke select (plan_snapshot) on public.billing_invoices from twobrain_rec_media"
+            )
+            with pytest.raises(RuntimeError, match="storage column privileges are unsafe"):
+                await bootstrap._verify_runtime_roles(
+                    verification_connection, database_name=owner_url.database,
+                )
+            await bootstrap._bootstrap()
+            for grant in (
+                "select (receipt_contact_snapshot) on public.billing_invoices",
+                "update (capacity_snapshot_bytes) on public.time_credit_ledger_entries",
+                "insert (state) on public.time_credit_ledger_entries",
+                "references (invoice_id) on public.billing_entitlement_grants",
+                "select (plan_snapshot) on public.billing_invoices",
+            ):
+                suffix = " with grant option" if grant.startswith("select (plan_snapshot)") else ""
+                await verification_connection.execute(f"grant {grant} to twobrain_rec_media{suffix}")
+                with pytest.raises(RuntimeError, match="storage column privileges are unsafe"):
+                    await bootstrap._verify_runtime_roles(
+                        verification_connection, database_name=owner_url.database,
+                    )
+                await bootstrap._bootstrap()
+            await bootstrap._bootstrap()
+        finally:
+            await verification_connection.close()
 
         media_runtime_url = owner_url.set(
             username="twobrain_rec_media",
@@ -729,6 +766,15 @@ async def test_runtime_role_bootstrap_is_idempotent_and_verifies_privileges(
                     )
                 ).all()
             }
+            storage_column_grants = {
+                (row.table_name, row.column_name, row.privilege_type, row.is_grantable)
+                for row in (await conn.execute(text(
+                    "select table_name, column_name, privilege_type, is_grantable "
+                    "from information_schema.role_column_grants "
+                    "where grantee = 'twobrain_rec_media' and table_schema = 'public' "
+                    "and table_name = any(:tables)"
+                ), {"tables": list(bootstrap.MEDIA_STORAGE_COLUMNS)})).all()
+            }
             media_can_update_meeting_timestamp = bool(
                 await conn.scalar(
                     text(
@@ -776,6 +822,11 @@ async def test_runtime_role_bootstrap_is_idempotent_and_verifies_privileges(
         }
         assert ("alembic_version", "SELECT") in media_table_grants
         assert media_table_grants == expected_media_table_grants
+        assert storage_column_grants == {
+            (table, column, "SELECT", "NO")
+            for table, columns in bootstrap.MEDIA_STORAGE_COLUMNS.items()
+            for column in columns
+        }
         assert media_can_update_meeting_timestamp is True
         assert media_can_update_meeting_status is False
 
@@ -1358,7 +1409,9 @@ async def test_postgres_dispatch_rehydrates_scope_after_claim_commit(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("paid", [False, True], ids=["free", "personal"])
 async def test_postgres_run_job_rehydrates_scope_after_prepare_commit_and_publishes(
+    paid: bool,
     migrated_postgres_url: str,
     media_postgres_url: str,
     tmp_path: Path,
@@ -1370,6 +1423,14 @@ async def test_postgres_run_job_rehydrates_scope_after_prepare_commit_and_publis
     candidate_body = b"untrusted-playback-candidate"
     try:
         ids = await _seed_revision(owner_engine)
+        if paid:
+            async with async_sessionmaker(owner_engine)() as db:
+                db.add(WorkspaceSubscription(
+                    workspace_id=ids["workspace_id"], state="personal", plan_code="personal",
+                    capacity_bytes=5_000_000_000,
+                    paid_through=datetime.now(UTC) + timedelta(days=1),
+                ))
+                await db.commit()
         seeded = await _seed_queued_job(
             owner_engine,
             ids,
@@ -1404,6 +1465,10 @@ async def test_postgres_run_job_rehydrates_scope_after_prepare_commit_and_publis
                     PlaybackNormalizationAttempt.job_id == seeded["job_id"]
                 )
             )
+            reservation = await db.scalar(select(StorageReservation).where(
+                StorageReservation.workspace_id == ids["workspace_id"],
+                StorageReservation.idempotency_key == f"normalization:{attempt.id}",
+            ))
             artifacts = list(
                 await db.scalars(
                     select(TrackArtifact).where(
@@ -1424,6 +1489,9 @@ async def test_postgres_run_job_rehydrates_scope_after_prepare_commit_and_publis
         canonical = next(
             artifact for artifact in artifacts if artifact.id == job.canonical_track_artifact_id
         )
+        assert reservation is not None
+        assert reservation.state == "committed"
+        assert reservation.committed_bytes == canonical.byte_length
         assert canonical.status == "stored"
         assert canonical.validated_at is not None
         assert canonical.normalization_profile_version == PROFILE_VERSION
@@ -1661,3 +1729,180 @@ async def test_postgres_media_upload_lock_serializes_deletion_before_object_publ
     finally:
         await media_engine.dispose()
         await owner_engine.dispose()
+
+
+async def _seed_storage_rights(engine, ids, *, case, now):
+    from twobrain_rec_server.db.models import (
+        BillingEntitlementGrant,
+        BillingInvoice,
+        BillingOperation,
+        BillingStorageEntitlementGrant,
+        BillingStoragePriceVersion,
+        TimeCreditLedgerEntry,
+    )
+
+    day = timedelta(days=1)
+    subscription = WorkspaceSubscription(
+        workspace_id=ids["workspace_id"], plan_code="personal", state="personal",
+        capacity_bytes=20_000_000_000, paid_through=now + day,
+    )
+    if case == "free":
+        subscription.plan_code = subscription.state = "free"
+    elif case.startswith("trial"):
+        subscription.plan_code = subscription.state = "trial"
+        subscription.trial_ends_at = now + (day if case == "trial" else -day)
+    elif case == "expired_personal":
+        subscription.paid_through = now - day
+    async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+        db.add(subscription)
+        if case.startswith("bonus") or case == "active_addon":
+            snapshot = {"bonus_low": 2_000_000_000, "bonus_high": 100_000_000_000}.get(case)
+            db.add(TimeCreditLedgerEntry(
+                workspace_id=ids["workspace_id"], source_ref=str(uuid4()), days=1,
+                state="pending" if case == "active_addon" else "applied",
+                maturity_at=now - day, expires_at=now + day,
+                applied_start=now - day, applied_end=now + day,
+                capacity_snapshot_bytes=snapshot,
+            ))
+        if case != "cached_without_journal":
+            operation = BillingOperation(
+                workspace_id=ids["workspace_id"], kind="renewal", state="succeeded",
+                idempotency_key=str(uuid4()), request_snapshot={},
+            )
+            db.add(operation)
+            await db.flush()
+            invoice = BillingInvoice(
+                workspace_id=ids["workspace_id"], operation_id=operation.id,
+                safe_number=f"INV-{uuid4().hex}", amount_minor=10000, currency="RUB",
+                status="succeeded", receipt_contact_snapshot="synthetic@example.test",
+                plan_snapshot=(
+                    {"catalog_snapshot": {"storage_bytes": 100_000_000_000}}
+                    if case == "legacy_invoice" else {} if case == "invoice_cached"
+                    else {"purchase_schema": 2}
+                ),
+            )
+            db.add(invoice)
+            await db.flush()
+            base = BillingEntitlementGrant(
+                workspace_id=ids["workspace_id"], invoice_id=invoice.id,
+                provider_payment_id=str(uuid4()), plan_code="personal", cycle="month",
+                starts_at=now - (2 * day if case == "historical_journal" else 3 * day),
+                ends_at=now - day if case == "historical_journal" else now + 3 * day,
+                amount_minor=10000, currency="RUB",
+            )
+            db.add(base)
+            await db.flush()
+            if case in {"active_addon", "future_addon", "expired_addon", "historical_journal"}:
+                price = await db.scalar(select(BillingStoragePriceVersion).where(
+                    BillingStoragePriceVersion.capacity_bytes == 100_000_000_000,
+                    BillingStoragePriceVersion.cycle == "month",
+                ).limit(1))
+                assert price is not None  # Seeded by the real catalog migration.
+                start, end = now - day, now + day
+                if case == "future_addon":
+                    start, end = now + day, now + 2 * day
+                elif case in {"expired_addon", "historical_journal"}:
+                    start, end = now - 2 * day, now - day
+                db.add(BillingStorageEntitlementGrant(
+                    workspace_id=ids["workspace_id"], invoice_id=invoice.id,
+                    base_grant_id=base.id, capacity_bytes=100_000_000_000,
+                    starts_at=start, ends_at=end, catalog_version_id=price.id,
+                    full_period_amount_minor=price.amount_minor,
+                ))
+        await db.commit()
+    return subscription
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case,expected", [
+    ("free", FREE_STORAGE_BYTES), ("trial", TRIAL_STORAGE_BYTES),
+    ("trial_expired", FREE_STORAGE_BYTES), ("expired_personal", FREE_STORAGE_BYTES),
+    ("base_only", 5_000_000_000), ("bonus_low", 5_000_000_000),
+    ("bonus_high", 100_000_000_000), ("bonus_null", 20_000_000_000),
+    ("active_addon", 100_000_000_000), ("future_addon", 5_000_000_000),
+    ("expired_addon", 5_000_000_000), ("legacy_invoice", 100_000_000_000),
+    ("invoice_cached", 20_000_000_000), ("cached_without_journal", 20_000_000_000),
+    ("historical_journal", 5_000_000_000),
+])
+async def test_media_role_preserves_storage_calculation(
+    migrated_postgres_url, media_postgres_url, case, expected,
+):
+    from twobrain_rec_server.billing.purchases import effective_paid_storage
+
+    owner = create_async_engine(migrated_postgres_url)
+    media = create_async_engine(media_postgres_url)
+    now = datetime.now(UTC)
+    try:
+        ids = await _seed_revision(owner)
+        subscription = await _seed_storage_rights(owner, ids, case=case, now=now)
+        for engine in (owner, media):
+            async with async_sessionmaker(engine)() as db:
+                await apply_tenant_scope(db, TenantScope(**{
+                    key: ids[key] for key in ("organization_id", "workspace_id", "user_id", "device_id")
+                }), context_kind="worker")
+                assert await effective_paid_storage(db, subscription=subscription, now=now) == expected
+                assert subscription.capacity_bytes == 20_000_000_000
+    finally:
+        await media.dispose()
+        await owner.dispose()
+
+
+@pytest.mark.asyncio
+async def test_media_storage_columns_require_scope_and_forbid_financial_writes(
+    migrated_postgres_url, media_postgres_url,
+):
+    bootstrap = _load_runtime_role_bootstrap()
+    owner = create_async_engine(migrated_postgres_url)
+    media = create_async_engine(media_postgres_url)
+    try:
+        ids = await _seed_revision(owner)
+        other = await _seed_revision(owner)
+        for tenant in (ids, other):
+            await _seed_storage_rights(owner, tenant, case="active_addon", now=datetime.now(UTC))
+        keys = ("organization_id", "workspace_id", "user_id", "device_id")
+        scopes = (
+            (None, None),
+            (TenantScope(**{key: ids[key] for key in keys}), ids["workspace_id"]),
+            (TenantScope(**{key: other[key] for key in keys}), other["workspace_id"]),
+            ("missing_workspace", None),
+            ("maintenance", None),
+        )
+        for scope, visible in scopes:
+            async with async_sessionmaker(media)() as db:
+                if scope in ("missing_workspace", "maintenance"):
+                    await apply_tenant_scope(db, scopes[1][0], context_kind="worker")
+                    if scope == "missing_workspace":
+                        await db.execute(text("select set_config('app.workspace_id', '', true)"))
+                    else:
+                        await apply_tenant_context(db, MaintenanceTenantContext(
+                            operation_name="playback_normalization_inventory",
+                            actor_id="synthetic-media-proof", reason_category="synthetic-test",
+                            feature_area="playback_normalization",
+                        ))
+                elif scope:
+                    await apply_tenant_scope(db, scope, context_kind="worker")
+                for table, columns in bootstrap.MEDIA_STORAGE_COLUMNS.items():
+                    rows = (await db.execute(text(
+                        f"select {', '.join(columns)} from public.{table} "
+                        "where workspace_id in (:own, :other)"
+                    ), {"own": ids["workspace_id"], "other": other["workspace_id"]})).mappings().all()
+                    assert {row["workspace_id"] for row in rows} == ({visible} if visible else set())
+        forbidden = {
+            "time_credit_ledger_entries": "source_ref",
+            "billing_storage_entitlement_grants": "full_period_amount_minor",
+            "billing_entitlement_grants": "provider_payment_id",
+            "billing_invoices": "receipt_contact_snapshot",
+        }
+        for table, field in forbidden.items():
+            for statement in (
+                f"select {field} from public.{table}", f"select * from public.{table}",
+                f"update public.{table} set workspace_id = workspace_id",
+                f"insert into public.{table} default values", f"delete from public.{table}",
+            ):
+                async with async_sessionmaker(media)() as db:
+                    await apply_tenant_scope(db, scopes[1][0], context_kind="worker")
+                    with pytest.raises(DBAPIError, match="permission denied"):
+                        await db.execute(text(statement))
+    finally:
+        await media.dispose()
+        await owner.dispose()

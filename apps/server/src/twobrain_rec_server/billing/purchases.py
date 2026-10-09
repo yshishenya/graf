@@ -339,17 +339,19 @@ async def effective_paid_storage(
         or utc(subscription.paid_through) <= current
     ):
         return FREE_STORAGE_BYTES
-    bonus = await db.scalar(
-        select(TimeCreditLedgerEntry)
-        .where(
-            TimeCreditLedgerEntry.workspace_id == subscription.workspace_id,
-            TimeCreditLedgerEntry.state == "applied",
-            TimeCreditLedgerEntry.applied_start <= current,
-            TimeCreditLedgerEntry.applied_end > current,
+    bonus = (
+        await db.execute(
+            select(TimeCreditLedgerEntry.capacity_snapshot_bytes)
+            .where(
+                TimeCreditLedgerEntry.workspace_id == subscription.workspace_id,
+                TimeCreditLedgerEntry.state == "applied",
+                TimeCreditLedgerEntry.applied_start <= current,
+                TimeCreditLedgerEntry.applied_end > current,
+            )
+            .order_by(TimeCreditLedgerEntry.applied_start.desc())
+            .limit(1)
         )
-        .order_by(TimeCreditLedgerEntry.applied_start.desc())
-        .limit(1)
-    )
+    ).first()
     if bonus is not None:
         return max(
             PERSONAL_STORAGE_BYTES,
@@ -364,21 +366,23 @@ async def effective_paid_storage(
     )
     if active is not None:
         return max(PERSONAL_STORAGE_BYTES, int(active))
-    base_invoice = await db.scalar(
-        select(BillingInvoice)
-        .join(
-            BillingEntitlementGrant,
-            (BillingEntitlementGrant.invoice_id == BillingInvoice.id)
-            & (BillingEntitlementGrant.workspace_id == BillingInvoice.workspace_id),
+    base_invoice = (
+        await db.execute(
+            select(BillingInvoice.plan_snapshot)
+            .join(
+                BillingEntitlementGrant,
+                (BillingEntitlementGrant.invoice_id == BillingInvoice.id)
+                & (BillingEntitlementGrant.workspace_id == BillingInvoice.workspace_id),
+            )
+            .where(
+                BillingEntitlementGrant.workspace_id == subscription.workspace_id,
+                BillingEntitlementGrant.starts_at <= current,
+                BillingEntitlementGrant.ends_at > current,
+            )
+            .order_by(BillingEntitlementGrant.starts_at.desc())
+            .limit(1)
         )
-        .where(
-            BillingEntitlementGrant.workspace_id == subscription.workspace_id,
-            BillingEntitlementGrant.starts_at <= current,
-            BillingEntitlementGrant.ends_at > current,
-        )
-        .order_by(BillingEntitlementGrant.starts_at.desc())
-        .limit(1)
-    )
+    ).first()
     if base_invoice is not None:
         snapshot = base_invoice.plan_snapshot or {}
         if snapshot.get("purchase_schema") == 2:

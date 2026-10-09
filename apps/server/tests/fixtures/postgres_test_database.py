@@ -19,6 +19,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
+from scripts.bootstrap_runtime_database_roles import MEDIA_STORAGE_COLUMNS
 from twobrain_rec_server.config import get_settings
 from twobrain_rec_server.db.base import Base
 
@@ -215,6 +216,10 @@ async def ensure_disposable_media_role(
             f"revoke all privileges on all tables in schema public from {quoted_role}",
             f"revoke all privileges on all sequences in schema public from {quoted_role}",
             f"grant select on {_table_list(MEDIA_READ_ONLY_TABLES)} to {quoted_role}",
+            *(
+                f"grant select ({', '.join(columns)}) on public.{table} to {quoted_role}"
+                for table, columns in MEDIA_STORAGE_COLUMNS.items()
+            ),
             f"grant select ({', '.join(MEDIA_WORKFLOW_COLUMNS)}) on public.processing_workflows to {quoted_role}",
             f"grant select, insert, update on {_table_list(MEDIA_READ_WRITE_TABLES)} "
             f"to {quoted_role}",
