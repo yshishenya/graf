@@ -1,6 +1,6 @@
 # Analyze — F287
 
-2026-10-10, high-risk-feature. Сопоставлены spec, plan, tasks, contracts, quickstart и constitution. Независимый отчёт: requirements-review.md.
+2026-10-10, high-risk-product. Сопоставлены spec, plan, tasks, contracts, quickstart и constitution. Независимый отчёт: requirements-review.md.
 
 CRITICAL 0, HIGH 0, MEDIUM 0. Все FR-001–008 и SC-001–004 покрыты T001–T005. Нет нарушений конституции, противоречий или непокрытых требований. Замечание C1 закрыто включением всего RLS-файла в обязательный локальный запуск. Security 5/0, infra 5/0 — проверены требования, не реализация.
 

@@ -12,7 +12,7 @@
 **Primary Dependencies**: существующие SQLAlchemy, asyncpg, pytest, Alembic; новых зависимостей нет.
 **Storage**: существующие финансовые таблицы и RLS; схема данных не меняется.
 **Testing**: причинный PostgreSQL-тест под `twobrain_rec_media`, матрица вычисления объёма, отрицательные права и действующие наборы хранения/подготовки.
-**Risk / Validation Lane**: high-risk-feature: права PostgreSQL и общий расчёт хранения.
+**Risk / Validation Lane**: high-risk-product: права PostgreSQL и общий расчёт хранения.
 **Release Gate**: no deploy в текущем запросе разработки; commit/merge/production после отдельного разрешения по AGENTS.md. Затем exact-SHA/base governance-fast, macos-pr, pr-metadata; frozen release-full и cd-remote.sh --dry-run до исполнения выпуска.
 **Target Platform**: Linux Docker server; локальная проверка PostgreSQL на Mac.
 **Project Type**: внутреннее исправление серверной службы.
