@@ -19,7 +19,6 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-from scripts.bootstrap_runtime_database_roles import MEDIA_STORAGE_COLUMNS
 from twobrain_rec_server.config import get_settings
 from twobrain_rec_server.db.base import Base
 
@@ -171,6 +170,8 @@ async def ensure_disposable_media_role(
     The surrounding test runner owns an isolated PostgreSQL container, and a
     cluster advisory lock makes concurrent xdist workers safe.
     """
+
+    from scripts.bootstrap_runtime_database_roles import MEDIA_STORAGE_COLUMNS
 
     database_name = _validate_loopback_postgres_url(database_url)
     _validate_disposable_database_name(database_name)

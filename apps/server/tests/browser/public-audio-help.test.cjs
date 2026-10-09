@@ -46,6 +46,7 @@ const fixtures = process.argv[2];
         await page.keyboard.press('Tab');
         assert.equal(await page.locator(':focus').getAttribute('href'), '#main');
         await page.keyboard.press('Enter');
+        await page.waitForURL('**/*#main');
         assert.ok(page.url().endsWith('#main'));
         if (process.env.GRAF_HELP_SCREENSHOTS && url.startsWith('/help')) {
           await page.goto('http://graf-help.test' + url);
