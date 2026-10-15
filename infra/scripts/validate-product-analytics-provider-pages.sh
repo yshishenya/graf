@@ -10,7 +10,10 @@ from tempfile import TemporaryDirectory
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.browser_context import build_browser_provider_context
-from twobrain_rec_server.product_analytics.page_inventory import page_class_policies
+from twobrain_rec_server.product_analytics.page_inventory import (
+    page_class_policies,
+    posthog_autocapture_page_classes,
+)
 from twobrain_rec_server.product_analytics.replay_masking import replay_decision_for_policy
 
 with TemporaryDirectory() as tmpdir:
@@ -33,8 +36,11 @@ with TemporaryDirectory() as tmpdir:
     contexts = [build_browser_provider_context(settings, policy.page_class) for policy in policies]
     replay_decisions = [replay_decision_for_policy(policy) for policy in policies]
 
-if not all(context["posthog"]["autocapture_enabled"] for context in contexts):
-    raise SystemExit("posthog_autocapture_missing")
+autocapture_classes = set(posthog_autocapture_page_classes())
+for policy, context in zip(policies, contexts):
+    expected_autocapture = policy.page_class in autocapture_classes
+    if context["posthog"]["autocapture_enabled"] is not expected_autocapture:
+        raise SystemExit(f"posthog_autocapture_policy_mismatch:{policy.page_class}")
 if any(context["posthog"]["replay_enabled"] for context in contexts):
     raise SystemExit("posthog_replay_unexpected")
 if any(
