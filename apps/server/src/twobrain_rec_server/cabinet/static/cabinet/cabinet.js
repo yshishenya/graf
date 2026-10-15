@@ -9061,12 +9061,16 @@
     fallback.setAttribute("readonly", "true");
     fallback.style.position = "fixed";
     fallback.style.opacity = "0";
+    const focused = document.activeElement;
     document.body.append(fallback);
     fallback.select();
     try {
       if (!document.execCommand("copy")) throw new Error("clipboard_unavailable");
     } finally {
       fallback.remove();
+      if (document.activeElement === document.body && focused?.isConnected) {
+        focused.focus({ preventScroll: true });
+      }
     }
   };
 
@@ -9093,6 +9097,7 @@
           status.textContent = "Не удалось скопировать. Выделите текст вручную.";
         }
       });
+      button.hidden = false;
     });
   };
 

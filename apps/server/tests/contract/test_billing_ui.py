@@ -394,33 +394,48 @@ async def test_scheduled_renewal_uses_persisted_invoice_amount(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("checkout_enabled", "billing_actor_user_id", "expected_url"),
+    ("checkout_enabled", "billing_actor_user_id", "invoice_case", "expected_url"),
     (
-        (True, str(UUID(int=1)), "https://yookassa.test/checkout/existing-payment"),
-        (False, str(UUID(int=1)), None),
-        (True, str(UUID(int=4)), None),
+        (True, str(UUID(int=1)), "pending", "https://yookassa.test/checkout/existing-payment"),
+        (True, None, "pending", "https://yookassa.test/checkout/existing-payment"),
+        (False, str(UUID(int=1)), "pending", None),
+        (True, str(UUID(int=4)), "pending", None),
+        (True, str(UUID(int=1)), "succeeded", None),
+        (True, str(UUID(int=1)), "missing", None),
+        (True, str(UUID(int=1)), "foreign_workspace", None),
+        (True, str(UUID(int=1)), "mismatched_operation", None),
+        (True, str(UUID(int=1)), "unbound", None),
     ),
 )
 async def test_checkout_page_only_offers_authorized_persisted_continuation(
     monkeypatch: pytest.MonkeyPatch,
     checkout_enabled: bool,
-    billing_actor_user_id: str,
+    billing_actor_user_id: str | None,
+    invoice_case: str,
     expected_url: str | None,
 ) -> None:
     principal = SimpleNamespace(user_id=UUID(int=1), session_id=None, auth_via_session=False)
     blocker = SimpleNamespace(
         id=UUID(int=5),
+        workspace_id=UUID(int=2),
         kind="initial_checkout",
         state="provider_pending",
+        provider_id=None if invoice_case == "unbound" else "synthetic-provider-id",
         request_snapshot={
             "confirmation_url": "https://yookassa.test/checkout/existing-payment",
             "billing_actor_user_id": billing_actor_user_id,
         },
     )
+    invoice = None if invoice_case == "missing" else SimpleNamespace(
+        operation_id=UUID(int=6) if invoice_case == "mismatched_operation" else blocker.id,
+        workspace_id=UUID(int=9) if invoice_case == "foreign_workspace" else blocker.workspace_id,
+        status="succeeded" if invoice_case == "succeeded" else "pending",
+        safe_number="INV-SYNTHETIC",
+    )
 
     class FakeSession:
         def __init__(self) -> None:
-            self.results = iter((blocker, None, None, None))
+            self.results = iter((blocker, invoice, None, None))
 
         async def scalar(self, _statement: object) -> object:
             return next(self.results)
