@@ -117,3 +117,52 @@ pytest assert rewriting и deprecated Starlette/httpx adapter.
 Повторенный соседним оператором набор не добавлен к этому числу. Browser,
 другие unit/security наборы и release evidence выполняют соответствующие
 исполнители отдельно.
+
+## Совместимость существующего money-path теста после CI
+
+Проверка 2026-10-16 на HEAD
+`44878280d9dda08b792cd75cb6bc611b992465a4` воспроизвела шесть отказов из
+`governance-fast` run `38808737767`, job `116676361965`. В
+`apps/server/tests/unit/test_billing_money_path_e2e.py` все шесть вариантов
+`test_confirmed_payment_grants_access_and_survives_replays` доходили до
+единственного несовместимого ожидания Location после успешной оплаты.
+Перед этим тест уже проверял подтверждение провайдера, выдачу единственного
+grant, точную сумму и период, а также сохраненные invoice/operation
+`succeeded`. Поэтому возврат к прежнему hosted checkout противоречил FR-053.
+
+Изменено только это ожидание: повтор завершенного платежа должен вести на
+`/billing/checkout/status/{invoice.safe_number}`. Проверка pending retry по
+прежнему требует тот же hosted URL. Все проверки суммы, доступа, периода,
+согласия, карты, единственного provider create/read и идемпотентной повторной
+обработки сохранены без изменений. Продуктовый код в этом исправлении не менялся.
+
+| Прогон | Результат |
+|---|---|
+| Причинный RED до правки ожидания | 6 failed, 0 skipped; 13.66 с, только строка Location |
+| Весь `test_billing_money_path_e2e.py` после правки | 71 passed, 0 skipped; 48.80 с |
+
+Команды из корня репозитория:
+
+```sh
+GRAF_TEST_WORKERS=2 apps/server/scripts/run_local_postgres_tests.sh --focused \
+  tests/unit/test_billing_money_path_e2e.py::test_confirmed_payment_grants_access_and_survives_replays \
+  -q --tb=short --show-capture=no
+
+GRAF_TEST_WORKERS=2 apps/server/scripts/run_local_postgres_tests.sh --focused \
+  tests/unit/test_billing_money_path_e2e.py -q --tb=short --show-capture=no
+```
+
+Оба одноразовых контейнера PostgreSQL удалены штатно. Ruff и
+`git diff --check` прошли. Два предупреждения совпадают с прежней
+инфраструктурой тестов. На Mac осталось 100 GiB свободно.
+
+| Артефакт | SHA256 |
+|---|---|
+| `.dev/payment-reaudit-money-path-red.log` | `e1eb19d6793a81a7b7262c548bd93f6291f772db857e00dd2bdae2238a6c0103` |
+| `.dev/payment-reaudit-money-path-green.log` | `53dbaef24bf1cf20b12fcfac726893162ba89daf1976fc2ddb3f2cbe695ffadb` |
+| `apps/server/tests/unit/test_billing_money_path_e2e.py` | `90199ccf95653742e8a56867b4c2945b1ac9fa6e431a553a98823ec268ad7357` |
+
+Отпечаток `billing.py` совпадает с таблицей выше. Этот дополнительный файл
+не пересекается с предыдущими пятью: всего этим исполнителем проверено
+**610 passed** в полных файлах. Это локальная проверка незакоммиченной правки
+на указанном HEAD; она не заменяет CI нового SHA и выпуск.

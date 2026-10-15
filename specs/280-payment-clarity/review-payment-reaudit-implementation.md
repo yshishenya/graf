@@ -68,3 +68,19 @@
 | `f280-t064-webkit-final` — PASS 20 | `1406d51b0fc07c223480cc3bd0aa453a7db7fbe7daae4bbf7d1fe8af3c25a499` |
 | `payment-reaudit-full-green` — PASS 289 | `fa862f1ccbd2c12faec9267e9c111b2bf3adcd041642703d2c1d22aae6f87f45` |
 | `f280-reaudit-sibling-green` — PASS 267 | `11a4aac3a27bd66097463cfecb6f392ec43cfc4d420beb515f55bb83fb6672f2` |
+
+## Дополнительная проверка terminal replay после CI
+
+2026-10-16, текущий HEAD `44878280d9dda08b792cd75cb6bc611b992465a4`, PR #7606. Root сообщил отказ `governance-fast` run `38808737767`, job `116676361965`: шесть вариантов `test_confirmed_payment_grants_access_and_survives_replays` ожидали сохраненный hosted URL после подтвержденного завершения платежа. Reviewer независимо прочитал FR053, реальную ветвь same-key recovery, helper и весь затронутый тест; runner или GitHub повторно не запускал.
+
+**Дополнительная проверка исходников PASS: исправление тестового ожидания соответствует FR053, новых замечаний/блокеров не найдено.** Перед terminal replay тест уже проверил `invoice.status == succeeded` и `operation.state == succeeded`; такая пара не разрешает hosted continuation даже при сохраненной ссылке. Повторное оформление с прежним ключом должно отвечать 303 на локальный `/billing/checkout/status/{invoice.safe_number}`. Предыдущее ожидание hosted URL противоречило действующему FR053.
+
+Независимо прочитан фактический diff `test_billing_money_path_e2e.py`: изменены ровно одно итоговое ожидание Location и поясняющий комментарий. Более ранний `pending_retry` по-прежнему обязан возвращать первоначальный hosted URL. Варианты month/year × renew/once/omitted сохранены. Без изменений остались все проверки суммы/валюты, provider idempotence key, payload capture/save_method/receipt, единственного provider create/read, grant count=1 и связи с invoice/payment, оплаченного срока и доступа, подписки/автопродления/карты, неизменного принятого consent при отличающемся checkbox, duplicate webhook и пустого повторного reconcile. Прежние проверки количества grants/payment methods и отсутствия второго provider платежа сохранены; reviewer не приписывает этому тесту новые SQL count assertions, которых в diff нет.
+
+Непосредственно прочитан завершенный causal RED `payment-reaudit-money-path-red`: ровно 6 failed, 2 warnings, 13.66s; все шесть отказов относятся к прежнему Location после succeeded, остальные предшествующие денежные assertions дошли до этой строки. Изолированный runner завершился status=fail, контейнер удален. Затем независимо прочитан завершенный полный GREEN `payment-reaudit-money-path-green`: collection_count=71, 71 passed, 0 skipped, 2 прежних warnings, 48.80s; runner status=pass, duration_seconds=53, `postgres_test_result=pass` и `isolated_container_removed`. Хеш измененного теста после прогона тот же. Все шесть product SHA-256 повторно сверены с таблицей выше и неизменны; эта правка не меняет product поведение. Дополнительный независимый обзор завершен PASS без применимых новых замечаний; текущие exact PR SHA/base и CI по-прежнему требуют отдельного подтверждения после commit.
+
+| Дополнительный снимок | SHA-256 |
+|---|---|
+| `apps/server/tests/unit/test_billing_money_path_e2e.py` | `90199ccf95653742e8a56867b4c2945b1ac9fa6e431a553a98823ec268ad7357` |
+| `payment-reaudit-money-path-red` — RED 6 | `e1eb19d6793a81a7b7262c548bd93f6291f772db857e00dd2bdae2238a6c0103` |
+| `payment-reaudit-money-path-green` — PASS 71 | `53dbaef24bf1cf20b12fcfac726893162ba89daf1976fc2ddb3f2cbe695ffadb` |

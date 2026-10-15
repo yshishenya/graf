@@ -15,6 +15,8 @@
 
 ## Проверки
 
+Первый PR HEAD `44878280d9dda08b792cd75cb6bc611b992465a4`: macos-pr и pr-metadata PASS; governance-fast [38808737767](https://github.com/yshishenya/graf/actions/runs/38808737767) FAILED, 6 failed / 174 passed. Все шесть отказов относятся к `test_confirmed_payment_grants_access_and_survives_replays` (`renew`, `once`, `omitted` × `month`, `year`): после доказанных invoice/operation succeeded прежний тест требовал вернуть старый hosted URL. Это противоречит FR053. Причинный локальный повтор неизмененного теста воспроизвел 6 failed / 0 skipped за13.66с. Изменено только итоговое ожидаемое Location на локальный статус того же счета; pending replay продолжает требовать прежний hosted URL. Проверки сумм, доступа, сроков, сохраненных согласий, provider calls, повторов webhook и количества grants сохранены. Product код не изменен. Новый полный money-path результат и exact-SHA GitHub gates обязательны до слияния.
+
 | Проверка | Наблюдаемый результат |
 |---|---|
 | Полные test_billing_clarity.py и test_billing_ui.py, изолированный PostgreSQL | 289 passed, 0 skipped, 142.30с; disposable container штатно удален |
@@ -23,6 +25,7 @@
 | Presentation billing_clarity contract | 21 passed, 0.21с |
 | Spec Kit governance, fragment schema, Ruff измененных Python, JS syntax, whitespace | PASS |
 | Полные sibling return/purchase/promo | 250 passed, 0 skipped, 391.72с; дополнительный набор с17unit recovery —267 passed, 396.85с. Оба контейнера штатно удалены |
+| Полный money-path после исправления terminal replay ожидания | 71 passed, 0 skipped, 48.80с; runner exit0, disposable PostgreSQL штатно удален; все денежные assertions сохранены |
 | Browser Chromium/WebKit | PASS: Chromium59 в66.51с (accessibility+support), WebKit20 в90.35с; полные матрицы, без skipped |
 | Независимый requirements gate | 127 checked / 0 unchecked; report сохранен отдельно |
 | Независимый final source/browser обзор | PASS, применимых новых critical/high/medium нет; product hashes сверены |

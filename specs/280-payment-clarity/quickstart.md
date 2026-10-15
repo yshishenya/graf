@@ -61,6 +61,8 @@ GRAF_BROWSER=webkit uv run --extra dev pytest tests/contract/test_billing_access
 
 ## Закрытие
 
+Для FR053 обязательно запускать полный `tests/unit/test_billing_money_path_e2e.py`: pending replay сохраняет действующий hosted URL, а replay после подтвержденных invoice/operation succeeded открывает `/billing/checkout/status/{safe_number}`. При этом прежние assertions денег, доступа, согласий и отсутствия повторной оплаты должны сохраняться.
+
 Записать команды, время, SHA/diff и результаты в `validation.md`; запустить converge, оставить невыполненные acceptance задачи открытыми. Commit/PR exact SHA CI, release-full, установленный Dev, человеческая приемка и последующие метрики не выводятся из локальных тестов. F278 финансовая приемка остается отдельной. Реальных платежей без непосредственного согласования не выполнять.
 
 ## Дополнительная проверка промокода T014/T015
