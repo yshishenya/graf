@@ -6,7 +6,7 @@
 
 ## Checks
 
-`python3 specs/282-organic-search-pages/scripts/check_landing_preserved.py` — одноразовая приёмка F282, не постоянная CI-заморозка будущего лендинга.
+`python3 specs/282-organic-search-pages/scripts/check_landing_preserved.py --base-ref 0a235f175bed306324064b68a7c1e38bffa322b0` — одноразовая приёмка F282, не постоянная CI-заморозка будущего лендинга.
 
 1. `cd apps/server && uv run --extra dev ruff check src/twobrain_rec_server/public/web.py tests/contract/test_public_search_pages.py`
 2. `bash apps/server/scripts/run_local_postgres_tests.sh --focused -q tests/contract/test_public_search_pages.py tests/contract/test_public_landing_contract.py tests/contract/test_public_mac_meeting_guide.py tests/unit/test_public_landing.py tests/unit/test_public_analytics.py tests/unit/test_public_visit_attribution.py`

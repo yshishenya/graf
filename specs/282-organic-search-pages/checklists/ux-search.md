@@ -42,3 +42,8 @@ PASS требований: 9 checked / 0 unchecked. Это не приёмка �
 - CHK007: spec.md:29–30,65,69–70; plan.md:26; public/static/public/fonts/OFL.txt:1–5; product-gates.md раздел UX Reference Fidelity.
 - CHK008: spec.md:46–50,71,79–81; evidence/measurement-plan.md:5–25; evidence/baseline.md:3–6.
 - CHK009: spec.md:71; plan.md:17,39–42; quickstart.md:21; tasks.md:27.
+
+## Независимая повторная проверка — 2026-10-15
+
+PASS требований: 9 checked / 0 unchecked. Повторно прочитаны spec/plan/tasks/quickstart, контракт, план измерения, конституция и действующие правила. Отметки по-прежнему означают качество требований, а не выпуск или рост.
+При разрешении конфликтов FR-003 применяется к текущей главной `origin/master`: возврат старого landing.html из исторической baseline недопустим. Должны сохраниться текущие `/help`, руководства и остальные маршруты/элементы sitemap. Проверка разрешённого diff и ограничения доказательств: [repository-hygiene-review.md](../evidence/repository-hygiene-review.md).

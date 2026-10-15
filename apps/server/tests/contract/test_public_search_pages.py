@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.main import create_app
+from twobrain_rec_server.public.content import PUBLISHED_CONTENT_PATHS
 
 ROOT = Path(__file__).resolve().parents[4]
 PUBLIC = ROOT / "apps/server/src/twobrain_rec_server/public"
@@ -78,7 +79,7 @@ def test_search_pages_discovery_metadata_and_product_boundaries():
             node.text for node in sitemap.iter("{http://www.sitemaps.org/schemas/sitemap/0.9}loc")
         }
         assert {"https://rec.2brain.pro" + path for path in PAGES} <= locations
-        assert "https://rec.2brain.pro/guides/zapis-vstrechi-na-mac-bez-bota" in locations
+        assert {"https://rec.2brain.pro" + path for path in PUBLISHED_CONTENT_PATHS} <= locations
         assert len(locations) == len(list(sitemap.iter("{http://www.sitemaps.org/schemas/sitemap/0.9}loc")))
         assert client.get("/not-a-search-page").status_code == 404
         main = client.get("/").text
