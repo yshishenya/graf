@@ -1,0 +1,71 @@
+# Серверный выпуск v2026.10.16.1 — оплата и поисковые страницы
+
+Сервер обновлен, стабильный tag и GitHub Release опубликованы. **T065 остается открытой:** заключительная проверка подписки и существующего оплаченного документа в действующем пользовательском сеансе ожидает штатного повторного входа. Выпуск не завершает T011/T012 и финансовую приемку F278. Полоса: release-deploy; эта запись — docs-only/mechanical evidence.
+
+## Точный источник и допуск
+
+Единственный выпущенный источник: `79804a512a50e94e618ff3380b472d7f027963d6`. Документальное дополнение имеет собственный SHA и не является кодом работающего сервера. Опубликованная основа — `v2026.10.10.2`, источник `6a69474adc396f62c58e25a4dc27ca9491409aa6`.
+
+- Фактический first-parent диапазон: PR [#7591](https://github.com/yshishenya/graf/pull/7591), [#7387](https://github.com/yshishenya/graf/pull/7387), [#7400](https://github.com/yshishenya/graf/pull/7400), [#7606](https://github.com/yshishenya/graf/pull/7606), [#7608](https://github.com/yshishenya/graf/pull/7608), [#7609](https://github.com/yshishenya/graf/pull/7609). Каждый прошел три обязательные проверки на своих head/base и общий current validator; слияния обычные, без обхода.
+- Исправления оплаты: head `698ebfa5202986f1a681fd46eb4f12e505352ded`, base `d567a7dc51b0c4d99b22660d27950316ae609a66`, merge `e8d85cabc1246e1774b0af0b385d8e3a61fda237`; governance [38810862734](https://github.com/yshishenya/graf/actions/runs/38810862734), macOS [38810862776](https://github.com/yshishenya/graf/actions/runs/38810862776), metadata [38810897599](https://github.com/yshishenya/graf/actions/runs/38810897599).
+- Механическая правка F282: head `831451465dafd2e33b10c087453895b599e6a9a4`, base `9cce59fdeabfe9b3369421b41df03645f43a5b6b`, merge равен выпущенному источнику; governance [38814947437](https://github.com/yshishenya/graf/actions/runs/38814947437), macOS [38814947418](https://github.com/yshishenya/graf/actions/runs/38814947418), metadata [38814947416](https://github.com/yshishenya/graf/actions/runs/38814947416).
+- Train `train-20261015T221549Z-79804a512a50`, candidate `rc-20261015T221702Z-16f40f6b547f`, decision GO. Synthetic provenance `57a4801309b4b75e792c1a9d418a07396aa8cfe1`, tree совпал с источником. Changelog digest `sha256:09ac277362c7b2a512a687e3b47f39985c9f98a1573f5194115705dd9029da97`.
+- Единственная authoritative полная проверка исправленного кандидата [38816153046](https://github.com/yshishenya/graf/actions/runs/38816153046) — SUCCESS: server static, strict/performance, все8 частей PostgreSQL, macOS и aggregate. Настоящий GitHub artifact скачан и проверен. Evidence digest `sha256:1cb256d3ff2281c1fc4f451e8bf4b67300e649ada7ddbfb15ab1676dc6f87ceb`; skipped_gates пуст, requested/start/end/component SHA совпадают.
+- [Стабильный Release](https://github.com/yshishenya/graf/releases/tag/v2026.10.16.1) опубликован `2026-10-15T22:38:31Z`, не draft/prerelease. Annotated tag разрешается в выпущенный источник. Неизменяемое подтверждение `pa-rc-20261015T221702Z-16f40f6b547f` от `22:38:39Z` сверило tag/Release/source. Русские заметки содержат изменения, проверки, совместимость, ограничения и ссылки.
+
+## История остановки и исправления
+
+Первый кандидат `rc-20261015T215750Z-f273141e5165` на `9cce59fdeabfe9b3369421b41df03645f43a5b6b` получил отказ Full [38813784597](https://github.com/yshishenya/graf/actions/runs/38813784597): ровно один тест `test_templates_have_no_forbidden_copy[public/templates/public/search_guide.html]`, часть5 —1failed/842passed/10skipped. Другие server части и macOS прошли; старый кандидат для CD не использовался и не перезапускался.
+
+PR7609 заменил только14 букв «ё» на «е» в одном шаблоне и дополнил существующий validation. Независимо доказано точное преобразование, прочие байты и тесты сохранены. Причинный local RED1failed/77passed, после правки полный copy contract и public-search HTTP contract82passed/0skipped за3.04s. Новая часть5 полного выпуска —843passed/10skipped. Проверки и таймеры не ослаблялись. Прежние снимки не выдаются за проверку нового шаблона.
+
+## Развертывание и восстановление
+
+Из чистой primary master на точном источнике штатный CD dry-run прошел: candidate_gates=passed, authoritative_full_reused. Разрешенный execute завершился exit0, deploy_result=pass, deployed_sha/runtime_sha совпали с источником. Второй Full для того же кандидата не запускался.
+
+Перед обновлением создана свежая полная резервная копия `20261015T223111Z`, backup_result=pass. Проверки миграций, RLS, секретов и идентичности БД, Temporal, обработки и media-worker прошли. Production smoke загрузил и обработал пробную запись; очистка пробных данных прошла. После smoke повторно проверены Temporal и processing-worker — PASS. Проверки публичного установщика и appcast прошли.
+
+Сохраненный терминальный результат попытки `9b066578d99949fcbc9a9953c87bcc20`: `deployed`. Все application container/image source labels совпали с источником; перезапусков0. API/processing/media healthy, maintenance работает и отдельной health-проверки не имеет. Postgres/MinIO/Temporal healthy.
+
+До выкладки штатная полная проверка восстановления копии от10октября прошла `2026-10-15T21:32:59Z`. Временная БД, временное объектное хранилище и промежуточная копия dump удалены после проверки; исходная копия сохранена. На Mac резервные данные не копировались. Для запаса места очищен только штатный Docker build cache старше24часов; образы, контейнеры, тома и резервные копии не удалялись.
+
+Откат не выполнялся. Предыдущая успешная версия `v2026.10.10.2` и ее образы сохранены; новая резервная копия доступна оператору.
+
+## Фактические файлы работающего сервера
+
+Проверены файлы установленного Python-модуля внутри rec-api, а не только соседняя копия исходников. Все10 совпали с конечным исходным manifest.
+
+| Файл относительно apps/server/src/twobrain_rec_server | SHA-256 |
+| --- | --- |
+| `cabinet/static/cabinet/cabinet.js` | `ecfc375b7374b9a19f759d69b08b6df80885a56bf09556844fae7a2033d05fa6` |
+| `cabinet/templates/cabinet/pages/billing_history_content.html` | `2abee565e4b56edfb9976e51ec9feb77298d4a491c37936981a32e30c80b1c7a` |
+| `cabinet/templates/cabinet/pages/billing_invoice_content.html` | `388491ebcdce197493f47147a6f1677bdab92c6541b4a263d4b4a305604ab04f` |
+| `cabinet/templates/cabinet/pages/fair_use_content.html` | `f262b9e97251ff43f0a394c035973410220ca349895b08e8def6592983f7f535` |
+| `cabinet/templates/cabinet/pages/referrals_content.html` | `9beade0c2c625a1629a6cb92dcc0ea39b7e4e9c14a5d82666b35e71cac521752` |
+| `cabinet/web_routes/billing.py` | `30530765973b9f2073a2a08dcc005943d9b2ae21d613f297667ebc57902b5623` |
+| `public/static/public/search-guide.css` | `3b0f17c96362eec399b6ac0d0d99ae1466343ab7de68f68c84e1e68b0d747689` |
+| `public/templates/public/landing.html` | `b868cba7deb516890b71f8e9c79f2b8c3a445cc87d078d00dea757430d15d5ec` |
+| `public/templates/public/search_guide.html` | `73bd926dd0ed4e8ad374272e6dca4e2a26ee5b7bb610d908a8ec8c523afe4cc7` |
+| `public/web.py` | `d80258e190be1f3521913e621eeefe9f64d6b578a27cc950825663d3ed88684e` |
+
+GET `/api/v1/health/live` и `/api/v1/health/ready` вернули200. Эффективные public_checkout/provider_observation/all_workspaces — true, среда production: публичная оплата включена для всех. Значения секретов, идентификаторы пользовательских платежей и частные сведения не сохранялись.
+
+## Публичные файлы и новые страницы
+
+Все175 файлов .pkg/.xml/.zip в runtime совпали с сохраненной базой: добавленных, пропавших или измененных0. Отдельно повторно скачаны публичные файлы;3/3 совпали по размеру и SHA-256. Новый macOS пакет или appcast этим серверным выпуском не публиковались.
+
+| Файл | Байты | SHA-256 |
+| --- | ---: | --- |
+| `graf.pkg` | 9259700 | `b5df859986d0ad36a07302c87c598b7a7d6e027a65e4024dd70fe0cba3338662` |
+| `graf-appcast.xml` | 3546 | `a41579d1b65a44ec2a6e33a4efb33aa1841f8ea4d1d5d44445f3ef8138d7711a` |
+| `GRAF-2026.10.04.6.zip` | 9513651 | `df9817ab93757e0bbed0fcb6ad3841a6c2cf18947445fce263b3d2cd375b2836` |
+
+`/transcription`, `/meeting-minutes`, `/record-without-bot` вернули200, имеют правильные canonical, присутствуют в sitemap и подвале. GET с допустимыми UTM не вернул Set-Cookie; новая аналитическая конфигурация отсутствует. Индексация, рост переходов и полная атрибуция этими проверками не доказаны.
+
+## Оставшаяся приемка
+
+- **T065/#7597 открыта.** После CD существующая браузерная сессия и новая вкладка направлены на `/login` с `auth_session_invalid`; видимо сообщение «Сессия не найдена. Войдите снова». Причина потери сеанса этим не установлена; auth-код в выпущенном диапазоне не менялся. Mac заблокирован. До штатного входа нельзя подтвердить текущие authenticated GET подписки/истории/существующего оплаченного документа и работоспособность копирования в живом сеансе. Пользователь получил конкретную просьбу войти; новых писем, платежей, обхода авторизации или подмены пользователя не выполнялось.
+- **T011/#7378 открыта.** Через штатный harness установлен единственный GRAF Dev на `698ebfa5202986f1a681fd46eb4f12e505352ded`, build/promote/smoke PASS. Проверены Настройки → Тариф и оплата → Хранилище, помощь клавиатурой, переходы назад/вперед. Полная оплата/оплаченный документ/provider return и вся установленная theme/zoom матрица не приняты: checkoutfalse, штатного synthetic billing режима нет; Mac сейчас заблокирован.
+- **T012/#7379, SC005/006 и финансовая F278 открыты.** Участники, конверсия/удержание, банковская сверка, возвраты и настоящее автоматическое продление не заменяются тестами и этим выпуском. Новых реальных списаний, возвратов и писем не выполняли.
+- CD сохранил отдельные `automatic_retry`, `backfill_inventory`, `range_playback`, `normalization_cleanup` как required_post_deploy; их полная отдельная приемка этим платежным выпуском не объявляется. Worker readiness не подменяет эти сценарии.
+- Незавершенные storage/mail изменения другой рабочей копии в выпуск не включены. Legacy Impact: untouched; новых путей совместимости, зависимостей или исключений нет.
