@@ -1,8 +1,10 @@
 -- Агрегированная сверка. Не выбирать PII, содержимое JSON payload, аудио/тексты.
 -- Запуск: psql --set=ON_ERROR_STOP=1 --file=docs/organic-measurement-audit-2026-09-30.sql
 -- Соединение задаёт оператор через существующий защищённый способ.
--- READ ONLY запрещает изменения; результаты не являются provider reconciliation.
-BEGIN READ ONLY;
+-- Исправленная методика от 15 октября; повторно в production не запускалась.
+-- READ ONLY запрещает изменения; REPEATABLE READ фиксирует общий снимок транзакции.
+-- Результаты не являются сверкой с платёжным провайдером.
+BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;
 SET LOCAL statement_timeout = '10s';
 SELECT 'anonymous_requests' AS metric, count(*) AS buckets,
        coalesce(sum(visits), 0) AS requests,
@@ -28,7 +30,7 @@ SELECT 'result_baseline' AS metric, count(*) AS results FROM processing_results;
 SELECT status, count(*) AS workflows FROM processing_workflows
 GROUP BY status HAVING count(*) >= 5 ORDER BY status;
 SELECT 'billing_keys_only' AS metric, count(*) AS operations,
-       count(DISTINCT idempotency_key) AS unique_keys FROM billing_operations;
+       count(DISTINCT (workspace_id, idempotency_key)) AS unique_workspace_keys FROM billing_operations;
 SELECT 'webhook_keys_only' AS metric, count(*) AS webhooks,
-       count(DISTINCT provider_event_id) AS unique_keys FROM billing_webhook_events;
+       count(DISTINCT (workspace_id, provider_event_id)) AS unique_workspace_keys FROM billing_webhook_events;
 ROLLBACK;

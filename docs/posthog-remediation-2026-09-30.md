@@ -6,11 +6,13 @@
 Главная и download сохранены. Настройки найденного проекта проверены через
 существующий read-only Docker/DB доступ без вывода секретов.
 
-## Решение владельца: последующая ревизия
+## Историческое намерение владельца и действующий контракт
 
 30 сентября владелец явно выбрал IP и исходный внутренний account ID без
-хеширования для своего self-hosted PostHog. Это заменяет прежнее предложение
-no-IP/pseudonymous. Срок 365 дней не подтверждён. Решение о категориях данных
+хеширования для своего self-hosted PostHog. Здесь сохранено историческое
+намерение владельца; оно не заменяет требования F273 и действующее согласие.
+До отдельной ревизии Spec Kit обязательным остаётся псевдонимный режим.
+Срок 365 дней не подтверждён. Решение о категориях данных
 не разрешает rollout, новые credentials, обход readiness или сбор email/имени,
 содержимого встреч, паролей, токенов, платёжных реквизитов, replay/autocapture.
 Изменение этой документации не меняет текущий контракт приложения.
@@ -46,7 +48,11 @@ scope_all=true, observation=true, provider_environment=production. Это отд
 повторить выкладку. Источник release evidence: PR7386, head 5e0ebe113ae35095956245b9ad5d3a189180662b.
 
 Billing ledger всё ещё 8 operations/8 unique idempotency keys, 4 webhooks/4 unique
-provider event ids; последний webhook 29 сентября. Invoice states присутствуют,
+provider event ids; последний webhook 29 сентября. Эти исходные числа
+посчитаны по отдельным ключам без workspace_id и не доказывают уникальность
+составных ключей. Исправленный PostgreSQL-запрос считает пары с workspace_id
+в общей READ ONLY REPEATABLE READ транзакции; повторно он не выполнялся.
+Invoice states присутствуют,
 но они не сверены с test/live provider, возвратами, чеками и settlement. Поэтому
 выручка и payment acceptance не доказаны; платежей и webhook probes не делали.
 Публичные сообщения о недоступности оплаты теперь требуют отдельного анализа
@@ -77,7 +83,10 @@ IP — адрес клиента из проверенной цепочки trus
 GeoIP enrichment пока отдельно не выбран; координаты/географию не добавлять.
 
 Текущий код этого не реализует: identity.py/build_safe_identity хеширует исходные
-IDs, is_safe_pseudonymous_id и posthog_client.py отвергают raw account IDs.
+IDs. Проверка формы is_safe_pseudonymous_id вызывается в API и сборщике
+событий. PostHogClientWrapper.capture_event проверяет properties на запрещённые
+поля, но отдельный аргумент distinct_id сам не проверяет; нельзя приписывать
+этому методу защиту от исходного account ID.
 Нельзя просто включить флаги. Нужны versioned identity/payload contract для
 PostHog, серверная binding/auth проверка, совместимый browser→account identify и
 повторные dedupe tests. Псевдонимные ограничения других providers не ослаблять.
@@ -92,8 +101,8 @@ ledger и process server guard не заменяют доказательств�
 
 ## Retention/IP и готовый безопасный путь
 
-Целевой режим после готовности: explicit events, исходный internal account ID и
-IP, без содержимого, replay/autocapture. Срок хранения — нерешённый blocker;
+Предложенный режим для отдельного рассмотрения: explicit events, исходный
+internal account ID и IP, без содержимого, replay/autocapture. Срок хранения — нерешённый blocker;
 365 дней остаётся предложением, не одобренной настройкой. Repo baseline и
 project 84 months не заменяют решение владельца и проверку legal basis.
 Уже существует `infra/scripts/apply-posthog-event-ttl.sh --dry-run/--status/--execute`
@@ -128,8 +137,15 @@ Backup/export lifecycle и удаление по запросу должны и�
 5. Revenue reconciliation: live successful payment минус refunds из server ledger,
    не из CTA, invoice status или checkout flag. Несвязанные payments отдельно.
 
-`docs/posthog-readonly-audit-2026-09-30.sql` содержит реально выполненные безопасные
-ClickHouse queries freshness, schema, IP presence, duplicate и bridge coverage.
+`docs/posthog-readonly-audit-2026-09-30.sql` содержит исправленную 15 октября
+методику: фиксированные окна UTC, лимиты чтения/времени/памяти, TTL с учётом
+пробелов и переносов, все шесть first milestones и непустые метки источника.
+Эта версия повторно в production не выполнялась. Исторические числа выше
+относятся к исходным запросам 30 сентября. Проверка трёх верхних ключей
+не является проверкой приватности: ноль не подтверждает отсутствие PII.
+Рекурсивный контракт forbidden_fields.py проверяется на синтетических данных.
+Запросы ClickHouse не имеют общего снимка между SELECT; поздние записи и
+мутации могут менять результат даже при фиксированном окне.
 Сейчас fresh funnel/retention/payment panel должен честно показывать «не измерено».
 Management API не доступен: PersonalAPIKey отсутствует, browser без сессии.
 Сохранение панелей в production project не выполнено. Не создавать API key ради
@@ -151,13 +167,18 @@ Management API не доступен: PersonalAPIKey отсутствует, bro
 соответствовать новому scope; старое согласие нельзя автоматически считать
 принятием расширенных категорий. Лендинг/CTA/title/description не менять.
 
-Исходная specs/273-paid-traffic-analytics/spec.md требует ревизии FR-026/FR-046,
+Для реализации намерения сначала нужен отдельный полный путь Spec Kit:
+specify → clarify → plan → checklist с независимым ревью → tasks → analyze
+→ taskstoissues → implement → converge → validation gates. Текущая
+specs/273-paid-traffic-analytics/spec.md остаётся источником требований.
+В рамках этой отдельной ревизии потребуется рассмотреть FR-026/FR-046,
 определения «Веха активации», identity и retention/deletion contracts;
 FR-007/FR-010 anonymous level 1 остаются без изменений. Нужно обновить
 product_analytics/consent_copy.py, identity.py, posthog_client.py, API contracts,
 retention.py и связанные tests как отдельную согласованную реализацию, не
-ослаблять forbidden_fields глобально. Этот аудиторский PR только фиксирует diff
-требований; он не выдаёт false readiness и не разрешает production ingestion.
+ослаблять forbidden_fields глобально. Этот аудиторский PR фиксирует расхождение
+исторического намерения с действующими требованиями, не изменяет их и не
+разрешает production ingestion.
 
 Стендовый acceptance: синтетический account и documentation IP fixture;
 без/со старым/повреждённым/отозванным consent — ноль optional delivery; новый
@@ -169,7 +190,10 @@ scope — ровно allowlisted событие с server-bound raw account ID �
 
 ## Следующие необходимые решения и доступ
 
-Категории account ID + IP уже выбраны; повторно их не согласовывать. Остались:
+Исторический выбор account ID + IP сохранён как исходное намерение владельца.
+Он не отменяет обязательную clarify и независимое ревью изменения приватности
+в Spec Kit; повторять уже полученный ответ без новой неоднозначности не нужно.
+До прохождения этого пути действует существующий псевдонимный контракт. Остались:
 1. Срок хранения и проверка владельцем/ответственным за privacy актуального
    notice/legal basis, затем versioned consent implementation и стендовый тест.
 2. Безопасный финальный вход владельца в существующий PostHog: management session
