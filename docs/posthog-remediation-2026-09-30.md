@@ -28,8 +28,10 @@
   не loopback/не пустые. IP значений не читали. `anonymize_ips=false` — будущие
   IP пользователей без дополнительной настройки не защищены этой политикой.
 - Replay project opt-in=false, policy=90d. Event retention project=84 months.
-  В фактических `events` и `sharded_events` нет TTL (проверка CREATE TABLE).
-  Наличие файла 365-day TTL в репозитории не означает его применение.
+  Исходный запрос вернул TTL_defined=0 для `events` и `sharded_events`,
+  но поиск точного фрагмента с пробелами мог пропустить TTL после переноса.
+  Наличие и отсутствие TTL не подтверждены до повторного исправленного запроса;
+  наличие файла 365-day TTL в репозитории также не доказывает его применение.
 - Один dashboard; его актуальность для сентябрьской воронки не подтверждается
   событиями. Существующих PersonalAPIKey records нет; capture project token
   не является management API credential.
@@ -107,10 +109,13 @@ internal account ID и IP, без содержимого, replay/autocapture. С
 project 84 months не заменяют решение владельца и проверку legal basis.
 Уже существует `infra/scripts/apply-posthog-event-ttl.sh --dry-run/--status/--execute`
 и `infra/posthog/clickhouse-retention.sql`. Script apply TTL к MergeTree таблице,
-а не distributed events. Проверенная текущая реализация enforcement отсутствует:
-TTL_defined=0. После отдельного инфраструктурного approval требуется dry-run,
-проверка совместимости текущего PostHog schema, применение и `--status`, а затем
-контролируемый expiry-test в отдельной restore среде. Не менять production TTL
+а не distributed events. Текущее исполнение retention не подтверждено:
+исходный TTL_defined=0 нельзя использовать как доказательство отсутствия TTL.
+Сначала нужно повторить исправленную ограниченную проверку и определить
+фактические таблицу, выражение и срок. Не применять TTL по этому отчёту.
+Только если отдельная проверка докажет необходимость изменения, после
+инфраструктурного согласования потребуются dry-run, проверка совместимости
+схемы, применение и `--status`, затем expiry-test в отдельной restore среде. Не менять production TTL
 в рамках «найти реквизиты»; retention может удалять данные.
 
 IP: существующее anonymize_ips=false соответствует выбранной категории, но

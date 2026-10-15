@@ -8,7 +8,9 @@ Production, главная, её метаданные, download, CTA и офор
 Последующая сверка PostHog/checkout и пакет исправлений:
 [posthog-remediation-2026-09-30.md](posthog-remediation-2026-09-30.md).
 PostHog project 1 реально прочитан через существующий read-only Docker/DB путь;
-46 старых July events, свежей September ingestion нет, TTL не применён.
+46 старых July events, свежей September ingestion нет. Состояние TTL не
+подтверждено: исходный поиск мог пропустить перенос строки, исправленный
+запрос повторно не выполнялся.
 Checkout после чужого owner-approved release включён в API/worker/maintenance
 для всех workspace в production. Финансовая приёмка не подтверждена; тексты
 лендинга по указанию пользователя сохраняются, статус оплаты ими не измеряется.
