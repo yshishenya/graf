@@ -16,18 +16,18 @@ T003 #7271, T004 #7272. До кода analyze: CRITICAL 0 / HIGH 0 / MEDIUM 0,
 Independent test: реальный synthetic Git graph 3+sync→3 и историческое движение
 API base восстанавливают точную проверенную базу; сначала зафиксировать FAIL.
 
-- [X] T001 [US1] Добавить положительную регрессию и сохранность refs/index/files в `tests/governance/test_pr_metadata_event.py` по FR-001/FR-005 и SC-001/SC-004.
+- [X] T001 [US1] Добавить положительную регрессию и сохранность refs/index/files в `tests/governance/test_pr_metadata_event.py` по FR-001/FR-005 и SC-001/SC-004. (Issue #7269).
 
 ## Phase 3: US2 — отказ при неполном доказательстве
 
 Independent test: count/base, dropped/extra/reordered replay, repaired intermediate
 tampering, final tree, manual sync/conflict, source merge/missing objects дают отказ.
 
-- [X] T002 [US2] Добавить перечисленные отрицательные истории в `tests/governance/test_pr_metadata_event.py` по FR-002/FR-003 и SC-002, сохранив прежние ожидания.
+- [X] T002 [US2] Добавить перечисленные отрицательные истории в `tests/governance/test_pr_metadata_event.py` по FR-002/FR-003 и SC-002, сохранив прежние ожидания. (Issue #7270).
 
 ## Phase 4: shared implementation
 
-- [X] T003 [US1] Реализовать ограниченную пошаговую проверку в `scripts/validate-pr-metadata.py` после T001/T002; count 1..1000 остаётся неизменным; FR-001–005, без bypass и новых consumers.
+- [X] T003 [US1] Реализовать ограниченную пошаговую проверку в `scripts/validate-pr-metadata.py` после T001/T002; count 1..1000 остаётся неизменным; FR-001–005, без bypass и новых consumers. (Issue #7271).
 
 ## Phase 5: Validation and closeout
 

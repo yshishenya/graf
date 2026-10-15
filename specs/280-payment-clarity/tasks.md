@@ -5,31 +5,31 @@
 
 ## Phase 1 — Исследование и допуск
 
-- [X] T001 Зафиксировать аудит всех страниц и прочитанные источники в `specs/280-payment-clarity/research.md`, `audit.md`, `ux-audit.md` (FR-001/014).
-- [X] T002 Получить независимый PASS `specs/280-payment-clarity/checklists/ux-payment.md`, провести analyze и синхронизацию задач; сохранить результат в `specs/280-payment-clarity/review-requirements.md` (FR-015, gates).
+- [X] T001 Зафиксировать аудит всех страниц и прочитанные источники в `specs/280-payment-clarity/research.md`, `audit.md`, `ux-audit.md` (FR-001/014). (Issue #7368).
+- [X] T002 Получить независимый PASS `specs/280-payment-clarity/checklists/ux-payment.md`, провести analyze и синхронизацию задач; сохранить результат в `specs/280-payment-clarity/review-requirements.md` (FR-015, gates). (Issue #7369).
 
 ## Phase 2 — US1: выбор и оформление
 
-- [X] T003 [US1] Зафиксировать исходный checkout, добавить проверки существенных условий/скидок в `apps/server/tests/contract/test_billing_clarity.py`; использовать реальные fixture/CSS (FR-003/004/005/011, SC-002).
-- [X] T004 [US1] Упростить `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_plans_content.html` и `billing_checkout_content.html`: один главный путь, полный итог, ясные непредвыбранные согласия, детали по запросу (FR-002–005/013).
+- [X] T003 [US1] Зафиксировать исходный checkout, добавить проверки существенных условий/скидок в `apps/server/tests/contract/test_billing_clarity.py`; использовать реальные fixture/CSS (FR-003/004/005/011, SC-002). (Issue #7370).
+- [X] T004 [US1] Упростить `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_plans_content.html` и `billing_checkout_content.html`: один главный путь, полный итог, ясные непредвыбранные согласия, детали по запросу (FR-002–005/013). (Issue #7371).
 
 ## Phase 3 — US2: место и досрочная оплата
 
-- [X] T005 [US2] Упростить `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_storage_content.html`, `billing_purchase_content.html` и существующий storage JS в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`; общий объем вместо подсчета пакетов, все существенные future условия видны (FR-006/007).
-- [X] T006 [P] [US2] Добавить отрицательные и положительные route tests в `apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift`, затем разрешить четыре точных purchase POST в `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetRoutePolicy.swift` (FR-008).
+- [X] T005 [US2] Упростить `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_storage_content.html`, `billing_purchase_content.html` и существующий storage JS в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`; общий объем вместо подсчета пакетов, все существенные future условия видны (FR-006/007). (Issue #7372).
+- [X] T006 [P] [US2] Добавить отрицательные и положительные route tests в `apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift`, затем разрешить четыре точных purchase POST в `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetRoutePolicy.swift` (FR-008). (Issue #7373).
 
 ## Phase 4 — US3: результат и восстановление
 
-- [X] T007 [US3] Проверить regression сценарии в `apps/server/tests/integration/test_billing_clarity.py`, исправить invoice/status recovery, годовой cycle, receipt readiness и reason/state projection в `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py` и соответствующих invoice/status templates; восстановить узкий GET-only `next` через settings/email/merge существующего account flow, добавить проверки в `apps/server/tests/integration/test_billing_return.py` (FR-009/011, Contract Состояния).
+- [X] T007 [US3] Проверить regression сценарии в `apps/server/tests/integration/test_billing_clarity.py`, исправить invoice/status recovery, годовой cycle, receipt readiness и reason/state projection в `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py` и соответствующих invoice/status templates; восстановить узкий GET-only `next` через settings/email/merge существующего account flow, добавить проверки в `apps/server/tests/integration/test_billing_return.py` (FR-009/011, Contract Состояния). (Issue #7374).
 
 ## Phase 5 — US4: управление и удержание
 
-- [X] T008 [US4] Упростить оставшиеся billing overview/subscription/payment-method/history/usage/discounts и referrals_content.html templates в `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/`, исправить помощь, renewal blockers и обещания действий; отмена доступна без препятствий (FR-002/009/010/013); проверить и зафиксировать решение по referral_landing, public pricing/offer, primitives quota notices и billing notification links.
+- [X] T008 [US4] Упростить оставшиеся billing overview/subscription/payment-method/history/usage/discounts и referrals_content.html templates в `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/`, исправить помощь, renewal blockers и обещания действий; отмена доступна без препятствий (FR-002/009/010/013); проверить и зафиксировать решение по referral_landing, public pricing/offer, primitives quota notices и billing notification links. (Issue #7375).
 
 ## Phase 6 — Общая приемка
 
-- [X] T009 Пройти `apps/server/tests/browser/billing-accessibility.test.cjs`, дополнить нужными сценариями/320px, проверить synthetic screenshots и подсчет слов; результаты в `specs/280-payment-clarity/validation.md` (FR-012, SC-001–004).
-- [X] T010 Получить три независимых заключения по актуальному diff, исправить замечания и пройти converge; записать `specs/280-payment-clarity/review-final.md`, owned fragment `changes/unreleased/F280.yaml` (FR-015).
+- [X] T009 Пройти `apps/server/tests/browser/billing-accessibility.test.cjs`, дополнить нужными сценариями/320px, проверить synthetic screenshots и подсчет слов; результаты в `specs/280-payment-clarity/validation.md` (FR-012, SC-001–004). (Issue #7376).
+- [X] T010 Получить три независимых заключения по актуальному diff, исправить замечания и пройти converge; записать `specs/280-payment-clarity/review-final.md`, owned fragment `changes/unreleased/F280.yaml` (FR-015). (Issue #7377).
 - [ ] T011 После отдельного одобрения коммита получить точные PR SHA checks и установленный GRAF Dev через harness; evidence в `specs/280-payment-clarity/validation.md` (FR-008/012, release boundary).
 - [ ] T012 Провести пять человеческих прохождений и последующее измерение конверсии/удержания по `specs/280-payment-clarity/validation.md` без новой публичной платежной аналитики; SC-005/006 не заменять агентами (FR-016).
 
