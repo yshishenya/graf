@@ -46,12 +46,93 @@ async function checkTextContrast(page, label) {
   assert.deepEqual(failures, [], `${label}: text contrast`);
 }
 
+async function checkCopyEnhancement(browser, tabKey) {
+  for (const [name, expected, sourceSelector] of [
+    ['invoice-future', 'INV-SYNTHETIC', 'details dd'],
+    ['history', 'support@example.test', 'a[href="mailto:support@example.test"]'],
+    ['referrals', 'https://graf.test/r/synthetic', '#referral-link'],
+    ['fair-use', 'FU-SYNTHETIC', '#fair-use-support-synthetic'],
+  ]) {
+    for (const javaScriptEnabled of [false, true]) {
+      const page = await browser.newPage({ javaScriptEnabled });
+      page.setDefaultTimeout(5000);
+      const requests = [];
+      await page.route('https://graf.test/**', route => {
+        requests.push(route.request().method());
+        return route.fulfill({ contentType: 'text/html; charset=utf-8',
+          body: `<html lang="ru"><meta charset="utf-8"><style>${fs.readFileSync(path.join(assets, 'cabinet.css'), 'utf8')}</style><body data-surface-mode="standalone_browser">${pages[name]}</body></html>` });
+      });
+      await page.goto('https://graf.test/billing');
+      const copy = page.locator('[data-copy-value], [data-copy-target]');
+      assert.equal(await copy.count(), 1, `${name}: existing copy caller exercised`);
+      assert.equal(await copy.getAttribute('hidden'), '', `${name}: HTML hides the unbound action`);
+      if (name === 'invoice-future') await page.locator('summary', { hasText: 'Сведения о платеже' }).click();
+      const source = page.locator(sourceSelector).filter({ hasText: name === 'referrals' ? undefined : expected }).first();
+      assert(await source.isVisible(), `${name}: manual copy source visible`);
+      assert.equal(await source.evaluate(el => {
+        if (el instanceof HTMLInputElement) { el.select(); return el.value.slice(el.selectionStart, el.selectionEnd); }
+        const range = document.createRange(); range.selectNodeContents(el);
+        const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+        return selection.toString();
+      }), expected, `${name}: original value remains selectable`);
+      if (!javaScriptEnabled) {
+        assert.equal(await copy.isVisible(), false, `${name}: no dead copy button without JS`);
+        // Even an explicit focus attempt cannot enter a hidden action.
+        await copy.evaluate(el => el.focus());
+        assert.equal(await copy.evaluate(el => el === document.activeElement), false);
+        await page.keyboard.press(tabKey);
+        assert.equal(await copy.evaluate(el => el === document.activeElement), false, `${name}: no dead tab stop`);
+      } else {
+        await page.addScriptTag({ path: path.join(assets, 'cabinet.js') });
+        assert(await copy.isVisible(), `${name}: bound copy action visible`);
+        await copy.focus();
+        await page.evaluate(() => {
+          document.body.dispatchEvent(new CustomEvent('htmx:afterSwap'));
+          document.body.dispatchEvent(new CustomEvent('htmx:afterSwap'));
+        });
+        assert(await copy.evaluate(el => el === document.activeElement), `${name}: re-init preserves focus`);
+        for (const mode of ['clipboard', 'fallback', 'failure']) {
+          await page.evaluate(mode => {
+            window.copyAttempts = []; window.fallbackValues = [];
+            Object.defineProperty(navigator, 'clipboard', { configurable: true,
+              value: { writeText: async value => {
+                window.copyAttempts.push(value);
+                if (mode !== 'clipboard') throw new DOMException('Denied', 'NotAllowedError');
+              } } });
+            document.execCommand = command => {
+              if (command !== 'copy') throw new Error('Unexpected clipboard command');
+              window.fallbackValues.push(document.activeElement.value);
+              return mode === 'fallback';
+            };
+            const status = document.querySelector('[data-copy-status]');
+            if (status) status.textContent = '';
+          }, mode);
+          await copy.focus();
+          await page.keyboard.press('Enter');
+          const message = mode === 'failure' ? 'Не удалось скопировать. Выделите текст вручную.' : 'Скопировано.';
+          await page.waitForFunction(message => document.querySelector('[data-copy-status]')?.textContent === message, message);
+          assert.deepEqual(await page.evaluate(() => window.copyAttempts), [expected], `${name}: one bound handler after repeated init`);
+          assert.deepEqual(await page.evaluate(() => window.fallbackValues), mode === 'clipboard' ? [] : [expected], `${name}: native fallback receives the safe value`);
+          assert.equal(await page.locator('[data-copy-status]').getAttribute('role'), 'status');
+          assert.equal(await page.locator('[data-copy-status]').getAttribute('aria-live'), 'polite');
+          assert(await copy.evaluate(el => el === document.activeElement), `${name}: ${mode} preserves keyboard focus`);
+          assert(await source.isVisible(), `${name}: manual source survives ${mode}`);
+        }
+      }
+      assert.deepEqual(requests, ['GET'], `${name}: local copying sends no request`);
+      await page.close();
+    }
+  }
+  console.log('copy: four callers, NoJS selection/tab order, JS success/fallback/failure, focus and repeated init passed');
+}
+
 (async () => {
   const isWebKit = process.env.GRAF_BROWSER === 'webkit';
   const browser = await (isWebKit ? webkit : chromium).launch({ headless: true });
   // WebKit on macOS follows the system preference; Option-Tab reaches every control.
   const tabKey = isWebKit ? 'Alt+Tab' : 'Tab';
   try {
+    await checkCopyEnhancement(browser, tabKey);
     for (const [name, html] of Object.entries(pages)) {
       const page = await browser.newPage();
       page.setDefaultTimeout(5000);
@@ -78,7 +159,7 @@ async function checkTextContrast(page, label) {
       }
       const target = await page.getByRole('alert').count()
         ? page.getByRole('alert').first() : page.getByRole('heading', { level: 1 });
-      if (name !== 'referrals') {
+      if (!['referrals', 'fair-use'].includes(name)) {
         assert(await target.evaluate(el => el === document.activeElement), `${name}: initial focus`);
       }
       await page.keyboard.press(tabKey);

@@ -1,5 +1,6 @@
 import json
 import subprocess
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import quote
 
@@ -375,6 +376,15 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         },
     )
     pages["referrals"] = render_template("cabinet/pages/referrals_content.html", **surface_context)
+    pages["fair-use"] = render_template(
+        "cabinet/pages/fair_use_content.html", **surface_context,
+        unavailable=False, fair_use_result=None, reviews=[{
+            "id": "synthetic", "support_reference": "FU-SYNTHETIC",
+            "state_label": "Проверка", "capability": "Обработка",
+            "reason_label": "Требуется проверка", "review_by_label": "29.10.2026",
+            "review_overdue": False, "can_appeal": False, "appealed": False,
+        }],
+    )
     pages["plans"] = render_template(
         "cabinet/pages/billing_plans_content.html", **surface_context,
         selected_cycle="year",
@@ -714,6 +724,29 @@ def test_billing_copy_controls_have_a_keyboard_safe_browser_handler() -> None:
     assert 'querySelectorAll("[data-copy-value], [data-copy-target]")' in script
     assert 'role", "status"' in script
     assert 'document.execCommand("copy")' in script
+
+
+@pytest.mark.parametrize("template_name", [
+    "billing_invoice_content.html", "billing_history_content.html",
+    "referrals_content.html", "fair_use_content.html",
+])
+def test_copy_controls_are_hidden_until_javascript_is_ready(template_name: str) -> None:
+    class CopyButtons(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.buttons = []
+
+        def handle_starttag(self, tag, attrs):
+            attributes = dict(attrs)
+            if tag == "button" and {"data-copy-value", "data-copy-target"} & attributes.keys():
+                self.buttons.append(attributes)
+
+    parser = CopyButtons()
+    parser.feed((TEMPLATE_ROOT / template_name).read_text(encoding="utf-8"))
+    assert parser.buttons, "exercise the actual existing copy control"
+    assert all("hidden" in button for button in parser.buttons), (
+        "without JavaScript a visible copy button must not promise an unavailable action"
+    )
 
 
 def test_account_close_has_no_js_confirmation_fallback() -> None:

@@ -490,7 +490,8 @@ def test_confirmed_payment_grants_access_and_survives_replays(
         cycle=cycle, recurring_consent=not expected_consent,
     )
     assert retried.status_code == 303
-    assert retried.headers["location"] == checkout.started.headers["location"]
+    # A completed payment returns to its local status rather than reopening checkout.
+    assert retried.headers["location"] == f"/billing/checkout/status/{invoice.safe_number}"
     assert len(provider.create_payloads) == 1
     assert provider.read_count == 1
     replayed = _money_state(client, checkout.workspace_id, key)

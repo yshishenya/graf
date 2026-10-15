@@ -36,7 +36,7 @@
             {% if invoice.receipt_contact_label %}<div><dt>Адрес для чека</dt><dd>{{ invoice.receipt_contact_label }}</dd></div>{% endif %}
             {% if invoice.storage_intervals|default([]) %}<div><dt>Оплаченные интервалы хранения</dt><dd><ul>{% for period in invoice.storage_intervals %}<li>{{ period.period|default(None) or "Срок не указан" }}: {{ period.capacity }}</li>{% endfor %}</ul></dd></div>{% endif %}
           </dl>
-          <button class="button quiet" type="button" data-copy-value="{{ invoice.safe_number }}">Скопировать номер платежа</button>
+          <button class="button quiet" type="button" hidden data-copy-value="{{ invoice.safe_number }}">Скопировать номер платежа</button>
         </details>
       </section>
       <details class="settings-disclosure"><summary>Помощь и возврат</summary>

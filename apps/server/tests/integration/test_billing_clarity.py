@@ -9,8 +9,10 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.integration.test_billing_purchase_journey import quote_id
+from tests.integration.test_billing_purchase_journey import quote_id, seed_catalog_and_budget
 from tests.integration.test_billing_review_regressions import seed_periods
 from tests.unit.test_billing_money_path_e2e import (
     USER_ID,
@@ -188,6 +190,105 @@ def test_missing_email_does_not_obstruct_existing_payment_recovery(client, owner
     assert response.status_code == 303
     assert response.headers["location"] == "/billing/checkout/status/INV-CLARITY"
     assert payment_counts(client) == (1, 1)
+
+
+@pytest.mark.parametrize("branch,scenario", [
+    (branch, scenario)
+    for branch in ("replay", "blocker", "winner")
+    for scenario in (
+        "pending", "succeeded", "canceled", "failed", "terminal_invoice", "unknown",
+        "manual_resolution", "reconciliation_gap", "provider_key_expired", "observation_expired",
+        "missing_invoice", "foreign_invoice", "mismatched_invoice", "foreign_actor",
+        "legacy_actor", "storage", "storage_no_actor", "unbound", "invalid_url", "expired_key",
+    )
+    if not (branch == "blocker" and scenario in {
+        "succeeded", "canceled", "failed", "provider_key_expired", "observation_expired",
+    })
+])
+def test_checkout_start_recovers_only_compatible_hosted_payment(client, owner, monkeypatch, branch, scenario):
+    """Exercise all three start branches through HTTP/PG without sending money."""
+    workspace, headers = owner
+    fields = {"cycle": "month", "offer_version": PUBLIC_APPROVED_OFFER_VERSION,
+              "offer_consent": "true", "recurring_consent": "true"}
+    if branch == "blocker":
+        seed_catalog_and_budget(client, workspace)
+        fields["quote_id"] = quote_id(client.get("/billing/checkout?cycle=month", headers=headers))
+    fields["idempotency_key"] = "clarity-new-key" if branch == "blocker" else "clarity-existing"
+    hosted_url = "https://yookassa.test/checkout/synthetic-existing"
+    state = scenario if scenario in {
+        "succeeded", "canceled", "failed", "unknown", "manual_resolution", "reconciliation_gap",
+        "provider_key_expired", "observation_expired",
+    } else "provider_pending"
+    seed_payment(client, workspace, state=state, cycle="month",
+                 kind="storage_upgrade" if scenario.startswith("storage") else "initial_checkout",
+                 confirmation_url="https://evil.example.test/checkout" if scenario == "invalid_url" else hosted_url)
+
+    async def alter_saved_payment():
+        async with client.app_state["sessionmaker"]() as db:
+            operation = await db.scalar(select(BillingOperation))
+            invoice = await db.scalar(select(BillingInvoice))
+            # Replay must retain the original opt-out despite the new form's opt-in.
+            operation.request_snapshot = {**operation.request_snapshot,
+                                          "offer_consent": True, "recurring_consent": False}
+            if scenario == "foreign_actor":
+                operation.request_snapshot = {**operation.request_snapshot, "billing_actor_user_id": str(uuid4())}
+            elif scenario in {"legacy_actor", "storage_no_actor"}:
+                operation.request_snapshot = {key: value for key, value in operation.request_snapshot.items()
+                                              if key != "billing_actor_user_id"}
+            elif scenario == "unbound":
+                operation.provider_id = None
+            elif scenario == "expired_key":
+                operation.provider_key_expires_at = datetime.now(UTC) - timedelta(days=1)
+            if scenario == "terminal_invoice":
+                invoice.status = "succeeded"
+            elif scenario == "missing_invoice":
+                await db.delete(invoice)
+            elif scenario == "foreign_invoice":
+                original = await db.get(Workspace, workspace)
+                foreign = Workspace(organization_id=original.organization_id,
+                                    slug=f"reaudit-{uuid4().hex}", name="Synthetic foreign", kind="corporate")
+                db.add(foreign)
+                await db.flush()
+                invoice.workspace_id = foreign.id
+            elif scenario == "mismatched_invoice":
+                other = BillingOperation(workspace_id=workspace, kind="initial_checkout", state="succeeded",
+                                         idempotency_key="synthetic-other-operation", request_snapshot={})
+                db.add(other)
+                await db.flush()
+                invoice.operation_id = other.id
+            await db.commit()
+    asyncio.run(alter_saved_payment())
+    before = billing_rows_snapshot(client)
+    counts = payment_counts(client)
+    lookup_count = 0
+    original_scalar = AsyncSession.scalar
+
+    async def concurrent_winner(session, statement, *args, **kwargs):
+        nonlocal lookup_count
+        descriptions = getattr(statement, "column_descriptions", ())
+        if (descriptions and descriptions[0].get("entity") is BillingOperation
+                and "idempotency_key" in str(getattr(statement, "whereclause", ""))):
+            lookup_count += 1
+            if lookup_count == 1:
+                raise IntegrityError("synthetic idempotency race", {}, RuntimeError("synthetic winner"))
+        return await original_scalar(session, statement, *args, **kwargs)
+
+    with monkeypatch.context() as request_patch:
+        if branch == "winner":
+            request_patch.setattr(AsyncSession, "scalar", concurrent_winner)
+        response = client.post("/billing/checkout/start", headers=headers, data=fields, follow_redirects=False)
+    assert response.status_code == 303
+    if scenario in {"pending", "legacy_actor", "storage", "expired_key"}:
+        expected = hosted_url
+    elif scenario in {"missing_invoice", "foreign_invoice", "mismatched_invoice"}:
+        expected = "/billing?result=pending"
+    else:
+        expected = "/billing/checkout/status/INV-CLARITY"
+    assert response.headers["location"] == expected
+    assert payment_counts(client) == counts
+    assert billing_rows_snapshot(client) == before
+    if branch == "winner":
+        assert lookup_count == 2, "The recovery lookup must read the real persisted winner after rollback"
 
 
 @pytest.mark.parametrize("kind", ["initial_checkout", "storage_upgrade"])
@@ -648,6 +749,26 @@ def seed_invoice_projection(client, workspace, snapshot, *, state="succeeded", p
 
 def invoice_main(html):
     return re.search(r'<main\b[^>]*>(.*?)</main>', html, re.S)[1]
+
+
+@pytest.mark.parametrize("state,service_gap", [
+    ("pending", False), ("unknown", False), ("manual_resolution", False),
+    ("failed", False), ("canceled", False), ("succeeded", False), ("succeeded", True),
+])
+def test_invoice_receipt_error_query_cannot_confirm_unpaid_invoice(client, owner, state, service_gap):
+    workspace, headers = owner
+    snapshot = {"cycle": "month", "receipt_registration": "pending"}
+    if service_gap:
+        snapshot["service_resolution"] = "storage_period_elapsed"
+    seed_invoice_projection(client, workspace, snapshot, state=state)
+    before = billing_rows_snapshot(client)
+    response = client.get("/billing/invoices/INV-PROJECTION?result=unavailable", headers=headers)
+    assert response.status_code == 200
+    main = invoice_main(response.text)
+    assert ("Оплата остается подтвержденной" in main) is (state == "succeeded")
+    assert ("Не удалось проверить чек" in main) is (state == "succeeded")
+    assert ("услуга требует сверки" in main) is service_gap
+    assert billing_rows_snapshot(client) == before
 
 
 @pytest.mark.parametrize("year", [2025, 2027])

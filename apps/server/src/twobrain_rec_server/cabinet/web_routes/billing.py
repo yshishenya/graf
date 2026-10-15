@@ -569,6 +569,54 @@ def _checkout_invoice_can_continue(
     )
 
 
+def _hosted_checkout_url(
+    invoice: BillingInvoice | None,
+    operation: BillingOperation | None,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+) -> str | None:
+    if (
+        invoice is None
+        or operation is None
+        or invoice.workspace_id != workspace_id
+        or operation.workspace_id != workspace_id
+        or invoice.operation_id != operation.id
+        or invoice.status != "pending"
+        or operation.state != "provider_pending"
+        or operation.kind not in {"initial_checkout", "storage_upgrade"}
+        or (operation.kind == "initial_checkout" and operation.provider_id is None)
+    ):
+        return None
+    actor = operation.request_snapshot.get("billing_actor_user_id")
+    if actor != str(user_id) and not (actor is None and operation.kind == "initial_checkout"):
+        return None
+    url = operation.request_snapshot.get("confirmation_url")
+    return url if is_allowed_confirmation_url(url) else None
+
+
+async def _recover_checkout_operation(
+    db: AsyncSession,
+    operation: BillingOperation,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+) -> RedirectResponse:
+    invoice = await db.scalar(select(BillingInvoice).where(
+        BillingInvoice.workspace_id == workspace_id,
+        BillingInvoice.operation_id == operation.id,
+    ))
+    hosted_url = _hosted_checkout_url(
+        invoice, operation, workspace_id=workspace_id, user_id=user_id,
+    )
+    return _checkout_operation_redirect(
+        hosted_url or (
+            _checkout_status_location(invoice.safe_number)
+            if invoice is not None else "/billing?result=pending"
+        ),
+    )
+
+
 def _initial_checkout_failure_metadata(
     exc: BaseException,
     *,
@@ -2195,9 +2243,10 @@ async def billing_checkout_status_page(
         and (
             _initial_checkout_can_continue(operation)
             or (
-                operation.kind in {"initial_checkout", "storage_upgrade"}
-                and operation.state == "provider_pending"
-                and is_allowed_confirmation_url(operation.request_snapshot.get("confirmation_url"))
+                _hosted_checkout_url(
+                    invoice, operation,
+                    workspace_id=tenant_scope.workspace_id, user_id=principal.user_id,
+                ) is not None
             )
         )
     )
@@ -2408,8 +2457,11 @@ async def continue_billing_checkout(
                 _checkout_status_location(invoice.safe_number, result="unavailable"),
                 status_code=303,
             )
-        url = operation.request_snapshot.get("confirmation_url")
-        if operation.state == "provider_pending" and is_allowed_confirmation_url(url):
+        url = _hosted_checkout_url(
+            invoice, operation,
+            workspace_id=tenant_scope.workspace_id, user_id=principal.user_id,
+        )
+        if url is not None:
             return _checkout_operation_redirect(url, status_code=303)
         return RedirectResponse(_checkout_status_location(invoice.safe_number), status_code=303)
     if operation is None or operation.kind != "initial_checkout":
@@ -2441,8 +2493,11 @@ async def continue_billing_checkout(
         billing_actor_user_id = str(principal.user_id)
         await db.commit()
     if operation.provider_id is not None:
-        confirmation_url = operation.request_snapshot.get("confirmation_url")
-        if operation.state == "provider_pending" and is_allowed_confirmation_url(confirmation_url):
+        confirmation_url = _hosted_checkout_url(
+            invoice, operation,
+            workspace_id=tenant_scope.workspace_id, user_id=principal.user_id,
+        )
+        if confirmation_url is not None:
             return _checkout_operation_redirect(confirmation_url, status_code=303)
         return RedirectResponse(
             _checkout_status_location(safe_number, result="unchanged"), status_code=303
@@ -3428,18 +3483,15 @@ async def billing_checkout_page(
         if db is not None and blocking_operation is not None else None
     )
     checkout_blocked = checkout_result == "pending"
-    continuation_candidate = (
-        blocking_operation.request_snapshot.get("confirmation_url")
+    checkout_continuation_url = (
+        _hosted_checkout_url(
+            blocking_invoice, blocking_operation,
+            workspace_id=tenant_scope.workspace_id, user_id=principal.user_id,
+        )
         if blocking_operation is not None
         and blocking_operation.kind == "initial_checkout"
-        and blocking_operation.state == "provider_pending"
-        and blocking_operation.request_snapshot.get("billing_actor_user_id")
-        in {None, str(principal.user_id)}
         and billing_checkout_allowed(settings, tenant_scope.workspace_id)
         else None
-    )
-    checkout_continuation_url = (
-        continuation_candidate if is_allowed_confirmation_url(continuation_candidate) else None
     )
     saved_draft = _checkout_promo_draft(request, principal=principal, tenant_scope=tenant_scope)
     checkout_promo_code = saved_draft["code"] if saved_draft else ""
@@ -3849,18 +3901,9 @@ async def start_billing_checkout(
             .with_for_update()
         )
         if existing is not None:
-            confirmation_url = existing.request_snapshot.get("confirmation_url")
-            if is_allowed_confirmation_url(confirmation_url):
-                return _checkout_operation_redirect(confirmation_url, status_code=303)
-            existing_invoice = await db.scalar(
-                select(BillingInvoice).where(BillingInvoice.operation_id == existing.id)
+            return await _recover_checkout_operation(
+                db, existing, workspace_id=tenant_scope.workspace_id, user_id=principal.user_id,
             )
-            if existing_invoice is not None:
-                return _checkout_operation_redirect(
-                    _checkout_status_location(existing_invoice.safe_number),
-                    status_code=303,
-                )
-            return _checkout_operation_redirect("/billing?result=pending", status_code=303)
         if not receipt_contact:
             blocker = await db.scalar(
                 _blocking_payment_operation_query(tenant_scope.workspace_id).limit(1)
@@ -4035,18 +4078,9 @@ async def start_billing_checkout(
             _blocking_payment_operation_query(tenant_scope.workspace_id).with_for_update()
         )
         if unresolved_payment is not None:
-            confirmation_url = unresolved_payment.request_snapshot.get("confirmation_url")
-            if is_allowed_confirmation_url(confirmation_url):
-                return _checkout_operation_redirect(confirmation_url, status_code=303)
-            unresolved_invoice = await db.scalar(
-                select(BillingInvoice).where(BillingInvoice.operation_id == unresolved_payment.id)
+            return await _recover_checkout_operation(
+                db, unresolved_payment, workspace_id=tenant_scope.workspace_id, user_id=principal.user_id,
             )
-            if unresolved_invoice is not None:
-                return _checkout_operation_redirect(
-                    _checkout_status_location(unresolved_invoice.safe_number),
-                    status_code=303,
-                )
-            return _checkout_operation_redirect("/billing?result=pending", status_code=303)
         provider_environment(settings.billing_yookassa_environment)
         intent = build_checkout_intent(
             workspace_id=tenant_scope.workspace_id, idempotency_key=key, preview=preview
@@ -4227,18 +4261,9 @@ async def start_billing_checkout(
             else None
         )
         if winner is not None:
-            winner_url = winner.request_snapshot.get("confirmation_url")
-            if is_allowed_confirmation_url(winner_url):
-                return _checkout_operation_redirect(winner_url, status_code=303)
-            winner_invoice = await db.scalar(
-                select(BillingInvoice).where(BillingInvoice.operation_id == winner.id)
+            return await _recover_checkout_operation(
+                db, winner, workspace_id=tenant_scope.workspace_id, user_id=principal.user_id,
             )
-            if winner_invoice is not None:
-                return _checkout_operation_redirect(
-                    _checkout_status_location(winner_invoice.safe_number),
-                    status_code=303,
-                )
-            return _checkout_operation_redirect("/billing?result=pending", status_code=303)
         return _checkout_result_redirect(request, "unavailable", cycle=cycle, promo_code=promo_code, principal=principal, tenant_scope=tenant_scope)
     except (
         BillingCheckoutDisabled,
@@ -4554,6 +4579,7 @@ async def billing_invoice_detail_page(
             "receipt_label": receipt_label(receipt_state) if can_refresh else "Чек доступен плательщику",
             "receipt_url": receipt_url,
             "receipt_refresh_failed": can_refresh
+            and invoice.status == "succeeded"
             and request.query_params.get("result") == "unavailable",
             "can_refresh_receipt": can_refresh_receipt,
             "refund_mailto": refund_mailto,

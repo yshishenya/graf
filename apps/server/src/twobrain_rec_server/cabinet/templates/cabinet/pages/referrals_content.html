@@ -12,7 +12,7 @@
         <label for="referral-link">Ссылка для приглашения</label>
         <input id="referral-link" type="text" value="{{ referral_link }}" readonly aria-describedby="referral-link-help">
         <p id="referral-link-help" class="muted">Ссылка действует до {{ referral_expires_at_label or "обновления условий кампании" }}.</p>
-        <button class="button primary" type="button" data-copy-target="referral-link">Скопировать ссылку</button>
+        <button class="button primary" type="button" hidden data-copy-target="referral-link">Скопировать ссылку</button>
         {% else %}
         <p class="notice" role="status">Ссылка еще не активирована для учета приглашений.</p>
         <form action="/referrals/issue" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button primary" type="submit">Активировать ссылку</button></form>
