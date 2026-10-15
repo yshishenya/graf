@@ -4,6 +4,8 @@
 #include "WebViewBridge.h"
 #include "RecordingDeletionBridge.h"
 #include "NativeSettingsBridge.h"
+#include "../Shell/CalendarJoinOperation.h"
+#include "../Upload/DesktopUploadQueueService.h"
 
 #include <functional>
 #include <optional>
@@ -14,6 +16,7 @@
 #include <memory>
 #include <vector>
 #include <chrono>
+#include <set>
 
 #if defined(_WIN32) && defined(GRAF_WINDOWS_APP_SDK)
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
@@ -52,10 +55,11 @@ struct WebViewLocalRecordingRow {
     // Empty when the package carries no start time, which keeps the plain title.
     std::string generatedTitlePrefix;
     std::string status;
-    std::uint64_t durationSeconds = 0;
+    // Missing metadata is unknown, not a measured zero.
+    std::optional<std::uint64_t> durationSeconds;
     // Wall-clock length of the whole session. It exceeds durationSeconds when
     // only the confirmed prefix of an interrupted recording survived.
-    std::uint64_t sessionDurationSeconds = 0;
+    std::optional<std::uint64_t> sessionDurationSeconds;
     bool showsPartialDuration = false;
     bool canOpen = false;
     bool canSend = false;
@@ -87,7 +91,12 @@ public:
     // URL. It may append query fields, never replace next/origin/workspace.
     // Attribution validation/storage is owned by the caller, not this host.
     using SignInUrlBuilder = std::function<std::string(std::string_view)>;
-    using LocalRecordingHandler = std::function<void(std::string, std::string)>;
+    struct LocalRecordingRequest {
+        std::string action, id;
+        std::uint64_t documentGeneration = 0;
+        std::string nonce;
+    };
+    using LocalRecordingHandler = std::function<void(LocalRecordingRequest)>;
     // One of `light`, `dark` or `system`, exactly as macOS accepts it and nothing
     // else: a page that announces something unknown must not decide the appearance
     // of native windows.
@@ -122,6 +131,20 @@ public:
     };
     using DeletionSelectionHandler = std::function<void(DeletionRequest)>;
 
+    struct CalendarJoinRequest {
+        CalendarJoinIntent intent;
+        std::uint64_t documentGeneration = 0;
+        std::string nonce;
+    };
+    using CalendarJoinHandler = std::function<void(CalendarJoinRequest)>;
+    // Both callbacks belong to the single AppMain owner. Default/partial wiring
+    // grants no calendar command authority. Cancellation never proves work drain.
+    void setCalendarJoinHandlers(CalendarJoinHandler join, CalendarJoinHandler cancel);
+    void replyCalendarJoin(const CalendarJoinRequest&, CalendarJoinResult);
+    [[nodiscard]] bool calendarJoinCurrent(const CalendarJoinRequest& request) {
+        return calendarRequestPending(request) && calendarDocumentCurrent(request) && bridge_.isAllowedWebCommand("calendar_join");
+    }
+
     explicit WebView2Host(WebViewRoutePolicy policy = WebViewRoutePolicy());
     ~WebView2Host();
 
@@ -148,6 +171,11 @@ public:
     void setUpdateHandler(std::function<void()> handler) { updateHandler_ = std::move(handler); }
     void setAppUpdateAvailable(bool available);
     void setAuthSessionHandler(AuthSessionHandler handler) { authSessionHandler_ = std::move(handler); }
+    // Native confirmed account only. Metadata can change presentation, never auth.
+    void bindUserTimeAccount(std::string origin, std::string user, std::string workspace,
+                             std::string sessionToken, std::uint64_t authGeneration);
+    [[nodiscard]] const std::string& preferredUserTimeZone() const noexcept { return userTimeZone_; }
+    [[nodiscard]] std::uint64_t userTimeRevision() const noexcept { return userTimeRevision_; }
     void setSignInUrlBuilder(SignInUrlBuilder builder) { signInUrlBuilder_ = std::move(builder); }
     [[nodiscard]] std::string signInUrl() const;
     void setLocalRecordingHandler(LocalRecordingHandler handler) { localRecordingHandler_ = std::move(handler); }
@@ -187,6 +215,8 @@ public:
     // Answers the page that asked. The bridge is the only thing that may tell the
     // cabinet a deletion is on its way, so the outcome travels through it.
     void completeDeletionSelection(const DeletionRequest& request, const CabinetDeletionOutcome& outcome);
+    bool completeDeletionSelection(std::uint64_t documentGeneration, std::string_view requestId,
+        const CabinetDeletionOutcome& outcome);
     // The gate a message has to pass before it becomes a deletion: the message has
     // to have the shape macOS accepts, the page has to be one that shows deletable
     // rows, every local row has to be one this app offers for deletion, and on a
@@ -207,11 +237,16 @@ public:
     // phase of each one and what it is waiting for, so a saved request is visible
     // instead of only remembered. `recoveryRequired` is the page's own notice that
     // some local recordings are hidden because their account is not confirmed —
-    // false on Windows, where every row is shown with its reason.
+    // separate from storage checking/unavailability.
     void setLocalRecordings(std::vector<WebViewLocalRecordingRow> rows,
                             std::vector<CabinetDeletionOperation> operations = {},
                             bool recoveryRequired = false);
+    void setProtectedLocalRecordings(std::shared_ptr<const ProtectedUploadQueueValue> value, bool complete,
+        std::string origin, std::string user, std::string workspace, std::uint64_t authGeneration,
+        std::shared_ptr<const ProtectedLocalRecordingTimings> timings = {});
+    [[nodiscard]] static std::string_view localRecordingStatus(const ProtectedUploadQueueValue::Item&) noexcept;
     [[nodiscard]] bool localRecordingActionAllowed(std::string_view action, std::string_view id) const noexcept;
+    [[nodiscard]] bool localPlaybackDocumentCurrent(std::uint64_t generation, std::string_view nonce) const noexcept;
     [[nodiscard]] static bool isAllowedQuitPayload(std::string_view payload) noexcept;
     // Fills the cabinet fields that come from the local package bounds: the
     // instant in wire form, the generated-title prefix, the session length and
@@ -275,6 +310,47 @@ public:
     [[nodiscard]] std::uint64_t documentGeneration() const noexcept { return documentGeneration_; }
 
 private:
+    friend struct WebView2CalendarJoinFixture;
+    struct UserTimeRead {
+        std::string origin, user, workspace, token, nonce, url;
+        std::uint64_t authGeneration = 0, documentGeneration = 0, revision = 0;
+    };
+    UserTimeRead userTimeAccount_;
+    UserTimeRead localAccount_;
+    std::shared_ptr<const ProtectedUploadQueueValue> protectedLocalValue_;
+    std::shared_ptr<const ProtectedLocalRecordingTimings> protectedLocalTimings_;
+    bool protectedLocalMode_ = false, protectedLocalComplete_ = false, localDocumentIdentity_ = false;
+    bool protectedLocalPublicationPending_ = false;
+    std::chrono::steady_clock::time_point protectedLocalRetryAt_{};
+    [[nodiscard]] CustodyString protectedLocalRecordingsMessage() const;
+    [[nodiscard]] bool protectedLocalOpenAllowed(const ProtectedUploadQueueValue::Item&) const noexcept;
+    void failProtectedLocalPublication() noexcept;
+    std::string userTimeZone_, userTimeSession_, userTimeCookieToken_;
+    std::uint64_t userTimeRevision_ = 0, userTimeCookieGeneration_ = 0;
+    std::optional<std::uint64_t> userTimeAttemptedRevision_;
+    std::function<void(UserTimeRead)> nativeReadUserTime_;
+    void invalidateUserTime() noexcept;
+    void refreshUserTime();
+    [[nodiscard]] bool userTimeDocumentCurrent() const;
+    [[nodiscard]] bool userTimeReadCurrent(const UserTimeRead&) const;
+    void reconcileUserTimeCookie(std::uint64_t generation, std::string_view nonce,
+                                 std::string_view url, std::string token);
+    [[nodiscard]] bool reconcileAuthSessionForDocument(std::uint64_t generation, std::string nonce,
+                                        std::string url, std::string token, bool reconciled);
+    void completeUserTimeRead(const UserTimeRead&, std::string_view raw, std::string_view source);
+    CalendarJoinHandler calendarJoinHandler_, calendarCancelHandler_;
+    std::optional<CalendarJoinRequest> pendingCalendarJoin_;
+    CalendarJoinState calendarJoinState_ = CalendarJoinState::idle;
+    std::set<std::string> calendarRequestIds_;
+    bool calendarInvalidating_ = false;
+    std::function<void(const CalendarJoinRequest&, CalendarJoinResult)> nativeReplyCalendarJoin_;
+    [[nodiscard]] bool calendarDocumentCurrent(const CalendarJoinRequest&) const;
+    [[nodiscard]] bool calendarRequestPending(const CalendarJoinRequest&) const noexcept;
+    void publishCalendarJoinAvailability();
+    void handleCalendarJoinMessage(const WebViewBridgeEnvelope&, std::string_view sourceUrl);
+    void emitCalendarJoinReply(const CalendarJoinRequest&, CalendarJoinResult);
+    void cancelPendingCalendarJoin() noexcept;
+    void revokeCalendarDocument() noexcept;
 #if defined(_WIN32) && defined(GRAF_WINDOWS_APP_SDK)
     friend struct WebView2PaymentPopupNativeFixture;
     // Native fixture injects a failure at the irreversible browser handoff.

@@ -167,23 +167,34 @@ void rejectsUntrustedBatches() {
                 assert(aec.calls == (published ? 1U : 0U));
             }
         }
-        for (int mutation = 0; mutation < 8; ++mutation) {
-            FakeAec aec;
-            RecordingAudioTimeline timeline(aec);
-            assert(timeline.push(batch(source, 0, 480, 0.25F)));
-            auto invalid = batch(source, 480, 480, 0.5F);
-            switch (mutation) {
-            case 0: invalid.routeGeneration = 2; break;
-            case 1: invalid.clockDomain = 2; break;
-            case 2: invalid.discontinuity = true; break;
-            case 3: invalid.samples[0] = std::numeric_limits<float>::infinity(); break;
-            case 4: invalid.samples[0] = std::numeric_limits<float>::quiet_NaN(); break;
-            case 5: invalid.ptsFrames = -1; break;
-            case 6: invalid.sampleRate = 44'100; break;
-            case 7: invalid.channels = 2; break;
+        for (const int suppression : {0, 1, 2}) {
+            for (int mutation = 0; mutation < 11; ++mutation) {
+                FakeAec aec;
+                RecordingAudioTimeline timeline(aec);
+                assert(timeline.push(batch(source, 0, 480, 0.25F)));
+                timeline.setMicrophonePaused(suppression == 1);
+                auto invalid = batch(source, 480, 480, 0.5F);
+                invalid.microphoneSuppressed = suppression == 2;
+                switch (mutation) {
+                case 0: invalid.routeGeneration = 2; break;
+                case 1: invalid.clockDomain = 2; break;
+                case 2: invalid.discontinuity = true; break;
+                case 3: invalid.samples[0] = std::numeric_limits<float>::infinity(); break;
+                case 4: invalid.samples[0] = std::numeric_limits<float>::quiet_NaN(); break;
+                case 5: invalid.ptsFrames = -1; break;
+                case 6: invalid.sampleRate = 44'100; break;
+                case 7: invalid.channels = 2; break;
+                case 8: invalid.samples.pop_back(); invalid.channels = 2; break;
+                case 9: invalid.ptsFrames = std::numeric_limits<std::int64_t>::max() - 479; break;
+                case 10: invalid.normalizedFrameOffset = std::numeric_limits<std::uint64_t>::max(); break;
+                }
+                assert(!timeline.push(std::move(invalid)));
+                assert(!timeline.healthy() && aec.calls == 0);
+                const auto fault = timeline.fault();
+                timeline.setMicrophonePaused(false);
+                assert(!timeline.push(batch(source, 480, 480, 0.5F)));
+                assert(!timeline.close() && timeline.fault() == fault);
             }
-            assert(!timeline.push(std::move(invalid)));
-            assert(!timeline.healthy() && aec.calls == 0);
         }
         FakeAec aec;
         RecordingAudioTimeline startup(aec);
@@ -304,6 +315,120 @@ void boundsAndOverflow() {
     assert(extremeFrames[0].system[1] == -std::numeric_limits<float>::max());
 }
 
+void privacyPauseNeverRestoresPending() {
+    for (const auto beforePause : {0U, 1U, 240U, 480U}) {
+        FakeAec aec;
+        RecordingAudioTimeline timeline(aec);
+        assert(timeline.push(batch(AudioSource::systemRender, 0, 480, 0.25F)));
+        assert(timeline.push(batch(AudioSource::microphone, 0, 480, 0.5F)));
+        const auto prefix = timeline.takeFrames();
+        for (std::int64_t pts = 480; pts <= 1440; pts += 960) {
+            if (beforePause) assert(timeline.push(batch(AudioSource::microphone, pts, beforePause, 0.5F)));
+            timeline.setMicrophonePaused(true);
+            timeline.setMicrophonePaused(true);
+            if (beforePause != 480) assert(timeline.push(batch(AudioSource::microphone,
+                pts + beforePause, 480 - beforePause, 0.5F)));
+            timeline.setMicrophonePaused(false);
+            timeline.setMicrophonePaused(false);
+            assert(timeline.push(batch(AudioSource::systemRender, pts, 480, 0.25F)));
+            const auto delayed = timeline.takeFrames();
+            assert(delayed.size() == 1 && delayed[0].ptsFrames == pts);
+            for (std::size_t i = 0; i < 480; ++i) {
+                assert(delayed[0].system[i] == 0.25F);
+                assert(delayed[0].microphone[i] == 0.0F);
+                assert(delayed[0].mixed[i] == 0.25F);
+            }
+            assert(timeline.push(batch(AudioSource::systemRender, pts + 480, 480, 0.25F)));
+            assert(timeline.push(batch(AudioSource::microphone, pts + 480, 480, 0.5F)));
+            const auto resumed = timeline.takeFrames();
+            assert(resumed.size() == 1 && resumed[0].ptsFrames == pts + 480);
+            for (const auto sample : resumed[0].microphone) assert(sample == 0.25F);
+        }
+        assert(prefix.size() == 1 && prefix[0].ptsFrames == 0);
+        for (const auto sample : prefix[0].microphone) assert(sample == 0.25F);
+        assert(timeline.healthy() && timeline.processedFrames() == 5 && aec.calls == 5 && aec.referenceSeen);
+        assert(timeline.close());
+        timeline.setMicrophonePaused(true);
+        timeline.setMicrophonePaused(false);
+        assert(!timeline.push(batch(AudioSource::microphone, 2400, 480, 0.5F)));
+    }
+
+    // A resumed batch completes a partially suppressed frame, not a new frame.
+    {
+        FakeAec aec;
+        RecordingAudioTimeline timeline(aec);
+        timeline.setMicrophonePaused(true);
+        assert(timeline.push(batch(AudioSource::microphone, 0, 240, 0.5F)));
+        timeline.setMicrophonePaused(false);
+        assert(timeline.push(batch(AudioSource::microphone, 240, 240, 0.5F)));
+        assert(timeline.push(batch(AudioSource::systemRender, 0, 480, 0.25F)));
+        const auto frame = timeline.takeFrames();
+        assert(frame.size() == 1 && frame[0].ptsFrames == 0);
+        for (std::size_t i = 0; i < 480; ++i) {
+            assert(frame[0].system[i] == 0.25F);
+            assert(frame[0].microphone[i] == (i < 240 ? 0.0F : 0.25F));
+        }
+        assert(timeline.close() && aec.calls == 1);
+    }
+
+    // Clock interpolation must not recover a cached sample suppressed by Pause.
+    for (const bool receivedWhilePaused : {false, true}) {
+        FakeAec aec;
+        RecordingAudioTimeline timeline(aec);
+        assert(timeline.push(batch(AudioSource::systemRender, 0, 480, 0.25F)));
+        assert(timeline.push(batch(AudioSource::microphone, 0, 480, 0.5F)));
+        assert(timeline.takeFrames().size() == 1);
+        timeline.setMicrophonePaused(true);
+        std::int64_t pts = 480;
+        if (receivedWhilePaused) {
+            assert(timeline.push(batch(AudioSource::microphone, pts, 480, 0.75F)));
+            assert(timeline.push(batch(AudioSource::systemRender, pts, 480, 0.25F)));
+            const auto paused = timeline.takeFrames();
+            assert(paused.size() == 1);
+            for (const auto sample : paused[0].microphone) assert(sample == 0.0F);
+            pts += 480;
+        }
+        timeline.setMicrophonePaused(false);
+        auto corrected = batch(AudioSource::microphone, pts + 1, 479, 0.5F);
+        corrected.normalizedFrameOffset = static_cast<std::uint64_t>(pts);
+        assert(timeline.push(std::move(corrected)));
+        assert(timeline.push(batch(AudioSource::systemRender, pts, 480, 0.25F)));
+        const auto resumed = timeline.takeFrames();
+        assert(resumed.size() == 1 && resumed[0].ptsFrames == pts);
+        assert(resumed[0].microphone[0] == 0.125F);
+        for (std::size_t i = 1; i < 480; ++i) assert(resumed[0].microphone[i] == 0.25F);
+        assert(timeline.healthy() && timeline.close());
+    }
+}
+
+void admissionSuppressionKeepsValidationAndClockGaps() {
+    FakeAec aec;
+    RecordingAudioTimeline timeline(aec);
+    assert(timeline.push(batch(AudioSource::systemRender, 0, 480, 0.25F)));
+    assert(timeline.push(batch(AudioSource::microphone, 0, 480, 0.5F)));
+    assert(timeline.takeFrames().size() == 1);
+    auto suppressed = batch(AudioSource::microphone, 481, 479, 0.75F);
+    suppressed.normalizedFrameOffset = 480;
+    suppressed.microphoneSuppressed = true;
+    assert(timeline.push(std::move(suppressed)));
+    auto render = batch(AudioSource::systemRender, 480, 480, 0.25F);
+    render.microphoneSuppressed = true; // Mic-only provenance cannot suppress system audio.
+    assert(timeline.push(std::move(render)));
+    const auto frames = timeline.takeFrames();
+    assert(frames.size() == 1 && frames[0].ptsFrames == 480);
+    for (std::size_t i = 0; i < 480; ++i) {
+        assert(frames[0].microphone[i] == 0.0F && frames[0].system[i] == 0.25F);
+    }
+    auto next = batch(AudioSource::microphone, 960, 480, 0.5F);
+    next.normalizedFrameOffset = 959; // The clock gap did not invent an input sample.
+    assert(timeline.push(std::move(next)));
+    assert(timeline.push(batch(AudioSource::systemRender, 960, 480, 0.25F)));
+    const auto resumed = timeline.takeFrames();
+    assert(resumed.size() == 1 && resumed[0].ptsFrames == 960);
+    for (const auto sample : resumed[0].microphone) assert(sample == 0.25F);
+    assert(timeline.close() && aec.calls == 3);
+}
+
 void closesWithoutPadding() {
     FakeAec aec;
     RecordingAudioTimeline timeline(aec);
@@ -331,6 +456,8 @@ int main() {
     consumesSmallClockOverlapOnce();
     boundsAndOverflow();
     closesWithoutPadding();
+    privacyPauseNeverRestoresPending();
+    admissionSuppressionKeepsValidationAndClockGaps();
     FakeAec aec;
     RecordingAudioTimeline timeline(aec);
     AudioBatch system{AudioSource::systemRender, 48'000, 1, 0, 1, 1, false, std::vector<float>(480, 0.25F)};

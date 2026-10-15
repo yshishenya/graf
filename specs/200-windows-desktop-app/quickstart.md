@@ -443,6 +443,11 @@ T094–T096 или T119. Искусственные storage-регрессии �
 UUID/duplicate/extra/type/size/depth, frame/origin/route/nonce/replay, one busy,
 401/404/503/network/redirect, stale callbacks/token/owner/document switch,
 HTMX same UUID/replacement/removal, trusted/untrusted click, terminal not-ready,
+join/cancel exact fields, duplicate escaped root/payload keys до SDK Stringify,
+invalid Unicode, owned raw payload lifetime, request UUID replay при новом outer
+message_id, bounded1024 UUID без eviction, delayed cancel против следующего flight,
+cap-rejected UUID повтор даёт только cancelled/not_ready без history growth,
+cancel card/menu denied, cancellation перед nonce/script invalidation,
 launch false/exception и dialog cancel. Browser recovery получает новый resolver
 result, сохраняет query/fragment/port и IgnoreAppUriHandlers=true; shared F279
 host corpus проходит и в Mac, и в Windows без изменения expected cases.
@@ -472,6 +477,26 @@ HTTPS app handler: QueryUriSupportAsync Available и LaunchUriAsync true не
 доказывают личность получателя. Приёмка native parity требует наблюдаемого запуска
 именно клиента; открытие браузера не засчитывается как запуск Телемоста.
 
+Owner/state этап: CalendarJoinOperationTests использует synthetic identities
+и управляемое время, без звука/сетевых ссылок. Покрыть terminal UI при delayed
+actual completion и busy до drain; old completion не меняет новый ID. Recovery:
+пользователь подтверждает после истечения начального resolver budget, fresh
+resolver получает новый15s budget, внешний request остаётся opening; исходный
+card/action expiry не продлевается, terminal request не оживает. OS query/launch
+и dialog не получают искусственного общего15s timeout. Отдельно adapter tests
+обязаны подтвердить actual worker/OS/dialog completion, не только helper boolean.
+
+Launcher adapter: native target/Zoom query/Teams/Telemost и unsupported/non443;
+delayed SDK Started, reentrant dispatch/cancel/poll, все пять query statuses,
+browser IgnoreAppUriHandlers и launch false/exception. Явная отмена не вызывает
+OS Cancel/Close и не снимает pending до natural Completed/Error. Непрошенный
+Canceled/ошибка Status не считаются drain; safe terminal без handoff/Record,
+retry blocked до доказанного completion или явного выхода/перезапуска GRAF.
+API start throw/null без полученного handle завершает только синхронный dispatch,
+не доказывает отсутствие OS side effect; нет автоматического browser fallback.
+Проверки используют TU-local fake statics с реальными WinRT interfaces, без
+запуска целевых приложений; полный installed сценарий остаётся отдельным.
+
 ## 14. Packed media v2 — проверка поправки T115, 2026-10-03
 
 До product edits нужны текущие independent checklist/analyze и owner T116;
@@ -491,6 +516,7 @@ HTTPS app handler: QueryUriSupportAsync Available и LaunchUriAsync true не
 | Birth/heads | обе empty g1 cells independently protected, incomplete/torn birth не достраивается; equal g>1/conflict/nonadjacent pair/invalid slot → no normal authority |
 | Cuts/async | каждый records/head write/flush/readback cut; head I/O started → ambiguous до reconciliation; stale/cancel не отменяет committed disk fact, owner/buffers до actual completion |
 | Read/Clone/seek | independent cursor/same pinned root, EOF/got0, partial tail, shrink→grow ZERO, больших ZERO ranges без flat arrays, no unsupported read-write shortcuts |
+| Worker SetSize | actual `Tree.setSize`: empty/same-size/stale;1/block−1/block/block+1 и radix63/64/4095/4096/262143; truncate→grow не воскрешает прежние bytes, pinned Reader/Clone сохраняет prefix/length.64GiB ZERO создаёт≤7 NODE+1 DATA/327680B, не64GiB fixture. Guard/job/pin/dirty/owned refusal, generation overflow, revoked write; measured native read/write/flush/throw cuts до HEAD и после него сохраняют exact first fault/retained lease. Cold reopen обеих closures, no new snapshot при отказе. |
 | Ownership/bounds | existing writable handle/mapping и confinement/ACL/ADS/reparse faults rejected; writer release при Clone сохраняет actual owner; owned64MiB/cache2MiB/dirty4/pins32/jobs4 с admission до allocation |
 | Whole-object delete | durable intent и current-authority retirement внешних live retainers → actual jobs/guards completion → container absence → removed ACK; собственные heads/идентифицирующий receipt не удерживают вечно; unknown/ambiguous external refs блокируют purge |
 | Regression | все v1 metadata g2/delete-intent→missing slot→restart no rollback; logical v5 bytes/hash/ranges unchanged; unknown explicit representation не decode fallback |
@@ -504,3 +530,433 @@ cold verification, peak memory/native allocation/disk и Stop/tail/seek.
 Generated v5/MF/playback/upload/delete/100cycles, точный installed MSIX,
 physical x64/audio/accessibility/signature/install/rollback остаются §12/T118
 и общей приёмкой. Неподключённый codec/дерево не закрывают T116.
+
+## 15. Приватная пауза T120 — 2026-10-04
+
+Сначала независимый requirements review/analyze, затем owner T120.
+Используются существующие Timeline/CaptureFaultState/Codec tests, не реальные
+устройства или записи. RED на старом source обязателен. Для codec prerequisite
+owner остаётся T116/#7444; capture integration требует собственного T120.
+
+| Проверка | Ожидаемый результат |
+| --- | --- |
+| Delayed render | установить общий480-frame prefix, Pause→mic480 без render→Resume→render: mic нулевой, system/PTS/count/AEC сохранены |
+| Prefetched/timeline | ещё не записанный pre-Pause pending mic и накопления подавлены; уже записанный prefix не меняется |
+| FIFO/in-flight | producer добавляет одновременно с Pause/Resume, batch уже извлечён до control; старая очередь подавлена, только новые после точной границы возвращают mic |
+| Частичные данные | остаток паузы заканчивается внутри batch/480-frame output; старый prefix0, новый suffix нормальный, count/channels/route/PTS не меняются |
+| Повторные controls | Pause/Resume/Pause/Resume заменяют снимок остатка, не удваивают его; постоянный producer не заставляет ждать пустую очередь |
+| Неверные данные | NaN/Inf/невалидные timestamps/count/route/overflow отклоняются даже для подавляемого mic; fault sticky, raw fallback отсутствует |
+| Mandatory OPEN | отказ write/flush/publication: Pause не принят и новый неподтверждённый сегмент откатан; отсутствие T116 не разрешает plaintext metadata |
+| Boundary unavailable | Resume отклонён, прежний OPEN/paused/system/Stop сохранены |
+| Best-effort CLOSE | после принятой границы сохранение CLOSE отказывает: Resume остаётся принят, старый durable OPEN не потерян |
+| Размер metadata | полный manifest exact64KiB допустим для codec,65537B rejected до publication;1/4096/4097/65536 roundtrip, old4096 известный manifest остаётся читаемым |
+| История пауз | actual serializer повторных сегментов проверяет общий размер, не только segment count; cap/full OPEN отказ не обрезает историю; no новые plaintext files |
+| Stop/late completion | Stop/EOS и finalizer однократны; late OPEN/CLOSE после Stop/newsession не возвращает delivery/recording, UI не ждёт I/O |
+
+Codec limit — не приёмка logical v5/LocalRecordingPackage validator. Bytes
+fixtures Mac ISO8601/Codable, unknown/duplicate keys и package hash/format/
+ownership проходят отдельную consumer приёмку T116/T120. Два новых bounds
+не увеличиваются вместе: меняется только manifest logical cap, общие memory/
+native/cache/queue/root/audio limits остаются прежними.
+
+После synthetic/native acceptance — свежий exact-SHA установленный MSIX,
+Record/Pause/Resume/Stop и воспроизведение результата. VM не physical x64;
+hardware/AEC/60min/accessibility/install/update/signature остаются обязательны.
+
+## 16. Ближайшие встречи в меню T119 — 2026-10-05
+
+Prerequisites: current requirements review/analyze, exact source hash receipt,
+тот же owner/workspace и подтверждённый SDK build. Эталон Mac pinned
+`721b5125d799ea798a4af0b3625e18d3c1109039`, plan «T119: ближайшие встречи»,
+data-model §8 и bridge §10. Синтетические event IDs/URLs, без private content.
+
+1. Decoder: missing/null/true/false show_upcoming_* и all_day; true defaults
+   только для presentation flags, false для all_day. Строка/число/object/array
+   вместо bool отвергают весь snapshot, включая all_day второй строки. Прежние
+   owner/instant/link/title privacy/bounds сохраняются.
+2. Projection: unsorted13+ events и equal startsAt → sort/eventId/prefix12;
+   dismissed/canSurface=false/quiet/active capture не скрывают menu rows;
+   private/hidden/empty-title/all-day/timezone и unavailable-link labels.
+   Failed refresh/auth switch немедленно убирают rows, даже при failed card.
+3. Actual native popup: открыть меню, обновить projection/auth до selection;
+   старый frozen row не вызывает новый target. Уничтожение owner во вложенном
+   message loop безопасно. Обычное закрытие после выбора не отменяет flight;
+   presentation-only change не отменяет принятый unchanged target. Keyboard,
+   screen reader names, light/dark/high-contrast, DPI и длинный safe title.
+4. Menu failure → explicit Retry/Cancel: одна общая busy операция с card/web;
+   delayed resolver/SDK/dialog до natural terminal, no early drain/auto retry.
+   Retry создаёт новый request/operation, использует fresh resolver после click,
+   но сохраняет original action expiry. Delay dialog >15s после Primary не даёт
+   свежие15s при poll; истёкший budget fails. Unknown exit остаётся busy.
+5. Event removed/replaced/ended, owner/interaction switch во время всех ожиданий:
+   нет позднего launch/новой попытки/Record. Одинаковые UUID и одинаковая позиция
+   строки не возвращают старую authority. Original expiry не продлевается refresh
+   либо переводом часов назад; overflow/invalid conversion fail closed.
+6. Installed exact MSIX + authenticated calendar: future event из меню при
+   закрытой card/quiet/recording; fresh native/browser launch, отказ/recovery/Retry,
+   Cancel и многократный click без второй операции. Menu never Record. Сравнить
+с тем же Mac и проверить card Join-and-record и cabinet без регрессии.
+
+Focused portable check после сборки существующего target:
+`ctest --test-dir <portable-build> -R '^NativeSettingsBridgeTests$' --output-on-failure`.
+Полный portable + serial Windows CTest и SDK solution build обязательны после
+integration. Decoder PASS не закрывает menu owner/installed T119; release,
+hardware/audio/storage/a11y/update gates остаются отдельными.
+
+### Пользовательское время T119 — Round243
+
+До formatter/transport code требуется закрытие current requirements M1 и analyze;
+подробный source/current contract — plan «T119: пользовательское время», bridge§10.
+На синтетических metadata проверить exact5 keys/strings/2048 bytes, duplicate/
+unknown/missing/null/invalid UUID/zone/URL, wrong owner/workspace и allowed route.
+Нынешний document/account invalid result сбрасывает preference; delayed result
+после auth/token/nonce/document/context switch не меняет новый context.
+
+Actual Windows Calendar: UTC, Asia/Kathmandu (+05:45), America/New_York до/после
+DST перехода и зимнее/летнее Europe/Berlin, all-day/hidden time, empty/system и
+unknown zone, NaN/Inf/range overflow. Именованная zone проверяется на native API,
+не portable fixed-offset stub. Не менять часовой пояс ОС ради теста.
+
+Installed exact MSIX: аккаунт с zone, отличной от Windows system, правильный
+HH:mm в menu; logout/другой user/workspace/session, отсутствие/смена preference
+после сохранения на сервере и нового confirmed document. Отдельно same-page save
+и dirty/failed save: несохранённая форма не меняет native preference. Preference
+или system-zone refresh закрывает открытый popup, но unchanged admitted Join
+сохраняет original expiry. Не закрывать T119 по decoder/formatter/probe PASS.
+
+### Настоящее окно повторной попытки T119 — Round249
+
+Отдельный SDK-only проект использует настоящий WinUI ContentDialog и тот же
+CalendarJoinOperation, но только искусственные контексты и события. Нужны
+интерактивный рабочий стол Windows, установленный Windows App Runtime и обычные
+зависимости сборки приложения; запуск без них — отказ проверки, не пропуск.
+Не запускать одновременно другие испытания меню/окон. Из PowerShell в корне
+репозитория (MSBuild из Developer PowerShell Visual Studio 2022):
+
+```powershell
+$taskProject = 'apps\windows\Tests\GrafWindowsContractTests\NativeCalendarDialogTests.vcxproj'
+MSBuild $taskProject /t:Restore /m:1 /p:Configuration=Release /p:Platform=x64 /v:minimal
+if ($LASTEXITCODE -ne 0) { throw 'DIALOG_RESTORE_FAILED' }
+MSBuild $taskProject /t:Build /m:1 /p:Configuration=Release /p:Platform=x64 /v:minimal
+if ($LASTEXITCODE -ne 0) { throw 'DIALOG_BUILD_FAILED' }
+$taskProcess = [System.Diagnostics.Process]::new()
+$taskProcess.StartInfo.FileName = (Resolve-Path 'apps\windows\out\x64\Release\NativeCalendarDialogTests.exe').Path
+$taskProcess.StartInfo.UseShellExecute = $false
+$taskProcess.StartInfo.RedirectStandardOutput = $true
+$taskProcess.StartInfo.RedirectStandardError = $true
+if (!$taskProcess.Start()) { throw 'DIALOG_START_FAILED' }
+if (!$taskProcess.WaitForExit(60000)) {
+    Stop-Process -Id $taskProcess.Id
+    $taskProcess.WaitForExit()
+    throw 'DIALOG_WATCHDOG_FAILED_NOT_NATURAL_DRAIN'
+}
+$taskOutput = $taskProcess.StandardOutput.ReadToEnd()
+$taskError = $taskProcess.StandardError.ReadToEnd()
+$taskOutput
+$taskError
+$taskCases = @($taskOutput -split '\r?\n' | Where-Object { $_ -match '^native dialog case=[0-5] opened=1 ' })
+if ($taskProcess.ExitCode -ne 73 -or $taskCases.Count -ne 6) { throw 'DIALOG_TEST_FAILED' }
+$taskProcess.Dispose()
+```
+
+Успех — **код 73 и все 6 строк случаев**, не только надпись PASS. Наблюдаются
+реальные Opened/Closing/Closed и завершение ShowAsync. Настоящая кнопка вызывается
+через системный Automation Invoke. Future-ready при ещё живом native thread не
+освобождает старую работу. Проверяются Primary, Close, отмена с Hide, устаревание
+до Primary и во время закрытия, а также фактическая задержка закрытия 16 секунд:
+после click+15s новая попытка не принимается. Только первый случай создаёт один
+новый ticket с новым request и прежним сроком события; HTTP не выполняется.
+
+Это не проверка частных методов AppMain, настоящей клавиатуры/экранного диктора,
+SDK Error/неизвестного состояния/отказа ShowAsync/GetResults, авторизации,
+обновлённой ссылки, запуска приложения встречи или установленного MSIX.
+Эти границы остаются отдельной приёмкой T119/T097; настоящий audio/capture,
+protected-storage, physical x64 и release gates этой проверкой не закрываются.
+
+### Структурное описание защищённого пакета — package.v1/v2
+
+`ProtectedCustodyPackageTests` проверяет production parser/serializer из
+`Storage/ProtectedCustodyMetadata.*` только на generated JSON и typed values.
+Это не запуск приложения, чтение профиля, recording/audio или миграция.
+Один точный ключ `schema`, известные поля и nullable stamps; unknown/duplicate
+decoded keys, неверный context/generation/directory, числа/представление/фаза,
+root/extent и превышение whole payload65536B должны завершаться typed failure,
+без принятого value/default/IO. Проверяются writer roundtrip, порядок ключей,
+ASCII escapes, directory300/301, packed live/sealed/empty root и исчерпание
+общего owned memory budget; квоты не расширяются.
+
+Из Developer PowerShell Visual Studio2022 в корне репозитория:
+
+```powershell
+$taskBuild = 'out\windows-package-contracts'
+cmake -S apps/windows -B $taskBuild -A x64
+if ($LASTEXITCODE -ne 0) { throw 'PACKAGE_CONFIGURE_FAILED' }
+cmake --build $taskBuild --config Release --target ProtectedCustodyPackageTests ProtectedCustodyFilesTests ProtectedCustodyCodecTests ProtectedPackedCustodyFormatTests NativeCustodyProtectionFailureTests -j 2 -- /nodeReuse:false
+if ($LASTEXITCODE -ne 0) { throw 'PACKAGE_BUILD_FAILED' }
+ctest --test-dir $taskBuild -C Release -j 1 -R '^(ProtectedCustodyPackageTests|ProtectedCustodyFilesTests|ProtectedCustodyCodecTests|ProtectedPackedCustodyFormatTests|NativeCustodyProtectionFailureTests)$' --output-on-failure --timeout 300
+if ($LASTEXITCODE -ne 0) { throw 'PACKAGE_CONTRACT_FAILED' }
+```
+
+Не запускать параллельно с другим native storage test/build. Чужие процессы
+не останавливать; дождаться своего actual completion. Результат должен быть
+5/5 и exit0, с frozen source/EXE hash, не только строка PASS. Reader возвращает
+фиксированное собственное structural value, не input views/proof/lease/pin.
+Serializer резервирует прежний64KiB charged cap до plaintext, не растит vector
+с освобождением unwiped старого буфера. Actual member hashes, retained roots
+обоих metadata slots и closure под тем же owner, prefix/manifest/short predicate
+и права effects остаются отдельным validator/consumer gate. Structural success
+не разрешает normal upload/discard/GC и не закрывает T116/T117/T118/T120 или
+working-profile install/update/rollback.
+
+### Холодная проверка исторической версии packed media
+
+`ProtectedPackedCustodyTreeTests` теперь проверяет `verifyRetained` на generated
+истории g1→g2→g3→g4. После фактического освобождения старого owner проверяется
+исторический g2, которого уже нет в текущих heads: полный обход текущей пары и
+старого дерева, exact context/store/object/container/role и immutable bytes/EOF.
+Отдельно проверяются порча исторических DATA/трёх уровней NODE и обеих heads,
+недопустимые generation/count/root/extent, readonly mutation/Writer-open,
+Reader/Clone lifetime после writer release, pin/job/owned-budget отказы,
+EMPTY birth/shrink и 64GiB explicit ZERO без гигантского файла.
+
+Из Developer PowerShell Visual Studio2022, последовательно, без другого
+native storage test/build:
+
+```powershell
+$taskBuild = 'out\windows-package-contracts'
+cmake -S apps/windows -B $taskBuild -A x64
+if ($LASTEXITCODE -ne 0) { throw 'RETAINED_CONFIGURE_FAILED' }
+cmake --build $taskBuild --config Release --target ProtectedPackedCustodyTreeTests ProtectedCustodyPackageTests ProtectedCustodyFilesTests ProtectedCustodyCodecTests ProtectedPackedCustodyFormatTests NativeCustodyProtectionFailureTests -j 2 -- /nodeReuse:false
+if ($LASTEXITCODE -ne 0) { throw 'RETAINED_BUILD_FAILED' }
+ctest --test-dir $taskBuild -C Release -j 1 -R '^(ProtectedPackedCustodyTreeTests|ProtectedCustodyPackageTests|ProtectedCustodyFilesTests|ProtectedCustodyCodecTests|ProtectedPackedCustodyFormatTests|NativeCustodyProtectionFailureTests)$' --output-on-failure --timeout 300
+if ($LASTEXITCODE -ne 0) { throw 'RETAINED_CONTRACT_FAILED' }
+```
+
+Требуется 6/6, terminal exit0 и matching frozen source/EXE hashes; прежний
+parser 5/5 или portable PASS не исполняют Windows-only cases. Timeout не
+увеличивать, чужие процессы не останавливать. Retained proof всегда readonly,
+даже если stamp совпадает с текущей head и физический owner writable. Обычный
+отказ записи не повреждает общий owner; наблюдаемая первая ошибка целостности
+или native operation остаётся blocking и не заменяется readonly отказом.
+
+Это только проверенные logical bytes под тем же owner. Происхождение stamp из
+защищённых metadata, восстановление всех refs обоих metadata slots/barriers,
+actual finalized logical SHA, package/account admission и права upload/delete/
+GC проверяются будущим caller отдельно. Нет запуска приложения, микрофона,
+рабочего профиля, миграции или допуска к install/release. T116/T117/T118/T120
+и аппаратные/доступность/установочные критерии остаются открытыми.
+
+### Обе защищённые версии описания пакета
+
+`ProtectedCustodyFilesTests` проверяет `ProtectedCustodyPackagePair::read`
+на искусственных файлах: оба физических index slots и оба собственных
+расшифрованных package payloads. При исправном higher slot повреждённый lower
+не пропускается. Schema1/2, равный birth g1, разные refs g2/g3, 64KiB,
+неверные JSON/generation/context, отсутствие DATA и ZERO metadata проверяются
+без открытия пользовательского профиля. Обе версии остаются неизменными под
+существующим native identity lease до освобождения последней shared reference;
+протокольная запись в это время запрещена. Это не проверка связанных media
+roots/hashes/manifest, прав аккаунта или перехода данных.
+
+Применить последовательную Release-команду из предыдущего раздела:
+те же шесть полных наборов, результат6/6 и exit0. Дополнительно проверить
+отладочный вариант того же полного Files test; не запускать одновременно
+с другими native тестами либо сборкой:
+
+```powershell
+$taskBuild = 'out\windows-package-contracts'
+cmake --build $taskBuild --config Debug --target ProtectedCustodyFilesTests -j 2 -- /nodeReuse:false
+if ($LASTEXITCODE -ne 0) { throw 'METADATA_PAIR_DEBUG_BUILD_FAILED' }
+ctest --test-dir $taskBuild -C Debug -j 1 -R '^ProtectedCustodyFilesTests$' --output-on-failure --timeout 300
+if ($LASTEXITCODE -ne 0) { throw 'METADATA_PAIR_DEBUG_TEST_FAILED' }
+```
+
+Нужны matching frozen source/EXE hashes и terminal1/1, а не только строка PASS.
+Полный Files test также сохраняет прежние audio/trusted-prefix проверки.
+Восемь внедрённых ReadFile отказов проверяют точный nativeError; отмена после
+physical pair и каждого payload, pin32/job4/owned64MiB, отсутствие
+write/rename/flush и освобождение lease входят в тот же тест. Native IO fault
+в identity helper не маскируется identityMismatch; неверный ID/размер по-прежнему
+отвергается. Debug запуск не объявляется исчерпывающей проверкой всех возможных
+allocation cuts нового constructor/control block: эти выходы отдельно проверены
+по исходникам. Пределы времени и матрицу не сокращать.
+
+Generic physical pair сам по себе не блокирует запись: для него caller обязан
+сохранять подходящий lease. Новый readonly package pair удерживает его сам,
+но не даёт права на normal upload/discard/delete/GC. Будущий consumer перед
+изменением metadata освобождает proof и заново проверяет полномочия;
+не использовать const views после last owning reference release. T116/T117/
+T118/T120 и приёмка установленного приложения этим prerequisite не закрыты.
+
+### Защищённое описание → точный запечатанный файл
+
+Overload `openProtectedCustodyReader(root, heldPair, slot, refIndex, cancel)`
+принимает sealed ref только из собственной удерживаемой package pair. Проверка
+обоих физических flat indices/DATA либо обоих packed heads и retained closure
+предшествует сравнению полной logical length/SHA. Read-only stream возвращается
+с cursor0 и удерживает parent/member leases через последнюю Reader/Clone ссылку.
+Live ref отвергается; недоступный старый flat index не реконструируется. Отказ
+другого physical slot сохраняет исходную причину, не возвращает partial stream.
+
+Выполнить последовательно в отдельной копии исходников, без профиля приложения,
+устройств и одновременных Windows сборок/тестов:
+
+```powershell
+$taskBuild = 'out\windows-package-contracts'
+cmake --build $taskBuild --config Release --target NativeHashFailureTests Sha256Tests ProtectedPackedCustodyTreeTests ProtectedCustodyPackageTests ProtectedCustodyFilesTests ProtectedCustodyCodecTests ProtectedPackedCustodyCodecTests NativeCustodyProtectionFailureTests -j 2 -- /nodeReuse:false
+if ($LASTEXITCODE -ne 0) { throw 'SEALED_MEMBER_RELEASE_BUILD_FAILED' }
+ctest --test-dir $taskBuild -C Release -j 1 -R '^(NativeHashFailureTests|Sha256Tests|ProtectedPackedCustodyTreeTests|ProtectedCustodyPackageTests|ProtectedCustodyFilesTests|ProtectedCustodyCodecTests|ProtectedPackedCustodyCodecTests|NativeCustodyProtectionFailureTests)$' --output-on-failure --timeout 300
+if ($LASTEXITCODE -ne 0) { throw 'SEALED_MEMBER_RELEASE_TEST_FAILED' }
+cmake --build $taskBuild --config Debug --target ProtectedCustodyFilesTests ProtectedPackedCustodyTreeTests NativeHashFailureTests -j 2 -- /nodeReuse:false
+if ($LASTEXITCODE -ne 0) { throw 'SEALED_MEMBER_DEBUG_BUILD_FAILED' }
+ctest --test-dir $taskBuild -C Debug -j 1 -R '^(ProtectedCustodyFilesTests|ProtectedPackedCustodyTreeTests|NativeHashFailureTests)$' --output-on-failure --timeout 300
+if ($LASTEXITCODE -ne 0) { throw 'SEALED_MEMBER_DEBUG_TEST_FAILED' }
+```
+
+Нужны terminal8/8 и3/3 на matching source/EXE hashes. Это проверки сгенерированных
+файлов, не записи микрофона. Включены разные старые/новые flat bytes, старый packed
+root вне current heads, SHA/length/context отказ, missing other-slot DATA/index,
+Clone lifetime, точный EOF, invalid Read/count/HRESULT, CNG failures, owned memory/
+job refusal и cancel. Debug не объявляется exhaustive allocation/rewind/wipe cut
+matrix. Новый native hash использует один charged+wiped64KiB buffer; прежний
+stack buffer `sha256Stream` очищается без изменения старой allocation семантики.
+
+Один проверенный sealed member не принимает всех refs BOTH metadata slots,
+live recovery, actual manifest/formats/duration/trusted prefix/positive short
+predicate или normal package. Права аккаунта, upload/playback/delete/GC, wiring
+V5/MF/queue consumers, T117 migration, H250 working-profile gate и полная T118
+приёмка остаются отдельными открытыми обязательствами. Установка/подпись/запуск
+на рабочем inventory этой командой не разрешены.
+
+### Совместное чтение рабочих и запечатанных файлов обеих версий
+
+`openProtectedCustodyReaders(root, heldPair, cancel)` возвращает фиксированные
+2×5 readonly streams по actual ordinal каждой физической slot. Использовать
+те же последовательные Release8/Debug3 команды выше. Проверяются разные
+сохранённые bytes/версии, reversed wire order, mixed flat/packed и старые roots,
+asymmetric refs, lower-only повреждение, конфликт representation до member IO,
+LIVE current checkpoint рядом с SEALED historical ref, отказ quotas и общая первая ошибка. Любая оставшаяся Reader/Clone удерживает
+описание и ВСЕ файлы записи; последняя ссылка освобождает их. Неиспользованные
+ячейки пусты, каждый успешный stream начинается на cursor0. SEALED сохраняет
+exact length/whole SHA/EOF; LIVE использует actual highest из BOTH verified
+flat indices либо BOTH current packed closures, без придуманного null stamp.
+
+Одиночная перегрузка использует общий batch: повреждённый sibling отклоняет
+даже запрос здорового файла; здоровый LIVE sibling теперь поддерживается.
+LIVE target одиночной перегрузки по-прежнему отклоняется. Новые регрессии
+проверяют обе LIVE slots, переход finalizing → sealed_normal с lower-only
+canonical, разные current/historical bytes, mixed flat/packed, пустой checkpoint,
+отказ singleton/trustedPrefix и отсутствие write/repair/slot erase. Независимые
+factory открывать последовательно: второй batch не переоткрывает уже удерживаемый
+эксклюзивный role. Это расширяет прежнюю ALL-SEALED область успеха, не ослабляя
+проверку старой SEALED ссылки. Читаемый checkpoint не доказывает complete-frame
+prefix или normal package и не заменяет manifest/formats/phase/trusted prefix, права аккаунта,
+интеграцию writer/upload/playback и переход данных. Не удалять старую slot и не
+выдавать дополнительный sealed commit ради обхода отказа. T116/T117/T118/T120
+и H250 остаются открытыми; working-profile install/launch не разрешён этим шагом.
+
+### Общая проверка формата перед загрузкой
+
+Для этого шага последовательно собрать и выполнить на Windows Release/Debug
+`V5LocalRecordingWriterTests`, `NativeHashFailureTests`, `CaptureFaultStateTests`
+и `DesktopUploadRecoveryTests`. Положительные случаи используют настоящий AAC
+от существующего Windows V5 encoder, без устройств или внешнего сервера.
+Текстовый M4A с правильной SHA и настоящий AAC другой длительности должны
+давать `malformed` как с explicit root, так и без него; transport обязан вернуть
+`invalidPackage` до первого send. Независимый проверенный WAV и доверенный
+degraded фрагмент сохраняются, файлы не удаляются. Корень ограничивает playback,
+но не освобождает metadata-only/upload callers от проверки формата.
+
+Переносимая сборка не подтверждает AAC: положительная серверная матрица этих
+двух upload tests выполняется на Windows, переносимые ветки проверяют отказ
+без отправки и сохранность файлов. Штатный helper проверяет native AAC subtype,
+48 кГц, mono и длительность контейнера; это не полный proof AAC-LC/payload/EOF.
+Полная защищённая цепочка T116, переход T117, приёмка T118 и H250 всё ещё открыты;
+данная проверка не разрешает установку или запуск на рабочем профиле.
+
+## T116: проверка полного защищённого V5 vertical — план 2026-10-07
+
+До независимого requirements/analyze допуска этот сценарий не запускается
+и не считается реализованным. Использовать отдельный private fixture root,
+искусственные samples и настоящий NativeCapture/controller; рабочие записи,
+микрофон и аккаунт не нужны. Peer заменяет device audio, не storage authority.
+
+1. Genuine store/package factory: private exclusive directory/IDs, capturing
+   BOTH g1 ACK до canonical bytes; никаких plaintext float/media/manifest файлов.
+2. Real controller.record/worker-ready/dispatcher: ≥3000 10-ms кадров; не
+   использовать synthetic begin с прямым markReady. Проверить block cadence.
+3. Stop → two EOS → dispatcher fence → close timeline → async finalizer:
+   logical WAV/AAC, actual MF stream (не fake encoder), exact hashes/refs,
+   manifest последним, sealed package-state. Пока queue commit/ACK нет — pending.
+4. One full protected insertion commit/adoption → current-epoch saved;
+   холодный restart подтверждает BOTH slots и immutable artifacts. Потерянный
+   poll/stale epoch не дают effects и не освобождают native lease раньше terminal.
+5. Birth cuts/ACL/races, budget refusals, cancel before/after publish, ambiguous,
+   MF concurrent/late calls и shutdown: artifacts сохранены, нет false saved,
+   открытой запасной копии, auto-repair partial birth или premature short purge.
+
+Native Release/Debug и SDK caller build связываются с новым exact source map/EXE;
+старые SOURCE277 receipts не подтверждают этот сценарий. Generated ≥30s — число
+кадров, не 30s real audio, не 60min/hardware/AEC/installed/public release proof.
+
+## T116: защищённая отправка — RED/приёмка 2026-10-10
+
+Prerequisites: независимое принятие конструкции в `plan.md`, раздел «T116:
+защищённая HTTP-отправка и принятие результата», generated private root,
+actual NativeCapture vertical выше, без реальной сети/микрофона/аккаунта.
+Подменяется только send; production transport и scheduler/worker продолжения
+остаются настоящими. Старый plaintext upload должен дать RED на таком пакете.
+
+1. ≥3000 generated кадров → insertion commit/adoption → освобождение прежних
+   owners → cold discovery → real upload → один result commit/adoption → restart.
+   Проверить прежнюю последовательность sync/create/session/missing/PUT/finalize,
+   exact logical bytes/hash и отсутствие plaintext manifest/WAV/M4A на диске.
+2. Parts64KiB/4MiB/16MiB, tail, невыравненный missing range, restart accepted
+   ranges: exact offset/length/index/digest; invalid/out-of-bounds до PUT.
+   Большие части проверяются на generated protected fixture, не реальном аудио.
+3. Wrong session/directory/ref, degraded/discard, повреждение обязательного
+   member, short read/EOF/hash failure: нет некорректного PUT/finalize/fallback.
+4. Пока result commit pending, flight/result/busy/lease удержаны и projection
+   прежняя. Проверить not_committed/ambiguous, lost poll, repeated ACK, stale
+   epoch/row before и after publish, shutdown/native drain и cold server truth.
+   Отдельно prepare без изменений строк, но с непустым выбором: zero HTTP до
+   обычного full commit/adoption ACK; generation продвигается ровно один раз.
+   Пустой выбор не выполняет commit/network. Это не новый fifth ticket state.
+5. Cancel до inspection, между reads и перед/во время send; shared64MiB/pins/
+   jobs/Debug allocation refusal: нет partial PUT, копии body вне квоты или
+   раннего last native release. Длительный send не блокирует EOS/finalizer.
+
+Проверки добавляются к existing NativeCaptureStorageIntegrationTests,
+DesktopUploadRecoveryTests и DesktopUploadCustodySmokeTests; запуск через
+`ctest --test-dir <build> -C <Release|Debug> --output-on-failure` по точному
+source manifest. До реализации и фактического выполнения это сценарии, не PASS.
+Direct reader/transport PASS без queue continuation не закрывает T116.
+Global admission и остальные installed/hardware/release gates не открываются.
+
+### T116: конкурентная запись при cold inspection
+
+Дополнение 2026-10-11 к существующему generated-data integration fixture:
+не заменяет полные integrity/hash/AAC проверки, прежние HTTP/result cases или
+аппаратную60min матрицу. Ни устройства, ни рабочие записи не используются.
+
+1. После настоящего prepare/adoption ACK удержать one-shot integrationRead
+   внутри nonempty read content.packed-v2 выбранного старого пакета на offset
+   ≥ ProtectedPackedCustodyFormat::appendOffset. Сохранить реальный результат
+   и LastError. Маркер подтверждает packed inspection IO без private path,
+   не заявляет hash/AAC caller без отдельного наблюдения.
+2. При удерживаемом cut запросить новую запись через actual NativeCapture.
+   Проверить reached-prepared, а не только accepted/queued. Для старого пути
+   ожидать именованный RED именно этой проверки после подтверждения cut;
+   factory/build/произвольный timeout не являются квалифицированным RED.
+3. Для активной generated записи отдельно наблюдать обслуживание finalize
+   после Stop. Не ждать полного финала под закрытым Reader cache/Guard cut:
+   освободить cut, затем проверить EOS, sealed state, commit/adoption и restart.
+4. Cancel/logout/shutdown внутри inspection: wire0 до нового допустимого
+   retry, без invalidPackage/ложного успеха/раннего release. Проверить lost poll,
+   busy/flight/native drain и возврат owned memory/pins к фактической базе.
+
+Запускать существующий NativeCaptureStorageIntegrationTests последовательно
+в Debug/Release с отдельным generated fixture и точным source manifest.
+До реализации named case и фактического выполнения это план проверки, не PASS.
+Кооперативная отмена не доказывает верхнюю границу одного native вызова;
+общий storage admission и внешняя приёмка остаются закрытыми.

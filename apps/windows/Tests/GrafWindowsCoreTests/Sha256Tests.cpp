@@ -55,6 +55,13 @@ int main() {
     for (const auto& [length, expected] : boundaries) {
         const std::string bytes(length, 'a');
         assert(sha256(bytes) == expected);
+        const auto digest = sha256Digest(bytes);
+        std::string hex;
+        for (const auto byte : digest) {
+            hex += "0123456789abcdef"[byte >> 4];
+            hex += "0123456789abcdef"[byte & 15];
+        }
+        assert(hex == expected);
         std::istringstream input(bytes);
         assert(sha256Stream(input) == expected);
         std::istringstream throwing(bytes);

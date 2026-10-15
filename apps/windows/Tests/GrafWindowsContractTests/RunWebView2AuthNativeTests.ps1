@@ -29,7 +29,7 @@ $cleanupFailure = $null
 $passed = 0
 try {
   $common = @('/nologo','/c','/std:c++17','/permissive-','/EHsc','/MD','/W4','/WX','/utf-8','/bigobj','/await:strict','/DGRAF_WINDOWS_APP_SDK','/D_UNICODE','/DUNICODE','/DWIN32_LEAN_AND_MEAN','/DNOMINMAX','/D_WIN32_WINNT=0x0A00',"/I$GeneratedHeaders")
-  $sources = @('RecApp\Web\WebView2Host.cpp','RecApp\Web\WebViewRoutePolicy.cpp','RecApp\Web\WebViewBridge.cpp','RecApp\Web\RecordingDeletionBridge.cpp','RecApp\Web\NativeSettingsBridge.cpp','RecApp\Upload\DesktopApiClient.cpp','RecApp\Storage\Sha256.cpp','Tests\GrafWindowsContractTests\WebView2AuthNativeTests.cpp')
+  $sources = @('RecApp\Web\WebView2Host.cpp','RecApp\Web\WebViewRoutePolicy.cpp','RecApp\Web\WebViewBridge.cpp','RecApp\Web\RecordingDeletionBridge.cpp','RecApp\Web\NativeSettingsBridge.cpp','RecApp\Upload\DesktopApiClient.cpp','RecApp\Storage\Sha256.cpp','RecApp\Shell\MeetingReminderPresenter.cpp','RecApp\Shell\MeetingReminderModel.cpp','RecApp\Shell\RecordingNoticePresenter.cpp','RecApp\Shell\CalendarMeetingOpener.cpp','Tests\GrafWindowsContractTests\WebView2AuthNativeTests.cpp')
   $objects = @()
   foreach ($source in $sources) {
     $object = Join-Path $out ([IO.Path]::GetFileNameWithoutExtension($source) + '.obj')
@@ -37,11 +37,13 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "COMPILE_FAILED=$source" }
     $objects += $object
   }
-  & link.exe /nologo /SUBSYSTEM:CONSOLE /MACHINE:X64 "/OUT:$out\T103Native.exe" @objects windowsapp.lib ole32.lib shell32.lib comdlg32.lib advapi32.lib user32.lib
+  & link.exe /nologo /SUBSYSTEM:CONSOLE /MACHINE:X64 "/OUT:$out\T103Native.exe" @objects windowsapp.lib ole32.lib shell32.lib comdlg32.lib advapi32.lib user32.lib bcrypt.lib winhttp.lib gdi32.lib ws2_32.lib
   if ($LASTEXITCODE -ne 0) { throw 'LINK_FAILED' }
   foreach ($dll in @('Microsoft.Web.WebView2.Core.dll','WebView2Loader.dll','Microsoft.WindowsAppRuntime.Bootstrap.dll')) {
     Copy-Item -LiteralPath (Join-Path $RuntimeDllDirectory $dll) -Destination $out
   }
+  $binaryHash = (Get-FileHash -LiteralPath "$out\T103Native.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
+  Write-Output "T103_BINARY_SHA256=$binaryHash"
   Write-Output 'T103_NATIVE_FIXTURE_BUILD=PASS'
   foreach ($scenario in $Scenarios) {
     $caseRoot = Join-Path $out ('case-' + [Guid]::NewGuid().ToString('N'))
@@ -80,6 +82,7 @@ try {
       $row = Get-Content -LiteralPath "$caseRoot\final-counts.txt" -Raw
       Write-Output "SYNTHETIC_COUNTS=$row"
       if ($null -eq $fixtureExitCode) { throw 'FIXTURE_EXIT_UNAVAILABLE' }
+      if ((Get-FileHash -LiteralPath "$out\T103Native.exe" -Algorithm SHA256).Hash.ToLowerInvariant() -ne $binaryHash) { throw 'FIXTURE_BYTES_CHANGED' }
       if ($scenario -eq 'transport-reset') {
         Write-Output 'T103_COUNTS_BOUND=LOGIN_GET_1_TO_3_OTHER_FIVE_ZERO'
         $countsMatch = $row -cmatch '\A0 [1-3] 0 0 0 0\z'

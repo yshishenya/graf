@@ -1,5 +1,14 @@
 #ifdef _WIN32
 
+#include <windows.h>
+// Project headers can include WinUI: remove Win32 aliases before any of them.
+#ifdef GetClassName
+#undef GetClassName
+#endif
+#ifdef GetCurrentTime
+#undef GetCurrentTime
+#endif
+
 #include "Audio/RecordingAudioTimeline.h"
 #include "Audio/WasapiEndpointEnumerator.h"
 #include "Capture/WindowsCaptureSessionController.h"
@@ -7,6 +16,7 @@
 #include "MeetingDetection/AutomaticRecordingPolicy.h"
 #include "Permissions/WindowsReadinessGate.h"
 #include "Recording/V5LocalRecordingWriter.h"
+#include "Recording/NativeCapture.h"
 #include "Recording/LocalRecordingPackage.h"
 #include "Storage/AtomicFileStore.h"
 #include "Shell/CabinetWindow.h"
@@ -24,23 +34,16 @@
 #include "Upload/DesktopHttpTransport.h"
 #include "Upload/ProductAttributionHandoff.h"
 #include "Shell/MeetingReminderPresenter.h"
+#include "Shell/CalendarNativeLauncher.h"
+#include "Shell/CalendarMeetingOpener.h"
 #include "Web/NativeSettingsBridge.h"
 #include "../Native/GrafAEC3/GrafAEC3WebRtcAdapter.h"
 
-#include <windows.h>
 #include <knownfolders.h>
 #include <combaseapi.h>
 #include <shlobj.h>
 #include <shellapi.h>
 #include <winreg.h>
-
-// Win32 aliases otherwise rewrite projected WinUI methods such as GetClassName.
-#ifdef GetClassName
-#undef GetClassName
-#endif
-#ifdef GetCurrentTime
-#undef GetCurrentTime
-#endif
 
 #include <winrt/Microsoft.UI.Xaml.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
@@ -88,14 +91,18 @@
 #include <ctime>
 #include <cwchar>
 #include <iterator>
+#include <limits>
 #include <future>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -108,17 +115,11 @@ using winrt::Windows::UI::Text::FontWeight;
 using winrt::Windows::UI::Text::FontWeights;
 using winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer;
 
-// STA calls (notably Recycle Bin) can pump another UI tick. A synchronous
-// custody mutation remains in flight until its entire owner-thread call ends.
-class CustodyMutationScope final {
-public:
-    explicit CustodyMutationScope(std::size_t& count) noexcept : count_(count) { ++count_; }
-    ~CustodyMutationScope() { --count_; }
-    CustodyMutationScope(const CustodyMutationScope&) = delete;
-    CustodyMutationScope& operator=(const CustodyMutationScope&) = delete;
-private:
-    std::size_t& count_;
-};
+using graf::windows::NativeCapture;
+using graf::windows::AecSelection;
+using graf::windows::native_capture_detail::CustodyMutationScope;
+using graf::windows::native_capture_detail::newSessionId;
+using graf::windows::native_capture_detail::deviceDisplayName;
 
 std::int64_t attributionNow() {
     return std::chrono::duration_cast<std::chrono::seconds>(
@@ -456,105 +457,15 @@ std::filesystem::path localAppData() {
 std::filesystem::path localCustodyRoot() {
     const auto appData = localAppData();
     if (appData.empty()) return {};
-    auto result = appData / "GRAF" / "recordings";
-    std::error_code error;
-    std::filesystem::create_directories(result, error);
-    return error ? std::filesystem::path{} : result;
+    return appData / "GRAF" / "recordings";
 }
 
-bool readMicrophoneConsent(std::wstring_view suffix, bool& found) noexcept {
-    constexpr wchar_t base[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone";
-    std::wstring path(base);
-    path.append(suffix);
-    wchar_t value[32]{};
-    DWORD bytes = sizeof(value);
-    DWORD type = 0;
-    const auto result = RegGetValueW(HKEY_CURRENT_USER, path.c_str(), L"Value",
-                                     RRF_RT_REG_SZ, &type, value, &bytes);
-    found = result == ERROR_SUCCESS;
-    return found && _wcsicmp(value, L"Allow") == 0;
-}
-
-std::wstring currentPackageFamilyName() noexcept {
-    UINT32 length = 0;
-    if (GetCurrentPackageFamilyName(&length, nullptr) != ERROR_INSUFFICIENT_BUFFER || length == 0) return {};
-    std::wstring name(length, L'\0');
-    if (GetCurrentPackageFamilyName(&length, name.data()) != ERROR_SUCCESS) return {};
-    name.resize(std::wcslen(name.c_str()));
-    return name;
-}
-
-bool microphonePrivacyGranted() noexcept {
-    bool found = false;
-    for (const auto& suffix : graf::windows::microphoneConsentKeySuffixes(currentPackageFamilyName())) {
-        const auto granted = readMicrophoneConsent(suffix, found);
-        if (found) return granted;
-    }
-    return false;
-}
-
-std::string selectedMicrophonePreference() {
-    wchar_t value[2048]{};
-    DWORD bytes = sizeof(value);
-    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\GRAF\\Windows\\Capture", L"Microphone",
-                     RRF_RT_REG_SZ, nullptr, value, &bytes) != ERROR_SUCCESS) return {};
-    return winrt::to_string(value);
-}
-
-bool saveMicrophonePreference(const std::string& identity) {
-    HKEY key = nullptr;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\GRAF\\Windows\\Capture", 0, nullptr, 0,
-                        KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS) return false;
-    const auto value = winrt::to_hstring(identity);
-    const auto result = RegSetValueExW(key, L"Microphone", 0, REG_SZ,
-        reinterpret_cast<const BYTE*>(value.c_str()), static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
-    RegCloseKey(key);
-    return result == ERROR_SUCCESS;
-}
-
-std::wstring deviceDisplayName(const std::string& name) {
-    auto value = std::wstring(winrt::to_hstring(name).c_str());
-    value.erase(std::remove_if(value.begin(), value.end(), [](wchar_t c) { return c < 32 || c == 127; }), value.end());
-    if (value.size() > 96) value.resize(96);
-    return value.empty() ? L"Устройство Windows" : value;
-}
-
-float rmsLevel(const std::vector<float>& samples) noexcept {
-    if (samples.empty()) return 0.0F;
-    long double sum = 0.0L;
-    for (const auto sample : samples) {
-        const auto bounded = std::max(-1.0F, std::min(1.0F, sample));
-        sum += static_cast<long double>(bounded) * bounded;
-    }
-    return static_cast<float>(std::min(1.0L, std::sqrt(sum / samples.size())));
-}
-
-std::string newSessionId() {
-    GUID guid{};
-    if (SUCCEEDED(CoCreateGuid(&guid))) {
-        wchar_t buffer[39]{};
-        if (StringFromGUID2(guid, buffer, static_cast<int>(std::size(buffer))) == 39) {
-            std::string result;
-            result.reserve(36);
-            for (const auto character : std::wstring_view(buffer + 1, 36)) {
-                result.push_back(static_cast<char>(character));
-            }
-            return result;
-        }
-    }
-    return "windows-" + std::to_string(GetCurrentProcessId()) + "-" +
-        std::to_string(GetTickCount64());
-}
 
 class UnavailableAec3 final : public graf::windows::IAec3Processor {
 public:
     bool process(const float*, const float*, float*) noexcept override { return false; }
 };
 
-struct AecSelection {
-    std::shared_ptr<graf::windows::IAec3Processor> processor;
-    bool ready = false;
-};
 
 AecSelection selectAec() {
     auto native = graf::windows::GrafAEC3WebRtcAdapter::create();
@@ -564,583 +475,9 @@ AecSelection selectAec() {
     return {std::make_shared<UnavailableAec3>(), false};
 }
 
-bool mediaFoundationAacReady() noexcept {
-    if (FAILED(MFStartup(MF_VERSION))) return false;
-    MFT_REGISTER_TYPE_INFO outputType{MFMediaType_Audio, MFAudioFormat_AAC};
-    IMFActivate** activations = nullptr;
-    UINT32 activationCount = 0;
-    const auto result = MFTEnumEx(
-        MFT_CATEGORY_AUDIO_ENCODER,
-        MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_LOCALMFT | MFT_ENUM_FLAG_SORTANDFILTER,
-        nullptr, &outputType, &activations, &activationCount);
-    for (UINT32 index = 0; index < activationCount; ++index) {
-        if (activations[index] != nullptr) activations[index]->Release();
-    }
-    CoTaskMemFree(activations);
-    MFShutdown();
-    return SUCCEEDED(result) && activationCount > 0;
-}
-
-class NativeCapture final {
-public:
-    struct AudioLevels {
-        float microphone = 0.0F;
-        float systemRender = 0.0F;
-    };
-
-    NativeCapture()
-        : aecSelection_(selectAec()),
-          custodyRoot_(localCustodyRoot()),
-          queue_(custodyRoot_ / std::string(graf::windows::kQueueLedgerFileName), custodyRoot_),
-          scheduler_(queue_) {
-        createRecordingPipeline();
-        (void)queue_.load();
-        // A cleanup interrupted by a crash is finished here, before any upload
-        // recovery can select the recording.
-        (void)queue_.sweepDiscardedShortRecordings();
-        recover(graf::windows::RecoveryTrigger::launch);
-        readiness_.aecReady = aecSelection_.ready;
-        readiness_.storageWritable = !custodyRoot_.empty();
-        readiness_.webViewRuntimeReady = false;
-        readiness_.aacEncoderReady = mediaFoundationAacReady();
-        refreshReadiness();
-    }
-
-    using StartGuardFactory = std::function<graf::windows::WindowsCaptureSessionController::StartGuard(const std::string&)>;
-    [[nodiscard]] graf::windows::TransitionResult record(StartGuardFactory makeStartGuard = {}) {
-        if (updateAdmissionBlocked_) return {graf::windows::TransitionStatus::rejected, indicator().state};
-        const CustodyMutationScope mutation(synchronousMutations_);
-        if (!indicator().visible && indicator().state != graf::windows::SessionState::idle) createRecordingPipeline();
-        refreshReadiness();
-        // Readiness can enter COM. An update accepted by a nested UI event must
-        // prevent the old Record action from starting workers afterwards.
-        if (updateAdmissionBlocked_) return {graf::windows::TransitionStatus::rejected, indicator().state};
-        recordingAccount_ = currentAccount_;
-        recordingOrigin_ = graf::windows::DesktopHttpConfig{}.baseOrigin;
-        recordingAuthGeneration_ = authGeneration_;
-        recordingEndpointIdentity_ = currentEndpointIdentity_;
-        graf::windows::WindowsCaptureSessionController::StartGuard guard;
-        if (makeStartGuard) {
-            // Bind after any pipeline replacement, before either worker starts.
-            // A failed automatic binding must never fall back to manual capture.
-            try { guard = makeStartGuard(sessionId_); } catch (...) {}
-            if (!guard) guard = [](std::string_view) { return false; };
-        }
-        return controller_->record(readiness_, std::move(guard));
-    }
-    [[nodiscard]] const std::string& sessionId() const noexcept { return sessionId_; }
-    void refreshPermission() noexcept { readiness_.microphonePermissionGranted = microphonePrivacyGranted(); }
-    // The server renewed the session while answering a flight and named the new
-    // deadline. It travels to the shell, which carries it to the cabinet's own
-    // session cookie, exactly as macOS rewrites that cookie.
-    void setSessionExpiryHandler(std::function<void(std::int64_t)> handler) {
-        sessionExpiryHandler_ = std::move(handler);
-        scheduler_.setSessionExpiryHandler([this](std::int64_t seconds) {
-            if (sessionExpiryHandler_) sessionExpiryHandler_(seconds);
-        });
-    }
-    void setAuthSessionToken(std::string token) {
-        if (authSessionToken_ == token) return;
-        scheduler_.cancel();
-        if (accountCancellation_) accountCancellation_->store(true);
-        authSessionToken_ = std::move(token);
-        ++authGeneration_;
-        currentAccount_.reset();
-        accountRetryAt_ = 0;
-        recover(graf::windows::RecoveryTrigger::authRecovered);
-    }
-    [[nodiscard]] const std::string& authSessionToken() const noexcept { return authSessionToken_; }
-    [[nodiscard]] const auto& currentAccount() const noexcept { return currentAccount_; }
-    [[nodiscard]] auto authGeneration() const noexcept { return authGeneration_; }
-    [[nodiscard]] bool microphonePermissionGranted() const noexcept { return readiness_.microphonePermissionGranted; }
-    [[nodiscard]] bool recordingReady() const noexcept {
-        return graf::windows::WindowsReadinessGate::evaluate(readiness_).recordingReady;
-    }
-    [[nodiscard]] const auto& readiness() const noexcept { return readiness_; }
-    [[nodiscard]] const auto& microphones() const noexcept { return microphones_; }
-    [[nodiscard]] const std::string& selectedMicrophone() const noexcept { return selectedMicrophone_; }
-    [[nodiscard]] const std::wstring& sourceSummary() const noexcept { return sourceSummary_; }
-    bool selectMicrophone(std::string identity) {
-        if (updateAdmissionBlocked_ || indicator().visible) return false;
-        const CustodyMutationScope mutation(synchronousMutations_);
-        if (!saveMicrophonePreference(identity)) return false;
-        selectedMicrophone_ = std::move(identity);
-        refreshReadiness();
-        return true;
-    }
-    void recover(graf::windows::RecoveryTrigger trigger) {
-        if (shuttingDown_) return;
-        if (!pendingRecovery_ || trigger == graf::windows::RecoveryTrigger::authRecovered) pendingRecovery_ = trigger;
-    }
-    void pollUploads() {
-        const CustodyMutationScope mutation(synchronousMutations_);
-        (void)scheduler_.drain();
-        pollAccount();
-        if (!currentAccount_) return;
-        if (shuttingDown_ || updateAdmissionBlocked_ || scheduler_.busy() || !pendingRecovery_) return;
-        graf::windows::DesktopHttpConfig config;
-        config.sessionToken = authSessionToken_;
-        config.workspaceId = currentAccount_->workspaceId;
-        // The workspace was verified by /auth/me. No fabricated device identity.
-        // The confirmed account travels with the flight so a retry does not ask
-        // /auth/me again; setAuthSessionToken clears it before any new upload.
-        config.confirmedIdentity = currentAccount_;
-        const auto trigger = *pendingRecovery_;
-        pendingRecovery_.reset();
-        // Failed dispatch is retried by the bounded 30-second recovery timer;
-        // an empty queue must not repeatedly requeue auth states on every UI tick.
-        (void)scheduler_.startAsync(trigger, std::move(config));
-    }
-    void shutdown() {
-        shuttingDown_ = true;
-        pendingRecovery_.reset();
-        scheduler_.cancel();
-        if (accountCancellation_) accountCancellation_->store(true);
-        // App exit is not a deliberate stop: the recoverable fragment is kept.
-        (void)controller_->stop(graf::windows::RecordingStopReason::interruption);
-        noticePresenter_.dismiss();
-    }
-    [[nodiscard]] graf::windows::TransitionResult pause() { return controller_->pause(); }
-    [[nodiscard]] graf::windows::TransitionResult resume() { return controller_->resume(); }
-    [[nodiscard]] graf::windows::TransitionResult stop() { return controller_->stop(); }
-    [[nodiscard]] graf::windows::TransitionResult stop(graf::windows::RecordingStopReason reason) {
-        return controller_->stop(reason);
-    }
-    void tickNotice() { noticePresenter_.tick(std::chrono::steady_clock::now()); }
-    std::function<void()> onShortRecordingPresented;
-    graf::windows::RecordingNoticePresenter& notificationCard() { return noticePresenter_; }
-    void pollHealth() {
-        (void)controller_->pollHealth();
-        const auto& state = indicator();
-        if (diagnosticsSessionId_ == sessionId_ ||
-            (state.state != graf::windows::SessionState::savedLocal &&
-             state.state != graf::windows::SessionState::failed &&
-             state.state != graf::windows::SessionState::blocked)) return;
-        // Terminal state is published only after worker completion. These are
-        // real 10-ms blocks, never unsynchronized live timeline measurements.
-        graf::windows::MetadataSnapshot snapshot;
-        snapshot.appVersion = "development";
-        snapshot.osBuild = "unknown";
-#ifdef _M_ARM64
-        snapshot.architecture = "ARM64";
-#else
-        snapshot.architecture = "x64";
-#endif
-        try {
-            const auto version = winrt::Windows::ApplicationModel::Package::Current().Id().Version();
-            snapshot.appVersion = std::to_string(version.Major) + "." + std::to_string(version.Minor) +
-                "." + std::to_string(version.Build) + "." + std::to_string(version.Revision);
-        } catch (...) {} // Unpackaged builds have no package version.
-        try {
-            const auto version = std::stoull(winrt::to_string(
-                winrt::Windows::System::Profile::AnalyticsInfo::VersionInfo().DeviceFamilyVersion()));
-            snapshot.osBuild = std::to_string((version >> 16) & 0xFFFF);
-        } catch (...) {}
-        snapshot.state = state.state;
-        snapshot.reason = state.reason;
-        snapshot.processedBlocks = timeline_->processedFrames();
-        snapshot.writtenBlocks = writer_->frameCount();
-        snapshot.durationMs = writer_->frameCount() * 10;
-        snapshot.endpointIdentity = recordingEndpointIdentity_;
-        snapshot.trustedPrefixRetained = controller_->finalization().trustedPrefixRetained;
-        snapshot.renderClock = controller_->clockDiagnostics(graf::windows::AudioSource::systemRender);
-        snapshot.microphoneClock = controller_->clockDiagnostics(graf::windows::AudioSource::microphone);
-        lastDiagnostics_ = graf::windows::MetadataSafeDiagnostics::serialize(snapshot);
-        diagnosticsSessionId_ = sessionId_;
-    }
-    [[nodiscard]] const std::string& diagnostics() const noexcept { return lastDiagnostics_; }
-    [[nodiscard]] const auto& finalization() const noexcept { return controller_->finalization(); }
-    [[nodiscard]] const graf::windows::RecordingIndicatorSnapshot& indicator() const noexcept {
-        return controller_->indicator().snapshot();
-    }
-    [[nodiscard]] AudioLevels audioLevels() const noexcept {
-        return {microphoneLevel_.load(std::memory_order_relaxed),
-                systemRenderLevel_.load(std::memory_order_relaxed)};
-    }
-
-    [[nodiscard]] const auto& localItems() const noexcept { return queue_.items(); }
-    [[nodiscard]] bool localQueueComplete() const noexcept { return !queue_.quarantined(); }
-    [[nodiscard]] graf::windows::LocalProblemContext localProblemContext() const {
-        if (!currentAccount_) return {};
-        return {graf::windows::DesktopHttpConfig{}.baseOrigin, currentAccount_->userId, currentAccount_->workspaceId};
-    }
-    [[nodiscard]] bool ownsRecordingSession(const graf::windows::LocalProblemContext& context,
-                                           std::string_view id) const {
-        const auto current = localProblemContext();
-        if (id.empty() || current.owner.empty() || current.workspace.empty() ||
-            context.origin != current.origin || context.owner != current.owner || context.workspace != current.workspace) return false;
-        bool found = false;
-        if (!queue_.quarantined()) for (const auto& item : queue_.items()) {
-            if (item.sessionId != id) continue;
-            if (item.localRecordingId.empty() || item.ownerUserId != context.owner || item.ownerWorkspaceId != context.workspace) return false;
-            found = true;
-        }
-        if (id == sessionId_ && recordingAccount_) {
-            if (recordingOrigin_ != context.origin || recordingAccount_->userId != context.owner ||
-                recordingAccount_->workspaceId != context.workspace) return false;
-            found = true;
-        }
-        return found;
-    }
-    [[nodiscard]] std::vector<graf::windows::LocalProblemProjection> recordingProblems(std::uint64_t nowMs) const {
-        const auto context = localProblemContext();
-        // The queue's origin is confirmed by its current native account, never
-        // copied from a notification target or used to adopt an unowned row.
-        graf::windows::LocalProblemContext queueContext;
-        if (currentAccount_) queueContext = {graf::windows::DesktopHttpConfig{}.baseOrigin,
-            currentAccount_->userId, currentAccount_->workspaceId};
-        std::optional<graf::windows::CurrentCaptureProblem> capture;
-        if (recordingAccount_) {
-            const auto& state = indicator();
-            using State = graf::windows::SessionState;
-            const bool deliberateShort = controller_->finalization().shortRecordingDiscarded &&
-                state.state == State::blocked && state.reason == graf::windows::ReasonCode::none;
-            const bool blocker = !deliberateShort && (state.state == State::failed || state.state == State::degraded ||
-                (state.state == State::blocked && state.reason != graf::windows::ReasonCode::none) ||
-                (state.state == State::stopping && state.reason == graf::windows::ReasonCode::finalizationFailed));
-            capture = graf::windows::CurrentCaptureProblem{sessionId_,
-                {recordingOrigin_, recordingAccount_->userId, recordingAccount_->workspaceId}, blocker};
-        }
-        const bool complete = !queue_.quarantined();
-        const std::vector<graf::windows::UploadCustodyItem> noRows;
-        return graf::windows::projectLocalRecordingProblems(context, queueContext,
-            complete ? queue_.items() : noRows, complete, capture, nowMs);
-    }
-    [[nodiscard]] const auto& custodyRoot() const noexcept { return custodyRoot_; }
-    [[nodiscard]] bool uploadsBusy() const noexcept { return scheduler_.busy(); }
-    void setUpdateAdmissionBlocked(bool blocked) noexcept { updateAdmissionBlocked_ = blocked; }
-    [[nodiscard]] bool updateAdmissionBlocked() const noexcept { return updateAdmissionBlocked_; }
-    [[nodiscard]] bool updateWorkDrained() const noexcept {
-        return !graf::windows::isCaptureState(indicator().state) && !scheduler_.busy() &&
-            !finalizationFuture_.valid() && synchronousMutations_ == 0;
-    }
-    // The shell asks before its ordinary recovery tick: a server-requested pause
-    // must not be cut short by the cadence that normally drives retries.
-    [[nodiscard]] std::uint64_t uploadDeferralRemainingMs() const noexcept {
-        return scheduler_.deferralRemainingMs();
-    }
-    [[nodiscard]] std::optional<graf::windows::UploadCustodyItem> localItem(std::string_view id) const {
-        if (queue_.quarantined()) return std::nullopt;
-        for (const auto& item : queue_.items()) {
-            if (item.localRecordingId != id) continue;
-            if ((indicator().visible && item.sessionId == sessionId_) ||
-                !graf::windows::AtomicFileStore::isWithinRoot(custodyRoot_, item.packageDirectory)) return std::nullopt;
-            return item;
-        }
-        return std::nullopt;
-    }
-    bool sendLocalRecording(std::string_view id) {
-        if (updateAdmissionBlocked_) return false;
-        const CustodyMutationScope mutation(synchronousMutations_);
-        const auto item = localItem(id);
-        if (!item || scheduler_.busy() || item->status == graf::windows::UploadQueueStatus::uploaded ||
-            item->status == graf::windows::UploadQueueStatus::quarantined || !currentAccount_ ||
-            item->ownerUserId != currentAccount_->userId || item->ownerWorkspaceId != currentAccount_->workspaceId) return false;
-        if (!queue_.requestRetry(id)) return false;
-        recover(graf::windows::RecoveryTrigger::scheduled);
-        return true;
-    }
-    // The custody ledger, for the three phases of a deletion: store on the owner
-    // thread, send off it, record the answers back on it. The worker never sees
-    // this object.
-    [[nodiscard]] graf::windows::DesktopUploadQueueService& deletionLedger() noexcept { return queue_; }
-    // A deletion the user asked for is recorded before the file operation, so a
-    // crash or a closed lid can leave the mark behind with the files still there.
-    // The recorded intent is the confirmation, and carrying it out is what makes
-    // the mark the cabinet shows — "очистка ещё не завершена" — true rather than
-    // permanent. Runs on the owner thread, like every other ledger write.
-    void finishPendingLocalDeletions(HWND owner) {
-        if (updateAdmissionBlocked_ || indicator().visible || scheduler_.busy() || !owner) return;
-        const CustodyMutationScope mutation(synchronousMutations_);
-        for (const auto& id : queue_.pendingLocalDeletionIds()) {
-            (void)queue_.removeLocalCopy(id, graf::windows::LocalPurgeProof::userConfirmedLocalCopy,
-                [owner](const std::filesystem::path& path) {
-                    return graf::windows::DesktopLocalPurgeService::recycle(path, reinterpret_cast<std::uintptr_t>(owner));
-                });
-        }
-    }
-    graf::windows::LocalCopyRemovalResult removeLocalCopy(std::string_view id, HWND owner,
-                                                        bool acceptedBeforeUpdate = false) {
-        if (updateAdmissionBlocked_ && !acceptedBeforeUpdate) return graf::windows::LocalCopyRemovalResult::unsafePath;
-        const CustodyMutationScope mutation(synchronousMutations_);
-        if (indicator().visible || scheduler_.busy() || !localItem(id)) return graf::windows::LocalCopyRemovalResult::unsafePath;
-        return queue_.removeLocalCopy(id, graf::windows::LocalPurgeProof::userConfirmedLocalCopy,
-            [owner](const std::filesystem::path& path) {
-                return graf::windows::DesktopLocalPurgeService::recycle(path, reinterpret_cast<std::uintptr_t>(owner));
-            });
-    }
-
-    bool assignLocalOwner(std::string_view id, const graf::windows::DesktopAccountIdentity& expected, std::uint64_t generation) {
-        if (updateAdmissionBlocked_) return false;
-        const CustodyMutationScope mutation(synchronousMutations_);
-        return generation == authGeneration_ && currentAccount_ && !scheduler_.busy() &&
-            currentAccount_->userId == expected.userId && currentAccount_->workspaceId == expected.workspaceId &&
-            queue_.assignOwner(id, expected);
-    }
-
-    [[nodiscard]] std::wstring custodySummary() const {
-        if (queue_.quarantined()) return L"Не удалось прочитать локальную очередь. Записи не объявлены отправленными.";
-        std::size_t pending = 0;
-        std::size_t needsAuth = 0;
-        std::size_t uploaded = 0;
-        std::size_t damaged = 0;
-        std::size_t blocked = 0;
-        for (const auto& item : queue_.items()) {
-            switch (item.status) {
-            case graf::windows::UploadQueueStatus::pending:
-            case graf::windows::UploadQueueStatus::retry:
-            case graf::windows::UploadQueueStatus::uploading:
-                ++pending;
-                break;
-            case graf::windows::UploadQueueStatus::needsAuth:
-                ++needsAuth;
-                break;
-            case graf::windows::UploadQueueStatus::uploaded:
-                ++uploaded;
-                break;
-            case graf::windows::UploadQueueStatus::quarantined:
-                ++damaged;
-                break;
-            case graf::windows::UploadQueueStatus::blocked:
-                ++blocked;
-                break;
-            }
-        }
-        if (damaged != 0) return L"Требуют проверки: " + std::to_wstring(damaged) + L". Локальные записи не отправлены.";
-        if (blocked != 0) return L"Отправка приостановлена сервером: " + std::to_wstring(blocked) + L". Автоматические попытки остановлены.";
-        if (needsAuth != 0) return L"Нужен вход — локальные записи ждут отправки";
-        if (pending != 0 && authSessionToken_.empty()) return L"Локальные записи ждут входа в аккаунт.";
-        if (pending != 0 && !currentAccount_) return L"Не удалось подтвердить аккаунт для отправки. Записи остаются на компьютере.";
-        if (pending != 0) return L"В очереди: " + std::to_wstring(pending) +
-            (scheduler_.busy() ? L" · проверяем отправку" : L" · сохранены на компьютере");
-        if (uploaded != 0) return L"Все локальные записи отправлены";
-        return L"Локальная очередь пуста";
-    }
-
-    [[nodiscard]] std::size_t custodyAttentionCount() const noexcept {
-        std::size_t count = queue_.quarantined() ? 1 : 0;
-        for (const auto& item : queue_.items()) {
-            if (item.status == graf::windows::UploadQueueStatus::needsAuth ||
-                item.status == graf::windows::UploadQueueStatus::quarantined) {
-                ++count;
-            }
-        }
-        return count;
-    }
-
-    [[nodiscard]] std::wstring readinessSummary() const {
-        const auto gate = graf::windows::WindowsReadinessGate::evaluate(readiness_);
-        if (gate.recordingReady) return L"Микрофон и системный звук готовы";
-        for (std::size_t index = 0; index < gate.blockerCount; ++index) {
-            switch (gate.blockers[index]) {
-            case graf::windows::ReasonCode::microphonePermissionDenied: return L"Разрешите доступ к микрофону в настройках Windows";
-            case graf::windows::ReasonCode::microphoneEndpointUnavailable: return L"Микрофон не найден или недоступен";
-            case graf::windows::ReasonCode::renderEndpointUnavailable: return L"Устройство вывода не найдено";
-            case graf::windows::ReasonCode::formatNormalizationUnavailable: return L"Формат устройства пока не поддерживается";
-            case graf::windows::ReasonCode::aecUnavailable: return L"Обработка эха ещё не установлена";
-            case graf::windows::ReasonCode::storageUnavailable: return L"Нет доступа к локальному хранилищу";
-            case graf::windows::ReasonCode::aacEncoderUnavailable: return L"Недоступен кодировщик AAC. Для Windows N установите Media Feature Pack и перезапустите GRAF.";
-            default: break;
-            }
-        }
-        return L"Проверяем готовность записи";
-    }
-
-private:
-    void pollAccount() {
-        if (accountFuture_.valid() && accountFuture_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-            std::optional<graf::windows::DesktopAccountIdentity> result;
-            try { result = accountFuture_.get(); } catch (...) {}
-            if (accountRequestGeneration_ == authGeneration_) {
-                currentAccount_ = std::move(result);
-                accountRetryAt_ = GetTickCount64() + 30000;
-            }
-        }
-        if (shuttingDown_ || authSessionToken_.empty() || currentAccount_ || accountFuture_.valid() || GetTickCount64() < accountRetryAt_) return;
-        graf::windows::DesktopHttpConfig config;
-        config.sessionToken = authSessionToken_;
-        accountCancellation_ = std::make_shared<std::atomic_bool>(false);
-        config.cancellation = accountCancellation_;
-        std::packaged_task<std::optional<graf::windows::DesktopAccountIdentity>()> task([config = std::move(config)] {
-            return graf::windows::DesktopHttpTransport(config).accountIdentity();
-        });
-        accountRequestGeneration_ = authGeneration_;
-        try {
-            auto future = task.get_future();
-            std::thread(std::move(task)).detach();
-            accountFuture_ = std::move(future);
-        } catch (...) { accountRetryAt_ = GetTickCount64() + 30000; }
-    }
-
-    void createRecordingPipeline() {
-        controller_.reset();
-        sessionId_ = newSessionId();
-        timeline_ = std::make_shared<graf::windows::RecordingAudioTimeline>(*aecSelection_.processor);
-        writer_ = std::make_shared<graf::windows::V5LocalRecordingWriter>(
-            custodyRoot_, custodyRoot_ / sessionId_);
-        controller_ = std::make_unique<graf::windows::WindowsCaptureSessionController>(
-            sessionId_,
-            [this](graf::windows::AudioBatch batch) {
-                const auto level = rmsLevel(batch.samples);
-                if (batch.source == graf::windows::AudioSource::microphone) {
-                    microphoneLevel_.store(level, std::memory_order_relaxed);
-                } else {
-                    systemRenderLevel_.store(level, std::memory_order_relaxed);
-                }
-                if (!timeline_->push(std::move(batch))) return false;
-                for (const auto& frame : timeline_->takeFrames()) {
-                    if (!writer_->append(frame)) return false;
-                }
-                return true;
-            },
-            [this](graf::windows::ReasonCode failure, graf::windows::RecordingStopReason stopReason)
-                -> std::optional<graf::windows::CaptureFinalization> {
-                if (!finalizationFuture_.valid()) {
-                    // Both capture workers have finished. The job owns only
-                    // writer/timeline, never the UI, account, or upload queue.
-                    std::packaged_task<graf::windows::V5WriterResult()> task(
-                        [timeline = timeline_, writer = writer_, failure, stopReason]() mutable {
-                            // Controller EOS has already crossed the dispatcher.
-                            // Close the timeline before handing its final frames
-                            // to the writer; never fill an unmatched tail.
-                            if (!timeline->close() && failure == graf::windows::ReasonCode::none)
-                                failure = graf::windows::ReasonCode::clockDiscontinuity;
-                            for (const auto& frame : timeline->takeFrames()) {
-                                if (!writer->append(frame)) {
-                                    failure = graf::windows::ReasonCode::storageUnavailable;
-                                    break;
-                                }
-                            }
-                            if (!timeline->healthy() && failure == graf::windows::ReasonCode::none)
-                                failure = graf::windows::ReasonCode::clockDiscontinuity;
-                            return writer->finalize(failure, stopReason);
-                        });
-                    auto future = task.get_future();
-                    std::thread(std::move(task)).detach();
-                    finalizationFuture_ = std::move(future);
-                    return std::nullopt;
-                }
-                if (finalizationFuture_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return std::nullopt;
-                const auto result = finalizationFuture_.get();
-                failure = result.captureFailure;
-                // Feature 6796 parity with macOS: a normally stopped recording
-                // shorter than 30 seconds is not kept as a meeting. Nothing is
-                // enqueued, no capture error is registered and the user gets one
-                // passive notice. The on-disk marker lets the startup sweep
-                // finish a cleanup that a crash interrupted.
-                if (result.shortRecordingDiscarded) {
-                    (void)queue_.discardShortRecording(result.packageDirectory);
-                    const bool sameOwner = recordingAccount_ && currentAccount_
-                        ? recordingAccount_->userId == currentAccount_->userId && recordingAccount_->workspaceId == currentAccount_->workspaceId
-                        : !recordingAccount_ && !currentAccount_;
-                    // Record history now; the presenter alone owns pending and
-                    // its original expiry. The shell drains after terminal state
-                    // publication and problem reconciliation, never in finalizer.
-                    if (!shuttingDown_ && recordingAuthGeneration_ == authGeneration_ && sameOwner &&
-                        recordingOrigin_ == graf::windows::DesktopHttpConfig{}.baseOrigin)
-                        noticePresenter_.queueShortRecordingDiscarded(std::chrono::steady_clock::now(), onShortRecordingPresented);
-                    return graf::windows::CaptureFinalization{
-                        false, graf::windows::ReasonCode::none, false, true};
-                }
-                if (!result.normalPackage()) {
-                    if (result.trustedPrefixRetained) {
-                        (void)queue_.enqueue({sessionId_, sessionId_, sessionId_, result.packageDirectory,
-                            graf::windows::UploadQueueStatus::quarantined, {}, 0, "capture_interrupted",
-                            recordingAccount_ ? recordingAccount_->userId : "", recordingAccount_ ? recordingAccount_->workspaceId : ""});
-                    }
-                    return graf::windows::CaptureFinalization{false, failure == graf::windows::ReasonCode::none
-                        ? graf::windows::ReasonCode::finalizationFailed : failure, result.trustedPrefixRetained};
-                }
-                if (!queue_.enqueue({sessionId_, sessionId_, sessionId_, result.packageDirectory,
-                                     graf::windows::UploadQueueStatus::pending, {}, 0, {},
-                                     recordingAccount_ ? recordingAccount_->userId : "", recordingAccount_ ? recordingAccount_->workspaceId : ""})) {
-                    return graf::windows::CaptureFinalization{false, graf::windows::ReasonCode::storageUnavailable, true};
-                }
-                recover(graf::windows::RecoveryTrigger::launch);
-                return graf::windows::CaptureFinalization{true, graf::windows::ReasonCode::none};
-            },
-            [this](bool paused) { timeline_->setMicrophonePaused(paused); });
-    }
-
-public:
-    void refreshReadiness() {
-        if (controller_->indicator().snapshot().visible) return;
-        const auto endpoints = enumerator_.snapshot();
-        graf::windows::WasapiEndpointSnapshot render;
-        graf::windows::WasapiEndpointSnapshot microphone;
-        microphones_.clear();
-        if (endpoints.ok()) {
-            for (const auto& endpoint : endpoints.endpoints) {
-                if (endpoint.flow == graf::windows::WasapiDataFlow::render && endpoint.isDefault) render = endpoint;
-                if (graf::windows::WasapiEndpointEnumerator::isAllowedMicrophone(endpoint)) {
-                    microphones_.push_back(endpoint);
-                    if (selectedMicrophone_.empty()
-                            ? (microphone.stableId.empty() || (!microphone.isDefault && endpoint.isDefault))
-                            : endpoint.stableId == selectedMicrophone_) microphone = endpoint;
-                }
-            }
-        }
-        if (!render.stableId.empty() && !microphone.stableId.empty()) {
-            controller_->setEndpoints(render, microphone);
-        }
-        const auto supportsSampleRate = [](std::uint32_t sampleRate) {
-            return sampleRate >= 8'000 && sampleRate <= 192'000;
-        };
-        readiness_.microphoneEndpointReady = !microphone.stableId.empty();
-        currentEndpointIdentity_ = microphone.stableId;
-        readiness_.renderEndpointReady = !render.stableId.empty();
-        readiness_.formatNormalizationReady = supportsSampleRate(render.sampleRate) &&
-            supportsSampleRate(microphone.sampleRate) && render.channels > 0 && microphone.channels > 0;
-        readiness_.microphonePermissionGranted = microphonePrivacyGranted();
-        sourceSummary_ = microphone.stableId.empty()
-            ? L"Выбранный микрофон недоступен. Подключите его или выберите другой."
-            : L"Микрофон: " + deviceDisplayName(microphone.friendlyName);
-        sourceSummary_ += render.stableId.empty() ? L" · Вывод недоступен"
-            : L" · Системный звук: " + deviceDisplayName(render.friendlyName);
-    }
-
-private:
-    graf::windows::WasapiEndpointEnumerator enumerator_;
-    std::vector<graf::windows::WasapiEndpointSnapshot> microphones_;
-    std::string selectedMicrophone_ = selectedMicrophonePreference();
-    std::wstring sourceSummary_;
-    std::string currentEndpointIdentity_;
-    std::string recordingEndpointIdentity_;
-    std::string diagnosticsSessionId_;
-    std::string lastDiagnostics_;
-    AecSelection aecSelection_;
-    std::string sessionId_;
-    std::shared_ptr<graf::windows::RecordingAudioTimeline> timeline_;
-    std::filesystem::path custodyRoot_;
-    std::shared_ptr<graf::windows::V5LocalRecordingWriter> writer_;
-    std::future<graf::windows::V5WriterResult> finalizationFuture_;
-    graf::windows::RecordingNoticePresenter noticePresenter_;
-    graf::windows::DesktopUploadQueueService queue_;
-    // The shell's handler for the session deadline the server names while
-    // answering. Empty means the shell does not carry it anywhere.
-    std::function<void(std::int64_t)> sessionExpiryHandler_;
-    graf::windows::DesktopUploadRecoveryScheduler scheduler_;
-    std::optional<graf::windows::RecoveryTrigger> pendingRecovery_;
-    bool shuttingDown_ = false;
-    bool updateAdmissionBlocked_ = false;
-    std::size_t synchronousMutations_ = 0;
-    std::unique_ptr<graf::windows::WindowsCaptureSessionController> controller_;
-    graf::windows::ReadinessInputs readiness_;
-    std::string authSessionToken_;
-    std::optional<graf::windows::DesktopAccountIdentity> currentAccount_;
-    std::optional<graf::windows::DesktopAccountIdentity> recordingAccount_;
-    std::string recordingOrigin_;
-    std::uint64_t recordingAuthGeneration_ = 0;
-    std::future<std::optional<graf::windows::DesktopAccountIdentity>> accountFuture_;
-    std::shared_ptr<std::atomic_bool> accountCancellation_;
-    std::uint64_t authGeneration_ = 0;
-    std::uint64_t accountRequestGeneration_ = 0;
-    ULONGLONG accountRetryAt_ = 0;
-    std::atomic<float> microphoneLevel_{0.0F};
-    std::atomic<float> systemRenderLevel_{0.0F};
-};
 
 class GrafApp : public ApplicationT<GrafApp, winrt::Microsoft::UI::Xaml::Markup::IXamlMetadataProvider> {
+    struct ReminderIntent { graf::windows::ReminderActionTarget target; graf::windows::NoticeAction action; };
 public:
     // This native-only app has no generated App.xaml provider. WinUI control
     // resources still need the SDK's type metadata when loading their XBF.
@@ -1185,7 +522,8 @@ public:
                 mainWindowSized_ = true;
                 resizeWindowLogical(window_, 1080, 620, true);
             });
-            capture_ = std::make_unique<NativeCapture>();
+            capture_ = std::make_unique<NativeCapture>(localCustodyRoot(), selectAec());
+            capture_->startStorageValidation();
             capture_->notificationCard().setDarkTheme(shellIsDark_);
             capture_->notificationCard().protectedFramesProvider = [this] { return notificationProtectedFrames(); };
             capture_->notificationCard().interactionPermitProvider = [this] { return interactionPermit(); };
@@ -1196,6 +534,9 @@ public:
                 if (alive->load()) playOptionalNotificationSound();
             };
             reminders_->onActionRequested = [this](auto target, auto action) {
+                if (action == graf::windows::NoticeAction::join || action == graf::windows::NoticeAction::joinAndRecord) {
+                    beginNativeCalendarJoin({std::move(target), action}); return;
+                }
                 if (pendingReminderAction_ || reminderFlightAction_) return;
                 pendingReminderAction_ = ReminderIntent{std::move(target), action};
                 lastReminderRequest_ = 0; // a click requires a new server read
@@ -1224,20 +565,23 @@ public:
             const auto action = shellCloseAction(ShellCloseIntent::window, state,
                 tray_ && tray_->available(), recordingIndicatorAvailable(), exitRequested_);
             if (action == ShellCloseAction::close) {
-                appUpdate_.close();
-                syncUpdateAdmission();
-                if (!appUpdate_.blocksNewWork()) return;
+                beginExit();
+                if (exitWorkDrained()) return;
                 // Cancel is a request, not proof that Windows has stopped the
                 // deployment. Keep polling before releasing the app lifetime.
-                exitRequested_ = true;
             }
             args.Cancel(true);
             // Hiding must not cancel automaticPolicy_: it also owns tracking
             // and end-of-meeting Stop for the current automatic recording.
-            if (action == ShellCloseAction::hide) window_.AppWindow().Hide();
+            if (action == ShellCloseAction::hide) { cancelCalendarJoin(); window_.AppWindow().Hide(); }
             else refreshTrayAvailability();
         });
         window_.Closed([this](auto const&, auto const&) {
+            cancelLocalPlayback();
+            cancelCalendarJoin();
+            // Teardown is not drain. A resolver owns only copied config/result,
+            // but its std::thread still must be reaped before member destruction.
+            if (calendarResolverThread_.joinable()) calendarResolverThread_.join();
             shuttingDown_ = true;
             alive_->store(false);
             if (reminderCancellation_) reminderCancellation_->store(true);
@@ -1302,6 +646,10 @@ public:
             [this] { invalidateNotificationInteraction(); });
             tray_->setTheme(shellIsDark_);
             tray_->setUpdateHandler([this] { openUpdateWindow(); });
+            const auto alive = alive_;
+            tray_->setCalendarHandler([this, alive](graf::windows::UpcomingMeetingRow row) {
+                if (alive->load()) beginMenuCalendarJoin(std::move(row));
+            });
         } catch (...) {
             trayFailureText_.Text(L"Значок GRAF недоступен. Управляйте записью в этом окне; кнопка «Остановить» остаётся доступной.");
             trayFailureText_.Visibility(Visibility::Visible);
@@ -1499,7 +847,6 @@ private:
         forwardButton_.Click([this](auto const&, auto const&) { if (cabinet_) cabinet_->webView().forward(); });
         auto reload = iconButton(Symbol::Refresh, L"Обновить кабинет");
         reload.Click([this](auto const&, auto const&) {
-            localMetadataRefreshRequested_ = true;
             if (cabinet_) cabinet_->webView().reload();
         });
         auto meetings = styledButton(L"Встречи");
@@ -1540,7 +887,6 @@ private:
         fallback.Children().Append(card(statusCard));
         fallbackCabinetAction_ = styledButton(L"Повторить загрузку");
         fallbackCabinetAction_.Click([this](auto const&, auto const&) {
-            localMetadataRefreshRequested_ = true;
             if (cabinet_) {
                 auto& host = cabinet_->webView();
                 if (host.pendingAuthRecovery() != graf::windows::WebResponseDecision::ignore) {
@@ -1873,6 +1219,9 @@ private:
         host.setAppUpdateAvailable(appUpdate_.available());
         host.setAuthSessionHandler([this](std::string token) {
             if (capture_ && token != capture_->authSessionToken()) {
+                cancelLocalPlayback();
+                if (cabinet_) cabinet_->webView().bindUserTimeAccount({}, {}, {}, {}, 0);
+                cancelCalendarJoin();
                 if (reminderCancellation_) reminderCancellation_->store(true);
                 reminderRequestIdentity_ = {};
                 if (reminders_) reminders_->invalidate();
@@ -1880,8 +1229,17 @@ private:
             }
             if (capture_) capture_->setAuthSessionToken(std::move(token));
         });
-        host.setLocalRecordingHandler([this](std::string action, std::string id) {
-            handleLocalRecording(action, id);
+        host.setCalendarJoinHandlers(
+            [this](auto request) { beginDocumentCalendarJoin(std::move(request)); },
+            [this](auto request) {
+                if (calendarFlight_ && calendarFlight_->document &&
+                    calendarFlight_->document->documentGeneration == request.documentGeneration &&
+                    calendarFlight_->document->nonce == request.nonce &&
+                    calendarFlight_->document->intent.requestId == request.intent.requestId &&
+                    calendarFlight_->document->intent.eventId == request.intent.eventId) cancelCalendarJoin();
+            });
+        host.setLocalRecordingHandler([this](auto request) {
+            handleLocalRecording(request);
         });
         host.setDeletionSelectionHandler([this](graf::windows::WebView2Host::DeletionRequest request) {
             handleDeletionSelection(std::move(request));
@@ -1910,132 +1268,11 @@ private:
 
     void updateLocalRecordings() {
         if (!cabinet_ || !capture_) return;
-        std::string inventoryKey;
-        for (const auto& item : capture_->localItems()) inventoryKey += item.localRecordingId + "\n";
-        if (localScan_ && localScan_->done.load(std::memory_order_acquire)) {
-            localMetadata_ = std::move(localScan_->packages);
-            localMetadataKey_ = localScan_->key;
-            localScan_.reset();
-            ++localMetadataVersion_;
-        }
-        if (!localScan_ && (localMetadataRefreshRequested_ || inventoryKey != localMetadataKey_)) {
-            localMetadataRefreshRequested_ = false;
-            localScan_ = std::make_shared<LocalMetadataScan>();
-            localScan_->key = inventoryKey;
-            const auto scan = localScan_;
-            const auto items = capture_->localItems();
-            const auto root = capture_->custodyRoot();
-            try { std::thread([scan, items, root] {
-                try {
-                    winrt::init_apartment(winrt::apartment_type::multi_threaded);
-                    for (const auto& item : items) {
-                        try { scan->packages.emplace_back(item.localRecordingId,
-                            graf::windows::LocalRecordingPackage::inspect(item.packageDirectory, root)); }
-                        catch (...) {} // Unreadable packages expose no playback capability.
-                    }
-                    winrt::uninit_apartment();
-                } catch (...) {}
-                scan->done.store(true, std::memory_order_release);
-            }).detach(); } catch (...) {
-                localScan_.reset();
-                localMetadataKey_ = inventoryKey;
-                localActionNotice_ = L"Не удалось проверить локальные файлы. Нажмите «Обновить кабинет», чтобы повторить.";
-            }
-        }
-        const bool busy = capture_->uploadsBusy();
-        const bool active = capture_->indicator().visible;
-        std::string displayKey = inventoryKey + std::to_string(localMetadataVersion_) + (busy ? "B" : "-") + (active ? "A" : "-");
-        for (const auto& item : capture_->localItems())
-            displayKey += std::to_string(static_cast<int>(item.status)) + ":" + item.safeReason + ":" + item.meetingId + "\n";
-        for (const auto& operation : capture_->deletionLedger().deletionOperations())
-            displayKey += operation.operationId + ":" + std::to_string(static_cast<int>(operation.phase)) + ":" +
-                operation.safeReason + "\n";
-        if (displayKey == localDisplayKey_) return;
-        localDisplayKey_ = std::move(displayKey);
-        std::vector<graf::windows::WebViewLocalRecordingRow> rows;
-        for (const auto& item : capture_->localItems()) {
-            graf::windows::WebViewLocalRecordingRow row;
-            row.id = item.localRecordingId;
-            row.meetingId = item.meetingId;
-            const auto metadata = std::find_if(localMetadata_.begin(), localMetadata_.end(),
-                [&item](const auto& value) { return value.first == item.localRecordingId; });
-            std::uint64_t startedAtMs = 0;
-            std::uint64_t stoppedAtMs = 0;
-            if (metadata != localMetadata_.end()) {
-                const auto& snapshot = metadata->second;
-                row.durationSeconds = snapshot.durationMs / 1000;
-                row.canOpen = snapshot.playbackAvailable;
-                startedAtMs = snapshot.startedAtMs;
-                stoppedAtMs = snapshot.stoppedAtMs;
-            }
-            using Status = graf::windows::UploadQueueStatus;
-            switch (item.status) {
-            case Status::pending: row.status = "Ожидает отправки"; break;
-            case Status::uploading: row.status = "Отправляется"; break;
-            case Status::retry:
-                row.status = item.safeReason == "retry_budget_exhausted"
-                    ? "Автоматические повторы остановлены · нажмите «Отправить»"
-                    : "Ожидает повторной отправки";
-                break;
-            case Status::needsAuth:
-                row.status = item.safeReason == "local_owner_unclaimed" ? "Подтвердите аккаунт для отправки" :
-                    item.safeReason == "account_mismatch" ? "Нужен исходный аккаунт записи" :
-                    item.safeReason == "account_identity_unavailable" ? "Не удалось подтвердить аккаунт" : "Войдите, чтобы отправить запись";
-                break;
-            case Status::uploaded: row.status = "Отправлено"; row.uploadComplete = true; break;
-            case Status::quarantined: row.status = row.canOpen ? "Сохранена часть записи · не отправлена" : "Требует проверки · не отправлена"; break;
-            case Status::blocked:
-                row.status = graf::windows::DesktopUploadQueueService::isPermanentUploadReason(item.safeReason)
-                    ? "Сервер отклонил запись без возможности повторной отправки"
-                    : item.safeReason == "needs_admin"
-                    ? "Ожидает действия администратора рабочего пространства · нажмите «Отправить» после решения"
-                    : "Отправка невозможна без исправления на этом компьютере · нажмите «Отправить» после исправления";
-                break;
-            }
-            const bool known = capture_->localItem(row.id).has_value();
-            row.canOpen = row.canOpen && known;
-            // A quarantined row is the one that kept a confirmed prefix after a
-            // fault, so it is the only row allowed to report a partial duration.
-            graf::windows::WebView2Host::applyLocalPackageTiming(
-                row, startedAtMs, stoppedAtMs, item.status == Status::quarantined);
-            row.canSend = known && !busy && graf::windows::DesktopUploadQueueService::canRetry(item);
-            row.canDelete = known && !busy && !active;
-            // A row whose local copy the user already asked to remove is reported
-            // as a pending cleanup, not as a recording, and a copy the server was
-            // never told about deletes without touching the server at all.
-            row.localDeletionPending = graf::windows::DesktopUploadQueueService::localDeletionPending(item);
-            // Прогресс отправки: принятые сервером байты против веса дорожек
-            // локального пакета. Пока пакет не прочитан, прогресс неизвестен.
-            row.progressPercent = graf::windows::DesktopUploadQueueService::uploadProgressPercent(
-                item, graf::windows::packageTrackBytes(item));
-            row.deletionIsLocalOnly = !graf::windows::DesktopUploadQueueService::hasServerIdentity(item);
-            rows.push_back(std::move(row));
-        }
-        // The deletions in flight travel with the rows: the cabinet prints what the
-        // app has stored, so a request that is waiting for the server is visible
-        // rather than only remembered. Nothing is hidden on Windows, so the page's
-        // account-recovery notice stays off rather than claiming hidden rows.
-        std::vector<graf::windows::CabinetDeletionOperation> operations;
-        for (const auto& record : capture_->deletionLedger().deletionOperations()) {
-            graf::windows::CabinetDeletionOperation operation;
-            operation.id = record.operationId;
-            operation.phase = deletionPhaseLabel(record.phase);
-            operation.waitReason = graf::windows::pageDeletionWaitReason(record.safeReason);
-            if (record.target == graf::windows::DeletionTarget::meeting) operation.targetMeetingId = record.targetId;
-            else operation.targetDirectoryId = record.targetId;
-            // The report link is offered only when a receipt named the meeting, so
-            // the identifier the page would put in a URL is never a guess: for a
-            // meeting target that is what acceptance means, and for a local copy
-            // the receipt named the copy rather than a meeting.
-            const bool answered = record.phase == graf::windows::DeletionOperationPhase::accepted ||
-                record.phase == graf::windows::DeletionOperationPhase::verified;
-            if (answered && !operation.targetMeetingId.empty()) {
-                operation.receiptMeetingId = operation.targetMeetingId;
-            }
-            operations.push_back(std::move(operation));
-        }
-        localStatusRows_ = rows;
-        cabinet_->webView().setLocalRecordings(std::move(rows), std::move(operations), false);
+        bindNotificationContext();
+        const auto observation = capture_->localObservation();
+        const auto context = capture_->localProblemContext();
+        cabinet_->webView().setProtectedLocalRecordings(observation.value, observation.complete,
+            context.origin, context.owner, context.workspace, capture_->authGeneration(), observation.timings);
     }
 
     // The cabinet's theme setting decides the appearance of the native surfaces.
@@ -2085,6 +1322,10 @@ private:
         // Заголовки окон рисует система: без явных цветов они остаются светлыми.
         applyWindowChrome(mainWindowHandle_, isDark);
         if (settingsWindow_) applyWindowChrome(nativeWindowHandle(settingsWindow_), isDark);
+        if (playbackWindow_) {
+            playbackPanel_.RequestedTheme(requested);
+            applyWindowChrome(nativeWindowHandle(playbackWindow_), isDark);
+        }
         if (indicatorWindow_) applyWindowChrome(nativeWindowHandle(indicatorWindow_), isDark);
         if (root_) root_.RequestedTheme(requested);
         // Собственные окна приложения следуют той же теме, что и главное.
@@ -2092,368 +1333,312 @@ private:
         if (indicatorPanel_) indicatorPanel_.RequestedTheme(requested);
     }
 
-    // The names the cabinet prints for a deletion phase. They are the ledger's own
-    // names on purpose: one spelling means the page and the app cannot disagree
-    // about what state a deletion is in.
-    [[nodiscard]] static std::string deletionPhaseLabel(graf::windows::DeletionOperationPhase phase) {
-        switch (phase) {
-        case graf::windows::DeletionOperationPhase::queued: return "queued";
-        case graf::windows::DeletionOperationPhase::sending: return "sending";
-        case graf::windows::DeletionOperationPhase::resolving: return "resolving";
-        case graf::windows::DeletionOperationPhase::accepted: return "accepted";
-        case graf::windows::DeletionOperationPhase::rejected: return "rejected";
-        case graf::windows::DeletionOperationPhase::verified: break;
-        }
-        return "verified";
+    bool playbackDocumentCurrent(const graf::windows::WebView2Host::LocalRecordingRequest& request,
+                                 std::uint64_t epoch) const {
+        return capture_ && cabinet_ && !shuttingDown_ && !exitRequested_ && !capture_->updateAdmissionBlocked() &&
+            capture_->authGeneration() == epoch &&
+            cabinet_->webView().localPlaybackDocumentCurrent(request.documentGeneration, request.nonce);
     }
 
-    void handleLocalRecording(const std::string& action, const std::string& id) {
-        if (!capture_ || shuttingDown_) return;
-        if (capture_->updateAdmissionBlocked() && action != "open") {
-            localActionNotice_ = L"Готовится обновление GRAF. Дождитесь завершения или отмените его в окне обновлений.";
+    void dismissPlaybackWindow() {
+        auto closing = playbackWindow_; playbackWindow_ = nullptr;
+        ++playbackWindowGeneration_; // Invalidate callbacks BEFORE Close can reenter the UI owner.
+        playbackPanel_ = nullptr; playbackStatus_ = nullptr; playbackButton_ = nullptr;
+        playbackTime_ = nullptr; playbackSeek_ = nullptr;
+        if (closing) closing.Close();
+    }
+
+    void cancelLocalPlayback() {
+        pendingPlayback_.reset(); playbackRequest_.reset(); playbackAuthorized_ = false;
+        if (capture_) capture_->closeLocalPlayback(); // Cancellation never proves worker/native drain.
+        dismissPlaybackWindow();
+    }
+
+    void showLocalPlayback() {
+        if (playbackWindow_) { playbackWindow_.Activate(); return; }
+        playbackWindow_ = Window();
+        playbackWindow_.Title(L"Локальная запись");
+        const auto generation = ++playbackWindowGeneration_;
+        playbackPanel_ = StackPanel();
+        playbackPanel_.Padding(Thickness{16, 8, 16, 8}); playbackPanel_.Spacing(4);
+        playbackPanel_.Background(themeBrush(L"GrafBackgroundBrush"));
+        playbackPanel_.RequestedTheme(shellIsDark_ ? ElementTheme::Dark : ElementTheme::Light);
+        playbackStatus_ = TextBlock(); styleText(playbackStatus_, 12);
+        playbackStatus_.TextWrapping(TextWrapping::Wrap);
+        winrt::Microsoft::UI::Xaml::Automation::AutomationProperties::SetLiveSetting(playbackStatus_,
+            winrt::Microsoft::UI::Xaml::Automation::Peers::AutomationLiveSetting::Polite);
+        playbackStatus_.Text(L"Проверяем локальную запись…");
+        playbackPanel_.Children().Append(playbackStatus_);
+        auto transport = StackPanel(); transport.Orientation(Orientation::Horizontal); transport.Spacing(12);
+        playbackButton_ = styledButton(L"Воспроизвести"); playbackButton_.IsEnabled(false);
+        setAccessible(playbackButton_, L"Воспроизвести локальную запись");
+        playbackButton_.Click([this, generation](auto const&, auto const&) {
+            if (generation != playbackWindowGeneration_ || !playbackRequest_ || pendingPlayback_) return;
+            if (!playbackDocumentCurrent(playbackRequest_->request, playbackRequest_->epoch)) { cancelLocalPlayback(); return; }
+            const auto state = capture_->localPlaybackObservation();
+            if (!state.present || state.documentGeneration != playbackRequest_->request.documentGeneration) return;
+            if (state.terminal && FAILED(state.media.error)) {
+                pendingPlayback_ = *playbackRequest_;
+                pollLocalPlayback();
+                return;
+            }
+            if (state.terminal || !state.media.ready || FAILED(state.media.error)) return;
+            if (state.media.ended) (void)capture_->seekLocalPlayback(0);
+            (void)capture_->pauseLocalPlayback(state.media.ended ? false : !state.media.paused);
+        });
+        transport.Children().Append(playbackButton_);
+        playbackTime_ = TextBlock(); styleText(playbackTime_, 12);
+        playbackTime_.VerticalAlignment(VerticalAlignment::Center);
+        transport.Children().Append(playbackTime_); playbackPanel_.Children().Append(transport);
+        playbackSeek_ = Slider(); playbackSeek_.Minimum(0); playbackSeek_.Maximum(1); playbackSeek_.IsEnabled(false);
+        setAccessible(playbackSeek_, L"Позиция воспроизведения", L"Используйте клавиши со стрелками для перемотки.");
+        playbackSeek_.ValueChanged([this, generation](auto const&, auto const& args) {
+            if (generation != playbackWindowGeneration_ || updatingPlaybackSeek_ || !playbackRequest_ || pendingPlayback_) return;
+            if (!playbackDocumentCurrent(playbackRequest_->request, playbackRequest_->epoch)) { cancelLocalPlayback(); return; }
+            (void)capture_->seekLocalPlayback(args.NewValue());
+        });
+        playbackPanel_.Children().Append(playbackSeek_);
+        playbackPanel_.KeyDown([this, generation](auto const&, auto const& args) {
+            if (generation != playbackWindowGeneration_ || args.Key() != winrt::Windows::System::VirtualKey::Escape) return;
+            args.Handled(true);
+            cancelLocalPlayback();
+        });
+        auto scroll = ScrollViewer();
+        scroll.VerticalScrollBarVisibility(ScrollBarVisibility::Auto);
+        scroll.HorizontalScrollBarVisibility(ScrollBarVisibility::Disabled);
+        scroll.BringIntoViewOnFocusChange(true);
+        scroll.Content(playbackPanel_);
+        playbackWindow_.Content(scroll);
+        auto presenter = playbackWindow_.AppWindow().Presenter().try_as<winrt::Microsoft::UI::Windowing::OverlappedPresenter>();
+        if (presenter) { presenter.IsResizable(false); presenter.IsMaximizable(false); presenter.IsMinimizable(false); }
+        playbackWindow_.Closed([this, generation](auto const&, auto const&) {
+            if (generation != playbackWindowGeneration_) return;
+            playbackWindow_ = nullptr; // Already closed; do not call Close again from its own callback.
+            cancelLocalPlayback(); // Native work stays owned until its actual terminal observation.
+        });
+        playbackWindow_.Activate();
+        applyWindowChrome(nativeWindowHandle(playbackWindow_), shellIsDark_);
+        // Mac's 540x120 is CONTENT, not outer chrome. Account for Windows' DPI-scaled frame.
+        const auto handle = nativeWindowHandle(playbackWindow_);
+        const auto dpi = GetDpiForWindow(handle);
+        if (!handle || !dpi) throw winrt::hresult_error(E_FAIL);
+        RECT frame{0, 0, MulDiv(540, static_cast<int>(dpi), 96), MulDiv(120, static_cast<int>(dpi), 96)};
+        if (!AdjustWindowRectExForDpi(&frame, static_cast<DWORD>(GetWindowLongPtrW(handle, GWL_STYLE)), FALSE,
+            static_cast<DWORD>(GetWindowLongPtrW(handle, GWL_EXSTYLE)), dpi)) throw winrt::hresult_error(HRESULT_FROM_WIN32(GetLastError()));
+        resizeWindowLogical(playbackWindow_, MulDiv(frame.right - frame.left, 96, static_cast<int>(dpi)),
+            MulDiv(frame.bottom - frame.top, 96, static_cast<int>(dpi)), true);
+    }
+
+    void pollLocalPlayback() {
+        if (!capture_) return;
+        if (pendingPlayback_ && !playbackDocumentCurrent(pendingPlayback_->request, pendingPlayback_->epoch)) {
+            cancelLocalPlayback(); return;
+        }
+        if (!pendingPlayback_ && playbackRequest_ && !playbackDocumentCurrent(playbackRequest_->request, playbackRequest_->epoch)) {
+            cancelLocalPlayback(); return;
+        }
+        auto state = capture_->localPlaybackObservation();
+        if (pendingPlayback_ && (!state.present || state.terminal)) {
+            dismissPlaybackWindow(); // Each new operation gets a fresh native-window callback generation.
+            auto next = std::move(*pendingPlayback_); pendingPlayback_.reset();
+            playbackRequest_.reset(); playbackAuthorized_ = false;
+            if (!capture_->openLocalPlayback(next.request.id, next.request.documentGeneration)) {
+                localActionNotice_ = L"Запись сейчас недоступна или занята отправкой. Повторите открытие позже.";
+                cancelLocalPlayback(); return; // No endless retry of a rejected request.
+            }
+            playbackRequest_ = std::move(next);
+            try { showLocalPlayback(); } catch (...) { cancelLocalPlayback(); return; }
+            state = capture_->localPlaybackObservation();
+        }
+        if (!playbackRequest_) return;
+        if (!state.present || state.documentGeneration != playbackRequest_->request.documentGeneration) {
+            cancelLocalPlayback(); return;
+        }
+        if (!pendingPlayback_ && !state.terminal && SUCCEEDED(state.media.error) && state.media.ready && !playbackAuthorized_) {
+            playbackAuthorized_ = capture_->authorizeLocalPlayback(state.documentGeneration);
+            if (!playbackAuthorized_) { cancelLocalPlayback(); return; }
+        }
+        if (!playbackWindow_) return;
+        const bool usable = !pendingPlayback_ && !state.preparing && !state.terminal && SUCCEEDED(state.media.error) && state.media.ready;
+        const bool retry = !pendingPlayback_ && state.terminal && FAILED(state.media.error);
+        playbackStatus_.Text(pendingPlayback_ ? L"Закрываем предыдущую запись…" : FAILED(state.media.error) ?
+            (retry ? L"Запись недоступна или занята. Нажмите «Повторить», чтобы попробовать снова." :
+                L"Запись недоступна или занята. Завершаем воспроизведение…") : state.terminal ?
+            L"Воспроизведение завершено." : state.preparing || !state.media.ready ? L"Проверяем локальную запись…" :
+            state.media.ended ? L"Запись закончилась" : state.media.paused ? L"Пауза" : L"Воспроизведение");
+        setAccessible(playbackStatus_, std::wstring(playbackStatus_.Text().c_str()));
+        playbackButton_.IsEnabled(usable || retry);
+        const bool play = state.media.paused || state.media.ended;
+        playbackButton_.Content(box_value(retry ? L"Повторить" : play ? L"Воспроизвести" : L"Пауза"));
+        setAccessible(playbackButton_, retry ? L"Повторить открытие локальной записи" :
+            play ? L"Воспроизвести локальную запись" : L"Приостановить воспроизведение");
+        playbackSeek_.IsEnabled(usable);
+        const auto time = [](double seconds) {
+            const auto whole = static_cast<std::uint64_t>(std::max(0.0, seconds));
+            const auto minutes = whole / 60, remainder = whole % 60;
+            return std::to_wstring(minutes) + L":" + (remainder < 10 ? L"0" : L"") + std::to_wstring(remainder);
+        };
+        playbackTime_.Text(time(state.media.positionSeconds) + L" / " + time(state.media.durationSeconds));
+        updatingPlaybackSeek_ = true;
+        playbackSeek_.Maximum(std::max(1.0, state.media.durationSeconds));
+        playbackSeek_.Value(state.media.positionSeconds);
+        updatingPlaybackSeek_ = false;
+    }
+
+    void handleLocalRecording(const graf::windows::WebView2Host::LocalRecordingRequest& request) {
+        const auto& action = request.action;
+        const auto& id = request.id;
+        if (!capture_ || shuttingDown_ || exitRequested_) return;
+        if (action == "open") {
+            const auto epoch = capture_->authGeneration();
+            if (!playbackDocumentCurrent(request, epoch) || !cabinet_->webView().localRecordingActionAllowed(action, id)) return;
+            pendingPlayback_ = PlaybackRequest{request, epoch}; // One bounded latest replacement, no native references.
+            capture_->closeLocalPlayback();
+            pollLocalPlayback();
             return;
         }
-        const auto item = capture_->localItem(id);
-        if (!item) { localActionNotice_ = L"Запись недоступна. Обновите список."; return; }
         if (action == "send") {
+            const auto epoch = capture_->authGeneration();
+            if (!playbackDocumentCurrent(request, epoch) || pendingManualSend_ ||
+                !cabinet_->webView().localRecordingActionAllowed(action, id)) return;
             if (capture_->authSessionToken().empty()) {
                 (void)cabinet_->open(cabinet_->webView().signInUrl());
                 localActionNotice_ = L"Войдите в GRAF — запись остаётся на этом компьютере.";
             } else if (!capture_->currentAccount()) {
                 localActionNotice_ = L"Сервер пока не подтвердил текущий аккаунт. Отправка приостановлена, запись сохранена локально.";
-            } else if (item->ownerUserId.empty() && item->ownerWorkspaceId.empty()) {
-                const auto expected = *capture_->currentAccount();
-                const auto generation = capture_->authGeneration();
-                confirmLocalAction(L"Отправить в текущий аккаунт?",
-                    L"У выбранной локальной записи ещё нет подтверждённого владельца. Она будет закреплена за аккаунтом, открытым сейчас в кабинете, и отправлена на сервер GRAF.",
-                    L"Подтвердить и отправить", [this, id, expected, generation] {
-                        localActionNotice_ = capture_->assignLocalOwner(id, expected, generation) && capture_->sendLocalRecording(id)
-                            ? L"Принадлежность сохранена. Запись добавлена в очередь отправки."
-                            : L"Аккаунт или состояние записи изменились. Отправка отменена; проверьте аккаунт и повторите действие.";
-                    });
-            } else if (item->ownerUserId != capture_->currentAccount()->userId ||
-                       item->ownerWorkspaceId != capture_->currentAccount()->workspaceId) {
-                localActionNotice_ = L"Эта запись принадлежит другому аккаунту. Войдите в исходный аккаунт через меню профиля; запись остаётся на компьютере.";
-            } else localActionNotice_ = capture_->sendLocalRecording(id) ? L"Запись добавлена в очередь отправки."
-                : L"Отправка сейчас недоступна. Дождитесь завершения текущего действия.";
-        } else if (action == "open") {
-            const auto root = capture_->custodyRoot();
-            const auto dispatcher = root_.DispatcherQueue();
-            const auto alive = alive_;
-            localActionNotice_ = L"Проверяем локальную запись…";
-            try { std::thread([this, alive, dispatcher, item = *item, root] {
-                bool playable = false;
-                try {
-                    winrt::init_apartment(winrt::apartment_type::multi_threaded);
-                    playable = graf::windows::LocalRecordingPackage::inspect(item.packageDirectory, root).playbackAvailable;
-                    winrt::uninit_apartment();
-                } catch (...) {}
-                dispatcher.TryEnqueue([this, alive, item, playable] {
-                    if (!alive->load()) return;
-                    const auto current = capture_->localItem(item.localRecordingId);
-                    if (!playable || !current || current->packageDirectory != item.packageDirectory) {
-                        localActionNotice_ = L"Файл прослушивания повреждён или недоступен. Локальная запись не удалена.";
-                        return;
-                    }
-                    const auto file = item.packageDirectory / "meeting-review.m4a";
-                    const auto result = reinterpret_cast<INT_PTR>(ShellExecuteW(mainWindowHandle_, L"open", file.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
-                    localActionNotice_ = result > 32 ? L"Запись открыта в проигрывателе Windows." : L"Не удалось открыть проигрыватель. Установите приложение для M4A.";
-                });
-            }).detach(); } catch (...) {
-                localActionNotice_ = L"Не удалось начать проверку файла. Повторите открытие записи.";
+            } else {
+                const auto observation = capture_->localObservation();
+                if (!observation.complete || !observation.value) {
+                    localActionNotice_ = capture_->custodySummary(); return;
+                }
+                PendingLocalAction pending{request, epoch, 0}; // Allocate reply address before native admission.
+                const auto ticket = capture_->requestProtectedManualSend(observation.value, id, epoch, false);
+                if (ticket) {
+                    pending.ticket = ticket->id;
+                    pendingManualSend_ = std::move(pending);
+                    localActionNotice_ = L"Сохраняем запрос отправки… Запись остаётся на этом компьютере.";
+                } else localActionNotice_ = L"Аккаунт или состояние записи изменились либо отправка приостановлена. Дождитесь завершения текущего действия и повторите отправку.";
             }
-        } else if (action == "delete") {
+            return;
+        }
+        if (action == "delete") {
+            const auto epoch = capture_->authGeneration();
+            if (!playbackDocumentCurrent(request, epoch) || pendingLocalRemoval_ ||
+                !cabinet_->webView().localRecordingActionAllowed(action, id)) return;
+            const auto observation = capture_->localObservation();
+            if (!observation.complete || !observation.value) { localActionNotice_ = capture_->custodySummary(); return; }
             if (capture_->uploadsBusy() || capture_->indicator().visible) {
                 localActionNotice_ = L"Дождитесь завершения записи или отправки, затем удалите локальную копию.";
                 return;
             }
-            confirmLocalAction(L"Удалить локальную запись?",
+            confirmLocalAction(L"Удалить локальную копию?",
                 L"Локальная копия выбранной записи будет перемещена в Корзину Windows. Уже отправленная запись на сервере не изменится.",
-                L"Переместить в Корзину", [this, id] {
-                    const auto result = capture_->removeLocalCopy(id, mainWindowHandle_);
-                    localActionNotice_ = result == graf::windows::LocalCopyRemovalResult::removed
-                        ? L"Локальная копия больше не хранится в GRAF. Если файл был на диске, он перемещён в Корзину Windows."
-                        : L"Не удалось удалить локальную копию. Проверьте очередь и Корзину; повторная отправка приостановлена.";
+                L"Переместить в Корзину", [this, request, epoch, snapshot = observation.value] {
+                    if (!playbackDocumentCurrent(request, epoch) || pendingLocalRemoval_ ||
+                        !cabinet_->webView().localRecordingActionAllowed("delete", request.id)) return;
+                    PendingLocalAction pending{request, epoch, 0}; // No owning copy after accepted intent.
+                    const auto ticket = capture_->requestProtectedLocalRemoval(snapshot, request.id, epoch);
+                    if (ticket) {
+                        pending.ticket = ticket->id;
+                        pendingLocalRemoval_ = std::move(pending);
+                        localActionNotice_ = L"Удаляем локальную копию… Запись на сервере не изменяется.";
+                    } else localActionNotice_ = L"Состояние записи изменилось. Обновите список и подтвердите удаление ещё раз.";
                 });
         }
     }
 
-    // The origin every stored request names: the transport's own default, read
-    // from one place so a request is never recorded against an origin this client
-    // would refuse to talk to.
-    [[nodiscard]] static std::string serverOrigin() { return graf::windows::DesktopHttpConfig{}.baseOrigin; }
+    void pollLocalRecordingSend() {
+        if (!pendingManualSend_) return;
+        const auto request = std::get_if<graf::windows::WebView2Host::LocalRecordingRequest>(&pendingManualSend_->source);
+        if (!request || !playbackDocumentCurrent(*request, pendingManualSend_->epoch)) {
+            if (localActionNotice_ == L"Сохраняем запрос отправки… Запись остаётся на этом компьютере.")
+                localActionNotice_.clear(); // Preserve a newer notice from another action; storage truth is still pending.
+            pendingManualSend_.reset(); return; // Storage still adopts truth; stale UI has no capability.
+        }
+        const auto ticket = capture_->protectedManualSendTicket(pendingManualSend_->ticket);
+        if (!ticket || ticket->state == NativeCapture::QueueTicketState::pending) return;
+        localActionNotice_ = ticket->state == NativeCapture::QueueTicketState::committed && ticket->error == graf::windows::CustodyFileError::none
+            ? L"Запрос отправки сохранён. GRAF отправит запись с учётом ответа сервера."
+            : L"Не удалось подтвердить сохранение запроса отправки. Запись остаётся на компьютере; проверьте состояние хранилища.";
+        pendingManualSend_.reset();
+    }
 
-    // A deletion the cabinet asked for. The ledger is only ever written on this
-    // thread, so the pass has three phases: store the confirmed selection here,
-    // send the stored requests off the UI thread, then record what the server
-    // answered back here.
+    void pollLocalRecordingRemoval() {
+        if (!capture_ || !pendingLocalRemoval_) return;
+        const auto web = std::get_if<graf::windows::WebView2Host::LocalRecordingRequest>(&pendingLocalRemoval_->source);
+        const auto native = std::get_if<ProblemTarget>(&pendingLocalRemoval_->source);
+        const bool current = web ? playbackDocumentCurrent(*web, pendingLocalRemoval_->epoch)
+            : native && native->authGeneration == pendingLocalRemoval_->epoch &&
+                nativeLocalRemovalContextCurrent(*native, pendingLocalRemoval_->selectionRevision);
+        if (!current && localActionNotice_ == L"Удаляем локальную копию… Запись на сервере не изменяется.")
+            localActionNotice_.clear();
+        // Always consume the native completion, even for a stale document. The
+        // adopted intent belongs to the native owner, not the page's lifetime.
+        const auto result = capture_->takeProtectedDeletionCompletion(pendingLocalRemoval_->ticket);
+        if (!result) return;
+        pendingLocalRemoval_.reset(); // Consumed scalar result cannot be polled again if notice allocation fails.
+        if (current) localActionNotice_ = result->unknown
+            ? L"Результат удаления пока неизвестен. Проверьте состояние хранилища после перезапуска GRAF."
+            : !result->saved
+            ? L"Не удалось сохранить запрос удаления. Локальная копия не удалена. Обновите список и подтвердите удаление ещё раз."
+            : result->accepted == 1 && result->pending == 0
+            ? L"Локальная копия больше не хранится в GRAF. Если файл был на диске, он перемещён в Корзину Windows. Запись на сервере не изменена."
+            : L"Удаление локальной копии ещё не завершено. Намерение сохранено; GRAF повторит удаление после восстановления доступа. Проверьте очередь и Корзину.";
+    }
+
+    // The shell retains only the charged reply address. NativeCapture owns the
+    // intent -> HTTP -> answer -> storage ACK chain, independently of this page.
     void handleDeletionSelection(graf::windows::WebView2Host::DeletionRequest request) {
         if (!cabinet_ || !capture_ || shuttingDown_) return;
-        const auto owner = capture_->currentAccount();
-        // The ledger records whose request this is. Without a confirmed account
-        // there is no name to store, so the page is told the request was not saved
-        // instead of being left with a deletion nobody will ask the server for.
-        if (capture_->updateAdmissionBlocked() || !owner || capture_->authSessionToken().empty()) {
+        if (exitRequested_ || deletionSelectionsInFlight_ || capture_->updateAdmissionBlocked()) {
             cabinet_->webView().completeDeletionSelection(request, {});
             return;
         }
-        std::vector<graf::windows::DesktopUploadQueueService::DeletionTargetRequest> targets;
-        targets.reserve(request.targets.size());
-        for (const auto& target : request.targets) targets.push_back({target.target, target.targetId});
-        // Includes the UI-thread ledger/file completion, not merely the network
-        // flight. A lost UI callback cannot give the installer a false ready.
-        ++deletionSelectionsInFlight_;
-        const auto plan = capture_->deletionLedger().planDeletionSelection(targets, *owner, serverOrigin());
-        const auto requests = plan.requests;
-        // Nothing to ask the server: the local copies the server never saw are
-        // removed here, and the page is answered from what happened.
-        if (requests.empty()) {
-            finishDeletionSelection(std::move(request), plan, {}, {}, *owner);
-            return;
-        }
-        const auto dispatcher = root_.DispatcherQueue();
-        const auto alive = alive_;
-        const auto token = capture_->authSessionToken();
-        const auto confirmed = *owner;
-        try { std::thread([this, alive, dispatcher, request = std::move(request), plan, requests, token, confirmed]() mutable {
-            std::vector<graf::windows::DesktopUploadQueueService::DeletionWireResult> answers;
-            try {
-                winrt::init_apartment(winrt::apartment_type::multi_threaded);
-                graf::windows::DesktopHttpConfig config;
-                config.sessionToken = token;
-                config.workspaceId = confirmed.workspaceId;
-                config.confirmedIdentity = confirmed;
-                // The scope is what the server compares with the confirmed
-                // session: a request for another actor is refused before it can
-                // change anything.
-                config.scopedAccount = graf::windows::DeletionScope{confirmed.userId, confirmed.workspaceId};
-                config.cancellation = std::make_shared<std::atomic_bool>(false);
-                graf::windows::DesktopHttpTransport transport(config);
-                // Read the server's declared support before asking it to change
-                // anything. One reading decides the whole bounded pass: a server
-                // that does not declare it is not asked to mutate at all.
-                const auto context = transport.notificationContext(*config.scopedAccount);
-                graf::windows::DesktopUploadQueueService::DeletionWireResult gate;
-                gate.status = context.status;
-                gate.body = context.body;
-                gate.transportFailed = context.transportFailed;
-                gate.waitReason = context.safeReason;
-                const auto gateReason =
-                    graf::windows::DesktopUploadQueueService::deletionGateReason(gate, confirmed);
-                if (!gateReason.empty()) {
-                    // Nothing was sent. Every request waits for the same reason.
-                    answers.assign(requests.size(), {0, "", false, 0, gateReason});
-                } else {
-                    answers.reserve(requests.size());
-                    for (const auto& entry : requests) {
-                        const auto response = transport.requestDeletion(entry.path, entry.body, *config.scopedAccount);
-                        graf::windows::DesktopUploadQueueService::DeletionWireResult wire;
-                        wire.status = response.status;
-                        wire.body = response.body;
-                        wire.transportFailed = response.transportFailed;
-                        wire.retryAfterSeconds = response.retryAfterSeconds;
-                        // A call refused here never reached the wire, and that is
-                        // not an answer about the recording. The safe reason says
-                        // why, in words the ledger accepts.
-                        wire.waitReason = response.safeReason;
-                        answers.push_back(std::move(wire));
-                        // One timeout says the same thing about every remaining
-                        // request; one missing meeting says nothing about them.
-                        if (graf::windows::DesktopUploadQueueService::deletionFailureIsShared(answers.back())) break;
-                    }
-                }
-                winrt::uninit_apartment();
-            } catch (...) {
-                // The requests are already durable. Answers that did not arrive
-                // leave them queued, and the cabinet is told they are pending.
-                answers.clear();
+        try {
+            graf::windows::CustodyString requestId{std::string_view(request.selection.requestId)};
+            graf::windows::ProtectedDeletionTargets targets;
+            targets.reserve(request.targets.size());
+            for (const auto& target : request.targets) targets.push_back({target.target,
+                graf::windows::CustodyString(std::string_view(target.targetId))});
+            const auto ticket = capture_->beginProtectedDeletionSelection(std::move(targets));
+            if (ticket) {
+                deletionRequestId_ = std::move(requestId);
+                deletionDocumentGeneration_ = request.documentGeneration;
+                deletionJobId_ = ticket->id;
+                ++deletionSelectionsInFlight_;
+                return;
             }
-            dispatcher.TryEnqueue([this, alive, request = std::move(request), plan, requests,
-                                   answers = std::move(answers), confirmed]() mutable {
-                if (!alive->load()) return;
-                finishDeletionSelection(std::move(request), plan, requests, answers, confirmed);
-            });
-        }).detach(); } catch (...) {
-            // The selection is stored, so the page is answered from the ledger.
-            finishDeletionSelection(std::move(request), plan, {}, {}, confirmed);
+        } catch (...) {
+            // Pre-admission allocation refusal is not a saved deletion.
         }
+        cabinet_->webView().completeDeletionSelection(request, {});
     }
 
-    // The server deletes a meeting and then asks this device to remove the local
-    // copies of it. The queue is written on the owner thread, so the files are
-    // removed here and only the two network calls happen off it: read the tasks and
-    // ask for the missing ones, then answer with what could be proven.
+    // Network, durable intent, native purge and ACK share the owned continuation.
     void startLocalPurgePass() {
-        if (!capture_ || shuttingDown_ || capture_->updateAdmissionBlocked() || localPurgeInFlight_) return;
-        const auto owner = capture_->currentAccount();
-        if (!owner || capture_->authSessionToken().empty()) return;
-        // Nothing may be removed while a recording or an upload owns those files.
-        if (capture_->uploadsBusy() || capture_->indicator().visible ||
-            capture_->indicator().state == graf::windows::SessionState::recording) return;
-        localPurgeInFlight_ = true;
-        pendingPurgeAcks_.clear();
-        const auto dispatcher = root_.DispatcherQueue();
-        const auto alive = alive_;
-        const auto token = capture_->authSessionToken();
-        const auto confirmed = *owner;
-        const auto awaiting = capture_->deletionLedger().meetingsAwaitingLocalPurge();
-        try { std::thread([this, alive, dispatcher, token, confirmed, awaiting]() mutable {
-            std::vector<std::string> listed;
-            std::vector<std::string> ensured;
-            try {
-                winrt::init_apartment(winrt::apartment_type::multi_threaded);
-                graf::windows::DesktopHttpConfig config;
-                config.sessionToken = token;
-                config.workspaceId = confirmed.workspaceId;
-                config.confirmedIdentity = confirmed;
-                config.scopedAccount = graf::windows::DeletionScope{confirmed.userId, confirmed.workspaceId};
-                config.cancellation = std::make_shared<std::atomic_bool>(false);
-                graf::windows::DesktopHttpTransport transport(config);
-                const auto scope = *config.scopedAccount;
-                const auto tasks = transport.localPurgeTasks(scope);
-                if (tasks.answered() && tasks.status == 200) listed.push_back(tasks.body);
-                // The server creates the task on its own side, so a deletion this
-                // device confirmed but has no task for is asked about directly.
-                for (const auto& meeting : awaiting) {
-                    const auto created = transport.ensureLocalPurgeTask(meeting, scope);
-                    if (created.answered() && (created.status == 200 || created.status == 201)) {
-                        ensured.push_back(created.body);
-                    }
-                }
-                winrt::uninit_apartment();
-            } catch (...) {
-                listed.clear();
-                ensured.clear();
-            }
-            dispatcher.TryEnqueue([this, alive, listed = std::move(listed), ensured = std::move(ensured)] {
-                if (!alive->load()) return;
-                prepareLocalPurgeAnswers(listed, ensured);
-            });
-        }).detach(); } catch (...) { localPurgeInFlight_ = false; }
+        if (capture_ && !shuttingDown_ && !exitRequested_) (void)capture_->beginProtectedLocalPurgePass();
     }
-
-    // Owner thread: what the ledger could prove about every task, and the answers
-    // that still have to be sent.
-    void prepareLocalPurgeAnswers(const std::vector<std::string>& listed, const std::vector<std::string>& ensured) {
-        if (!capture_ || shuttingDown_) { localPurgeInFlight_ = false; return; }
-        // The world can change while the list is read: a recording that started in
-        // the meantime owns those files, and without an owner window the Windows
-        // Recycle Bin operation cannot be carried out at all.
-        if (!mainWindowHandle_ || capture_->uploadsBusy() || capture_->indicator().visible ||
-            capture_->indicator().state == graf::windows::SessionState::recording) {
-            localPurgeInFlight_ = false;
-            return;
-        }
-        std::vector<graf::windows::LocalPurgeTask> tasks;
-        for (const auto& body : listed) {
-            const auto decoded = graf::windows::DesktopApiClient::decodeLocalPurgeTaskList(body);
-            // A list with one task this client cannot act on is not a list it may
-            // work from, so the pass keeps what it already had and touches nothing.
-            if (decoded) tasks = *decoded;
-        }
-        for (const auto& body : ensured) {
-            const auto decoded = graf::windows::DesktopApiClient::decodeLocalPurgeTask(body);
-            if (decoded) tasks.push_back(*decoded);
-        }
-        auto& ledger = capture_->deletionLedger();
-        for (const auto& task : tasks) {
-            if (task.acknowledged()) continue;
-            const auto completion = ledger.completeLocalPurgeTask(task,
-                [this](const std::filesystem::path& package) {
-                    return graf::windows::DesktopLocalPurgeService::recycle(
-                        package, reinterpret_cast<std::uintptr_t>(mainWindowHandle_));
-                });
-            PendingPurgeAck answer;
-            answer.taskId = task.taskId;
-            answer.state = completion.ack;
-            answer.reasonCode = completion.reasonCode;
-            answer.completedAtIso = utcNowIso();
-            pendingPurgeAcks_.push_back(std::move(answer));
-        }
-        if (pendingPurgeAcks_.empty()) {
-            localPurgeInFlight_ = false;
-            return;
-        }
-        const auto dispatcher = root_.DispatcherQueue();
-        const auto alive = alive_;
-        const auto token = capture_->authSessionToken();
-        const auto owner = capture_->currentAccount();
-        if (!owner || token.empty()) { localPurgeInFlight_ = false; pendingPurgeAcks_.clear(); return; }
-        const auto confirmed = *owner;
-        const auto answers = pendingPurgeAcks_;
-        try { std::thread([this, alive, dispatcher, token, confirmed, answers]() mutable {
-            try {
-                winrt::init_apartment(winrt::apartment_type::multi_threaded);
-                graf::windows::DesktopHttpConfig config;
-                config.sessionToken = token;
-                config.workspaceId = confirmed.workspaceId;
-                config.confirmedIdentity = confirmed;
-                config.scopedAccount = graf::windows::DeletionScope{confirmed.userId, confirmed.workspaceId};
-                config.cancellation = std::make_shared<std::atomic_bool>(false);
-                graf::windows::DesktopHttpTransport transport(config);
-                for (const auto& answer : answers) {
-                    (void)transport.acknowledgeLocalPurgeTask(answer.taskId, answer.state, answer.reasonCode,
-                        answer.completedAtIso, *config.scopedAccount);
-                }
-                winrt::uninit_apartment();
-            } catch (...) {}
-            dispatcher.TryEnqueue([this, alive] {
-                if (!alive->load()) return;
-                localPurgeInFlight_ = false;
-                pendingPurgeAcks_.clear();
-                if (capture_) updateLocalRecordings();
-            });
-        }).detach(); } catch (...) { localPurgeInFlight_ = false; pendingPurgeAcks_.clear(); }
-    }
-
-    // The instant the answer names, in the form the server accepts. Empty when the
-    // clock of this machine cannot produce one, which the body then omits.
-    [[nodiscard]] static std::string utcNowIso() {
-        const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-        if (now <= 0) return {};
-        return graf::windows::DesktopApiClient::formatUtcInstant(static_cast<std::uint64_t>(now));
-    }
-
-    // The answer the cabinet is waiting for, read back from the ledger: an accepted
-    // request is one the server named in a receipt, never one that was merely sent.
-    void finishDeletionSelection(graf::windows::WebView2Host::DeletionRequest request,
-                                 const graf::windows::DesktopUploadQueueService::DeletionPlan& plan,
-                                 const std::vector<graf::windows::DesktopUploadQueueService::DeletionRequestPlan>& requests,
-                                 const std::vector<graf::windows::DesktopUploadQueueService::DeletionWireResult>& answers,
-                                 const graf::windows::DesktopAccountIdentity& owner) {
-        auto& ledger = capture_->deletionLedger();
-        for (std::size_t index = 0; index < answers.size() && index < requests.size(); ++index) {
-            (void)ledger.applyDeletionAnswer(requests[index], owner, serverOrigin(), answers[index]);
-        }
-        auto outcome = ledger.deletionSelectionOutcome(plan);
-        outcome.saved = plan.saved;
-        // A local copy the server has never been told about needs no request: it is
-        // removed here, on the thread that owns the files and the window, and the
-        // removal itself is what the cabinet is told about.
-        for (const auto& id : plan.localOnly) {
-            if (capture_->removeLocalCopy(id, mainWindowHandle_, true) == graf::windows::LocalCopyRemovalResult::removed) {
-                ++outcome.accepted;
-            } else {
-                ++outcome.pending;
-            }
-        }
-        graf::windows::CabinetDeletionOutcome reply;
-        reply.saved = outcome.saved;
-        reply.accepted = outcome.accepted;
-        reply.pending = outcome.pending;
-        reply.rejected = outcome.rejected;
-        cabinet_->webView().completeDeletionSelection(request, reply);
-        updateLocalRecordings();
-        // The server creates the purge task once it has accepted a deletion, so
-        // the next tick is the right moment to look for it rather than a minute
-        // later.
-        if (outcome.accepted != 0) lastLocalPurge_ = 0;
-        --deletionSelectionsInFlight_;
+    void pollDeletionSelection() {
+        if (!capture_ || !deletionJobId_ || deletionReplyCalling_) return;
+        if (!deletionReply_) deletionReply_ = capture_->takeProtectedDeletionCompletion(deletionJobId_);
+        if (!deletionReply_) return;
+        const CustodyMutationScope calling(deletionReplyCalling_);
+        const auto& result = *deletionReply_;
+        const bool deliver = cabinet_ && !shuttingDown_ && !exitRequested_ && !capture_->updateAdmissionBlocked() &&
+            result.epoch == capture_->authGeneration() && capture_->currentAccount();
+        if (deliver) try {
+            graf::windows::CabinetDeletionOutcome reply;
+            reply.saved = result.saved; reply.unknown = result.unknown;
+            reply.accepted = result.accepted; reply.pending = result.pending; reply.rejected = result.rejected;
+            if (!cabinet_->webView().completeDeletionSelection(deletionDocumentGeneration_, deletionRequestId_, reply)) return;
+        } catch (...) { return; } // Retry only delivery, never HTTP/storage; retain address and result.
+        deletionJobId_ = deletionDocumentGeneration_ = 0;
+        deletionRequestId_.clear(); deletionReply_.reset();
+        deletionSelectionsInFlight_ = 0;
     }
 
     void confirmLocalAction(hstring title, hstring body, hstring button, std::function<void()> confirmed) {
-        if (localActionDialogOpen_) return;
+        if (exitRequested_ || !capture_ || localActionDialogOpen_) return;
         ContentDialog dialog;
         dialog.XamlRoot(root_.XamlRoot());
         dialog.Title(box_value(title));
@@ -2471,7 +1656,9 @@ private:
                     localActionDialogOpen_ = false;
                     try {
                         if (operation.GetResults() == ContentDialogResult::Primary) {
-                            if (capture_->updateAdmissionBlocked())
+                            if (exitRequested_ || !capture_)
+                                localActionNotice_ = L"Действие не выполнено: GRAF закрывается.";
+                            else if (capture_->updateAdmissionBlocked())
                                 localActionNotice_ = L"Действие не выполнено: готовится обновление GRAF. Повторите после завершения или отмены обновления.";
                             else confirmed();
                         }
@@ -2690,6 +1877,13 @@ private:
     void bindNotificationContext() {
         if (!reminders_ || !capture_) return;
         const auto account = capture_->currentAccount();
+        if (cabinet_) {
+            auto& host = cabinet_->webView();
+            if (account && !shuttingDown_ && !exitRequested_) host.bindUserTimeAccount(
+                graf::windows::DesktopHttpConfig{}.baseOrigin, account->userId, account->workspaceId,
+                capture_->authSessionToken(), capture_->authGeneration());
+            else host.bindUserTimeAccount({}, {}, {}, {}, capture_->authGeneration());
+        }
         if (account) reminders_->bind(account->userId, account->workspaceId,
             graf::windows::DesktopHttpConfig{}.baseOrigin);
         else if (!reminders_->owner().empty()) reminders_->invalidate();
@@ -2891,6 +2085,7 @@ private:
 
     void invalidateNotificationInteraction() {
         if (shuttingDown_ || !capture_) return;
+        cancelCalendarJoin();
         pendingProblems_.clear();
         presentedProblem_.reset();
         // Revoke proposals and pending starts, but keep tracking an accepted
@@ -3111,12 +2306,13 @@ private:
 
     void syncUpdateAdmission() noexcept {
         if (capture_) capture_->setUpdateAdmissionBlocked(appUpdate_.blocksNewWork());
+        if (appUpdate_.blocksNewWork()) { try { cancelLocalPlayback(); } catch (...) {} }
     }
 
     [[nodiscard]] bool readyForUpdate() const noexcept {
         return capture_ && !shuttingDown_ && !exitRequested_ && capture_->localQueueComplete() &&
-            capture_->updateWorkDrained() && !localPurgeInFlight_ && deletionSelectionsInFlight_ == 0 &&
-            shellMutations_ == 0;
+            capture_->updateWorkDrained() && deletionSelectionsInFlight_ == 0 &&
+            shellMutations_ == 0 && !calendarJoin_.busy() && !calendarCalling_;
     }
 
     void refreshUpdateWindow() {
@@ -3259,14 +2455,18 @@ private:
             !graf::windows::isCaptureState(capture_->indicator().state) && capture_->recordingReady();
     }
 
-    void recordCapture() {
+    void recordCapture(const std::function<bool()>& current = {}) {
         if (shuttingDown_ || exitRequested_ || !capture_ || capture_->updateAdmissionBlocked() ||
-            graf::windows::isCaptureState(capture_->indicator().state)) return;
+            graf::windows::isCaptureState(capture_->indicator().state) || (current && !current())) return;
+        if (!capture_->localQueueComplete()) {
+            localActionNotice_ = capture_->custodySummary();
+            return;
+        }
         // A tray command can outlive its menu snapshot. Use the same fresh
         // permission/device/storage gate as the shell, not the painted flags.
         capture_->refreshReadiness();
-        if (!canStartRecording() || !ensureRecordingIndicator()) { refreshNativeState(); return; }
-        if (!canStartRecording()) return;
+        if ((current && !current()) || !canStartRecording() || !ensureRecordingIndicator()) { refreshNativeState(); return; }
+        if (!canStartRecording() || (current && !current())) return;
         localActionNotice_.clear();
         automaticPolicy_.cancel();
         recordingStartedAt_ = 0;
@@ -3281,28 +2481,31 @@ private:
         refreshNativeState();
     }
 
-    void requestExit() {
-        if (!window_ || shuttingDown_) return;
-        appUpdate_.close();
-        syncUpdateAdmission();
-        if (appUpdate_.blocksNewWork()) {
-            exitRequested_ = true;
-            return; // Continue timer polling until OS confirms termination.
-        }
-        using namespace graf::windows;
-        const auto state = capture_ ? capture_->indicator().state : SessionState::idle;
-        const auto action = shellCloseAction(ShellCloseIntent::quit, state, false, false, exitRequested_);
-        if (exitRequested_ && action == ShellCloseAction::wait) return;
+    [[nodiscard]] bool shellExitJobsDrained() const noexcept {
+        return deletionSelectionsInFlight_ == 0 && shellMutations_ == 0 &&
+            !calendarResolverThread_.joinable() && !calendarCalling_ && !calendarJoin_.busy();
+    }
+    [[nodiscard]] bool exitWorkDrained() const noexcept {
+        return exitRequested_ && shellExitJobsDrained() && !appUpdate_.blocksNewWork() &&
+            (!capture_ || capture_->shutdownWorkDrained());
+    }
+    void beginExit() {
         exitRequested_ = true;
+        cancelLocalPlayback();
+        cancelCalendarJoin();
         automaticPolicy_.cancel();
         (void)closeAutomaticPrompt(automaticPromptGeneration_);
-        if (action == ShellCloseAction::close) { window_.Close(); return; }
-        // Closing the app while recording is a termination, not a Stop, so the
-        // short-recording threshold must not discard the fragment.
-        if (action == ShellCloseAction::stopAndWait)
-            (void)capture_->stop(graf::windows::RecordingStopReason::interruption);
-        // Keep the window/indicator alive until UI polling finalizes the local
-        // package and queue after both native workers have actually stopped.
+        appUpdate_.close();
+        syncUpdateAdmission();
+        if (capture_) {
+            capture_->requestShutdown(); // Stop/cancel now; already accepted deletion replies still drain.
+            if (shellExitJobsDrained()) capture_->shutdown();
+        }
+    }
+    void requestExit() {
+        if (!window_ || shuttingDown_) return;
+        beginExit();
+        if (exitWorkDrained()) window_.Close();
     }
 
     bool recordingIndicatorAvailable() const {
@@ -3453,19 +2656,23 @@ private:
             capture_->ownsRecordingSession(target.context, target.sessionId);
     }
 
-    [[nodiscard]] bool problemActionCurrent(const ProblemTarget& target) const {
+    [[nodiscard]] bool problemActionCurrent(const ProblemTarget& target) const try {
         if (!problemContextCurrent(target)) return false;
         const auto permit = interactionPermit();
         if (!permit.allowed || permit.epoch == 0 || permit.epoch != target.interactionEpoch) return false;
         const auto problems = capture_->recordingProblems(static_cast<std::uint64_t>(reminderWallTime() * 1000));
         return std::any_of(problems.begin(), problems.end(), [&](const auto& problem) {
-            return problem.sessionId == target.sessionId && problem.incidentId == target.incidentId &&
+            return std::string_view(problem.sessionId) == target.sessionId && std::string_view(problem.incidentId) == target.incidentId &&
                 problem.state == graf::windows::LocalProblemState::problem;
         });
+    } catch (const std::bad_alloc&) {
+        return false;
     }
 
     void openProblemRecording(const ProblemTarget& target) {
         if (!problemActionCurrent(target)) return;
+        if (selectedRecordingRevision_ == std::numeric_limits<std::uint64_t>::max()) return;
+        ++selectedRecordingRevision_; // Every explicit choice, including the same recording, revokes older UI results.
         selectedRecording_ = target;
         selectedRecordingDisplayKey_.clear();
         inspectorExpanded_ = true;
@@ -3484,7 +2691,7 @@ private:
         });
     }
 
-    void reconcileRecordingProblems() {
+    void reconcileRecordingProblems() try {
         if (!capture_ || !reminders_ || shuttingDown_ || exitRequested_ || capture_->updateAdmissionBlocked()) return;
         using State = graf::windows::LocalProblemState;
         using Clock = graf::windows::RecordingNoticePresenter::Clock;
@@ -3494,15 +2701,20 @@ private:
         auto& card = capture_->notificationCard();
         const auto lookup = [&](const ProblemTarget& target) {
             return std::find_if(problems.begin(), problems.end(), [&](const auto& problem) {
-                return problem.sessionId == target.sessionId && problem.incidentId == target.incidentId;
+                return std::string_view(problem.sessionId) == target.sessionId && std::string_view(problem.incidentId) == target.incidentId;
             });
+        };
+        const auto actionCurrent = [&](const ProblemTarget& target) {
+            const auto problem = lookup(target);
+            return permit.allowed && permit.epoch != 0 && permit.epoch == target.interactionEpoch &&
+                problemContextCurrent(target) && problem != problems.end() && problem->state == State::problem;
         };
         // Unknown/absent observations revoke UI actions, but never erase the
         // durable incident. Only complete, owned, all-uploaded truth resolves it.
         for (const auto& problem : problems) {
             if (problem.state == graf::windows::LocalProblemState::positivelyResolved &&
                 problemStore_.resolveProblem(reminders_->origin(), reminders_->owner(), reminders_->workspace(), problem.incidentId))
-                card.resolveProblem(problem.incidentId);
+                card.resolveProblem(std::string(problem.incidentId.data(), problem.incidentId.size()));
         }
         pendingProblems_.erase(std::remove_if(pendingProblems_.begin(), pendingProblems_.end(), [&](const auto& target) {
             const auto problem = lookup(target);
@@ -3510,9 +2722,8 @@ private:
                 permit.epoch != target.interactionEpoch || problem == problems.end() || problem->state != State::problem;
         }), pendingProblems_.end());
         if (presentedProblem_) {
-            const auto problem = lookup(*presentedProblem_);
             const bool visible = card.visible() && card.kind() == graf::windows::NoticeKind::problem && card.id() == presentedProblem_->incidentId;
-            if (!visible || !problemActionCurrent(*presentedProblem_) || problem == problems.end() || problem->state != State::problem) {
+            if (!visible || !actionCurrent(*presentedProblem_)) {
                 presentedProblem_.reset();
                 if (visible) card.invalidate();
             }
@@ -3521,11 +2732,12 @@ private:
             if (problem.state != State::problem || !problem.fresh || problem.incidentId.size() > 1024) continue;
             if (!problemStore_.claimProblem(reminders_->origin(), reminders_->owner(), reminders_->workspace(), problem.incidentId)) continue;
             const auto expires = now + std::chrono::seconds(300);
-            card.recordProblemHistory(problem.incidentId, expires);
+            card.recordProblemHistory(std::string(problem.incidentId.data(), problem.incidentId.size()), expires);
             if (reminders_->preferences().quiet) continue;
             if (!permit.allowed || permit.epoch == 0 || pendingProblems_.size() >= 256) continue;
             pendingProblems_.push_back({{reminders_->origin(), reminders_->owner(), reminders_->workspace()},
-                problem.sessionId, problem.incidentId, capture_->authGeneration(), reminders_->epoch(),
+                std::string(problem.sessionId.data(), problem.sessionId.size()),
+                std::string(problem.incidentId.data(), problem.incidentId.size()), capture_->authGeneration(), reminders_->epoch(),
                 permit.epoch, problem.occurredAtMs, expires});
         }
         if (reminders_->preferences().quiet) { pendingProblems_.clear(); return; }
@@ -3537,7 +2749,7 @@ private:
         });
         const auto target = *next;
         pendingProblems_.erase(next); // a failed/invalidated show is not replayed
-        if (!problemActionCurrent(target)) return;
+        if (!actionCurrent(target)) return;
         const auto alive = alive_;
         graf::windows::NoticePresentationHooks hooks;
         hooks.beforeFirstShow = [this, alive, target] {
@@ -3554,21 +2766,91 @@ private:
                 if (alive->load() && action == graf::windows::NoticeAction::openRecording && problemActionCurrent(target))
                     openProblemRecording(target);
             }, {}, std::move(hooks))) presentedProblem_.reset();
+    } catch (const std::bad_alloc&) {
+        // A failed observation revokes only problem actions. It is not proof
+        // of resolution and must not erase incidents or cancel other prompts.
+        pendingProblems_.clear();
+        presentedProblem_.reset();
+        selectedRecording_.reset();
+        selectedRecordingDisplayKey_.clear();
+        if (capture_) {
+            auto& card = capture_->notificationCard();
+            if (card.visible() && card.kind() == graf::windows::NoticeKind::problem) card.invalidate();
+        }
+        refreshSelectedRecording();
+    }
+
+    [[nodiscard]] bool nativeLocalRemovalContextCurrent(const ProblemTarget& target, std::uint64_t revision) const {
+        if (shuttingDown_ || exitRequested_ || !capture_ || !reminders_ || capture_->updateAdmissionBlocked() ||
+            !revision || revision != selectedRecordingRevision_ || target.authGeneration != capture_->authGeneration() ||
+            capture_->authSessionToken().empty() || !capture_->currentAccount()) return false;
+        const auto& account = *capture_->currentAccount();
+        const auto permit = interactionPermit();
+        // Completion currency deliberately does not require the removed row or its problem to remain present.
+        return permit.allowed && permit.epoch != 0 && permit.epoch == target.interactionEpoch &&
+            target.contextEpoch == reminders_->epoch() && target.context.origin == reminders_->origin() &&
+            target.context.owner == reminders_->owner() && target.context.workspace == reminders_->workspace() &&
+            target.context.owner == account.userId && target.context.workspace == account.workspaceId;
+    }
+
+    [[nodiscard]] bool selectedLocalRemovalAllowed(const ProblemTarget& target, std::uint64_t revision,
+        std::string_view localId, const std::shared_ptr<const graf::windows::ProtectedUploadQueueValue>& snapshot) const {
+        if (!nativeLocalRemovalContextCurrent(target, revision) || !selectedRecording_ || pendingLocalRemoval_ ||
+            selectedRecording_->sessionId != target.sessionId || selectedRecording_->incidentId != target.incidentId ||
+            capture_->uploadsBusy() || capture_->indicator().visible || localId.empty() || !snapshot) return false;
+        const auto observation = capture_->localObservation();
+        if (!observation.complete || observation.value != snapshot) return false;
+        std::size_t matches = 0;
+        bool allowed = false;
+        const auto& rows = snapshot->items();
+        for (std::size_t index = 0; index < rows.size(); ++index) {
+            const auto& row = rows[index];
+            if (std::string_view(row.sessionId) != target.sessionId) continue;
+            ++matches;
+            if (std::string_view(row.localRecordingId) == localId &&
+                std::string_view(row.ownerUserId) == target.context.owner &&
+                std::string_view(row.ownerWorkspaceId) == target.context.workspace)
+                allowed = snapshot->canLocalRemoval(index, target.context.owner, target.context.workspace);
+        }
+        return matches == 1 && allowed; // A session with multiple packages is not an unambiguous selected local copy.
+    }
+
+    void removeSelectedLocalCopy(const ProblemTarget& target, std::uint64_t revision, const std::string& localId) {
+        if (!capture_) return;
+        const auto observation = capture_->localObservation();
+        if (!selectedLocalRemovalAllowed(target, revision, localId, observation.value)) return;
+        confirmLocalAction(L"Удалить локальную копию?",
+            L"Локальная копия выбранной записи будет перемещена в Корзину Windows. Уже отправленная запись на сервере не изменится.",
+            L"Переместить в Корзину", [this, target, revision, localId, snapshot = observation.value] {
+                if (!nativeLocalRemovalContextCurrent(target, revision)) return;
+                if (!selectedLocalRemovalAllowed(target, revision, localId, snapshot)) {
+                    localActionNotice_ = L"Состояние записи изменилось. Откройте запись и подтвердите удаление ещё раз.";
+                    return;
+                }
+                PendingLocalAction pending{target, target.authGeneration, 0, revision};
+                const auto ticket = capture_->requestProtectedLocalRemoval(snapshot, localId, target.authGeneration);
+                if (ticket) {
+                    pending.ticket = ticket->id;
+                    pendingLocalRemoval_ = std::move(pending);
+                    localActionNotice_ = L"Удаляем локальную копию… Запись на сервере не изменяется.";
+                } else localActionNotice_ = L"Состояние записи изменилось. Откройте запись и подтвердите удаление ещё раз.";
+            });
     }
 
     void refreshSelectedRecording() {
         if (!selectedRecordingPanel_) return;
-        if (!selectedRecording_ || !problemContextCurrent(*selectedRecording_)) {
+        if (!selectedRecording_ || !nativeLocalRemovalContextCurrent(*selectedRecording_, selectedRecordingRevision_)) {
             selectedRecording_.reset();
             selectedRecordingDisplayKey_.clear();
             selectedRecordingPanel_.Content(nullptr);
+            selectedRecordingStatus_ = nullptr;
+            selectedLocalRemovalButton_ = nullptr;
+            selectedLocalRecordingId_.clear();
             selectedRecordingPanel_.Visibility(Visibility::Collapsed);
             return;
         }
         const auto target = *selectedRecording_;
         std::wstring detail;
-        std::string recordedAt;
-        std::string retryId;
         if (capture_->sessionId() == target.sessionId) {
             const auto& state = capture_->indicator();
             detail = winrt::to_hstring(state.statusText).c_str();
@@ -3578,54 +2860,429 @@ private:
                     capture_->finalization().trustedPrefixRetained);
             }
         }
-        if (capture_->localQueueComplete()) for (const auto& item : capture_->localItems()) {
-            if (item.sessionId != target.sessionId) continue;
-            if (recordedAt.empty()) {
-                const auto metadata = std::find_if(localMetadata_.begin(), localMetadata_.end(), [&](const auto& value) {
-                    return value.first == item.localRecordingId;
-                });
-                if (metadata != localMetadata_.end()) recordedAt = graf::windows::DesktopApiClient::formatDisplayMinute(
-                    metadata->second.startedAtMs, metadata->second.displayTimezoneOffsetMinutes);
-            }
-            // Reuse the cabinet's already-derived status, not a second mapping
-            // of upload states. The native selection works without a ready page.
-            const auto row = std::find_if(localStatusRows_.begin(), localStatusRows_.end(), [&](const auto& row) {
-                return row.id == item.localRecordingId;
-            });
-            if (row != localStatusRows_.end()) {
+        const auto observation = capture_->localObservation();
+        const auto context = capture_->localProblemContext();
+        std::string localId;
+        if (observation.value && observation.complete) for (const auto& item : observation.value->items()) {
+            if (std::string_view(item.sessionId) != target.sessionId || std::string_view(item.ownerUserId) != context.owner ||
+                std::string_view(item.ownerWorkspaceId) != context.workspace) continue;
                 if (!detail.empty()) detail += L"\n";
-                detail += winrt::to_hstring(row->status).c_str();
-            }
-            if (retryId.empty() && capture_->localItem(item.localRecordingId) &&
-                graf::windows::DesktopUploadQueueService::canRetry(item) && !capture_->uploadsBusy()) retryId = item.localRecordingId;
+                detail += winrt::to_hstring(graf::windows::WebView2Host::localRecordingStatus(item)).c_str();
+                localId.assign(item.localRecordingId.data(), item.localRecordingId.size());
+            break;
+        }
+        // A busy observation is not a replacement selection. Keep the disabled
+        // control's identity until a complete observation proves a different row.
+        if (!observation.complete && !selectedRecordingDisplayKey_.empty()) localId = selectedLocalRecordingId_;
+        if (observation.complete && localId.empty()) {
+            if (!detail.empty()) detail += L"\n";
+            detail += L"Локальная копия сейчас недоступна.";
         }
         if (detail.empty()) detail = L"Состояние записи уточняется. Это не подтверждение её отправки.";
-        const auto key = target.sessionId + "\n" + recordedAt + "\n" + winrt::to_string(detail) + "\n" + retryId;
-        if (key == selectedRecordingDisplayKey_) return;
-        selectedRecordingDisplayKey_ = key;
-        auto body = StackPanel(); body.Spacing(6);
-        auto title = TextBlock();
-        title.Text(winrt::to_hstring(recordedAt.empty() ? "Выбранная запись" : "Запись от " + recordedAt));
-        styleText(title, 13, FontWeights::SemiBold());
-        body.Children().Append(title);
-        auto status = TextBlock(); status.Text(detail); styleText(status, 13);
-        body.Children().Append(status);
-        if (!retryId.empty()) {
-            auto retry = styledButton(L"Отправить запись");
+        const auto revision = selectedRecordingRevision_;
+        const auto key = target.sessionId + "\n" + target.incidentId + "\n" + localId + "\n" + std::to_string(revision);
+        if (key != selectedRecordingDisplayKey_) {
+            auto body = StackPanel(); body.Spacing(6);
+            auto title = TextBlock();
+            title.Text(L"Выбранная запись");
+            styleText(title, 13, FontWeights::SemiBold());
+            body.Children().Append(title);
+            selectedRecordingStatus_ = TextBlock(); styleText(selectedRecordingStatus_, 13);
+            body.Children().Append(selectedRecordingStatus_);
+            selectedLocalRemovalButton_ = styledButton(L"Удалить локальную копию…");
+            setAccessible(selectedLocalRemovalButton_, L"Удалить локальную копию выбранной записи. Серверная запись не изменится.");
+            ToolTipService::SetToolTip(selectedLocalRemovalButton_, box_value(L"Только локальная копия. Серверная запись не изменится."));
             const auto alive = alive_;
-            retry.Click([this, alive, target, retryId](auto const&, auto const&) {
-                if (!alive->load() || !interactionPermit().allowed || !problemContextCurrent(target) ||
-                    !selectedRecording_ || selectedRecording_->sessionId != target.sessionId) return;
-                const auto item = capture_->localItem(retryId);
-                if (!item || item->sessionId != target.sessionId || !graf::windows::DesktopUploadQueueService::canRetry(*item)) return;
-                handleLocalRecording("send", retryId);
-                refreshSelectedRecording();
+            selectedLocalRemovalButton_.Click([this, alive, target, revision, localId](auto const&, auto const&) {
+                if (!alive->load()) return;
+                try { removeSelectedLocalCopy(target, revision, localId); }
+                catch (...) { localActionNotice_ = L"Не удалось обновить состояние удаления. Проверьте очередь и Корзину Windows."; }
             });
-            body.Children().Append(retry);
+            body.Children().Append(selectedLocalRemovalButton_);
+            selectedRecordingPanel_.Content(body);
+            selectedLocalRecordingId_ = localId;
+            selectedRecordingDisplayKey_ = key;
         }
-        selectedRecordingPanel_.Content(body);
+        if (selectedRecordingStatus_.Text() != detail) {
+            selectedRecordingStatus_.Text(detail);
+            setAccessible(selectedRecordingPanel_, L"Выбранная запись. " + detail);
+        }
+        const auto allowed = selectedLocalRemovalAllowed(target, revision, localId, observation.value);
+        if (selectedLocalRemovalButton_.IsEnabled() != allowed) selectedLocalRemovalButton_.IsEnabled(allowed);
         selectedRecordingPanel_.Visibility(Visibility::Visible);
-        setAccessible(selectedRecordingPanel_, std::wstring(title.Text().c_str()) + L". " + detail);
+    }
+
+    bool calendarAuthCurrent(const graf::windows::CalendarJoinContext& context, std::uint64_t interactionEpoch) const {
+        const auto permit = interactionPermit();
+        if (shuttingDown_ || exitRequested_ || !capture_ || capture_->updateAdmissionBlocked() ||
+            !permit.allowed || permit.epoch != interactionEpoch || !capture_->currentAccount()) return false;
+        const auto& account = *capture_->currentAccount();
+        return context.origin == graf::windows::DesktopHttpConfig{}.baseOrigin &&
+            context.owner == account.userId && context.workspace == account.workspaceId &&
+            context.authGeneration == capture_->authGeneration() && !context.sessionToken.empty() &&
+            context.sessionToken == capture_->authSessionToken();
+    }
+
+    bool calendarSourceCurrent() {
+        if (!calendarFlight_) return false;
+        const auto& flight = *calendarFlight_;
+        const auto& context = flight.context;
+        bool source = calendarAuthCurrent(context, flight.interactionEpoch);
+        if (flight.document) source = source && cabinet_ && cabinet_->webView().calendarJoinCurrent(*flight.document);
+        else if (flight.native) {
+            const auto expiry = reminders_ && capture_ ? reminders_->pendingActionExpiry(flight.native->target,
+                flight.native->action, reminderWallTime(), capture_->indicator().visible) : std::nullopt;
+            source = source && expiry && *expiry == context.actionExpiresAt && reminders_->epoch() == context.sourceEpoch &&
+                reminders_->owner() == context.owner && reminders_->workspace() == context.workspace && reminders_->origin() == context.origin;
+        } else if (flight.menu) {
+            source = source && reminders_ && reminders_->epoch() == context.sourceEpoch &&
+                reminders_->owner() == context.owner && reminders_->workspace() == context.workspace &&
+                reminders_->origin() == context.origin &&
+                reminders_->upcomingCurrent(flight.menu->event, flight.menu->epoch, reminderWallTime()) &&
+                std::chrono::steady_clock::now() < context.actionExpiresAt;
+        } else source = false;
+        return source;
+    }
+
+    bool calendarCurrent() {
+        if (!calendarFlight_) return false;
+        const auto& flight = *calendarFlight_;
+        auto context = flight.context;
+        const bool source = calendarSourceCurrent();
+        if (!source) context = {}; // Revocation, not a replacement native snapshot.
+        return calendarJoin_.current(flight.id, context, std::chrono::steady_clock::now());
+    }
+
+    bool calendarRetryCurrent() {
+        if (!calendarFlight_ || !calendarFlight_->menu) return false;
+        if (!calendarSourceCurrent()) { calendarJoin_.cancel(calendarFlight_->id); return false; }
+        return calendarJoin_.retryCurrent(calendarFlight_->id, calendarFlight_->context, std::chrono::steady_clock::now());
+    }
+
+    void cancelCalendarJoin() {
+        if (!calendarFlight_) return;
+        calendarJoin_.cancel(calendarFlight_->id);
+        calendarLauncher_.cancel(); // Discard only, never SDK Cancel/Close.
+        if (calendarDialog_ && !calendarFlight_->hideRequested) {
+            calendarFlight_->hideRequested = true;
+            try { calendarDialog_.Hide(); } catch (...) {} // Handle/ticket remain owned.
+        }
+    }
+
+    void publishCalendarResult() {
+        if (!calendarFlight_) return;
+        const auto result = calendarJoin_.result();
+        if (result.state == calendarFlight_->reported.state && result.reason == calendarFlight_->reported.reason) return;
+        calendarFlight_->reported = result; // Before a script/dialog/card can reenter.
+        if (result.state == graf::windows::CalendarJoinState::failed || result.state == graf::windows::CalendarJoinState::cancelled)
+            calendarFlight_->https.clear();
+        if (calendarFlight_->document && cabinet_) {
+            try { cabinet_->webView().replyCalendarJoin(*calendarFlight_->document, result); }
+            catch (...) { cancelCalendarJoin(); }
+        } else if (calendarFlight_->native && reminders_ && capture_ &&
+            (result.state == graf::windows::CalendarJoinState::failed || result.state == graf::windows::CalendarJoinState::cancelled)) {
+            reminders_->failAction(calendarFlight_->native->target, calendarFlight_->native->action,
+                result.reason, reminderWallTime(), capture_->indicator().visible);
+        }
+    }
+
+    void failCalendarJoin(graf::windows::CalendarJoinReason reason) {
+        if (!calendarFlight_) return;
+        if (calendarFlight_->retryDialog) cancelCalendarJoin(); // Unknown dialog exit retains ticket, revokes Primary.
+        if (calendarCurrent())
+            (void)calendarJoin_.finish(calendarFlight_->id, graf::windows::CalendarJoinState::failed, reason,
+                calendarFlight_->context, std::chrono::steady_clock::now());
+        if (calendarDialog_ && !calendarFlight_->hideRequested) {
+            calendarFlight_->hideRequested = true;
+            try { calendarDialog_.Hide(); } catch (...) {} // Failed old dialog still needs actual drain.
+        }
+        publishCalendarResult();
+    }
+
+    void beginDocumentCalendarJoin(graf::windows::WebView2Host::CalendarJoinRequest request) {
+        beginCalendarJoin(std::move(request), std::nullopt);
+    }
+    void beginNativeCalendarJoin(ReminderIntent intent) {
+        beginCalendarJoin(std::nullopt, std::move(intent));
+    }
+    void beginMenuCalendarJoin(graf::windows::UpcomingMeetingRow row) {
+        beginCalendarJoin(std::nullopt, std::nullopt, std::move(row));
+    }
+    void beginCalendarJoin(std::optional<graf::windows::WebView2Host::CalendarJoinRequest> document,
+        std::optional<ReminderIntent> native, std::optional<graf::windows::UpcomingMeetingRow> menu = std::nullopt) {
+        using namespace graf::windows;
+        const auto deny = [&](CalendarJoinReason reason) {
+            if (document && cabinet_) cabinet_->webView().replyCalendarJoin(*document, {CalendarJoinState::cancelled, reason});
+            else if (native && reminders_ && capture_) reminders_->failAction(native->target, native->action, reason,
+                reminderWallTime(), capture_->indicator().visible);
+        };
+        if (calendarCalling_ || calendarJoin_.busy() || calendarFlight_ || calendarResolverThread_.joinable()) {
+            deny(CalendarJoinReason::busy); return;
+        }
+        const CustodyMutationScope call(calendarCalling_);
+        if (!capture_ || !capture_->currentAccount()) { deny(CalendarJoinReason::notReady); return; }
+        CalendarJoinContext context;
+        context.origin = DesktopHttpConfig{}.baseOrigin;
+        context.owner = capture_->currentAccount()->userId; context.workspace = capture_->currentAccount()->workspaceId;
+        context.authGeneration = capture_->authGeneration(); context.sessionToken = capture_->authSessionToken();
+        const auto permit = interactionPermit();
+        std::string event, request;
+        if (document && cabinet_ && cabinet_->webView().calendarJoinCurrent(*document)) {
+            context.source = CalendarJoinSource::document; context.sourceEpoch = document->documentGeneration;
+            context.sourceIdentity = document->nonce; event = document->intent.eventId; request = document->intent.requestId;
+        } else if (native && reminders_) {
+            const auto expiry = reminders_->pendingActionExpiry(native->target, native->action, reminderWallTime(), capture_->indicator().visible);
+            if (!expiry) { deny(CalendarJoinReason::stale); return; }
+            context.source = CalendarJoinSource::nativeAction; context.sourceEpoch = native->target.epoch;
+            context.actionExpiresAt = *expiry; request = newSessionId(); context.sourceIdentity = request;
+            event = native->target.eventId;
+        } else if (menu && reminders_) {
+            const auto wallNow = reminderWallTime();
+            const auto expiry = MeetingReminderPresenter::upcomingExpiry(menu->event.endsAt, wallNow, std::chrono::steady_clock::now());
+            if (!menu->enabled || !expiry || !reminders_->upcomingCurrent(menu->event, menu->epoch, wallNow) ||
+                reminders_->epoch() != menu->epoch || reminders_->owner() != context.owner ||
+                reminders_->workspace() != context.workspace || reminders_->origin() != context.origin) {
+                deny(CalendarJoinReason::stale); return;
+            }
+            context.source = CalendarJoinSource::nativeAction; context.sourceEpoch = menu->epoch;
+            context.actionExpiresAt = *expiry; request = newSessionId(); context.sourceIdentity = request;
+            event = menu->event.eventId;
+        } else { deny(CalendarJoinReason::notReady); return; }
+        if (!calendarAuthCurrent(context, permit.epoch)) { deny(CalendarJoinReason::notReady); return; }
+        // All allocating source/context copies precede admission. Moving the
+        // prepared flight after begin cannot leave a busy owner without it.
+        CalendarFlight flight;
+        flight.context = context; flight.interactionEpoch = permit.epoch;
+        flight.document = document; flight.native = native; flight.menu = menu;
+        const auto ticket = calendarJoin_.begin(event, request, std::move(context), std::chrono::steady_clock::now(), menu.has_value());
+        if (!ticket) { deny(CalendarJoinReason::notReady); return; }
+        flight.id = ticket->operationId;
+        calendarFlight_.emplace(std::move(flight));
+        startCalendarResolver(*ticket);
+    }
+
+    void startCalendarResolver(const graf::windows::CalendarJoinWork& ticket) {
+        using namespace graf::windows;
+        calendarFlight_->work = ticket;
+        if (!calendarCurrent()) { // No worker was dispatched; drain only this ticket.
+            (void)calendarJoin_.complete(ticket, {}, std::chrono::steady_clock::now());
+            calendarFlight_->work.reset(); publishCalendarResult(); return;
+        }
+        try {
+            DesktopHttpConfig config;
+            config.baseOrigin = calendarFlight_->context.origin; config.workspaceId = calendarFlight_->context.workspace;
+            config.sessionToken = calendarFlight_->context.sessionToken; config.confirmedIdentity = capture_->currentAccount();
+            config.cancellation = ticket.cancellation;
+            std::packaged_task<CalendarJoinResolution()> task([config = std::move(config),
+                event = calendarJoin_.eventId(), deadline = ticket.deadline] {
+                return DesktopHttpTransport(config).calendarJoinTarget(event, deadline);
+            });
+            auto future = task.get_future();
+            calendarResolverThread_ = std::thread(std::move(task)); // Never detach or capture this.
+            calendarResolverFuture_ = std::move(future);
+        } catch (...) {
+            (void)calendarJoin_.complete(ticket, calendarFlight_->context, std::chrono::steady_clock::now());
+            calendarFlight_->work.reset(); failCalendarJoin(CalendarJoinReason::dependencyUnavailable);
+        }
+    }
+
+    void startCalendarSDK(graf::windows::CalendarJoinWorkKind kind) {
+        using namespace graf::windows;
+        if (!calendarCurrent()) { publishCalendarResult(); return; }
+        const auto ticket = calendarJoin_.work(calendarFlight_->id, kind, calendarFlight_->context, std::chrono::steady_clock::now());
+        if (!ticket) return;
+        calendarFlight_->work = ticket;
+        const auto current = [this] { return calendarCurrent(); };
+        const auto result = kind == CalendarJoinWorkKind::query ? calendarLauncher_.query(calendarFlight_->https, current) :
+            calendarLauncher_.launch(calendarFlight_->https,
+                calendarFlight_->browser ? CalendarLauncherMode::browser : CalendarLauncherMode::native, current);
+        if (result == CalendarLauncherStart::started) return;
+        if (calendarLauncher_.busy()) { failCalendarJoin(CalendarJoinReason::dependencyUnavailable); return; }
+        const bool applicable = calendarJoin_.complete(*ticket, calendarFlight_->context, std::chrono::steady_clock::now());
+        calendarFlight_->work.reset();
+        if (!applicable || !calendarCurrent()) { publishCalendarResult(); return; }
+        if (calendarFlight_->browser) failCalendarJoin(CalendarJoinReason::launchFailed);
+        else offerCalendarBrowserRecovery();
+    }
+
+    void offerCalendarBrowserRecovery() {
+        offerCalendarDialog(false);
+    }
+
+    void offerCalendarDialog(bool retry) {
+        using namespace graf::windows;
+        const auto current = [this, retry] { return retry ? calendarRetryCurrent() : calendarCurrent(); };
+        if (!current()) { publishCalendarResult(); return; }
+        if (retry) calendarFlight_->retryOffered = true; // One decision per failed attempt, even on rejected dispatch.
+        std::optional<CalendarJoinWork> ticket;
+        try {
+            ticket = retry ? calendarJoin_.retryDialog(calendarFlight_->id, calendarFlight_->context, std::chrono::steady_clock::now()) :
+                calendarJoin_.work(calendarFlight_->id, CalendarJoinWorkKind::dialog,
+                    calendarFlight_->context, std::chrono::steady_clock::now());
+        } catch (...) { cancelCalendarJoin(); return; }
+        if (!ticket && retry) cancelCalendarJoin();
+        if (!ticket) return;
+        calendarFlight_->work = ticket; calendarFlight_->https.clear();
+        calendarFlight_->retryDialog = retry;
+        calendarFlight_->confirmedAt.reset(); calendarFlight_->hideRequested = false;
+        try {
+            openMainWindow();
+            calendarDialog_ = ContentDialog(); calendarDialog_.XamlRoot(root_.XamlRoot());
+            calendarDialog_.RequestedTheme(shellIsDark_ ? ElementTheme::Dark : ElementTheme::Light);
+            calendarDialog_.Title(box_value(retry ? L"Не удалось открыть встречу" : L"Не удалось открыть приложение встречи"));
+            calendarDialog_.Content(box_value(retry ?
+                L"Проверьте подключение и повторите попытку. Если событие изменилось, обновите календарь." :
+                L"Открыть встречу в браузере? GRAF заново проверит ссылку."));
+            calendarDialog_.PrimaryButtonText(retry ? L"Повторить подключение" : L"Открыть в браузере");
+            calendarDialog_.CloseButtonText(L"Отмена");
+            calendarDialog_.DefaultButton(ContentDialogButton::Close);
+            const auto alive = alive_;
+            calendarDialog_.PrimaryButtonClick([this, alive, retry, ticket = *ticket](auto const&, auto const&) {
+                if (!alive->load() || calendarCalling_ || !calendarFlight_ || !calendarFlight_->work ||
+                    calendarFlight_->work->operationId != ticket.operationId || calendarFlight_->work->workId != ticket.workId ||
+                    calendarFlight_->confirmedAt || calendarFlight_->hideRequested) return;
+                const CustodyMutationScope call(calendarCalling_);
+                if (!(retry ? calendarRetryCurrent() : calendarCurrent())) return;
+                const auto click = std::chrono::steady_clock::now(); // Includes later UI dispatch/animation delay.
+                if (retry && !calendarJoin_.confirmRetry(ticket, calendarFlight_->context, click)) return;
+                calendarFlight_->confirmedAt = click;
+            });
+            if (!current()) {
+                (void)calendarJoin_.complete(*ticket, {}, std::chrono::steady_clock::now());
+                calendarFlight_->work.reset(); calendarDialog_ = nullptr; publishCalendarResult(); return;
+            }
+            calendarDialogOperation_ = calendarDialog_.ShowAsync();
+            if (!calendarDialogOperation_) throw std::runtime_error("calendar dialog unavailable");
+            if (!current()) { calendarFlight_->hideRequested = false; cancelCalendarJoin(); }
+        } catch (...) {
+            if (calendarDialogOperation_) { failCalendarJoin(CalendarJoinReason::launchFailed); return; }
+            calendarDialog_ = nullptr;
+            (void)calendarJoin_.complete(*ticket, calendarFlight_->context, std::chrono::steady_clock::now());
+            calendarFlight_->work.reset();
+            if (retry) cancelCalendarJoin(); else failCalendarJoin(CalendarJoinReason::launchFailed);
+        }
+    }
+
+    void pollCalendarJoin() {
+        using namespace graf::windows;
+        if (!calendarFlight_ || calendarCalling_) return;
+        const CustodyMutationScope call(calendarCalling_);
+        // current() may itself turn the first deadline tick into a failed
+        // attempt. Recheck its fresh menu reservation before revoking Retry.
+        if (!calendarCurrent() && !calendarRetryCurrent()) cancelCalendarJoin();
+        publishCalendarResult();
+        if (calendarFlight_->work) {
+            const auto ticket = *calendarFlight_->work;
+            if (ticket.kind == CalendarJoinWorkKind::resolver && calendarResolverThread_.joinable()) {
+                const auto status = WaitForSingleObject(calendarResolverThread_.native_handle(), 0);
+                if (status == WAIT_FAILED) failCalendarJoin(CalendarJoinReason::dependencyUnavailable);
+                else if (status == WAIT_OBJECT_0) {
+                    // A ready future is not thread exit; the native thread handle
+                    // is signalled only after its callable/resources have exited.
+                    calendarResolverThread_.join();
+                    CalendarJoinResolution result;
+                    try { result = calendarResolverFuture_.get(); } catch (...) {}
+                    const bool applicable = calendarJoin_.complete(ticket, calendarFlight_->context, std::chrono::steady_clock::now());
+                    calendarFlight_->work.reset();
+                    if (applicable && calendarCurrent()) {
+                        if (result.state != CalendarJoinResolutionState::resolved || !result.target) {
+                            const auto reason = result.state == CalendarJoinResolutionState::authRequired ? CalendarJoinReason::authRequired :
+                                result.state == CalendarJoinResolutionState::eventUnavailable ? CalendarJoinReason::eventUnavailable :
+                                result.state == CalendarJoinResolutionState::invalidTarget ? CalendarJoinReason::invalidTarget :
+                                CalendarJoinReason::dependencyUnavailable;
+                            failCalendarJoin(reason);
+                            if (reason == CalendarJoinReason::authRequired && calendarAuthCurrent(calendarFlight_->context, calendarFlight_->interactionEpoch)) {
+                                if (cabinet_) cabinet_->webView().bindUserTimeAccount({}, {}, {}, {}, 0);
+                                capture_->setAuthSessionToken({});
+                                if (reminders_) reminders_->invalidate();
+                                if (cabinet_) (void)cabinet_->open(cabinet_->webView().signInUrl());
+                            }
+                        } else if (const auto https = CalendarMeetingOpener::validatedHTTPS(result.target->httpsUrl)) {
+                            calendarFlight_->https = *https;
+                            if (result.authExpiresAt && cabinet_) cabinet_->webView().extendAuthCookieExpiry(calendarFlight_->context.sessionToken, *result.authExpiresAt);
+                            if (calendarJoin_.result().state == CalendarJoinState::resolving)
+                                (void)calendarJoin_.opening(calendarFlight_->id, calendarFlight_->context, std::chrono::steady_clock::now());
+                            publishCalendarResult();
+                            if (calendarCurrent()) {
+                                if (!CalendarMeetingOpener::nativeTarget(*https)) calendarFlight_->browser = true;
+                                startCalendarSDK(calendarFlight_->browser ? CalendarJoinWorkKind::launch : CalendarJoinWorkKind::query);
+                            }
+                        } else failCalendarJoin(CalendarJoinReason::invalidTarget);
+                    }
+                }
+            } else if (ticket.kind == CalendarJoinWorkKind::query || ticket.kind == CalendarJoinWorkKind::launch) {
+                const auto result = calendarLauncher_.poll();
+                if (result.state == CalendarLauncherPollState::indeterminate) failCalendarJoin(CalendarJoinReason::dependencyUnavailable);
+                else if (result.state == CalendarLauncherPollState::completed) {
+                    const bool applicable = calendarJoin_.complete(ticket, calendarFlight_->context, std::chrono::steady_clock::now());
+                    calendarFlight_->work.reset();
+                    if (applicable && calendarCurrent()) {
+                        if (ticket.kind == CalendarJoinWorkKind::query) {
+                            if (result.outcome == CalendarLauncherOutcome::available) startCalendarSDK(CalendarJoinWorkKind::launch);
+                            else if (result.outcome == CalendarLauncherOutcome::appNotInstalled) {
+                                calendarFlight_->browser = true; startCalendarSDK(CalendarJoinWorkKind::launch);
+                            } else offerCalendarBrowserRecovery();
+                        } else if (result.outcome == CalendarLauncherOutcome::launched) {
+                            const auto context = calendarFlight_->context;
+                            const auto epoch = calendarFlight_->interactionEpoch;
+                            const auto intent = calendarFlight_->native;
+                            if (calendarJoin_.finish(calendarFlight_->id, CalendarJoinState::handedOff, CalendarJoinReason::none,
+                                context, std::chrono::steady_clock::now())) {
+                                if (intent && reminders_ && capture_ && reminders_->completeAction(intent->target, intent->action,
+                                    reminderWallTime(), capture_->indicator().visible) && intent->action == NoticeAction::joinAndRecord) {
+                                    recordCapture([this, context, epoch, target = intent->target] {
+                                        return calendarAuthCurrent(context, epoch) && reminders_ && capture_ &&
+                                            reminders_->handoffRecordingCurrent(target, reminderWallTime(), capture_->indicator().visible) &&
+                                            std::chrono::steady_clock::now() < context.actionExpiresAt;
+                                    });
+                                }
+                                publishCalendarResult();
+                            }
+                        } else if (calendarFlight_->browser) failCalendarJoin(CalendarJoinReason::launchFailed);
+                        else offerCalendarBrowserRecovery();
+                    }
+                }
+            } else if (ticket.kind == CalendarJoinWorkKind::dialog && calendarDialogOperation_) {
+                try {
+                    const auto status = calendarDialogOperation_.Status();
+                    if (status == winrt::Windows::Foundation::AsyncStatus::Completed || status == winrt::Windows::Foundation::AsyncStatus::Error) {
+                        auto result = ContentDialogResult::None;
+                        try { if (status == winrt::Windows::Foundation::AsyncStatus::Completed) result = calendarDialogOperation_.GetResults(); } catch (...) {}
+                        calendarDialogOperation_ = nullptr; calendarDialog_ = nullptr;
+                        const bool applicable = calendarJoin_.complete(ticket, calendarFlight_->context, std::chrono::steady_clock::now());
+                        calendarFlight_->work.reset();
+                        if (calendarFlight_->retryDialog) {
+                            if (result == ContentDialogResult::Primary && calendarFlight_->confirmedAt &&
+                                !calendarFlight_->hideRequested && calendarRetryCurrent()) {
+                                const auto resolver = calendarJoin_.retry(calendarFlight_->id, newSessionId(),
+                                    calendarFlight_->context, std::chrono::steady_clock::now());
+                                if (resolver) {
+                                    calendarFlight_->id = resolver->operationId;
+                                    calendarFlight_->browser = false; calendarFlight_->retryDialog = false;
+                                    calendarFlight_->retryOffered = false; calendarFlight_->hideRequested = false;
+                                    calendarFlight_->confirmedAt.reset(); calendarFlight_->https.clear();
+                                    publishCalendarResult();
+                                    startCalendarResolver(*resolver);
+                                } else cancelCalendarJoin();
+                            } else cancelCalendarJoin();
+                        } else if (applicable && calendarCurrent()) {
+                            if (result == ContentDialogResult::Primary && calendarFlight_->confirmedAt) {
+                                const auto resolver = calendarJoin_.recover(calendarFlight_->id, calendarFlight_->context, *calendarFlight_->confirmedAt);
+                                calendarFlight_->browser = true;
+                                if (resolver) startCalendarResolver(*resolver);
+                            } else cancelCalendarJoin();
+                        }
+                    } else if (status != winrt::Windows::Foundation::AsyncStatus::Started) failCalendarJoin(CalendarJoinReason::dependencyUnavailable);
+                } catch (...) { failCalendarJoin(CalendarJoinReason::dependencyUnavailable); } // Unknown drain: retain owned handle/ticket.
+            }
+        }
+        publishCalendarResult();
+        if (calendarJoin_.result().state == CalendarJoinState::failed && calendarFlight_->menu &&
+            !calendarFlight_->retryOffered && !calendarFlight_->work && !calendarResolverThread_.joinable() &&
+            !calendarLauncher_.busy() && !calendarDialogOperation_ && calendarRetryCurrent())
+            offerCalendarDialog(true); // Actual old drain precedes new owned failure UI.
+        if (!calendarJoin_.busy() && !calendarResolverThread_.joinable() && !calendarLauncher_.busy() && !calendarDialogOperation_)
+            calendarFlight_.reset();
     }
 
     void refreshMeetingReminders() {
@@ -3656,16 +3313,9 @@ private:
                     expiry && cabinet_) cabinet_->webView().extendAuthCookieExpiry(request.sessionToken, *expiry);
                 if (response.snapshot && reminders_->update(std::move(*response.snapshot), request.epoch)) {
                     if (intent) {
-                        const auto event = reminders_->completeAction(intent->target, intent->action, reminderWallTime(), capture_->indicator().visible);
-                        if (event) {
-                            bool opened = true;
-                            if (intent->action != graf::windows::NoticeAction::record) {
-                                const auto url = winrt::to_hstring(event->meetingUrl);
-                                opened = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) > 32;
-                            }
-                            if (opened && intent->action != graf::windows::NoticeAction::join) recordCapture();
-                            else if (!opened) localActionNotice_ = L"Не удалось открыть ссылку встречи. Откройте календарь GRAF.";
-                        } else localActionNotice_ = L"Встреча изменилась или запись уже идёт. Проверьте календарь GRAF.";
+                        if (intent->action == graf::windows::NoticeAction::record &&
+                            reminders_->completeAction(intent->target, intent->action, reminderWallTime(), capture_->indicator().visible)) recordCapture();
+                        else localActionNotice_ = L"Встреча изменилась или запись уже идёт. Проверьте календарь GRAF.";
                     }
                 } else {
                     reminders_->calendarFailed();
@@ -3702,8 +3352,18 @@ private:
     }
 
     void refreshNativeState() {
+        pollCalendarJoin(); // Drain never depends on interactionPermit/account/admission.
         if (!capture_ || shuttingDown_) return;
         refreshUpdateWindow();
+        if (exitRequested_) {
+            capture_->pollHealth();
+            if (shellExitJobsDrained()) capture_->shutdown();
+            capture_->pollUploads(); // Drain ACK/cancelled work even though new actions are closed.
+            pollLocalRecordingRemoval();
+            pollDeletionSelection();
+            if (exitWorkDrained()) window_.Close();
+            return;
+        }
         const CustodyMutationScope mutation(shellMutations_);
         refreshNotificationInteraction(); // before workers or any card can accept an old decision
         if (announcedAppearance_ == "system" && systemThemeIsDark() != shellIsDark_)
@@ -3719,7 +3379,6 @@ private:
         }
         capture_->pollHealth();
         capture_->tickNotice();
-        if (exitRequested_ && !capture_->indicator().visible && !appUpdate_.blocksNewWork()) { window_.Close(); return; }
         if (capture_->indicator().state == graf::windows::SessionState::recording && recordingStartedAt_ == 0) {
             recordingStartedAt_ = GetTickCount64();
         }
@@ -3736,7 +3395,6 @@ private:
         // server already refused.
         if (now - lastUploadRecovery_ >= 30000 && capture_->uploadDeferralRemainingMs() == 0) {
             capture_->recover(graf::windows::RecoveryTrigger::scheduled);
-            capture_->finishPendingLocalDeletions(mainWindowHandle_);
             lastUploadRecovery_ = now;
         }
         // The server asks this device to remove the local copies of a meeting it
@@ -3747,7 +3405,11 @@ private:
             startLocalPurgePass();
         }
         capture_->pollUploads();
+        pollLocalRecordingSend();
+        pollLocalRecordingRemoval();
+        pollDeletionSelection();
         updateLocalRecordings();
+        pollLocalPlayback();
         if (now - lastReadinessCheck_ >= 2000) {
             capture_->refreshReadiness();
             lastReadinessCheck_ = now;
@@ -3802,7 +3464,8 @@ private:
         const bool permissionMissing = !capture_->microphonePermissionGranted();
         captureStatus_.Text(winrt::to_hstring(snapshot.statusText));
         const bool paused = snapshot.state == graf::windows::SessionState::paused;
-        readinessText_.Text(active ? (paused ? L"Микрофон на паузе. Системный звук продолжает записываться."
+        const auto privacySummary = capture_->privacyActionSummary();
+        readinessText_.Text(active && !privacySummary.empty() ? privacySummary : active ? (paused ? L"Микрофон на паузе. Системный звук продолжает записываться."
                                                              : L"Общий системный звук и локальный микрофон")
                                    : capture_->readinessSummary());
         recordButton_.Visibility(active ? Visibility::Collapsed : Visibility::Visible);
@@ -3836,8 +3499,13 @@ private:
         compactStatus_.Symbol(paused ? Symbol::Pause : snapshot.state == graf::windows::SessionState::degraded ? Symbol::Important : Symbol::Microphone);
         recordingStripStop_.IsEnabled(active);
         if (tray_) {
-            tray_->setState(snapshot, canStartRecording(), exitRequested_);
+            tray_->setState(snapshot, canStartRecording(), exitRequested_, capture_->privacyPending());
             tray_->setTheme(shellIsDark_);
+            const auto upcoming = reminders_ ? reminders_->upcoming() : std::nullopt;
+            const auto& zone = cabinet_ ? cabinet_->webView().preferredUserTimeZone() : std::string{};
+            tray_->setCalendarState(reminders_ ? reminders_->upcomingRows(reminderWallTime(), zone) : std::nullopt,
+                capture_->authGeneration(), cabinet_ ? cabinet_->webView().userTimeRevision() : 0,
+                upcoming && upcoming->showUpcomingTime, upcoming && upcoming->showUpcomingTitle);
             std::vector<std::wstring> history;
             const auto& entries = capture_->notificationCard().history();
             for (const auto& entry : entries) {
@@ -3864,8 +3532,9 @@ private:
                 updateMeter(systemRenderMeter_, systemRenderMeterFill_, 0.0F);
             }
         }
-        if (active) pauseButton_.Content(box_value(snapshot.state == graf::windows::SessionState::paused ? L"Продолжить" : L"Пауза"));
-        pauseButton_.IsEnabled(snapshot.state == graf::windows::SessionState::recording || paused);
+        if (active) pauseButton_.Content(box_value(capture_->privacyPending() ? L"Подождите…" :
+            snapshot.state == graf::windows::SessionState::paused ? L"Продолжить" : L"Пауза"));
+        pauseButton_.IsEnabled(!capture_->privacyPending() && (snapshot.state == graf::windows::SessionState::recording || paused));
         setAccessible(pauseButton_, paused ? L"Продолжить запись локального микрофона" : L"Поставить локальный микрофон на паузу");
         if (compactRecordButton_) compactRecordButton_.IsEnabled(canStartRecording());
         if (compactRecordButton_) compactRecordButton_.Visibility(active ? Visibility::Collapsed : Visibility::Visible);
@@ -3933,13 +3602,35 @@ private:
     Button recordingStripStop_{nullptr};
     TextBlock custodyStatus_{nullptr};
     ContentControl selectedRecordingPanel_{nullptr};
+    TextBlock selectedRecordingStatus_{nullptr};
+    Button selectedLocalRemovalButton_{nullptr};
+    std::uint64_t selectedRecordingRevision_ = 0;
     std::optional<ProblemTarget> selectedRecording_, presentedProblem_;
     std::vector<ProblemTarget> pendingProblems_; // at most 256, current context only
     graf::windows::NotificationPreferenceStore problemStore_ = graf::windows::NotificationPreferenceStore::native();
     std::uint64_t problemContextEpoch_ = 0, problemAuthGeneration_ = 0;
     std::string selectedRecordingDisplayKey_;
-    std::vector<graf::windows::WebViewLocalRecordingRow> localStatusRows_;
+    std::string selectedLocalRecordingId_;
     Window settingsWindow_{nullptr};
+    struct PlaybackRequest {
+        graf::windows::WebView2Host::LocalRecordingRequest request;
+        std::uint64_t epoch = 0;
+    };
+    std::optional<PlaybackRequest> pendingPlayback_, playbackRequest_;
+    struct PendingLocalAction {
+        std::variant<graf::windows::WebView2Host::LocalRecordingRequest, ProblemTarget> source;
+        std::uint64_t epoch = 0, ticket = 0;
+        std::uint64_t selectionRevision = 0;
+    };
+    static_assert(std::is_nothrow_move_constructible_v<PendingLocalAction> && std::is_nothrow_move_assignable_v<PendingLocalAction>);
+    std::optional<PendingLocalAction> pendingManualSend_, pendingLocalRemoval_;
+    Window playbackWindow_{nullptr};
+    StackPanel playbackPanel_{nullptr};
+    TextBlock playbackStatus_{nullptr}, playbackTime_{nullptr};
+    Button playbackButton_{nullptr};
+    Slider playbackSeek_{nullptr};
+    std::uint64_t playbackWindowGeneration_ = 0;
+    bool playbackAuthorized_ = false, updatingPlaybackSeek_ = false;
     DispatcherQueueTimer stateTimer_{nullptr};
     std::unique_ptr<graf::windows::WindowsTray> tray_;
     HWND mainWindowHandle_ = nullptr;
@@ -3989,7 +3680,28 @@ private:
     std::uint64_t localNotificationEpoch_ = 0;
     std::uint64_t notificationInteractionEpoch_ = 0;
     bool notificationInteractionAllowed_ = false;
-    struct ReminderIntent { graf::windows::ReminderActionTarget target; graf::windows::NoticeAction action; };
+    struct CalendarFlight {
+        std::uint64_t id = 0, interactionEpoch = 0;
+        graf::windows::CalendarJoinContext context;
+        std::optional<graf::windows::WebView2Host::CalendarJoinRequest> document;
+        std::optional<ReminderIntent> native;
+        std::optional<graf::windows::UpcomingMeetingRow> menu;
+        std::optional<graf::windows::CalendarJoinWork> work;
+        std::string https;
+        bool browser = false;
+        bool hideRequested = false;
+        bool retryDialog = false, retryOffered = false;
+        std::optional<std::chrono::steady_clock::time_point> confirmedAt;
+        graf::windows::CalendarJoinResult reported{graf::windows::CalendarJoinState::resolving};
+    };
+    graf::windows::CalendarJoinOperation calendarJoin_;
+    graf::windows::CalendarNativeLauncher calendarLauncher_;
+    std::optional<CalendarFlight> calendarFlight_;
+    std::thread calendarResolverThread_;
+    std::future<graf::windows::CalendarJoinResolution> calendarResolverFuture_;
+    ContentDialog calendarDialog_{nullptr};
+    winrt::Windows::Foundation::IAsyncOperation<ContentDialogResult> calendarDialogOperation_{nullptr};
+    std::size_t calendarCalling_ = 0;
     std::optional<ReminderIntent> pendingReminderAction_, reminderFlightAction_;
     std::future<graf::windows::CalendarReminderResponse> reminderFuture_;
     std::shared_ptr<std::atomic_bool> reminderCancellation_;
@@ -3997,18 +3709,7 @@ private:
     std::optional<std::uint64_t> reminderRejectedGeneration_;
     ULONGLONG lastReminderRequest_ = 0;
     std::unique_ptr<graf::windows::CabinetWindow> cabinet_;
-    struct LocalMetadataScan {
-        std::atomic_bool done{false};
-        std::string key;
-        std::vector<std::pair<std::string, graf::windows::LocalRecordingPackageSnapshot>> packages;
-    };
     std::shared_ptr<std::atomic_bool> alive_ = std::make_shared<std::atomic_bool>(true);
-    std::shared_ptr<LocalMetadataScan> localScan_;
-    std::vector<std::pair<std::string, graf::windows::LocalRecordingPackageSnapshot>> localMetadata_;
-    std::string localMetadataKey_;
-    std::string localDisplayKey_;
-    std::uint64_t localMetadataVersion_ = 0;
-    bool localMetadataRefreshRequested_ = false;
     std::wstring localActionNotice_;
     std::wstring previousLocalActionNotice_;
     bool localActionDialogOpen_ = false;
@@ -4035,18 +3736,12 @@ private:
     bool mainWindowSized_ = false;
     Grid settingsContent_{nullptr};
     StackPanel indicatorPanel_{nullptr};
-    // The purge pass: at most one at a time, and the answers it has prepared but
-    // not yet sent.
-    bool localPurgeInFlight_ = false;
     std::size_t deletionSelectionsInFlight_ = 0;
+    graf::windows::CustodyString deletionRequestId_;
+    std::uint64_t deletionDocumentGeneration_ = 0, deletionJobId_ = 0;
+    std::optional<graf::windows::NativeCapture::DeletionCompletion> deletionReply_;
+    std::size_t deletionReplyCalling_ = 0;
     ULONGLONG lastLocalPurge_ = 0;
-    struct PendingPurgeAck {
-        std::string taskId;
-        graf::windows::LocalPurgeAckState state = graf::windows::LocalPurgeAckState::failed;
-        std::string reasonCode;
-        std::string completedAtIso;
-    };
-    std::vector<PendingPurgeAck> pendingPurgeAcks_;
     graf::windows::VerifiedTargetRegistry verifiedTargets_{graf::windows::VerifiedTargetRegistry::bundled()};
     graf::windows::AutomaticRecordingPolicy automaticPolicy_{verifiedTargets_};
     bool rememberAutomaticChoice_ = false;

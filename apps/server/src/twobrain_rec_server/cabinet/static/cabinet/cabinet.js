@@ -194,6 +194,11 @@
       focused.focus({preventScroll: true});
     }
   };
+  const localRecordingDurationLabel = (value) =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0
+      ? window.GRAFTime.formatDuration(value) : "";
+  const localRecordingDateLabel = (value) => value && Number.isFinite(Date.parse(value))
+    ? formatMeetingListDate(value) : platformText(formatMeetingListDate(value), 'На этом компьютере');
   const localRecordingMatches = (item) => {
     const access = document.querySelector("#meeting-access")?.value;
     const status = document.querySelector("#meeting-status")?.value;
@@ -202,8 +207,8 @@
     const query = (document.querySelector("#meeting-search")?.value || "").trim().toLowerCase().replace(/\s+/g, " ");
     if (!query) return true;
     const title = localRecordingDisplayTitle(item);
-    const duration = window.GRAFTime.formatDuration(item.durationSeconds);
-    const time = formatMeetingListDate(meetingListSort().startsWith("updated") ? item.updatedAt : item.startedAt);
+    const duration = localRecordingDurationLabel(item.durationSeconds);
+    const time = localRecordingDateLabel(meetingListSort().startsWith("updated") ? item.updatedAt : item.startedAt);
     return [title, duration, time, `${title} ${duration}`, `${title} ${time}`, `${duration} ${time}`, `${title} ${duration} ${time}`]
       .some((text) => text.toLowerCase().replace(/\s+/g, " ").includes(query));
   };
@@ -217,13 +222,17 @@
       empty.textContent = "Записей пока нет.";
       host.append(empty);
     } else if (allRows().length) { empty?.remove(); }
+    if (host) for (const state of host.querySelectorAll('.empty-state')) state.hidden = localRecordingState !== 'ready' || allRows().length > 0;
     const count = document.querySelector("[data-meeting-result-count]");
     if (count) {
       const incomplete = document.querySelector('[data-meeting-result-complete="false"]');
-      count.textContent = `Найдено: ${incomplete ? "больше " : ""}${allRows().length}`;
+      const localState = localRecordingState === 'ready' ? '' : localRecordingState === 'checking'
+        ? ' · локальные записи проверяются' : ' · локальные записи недоступны';
+      count.textContent = `Найдено: ${incomplete ? "больше " : ""}${allRows().length}${localState}`;
     }
   };
   let localRecordingRows = [];
+  let localRecordingState = 'ready';
   const pendingLocalRecordingHandoffs = new Set();
   const requestedLocalRecordingHandoffs = new Set();
   const localRecordingIsRenderable = (item) =>
@@ -304,7 +313,8 @@
       row.dataset.grafLocalRecordingId = item.id;
       row.dataset.sortStarted = item.startedAt || "";
       row.dataset.sortUpdated = item.updatedAt || "";
-      row.dataset.sortDuration = String(item.durationSeconds);
+      const savedDuration = localRecordingDurationLabel(item.durationSeconds);
+      row.dataset.sortDuration = savedDuration ? String(item.durationSeconds) : "";
 
       const selection = document.createElement("label");
       selection.className = "row-select-hit";
@@ -338,10 +348,10 @@
       }
       const duration = document.createElement("span");
       duration.className = "meeting-duration muted";
-      const durationLabel = window.GRAFTime.formatDuration;
-      duration.textContent = item.showsPartialDuration
-        ? `Сохранено ${durationLabel(item.durationSeconds)} из ${durationLabel(item.sessionDurationSeconds)}`
-        : durationLabel(item.durationSeconds);
+      const sessionDuration = localRecordingDurationLabel(item.sessionDurationSeconds);
+      duration.textContent = item.showsPartialDuration && savedDuration && sessionDuration
+        ? `Сохранено ${savedDuration} из ${sessionDuration}`
+        : savedDuration || "Длительность неизвестна";
       heading.append(title, duration);
       const meta = document.createElement("span");
       meta.className = "row-meta";
@@ -374,7 +384,9 @@
       if (item.canOpen) title.setAttribute("aria-describedby", time.id);
       const timeValue = meetingListSort().startsWith("updated") ? item.updatedAt : item.startedAt;
       if (timeValue && Number.isFinite(Date.parse(timeValue))) time.dateTime = timeValue;
-      time.textContent = `${timeValue && meetingListSort().startsWith("updated") ? "Обновлено " : ""}${formatMeetingListDate(timeValue)}`;
+      time.textContent = timeValue && Number.isFinite(Date.parse(timeValue))
+        ? `${meetingListSort().startsWith("updated") ? "Обновлено " : ""}${localRecordingDateLabel(timeValue)}`
+        : localRecordingDateLabel(timeValue);
       row.append(selection, icon, content, actions, time);
       // Compare the complete rendered output, including localized dates and sort
       // context, while ignoring transient selection/focus mutations on the live row.
@@ -456,7 +468,21 @@
       nativeDeletionReplies.get(requestId)?.(result);
       nativeDeletionReplies.delete(requestId);
     },
-    update(rows, operations = [], recoveryRequired = false) {
+    update(rows, operations = [], recoveryRequired = false, state = 'ready') {
+      localRecordingState = ['ready', 'checking', 'unavailable'].includes(state) ? state : 'unavailable';
+      let inventoryState = document.querySelector('[data-local-inventory-state]');
+      if (localRecordingState === 'ready') inventoryState?.remove();
+      else {
+        if (!inventoryState) {
+          inventoryState = document.createElement('p');
+          inventoryState.dataset.localInventoryState = '';
+          inventoryState.setAttribute('role', 'status');
+          document.querySelector('#meeting-list-region')?.after(inventoryState);
+        }
+        inventoryState.textContent = localRecordingState === 'checking'
+          ? 'Локальные записи проверяются. Показано последнее подтверждённое состояние.'
+          : 'Не удалось подтвердить список локальных записей. Это не означает, что записей нет. Используйте диагностику GRAF.';
+      }
       const nextRows = Array.isArray(rows) ? rows : [];
       const previousRowsById = new Map(localRecordingRows.map(item => [item.id, item]));
       const visibleServerMeetingIds = new Set(allRows().map(row => row.dataset.meetingId).filter(Boolean));

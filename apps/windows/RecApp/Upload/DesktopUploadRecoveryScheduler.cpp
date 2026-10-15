@@ -9,6 +9,13 @@
 
 namespace graf::windows {
 
+namespace {
+template<class Step> void executeSequence(std::size_t count, const std::atomic_bool& cancelled, Step step) {
+    for (std::size_t index = 0; index < count && !cancelled.load(); ++index)
+        if (!step(index)) break;
+}
+}
+
 struct DesktopUploadRecoveryScheduler::Flight {
     std::shared_ptr<std::atomic_bool> cancelled = std::make_shared<std::atomic_bool>(false);
     std::atomic_bool done{false};
@@ -68,9 +75,9 @@ bool DesktopUploadRecoveryScheduler::prepare(RecoveryTrigger trigger) {
     return true;
 }
 
-void DesktopUploadRecoveryScheduler::execute(const std::shared_ptr<Flight>& flight, const WorkerHandler& worker) {
-    for (const auto& item : flight->items) {
-        if (flight->cancelled->load()) break;
+void DesktopUploadRecoveryScheduler::execute(const std::shared_ptr<Flight>& flight, WorkerHandler worker) {
+    executeSequence(flight->items.size(), *flight->cancelled, [&](std::size_t index) {
+        const auto& item = flight->items[index];
         DesktopTransportResult result;
         try {
             if (DesktopHttpTransport::ownerBlockReason(item, std::nullopt) == "local_owner_unclaimed")
@@ -82,7 +89,9 @@ void DesktopUploadRecoveryScheduler::execute(const std::shared_ptr<Flight>& flig
             result.status = DesktopTransportStatus::retryableFailure;
         }
         flight->results.push_back(std::move(result));
-    }
+        return true;
+    });
+    worker = {}; // Captured native owners must finish teardown before drain/lease release.
     flight->done.store(true, std::memory_order_release);
 }
 
@@ -98,7 +107,7 @@ bool DesktopUploadRecoveryScheduler::startAsync(RecoveryTrigger trigger, Desktop
 bool DesktopUploadRecoveryScheduler::startAsync(RecoveryTrigger trigger, WorkerHandler worker) {
     if (!worker || !prepare(trigger)) return false;
     try {
-        std::thread([flight = flight_, worker = std::move(worker)] { execute(flight, worker); }).detach();
+        std::thread([flight = flight_, worker = std::move(worker)]() mutable { execute(flight, std::move(worker)); }).detach();
     } catch (...) {
         flight_.reset();
         return false;
@@ -106,10 +115,42 @@ bool DesktopUploadRecoveryScheduler::startAsync(RecoveryTrigger trigger, WorkerH
     return true;
 }
 
-bool DesktopUploadRecoveryScheduler::busy() const noexcept { return static_cast<bool>(flight_); }
+std::shared_ptr<DesktopUploadRecoveryScheduler::ProtectedFlight> DesktopUploadRecoveryScheduler::beginProtected(
+    RecoveryTrigger trigger, ProtectedDesktopHttpConfig config, std::uint64_t epoch) {
+    if (busy() || (deferralRemainingMs() && trigger != RecoveryTrigger::authRecovered) ||
+        !config.confirmedIdentity || config.sessionToken.empty()) return {};
+    auto flight = std::allocate_shared<ProtectedFlight>(CustodyAllocator<ProtectedFlight>{});
+    config.cancellation = flight->cancelled;
+    flight->config = std::move(config); flight->epoch = epoch; flight->trigger = trigger; flight->maxAttempts = maxAttempts_;
+    protectedFlight_ = flight;
+    return flight;
+}
+
+bool DesktopUploadRecoveryScheduler::launchProtected(const std::shared_ptr<ProtectedFlight>& flight,
+    ProtectedWorker worker, std::function<void()> completed) {
+    if (!flight || !worker || !completed) return false;
+    try {
+        std::thread([flight, worker = std::move(worker), completed = std::move(completed)]() mutable {
+            try { executeSequence(flight->selected.size(), *flight->cancelled, [&](std::size_t index) { return worker(index); }); }
+            catch (...) { flight->cancelled->store(true); }
+            worker = {}; // Last captured native context release stays on this worker.
+            flight->done.store(true, std::memory_order_release);
+            completed();
+        }).detach();
+        return true;
+    } catch (...) { return false; } // Captured native owners unwind on the caller/storage worker.
+}
+
+void DesktopUploadRecoveryScheduler::retireProtected() noexcept {
+    if (protectedFlight_ && protectedFlight_->done.load(std::memory_order_acquire) && protectedFlight_->leaseReleased.load())
+        protectedFlight_.reset();
+}
+
+bool DesktopUploadRecoveryScheduler::busy() const noexcept { return static_cast<bool>(flight_) || static_cast<bool>(protectedFlight_); }
 
 void DesktopUploadRecoveryScheduler::cancel() noexcept {
     if (flight_) flight_->cancelled->store(true);
+    if (protectedFlight_) protectedFlight_->cancelled->store(true);
 }
 
 std::size_t DesktopUploadRecoveryScheduler::drain() {
@@ -126,10 +167,7 @@ std::size_t DesktopUploadRecoveryScheduler::drain() {
             return value.localRecordingId == item.localRecordingId;
         });
         // UI actions (auth, deletion, quarantine) take precedence over stale work.
-        if (current == queue_.items().end() || current->directoryId != item.directoryId ||
-            current->sessionId != item.sessionId || current->packageDirectory != item.packageDirectory ||
-            current->ownerUserId != item.ownerUserId || current->ownerWorkspaceId != item.ownerWorkspaceId ||
-            current->status != item.status || current->attempts != item.attempts) continue;
+        if (current == queue_.items().end() || !sameUploadIdentity(*current, item)) continue;
         apply(item, flight->results[index]);
         ++handled;
     }
@@ -151,55 +189,9 @@ std::uint64_t DesktopUploadRecoveryScheduler::deferralRemainingMs() const noexce
 }
 
 void DesktopUploadRecoveryScheduler::apply(const UploadCustodyItem& item, const DesktopTransportResult& result) {
-    if (queue_.quarantined()) return;
+    if (!queue_.applyUploadResult(item.localRecordingId, result)) return;
     if (result.retryAfterSeconds > 0) deferFor(result.retryAfterSeconds);
     if (result.authExpiresAt && sessionExpiryHandler_) sessionExpiryHandler_(*result.authExpiresAt);
-    const auto* truth = result.serverTruth && result.serverTruth->localRecordingId == item.localRecordingId
-        ? &*result.serverTruth : nullptr;
-    if (result.status == DesktopTransportStatus::serverRejected && result.retryClass == "not_retryable") {
-        // Persist accepted bytes and the permanent refusal together. Separate
-        // reconcile/markBlocked writes expose uploading on crash or disk failure.
-        (void)queue_.markBlocked(item.localRecordingId,
-            DesktopUploadQueueService::isPermanentUploadReason(result.safeReason) ? result.safeReason : "not_retryable",
-            truth);
-        return;
-    }
-    if (truth) (void)queue_.reconcile(*truth);
-    switch (result.status) {
-    case DesktopTransportStatus::uploaded:
-        (void)queue_.markUploaded(item.localRecordingId);
-        break;
-    case DesktopTransportStatus::authRequired:
-        (void)queue_.markNeedsAuth(item.localRecordingId, result.safeReason.empty() ? "auth_required" : result.safeReason);
-        break;
-    case DesktopTransportStatus::invalidPackage:
-        (void)queue_.markQuarantined(item.localRecordingId, "invalid_package");
-        break;
-    case DesktopTransportStatus::serverRejected:
-        // The server says what another automatic attempt could still achieve.
-        // Retrying a paused or non-retryable item only burns the budget and
-        // hides the real reason, so its classification decides how the row
-        // stops. An unclassified rejection keeps the ordinary retry path.
-        if (result.retryClass == "paused_until_user_action")
-            (void)queue_.markNeedsAuth(item.localRecordingId, "auth_required");
-        else if (result.retryClass == "paused_until_admin_action")
-            (void)queue_.markBlocked(item.localRecordingId, "needs_admin");
-        else if (result.retryClass == "terminal")
-            (void)queue_.markQuarantined(item.localRecordingId, "terminal_undelivered");
-        else
-            (void)queue_.markRetry(item.localRecordingId, "server_rejected");
-        break;
-    case DesktopTransportStatus::unsupportedPlatform:
-        (void)queue_.markRetry(item.localRecordingId, "unsupported_platform");
-        break;
-    case DesktopTransportStatus::retryableFailure:
-        // A 429 asked for a specific wait: hold the row for that long without
-        // counting it as a failed attempt. Any other failure keeps the ordinary
-        // retry path and its budget.
-        if (result.retryAfterSeconds > 0) (void)queue_.markDeferred(item.localRecordingId, "rate_limited");
-        else (void)queue_.markRetry(item.localRecordingId, "transport_unavailable");
-        break;
-    }
 }
 
 } // namespace graf::windows

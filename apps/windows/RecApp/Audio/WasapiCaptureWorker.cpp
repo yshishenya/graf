@@ -248,6 +248,9 @@ struct WasapiCaptureWorker::Impl {
                     break;
                 }
                 while (frames > 0 && running.load()) {
+                    // Preserve provenance across GetBuffer/audio clock/release
+                    // and normalization; Resume must not rejuvenate this packet.
+                    const auto privacyEpoch = owner.capturePrivacyEpoch();
                     BYTE* data = nullptr; UINT32 count = 0; DWORD flagsRead = 0;
                     UINT64 devicePosition = 0; UINT64 qpcPosition = 0;
                     const auto bufferResult = capture->GetBuffer(&data, &count, &flagsRead,
@@ -282,7 +285,7 @@ struct WasapiCaptureWorker::Impl {
                     if (!owner.consumePacket(clockMapper, normalizer,
                             {qpcPosition, devicePosition, format->nSamplesPerSec, flagsRead, count,
                              audioClockPosition, audioClockFrequency, static_cast<std::int32_t>(positionResult)},
-                            data, format->nChannels, pcmFormat.float32, releasePacket)) break;
+                            data, format->nChannels, pcmFormat.float32, releasePacket, privacyEpoch)) break;
                     packetResult = capture->GetNextPacketSize(&frames);
                     recordTrace(CaptureStage::nextPacketSize, static_cast<std::int32_t>(packetResult),
                                 0, frames);
@@ -310,9 +313,15 @@ void WasapiCaptureWorker::completeNativeStop(std::int32_t hresult) noexcept {
     }
 }
 
+std::optional<std::uint64_t> WasapiCaptureWorker::capturePrivacyEpoch() const noexcept {
+    if (impl_->renderLoopback || !microphonePrivacyEpoch_) return std::nullopt;
+    return microphonePrivacyEpoch_->load(std::memory_order_acquire);
+}
+
 bool WasapiCaptureWorker::consumePacket(ClockMapper& mapper, AudioNormalizer& normalizer,
     ClockObservation packet, const void* data, std::uint16_t channels, bool float32,
-    const std::function<CaptureReleaseResult(std::uint32_t)>& releaseBuffer) {
+    const std::function<CaptureReleaseResult(std::uint32_t)>& releaseBuffer,
+    std::optional<std::uint64_t> privacyEpoch) {
     const auto release = [&] {
         const auto result = releaseBuffer(packet.frameCount);
         impl_->recordTrace(CaptureStage::releaseBuffer, result.hresult, packet.flags,
@@ -323,6 +332,12 @@ bool WasapiCaptureWorker::consumePacket(ClockMapper& mapper, AudioNormalizer& no
         return false;
     };
     if (impl_->error.load() != CaptureWorkerError::none) { (void)release(); return false; }
+    if (!impl_->renderLoopback && microphonePrivacyEpoch_ &&
+        (!privacyEpoch || *privacyEpoch > microphonePrivacyEpoch_->load(std::memory_order_acquire))) {
+        impl_->error.store(CaptureWorkerError::normalizationFailed);
+        (void)release();
+        return false; // A bound native source requires an existing, not future epoch.
+    }
     if (packet.audioClockResult != 0) {
         impl_->error.store(CaptureWorkerError::audioClockFailed);
         (void)release();
@@ -373,6 +388,11 @@ bool WasapiCaptureWorker::consumePacket(ClockMapper& mapper, AudioNormalizer& no
         return false;
     }
     if (!release()) return false;
+    if (!impl_->renderLoopback) {
+        batch.microphonePrivacyEpoch = privacyEpoch;
+        batch.microphoneSuppressed = privacyEpoch &&
+            ((*privacyEpoch & 1U) || privacyEpoch != capturePrivacyEpoch());
+    }
     AudioBatch normalized;
     // The normalizer validates finite samples as well as the packet format.
     const auto normalizedOk = normalizer.normalize(std::move(batch), mapping.qpc100ns, normalized);
@@ -414,6 +434,10 @@ WasapiCaptureWorker::WasapiCaptureWorker(WasapiEndpointSnapshot endpoint, bool r
 }
 
 WasapiCaptureWorker::~WasapiCaptureWorker() {
+    joinStopped();
+}
+
+void WasapiCaptureWorker::joinStopped() {
     stop();
     // Destruction is the final ownership fence, not a cancellable UI operation.
     // A driver/COM call cannot safely be force-terminated or detached with its sink.

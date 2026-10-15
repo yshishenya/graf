@@ -16,6 +16,22 @@ using namespace Microsoft::UI::Xaml::Controls;
 using namespace Microsoft::Web::WebView2::Core;
 using namespace graf::windows;
 
+namespace graf::windows {
+struct ProtectedUploadQueueValueTestPeer {
+    static std::shared_ptr<const ProtectedUploadQueueValue> inventory(bool workspaceB = false) {
+        auto value = std::shared_ptr<ProtectedUploadQueueValue>(new ProtectedUploadQueueValue);
+        for (unsigned n = 0; n != 301; ++n) {
+            ProtectedUploadQueueValue::Item row;
+            row.localRecordingId = (workspaceB ? "synthetic-workspaceB-" : "synthetic-protected-") + std::to_string(n);
+            row.ownerUserId = n == 300 ? "44444444-4444-4444-8444-444444444444" : "11111111-1111-4111-8111-111111111111";
+            row.ownerWorkspaceId = workspaceB ? "55555555-5555-4555-8555-555555555555" : "22222222-2222-4222-8222-222222222222";
+            value->items_.push_back(std::move(row));
+        }
+        return value;
+    }
+};
+}
+
 namespace {
 std::wstring profilePath;
 std::string origin;
@@ -91,6 +107,11 @@ struct ProbeApp : ApplicationT<ProbeApp> {
     bool observedSuccess = false;
     bool saw401 = false, sawTargetStatus = false;
     unsigned updatePhase = 0, updateCallbacks = 0;
+    unsigned localDurationPhase = 0;
+    unsigned inventoryPhase = 0;
+    std::shared_ptr<const ProtectedUploadQueueValue> inventoryValue;
+    std::optional<CustodyBytes> inventoryQuota;
+    std::uint64_t inventoryRevision = 0;
 
     void finish(bool pass, const char* reason) {
         if (probeExit != 2) return;
@@ -190,6 +211,132 @@ struct ProbeApp : ApplicationT<ProbeApp> {
             });
     }
 
+    void checkLocalDurations() {
+        const auto generation = host->documentGeneration();
+        const auto phase = localDurationPhase;
+        const auto dispatcher = view.DispatcherQueue();
+        const auto script = phase == 0 ? LR"JS((() => {
+          if (window.__syntheticLocalDuration) return 0;
+          window.__syntheticLocalDuration = {count:0, bits:0};
+          chrome.webview.addEventListener('message', e => {
+            if (e.data?.command !== 'local_recordings') return;
+            const state = window.__syntheticLocalDuration;
+            ++state.count; state.bits = 0;
+            const rows = e.data.rows;
+            if (!Array.isArray(rows) || rows.length !== 1 || rows[0].id !== 'synthetic-duration') return;
+            const row = rows[0];
+            if (!Object.hasOwn(row, 'durationSeconds') && !Object.hasOwn(row, 'sessionDurationSeconds') && row.showsPartialDuration === false) state.bits = 1;
+            if (!Object.hasOwn(row, 'durationSeconds') && typeof row.sessionDurationSeconds === 'number' && row.sessionDurationSeconds === 63 && row.showsPartialDuration === false) state.bits = 2;
+            if (Object.hasOwn(row, 'durationSeconds') && Object.hasOwn(row, 'sessionDurationSeconds') && typeof row.durationSeconds === 'number' && typeof row.sessionDurationSeconds === 'number' && row.durationSeconds === 0 && row.sessionDurationSeconds === 0 && row.showsPartialDuration === false) state.bits = 4;
+          });
+          return 1;
+        })())JS" : (L"(() => { const s=window.__syntheticLocalDuration; if(!s) return 0; if(s.count<" +
+            std::to_wstring(phase) + L") return -1; return s.count===" + std::to_wstring(phase) +
+            L" && s.bits===" + std::to_wstring(phase == 2 ? 2 : phase == 3 ? 4 : 1) + L" ? 1 : 0; })()");
+        scriptPending = true;
+        view.CoreWebView2().ExecuteScriptAsync(script).Completed(
+            [this, generation, phase, dispatcher](auto const& operation, auto const&) {
+                dispatcher.TryEnqueue([this, generation, phase, operation] {
+                    scriptPending = false;
+                    if (probeExit != 2 || generation != host->documentGeneration() || phase != localDurationPhase) return;
+                    try {
+                        if (host->runtimeState() != WebRuntimeState::ready) { finish(false, "duration-lost-ready"); return; }
+                        const auto result = operation.GetResults();
+                        if (result == L"-1") return; // Await this phase's actual message, bounded by the existing deadline.
+                        if (result != L"1") { finish(false, "duration-wire-fields"); return; }
+                        std::printf("T116_LOCAL_DURATION_PHASE=%u PASS=1\n", phase);
+                        ++localDurationPhase;
+                        if (localDurationPhase == 5) { std::puts("T116_LOCAL_DURATION_WIRE=PASS CASES=4"); return; }
+                        WebViewLocalRecordingRow row;
+                        row.id = "synthetic-duration";
+                        if (localDurationPhase == 2)
+                            WebView2Host::applyLocalPackageTiming(row, 1'789722300000ULL, 1'789722363000ULL, true);
+                        if (localDurationPhase == 3) {
+                            row.durationSeconds = 0;
+                            WebView2Host::applyLocalPackageTiming(row, 0, 0, true);
+                        }
+                        host->setLocalRecordings({std::move(row)});
+                    } catch (...) { finish(false, "duration-script"); }
+                });
+            });
+    }
+
+    void checkProtectedInventory() {
+        const auto phase = inventoryPhase;
+        if (phase == 4 && host->userTimeRevision() <= inventoryRevision) return;
+        const auto generation = host->documentGeneration();
+        const auto dispatcher = view.DispatcherQueue();
+        if (phase == 3) host->setProtectedLocalRecordings(inventoryValue, false, origin,
+            "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", 1);
+        const auto script = phase == 0 ? LR"JS((() => {
+          window.__syntheticInventory = null;
+          window.__syntheticInventoryCount = 0;
+          window.GRAFLocalRecordings = {update(rows, operations, recovery, state) { window.__syntheticInventoryConsumer = {rows, operations, state}; }};
+          chrome.webview.addEventListener('message', e => {
+            if (e.data?.command === 'local_recordings' && Object.hasOwn(e.data, 'state')) {
+              ++window.__syntheticInventoryCount;
+              window.__syntheticInventory = e.data;
+              if (e.data.rows?.some(r => r.id.startsWith('synthetic-workspaceB-'))) window.__syntheticBLeak = true;
+            }
+          });
+          return 1;
+        })())JS" : phase == 1 ? LR"JS((() => {
+          const m = window.__syntheticInventory;
+          if (!m || m.state !== 'ready') return -1;
+          return JSON.stringify(m).length > 65536 && m.rows.length === 300 && m.rows.every((r,i) => r.id === 'synthetic-protected-'+i &&
+            r.title === 'Запись' && r.status === 'Ожидает отправки' &&
+            r.canOpen === false && r.canSend === false && r.canDelete === false &&
+            !Object.hasOwn(r,'durationSeconds') && !Object.hasOwn(r,'startedAt') && !Object.hasOwn(r,'progressPercent')) ? 1 : 0;
+        })())JS" : phase == 2 ? LR"JS((() => {
+          const m = window.__syntheticInventoryConsumer;
+          if (!m || m.state !== 'unavailable') return -1;
+          return m.rows.length === 0 ? 1 : 0;
+        })())JS" : phase == 3 ? LR"JS((() => {
+          const m = window.__syntheticInventory;
+          if (!m || m.state !== 'checking') return -1;
+          window.__syntheticBeforeBCount = window.__syntheticInventoryCount;
+          return m.rows.length === 300 ? 1 : 0;
+        })())JS" : LR"JS((() => {
+          const m = window.__syntheticInventory;
+          if (!m || window.__syntheticInventoryCount < window.__syntheticBeforeBCount + 3) return -1;
+          return m.state === 'checking' && m.rows.length === 0 && m.operations.length === 0 && !window.__syntheticBLeak &&
+            document.querySelector('meta[name="graf-workspace"]').content === '22222222-2222-4222-8222-222222222222' ? 1 : 0;
+        })())JS";
+        scriptPending = true;
+        view.CoreWebView2().ExecuteScriptAsync(script).Completed([this, phase, generation, dispatcher](auto const& operation, auto const&) {
+            dispatcher.TryEnqueue([this, phase, generation, operation] {
+                scriptPending = false;
+                if (probeExit != 2 || generation != host->documentGeneration() || phase != inventoryPhase) return;
+                try {
+                    const auto result = operation.GetResults();
+                    if (result == L"-1") return;
+                    if (result != L"1") { finish(false, "protected-inventory-wire"); return; }
+                    ++inventoryPhase;
+                    if (phase == 0) {
+                        inventoryValue = ProtectedUploadQueueValueTestPeer::inventory();
+                        host->setProtectedLocalRecordings(inventoryValue, true,
+                            origin, "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", 1);
+                    }
+                    if (phase == 1) {
+                        inventoryQuota.emplace();
+                        inventoryQuota->resize(CustodyOwnedMemory::limit - CustodyOwnedMemory::usedBytes());
+                        host->setProtectedLocalRecordings(inventoryValue, false, origin,
+                            "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222", 1);
+                    }
+                    if (phase == 2) inventoryQuota.reset();
+                    if (phase == 3) {
+                        host->bindUserTimeAccount(origin, "11111111-1111-4111-8111-111111111111",
+                            "55555555-5555-4555-8555-555555555555", "synthetic-inventory-session", 2);
+                        inventoryRevision = host->userTimeRevision();
+                        host->setProtectedLocalRecordings(ProtectedUploadQueueValueTestPeer::inventory(true), true, origin,
+                            "11111111-1111-4111-8111-111111111111", "55555555-5555-4555-8555-555555555555", 2);
+                    }
+                    if (phase == 4) std::puts("T116_PROTECTED_INVENTORY_WIRE=PASS ROWS=300 FOREIGN=0 STALE=0 ACTIONS=0 QUOTA_RETRY=1");
+                } catch (...) { finish(false, "protected-inventory-script"); }
+            });
+        });
+    }
+
     void checkDocument() {
         if (probeExit != 2 || !profileVerified || scriptPending || !view.CoreWebView2() || !completions) return;
         const auto core = view.CoreWebView2();
@@ -268,6 +415,10 @@ struct ProbeApp : ApplicationT<ProbeApp> {
                         pass = state == WebRuntimeState::ready && sawTargetStatus && (bits & 49) == 49;
                         if (pass && updatePhase < 6) { checkUpdateBadge(); return; }
                         pass = pass && updatePhase == 6 && updateCallbacks == 1;
+                        if (pass && localDurationPhase < 5) { checkLocalDurations(); return; }
+                        pass = pass && localDurationPhase == 5;
+                        if (pass && inventoryPhase < 5) { checkProtectedInventory(); return; }
+                        pass = pass && inventoryPhase == 5;
                     }
                     else if (scenario == "login400" || scenario == "login429") pass = state == WebRuntimeState::authRequired && sawTargetStatus && (bits & 10) == 10 && noBridge;
                     else if (scenario == "login-post400") pass = state == WebRuntimeState::authRequired && sawTargetStatus &&
@@ -322,7 +473,12 @@ struct ProbeApp : ApplicationT<ProbeApp> {
             panel.Arrange(Windows::Foundation::Rect{0,0,800,600});
             host = std::make_unique<WebView2Host>(WebViewRoutePolicy(origin));
             host->setRuntimeHandler([](WebRuntimeState state) { std::printf("HOST_STATE=%d\n", int(state)); });
-            host->setAuthSessionHandler([this](std::string) { ++authCallbacks; });
+            host->setAuthSessionHandler([this](std::string token) {
+                ++authCallbacks;
+                if (scenario == "initial200" && token == "synthetic-inventory-session")
+                    host->bindUserTimeAccount(origin, "11111111-1111-4111-8111-111111111111",
+                        "22222222-2222-4222-8222-222222222222", std::move(token), 1);
+            });
             if (scenario == "initial200") host->setUpdateHandler([this] {
                 ++updateCallbacks; // Actual bridge dispatch only; never invokes an installer.
                 if (updateCallbacks != 1 || updatePhase < 3) finish(false, "unexpected-update-dispatch");

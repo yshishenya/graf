@@ -1169,7 +1169,8 @@ scoped async continuation вне UI; затем единый opener/state owner 
 MeetingReminderPresenter/AppMain и нативного меню. Использовать существующие
 JSON reader, UUID validators, dispatcher, alive token и auth generation, не
 строить второй HTTP client/service или generic process launcher. В WebView2Host
-добавляется только calendar_join/reply по bridge §10 и trusted delegated click;
+добавляются только calendar_join/cancellation-only calendar_join_cancel/reply
+по bridge §10 и trusted delegated click;
 Browser standalone handler/общий HTML остаются серверными. Bootstrap handshake,
 nonce/replay и frame policy не обходятся «совместимым» отдельным handler.
 
@@ -1202,8 +1203,132 @@ fake resolver/launcher регрессии quickstart §13.
 Уточнение launcher: preflight QueryUriSupportAsync отличает отсутствующий
 custom-scheme handler от неизвестности/отказа installed клиента; отсутствие
 открывает HTTPS в browser-only режиме, ошибка допускает только явный recovery.
-Resolver deadline15s проверяется как whole-operation, не переигрывается каждой
+Resolver deadline15s проверяется как whole-resolver-call, не переигрывается каждой
 частью ответа; expiry/cancel сохраняют worker lease до actual completion.
+
+### T119: единая операция подключения — уточнение 2026-10-04
+
+Lane остаётся existing high-risk slice, owner #7540/T119. Clarify:0 новых
+пользовательских вопросов; это реализация уже выбранного сценария Mac.
+Pinned EmbeddedCabinetCalendarJoinBridge.join ждёт CalendarMeetingOpener.open
+до terminal reply, а open ждёт confirm → fresh resolve → browser completion.
+Поэтому сохраняем один request `opening` во время recovery, не оживляем failed.
+Начальный resolver deadline = принятие действия+15s; recovery resolver deadline
+= явное подтверждение+15s. Время очереди входит в соответствующий budget,
+chunks его не обновляют; lease/action identity остаются прежними. Отдельного
+15s OS/dialog timeout нет ни в целевом Mac, ни в bridge §10; его не добавляем.
+
+Один UI-thread CalendarJoinOperation в Shell/CalendarJoinOperation.* хранит
+operation ID, exact ephemeral context snapshot (origin/owner/workspace/auth
+generation/token и source=document generation/nonce либо native action
+epoch/identity), event/request UUID, внешний state/safe reason, resolver deadline
+и pending work. Нет URL, хранения на диске, I/O или нового factory/interface.
+Это минимальный общий state/fence owner, не отдельный HTTP client/launcher.
+Последовательные child work получают отдельный монотонный work ID: completion
+исходного resolver не может завершить recovery resolver той же operation ID.
+Owner не принимает второй child work, пока первый физически pending. Adapter
+сообщает completion только точного ticket после actual worker/OS/dialog exit;
+helper не способен установить этот факт из bool cancellation либо elapsed time.
+Ticket несёт общий cancellation flag, kind и absolute resolver deadline; поля
+не приходят из web payload. Context содержит исходный monotonic action expiry
+(для web без отдельного срока — max), epoch/identity, не продлевается recovery.
+Переход initial resolving → opening разрешён только после resolver drain;
+query/launch/dialog и recovery сохраняют opening. Handed_off допускается только
+из opening после matching work drain и fresh context; native Record делает
+потребитель после отдельного повторного current/readiness check, не helper.
+Helper требует matching operation/work IDs для completion, удерживает terminal
+pending work и возвращает неприменимый stale результат без нового эффекта.
+Первые test-first проверки в CalendarJoinOperationTests.cpp: one busy между
+источниками; stale/token/owner/workspace/document/native action; ровно15s;
+terminal UI при ещё pending work; completion старого ID; recovery после
+подтверждения со свежим budget, без оживления terminal/продления action expiry.
+
+Далее AppMain переиспользует timer/future/packaged_task/alive/DispatcherQueue и
+WinRT handles. Worker/OS/dialog terminal completion подтверждает завершение
+своего pending work; отмена/exception poll/отказ очереди сами его не доказывают.
+После UI terminal busy снимается только при actual completion; завершения
+забираются независимо от interactionPermit. Один callback не освобождает новый
+ID. Helper tests не доказывают этот adapter lifetime: integration source review
+и delayed actual worker/native/installed tests обязательны отдельно.
+Прежние completeAction early close и cancelDialog early slot release не
+переносятся в Join. Card закрывается только handoff; Record-after-current и все
+capture/storage/audio/release gates сохранены. До текущих independent checklist
+и analyze продуктовый owner код не меняется; T119 остаётся открытой.
+
+### T119: строгий wire и отмена документа — 2026-10-05
+
+Existing high-risk T119/#7540, no deploy. Техническое уточнение не меняет
+продуктовый сценарий. Constitution pre/post design: PASS для этого среза;
+нет URL/capture authority из WebView, нового сервера/интерфейса/factory.
+Reuse private strict JsonReader/calendarString/calendarEventId из DesktopApiClient
+для точных join/cancel payloads и owned raw payload исходного envelope до SDK
+Parse/Stringify. Envelope root добавляет один уровень к payload depth8; не
+терять duplicate decoded keys/Unicode и не возвращать dangling string_view.
+Bridge сохраняет exact origin/nonce/direction/message-id/64KiB guards.
+
+Host принимает Join только из attached main RouteKind::meetings. Одноразовые
+canonical request UUID хранятся до1024 за document generation/nonce без eviction;
+replay не отвечает/не действует, новый запрос при полном наборе cancelled/not_ready.
+Replay saved UUID проверяется до cap; UUID, отвергнутый по cap, не consumed,
+его повтор допускает только тот же terminal not_ready без work/history growth.
+Cancellation-only intent не создаёт UUID и передаётся только для matching pending
+document request/event; card/menu child остаётся untouched. Pending owner сам
+различает applicability и actual drain. До nonce/runtime script invalidation
+отменяется старый Join и отправляется старому current document terminal reply;
+поздний reply не получает новый nonce. HTMX observer сверяет итоговое DOM-состояние:
+same canonical UUID сохраняет pending, removal/replacement отправляет cancel.
+
+Порядок реализации: strict decoder/envelope portable RED→GREEN; host доверие/
+route/replay/reply/invalidation; shim trusted click/HTMX/a11y; затем AppMain единый
+operation owner с resolver/launcher/dialog/current auth и Record handoff. Source
+review и Windows full solution compile обязательны для SDK ветви, которая не
+компилируется portable CMake. Fake/compile не заменяют installed auth/UI acceptance.
+T119 остаётся открытой. Новых задач не требуется: работа уже перечислена в T119.
+
+### T119: Windows launcher adapter — 2026-10-05
+
+Existing high-risk T119, no deploy; clarify остаётся current: новый продуктовый
+выбор не нужен. Native target выбирается только из validated HTTPS по pinned Mac
+host/path/port, с теми же Zoom query items и Teams conversion; Телемост — HTTPS
+association. Все параметры подключения/fragment сохраняют значение; никакого
+provider_family authority, произвольного custom scheme, EXE discovery или новых
+Mac identifiers. CalendarMeetingOpener получает nativeTarget; один concrete
+CalendarNativeLauncher в Shell/CalendarNativeLauncher.* владеет только одним
+SDK query/launch handle. AppMain сохраняет общий state/fence owner и отдельно
+ContentDialog; нет нового HTTP/dialog/recording service/interface/factory.
+
+Уточнение после Microsoft RemoteAsync research: explicit IAsyncInfo.Cancel
+может завершить proxy до underlying work. Поэтому adapter cancel снимает лишь
+applicability, не вызывает OS Cancel/Close и не освобождает handle. Natural
+Completed/Error заканчивает owned API child; Started держит pending. Непрошенный
+Canceled или Status exception — отдельный indeterminate outcome, не drain:
+безопасный terminal UI без handoff/Record, handle/busy удерживаются, повтор
+блокируется до доказанного natural completion либо явного выхода/перезапуска
+приложения. Это не дополнительный15s OS timeout. GetResults exception после
+достоверного natural terminal — failure результата с matching API completion.
+
+Старт различает busy/rejected/started/startFailed. Rejected до OS-вызова означает
+no work; busy не меняет старый child. StartFailed при throw/null OS API означает
+окончание синхронного dispatch scope без полученного owned async handle, а не
+доказательство отсутствия OS side effect/underlying exit. Этот scope completion
+позволяет снять только его child ticket, без handoff/Record/автоматического
+fallback; повторное разрешение/переход — отдельное явное действие/recovery по
+bridge10. Если handle получен, он сохраняется даже после reentrant cancel.
+Guard ставится до native подготовки/current predicate/dispatch/poll; native
+current проверяется непосредственно перед OS dispatch. Status exception не
+выдаётся за startFailed. Query возвращает отдельные Available/AppNotInstalled/
+AppUnavailable/NotSupported/Unknown, ничего не запускает. Только owner решает
+следующий child после matching drain и fresh current. Native-only/browser-only
+launch revalidates HTTPS; browser options IgnoreAppUriHandlers=true, без cookies/
+auth/Store/fallback URIs. API true — handoff, не вход/идентичность получателя.
+
+Test-first: native target/Zoom query/Teams/Telemost и unsupported/port fixtures;
+TU-local fake Launcher statics с настоящими WinRT IAsyncOperation interfaces
+проверяют delayed Started, discard без OS Cancel, terminal/GetResults faults,
+unsolicited Canceled/Status fault без drain, reentry и browser flags. Нет
+реальных ссылок/микрофона/запуска приложения из этих tests. Installed launcher/
+dialog/bridge/Record acceptance остаётся отдельной. Перед этим adapter кодом
+требуется ограниченный независимый requirements gate и current analyze.
 
 ### Clock Phase0 checkpoint — rounds177–178
 
@@ -1445,6 +1570,17 @@ Dependency order в существующей T116, без параллельны
    failure cuts, actual release/reacquire и forged proof tests до adoption.
 3. Один persistent-tree update + pinned reader/Clone + shrink/ZERO/seek;
    budgets/cache/pins до allocation, path proof не serialized verified flag.
+   Следующий bounded этап — worker-only Tree.setSize по packed §4: общий
+   transition/publisher с append/replace, recursive range trim/explicit ZERO,
+   максимум7 NODE+1 DATA, два независимых structural readback. Сначала RED
+   shrink→grow/pinned prefix/EOF/64GiB/same-size stale, затем реализация и
+   actual native failure cuts; arbitrary partial Write/stream adapter и
+   подключение приложения не принимаются одним этим этапом.
+   Затем существующий `ProtectedCustodyWriter` получает packed open и reuse
+   одного State/dirty/API по packed §6.0: сначала RED partial/cross-block/
+   sparse/pending-vs-pinned/shrink-regrow/отказов, затем реализация через
+   проверенные appendBlock/replaceBlock/setSize. Нового Tree Write API и
+   параллельного writer backend нет; без §6.1 это ещё не consumer adoption.
 4. Generated sequential recording measurements: records-per-checkpoint не
    растёт с длиной; длительный cadence/Stop проверяются отдельно от big-O.
 5. Strict package.v2 refs по packed contract §6.1 и интеграция существующих
@@ -1459,3 +1595,555 @@ Dependency order в существующей T116, без параллельны
 До повторного design/checklist/analyze исходный T115 принят только для v1;
 поправка не считается реализацией и не закрывает T116–T118. Частичный gate
 wire/owner/tree не разрешает внедрить непринятый metadata/migration lifecycle.
+
+## Приватная пауза T120 — проектирование 2026-10-04
+
+Lane: high-risk-product. Clarify повторно сопоставил уже одобренный Mac
+F284 c8d67c… с реальным Windows flow; новых продуктовых предпочтений нет.
+Контракт — desktop §3 «Приватная Pause/Resume», хранение — local custody §3.
+Исправление не разрешается старым packed Reader source acceptance.
+
+**Decision:** переиспользовать существующие capture owner/dispatcher/timeline/
+writer; подавление должно сохраняться в самих ещё не записанных данных,
+а не зависеть только от bool во время drain. Точная граница Resume охватывает
+producer FIFO, извлечённые/in-flight/prefetched batches и накопленный timeline.
+Снимок остатка заменяется, не суммируется. Уже записанный участок не меняется.
+Непрерывный producer не заставляет Resume ждать пустую очередь.
+
+**Порядок внутри T120, без новых задач-дублей:**
+
+1. RED в существующих Timeline/CaptureFaultState tests: delayed render,
+   pre-Pause pending/paused queued/in-flight данные, частичный prefix,
+   повторные Pause/Resume и продолжающийся producer. Ошибки исходных данных
+   не скрываются обнулением; system/PTS/count/AEC/Stop сохраняются.
+2. Минимальный timeline/dispatcher prerequisite с проверенной границей,
+   без изменения manifest/UI принятия и без заявления готовой приватной Pause.
+3. T116 внедряет защищённый writer/metadata путь. Перед durable integration
+   fixture exact logical v5 privacySegments из Mac должен иметь подтверждённые
+   поля/serialization, а existing validator — принимать только известные формы.
+4. Writer подтверждает OPEN до опубликованной паузы. Resume с недоступной
+   границей остаётся paused. CLOSE после успешной границы best-effort;
+   при отказе старый durable OPEN остаётся, Resume не отменяется.
+5. Асинхронный текущий pipeline AppMain сохраняет одного владельца и порядок
+   writer. UI/Stop не ждут file I/O или освобождения очереди; late completion
+   не меняет остановленную/новую сессию. Затем actual installed acceptance.
+
+**Точечная поправка вместимости T116:** manifest logical cap64KiB вместо4096B,
+как существующие служебные metadata. Не новый backend/журнал: один прежний
+block/codec/owner. Общий owned64MiB, native job2MiB, blocks256KiB, root4096,
+cache/pins/jobs/queue и audio limits сохранены. Cap проверяется до OPEN по
+полному сериализованному payload; нельзя убирать старые сегменты или назначать
+случайное число пауз. Неуспешный OPEN виден пользователю. Новый размер не даёт
+authority/cold proof и не меняет entropy/wire/schema. Изменение требует
+отдельного текущего review; source tests4096B остаются историческими.
+Existing LocalRecordingPackage size4096+exact regex тоже надо согласовать,
+не ослабляя проверку hash/format/ownership/version или вводя plaintext fallback.
+
+Constitution before/after design: I/II — видимый capture/Stop и ошибки сохранены;
+III — сервер/credentials/egress не меняются; IV — сегменты принадлежат пакету
+и его существующему удалению; VI/VII — независимые требования/source/runtime
+проверки обязательны. История сегментов не новый consent gate. Public signing,
+physical x64/60min/AEC/accessibility/installed gates не закрыты этим проектом.
+
+До independent requirements checklist, текущего analyze и owner T120 код
+capture не меняется. Полный T120 также зависит от незавершённого T116;
+принятый prerequisite не закрывает ни одну из этих задач.
+
+### T119: ближайшие встречи в нативном меню — 2026-10-05
+
+Existing high-risk-feature/no deploy, T119/#7540. Clarify: продуктовый выбор уже
+сделан; отдельной Windows страницы, второго API client или второго owner нет.
+Phase0 reference — собственные CalendarTray.swift, CalendarMeetingOpener.swift
+и CalendarContextModels.swift на `721b5125d799ea798a4af0b3625e18d3c1109039`.
+Constitution before design: I/II — меню не даёт Record; III — прежний native
+auth/endpoint без новых секретов/egress; IV — эфемерная проекция, не новый
+долговечный artifact; VI/VII — независимые требования/source/installed gates.
+
+Phase1, точное сопоставление:
+
+1. Уже принятый owner/workspace snapshot `/api/v1/desktop/calendar/upcoming`
+   одновременно питает карточку и меню. Для меню: сортировка startsAt, затем
+   eventId, первые12. Не фильтровать по canSurface/due/dismissed, capture или
+   локальному quiet/reminders. Server show_upcoming_title/show_upcoming_time —
+   authority; missing/null default true как Mac, present non-bool — весь snapshot
+   invalid. all_day missing/null=false, non-bool invalid. Добавить только эти
+   поля существующего decoder; старые обязательные поля и bounds не ослаблять.
+2. «Ближайшие встречи»; название available и непустое после пробелов — название,
+   пустое available — «Без названия», private/unavailable/скрыто — «Встреча».
+   Время HH:mm в существующем пользовательском часовом поясе; all-day — «Весь
+   день»; скрытое время не рисовать. Native font/DPI width fitting, полный safe
+   текст в accessibility, никаких private title/URL в истории/diagnostics.
+   Нет безопасной snapshot HTTPS-ссылки либо meeting_link_present=false — строка
+   видна, но не активируется. Snapshot URL — только availability, launch всегда
+   через fresh join-target. Существующие Record/Stop/settings/history сохраняются.
+3. Проекция — отдельно от card eligibility и failed-card retry. Очищается при
+   ошибке refresh, invalidation/auth switch; старый successful snapshot не
+   продолжает authorizing menu. При изменении отображаемого списка/flags/auth
+   EndMenu прекращает tracking; локальная копия rows/handlers живёт до выхода
+   TrackPopupMenuEx. Выбор несёт frozen event identity, не индекс новой проекции.
+   После loop проверяются alive/window/current projection до callback; после
+   callback нельзя обращаться к потенциально уничтоженному Impl.
+4. Selected native menu action хранит owner epoch, eventId/startsAt/endsAt,
+   подтверждённую target identity и свой UUID. Срок не берётся из карточки:
+   lifetime события endsAt из исходного snapshot один раз переводится в
+   steady_clock expiry на принятии выбора (remaining=endsAt-wallNow; <=0 reject,
+   checked conversion/overflow fail closed). Это техническое выражение окончания
+   актуального события, не произвольный15s/120s timer. Refresh, Retry и смена
+   часов не продлевают исходный expiry. Новое открытие меню даёт новый source
+   UUID, но не оживляет старый flight.
+5. Normal popup close после выбора не отменяет уже принятое действие. EndMenu
+   из-за изменения только presentation прекращает старый selection, но не
+   отменяет уже принятый flight, если его event/owner/target ещё актуальны.
+   Удаление/замена выбранного event/target, unavailable projection, auth,
+   interaction invalidation/exit или original expiry отменяют применимость.
+   Не менять card pendingActionExpiry ради menu. Current перепроверяется до и
+   после каждого resolver/OS/dialog ожидания; closing/Hide/Cancel не actual drain.
+6. Общий CalendarJoinOperation/AppMain flight + существующие resolver/launcher/
+   ContentDialog. Menu source не использует reminder pending action и никогда
+   joinAndRecord. После resolver/launch failure, пока source current: «Не удалось
+   открыть встречу», «Проверьте подключение и повторите попытку. Если событие
+   изменилось, обновите календарь.», «Повторить подключение»/«Отмена» как Mac.
+   Browser recovery остаётся отдельным существующим подтверждением.
+7. Retry dialog — owned work того же общего owner, не второе independent modal
+   состояние. До его показа все предыдущие actual work завершены; failure UI
+   не завершает owner до dialog drain. Старый attempt не оживляется: после
+   matching dialog terminal, явного current Primary и свежей проверки source
+   старый attempt заканчивается failed, новый request/operation начинается с
+   прежним source/expiry и acceptedAt=момент click. Вся замена — одна защищённая
+   от reentrancy UI-thread transition; общий busy не имеет admission gap.
+   Новый resolver budget=click+15s включает ожидание закрытия диалога. Отмена/
+   stale/auth/expiry не показывают новый Retry, не повторяют launch. Неизвестный
+   SDK/dialog exit удерживает handle/ticket/busy до доказанного natural terminal
+   либо выхода процесса. Никакого автоматического повтора или cached URL.
+
+Порядок: decoder tests/fields → отдельная menu projection в существующем model
+и presenter → frozen native tray rows → common owner menu admission/Retry.
+Файлы: Upload/DesktopApiClient.*, Shell/MeetingReminderModel.*,
+MeetingReminderPresenter.*, WindowsTray.*, AppMain.cpp, существующие Contract/
+Package tests. T119 уже содержит этот объём; новая задача/дубликат issue не нужны.
+Quickstart §16 задаёт проверки; bridge §10 и data-model §8 остаются authority.
+
+Constitution after design: PASS для проекта этого среза, без новых capture,
+server/macOS/credentials/storage writes. Gate M1 закрывается только текущим
+независимым requirements review + analyze; код до них не меняется. Optional
+agent-context hook не запускается: root AGENTS.md уже маршрутизирует активную
+фичу и остаётся стабильным. T119/installed/physical x64/public release не закрыты.
+
+### T119: пользовательское время меню — уточнение Round243, 2026-10-05
+
+Existing high-risk-feature/no deploy, тот же T119/#7540. Clarify завершён без
+новых вопросов: ранее выбранный точный Mac требует account preference, не
+always-system localtime. Constitution before research: II — только presentation,
+не capture/Join authority; III/IV — без secret egress, persistence или нового
+серверного artifact; VI/VII — independent requirements/source/native/installed.
+
+Phase0: pinned DesktopUserTimeContext.swift на `721b5125d799ea798a4af0b3625e18d3c1109039`
+читает graf-time-user/session/preferred после cookie reconciliation и сравнивает
+revision/current-document/documentURL. CalendarTray использует этот контекст,
+системная autoupdatingCurrent — fallback. Existing server base.html уже содержит
+metadata и graf-workspace. Windows.Globalization.Calendar принимает IANA zone;
+native DST/HH:mm возможны без своей базы зон или новой зависимости. Research
+содержит первичные ссылки; наличие API проверяется отдельно на Windows.
+
+Phase1 — один ephemeral display-time context в существующем native owner:
+
+1. WebView2Host читает metadata только из текущего доверенного главного документа
+   после существующей cookie reconciliation/подтверждения native account. Allowed
+   route kinds: meetings/meetingDetail/share/deletionReport/settings/nativeSettings/
+   billing, с прежней allow+same-origin проверкой. Auth/provider/payment/frame/
+   external/recovery/failed document не устанавливают context. Использовать
+   существующий ExecuteScript/current-document lifetime, не новый web command,
+   message payload, HTTP client, session-cookie reader или скрытый fetch.
+2. Native-owned script возвращает только userId/workspaceId/sessionId/timeZone/
+   documentURL из graf-time-user/graf-workspace/graf-time-session/graf-time-preferred
+   и document.URL. Сырой результат <=2048 UTF-8 bytes; точный object пяти string
+   fields, без decoded duplicate/unknown keys; canonical UUID IDs, zone <=100 ASCII
+   bytes, documentURL <=1024 bytes. Null/missing/non-string/invalid result не
+   создаёт предпочтение. Никаких cookies/token/meeting URL или содержимого формы.
+3. Dispatch фиксирует native auth generation/account/workspace, session-token
+   identity только в памяти, host document generation/nonce/URL и display context
+   revision. Completion повторно проверяет alive/current trusted document,
+   совпадение owner/workspace с native account и все captured generations. Данные
+   не подтверждают auth самостоятельно. Stale callback отбрасывается, не стирая
+   новый контекст; текущий invalid result сбрасывает preference в system fallback.
+4. Epoch/revision меняются при auth/session/account/workspace/origin switch,
+   logout, host detach/failed document и подтверждённой замене preference. Context
+   хранит metadata session UUID, но он не заменяет native token/generation. До
+   следующего accepted context нет reuse зоны прежнего аккаунта. Отсутствующее
+   или пустое предпочтение использует свежую системную зону Windows; неизвестная
+   непустая зона отвергается, context сбрасывается, old preferred zone не остаётся.
+   Persistence/logging/diagnostics этого context запрещены.
+5. UTC либо именованная IANA zone с '/' проверяется Windows.Globalization.Calendar;
+   fixed current offset, ручная таблица IANA→Windows и локальное время вместо
+   выбранной зоны запрещены. Native Gregorian/24-hour calendar и UTC instant
+   дают HH:mm с DST на дату события; allDay → «Весь день», server hide-time →
+   без времени. Проверить finite/range/overflow до преобразования ticks; отказ
+   formatter не возвращает выдуманное время. Portable именованная зона не
+   имитирует native proof. Уже имеющиеся formatter/UTF helpers переиспользуются
+   по возможности, без второго owner/service/cache.
+6. Accepted preference/system-zone change обновляет safe menu labels и прекращает
+   tracking старого popup. Это presentation-only: уже принятое unchanged Join
+   не отменяется и original steady expiry не продлевается. Cookie/token/account
+   invalidation остаётся отдельной причиной отмены Join. Перед новым открытием
+   меню labels строятся заново; сохранённое с сервера предпочтение проверяется
+   на свежем подтверждённом документе, не по несохранённому значению формы.
+
+Порядок: strict metadata decoding/current-context tests → native Calendar
+formatter tests → actual host/account binding → frozen tray rows/lifetime →
+common menu admission/Retry. Existing DesktopApiClient.*, WebView2Host.*,
+MeetingReminderPresenter.*, WindowsTray.*, AppMain.cpp и Contract/Package tests;
+нового server endpoint или задачи нет. Same-page timezone save/следующий document
+refresh проверяются явно: состояние формы само не даёт native preference.
+Прежнее утверждение полноты Phase1 относится к prior norm snapshot; Round243 M1
+требует нового independent review + analyze до formatter/transport code.
+Constitution after design: PASS по указанным границам, root/guidance неизменны.
+Optional agent-context hook не нужен: root router остаётся стабильным.
+
+## T116: подключение действующего защищённого потока — 2026-10-07
+
+Lane: high-risk-product, существующие T116/#7444 → T117/#7445 → T118/#7446.
+Это конкретизация local custody §5/§8 и packed §6.1, не новый формат,
+продуктовый выбор или разрешение открыть рабочий профиль. Принятый Round275
+проверяет закрытый старт настоящего NativeCapture; он не реализует запись.
+Clarify: прежнее разрешение владельца на полный защищённый поток сохраняется;
+новых предпочтений пользователя нет. Constitution before design: II/III/IV —
+без открытых временных копий, смены account authority или ложного saved/delete;
+VI/VII — независимое requirements/source review и нативные проверки.
+
+### Один владелец и непрерывное владение файлами
+
+Startup worker существующего NativeCapture создаёт внутреннее состояние store
+в существующих ProtectedCustodyFiles/ProtectedCustodyMetadata. Оно удерживает
+проверенные root/ancestor handles, store.id, фиксированные bootstrap/queue IDs,
+независимые contexts, leases и принятые поколения. UI получает только значения
+состояния; path, metadata pair и bool готовности не заменяют это владение.
+
+Для действительно нового inventory: удержать native root ownership → streamed
+проверка inventory → private ACL до bytes → exclusive создание случайных IDs →
+защищённый пустой ledger и bootstrap → независимая повторная проверка обоих
+слотов и inventory. Нельзя принимать пустым неизвестный root или создавать ID
+поверх partial birth, reserved/prepared objects либо неподтверждённых данных.
+Отказ сохраняет созданные артефакты и закрывает повторный birth; restart не
+чинит их автоматически. Legacy inventory требует перехода T117, не load()
+открытого реестра из regular startup.
+
+Existing protected inventory использует текущие BOTH-slot semantic decoders
+и связанные intent проверки. Readonly proof не превращается во writable.
+Worker factory переиспользует State/openImpl и удерживает writable queue lease
+без закрытия и повторного открытия по path. Existing commit-body используется
+и path API, и внутренним owner-путём; второго publisher нет. Перед mutation
+сверяются независимый context, admissible stage и фактически принятое base
+generation под тем же ownership. Любой разрыв требует повторной полной
+проверки; публичного READY setter либо «разблокировать proof» нет.
+
+### Очередь и подтверждение результата
+
+DesktopUploadQueueService сохраняет существующие domain helpers/serialization,
+но mutation выполняется на ограниченной копии, не опубликованной projection.
+Worker последовательно сохраняет один full candidate и удерживает его,
+native lease и commit result. В UI пересылается value-only ticket из §5;
+poll принимает фактическую generation и возвращает adoption ACK. Только
+после ACK worker освобождает completion и допускает следующую mutation.
+Передача future<CustodyMetadataCommit> с уничтожением lease на UI запрещена.
+Очередь/результаты ограничены уже принятыми32 и общим memory budget.
+
+Отмена до publication сохраняет старое состояние; после publication worker
+завершает readback. Ambiguous сохраняет ownership и запрещает effects до
+reconciliation. Stale account epoch не откатывает committed bytes: storage
+принимает generation, но UI/network capability остаётся закрытой. Shutdown,
+update и потерянный callback учитывают pending jobs и adoption, не только
+видимый capture. Нового dispatcher, базы или сервиса сохранения не требуется.
+
+### Подключение реальных потребителей
+
+NativeCapture сначала poll'ит storage completions, затем проверяет общий
+consumer guard. Иначе закрытый guard не даст принять собственный startup.
+Внутренний pipeline получает подлинное store/package ownership; общий
+storageWritable остаётся false до подключения **всех** content consumers.
+Доступ к этому pipeline не даёт обычному Record обойти закрытый admission.
+
+Действующий V5LocalRecordingWriter использует защищённые logical streams:
+capturing package-state подтверждён до audio bytes, canonical checkpoints
+сохраняют принятую cadence, WAV/AAC проходят existing MF stream adapters,
+sealed package-state подтверждён до queue insertion. EOS → timeline close →
+existing async finalizer сохраняется. Finalizer удерживает результат и lease,
+возвращает pending до queue commit/adoption, не сообщает saved заранее.
+Затем подключаются existing logical HTTP range/hash, playback и deletion/purge
+с продолжениями §5. Plaintext URL/temp/ShellExecute и bool durable fallback
+удаляются из рабочего content пути, а не остаются альтернативой при отказе.
+
+### Проверка единого пути
+
+Сначала generated-data RED на настоящем NativeCapture/controller, не отдельном
+commit helper: genuine startup/birth → V5 append ≥30s по числу frames → EOS →
+pending finalizer → sealed state → queue commit/adoption → холодный restart.
+Existing CaptureSessionTestPeer заменяет только device audio и наблюдает owner;
+он не устанавливает READY, IDs, generation или authority. Далее тот же пакет
+проходит logical playback/seek, partial HTTP/reconcile и deletion ACK/purge.
+Проверяются birth cuts/races, отказ до publish, ambiguous, stale epoch,
+lost callback/shutdown и отсутствие открытых content-bearing файлов.
+
+До независимого requirements review и scoped analyze код этого подключения
+не меняется. Current-store identity/authority, typed result adoption и весь
+generated vertical path принимаются отдельно от installed UI/hardware/release.
+Constitution after design: прежние разрешения/Stop, квоты, privacy, deletion
+truth и release gates сохранены. Tasks и reviewer-owned markers не меняются.
+Optional agent-context hook не нужен: корневой router остаётся стабильным.
+
+### T116: конкретная конструкция полного V5-пути — 2026-10-07
+
+Следующий участок после SOURCE277: не отдельный reader/helper, а действующий
+NativeCapture/controller → V5 → sealed package → queue insertion/adoption.
+Lane остаётся high-risk-product; clarify выше и в spec.md действует, новых
+продуктовых решений/форматов/задач нет. Перед кодом требуется независимый
+requirements/analyze допуск именно этой конструкции; SOURCE277 его не даёт.
+Constitution before design: II/III/IV/VI сохраняют Stop, отсутствие открытых
+копий, account/deletion truth и отдельную приёмку кода/установки/оборудования.
+
+**Factory и владение.** Existing retained storage worker вызывает закрытую
+package factory в Metadata от подлинного StoreOwner. В Files переиспользуются
+State/security/openRole и проверенная root-часть, а не повторный path-based
+open/store.id. Общая удерживаемая root-часть не содержит mutable queue state;
+дочерний owner не получает права работать с queue с capture/MF потоков.
+Package directory создаётся исключительно с private ACL; existing directory
+или любой partial birth — conflict/recovery-required, не reuse/автодостройка.
+Идентификаторы package-state/canonical/container генерируются CNG внутри
+factory, не приходят от UI/JSON/test. Native session directory ID — только
+ограниченное имя, не доказательство authority. Child leases удерживают root.
+
+Factory резервирует настоящие role identities, затем publishes package.v2
+capturing с canonical LIVE ref через существующий commitImpl на удерживаемом
+package-state lease. BOTH g1 indices/payload/context independently read back
+до первого ACK. Лишь затем prepared canonical Files передаётся внутреннему
+входу прежнего PackedOwner: тот же prefix/content/HEAD код, без второй реализации
+и повторного createNew role. Packed check проверяет настоящий borrowed store
+handle и все ancestors, не пропускает их из-за отсутствия собственного handle.
+Empty BOTH packed heads → Tree::verify → прежний ProtectedCustodyWriter.
+Canonical bytes разрешены только после capturing ACK и настоящего writer open.
+При частичном birth созданные artifacts и ownership сохраняются, package scope
+sticky failed; новая попытка не regenerates IDs и не объявляет пустой пакет.
+
+**Writer и Media Foundation.** V5 получает private package ownership, не
+пути открытых файлов. Его работа удерживается storage worker; на UI только
+значения и polling, не native последний reference. Единственный mutator —
+capture dispatcher; после workers/EOS/dispatcher fence и close timeline writer
+передаётся existing async finalizer. Canonical checkpoints сохраняют cadence;
+восстановление использует только complete480-sample frames, без padding/AEC.
+WAV сохраняет прежний 48→16 kHz PCM алгоритм/RIFF u32 bound через logical IO.
+AAC сохраняет PCM/MF цикл; output IStream → MFByteStream → SinkWriter с URL=null
+и explicit MPEG4 container attribute. Штатный readonly Reader не становится
+writable через bool, plaintext URL/temp fallback не остаётся в рабочем V5.
+
+Тонкий writable IStream над тем же Writer имеет один charged serial state;
+одна mutex охватывает cursor и целиком Read/Write/Seek/SetSize/Commit, включая
+sticky ошибки, checked offsets/flags, bounded buffers и ZERO только extension.
+MF thread ID не предполагается фиксированным; владение одним сериализованным
+mutator не заменяется mutex только физического packed owner. Прямой доступ к
+writer исключён пока adapter открыт. Finalizer не держит adapter mutex вокруг
+WriteSample/Finalize. После Finalize он закрывает adapter access под этой mutex,
+ждёт уже активные обращения, releases sink/byteStream/COM, затем checkpoint и
+readback/release на worker. Поздний COM вызов видит closed без native доступа.
+Underlying writer/native lease удерживается worker независимо от COM refs;
+новый dispatcher/БД/сервис не требуется. Фактические потоки и teardown проверяются.
+
+**Sealing и очередь.** Из фактически committed Tree snapshot получают exact
+stamps и logical hashes. Media/playback immutable и проверены; protected
+manifest публикуется последним, после него package-state sealed. Existing
+semantic decoder/member inspection body переиспользуется на retained leases,
+без закрытия writable ownership ради path reopen или создания raw-proof API.
+Результат/codecs сами по себе не дают saved/upload/account capability.
+
+Один bounded command/result существующего queue worker расширяется kind для
+finalizer insertion. Pure enqueue факторизуется из существующего domain helper
+на charged private QueueValue, не создаётся второй ledger. Recording work,
+package/writers/native result остаются worker-owned до full insertion commit
+и polling adoption ACK. Actual NativeCapture finalizer всё это время pending;
+future с lease на UI и bool queue_.enqueue fallback удаляются из этого пути.
+Normal sealed → pending row → saved только при ACK/current epoch; degraded
+validated prefix → quarantined row/no saved. Short → durable discard intent,
+не removed: purge/OS absence/removed ACK отдельны, преждевременного сообщения нет.
+Cancel до publish сохраняет old projection/artifacts; после publish readback
+обязателен; ambiguous запрещает следующий mutation до reconciliation. Stale
+epoch принимает только physical storage truth. Shutdown/update/lost poll
+удерживают active recording/result до native terminal/adoption, не бросают их
+при остановке startup loop. Native fields очищаются worker до terminal values.
+Global admission остаётся false до подключения HTTP/playback/delete/T120.
+
+Изменение V5 охватывает всех callers, не только NativeCapture. Удаляются
+production path constructors/PlaybackEncoder и destructor plaintext recovery,
+а не оставляются dormant за false guard. Существующие V5/short-threshold,
+offline/controller fault, protected-files и upload/recovery tests адаптируются
+без удаления проверяемых свойств. Legacy read/migration требует generated
+plaintext inputs только в изолированных test fixtures, не production writer.
+Не копировать прежний writer целиком в новый test backend ради зелёных checks;
+reuse native stream encoder/существующие минимальные fixture primitives.
+AAC corrupted-mdat/native-hash отказные регрессии остаются обязательными;
+нельзя заменить их fake encoder или исключить из полного набора.
+
+**Приёмка конструкции.** Actual NativeCapture/controller, ≥3000 generated
+10-ms кадров, настоящий factory/queue owner, capturing-before-bytes, EOS,
+WAV/AAC, sealed, pending insertion/adoption, холодный restart. Peer заменяет
+только device audio; не используется helper begin с session_.markReady().
+Hardware/AEC fixtures допустимы, но storage readiness private continuation
+вычисляется только из genuine capturing ACK/held owner; peer не ставит READY,
+IDs/generation/authority и не открывает public Record. Дополнительно native
+birth cuts/races/ACL, budget refusal, cancel/ambiguous/stale/shutdown, MF late
+calls и отсутствие plaintext. Source-only ordering не становится runtime PASS.
+Constitution after design: прежние gates не ослаблены; T116 и полный goal OPEN.
+Root agent-context не обновляется: router/stack/active feature не меняются.
+
+## T116: защищённая HTTP-отправка и принятие результата — 2026-10-10
+
+Lane остаётся high-risk-product, T116/#7444. Это уточнение FR-012/013/014 и
+local custody §5–7 после чтения настоящих transport/scheduler/storage worker.
+Clarify 2026-10-02/03 остаётся действующим: новых пользовательских решений,
+endpoint, wire schema, auth policy, partSize или формата хранения нет.
+Конституция II/III/IV/VI: без plaintext, без повышения proof до account
+authority, без ложного committed, независимая приёмка конструкции до кода.
+Прежний scoped GO для V5/cold discovery не принимает эту интеграцию.
+
+### Очередь, работа в фоне и подтверждения
+
+Переиспользуются существующие DesktopUploadRecoveryScheduler flight/executor,
+NativeCapture storage worker и QueueMutationTicket. Второго scheduler, реестра,
+потока записи либо общего persistence framework не вводится. Нативные package
+owners остаются только в рабочих потоках; UI хранит значения, cancellation и
+состояние flight. Последний release native proof на UI запрещён, в том числе
+при отказе создания потока. Получение genuine package pair и запуск
+существующего executor выполняет storage worker, не UI. Полный inspection и
+HTTP исполняются в существующем network executor отдельно от storage worker:
+проверка содержимого или сеть не занимают единственного исполнителя
+prepareRecording/finalizeRecording.
+
+1. Выбрать строки только из принятого защищённого поколения. Existing rules
+   pending/retry/uploading, retry budget, auth recovery и Retry-After сохраняются;
+   максимум32 строк/результатов, один flight. Изменения prepare выполняются на
+   charged private QueueValue. Для непустого flight prepare всегда сохраняет
+   один full candidate, даже если domain helper не изменил ни одной строки:
+   тот же logical payload публикуется как следующее generation и получает
+   обычные committed/adoption ACK. false от helper не означает durable failure
+   и не заменяет ACK. Для пустого выбора flight/commit/network не создаётся.
+   Дополнительный metadata commit на непустой flight принят явно: не вводится
+   пятый ticket state или отдельный no-change протокол, SC-003 проверяется.
+2. До dispatch дождаться commit и adoption ACK. Storage worker получает genuine
+   package pair через readPackage(directoryId), сверяет точные directory/session
+   и sealedNormal. Тот же retained pair передаётся существующему executor для
+   полного inspectProtected перед HTTP. UI не передаёт IDs/generation как proof.
+   Перед запуском worker повторно проверяет value-only grant текущего account/
+   authGeneration, cancel, исходную identity/status/attempts строки и отсутствие
+   delete/update/shutdown. Grant не даёт filesystem authority. При изменении
+   grant подготовленные owners освобождаются здесь, без HTTP.
+3. Существующий network executor владеет retained inspection до завершения
+   transport. Storage worker остаётся свободен для записи и сериализованных
+   queue mutations. Result содержит захваченную row identity, store/queue
+   context, auth epoch и cancel; не raw UI/controller/queue. Конкурирующая
+   mutation никогда не запускает второй flight этого ledger.
+4. После сети storage worker сверяет current row identity/status/attempts и
+   epoch. На свежей копии **текущего принятого** поколения применяет server truth
+   и terminal/retry status одним domain helper, затем одним full commit. Нельзя
+   делать reconcile() и markUploaded()/markRetry() отдельными bool-записями.
+   Retry-After/session-expiry UI effects допускаются только после ACK/current
+   context; пауза HTTP не расходует retry budget.
+5. Flight/result/busy/lease сохраняются при pending и потерянном poll. После
+   committed принимается физическая generation даже при поздней смене account;
+   stale completion не показывает данные и не запускает новую сеть. До publish
+   stale epoch/row отвергает candidate: worker повторно проверяет актуальное
+   хранилище, не пишет старый result в новую identity и только после native
+   completion/revalidation освобождает flight. Следующий разрешённый retry
+   заново получает server truth по existing sync-state.
+
+not_committed сохраняет старую projection и закрывает effects до безопасного
+retry; ambiguous сохраняет ownership/result и закрывает продолжение до readback/
+reconciliation. Cancel/account change отменяет сеть, не уже начатый publish.
+Shutdown/update ждёт фактического network/native выхода и принятия результата
+либо повторной проверки storage truth; потерянный UI poll не уничтожает owner.
+Storage stop predicate учитывает flight, а не только recording. Закрытие thread
+handle/тайм-аут не является завершением работы. UI не ждёт native IO.
+
+### Проверенные байты и один HTTP-body
+
+ProtectedInspection даёт transport минимальный внутренний доступ к трём
+проверенным refs/потокам выбранного слота: manifest/media/playback, length и
+SHA256. Evidence остаётся semantic proof, не owner/session/upload authority.
+Переиспользуется inspectProtected и общий production upload decision flow,
+включая injected UploadSend. Нет второго parser, plaintext reopen/fallback,
+file_size(ciphertext), перекодирования или нового session/UUID.
+
+Прежний HTTP-part остаётся default4MiB, clamp64KiB–16MiB. Exact [start,end)
+заполняется проверенными logical reads≤256KiB, digest считается по полному
+body; part index, tail, невыравненный missing range и accepted offsets прежние.
+Отказ/short read/cancel до заполнения всей части запрещает PUT этой части.
+Полный hash неизменного pinned stream проверяется existing bounded hash helper.
+
+В UploadRequest добавляется внутренний owning protected body: один
+shared<const CustodyBytes> с charged control block; обычный body пуст для этого
+запроса. Синхронный WinHTTP читает view именно этого owner, не копирует в string.
+Owner живёт до завершения WinHttpReceiveResponse либо закрытия request handle
+при ошибке; одного возврата WinHttpSendRequest недостаточно. Cancel не стирает
+body во время native вызова. Handle закрывается в том же worker до release body.
+Копия UploadRequest удерживает тот же charged owner, а не висячий string_view
+или вторую открытую копию. Оба body одновременно — invalid input. Внешняя
+схема не меняется. Буфер выделяется через existing CustodyAllocator до reads,
+стирается CustodyBytes при последнем release. Не накапливаются следующие parts.
+Request/response/hash/serialization buffers и retained flight/results также
+учитываются общей квотой до allocation, включая capacity/control/Debug proxy;
+нельзя зарезервировать только read scratch и оставить body/копии вне учёта.
+64MiB owned, cache2MiB, pins32, native jobs4 не увеличиваются. Отказ бюджета
+сохраняет принятые диапазоны; не уменьшает partSize и не включает fallback.
+
+### Граница приёмки
+
+До реализации — независимый requirements/analyze review этой конструкции;
+до утверждения H1/H2 production HTTP не меняется. Затем RED на actual
+NativeCapture ≥3000 generated кадров → protected insertion/adoption → release
+owners → cold discovery → actual transport с подменой только сети → protected
+result commit/adoption. Дополнительные RED: диапазоны/part sizes, sticky read/
+hash fault, wrong binding/degraded/discard, cancel/quota, pending/lost poll,
+not_committed/ambiguous, stale epoch/row, shutdown и повторный ACK. В тестах
+нет READY setters, подставленных context/generation, реальной сети/аудио.
+Helper/direct transport PASS без scheduler/worker continuation не закрывает
+срез. Global storageWritable/localQueueComplete остаются false до всех
+HTTP/playback/delete/T120 consumers; T116/T117/T118 и installed/release OPEN.
+Constitution after design: требования и gates не ослаблены. Дополнительного
+agent-context update не требуется: active feature/stack/root router прежние.
+
+### T116: обслуживание записи во время cold inspection — 2026-10-11
+
+Узкое уточнение механики прежнего high-risk-product T116/#7444 после source
+trace requestProof → readPackage → openProtectedCustodyReaders/hash → полный
+AAC decode. Clarify 2026-10-02/03 остаётся действующим: новых продуктовых
+решений, wire/schema, quota, endpoint или допуска записи нет. Constitution
+before/after design II/III/IV/VI: видимый Stop, отсутствие plaintext fallback,
+auth/deletion fences, ограничения ресурсов и отдельные release gates сохранены.
+Текущий source365 ещё выполняет inspection на storage worker; его selected22
+не доказывает и не принимает новую границу конкурентного исполнения.
+
+Storage worker сохраняет единственное mutable StoreOwner и проверку текущей
+строки/удаления/account grant. Полученный genuine readPackage pair передаётся
+через существующий worker-only ProtectedNetworkWork slot, без второго reopen,
+передачи StoreOwner или native references в UI. Existing network executor
+забирает этот же pair под mutex, выполняет неизменный полный inspectProtected
+и uploadProtected. Не больше одного pair/inspection одновременно;32 остаётся
+пределом выбора flight, не числом одновременно открытых пакетов или inventory.
+Нативные pair/proof освобождаются на worker до resultReady при успехе, отказе,
+отмене и exception; остаток slot также очищается на worker. Повторная проверка
+cancellation/current grant до wire и existing fresh-result commit/adoption
+обязательны. Quota/key/IO/cancel не превращаются в доказанную порчу пакета.
+
+Сначала квалифицируемый generated-data RED на существующем integrationRead:
+one-shot пауза настоящего nonempty packed read именно выбранного старого
+пакета, offset ≥ appendOffset; LastError сохраняется, private path не выводится.
+Маркер различает packed inspection IO, но не приписывает его hash/AAC без
+наблюдения caller. При удерживаемом cut новая запись должна действительно
+достичь prepared, не только queued. Отдельно для активной записи наблюдается
+обслуживание finalize-команды; cut затем освобождается до проверки полного
+EOS/finalization/commit/adoption, чтобы тест сам не удерживал Reader cache/
+Guard во время ожидания его полного drain. Cancel проверяет wire0 и настоящий
+drain/release, не ложный invalidPackage. Потерянный poll/retry сохраняют flight.
+
+Конструкция не устанавливает новый срок native ReadSample/IO либо AAC
+finalization. Пятисекундный dispatcher drain не объявляется сроком всего
+сохранения. До source fix нужны независимый requirements/checklist review,
+обновлённый scoped analyze и подтверждение ownership существующего T116.
+Global storageWritable/localQueueComplete остаются закрытыми до всех consumers;
+SC-003/60min, T117/T118/T120, installed UI и аппаратная приёмка не закрыты.

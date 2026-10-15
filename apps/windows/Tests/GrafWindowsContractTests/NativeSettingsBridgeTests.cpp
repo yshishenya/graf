@@ -25,6 +25,59 @@ using graf::windows::NativeSettingsBridge::Target;
 
 namespace {
 
+void testUserTimeMetadataIsBoundedDataOnly() {
+    using graf::windows::DesktopApiClient;
+    const std::string valid = R"({"userId":"11111111-1111-1111-1111-111111111111","workspaceId":"22222222-2222-2222-2222-222222222222","sessionId":"33333333-3333-3333-3333-333333333333","timeZone":"Asia/Kathmandu","documentURL":"https://one.example/desktop/meetings"})";
+    auto raw = valid;
+    const auto result = DesktopApiClient::decodeUserTimeMetadata(raw);
+    assert(result && result->userId == "11111111-1111-1111-1111-111111111111");
+    assert(result->workspaceId == "22222222-2222-2222-2222-222222222222");
+    assert(result->sessionId == "33333333-3333-3333-3333-333333333333");
+    assert(result->timeZone == "Asia/Kathmandu" && result->documentUrl == "https://one.example/desktop/meetings");
+    raw.assign(2048, 'x'); // No views into ExecuteScript's temporary JSON.
+    assert(result->timeZone == "Asia/Kathmandu");
+    const auto replace = [&](std::string_view from, std::string_view to) {
+        auto text = valid;
+        const auto at = text.find(from); assert(at != std::string::npos);
+        text.replace(at, from.size(), to); return text;
+    };
+    for (const auto zone : {"", "UTC", "America/New_York"}) {
+        assert(DesktopApiClient::decodeUserTimeMetadata(replace("Asia/Kathmandu", zone)));
+    }
+    assert(DesktopApiClient::decodeUserTimeMetadata(replace("\"userId\"", "\"\\u0075serId\"")));
+    assert(DesktopApiClient::decodeUserTimeMetadata(replace("Asia/Kathmandu", "Asia\\/Kathmandu")));
+    assert(DesktopApiClient::decodeUserTimeMetadata(replace("Asia/Kathmandu", std::string(98, 'A') + "/B")));
+    assert(DesktopApiClient::decodeUserTimeMetadata(replace("https://one.example/desktop/meetings", std::string(1024, 'x'))));
+    auto boundary = valid; boundary.resize(2048, ' ');
+    assert(DesktopApiClient::decodeUserTimeMetadata(boundary));
+    boundary += ' '; assert(!DesktopApiClient::decodeUserTimeMetadata(boundary));
+    for (const auto& bad : {
+        std::string{}, std::string("null"), std::string("[]"), valid + "x",
+        replace("\"timeZone\":\"Asia/Kathmandu\",", ""),
+        replace("\"Asia/Kathmandu\"", "null"), replace("\"Asia/Kathmandu\"", "true"),
+        replace("\"Asia/Kathmandu\"", "[]"), replace("\"Asia/Kathmandu\"", "{\"timeZone\":\"UTC\"}"),
+        replace("\"userId\"", "\"unknown\""),
+        replace("\"userId\"", "\"userId\":\"11111111-1111-1111-1111-111111111111\",\"userId\""),
+        replace("\"userId\"", "\"userId\":\"11111111-1111-1111-1111-111111111111\",\"\\u0075serId\""),
+        replace("\"timeZone\"", "\"extra\":\"UTC\",\"timeZone\""),
+        replace("11111111-1111-1111-1111-111111111111", ""),
+        replace("11111111-1111-1111-1111-111111111111", "00000000-0000-0000-0000-000000000000"),
+        replace("22222222-2222-2222-2222-222222222222", "22222222-2222-2222-2222-22222222222A"),
+        replace("33333333-3333-3333-3333-333333333333", "not-a-session"),
+        replace("Asia/Kathmandu", "GMT"), replace("Asia/Kathmandu", "Asia/Kathmandu "),
+        replace("Asia/Kathmandu", "Asia/\\u0000"), replace("Asia/Kathmandu", "Asia/\\n"),
+        replace("Asia/Kathmandu", "Asia/\\u007f"), replace("Asia/Kathmandu", "Asia/\\u0410"),
+        replace("Asia/Kathmandu", "Asia/\\ud800"), replace("Asia/Kathmandu", std::string("Asia/\xc0\xaf")),
+        replace("Asia/Kathmandu", std::string(99, 'A') + "/B"),
+        replace("https://one.example/desktop/meetings", ""),
+        replace("https://one.example/desktop/meetings", "https://one.example/\\n"),
+        replace("https://one.example/desktop/meetings", std::string(1025, 'x')),
+    }) assert(!DesktopApiClient::decodeUserTimeMetadata(bad));
+    // This decoder does NOT attest route, account, native zone support or auth.
+    assert(DesktopApiClient::decodeUserTimeMetadata(replace("Asia/Kathmandu", "Invalid/NoSuchZone")));
+    assert(DesktopApiClient::decodeUserTimeMetadata(replace("https://one.example/desktop/meetings", "https://external.example/")));
+}
+
 graf::windows::UploadCustodyItem problemRow(std::string id, std::string session,
     graf::windows::UploadQueueStatus status, std::uint64_t updatedAt = 900'000) {
     graf::windows::UploadCustodyItem row;
@@ -165,6 +218,98 @@ void testLocalProblemsResolveOnlyCompleteAllUploadedSessions() {
     const auto captureOnly = projectLocalRecordingProblems(context, context, {}, true,
         CurrentCaptureProblem{"session", context, false}, 1'000'000);
     assert(captureOnly.size() == 1 && captureOnly[0].state == LocalProblemState::unknown);
+}
+
+void testProtectedLocalProblemsPreserveClassificationAndOwnership() {
+    using namespace graf::windows;
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    const LocalProblemContext context{"https://one.example", "owner", "workspace"};
+    const auto compare = [&](const std::vector<UploadCustodyItem>& rows, bool complete,
+        const LocalProblemContext& queueContext, const std::optional<CurrentCaptureProblem>& capture = std::nullopt) {
+        CustodyVector<ProtectedUploadQueueValue::Item> protectedRows;
+        for (const auto& row : rows) {
+            ProtectedUploadQueueValue::Item item;
+            item.localRecordingId = row.localRecordingId.c_str(); item.sessionId = row.sessionId.c_str();
+            item.ownerUserId = row.ownerUserId.c_str(); item.ownerWorkspaceId = row.ownerWorkspaceId.c_str();
+            item.status = row.status; item.safeReason = row.safeReason.c_str(); item.updatedAtMs = row.updatedAtMs;
+            protectedRows.push_back(std::move(item));
+        }
+        const auto expected = projectLocalRecordingProblems(context, queueContext, rows, complete, capture, 1'000'000);
+        const auto actual = projectProtectedLocalRecordingProblems(context, queueContext, protectedRows, complete, capture, 1'000'000);
+        assert(actual.size() == expected.size() && "protected_projection_preserves_all_sessions");
+        for (std::size_t i = 0; i < actual.size(); ++i) {
+            assert(std::string_view(actual[i].sessionId) == expected[i].sessionId);
+            assert(std::string_view(actual[i].incidentId) == expected[i].incidentId);
+            assert(actual[i].state == expected[i].state && actual[i].fresh == expected[i].fresh);
+            assert(actual[i].occurredAtMs == expected[i].occurredAtMs);
+        }
+    };
+    for (const bool complete : {false, true}) {
+        for (const auto status : {UploadQueueStatus::pending, UploadQueueStatus::uploading,
+            UploadQueueStatus::retry, UploadQueueStatus::needsAuth, UploadQueueStatus::uploaded,
+            UploadQueueStatus::quarantined, UploadQueueStatus::blocked}) {
+            auto row = problemRow("item", "session", status);
+            for (const auto reason : {"auth_recovered", "retry_budget_exhausted", "retry_budget_exhausted_suffix"}) {
+                row.safeReason = reason;
+                compare({row}, complete, context);
+            }
+        }
+        auto row = problemRow("item", "session", UploadQueueStatus::uploaded);
+        for (const auto& other : {LocalProblemContext{"https://other.example", "owner", "workspace"},
+            LocalProblemContext{"https://one.example", "other", "workspace"},
+            LocalProblemContext{"https://one.example", "owner", "other"}, LocalProblemContext{}}) {
+            compare({row}, complete, other);
+            compare({row}, complete, context, CurrentCaptureProblem{"session", other, true});
+        }
+        compare({row}, complete, context, CurrentCaptureProblem{"session", context, true});
+        compare({}, complete, context, CurrentCaptureProblem{"capture-only", context, false});
+        compare({}, complete, context);
+        for (const auto stamp : {0ULL, 700'000ULL, 700'001ULL, 1'000'000ULL, 1'000'001ULL})
+            compare({problemRow("item", "session", UploadQueueStatus::blocked, stamp)}, complete, context);
+        std::vector<UploadCustodyItem> inventory;
+        for (int i = 0; i < 65; ++i) inventory.push_back(problemRow("item-" + std::to_string(i),
+            "session-" + std::to_string(i), UploadQueueStatus::uploaded));
+        compare(inventory, complete, context); // Inventory is not a bounded 32-command flight.
+        auto foreign = inventory.front(); foreign.localRecordingId = "foreign"; foreign.ownerUserId = "other";
+        inventory.push_back(foreign); compare(inventory, complete, context);
+        foreign.ownerUserId.clear(); compare({row, foreign}, complete, context);
+        row.localRecordingId.clear(); compare({row}, complete, context);
+    }
+    assert(CustodyOwnedMemory::usedBytes() == baseline);
+}
+
+void testProtectedLocalProblemsOwnResultsAndRefuseQuotaExhaustion() {
+    using namespace graf::windows;
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    const LocalProblemContext context{"https://one.example", "owner", "workspace"};
+    {
+        CustodyVector<ProtectedLocalProblemProjection> result;
+        const std::string session(256, 's');
+        {
+            CustodyVector<ProtectedUploadQueueValue::Item> rows;
+            ProtectedUploadQueueValue::Item item;
+            item.localRecordingId = "item"; item.sessionId = session.c_str(); item.status = UploadQueueStatus::needsAuth;
+            item.ownerUserId = "owner"; item.ownerWorkspaceId = "workspace";
+            rows.push_back(std::move(item));
+            result = projectProtectedLocalRecordingProblems(context, context, rows, false, std::nullopt, 1'000'000);
+        }
+        assert(result.size() == 1 && std::string_view(result[0].sessionId) == session);
+        assert(std::string_view(result[0].incidentId) == "capture-problem:" + session);
+        assert(result[0].state == LocalProblemState::problem && CustodyOwnedMemory::usedBytes() > baseline);
+        const CustodyVector<ProtectedUploadQueueValue::Item> noRows;
+        const std::optional<CurrentCaptureProblem> capture{CurrentCaptureProblem{session, context, false}};
+        CustodyAllocator<char> allocator;
+        const auto remaining = CustodyOwnedMemory::limit - CustodyOwnedMemory::usedBytes();
+        auto* reserved = allocator.allocate(remaining);
+        bool refused = false;
+        try {
+            (void)projectProtectedLocalRecordingProblems(context, context, noRows, true, capture, 1'000'000);
+        } catch (const std::bad_alloc&) { refused = true; }
+        allocator.deallocate(reserved, remaining);
+        assert(refused && "protected_projection_quota_refusal_is_not_empty_success");
+        assert(result[0].state == LocalProblemState::problem); // Failed refresh cannot resolve the retained result.
+    }
+    assert(CustodyOwnedMemory::usedBytes() == baseline);
 }
 
 void testF277NotificationContractBeforeImplementation() {
@@ -490,6 +635,248 @@ void testF277PresenterRestartQuietAndExactAction() {
     assert(restarted.completeAction(*clicked, NoticeAction::join, 9'951, false));
     assert(!restarted.completeAction(*clicked, NoticeAction::join, 9'951, false));
     restarted.invalidate();
+}
+
+void testUpcomingProjectionAndFrozenTarget() {
+    using namespace graf::windows;
+    MeetingReminderModel model;
+    assert(!model.upcoming());
+    model.bind("owner", "workspace", "https://one.example");
+    const auto epoch = model.epoch();
+    CalendarReminderEvent frozen{"11111111-1111-4111-8111-111111111111", 10'000, 11'000,
+        false, true, "Synthetic title", true, "https://meet.example.com/synthetic", true};
+    CalendarReminderSnapshot snapshot{"owner", "workspace", {frozen}, false, false};
+    for (int i = 12; i > 0; --i) {
+        auto event = frozen;
+        event.eventId = "row-" + std::to_string(i);
+        event.startsAt += i;
+        event.endsAt += i;
+        snapshot.events.push_back(event);
+    }
+    assert(model.update(snapshot, epoch));
+    model.dismiss(frozen);
+    auto projection = model.upcoming();
+    assert(projection && projection->events.size() == 12);
+    assert(projection->userId == "owner" && projection->workspaceId == "workspace");
+    assert(!projection->showUpcomingTime && !projection->showUpcomingTitle);
+    assert(projection->events.front().eventId == frozen.eventId && projection->events.front().allDay);
+    for (std::size_t i = 1; i < projection->events.size(); ++i)
+        assert(projection->events[i - 1].startsAt < projection->events[i].startsAt);
+    assert(!model.revalidate(model.actionTarget(frozen), 9'940, false));
+    assert(model.upcomingCurrent(frozen, epoch, 9'000)); // Not due; canSurface=false, dismissed.
+    assert(model.upcomingCurrent(frozen, epoch, 10'500)); // Card deadline is irrelevant.
+    assert(!model.upcomingCurrent(frozen, epoch, 11'000));
+    assert(!model.upcomingCurrent(frozen, epoch + 1, 9'000));
+    assert(!model.upcomingCurrent(frozen, epoch, std::numeric_limits<double>::quiet_NaN()));
+
+    // Equal starts sort by identity; changing presentation never replaces a target.
+    auto earlierId = frozen;
+    earlierId.eventId = "00000000-0000-4000-8000-000000000000";
+    snapshot.events = {frozen, earlierId};
+    snapshot.events.front().title = "Changed presentation";
+    snapshot.events.front().titleAvailable = false;
+    snapshot.events.front().allDay = false;
+    snapshot.events.front().canSurface = true;
+    snapshot.showUpcomingTime = snapshot.showUpcomingTitle = true;
+    assert(model.update(snapshot, epoch));
+    projection = model.upcoming();
+    assert(projection && projection->events.front().eventId == earlierId.eventId);
+    assert(projection->showUpcomingTime && projection->showUpcomingTitle);
+    assert(model.upcomingCurrent(frozen, epoch, 10'500));
+
+    // An admitted unchanged event remains current outside a newly sorted prefix12.
+    for (int i = 0; i < 12; ++i) {
+        auto event = earlierId; event.eventId = "earlier-" + std::to_string(i);
+        event.startsAt -= 100 + i;
+        snapshot.events.push_back(event);
+    }
+    assert(model.update(snapshot, epoch));
+    projection = model.upcoming();
+    assert(projection && projection->events.size() == 12);
+    assert(std::none_of(projection->events.begin(), projection->events.end(),
+        [&](const auto& event) { return event.eventId == frozen.eventId; }));
+    assert(model.upcomingCurrent(frozen, epoch, 10'500));
+
+    for (int replacement = 0; replacement < 6; ++replacement) {
+        auto changed = frozen;
+        switch (replacement) {
+        case 0: changed.eventId = earlierId.eventId; break;
+        case 1: ++changed.startsAt; break;
+        case 2: ++changed.endsAt; break;
+        case 3: changed.meetingUrl += "-changed"; break;
+        case 4: changed.meetingLinkPresent = false; break;
+        case 5: changed.meetingUrl = "http://meet.example.com/unsafe"; break;
+        }
+        assert(model.update({"owner", "workspace", {changed}}, epoch));
+        assert(!model.upcomingCurrent(frozen, epoch, 9'000));
+        if (replacement >= 4) assert(!model.upcomingCurrent(changed, epoch, 9'000));
+    }
+    assert(model.update({"owner", "workspace", {frozen}}, epoch));
+    assert(!model.update({"other", "workspace", {}}, epoch));
+    assert(!model.update({"owner", "workspace", {}}, epoch + 1));
+    assert(model.upcomingCurrent(frozen, epoch, 9'000));
+    model.invalidateUpcoming();
+    assert(!model.upcoming() && !model.upcomingCurrent(frozen, epoch, 9'000));
+    assert(model.update({"owner", "workspace", {}}, epoch));
+    assert(model.upcoming() && model.upcoming()->events.empty());
+    assert(!model.upcomingCurrent(frozen, epoch, 9'000));
+    auto invalid = frozen; invalid.startsAt = std::numeric_limits<double>::quiet_NaN();
+    assert(model.update({"owner", "workspace", {frozen, invalid}}, epoch));
+    assert(!model.upcoming() && !model.upcomingCurrent(frozen, epoch, 9'000));
+    for (const auto& context : {LocalProblemContext{"https://two.example", "owner", "workspace"},
+        LocalProblemContext{"https://one.example", "other", "workspace"},
+        LocalProblemContext{"https://one.example", "owner", "other"}}) {
+        model.bind("owner", "workspace", "https://one.example");
+        const auto acceptedEpoch = model.epoch();
+        assert(model.update({"owner", "workspace", {frozen}}, acceptedEpoch));
+        model.bind(context.owner, context.workspace, context.origin);
+        assert(!model.upcoming() && !model.upcomingCurrent(frozen, acceptedEpoch, 9'000));
+    }
+}
+
+void testUpcomingPresenterIgnoresReminderSettingsAndCapture() {
+    using namespace graf::windows;
+    ReminderDisk disk;
+    RecordingNoticePresenter card;
+    MeetingReminderPresenter presenter(card, disk.store());
+    presenter.bind("owner", "workspace", "https://one.example");
+    const auto epoch = presenter.epoch();
+    CalendarReminderEvent event{"11111111-1111-4111-8111-111111111111", 10'000, 11'000,
+        false, true, "Synthetic title", true, "https://meet.example.com/synthetic"};
+    assert(presenter.update({"owner", "workspace", {event}, false, true}, epoch));
+    const auto now = RecordingNoticePresenter::Clock::now();
+    using namespace NativeSettingsBridge;
+    (void)presenter.settings({NotificationAction::set, "reminders", false}, 9'000, now, true);
+    (void)presenter.settings({NotificationAction::set, "quiet", true}, 9'000, now, true);
+    assert(!presenter.preferences().reminders && presenter.preferences().quiet);
+    presenter.reconcile(10'500, now, true);
+    assert(!card.visible());
+    const auto projection = presenter.upcoming();
+    assert(projection && projection->events.size() == 1);
+    assert(!projection->showUpcomingTime && projection->showUpcomingTitle);
+    assert(presenter.upcomingCurrent(event, epoch, 10'500));
+    presenter.calendarFailed();
+    assert(!presenter.upcoming() && !presenter.upcomingCurrent(event, epoch, 10'500));
+    assert(presenter.update({"owner", "workspace", {event}}, epoch));
+    presenter.invalidate();
+    assert(!presenter.upcoming() && !presenter.upcomingCurrent(event, epoch, 10'500));
+}
+
+void testCalendarJoinCardWaitsForHandoff() {
+    using namespace graf::windows;
+    for (const auto action : {NoticeAction::join, NoticeAction::joinAndRecord}) {
+        ReminderDisk disk;
+        RecordingNoticePresenter card;
+        card.interactionPermitProvider = [] { return InteractionPermit{true, 1}; };
+        MeetingReminderPresenter presenter(card, disk.store());
+        presenter.bind("owner", "workspace", "https://one.example");
+        const auto now = RecordingNoticePresenter::Clock::now();
+        CalendarReminderEvent event{"11111111-1111-4111-8111-111111111111", 10'000, 11'000,
+            true, false, "", true, "https://meet.example.com/synthetic"};
+        assert(presenter.update({"owner", "workspace", {event}}, presenter.epoch()));
+        presenter.reconcile(9'940, now, false);
+        const auto generation = card.generation();
+        const auto deadline = card.deadline();
+        std::optional<ReminderActionTarget> clicked;
+        int requests = 0;
+        presenter.onActionRequested = [&](auto target, auto requested) {
+            assert(requested == action);
+            assert(card.visible()); // The click is not an OS handoff.
+            clicked = std::move(target); ++requests;
+            card.invoke(action, generation, now); // Reentry cannot dispatch twice.
+        };
+        card.invoke(action, generation, now);
+        assert(clicked && requests == 1 && card.visible());
+        const auto expiry = presenter.pendingActionExpiry(*clicked, action, 9'940, false);
+        assert(expiry && *expiry == deadline);
+        assert(card.generation() == generation && card.deadline() == deadline);
+        assert(card.content().body.find(L"Открываем") != std::wstring::npos);
+        card.invoke(NoticeAction::join, generation, now);
+        card.invoke(NoticeAction::joinAndRecord, generation, now);
+        assert(requests == 1);
+        presenter.reconcile(9'941, now + std::chrono::seconds(1), false);
+        assert(card.visible() && card.deadline() == deadline);
+        card.close(generation);
+        assert(!card.visible());
+        assert(!presenter.completeAction(*clicked, action, 9'942, false));
+    }
+}
+
+void testCalendarJoinFailureAndRetryKeepOriginalExpiry() {
+    using namespace graf::windows;
+    for (const auto action : {NoticeAction::join, NoticeAction::joinAndRecord}) {
+        ReminderDisk disk;
+        RecordingNoticePresenter card;
+        card.interactionPermitProvider = [] { return InteractionPermit{true, 1}; };
+        MeetingReminderPresenter presenter(card, disk.store());
+        presenter.bind("owner", "workspace", "https://one.example");
+        const auto now = RecordingNoticePresenter::Clock::now();
+        CalendarReminderEvent event{"11111111-1111-4111-8111-111111111111", 10'000, 11'000,
+            true, false, "", true, "https://meet.example.com/synthetic"};
+        assert(presenter.update({"owner", "workspace", {event}}, presenter.epoch()));
+        presenter.reconcile(9'940, now, false);
+        const auto deadline = card.deadline();
+        const auto generation = card.generation();
+        std::optional<ReminderActionTarget> clicked;
+        int requests = 0;
+        presenter.onActionRequested = [&](auto target, auto) { clicked = std::move(target); ++requests; };
+        card.invoke(action, generation, now);
+        assert(clicked && requests == 1);
+        presenter.failAction(*clicked, action, CalendarJoinReason::launchFailed, 9'941, false);
+        assert(card.visible() && card.deadline() <= deadline && card.generation() == generation);
+        assert(card.content().body.find(L"Не удалось подключиться") != std::wstring::npos);
+        assert(!presenter.pendingActionExpiry(*clicked, action, 9'941, false));
+        assert(presenter.upcoming() && presenter.upcomingCurrent(event, presenter.epoch(), 9'941));
+        presenter.calendarFailed(); // Background refresh cannot erase retry/error.
+        assert(card.visible());
+        assert(!presenter.upcoming() && !presenter.upcomingCurrent(event, presenter.epoch(), 9'941));
+        card.invoke(action, generation, now);
+        assert(requests == 2);
+        const auto retryExpiry = presenter.pendingActionExpiry(*clicked, action, 9'942, false);
+        assert(retryExpiry && *retryExpiry <= deadline);
+        assert(!presenter.pendingActionExpiry(*clicked, action, 9'942, true));
+        assert(card.visible()); // Applicability check itself never closes the card.
+        assert(presenter.completeAction(*clicked, action, 9'943, false));
+        assert(!card.visible());
+        assert(!presenter.completeAction(*clicked, action, 9'943, false));
+        assert(presenter.handoffRecordingCurrent(*clicked, 9'944, false));
+        assert(!presenter.handoffRecordingCurrent(*clicked, 9'944, true));
+        // Same account/epoch cannot make a replaced or removed event current.
+        const auto epoch = presenter.epoch();
+        event.meetingUrl = "https://meet.example.com/replaced";
+        assert(presenter.update({"owner", "workspace", {event}}, epoch));
+        assert(presenter.epoch() == epoch);
+        assert(!presenter.handoffRecordingCurrent(*clicked, 9'944, false));
+        assert(presenter.update({"owner", "workspace", {}}, epoch));
+        assert(!presenter.handoffRecordingCurrent(*clicked, 9'944, false));
+    }
+}
+
+void testCalendarJoinFailureCannotReviveRetiredAction() {
+    using namespace graf::windows;
+    for (const auto reason : {CalendarJoinReason::authRequired, CalendarJoinReason::eventUnavailable,
+        CalendarJoinReason::stale, CalendarJoinReason::cancelled}) {
+        ReminderDisk disk;
+        RecordingNoticePresenter card;
+        card.interactionPermitProvider = [] { return InteractionPermit{true, 1}; };
+        MeetingReminderPresenter presenter(card, disk.store());
+        presenter.bind("owner", "workspace", "https://one.example");
+        const auto now = RecordingNoticePresenter::Clock::now();
+        CalendarReminderEvent event{"11111111-1111-4111-8111-111111111111", 10'000, 11'000,
+            true, false, "", true, "https://meet.example.com/synthetic"};
+        assert(presenter.update({"owner", "workspace", {event}}, presenter.epoch()));
+        presenter.reconcile(9'940, now, false);
+        std::optional<ReminderActionTarget> clicked;
+        presenter.onActionRequested = [&](auto target, auto) { clicked = std::move(target); };
+        card.invoke(NoticeAction::join);
+        assert(clicked);
+        presenter.failAction(*clicked, NoticeAction::join, reason, 9'941, false);
+        assert(!card.visible());
+        presenter.failAction(*clicked, NoticeAction::join, CalendarJoinReason::launchFailed, 9'941, false);
+        presenter.reconcile(9'942, now, false);
+        assert(!card.visible());
+        assert(!presenter.completeAction(*clicked, NoticeAction::join, 9'942, false));
+    }
 }
 
 void testF277QuietPreviewAndDeadlineNeverRestart() {
@@ -883,17 +1270,49 @@ void testCalendarSchemaAndSafeJoin() {
     assert(result && result->events.size() == 1);
     assert(result->events[0].title == "Test Встреча");
     assert(result->events[0].canSurface);
+    assert(result->showUpcomingTime && result->showUpcomingTitle && !result->events[0].allDay);
     assert(DesktopApiClient::formatUtcInstant(static_cast<std::uint64_t>(result->events[0].startsAt * 1000)) == "2026-09-26T09:00:00Z");
+    const auto withPresentationField = [&](std::string_view key, std::string_view value) {
+        auto json = response;
+        json.insert(key == "all_day" ? json.find("\"event_id\"") : 1,
+            "\"" + std::string(key) + "\":" + std::string(value) + ",");
+        return json;
+    };
+    for (const auto key : {"show_upcoming_time", "show_upcoming_title", "all_day"})
+        for (const auto value : {"\"true\"", "\"false\"", "0", "1", "{}", "[]"})
+            assert(!DesktopApiClient::decodeCalendarReminders(withPresentationField(key, value)));
+    for (const std::string_view key : {"show_upcoming_time", "show_upcoming_title", "all_day"}) {
+        for (const std::string_view value : {"null", "true", "false"}) {
+            const auto projected = DesktopApiClient::decodeCalendarReminders(withPresentationField(key, value));
+            assert(projected && projected->events.size() == 1);
+            assert(projected->showUpcomingTime == (key == "show_upcoming_time" ? value != "false" : true));
+            assert(projected->showUpcomingTitle == (key == "show_upcoming_title" ? value != "false" : true));
+            assert(projected->events[0].allDay == (key == "all_day" && value == "true"));
+        }
+    }
+    auto privateTitle = withPresentationField("show_upcoming_title", "false");
+    privateTitle.replace(privateTitle.find("\"available\""), 11, "\"private\"");
+    const auto hidden = DesktopApiClient::decodeCalendarReminders(privateTitle);
+    assert(hidden && !hidden->showUpcomingTitle && !hidden->events[0].titleAvailable && hidden->events[0].title.empty());
+    auto secondEvent = response.substr(response.find('[') + 1);
+    secondEvent.resize(secondEvent.size() - 2); // Only the event object, without the root ]}.
+    secondEvent.replace(secondEvent.find("33333333-3333-4333-8333-333333333333"), 36,
+        "44444444-4444-4444-8444-444444444444");
+    secondEvent.insert(1, "\"all_day\":[],");
+    auto twoEvents = response;
+    twoEvents.insert(twoEvents.rfind(']'), "," + secondEvent);
+    assert(!DesktopApiClient::decodeCalendarReminders(twoEvents));
     auto invalid = response;
     invalid.replace(invalid.find("2026-09-26T12"), 10, "2026-02-30");
     assert(!DesktopApiClient::decodeCalendarReminders(invalid));
     assert(!DesktopApiClient::decodeCalendarReminders(R"({"events":[]})"));
     assert(!DesktopApiClient::decodeCalendarReminders(R"({"notification_owner_id":null,"notification_workspace_id":null,"events":[]})"));
-    for (const auto url : {"http://meet.example.com", "https://user@meet.example.com", "https://localhost/x", "https://127.0.0.1/x", "https://10.1.2.3/x", "https://meet.example.com/#secret", "https://meet.example.com\\evil", "https://2130706433/x"})
+    for (const auto url : {"http://meet.example.com", "https://user@meet.example.com", "https://localhost/x", "https://127.0.0.1/x", "https://10.1.2.3/x", "https://meet.example.com\\evil", "https://2130706433/x"})
         assert(!MeetingReminderModel::safeMeetingUrl(url));
     assert(MeetingReminderModel::safeMeetingUrl("https://meet.example.com/room"));
     assert(MeetingReminderModel::safeMeetingUrl("https://abc.de/room"));
-    assert(MeetingReminderModel::safeMeetingUrl("https://[2001:db8::1]/room"));
+    assert(MeetingReminderModel::safeMeetingUrl("https://[2606:4700::1111]/room"));
+    assert(MeetingReminderModel::safeMeetingUrl("https://meet.example.com/#secret"));
     assert(!MeetingReminderModel::safeMeetingUrl("https://[2001:::1]/room"));
     assert(!MeetingReminderModel::safeMeetingUrl("https://0177.0.0.1/room"));
     assert(!MeetingReminderModel::safeMeetingUrl("https://.localhost/room"));
@@ -1028,6 +1447,8 @@ void testMeetingUrlIpLiteralSyntax() {
     using graf::windows::MeetingReminderModel;
     for (const auto url : {
         "https://[2001::db8:]/room", "https://[:2001::db8]/room",
+        "https://[.2606:4700::1111]/room", "https://[2606:4700::1111.]/room",
+        "https://[.2606:4700::1111.]/room", "https://[2606%3A4700::1111]/room",
         "https://[2001::db8::1]/room", "https://[2001:db8:0:0:0:0:1]/room",
         "https://[2001:db8:0:0:0:0:0:0:1]/room", "https://[2001:db8::12345]/room",
         "https://[2001:db8::gg]/room", "https://[::ffff:192.0.2.999]/room",
@@ -1036,16 +1457,17 @@ void testMeetingUrlIpLiteralSyntax() {
         "https://127.0.0.1/room", "https://10.255.255.255/room",
         "https://172.16.0.1/room", "https://172.31.255.255/room",
         "https://192.168.1.1/room", "https://0.0.0.0/room",
-        "https://192.000.2.1/room", "https://256.0.2.1/room",
+        "https://192.000.2.1/room", "https://[2001:db8::1]/room", "https://192.0.2.1/room",
+        "https://[::ffff:192.0.2.1]/room",
         "https://192.0.2/room", "https://3221225985/room",
         "https://0xc0000201/room", "https://0xc0.0.2.1/room"}) {
         assert(!MeetingReminderModel::safeMeetingUrl(url));
     }
     for (const auto url : {
-        "https://[2001:db8::1]/room", "https://[2001:DB8:0:0:0:0:0:1]:443/room",
-        "https://[2001:db8::]/room", "https://[::ffff:192.0.2.1]/room",
-        "https://[2001:db8::192.0.2.1]:65535/room",
-        "https://192.0.2.1/room", "https://172.15.255.255/room",
+        "https://[2606:4700::1111]/room", "https://[2606:4700:0:0:0:0:0:1111]:443/room",
+        "https://[2606:4700::]/room", "https://[::ffff:8.8.8.8]/room",
+        "https://[2606:4700::8.8.8.8]:65535/room", "https://example.org:0/room",
+        "https://256.0.2.1/room", "https://172.15.255.255/room",
         "https://172.32.0.1/room", "https://192.169.0.1:443/room"}) {
         assert(MeetingReminderModel::safeMeetingUrl(url));
     }
@@ -1142,11 +1564,14 @@ void testSettingsTransportDoesNotRewritePageContent() {
 } // namespace
 
 int main() {
+    testUserTimeMetadataIsBoundedDataOnly();
     testLocalProblemsGroupSessionAndKeepStableIdentity();
     testLocalProblemsClassifyOnlyTypedStatesAndExactRetryReason();
     testLocalProblemsFreshnessIsStrictAndDoesNotResolveOldProblems();
     testLocalProblemsRequireExactOwnershipAndFrozenCaptureContext();
     testLocalProblemsResolveOnlyCompleteAllUploadedSessions();
+    testProtectedLocalProblemsPreserveClassificationAndOwnership();
+    testProtectedLocalProblemsOwnResultsAndRefuseQuotaExhaustion();
     testLocalProblemProjectionDoesNotForgetPersistedClaims();
     testProblemClaimsPersistUntilExplicitResolution();
     testProblemClaimsArePrivateAndContextScoped();
@@ -1157,6 +1582,11 @@ int main() {
     testF277OffsetsContextAndLinkIdentity();
     testF277PersistedReceiptsFailClosedAndExpire();
     testF277PresenterRestartQuietAndExactAction();
+    testUpcomingProjectionAndFrozenTarget();
+    testUpcomingPresenterIgnoresReminderSettingsAndCapture();
+    testCalendarJoinCardWaitsForHandoff();
+    testCalendarJoinFailureAndRetryKeepOriginalExpiry();
+    testCalendarJoinFailureCannotReviveRetiredAction();
     testF277ReceiptCorruptionAndCapacityNeverEvictLiveClaims();
     testF277PendingActionCannotOutliveMonotonicDeadline();
     testF277PendingActionCannotReturnAfterAnotherCard();

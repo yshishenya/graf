@@ -1,4 +1,5 @@
 #include "MeetingReminderModel.h"
+#include "CalendarMeetingOpener.h"
 #include "../Storage/Sha256.h"
 #include "../Upload/DesktopUploadQueueService.h"
 
@@ -12,11 +13,7 @@
 #include <set>
 
 #ifdef _WIN32
-#include <winsock2.h>
-#include <ws2tcpip.h>
 #include <windows.h>
-#else
-#include <arpa/inet.h>
 #endif
 
 namespace graf::windows {
@@ -108,18 +105,13 @@ bool updateProblemClaim(const NotificationPreferenceStore& store, std::string_vi
         return false;
     }
 }
-bool parseIpLiteral(int family, const std::string& text, void* address) {
-#ifdef _WIN32
-    return InetPtonA(family, text.c_str(), address) == 1;
-#else
-    return inet_pton(family, text.c_str(), address) == 1;
-#endif
-}
 }
 
-std::vector<LocalProblemProjection> projectLocalRecordingProblems(
+namespace {
+template<class Result, class Items>
+Result projectRecordingProblems(
     const LocalProblemContext& currentContext, const LocalProblemContext& queueContext,
-    const std::vector<UploadCustodyItem>& items, bool queueComplete,
+    const Items& items, bool queueComplete,
     const std::optional<CurrentCaptureProblem>& capture, std::uint64_t nowMs) {
     const auto owns = [&](const LocalProblemContext& context) {
         return !currentContext.origin.empty() && !currentContext.owner.empty() && !currentContext.workspace.empty() &&
@@ -130,14 +122,20 @@ std::vector<LocalProblemProjection> projectLocalRecordingProblems(
         bool owned = true, hasRows = false, allUploaded = true, problem = false, fresh = false;
         std::uint64_t occurredAtMs = 0;
     };
-    std::map<std::string, Session> sessions;
+    // Borrow only for this call; the result below owns its identities. Rebind
+    // from the output allocator so protected intermediates share its quota.
+    using Entry = std::pair<const std::string_view, Session>;
+    using Allocator = typename std::allocator_traits<typename Result::allocator_type>::template rebind_alloc<Entry>;
+    std::map<std::string_view, Session, std::less<std::string_view>, Allocator> sessions(
+        std::less<std::string_view>{}, Allocator{});
     const bool queueOwned = owns(queueContext);
     for (const auto& item : items) {
         if (item.sessionId.empty()) continue; // no stable incident to identify
-        auto& session = sessions[item.sessionId];
+        auto& session = sessions[std::string_view(item.sessionId)];
         session.hasRows = true;
         session.owned = session.owned && queueOwned && !item.localRecordingId.empty() &&
-            item.ownerUserId == currentContext.owner && item.ownerWorkspaceId == currentContext.workspace;
+            std::string_view(item.ownerUserId) == currentContext.owner &&
+            std::string_view(item.ownerWorkspaceId) == currentContext.workspace;
         session.allUploaded = session.allUploaded && item.status == UploadQueueStatus::uploaded;
         const bool problem = item.status == UploadQueueStatus::needsAuth ||
             item.status == UploadQueueStatus::quarantined || item.status == UploadQueueStatus::blocked ||
@@ -155,7 +153,7 @@ std::vector<LocalProblemProjection> projectLocalRecordingProblems(
         session.fresh = session.fresh || capture->blocker;
         if (!session.occurredAtMs) session.occurredAtMs = nowMs;
     }
-    std::vector<LocalProblemProjection> result;
+    Result result;
     result.reserve(sessions.size());
     for (const auto& [id, session] : sessions) {
         auto state = LocalProblemState::unknown;
@@ -163,10 +161,30 @@ std::vector<LocalProblemProjection> projectLocalRecordingProblems(
             if (session.problem) state = LocalProblemState::problem;
             else if (queueComplete && session.hasRows && session.allUploaded) state = LocalProblemState::positivelyResolved;
         }
-        result.push_back({id, "capture-problem:" + id, state,
+        using String = decltype(typename Result::value_type{}.sessionId);
+        String incident("capture-problem:");
+        incident.append(id.data(), id.size());
+        result.push_back({String(id.data(), id.size()), std::move(incident), state,
             state == LocalProblemState::problem && session.fresh, session.occurredAtMs});
     }
     return result; // stable session order, independent of row/attempt ordering
+}
+}
+
+std::vector<LocalProblemProjection> projectLocalRecordingProblems(
+    const LocalProblemContext& currentContext, const LocalProblemContext& queueContext,
+    const std::vector<UploadCustodyItem>& items, bool queueComplete,
+    const std::optional<CurrentCaptureProblem>& capture, std::uint64_t nowMs) {
+    return projectRecordingProblems<std::vector<LocalProblemProjection>>(
+        currentContext, queueContext, items, queueComplete, capture, nowMs);
+}
+
+CustodyVector<ProtectedLocalProblemProjection> projectProtectedLocalRecordingProblems(
+    const LocalProblemContext& currentContext, const LocalProblemContext& queueContext,
+    const CustodyVector<BasicUploadCustodyItem<CustodyString, CustodyString>>& items, bool queueComplete,
+    const std::optional<CurrentCaptureProblem>& capture, std::uint64_t nowMs) {
+    return projectRecordingProblems<CustodyVector<ProtectedLocalProblemProjection>>(
+        currentContext, queueContext, items, queueComplete, capture, nowMs);
 }
 
 NotificationPreferences NotificationPreferenceStore::load(std::string_view owner) const {
@@ -268,10 +286,34 @@ void MeetingReminderModel::bind(std::string owner, std::string workspace, std::s
     owner_ = std::move(owner); workspace_ = std::move(workspace); origin_ = std::move(origin);
 }
 void MeetingReminderModel::invalidate() { ++epoch_; owner_.clear(); workspace_.clear(); origin_.clear(); dismissed_.clear(); clearCalendar(); }
-void MeetingReminderModel::clearCalendar() { events_.clear(); }
+void MeetingReminderModel::clearCalendar() { events_.clear(); invalidateUpcoming(); }
 bool MeetingReminderModel::update(CalendarReminderSnapshot snapshot, std::uint64_t epoch) {
     if (owner_.empty() || epoch != epoch_ || normalized(snapshot.userId) != owner_ || normalized(snapshot.workspaceId) != workspace_) return false;
+    // The API decoder validates dates; also keep internal typed callers from
+    // passing NaN into the menu sort or retaining an invalid menu source.
+    upcomingAvailable_ = std::all_of(snapshot.events.begin(), snapshot.events.end(), [](const auto& event) {
+        return std::isfinite(event.startsAt) && std::isfinite(event.endsAt) && event.endsAt > event.startsAt;
+    });
+    showUpcomingTime_ = snapshot.showUpcomingTime; showUpcomingTitle_ = snapshot.showUpcomingTitle;
     events_ = std::move(snapshot.events); return true;
+}
+std::optional<CalendarReminderSnapshot> MeetingReminderModel::upcoming() const {
+    if (!upcomingAvailable_) return std::nullopt;
+    CalendarReminderSnapshot result{owner_, workspace_, events_, showUpcomingTime_, showUpcomingTitle_};
+    std::sort(result.events.begin(), result.events.end(), [](const auto& left, const auto& right) {
+        return left.startsAt < right.startsAt || (left.startsAt == right.startsAt && left.eventId < right.eventId);
+    });
+    if (result.events.size() > 12) result.events.resize(12);
+    return result;
+}
+bool MeetingReminderModel::upcomingCurrent(const CalendarReminderEvent& target, std::uint64_t epoch, double now) const {
+    if (!upcomingAvailable_ || epoch != epoch_ || !std::isfinite(now) || target.eventId.empty() ||
+        !std::isfinite(target.startsAt) || !std::isfinite(target.endsAt) || target.endsAt <= target.startsAt ||
+        now >= target.endsAt || !target.meetingLinkPresent || !safeMeetingUrl(target.meetingUrl)) return false;
+    return std::any_of(events_.begin(), events_.end(), [&](const auto& event) {
+        return event.eventId == target.eventId && event.startsAt == target.startsAt && event.endsAt == target.endsAt &&
+            event.meetingLinkPresent == target.meetingLinkPresent && event.meetingUrl == target.meetingUrl;
+    });
 }
 double MeetingReminderModel::deadline(const CalendarReminderEvent& event, int offsetMinutes) {
     return std::min(event.endsAt, event.startsAt - offsetMinutes * 60.0 + 120);
@@ -304,59 +346,24 @@ std::optional<CalendarReminderEvent> MeetingReminderModel::candidate(double now,
     return result;
 }
 std::optional<CalendarReminderEvent> MeetingReminderModel::revalidate(const ReminderActionTarget& target, double now, bool recording, int offsetMinutes) const {
-    if (owner_.empty() || target.epoch != epoch_) return std::nullopt;
+    const auto event = currentEvent(target, now, recording, offsetMinutes);
+    if (!event || dismissed_.count(dismissalKey(*event))) return std::nullopt;
+    return *event;
+}
+bool MeetingReminderModel::matchesHandoffTarget(const ReminderActionTarget& target, double now, bool recording, int offsetMinutes) const {
+    return currentEvent(target, now, recording, offsetMinutes) != nullptr;
+}
+const CalendarReminderEvent* MeetingReminderModel::currentEvent(const ReminderActionTarget& target, double now, bool recording, int offsetMinutes) const {
+    if (owner_.empty() || target.epoch != epoch_) return nullptr;
     for (const auto& event : events_) {
         if (event.eventId == target.eventId && event.startsAt == target.startsAt &&
-            event.meetingUrl == target.meetingUrl && event.meetingLinkPresent == target.meetingLinkPresent && eligible(event, now, recording, offsetMinutes) &&
-            !dismissed_.count(dismissalKey(event))) return event;
+            event.meetingUrl == target.meetingUrl && event.meetingLinkPresent == target.meetingLinkPresent &&
+            eligible(event, now, recording, offsetMinutes)) return &event;
     }
-    return std::nullopt;
+    return nullptr;
 }
 
 bool MeetingReminderModel::safeMeetingUrl(std::string_view url) {
-    if (url.size() > 4096 || url.size() < 9) return false;
-    if (normalized(std::string(url.substr(0, 8))) != "https://" || url.find('#') != std::string_view::npos) return false;
-    for (auto c : url) if (static_cast<unsigned char>(c) <= 0x20 || c == '\\' || c == 0x7f) return false;
-    const auto end = url.find_first_of("/?", 8);
-    auto authority = url.substr(8, end == std::string_view::npos ? url.size() - 8 : end - 8);
-    if (authority.empty() || authority.find('@') != std::string_view::npos || authority.find('%') != std::string_view::npos) return false;
-    bool ipv6 = authority.front() == '[';
-    std::size_t colon;
-    if (ipv6) {
-        const auto bracket = authority.find(']');
-        if (bracket == std::string_view::npos || bracket < 3) return false;
-        in6_addr address{};
-        if (!parseIpLiteral(AF_INET6, std::string(authority.substr(1, bracket - 1)), &address)) return false;
-        if (bracket + 1 < authority.size() && authority[bracket + 1] != ':') return false;
-        colon = bracket + 1 < authority.size() ? bracket + 1 : std::string_view::npos;
-    } else colon = authority.find(':');
-    if (colon != std::string_view::npos) {
-        auto port = authority.substr(colon + 1);
-        if (port.empty() || port.size() > 5) return false;
-        unsigned value = 0;
-        for (auto c : port) { if (c < '0' || c > '9') return false; value = value * 10 + (c - '0'); }
-        if (value == 0 || value > 65535) return false;
-        authority = authority.substr(0, colon);
-    }
-    if (ipv6) return true;
-    auto host = normalized(std::string(authority));
-    while (!host.empty() && host.back() == '.') host.pop_back();
-    while (!host.empty() && host.front() == '.') host.erase(host.begin());
-    if (host.empty() || host == "localhost" || (host.size() > 10 && host.substr(host.size() - 10) == ".localhost")) return false;
-    for (auto c : host) if (static_cast<unsigned char>(c) < 0x80 && !std::isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '.') return false;
-    in_addr address{};
-    if (parseIpLiteral(AF_INET, host, &address)) {
-        const auto* bytes = reinterpret_cast<const unsigned char*>(&address.s_addr);
-        // Keep canonical decimal spelling even if a platform accepts leading zeroes.
-        if (host != std::to_string(bytes[0]) + "." + std::to_string(bytes[1]) + "." +
-                    std::to_string(bytes[2]) + "." + std::to_string(bytes[3])) return false;
-        return bytes[0] != 10 && bytes[0] != 127 &&
-            !(bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) && !(bytes[0] == 192 && bytes[1] == 168) &&
-            (bytes[0] || bytes[1] || bytes[2] || bytes[3]);
-    }
-    // Do not pass alternative numeric host spellings to ShellExecute's parser.
-    const auto lastLabel = host.substr(host.rfind('.') == std::string::npos ? 0 : host.rfind('.') + 1);
-    return std::any_of(lastLabel.begin(), lastLabel.end(), [](char c) { return (c >= 'a' && c <= 'z') || static_cast<unsigned char>(c) >= 0x80; }) &&
-        lastLabel.rfind("0x", 0) != 0;
+    return CalendarMeetingOpener::validatedHTTPS(url).has_value();
 }
 } // namespace graf::windows

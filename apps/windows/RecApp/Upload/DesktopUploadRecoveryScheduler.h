@@ -24,6 +24,29 @@ public:
     // Custom executors must own all captured state, never UI/queue references.
     using WorkerHandler = std::function<DesktopTransportResult(const UploadCustodyItem&, Cancellation)>;
 
+    // Only values cross the UI boundary. Native inspections belong to the
+    // storage/network workers, never this retained scheduler flight.
+    struct ProtectedFlight {
+        ProtectedDesktopHttpConfig config;
+        RecoveryTrigger trigger = RecoveryTrigger::scheduled;
+        std::uint64_t epoch = 0;
+        std::uint32_t maxAttempts = 8;
+        std::shared_ptr<std::atomic_bool> cancelled = std::allocate_shared<std::atomic_bool>(CustodyAllocator<std::atomic_bool>{}, false);
+        std::shared_ptr<const ProtectedUploadQueueValue> snapshot;
+        CustodyVector<std::size_t> selected;
+        std::optional<std::size_t> manualIndex;
+        bool confirmUnowned = false;
+        std::shared_ptr<const ProtectedDesktopTransportResult> fallback = std::allocate_shared<ProtectedDesktopTransportResult>(CustodyAllocator<ProtectedDesktopTransportResult>{});
+        std::atomic_bool done{false}, leaseReleased{false};
+    };
+    using ProtectedWorker = std::function<bool(std::size_t)>;
+    [[nodiscard]] std::shared_ptr<ProtectedFlight> beginProtected(RecoveryTrigger, ProtectedDesktopHttpConfig, std::uint64_t epoch);
+    // Called only by the storage worker, after prepare commit/adoption. Each
+    // step performs one upload and waits for its result commit/adoption.
+    [[nodiscard]] static bool launchProtected(const std::shared_ptr<ProtectedFlight>&, ProtectedWorker,
+        std::function<void()> completed);
+    void retireProtected() noexcept;
+
     explicit DesktopUploadRecoveryScheduler(DesktopUploadQueueService& queue, std::uint32_t maxAttempts = 8);
     ~DesktopUploadRecoveryScheduler();
     DesktopUploadRecoveryScheduler(const DesktopUploadRecoveryScheduler&) = delete;
@@ -50,12 +73,13 @@ public:
 private:
     struct Flight;
     [[nodiscard]] bool prepare(RecoveryTrigger trigger);
-    static void execute(const std::shared_ptr<Flight>& flight, const WorkerHandler& worker);
+    static void execute(const std::shared_ptr<Flight>& flight, WorkerHandler worker);
     void apply(const UploadCustodyItem& item, const DesktopTransportResult& result);
     DesktopUploadQueueService& queue_;
     std::uint32_t maxAttempts_;
     SessionExpiryHandler sessionExpiryHandler_;
     std::shared_ptr<Flight> flight_;
+    std::shared_ptr<ProtectedFlight> protectedFlight_;
     // Wall-clock-independent pause: a sleep or a clock change must not shorten it.
     std::chrono::steady_clock::time_point deferredUntil_{};
 };

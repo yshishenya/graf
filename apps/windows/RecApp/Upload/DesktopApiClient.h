@@ -1,55 +1,61 @@
 #pragma once
 
 #include "../Contracts/WindowsDesktopContracts.h"
+#include "../Storage/ProtectedCustodyCodec.h"
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <map>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 namespace graf::windows {
 
-struct CreateMeetingRequest {
-    std::string localRecordingId;
-    std::string localMediaRevisionId;
-    std::string sourceKind;
-    std::string mediaScribeSourceMode;
+template<class String> struct BasicCreateMeetingRequest {
+    String localRecordingId;
+    String localMediaRevisionId;
+    String sourceKind;
+    String mediaScribeSourceMode;
     std::uint32_t durationSeconds = 0;
     // Built from the local wall clock at the start of the recording, the same
     // way the macOS client builds its generic title. Without it the server can
     // only show an unnamed meeting placed at the moment of upload.
-    std::string title;
-    std::string titleSource;
+    String title;
+    String titleSource;
     // "YYYY-MM-DDTHH:MM:SSZ", the same wire form the macOS client sends with its
     // ISO-8601 date strategy. Empty means the package carried no usable bounds.
-    std::string startedAtIso;
-    std::string endedAtIso;
+    String startedAtIso;
+    String endedAtIso;
     int displayTimezoneOffsetMinutes = 0;
     [[nodiscard]] bool hasTimeline() const noexcept {
         return !startedAtIso.empty() && !endedAtIso.empty();
     }
 };
+using CreateMeetingRequest = BasicCreateMeetingRequest<std::string>;
 
-struct UploadSessionRequest {
+template<class String> struct BasicUploadSessionRequest {
     std::array<std::string_view, 3> expectedTracks = kV5WireRoles;
     std::array<std::uint64_t, 3> expectedTrackSizes{};
-    std::string manifestSha256;
+    String manifestSha256;
 };
+using UploadSessionRequest = BasicUploadSessionRequest<std::string>;
 
 // Server-declared support for deleting a recording. Nothing may be mutated
 // before this is read: an older server ignores the expected-account headers, and
 // a receipt that fails to decode would arrive after the change was made. The
 // same gate macOS applies with `recording_deletion_protocol_version == 1`.
-struct NotificationContext {
-    std::string userId;
-    std::string workspaceId;
+template<class String> struct BasicNotificationContext {
+    String userId;
+    String workspaceId;
     int protocolVersion = 0;
 };
+using NotificationContext = BasicNotificationContext<std::string>;
 
-// Only the calendar fields needed by the local card, never diagnostic data.
+// Safe ephemeral calendar projection for the card and native menu, never diagnostics.
 struct CalendarReminderEvent {
     std::string eventId;
     double startsAt = 0;
@@ -59,15 +65,43 @@ struct CalendarReminderEvent {
     std::string title;
     bool meetingLinkPresent = false;
     std::string meetingUrl;
+    bool allDay = false;
 };
 
 struct CalendarReminderSnapshot {
     std::string userId;
     std::string workspaceId;
     std::vector<CalendarReminderEvent> events;
+    bool showUpcomingTime = true;
+    bool showUpcomingTitle = true;
 };
 
-struct DesktopHttpConfig;
+// Untrusted resolver data. URL policy/current-owner checks must still precede
+// any OS handoff; providerFamily never selects the application to open.
+struct CalendarJoinTarget {
+    std::string eventId;
+    std::string providerFamily;
+    std::string httpsUrl;
+};
+
+// Data only: source/route/nonce/current-owner authority belongs to the host.
+struct CalendarJoinIntent {
+    std::string eventId;
+    std::string requestId;
+};
+
+// Ephemeral presentation data from the cabinet, not account/route authority.
+// The host must separately validate the current document and native account.
+struct UserTimeMetadata {
+    std::string userId;
+    std::string workspaceId;
+    std::string sessionId;
+    std::string timeZone;
+    std::string documentUrl;
+};
+
+template<class String> struct BasicDesktopHttpConfig;
+using DesktopHttpConfig = BasicDesktopHttpConfig<std::string>;
 struct CalendarReminderResponse {
     std::uint32_t status = 0;
     std::optional<CalendarReminderSnapshot> snapshot;
@@ -80,10 +114,11 @@ struct CalendarReminderResponse {
 // The account a deletion is requested for. macOS sends this pair as
 // `X-Graf-Expected-Actor`/`X-Graf-Expected-Workspace`, and the server compares it
 // with the confirmed session before it changes anything.
-struct DeletionScope {
-    std::string userId;
-    std::string workspaceId;
+template<class String> struct BasicDeletionScope {
+    String userId;
+    String workspaceId;
 };
+using DeletionScope = BasicDeletionScope<std::string>;
 
 enum class DeletionTarget {
     ownOrigin,
@@ -106,33 +141,37 @@ struct LifecycleEntry {
 
 // What the server accepted. `receiptType` says which shape arrived; an unknown
 // shape is a failure, never a success.
-struct DeletionReceipt {
-    std::string receiptType;
-    std::string requestId;
-    std::string meetingId;
-    std::string localRecordingId;
-    std::string phase;
+template<class String> struct BasicDeletionReceipt {
+    String receiptType;
+    String requestId;
+    String meetingId;
+    String localRecordingId;
+    String phase;
     [[nodiscard]] bool accepted() const noexcept { return phase == "accepted"; }
 };
+using DeletionReceipt = BasicDeletionReceipt<std::string>;
 
 // A purge task the server asks this device to carry out: remove the local copies
 // of a meeting it has already deleted, and answer with what could be proven.
 // The task names a meeting; the queue names its rows, so the two are matched by
 // the meeting identifier the server itself returned.
-struct LocalPurgeTask {
-    std::string taskId;
-    std::string meetingId;
+template<class String> struct BasicLocalPurgeTask {
+    String taskId;
+    String meetingId;
     // purge_local_buffers, purge_local_exports or confirm_local_expiry.
-    std::string taskType;
+    String taskType;
     // pending, claimed, acknowledged, failed, unreachable, expired or
     // local_expiry_relied_upon.
-    std::string state;
-    std::string safeReason;
+    String state;
+    String safeReason;
     // Kept exactly as the server sent it. The client does not schedule by it yet,
     // but a task without a usable instant is not a task it may act on.
-    std::string expiresAt;
+    String expiresAt;
     [[nodiscard]] bool acknowledged() const noexcept { return state == "acknowledged"; }
 };
+using LocalPurgeTask = BasicLocalPurgeTask<std::string>;
+template<class String> using BasicLocalPurgeTasks = std::conditional_t<std::is_same_v<String, std::string>,
+    std::vector<BasicLocalPurgeTask<String>>, CustodyVector<BasicLocalPurgeTask<String>>>;
 
 enum class LocalPurgeAckState {
     acknowledged,
@@ -145,7 +184,8 @@ public:
     static constexpr std::string_view createMeetingPath = "/api/v1/meetings";
     static constexpr std::string_view createUploadSessionSuffix = "/upload-sessions";
 
-    [[nodiscard]] static std::optional<CreateMeetingRequest> createMeetingRequest(
+    template<class String = std::string>
+    [[nodiscard]] static std::optional<BasicCreateMeetingRequest<String>> createMeetingRequest(
         std::string_view localRecordingId,
         std::string_view localMediaRevisionId,
         std::uint32_t durationSeconds,
@@ -156,23 +196,28 @@ public:
     // "YYYY-MM-DD HH:mm" in the display time zone of the recording, computed
     // from the epoch instant and the offset alone so the result cannot depend on
     // the machine locale of whoever replays it. Empty for an unusable instant.
-    [[nodiscard]] static std::string formatDisplayMinute(
+    template<class String = std::string>
+    [[nodiscard]] static String formatDisplayMinute(
         std::uint64_t epochMs,
-        int displayTimezoneOffsetMinutes) noexcept;
+        int displayTimezoneOffsetMinutes) noexcept(std::is_same_v<String, std::string>);
 
     // "YYYY-MM-DDTHH:MM:SSZ" for the same instant, always UTC.
-    [[nodiscard]] static std::string formatUtcInstant(std::uint64_t epochMs) noexcept;
+    template<class String = std::string>
+    [[nodiscard]] static String formatUtcInstant(std::uint64_t epochMs) noexcept(std::is_same_v<String, std::string>);
 
     // Exact request body for POST /api/v1/meetings. It lives here, next to the
     // request it serializes, so the wire contract can be asserted without a
     // network peer. Optional fields are omitted, never sent as null.
-    [[nodiscard]] static std::string createMeetingBody(const CreateMeetingRequest& request);
+    template<class String>
+    [[nodiscard]] static String createMeetingBody(const BasicCreateMeetingRequest<String>& request);
 
-    [[nodiscard]] static std::optional<UploadSessionRequest> uploadSessionRequest(
+    template<class String = std::string>
+    [[nodiscard]] static std::optional<BasicUploadSessionRequest<String>> uploadSessionRequest(
         const std::array<std::uint64_t, 3>& expectedTrackSizes,
         std::string_view manifestSha256);
 
-    [[nodiscard]] static std::string idempotencyKey(
+    template<class String = std::string>
+    [[nodiscard]] static String idempotencyKey(
         std::string_view scope,
         std::string_view directoryId,
         std::string_view sessionId);
@@ -192,21 +237,37 @@ public:
     // Paths are built from one validated identifier each, so a value from the
     // cabinet can never add a path segment or query. Empty means the identifier
     // is not usable and no request may be made.
-    [[nodiscard]] static std::string ownOriginDeletionPath(std::string_view directoryId);
-    [[nodiscard]] static std::string meetingDeletionPath(std::string_view meetingId);
+    template<class String = std::string> [[nodiscard]] static String ownOriginDeletionPath(std::string_view directoryId);
+    template<class String = std::string> [[nodiscard]] static String meetingDeletionPath(std::string_view meetingId);
 
-    [[nodiscard]] static std::optional<NotificationContext> decodeNotificationContext(std::string_view json);
+    template<class String = std::string>
+    [[nodiscard]] static std::optional<BasicNotificationContext<String>> decodeNotificationContext(
+        std::string_view json, const std::atomic<bool>* cancellation = nullptr);
     static constexpr std::string_view calendarUpcomingPath = "/api/v1/desktop/calendar/upcoming";
     [[nodiscard]] static std::optional<CalendarReminderSnapshot> decodeCalendarReminders(std::string_view json);
+    // Exact, bounded ExecuteScript result. Named-zone support is validated by
+    // the native formatter; this decoder grants no auth/Join authority.
+    [[nodiscard]] static std::optional<UserTimeMetadata> decodeUserTimeMetadata(std::string_view json);
+    [[nodiscard]] static std::string calendarJoinTargetPath(std::string_view eventId);
+    [[nodiscard]] static std::optional<CalendarJoinTarget> decodeCalendarJoinTarget(
+        std::string_view json, std::string_view expectedEventId);
+    [[nodiscard]] static std::optional<CalendarJoinIntent> decodeCalendarJoinIntent(
+        std::string_view payload, std::string_view command);
+    // Validate original JSON before SDK Stringify can erase duplicate fields.
+    // Owns the raw payload; does not validate bridge authority or dispatch work.
+    [[nodiscard]] static std::optional<std::string> calendarJoinEnvelopePayload(
+        std::string_view json, std::string_view command);
     // Bounded read-only request; no redirects, cookie jar, or upload effects.
     [[nodiscard]] static CalendarReminderResponse calendarReminders(const DesktopHttpConfig& config);
     [[nodiscard]] static std::optional<std::int64_t> calendarAuthExpiryFromHeader(std::string_view raw);
     // Strict: every listed entry must be a complete, known shape, or the whole
     // answer is rejected. A partial list would hide a target the user selected.
     [[nodiscard]] static std::optional<std::vector<LifecycleEntry>> decodeLifecycleEntries(std::string_view json);
-    [[nodiscard]] static std::optional<DeletionReceipt> decodeDeletionReceipt(std::string_view json);
-    [[nodiscard]] static std::string originCancellationBody(std::string_view operationId);
-    [[nodiscard]] static std::string meetingDeletionBody();
+    template<class String = std::string>
+    [[nodiscard]] static std::optional<BasicDeletionReceipt<String>> decodeDeletionReceipt(
+        std::string_view json, const std::atomic<bool>* cancellation = nullptr);
+    template<class String = std::string> [[nodiscard]] static String originCancellationBody(std::string_view operationId);
+    template<class String = std::string> [[nodiscard]] static String meetingDeletionBody();
     [[nodiscard]] static std::string lifecycleBody(const std::vector<std::string>& origins,
                                                   const std::vector<std::string>& meetingIds);
     // Bounded like the server's own limit, and never empty: the endpoint rejects
@@ -214,8 +275,11 @@ public:
     [[nodiscard]] static bool validLifecycleSelection(
         const std::vector<std::string>& origins, const std::vector<std::string>& meetingIds,
         std::size_t maxEntries) noexcept;
-    [[nodiscard]] static std::vector<std::pair<std::string, std::string>> scopedAccountHeaders(
-        const DeletionScope& scope);
+    // Borrowed values: invalidated if scope is changed or destroyed.
+    template<class String>
+    [[nodiscard]] static std::optional<std::array<std::pair<std::string_view, std::string_view>, 2>> scopedAccountHeaders(
+        const BasicDeletionScope<String>& scope);
+    template<class String> static void scopedAccountHeaders(const BasicDeletionScope<String>&&) = delete;
 
     // Identity of one deletion request. The server treats `operation_id` as the
     // name of the request, so it is derived from the target and the account that
@@ -239,17 +303,18 @@ public:
     // Only the canonical path is ever used. The server also sends `ack_url`, and
     // its path is ignored: a client that follows a server-provided address with
     // its session attached would let the answer decide where that session goes.
-    [[nodiscard]] static std::string localPurgeTaskPath(std::string_view meetingId);
-    [[nodiscard]] static std::string localPurgeAckPath(std::string_view taskId);
-    [[nodiscard]] static std::optional<LocalPurgeTask> decodeLocalPurgeTask(std::string_view json);
-    [[nodiscard]] static std::optional<std::vector<LocalPurgeTask>> decodeLocalPurgeTaskList(std::string_view json);
+    template<class String = std::string> [[nodiscard]] static String localPurgeTaskPath(std::string_view meetingId);
+    template<class String = std::string> [[nodiscard]] static String localPurgeAckPath(std::string_view taskId);
+    template<class String = std::string> [[nodiscard]] static std::optional<BasicLocalPurgeTask<String>> decodeLocalPurgeTask(
+        std::string_view json, const std::atomic<bool>* cancellation = nullptr);
+    template<class String = std::string> [[nodiscard]] static std::optional<BasicLocalPurgeTasks<String>> decodeLocalPurgeTaskList(
+        std::string_view json, const std::atomic<bool>* cancellation = nullptr);
     [[nodiscard]] static std::string_view localPurgeAckStateName(LocalPurgeAckState state) noexcept;
     [[nodiscard]] static bool validAckReasonCode(std::string_view reasonCode) noexcept;
     // Exact ack body. Optional fields are omitted, never sent as null, the same
     // way the macOS client encodes them.
-    [[nodiscard]] static std::string localPurgeAckBody(LocalPurgeAckState state, std::string_view reasonCode,
-                                                      std::string_view clientVersion,
-                                                      std::string_view completedAtIso);
+    template<class String = std::string> [[nodiscard]] static String localPurgeAckBody(LocalPurgeAckState state,
+        std::string_view reasonCode, std::string_view clientVersion, std::string_view completedAtIso);
 
     [[nodiscard]] static bool accountId(std::string_view value) noexcept;
     // Bounded, fully validated root object. Views borrow json; values retain

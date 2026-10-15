@@ -33,6 +33,15 @@ std::vector<CanonicalAudioFrame> RecordingAudioTimeline::takeFrames() {
     return result;
 }
 
+void RecordingAudioTimeline::setMicrophonePaused(bool paused) noexcept {
+    microphonePaused_ = paused;
+    if (paused) {
+        // Resume must never restore pending audio or the interpolation cache.
+        for (auto& sample : microphone_.samples) sample.second = 0.0F;
+        microphone_.lastSample = 0.0F;
+    }
+}
+
 bool RecordingAudioTimeline::normalizeAndStore(AudioBatch&& batch) {
     if (batch.sampleRate != 48'000 || batch.channels == 0 ||
         batch.routeGeneration == 0 || batch.clockDomain == 0 || batch.discontinuity) {
@@ -122,10 +131,15 @@ bool RecordingAudioTimeline::normalizeAndStore(AudioBatch&& batch) {
         }
         return static_cast<float>(sum / batch.channels);
     };
-    const auto firstSample = monoSample(0);
+    // Validate raw samples and metadata above, even when their audio is suppressed.
+    const bool suppress = batch.source == AudioSource::microphone &&
+        (microphonePaused_ || batch.microphoneSuppressed);
+    const auto firstSample = suppress ? 0.0F : monoSample(0);
     for (auto pts = start; pts < inputEnd; ++pts) {
         float value;
-        if (pts < batch.ptsFrames) {
+        if (suppress) {
+            value = 0.0F;
+        } else if (pts < batch.ptsFrames) {
             const auto fraction = static_cast<double>(pts - state.endPts + 1) /
                 static_cast<double>(batch.ptsFrames - state.endPts + 1);
             value = static_cast<float>(state.lastSample +
@@ -140,7 +154,7 @@ bool RecordingAudioTimeline::normalizeAndStore(AudioBatch&& batch) {
         static_cast<std::uint64_t>(state.endPts - batch.ptsFrames), frameCount);
     if (inputEnd > state.endPts) {
         state.endPts = inputEnd;
-        state.lastSample = monoSample(frameCount - 1);
+        state.lastSample = suppress ? 0.0F : monoSample(frameCount - 1);
     }
     state.routeGeneration = batch.routeGeneration;
     state.channels = batch.channels;

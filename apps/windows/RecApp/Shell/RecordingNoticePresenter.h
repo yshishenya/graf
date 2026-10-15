@@ -104,7 +104,7 @@ private:
     std::function<void()> onClose_;
     NoticePresentationHooks hooks_;
     std::uint64_t generation_ = 0, shortSequence_ = 0, historySequence_ = 0;
-    bool quiet_ = false, dark_ = false, themeExplicit_ = false, preparing_ = false;
+    bool quiet_ = false, dark_ = false, themeExplicit_ = false, preparing_ = false, actionPending_ = false;
     std::optional<Clock::time_point> holdStarted_;
     Clock::time_point lastTick_{};
     struct Seen { std::size_t identity; NoticeKind kind; Clock::time_point until; bool shown; };

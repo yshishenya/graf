@@ -121,9 +121,20 @@ length0 имеет count0, не является пустым восстанов
 явного SetSize/seek extension, никогда вместо отсутствующих/битых DATA.
 Plain index≤4096+count×16, max4198400B; physical index≤это+65536.
 Physical block≤payload+4096; native выход сверх bound — отказ без публикации.
-Метаданные: manifest≤4096B, queue≤4MiB (существующий writer cap), служебные
+Метаданные: manifest≤64KiB, queue≤4MiB (существующий writer cap), служебные
 bootstrap/package-state/intent/recovery≤64KiB каждый. Это пределы нового
 кодека; oversized legacy сохраняется blocked, не обрезается/не «исправляется».
+
+Поправка 2026-10-04 для T120: прежний manifest≤4096B не вмещал повторные
+privacySegments Mac. Меняется только logical limit роли manifest; один
+64KiB payload остаётся в существующем256KiB block, physical envelope/index
+bounds, owned64MiB, job2MiB, cache/pins и аудиодопуски не увеличиваются.
+Проверяется весь сериализованный manifest до OPEN, не приблизительный размер
+или число сегментов. Decoder/reader/writer/legacy validator согласуют один
+предел, exact/limit+1 и allocation/failure проверки обязательны. Новая форма
+не принимается прежней exact regex через ослабление substring checks.
+Эта проектная поправка требует свежего независимого gate перед изменением
+кодека/потребителей; исторические приёмки4096B остаются историческими.
 
 ## 4. Commit, неопределённый результат и восстановление
 
@@ -420,6 +431,13 @@ index; direct historical barrier имеет отдельный validator ниж�
 Запись payload для target generation готовится
 до публикации. Это не изменение существующих logical v5 manifest/v3/v2 codecs.
 
+Уточнение владельца 2026-10-04: package-state имеет **ровно девять** top-level
+полей `schema`, `store_id`, `object_id`, `generation`, `directory_id`, `phase`,
+`reason`, `short_recording_discarded`, `refs`. Единственный ключ версии —
+`schema`, строка с точным schema string из таблицы. `schema_version`, aliases,
+unknown/missing/duplicate decoded keys отвергаются; правила других records
+и существующего logical v5 manifest этим уточнением не меняются.
+
 | Record / точный schema string | Остальные точные поля и типы |
 | --- | --- |
 | bootstrap / `graf.custody.bootstrap.v1` | store_id:id, object_id:id, generation:u64, mode:`migrating\|protected`, queue_object_id:id, transaction_id:id/null, subject:`queue\|package`/null, directory_id:identity/null |
@@ -583,3 +601,14 @@ UI/callback latency/SC003 и lifetime owned/MF memory peaks. App prerequisites
 [IStream](https://learn.microsoft.com/en-us/windows/win32/api/objidl/nn-objidl-istream),
 [MediaEngine byte stream](https://learn.microsoft.com/en-us/windows/win32/api/mfmediaengine/nf-mfmediaengine-imfmediaengineex-setsourcefrombytestream).
 Wire/authority/bounds выше — проект GRAF, не стандарт Microsoft.
+
+### Уточнение внутренней HTTP-интеграции T116 — 2026-10-10
+
+Конструкция без изменения wire/schema/лимитов: `../plan.md`, раздел «T116:
+защищённая HTTP-отправка и принятие результата». Применяются §5–7 выше.
+Network не исполняется на единственном storage worker; UI не владеет native
+inspection. Prepare changes и result truth/status публикуются каждый одним
+full candidate с adoption ACK. Existing retry/account/server-truth правила
+сохраняются. HTTP-body имеет одного charged immutable owner; request copies
+не копируют logical content и не продлевают неучтённую plaintext allocation.
+До независимого принятия конструкции и отказных RED production HTTP не меняется.

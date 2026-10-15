@@ -31,6 +31,62 @@ std::string replaceOnce(std::string text, std::string_view before, std::string_v
     return text;
 }
 
+void testProtectedDeletionTransport() {
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    {
+        ProtectedDesktopHttpConfig config;
+        config.workspaceId = kWorkspace; config.sessionToken = "generated-protected-delete-token";
+        config.confirmedIdentity = BasicDesktopAccountIdentity<CustodyString>{CustodyString(kActor), CustodyString(kWorkspace)};
+        config.scopedAccount = BasicDeletionScope<CustodyString>{CustodyString(kActor), CustodyString(kWorkspace)};
+        auto cancel = std::allocate_shared<std::atomic<bool>>(CustodyAllocator<std::atomic<bool>>{}, false);
+        config.cancellation = cancel;
+        BasicDeletionRequestPlan<CustodyString> entry;
+        entry.target = DeletionTarget::ownOrigin; entry.targetId = "generated-directory"; entry.operationId = kRequest;
+        entry.path = DesktopApiClient::ownOriginDeletionPath<CustodyString>(entry.targetId);
+        entry.body = DesktopApiClient::originCancellationBody<CustodyString>(entry.operationId);
+        const auto gate = std::string("{\"user_id\":\"")+std::string(kActor)+"\",\"workspace_id\":\""+
+            std::string(kWorkspace)+"\",\"recording_deletion_protocol_version\":1}";
+        unsigned calls = 0; bool cancelAtGate = false; unsigned gateStatus = 200;
+        const DesktopHttpTransport::ProtectedUploadSend wire = [&](const auto& actual, const auto& call) {
+            static_assert(std::is_same_v<typename std::decay_t<decltype(call.body)>, CustodyString>);
+            assert(actual.scopedAccount && actual.scopedAccount->userId == kActor && actual.scopedAccount->workspaceId == kWorkspace);
+            ++calls;
+            DesktopHttpTransport::ProtectedUploadResponse response;
+            if (call.method == "GET") {
+                assert(call.path == DesktopApiClient::notificationContextPath && call.body.empty());
+                response.status = gateStatus; response.body = std::string_view(gate); response.retryAfter = "67";
+                response.authExpiresAt = "1790000000";
+                if (cancelAtGate) cancel->store(true);
+            } else {
+                assert(call.method == "POST" && call.path == entry.path && call.body == entry.body);
+                response.status = 202; response.body = "{\"phase\":\"accepted\",\"fixture\":\"generated-owned-response\"}";
+            }
+            return response;
+        };
+        const auto result = DesktopHttpTransport::deletionProtected(config, entry, true, wire);
+        assert(result && result->accepted() && calls == 2 && result->authExpiresAt == 1790000000);
+        const auto once = DesktopHttpTransport::deletionProtected(config, entry, false, wire);
+        assert(once && once->accepted() && calls == 3);
+        const auto before = calls; auto invalid = entry; invalid.body = "{}";
+        assert(DesktopHttpTransport::deletionProtected(config, invalid, true, wire)->safeReason == "invalid_target" && calls == before);
+        auto wrong = config; wrong.scopedAccount->workspaceId = "99999999-9999-4999-8999-999999999999";
+        assert(DesktopHttpTransport::deletionProtected(wrong, entry, true, wire)->safeReason == "invalid_scope" && calls == before);
+        cancelAtGate = true;
+        const auto cancelled = DesktopHttpTransport::deletionProtected(config, entry, true, wire);
+        assert(cancelled && !cancelled->accepted() && calls == before + 1);
+        cancelAtGate = false; cancel->store(false); gateStatus = 429;
+        const auto limited = DesktopHttpTransport::deletionProtected(config, entry, true, wire);
+        assert(limited && !limited->accepted() && limited->safeReason == "rate_limit" && limited->retryAfterSeconds == 67);
+        const auto count = CustodyOwnedMemory::limit - CustodyOwnedMemory::usedBytes();
+        CustodyAllocator<char> allocator; auto* reserved = allocator.allocate(count);
+        const auto noQuota = DesktopHttpTransport::deletionProtected(config, entry, true, wire);
+        allocator.deallocate(reserved, count);
+        assert(!noQuota && calls == before + 2);
+        const auto parsed = DesktopApiClient::decodeNotificationContext<CustodyString>(gate, cancel.get());
+        assert(parsed && parsed->userId == kActor && parsed->workspaceId == kWorkspace && parsed->protocolVersion == 1);
+    }
+    assert(CustodyOwnedMemory::usedBytes() == baseline);
+}
 void testNotificationContext() {
     // The exact answer of GET /api/v1/desktop/notification-context.
     const auto gate = std::string("{\"user_id\":\"") + std::string(kActor) + "\",\"workspace_id\":\"" +
@@ -325,6 +381,130 @@ void testPurgeAckBodies() {
                                                std::string(81, 'a')).empty());
 }
 
+void testProtectedPurgeCodec() {
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    {
+        const auto one = purgeTask(kRequest, kMeeting, "purge_local_buffers", "pending",
+                                  "null", "2026-09-20T12:00:00Z");
+        auto cancel = std::allocate_shared<std::atomic<bool>>(CustodyAllocator<std::atomic<bool>>{}, false);
+        const auto task = DesktopApiClient::decodeLocalPurgeTask<CustodyString>(one, cancel.get());
+        assert(task && task->taskId == kRequest && task->meetingId == kMeeting && !task->acknowledged());
+        assert(DesktopApiClient::localPurgeTaskPath<CustodyString>(kMeeting) ==
+               std::string_view(DesktopApiClient::localPurgeTaskPath(kMeeting)));
+        assert(DesktopApiClient::localPurgeAckPath<CustodyString>(kRequest) ==
+               std::string_view(DesktopApiClient::localPurgeAckPath(kRequest)));
+        assert(DesktopApiClient::localPurgeAckBody<CustodyString>(LocalPurgeAckState::acknowledged,
+            "local_artifacts_deleted", "generated-client", "2026-09-20T12:00:00Z") ==
+            std::string_view(DesktopApiClient::localPurgeAckBody(LocalPurgeAckState::acknowledged,
+                "local_artifacts_deleted", "generated-client", "2026-09-20T12:00:00Z")));
+        for (const auto& invalid : {std::string("{}"), std::string("{\"tasks\":null}"),
+            "{\"tasks\":[" + one + ",{}]}",
+            "{\"tasks\":[" + replaceOnce(one, "purge_local_buffers", "unknown") + "]}",
+            "{\"tasks\":[" + replaceOnce(one, "pending", "unknown") + "]}",
+            "{\"tasks\":[" + replaceOnce(one, std::string(kMeeting), "invalid") + "]}",
+            "{\"tasks\":[" + replaceOnce(one, "2026-09-20T12:00:00Z", "invalid") + "]}",
+            "{\"tasks\":[" + one + "],\"tasks\":[]}"}) {
+            assert(!DesktopApiClient::decodeLocalPurgeTaskList(invalid));
+            assert(!DesktopApiClient::decodeLocalPurgeTaskList<CustodyString>(invalid, cancel.get()));
+        }
+        std::string list = "{\"tasks\":[";
+        for (std::size_t i = 0; i < 200; ++i) { if (i) list += ','; list += one; }
+        const auto tasks = DesktopApiClient::decodeLocalPurgeTaskList<CustodyString>(list + "]}", cancel.get());
+        assert(tasks && tasks->size() == 200 && tasks->back().taskId == kRequest);
+        assert(!DesktopApiClient::decodeLocalPurgeTaskList<CustodyString>(list + ',' + one + "]}", cancel.get()));
+        cancel->store(true);
+        bool stopped = false;
+        try { (void)DesktopApiClient::decodeLocalPurgeTaskList<CustodyString>(list + "]}", cancel.get()); }
+        catch (...) { stopped = true; }
+        assert(stopped);
+        cancel->store(false);
+        const auto before = CustodyOwnedMemory::usedBytes();
+        CustodyAllocator<char> allocator;
+        const auto count = CustodyOwnedMemory::limit - before;
+        auto* reserved = allocator.allocate(count);
+        bool refused = false;
+        try { (void)DesktopApiClient::decodeLocalPurgeTaskList<CustodyString>(list + "]}", cancel.get()); }
+        catch (const std::bad_alloc&) { refused = true; }
+        allocator.deallocate(reserved, count);
+        assert(refused && CustodyOwnedMemory::usedBytes() == before);
+    }
+    assert(CustodyOwnedMemory::usedBytes() == baseline);
+}
+
+void testProtectedPurgeTransport() {
+    const auto baseline = CustodyOwnedMemory::usedBytes();
+    {
+        ProtectedDesktopHttpConfig config;
+        config.workspaceId = kWorkspace; config.sessionToken = "generated-purge-token";
+        config.confirmedIdentity = BasicDesktopAccountIdentity<CustodyString>{CustodyString(kActor), CustodyString(kWorkspace)};
+        config.scopedAccount = BasicDeletionScope<CustodyString>{CustodyString(kActor), CustodyString(kWorkspace)};
+        auto cancel = std::allocate_shared<std::atomic<bool>>(CustodyAllocator<std::atomic<bool>>{}, false);
+        config.cancellation = cancel;
+        unsigned calls = 0; unsigned gateStatus = 200; bool stopAtGate = false;
+        std::string_view expectedMethod = "GET", expectedPath = DesktopApiClient::purgeTasksPath;
+        std::string expectedBody;
+        const auto gate = std::string("{\"user_id\":\"") + std::string(kActor) + "\",\"workspace_id\":\"" +
+            std::string(kWorkspace) + "\",\"recording_deletion_protocol_version\":1}";
+        const auto one = replaceOnce(purgeTask(kRequest, kMeeting, "purge_local_buffers", "pending", "null",
+            "2026-09-20T12:00:00Z"), "/api/v1/desktop/local-purge-tasks/" + std::string(kRequest) + "/ack",
+            "https://elsewhere.invalid/collect");
+        const DesktopHttpTransport::ProtectedUploadSend wire = [&](const auto& actual, const auto& call) {
+            static_assert(std::is_same_v<std::decay_t<decltype(call.path)>, CustodyString>);
+            static_assert(std::is_same_v<std::decay_t<decltype(call.body)>, CustodyString>);
+            assert(actual.scopedAccount && actual.scopedAccount->userId == kActor && actual.scopedAccount->workspaceId == kWorkspace);
+            ++calls;
+            DesktopHttpTransport::ProtectedUploadResponse response;
+            if (call.path == DesktopApiClient::notificationContextPath) {
+                assert(call.method == "GET" && call.body.empty());
+                response.status = gateStatus; response.body = std::string_view(gate);
+                response.retryAfter = "67"; response.authExpiresAt = "1790000000";
+                if (stopAtGate) cancel->store(true);
+            } else {
+                assert(call.method == expectedMethod && call.path == expectedPath && call.body == std::string_view(expectedBody));
+                response.status = 200;
+                if (call.method == "GET") response.body = std::string_view("{\"tasks\":[" + one + "]}");
+                else response.body = std::string_view(one);
+            }
+            return response;
+        };
+        const auto list = DesktopHttpTransport::localPurgeTasksProtected(config, true, wire);
+        assert(list && list->accepted() && calls == 2 && list->authExpiresAt == 1790000000);
+        const auto tasks = DesktopApiClient::decodeLocalPurgeTaskList<CustodyString>(list->body, cancel.get());
+        assert(tasks && tasks->size() == 1);
+        expectedMethod = "POST";
+        const auto ensurePath = DesktopApiClient::localPurgeTaskPath(kMeeting); expectedPath = ensurePath;
+        const auto ensured = DesktopHttpTransport::ensureLocalPurgeTaskProtected(config, kMeeting, false, wire);
+        assert(ensured && ensured->accepted() && calls == 3);
+        const auto ackPath = DesktopApiClient::localPurgeAckPath(tasks->front().taskId); expectedPath = ackPath;
+        expectedBody = DesktopApiClient::localPurgeAckBody(LocalPurgeAckState::failed, "local_purge_unverified", config.clientVersion, "");
+        const auto ack = DesktopHttpTransport::acknowledgeLocalPurgeTaskProtected(config, tasks->front().taskId,
+            LocalPurgeAckState::failed, "local_purge_unverified", "", false, wire);
+        assert(ack && ack->accepted() && calls == 4); // HTTP acceptance, not proof of deletion.
+        const auto before = calls;
+        assert(DesktopHttpTransport::ensureLocalPurgeTaskProtected(config, "../bad", true, wire)->safeReason == "invalid_target");
+        assert(DesktopHttpTransport::acknowledgeLocalPurgeTaskProtected(config, kRequest,
+            LocalPurgeAckState::failed, "", "", true, wire)->safeReason == "invalid_body");
+        auto wrong = config; wrong.scopedAccount->workspaceId = kRequest;
+        assert(DesktopHttpTransport::localPurgeTasksProtected(wrong, true, wire)->safeReason == "invalid_scope");
+        auto emptySession = config; emptySession.sessionToken.clear();
+        assert(!DesktopHttpTransport::localPurgeTasksProtected(emptySession, true, wire)->accepted());
+        assert(calls == before);
+        stopAtGate = true;
+        assert(!DesktopHttpTransport::localPurgeTasksProtected(config, true, wire)->accepted() && calls == before + 1);
+        assert(!DesktopHttpTransport::localPurgeTasksProtected(config, false, wire)->accepted() && calls == before + 1);
+        stopAtGate = false; cancel->store(false); gateStatus = 429;
+        const auto limited = DesktopHttpTransport::localPurgeTasksProtected(config, true, wire);
+        assert(limited && limited->safeReason == "rate_limit" && limited->retryAfterSeconds == 67 && calls == before + 2);
+        CustodyAllocator<char> allocator;
+        const auto count = CustodyOwnedMemory::limit - CustodyOwnedMemory::usedBytes();
+        auto* reserved = allocator.allocate(count);
+        const auto noQuota = DesktopHttpTransport::localPurgeTasksProtected(config, true, wire);
+        allocator.deallocate(reserved, count);
+        assert(!noQuota && calls == before + 2);
+    }
+    assert(CustodyOwnedMemory::usedBytes() == baseline);
+}
+
 void testPurgeCallsRefusedBeforeTheWire() {
     DesktopHttpConfig config;
     const DesktopHttpTransport transport(config);
@@ -346,13 +526,14 @@ void testPurgeCallsRefusedBeforeTheWire() {
 
 void testScopedHeaders() {
     const auto headers = DesktopApiClient::scopedAccountHeaders(scope);
-    assert(headers.size() == 2);
-    assert(headers[0].first == "X-Graf-Expected-Actor" && headers[0].second == kActor);
-    assert(headers[1].first == "X-Graf-Expected-Workspace" && headers[1].second == kWorkspace);
+    assert(headers && headers->size() == 2);
+    assert((*headers)[0].first == "X-Graf-Expected-Actor" && (*headers)[0].second == kActor);
+    assert((*headers)[1].first == "X-Graf-Expected-Workspace" && (*headers)[1].second == kWorkspace);
+    assert((*headers)[0].second.data() == scope.userId.data() && (*headers)[1].second.data() == scope.workspaceId.data());
     for (const auto& invalid : {DeletionScope{}, DeletionScope{"not-a-uuid", std::string(kWorkspace)},
                                 DeletionScope{std::string(kActor), ""},
                                 DeletionScope{std::string(kActor), "22222222-2222-4222-8222-22222222222A"}}) {
-        assert(DesktopApiClient::scopedAccountHeaders(invalid).empty());
+        assert(!DesktopApiClient::scopedAccountHeaders(invalid));
     }
 }
 
@@ -397,6 +578,9 @@ void testDeletionWaitReasonsReachThePageInItsOwnSpelling() {
 }
 
 int main() {
+    testProtectedDeletionTransport();
+    testProtectedPurgeCodec();
+    testProtectedPurgeTransport();
     testDeletionWaitReasonsReachThePageInItsOwnSpelling();
     testNotificationContext();
     testDeletionPaths();

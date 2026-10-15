@@ -4,12 +4,20 @@
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <fstream>
 #include <functional>
+#include <iterator>
+#include <iostream>
 #include <sstream>
 #include <utility>
+#include <objidl.h>
+#include <mfapi.h>
+#include <mfidl.h>
+#include <mfreadwrite.h>
+#include <wrl/client.h>
 
 // Faults are local to this executable, never production settings or fallbacks.
 namespace {
@@ -68,9 +76,105 @@ void inject(HashFault selected, unsigned ordinal = 1) {
 #include "../../RecApp/Storage/ProtectedCustodyCodec.h"
 #include "../../RecApp/Storage/ProtectedPackedCustodyCodec.h"
 #include "../../RecApp/Storage/ProtectedCustodyPrimitives.h"
+#include "../GeneratedRecordingFixtures.h"
+
+namespace {
+class HashInput final : public IStream {
+public:
+    std::string bytes;
+    std::function<void()> afterRead;
+    HRESULT readResult = S_OK, seekResult = S_OK;
+    bool shortRead = false, invalidCount = false;
+    unsigned reads = 0;
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void** p) override { if (!p) return E_POINTER; *p = this; AddRef(); return S_OK; }
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++refs_; }
+    ULONG STDMETHODCALLTYPE Release() override { const auto n = --refs_; if (!n) delete this; return n; }
+    HRESULT STDMETHODCALLTYPE Read(void* p, ULONG n, ULONG* got) override {
+        ++reads;
+        const auto count = static_cast<ULONG>(std::min<std::size_t>(n, bytes.size()-cursor_));
+        std::memcpy(p, bytes.data()+cursor_, count); cursor_ += count;
+        *got = invalidCount ? n+1 : shortRead && count ? count-1 : count;
+        if (afterRead) std::exchange(afterRead, {})();
+        return readResult != S_OK ? readResult : count == n ? S_OK : S_FALSE;
+    }
+    HRESULT STDMETHODCALLTYPE Seek(LARGE_INTEGER, DWORD, ULARGE_INTEGER* p) override { if (p) p->QuadPart = cursor_; return seekResult; }
+    HRESULT STDMETHODCALLTYPE Write(const void*, ULONG, ULONG*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE SetSize(ULARGE_INTEGER) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE CopyTo(IStream*, ULARGE_INTEGER, ULARGE_INTEGER*, ULARGE_INTEGER*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE Commit(DWORD) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE Revert() override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE LockRegion(ULARGE_INTEGER, ULARGE_INTEGER, DWORD) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE UnlockRegion(ULARGE_INTEGER, ULARGE_INTEGER, DWORD) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE Stat(STATSTG*, DWORD) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE Clone(IStream**) override { return E_NOTIMPL; }
+private:
+    ULONG refs_ = 1;
+    std::size_t cursor_ = 0;
+};
+void protectedHash() {
+    using namespace graf::windows;
+    auto cancelled = std::make_shared<std::atomic<bool>>(false);
+    const auto input = [](std::size_t count) {
+        Microsoft::WRL::ComPtr<HashInput> stream; stream.Attach(new HashInput);
+        stream->bytes.assign(count, 'x'); return stream;
+    };
+    const auto before = CustodyOwnedMemory::usedBytes();
+    for (std::size_t count : {0U, 1U, 65536U, 65537U}) {
+        inject(HashFault::none); auto stream = input(count);
+        const auto result = sha256ProtectedStream(stream.Get(), count, cancelled);
+        assert(result.ok() && hexDigest(*result.value) == sha256(stream->bytes));
+        assert(CustodyOwnedMemory::usedBytes() == before);
+    }
+    for (const auto selected : {HashFault::create, HashFault::update, HashFault::finish}) {
+        for (unsigned ordinal : {1U, 2U}) {
+            if (ordinal == 2 && selected != HashFault::update) continue;
+            inject(selected, ordinal); auto stream = input(65537);
+            const auto result = sha256ProtectedStream(stream.Get(), 65537, cancelled);
+            assert(!result.ok() && result.error == CustodyFileError::hashFailed && result.nativeError == static_cast<std::uint32_t>(failed));
+            assert(creates == 1 && destroys == (selected == HashFault::create ? 0U : 1U));
+        }
+    }
+    inject(HashFault::none);
+    for (unsigned cut = 0; cut < 8; ++cut) {
+        auto stream = input(cut == 0 ? 2 : 3);
+        if (cut == 1) stream->bytes += 'x';
+        if (cut == 2) stream->readResult = STG_E_READFAULT;
+        if (cut == 3) stream->shortRead = true;
+        if (cut == 4) stream->invalidCount = true;
+        if (cut == 5) stream->readResult = 2; // Unknown successful HRESULT is not EOF.
+        if (cut == 6) stream->seekResult = STG_E_SEEKERROR;
+        if (cut == 7) stream->afterRead = [&] { cancelled->store(true); };
+        const auto result = sha256ProtectedStream(stream.Get(), 3, cancelled);
+        assert(!result.ok());
+        if (cut == 2 || cut == 6) assert(result.error == CustodyFileError::ioFailed && result.nativeError == static_cast<std::uint32_t>(cut == 2 ? STG_E_READFAULT : STG_E_SEEKERROR));
+        if (cut == 7) assert(result.nativeError == ERROR_OPERATION_ABORTED);
+        cancelled->store(false);
+    }
+    auto stream = input(3);
+    assert(sha256ProtectedStream(nullptr, 3, cancelled).error == CustodyFileError::invalidInput);
+    assert(sha256ProtectedStream(stream.Get(), 3, {}).error == CustodyFileError::invalidInput);
+    {
+        std::array<CustodyNativeJob, 4> jobs;
+        assert(sha256ProtectedStream(stream.Get(), 3, cancelled).error == CustodyFileError::allocationFailed && stream->reads == 0);
+    }
+    {
+        CustodyBytes pressure(0); pressure.reserve(CustodyOwnedMemory::limit-CustodyOwnedMemory::usedBytes());
+        assert(sha256ProtectedStream(stream.Get(), 3, cancelled).error == CustodyFileError::allocationFailed && stream->reads == 0);
+    }
+    inject(HashFault::none);
+    duringUpdate = [&] { cancelled->store(true); };
+    assert(sha256ProtectedStream(stream.Get(), 3, cancelled).nativeError == ERROR_OPERATION_ABORTED);
+    cancelled->store(false); assert(CustodyOwnedMemory::usedBytes() == before);
+    inject(HashFault::none);
+    auto retained = input(3); auto* raw = retained.Get();
+    retained->afterRead = [&] { retained.Reset(); };
+    assert(sha256ProtectedStream(raw, 3, cancelled).ok() && !retained); // Native Read still owns COM lifetime.
+}
+} // namespace
 
 int main() {
     using namespace graf::windows;
+    protectedHash(); inject(HashFault::none);
     constexpr auto abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
     const std::string bytes(64 * 1024 + 1, 'x');
     const auto root = std::filesystem::temp_directory_path() /
@@ -167,11 +271,8 @@ int main() {
         inject(HashFault::none);
     }
     const auto package = root / "package";
-    V5LocalRecordingWriter writer(package, [](const auto& path, const auto&, std::uint64_t) {
-        std::ofstream output(path, std::ios::binary); output << "synthetic-playback"; return output.good();
-    });
-    CanonicalAudioFrame frame; frame.mixed.fill(0.25F);
-    assert(writer.append(frame) && writer.finalize().normalPackage());
+    const auto legacy = testing::makeGeneratedLegacyPackage(package, 100);
+    assert(legacy.durationMs == 1000);
     assert(LocalRecordingPackage::inspect(package).integrity == PackageIntegrity::valid);
     UploadCustodyItem item;
     item.localRecordingId = "synthetic-recording";
@@ -200,5 +301,100 @@ int main() {
     inject(HashFault::none);
     assert(sha256File(file) == sha256(bytes)); // failures did not poison the next operation
     assert(algorithmOpens == 0 && algorithmCloses == 0 && properties == 0);
+
+    // Preserve the real writer's container, sample tables, duration and byte
+    // count. A matching digest must not make undecodable AAC a normal package.
+    const auto playback = package / "meeting-review.m4a";
+    const auto manifest = package / "manifest.json";
+    const auto decodeSynthetic = [&playback] {
+        const auto com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        assert(SUCCEEDED(com));
+        assert(MFStartup(MF_VERSION) == S_OK);
+        bool complete = false;
+        std::uint64_t frames = 0;
+        {
+            Microsoft::WRL::ComPtr<IMFSourceReader> reader;
+            Microsoft::WRL::ComPtr<IMFMediaType> pcm;
+            assert(MFCreateSourceReaderFromURL(playback.c_str(), nullptr, &reader) == S_OK);
+            assert(MFCreateMediaType(&pcm) == S_OK);
+            assert(pcm->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio) == S_OK);
+            assert(pcm->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_PCM) == S_OK);
+            assert(reader->SetCurrentMediaType(0, nullptr, pcm.Get()) == S_OK);
+            while (frames <= 52'800) { // This isolated fixture is exactly 1 s, plus the existing 100 ms tolerance.
+                DWORD stream = 0, flags = 0;
+                LONGLONG timestamp = 0;
+                Microsoft::WRL::ComPtr<IMFSample> sample;
+                if (FAILED(reader->ReadSample(0, 0, &stream, &flags, &timestamp, &sample)) ||
+                    stream != 0 || (flags & ~MF_SOURCE_READERF_ENDOFSTREAM)) break;
+                if (sample) {
+                    DWORD bytes = 0;
+                    if (FAILED(sample->GetTotalLength(&bytes)) || bytes == 0 || bytes % 2) break;
+                    frames += bytes / 2;
+                }
+                if (flags & MF_SOURCE_READERF_ENDOFSTREAM) { complete = true; break; }
+                if (!sample) break;
+            }
+        }
+        assert(MFShutdown() == S_OK);
+        CoUninitialize();
+        return std::pair{complete, frames};
+    };
+    const auto decodedOriginal = decodeSynthetic();
+    assert(decodedOriginal.first && decodedOriginal.second > 0 && decodedOriginal.second <= 52'800);
+    const auto readFixture = [](const std::filesystem::path& path) {
+        std::ifstream input(path, std::ios::binary);
+        assert(input);
+        return std::string(std::istreambuf_iterator<char>(input), {});
+    };
+    auto audio = readFixture(playback);
+    auto metadata = readFixture(manifest);
+    const auto originalHash = sha256(audio);
+    const auto digestPosition = metadata.find(originalHash);
+    assert(digestPosition != std::string::npos && metadata.find(originalHash, digestPosition + 1) == std::string::npos);
+    const auto bigEndian = [&audio](std::size_t at, std::size_t count) {
+        assert(at <= audio.size() && count <= audio.size() - at);
+        std::uint64_t value = 0;
+        for (std::size_t i = 0; i < count; ++i) value = (value << 8) | static_cast<unsigned char>(audio[at + i]);
+        return value;
+    };
+    bool changed = false;
+    for (std::size_t at = 0; at < audio.size();) {
+        assert(audio.size() - at >= 8);
+        auto size = bigEndian(at, 4);
+        const auto header = size == 1 ? std::size_t(16) : std::size_t(8);
+        if (size == 1) size = bigEndian(at + 8, 8);
+        if (size == 0) size = audio.size() - at;
+        assert(size >= header && size <= audio.size() - at);
+        if (audio.compare(at + 4, 4, "mdat") == 0) {
+            assert(size > header);
+            std::fill(audio.begin() + static_cast<std::ptrdiff_t>(at + header),
+                audio.begin() + static_cast<std::ptrdiff_t>(at + size), static_cast<char>(0xff));
+            changed = true;
+        }
+        at += static_cast<std::size_t>(size);
+    }
+    assert(changed && sha256(audio) != originalHash);
+    metadata.replace(digestPosition, originalHash.size(), sha256(audio));
+    { std::ofstream output(playback, std::ios::binary | std::ios::trunc); output.write(audio.data(), static_cast<std::streamsize>(audio.size())); assert(output.good()); }
+    { std::ofstream output(manifest, std::ios::binary | std::ios::trunc); output << metadata; assert(output.good()); }
+    inject(HashFault::none);
+    const auto decodedCorruption = decodeSynthetic();
+    assert(!decodedCorruption.first || decodedCorruption.second == 0);
+    const auto malformed = LocalRecordingPackage::inspect(package, root);
+    const auto withoutRoot = LocalRecordingPackage::inspect(package);
+    sends = 0;
+    const auto uploadStatus = DesktopHttpTransport(config).upload(item, send).status;
+    std::cout << "AAC_MDAT_COUNTEREXAMPLE original_frames=" << decodedOriginal.second
+        << " corrupt_decode_complete=" << decodedCorruption.first << " corrupt_frames=" << decodedCorruption.second
+        << " explicit_root_normal=" << (malformed.integrity == PackageIntegrity::valid)
+        << " explicit_root_playback=" << malformed.playbackAvailable
+        << " default_root_normal=" << (withoutRoot.integrity == PackageIntegrity::valid)
+        << " invalid_package=" << (uploadStatus == DesktopTransportStatus::invalidPackage)
+        << " synthetic_sends=" << sends << std::endl;
+    assert(malformed.integrity == PackageIntegrity::malformed && !malformed.playbackAvailable);
+    assert((malformed.trackBytes == std::array<std::uint64_t, 3>{}));
+    assert(withoutRoot.integrity == PackageIntegrity::malformed);
+    assert(uploadStatus == DesktopTransportStatus::invalidPackage);
+    assert(sends == 0);
     std::filesystem::remove_all(root);
 }
