@@ -10,8 +10,9 @@
 #
 # Usage: update-agent-context.sh [plan_path]
 #
-# When `plan_path` is omitted, the script derives it only from the active
-# `.specify/feature.json` pointer and fails closed when its plan is unavailable.
+# When `plan_path` is omitted, the script derives it from `.specify/feature.json`
+# (written by /speckit-specify). Falls back to the most recently modified
+# `specs/**/plan.md` only when feature.json is absent or its plan does not exist yet.
 
 set -euo pipefail
 
@@ -256,7 +257,7 @@ unset _cf_parts _seg
 
 PLAN_PATH="${1:-}"
 if [[ -z "$PLAN_PATH" ]]; then
-  # Resolve context only from the explicit active .specify/feature.json pointer.
+  # Prefer .specify/feature.json (written by /speckit-specify) over mtime heuristic.
   _feature_json="$PROJECT_ROOT/.specify/feature.json"
   if [[ -f "$_feature_json" ]]; then
     _feature_dir="$("$_python" - "$_feature_json" <<'PY'
@@ -284,7 +285,7 @@ PY
       fi
       if [[ -f "$_candidate" ]]; then
         # Resolve symlinks before comparing so paths like /var/… vs /private/var/…
-        # (macOS) are treated as equivalent.
+        # (macOS) are treated as equivalent. Mirrors the mtime-fallback approach.
         PLAN_PATH="$("$_python" - "$PROJECT_ROOT" "$_candidate" <<'PY'
 import sys
 from pathlib import Path
@@ -302,11 +303,45 @@ PY
     fi
   fi
 
-fi
+  # Fall back to mtime only when feature.json is absent or its plan does not exist yet.
+  # Python emits a project-relative POSIX path directly to avoid bash prefix-strip
+  # issues with backslash paths on Windows (Git bash / MSYS2).
+  if [[ -z "$PLAN_PATH" ]]; then
+    _plan_rel="$("$_python" - "$PROJECT_ROOT" <<'PY'
+import sys
+from pathlib import Path
+root = Path(sys.argv[1]).resolve()
+specs = root / "specs"
 
-if [[ -z "$PLAN_PATH" ]]; then
-  echo "agent-context: no active feature plan; refusing timestamp-based context selection." >&2
-  exit 0
+def _resolved_rel(p):
+    # Resolve symlinks before checking containment: relative_to() is lexical
+    # and would otherwise accept a plan reached through a specs/ symlink that
+    # points outside the project, emitting an in-project-looking path for an
+    # out-of-project file (or picking it as "most recent").
+    try:
+        return p.resolve().relative_to(root)
+    except (OSError, ValueError):
+        return None
+
+# Recurse (rather than the old one-level specs/*/plan.md glob) so scoped layouts
+# created via SPECIFY_FEATURE_DIRECTORY, e.g. specs/<scope>/<feature>/plan.md,
+# are still discovered when feature.json is absent (#3024).
+candidates = []
+for p in specs.rglob("plan.md"):
+    rel = _resolved_rel(p)
+    if rel:
+        candidates.append((p, rel))
+candidates.sort(key=lambda pr: pr[0].stat().st_mtime, reverse=True)
+if candidates:
+    print(candidates[0][1].as_posix())
+else:
+    print("")
+PY
+)"
+    if [[ -n "$_plan_rel" ]]; then
+      PLAN_PATH="$_plan_rel"
+    fi
+  fi
 fi
 
 # Build the managed section
