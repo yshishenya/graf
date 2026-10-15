@@ -62,7 +62,10 @@ def test_anonymous_aggregate_module_states_the_identity_ban_in_its_docstring() -
 
 
 def test_public_aggregate_paths_match_the_public_route_inventory() -> None:
-    assert set(PUBLIC_PAGE_PATHS) == set(PUBLIC_ANALYTICS_CONSENT_PATHS)
+    assert set(PUBLIC_PAGE_PATHS) == set(PUBLIC_ANALYTICS_CONSENT_PATHS) | {
+        "/transcription", "/meeting-minutes", "/record-without-bot",
+        "/guides/rasshifrovka-zapisi-zoom",
+    }
     assert surface_for_public_path("/privacy") == "public_privacy"
     assert surface_for_public_path("/analytics-consent") == "public_analytics_consent"
     assert surface_for_public_path("/download/") == "public_download"

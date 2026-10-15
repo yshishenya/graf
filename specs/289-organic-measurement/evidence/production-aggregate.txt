@@ -1,0 +1,63 @@
+BEGIN
+SET
+ buckets | requests |    min     |    max
+---------+----------+------------+------------
+     507 |     1366 | 2026-09-22 | 2026-10-15
+(1 row)
+
+              surface               | traffic_class | referrer_category | requests
+------------------------------------+---------------+-------------------+----------
+ public_analytics_consent           | automated     | direct            |       45
+ public_analytics_consent           | external      | direct            |       15
+ public_cookies                     | automated     | direct            |       32
+ public_cookies                     | external      | direct            |       13
+ public_download                    | automated     | direct            |       87
+ public_download                    | external      | direct            |       18
+ public_guides                      | automated     | direct            |       42
+ public_guides                      | external      | direct            |       33
+ public_guides                      | external      | referral          |        5
+ public_installer_delivery          | automated     | unknown           |       68
+ public_installer_delivery          | external      | unknown           |        8
+ public_landing                     | automated     | direct            |      126
+ public_landing                     | automated     | referral          |        8
+ public_landing                     | external      | direct            |      208
+ public_landing                     | external      | referral          |      113
+ public_login                       | automated     | direct            |        9
+ public_login                       | external      | direct            |       24
+ public_mac_meeting_guide           | automated     | direct            |       44
+ public_mac_meeting_guide           | external      | direct            |       14
+ public_offer                       | automated     | direct            |       32
+ public_offer                       | external      | direct            |       14
+ public_privacy                     | automated     | direct            |       50
+ public_privacy                     | external      | direct            |       18
+ public_protocol_guide              | automated     | direct            |       52
+ public_protocol_guide              | external      | direct            |       25
+ public_signup                      | external      | direct            |       41
+ public_signup_step_viewed          | external      | unknown           |       40
+ public_terms                       | automated     | direct            |       30
+ public_terms                       | external      | direct            |       12
+ public_transcription_quality_guide | automated     | direct            |       41
+ public_transcription_quality_guide | external      | direct            |       15
+(31 rows)
+
+ attributed_visits | with_source
+-------------------+-------------
+                 7 |           7
+(1 row)
+
+ acquisition_rows | with_bridge
+------------------+-------------
+                1 |           0
+(1 row)
+
+ account_identities |         last_created
+--------------------+-------------------------------
+                 48 | 2026-08-29 20:28:43.514788+00
+(1 row)
+
+ processing_results
+--------------------
+                197
+(1 row)
+
+ROLLBACK

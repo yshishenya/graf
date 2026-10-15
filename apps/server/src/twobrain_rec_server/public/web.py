@@ -21,6 +21,8 @@ from twobrain_rec_server.public.analytics import (
     PublicAnalyticsEventRejected,
     deliver_public_analytics_event,
     normalize_public_analytics_event,
+    normalize_public_campaign_attribution,
+    record_public_page_visit,
 )
 from twobrain_rec_server.public.content import (
     GUIDE_PATH,
@@ -233,10 +235,15 @@ async def public_transcription_quality_guide(
 
 
 @router.get(ZOOM_GUIDE_PATH, response_class=HTMLResponse, include_in_schema=False)
-async def public_zoom_recording_guide(request: Request) -> HTMLResponse:
-    return public_template_response(
+async def public_zoom_recording_guide(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
+    return await public_page_response(
         request,
         "public/zoom_recording_guide.html",
+        db=db,
+        anonymous_only=True,
         page_title="Как расшифровать запись Zoom в текст — ГРАФ",
         social_description="Найдите запись Zoom, выберите M4A или MP4 с голосами участников и загрузите в ГРАФ. Пошаговая инструкция, проверка результата и частые ошибки.",
     )
@@ -334,11 +341,16 @@ async def public_analytics_consent_page(
 @router.get("/transcription", response_class=HTMLResponse, include_in_schema=False)
 @router.get("/meeting-minutes", response_class=HTMLResponse, include_in_schema=False)
 @router.get("/record-without-bot", response_class=HTMLResponse, include_in_schema=False)
-async def public_search_page(request: Request) -> HTMLResponse:
+async def public_search_page(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
     title, description = PUBLIC_SEARCH_PAGES[request.url.path]
-    return public_template_response(
+    return await public_page_response(
         request,
         "public/search_guide.html",
+        db=db,
+        anonymous_only=True,
         page_title=title,
         social_description=description,
         guide_path=request.url.path,
@@ -351,9 +363,12 @@ async def public_page_response(
     template_name: str,
     *,
     db: AsyncSession | None = None,
+    anonymous_only: bool = False,
     **context: Any,
 ) -> HTMLResponse:
     """Render one public page, count the visit and keep its campaign labels.
+
+    Anonymous-only content counts the current request without campaign storage.
 
     Three rules meet here and none of them may break the other two (FR-009,
     FR-014, FR-058):
@@ -368,6 +383,12 @@ async def public_page_response(
       path through :func:`read_public_visit_attribution`.
     """
     response = public_template_response(request, template_name, **context)
+    if anonymous_only:
+        attribution = normalize_public_campaign_attribution(
+            request.query_params, referrer=request.headers.get("referer")
+        )
+        await record_public_page_visit(db, request, attribution=attribution)
+        return response
     return await record_public_page_response(request, response, db=db)
 
 

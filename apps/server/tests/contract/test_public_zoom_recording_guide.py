@@ -18,7 +18,7 @@ from twobrain_rec_server.public.content import (
 )
 
 
-def test_zoom_guide_is_indexable_without_enabling_measurement(monkeypatch):
+def test_zoom_guide_is_indexable_with_only_anonymous_measurement(monkeypatch):
     import twobrain_rec_server.public.web as web
 
     recorder = AsyncMock(side_effect=lambda request, response, **kwargs: response)
@@ -37,7 +37,7 @@ def test_zoom_guide_is_indexable_without_enabling_measurement(monkeypatch):
         assert "synthetic-secret" not in response.text
         assert ZOOM_GUIDE_PATH not in PUBLIC_CONTENT_SURFACES
         assert ZOOM_GUIDE_PATH not in PUBLIC_ANALYTICS_SURFACES
-        assert ZOOM_GUIDE_PATH not in PUBLIC_PAGE_SURFACES
+        assert PUBLIC_PAGE_SURFACES[ZOOM_GUIDE_PATH] == "public_zoom_recording_guide"
         recorder.assert_not_awaited()
         for href in set(parser.links):
             if href.startswith("#"):
