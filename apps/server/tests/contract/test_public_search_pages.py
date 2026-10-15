@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.main import create_app
+from twobrain_rec_server.public.analytics import PUBLIC_VISIT_ATTRIBUTION_COOKIE
 from twobrain_rec_server.public.content import PUBLISHED_CONTENT_PATHS
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -102,3 +103,22 @@ def test_search_metadata_is_independent_of_host_and_query():
         assert 'href="https://rec.2brain.pro/transcription"' in response.text
         assert "wrong.example" not in response.text
         assert "?x=unsafe" not in response.text
+
+
+def test_search_pages_do_not_create_or_replace_campaign_cookie():
+    app = create_app(Settings(public_base_url="https://rec.2brain.pro"))
+    for path in PAGES:
+        with TestClient(app) as client:
+            query = "?utm_source=google&utm_medium=cpc&utm_campaign=launch"
+            response = client.get(path + query)
+            assert response.status_code == 200
+            assert "set-cookie" not in response.headers
+            assert PUBLIC_VISIT_ATTRIBUTION_COOKIE not in client.cookies
+
+            landing = client.get("/?utm_source=yandex_direct&utm_campaign=existing")
+            assert landing.status_code == 200
+            previous = client.cookies[PUBLIC_VISIT_ATTRIBUTION_COOKIE]
+            response = client.get(path + query)
+            assert response.status_code == 200
+            assert "set-cookie" not in response.headers
+            assert client.cookies[PUBLIC_VISIT_ATTRIBUTION_COOKIE] == previous

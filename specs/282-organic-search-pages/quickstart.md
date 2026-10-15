@@ -21,3 +21,5 @@
 ## Release and outcome
 
 Локальное PASS не означает merge/release/трафик. Коммит требует явного разрешения, GitHub checks привязываются к полному SHA и checked base; выпуск проходит отдельный release-full и approved deploy. Измерение после публикации описано в evidence/measurement-plan.md; текущая база unknown.
+
+Регрессия P2: test_search_pages_do_not_create_or_replace_campaign_cookie проверяет все три маршрута с допустимыми UTM. Новый cookie кампании не создаётся; ранее установленный через главную cookie не меняется.

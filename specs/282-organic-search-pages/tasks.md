@@ -12,7 +12,7 @@
 
 ## Phase 3: US1 — Самостоятельные страницы
 
-- [X] T003 [US1] Добавить три фиксированных маршрута FR-001/002/004–007 в apps/server/src/twobrain_rec_server/public/web.py, apps/server/src/twobrain_rec_server/public/templates/public/search_guide.html и apps/server/src/twobrain_rec_server/public/static/public/search-guide.css; сохранить shared response, исключить новые analytics scripts, новые внешние ресурсы и обещание доступной Windows.
+- [X] T003 [US1] Добавить три фиксированных маршрута FR-001/002/004–007 в apps/server/src/twobrain_rec_server/public/web.py, apps/server/src/twobrain_rec_server/public/templates/public/search_guide.html и apps/server/src/twobrain_rec_server/public/static/public/search-guide.css; сохранить общий безопасный HTML-ответ через public_template_response без БД и записи cookie кампании, исключить новые analytics scripts, новые внешние ресурсы и обещание доступной Windows.
 
 ## Phase 4: US2 — Главная и discovery
 

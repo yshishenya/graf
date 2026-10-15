@@ -38,5 +38,5 @@ Quickstart: HTTP/метаданные/canonical/sitemap/404/безопасный
 
 ## Delivery and rollback
 
-Перед правками сохранить hashes исходных landing.html/CSS/JS и публичные метаданные в evidence/baseline.md. Общие handlers/templates/analytics untouched, маршруты новых страниц вызывают public_page_response без analytics_path override и без _analytics.html. Неизвестные пути не перехватываются catch-all. Постоянные title/description выбираются из фиксированного набора маршрутов, autoescape сохраняется. sitemap расширяется ровно тремя путями.
+Перед правками сохранить hashes исходных landing.html/CSS/JS и публичные метаданные в evidence/baseline.md. Общие handlers/templates/analytics untouched, маршруты новых страниц вызывают существующий public_template_response, как /help, без зависимости БД, record_public_page_response и _analytics.html. Входные UTM не создают и не заменяют cookie атрибуции; существующий cookie не меняется. Неизвестные пути не перехватываются catch-all. Постоянные title/description выбираются из фиксированного набора маршрутов, autoescape сохраняется. sitemap расширяется ровно тремя путями.
 Откат релизом предшествующей версии возвращает маршруты, footer links и sitemap; миграций нет. Не сбрасывать чужие изменения.

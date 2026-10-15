@@ -334,15 +334,11 @@ async def public_analytics_consent_page(
 @router.get("/transcription", response_class=HTMLResponse, include_in_schema=False)
 @router.get("/meeting-minutes", response_class=HTMLResponse, include_in_schema=False)
 @router.get("/record-without-bot", response_class=HTMLResponse, include_in_schema=False)
-async def public_search_page(
-    request: Request,
-    db: AsyncSession | None = PublicWebDbDependency,
-) -> HTMLResponse:
+async def public_search_page(request: Request) -> HTMLResponse:
     title, description = PUBLIC_SEARCH_PAGES[request.url.path]
-    return await public_page_response(
+    return public_template_response(
         request,
         "public/search_guide.html",
-        db=db,
         page_title=title,
         social_description=description,
         guide_path=request.url.path,
