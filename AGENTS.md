@@ -202,6 +202,7 @@ infra/scripts/ci-local.sh --full
 - Когда задача отмечена `[X]` в `tasks.md`, закрывай соответствующий GitHub issue только после проверки evidence и добавляй подробный понятный closure comment: что закрыто, почему важно, как проверено, что не входит, какой PR и task закрыты.
 - Если GitHub issue закрыт, но `tasks.md` еще открыт, сначала проверь реализацию и evidence, а не отмечай задачу выполненной молча.
 <!-- SPECKIT GITHUB ISSUE END -->
+
 Все GitHub issues в этом репозитории, созданные вручную, через
 `$speckit-taskstoissues` или через прямой `gh issue create`, должны следовать
 project issue canon в `docs/agent-guidance/github-issue-canon.md`.
