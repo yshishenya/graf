@@ -295,7 +295,10 @@ def test_invoice_refund_disclosure_explains_manual_status_and_separate_renewal_c
     page = Page(html)
     assert "1 000 ₽" in page.visible and "Помощь и возврат" in page.visible
     assert "Результат возврата" not in page.visible
-    expanded = Page(html.replace('<details class="billing-coupon">', '<details class="billing-coupon" open>'))
+    expanded = Page(html.replace(
+        '<details class="settings-disclosure"><summary>Помощь и возврат</summary>',
+        '<details class="settings-disclosure" open><summary>Помощь и возврат</summary>',
+    ))
     for term in (
         "Результат возврата уточняйте у поддержки", "GRAF не показывает его статус",
         "Возврат не отключает автопродление", "Открытие письма не отправляет запрос",
