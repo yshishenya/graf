@@ -7,6 +7,21 @@ import XCTest
 
 @MainActor
 final class AppControlAccessibilityTests: XCTestCase {
+    func testRecordingContainersAreAssistiveTargetsWithoutExtraKeyboardStops() throws {
+        let source = try String(
+            contentsOf: Self.repositoryRoot().appendingPathComponent("apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertFalse(source.contains(".focusable()"), "Informational recording groups have no keyboard action")
+        XCTAssertTrue(source.contains("@AccessibilityFocusState private var focusedRecordingSessionID"))
+        XCTAssertEqual(source.components(separatedBy: ".accessibilityFocused($focusedRecordingSessionID").count - 1, 2)
+        XCTAssertTrue(source.contains("proxy.scrollTo(target, anchor: .center)"))
+        XCTAssertTrue(source.contains("focusedRecordingSessionID = target"))
+        XCTAssertTrue(source.contains(".task(id: controlModel.recordingNavigationRequest)"))
+        XCTAssertTrue(source.contains("desktop-meeting-shell-stop-recording-button"))
+        XCTAssertTrue(source.contains("desktop-meeting-shell-start-recording-button"))
+    }
+
     func testDesktopCabinetWorkspaceUsesProductLabelsNotImplementationLabels() {
         XCTAssertEqual(DesktopCabinetWorkspaceView.workspaceTitle, "Встречи")
         XCTAssertEqual(

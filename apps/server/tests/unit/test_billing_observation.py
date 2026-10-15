@@ -1,3 +1,4 @@
+import ast
 import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
@@ -223,6 +224,7 @@ def test_observation_only_polls_known_payment_without_enabling_checkout(
         [
             SimpleNamespace(
                 provider_id="payment-1",
+                state="provider_pending",
                 id=UUID("10000000-0000-4000-8000-000000000001"),
                 workspace_id=UUID("20000000-0000-4000-8000-000000000002"),
             )
@@ -320,7 +322,13 @@ def test_observation_only_cannot_authorize_provider_payment() -> None:
 
     for source_path in mutation_sources:
         source = source_path.read_text(encoding="utf-8")
-        assert "billing_provider_observation_enabled" not in source
+        for node in ast.parse(source).body:
+            section = ast.get_source_segment(source, node) or ""
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "billing_invoice_detail_page":
+                # Receipt visibility may use observation; payment creation may not.
+                assert "create_payment(" not in section
+                continue
+            assert "billing_provider_observation_enabled" not in section
         assert "create_payment(" in source
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import UUID
 
 import httpx
@@ -72,6 +73,14 @@ class FakeDb:
 
     async def rollback(self) -> None:
         self.rollbacks += 1
+
+    async def execute(self, query):
+        assert len(query.column_descriptions) == 1
+        assert query.column_descriptions[0]["name"] in {
+            "capacity_snapshot_bytes", "plan_snapshot",
+        }
+        row = await self.scalar(query)
+        return SimpleNamespace(first=lambda: row)
 
     async def scalar(self, _query: object) -> object:
         descriptions = getattr(_query, "column_descriptions", ())

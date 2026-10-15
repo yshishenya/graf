@@ -5,7 +5,6 @@
       {% if result == "invalid" %}<p id="billing-discount-error" class="notice notice--error" role="alert">Промокод не найден или сейчас недоступен. Проверьте код и попробуйте снова.</p>{% elif result == "promo_applied" %}<p class="notice" role="status" aria-live="polite">Итог со скидкой нужно проверить перед оплатой.</p>{% elif result == "removed" %}<p class="notice notice--success" role="status" aria-live="polite">Выбранный промокод удален.</p>{% endif %}
       <section class="settings-section cabinet-card" aria-labelledby="billing-discounts-title">
         <h2 id="billing-discounts-title">Промокод</h2>
-        {% if active_promotions %}<h3>Действующие предложения</h3><ul class="settings-choice-list" aria-label="Действующие предложения">{% for item in active_promotions %}<li class="settings-choice-row"><span>{{ item.discount_label }}</span><span class="muted">до {{ item.expiry_label }}</span></li>{% endfor %}</ul>{% endif %}
         {% if billing_owner %}
         {% if billing_enabled|default(True) %}<form action="/billing/discounts/apply" method="post">
           <label for="billing-discount-code">Промокод</label>

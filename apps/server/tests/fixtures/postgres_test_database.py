@@ -171,6 +171,8 @@ async def ensure_disposable_media_role(
     cluster advisory lock makes concurrent xdist workers safe.
     """
 
+    from scripts.bootstrap_runtime_database_roles import MEDIA_STORAGE_COLUMNS
+
     database_name = _validate_loopback_postgres_url(database_url)
     _validate_disposable_database_name(database_name)
     resolved_media_url, password = _media_database_url(
@@ -215,6 +217,10 @@ async def ensure_disposable_media_role(
             f"revoke all privileges on all tables in schema public from {quoted_role}",
             f"revoke all privileges on all sequences in schema public from {quoted_role}",
             f"grant select on {_table_list(MEDIA_READ_ONLY_TABLES)} to {quoted_role}",
+            *(
+                f"grant select ({', '.join(columns)}) on public.{table} to {quoted_role}"
+                for table, columns in MEDIA_STORAGE_COLUMNS.items()
+            ),
             f"grant select ({', '.join(MEDIA_WORKFLOW_COLUMNS)}) on public.processing_workflows to {quoted_role}",
             f"grant select, insert, update on {_table_list(MEDIA_READ_WRITE_TABLES)} "
             f"to {quoted_role}",

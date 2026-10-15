@@ -1,0 +1,93 @@
+{
+  "source_sha": "6f1b4417518190eef6d1aaa3c007ff118c298389",
+  "dev_manifest": "dev-6f1b44175181",
+  "status": "saved",
+  "failure_reason": "none",
+  "duration_difference_seconds": 0,
+  "echo_processing_health": {
+    "aecDelayMs": 16,
+    "clippedSampleCount": 0,
+    "echoReturnLossDb": -30,
+    "echoReturnLossEnhancementDb": 0.17551203072071075,
+    "estimatedDriftPpm": -7.7854334555935605,
+    "hostOverrunCount": 0,
+    "hostUnderrunCount": 0,
+    "nonFiniteSampleCount": 0,
+    "processErrorCount": 0,
+    "processedFrameCount": 274333,
+    "processingTimeP95Ms": 1,
+    "ptsGapCount": 0,
+    "resetCount": 0,
+    "state": "completed"
+  },
+  "tracks": [
+    {
+      "role": "mixed_meeting_audio",
+      "format": "wav-pcm-s16le",
+      "status": "saved",
+      "duration_ms": 2740009,
+      "duration_seconds": 2740.009313,
+      "bytes": 87680342,
+      "sha256_computed": true,
+      "streams": [
+        {
+          "codec_name": "pcm_s16le",
+          "sample_rate": "16000",
+          "channels": 1,
+          "duration": "2740.009312"
+        }
+      ]
+    },
+    {
+      "role": "review_playback",
+      "format": "m4a-aac-lc",
+      "status": "saved",
+      "duration_ms": 2740009,
+      "duration_seconds": 2740.053333,
+      "bytes": 22149885,
+      "sha256_computed": true,
+      "streams": [
+        {
+          "codec_name": "aac",
+          "sample_rate": "48000",
+          "channels": 1,
+          "duration": "2740.053333"
+        }
+      ]
+    }
+  ],
+  "monitor_samples": 61,
+  "monitor_elapsed_seconds": 2743.9,
+  "all_pre_finalization_samples_active": true,
+  "one_recording_directory": true,
+  "prompts": 1,
+  "starts": 1,
+  "timing_anomalies": 0,
+  "max_target_active_gap_seconds": 3.0,
+  "progress_sampled_maxima": {
+    "microphone_queued_frames": 512.0,
+    "systemAudio_queued_frames": 960.0,
+    "microphone_pending_frames": 0.0,
+    "systemAudio_pending_frames": 0.0,
+    "microphone_accepted_minus_processed_ms": 10.667,
+    "systemAudio_accepted_minus_processed_ms": 20.0,
+    "microphone_capture_age_ms": 17.026,
+    "systemAudio_capture_age_ms": 32.066
+  },
+  "full_decode_both_files_pass": true,
+  "native_playback_beginning_and_end_pass": true,
+  "local_action_after_reload_pass": true,
+  "automatic_stop_reason": "meeting_ended",
+  "repeat_hardware_verdict": "PASS",
+  "system_overrun_overflow_overload_matches": 1,
+  "started_at": "2026-10-03T02:40:58Z",
+  "stopped_at": "2026-10-03T03:26:38Z",
+  "system_log_review": {
+    "matched_lines": 8302,
+    "apfs_role_lookup_messages": 8210,
+    "overload_at_normal_stop_only": true,
+    "overrun_or_overflow_matches": 0,
+    "network_event_drop_messages_are_network_diagnostics": true,
+    "bluetooth_xpc_errors_without_capture_gap": true
+  }
+}

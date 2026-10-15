@@ -48,9 +48,13 @@ def _invoice() -> BillingInvoice:
 
 
 @pytest.mark.asyncio
-async def test_initial_checkout_continuation_reuses_the_same_provider_key(monkeypatch) -> None:
+@pytest.mark.parametrize("recurring_consent", [True, False])
+async def test_initial_checkout_continuation_reuses_the_same_provider_key(
+    monkeypatch, recurring_consent: bool,
+) -> None:
     now = datetime(2026, 8, 25, 10, tzinfo=UTC)
     operation = _operation(expires_at=now + timedelta(hours=1))
+    operation.request_snapshot["recurring_consent"] = recurring_consent
     calls: list[dict[str, object]] = []
 
     class Provider:
@@ -90,6 +94,34 @@ async def test_initial_checkout_continuation_reuses_the_same_provider_key(monkey
     ]
     assert all(call["amount_minor"] == 1_000 for call in calls)
     assert all(call["metadata"]["operation_id"] == str(OPERATION_ID) for call in calls)
+    assert all(call["save_payment_method"] is recurring_consent for call in calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "consent_snapshot",
+    [{}, {"recurring_consent": None}, {"recurring_consent": 0}, {"recurring_consent": 1},
+     {"recurring_consent": "true"}, {"recurring_consent": "false"}],
+    ids=["missing", "null", "zero", "one", "true-string", "false-string"],
+)
+async def test_initial_checkout_rejects_non_boolean_saved_consent_before_dispatch(
+    monkeypatch, consent_snapshot: dict[str, object],
+) -> None:
+    operation = _operation(expires_at=None)
+    del operation.request_snapshot["recurring_consent"]
+    operation.request_snapshot.update(consent_snapshot)
+
+    def unexpected_provider(_settings):
+        pytest.fail("Invalid stored consent must not reach the provider")
+
+    monkeypatch.setattr(billing, "YooKassaClient", unexpected_provider)
+    with pytest.raises(ValueError, match="initial checkout snapshot is invalid"):
+        await billing._create_initial_checkout_payment(
+            settings=Settings(billing_provider_floor_minor=100),
+            operation=operation,
+            invoice=_invoice(),
+            return_url="https://rec.example.test/billing/checkout/return?invoice=INV-RECOVERY1",
+        )
 
 
 def test_provider_reject_before_provider_id_keeps_only_safe_failure_metadata() -> None:
@@ -112,6 +144,30 @@ def test_provider_reject_before_provider_id_keeps_only_safe_failure_metadata() -
         "observed_at": "2026-08-25T10:00:00+00:00",
     }
     assert "secret provider response" not in str(operation.request_snapshot)
+
+
+@pytest.mark.parametrize("reason", [None, "recurring_not_available", "synthetic-private-reason"])
+def test_dispatched_schema2_rejection_saves_only_fixed_reason(reason) -> None:
+    now = datetime(2026, 8, 25, 10, tzinfo=UTC)
+    operation = _operation(expires_at=now + timedelta(hours=1), state="scheduled")
+    operation.request_snapshot["purchase_schema"] = 2
+    invoice = _invoice()
+    error = billing.YooKassaProviderError(
+        "synthetic-private-description synthetic-private-request-id", status_code=403, reason=reason,
+    )
+    # The metadata boundary must also reject a reason from a changed/mocked exception.
+    error.reason = reason
+    billing._record_initial_checkout_failure(operation, invoice, error, now=now)
+    expected = {
+        "class": "provider_rejected", "http_status": 403,
+        "observed_at": "2026-08-25T10:00:00+00:00",
+    }
+    if reason == "recurring_not_available":
+        expected["reason"] = reason
+    assert operation.request_snapshot["provider_failure"] == expected
+    assert operation.state == invoice.status == "canceled"
+    assert operation.provider_id is None
+    assert "synthetic-private" not in str(operation.request_snapshot)
 
 
 def test_expired_provider_key_blocks_continuation() -> None:

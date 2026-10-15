@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from email.utils import parseaddr
 from hashlib import sha256
 from urllib.parse import urlencode
 from uuid import UUID
@@ -27,6 +26,7 @@ from twobrain_rec_server.auth.dependencies import (
 )
 from twobrain_rec_server.auth.redirects import safe_billing_return_path
 from twobrain_rec_server.auth.session_epoch import rotate_browser_session_epoch
+from twobrain_rec_server.billing.refund_email import build_support_mailto, normalize_support_email
 from twobrain_rec_server.cabinet.rendering import (
     account_merge_provider_label,
     render_account_merge_page,
@@ -162,16 +162,8 @@ def _support_reference(intent_id: UUID) -> str:
 
 
 def _configured_support_email(value: str | None) -> str | None:
-    normalized = (value or "").strip()
-    _display_name, parsed = parseaddr(normalized)
-    if (
-        not normalized
-        or parsed != normalized
-        or parsed.count("@") != 1
-        or any(char in normalized for char in "\r\n")
-    ):
-        return None
-    return normalized
+    address = normalize_support_email(value)
+    return address if address == (value or "").strip() else None
 
 
 def account_merge_blockers(
@@ -259,7 +251,7 @@ def account_merge_blockers(
                         "email, внутренние идентификаторы и содержимое встреч не нужны."
                     ),
                     action_label="Получить помощь",
-                    action_href=f"mailto:{configured_support}?{query}",
+                    action_href=f"{build_support_mailto(configured_support)}?{query}",
                     support_reference=reference,
                 )
             )

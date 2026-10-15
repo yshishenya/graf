@@ -12,6 +12,7 @@ services:
       - ./env/rec.production.env.example
     environment:
       TWOBRAIN_ENV: production
+      TWOBRAIN_PUBLIC_BASE_URL: ${TWOBRAIN_PUBLIC_BASE_URL:-https://rec.2brain.pro}
       TWOBRAIN_WEB_RUNTIME_ENABLED: "true"
       TWOBRAIN_WEB_CSRF_SECRET_FILE: /run/secrets/twobrain_web_csrf_secret
       TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec_app:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec
@@ -46,6 +47,8 @@ services:
       TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE: /run/secrets/twobrain_yookassa_webhook_secret
       TWOBRAIN_BILLING_REFERRAL_SECRET_FILE: /run/secrets/twobrain_billing_referral_secret
       TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED: ${TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED:-false}
+      TWOBRAIN_SHARE_PUBLIC_LINKS_ENABLED: ${TWOBRAIN_SHARE_PUBLIC_LINKS_ENABLED:-false}
+      TWOBRAIN_SHARE_PUBLIC_LINKS_ABUSE_GATE_APPROVED: ${TWOBRAIN_SHARE_PUBLIC_LINKS_ABUSE_GATE_APPROVED:-false}
       TWOBRAIN_SHARE_IDENTITY_HASH_SECRET_FILE: /run/secrets/graf_share_identity_hash_secret
       TWOBRAIN_YANDEX_CLIENT_ID: ${TWOBRAIN_YANDEX_CLIENT_ID:-twobrain-yandex-client-id}
       TWOBRAIN_YANDEX_CLIENT_SECRET_FILE: /run/secrets/twobrain_yandex_client_secret
@@ -225,6 +228,7 @@ services:
       - ./env/rec.production.env.example
     environment:
       TWOBRAIN_ENV: production
+      TWOBRAIN_PUBLIC_BASE_URL: ${TWOBRAIN_PUBLIC_BASE_URL:-https://rec.2brain.pro}
       TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
       TWOBRAIN_PROCESSING_ENABLED: "true"
       TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec_app:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec
@@ -261,6 +265,8 @@ services:
       TWOBRAIN_BILLING_YOOKASSA_WEBHOOK_SECRET_FILE: /run/secrets/twobrain_yookassa_webhook_secret
       TWOBRAIN_BILLING_REFERRAL_SECRET_FILE: /run/secrets/twobrain_billing_referral_secret
       TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED: ${TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED:-false}
+      TWOBRAIN_SHARE_PUBLIC_LINKS_ENABLED: ${TWOBRAIN_SHARE_PUBLIC_LINKS_ENABLED:-false}
+      TWOBRAIN_SHARE_PUBLIC_LINKS_ABUSE_GATE_APPROVED: ${TWOBRAIN_SHARE_PUBLIC_LINKS_ABUSE_GATE_APPROVED:-false}
       TWOBRAIN_SHARE_IDENTITY_HASH_SECRET_FILE: /run/secrets/graf_share_identity_hash_secret
       TWOBRAIN_MEDIASCRIBE_API_KEY_FILE: /run/secrets/twobrain_mediascribe_api_key
       TWOBRAIN_OUTCOME_GENERATION_ENABLED: ${TWOBRAIN_OUTCOME_GENERATION_ENABLED:-false}
@@ -703,7 +709,20 @@ services:
       - ./env/rec.production.env.example
     environment:
       TWOBRAIN_ENV: production
+      TWOBRAIN_PUBLIC_BASE_URL: ${TWOBRAIN_PUBLIC_BASE_URL:-https://rec.2brain.pro}
       TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
+      TWOBRAIN_WEB_LOGIN_WORKSPACE_ID: ${TWOBRAIN_WEB_LOGIN_WORKSPACE_ID:-}
+      TWOBRAIN_EMAIL_LOGIN_DELIVERY_ENABLED: ${TWOBRAIN_EMAIL_LOGIN_DELIVERY_ENABLED:-false}
+      TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED: ${TWOBRAIN_SHARE_EXTERNAL_INVITATIONS_ENABLED:-false}
+      TWOBRAIN_SHARE_PUBLIC_LINKS_ENABLED: ${TWOBRAIN_SHARE_PUBLIC_LINKS_ENABLED:-false}
+      TWOBRAIN_SHARE_PUBLIC_LINKS_ABUSE_GATE_APPROVED: ${TWOBRAIN_SHARE_PUBLIC_LINKS_ABUSE_GATE_APPROVED:-false}
+      TWOBRAIN_SHARE_IDENTITY_HASH_SECRET_FILE: /run/secrets/graf_share_identity_hash_secret
+      TWOBRAIN_EMAIL_LOGIN_FROM_ADDRESS: ${TWOBRAIN_EMAIL_LOGIN_FROM_ADDRESS:-}
+      TWOBRAIN_EMAIL_LOGIN_FROM_NAME: ${TWOBRAIN_EMAIL_LOGIN_FROM_NAME:-GRAF}
+      TWOBRAIN_POSTAL_API_URL: ${TWOBRAIN_POSTAL_API_URL:-}
+      TWOBRAIN_POSTAL_API_KEY_FILE: ${TWOBRAIN_POSTAL_API_KEY_FILE:-/run/secrets/twobrain_postal_api_key}
+      TWOBRAIN_POSTAL_HOST_HEADER: ${TWOBRAIN_POSTAL_HOST_HEADER:-postal.2brain.pro}
+      TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS: ${TWOBRAIN_POSTAL_REQUEST_TIMEOUT_SECONDS:-10}
       TWOBRAIN_DATABASE_URL: postgresql+asyncpg://twobrain_rec_maintenance:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec
       GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE: /run/secrets/graf_credential_encryption_key
       TWOBRAIN_POSTGRES_PASSWORD_FILE: /run/secrets/twobrain_postgres_password
@@ -746,6 +765,11 @@ services:
         target: twobrain_postgres_password
       - source: graf_credential_encryption_key
         target: graf_credential_encryption_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
+      - source: graf_share_identity_hash_secret
+        target: graf_share_identity_hash_secret
         uid: "100"
         gid: "101"
         mode: 0440
@@ -794,6 +818,11 @@ services:
         uid: "100"
         gid: "101"
         mode: 0440
+      - source: twobrain_postal_api_key
+        target: twobrain_postal_api_key
+        uid: "100"
+        gid: "101"
+        mode: 0440
     command: ["python", "-m", "twobrain_rec_server.workflows.maintenance_worker"]
     depends_on:
       rec-db-runtime-bootstrap:
@@ -814,6 +843,7 @@ services:
           memory: 512m
     networks:
       - rec-private
+      - postal-network
 
   rec-postgres:
     image: postgres:17-alpine

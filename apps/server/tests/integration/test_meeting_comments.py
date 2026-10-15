@@ -575,10 +575,10 @@ def test_comment_cross_workspace_recipient_proof(client):
             f"{prefix}/meetings/{seeds.ready_id}/share?workspace_id={WORKSPACE_ID}", headers=headers
         )
         assert fragment.status_code == 200, fragment.text
-        assert (
-            "data-share-existing-role" in fragment.text
-            or "data-share-comment-role" in fragment.text
-        )
+        assert "data-summary-share-dialog" in fragment.text
+        assert "data-summary-share-send" in fragment.text
+        assert "data-share-existing-role" not in fragment.text
+        assert "data-share-comment-role" not in fragment.text
 
     from tests.integration.test_speaker_names import _renameable_speaker_keys
 

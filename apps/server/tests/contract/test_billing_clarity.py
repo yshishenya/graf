@@ -82,7 +82,7 @@ def test_checkout_keeps_full_financial_terms_outside_optional_details(cycle, amo
             "cycle_label": "месяц" if cycle == "month" else "год",
         },
     ))
-    for term in ("Личный", "5 ГБ", payable, amount, "29.09.2026 — 29.10.2026", "26.10.2026", "Автопродление", "оферту"):
+    for term in ("Личный", "5 ГБ", payable, amount, "29.09.2026 — 29.10.2026", "26.10.2026", "При автопродлении", "оферту"):
         assert term in page.visible
     assert ("Разовая скидка" in page.visible) == discount
     assert ("−100 ₽" in page.visible) == discount
@@ -90,8 +90,34 @@ def test_checkout_keeps_full_financial_terms_outside_optional_details(cycle, amo
     assert "Отключить" in page.visible and "Подписке" in page.visible
     consents = [attrs for tag, attrs in page.nodes if tag == "input" and attrs.get("type") == "checkbox"]
     assert {item["name"] for item in consents} == {"offer_consent", "recurring_consent"}
-    assert all("required" in item and "checked" not in item for item in consents)
+    offer = next(item for item in consents if item["name"] == "offer_consent")
+    recurring = next(item for item in consents if item["name"] == "recurring_consent")
+    assert "required" in offer and "checked" not in offer
+    assert "required" not in recurring and "checked" in recurring
+    assert "Списание при автопродлении" in page.visible
     assert any(attrs.get("name") == "offer_version" and attrs.get("type") == "hidden" and attrs.get("value") == "synthetic-offer-version" for _, attrs in page.nodes)
+
+
+@pytest.mark.parametrize("blocked", [None, False])
+def test_checkout_unavailable_account_removes_payment_action_without_pending_claim(blocked):
+    context = {"checkout_result": "account_unavailable"}
+    if blocked is not None:
+        context["checkout_blocked"] = blocked
+    page = Page(checkout(**context))
+    assert "Оплата для этого аккаунта сейчас недоступна. Обратитесь в поддержку." in page.visible
+    assert "Платеж уже создан" not in page.visible
+    assert not any(tag == "form" and attrs.get("action") == "/billing/checkout/start" for tag, attrs in page.nodes)
+    assert not any(tag == "button" and "data-billing-primary" in attrs for tag, attrs in page.nodes)
+    assert not any(attrs.get("name") in {"quote_id", "idempotency_key", "offer_consent", "recurring_consent"} for _, attrs in page.nodes)
+
+
+@pytest.mark.parametrize("cycle,expected", [("month", "month"), ("year", "year"), ("unexpected", "month")])
+def test_checkout_manual_preview_recovery_retains_only_allowlisted_period(cycle, expected):
+    page = Page(checkout(checkout_cycle=cycle, checkout_promo_code="SYNTHETIC"))
+    links = [attrs for tag, attrs in page.nodes if tag == "a" and "data-billing-preview-recovery" in attrs]
+    assert len(links) == 1
+    assert links[0]["href"] == f"/billing/checkout?cycle={expected}"
+    assert "hidden" in links[0]
 
 
 def test_checkout_coupon_opens_for_error_but_never_enables_invalid_quote():
@@ -110,8 +136,13 @@ def test_checkout_missing_receipt_contact_provides_recovery_without_money_form()
     assert "Подтвердите почту для чека" in page.visible
     assert any(attrs.get("href") == "/settings/account#account-providers-title" for _, attrs in page.nodes)
     assert not any(attrs.get("action") == "/billing/checkout/start" for _, attrs in page.nodes)
-    assert not any(tag == "input" and attrs.get("name") == "promo_code" and attrs.get("type") != "hidden" for tag, attrs in page.nodes)
-    assert "Есть промокод?" not in page.visible
+    assert any(tag == "form" and attrs.get("id") == "billing-promo-preview" and attrs.get("action") == "/billing/checkout/preview" for tag, attrs in page.nodes)
+    assert any(tag == "input" and attrs.get("name") == "promo_code" and attrs.get("type") == "text" and attrs.get("form") == "billing-promo-preview" for tag, attrs in page.nodes)
+    assert any(tag == "button" and attrs.get("form") == "billing-promo-preview" and attrs.get("name") == "preview_action" and attrs.get("value") == "apply" for tag, attrs in page.nodes)
+    assert "Есть промокод?" in page.visible
+    assert not any(tag == "input" and attrs.get("name") in {"offer_consent", "recurring_consent", "quote_id", "idempotency_key"} for tag, attrs in page.nodes)
+    assert not any(tag == "button" and "data-billing-primary" in attrs for tag, attrs in page.nodes)
+    assert "Оплатить" not in page.visible
 
 
 @pytest.mark.parametrize("purpose,recurring", [("storage_upgrade", True), ("storage_upgrade", False), ("early_renewal", False), ("storage_schedule", False)])
@@ -264,7 +295,10 @@ def test_invoice_refund_disclosure_explains_manual_status_and_separate_renewal_c
     page = Page(html)
     assert "1 000 ₽" in page.visible and "Помощь и возврат" in page.visible
     assert "Результат возврата" not in page.visible
-    expanded = Page(html.replace('<details class="billing-coupon">', '<details class="billing-coupon" open>'))
+    expanded = Page(html.replace(
+        '<details class="settings-disclosure"><summary>Помощь и возврат</summary>',
+        '<details class="settings-disclosure" open><summary>Помощь и возврат</summary>',
+    ))
     for term in (
         "Результат возврата уточняйте у поддержки", "GRAF не показывает его статус",
         "Возврат не отключает автопродление", "Открытие письма не отправляет запрос",

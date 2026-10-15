@@ -1,0 +1,161 @@
+{
+  "url": "https://rec.2brain.pro/guides",
+  "release_url": "https://github.com/yshishenya/graf/releases/tag/v2026.10.02.2",
+  "source_sha": "540f322b4de8016d3b920c74fb8a72c3881ad915",
+  "candidate_id": "rc-20261001T233303Z-079362d46959",
+  "full_ci_url": "https://github.com/yshishenya/graf/actions/runs/36941465329",
+  "full_ci_result": "PASS",
+  "pr": 7422,
+  "pr_head_sha": "8c365993e13a9c2e2062d6a2220a46a2f319ae23",
+  "pr_merge_sha": "116f6752e16ec096ee159f67e68d580f563289ff",
+  "pr_gates": "PASS",
+  "cd_result": "PASS",
+  "backup_result": "PASS",
+  "backup_reference": "backup-20261002T000033Z",
+  "publication_attestation": {
+    "attestation_id": "pa-rc-20261001T233303Z-079362d46959",
+    "attested_at": "2026-10-02T00:11:24Z",
+    "attested_by": "codex",
+    "candidate_id": "rc-20261001T233303Z-079362d46959",
+    "decision_digest": "sha256:a00ed8611c137303221df5982c4bd64bbd2a46f7af9564f381ede04aa1a7f3d9",
+    "github_release_url": "https://github.com/yshishenya/graf/releases/tag/v2026.10.02.2",
+    "release_target_sha": "540f322b4de8016d3b920c74fb8a72c3881ad915",
+    "schema_version": 1,
+    "source_sha": "540f322b4de8016d3b920c74fb8a72c3881ad915",
+    "tag": "v2026.10.02.2"
+  },
+  "public_readback": {
+    "verified_at_utc": "2026-10-02T00:05:28.440663+00:00",
+    "url": "https://rec.2brain.pro/guides",
+    "http": 200,
+    "canonical": "https://rec.2brain.pro/guides",
+    "noindex": false,
+    "scripts": 0,
+    "cards": 2,
+    "sitemap_urls": 10,
+    "sitemap_occurrences": 1,
+    "checked_links": [
+      "/",
+      "/analytics-consent",
+      "/download",
+      "/guides/protokol-vstrechi-iz-zapisi",
+      "/guides/zapis-vstrechi-na-mac-bez-bota",
+      "/privacy"
+    ],
+    "article_backlinks": true
+  },
+  "protected_readback": {
+    "/": {
+      "http": 200,
+      "equal_except_allowed_footer_and_existing_ephemeral_bridge": true
+    },
+    "/download": {
+      "http": 200,
+      "equal_except_allowed_footer_and_existing_ephemeral_bridge": true
+    },
+    "/privacy": {
+      "http": 200,
+      "equal_except_allowed_footer_and_existing_ephemeral_bridge": true
+    },
+    "/analytics-consent": {
+      "http": 200,
+      "equal_except_allowed_footer_and_existing_ephemeral_bridge": true
+    },
+    "/cookies": {
+      "http": 200,
+      "equal_except_allowed_footer_and_existing_ephemeral_bridge": true
+    },
+    "/terms": {
+      "http": 200,
+      "equal_except_allowed_footer_and_existing_ephemeral_bridge": true
+    },
+    "/offer": {
+      "http": 200,
+      "equal_except_allowed_footer_and_existing_ephemeral_bridge": true
+    }
+  },
+  "mobile": [
+    {
+      "width": 360,
+      "scroll": 360,
+      "h1": 1,
+      "cards": 2,
+      "font": "Onest, system-ui, -apple-system, \"system-ui\", \"Segoe UI\", sans-serif",
+      "columns": "324px",
+      "title": "Руководства по записи и итогам встреч",
+      "emptyNav": false,
+      "firstFocus": "#main"
+    },
+    {
+      "width": 390,
+      "scroll": 390,
+      "h1": 1,
+      "cards": 2,
+      "font": "Onest, system-ui, -apple-system, \"system-ui\", \"Segoe UI\", sans-serif",
+      "columns": "354px",
+      "title": "Руководства по записи и итогам встреч",
+      "emptyNav": false,
+      "firstFocus": "#main"
+    },
+    {
+      "width": 768,
+      "scroll": 768,
+      "h1": 1,
+      "cards": 2,
+      "font": "Onest, system-ui, -apple-system, \"system-ui\", \"Segoe UI\", sans-serif",
+      "columns": "732px",
+      "title": "Руководства по записи и итогам встреч",
+      "emptyNav": false,
+      "firstFocus": "#main"
+    },
+    {
+      "width": 1440,
+      "scroll": 1440,
+      "h1": 1,
+      "cards": 2,
+      "font": "Onest, system-ui, -apple-system, \"system-ui\", \"Segoe UI\", sans-serif",
+      "columns": "578px 578px",
+      "title": "Руководства по записи и итогам встреч",
+      "emptyNav": false,
+      "firstFocus": "#main"
+    }
+  ],
+  "bot_counts_before": [],
+  "bot_counts_after": [
+    {
+      "surface": "public_guides",
+      "automated_visits": 1
+    },
+    {
+      "surface": "public_mac_meeting_guide",
+      "automated_visits": 1
+    }
+  ],
+  "smoke_cleanup": {
+    "cleanup_result": {
+      "cleanup_result": "pass",
+      "database_records_removed": 34,
+      "object_keys_removed": 3
+    }
+  },
+  "runtime_services": [
+    "rec-api",
+    "rec-media-worker",
+    "rec-processing-worker",
+    "rec-maintenance"
+  ],
+  "runtime_source_matches": true,
+  "limitations": [
+    "Индексация, поисковые позиции и прирост органических активаций не проверены",
+    "Продуктовый сбор PostHog не включался; провайдеры, согласие и хранение не изменены",
+    "Записи реальных людей и реальные оплаты не выполнялись",
+    "Фактический откат и восстановление не выполнялись"
+  ],
+  "superseded_candidate": {
+    "sha": "202855acbb751c9a6f3d2b3bbeae64ddf91cbe9c",
+    "full_ci_url": "https://github.com/yshishenya/graf/actions/runs/36939970742",
+    "full_ci_result": "PASS",
+    "deployed": false,
+    "reason": "Документационный PR7427 продвинул origin; требование точного SHA соблюдено"
+  }
+}

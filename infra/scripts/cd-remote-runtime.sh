@@ -479,6 +479,55 @@ print("external_invitation_worker_config_result=pass")
   echo "external_invitation_worker_config_result=pass"
 }
 
+verify_billing_notification_runtime() {
+  if [[ "${TWOBRAIN_EMAIL_LOGIN_DELIVERY_ENABLED:-false}" != "true" ]]; then
+    if [[ "${TWOBRAIN_BILLING_CHECKOUT_ENABLED:-false}" == "true" \
+      || "${TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED:-false}" == "true" ]]; then
+      echo "reason=billing_notification_delivery_disabled"
+      return 1
+    fi
+    echo "billing_notification_config_result=disabled"
+    return 0
+  fi
+  local service receipt
+  local probe=(exec -T)
+  if [[ "${1:-exec}" == "run" ]]; then
+    probe=(run --pull never --rm --no-deps -T)
+  fi
+  for service in rec-api rec-processing-worker rec-maintenance; do
+    if ! receipt="$("${compose[@]}" "${probe[@]}" "$service" python -c '
+import socket
+from urllib.parse import urlsplit
+
+reason = "configuration"
+try:
+    from twobrain_rec_server.config import get_settings
+    from twobrain_rec_server.auth.email_delivery import PostalEmailLoginClient
+    settings = get_settings()
+    if not settings.email_login_delivery_enabled or settings.public_base_url is None:
+        raise ValueError()
+    client = PostalEmailLoginClient.from_settings(settings)
+    endpoint = urlsplit(client.api_url)
+    if endpoint.scheme not in {"http", "https"} or not endpoint.hostname:
+        raise ValueError()
+    reason = "connection"
+    with socket.create_connection((endpoint.hostname, endpoint.port or
+                                  (443 if endpoint.scheme == "https" else 80)), timeout=5):
+        pass
+except Exception:
+    print("billing_notification_probe_result=" + reason)
+    raise SystemExit(1)
+print("billing_notification_probe_result=pass")
+' 2>/dev/null)" \
+      || ! grep -Fxq 'billing_notification_probe_result=pass' <<<"$receipt"; then
+      echo "reason=billing_notification_runtime_invalid"
+      echo "billing_notification_service=$service"
+      return 1
+    fi
+  done
+  echo "billing_notification_config_result=pass"
+}
+
 verify_processing_runtime_health() {
   local temporal_container processing_worker_container maintenance_container temporal_networks
   local temporal_restart_count processing_worker_restart_count maintenance_restart_count
@@ -784,6 +833,13 @@ restore_previous_safe_processing_runtime() {
 restore_previous_runtime() {
   local rollback_failed=0 media_container current_schema truth_count
   echo "rollback_result=started"
+  # A failed forward stop must not leave an old queue consumer during recovery.
+  if ! "${compose[@]}" stop rec-processing-worker rec-maintenance >/dev/null 2>&1; then
+    echo "rollback_result=blocked"
+    echo "rollback_target=forward_fix_required"
+    echo "rollback_backup_reference=${backup_reference:-unavailable}"
+    return 1
+  fi
   media_container="$("${compose[@]}" ps -q rec-media-worker 2>/dev/null || true)"
   "${compose[@]}" stop rec-media-worker rec-maintenance rec-api rec-prompt-optimization-worker >/dev/null 2>&1 || true
   [[ -z "$media_container" ]] || docker rm -f "$media_container" >/dev/null 2>&1 || true
@@ -1151,8 +1207,13 @@ echo "profile_contract_result=pass"
 
 capture_processing_runtime_baseline
 prompt_worker_was_running="$("${compose[@]}" ps -q rec-prompt-optimization-worker)"
+if ! run_step billing_notification_preflight verify_billing_notification_runtime run; then
+  echo "deploy_result=blocked"
+  exit 1
+fi
 runtime_mutated=1
-"${compose[@]}" stop rec-api >/dev/null
+# Stop previous queue consumers before the maintenance worker takes ownership.
+"${compose[@]}" stop rec-api rec-processing-worker rec-maintenance >/dev/null
 sync_public_download
 "${compose[@]}" stop rec-media-worker >/dev/null 2>&1 || true
 run_step runtime_up env \
@@ -1180,6 +1241,10 @@ fi
 echo "temporal_readiness_result=pass"
 echo "processing_worker_readiness_result=pass"
 
+if ! run_step billing_notification_runtime verify_billing_notification_runtime; then
+  echo "deploy_result=blocked"
+  exit 1
+fi
 run_step external_invitation_runtime verify_external_invitation_runtime
 
 if ! run_step initial_dispatch_gate verify_api_dispatch_gate false false; then

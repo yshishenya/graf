@@ -114,16 +114,20 @@ async function checkTextContrast(page, label) {
         const consents = page.getByRole('checkbox');
         assert.equal(await consents.count(), 2);
         for (let index = 0; index < 2; index++) {
-          assert.equal(await consents.nth(index).isChecked(), false);
+          assert.equal(await consents.nth(index).isChecked(), index === 1);
+          assert.equal(await consents.nth(index).evaluate(el => el.required), index === 0);
           await consents.nth(index).focus();
           await page.keyboard.press('Space');
-          assert(await consents.nth(index).isChecked());
+          assert.equal(await consents.nth(index).isChecked(), index === 0);
         }
+        assert(await page.getByText('Отключено — автоматического списания не будет.', { exact: true }).isVisible());
+        assert.equal(await page.locator('[data-billing-next-attempt]').isVisible(), false);
         await page.keyboard.press(tabKey);
         assert(await page.getByRole('button', { name: /^Оплатить/ }).evaluate(el => el === document.activeElement));
         await page.keyboard.press(isWebKit ? 'Shift+Alt+Tab' : 'Shift+Tab');
         assert(await consents.nth(1).evaluate(el => el === document.activeElement));
-        assert(await form.evaluate(el => el.checkValidity()), 'explicit consents permit submit');
+        assert(await form.evaluate(el => el.checkValidity()), 'accepted offer permits a one-period payment');
+        assert.equal(await form.evaluate(el => new FormData(el).get('recurring_consent')), null);
       } else if (name.startsWith('status-')) {
         assert.equal(await page.getByRole('status').count(), 1, 'one payment status announcement region');
       } else if (name === 'invoice') {
@@ -160,7 +164,188 @@ async function checkTextContrast(page, label) {
         assert(await consent.isChecked());
         assert(await page.getByRole('button', { name: /^(Оплатить|Сохранить выбор)/ }).isVisible());
       }
-      for (const width of [320, 360, 768, 1280]) {
+      if (name.startsWith('subscription') || name.startsWith('shell-subscription')) {
+        const facts = page.locator('.billing-subscription-facts');
+        for (const value of await facts.locator('dd:visible').all()) {
+          assert.equal(await value.evaluate(el => getComputedStyle(el).marginInlineStart), '0px', `${name}: no browser-default dd indentation`);
+        }
+        if (name.includes('off-no-card')) {
+          assert.equal(await page.getByText('Возобновление пока недоступно.', { exact: false }).count(), 0);
+          assert.equal(await page.locator('main [data-billing-primary]:visible').count(), 1);
+          const renew = page.getByRole('link', { name: 'Продлить подписку', exact: true });
+          assert(await renew.isVisible());
+          assert.equal(await renew.getAttribute('href'), '/billing/checkout?cycle=month');
+          const conditions = page.locator('summary', { hasText: 'Способ оплаты, условия и история' });
+          assert.equal(await conditions.locator('..').getAttribute('open'), null);
+          assert.equal(await page.getByText('03.11.2026, 12:19 (UTC+03:00)', { exact: true }).isVisible(), false);
+          await conditions.focus();
+          await page.keyboard.press('Space');
+          assert(await page.getByText('03.11.2026, 12:19 (UTC+03:00)', { exact: true }).isVisible());
+          await page.keyboard.press('Space');
+        }
+        if (name.includes('off-ready')) {
+          const disclosure = page.locator('summary', { hasText: 'Включить автопродление' });
+          const form = page.locator('form[action="/billing/subscription/resume"]');
+          assert.equal(await form.isVisible(), false);
+          await disclosure.focus();
+          await page.keyboard.press('Space');
+          assert(await form.isVisible());
+          const consent = form.getByRole('checkbox');
+          assert.equal(await consent.isChecked(), false);
+          assert.equal(await form.evaluate(el => el.checkValidity()), false);
+          assert(await page.getByText('31.10.2026, 12:19 (UTC+03:00)', { exact: false }).isVisible());
+          await consent.focus();
+          await page.keyboard.press('Space');
+          assert(await consent.isChecked());
+          assert(await form.evaluate(el => el.checkValidity()));
+          const serialized = await form.evaluate(el => Object.fromEntries(new FormData(el)));
+          assert.equal(serialized.csrf_token, 'synthetic');
+          assert.equal(serialized.expected_authority_version, '1');
+          assert.equal(serialized.resume_quote_id, 'synthetic-resume');
+          assert.equal(serialized.resume_consent, 'true');
+          await disclosure.focus();
+          await page.keyboard.press('Space');
+        }
+        if (name.includes('uncertain-')) {
+          assert.equal(await page.locator('a[href="/billing/checkout?cycle=month"]').count(), 0);
+          assert.equal(await page.locator('form[action="/billing/subscription/resume"], form[action="/billing/subscription/early-preview"]').count(), 0);
+          assert(await page.getByRole('status').first().isVisible());
+        }
+        if (name === 'subscription-key-expired') {
+          assert(await page.getByRole('link', { name: 'Продлить подписку', exact: true }).isVisible());
+          assert(!(await page.locator('main').innerText()).includes('Повторно платить не нужно'));
+        }
+        if (name === 'subscription-ambiguous-payment' || name.includes('uncertain-')) {
+          const text = await page.locator('main').innerText();
+          assert(text.includes('Результат платежа'));
+          assert(text.includes('еще может завершиться'));
+          assert(!text.includes('Уже отправленный'));
+          assert.equal(await page.locator('a[href="/billing/checkout?cycle=month"]').count(), 0);
+          assert.equal(await page.locator('form[action="/billing/subscription/resume"], form[action="/billing/subscription/early-preview"]').count(), 0);
+          if (name === 'subscription-ambiguous-payment') {
+            const status = page.getByRole('link', { name: 'Проверить платеж', exact: true });
+            assert(await status.isVisible());
+            assert.equal(await status.getAttribute('href'), '/billing/checkout/status/INV-SYNTHETIC');
+          }
+        }
+        if (name.startsWith('subscription-method-pending')) {
+          const recovery = page.getByRole('link', { name: 'Проверить способ оплаты', exact: true });
+          assert(await recovery.isVisible());
+          assert.equal(await recovery.getAttribute('href'), '/billing/payment-method');
+          await recovery.focus();
+          assert(await recovery.evaluate(el => el === document.activeElement));
+          assert(await page.getByRole('link', { name: 'Проверить платеж', exact: true }).isVisible());
+          assert.equal(await page.locator('a[href="/billing/checkout?cycle=month"]').count(), 0);
+          assert.equal(await page.locator('form[action="/billing/subscription/resume"], form[action="/billing/subscription/early-preview"]').count(), 0);
+          assert(!(await page.locator('main').innerText()).includes('Уже отправленный'));
+          if (name.endsWith('-on')) assert(await page.getByRole('button', { name: 'Отключить автопродление', exact: true }).isVisible());
+        }
+        if (name === 'subscription-trial') {
+          assert(!(await page.locator('main').innerText()).includes('Сейчас действует бесплатный тариф'));
+          assert(await page.getByText('03.11.2026', { exact: false }).first().isVisible());
+        }
+        const period = page.getByText('Период оплаты', { exact: true });
+        if (['subscription-free', 'subscription-trial', 'subscription-expired', 'subscription-expired-pending', 'subscription-unknown-cycle'].includes(name)) {
+          assert.equal(await period.count(), 0, 'inactive or unknown-cycle access must not invent a paid period');
+          assert(!/за месяц|за год/.test(await page.locator('main').innerText()));
+        } else if (name === 'subscription-year') {
+          const conditions = page.locator('summary', { hasText: 'Способ оплаты, условия и история' });
+          await conditions.focus();
+          await page.keyboard.press('Space');
+          assert.equal(await period.locator('..').locator('dd').innerText(), 'год');
+          assert.match(await facts.innerText(), /за год/);
+          assert.match(await page.getByText('Цена следующего периода', { exact: true }).locator('..').innerText(), /за год/);
+          await page.keyboard.press('Space');
+        }
+        if (name.startsWith('subscription-restriction-')) {
+          const reason = name.replace('subscription-restriction-', '');
+          const mainText = await page.locator('main').innerText();
+          const primary = page.locator('[data-billing-primary]');
+          assert.equal(await primary.count(), 1);
+          assert.equal(await primary.getAttribute('href'), '/billing/checkout/status/INV-SYNTHETIC');
+          assert(!mainText.includes('Подтверждение оплаты получено'));
+          assert.equal(await page.locator('a[href^="/billing/checkout?"], form[action="/billing/subscription/resume"], form[action="/billing/subscription/early-preview"]').count(), 0);
+          if (reason === 'price_changed') {
+            const recovery = page.getByRole('link', { name: 'Проверить новую цену', exact: true });
+            assert(await recovery.isVisible());
+            assert.equal(await recovery.getAttribute('href'), '/billing/storage');
+            await recovery.focus();
+            assert(await recovery.evaluate(el => el === document.activeElement));
+          } else if (reason === 'receipt_contact_required') {
+            assert(mainText.includes('нужен адрес для чека'));
+            assert(!/Оплатите|Оплатить следующий период вручную/.test(mainText));
+            assert(await page.locator('.notice a[href="/billing/history#billing-help"]').isVisible());
+          } else if (reason !== 'late_success') {
+            assert(mainText.includes('Автопродление приостановлено'));
+          }
+        }
+      }
+      if (name.includes('discounts')) {
+        const promo = page.getByRole('textbox', { name: 'Промокод', exact: true });
+        assert(await promo.isVisible());
+        await promo.focus();
+        assert(await promo.evaluate(el => el === document.activeElement));
+        await page.keyboard.press(tabKey);
+        assert(await page.getByRole('button', { name: 'Применить и проверить цену' }).evaluate(el => el === document.activeElement));
+        assert.equal(await page.getByText('Действующие предложения', { exact: true }).count(), 0);
+        if (name.includes('history-year')) assert.match(await page.locator('[aria-label="История скидок"]').innerText(), /Применён · Год/);
+        if (name.includes('history-unknown')) {
+          const history = await page.locator('[aria-label="История скидок"]').innerText();
+          assert(history.includes('Скидка 10%') && history.includes('Применён'));
+          assert(!/Год|Месяц|·/.test(history));
+        }
+      }
+      if (name.includes('invoice-')) {
+        assert(await page.getByText('03.11.2026 — 03.12.2026', { exact: true }).isVisible(), `${name}: compact paid period on view`);
+        const exactPeriod = page.getByText('03.11.2026, 12:19 (UTC+03:00) — 03.12.2026, 12:19 (UTC+03:00)', { exact: true });
+        const information = page.locator('summary', { hasText: 'Сведения о платеже' });
+        assert.equal(await exactPeriod.isVisible(), false, `${name}: exact period is a secondary detail`);
+        if (name.includes('service-gap')) {
+          assert(await page.getByText('Оплата подтверждена; услуга требует сверки', { exact: false }).isVisible());
+          assert.equal(await page.getByText('Оплата подтверждена; услуга требует сверки', { exact: false }).evaluate(el => Boolean(el.closest('details'))), false, 'service gap must not be hidden in disclosure');
+        }
+        await information.focus();
+        await page.keyboard.press('Space');
+        assert(await exactPeriod.isVisible(), `${name}: native keyboard disclosure reveals precise dates`);
+        assert(await page.getByText('Дата создания платежа', { exact: true }).isVisible());
+        assert(await page.getByText('04.10.2026, 12:19 (UTC+03:00)', { exact: true }).isVisible());
+        const copy = page.getByRole('button', { name: 'Скопировать номер платежа', exact: true });
+        assert.equal(await copy.getAttribute('data-copy-value'), 'INV-SYNTHETIC');
+        await page.evaluate(() => {
+          window.syntheticClipboard = [];
+          Object.defineProperty(navigator, 'clipboard', { configurable: true,
+            value: { writeText: async value => window.syntheticClipboard.push(value) } });
+        });
+        await copy.click();
+        assert.deepEqual(await page.evaluate(() => window.syntheticClipboard), ['INV-SYNTHETIC'], 'real copy handler passes only safe number to synthetic clipboard');
+        const help = page.locator('summary', { hasText: 'Помощь и возврат' });
+        await help.focus();
+        await page.keyboard.press('Space');
+        const question = page.getByRole('link', { name: 'Вопрос об оплате', exact: true });
+        const refund = page.getByRole('link', { name: 'Запросить возврат', exact: true });
+        for (const [link, subject] of [[question, 'Вопрос об оплате INV-SYNTHETIC'], [refund, 'Возврат по платежу INV-SYNTHETIC']]) {
+          assert(await link.isVisible());
+          const destination = new URL(await link.getAttribute('href'));
+          assert.equal(destination.protocol, 'mailto:');
+          assert.equal(destination.pathname, 'support@example.test');
+          assert.equal(destination.searchParams.get('subject'), subject);
+          await link.focus();
+          assert(await link.evaluate(el => el === document.activeElement));
+        }
+        assert(await page.getByText('Открытие письма не отправляет запрос и не оформляет возврат', { exact: false }).isVisible());
+        const receipt = page.getByRole('link', { name: 'Открыть чек', exact: true });
+        if (name.endsWith('invoice-receipt')) {
+          assert(await receipt.isVisible());
+          assert.equal(await receipt.getAttribute('href'), 'https://graf.test/synthetic-receipt');
+        } else assert.equal(await receipt.count(), 0, `${name}: no fabricated document action`);
+        if (name.includes('intervals')) {
+          assert(await page.getByText('03.01.2027, 12:19 (UTC+03:00): 10 ГБ', { exact: false }).isVisible());
+        }
+        for (const value of await page.locator('main dd:visible').all()) {
+          assert.equal(await value.evaluate(el => getComputedStyle(el).marginInlineStart), '0px', `${name}: no browser-default dd indentation`);
+        }
+      }
+      for (const width of [320, 360, 390, 768, 1280]) {
         await page.setViewportSize({ width, height: 900 });
         for (const theme of ['light', 'dark']) {
           for (const zoom of [1, 2]) {
@@ -174,8 +359,12 @@ async function checkTextContrast(page, label) {
                 document.documentElement.scrollWidth > window.innerWidth + 1;
             });
             assert(!overflow, `${name}: content clipped at ${width}px, ${theme}, ${zoom * 100}%`);
+            if (name.includes('invoice-') && width === 1280 && zoom === 1) {
+              const contentWidth = await page.locator('main .settings-page__content').evaluate(el => el.getBoundingClientRect().width);
+              assert.equal(Math.round(contentWidth), 720, `${name}: invoice uses the agreed subscription content width`);
+            }
             const smallTargets = await page.evaluate(() => [...document.querySelectorAll(
-              'main button, main .button, main summary, main select, main label.billing-consent',
+              'main button, main .button, main summary, main select, main input[type=text], main label.billing-consent',
             )].filter(el => el.checkVisibility() && !el.matches(':disabled')).filter(el => {
               const rect = el.getBoundingClientRect();
               return rect.width < 24 || rect.height < 24;
@@ -204,32 +393,209 @@ async function checkTextContrast(page, label) {
       assert.deepEqual(errors, []);
       await page.close();
     }
+    // Reuse the checkout HTML to isolate tab/scope persistence from server money state.
+    const preferenceContext = await browser.newContext();
+    let scope = { user: 'synthetic-user', workspace: 'synthetic-workspace', session: 'synthetic-session' };
+    const originalScope = { ...scope };
+    await preferenceContext.route('https://graf.test/**', route => {
+      const filename = path.basename(new URL(route.request().url()).pathname);
+      if (route.request().resourceType() !== 'document') {
+        return route.fulfill({ path: path.join(assets, filename) });
+      }
+      const meta = Object.entries(scope).map(([name, value]) =>
+        `<meta name="${name === 'workspace' ? 'graf-workspace' : `graf-time-${name}`}" content="${value}">`).join('');
+      return route.fulfill({contentType: 'text/html; charset=utf-8', body:
+        `<html lang="ru"><meta charset="utf-8">${meta}<link rel="stylesheet" href="/cabinet.css"><script src="/cabinet.js" defer></script><body data-surface-mode="standalone_browser">${pages.checkout}</body></html>`});
+    });
+    const preferencePage = await preferenceContext.newPage();
+    const renewal = preferencePage.getByRole('checkbox', { name: /Разрешаю автоматические списания/ });
+    const off = preferencePage.getByText('Отключено — автоматического списания не будет.', { exact: true });
+    await preferencePage.goto('https://graf.test/billing/checkout');
+    assert(await renewal.isChecked(), 'new tab defaults to recurring enabled');
+    await renewal.uncheck();
+    assert(await off.isVisible());
+    const preference = await preferencePage.evaluate(() => Object.entries(sessionStorage)
+      .filter(([key]) => key.startsWith('graf-checkout-renewal:')));
+    assert.equal(preference.length, 1);
+    assert.equal(preference[0][1], 'false', 'only the boolean preference is stored');
+    for (let index = 0; index < 2; index++) {
+      await preferencePage.reload();
+      assert.equal(await renewal.isChecked(), false);
+      assert(await off.isVisible());
+      assert.equal(await preferencePage.getByRole('checkbox', { name: /Принимаю/ }).isChecked(), false);
+    }
+    await renewal.check();
+    await preferencePage.reload();
+    assert(await renewal.isChecked(), 'explicitly enabling renewal replaces the previous off choice');
+    assert.equal(await preferencePage.evaluate(key => sessionStorage.getItem(key), preference[0][0]), 'true');
+    await renewal.uncheck();
+    await preferencePage.evaluate(html => {
+      document.querySelector('main').outerHTML = html;
+      document.body.dispatchEvent(new CustomEvent('htmx:afterSwap'));
+    }, pages.checkout);
+    assert.equal(await renewal.isChecked(), false, 'HTMX replacement restores this tab choice');
+    await renewal.evaluate(el => { el.checked = true; });
+    await preferencePage.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+    assert.equal(await renewal.isChecked(), false, 'pageshow reconciles native restored state');
+    const anotherTab = await preferenceContext.newPage();
+    await anotherTab.goto('https://graf.test/billing/checkout');
+    assert(await anotherTab.getByRole('checkbox', { name: /Разрешаю/ }).isChecked(), 'a tab without opener has independent choice');
+    await anotherTab.close();
+    for (const part of ['user', 'workspace', 'session']) {
+      scope = { ...originalScope, [part]: `another-${part}` };
+      await preferencePage.reload();
+      assert(await renewal.isChecked(), `choice is isolated by ${part}`);
+      scope = { ...originalScope };
+      await preferencePage.reload();
+      assert.equal(await renewal.isChecked(), false);
+    }
+    await preferencePage.evaluate(key => sessionStorage.setItem(key, 'invalid'), preference[0][0]);
+    await preferencePage.reload();
+    assert(await renewal.isChecked(), 'unknown stored value cannot become an inherited choice');
+    scope = { ...originalScope, session: '' };
+    await preferencePage.reload();
+    await renewal.uncheck();
+    await preferencePage.evaluate(() => document.body.dispatchEvent(new CustomEvent('htmx:afterSwap')));
+    assert.equal(await renewal.isChecked(), false, 'missing scope still permits a live one-period choice');
+    assert(await off.isVisible());
+    assert.equal(await preferencePage.evaluate(key => sessionStorage.getItem(key), preference[0][0]), 'invalid');
+    scope = { ...originalScope };
+    await preferencePage.addInitScript(() => {
+      for (const method of ['getItem', 'setItem']) Storage.prototype[method] = () => { throw new DOMException('blocked', 'SecurityError'); };
+    });
+    await preferencePage.reload();
+    await renewal.uncheck();
+    await preferencePage.evaluate(() => window.dispatchEvent(new Event('pageshow')));
+    assert.equal(await renewal.isChecked(), false, 'storage failure cannot undo the current native choice');
+    assert(await off.isVisible());
+    await preferencePage.getByRole('checkbox', { name: /Принимаю/ }).check();
+    assert(await preferencePage.locator('form[action="/billing/checkout/start"]').evaluate(el => el.checkValidity()));
+    await preferenceContext.close();
+
     // Submit the actual native form with scripting disabled. The intercepted
     // request proves browser validation and serialization, not provider success.
-    const noScriptPage = await browser.newPage({ javaScriptEnabled: false });
-    noScriptPage.setDefaultTimeout(5000);
-    const posts = [];
-    await noScriptPage.route('https://graf.test/**', route => {
-      const request = route.request();
-      if (request.method() === 'POST') posts.push(request);
-      return route.fulfill({contentType: 'text/html; charset=utf-8', body: request.method() === 'POST'
-        ? '<meta charset="utf-8"><p>Синтетическая отправка принята</p>' : `<html lang="ru"><meta charset="utf-8"><body>${pages.checkout}</body></html>`});
-    });
-    await noScriptPage.goto('https://graf.test/billing/checkout');
-    await noScriptPage.getByRole('button', {name: /^Оплатить/}).click();
-    assert.equal(posts.length, 0, 'native validation blocks unchecked consents without JS');
-    for (const checkbox of await noScriptPage.getByRole('checkbox').all()) await checkbox.check();
-    await Promise.all([
-      noScriptPage.waitForURL('https://graf.test/billing/checkout/start'),
-      noScriptPage.getByRole('button', {name: /^Оплатить/}).click(),
-    ]);
-    assert.equal(posts.length, 1);
-    const submitted = new URLSearchParams(posts[0].postData());
-    assert.equal(submitted.get('quote_id'), 'synthetic-quote');
-    assert.equal(submitted.get('cycle'), 'month');
-    assert.equal(submitted.get('offer_consent'), 'true');
-    assert.equal(submitted.get('recurring_consent'), 'true');
-    await noScriptPage.close();
+    for (const recurring of [true, false]) {
+      const noScriptPage = await browser.newPage({ javaScriptEnabled: false });
+      noScriptPage.setDefaultTimeout(5000);
+      const posts = [];
+      await noScriptPage.route('https://graf.test/**', route => {
+        const request = route.request();
+        if (request.method() === 'POST') posts.push(request);
+        return route.fulfill({contentType: 'text/html; charset=utf-8', body: request.method() === 'POST'
+          ? '<meta charset="utf-8"><p>Синтетическая отправка принята</p>' : `<html lang="ru"><meta charset="utf-8"><body>${pages.checkout}</body></html>`});
+      });
+      await noScriptPage.goto('https://graf.test/billing/checkout');
+      assert(await noScriptPage.getByText('При автопродлении', { exact: true }).isVisible());
+      assert(await noScriptPage.getByText('Списание при автопродлении', { exact: true }).isVisible());
+      await noScriptPage.getByRole('button', {name: /^Оплатить/}).click();
+      assert.equal(posts.length, 0, 'native validation requires offer acceptance without JS');
+      await noScriptPage.getByRole('checkbox', { name: /Принимаю/ }).check();
+      await noScriptPage.getByRole('checkbox', { name: /Разрешаю/ }).setChecked(recurring);
+      await Promise.all([
+        noScriptPage.waitForURL('https://graf.test/billing/checkout/start'),
+        noScriptPage.getByRole('button', {name: /^Оплатить/}).click(),
+      ]);
+      assert.equal(posts.length, 1);
+      const submitted = new URLSearchParams(posts[0].postData());
+      assert.equal(submitted.get('quote_id'), 'synthetic-quote');
+      assert.equal(submitted.get('cycle'), 'month');
+      assert.equal(submitted.get('offer_consent'), 'true');
+      assert.equal(submitted.get('recurring_consent'), recurring ? 'true' : null);
+      await noScriptPage.close();
+    }
+    // Native disclosure and consent work without page scripting; no provider is called.
+    for (const name of ['subscription-off-ready', 'subscription']) {
+      const page = await browser.newPage({ javaScriptEnabled: false });
+      const posts = [];
+      await page.route('https://graf.test/**', route => {
+        const request = route.request();
+        if (request.method() === 'POST') posts.push(request);
+        return route.fulfill({ contentType: 'text/html; charset=utf-8', body: request.method() === 'POST'
+          ? '<meta charset="utf-8"><p>Синтетическая отправка принята</p>'
+          : `<html lang="ru"><meta charset="utf-8"><body>${pages[name]}</body></html>` });
+      });
+      await page.goto('https://graf.test/billing/subscription');
+      const resuming = name === 'subscription-off-ready';
+      if (resuming) {
+        await page.locator('summary', { hasText: 'Включить автопродление' }).focus();
+        await page.keyboard.press('Space');
+        await page.getByRole('button', { name: 'Включить автопродление', exact: true }).click();
+        assert.equal(posts.length, 0, 'native resume consent is required without JavaScript');
+        const consent = page.getByRole('checkbox');
+        assert.equal(await consent.isChecked(), false);
+        await consent.check();
+      }
+      const action = resuming ? 'resume' : 'cancel';
+      await Promise.all([
+        page.waitForURL(`https://graf.test/billing/subscription/${action}`),
+        page.getByRole('button', { name: resuming ? 'Включить автопродление' : 'Отключить автопродление', exact: true }).click(),
+      ]);
+      assert.equal(posts.length, 1);
+      const fields = new URLSearchParams(posts[0].postData());
+      assert.equal(fields.get('csrf_token'), 'synthetic');
+      assert.equal(fields.get('expected_authority_version'), '1');
+      assert.equal(fields.get('resume_consent'), resuming ? 'true' : null);
+      assert.equal(fields.get('resume_quote_id'), resuming ? 'synthetic-resume' : null);
+      await page.close();
+    }
+    for (const name of Object.keys(pages).filter(name => name.startsWith('subscription-restriction-') ||
+      ['subscription-free', 'subscription-trial', 'subscription-expired', 'subscription-unknown-cycle', 'subscription-year'].includes(name))) {
+      const page = await browser.newPage({ javaScriptEnabled: false, viewport: { width: 320, height: 900 } });
+      const requests = [];
+      await page.route('https://graf.test/**', route => {
+        requests.push(route.request());
+        return route.fulfill({ contentType: 'text/html; charset=utf-8', body: `<html lang="ru"><meta charset="utf-8"><body>${pages[name]}</body></html>` });
+      });
+      await page.goto('https://graf.test/billing/subscription');
+      if (name.startsWith('subscription-restriction-')) {
+        const primary = page.getByRole('link', { name: 'Проверить платеж', exact: true });
+        assert(await primary.isVisible());
+        await primary.focus();
+        assert(await primary.evaluate(el => el === document.activeElement));
+        const text = await page.locator('main').innerText();
+        assert(!text.includes('Подтверждение оплаты получено'));
+        if (name.endsWith('receipt_contact_required')) assert(text.includes('нужен адрес для чека') && !text.includes('Оплатите'));
+        else if (!name.endsWith('late_success')) assert(text.includes('Автопродление приостановлено'));
+        assert.equal(await page.locator('a[href^="/billing/checkout?"], form[action="/billing/subscription/resume"], form[action="/billing/subscription/early-preview"]').count(), 0);
+        await Promise.all([page.waitForURL('https://graf.test/billing/checkout/status/INV-SYNTHETIC'), page.keyboard.press('Enter')]);
+        assert.equal(requests.length, 2);
+        assert(requests.every(request => request.method() === 'GET'), 'native status navigation must not send money requests');
+      } else {
+        await page.locator('summary', { hasText: 'Способ оплаты, условия и история' }).focus();
+        await page.keyboard.press('Space');
+        const period = page.getByText('Период оплаты', { exact: true });
+        if (name === 'subscription-year') {
+          assert(await period.isVisible());
+          assert.equal(await period.locator('..').locator('dd').innerText(), 'год');
+        } else assert.equal(await period.count(), 0);
+        assert.equal(requests.length, 1);
+      }
+      await page.close();
+    }
+    // Invoice disclosures and document/support links are native HTML with JS off.
+    // We inspect mailto targets but never invoke an external mail application.
+    for (const name of ['invoice-future', 'invoice-receipt', 'invoice-receipt-no-url']) {
+      const page = await browser.newPage({ javaScriptEnabled: false });
+      const posts = [];
+      await page.route('https://graf.test/**', route => {
+        if (route.request().method() !== 'GET') posts.push(route.request().method());
+        return route.fulfill({ contentType: 'text/html; charset=utf-8', body: `<html lang="ru"><meta charset="utf-8"><body>${pages[name]}</body></html>` });
+      });
+      await page.goto('https://graf.test/billing/invoices/INV-SYNTHETIC');
+      assert(await page.getByText('03.11.2026 — 03.12.2026', { exact: true }).isVisible());
+      for (const label of ['Сведения о платеже', 'Помощь и возврат']) {
+        const summary = page.locator('summary', { hasText: label });
+        await summary.focus();
+        await page.keyboard.press('Space');
+        assert(await summary.locator('..').evaluate(el => el.open), `${name}: JS-off keyboard disclosure`);
+      }
+      assert(await page.getByText('Дата создания платежа', { exact: true }).isVisible());
+      assert(await page.getByRole('link', { name: 'Вопрос об оплате', exact: true }).isVisible());
+      assert(await page.getByRole('link', { name: 'Запросить возврат', exact: true }).isVisible());
+      assert.equal(await page.getByRole('link', { name: 'Открыть чек', exact: true }).count(), name === 'invoice-receipt' ? 1 : 0);
+      assert.deepEqual(posts, [], 'reading and disclosing invoice sends no mutations');
+      await page.close();
+    }
     console.log('billing: initial/error focus, native consent keyboard, no focus steal, single status region passed');
   } finally {
     await browser.close();

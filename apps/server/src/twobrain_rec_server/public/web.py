@@ -22,6 +22,20 @@ from twobrain_rec_server.public.analytics import (
     deliver_public_analytics_event,
     normalize_public_analytics_event,
 )
+from twobrain_rec_server.public.content import (
+    GUIDE_PATH,
+    GUIDES_PATH,
+    HELP_PATH,
+    ONE_SIDED_AUDIO_HELP,
+    ONE_SIDED_AUDIO_PATH,
+    PROTOCOL_GUIDE_PATH,
+    PUBLIC_CONTENT_PAGES,
+    PUBLISHED_CONTENT_PATHS,
+    QUALITY_GUIDE_PATH,
+    ZOOM_GUIDE_PATH,
+    ContentSection,
+    content_for_section,
+)
 from twobrain_rec_server.public.offers import build_public_offer_view
 from twobrain_rec_server.public.templates import (
     DEFAULT_PUBLIC_BASE_URL,
@@ -141,6 +155,98 @@ async def public_download_page(
         page_title="Скачать ГРАФ для macOS",
         analytics_path="/download",
         start_url="/login?next=/meetings",
+    )
+
+
+@router.get(GUIDES_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_guides(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
+    return await public_page_response(
+        request,
+        "public/guides.html",
+        db=db,
+        page_title="Руководства по записи и итогам встреч — ГРАФ",
+        social_description="Практические руководства: запись встречи на Mac без бота, расшифровка и протокол с решениями и задачами. Подготовка, примеры и проверка результата.",
+        guides=content_for_section(ContentSection.GUIDES),
+    )
+
+
+@router.get(GUIDE_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_mac_meeting_guide(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
+    return await public_page_response(
+        request,
+        "public/mac_meeting_guide.html",
+        db=db,
+        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path not in (GUIDE_PATH, ZOOM_GUIDE_PATH)),
+        page_title="Как записать встречу на Mac без бота и получить итоги — ГРАФ",
+        social_description="Как проверить запись обеих сторон на Mac и получить расшифровку с итогами. Пошаговая подготовка и ограничения ГРАФ.",
+    )
+
+
+@router.get(PROTOCOL_GUIDE_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_meeting_protocol_guide(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
+    return await public_page_response(
+        request,
+        "public/meeting_protocol_guide.html",
+        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path not in (PROTOCOL_GUIDE_PATH, ZOOM_GUIDE_PATH)),
+        db=db,
+        page_title="Протокол встречи из записи: пример решений и задач — ГРАФ",
+        social_description="Как превратить расшифровку в протокол встречи: учебный диалог, пример решений и задач, шаблон и проверка ответственных, сроков и договоренностей.",
+    )
+
+
+@router.get(QUALITY_GUIDE_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_transcription_quality_guide(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
+    return await public_page_response(
+        request,
+        "public/transcription_quality_guide.html",
+        db=db,
+        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path not in (QUALITY_GUIDE_PATH, ZOOM_GUIDE_PATH)),
+        page_title="Как проверить качество расшифровки встречи — ГРАФ",
+        social_description="Как сверить расшифровку с записью: спикеры, имена, числа, отрицания и решения. Учебные примеры, порядок проверки и чеклист перед отправкой итогов.",
+    )
+
+
+@router.get(ZOOM_GUIDE_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_zoom_recording_guide(request: Request) -> HTMLResponse:
+    return public_template_response(
+        request,
+        "public/zoom_recording_guide.html",
+        page_title="Как расшифровать запись Zoom в текст — ГРАФ",
+        social_description="Найдите запись Zoom, выберите M4A или MP4 с голосами участников и загрузите в ГРАФ. Пошаговая инструкция, проверка результата и частые ошибки.",
+    )
+
+
+@router.get(HELP_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_help(request: Request) -> HTMLResponse:
+    return public_template_response(
+        request,
+        "public/help.html",
+        page_title="Помощь с записью на Mac — ГРАФ",
+        social_description="Что проверить, если в записи встречи на Mac отсутствует ваш голос или голос собеседника: источники звука, разрешения и границы диагностики.",
+        help_pages=content_for_section(ContentSection.HELP),
+    )
+
+
+@router.get(ONE_SIDED_AUDIO_PATH, response_class=HTMLResponse, include_in_schema=False)
+async def public_one_sided_audio_help(request: Request) -> HTMLResponse:
+    return public_template_response(
+        request,
+        "public/one_sided_audio_help.html",
+        page_title=ONE_SIDED_AUDIO_HELP.title + " — ГРАФ",
+        social_description=ONE_SIDED_AUDIO_HELP.summary,
+        related_contents=tuple(page for page in PUBLIC_CONTENT_PAGES if page.path != ZOOM_GUIDE_PATH),
     )
 
 
@@ -299,7 +405,7 @@ async def public_robots(request: Request) -> PlainTextResponse:
 @router.get("/sitemap.xml", include_in_schema=False)
 async def public_sitemap(request: Request) -> Response:
     base_url = _public_base_url(request)
-    locations = ("/", "/download", "/privacy", "/cookies", "/terms", "/offer", "/analytics-consent")
+    locations = ("/", "/download", "/privacy", "/cookies", "/terms", "/offer", "/analytics-consent", *PUBLISHED_CONTENT_PATHS)
     urls = "".join(f"<url><loc>{base_url}{path}</loc></url>" for path in locations)
     return Response(
         f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>',

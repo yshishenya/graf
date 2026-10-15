@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import base64
+import binascii
+import hmac
+import json
 import re
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from typing import TYPE_CHECKING
 from urllib.parse import quote, urlencode, urlsplit
 from uuid import UUID, uuid4
 
 import httpx
 from fastapi import APIRouter, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,6 +72,7 @@ from twobrain_rec_server.billing.promotions import (
 )
 from twobrain_rec_server.billing.provider_events import validate_provider_identifier
 from twobrain_rec_server.billing.purchases import (
+    AcceptanceBudgetUnavailable,
     PurchaseError,
     accept_base_price,
     accept_storage_price,
@@ -90,7 +96,12 @@ from twobrain_rec_server.billing.receipts import (
     receipt_state_for_registration,
 )
 from twobrain_rec_server.billing.referrals import referral_token_hash, validate_referral_token
-from twobrain_rec_server.billing.refund_email import build_refund_mailto
+from twobrain_rec_server.billing.refund_email import (
+    build_question_mailto,
+    build_refund_mailto,
+    build_support_mailto,
+    normalize_support_email,
+)
 from twobrain_rec_server.billing.renewal_charge import (
     cancel_unsent_renewals,
     next_renewal_attempt,
@@ -116,6 +127,7 @@ from twobrain_rec_server.billing.trial import (
 )
 from twobrain_rec_server.billing.usage import format_duration, moscow_window_for
 from twobrain_rec_server.billing.webhook_reconciliation import (
+    RECEIPT_OBSERVATION_STATES,
     reconcile_pending_initial_checkout_operations,
 )
 from twobrain_rec_server.billing.yookassa import (
@@ -129,7 +141,7 @@ from twobrain_rec_server.billing.yookassa import (
 from twobrain_rec_server.cabinet.queries import get_account_profile_view
 from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
-from twobrain_rec_server.cabinet.user_time import format_user_datetime
+from twobrain_rec_server.cabinet.user_time import format_user_datetime, local_datetime
 from twobrain_rec_server.cabinet.web_routes.auth_email_flow import _set_browser_auth_cookie
 from twobrain_rec_server.cabinet.web_routes.support import (
     LoginDbDependency,
@@ -144,11 +156,13 @@ from twobrain_rec_server.db.models import (
     AuthSession,
     AuthSessionDeviceBinding,
     BillingAuditEvent,
+    BillingEntitlementGrant,
     BillingInvoice,
     BillingOperation,
     BillingPaymentMethod,
     BillingPlanVersion,
     BillingPurchaseQuote,
+    BillingStorageEntitlementGrant,
     ExternalIdentity,
     FreeUsageWindow,
     PromotionCampaign,
@@ -186,7 +200,9 @@ if TYPE_CHECKING:
 router = APIRouter(tags=["cabinet-web"])
 
 _CHECKOUT_PROMO_COOKIE = "graf_checkout_promo"
+_CHECKOUT_PROMO_DRAFT_COOKIE = "graf_checkout_promo_draft"
 _CHECKOUT_PROMO_COOKIE_MAX_AGE = 5 * 60
+_CHECKOUT_PROMO_DRAFT_PURPOSE = "billing-promo:v1:"
 
 
 def _is_embedded_request(request: Request) -> bool:
@@ -349,45 +365,127 @@ async def billing_browser_handoff(
     return redirect
 
 
+def _promo_draft_now() -> int:
+    return int(datetime.now(UTC).timestamp())
+
+
+def _checkout_promo_draft(
+    request: Request,
+    *,
+    principal: AuthenticatedPrincipal,
+    tenant_scope: TenantScope,
+) -> dict | None:
+    """Read bounded input only for its verified browser session and workspace."""
+    secret = getattr(request.app.state, "web_csrf_secret", None)
+    token = request.cookies.get(_CHECKOUT_PROMO_DRAFT_COOKIE, "")
+    if not principal.auth_via_session or principal.session_id is None or not secret or not token:
+        return None
+    try:
+        if len(token) > 2048:
+            return None
+        encoded, signature = token.rsplit(".", 1)
+        expected = hmac.new(
+            str(secret).encode(),
+            (_CHECKOUT_PROMO_DRAFT_PURPOSE + encoded).encode(),
+            sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            return None
+        draft = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+        if (
+            not isinstance(draft, dict)
+            or set(draft) != {"code", "cycle", "expiry", "user", "workspace", "session"}
+            or not isinstance(draft["code"], str)
+            or not 0 < len(draft["code"]) <= 48
+            or draft["cycle"] not in ("month", "year")
+            or type(draft["expiry"]) is not int
+            or not _promo_draft_now() < draft["expiry"]
+            or draft["user"] != str(principal.user_id)
+            or draft["workspace"] != str(tenant_scope.workspace_id)
+            or draft["session"] != str(principal.session_id)
+        ):
+            return None
+        return draft
+    except (ValueError, TypeError, UnicodeError, binascii.Error):
+        return None
+
+
+def _clear_checkout_promo_draft(response: Response) -> None:
+    response.delete_cookie(_CHECKOUT_PROMO_DRAFT_COOKIE, path="/billing/checkout")
+    response.delete_cookie(_CHECKOUT_PROMO_COOKIE, path="/billing/checkout")
+
+
+def _checkout_operation_redirect(url: str, *, status_code: int = 303) -> RedirectResponse:
+    """An authoritative operation owns the selection from this point onward."""
+    response = RedirectResponse(url, status_code=status_code)
+    _clear_checkout_promo_draft(response)
+    return response
+
+
 def _checkout_result_redirect(
     request: Request,
     result: str,
     *,
+    principal: AuthenticatedPrincipal,
+    tenant_scope: TenantScope,
     promo_code: str | None = None,
     cycle: str | None = None,
+    replace_promo: bool = False,
 ) -> RedirectResponse:
-    """Keep only the recoverable checkout field across a result redirect.
-
-    The cookie is short-lived, HttpOnly and scoped to checkout routes. Promo
-    codes are not financial identifiers, but they still must not enter a URL
-    query string where browser history, referrer or analytics could capture
-    them.
-    """
-
+    """Carry signed input, never a price, quote, consent or payment authority."""
+    previous = _checkout_promo_draft(request, principal=principal, tenant_scope=tenant_scope)
+    value = promo_code if promo_code is not None else previous["code"] if previous and not replace_promo else ""
+    if not replace_promo:
+        if previous is not None:
+            # An unchanged/stale form or failed start cannot replace newer input.
+            value = previous["code"]
+        else:
+            if value and result == "promo_applied":
+                result = "promo_expired"
+            value = ""
+    selected_cycle = previous["cycle"] if previous and request.url.path == "/billing/checkout/start" else (
+        cycle if cycle in ("month", "year") else previous["cycle"] if previous else "month"
+    )
     query = {"result": result}
-    if cycle in {"month", "year"}:
-        query["cycle"] = cycle
+    if cycle in ("month", "year") or previous:
+        query["cycle"] = selected_cycle
     response = RedirectResponse(f"/billing/checkout?{urlencode(query)}", status_code=303)
-    try:
-        value = normalize_promo(promo_code) if promo_code else ""
-    except PromoError:
-        # Never put unvalidated form bytes into a response header. A malformed
-        # code is cheap to re-enter; preserving a valid normalized value is
-        # enough for recoverable expiry/capacity errors.
-        value = ""
-        response.delete_cookie(_CHECKOUT_PROMO_COOKIE, path="/billing/checkout")
-    if value:
+    secret = getattr(request.app.state, "web_csrf_secret", None)
+    now = _promo_draft_now()
+    expiry = now + _CHECKOUT_PROMO_COOKIE_MAX_AGE if replace_promo else (
+        previous["expiry"] if previous else None
+    )
+    if (
+        principal.auth_via_session and principal.session_id is not None and secret
+        and isinstance(value, str) and value.strip() and len(value) <= 48
+        and expiry is not None and now < expiry
+    ):
+        draft = {
+            "code": value,
+            "cycle": selected_cycle,
+            "expiry": expiry,
+            "user": str(principal.user_id),
+            "workspace": str(tenant_scope.workspace_id),
+            "session": str(principal.session_id),
+        }
+        encoded = base64.urlsafe_b64encode(
+            json.dumps(draft, separators=(",", ":"), sort_keys=True).encode()
+        ).decode().rstrip("=")
+        signature = hmac.new(
+            str(secret).encode(), (_CHECKOUT_PROMO_DRAFT_PURPOSE + encoded).encode(), sha256
+        ).hexdigest()
         response.set_cookie(
-            _CHECKOUT_PROMO_COOKIE,
-            value=value,
-            max_age=_CHECKOUT_PROMO_COOKIE_MAX_AGE,
+            _CHECKOUT_PROMO_DRAFT_COOKIE,
+            value=f"{encoded}.{signature}",
+            max_age=expiry - now,
             httponly=True,
             samesite="lax",
             secure=request.url.scheme == "https",
             path="/billing/checkout",
         )
-    else:
         response.delete_cookie(_CHECKOUT_PROMO_COOKIE, path="/billing/checkout")
+    else:
+        _clear_checkout_promo_draft(response)
     return response
 
 
@@ -454,6 +552,23 @@ def _initial_checkout_can_continue(
     )
 
 
+def _checkout_invoice_can_continue(
+    invoice: BillingInvoice, operation: BillingOperation | None
+) -> bool:
+    if invoice.status == "pending":
+        return True
+    return bool(
+        invoice.status == "manual_resolution"
+        and operation is not None
+        and _initial_checkout_can_continue(operation)
+        and invoice.operation_id == operation.id
+        and invoice.workspace_id == operation.workspace_id
+        and type(operation.request_snapshot.get("payable_amount_minor")) is int
+        and operation.request_snapshot["payable_amount_minor"] == invoice.amount_minor
+        and invoice.currency == "RUB"
+    )
+
+
 def _initial_checkout_failure_metadata(
     exc: BaseException,
     *,
@@ -487,6 +602,8 @@ def _initial_checkout_failure_metadata(
         and 400 <= exc.status_code <= 599
     ):
         metadata["http_status"] = exc.status_code
+    if isinstance(exc, YooKassaProviderError) and exc.reason == "recurring_not_available":
+        metadata["reason"] = "recurring_not_available"
     return metadata
 
 
@@ -575,7 +692,7 @@ async def _create_initial_checkout_payment(
         or snapshot.get("plan_code") != "personal"
         or snapshot.get("cycle") not in {"month", "year"}
         or snapshot.get("offer_consent") is not True
-        or snapshot.get("recurring_consent") is not True
+        or type(snapshot.get("recurring_consent")) is not bool
         or isinstance(snapshot.get("payable_amount_minor"), bool)
         or snapshot.get("payable_amount_minor") != invoice.amount_minor
         or invoice.currency != "RUB"
@@ -614,7 +731,7 @@ async def _create_initial_checkout_payment(
                 "invoice_number": invoice.safe_number,
                 "return_url": return_url,
             },
-            save_payment_method=True,
+            save_payment_method=snapshot["recurring_consent"],
             receipt=receipt,
         )
 
@@ -711,6 +828,34 @@ def trial_phase(*, trial_ends_at: datetime | None, now: datetime) -> str | None:
 
 def _billing_datetime_label(value: datetime | None) -> str | None:
     return format_user_datetime(value, show_zone=True) if value is not None else None
+
+
+def _legacy_storage_period_label(snapshot: Mapping[str, object]) -> str | None:
+    """Read the period validated by the legacy storage projector, without current quota."""
+    target = snapshot.get("addon_capacity_bytes", snapshot.get("capacity_bytes"))
+    if (
+        snapshot.get("purchase_schema") not in (None, 1)
+        or type(target) is not int
+        or target not in (PERSONAL_STORAGE_BYTES, *ADDON_CAPACITY_BYTES)
+        or snapshot.get("cycle") not in ("month", "year")
+    ):
+        return None
+    period = []
+    for key in ("effective_at", "ends_at"):
+        value = snapshot.get(key)
+        if not isinstance(value, str):
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            return None
+        period.append(parsed.astimezone(UTC))
+    starts_at, ends_at = period
+    if starts_at >= ends_at:
+        return None
+    return f"{_billing_datetime_label(starts_at)} — {_billing_datetime_label(ends_at)}"
 
 
 def _billing_amount_label(amount_minor: int | None, currency: str = "RUB") -> str | None:
@@ -1783,42 +1928,27 @@ async def billing_discounts_page(
     )
     if not billing_owner:
         return RedirectResponse("/billing?result=owner_only", status_code=303)
-    now = datetime.now(UTC)
-    active_promotions: list[dict[str, str]] = []
     redemptions: list[dict[str, str]] = []
     if db is not None:
-        campaigns = await db.scalars(
-            select(PromotionCampaign)
-            .where(PromotionCampaign.enabled.is_(True))
-            .order_by(PromotionCampaign.created_at.desc())
-            .limit(20)
-        )
-        for campaign in campaigns:
-            if campaign.starts_at is not None and campaign.starts_at > now:
-                continue
-            if campaign.ends_at is not None and campaign.ends_at <= now:
-                continue
-            active_promotions.append(
-                {
-                    "discount_label": f"Скидка {campaign.discount_percent}% на «Личный»",
-                    "expiry_label": _billing_datetime_label(campaign.ends_at)
-                    if campaign.ends_at
-                    else "срок не ограничен",
-                }
-            )
         rows = await db.execute(
-            select(PromotionRedemption, PromotionCampaign)
-            .join(PromotionCampaign, PromotionCampaign.id == PromotionRedemption.campaign_id)
+            select(PromotionRedemption, BillingInvoice)
+            .outerjoin(
+                BillingInvoice,
+                (BillingInvoice.id == PromotionRedemption.invoice_id)
+                & (BillingInvoice.workspace_id == tenant_scope.workspace_id),
+            )
             .where(PromotionRedemption.workspace_id == tenant_scope.workspace_id)
             .order_by(PromotionRedemption.reserved_at.desc())
             .limit(100)
         )
-        for redemption, campaign in rows:
+        for redemption, invoice in rows:
+            snapshot = invoice.plan_snapshot if invoice is not None else None
+            cycle = snapshot.get("cycle") if isinstance(snapshot, dict) else None
             redemptions.append(
                 {
                     "discount_label": f"Скидка {redemption.discount_percent}%",
                     "state_label": _promotion_state_label(redemption.state),
-                    "cycle_label": "Год" if campaign.cycle == "year" else "Месяц",
+                    "cycle_label": "Год" if cycle == "year" else "Месяц" if cycle == "month" else "",
                 }
             )
     content = _page_shell(
@@ -1832,11 +1962,9 @@ async def billing_discounts_page(
             request, "billing_discounts", principal=principal, tenant_scope=tenant_scope
         ),
         content_template="cabinet/pages/billing_discounts_content.html",
-        active_promotions=active_promotions,
         redemptions=redemptions,
         billing_owner=billing_owner,
         billing_enabled=billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id),
-        checkout_promo_active=bool(request.cookies.get(_CHECKOUT_PROMO_COOKIE)),
         discount_promo_code=getattr(request.state, "discount_promo_code", ""),
         result=getattr(request.state, "discount_result", request.query_params.get("result")),
     )
@@ -1886,16 +2014,19 @@ async def apply_billing_discount(
             PromotionCampaign.enabled.is_(True),
         )
     ) if normalized else None
+    cycle = subscription.cycle if subscription and subscription.cycle in {"month", "year"} else None
     now = datetime.now(UTC)
     if campaign is None or (campaign.starts_at is not None and campaign.starts_at > now) or (
         campaign.ends_at is not None and campaign.ends_at <= now
     ):
-        request.state.discount_result = "invalid"
-        request.state.discount_promo_code = promo_code or ""
-        response = await billing_discounts_page(request, tenant_scope, principal, db)
-        response.status_code = 409
-        return response
-    return _checkout_result_redirect(request, "promo_applied", promo_code=normalized)
+        return _checkout_result_redirect(
+            request, "promo_invalid", promo_code=promo_code, cycle=cycle,
+            principal=principal, tenant_scope=tenant_scope, replace_promo=True,
+        )
+    return _checkout_result_redirect(
+        request, "promo_applied", promo_code=normalized, cycle=cycle,
+        principal=principal, tenant_scope=tenant_scope, replace_promo=True,
+    )
 
 
 @router.post("/billing/discounts/remove", response_class=HTMLResponse, include_in_schema=False)
@@ -1930,7 +2061,7 @@ async def remove_billing_discount(
     if limited is not None:
         return limited
     response = RedirectResponse("/billing/discounts?result=removed", status_code=303)
-    response.delete_cookie(_CHECKOUT_PROMO_COOKIE, path="/billing/checkout")
+    _clear_checkout_promo_draft(response)
     return response
 
 
@@ -1976,6 +2107,68 @@ async def billing_checkout_status_page(
     if invoice is None:
         return RedirectResponse("/billing/history?result=not_found", status_code=303)
     operation_state = operation.state if operation is not None else None
+    service_period_label = None
+    service_gap = bool(
+        operation_state == "succeeded_refused"
+        or (operation and operation.request_snapshot.get("reconciliation_detail"))
+        or (invoice.plan_snapshot or {}).get("service_resolution")
+    )
+    if operation_state in {"succeeded", "succeeded_projected"} and not service_gap:
+        if invoice.status != "succeeded":
+            service_gap = True
+        elif operation_state == "succeeded_projected":
+            if operation.kind == "storage_upgrade":
+                service_period_label = _legacy_storage_period_label(operation.request_snapshot)
+            service_gap = service_period_label is None
+        elif operation.kind in {"initial_checkout", "renewal", "early_renewal"}:
+            grant = await db.scalar(select(BillingEntitlementGrant).where(
+                BillingEntitlementGrant.workspace_id == tenant_scope.workspace_id,
+                BillingEntitlementGrant.invoice_id == invoice.id,
+            ))
+            service_gap = grant is None
+            if grant is not None:
+                service_period_label = (
+                    f"{_billing_datetime_label(grant.starts_at)} — "
+                    f"{_billing_datetime_label(grant.ends_at)}"
+                )
+        elif operation.kind == "storage_upgrade":
+            grants = list(await db.scalars(select(BillingStorageEntitlementGrant).where(
+                BillingStorageEntitlementGrant.workspace_id == tenant_scope.workspace_id,
+                BillingStorageEntitlementGrant.invoice_id == invoice.id,
+            ).order_by(
+                BillingStorageEntitlementGrant.starts_at,
+                BillingStorageEntitlementGrant.ends_at,
+                BillingStorageEntitlementGrant.id,
+            )))
+            service_gap = not grants
+            if grants:
+                service_period_label = "; ".join(
+                    f"{_billing_datetime_label(grant.starts_at)} — "
+                    f"{_billing_datetime_label(grant.ends_at)}"
+                    for grant in grants
+                )
+        else:
+            service_gap = True
+    payment_applied = operation_state in {"succeeded", "succeeded_projected"} and not service_gap
+    provider_failure = operation.request_snapshot.get("provider_failure") if operation else None
+    if not isinstance(provider_failure, dict):
+        provider_failure = {}
+    creation_rejected = bool(
+        operation
+        and operation.request_snapshot.get("purchase_schema") == 2
+        and operation_state == invoice.status == "canceled"
+        and operation.provider_id is None
+        and provider_failure.get("class") == "provider_rejected"
+        and type(provider_failure.get("http_status")) is int
+        and provider_failure["http_status"] in {400, 401, 403, 404, 405, 415, 429}
+    )
+    recurring_not_available = bool(
+        creation_rejected
+        and operation.kind == "initial_checkout"
+        and operation.request_snapshot.get("recurring_consent") is True
+        and provider_failure.get("http_status") == 403
+        and provider_failure.get("reason") == "recurring_not_available"
+    )
     retry_payment_url = f"/billing/checkout?cycle={'year' if invoice.plan_snapshot.get('cycle') == 'year' else 'month'}"
     if operation and operation.kind == "storage_upgrade":
         retry_payment_url = "/billing/storage"
@@ -1996,6 +2189,7 @@ async def billing_checkout_status_page(
     )
     can_continue_payment = bool(
         operation is not None
+        and _checkout_invoice_can_continue(invoice, operation)
         and billing_checkout_allowed(settings, tenant_scope.workspace_id)
         and actor_matches
         and (
@@ -2044,25 +2238,41 @@ async def billing_checkout_status_page(
         amount_label=_billing_amount_label(invoice.amount_minor, invoice.currency)
         or "Сумма недоступна",
         operation_state=operation_state,
+        creation_rejected=creation_rejected,
+        recurring_not_available=recurring_not_available,
         retry_payment_url=retry_payment_url,
-        support_email=settings.billing_support_email,
+        support_email=normalize_support_email(settings.billing_support_email),
+        support_mailto=build_support_mailto(settings.billing_support_email),
         purchase_purpose_label=purchase_purpose_label(invoice.plan_snapshot or {}),
-        service_gap=bool(
-            operation_state == "succeeded_refused"
-            or (operation and operation.request_snapshot.get("reconciliation_detail"))
-            or (invoice.plan_snapshot or {}).get("service_resolution")
-        ),
+        payment_applied=payment_applied,
+        service_gap=service_gap,
+        service_period_label=service_period_label,
         return_to_work_url="/desktop/meetings" if _is_embedded_request(request) else "/meetings",
         operation_state_label=_operation_state_label(operation_state),
         billing_enabled=billing_checkout_allowed(settings, tenant_scope.workspace_id),
-        can_continue_payment=can_continue_payment,
+        can_continue_payment=can_continue_payment and request.query_params.get("view") != "local",
+        awaiting_payment_result=can_continue_payment or can_refresh_payment,
         can_refresh_payment=can_refresh_payment,
+        read_only_recovery=request.query_params.get("view") == "local",
         updated_at_label=_billing_datetime_label(
             operation.updated_at if operation is not None else None
         ),
         status_result=request.query_params.get("result"),
     )
     return cabinet_html_response(content)
+
+
+async def _is_paid_refused_receipt(db, invoice) -> bool:
+    if invoice is None or invoice.status != "succeeded" or not isinstance(invoice.plan_snapshot, dict):
+        return False
+    if invoice.plan_snapshot.get("service_resolution") != "workspace_scope_invalid":
+        return False
+    return bool(await db.scalar(select(BillingOperation.id).where(
+        BillingOperation.id == invoice.operation_id,
+        BillingOperation.workspace_id == invoice.workspace_id,
+        BillingOperation.kind.in_(("renewal", "early_renewal")),
+        BillingOperation.state == "succeeded_refused",
+    )))
 
 
 @router.post(
@@ -2103,14 +2313,12 @@ async def refresh_billing_checkout_status(
             WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
         )
     )
-    if (
-        not _can_manage_billing(
-            role=await _billing_role(db, tenant_scope=tenant_scope, principal=principal),
-            subscription=subscription,
-            principal=principal,
-        )
-        or invoice is None
-    ):
+    role = await _billing_role(db, tenant_scope=tenant_scope, principal=principal)
+    receipt_only = request.query_params.get("return_to") == "invoice"
+    can_refresh = _can_manage_billing(role=role, subscription=subscription, principal=principal)
+    if not can_refresh and role == "owner" and receipt_only:
+        can_refresh = await _is_paid_refused_receipt(db, invoice)
+    if not can_refresh or invoice is None:
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     counters = await reconcile_pending_initial_checkout_operations(
         db,
@@ -2118,10 +2326,14 @@ async def refresh_billing_checkout_status(
         limit=1,
         operation_id=invoice.operation_id,
         defer_referral_reward=True,
+        receipt_only=receipt_only,
     )
     await db.commit()
+    result = _status_refresh_result(counters)
     return RedirectResponse(
-        _checkout_status_location(safe_number, result=_status_refresh_result(counters)),
+        f"/billing/invoices/{quote(safe_number, safe='-')}?result={result}"
+        if request.query_params.get("return_to") == "invoice"
+        else _checkout_status_location(safe_number, result=result),
         status_code=303,
     )
 
@@ -2183,6 +2395,10 @@ async def continue_billing_checkout(
         )
         .with_for_update()
     )
+    if not _checkout_invoice_can_continue(invoice, operation) or (
+        operation is not None and operation.state in {"succeeded", "succeeded_refused", "canceled", "failed"}
+    ):
+        return RedirectResponse(_checkout_status_location(safe_number), status_code=303)
     if operation is not None and operation.kind == "storage_upgrade":
         if (
             operation.request_snapshot.get("billing_actor_user_id") != str(principal.user_id)
@@ -2194,7 +2410,7 @@ async def continue_billing_checkout(
             )
         url = operation.request_snapshot.get("confirmation_url")
         if operation.state == "provider_pending" and is_allowed_confirmation_url(url):
-            return RedirectResponse(url, status_code=303)
+            return _checkout_operation_redirect(url, status_code=303)
         return RedirectResponse(_checkout_status_location(invoice.safe_number), status_code=303)
     if operation is None or operation.kind != "initial_checkout":
         return RedirectResponse(
@@ -2226,11 +2442,10 @@ async def continue_billing_checkout(
         await db.commit()
     if operation.provider_id is not None:
         confirmation_url = operation.request_snapshot.get("confirmation_url")
+        if operation.state == "provider_pending" and is_allowed_confirmation_url(confirmation_url):
+            return _checkout_operation_redirect(confirmation_url, status_code=303)
         return RedirectResponse(
-            confirmation_url
-            if is_allowed_confirmation_url(confirmation_url)
-            else _checkout_status_location(safe_number, result="unchanged"),
-            status_code=303,
+            _checkout_status_location(safe_number, result="unchanged"), status_code=303
         )
     if operation.request_snapshot.get("purchase_schema") == 2:
         return RedirectResponse(
@@ -2267,7 +2482,7 @@ async def continue_billing_checkout(
         if subscription is not None and subscription.billing_owner_id != principal.user_id:
             subscription.billing_owner_id = principal.user_id
         await db.commit()
-        return RedirectResponse(
+        return _checkout_operation_redirect(
             confirmation_url
             if confirmation_url is not None
             else _checkout_status_location(safe_number, result="provider_unavailable"),
@@ -2572,11 +2787,18 @@ async def billing_subscription_page(
     if not _can_manage_billing(role=role, subscription=subscription, principal=principal):
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     now = datetime.now(UTC)
-    active = (
-        subscription is not None
-        and subscription.paid_through is not None
-        and subscription.paid_through > now
+    effective_plan = (
+        effective_plan_code(
+            plan_code=subscription.plan_code,
+            state=subscription.state,
+            now=now,
+            paid_through=subscription.paid_through,
+            trial_ends_at=subscription.trial_ends_at,
+        )
+        if subscription is not None
+        else "free"
     )
+    active = effective_plan == "personal"
     next_charge_label = (
         await _next_renewal_label(db, subscription, now=now) if active and db is not None else None
     )
@@ -2617,12 +2839,12 @@ async def billing_subscription_page(
         next_charge_amount_label = _billing_amount_label(
             cycle_catalog.amount_minor if cycle_catalog is not None else None
         )
+    if db is not None:
         awaiting_invoices = await db.execute(
             select(BillingInvoice, BillingOperation)
             .join(BillingOperation, BillingOperation.id == BillingInvoice.operation_id)
             .where(
                 BillingInvoice.workspace_id == tenant_scope.workspace_id,
-                BillingOperation.kind.in_(("renewal", "early_renewal")),
                 BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
             )
             .order_by(BillingInvoice.created_at.desc())
@@ -2642,7 +2864,10 @@ async def billing_subscription_page(
         and not subscription.recurring_allowed
         and billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id)
         and method_available
-        and subscription.renewal_resolution != "receipt_contact_required"
+        and pending_invoice is None
+        and subscription.renewal_resolution not in {
+            "pending", "unknown", "unknown_pending", "receipt_contact_required",
+        }
     ):
         try:
             resume_snapshot = await _resume_renewal_snapshot(db, subscription=subscription, now=now)
@@ -2677,6 +2902,13 @@ async def billing_subscription_page(
         paid_through_label=_billing_datetime_label(subscription.paid_through)
         if active and subscription is not None
         else None,
+        paid_through_short_label=local_datetime(subscription.paid_through).strftime("%d.%m.%Y")
+        if active else None,
+        subscription_trial_active=effective_plan == "trial",
+        trial_ends_short_label=local_datetime(subscription.trial_ends_at).strftime("%d.%m.%Y")
+        if effective_plan == "trial" and subscription.trial_ends_at is not None else None,
+        trial_ends_at_label=_billing_datetime_label(subscription.trial_ends_at)
+        if effective_plan == "trial" else None,
         next_charge_label=next_charge_label,
         resume_charge_label=resume_charge_label,
         resume_quote_id=resume_quote_id,
@@ -2704,19 +2936,7 @@ async def billing_subscription_page(
         if subscription and subscription.next_capacity_bytes
         else None,
         billing_enabled=billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id),
-        subscription_plan_label=(
-            plan_descriptor(
-                effective_plan_code(
-                    plan_code=subscription.plan_code,
-                    state=subscription.state,
-                    now=now,
-                    paid_through=subscription.paid_through,
-                    trial_ends_at=subscription.trial_ends_at,
-                )
-            ).label
-            if subscription is not None
-            else "Бесплатный"
-        ),
+        subscription_plan_label={"personal": "Личный", "trial": "Пробный период", "free": "Бесплатный"}[effective_plan],
         result=request.query_params.get("result"),
     )
     return cabinet_html_response(content)
@@ -3221,14 +3441,12 @@ async def billing_checkout_page(
     checkout_continuation_url = (
         continuation_candidate if is_allowed_confirmation_url(continuation_candidate) else None
     )
-    checkout_promo_code = getattr(
-        request.state,
-        "billing_checkout_promo_code",
-        request.cookies.get(_CHECKOUT_PROMO_COOKIE, ""),
-    )
-    checkout_cycle = getattr(
-        request.state, "billing_checkout_cycle", request.query_params.get("cycle")
-    )
+    saved_draft = _checkout_promo_draft(request, principal=principal, tenant_scope=tenant_scope)
+    checkout_promo_code = saved_draft["code"] if saved_draft else ""
+    # Direct POST rejection must not replay stale form input into the preview.
+    checkout_cycle = (
+        saved_draft["cycle"] if saved_draft else getattr(request.state, "billing_checkout_cycle", None)
+    ) if request.method == "POST" else request.query_params.get("cycle")
     descriptor = plan_descriptor("personal")
     receipt_contact = await _verified_receipt_contact(db, principal.user_id)
     now = datetime.now(UTC)
@@ -3242,7 +3460,7 @@ async def billing_checkout_page(
         else None
     )
     if checkout_cycle not in {"month", "year"}:
-        checkout_cycle = (
+        checkout_cycle = saved_draft["cycle"] if saved_draft else (
             subscription.cycle
             if subscription and subscription.cycle in {"month", "year"}
             else "month"
@@ -3418,7 +3636,22 @@ async def billing_checkout_page(
         receipt_contact_label=_masked_receipt_contact(receipt_contact),
     )
     response = cabinet_html_response(content)
-    if checkout_promo_code:
+    if blocking_operation is not None or (
+        request.cookies.get(_CHECKOUT_PROMO_DRAFT_COOKIE) and saved_draft is None
+    ):
+        _clear_checkout_promo_draft(response)
+    elif (
+        request.method == "GET" and saved_draft
+        and request.query_params.get("cycle") in {"month", "year"}
+        and checkout_cycle != saved_draft["cycle"]
+    ):
+        updated_choice = _checkout_result_redirect(
+            request, "promo_applied", cycle=checkout_cycle,
+            principal=principal, tenant_scope=tenant_scope,
+        )
+        for header in updated_choice.headers.getlist("set-cookie"):
+            response.headers.append("set-cookie", header)
+    elif request.cookies.get(_CHECKOUT_PROMO_COOKIE):
         response.delete_cookie(_CHECKOUT_PROMO_COOKIE, path="/billing/checkout")
     return response
 
@@ -3432,11 +3665,30 @@ async def preview_billing_checkout(
     db: AsyncSession | None = WebDbDependency,
     cycle: str = Form(default="month", max_length=16),
     promo_code: str | None = Form(default=None, max_length=48),
+    preview_action: str = Form(default="apply", max_length=16),
+    previous_promo_code: str = Form(default="", max_length=48),
 ) -> RedirectResponse:
     """Validate a promo and show its price without reserving or charging."""
     settings = request.app.state.settings
+    if preview_action in {"month", "year"}:
+        cycle = preview_action
+    # A presentation hint detects an edit; it never authorizes a discount.
+    # Same input on an expired page must not restart the original five minutes.
+    replace_promo = preview_action == "apply" or (
+        bool((promo_code or "").strip())
+        and promo_code != previous_promo_code
+    )
+    if not replace_promo:
+        saved_draft = _checkout_promo_draft(
+            request, principal=principal, tenant_scope=tenant_scope
+        )
+        if saved_draft is not None:
+            promo_code = saved_draft["code"]
     if db is None or not billing_checkout_allowed(settings, tenant_scope.workspace_id):
-        return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
+        return _checkout_result_redirect(
+            request, "unavailable", cycle=cycle, promo_code=promo_code,
+            principal=principal, tenant_scope=tenant_scope, replace_promo=replace_promo,
+        )
     if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     limited = await _billing_rate_limited_response(
@@ -3448,14 +3700,28 @@ async def preview_billing_checkout(
     if limited is not None:
         return limited
     if cycle not in {"month", "year"}:
-        return _checkout_result_redirect(request, "promo_invalid", promo_code=promo_code)
+        return _checkout_result_redirect(request, "promo_invalid", promo_code=promo_code, principal=principal, tenant_scope=tenant_scope)
     try:
         catalog = await _approved_personal_catalog(db, now=datetime.now(UTC))
         catalog_snapshot = catalog.get(cycle)
         if catalog_snapshot is None:
-            return _checkout_result_redirect(request, "catalog_not_approved", cycle=cycle)
+            return _checkout_result_redirect(
+                request, "catalog_not_approved", cycle=cycle, promo_code=promo_code,
+                principal=principal, tenant_scope=tenant_scope, replace_promo=replace_promo,
+            )
+        if (
+            preview_action in {"month", "year"} and not replace_promo
+            and saved_draft is None and (promo_code or "").strip()
+        ):
+            return _checkout_result_redirect(
+                request, "promo_expired", cycle=cycle,
+                principal=principal, tenant_scope=tenant_scope,
+            )
         if not (promo_code or "").strip():
-            return _checkout_result_redirect(request, "promo_applied", cycle=cycle)
+            return _checkout_result_redirect(
+                request, "promo_applied", cycle=cycle, promo_code="",
+                principal=principal, tenant_scope=tenant_scope, replace_promo=replace_promo,
+            )
         entered_promo, _ = await _load_checkout_promo(
             db,
             workspace_id=tenant_scope.workspace_id,
@@ -3489,12 +3755,18 @@ async def preview_billing_checkout(
             "promo_invalid",
             promo_code=promo_code,
             cycle=cycle,
+            principal=principal,
+            tenant_scope=tenant_scope,
+            replace_promo=replace_promo,
         )
     return _checkout_result_redirect(
         request,
         "promo_applied",
-        promo_code=entered_promo.code,
+        promo_code=promo_code,
         cycle=cycle,
+        principal=principal,
+        tenant_scope=tenant_scope,
+        replace_promo=replace_promo,
     )
 
 
@@ -3515,7 +3787,7 @@ async def start_billing_checkout(
 ) -> HTMLResponse:
     settings = request.app.state.settings
     if db is None:
-        return _checkout_result_redirect(request, "unavailable", cycle=cycle, promo_code=promo_code)
+        return _checkout_result_redirect(request, "unavailable", cycle=cycle, promo_code=promo_code, principal=principal, tenant_scope=tenant_scope)
     # Keep the narrow rate-limit transaction ahead of workspace row locks.
     # Otherwise its FK insert can wait on this transaction's FOR UPDATE lock
     # and deadlock the checkout request against itself.
@@ -3554,18 +3826,16 @@ async def start_billing_checkout(
             .with_for_update()
         )
         if membership is None or membership.role != "owner":
-            return _checkout_result_redirect(request, "owner_only", cycle=cycle, promo_code=promo_code)
+            return _checkout_result_redirect(request, "owner_only", cycle=cycle, promo_code=promo_code, principal=principal, tenant_scope=tenant_scope)
         receipt_contact = await _verified_receipt_contact(db, principal.user_id)
         require_billing_enabled(
             checkout_enabled=billing_checkout_allowed(settings, tenant_scope.workspace_id),
         )
         key = idempotency_key.strip()
         if not key:
-            return _checkout_result_redirect(request, "invalid", cycle=cycle, promo_code=promo_code)
+            return _checkout_result_redirect(request, "invalid", cycle=cycle, promo_code=promo_code, principal=principal, tenant_scope=tenant_scope)
         if not offer_consent:
-            return _checkout_result_redirect(request, "offer_required", cycle=cycle, promo_code=promo_code)
-        if not recurring_consent:
-            return _checkout_result_redirect(request, "consent_required", cycle=cycle, promo_code=promo_code)
+            return _checkout_result_redirect(request, "offer_required", cycle=cycle, promo_code=promo_code, principal=principal, tenant_scope=tenant_scope)
 
         # Idempotency recovery must not re-run mutable promo/referral checks.
         # A retried request can carry the same reservation and should recover
@@ -3581,16 +3851,16 @@ async def start_billing_checkout(
         if existing is not None:
             confirmation_url = existing.request_snapshot.get("confirmation_url")
             if is_allowed_confirmation_url(confirmation_url):
-                return RedirectResponse(confirmation_url, status_code=303)
+                return _checkout_operation_redirect(confirmation_url, status_code=303)
             existing_invoice = await db.scalar(
                 select(BillingInvoice).where(BillingInvoice.operation_id == existing.id)
             )
             if existing_invoice is not None:
-                return RedirectResponse(
+                return _checkout_operation_redirect(
                     _checkout_status_location(existing_invoice.safe_number),
                     status_code=303,
                 )
-            return RedirectResponse("/billing?result=pending", status_code=303)
+            return _checkout_operation_redirect("/billing?result=pending", status_code=303)
         if not receipt_contact:
             blocker = await db.scalar(
                 _blocking_payment_operation_query(tenant_scope.workspace_id).limit(1)
@@ -3600,13 +3870,15 @@ async def start_billing_checkout(
                     BillingInvoice.workspace_id == tenant_scope.workspace_id,
                     BillingInvoice.operation_id == blocker.id,
                 ))
-                return RedirectResponse(
+                return _checkout_operation_redirect(
                     _checkout_status_location(blocked_invoice.safe_number)
                     if blocked_invoice else "/billing?result=pending",
                     status_code=303,
                 )
             return _checkout_result_redirect(
                 request, "receipt_contact_required", cycle=cycle, promo_code=promo_code,
+                principal=principal,
+                tenant_scope=tenant_scope,
             )
         now = datetime.now(UTC)
         # An active paid period must never block a new payment: a person who
@@ -3619,11 +3891,10 @@ async def start_billing_checkout(
         # available.  An absent/stale/disabled row therefore fails closed.
         catalog_snapshot = (await _approved_personal_catalog(db, now=now)).get(cycle)
         if catalog_snapshot is None:
-            return _checkout_result_redirect(request, "catalog_not_approved", cycle=cycle, promo_code=promo_code)
+            return _checkout_result_redirect(request, "catalog_not_approved", cycle=cycle, promo_code=promo_code, principal=principal, tenant_scope=tenant_scope)
         if offer_version != catalog_snapshot.offer_version:
             request.state.billing_checkout_result = "offer_changed"
             request.state.billing_checkout_cycle = cycle
-            request.state.billing_checkout_promo_code = promo_code or ""
             response = await billing_checkout_page(
                 request,
                 tenant_scope=tenant_scope,
@@ -3657,6 +3928,8 @@ async def start_billing_checkout(
                     "promo_invalid",
                     promo_code=promo_code,
                     cycle=cycle,
+                    principal=principal,
+                    tenant_scope=tenant_scope,
                 )
         # Referral attribution belongs to the inviter's workspace, while the
         # invitee is now paying from a different personal workspace. The
@@ -3685,6 +3958,8 @@ async def start_billing_checkout(
                 "promo_invalid",
                 promo_code=promo_code,
                 cycle=cycle,
+                principal=principal,
+                tenant_scope=tenant_scope,
             )
         configured_promo = promo
         promo = chosen
@@ -3745,7 +4020,6 @@ async def start_billing_checkout(
             await db.rollback()
             request.state.billing_checkout_result = "quote_changed"
             request.state.billing_checkout_cycle = cycle
-            request.state.billing_checkout_promo_code = promo_code or ""
             response = await billing_checkout_page(
                 request,
                 tenant_scope=tenant_scope,
@@ -3763,16 +4037,16 @@ async def start_billing_checkout(
         if unresolved_payment is not None:
             confirmation_url = unresolved_payment.request_snapshot.get("confirmation_url")
             if is_allowed_confirmation_url(confirmation_url):
-                return RedirectResponse(confirmation_url, status_code=303)
+                return _checkout_operation_redirect(confirmation_url, status_code=303)
             unresolved_invoice = await db.scalar(
                 select(BillingInvoice).where(BillingInvoice.operation_id == unresolved_payment.id)
             )
             if unresolved_invoice is not None:
-                return RedirectResponse(
+                return _checkout_operation_redirect(
                     _checkout_status_location(unresolved_invoice.safe_number),
                     status_code=303,
                 )
-            return RedirectResponse("/billing?result=pending", status_code=303)
+            return _checkout_operation_redirect("/billing?result=pending", status_code=303)
         provider_environment(settings.billing_yookassa_environment)
         intent = build_checkout_intent(
             workspace_id=tenant_scope.workspace_id, idempotency_key=key, preview=preview
@@ -3814,7 +4088,7 @@ async def start_billing_checkout(
                 else 0,
                 "selection_version": subscription.next_capacity_version if subscription else 0,
                 "offer_consent": True,
-                "recurring_consent": True,
+                "recurring_consent": recurring_consent,
                 "consent_at": consent_at,
                 "billing_actor_user_id": str(principal.user_id),
                 "offer_version": catalog_snapshot.offer_version,
@@ -3857,7 +4131,7 @@ async def start_billing_checkout(
                 else 0,
                 "selection_version": subscription.next_capacity_version if subscription else 0,
                 "offer_consent": True,
-                "recurring_consent": True,
+                "recurring_consent": recurring_consent,
                 "consent_at": consent_at,
                 "billing_actor_user_id": str(principal.user_id),
                 "offer_version": catalog_snapshot.offer_version,
@@ -3877,7 +4151,7 @@ async def start_billing_checkout(
             )
             if redemption is not None and redemption.state not in {"released", "expired"}:
                 await db.rollback()
-                return _checkout_result_redirect(request, "promo_invalid", promo_code=promo_code, cycle=cycle)
+                return _checkout_result_redirect(request, "promo_invalid", promo_code=promo_code, cycle=cycle, principal=principal, tenant_scope=tenant_scope)
             if redemption is None:
                 redemption = PromotionRedemption(
                     campaign_id=promo_campaign.id,
@@ -3929,7 +4203,7 @@ async def start_billing_checkout(
         await db.refresh(invoice, with_for_update=True)
         confirmation_url = _bind_initial_checkout_payment(operation, invoice, payment)
         await db.commit()
-        return RedirectResponse(
+        return _checkout_operation_redirect(
             confirmation_url
             if confirmation_url is not None
             else _checkout_status_location(intent.invoice_number, result="provider_unavailable"),
@@ -3955,17 +4229,17 @@ async def start_billing_checkout(
         if winner is not None:
             winner_url = winner.request_snapshot.get("confirmation_url")
             if is_allowed_confirmation_url(winner_url):
-                return RedirectResponse(winner_url, status_code=303)
+                return _checkout_operation_redirect(winner_url, status_code=303)
             winner_invoice = await db.scalar(
                 select(BillingInvoice).where(BillingInvoice.operation_id == winner.id)
             )
             if winner_invoice is not None:
-                return RedirectResponse(
+                return _checkout_operation_redirect(
                     _checkout_status_location(winner_invoice.safe_number),
                     status_code=303,
                 )
-            return RedirectResponse("/billing?result=pending", status_code=303)
-        return _checkout_result_redirect(request, "unavailable", cycle=cycle, promo_code=promo_code)
+            return _checkout_operation_redirect("/billing?result=pending", status_code=303)
+        return _checkout_result_redirect(request, "unavailable", cycle=cycle, promo_code=promo_code, principal=principal, tenant_scope=tenant_scope)
     except (
         BillingCheckoutDisabled,
         ValueError,
@@ -3975,6 +4249,11 @@ async def start_billing_checkout(
         OSError,
     ) as exc:
         await db.rollback()
+        if isinstance(exc, AcceptanceBudgetUnavailable):
+            return _checkout_result_redirect(
+                request, "account_unavailable", cycle=cycle, promo_code=promo_code,
+                principal=principal, tenant_scope=tenant_scope,
+            )
         if "intent" in locals():
             await lock_storage_workspace(db, tenant_scope.workspace_id)
             unresolved = await db.scalar(
@@ -3997,14 +4276,14 @@ async def start_billing_checkout(
                         dispatch_started=dispatch_state["started"],
                     )
                     await db.commit()
-                    return RedirectResponse(
+                    return _checkout_operation_redirect(
                         _checkout_status_location(
                             invoice.safe_number,
                             result="provider_unavailable",
                         ),
                         status_code=303,
                     )
-        return _checkout_result_redirect(request, "unavailable", cycle=cycle, promo_code=promo_code)
+        return _checkout_result_redirect(request, "unavailable", cycle=cycle, promo_code=promo_code, principal=principal, tenant_scope=tenant_scope)
 
 
 @router.get("/billing/checkout/return", name="billing_checkout_return", include_in_schema=False)
@@ -4111,7 +4390,8 @@ async def billing_history_page(
         ),
         content_template="cabinet/pages/billing_history_content.html",
         invoices=invoices,
-        support_email=request.app.state.settings.billing_support_email,
+        support_email=normalize_support_email(request.app.state.settings.billing_support_email),
+        support_mailto=build_support_mailto(request.app.state.settings.billing_support_email),
     )
     return cabinet_html_response(content)
 
@@ -4128,6 +4408,26 @@ def _invoice_capacity_label(snapshot: Mapping[str, object]) -> str | None:
         if type(value) is int and value > 0:
             return _capacity_label(value)
     return None
+
+
+def _invoice_period_labels(starts_at: object, ends_at: object) -> tuple[str | None, str | None]:
+    period = []
+    for value in (starts_at, ends_at):
+        try:
+            instant = datetime.fromisoformat(value) if isinstance(value, str) else value
+        except ValueError:
+            return None, None
+        if not isinstance(instant, datetime) or instant.tzinfo is None or instant.utcoffset() is None:
+            return None, None
+        period.append(instant)
+    if period[0] >= period[1]:
+        return None, None
+    try:
+        short = " — ".join(format_user_datetime(local_datetime(value).date()) for value in period)
+        exact = " — ".join(format_user_datetime(value, show_zone=True) for value in period)
+    except (ValueError, OverflowError):
+        return None, None
+    return short, exact
 
 
 @router.get("/billing/invoices/{safe_number}", response_class=HTMLResponse, include_in_schema=False)
@@ -4167,19 +4467,39 @@ async def billing_invoice_detail_page(
     # The current owner receives service-gap notices even when the payer's
     # mandate belongs to the previous owner. This view grants no payment
     # authority and never exposes the previous payer's receipt or card.
+    can_refresh = can_manage or await _is_paid_refused_receipt(db, invoice)
     receipt_state = _receipt_registration_state(snapshot.get("receipt_registration"))
+    can_refresh_receipt = can_refresh and invoice.status == "succeeded" and (
+        receipt_state is ReceiptState.PENDING
+    ) and (request.app.state.settings.billing_provider_observation_enabled
+           or request.app.state.settings.billing_checkout_enabled)
+    if can_refresh_receipt:
+        can_refresh_receipt = bool(await db.scalar(select(BillingOperation.id).where(
+            BillingOperation.id == invoice.operation_id,
+            BillingOperation.workspace_id == invoice.workspace_id,
+            BillingOperation.kind.in_(("initial_checkout", "storage_upgrade", "early_renewal", "renewal")),
+            BillingOperation.provider_id.is_not(None),
+            BillingOperation.state.in_(RECEIPT_OBSERVATION_STATES),
+        )))
     receipt_url = snapshot.get("receipt_url") if receipt_state is ReceiptState.AVAILABLE else None
     if not can_manage or not is_allowed_confirmation_url(receipt_url):
         receipt_url = None
-    refund_mailto = None
+    refund_mailto = question_mailto = None
     support_email = request.app.state.settings.billing_support_email
     if support_email:
         try:
             refund_mailto = build_refund_mailto(
                 support_email=support_email, safe_invoice_number=invoice.safe_number
             )
+            question_mailto = build_question_mailto(
+                support_email=support_email, safe_invoice_number=invoice.safe_number
+            )
         except ValueError:
-            refund_mailto = None
+            refund_mailto = question_mailto = None
+    short_period, exact_period = _invoice_period_labels(
+        snapshot.get("service_starts_at"), snapshot.get("service_ends_at")
+    )
+    segments = snapshot.get("storage_segments")
     content = _page_shell(
         "Платеж",
         embedded=_is_embedded_request(request),
@@ -4194,40 +4514,35 @@ async def billing_invoice_detail_page(
         invoice={
             "safe_number": invoice.safe_number,
             "created_at": invoice.created_at,
+            "created_at_label": _billing_datetime_label(invoice.created_at),
             "amount_label": _billing_amount_label(invoice.amount_minor, invoice.currency)
             or "Сумма недоступна",
             "status": invoice.status,
             "status_url": _checkout_status_location(invoice.safe_number)
             if can_manage and invoice.status in {"pending", "unknown", "manual_resolution", "failed", "canceled"} else None,
             "status_action_label": "Открыть статус платежа",
-            "cycle_label": "Год" if snapshot.get("cycle") == "year" else "Месяц",
+            "cycle_label": "Год" if snapshot.get("cycle") == "year" else "Месяц"
+            if snapshot.get("cycle") == "month" else "Период не указан",
             "purpose_label": purchase_purpose_label(snapshot),
             "capacity_label": _invoice_capacity_label(snapshot),
             "storage_intervals": [
                 {
-                    "start": _billing_datetime_label(item["starts_at"]),
-                    "end": _billing_datetime_label(item["ends_at"]),
+                    "period": _invoice_period_labels(item.get("starts_at"), item.get("ends_at"))[1],
                     "capacity": _capacity_label(item["capacity_bytes"]),
                 }
-                for item in snapshot.get("storage_segments", [])
+                for item in (segments if isinstance(segments, list) else [])
                 if isinstance(item, dict)
-                and item.get("starts_at") and item.get("ends_at")
-                and isinstance(item.get("capacity_bytes"), int)
+                and type(item.get("capacity_bytes")) is int and item["capacity_bytes"] > 0
             ],
             "service_label": "Оплата подтверждена; услуга требует сверки"
             if snapshot.get("service_resolution")
             else None,
-            "service_period_label": (
-                _billing_datetime_label(snapshot.get("service_starts_at"))
-                + " — "
-                + _billing_datetime_label(snapshot.get("service_ends_at"))
-            )
-            if snapshot.get("service_starts_at") and snapshot.get("service_ends_at")
-            else None,
+            "service_period_short_label": short_period,
+            "service_period_label": exact_period,
             "status_label": _invoice_status_label(invoice.status),
             "discount_label": (
                 f"Скидка {snapshot.get('discount_percent')}%"
-                if isinstance(snapshot.get("discount_percent"), int)
+                if type(snapshot.get("discount_percent")) is int and 0 < snapshot["discount_percent"] <= 100
                 else ("Реферальная скидка" if snapshot.get("referral_discount") else None)
             ),
             "payment_method_label": mask_payment_method(
@@ -4236,9 +4551,13 @@ async def billing_invoice_detail_page(
                 else None
             ),
             "receipt_contact_label": _masked_receipt_contact(invoice.receipt_contact_snapshot) if can_manage else None,
-            "receipt_label": receipt_label(receipt_state) if can_manage else "Чек доступен плательщику",
+            "receipt_label": receipt_label(receipt_state) if can_refresh else "Чек доступен плательщику",
             "receipt_url": receipt_url,
+            "receipt_refresh_failed": can_refresh
+            and request.query_params.get("result") == "unavailable",
+            "can_refresh_receipt": can_refresh_receipt,
             "refund_mailto": refund_mailto,
+            "question_mailto": question_mailto,
         },
         support_email=support_email,
     )

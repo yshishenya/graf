@@ -169,7 +169,10 @@ def test_email_error_resend_change_and_success_keep_fresh_purchase(client, owner
     assert returned.status_code == 200
     if target.startswith("/billing/checkout"):
         assert 'name="cycle" value="year"' in returned.text
-        assert not re.search(r'<input[^>]*type="checkbox"[^>]*\bchecked\b', returned.text)
+        offer = re.search(r'<input[^>]*name="offer_consent"[^>]*>', returned.text)
+        recurring = re.search(r'<input[^>]*name="recurring_consent"[^>]*>', returned.text)
+        assert offer and "required" in offer.group() and "checked" not in offer.group()
+        assert recurring and "checked" in recurring.group() and "required" not in recurring.group()
     if target.startswith("/billing/storage"):
         assert re.search(r'<option value="1"[^>]*\sselected[^>]*>', returned.text)
     assert payment_counts(client) == before
@@ -286,7 +289,12 @@ def test_storage_terminal_retry_reopens_same_volume_with_fresh_calculation(clien
     status = client.get("/billing/checkout/status/INV-CLARITY", headers=headers)
     assert 'href="/billing/storage?package_count=2"' in status.text
     payment_card = status.text.split('aria-labelledby="billing-operation-title">', 1)[1].split("</section>", 1)[0]
-    assert payment_card.count('role="status"') == 1
+    # The result is announced by the visible status region; the separate
+    # waiting/error message stays hidden until the controller needs it.
+    status_regions = re.findall(r'<[^>]+\brole="status"[^>]*>', payment_card)
+    assert len(status_regions) == 2
+    assert len([tag for tag in status_regions if not re.search(r"\shidden(?:\s|>|=)", tag)]) == 1
+    assert re.search(r'<p\b[^>]*\bid="billing-status-message"[^>]*\shidden(?:\s|>)', payment_card)
     returned = client.get("/billing/storage?package_count=2", headers=headers)
     assert re.search(r'<option value="2"[^>]*\sselected[^>]*>', returned.text)
     assert 'action="/billing/storage/preview"' in returned.text
@@ -336,7 +344,7 @@ def test_disabling_renewal_does_not_promise_to_cancel_a_sent_payment(client, own
             await db.commit()
     asyncio.run(disable())
     page = client.get("/billing/subscription", headers=headers)
-    assert "Новые автоматические списания отключены" in page.text
+    assert "<dt>Автопродление</dt><dd>Отключено</dd>" in page.text
     assert "еще может завершиться" in page.text
     assert "Автоматического списания не будет" not in page.text
     assert 'href="/billing/checkout/status/INV-CLARITY"' in page.text
@@ -590,8 +598,15 @@ def test_storage_price_confirmation_shows_the_next_actual_attempt(client, owner,
 
 
 @pytest.mark.parametrize("case", ["malformed", "missing", "expired", "future"])
-def test_discounts_error_preserves_exact_input_only_in_html(client, owner, case):
+def test_discounts_error_preserves_exact_input_through_checkout_refresh(client, owner, case):
     _, headers = owner
+    async def verified_receipt_email():
+        async with client.app_state["sessionmaker"]() as db:
+            await db.execute(update(ExternalIdentity).where(
+                ExternalIdentity.user_id == USER_ID, ExternalIdentity.provider == "email",
+            ).values(is_verified=True))
+            await db.commit()
+    asyncio.run(verified_receipt_email())
     promo = 'TYPO<"&' if case == "malformed" else "SYNTH-TYPO"
     if case in {"expired", "future"}:
         async def campaign():
@@ -605,15 +620,20 @@ def test_discounts_error_preserves_exact_input_only_in_html(client, owner, case)
         asyncio.run(campaign())
     response = client.post("/billing/discounts/apply", headers=headers, data={"promo_code": promo},
                            follow_redirects=False)
-    assert response.status_code == 409
-    assert "Проверьте код и попробуйте снова" in response.text
-    action, fields = form(response.text, "/billing/discounts/apply")
-    assert action == "/billing/discounts/apply" and fields["promo_code"] == promo
-    assert 'aria-invalid="true"' in response.text
-    assert 'aria-describedby="billing-discount-error"' in response.text
-    assert "location" not in response.headers and promo not in response.headers.get("set-cookie", "")
-    if case == "malformed":
-        assert promo not in response.text
+    assert response.status_code == 303
+    assert response.headers["location"] == "/billing/checkout?result=promo_invalid"
+    assert promo not in response.headers["location"]
+    assert promo not in response.headers.get("set-cookie", "")
+    for _ in range(2):
+        page = client.get(response.headers["location"], headers=headers)
+        assert page.status_code == 200
+        field = re.search(r'<input[^>]*id="billing-promo"[^>]*>', page.text)
+        assert field and unescape(re.search(r'value="([^"]*)"', field.group(0)).group(1)) == promo
+        assert 'aria-invalid="true"' in field.group(0)
+        assert 'aria-describedby="billing-checkout-error"' in field.group(0)
+        assert 'action="/billing/checkout/start"' not in page.text
+        if case == "malformed":
+            assert promo not in page.text
     fresh = client.get("/billing/discounts", headers=headers)
     assert form(fresh.text, "/billing/discounts/apply")[1]["promo_code"] == ""
     assert payment_counts(client) == (0, 0)
@@ -680,7 +700,8 @@ def test_prepared_renewal_allows_early_payment_but_sent_or_unknown_still_block(
     assert page.status_code == 200
     assert ('action="/billing/subscription/early-preview"' in page.text) == safe_prepared
     assert ("Подготовлено автоматическое списание" in page.text) == safe_prepared
-    assert ("Уже отправленный платеж" in page.text) != safe_prepared
+    assert ("Результат платежа" in page.text) != safe_prepared
+    assert "Уже отправленный" not in page.text
     before = payment_counts(client)
     preview = client.post("/billing/subscription/early-preview", headers=headers,
                           data={"promo_code": "SYNTHEARLY"})

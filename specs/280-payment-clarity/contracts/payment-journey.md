@@ -2,7 +2,7 @@
 
 ## Постоянно видимые сведения
 
-Перед денежным действием: что покупается и общий объем; сумма сегодня; срок/дата изменения; при автопродлении полная будущая сумма и реальная дата/правило первой попытки; при выключенном продлении — полная цена следующего периода и отсутствие автоматического списания (не называть эту цену запланированным списанием); явное списание с сохраненной карты; непредвыбранные согласия и ссылка на оферту. Версия оферты остается hidden field и в юридической записи. Нулевые скидки не показаны. Промокод и детализация — native details, максимум один уровень. Ошибка промо раскрывает поле.
+Перед денежным действием: что покупается и общий объем; сумма сегодня; срок/дата изменения; при автопродлении полная будущая сумма и реальная дата/правило первой попытки; в оформлении одного периода без продления — сумма этого периода, его срок и отсутствие следующего автоматического списания; в управлении действующей подпиской и покупке хранения — условная полная цена следующего периода без обещания списания; явное списание с сохраненной карты; непредвыбранное обязательное принятие оферты, видимый необязательный выбор продления по FR-019 и ссылка на оферту. Версия оферты остается hidden field и в юридической записи. Нулевые скидки не показаны. Промокод и детализация — native details, максимум один уровень. Ошибка промо раскрывает поле.
 
 ## Экраны и решения
 
@@ -28,7 +28,7 @@
 - Succeeded_refused, owner_changed, workspace_scope_invalid, storage_period_elapsed/частично оказанная услуга: платеж подтвержден, предоставление доступа требует проверки. Не писать, что весь объем не выдан или что платеж не найден. Поддержка с номером платежа.
 - Canceled/failed: повтор доступен только при подтвержденном terminal исходе и доступной оплате; сохраняется выбранный цикл/контекст.
 - Price/offer changed: новый актуальный итог, новое согласие.
-- Receipt contact missing: до ввода промокода и согласий понятный переход в существующий account; email-форма раскрыта. Существующее поле `next` переносит только три заново проверяемых GET-адреса: `/billing/checkout?cycle=month|year`, `/billing/storage?package_count=0..99`, `/billing/subscription`. Аккаунт, ошибка/повтор кода, объединение и повторный вход сохраняют явную ссылку «Вернуться к оплате». Внешние/POST-адреса, дубликаты/неизвестные параметры, fragment и обратные косые черты запрещены. Цены, промокод, quote и согласия не передаются; возврат строит свежий расчет с пустыми согласиями, а storage восстанавливает только доступный объем перед явным preview. Правила подтверждения почты, сессии и объединения не меняются. Не полагаться на историю «Назад» и не обещать сохранение промокода.
+- Receipt contact missing: до согласий и денежного действия понятный переход в существующий account; email-форма раскрыта. Существующее поле `next` переносит только три заново проверяемых GET-адреса: `/billing/checkout?cycle=month|year`, `/billing/storage?package_count=0..99`, `/billing/subscription`. Аккаунт, ошибка/повтор кода, объединение и повторный вход сохраняют явную ссылку «Вернуться к оплате». Внешние/POST-адреса, дубликаты/неизвестные параметры, fragment и обратные косые черты запрещены. Цены, промокод, quote и согласия не передаются; возврат строит свежий расчет с непринятой офертой и выбором продления по FR-019/020, а storage восстанавливает только доступный объем перед явным preview. Правила подтверждения почты, сессии и объединения не меняются. Редактор промокода доступен для предварительной проверки, исправления и очистки до подтверждения почты; денежная форма недоступна. Не полагаться на историю «Назад»; сохранение промокода ограничено подписанным выбором той же сессии и исходным TTL, описанным ниже.
 - Renewal method_required/receipt_contact_required/price_changed/pending: причина и существующий способ исправления вместо обещания штатного списания.
 - Нет карты/недоступна замена: название ссылки не обещает функцию, которой нет.
 - Отключение продления не удаляет оплаченный доступ и не отключает сверку уже отправленного платежа.
@@ -45,3 +45,119 @@
 ## Смежные входы
 
 `referrals_content.html`: убрать ложное «Поделиться», оставить копирование. `cabinet/auth/referral_landing.html`, public pricing и `offer` проверяются на цену/правдивость, сохраняются при отсутствии найденного несоответствия; условия оферты не меняются. Входы ограничений: `cabinet/components/primitives.html` (billing_member_quota_notice), `billing_usage_content.html`, `billing_overview_content.html` и существующие billing notification links. Каждый сохраняет правильную роль/доступность и ведет к существующему тарифу/месту/статусу; никакого нового сбора аналитики.
+
+
+## Промокод после обновления, продолжение 2026-10-01
+
+POST `/billing/checkout/preview` и `/billing/discounts/apply` применяют/заменяют bounded code до 48 символов и сохраняют выбранный cycle в закодированном подписанном состоянии только текущих проверенных user/workspace/session; обычный 303 допустим. GET `/billing/checkout` читает выбор до исходного expiry300с, два обновления/возврат его не удаляют и срок не продлевают. Перед отображением цены сервер вновь проверяет код, текущую акцию и period, получает свежий quote. Ошибочный формат до MAX48 также остаётся доступен для исправления с ошибкой и запретом оплаты; сырые байты не уходят в headers. Query period приоритетен, без query восстанавливается saved period.
+
+Empty preview или `/billing/discounts/remove` очищает текущий выбор; start errors/recovery не продлевают его срок. Созданная/восстановленная операция очищает выбор для будущей покупки и продолжает существующие authoritative invoice/operation. Оферта всегда непринята на новом оформлении; выбор продления соответствует FR-019/020; прежние CSRF/roles/tenant/quote freshness/idempotency/price/offer/provider guards сохраняются. Preview не создаёт финансовых записей и не вызывает провайдера.
+
+Старый unsigned cookie и подделанное/просроченное/чужое/переименованное состояние отвергаются. Session/key отсутствует — persist отсутствует. HttpOnly, SameSite=Lax, Secure наHTTPS, path `/billing/checkout` остаются; нет code вURL/JS/localStorage/logs/evidence. Никаких consent/quote/amount вdraft. Этот договор дополняет лишь возврат к оформлению внутри той же действующей сессии и TTL: предыдущий account `next` не переносит code, а смена/выпуск новой сессии его не наследует.
+
+
+## Необязательное продление, FR-019/020
+
+GET свежего оформления: recurring checked/not-required, offer unchecked/required. Явный False сохраняется в sessionStorage текущей вкладки по тройке meta user/workspace/session после Apply/remove/ошибки/cycle/reload и отказов303/409. Неполный контекст или отказ storage не ломает текущую форму, но перенос best effort; новая вкладка без переноса/сессия начинается True. Без JS обычная отправка работает, перенос предпочтения отсутствует; будущая сумма/дата в базовом HTML обозначены условно «При автопродлении», чтобы снятая галочка не противоречила безусловному обещанию списания. При False сводка сообщает «Автопродление отключено», автоматического следующего списания не обещает; период/итог/скидка остаются актуальными. Управление клавиатурой и экранным диктором доступно, 320px/200% сохраняет кнопку оплаты. Без JS обычная форма остаётся работоспособной: missing recurring form field означает False.
+
+POST start: offer=true обязателен, recurring missing/false допускается как False, true как True; invalid значение формы не превращается в True. Request+invoice фиксируют bool выбранного режима. Общий initial creator требует корректный bool, отправляет save_payment_method таким же bool. Провайдерный результат подтверждает один период при обоих режимах; при False новая карта не сохраняется и recurring_allowed выключен. Операция с прежним True/False продолжает тот же режим при повторе/timeout recovery. Версия authority и свежий quote защищают отмену, смену владельца и устаревшие условия; уже отправленный платёж продолжает сверяться. Не изменяются оферта, цена, receipt, return URL policy, CSRF/owner/tenant/idempotency или публичная доступность.
+
+
+## Промокод на месте — FR-024–030 / SC-010–012, 2026-10-02
+
+Этот раздел заменяет прежнее разрешение document navigation только для JS-enabled preview. Native формы без JS остаются обычными303→GET. Общий POST/GET финансовый контракт и `data-model.md` не меняются; best effort storage fallback усиливается в пределах одного документа, как ниже.
+
+### Транспорт и выбор
+
+`#billing-promo-preview` улучшен HTMX: POST `/billing/checkout/preview`; target/select `#cabinet-main`, swap outerHTML, без push history; max wait15s. Apply кнопка и Enter = preview_action apply, remove = empty input + apply, cycle = month/year submit button. Associated external input/buttons сохраняют обычный form контракт. Response303 оставляет прежние signed cookie semantics; final GET200 дает server-calculated checkout main из full shell. Обновлять только main, не base/sidebar/scripts. No-JS идет тем же action/method как native form.
+
+При успешной смене периода текущий адрес может только replace-обновиться до текущего `cycle=month|year` (либо убрать устаревший cycle), без новой history entry, без promo/result/quote/consent. Reload не возвращает исходный query period. Никакой source of truth из URL; GET/конечный POST вновь проверяют цену/условия, signed draft остается прежним. Cookie code<=48/cycle/expiry/user/workspace/session, TTL300с и quote10мин отдельно; чтение/смена периода не начинают новый срок. User/workspace/session поля нельзя подменить клиентскими финансовыми полномочиями.
+
+### Локальные состояния представления
+
+| Состояние | Допустимое действие/переход | Деньги и согласия |
+|---|---|---|
+| ready | Apply/Enter/remove/cycle → checking | Start разрешается только при валидном server form/quote/receipt, с явной офертой |
+| checking | Один текущий request; Apply/cycle/input/start временно заблокированы | Предыдущая оферта снимается; повторный preview/start не отправляется |
+| ready после успешного свежего ответа | Новый итог/скидка/период, логичный focus/status | True/False прежние в той же scope; offer unchecked; серверные blocked/error условия сохранены |
+| promo denied | Поле раскрыто, aria-invalid/связанный alert, исправить/clear+apply | Нет valid start для ошибочной скидки; bool сохраняется в документе |
+| recovery required | После network/15s timeout/500/429/swapError: inline причина и ручной повтор | Busy снят, start заблокирован до успешного нового server расчета; offer unchecked |
+| auth/context invalid | Login/owner/unexpected scope/page не вставляются как checkout; явный вход/открыть кабинет | Старый start заблокирован; чужой bool не переносится |
+| authoritative operation pending | Достоверный GET может показать существующий blocker/continuation | Нет новой оплаты или разрешения старого start |
+
+Временная память UI содержит только выбранный bool и точную scope текущего документа/request, не цену/право/принятую оферту. Она не теряет False/True на последовательных promo errors/recovery/cycle даже при sessionStorage denied. При отсутствующей/изменившейся scope не переносить предпочтение; sessionStorage прежнего ключа не становится authority. Общее afterSwap reinit сохраняется; scoped restoration/focus происходит после него и не запускает еще один initializer. Ответ detached/stale/request mismatch или main вне checkout не применяется; новая scope сбрасывает временное состояние. Сбой swap не оставляет устаревшую форму активной.
+
+### Отказ без внутренней терминологии
+
+`validate_acceptance_campaign` и все5loader callers плюс непосредственный reserve caller получают понятное «Промокод сейчас недоступен. Уберите его или введите другой» (точная редакция допустима с тем же смыслом). Не объявлять срок истекшим, если причиной может быть выключение/missing/scope mismatch. `reserve_acceptance_budget` может запретить сам аккаунт без промокода; отдельный текст «Оплата для этого аккаунта сейчас недоступна. Обратитесь в поддержку». В основном пути нет «проверочное окно», технического budget ID или обещания обхода запрета удалением кода. Условия финансовых fences/сроков/резервов unchanged.
+
+### Неизменяемые финансовые и визуальные границы
+
+Owner/tenant/session/CSRF/rate limit/catalog/receipt/pending/quote/offer/authority/idempotency прежние. Preview может создать server quote, но не operation/invoice/promo reservation/provider call. Start native и только явный; фактический bool/offer сохраняются в immutable accepted purchase, recovery не переписывает их. Никакой автоматической оплаты или восстановления recurring из локального UI. Неподтвержденная почта дает preview editor/account path, без start формы/денежных согласий. Статусы/подсказки не обещают provider availability или банковское зачисление.
+
+Focus после Apply/Enter/cycle/remove остается логично связан с измененным элементом; error связан с input, busy/result один раз озвучивается status/alert, tabindex и видимый focus сохранены. Ошибка auth/network отличается от promo denied.320px/1280px/200%,light/dark,Chromium/WebKit обязательны. Нативный JS-off результат подтверждается отдельными реальными HTTP/browser forms; placeholder fixture не заменяет это доказательство.
+
+
+## Возвращение после платежа — F280 (2026-10-03)
+
+| Авторитетное состояние | Основной экран/действие | Недопустимо |
+|---|---|---|
+| Payment succeeded + локальный доступ предоставлен | «Оплачено», действительные тариф/сумма/срок, «К встречам» | Ожидание или continue |
+| Деньги подтверждены, доступ еще не применен | «Оплата получена. Проверяем доступ», проверка/помощь | Активный тариф без доказательства, новая оплата |
+| Pending/результат еще неизвестен | «Проверяем оплату», «Повторно платить не нужно», refresh главный | Обещание успеха из return/query; основное «Продолжить оплату» |
+| Invoice.pending + operation.provider_pending и допустимое подтверждение | После/вне активной проверки вторичный continue текущего платежа | Новая invoice/payment; продолжение terminal invoice |
+| Canceled | Понятная отмена и безопасный возврат | Продолжение отмененного платежа, автопроверка |
+| Network/auth/контекст/timeout | Явная причина/вход/помощь, безопасный локальный GET | Ложный статус, неожиданный или поздний swap, параллельный POST |
+
+GET return/status чистый, POST refresh защищенный существующим CSRF/owner/tenant/session и30/15мин. Browser не вызывает YooKassa API. Проверенный HTMX ответ обновляет `#cabinet-main`, полный документ не навигируется. Scope=непустые user/workspace/invoice/session; incoming/current meta всех4сверяются, смена session останавливает sequence без сброса ledger; один запрос, document-local6attempts/60с/≥10с/15с timeout, без перезапуска после swap/hidden/error/terminal/context change. Abort не останавливает сервер; timeout прекращает auto POST и допускает локальное чтение, не повторное списание. JS-off оставляет manual protected refresh. Stale continue проверяет текущую invoice и operation, включая initial checkout. Денежные объекты/цена/consent/квитанция/recurring/доступ не подменяются UI. FR-031–037 и SC-013 задают проверяемую границу.
+
+FR-038: billing reconciliation исполняется только maintenance worker на существующей выделенной очереди с фактически проверенной maintenance ролью без superuser/BYPASSRLS; processing сохраняет app роль и перестает опрашивать очередь. Неправильная DB роль явно отклоняется до сверки, а не дает completed0. RLS и финансовая транзакция/idempotency неизменны; delayed webhook обрабатывается штатно, повторная сверка не создает второй grant/payment. Снимок provider success/free local требует этой причинной проверки, не только service-gap сообщения.
+
+Успех invoice/operation для initial_checkout/renewal/early_renewal подтверждает связанный BillingEntitlementGrant; период показывается из него. Storage использует существующий факт применения storage purchase. Подтвержденный счет без соответствующего результата — service-review. Истекшая текущая подписка не превращает исторический оплаченный счет в pending. Это уточнение FR-031, без изменения финансовой транзакции.
+
+
+Граница автоматической проверки FR033/034: после60с не начинаются новые запросы. Уже начатая проверка сохраняет собственные15с; подходящий подтвержденный ответ принимается и после границы. Истечение15с сохраняет запрет дальнейших POST в этой последовательности и безопасное локальное чтение; deadline не выдается за ошибку связи.
+
+
+## Простое управление подпиской — FR-039–045 / SC-014 (2026-10-04)
+
+| Состояние | Сразу видно | Действие и дополнительные сведения |
+|---|---|---|
+| Оплачена, auto off, карты нет | тариф, «Активна», короткое «Оплачено до», auto off, одна строка перехода на бесплатный тариф без оплаты | Один primary GET «Продлить подписку» с текущим cycle; полная дата/период/справочная цена/история в сведениях. Нет общего «Возобновление пока недоступно» |
+| Оплачена, auto on | тариф, срок, auto on, достоверные сумма и дата/правило следующей попытки | Прямая quiet защищенная отмена и краткие последствия; история/карта/полный срок вторичны |
+| Оплачена, auto off, resume ready | тот же простой обзор и обычное оформление | Раскрытие «Включить автопродление» содержит сумму/точный срок/карту/непринятое required resume_consent до submit; quote/version/CSRF прежние |
+| Pending/unknown/unknown_pending и CHECKOUT_BLOCKING_STATES | существующий правдивый статус, сумма существующего платежа при наличии и безопасный путь проверки/поддержки | Нет новой/manual/early/resume оплаты, включая initial_checkout/storage_upgrade, даже если pending amount отсутствует; не обещать отсутствие списания |
+| Иные настоящие блокеры | price/contact/method/provider/account notice и прежнее доступное исправление | Только совместимые действия по прежним ограничениям; простое отсутствие карты без блокера не ошибка |
+| Trial/free/expired | действительный effective plan, срок trial при наличии; без ложной «Активна» для истекшего платного срока | Выбор тарифа при доступной оплате и отсутствии финансовой неопределенности; history/help доступны |
+
+Короткая дата выводится через существующую локализацию `local_datetime`, без нового форматировщика; полная дата, время и зона остаются в дополнительных сведениях. Недоступная дата/сумма обозначаются правдиво. Навигация на checkout — GET, текущий цикл сохраняется, нового списания/consent не создает. Обязательные денежные условия показываются перед existing POST, даже внутри заранее открытого пользователем disclosure; не переносить их в еще одно скрытое раскрытие. Cancel не требует раскрывать сведения. Early-preview сохраняет existing protected action, ошибку/поле promo, условия карты/контакта и явный preview; ошибка раскрывает его автоматически. Подготовленное, но еще не отправленное списание и изменение следующего объема сохраняют свои последствия и допустимые действия.
+
+Все identity/CSRF/version/quote/terminal/idempotency/server guards неизменны. NoJS native details/links/forms работают; 320/1280, обе темы, 200%, keyboard focus и доступные названия сохраняются. Новые зависимости, frontend JavaScript, monetary обработчики, DB/API и внешний tracking не вводятся. Синтетическое сравнение видимого поясняющего текста ≥50% не включает labels/числа/даты/навигацию и не скрывает обязательных условий. Аналогия — историческая открытая структура Krisp с собственным независимым кодом/ресурсами GRAF, без гарантии конверсии.
+
+Уточнение read-only проекции FR-042: поиск invoice всех видов работает и без subscription; локальный набор чтения CHECKOUT_BLOCKING_STATES. INITIAL_CHECKOUT_OBSERVATION_EXPIRED сюда не включается: это прежнее наблюдение, допускающее новое оформление. Shared monetary state set и обработчики денег неизменны; scheduled renewal без provider_id остается prepared.
+
+T051: provider_key_expired сам по себе сохраняет разрешение нового оформления по общей политике, без обещания отмены старого платежа; manual_resolution остается незавершенным. method_required не скрывает безопасный GET /billing/payment-method при pending и не доказывает отсутствие списания или отправку.
+
+## Продолжение «Платеж и чек», 2026-10-04
+
+Invoice `/billing/invoices/{safe_number}`: прежняя owner/workspace-scoped проверка; headline → purchase facts → recovery/receipt → native «Сведения о платеже» → native «Помощь и возврат». Header имеет вторичную ссылку истории. Summary/keyboard/focus используют нативную доступность. Значимый service gap остается вне details. Main цель — читать результат покупки, без автоматического действия с деньгами. Short period и exact period относятся к одним сохраненным значениям и timezone зрителя. Дата создания не является settlement доказательством. `month|year` подпись ограничена этими значениями.
+
+Receipt AVAILABLE без URL не дает кнопку; чужой/недопустимый URL не показывается; privacy прежнего payer сохраняется. Support question/refund открывает подготовленное письмо с различимыми темами и прежними статическими предупреждениями; фактический результат возврата GRAF не подтверждает, автопродление отдельно в `/billing/subscription`.
+
+Status `/billing/checkout/status/{safe_number}`: только необходимое оформление dl существующим order-summary; все data-billing attributes/status live region/forms/action ordering и route semantics неизменны. Полный auto-check FR033–036 сохраняется. Для этого среза не нужны новые POST/native allowlists/JS.
+
+Checkout contract FR019/020 остается во всех сценариях. Saved-card early-preview и hosted checkout остаются отдельными safe paths; invoice slice ни один из них не объединяет и не меняет.
+
+T057: subscription pending notice для всех видов: «Результат платежа [на сумму] еще не подтвержден. Платеж еще может завершиться. Повторно платить не нужно». Не утверждать «Уже отправленный», даже при сохраненном provider_id. Prepared scheduled без provider_id отдельно и не получает pending notice. Сумма из прежнего invoice, исключений денежной политики не добавляется.
+
+T058: pending не скрывает действующие price/contact/method/suspension причины. Главное действие — проверка существующего платежа, secondary только безопасный GET/помощь. При pending receipt не приглашает платить снова; без pending прежний recovery сохраняется. late_success не подтверждает текущий pending. «Период оплаты» только active paid+month/year; free/trial/expired/unknown не получают fabricatedmonth ни в одном из трех period labels. GET/денежная политика прежние.
+
+
+T059 compatibility: invoice сохраняет merged F278 quiet receipt refresh только при can_refresh_receipt, с existing CSRF и точным receipt_only return_to=invoice endpoint. Это отдельное явное наблюдение уже оплаченного чека, не новая оплата/возврат/выдача доступа. GET/раскрытие не вызывают провайдера. Test guard запрещает все конкурирующие money forms и допускает только существующий conditional receipt form; unavailable/false/default contexts не выводят его. Новая receipt copy следует существующему е-not-ё правилу. Monetary/URL/privacy/owner/rate guards unchanged.
+
+T059 дополнительная причинная локальная проверка выявила одно «ё» в главной ссылке подписки: «Проверить платёж». Root исправляет только эту подпись на «Проверить платеж» в existing subscription template локальной общей invoice ветки, без изменения URL/условий/порядка/денег; peer обновляет три точных browser selector literals, сохраняя все assertions. Это механическая copy correction в том же следующем PR, не новый сценарий. После объединения final UI/support/copy contracts и Chromium/WebKit выполняются на обновленной подписи. Исторические source/browser/UX reports сохраняются с исходными отпечатками; новые independent combined reviews относятся к final bytes.
+
+
+T060: Invoice→history help и все existing siblings того же billing_support_email не создают raw mailto из непроверенной настройки. Валидный normalized display/copy отделяется от URI-encoded href; missing/malformed/CRLF/encoded CRLF дает отсутствие ссылки/копирования и действующую понятную помощь. History/status/referrals/fair_use/account_merge и blocker help сохраняют прежние права, переходы и данные. No new money/provider/auth decisions/API/DB/flags. Browser outer subprocess300с относится только ко всему расширенному набору; per-action assertions, HTTP15с/automatic60с и attempts неизменны.
+
+T060 существующее исключение политики контакта: account_merge сохраняет более строгий запрет display-name (test_account_merge_contract.py:438); не ослаблять эту проверку. Normalized display-name принимается только там, где это уже допускает общий billing parser (history/status/referrals/fair_use). Shared CRLF/address/URI безопасность применяется везде; решения авторизации и прежний более строгий account_merge filter сохраняются. Это не новая конфигурация и не новый allow flag.

@@ -179,7 +179,7 @@ final class DesktopNotificationAccessibilityTests: XCTestCase {
         defer { presenter.dismiss() }
         try await F277CardTestSupport.requireInactiveHost()
         XCTAssertFalse(NSApp.isActive, "Начальное состояние должно быть действительно неактивным")
-        let policy = NSApp.activationPolicy()
+        var policyBeforeFocus: NSApplication.ActivationPolicy?
         XCTAssertTrue(presenter.present(F277CardTestSupport.prompt(), onAction: { _ in }))
         let window = try XCTUnwrap(presenter.window)
         // Let pending AppKit events run; automatic show must still not activate.
@@ -191,12 +191,14 @@ final class DesktopNotificationAccessibilityTests: XCTestCase {
             XCTAssertFalse(NSApp.isHidden, "Проверяется видимое, а не скрытое приложение")
             XCTAssertTrue(window.isVisible)
             XCTAssertFalse(window.isKeyWindow, "Панель не должна получать фокус до явной команды")
+            policyBeforeFocus = NSApp.activationPolicy()
+            XCTAssertNotEqual(policyBeforeFocus, .prohibited, "Тестовый процесс должен разрешать активацию перед командой")
             XCTAssertTrue(presenter.focus(), "Явная команда должна передать фокус настоящей панели")
         })
         XCTAssertTrue(pumped)
         XCTAssertTrue(NSApp.isActive)
         XCTAssertTrue(window.isKeyWindow)
-        XCTAssertEqual(NSApp.activationPolicy(), policy, "Production не меняет activationPolicy")
+        XCTAssertEqual(NSApp.activationPolicy(), try XCTUnwrap(policyBeforeFocus), "Production не меняет activationPolicy")
         let (view, _) = try F277CardTestSupport.fitted(presenter)
         XCTAssertTrue(window.firstResponder === (try F277CardTestSupport.close(view)))
         window.selectNextKeyView(nil)

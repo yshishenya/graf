@@ -327,6 +327,21 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertFalse(rowsScript.contains("JSON.parse(atob("))
     }
 
+    func testDetailLocalPlaybackIsRouteBoundAndOpenOnly() throws {
+        let meetingID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let data = Data(#"{"id":"local","meetingId":"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa","title":"Synthetic","startedAt":0,"durationSeconds":1,"sessionDurationSeconds":1,"status":"Отправлено","canOpen":true,"showsPartialDuration":false,"canSend":true,"canDelete":true,"uploadComplete":true,"localDeletionPending":false,"deletionIsLocalOnly":false}"#.utf8)
+        let row = try JSONDecoder().decode(EmbeddedCabinetLocalRecordingRow.self, from: data)
+        let origin = URL(string: "https://synthetic.invalid")!
+        let route = DesktopCabinetRoutePolicy(baseURL: origin).decision(for: origin.appendingPathComponent("desktop/meetings/\(meetingID)")).route
+        XCTAssertEqual(EmbeddedCabinetLocalRecordingBridge.allowedAction(from: ["action":"open", "id":"local"], rows:[row], route:route)?.id, "local")
+        for action in ["send", "delete", "open_path"] {
+            XCTAssertNil(EmbeddedCabinetLocalRecordingBridge.allowedAction(from: ["action":action, "id":"local"], rows:[row], route:route))
+        }
+        let other = DesktopCabinetRoutePolicy(baseURL: origin).decision(for: origin.appendingPathComponent("desktop/meetings/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")).route
+        XCTAssertNil(EmbeddedCabinetLocalRecordingBridge.allowedAction(from: ["action":"open", "id":"local"], rows:[row], route:other))
+        XCTAssertNil(EmbeddedCabinetLocalRecordingBridge.allowedAction(from: ["action":"open", "id":"local"], rows:[], route:route))
+    }
+
     func testCabinetListOwnsLocalRecordingStatesAndUsesSendCopy() throws {
         let root = try repositoryRootForMeetingShellBoundaryTests()
         let cabinetSource = try String(

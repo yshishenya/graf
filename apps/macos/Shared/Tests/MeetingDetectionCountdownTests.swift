@@ -293,6 +293,195 @@ final class MeetingDetectionCountdownTests: XCTestCase {
         }
     }
 
+    func testObserverRestartPreservesAcceptedPromptAndOriginalCountdown() async throws {
+        // Real observer, detector and presenter composed with synthetic activity.
+        // The executable-only app handler is not exposed to the test target.
+        let registry = try MeetingDetectionCoding.decoder().decode(
+            MeetingTargetRegistryDocument.self,
+            from: MeetingTargetRegistryTests.seedRegistryData()
+        )
+        let bundleID = "ru.yandex.desktop.telemost"
+        for reason in [MeetingDetectionStartReason.promptButton, .promptTimeout] {
+            let f = try notificationFixture(self)
+            let p = f.presenter()
+            let detector = MacOSMeetingActivityDetector(debounceSeconds: 0)
+            let stream = MacOSAudioOwnershipLogStream(
+                snapshotProvider: { .init(activeBundleIDs: [bundleID]) }, snapshotIntervalNanoseconds: 10_000_000
+            )
+            defer { stream.stop(); p.dismissAllCards() }
+            var promptToken: UUID?
+            var rememberChoice = false
+            var outcomes: [MeetingDetectionStartReason] = []
+            var persisted: [AutomaticRecordingRule] = []
+            var offers = 0
+            var snapshots = 0
+            var originalWindow: NSWindow?
+            var originalStart: NSButton?
+            var originalDeadline: Date?
+            var generations: [Int] = []
+
+            observationLoop: for await observation in stream.observations() {
+                switch observation {
+                case .reconcile(let generation): generations.append(generation)
+                case .snapshot(let events, let isComplete, let generation):
+                    let observedAt = try XCTUnwrap(events.first?.observedAt)
+                    detector.reconcileSnapshot(activeBundleIDs: Set(events.map(\.bundleID)), observedAt: observedAt, isComplete: isComplete)
+                    let outputs = detector.advance(now: observedAt, registry: registry, settings: .init())
+                    for output in outputs {
+                        guard case .promptEligible(_, let offeredBundleID) = output else {
+                            XCTFail("Expected an Ask offer, got \(output)")
+                            continue
+                        }
+                        offers += 1
+                        let token = UUID()
+                        promptToken = token
+                        func consume(_ startReason: MeetingDetectionStartReason) {
+                            guard promptToken == token else { return }
+                            outcomes.append(startReason)
+                            let decision = MeetingDetectionPromptDecision(
+                                action: startReason == .promptButton ? .start : .timeout,
+                                rememberChoice: startReason == .promptButton && rememberChoice
+                            )
+                            if let rule = decision.persistedRule { persisted.append(rule) }
+                            promptToken = nil
+                        }
+                        XCTAssertTrue(p.presentRecordingPrompt(displayName: "Test meeting",
+                            onStart: { consume(.promptButton) }, onDismiss: { promptToken = nil },
+                            onRememberChoiceChanged: { rememberChoice = $0 },
+                            isStillCurrent: { promptToken == token },
+                            onExpire: { consume(.promptTimeout) }))
+                        detector.recordConsumerOutcome(bundleID: offeredBundleID, outcome: .accepted, at: observedAt)
+                    }
+                    snapshots += 1
+                    if snapshots == 1 {
+                        XCTAssertEqual(offers, 1)
+                        originalWindow = try XCTUnwrap(p.card.window)
+                        originalStart = try startButton(p)
+                        originalDeadline = try XCTUnwrap(p.card.deadline)
+                        let checkbox = try XCTUnwrap(notificationButtons(p.card.window?.contentView)
+                            .first { $0.title.hasPrefix("Запомнить выбор") })
+                        checkbox.performClick(nil)
+                        for _ in 1...3 { f.now = f.now.addingTimeInterval(1); p.card.refresh() }
+                        stream.restart()
+                    } else if generation == 2 {
+                        XCTAssertTrue(outputs.isEmpty, "Accepted offer is not replayed after restart")
+                        XCTAssertTrue(p.card.window === originalWindow)
+                        XCTAssertEqual(p.card.deadline, originalDeadline, "Restart does not grant another eight seconds")
+                        XCTAssertNotNil(promptToken)
+                        XCTAssertTrue(rememberChoice)
+                        XCTAssertEqual(p.card.presentedContent,
+                            .recordingPrompt(displayName: "Test meeting", remainingSeconds: 5, rememberChoice: true))
+                        let deadline = try XCTUnwrap(originalDeadline)
+                        for _ in 4...7 { f.now = f.now.addingTimeInterval(1); p.card.refresh() }
+                        f.now = deadline.addingTimeInterval(-0.001)
+                        p.card.refresh()
+                        XCTAssertTrue(outcomes.isEmpty)
+                        let start = try XCTUnwrap(originalStart)
+                        if reason == .promptButton { start.performClick(nil) }
+                        else { f.now = deadline; p.card.refresh() }
+                        XCTAssertEqual(outcomes, [reason])
+                        XCTAssertEqual(persisted, reason == .promptButton ? [.always] : [])
+                        XCTAssertNil(promptToken)
+                        XCTAssertNil(p.card.presentedContent)
+                        start.performClick(nil)
+                        f.now = deadline.addingTimeInterval(1)
+                        p.card.refresh()
+                        XCTAssertEqual(outcomes, [reason], "Old controls and timer cannot resolve twice")
+                        stream.stop()
+                        break observationLoop
+                    } else if snapshots > 100 {
+                        XCTFail("Observer restart did not advance its generation")
+                        stream.stop()
+                    }
+                default: break
+                }
+            }
+            XCTAssertEqual(generations, [1, 2])
+            XCTAssertEqual(offers, 1)
+            XCTAssertEqual(outcomes, [reason])
+        }
+    }
+
+    func testForcedDismissalRecoversOneAskWithOriginalRetryAndCountdownBoundaries() throws {
+        let registry = try MeetingDetectionCoding.decoder().decode(
+            MeetingTargetRegistryDocument.self, from: MeetingTargetRegistryTests.seedRegistryData())
+        let bundleID = "ru.yandex.desktop.telemost"
+        for dismissal in ["presenter_first", "native_first", "generic"] {
+            let f = try notificationFixture(self), p = f.presenter()
+            defer { p.dismissAllCards() }
+            let detector = MacOSMeetingActivityDetector(debounceSeconds: 0)
+            detector.reconcileSnapshot(activeBundleIDs: [bundleID], observedAt: f.now)
+            let offer = MacOSMeetingActivityDetectorOutput.promptEligible(targetID: "yandex_telemost", bundleID: bundleID)
+            XCTAssertEqual(detector.advance(now: f.now, registry: registry, settings: .init()), [offer])
+            var token: UUID? = UUID()
+            var starts = 0, expirations = 0
+            let firstToken = token
+            let authEpoch = p.authEpoch
+            XCTAssertTrue(p.presentRecordingPrompt(displayName: "Test meeting",
+                onStart: { starts += 1 }, onDismiss: {}, onRememberChoiceChanged: { _ in },
+                isStillCurrent: { token == firstToken }, onExpire: { expirations += 1 },
+                onInvalidated: {
+                    guard token == firstToken else { return }
+                    let outcome: MacOSMeetingActivityDetectorConsumerOutcome = p.authEpoch != authEpoch
+                        ? .retryable(reason: "registry_unavailable") : .terminal(reason: "invalidated")
+                    detector.recordConsumerOutcome(bundleID: bundleID, outcome: outcome, at: f.now)
+                    token = nil
+                }))
+            let oldStart = try startButton(p)
+            detector.recordConsumerOutcome(bundleID: bundleID, outcome: .accepted, at: f.now)
+            // Presenter auth invalidation can run before the native auth observer.
+            if dismissal == "native_first" {
+                detector.recordConsumerOutcome(bundleID: bundleID, outcome: .retryable(reason: "registry_unavailable"), at: f.now)
+                token = nil
+                p.dismissRecordingPrompt()
+                p.invalidate()
+            } else if dismissal == "generic" {
+                p.dismissAllCards()
+            } else {
+                p.invalidate()
+            }
+            XCTAssertNil(p.card.presentedContent)
+            token = nil
+            oldStart.performClick(nil)
+            XCTAssertEqual(starts, 0)
+            f.now = f.now.addingTimeInterval(1.999)
+            detector.reconcileSnapshot(activeBundleIDs: [bundleID], observedAt: f.now)
+            XCTAssertTrue(detector.advance(now: f.now, registry: registry, settings: .init()).isEmpty)
+            f.now = f.now.addingTimeInterval(0.001)
+            XCTAssertTrue(detector.advance(now: f.now, registry: nil, settings: .init()).isEmpty)
+            let recovered = detector.advance(now: f.now, registry: registry, settings: .init())
+            if dismissal == "generic" {
+                XCTAssertTrue(recovered.isEmpty)
+                continue
+            }
+            XCTAssertEqual(recovered, [offer])
+            token = UUID()
+            let recoveredToken = token
+            XCTAssertTrue(p.presentRecordingPrompt(displayName: "Test meeting", rememberChoice: false,
+                onStart: { starts += 1 }, onDismiss: {}, onRememberChoiceChanged: { _ in },
+                isStillCurrent: { token == recoveredToken }, onExpire: { expirations += 1 }))
+            detector.recordConsumerOutcome(bundleID: bundleID, outcome: .accepted, at: f.now)
+            let deadline = try XCTUnwrap(p.card.deadline)
+            XCTAssertEqual(deadline, f.now.addingTimeInterval(8))
+            XCTAssertEqual(p.card.presentedContent, .recordingPrompt(displayName: "Test meeting", remainingSeconds: 8, rememberChoice: false))
+            for second in 1...7 { f.now = deadline.addingTimeInterval(Double(second) - 8); p.card.refresh() }
+            f.now = deadline.addingTimeInterval(-0.001); p.card.refresh()
+            XCTAssertEqual(expirations, 0)
+            f.now = deadline; p.card.refresh()
+            XCTAssertEqual(expirations, 1)
+            XCTAssertEqual(starts, 0)
+            XCTAssertTrue(detector.advance(now: f.now, registry: registry, settings: .init()).isEmpty)
+            // No retryable outcome is submitted when there is no pending prompt.
+            for outcome in [MacOSMeetingActivityDetectorConsumerOutcome.accepted,
+                            .terminal(reason: "user_skipped"), .terminal(reason: "manually_stopped_current_meeting")] {
+                detector.recordConsumerOutcome(bundleID: bundleID, outcome: outcome, at: f.now)
+                detector.reconcileSnapshot(activeBundleIDs: [bundleID], observedAt: f.now.addingTimeInterval(30))
+                XCTAssertTrue(detector.advance(now: f.now.addingTimeInterval(30), registry: nil, settings: .init()).isEmpty)
+                XCTAssertTrue(detector.advance(now: f.now.addingTimeInterval(30), registry: registry, settings: .init()).isEmpty)
+            }
+        }
+    }
+
     private func startButton(_ presenter: DesktopNotificationPresenter) throws -> NSButton {
         try XCTUnwrap(notificationButtons(presenter.card.window?.contentView).first { $0.title == "Записать" })
     }

@@ -24,6 +24,7 @@ ALLOWED_MAINTENANCE_OPERATIONS = frozenset(
         "prompt_optimization",
         "outcome_dispatch_reconciliation",
         "summary_slots_reconciliation",
+        "summary_delivery_reconciliation",
         "deletion_purge_reconciliation",
         "outcome_initial_baseline_reconciliation",
         "billing_reconciliation",

@@ -1,0 +1,64 @@
+{
+  "source_sha": "d3cc3069ffdb89a5f992baa196eb8649c192fab5",
+  "dev_manifest": "dev-d3cc3069ffdb",
+  "bundle_id": "pro.2brain.graf.dev",
+  "live_smoke_pass_count": 13,
+  "quota_contract_pass_count": 10,
+  "quota_matrix": [
+    "own_web",
+    "own_embedded",
+    "shared_web",
+    "shared_embedded"
+  ],
+  "quota_matrix_proof": "executable_contract_red_then_green",
+  "native_playback": {
+    "duration_seconds": 45,
+    "elapsed_seconds_observed": 28,
+    "stopped_and_closed": true
+  },
+  "shared_quota_native_acceptance": "not_observed_empty_shared_list",
+  "recording_active_after_acceptance": false,
+  "meeting_settings_unchanged": true,
+  "pr_checks": {
+    "governance-fast": {
+      "proof_digest": "sha256:6810076a49ee99d250527b13bd9843db678953c27e912cc8f51a7a183a73eba3",
+      "run_attempt": 1,
+      "run_id": "37165577527"
+    },
+    "macos-pr": {
+      "proof_digest": "sha256:18b359b1ecb91013d79b1f7e20832cada817e3a285402aa4ff5bf54422b749a6",
+      "run_attempt": 1,
+      "run_id": "37165577526"
+    },
+    "pr-metadata": {
+      "proof_digest": "sha256:21370e8c3ab960b4e5e196f6d6b872d80a8c1882d65f9f41c46131659d6e0cee",
+      "run_attempt": 1,
+      "run_id": "37165576848"
+    }
+  },
+  "product_file_sha256": {
+    "apps/macos/RecApp/App/TwoBrainRecApp.swift": "796887841384370e22c67a857c83f90db1efa37494db1a21038f605d684b6b0a",
+    "apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift": "abf6ea799bf56274c7fe1ca62abd6c9189feb667cb25e70c1b12114839f276ff",
+    "apps/macos/RecApp/Sources/MeetingDetection/MacOSAudioInputActivitySnapshot.swift": "9ec4b51646eda1f8ea936a19c597aba5f84bf632b3a8fd32623c414acfe50cba",
+    "apps/macos/RecApp/Sources/MeetingDetection/MacOSAudioOwnershipLogStream.swift": "5a1ba0f75f866f1a60ede46f0ba76dfb6143084b3c5346ecfc645762b6556951",
+    "apps/macos/RecApp/Sources/MeetingDetection/MacOSMeetingActivityDetector.swift": "208d77e532b7bfa34949ce6f11a0638d538d73965e79e41067a7fe1e7cfbbd56",
+    "apps/macos/Shared/Sources/MeetingDetection/MacOSAudioOwnershipParser.swift": "e4605ceb734e1463dd7715e074ae160108f9d155ca83a956cd5e2ef2d93e6c8f",
+    "apps/macos/Shared/Tests/DesktopMeetingShellWebViewBoundaryTests.swift": "f240c6d42405e32055e639efe8f2041049f16f04a10897f0608ca5341375dfad",
+    "apps/macos/Shared/Tests/MeetingDetectionPolicyTests.swift": "80afcafcb6300aed3a3a3d0f7ce3bc4227199debc22ea2dcac04e080839919ac",
+    "apps/macos/Shared/Tests/MeetingDetectionRecordingLifecycleTests.swift": "b1647b1d68d79d2efbbfc195192e0ce80c15d06055ea4c7b3632bd7ee80a4c3c",
+    "apps/server/src/twobrain_rec_server/cabinet/rendering.py": "284caf64714e20655c425677cd56e09446a599b79476913166db7dd6aecd80b2",
+    "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "1d1e115497bc028e9f1b1b9c8ca05eaf896186ea0a544d27eac8f05f2997db4b",
+    "apps/server/src/twobrain_rec_server/cabinet/view_models.py": "45979a6582f70e7aacea7822db80ed629747c1508b402cae7262f7f4c1dfa167",
+    "apps/server/tests/browser/local-recording-detail.test.cjs": "4060d0b3d0edda9196f68c19c2fef8b2d80ac1c8ef5aa874a85564fbb6322196",
+    "apps/server/tests/contract/test_playback_status_contract.py": "6676737564abccf41ae2c753419beb1e6b8b348903bbb882c7a6d6cf2301f027",
+    "apps/macos/Shared/Tests/MeetingDetectionCountdownTests.swift": "710dcc7d44d181ada453d2120215b16e5ed3ae79c7e6e655341f1daf7c81f6b5",
+    "apps/server/tests/browser/playback-refresh.test.cjs": "5d018ef1cc1fa8996b6ad9f519022a0a842648b0b66345835207341660594acd",
+    "apps/macos/RecApp/Sources/Capture/V5LocalRecordingWriter.swift": "044061b32fea07979229474337c934f7c4620ab42ffe5da910b5b944294a5b23",
+    "apps/macos/RecApp/Sources/Capture/RecordingAudioTimeline.swift": "58ce7c75a32ff75f85d0dce9cf1d26a2646789b591fc75c0a629e839fe8b6cea",
+    "apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift": "cbfc942e9529badf1efa0f811c2572a6787ed55b0158a2b21b6b3dbf2dbe789c",
+    "apps/macos/RecApp/Sources/Capture/RecordingSampleSources.swift": "dd851b69c5c41ffd27295a5ab0b3725f9debb8c1108a480ab31488f705210af5",
+    "apps/macos/RecApp/Sources/Capture/MicrophoneCaptureService.swift": "03885facc914712ebe10d81dc5625445d22fafb1be90804a6ad325b54197d391",
+    "apps/macos/RecApp/Sources/Capture/PrivacySuppressingSampleSource.swift": "ca8d3b86defb99d1945d18cc81795c0f528cfdbcc9add3ddea591caea920cd32",
+    "apps/server/tests/contract/test_cabinet_static_assets_contract.py": "d68eeb34e9ee9f6f942228370b9f836972091881e1b47a6d728f8cedbabf816b"
+  }
+}

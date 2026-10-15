@@ -813,3 +813,70 @@ macOS34767005071, оба attempt2, SUCCESS; trusted metadata34888235153 SUCCESS.
 checks старого PR, но не исполнение на нём нового YAML. T063/T087 остаются
 ограниченными этой границей. Документы F264 уже включены отдельным #7000;
 release-prep #6999 не имеет F264 diff и не закрывает её задачи повторно.
+
+
+## T098 — точный набор PR выпуска, 2026-10-06
+
+```sh
+python -m pytest -q tests/governance/test_pr_checks.py \
+  tests/governance/test_release_candidate.py tests/governance/test_release_train.py
+ruff check scripts/validate-pr-checks.py tests/governance/test_pr_checks.py
+python scripts/check-development-process.py
+python scripts/check_spec_kit_governance.py
+python scripts/validate-changelog-fragments.py
+```
+
+Проверки используют настоящий временный Git и синтетическую API границу.
+Они не подтверждают production/CD или установленную macOS совместимость.
+Source b8d56ea должен содержать proofs для #7545/#7576/#7577; после merge
+новый train также содержит PR исправления и подготовки. Актуальные результаты
+и ссылки записываются после выполнения.
+
+Локально: `test_pr_checks.py` **135 PASS / 24,18 с**; два соседних consumer
+файла **28 PASS / 64,81 с**. Ruff, diff, agent-context, process/changelog,
+Spec Kit frozen governance **PASS**. Doctor использовал закреплённый bootstrap
+0.9.10 (SHA-256 совпадает с workflow) и Specify1.0.7 в отдельном PATH;
+tracked tooling не менялся, PYTHONDONTWRITEBYTECODE=1. Первый запуск consumers
+не прошёл из-за глобального python3/UV-cache sandbox; после корректного PATH
+выполнен полный consumer набор, ошибок кода не осталось.
+
+До исправления доказаны overlapping-checked-ranges и принятие списка только
+позднего PR; отдельные два отрицательных контроля показали скрытие точной
+ошибки missing/unsuccessful proof раннего PR. Первоначальный новый rebase fixture
+имел неточный checked base, замечание независимого reviewer устранено:
+original/rebased по3 Git commits, disjoint SHA, равные конечные деревья,
+checked base first для PR8. Существующая проверка checked_base/merged receipt
+и все прежние негативные сценарии сохранены. Это локальные синтетические
+проверки и review; hosted merge/Full/CD еще не объявляются пройденными.
+
+### T098 — hosted и release приемка завершена
+
+[PR7579](https://github.com/yshishenya/graf/pull/7579) merged21:48:04Z:
+head `a958270bd2184d46ed6f5a0d026f97cea26043f6`, checked baseb8d56ea9,
+merge9f8872bc. Required governance37535047449/macOS37535047378/
+metadata37535047505 SUCCESS; common current exact validator PASS. Final prep
+PR7580 также получил все3 required SUCCESS и собственный exact proof.
+
+Новый train `train-20261006T215826Z-ad597c114e3b` сохранил весь набор
+#7545/#7576/#7577/#7579/#7580 и каждый отдельный proof. Candidate
+`rc-20261006T220142Z-95a12ddbc931`, source
+`ad597c114e3bf9e627525c578ec68e353d54a44e`.
+[Единственный Full37537979359](https://github.com/yshishenya/graf/actions/runs/37537979359)
+SUCCESS; authoritative receipt passed, requested/observed/component SHA
+совпадают, skipped gates пусты; train и decision go.
+
+Штатные dry-run/execute PASS, attempt `599561ecaa474082b65ce28cfe345373`,
+backup `/opt/projects/2brain-rec/backups/20261006T221459Z`, infra_smoke_ready,
+rollback не потребовался. Отдельная стандартная restore rehearsal предыдущего
+backup и уборка временных DB/bucket PASS.
+[v2026.10.07.1](https://github.com/yshishenya/graf/releases/tag/v2026.10.07.1)
+опубликован22:25:10Z; tag разрешается в точный source, immutable attestation
+создана22:25:18Z. Продуктовый source не меняется от docs closeout.
+
+Live Help/canonical/sitemap/navigation, public health, runtime/workers/F286
+flags и SHA map175 macOS файлов PASS. Production HTML проверен Chromium на
+320/390/768/1440,text200%,keyboard/noJS. Protected15 live source SHA совпадают;
+шаблоны/обработчики/аналитика/статика прежние. Стабильный HTTP ответ сравнен
+отдельно от случайных bridge ID/expiry; равенство полного HTML-хеша не заявлено.
+Полная причинная проверка — `specs/281-mac-meeting-guide/audio-help-evidence.md`.
+Native capture совместимость и реальные письма этим выпуском не проверялись.

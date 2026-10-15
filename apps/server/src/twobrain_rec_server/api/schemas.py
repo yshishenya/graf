@@ -312,6 +312,7 @@ class CalendarSeriesEvent(BaseModel):
     open_meeting_available: bool
     recordings: list[CalendarSeriesRecording] = Field(default_factory=list)
     recordings_partial: bool = False
+    temporal_state: Literal["upcoming", "ongoing", "history"] | None = None
 
 
 class CalendarOverviewResponse(BaseModel):

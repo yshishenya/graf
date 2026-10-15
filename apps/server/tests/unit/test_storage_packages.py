@@ -97,8 +97,8 @@ def test_storage_price_consent_binds_all_terms_without_enabling_recurring():
 )
 async def test_paid_bonus_gets_base_floor_without_overwriting_snapshot(snapshot, cached, expected):
     class DB:
-        async def scalar(self, _query):
-            return SimpleNamespace(capacity_snapshot_bytes=snapshot)
+        async def execute(self, _query):
+            return SimpleNamespace(first=lambda: SimpleNamespace(capacity_snapshot_bytes=snapshot))
 
     now = datetime.now(UTC)
     sub = WorkspaceSubscription(

@@ -1028,35 +1028,30 @@ private struct ContentView: View {
             for await observation in logStream.observations() {
                 switch observation {
                 case .reconcile(let generation):
-                    meetingDetectionDetector.reset()
-                    dismissMeetingDetectionPrompt()
                     AppLog.writeRaw(
                         event: "meeting_detection.observer_reconcile",
                         detail: "generation=\(generation)"
                     )
-                case .snapshot(let events, let generation):
+                case .snapshot(let events, let isComplete, let generation):
                     let activeBundleIDs = Set(events.filter { $0.state == .active }.map(\.bundleID))
                     for event in events {
                         AppLog.writeRaw(
                             event: "meeting_detection.source_transition",
                             detail: "source=\(event.source.rawValue) bundleID=\(event.bundleID) state=\(event.state.rawValue) snapshot=true"
                         )
-                        meetingDetectionDetector.reconcile(event: event)
                     }
+                    let observedAt = events.first?.observedAt ?? Date()
+                    meetingDetectionDetector.reconcileSnapshot(activeBundleIDs: activeBundleIDs, observedAt: observedAt, isComplete: isComplete)
                     reconcileMeetingDetectionRecording(
                         activeBundleIDs: activeBundleIDs,
-                        observedAt: Date()
+                        observedAt: observedAt
                     )
                     AppLog.writeRaw(
                         event: "meeting_detection.snapshot_reconciled",
-                        detail: "generation=\(generation) activeCount=\(events.count)"
+                        detail: "generation=\(generation) activeCount=\(events.count) complete=\(isComplete)"
                     )
                     await advanceMeetingDetection(reason: "snapshot_reconciled")
                 case .lifecycle(let phase, let generation):
-                    if phase == .unexpectedFinish {
-                        meetingDetectionDetector.reset()
-                        dismissMeetingDetectionPrompt()
-                    }
                     AppLog.writeRaw(
                         event: "meeting_detection.observer_lifecycle",
                         detail: "generation=\(generation) phase=\(phase.rawValue)"
@@ -1100,7 +1095,8 @@ private struct ContentView: View {
             startMeetingDetectionIfNeeded()
             return
         }
-        dismissMeetingDetectionPrompt()
+        // Restart only the activity observer. The detector preserves accepted
+        // offers, so the current prompt, token and original deadline must survive.
         meetingDetectionLogStream.restart()
         AppLog.writeRaw(
             event: "meeting_detection.observer_restart_requested",
@@ -1168,7 +1164,7 @@ private struct ContentView: View {
         meetingDetectionRegistryRequiresRemoteRefresh = true
         meetingDetectionRegistryAuthRejected = false
         meetingDetectionRegistry = nil
-        dismissMeetingDetectionPrompt()
+        dismissMeetingDetectionPrompt(retryableReason: "registry_unavailable")
         meetingDetectionStatus = meetingDetectionStatusText()
         AppLog.writeRaw(
             event: "meeting_detection.registry_auth_invalidated",
@@ -1249,7 +1245,7 @@ private struct ContentView: View {
                     !meetingDetectionRegistryAuthRejected
                 meetingDetectionRegistryAuthRejected = meetingDetectionRegistryAuthRejected || authFailure
                 meetingDetectionRegistry = nil
-                dismissMeetingDetectionPrompt()
+                dismissMeetingDetectionPrompt(retryableReason: "registry_unavailable")
             } else {
                 do {
                     try resolveMeetingDetectionRegistry(remoteData: nil, remoteETag: nil)
@@ -1329,16 +1325,15 @@ private struct ContentView: View {
                 prerequisites: meetingDetectionPrerequisites()
             )
             processMeetingDetectionOutputs(outputs, registry: registry)
+        } else {
+            meetingDetectionDetector.reconcile(event: event)
         }
         await advanceMeetingDetection(reason: "mic_event")
     }
 
     @MainActor
     private func advanceMeetingDetection(reason _: String) async {
-        guard let registry = meetingDetectionRegistry else {
-            stopStaleMeetingDetectionRecordingIfNeeded(now: Date())
-            return
-        }
+        let registry = meetingDetectionRegistry
         let outputs = meetingDetectionDetector.advance(
             registry: registry,
             settings: meetingDetectionSettings,
@@ -1351,12 +1346,13 @@ private struct ContentView: View {
     @MainActor
     private func processMeetingDetectionOutputs(
         _ outputs: [MacOSMeetingActivityDetectorOutput],
-        registry: MeetingTargetRegistryDocument
+        registry: MeetingTargetRegistryDocument?
     ) {
         var didHandleRecordingTrigger = false
         for output in outputs {
             switch output {
             case .promptEligible(let targetID, let bundleID):
+                guard let registry else { continue }
                 AppLog.writeRaw(
                     event: "meeting_detection.detector_offer",
                     detail: "kind=prompt targetId=\(targetID) bundleID=\(bundleID)"
@@ -1394,6 +1390,7 @@ private struct ContentView: View {
                 recordMeetingDetectionConsumerOutcome(bundleID: bundleID, outcome: .accepted)
                 meetingDetectionStatus = .meetingFound(displayName)
             case .autoRecordEligible(let targetID, let bundleID):
+                guard let registry else { continue }
                 AppLog.writeRaw(
                     event: "meeting_detection.detector_offer",
                     detail: "kind=auto_record targetId=\(targetID) bundleID=\(bundleID)"
@@ -1450,6 +1447,7 @@ private struct ContentView: View {
                 observation: let observation,
                 decision: let decision
             ):
+                guard let registry else { continue }
                 AppLog.writeRaw(
                     event: "meeting_detection.detector_offer",
                     detail: "kind=candidate bundleID=\(bundleID) score=\(score)"
@@ -1565,24 +1563,17 @@ private struct ContentView: View {
         activeBundleIDs: Set<String>,
         observedAt: Date
     ) {
-        if let activeMeetingDetectionBundleID {
-            if activeBundleIDs.contains(activeMeetingDetectionBundleID) {
-                lastMeetingDetectionEvidenceAt = observedAt
-            } else {
-                stopMeetingDetectionRecordingIfNeeded(bundleID: activeMeetingDetectionBundleID)
-            }
+        if let activeMeetingDetectionBundleID, activeBundleIDs.contains(activeMeetingDetectionBundleID) {
+            lastMeetingDetectionEvidenceAt = observedAt
         }
-        if let manuallyStoppedMeetingDetectionBundleID,
-           !activeBundleIDs.contains(manuallyStoppedMeetingDetectionBundleID) {
-            self.manuallyStoppedMeetingDetectionBundleID = nil
-        }
+        // Absence and manual suppression end together through the detector's 15-second grace.
     }
 
     @MainActor
     private func stopStaleMeetingDetectionRecordingIfNeeded(now: Date) {
         guard let bundleID = activeMeetingDetectionBundleID,
               let lastMeetingDetectionEvidenceAt,
-              now.timeIntervalSince(lastMeetingDetectionEvidenceAt) >= 600
+              MacOSMeetingActivityDetector.recordingEvidenceExpired(lastObservedAt: lastMeetingDetectionEvidenceAt, now: now)
         else { return }
         AppLog.writeRaw(
             event: "meeting_detection.recording_stop_requested",
@@ -1677,6 +1668,7 @@ private struct ContentView: View {
     @MainActor
     private func presentMeetingDetectionPrompt(_ prompt: MeetingDetectionPrompt) {
         let token = UUID()
+        let authEpoch = DesktopNotificationPresenter.shared.authEpoch
         meetingDetectionPromptToken = token
         meetingDetectionPromptRememberChoice = false
         let shown = DesktopNotificationPresenter.shared.presentRecordingPrompt(
@@ -1715,7 +1707,11 @@ private struct ContentView: View {
             },
             onInvalidated: { [self] in
                 guard isCurrentMeetingDetectionPrompt(prompt, token: token) else { return }
-                self.dismissMeetingDetectionPrompt(prompt, reason: .invalidated)
+                if DesktopNotificationPresenter.shared.authEpoch != authEpoch {
+                    self.dismissMeetingDetectionPrompt(retryableReason: "registry_unavailable")
+                } else {
+                    self.dismissMeetingDetectionPrompt(prompt, reason: .invalidated)
+                }
             }
         )
         guard shown else {
@@ -1736,8 +1732,14 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func dismissMeetingDetectionPrompt() {
+    private func dismissMeetingDetectionPrompt(retryableReason: String? = nil) {
         if let meetingDetectionPrompt {
+            if let retryableReason {
+                recordMeetingDetectionConsumerOutcome(
+                    bundleID: meetingDetectionPrompt.bundleID,
+                    outcome: .retryable(reason: retryableReason)
+                )
+            }
             AppLog.writeRaw(
                 event: "meeting_detection.prompt_dismissed",
                 detail: "targetId=\(meetingDetectionPrompt.targetID) bundleID=\(meetingDetectionPrompt.bundleID)"
@@ -3728,7 +3730,9 @@ private enum AppLog {
 
     static func writeCaptureTiming(_ detail: String) {
         DispatchQueue.global(qos: .utility).async {
-            writeRaw(event: "capture.timing_anomaly", detail: detail)
+            let event = detail.hasPrefix("recording_writer_progress ")
+                ? "capture.writer_progress" : "capture.timing_anomaly"
+            writeRaw(event: event, detail: detail)
         }
     }
 

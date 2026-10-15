@@ -1,0 +1,242 @@
+{
+  "schema_version": 1,
+  "feature_id": 280,
+  "tasks": [
+    "T026",
+    "T027",
+    "T028"
+  ],
+  "release": "v2026.10.02.7",
+  "source_sha": "78f9a1207a4aba6ef1ecaf85431888d1e055dd95",
+  "candidate_id": "rc-20261002T214044Z-2125936b6662",
+  "train_id": "train-20261002T213956Z-78f9a1207a4a",
+  "included_prs": [
+    7442,
+    7465,
+    7467
+  ],
+  "implementation_pr": 7465,
+  "implementation_pr_sha": "b0109f94d2d467ca1901326514802c2ab03b3d48",
+  "implementation_merge_sha": "c6737dacddec1879fe4fa97cc9c5aceee3a3371a",
+  "pr_checks": {
+    "base_sha": "3bb2edf47b4cd53f59a690bc12a178427f83b60d",
+    "checks": {
+      "governance-fast": {
+        "proof_digest": "sha256:8fde664a498defb6919483c113f133b4e92986923bc71b703211f435e8657bc9",
+        "run_attempt": 1,
+        "run_id": "37066721665"
+      },
+      "macos-pr": {
+        "proof_digest": "sha256:4ee45d0a5008633ab3b4be4dfe19a110e8e2591fa77ba4d005c8ee857bdc0cd4",
+        "run_attempt": 1,
+        "run_id": "37066721791"
+      },
+      "pr-metadata": {
+        "proof_digest": "sha256:9506677735ecd7fa44fdaec40e590ecc03afeaa5a03c77eafa972b0585fefc05",
+        "run_attempt": 1,
+        "run_id": "37066719252"
+      }
+    },
+    "merge_commit_sha": null,
+    "metadata_digest": "ba6af67f1b5d89900feea2ee285812f927e5d6fca9002dc005b727207190de9c",
+    "policy": "separate",
+    "pr_number": 7465,
+    "repository": "yshishenya/graf",
+    "schema_version": 1,
+    "target_sha": "b0109f94d2d467ca1901326514802c2ab03b3d48"
+  },
+  "release_prep_checks": {
+    "base_sha": "c6737dacddec1879fe4fa97cc9c5aceee3a3371a",
+    "checks": {
+      "governance-fast": {
+        "proof_digest": "sha256:f3dc098771e8a5d42049a9a193483649565f32a2c7df2f634a04bb390d5d8fb3",
+        "run_attempt": 1,
+        "run_id": "37067940924"
+      },
+      "macos-pr": {
+        "proof_digest": "sha256:8d0002fdcee5509d9d2baa9e4d9b31bcd04005380803145a9286eeda0344bdaa",
+        "run_attempt": 1,
+        "run_id": "37067940760"
+      },
+      "pr-metadata": {
+        "proof_digest": "sha256:455ab9112d752779dce384f8bf4905d4f6432e0c945db7a2f04e79b7749d0975",
+        "run_attempt": 1,
+        "run_id": "37067941246"
+      }
+    },
+    "merge_commit_sha": null,
+    "metadata_digest": "f9961d509c117cf735bd963c573ebb4b3344bb7199aa7fd431bbe90b89ea63a9",
+    "policy": "separate",
+    "pr_number": 7467,
+    "repository": "yshishenya/graf",
+    "schema_version": 1,
+    "target_sha": "e6462d4a1f6c115a9f2802811b47270e5bce845b"
+  },
+  "full_status": "passed",
+  "full_run_id": "github-full-37068251644",
+  "github_run_id": "37068251644",
+  "full_evidence_digest": "sha256:2c7f114ce7145db5c248f49544fb0c608810415a7ba581427478a16d19ca23a2",
+  "decision_digest": "sha256:382d191e7580d0f5c93882c6653d1205059c4bdd388ccbc189787e1d17276ff2",
+  "publication_attestation_digest": "sha256:a58406eb485157966f5a31a4ee039901197193703b531abf4745b8bf8369e27f",
+  "publication": {
+    "isDraft": false,
+    "isPrerelease": false,
+    "publishedAt": "2026-10-02T21:57:43Z",
+    "tagName": "v2026.10.02.7",
+    "targetCommitish": "78f9a1207a4aba6ef1ecaf85431888d1e055dd95",
+    "url": "https://github.com/yshishenya/graf/releases/tag/v2026.10.02.7"
+  },
+  "first_deploy_attempt": {
+    "result": "blocked",
+    "reason": "branch_mismatch",
+    "production_execution_started": false,
+    "source_unchanged": true,
+    "historical_interruption_record_retained": true,
+    "resume_candidate_validation": "pass",
+    "resume_train_validation": "pass",
+    "same_candidate_same_full": true
+  },
+  "deploy_result": "pass",
+  "deploy_duration_seconds": 245,
+  "driver_execute_duration_seconds": 250,
+  "backup_timestamp": "20261002T215332Z",
+  "readiness_verdict": "infra_smoke_ready",
+  "playback_normalization_scope": "worker_capability_only",
+  "rollback": {
+    "required": false,
+    "executed": false
+  },
+  "runtime": {
+    "rec-api": {
+      "source_sha": "78f9a1207a4aba6ef1ecaf85431888d1e055dd95",
+      "checkout_enabled": true,
+      "scope_public": true,
+      "production": true,
+      "expected_shop": true,
+      "observation": true,
+      "running": true,
+      "health": "healthy",
+      "hashes": {
+        "src/twobrain_rec_server/billing/yookassa.py": "5988391c8a034cab8eb959e53f988eb0fef3b131ed5f845382792f61358157ce",
+        "src/twobrain_rec_server/billing/checkout.py": "5a1143e6809975ba34b027e864e794913d392a6ebd3f584d1381fc0997adf223",
+        "src/twobrain_rec_server/billing/payment_methods.py": "51c0d747daa8ddb5f1b9362ece0123575af8522be72cfc3981af3e933a75e4ef",
+        "src/twobrain_rec_server/billing/entitlements.py": "83f43809f9ec736e028a9d1bcbd9311afa19d7fb0cad195676fba27c1ad0b14b",
+        "src/twobrain_rec_server/billing/renewal.py": "d1f88bd948377e4c80c15f5a8af832f5fb5f8a82d2c5e7f674e3d25059fad17a",
+        "src/twobrain_rec_server/billing/renewal_charge.py": "4322d7a4be80aa1ed6f0ba9020839cc37d0f9043b57106f34b7c7a28a9603810",
+        "src/twobrain_rec_server/billing/reconciliation.py": "56549e38984e6698d57814f10615037d94feb124abd249c266f00d94fa532b83",
+        "src/twobrain_rec_server/billing/maintenance.py": "342912bc2cf2d1aaad3f751c137ab21db31b2f023549c8082ce4d36242d12328",
+        "src/twobrain_rec_server/billing/purchases.py": "d03b4743c9ef29d12025e149b130260d3b2fd335a6eb4557cd063bccc9cfc66c",
+        "src/twobrain_rec_server/cabinet/web_routes/billing.py": "ba7db4c90ec19f85e114a276e3983619cf8e6321e45f1e992ab831532c5b75b8",
+        "src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html": "9c68661848504e02b02f067f7e2a3f759fa0c04fd7f808354e4388c1d06d54b2",
+        "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "95f5d619f7cab0d70e1b604f0c6fccaba5ce47b91c756ae4fc9073ac75baeb34"
+      },
+      "billing_code_matches_candidate": true
+    },
+    "rec-processing-worker": {
+      "source_sha": "78f9a1207a4aba6ef1ecaf85431888d1e055dd95",
+      "checkout_enabled": true,
+      "scope_public": true,
+      "production": true,
+      "expected_shop": true,
+      "observation": true,
+      "running": true,
+      "health": "healthy",
+      "hashes": {
+        "src/twobrain_rec_server/billing/yookassa.py": "5988391c8a034cab8eb959e53f988eb0fef3b131ed5f845382792f61358157ce",
+        "src/twobrain_rec_server/billing/checkout.py": "5a1143e6809975ba34b027e864e794913d392a6ebd3f584d1381fc0997adf223",
+        "src/twobrain_rec_server/billing/payment_methods.py": "51c0d747daa8ddb5f1b9362ece0123575af8522be72cfc3981af3e933a75e4ef",
+        "src/twobrain_rec_server/billing/entitlements.py": "83f43809f9ec736e028a9d1bcbd9311afa19d7fb0cad195676fba27c1ad0b14b",
+        "src/twobrain_rec_server/billing/renewal.py": "d1f88bd948377e4c80c15f5a8af832f5fb5f8a82d2c5e7f674e3d25059fad17a",
+        "src/twobrain_rec_server/billing/renewal_charge.py": "4322d7a4be80aa1ed6f0ba9020839cc37d0f9043b57106f34b7c7a28a9603810",
+        "src/twobrain_rec_server/billing/reconciliation.py": "56549e38984e6698d57814f10615037d94feb124abd249c266f00d94fa532b83",
+        "src/twobrain_rec_server/billing/maintenance.py": "342912bc2cf2d1aaad3f751c137ab21db31b2f023549c8082ce4d36242d12328",
+        "src/twobrain_rec_server/billing/purchases.py": "d03b4743c9ef29d12025e149b130260d3b2fd335a6eb4557cd063bccc9cfc66c",
+        "src/twobrain_rec_server/cabinet/web_routes/billing.py": "ba7db4c90ec19f85e114a276e3983619cf8e6321e45f1e992ab831532c5b75b8",
+        "src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html": "9c68661848504e02b02f067f7e2a3f759fa0c04fd7f808354e4388c1d06d54b2",
+        "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "95f5d619f7cab0d70e1b604f0c6fccaba5ce47b91c756ae4fc9073ac75baeb34"
+      },
+      "billing_code_matches_candidate": true
+    },
+    "rec-maintenance": {
+      "source_sha": "78f9a1207a4aba6ef1ecaf85431888d1e055dd95",
+      "checkout_enabled": true,
+      "scope_public": true,
+      "production": true,
+      "expected_shop": true,
+      "observation": true,
+      "running": true,
+      "health": null,
+      "hashes": {
+        "src/twobrain_rec_server/billing/yookassa.py": "5988391c8a034cab8eb959e53f988eb0fef3b131ed5f845382792f61358157ce",
+        "src/twobrain_rec_server/billing/checkout.py": "5a1143e6809975ba34b027e864e794913d392a6ebd3f584d1381fc0997adf223",
+        "src/twobrain_rec_server/billing/payment_methods.py": "51c0d747daa8ddb5f1b9362ece0123575af8522be72cfc3981af3e933a75e4ef",
+        "src/twobrain_rec_server/billing/entitlements.py": "83f43809f9ec736e028a9d1bcbd9311afa19d7fb0cad195676fba27c1ad0b14b",
+        "src/twobrain_rec_server/billing/renewal.py": "d1f88bd948377e4c80c15f5a8af832f5fb5f8a82d2c5e7f674e3d25059fad17a",
+        "src/twobrain_rec_server/billing/renewal_charge.py": "4322d7a4be80aa1ed6f0ba9020839cc37d0f9043b57106f34b7c7a28a9603810",
+        "src/twobrain_rec_server/billing/reconciliation.py": "56549e38984e6698d57814f10615037d94feb124abd249c266f00d94fa532b83",
+        "src/twobrain_rec_server/billing/maintenance.py": "342912bc2cf2d1aaad3f751c137ab21db31b2f023549c8082ce4d36242d12328",
+        "src/twobrain_rec_server/billing/purchases.py": "d03b4743c9ef29d12025e149b130260d3b2fd335a6eb4557cd063bccc9cfc66c",
+        "src/twobrain_rec_server/cabinet/web_routes/billing.py": "ba7db4c90ec19f85e114a276e3983619cf8e6321e45f1e992ab831532c5b75b8",
+        "src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html": "9c68661848504e02b02f067f7e2a3f759fa0c04fd7f808354e4388c1d06d54b2",
+        "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "95f5d619f7cab0d70e1b604f0c6fccaba5ce47b91c756ae4fc9073ac75baeb34"
+      },
+      "billing_code_matches_candidate": true
+    }
+  },
+  "public": {
+    "observed_at": "2026-10-02T21:58:21.178214+00:00",
+    "live": {
+      "status": 200
+    },
+    "ready": {
+      "status": 200
+    },
+    "download": {
+      "status": 200
+    },
+    "public_pkg": {
+      "status": 200,
+      "size": 9259700,
+      "sha256": "b5df859986d0ad36a07302c87c598b7a7d6e027a65e4024dd70fe0cba3338662"
+    },
+    "checkout": {
+      "status": 200,
+      "unauthenticated_login": true
+    },
+    "public_cabinet_js": {
+      "status": 200,
+      "sha256": "95f5d619f7cab0d70e1b604f0c6fccaba5ce47b91c756ae4fc9073ac75baeb34"
+    }
+  },
+  "public_signed_pkg_unchanged": true,
+  "runtime_digest_match_count": 36,
+  "runtime_digest_total": 36,
+  "source_files": {
+    "apps/server/src/twobrain_rec_server/billing/purchases.py": "d03b4743c9ef29d12025e149b130260d3b2fd335a6eb4557cd063bccc9cfc66c",
+    "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py": "ba7db4c90ec19f85e114a276e3983619cf8e6321e45f1e992ab831532c5b75b8",
+    "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "95f5d619f7cab0d70e1b604f0c6fccaba5ce47b91c756ae4fc9073ac75baeb34",
+    "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html": "9c68661848504e02b02f067f7e2a3f759fa0c04fd7f808354e4388c1d06d54b2",
+    "apps/server/tests/unit/test_billing_purchases.py": "feaa133ad61655b3fbd98474d5190ec028b45c5c1ea2f6fb5e21e0f1bb68a780",
+    "apps/server/tests/integration/test_billing_promo_refresh.py": "cb27aaeea4dc504175fcffaf4e5cec1b4970a97c9d5e95b5df406bd236d016ea",
+    "apps/server/tests/browser/billing-promo-refresh.test.cjs": "7c919063a7bdd74c696d02448da3805132c7b9ebfc6c6cd49955b78e3e95ec14",
+    "apps/server/tests/contract/test_billing_promo_refresh_browser.py": "342011795dda458e5f4b6e35073e56e3e88b9cce4bc7b007f4064788ba0801d3",
+    "apps/server/tests/contract/test_cabinet_static_assets_contract.py": "75b809f041dc7def246599493234e35245d68ef71c36f29459210c107705c823",
+    "apps/server/tests/contract/test_billing_clarity.py": "570b7b24db080dffa8ef79d28f8bdc0a6b68b6e662cd64fe9453b710a5054341"
+  },
+  "boundaries": {
+    "real_payment": "unconfirmed",
+    "saved_card_and_recurring_charge": "unconfirmed",
+    "receipt_bank_refund": "unconfirmed",
+    "installed_GRAF_Dev": "not_attested",
+    "human_acceptance_and_conversion": "not_attested",
+    "financial_provider_calls_by_validation": 0
+  },
+  "observed_at_utc": "2026-10-02T21:59:58.102599+00:00",
+  "independent_release_review": {
+    "status": "pass",
+    "source_digest_matches": 36,
+    "source_file_matches": 10,
+    "scope": "technical release only; not real payment/human acceptance",
+    "reviewer": "inline_followup_independent"
+  }
+}

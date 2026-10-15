@@ -219,7 +219,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     @State private var inspectorExpanded = false
     @State private var custodyExpanded = false
     @ObservedObject private var controlModel = DesktopControlModel.shared
-    @FocusState private var focusedRecordingSessionID: String?
+    @AccessibilityFocusState private var focusedRecordingSessionID: String?
     @ObservedObject private var userTimeContext = DesktopUserTimeContext.shared
     @State private var attentionExpansionDismissed = false
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
@@ -790,8 +790,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
                     captureControls
                         .id("capture:" + (session?.id ?? "none"))
-                        .focusable()
-                        .focused($focusedRecordingSessionID, equals: "capture:" + (session?.id ?? "none"))
+                        .accessibilityFocused($focusedRecordingSessionID, equals: "capture:" + (session?.id ?? "none"))
                         .background(
                             RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
                                 .fill(DesktopMeetingShellChrome.shellSurfaceColor)
@@ -903,10 +902,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             )
         }
         .id("custody:" + summary.primaryItem.sessionId)
-        .focusable()
-        .focused($focusedRecordingSessionID, equals: "custody:" + summary.primaryItem.sessionId)
         .accessibilityElement(children: summary.safeReport == nil ? .combine : .contain)
         .accessibilityLabel("\(localRecordingTitle(for: summary.primaryItem)). \(summary.title). \(summary.detail(timeZone: userTimeContext.timeZone)). Ответственный: \(summary.ownerLabel).")
+        .accessibilityFocused($focusedRecordingSessionID, equals: "custody:" + summary.primaryItem.sessionId)
     }
 
     private func custodyDetailIcon(for projection: DesktopUploadCustodyProjection) -> String {

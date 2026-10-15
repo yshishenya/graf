@@ -63,3 +63,7 @@ Evidence MUST record one of:
 - `cleanup_result=failed`
 
 When cleanup is not `pass`, evidence MUST include a non-secret owner and follow-up reason.
+
+## Bounded cleanup retry
+
+CLI/output contract сохранен. PASS только после зафиксированного удаления и прежней проверки DB/object residue. Exhausted/non40P01/postcommit ошибки по-прежнему завершают required cleanup неуспешно. До3attempts с тем же run identity; только SQLSTATE40P01 доcommit. Нет evidence о полнойготовности production и нет новых sensitive полей.

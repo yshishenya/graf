@@ -8,19 +8,55 @@ import subprocess
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
+from uuid import UUID
 
 import pytest
+from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
-from tests.fixtures.cabinet_access import add_retained_playback_m4a
+from tests.fixtures.cabinet_access import add_retained_playback_m4a, auth_headers_for
 from tests.integration.test_meeting_comments import grant, setup_comments
+from tests.integration.test_recording_share_public_link import _seed_external_full_summary
+from twobrain_rec_server.db.models import MeetingShareGrant
 
 
 @pytest.mark.browser
 def test_browser_comments_use_real_http_and_database(client):
-    seeds, comments_url, _ = setup_comments(client)
+    seeds, comments_url, comment_body = setup_comments(client)
     add_retained_playback_m4a(client, seeds.ready_id)
-    grant(client, seeds.ready_id)
+    client.portal.call(_seed_external_full_summary, client, seeds.ready_id)
+    legacy_grant = grant(client, seeds.ready_id)
+    grant_id = UUID(legacy_grant["grant"]["grant_id"])
+
+    async def persisted_permissions():
+        async with client.app_state["sessionmaker"]() as db:
+            return list(await db.execute(
+                select(MeetingShareGrant.id, MeetingShareGrant.content_scope,
+                       MeetingShareGrant.can_comment, MeetingShareGrant.can_edit)
+                .where(MeetingShareGrant.meeting_id == seeds.ready_id)
+            ))
+
+    # The summary-only dialog no longer edits legacy recording roles. Their
+    # real HTTP/DB contract remains supported independently of that dialog.
+    for can_comment, can_edit in ((True, False), (True, True), (False, False)):
+        response = client.patch(
+            f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares/{grant_id}/permissions",
+            headers=auth_headers(),
+            json={"can_comment": can_comment, "can_edit": can_edit},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["can_comment"] is can_comment
+        assert response.json()["can_edit"] is can_edit
+        assert client.portal.call(persisted_permissions) == [
+            (grant_id, "full_meeting", can_comment, can_edit)
+        ]
+        recipient = client.get(comments_url, headers=auth_headers_for())
+        assert recipient.status_code == 200, recipient.text
+        assert recipient.json()["capabilities"]["can_comment"] is can_comment
+        assert recipient.json()["capabilities"]["can_edit"] is can_edit
+    assert client.post(
+        comments_url, headers=auth_headers_for(), json=comment_body
+    ).status_code == 403
 
     class Bridge(BaseHTTPRequestHandler):
         def log_message(self, *_args):
@@ -60,19 +96,24 @@ const { chromium, webkit } = require(path.join(process.env.GRAF_NODE_MODULES, 'p
     await page.goto(process.env.GRAF_SYNTHETIC_URL);
     await page.locator('[data-detail-tab="recording"]').click();
     await page.locator('[data-share-dialog-open]').click();
-    const role = page.locator('[data-share-existing-role]').first();
-    for (const value of ['commenter', 'editor', 'viewer']) {
-      const response = page.waitForResponse(res => res.request().method() === 'PATCH' && res.url().includes('/permissions'));
-      await role.selectOption(value);
-      const saved = await response;
-      assert.equal(saved.status(), 200);
-      const rights = await saved.json();
-      assert.equal(rights.can_comment, value !== 'viewer');
-      assert.equal(rights.can_edit, value === 'editor');
-      await page.waitForFunction(() => !document.querySelector('[data-share-existing-role]').disabled);
-      assert.equal(await role.inputValue(), value);
+    const share = page.getByRole('dialog', { name: 'Поделиться итогами', exact: true });
+    await share.waitFor();
+    assert.equal(await share.locator('[data-share-existing-role], [data-share-comment-role]').count(), 0);
+    assert.equal(await share.locator('audio, [data-playback-comment], [data-detail-tab="recording"]').count(), 0);
+    await share.getByRole('tab', { name: 'По почте', exact: true }).click();
+    await share.getByText('Получатели увидят только выбранные итоги. Чтобы открыть их, нужно войти с указанной почтой.', { exact: true }).waitFor();
+    const previewResponse = page.waitForResponse(res => res.request().method() === 'GET' && res.url().includes('/summary-sharing/preview'));
+    await share.locator('[data-summary-share-preview]').click();
+    const preview = await previewResponse;
+    assert.equal(preview.status(), 200);
+    const projection = (await preview.json()).projection;
+    assert.ok(projection.protocol || projection.summary_sections.length, 'real preview contains summary');
+    for (const key of ['transcript', 'transcript_segments', 'audio_url', 'comments']) {
+      assert.equal(Object.hasOwn(projection, key), false, `summary preview excludes ${key}`);
     }
-    await page.locator('[data-share-dialog-close]').click();
+    await share.locator('[data-summary-share-preview-content]').getByText('Сохранённый итог.', { exact: true }).waitFor();
+    assert.equal(await share.locator('[data-summary-share-preview-content] audio, [data-summary-share-preview-content] textarea').count(), 0);
+    await share.locator('[data-summary-share-close]').click();
     await page.locator('[data-playback-comment]').click();
     await page.getByRole('button', { name: 'К реплике', exact: true }).click();
     await page.getByRole('button', { name: 'К моменту', exact: true }).click();
@@ -138,6 +179,9 @@ const { chromium, webkit } = require(path.join(process.env.GRAF_NODE_MODULES, 'p
             capture_output=True, text=True, timeout=120)
         assert result.returncode == 0, result.stdout + result.stderr
         assert client.get(comments_url + "?status=all", headers=auth_headers()).json()["items"] == []
+        assert client.portal.call(persisted_permissions) == [
+            (grant_id, "full_meeting", False, False)
+        ], "opening/previewing summary sharing must preserve the existing recording ACL"
     finally:
         server.shutdown()
         server.server_close()

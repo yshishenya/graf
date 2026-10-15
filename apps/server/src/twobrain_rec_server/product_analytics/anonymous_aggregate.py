@@ -64,6 +64,7 @@ from twobrain_rec_server.product_analytics.traffic_class import (
     is_reportable_traffic,
     normalize_traffic_class,
 )
+from twobrain_rec_server.public.content import PUBLIC_CONTENT_SURFACES
 
 # Public routes of the marketing site. A path outside this list is never
 # counted: the aggregate covers public pages only, and an unknown path is a
@@ -73,6 +74,7 @@ from twobrain_rec_server.product_analytics.traffic_class import (
 PUBLIC_PAGE_SURFACES = {
     "/": "public_landing",
     "/download": "public_download",
+    **PUBLIC_CONTENT_SURFACES,
     "/privacy": "public_privacy",
     "/cookies": "public_cookies",
     "/terms": "public_terms",

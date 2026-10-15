@@ -68,6 +68,7 @@ SHARE_RATE_LIMITS: dict[str, tuple[int, int]] = {
     "grant": (20, 60 * 60),
     "rotate": (20, 60 * 60),
     "invitation": (10, 60 * 60),
+    "summary_batch": (10, 60 * 60),
     "accept": (10, 60 * 60),
     "resolve": (60, 60),
     "revoke": (30, 60 * 60),
@@ -1599,6 +1600,7 @@ async def create_share_invitation(
             .where(
                 MeetingShareInvitation.workspace_id == workspace_id,
                 MeetingShareInvitation.meeting_id == meeting.id,
+            MeetingShareInvitation.published_summary_id.is_(None),
                 MeetingShareInvitation.normalized_address_hash.in_(address_hashes),
                 MeetingShareInvitation.status.in_(ACTIVE_INVITATION_STATES),
                 MeetingShareInvitation.expires_at <= now,
@@ -1614,6 +1616,7 @@ async def create_share_invitation(
         select(MeetingShareInvitation).where(
             MeetingShareInvitation.workspace_id == workspace_id,
             MeetingShareInvitation.meeting_id == meeting.id,
+            MeetingShareInvitation.published_summary_id.is_(None),
             MeetingShareInvitation.normalized_address_hash.in_(address_hashes),
             MeetingShareInvitation.status == "outcome_unknown",
             MeetingShareInvitation.expires_at > now,
@@ -1629,6 +1632,7 @@ async def create_share_invitation(
         select(MeetingShareInvitation).where(
             MeetingShareInvitation.workspace_id == workspace_id,
             MeetingShareInvitation.meeting_id == meeting.id,
+            MeetingShareInvitation.published_summary_id.is_(None),
             MeetingShareInvitation.normalized_address_hash.in_(address_hashes),
             MeetingShareInvitation.status.in_(ACTIVE_INVITATION_STATES),
             MeetingShareInvitation.expires_at > now,
@@ -1990,7 +1994,8 @@ async def accept_share_invitation(
         replay = True
     elif replay:
         return None
-    if invitation.expires_at <= datetime.now(UTC):
+    credential_expiry = invitation.read_expires_at if replay and invitation.published_summary_id else invitation.expires_at
+    if credential_expiry is not None and credential_expiry <= datetime.now(UTC):
         if not replay:
             invitation.status = "expired"
             invitation.encrypted_delivery_address = ""
@@ -1998,6 +2003,33 @@ async def accept_share_invitation(
         return None
     if invitation.normalized_address_hash not in verified_address_hashes:
         return None
+    if replay and invitation.published_summary_id is not None:
+        # The accepted delivery keeps its original authority forever. A newer
+        # unrelated grant must never reopen a revoked addressed document.
+        from twobrain_rec_server.db.models.summary_sharing import SummaryRecipientDelivery
+
+        delivery = await db.scalar(
+            select(SummaryRecipientDelivery).where(
+                SummaryRecipientDelivery.workspace_id == workspace_id,
+                SummaryRecipientDelivery.invitation_id == invitation.id,
+            ).with_for_update()
+        )
+        if delivery is None or delivery.grant_id is None:
+            return None
+        grant = await db.scalar(
+            select(MeetingShareGrant).where(
+                MeetingShareGrant.id == delivery.grant_id,
+                MeetingShareGrant.workspace_id == workspace_id,
+                MeetingShareGrant.meeting_id == invitation.meeting_id,
+                MeetingShareGrant.audience_type == "user",
+                MeetingShareGrant.audience_id == user_id,
+                MeetingShareGrant.status == "active",
+            ).with_for_update()
+        )
+        if grant is None:
+            return None
+        grant._shared_publication_override = invitation.published_summary_id
+        return grant, ""
     grant = await db.scalar(
         select(MeetingShareGrant)
         .where(
@@ -2009,6 +2041,23 @@ async def accept_share_invitation(
         )
         .with_for_update()
     )
+    if grant is not None and invitation.published_summary_id is not None:
+        # Every already-existing grant is independent of this notification,
+        # including earlier accepted invitations for the same email address.
+        invitation.status = "accepted"
+        invitation.accepted_at = invitation.accepted_at or datetime.now(UTC)
+        invitation.resolved_user_id = user_id
+        invitation.encrypted_delivery_address = ""
+        invitation.encrypted_recipient_address = None
+        grant._shared_publication_override = invitation.published_summary_id
+        from twobrain_rec_server.db.models.summary_sharing import SummaryRecipientDelivery
+        delivery = await db.scalar(select(SummaryRecipientDelivery).where(
+            SummaryRecipientDelivery.workspace_id == workspace_id,
+            SummaryRecipientDelivery.invitation_id == invitation.id))
+        if delivery is not None:
+            delivery.grant_id = grant.id
+        await db.flush()
+        return grant, ""
     if replay:
         if (
             grant is None
@@ -2048,16 +2097,17 @@ async def accept_share_invitation(
             metadata.get("source") != "accepted_external_invitation"
             or metadata.get("recipient_address_hash") != invitation.normalized_address_hash
         ):
-            # Never downgrade or rebind an existing internal grant as a side
-            # effect of accepting an external invitation.
             return None
     grant.content_scope = invitation.content_scope
     grant.can_download = invitation.can_download
     grant.can_export = invitation.can_export
     grant.can_comment = bool(invitation.can_comment)
     grant.can_edit = bool(invitation.can_edit)
-    if grant.expires_at is None or grant.expires_at > invitation.expires_at:
-        grant.expires_at = invitation.expires_at
+    read_expiry = invitation.read_expires_at if invitation.published_summary_id else invitation.expires_at
+    if grant.expires_at is None or (read_expiry is not None and grant.expires_at > read_expiry):
+        grant.expires_at = read_expiry
+    if invitation.published_summary_id:
+        grant.published_summary_id = invitation.published_summary_id
     # The email bearer is an exchange credential, never the long-lived recipient
     # grant credential returned to the authenticated user.
     grant_raw_token = secrets.token_urlsafe(32)
@@ -2066,6 +2116,13 @@ async def accept_share_invitation(
         "source": "accepted_external_invitation",
         "recipient_address_hash": invitation.normalized_address_hash,
     }
+    if invitation.published_summary_id is None:
+        meeting = await db.get(Meeting, invitation.meeting_id)
+        slot = await load_meeting_default_slot(db, workspace_id=workspace_id, meeting_id=meeting.id)
+        outcome = await load_egress_default_outcome(db, meeting=meeting, slot=slot)
+        if outcome is not None and slot is not None:
+            grant.metadata_json = {**grant.metadata_json,
+                "summary_revision": {"template_key": slot.template_key, "outcome_set_id": str(outcome.id)}}
     invitation.status = "accepted"
     invitation.accepted_at = datetime.now(UTC)
     invitation.resolved_user_id = user_id
@@ -2088,6 +2145,14 @@ async def accept_share_invitation(
         metadata={"share_grant_id": str(grant.id)},
     )
     await db.flush()
+    if invitation.published_summary_id:
+        from twobrain_rec_server.db.models.summary_sharing import SummaryRecipientDelivery
+        delivery = await db.scalar(select(SummaryRecipientDelivery).where(
+            SummaryRecipientDelivery.workspace_id == workspace_id,
+            SummaryRecipientDelivery.invitation_id == invitation.id))
+        if delivery is not None:
+            delivery.grant_id = grant.id
+        await db.flush()
     from twobrain_rec_server.notifications.inbox import record_event
     meeting = await db.get(Meeting, invitation.meeting_id)
     if meeting is not None:

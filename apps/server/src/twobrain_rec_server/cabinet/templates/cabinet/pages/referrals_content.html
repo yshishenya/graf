@@ -33,7 +33,7 @@
           {% endfor %}
         </ol>
         {% else %}<p class="muted" role="status">Пока нет зарегистрированных приглашенных.</p>{% endif %}
-        {% if support_email %}<p><a class="button quiet" href="mailto:{{ support_email }}">Обратиться в поддержку</a></p>{% endif %}
+        {% if support_mailto|default(None) %}<p><a class="button quiet" href="{{ support_mailto }}">Обратиться в поддержку</a></p>{% endif %}
       </section>
     </div>
   </div>

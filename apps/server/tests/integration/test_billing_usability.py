@@ -87,7 +87,7 @@ def test_operation_status_does_not_offer_checkout_when_billing_is_disabled() -> 
     ).read_text(encoding="utf-8")
     route = (ROOT / "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py").read_text(encoding="utf-8")
     assert "billing_enabled|default(False)" in template
-    assert "Проверить статус" in template
+    assert "Проверить оплату" in template
     assert "Проверить в ЮKassa" not in template
     assert "billing_enabled=billing_checkout_allowed(request.app.state.settings, tenant_scope.workspace_id)" in route
 

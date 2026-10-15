@@ -439,6 +439,23 @@
       list.append(row);
     }
   };
+  const renderDetailLocalPlayback = () => {
+    const detail = document.querySelector('main[data-meeting-id]');
+    const existing = document.querySelector('[data-detail-local-playback]');
+    const playback = detailPlayback(detail);
+    const row = localRecordingRows.find(item => item.canOpen && item.meetingId?.toLowerCase() === detail?.dataset.meetingId?.toLowerCase());
+    if (!row || !playback || ['deleted', 'deleting'].includes(playback.dataset.playbackState) || playback.dataset.playbackReason === 'access_denied') { existing?.remove(); return; }
+    if (existing?.dataset.grafLocalRecordingId === row.id && existing.parentElement === playback) return;
+    existing?.remove();
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'button';
+    button.dataset.detailLocalPlayback = '';
+    button.dataset.grafLocalRecordingAction = 'open';
+    button.dataset.grafLocalRecordingId = row.id;
+    button.textContent = 'Слушать запись с этого Mac';
+    playback.append(button);
+  };
   window.GRAFLocalRecordings = {
     deletionCompleted(requestId, result) {
       nativeDeletionReplies.get(requestId)?.(result);
@@ -490,6 +507,7 @@
       localRecordingRows = nextRows;
       renderLocalRecordingRows();
       applyNativeDeletionOperations(nativeDeletionOperations);
+      renderDetailLocalPlayback();
       renderNativeDeletionStatus(nativeDeletionOperations);
       updateMixedResultCount();
       reconcileMeetingSelection();
@@ -1789,6 +1807,444 @@
     target.tabIndex = -1;
     target.focus();
   };
+
+  // A tab-local display preference, never payment authority or offer acceptance.
+  const billingRenewalPreferenceKey = (root = document) => {
+    const scope = ["graf-time-user", "graf-workspace", "graf-time-session"].map(name =>
+      root.querySelector(`meta[name="${name}"]`)?.content || "");
+    return scope.every(Boolean) ? `graf-checkout-renewal:${scope.join(":")}` : null;
+  };
+  let billingRenewalPreference = null;
+
+  const renderBillingRenewalChoice = (page, enabled) => {
+    page.querySelectorAll("[data-billing-renewal-on], [data-billing-next-attempt]")
+      .forEach(element => { element.hidden = !enabled; });
+    page.querySelectorAll("[data-billing-renewal-off]")
+      .forEach(element => { element.hidden = enabled; });
+    const label = page.querySelector("[data-billing-renewal-label]");
+    if (label) label.textContent = "Автопродление";
+    const nextLabel = page.querySelector("[data-billing-next-label]");
+    if (nextLabel) nextLabel.textContent = "Следующее списание";
+  };
+
+  const initBillingRenewalChoice = () => {
+    const page = document.querySelector("main.billing-checkout-page");
+    if (!page) return;
+    const checkbox = page.querySelector('input[name="recurring_consent"]');
+    const key = billingRenewalPreferenceKey();
+    let enabled = checkbox?.checked ?? true;
+    if (checkbox?.dataset.renewalReady && checkbox.dataset.renewalScope !== (key || "")) {
+      enabled = checkbox.defaultChecked;
+    }
+    if (!key || billingRenewalPreference?.key !== key) billingRenewalPreference = null;
+    if (billingRenewalPreference) enabled = billingRenewalPreference.enabled;
+    else if (key) {
+      try {
+        const saved = sessionStorage.getItem(key);
+        if (saved === "true" || saved === "false") enabled = saved === "true";
+      } catch (_) { /* The current native checkbox remains usable without storage. */ }
+    }
+    if (key) billingRenewalPreference = { key, enabled };
+    if (checkbox) {
+      checkbox.checked = enabled;
+      checkbox.dataset.renewalScope = key || "";
+      if (checkbox.dataset.renewalReady !== "true") {
+        checkbox.dataset.renewalReady = "true";
+        checkbox.addEventListener("change", () => {
+          const currentKey = billingRenewalPreferenceKey();
+          billingRenewalPreference = currentKey ? { key: currentKey, enabled: checkbox.checked } : null;
+          if (currentKey) {
+            try { sessionStorage.setItem(currentKey, String(checkbox.checked)); } catch (_) { /* Optional storage. */ }
+          }
+          renderBillingRenewalChoice(page, checkbox.checked);
+        });
+      }
+    }
+    renderBillingRenewalChoice(page, enabled);
+  };
+
+  let billingPreviewRequest = null;
+  const finishBillingPreview = (state, failed = false) => {
+    if (billingPreviewRequest !== state) return;
+    billingPreviewRequest = null;
+    if (!state.page.isConnected) return;
+    state.page.removeAttribute("aria-busy");
+    state.page.dataset.billingPreviewState = failed ? "recovery" : "ready";
+    state.controls.forEach(([control, disabled]) => { control.disabled = disabled; });
+    if (!failed) return;
+    state.page.querySelectorAll('form[action="/billing/checkout/start"] button')
+      .forEach(button => { button.disabled = true; });
+    const status = state.page.querySelector("[data-billing-preview-status]");
+    if (status) {
+      status.hidden = false;
+      status.setAttribute("role", "alert");
+      status.textContent = [401, 403].includes(state.xhr.status) || state.invalidContext
+        ? "Сеанс или доступ изменился. Откройте оплату заново."
+        : state.xhr.status === 429 ? "Слишком много попыток. Повторите проверку позже."
+        : "Не удалось проверить сумму. Нажмите «Применить», чтобы повторить проверку.";
+    }
+    const recovery = state.page.querySelector("[data-billing-preview-recovery]");
+    if (recovery) recovery.hidden = false;
+    state.page.querySelector(state.focus)?.focus({ preventScroll: true });
+  };
+  document.body.addEventListener("submit", (event) => {
+    if (event.target.matches?.('form[action="/billing/checkout/start"]')
+        && ["checking", "recovery"].includes(event.target.closest("main")?.dataset.billingPreviewState)) {
+      event.preventDefault();
+    }
+  }, true);
+  document.body.addEventListener("htmx:beforeRequest", (event) => {
+    if (event.detail?.elt?.id !== "billing-promo-preview") return;
+    const page = event.detail.elt.closest("main.billing-checkout-page");
+    if (!page || billingPreviewRequest) { event.preventDefault(); return; }
+    const active = document.activeElement;
+    const action = event.detail.requestConfig?.parameters?.preview_action;
+    const state = {
+      page, xhr: event.detail.xhr, key: billingRenewalPreferenceKey(),
+      focus: active?.id === "billing-promo" ? "#billing-promo"
+        : `[form="billing-promo-preview"][value="${["month", "year"].includes(action) ? action : "apply"}"]`,
+      controls: [...page.querySelectorAll("input, button")].map(control => [control, control.disabled]),
+    };
+    billingPreviewRequest = state;
+    state.xhr.grafBillingPreview = state;
+    // HTMX events from a removed form may no longer reach the document body.
+    state.xhr.addEventListener("loadend", () => finishBillingPreview(state, true), { once: true });
+    page.dataset.billingPreviewState = "checking";
+    page.setAttribute("aria-busy", "true");
+    const offer = page.querySelector('input[name="offer_consent"]');
+    if (offer) offer.checked = false;
+    state.controls.forEach(([control]) => { control.disabled = true; });
+    const status = page.querySelector("[data-billing-preview-status]");
+    if (status) { status.hidden = false; status.setAttribute("role", "status"); status.textContent = "Проверяем сумму…"; }
+  });
+  document.body.addEventListener("htmx:beforeSwap", (event) => {
+    const state = event.detail?.xhr?.grafBillingPreview;
+    if (!state) return;
+    const response = new DOMParser().parseFromString(event.detail.serverResponse || "", "text/html");
+    const responseKey = billingRenewalPreferenceKey(response);
+    const valid = billingPreviewRequest === state && state.page.isConnected
+      && event.detail.target === state.page && event.detail.shouldSwap
+      && state.xhr.status === 200 && state.key && state.key === billingRenewalPreferenceKey()
+      && state.key === responseKey && response.querySelector("main#cabinet-main.billing-checkout-page");
+    if (!valid) {
+      event.detail.shouldSwap = false;
+      state.invalidContext = state.xhr.status === 200;
+      finishBillingPreview(state, true);
+    }
+  });
+  document.body.addEventListener("htmx:afterSwap", (event) => {
+    const state = event.detail?.xhr?.grafBillingPreview;
+    if (!state || billingPreviewRequest !== state) return;
+    finishBillingPreview(state);
+    const page = document.querySelector("main.billing-checkout-page");
+    if (!page) return;
+    page.dataset.focusReady = "true";
+    const cycle = page.querySelector('#billing-promo-preview input[name="cycle"]')?.value;
+    if (["month", "year"].includes(cycle)) history.replaceState(history.state, "", `/billing/checkout?cycle=${cycle}`);
+    const focusTarget = page.querySelector(state.focus);
+    const disclosure = focusTarget?.closest("details");
+    if (disclosure) disclosure.open = true;
+    focusTarget?.focus({ preventScroll: true });
+    const status = page.querySelector("[data-billing-preview-status]");
+    const amount = page.querySelector(".billing-order-summary__total dd")?.textContent.trim();
+    if (status && amount && !page.querySelector("#billing-checkout-error")) {
+      status.hidden = false;
+      status.textContent = `Расчет обновлен. К оплате ${amount}.`;
+    }
+  });
+  ["htmx:afterRequest", "htmx:sendError", "htmx:timeout", "htmx:swapError"].forEach(name => {
+    document.body.addEventListener(name, event => {
+      const state = event.detail?.xhr?.grafBillingPreview;
+      if (state) finishBillingPreview(state, true);
+    });
+  });
+
+  // The bounded return check survives HTMX replacement within this document.
+  const billingStatusLedgers = new Map();
+  let billingStatusRequest = null;
+  let billingStatusLedger = null;
+  let billingStatusContextStopped = false;
+  const billingStatusPage = () => document.querySelector("main#cabinet-main.billing-operation-status-page");
+  const billingStatusKey = (page, root = document) => {
+    const scope = billingRenewalPreferenceKey(root);
+    return scope && page?.dataset.billingInvoice ? `${scope}:${page.dataset.billingInvoice}` : null;
+  };
+  const stopBillingStatus = (ledger, blocked = false) => {
+    if (!ledger) return;
+    ledger.stopped = true;
+    ledger.blocked ||= blocked;
+    window.clearTimeout(ledger.timer);
+    window.clearTimeout(ledger.deadlineTimer);
+    window.clearTimeout(ledger.controlTimer);
+  };
+  // This timer updates only the manual control; it never starts a payment check.
+  const updateBillingStatusControl = (ledger) => {
+    if (!ledger) return;
+    window.clearTimeout(ledger.controlTimer);
+    const page = billingStatusPage();
+    if (!page || billingStatusKey(page) !== ledger.key) return;
+    const button = page.querySelector("#billing-status-check");
+    if (!button || ledger.blocked || billingStatusRequest) return;
+    const now = performance.now();
+    const remaining = ledger.lastStarted === null ? 0 : Math.max(0, ledger.lastStarted + 10000 - now);
+    const waiting = remaining > 0;
+    const expired = now - ledger.started >= 60000;
+    const ended = expired || ledger.stopped || ledger.attempts >= 6;
+    button.setAttribute("aria-disabled", String(waiting));
+    button.classList.toggle("primary", !waiting);
+    button.classList.toggle("quiet", waiting);
+    button.classList.toggle("is-disabled", waiting);
+    const message = page.querySelector("[data-billing-status-message]");
+    const cooldown = page.querySelector("[data-billing-status-cooldown]");
+    // Ending automatic observation takes precedence over the manual cooldown.
+    // If both apply, keep the ending and explain the short wait separately.
+    if (cooldown) cooldown.hidden = !(waiting && ended);
+    if (ended && message) {
+      message.hidden = false;
+      delete message.dataset.billingCooldown;
+      message.removeAttribute("aria-live");
+      const endingMessage = "Подтверждение пока не получено. Проверьте оплату позже. Повторно платить не нужно.";
+      if (message.textContent !== endingMessage) message.textContent = endingMessage;
+    }
+    if (waiting) {
+      button.setAttribute("aria-describedby", ended
+        ? "billing-status-message billing-status-cooldown" : "billing-status-message");
+      if (!ended && message) {
+        message.hidden = false;
+        message.dataset.billingCooldown = "true";
+        // The unchanged financial result is announced by the main status region.
+        // Keep repetitive cooldown feedback readable through aria-describedby.
+        message.setAttribute("aria-live", "off");
+        message.textContent = "Следующая проверка станет доступна через несколько секунд.";
+      }
+      if (!document.hidden) ledger.controlTimer = window.setTimeout(() => updateBillingStatusControl(ledger), remaining);
+    } else {
+      button.removeAttribute("aria-describedby");
+      if (!ended && message?.dataset.billingCooldown === "true") {
+        message.hidden = true;
+        delete message.dataset.billingCooldown;
+        message.removeAttribute("aria-live");
+      }
+    }
+  };
+  const recoverBillingStatus = (state) => {
+    stopBillingStatus(state.ledger, true);
+    const page = billingStatusPage();
+    // Recover only the original node; an unrelated replacement is left alone.
+    if (!page || page !== state.page || !page.isConnected) return;
+    if (billingStatusKey(page) !== state.key) {
+      billingStatusContextStopped = true;
+      state.invalidContext = true;
+    }
+    const cooldown = page.querySelector("[data-billing-status-cooldown]");
+    if (cooldown) cooldown.hidden = true;
+    const message = page.querySelector("[data-billing-status-message]");
+    if (message) {
+      message.hidden = false;
+      message.removeAttribute("aria-live");
+      message.setAttribute("role", "alert");
+      message.textContent = state.invalidContext || [401, 403].includes(state.xhr.status)
+        ? "Сеанс или доступ изменился. Откройте результат оплаты заново."
+        : state.xhr.status === 429 ? "Слишком много проверок. Откройте результат оплаты позже."
+        : "Не удалось проверить оплату. Обновите результат. Повторно платить не нужно.";
+    }
+    page.querySelectorAll("form button").forEach(button => { button.disabled = true; });
+    const recovery = page.querySelector("[data-billing-status-recovery]");
+    if (recovery) recovery.hidden = false;
+  };
+  const finishBillingStatus = (state, failed = false) => {
+    if (billingStatusRequest !== state) return;
+    billingStatusRequest = null;
+    state.page.removeAttribute("aria-busy");
+    state.controls.forEach(([control, disabled]) => { control.disabled = disabled; });
+    if (failed) recoverBillingStatus(state);
+  };
+  const initBillingStatusRefresh = ({ deferScheduling = false } = {}) => {
+    const page = billingStatusPage();
+    const key = billingStatusKey(page);
+    if (!page || !key || document.hidden) {
+      if (page && !key) {
+        if (billingStatusLedger) billingStatusContextStopped = true;
+        page.querySelectorAll("form button").forEach(button => { button.disabled = true; });
+        const cooldown = page.querySelector("[data-billing-status-cooldown]");
+        if (cooldown) cooldown.hidden = true;
+        const message = page.querySelector("[data-billing-status-message]");
+        if (message) {
+          message.hidden = false;
+          message.removeAttribute("aria-live");
+          message.setAttribute("role", "alert");
+          message.textContent = "Сеанс или доступ изменился. Откройте результат оплаты заново.";
+        }
+        const recovery = page.querySelector("[data-billing-status-recovery]");
+        if (recovery) recovery.hidden = false;
+      }
+      stopBillingStatus(billingStatusLedger, Boolean(billingStatusRequest));
+      return;
+    }
+    if (billingStatusLedger && billingStatusLedger.key !== key) {
+      billingStatusContextStopped = true;
+      stopBillingStatus(billingStatusLedger, true);
+      if (billingStatusRequest) return;
+    }
+    let ledger = billingStatusLedgers.get(key);
+    if (!ledger) {
+      ledger = { key, started: performance.now(), attempts: 0, lastStarted: null,
+        stopped: billingStatusContextStopped, blocked: billingStatusContextStopped,
+        timer: null, deadlineTimer: null, automatic: false };
+      billingStatusLedgers.set(key, ledger);
+      // The deadline limits new starts; an in-flight check keeps its own 15s timeout.
+      ledger.deadlineTimer = window.setTimeout(() => {
+        stopBillingStatus(ledger);
+        if (billingStatusLedger === ledger && !billingStatusRequest && !document.hidden) {
+          initBillingStatusRefresh();
+        }
+      }, 60000);
+    }
+    billingStatusLedger = ledger;
+    if (billingStatusContextStopped) stopBillingStatus(ledger, true);
+    if (page.dataset.billingStatusError === "true") {
+      stopBillingStatus(ledger, true);
+    } else if (page.dataset.billingAutoCheck !== "true") {
+      stopBillingStatus(ledger);
+      return;
+    }
+    if (ledger.blocked) {
+      page.querySelectorAll("form button").forEach(button => { button.disabled = true; });
+      const cooldown = page.querySelector("[data-billing-status-cooldown]");
+      if (cooldown) cooldown.hidden = true;
+      if (billingStatusContextStopped) {
+        const message = page.querySelector("[data-billing-status-message]");
+        if (message) {
+          message.hidden = false;
+          message.removeAttribute("aria-live");
+          message.setAttribute("role", "alert");
+          message.textContent = "Сеанс или доступ изменился. Откройте результат оплаты заново.";
+        }
+      }
+      const recovery = page.querySelector("[data-billing-status-recovery]");
+      if (recovery) recovery.hidden = false;
+    }
+    if (ledger.blocked || billingStatusRequest) return;
+    if (ledger.attempts >= 6 || performance.now() - ledger.started >= 60000) {
+      stopBillingStatus(ledger);
+      updateBillingStatusControl(ledger);
+      return;
+    }
+    updateBillingStatusControl(ledger);
+    if (ledger.stopped || deferScheduling) return;
+    window.clearTimeout(ledger.timer);
+    const delay = ledger.lastStarted === null ? 0 : Math.max(0, ledger.lastStarted + 10000 - performance.now());
+    ledger.timer = window.setTimeout(() => {
+      const current = billingStatusPage();
+      if (!current || billingStatusKey(current) !== key || document.hidden) {
+        stopBillingStatus(ledger, true);
+        return;
+      }
+      ledger.automatic = true;
+      window.htmx?.trigger(current.querySelector("#billing-status-refresh"), "billing-status-check");
+      ledger.automatic = false;
+    }, delay);
+  };
+  document.body.addEventListener("htmx:beforeRequest", (event) => {
+    if (event.detail?.elt?.id !== "billing-status-refresh") return;
+    const page = event.detail.elt.closest("main.billing-operation-status-page");
+    const key = billingStatusKey(page);
+    const ledger = billingStatusLedgers.get(key);
+    const now = performance.now();
+    if (!ledger || ledger.blocked || billingStatusRequest || document.hidden || !page?.isConnected
+        || key !== billingStatusLedger?.key
+        || (ledger.automatic && (ledger.stopped || ledger.attempts >= 6 || now - ledger.started >= 60000))
+        || (ledger.lastStarted !== null && now - ledger.lastStarted < 10000)) {
+      event.preventDefault();
+      updateBillingStatusControl(ledger);
+      return;
+    }
+    window.clearTimeout(ledger.timer);
+    window.clearTimeout(ledger.controlTimer);
+    ledger.lastStarted = now;
+    ledger.attempts++;
+    const active = document.activeElement;
+    const state = { page, key, ledger, xhr: event.detail.xhr, invalidContext: false,
+      restoreFocus: page.contains(active), focusId: active?.id,
+      controls: [...page.querySelectorAll("form button")].map(control => [control, control.disabled]) };
+    state.disabledFocus = state.controls.some(([control]) => control === active);
+    billingStatusRequest = state;
+    state.xhr.grafBillingStatus = state;
+    state.xhr.addEventListener("loadend", () => finishBillingStatus(state, true), { once: true });
+    page.setAttribute("aria-busy", "true");
+    state.controls.forEach(([control]) => { control.disabled = true; });
+  });
+  document.body.addEventListener("focusin", () => {
+    if (billingStatusRequest) billingStatusRequest.disabledFocus = false;
+  });
+  document.body.addEventListener("htmx:beforeSwap", (event) => {
+    const state = event.detail?.xhr?.grafBillingStatus;
+    if (!state) return;
+    const response = new DOMParser().parseFromString(event.detail.serverResponse || "", "text/html");
+    const pages = response.querySelectorAll("main#cabinet-main");
+    const incoming = pages.length === 1 && pages[0].matches(".billing-operation-status-page") ? pages[0] : null;
+    const valid = billingStatusRequest === state && state.page.isConnected && !document.hidden
+      && event.detail.target === state.page && event.detail.shouldSwap && state.xhr.status === 200
+      && !state.ledger.blocked && state.key === billingStatusKey(billingStatusPage())
+      && state.key === billingStatusKey(incoming, response);
+    if (!valid) {
+      event.detail.shouldSwap = false;
+      state.invalidContext = state.xhr.status === 200;
+      finishBillingStatus(state, true);
+      return;
+    }
+    // Capture the user's current choice just before replacement, not at request start.
+    // Keep a disabled button's focus only if native disabling moved it to body
+    // and the user has not focused another element while the request was running.
+    const active = document.activeElement;
+    if (active !== document.body || !state.disabledFocus) {
+      state.restoreFocus = state.page.contains(active);
+      state.focusId = active?.id;
+    }
+    state.page.querySelectorAll("details[id]").forEach(details => {
+      const replacement = incoming.querySelector(`#${details.id}`);
+      if (replacement) replacement.open = details.open;
+    });
+    const status = incoming.querySelector('[role="status"]');
+    const currentStatus = state.page.querySelector('[role="status"]');
+    if (status && currentStatus && status.textContent.replace(/\s+/g, " ").trim()
+        === currentStatus.textContent.replace(/\s+/g, " ").trim()) {
+      status.setAttribute("aria-live", "off");
+    }
+    event.detail.serverResponse = response.documentElement.outerHTML;
+  });
+  document.body.addEventListener("htmx:afterSwap", (event) => {
+    const state = event.detail?.xhr?.grafBillingStatus;
+    if (!state || billingStatusRequest !== state) return;
+    finishBillingStatus(state);
+    const page = billingStatusPage();
+    if (!page) return;
+    page.dataset.focusReady = "true";
+    if (state.restoreFocus) {
+      const focus = state.focusId ? document.getElementById(state.focusId) : null;
+      (focus || page).focus({ preventScroll: true });
+    }
+  });
+  // HTMX has prepared the replacement form by this phase, including after a slow reply.
+  document.body.addEventListener("htmx:afterSettle", () => initBillingStatusRefresh());
+  ["htmx:afterRequest", "htmx:sendError", "htmx:timeout", "htmx:swapError"].forEach(name => {
+    document.body.addEventListener(name, event => {
+      const state = event.detail?.xhr?.grafBillingStatus;
+      if (state) finishBillingStatus(state, true);
+    });
+  });
+  const stopBillingStatusOnDeparture = () => {
+    stopBillingStatus(billingStatusLedger, Boolean(billingStatusRequest));
+    if (billingStatusRequest) {
+      recoverBillingStatus(billingStatusRequest);
+      billingStatusRequest.xhr.abort();
+    }
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopBillingStatusOnDeparture();
+    else updateBillingStatusControl(billingStatusLedger);
+  });
+  window.addEventListener("pagehide", stopBillingStatusOnDeparture);
 
   const initAuthTransition = () => {
     const page = document.querySelector(".auth-page");
@@ -5776,8 +6232,9 @@
         const active = document.activeElement;
         const samePrivacy = region.dataset.calendarShowTitle === replacement.dataset.calendarShowTitle
           && region.dataset.calendarShowTime === replacement.dataset.calendarShowTime;
-        const openSeries = samePrivacy ? [...region.querySelectorAll('[data-calendar-series][open]')] : [];
-        const seriesFocus = openSeries.some(panel => panel.contains(active)) ? active : null;
+        const preservedSeries = samePrivacy ? [...region.querySelectorAll('[data-calendar-series]')]
+          .filter(panel => panel.open || panel.contains(active)) : [];
+        const seriesFocus = preservedSeries.some(panel => panel.contains(active)) ? active : null;
         const focusedLink = region.contains(active) && active instanceof HTMLAnchorElement
           ? active.getAttribute("href") : null;
         // Preserve the details element itself (and its open state).
@@ -5788,7 +6245,7 @@
         } else {
           region.innerHTML = replacement.innerHTML;
         }
-        openSeries.forEach(panel => {
+        preservedSeries.forEach(panel => {
           const nextPanel = [...region.querySelectorAll('[data-calendar-series]')]
             .find(item => item.dataset.calendarSeries === panel.dataset.calendarSeries);
           if (nextPanel) {
@@ -7021,7 +7478,8 @@
       );
       const narrowMedia = window.matchMedia("(max-width: 640px)");
       const railKey = shell.dataset.activeNav === "settings" ? "graf-settings-rail" : "graf-cabinet-rail";
-      const storedRailState = sessionStorage.getItem(railKey);
+      let storedRailState = null;
+      try { storedRailState = sessionStorage.getItem(railKey); } catch (_) { /* Use the responsive default without storage. */ }
       let manuallySet = ["expanded", "collapsed"].includes(storedRailState);
       let preferredPinned = manuallySet
         ? storedRailState === "expanded"
@@ -7037,7 +7495,7 @@
       const setManualRailState = (pinned) => {
         manuallySet = true;
         preferredPinned = pinned;
-        sessionStorage.setItem(railKey, pinned ? "expanded" : "collapsed");
+        try { sessionStorage.setItem(railKey, pinned ? "expanded" : "collapsed"); } catch (_) { /* The rail remains usable without storage. */ }
         setRailPinned(shell, toggle, pinned);
       };
       setRailPinned(shell, toggle, (settingsRail && expandedMedia.matches || preferredPinned) && !(narrowMedia.matches && shell.querySelector("main")?.contains(document.activeElement)));
@@ -7330,6 +7788,7 @@
   const recoverMeetingDetailFromResponse = async (response, { actionProblemCodes = new Set() } = {}) => {
     const detail = document.querySelector("[data-playback-poll-url]");
     if (!detail) return false;
+    const meetingId = detail.dataset.meetingId;
     let recoveryKind = "";
     if (response.redirected) {
       try {
@@ -7343,6 +7802,10 @@
     const problemCode = [403, 404, 410].includes(response.status)
       ? await responseProblemCode(response)
       : "";
+    // Decoding may finish after navigation; consume stale responses so callers
+    // cannot apply their results or neutralize the new meeting's private URL.
+    if (!detail.isConnected || document.querySelector("[data-playback-poll-url]") !== detail
+      || detail.dataset.meetingId !== meetingId) return true;
     if (!recoveryKind && (detailActionProblemCodes.has(problemCode) || actionProblemCodes.has(problemCode))) return false;
     if (!recoveryKind && [404, 410].includes(response.status)) recoveryKind = "unavailable";
     else if (!recoveryKind && (response.status === 401 || response.status === 403)) {
@@ -7423,6 +7886,10 @@
     if (!detail || detail.dataset.playbackPollActive !== "true" || playbackRecoveryRequest) return;
     const pollUrl = detail.dataset.playbackPollUrl;
     if (!pollUrl) return;
+    const meetingId = detail.dataset.meetingId;
+    const isCurrentDetail = () => detail.isConnected
+      && document.querySelector('main[data-meeting-id]') === detail
+      && detail.dataset.meetingId === meetingId;
     playbackRecoveryRequest = fetch(pollUrl, {
       method: "GET",
       credentials: "same-origin",
@@ -7434,13 +7901,16 @@
     });
     try {
       const response = await playbackRecoveryRequest;
-      if (!detail.isConnected) return;
+      if (!isCurrentDetail()) return;
       if (await recoverMeetingDetailFromResponse(response)) return;
+      if (!isCurrentDetail()) return;
       if (!response.ok) {
         showPlaybackRecoveryNotice(detail);
         return;
       }
-      const documentFragment = new DOMParser().parseFromString(await response.text(), "text/html");
+      const responseText = await response.text();
+      if (!isCurrentDetail()) return;
+      const documentFragment = new DOMParser().parseFromString(responseText, "text/html");
       const nextDetail = documentFragment.querySelector("[data-playback-poll-url]");
       const currentPlayback = detailPlayback(detail);
       const nextPlayback = detailPlayback(nextDetail);
@@ -7448,18 +7918,28 @@
       const nextTranscript = nextDetail?.querySelector("[data-playback-transcript]");
       const currentLiveStatus = detail.querySelector("[data-playback-live-status]");
       const nextLiveStatus = nextDetail?.querySelector("[data-playback-live-status]");
-      if (!nextDetail || !currentPlayback || !nextPlayback || !currentTranscript || !nextTranscript) {
+      if (!nextDetail || nextDetail.dataset.meetingId !== detail.dataset.meetingId
+        || !currentPlayback || !nextPlayback || !currentTranscript || !nextTranscript) {
         showPlaybackRecoveryNotice(detail);
         return;
       }
       clearPlaybackRecoveryNotice(detail);
       detail.dataset.playbackPollActive = nextDetail.dataset.playbackPollActive || "false";
-      const recoverySignature = (node) => [
-        node.dataset.playbackState || "",
-        node.dataset.sourceMode || "",
-        ...["meetingId", "workspaceId", "mediaRevisionId", "processingResultId", "commentsAvailable", "commentsCanComment"].map(key => node.dataset[key] || ""),
-        (node.textContent || "").trim()
-      ].join("\u001f");
+      const recoverySignature = (node) => {
+        // The native-only action is reconciled separately from the server fragment.
+        const text = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, {
+          acceptNode: child => child.parentElement?.closest("[data-detail-local-playback]")
+            ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
+        });
+        let serverText = "";
+        while (text.nextNode()) serverText += text.currentNode.textContent;
+        return [
+          node.dataset.playbackState || "",
+          node.dataset.sourceMode || "",
+          ...["meetingId", "workspaceId", "mediaRevisionId", "processingResultId", "commentsAvailable", "commentsCanComment"].map(key => node.dataset[key] || ""),
+          serverText.trim()
+        ].join("\u001f");
+      };
       const playbackUnchanged = recoverySignature(currentPlayback) === recoverySignature(nextPlayback);
       const playbackChanged = !playbackUnchanged;
       const transcriptChanged = currentTranscript.innerHTML !== nextTranscript.innerHTML;
@@ -7468,6 +7948,7 @@
         currentLiveStatus.textContent = nextLiveStatus.textContent || "";
       }
       if (!playbackChanged && !transcriptChanged) {
+        renderDetailLocalPlayback();
         initPlaybackRecoveryPolling();
         return;
       }
@@ -7476,11 +7957,13 @@
         currentPlayback.replaceWith(nextPlayback);
       }
       if (transcriptChanged) currentTranscript.replaceWith(nextTranscript);
+      renderDetailLocalPlayback();
       initPlayback();
       initSpeakerTimelineResize();
       initSpeakerNameForms();
       initPlaybackRecoveryPolling();
     } catch {
+      if (!isCurrentDetail()) return;
       showPlaybackRecoveryNotice(detail);
       return;
     } finally {
@@ -8028,7 +8511,7 @@
 
   const initShareDialogs = () => {
     document.querySelectorAll("[data-share-dialog]").forEach((dialog) => {
-      if (!(dialog instanceof HTMLDialogElement) || dialog.dataset.shareReady === "true") return;
+      if (!(dialog instanceof HTMLDialogElement) || dialog.hasAttribute("data-summary-share-dialog") || dialog.dataset.shareReady === "true") return;
       dialog.dataset.shareReady = "true";
       const opener = document.querySelector(`[aria-controls="${dialog.id}"]`);
       const status = dialog.querySelector("[data-share-status]");
@@ -8886,7 +9369,7 @@
     event.returnValue = "";
   });
 
-  const initCabinet = () => {
+  const initCabinet = ({ deferBillingStatus = false } = {}) => {
     initMeetingTitleEditor();
     initAuthTransition();
     initCabinetRail();
@@ -8895,6 +9378,8 @@
     initListDisclosures();
     initCodeForms();
     initOutcomeFocus();
+    initBillingRenewalChoice();
+    initBillingStatusRefresh({ deferScheduling: deferBillingStatus });
     initBillingFocus();
     initMeetingList();
     announceUploadProgress();
@@ -8912,6 +9397,7 @@
     initPlayback();
     initSpeakerTimelineResize();
     initMeetingDetailAuthorizationRecovery();
+    renderDetailLocalPlayback();
     initPlaybackRecoveryPolling();
     initSpeakerNameForms();
     initContentExport();
@@ -8997,6 +9483,7 @@
   });
 
   document.body.addEventListener("htmx:afterSwap", (event) => {
+    renderDetailLocalPlayback();
     const target = event.detail?.target;
     const source = shareRequestSource(event);
     if (source && target instanceof Element && target.id === "meeting-share-host") {
@@ -9031,10 +9518,11 @@
       restoreMeetingListRequestFocus(event);
       restoreListRefreshFocus();
     }
-    initCabinet();
+    initCabinet({ deferBillingStatus: true });
   });
 
   window.addEventListener("pageshow", (event) => {
+    initBillingRenewalChoice();
     updateSelection();
     if (event.persisted) refreshMeetingList();
   });

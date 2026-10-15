@@ -50,8 +50,13 @@ from twobrain_rec_server.db.models import (
     PlaybackNormalizationJob,
     ProcessingResult,
     ProcessingWorkflow,
+    PublishedMeetingSummary,
     PurgeJournal,
     RetentionPolicySnapshot,
+    SummaryAutoSendException,
+    SummaryAutoSendRule,
+    SummaryDeliveryBatch,
+    SummaryRecipientDelivery,
     TemporaryUploadObject,
     TrackArtifact,
     TranscriptSegment,
@@ -2349,6 +2354,25 @@ async def _purge_server_controlled_content(
         result.materialized_classes.add(DeletionArtifactClass.EXPORT_PACKAGE)
         result.purged_classes.add(DeletionArtifactClass.EXPORT_PACKAGE)
 
+    # Meeting fence is already held. Remove address/ciphertext rows before their
+    # invitation/grant/publication foreign keys; series rules survive one occurrence.
+    batch_ids = select(SummaryDeliveryBatch.id).where(
+        SummaryDeliveryBatch.workspace_id == meeting.workspace_id,
+        SummaryDeliveryBatch.meeting_id == meeting.id,
+    )
+    await db.execute(delete(SummaryRecipientDelivery).where(
+        SummaryRecipientDelivery.workspace_id == meeting.workspace_id,
+        SummaryRecipientDelivery.batch_id.in_(batch_ids),
+    ))
+    await db.execute(delete(SummaryDeliveryBatch).where(
+        SummaryDeliveryBatch.workspace_id == meeting.workspace_id,
+        SummaryDeliveryBatch.meeting_id == meeting.id,
+    ))
+    for model in (SummaryAutoSendException, SummaryAutoSendRule):
+        await db.execute(delete(model).where(
+            model.workspace_id == meeting.workspace_id, model.meeting_id == meeting.id,
+        ))
+
     share_grants = (
         await db.scalars(
             select(MeetingShareGrant)
@@ -2381,6 +2405,10 @@ async def _purge_server_controlled_content(
         result.materialized_classes.add(DeletionArtifactClass.SHARE_INVITATION)
         result.purged_classes.add(DeletionArtifactClass.SHARE_INVITATION)
 
+    await db.execute(delete(PublishedMeetingSummary).where(
+        PublishedMeetingSummary.workspace_id == meeting.workspace_id,
+        PublishedMeetingSummary.meeting_id == meeting.id,
+    ))
     return result
 
 
@@ -2994,7 +3022,7 @@ async def _mark_outcomes_deleting(
                 DispatchIntent.workspace_id == meeting.workspace_id,
                 DispatchIntent.meeting_id == meeting.id,
                 DispatchIntent.state.in_(
-                    {"created", "dispatching", "started", "retryable_failed"}
+                    {"created", "dispatching", "started", "start_unknown", "retryable_failed"}
                 ),
             )
             .with_for_update()

@@ -142,6 +142,7 @@ from twobrain_rec_server.cabinet.queries import (
 )
 from twobrain_rec_server.cabinet.rendering import render_shared_meeting_summary_page
 from twobrain_rec_server.cabinet.speakers import candidate_speaker_attribution_is_current
+from twobrain_rec_server.cabinet.summary_sharing import load_shared_summary_projection
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
 from twobrain_rec_server.db.models import (
     AuthCallbackState,
@@ -730,6 +731,9 @@ async def get_shared_meeting_summary_route(
             MeetingShareGrant.status == "active",
         )
     )
+    saved = await load_shared_summary_projection(db, workspace_id=meeting.workspace_id, meeting=meeting, grant=grant)
+    if saved is not None:
+        return PublicShareSummaryResponse.model_validate(saved)
     outcome_set = await _shared_summary_outcome(db, meeting=meeting, grant=grant)
     if outcome_set is not None:
         items = (
@@ -2692,10 +2696,13 @@ async def resolve_login_required_share_link_route(
                 {"category": item.category, "text": item.text or ""} for item in items
             ],
         )
+        projection = (await load_shared_summary_projection(db, workspace_id=meeting.workspace_id, meeting=meeting, grant=grant)) or projection
         if "text/html" in request.headers.get("accept", "").lower():
             display_title, display_time, uploaded = await shared_meeting_display_metadata(
                 db, meeting=meeting
             )
+        if grant and (grant.published_summary_id or getattr(grant, "_shared_publication_override", None)):
+            display_title, display_time, uploaded = projection["meeting_label"], datetime.fromisoformat(str(projection["occurred_at"])), False
         await db.commit()
         if "text/html" in request.headers.get("accept", "").lower():
             response = cabinet_html_response(
@@ -2805,11 +2812,14 @@ async def resolve_public_meeting_share_route(
         duration_seconds=meeting.duration_seconds,
         summary_sections=[{"category": item.category, "text": item.text or ""} for item in items],
     )
+    projection = (await load_shared_summary_projection(db, workspace_id=meeting.workspace_id, meeting=meeting, grant=grant)) or projection
     grant.last_used_at = datetime.now(UTC)
     if "text/html" in request.headers.get("accept", "").lower():
         display_title, display_time, uploaded = await shared_meeting_display_metadata(
             db, meeting=meeting
         )
+    if grant.published_summary_id:
+        display_title, display_time, uploaded = projection["meeting_label"], datetime.fromisoformat(str(projection["occurred_at"])), False
     await db.commit()
     if "text/html" in request.headers.get("accept", "").lower():
         response = cabinet_html_response(
@@ -2876,18 +2886,13 @@ async def accept_meeting_share_invitation_route(
             raise ProblemDetail(
                 status=404, code="invitation_not_found", title="Invitation not found"
             )
-        if grant.content_scope == "full_meeting" and grant.can_download and grant.can_export:
+        if grant.content_scope == "full_meeting" and grant.can_download and grant.can_export and not (grant.published_summary_id or getattr(grant, "_shared_publication_override", None)):
             await db.commit()
             return RedirectResponse(
                 url=(f"/shared-meetings/{meeting.id}?workspace_id={workspace_id}"),
                 status_code=303,
             )
-        outcome_set = await current_outcome_set(
-            db,
-            workspace_id=workspace_id,
-            meeting_id=meeting.id,
-            processing_result_id=None,
-        )
+        outcome_set = await _shared_summary_outcome(db, meeting=meeting, grant=grant)
         items = []
         if outcome_set is not None:
             items = (
@@ -2910,9 +2915,12 @@ async def accept_meeting_share_invitation_route(
                 {"category": item.category, "text": item.text or ""} for item in items
             ],
         )
+        projection = (await load_shared_summary_projection(db, workspace_id=meeting.workspace_id, meeting=meeting, grant=grant)) or projection
         display_title, display_time, uploaded = await shared_meeting_display_metadata(
             db, meeting=meeting
         )
+        if grant.published_summary_id or getattr(grant, "_shared_publication_override", None):
+            display_title, display_time, uploaded = projection["meeting_label"], datetime.fromisoformat(str(projection["occurred_at"])), False
         await db.commit()
         html_response = cabinet_html_response(
             render_shared_meeting_summary_page(
@@ -2928,11 +2936,24 @@ async def accept_meeting_share_invitation_route(
         )
         _mark_share_secret_response(html_response)
         return html_response
+    summary_received_url = None
+    from twobrain_rec_server.db.models import MeetingShareInvitation
+    from twobrain_rec_server.db.models.summary_sharing import SummaryRecipientDelivery
+    invitation_id = await db.scalar(select(MeetingShareInvitation.id).where(
+        MeetingShareInvitation.workspace_id == workspace_id,
+        MeetingShareInvitation.token_hash == hash_share_token(share_token),
+        MeetingShareInvitation.published_summary_id.is_not(None),
+    ))
+    if invitation_id:
+        delivery_id = await db.scalar(select(SummaryRecipientDelivery.id).where(
+            SummaryRecipientDelivery.workspace_id == workspace_id, SummaryRecipientDelivery.invitation_id == invitation_id))
+        if delivery_id:
+            summary_received_url = f"/api/v1/cabinet/summary-sharing/received/{delivery_id}?workspace_id={workspace_id}"
     await db.commit()
     _mark_share_secret_response(response)
     response = ShareGrantResponse(
         grant=grant_view(grant, display_name="Authenticated user"),
-        share_url=(f"/api/v1/cabinet/share/{grant_raw_token}?workspace_id={workspace_id}"),
+        share_url=summary_received_url or (f"/api/v1/cabinet/share/{grant_raw_token}?workspace_id={workspace_id}"),
     )
     return response
 
@@ -4701,9 +4722,9 @@ async def _shared_summary_outcome(
 ) -> MeetingOutcomeSet | None:
     """Read the grant's immutable summary pin; backfill one old grant once."""
 
-    metadata = (
-        grant.metadata_json if grant is not None and isinstance(grant.metadata_json, dict) else {}
-    )
+    if grant is not None and (grant.published_summary_id or getattr(grant, "_shared_publication_override", None)):
+        await load_shared_summary_projection(db, workspace_id=meeting.workspace_id, meeting=meeting, grant=grant)
+        return None
     pin = _shared_summary_pin(grant)
     if pin is not None:
         template_key, pinned_id = pin
@@ -4726,15 +4747,6 @@ async def _shared_summary_outcome(
         meeting_id=meeting.id,
     )
     outcome = await load_egress_default_outcome(db, meeting=meeting, slot=slot)
-    if grant is not None and slot is not None and outcome is not None:
-        grant.metadata_json = {
-            **metadata,
-            "summary_revision": {
-                "template_key": slot.template_key,
-                "outcome_set_id": str(outcome.id),
-            },
-        }
-        await db.flush()
     return outcome
 
 

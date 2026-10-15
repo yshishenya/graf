@@ -16,7 +16,7 @@ from twobrain_rec_server.cabinet.speakers import (
     speaker_attribution_revision,
 )
 from twobrain_rec_server.cabinet.view_models import AUTHORITATIVE_TITLE_SOURCES
-from twobrain_rec_server.config import Settings
+from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import (
     DispatchIntent,
     GenerationCall,
@@ -2568,6 +2568,16 @@ async def _cas_summary_slot(
     advance_summary_slot_state_version(slot)
     await db.flush()
     await _record_summary_notice(db, meeting, source_result_id=replacement.processing_result_id, completed=True)
+    # A published eligible result and its explicit AUTO outbox intent commit
+    # together. No external calls or grants occur during this transaction.
+    from twobrain_rec_server.cabinet.summary_autosend import reconcile_meeting_autosend
+
+    await reconcile_meeting_autosend(
+        db,
+        settings=get_settings(),
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+    )
     return slot
 
 

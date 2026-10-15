@@ -62,6 +62,7 @@ if TYPE_CHECKING:
     from twobrain_rec_server.config import Settings
 
 
+RECEIPT_OBSERVATION_STATES = ("succeeded", "succeeded_projected", "succeeded_refused")
 RECONCILABLE_WEBHOOK_STATES = frozenset(("accepted", "pending_reconciliation"))
 MAX_REFUND_LIST_PAGES = 20
 
@@ -272,6 +273,7 @@ async def reconcile_pending_initial_checkout_operations(
     operation_id: object | None = None,
     defer_referral_reward: bool = False,
     commit_each_operation: bool = False,
+    receipt_only: bool = False,
 ) -> dict[str, int]:
     """Recover purchases with authenticated GET/list only, never another POST.
 
@@ -313,6 +315,23 @@ async def reconcile_pending_initial_checkout_operations(
                 BillingOperation.created_at >= datetime.now(UTC) - timedelta(hours=24),
             ),
         )
+    receipt_states = RECEIPT_OBSERVATION_STATES
+    receipt_filter = and_(
+        BillingOperation.state.in_(receipt_states),
+        BillingOperation.provider_id.is_not(None),
+        select(BillingInvoice.id).where(
+            BillingInvoice.operation_id == BillingOperation.id,
+            BillingInvoice.workspace_id == BillingOperation.workspace_id,
+            BillingInvoice.status == "succeeded",
+            BillingInvoice.plan_snapshot["receipt_registration"].as_string() == "pending",
+        ).exists(),
+    )
+    if operation_id is None:
+        receipt_filter = and_(
+            receipt_filter,
+            BillingOperation.created_at >= datetime.now(UTC) - timedelta(hours=24),
+        )
+    state_filter = receipt_filter if receipt_only else or_(state_filter, receipt_filter)
     filters = [
         BillingOperation.kind.in_(
             ("initial_checkout", "storage_upgrade", "early_renewal", "renewal")
@@ -327,7 +346,11 @@ async def reconcile_pending_initial_checkout_operations(
         for operation in await db.scalars(
             select(BillingOperation)
             .where(*filters)
-            .order_by(BillingOperation.updated_at, BillingOperation.id)
+            .order_by(
+                BillingOperation.state.in_(receipt_states),
+                BillingOperation.updated_at,
+                BillingOperation.id,
+            )
             .limit(max(1, min(limit, 500)))
         )
     )
@@ -342,6 +365,34 @@ async def reconcile_pending_initial_checkout_operations(
         ):
             return "pending"
         payload = await provider.get_payment(operation.provider_id or "")
+        if operation.state in receipt_states:
+            # A late receipt must not replay grants, mandates or budget settlement.
+            invoice = await db.scalar(select(BillingInvoice).where(
+                BillingInvoice.operation_id == operation.id,
+                BillingInvoice.workspace_id == operation.workspace_id,
+            ).with_for_update())
+            if invoice is None or validate_purchase_payment(
+                payload, operation=operation, invoice=invoice, scope=scope
+            ) != "succeeded":
+                raise ProviderObservationError("completed payment receipt scope conflicts")
+            observation = extract_payment_observation(payload, scope=scope)
+            operation.updated_at = datetime.now(UTC)
+            if observation.receipt_registration is not None:
+                invoice.plan_snapshot, available = merge_receipt_registration(
+                    invoice.plan_snapshot, status=observation.receipt_registration
+                )
+                subscription = await db.get(WorkspaceSubscription, operation.workspace_id)
+                if available and subscription is not None and subscription.billing_owner_id is not None:
+                    await enqueue_billing_notification(
+                        db, workspace_id=operation.workspace_id,
+                        recipient_id=subscription.billing_owner_id,
+                        event_id=f"receipt:{invoice.id}:available",
+                        kind=BillingNotification.RECEIPT_AVAILABLE,
+                        payload={"invoice": invoice.safe_number,
+                                 "action_path": f"/billing/invoices/{invoice.safe_number}"},
+                        marketing_allowed=False,
+                    )
+            return "succeeded"
         result = await apply_confirmed_purchase(
             db,
             settings,
@@ -406,6 +457,7 @@ async def reconcile_pending_initial_checkout_operations(
                             YooKassaClient(settings)
                         )
                     if commit_each_operation:
+                        receipt_attempt = operation.state in receipt_states
                         try:
                             assert provider is not None and scope is not None
                             outcome = await reconcile_operation(operation, provider, scope)
@@ -419,20 +471,34 @@ async def reconcile_pending_initial_checkout_operations(
                             httpx.HTTPError,
                         ):
                             await db.rollback()
+                            if receipt_attempt:
+                                await lock_storage_workspace(db, candidate_workspace_id)
+                                receipt_operation = await db.scalar(select(BillingOperation).where(
+                                    BillingOperation.id == candidate_id,
+                                    BillingOperation.workspace_id == candidate_workspace_id,
+                                    receipt_filter,
+                                ).with_for_update())
+                                if receipt_operation is not None:
+                                    receipt_operation.updated_at = datetime.now(UTC)
+                                await db.commit()
                             counters["failed"] += 1
                         else:
                             await db.commit()
                     else:
                         valid_operations.append(operation)
                     continue
-                operation.state = "manual_resolution"
-                invoice = await db.scalar(
-                    select(BillingInvoice)
-                    .where(BillingInvoice.operation_id == operation.id)
-                    .with_for_update()
-                )
-                if invoice is not None:
-                    invoice.status = "manual_resolution"
+                if operation.state not in receipt_states:
+                    operation.state = "manual_resolution"
+                    invoice = await db.scalar(
+                        select(BillingInvoice)
+                        .where(BillingInvoice.operation_id == operation.id)
+                        .with_for_update()
+                    )
+                    if invoice is not None:
+                        invoice.status = "manual_resolution"
+                else:
+                    # Rotate inaccessible paid receipts without contacting the provider.
+                    operation.updated_at = datetime.now(UTC)
                 counters["failed"] += 1
                 if commit_each_operation:
                     await db.commit()
@@ -450,6 +516,8 @@ async def reconcile_pending_initial_checkout_operations(
                     ValueError,
                     httpx.HTTPError,
                 ):
+                    if operation.state in receipt_states:
+                        operation.updated_at = datetime.now(UTC)
                     counters["failed"] += 1
     except (YooKassaConfigurationError, ValueError):
         if commit_each_operation:

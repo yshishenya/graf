@@ -333,8 +333,11 @@ def test_trial_discloses_terms_before_separate_confirmation(page_name):
 
 @pytest.mark.parametrize("email", [None, "support@graf.test"])
 def test_empty_history_has_real_help_or_honest_unavailable(email):
+    from twobrain_rec_server.billing.refund_email import build_support_mailto
+
     page = render_template(
-        "cabinet/pages/billing_history_content.html", invoices=[], support_email=email
+        "cabinet/pages/billing_history_content.html", invoices=[], support_email=email,
+        support_mailto=build_support_mailto(email),
     )
     assert 'href="#billing-help"' in page and 'id="billing-help"' in page
     if email:

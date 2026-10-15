@@ -328,6 +328,7 @@ async def grant_confirmed_payment(
         saved_payment_method is not None
         and payment_method_key is not None
         and recurring_actor_matches
+        and snapshot.get("recurring_consent") is True
     ):
         methods = await db.scalars(
             select(BillingPaymentMethod)
@@ -357,7 +358,7 @@ async def grant_confirmed_payment(
         )
     if authority_unchanged:
         subscription.recurring_allowed = (
-            bool(snapshot.get("recurring_consent"))
+            snapshot.get("recurring_consent") is True
             and recurring_actor_matches
             and recurring_method_confirmed
             and saved_payment_method is not None

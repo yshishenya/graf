@@ -9,7 +9,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.cabinet import (
@@ -19,22 +19,15 @@ from twobrain_rec_server.api.cabinet import (
 )
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
-from twobrain_rec_server.auth.sessions import fingerprint_identity, issue_auth_session
-from twobrain_rec_server.auth.workspace_onboarding import (
-    ensure_personal_workspace,
-)
 from twobrain_rec_server.cabinet.access import (
-    accept_share_invitation,
     consume_share_invitation_continuation,
     create_share_invitation_continuation,
     decide_meeting_access,
-    finalize_share_invitation_continuation,
     hash_share_token,
     invitation_address_hashes,
     narrow_summary_projection,
     normalize_invitation_address,
     share_invitation_preview,
-    share_invitation_recipient_address,
 )
 from twobrain_rec_server.cabinet.queries import (
     get_account_profile_view,
@@ -55,15 +48,9 @@ from twobrain_rec_server.cabinet.rendering import (
     render_shared_with_me_page,
 )
 from twobrain_rec_server.cabinet.review_policy_rendering import render_meeting_share_fragment
+from twobrain_rec_server.cabinet.summary_sharing import load_shared_summary_projection
 from twobrain_rec_server.cabinet.templates import (
     cabinet_html_response,
-)
-from twobrain_rec_server.cabinet.web_routes.auth_email_flow import (
-    _ensure_email_registration_user,
-    _record_email_login_audit,
-    _resolve_email_browser_device,
-    _resolve_email_login_user,
-    _set_browser_auth_cookie,
 )
 from twobrain_rec_server.cabinet.web_routes.support import (
     CabinetAccessFilter,
@@ -82,7 +69,6 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     _request_path_with_query,
 )
 from twobrain_rec_server.db.models import (
-    AuthSessionDeviceBinding,
     ExternalIdentity,
     Meeting,
     MeetingOutcomeItem,
@@ -154,6 +140,11 @@ async def _render_shared_summary_for_grant(
                 MeetingShareGrant.status == "active",
             )
         )
+    saved = await load_shared_summary_projection(session, workspace_id=workspace_id, meeting=meeting, grant=grant)
+    if saved is not None:
+        return render_shared_meeting_summary_page(meeting_title=saved["meeting_label"],
+            occurred_at=datetime.fromisoformat(str(saved["occurred_at"])), duration_seconds=saved["duration_seconds"],
+            summary_sections=saved["summary_sections"], protocol=saved["protocol"], authenticated=True, embedded=embedded)
     metadata = grant.metadata_json if grant is not None and isinstance(grant.metadata_json, dict) else {}
     pin = metadata.get("summary_revision")
     outcome = None
@@ -276,52 +267,24 @@ async def share_invitation_continuation(
             raise ProblemDetail(
                 status=404, code="invitation_not_found", title="Invitation not found"
             )
-        accepted = await accept_share_invitation(
-            session,
-            workspace_id=workspace_id,
-            user_id=principal.user_id,
-            device_id=recipient_scope.device_id,
-            raw_token=raw_token,
-            verified_address_hashes=verified_address_hashes,
-            encryption_key=key_file.read_bytes().strip(),
-            recipient_user_active=True,
-        )
-        if accepted is None:
+        invitation = await session.scalar(select(MeetingShareInvitation).where(
+            MeetingShareInvitation.workspace_id == workspace_id,
+            MeetingShareInvitation.token_hash == hash_share_token(raw_token)))
+        if invitation is None or invitation.normalized_address_hash not in verified_address_hashes:
             retry_path = f"/share-invitations/continue?workspace_id={workspace_id}&state={state}"
-            return RedirectResponse(
-                url=f"/login?{urlencode({'next': retry_path, 'error': 'share_recipient_mismatch'})}",
-                status_code=303,
-            )
-        grant, _grant_token = accepted
-        if not await finalize_share_invitation_continuation(
-            session,
-            workspace_id=workspace_id,
-            nonce=state,
-        ):
-            raise ProblemDetail(
-                status=404, code="invitation_not_found", title="Invitation not found"
-            )
-        shared_url = (
-            _shared_meeting_url(workspace_id=workspace_id, meeting_id=grant.meeting_id)
-            if grant.content_scope == "full_meeting" and grant.can_download and grant.can_export
-            else None
-        )
-        summary_html = (
-            None
-            if shared_url is not None
-            else await _render_shared_summary_for_grant(
-                session,
-                workspace_id=workspace_id,
-                meeting_id=grant.meeting_id,
-                grant=grant,
-            )
-        )
-        await session.commit()
-    response = (
-        RedirectResponse(url=shared_url, status_code=303)
-        if shared_url is not None
-        else cabinet_html_response(summary_html or "")
-    )
+            return RedirectResponse(url=f"/login?{urlencode({'next': retry_path, 'error': 'share_recipient_mismatch'})}", status_code=303)
+        preview = await share_invitation_preview(session, workspace_id=workspace_id, raw_token=raw_token)
+        if preview is None:
+            raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+        # Signing in verifies the mailbox; the explicit CSRF-protected accept
+        # form separately records consent. A scanner/GET cannot create a grant.
+        summary_html = render_share_invitation_accept_page(share_token=raw_token,
+            workspace_id=str(workspace_id), csrf_token=_csrf_token_for_principal(request, principal),
+            meeting_title=preview.meeting_title, meeting_occurred_at=preview.display_occurred_at,
+            meeting_time_is_upload=preview.display_time_is_upload,
+            meeting_duration_seconds=preview.duration_seconds, invitation_expires_at=preview.expires_at,
+            content_scope=preview.content_scope, authenticated=True, auto_accept=False)
+    response = cabinet_html_response(summary_html)
     response.headers.update(
         {
             "Cache-Control": "private, no-store",
@@ -415,243 +378,9 @@ async def share_invitation_magic_link(
     state: Annotated[str, Form(min_length=16, max_length=128)],
     magic_csrf: Annotated[str, Form(min_length=16, max_length=128)],
 ) -> Response:
-    sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
-    key_file = request.app.state.settings.credential_encryption_key_file
-    cookie_token = request.cookies.get(MAGIC_LINK_CSRF_COOKIE_NAME)
-    if (
-        sessionmaker is None
-        or key_file is None
-        or cookie_token is None
-        or not secrets.compare_digest(cookie_token, magic_csrf)
-    ):
-        raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
-
-    encryption_key = key_file.read_bytes().strip()
-    account_created = False
-    invitation_id: UUID | None = None
-    issued_token: str | None = None
-    issued_expires_at: datetime | None = None
-    user_id: UUID | None = None
-    async with sessionmaker() as session:
-        await apply_tenant_context(
-            session,
-            TenantDatabaseContext(
-                organization_id=UUID(int=0),
-                workspace_id=workspace_id,
-                user_id=UUID(int=0),
-                context_kind="request",
-            ),
-        )
-        raw_token = await consume_share_invitation_continuation(
-            session,
-            workspace_id=workspace_id,
-            nonce=state,
-            encryption_key=encryption_key,
-        )
-        if raw_token is None:
-            raise ProblemDetail(
-                status=404, code="invitation_not_found", title="Invitation not found"
-            )
-        recipient_email = await share_invitation_recipient_address(
-            session,
-            workspace_id=workspace_id,
-            raw_token=raw_token,
-            encryption_key=encryption_key,
-        )
-        if recipient_email is None:
-            raise ProblemDetail(
-                status=404, code="invitation_not_found", title="Invitation not found"
-            )
-        invitation_id = await session.scalar(
-            select(MeetingShareInvitation.id).where(
-                MeetingShareInvitation.workspace_id == workspace_id,
-                MeetingShareInvitation.token_hash == hash_share_token(raw_token),
-                MeetingShareInvitation.status.in_(("pending", "sending", "sent")),
-            )
-        )
-        workspace, user = await _resolve_email_login_user(
-            session,
-            workspace_id=workspace_id,
-            email=recipient_email,
-            internal_workspace_id=request.app.state.settings.web_login_workspace_id,
-        )
-        if workspace is None:
-            raise ProblemDetail(
-                status=404, code="invitation_not_found", title="Invitation not found"
-            )
-        account_created = user is None
-        if account_created:
-            existing_identity_id = await session.scalar(
-                select(ExternalIdentity.id).where(
-                    func.lower(ExternalIdentity.email) == recipient_email,
-                    ExternalIdentity.is_verified.is_(True),
-                    ExternalIdentity.is_active.is_(True),
-                )
-            )
-            account_created = existing_identity_id is None
-            user, account_created = await _ensure_email_registration_user(
-                session,
-                workspace=workspace,
-                email=recipient_email,
-                now=datetime.now(UTC),
-            )
-        personal_workspace = await ensure_personal_workspace(
-            session,
-            organization_id=workspace.organization_id,
-            user_id=user.id,
-        )
-        now = datetime.now(UTC)
-        device = await _resolve_email_browser_device(
-            session,
-            user_agent=request.headers.get("user-agent"),
-            workspace=personal_workspace,
-            user=user,
-            now=now,
-        )
-        issued = await issue_auth_session(
-            session,
-            user_id=user.id,
-            workspace_id=personal_workspace.id,
-            device_id=device.id,
-            provider="email_magic_link",
-            ttl_seconds=request.app.state.settings.auth_session_ttl_seconds,
-            claims_fingerprint=fingerprint_identity(
-                recipient_email, "email_magic_link", workspace_id
-            ),
-            now=now,
-        )
-        session.add(
-            AuthSessionDeviceBinding(
-                auth_session_id=issued.id,
-                registered_device_id=device.id,
-                device_state="trusted",
-                last_heartbeat_at=now,
-            )
-        )
-        await session.flush()
-        await apply_tenant_context(
-            session,
-            TenantDatabaseContext(
-                organization_id=workspace.organization_id,
-                workspace_id=personal_workspace.id,
-                user_id=user.id,
-                device_id=device.id,
-                auth_session_id=issued.id,
-                context_kind="request",
-            ),
-        )
-        await _record_email_login_audit(
-            session,
-            request=request,
-            workspace_id=personal_workspace.id,
-            user_id=user.id,
-            metadata={
-                "flow": "share_magic_link",
-                "account_created": account_created,
-            },
-        )
-        await session.flush()
-        await apply_tenant_context(
-            session,
-            TenantDatabaseContext(
-                organization_id=workspace.organization_id,
-                workspace_id=workspace_id,
-                user_id=user.id,
-                device_id=device.id,
-                auth_session_id=issued.id,
-                context_kind="request",
-            ),
-        )
-        accepted = await accept_share_invitation(
-            session,
-            workspace_id=workspace_id,
-            user_id=user.id,
-            device_id=device.id,
-            raw_token=raw_token,
-            verified_address_hashes=invitation_address_hashes(recipient_email),
-            encryption_key=encryption_key,
-            recipient_user_active=True,
-        )
-        if accepted is None or invitation_id is None:
-            raise ProblemDetail(
-                status=404, code="invitation_not_found", title="Invitation not found"
-            )
-        grant, _grant_token = accepted
-        accepted_invitation = await session.scalar(
-            select(MeetingShareInvitation)
-            .where(
-                MeetingShareInvitation.id == invitation_id,
-                MeetingShareInvitation.workspace_id == workspace_id,
-                MeetingShareInvitation.status == "accepted",
-            )
-            .with_for_update()
-        )
-        if accepted_invitation is None:
-            raise ProblemDetail(
-                status=404, code="invitation_not_found", title="Invitation not found"
-            )
-        if account_created:
-            accepted_invitation.account_created_email_status = "pending"
-            accepted_invitation.account_created_email_failure_code = None
-        if not await finalize_share_invitation_continuation(
-            session,
-            workspace_id=workspace_id,
-            nonce=state,
-        ):
-            raise ProblemDetail(
-                status=404, code="invitation_not_found", title="Invitation not found"
-            )
-        shared_url = (
-            _shared_meeting_url(workspace_id=workspace_id, meeting_id=grant.meeting_id)
-            if grant.content_scope == "full_meeting" and grant.can_download and grant.can_export
-            else None
-        )
-        summary_html = (
-            None
-            if shared_url is not None
-            else await _render_shared_summary_for_grant(
-                session,
-                workspace_id=workspace_id,
-                meeting_id=grant.meeting_id,
-                grant=grant,
-            )
-        )
-        await session.commit()
-        issued_token = issued.token
-        issued_expires_at = issued.expires_at
-        user_id = user.id
-
-    response = (
-        RedirectResponse(url=shared_url, status_code=303)
-        if shared_url is not None
-        else cabinet_html_response(summary_html or "")
-    )
-    if issued_token is not None and issued_expires_at is not None:
-        _set_browser_auth_cookie(
-            request,
-            response,
-            token=issued_token,
-            expires_at=issued_expires_at,
-        )
-    response.delete_cookie(MAGIC_LINK_CSRF_COOKIE_NAME, path="/")
-    response.headers.update(
-        {
-            "Cache-Control": "private, no-store",
-            "Pragma": "no-cache",
-            "Referrer-Policy": "no-referrer",
-            "X-Robots-Tag": "noindex, nofollow, noarchive",
-        }
-    )
-    if account_created and invitation_id is not None and user_id is not None:
-        await _dispatch_account_created_email(
-            request,
-            sessionmaker=sessionmaker,
-            invitation_id=invitation_id,
-            workspace_id=workspace_id,
-            organization_id=workspace.organization_id,
-            user_id=user_id,
-        )
-    return response
+    # Invitation possession proves neither an independent login nor mailbox
+    # ownership: old and new invitation bearers can never issue an auth session.
+    raise ProblemDetail(status=401, code="independent_login_required", title="Sign in to accept this invitation")
 
 
 @router.get(
@@ -678,6 +407,22 @@ async def share_invitation_accept_page(
                     context_kind="request",
                 ),
             )
+            accepted_invitation = await session.scalar(select(MeetingShareInvitation).where(
+                MeetingShareInvitation.workspace_id == workspace_id,
+                MeetingShareInvitation.token_hash == hash_share_token(share_token),
+                MeetingShareInvitation.published_summary_id.is_not(None),
+                MeetingShareInvitation.status == "accepted",
+                MeetingShareInvitation.read_expires_at > datetime.now(UTC)))
+            if accepted_invitation is not None:
+                from twobrain_rec_server.db.models.summary_sharing import SummaryRecipientDelivery
+                delivery_id = await session.scalar(select(SummaryRecipientDelivery.id).where(
+                    SummaryRecipientDelivery.workspace_id == workspace_id,
+                    SummaryRecipientDelivery.invitation_id == accepted_invitation.id))
+                if delivery_id:
+                    # The reader independently checks the actual signed-in mailbox;
+                    # the old invitation bearer carries no authentication power.
+                    return RedirectResponse(f"/api/v1/cabinet/summary-sharing/received/{delivery_id}?workspace_id={workspace_id}", status_code=303,
+                        headers={"Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer", "X-Robots-Tag": "noindex, nofollow"})
             preview = await share_invitation_preview(
                 session,
                 workspace_id=workspace_id,
@@ -724,16 +469,10 @@ async def share_invitation_accept_page(
             content_scope=preview.content_scope if preview else "summary_only",
             authenticated=principal is not None,
             post_login_next_path=post_login_next_path,
-            magic_action=(
-                f"/share-invitations/continue/magic?workspace_id={workspace_id}"
-                if continuation_nonce is not None
-                else None
-            ),
+            magic_action=None,
             magic_state=continuation_nonce,
             magic_csrf_token=magic_csrf_token,
-            auto_accept=preview is not None
-            and continuation_nonce is not None
-            and principal is None,
+            auto_accept=False,
         )
     )
     if magic_csrf_token is not None:

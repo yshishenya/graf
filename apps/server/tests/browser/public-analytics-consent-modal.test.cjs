@@ -93,6 +93,14 @@ async function openDecisionPage(browser, origin, config) {
   });
   await page.addScriptTag({ path: CONTROLLER });
   await page.waitForSelector(".cm__btns", { timeout: 5000 });
+  // The vendored modal moves initial focus asynchronously after showing itself.
+  // Wait for that move before testing keyboard focus, otherwise it can steal
+  // focus back between refusal.focus() and the assertion on a loaded runner.
+  await page.waitForFunction(
+    () => document.querySelector(".cm").contains(document.activeElement),
+    null,
+    { timeout: 5000 },
+  );
   return page;
 }
 

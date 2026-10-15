@@ -766,7 +766,7 @@ def verify_source(repository, source_sha, *, included_prs=None):
     require(base is not None, "previous published release ancestor is unavailable")
     commits = metadata._git("rev-list", "--first-parent", f"{base}..{source_sha}").splitlines()
     candidates, results = [], []
-    covered = set()
+    verified_prs = set()
     deferred_prs = set()
     metadata_kinds = set()
     for commit in commits:
@@ -814,16 +814,15 @@ def verify_source(repository, source_sha, *, included_prs=None):
     ) as pool:
         futures = [pool.submit(verify, repository, number) for _commit, number in candidates]
         for (commit, _number), future in zip(candidates, futures):
-            # A squash/rebase range can expose more than one commit for the
-            # same PR. The first verified merge commit covers the remainder;
-            # preserve that old exact-range rule while allowing the independent
-            # futures to run concurrently.
-            if commit in covered:
+            # Deduplicate only the exact PR owner. A PR's checked base can
+            # precede another PR's merge; that range does not prove the other
+            # PR's checks. Keep independent futures running concurrently.
+            if _number in verified_prs:
                 continue
             proof = future.result()
             require(proof["merge_commit_sha"] == commit, "release PR merge identity changed")
             proof["release_source_sha"] = source_sha
-            covered.update(metadata._git("rev-list", "--first-parent", f"{proof['base_sha']}..{commit}").splitlines())
+            verified_prs.add(_number)
             results.append(proof)
     numbers = sorted(proof["pr_number"] for proof in results)
     if included_prs is not None:

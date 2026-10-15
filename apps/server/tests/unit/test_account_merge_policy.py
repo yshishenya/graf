@@ -77,6 +77,16 @@ USER_IDENTITY_FK_DISPOSITIONS = {
     # Historical inbox is not a new access grant after merging identities.
     ("server_notifications", "recipient_id"): "historical_only",
     ("summary_templates", "owner_user_id"): "transfer_or_deduplicate",
+    # Publication and delivery consent bind the original actor. Merging must
+    # not transfer automatic sending authority or rebind saved recipient access.
+    ("published_meeting_summaries", "owner_user_id"): "historical_only",
+    ("summary_delivery_batches", "owner_user_id"): "historical_only",
+    ("summary_recipient_deliveries", "user_id"): "historical_only",
+    ("summary_sharing_preferences", "owner_user_id"): "historical_only",
+    ("summary_auto_send_rules", "owner_user_id"): "historical_only",
+    ("summary_auto_send_rules", "distributor_user_id"): "historical_only",
+    ("summary_auto_send_exceptions", "owner_user_id"): "historical_only",
+    ("summary_email_suppressions", "sender_user_id"): "historical_only",
     ("support_incident_rate_limit_buckets", "reporter_user_id"): "historical_only",
     ("support_incidents", "reporter_user_id"): "historical_only",
     ("trial_activations", "user_id"): "lineage_aware",

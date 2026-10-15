@@ -343,6 +343,14 @@ def render_meeting_unavailable_page(
     )
 
 
+def render_shared_summary_unavailable_page(*, temporary: bool = False) -> str:
+    return _page_shell(
+        "Итоги недоступны", embedded=False,
+        content_template="cabinet/pages/shared_summary_unavailable_content.html",
+        temporary=temporary,
+    )
+
+
 def render_share_invitation_unavailable_page() -> str:
     return _page_shell(
         "Приглашение недоступно",
@@ -396,6 +404,20 @@ def render_share_invitation_accept_page(
     )
 
 
+def render_summary_sharing_form(*, meeting_id, csrf_token, template_key, share_workspace_id=None, link=None, batch=None, error=None, idempotency_key=None) -> str:
+    from uuid import uuid4
+
+    action = f"/api/v1/cabinet/meetings/{meeting_id}/summary-sharing/form"
+    if share_workspace_id is not None:
+        action += f"?workspace_id={share_workspace_id}"
+    return _page_shell(
+        "Поделиться итогами", embedded=False, csrf_token=csrf_token,
+        content_template="cabinet/pages/summary_sharing_form_content.html",
+        meeting_id=meeting_id, template_key=template_key, form_action=action,
+        link=link, batch=batch, error=error, idempotency_key=idempotency_key or str(uuid4()),
+    )
+
+
 def render_shared_meeting_summary_page(
     *,
     meeting_title: str,
@@ -411,6 +433,7 @@ def render_shared_meeting_summary_page(
     return _page_shell(
         "Итоги встречи",
         embedded=embedded,
+        page_template="cabinet/pages/shell.html" if authenticated else "cabinet/pages/public_summary_shell.html",
         content_template="cabinet/pages/shared_meeting_summary_content.html",
         meeting_title=meeting_title,
         occurred_at=occurred_at,
@@ -1427,6 +1450,12 @@ def _render_meeting_workspace_actions(
     share_url = f"{_base_path(embedded)}/{review.meeting.meeting_id}/share"
     if shared_workspace_id is not None:
         share_url += f"?workspace_id={shared_workspace_id}"
+    form_url = f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/summary-sharing/form"
+    form_query = {"template_key": review.template.reason or "meeting_minutes"}
+    if shared_workspace_id is not None:
+        form_query["workspace_id"] = str(shared_workspace_id)
+    form_url += "?" + urlencode(form_query)
+    form_link = f'<noscript><a href="{escape(form_url)}">Поделиться итогами</a></noscript>' if share_available else ""
     more_action = ""
     if more_actions_available:
         more_action = """
@@ -1437,6 +1466,7 @@ def _render_meeting_workspace_actions(
     return f"""
       <button type="button" data-share-dialog-open aria-controls="meeting-share-dialog" hx-get="{share_url}" hx-target="#meeting-share-host" hx-swap="innerHTML"{share_attributes}>Поделиться</button>
       {share_reason}
+      {form_link}
       {more_action}
     """
 
@@ -1810,6 +1840,33 @@ def _render_meeting_row_meta(
     return status + progress + readiness + action
 
 
+def _render_calendar_series(key: str, *, embedded: bool) -> str:
+    return f"""
+      <details class="calendar-series" data-calendar-series="{escape(key)}">
+        <summary>{_ui_icon("chevron-right")}<span>Даты и записи</span></summary>
+        <div class="calendar-series__body">
+          <div class="calendar-series__toolbar">
+            <div class="calendar-series__views" role="group" aria-label="Период встреч">
+              <button type="button" data-calendar-series-view="upcoming" aria-pressed="true">Ближайшие даты</button>
+              <button type="button" data-calendar-series-view="history" aria-pressed="false">История</button>
+            </div>
+            <span class="calendar-series__scope" data-calendar-series-scope>Ближайшие 30 дней</span>
+          </div>
+          <div data-calendar-series-rows></div>
+          <p class="calendar-series__status" role="status" aria-live="polite" data-calendar-series-status></p>
+          <button type="button" class="calendar-series__more" data-calendar-series-more hidden>Еще даты</button>
+          <details class="calendar-series__help">
+            <summary>{_ui_icon("info")}<span>О данных календаря</span></summary>
+            <p>Здесь доступны сохраненные даты за последние 180 дней и ближайшие 30 дней.
+              Полная история календаря может быть недоступна. Показаны найденные связанные записи;
+              отсутствие ссылки не означает, что записи нет.</p>
+            <a href="{'/desktop' if embedded else ''}/meetings">Ко всем встречам</a>
+          </details>
+        </div>
+      </details>
+    """
+
+
 def _render_upcoming_recurring(response: MeetingListResponse, *, embedded: bool) -> str:
     generated_at = (
         response.generated_at
@@ -1903,11 +1960,11 @@ def _render_home_upcoming(
               {f'<time datetime="{escape(item.starts_at.isoformat())}" title="{escape(format_user_datetime(item.starts_at.date() if item.all_day else item.starts_at, show_zone=True))}" aria-label="{escape(format_user_datetime(item.starts_at.date() if item.all_day else item.starts_at, show_zone=True))}">{escape(_home_upcoming_time_label(item.starts_at, display_timezone, all_day=item.all_day))}</time>' if calendar_surface.preferences.show_upcoming_time else '<span class="calendar-home-upcoming__time-hidden">Время скрыто настройкой</span>'}
               <div>
                 <strong>{escape(item.title if calendar_surface.preferences.show_upcoming_title else "Название скрыто настройкой")}</strong>
-                <small>{"Повторяющаяся встреча · " if item.series_key else ""}{"Есть ссылка на встречу" if item.meeting_link_present else "Без ссылки на встречу"}{" · данные могут быть устаревшими" if item.sync_confidence_state == "stale" else " · обновляется" if item.sync_confidence_state == "updating" else ""}</small>
+                <small>{"<span class=calendar-series__repeat aria-hidden=true>↻</span> Повторяющаяся встреча" if item.series_key else "Есть ссылка на встречу" if item.meeting_link_present else "Без ссылки на встречу"}{" · без ссылки" if item.series_key and not item.meeting_link_present else ""}{" · данные могут быть устаревшими" if item.sync_confidence_state == "stale" else " · обновляется" if item.sync_confidence_state == "updating" else ""}</small>
               </div>
               {f'<a class="button quiet calendar-home-upcoming__join" data-calendar-join="{escape(item.event_id)}" target="_blank" rel="noopener noreferrer" href="/api/v1/calendar/events/{escape(item.event_id)}/open">Подключиться</a>' if item.open_meeting_available else ""}
               <span data-calendar-join-status role="status" aria-live="polite"></span>
-              {f'<details class="calendar-series" data-calendar-series="{escape(item.series_key)}"><summary>Все даты и записи</summary><p>Доступные сохраненные даты за последние 180 дней и ближайшие 30 дней.</p><div data-calendar-series-rows></div><button type="button" data-calendar-series-more>Загрузить даты</button><p role="status" aria-live="polite" data-calendar-series-status></p></details>' if item.series_key else ''}
+              {_render_calendar_series(item.series_key, embedded=embedded) if item.series_key else ''}
             </article>
             """
             for item in preview
@@ -2368,6 +2425,14 @@ def _render_playback(
             <span class="sr-only" data-playback-listen-status role="status"></span>
           </section>
         """
+    storage_action = (
+        '<span>Освободите место или обратитесь к владельцу пространства. '
+        '<a href="/billing">Объем хранилища</a></span>'
+        if review.playback.reason_code == "storage_capacity_exceeded" and shared_workspace_id is None
+        else '<span>Обратитесь к владельцу пространства, чтобы освободить место для аудио.</span>'
+        if review.playback.reason_code == "storage_capacity_exceeded"
+        else ""
+    )
     focus_attribute = "" if review.playback.state == "preparing" else ' role="status" tabindex="0" aria-live="off"'
     state_classes = "is-unavailable"
     if review.playback.state != "unavailable":
@@ -2375,6 +2440,7 @@ def _render_playback(
     return f"""
       <section class="playback-bar detail-playback {state_classes}" data-playback-state="{escape(review.playback.state)}" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" aria-label="Воспроизведение записи" aria-describedby="playback-live-status"{focus_attribute}>
         <span>{escape(review.playback.label)}</span>
+        {storage_action}
         <span>{cabinet_view_models.format_duration(review.playback.duration_seconds)}</span>
       </section>
     """

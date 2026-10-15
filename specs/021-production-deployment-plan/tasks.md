@@ -248,3 +248,10 @@ Task: "T047 [US3] Create smoke evidence template with all required contract fiel
 ### Safety Boundary
 
 Successful 021 implementation can only produce `infra_smoke_ready`. It must not claim `production_ready`, `user_rollout_ready`, or `internal_user_pilot_ready`.
+
+## Recoverable cleanup failure 2026-10-02
+
+- [x] T067 Воспроизвести PostgreSQL deadlock точного synthetic helper и описать safety требования; FR023–27 (Issue #7438).
+- [x] T068 Реализовать bounded whole-transaction retry только40P01/precommit с прежними фильтрами/gates; FR023–25.
+- [x] T069 Проверить transient/exhausted/nonretry/postcommit и сохранность соседних данных на isolatedDB, провести независимый review; FR024–27.
+- [ ] T070 Подготовить отдельный draft PR и exact-SHA checks; не выполнять production CD; FR027.

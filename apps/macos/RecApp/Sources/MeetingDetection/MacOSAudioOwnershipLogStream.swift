@@ -12,13 +12,16 @@ public enum MacOSAudioOwnershipObserverPhase: String, Equatable, Sendable {
 
 public enum MacOSAudioOwnershipObservation: Equatable, Sendable {
     case reconcile(generation: Int)
-    case snapshot(events: [MacOSAudioOwnershipEvent], generation: Int)
+    case snapshot(events: [MacOSAudioOwnershipEvent], isComplete: Bool, generation: Int)
     case lifecycle(phase: MacOSAudioOwnershipObserverPhase, generation: Int)
     case ownership(MacOSAudioOwnershipEvent)
 }
 
 public final class MacOSAudioOwnershipLogStream: @unchecked Sendable {
     private let configuration: MacOSAudioOwnershipLogStreamConfiguration
+    private let snapshotProvider: (@Sendable () -> MacOSAudioInputActivitySnapshot.Value?)?
+    private let snapshotIntervalNanoseconds: UInt64
+    private let snapshotClock: @Sendable () -> Date
     private let parser: MacOSAudioOwnershipParser
     private let stateQueue = DispatchQueue(label: "pro.2brain.graf.audio-ownership-log-stream")
     private var process: Process?
@@ -27,8 +30,14 @@ public final class MacOSAudioOwnershipLogStream: @unchecked Sendable {
 
     public init(
         configuration: MacOSAudioOwnershipLogStreamConfiguration = MacOSAudioOwnershipLogStreamConfiguration(),
-        parser: MacOSAudioOwnershipParser = MacOSAudioOwnershipParser()
+        parser: MacOSAudioOwnershipParser = MacOSAudioOwnershipParser(),
+        snapshotProvider: (@Sendable () -> MacOSAudioInputActivitySnapshot.Value?)? = MacOSAudioInputActivitySnapshot.activeBundleIDs,
+        snapshotIntervalNanoseconds: UInt64 = 2_000_000_000,
+        snapshotClock: @escaping @Sendable () -> Date = { Date() }
     ) {
+        self.snapshotProvider = snapshotProvider
+        self.snapshotIntervalNanoseconds = snapshotIntervalNanoseconds
+        self.snapshotClock = snapshotClock
         self.configuration = configuration
         self.parser = parser
     }
@@ -40,7 +49,11 @@ public final class MacOSAudioOwnershipLogStream: @unchecked Sendable {
                     continuation.finish()
                     return
                 }
-                await self.runSupervisor(continuation: continuation)
+                if let provider = self.snapshotProvider {
+                    await self.runCurrentInputSnapshots(provider: provider, continuation: continuation)
+                } else {
+                    await self.runSupervisor(continuation: continuation)
+                }
             }
             continuation.onTermination = { [weak self] _ in
                 supervisor.cancel()
@@ -71,6 +84,31 @@ public final class MacOSAudioOwnershipLogStream: @unchecked Sendable {
         if currentProcess?.isRunning == true {
             currentProcess?.terminate()
         }
+    }
+
+    private func runCurrentInputSnapshots(
+        provider: @Sendable () -> MacOSAudioInputActivitySnapshot.Value?,
+        continuation: AsyncStream<MacOSAudioOwnershipObservation>.Continuation
+    ) async {
+        var generation = 0
+        while !Task.isCancelled, !isStopped {
+            if generation == 0 || consumePendingRestart() {
+                generation += 1
+                continuation.yield(.reconcile(generation: generation))
+            }
+            if let snapshot = provider() {
+                let now = snapshotClock()
+                continuation.yield(.snapshot(events: snapshot.activeBundleIDs.sorted().map {
+                    MacOSAudioOwnershipEvent(bundleID: $0, source: .coreAudioInput, state: .active, observedAt: now)
+                }, isComplete: snapshot.isComplete, generation: generation))
+            } else {
+                // Never renew evidence from old log history when current metadata is unavailable.
+                continuation.yield(.lifecycle(phase: .snapshotUnavailable, generation: generation))
+            }
+            do { try await Task.sleep(nanoseconds: snapshotIntervalNanoseconds) }
+            catch { break }
+        }
+        continuation.finish()
     }
 
     private func runSupervisor(
@@ -107,7 +145,7 @@ public final class MacOSAudioOwnershipLogStream: @unchecked Sendable {
                         observedAt: observedAt
                     )
                 }
-                continuation.yield(.snapshot(events: events, generation: generation))
+                continuation.yield(.snapshot(events: events, isComplete: true, generation: generation))
                 continuation.yield(.lifecycle(phase: .snapshotCompleted, generation: generation))
             } else {
                 activeSensorMicBundleIDs.removeAll(keepingCapacity: true)

@@ -9,6 +9,10 @@ public enum LocalRecordingWriterError: Error {
     case echoProcessorUnavailable
 }
 
+public enum LocalRecordingPrivacyError: Error {
+    case resumeBoundaryUnavailable
+}
+
 public struct LiveRecordingLevels: Equatable, Sendable {
     public var isRecording: Bool
     public var microphoneLevel: Double
@@ -61,9 +65,38 @@ public struct LiveRecordingLevels: Equatable, Sendable {
     }
 }
 
+public struct RecordingSampleSourceDiagnostics: Sendable {
+    /// Exact unread FIFO frame count, captured under the source read lock.
+    public let queuedFrameCount: Int64
+    public let capturedFrontier: RecordingAudioPresentationTimestamp?
+    public let lastBatchFrameCount: Int
+    public let lastBatchFormat: RecordingAudioFormat?
+    public let lastCapturedUptime: TimeInterval?
+
+    public init(queuedFrameCount: Int64, capturedFrontier: RecordingAudioPresentationTimestamp?,
+                lastBatchFrameCount: Int, lastBatchFormat: RecordingAudioFormat?, lastCapturedUptime: TimeInterval?) {
+        self.queuedFrameCount = queuedFrameCount
+        self.capturedFrontier = capturedFrontier
+        self.lastBatchFrameCount = lastBatchFrameCount
+        self.lastBatchFormat = lastBatchFormat
+        self.lastCapturedUptime = lastCapturedUptime
+    }
+}
+
 public protocol TimestampedLocalRecordingSampleSource: Sendable {
     func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch?
     var hasTimestampedOverflow: Bool { get }
+    var timestampedDiagnostics: RecordingSampleSourceDiagnostics? { get }
+    /// Invoke body once, synchronously, with the exact unread FIFO frame count
+    /// while excluding producer appends and reads. Return body's result; an
+    /// unsupported source returns false without invoking body. The callback
+    /// must only update bounded control state, without reentering this source.
+    func withQueuedFrameCountSnapshot(_ body: (Int64) -> Bool) -> Bool
+}
+
+public extension TimestampedLocalRecordingSampleSource {
+    var timestampedDiagnostics: RecordingSampleSourceDiagnostics? { nil }
+    func withQueuedFrameCountSnapshot(_ body: (Int64) -> Bool) -> Bool { false }
 }
 
 public final class BufferedLocalRecordingSampleSource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
@@ -76,6 +109,10 @@ public final class BufferedLocalRecordingSampleSource: TimestampedLocalRecording
     private var timestampedBatches: [RecordingAudioBatch] = []
     private var timestampedQueuedFrameCount: Int64 = 0
     private var timestampedOverflowed = false
+    private var capturedFrontier: RecordingAudioPresentationTimestamp?
+    private var lastBatchFrameCount = 0
+    private var lastBatchFormat: RecordingAudioFormat?
+    private var lastCapturedUptime: TimeInterval?
 
     public init(
         capacity: Int = 48_000 * 20,
@@ -114,7 +151,15 @@ public final class BufferedLocalRecordingSampleSource: TimestampedLocalRecording
             totalAppendedFrameCount += Int64(batch.samples.count / max(1, batch.format.channelCount))
         }
         enqueueTimestampedBatch(batch)
+        lastBatchFrameCount = batch.samples.count / max(1, batch.format.channelCount)
+        lastBatchFormat = batch.format
+        if batch.format.sampleRate.isFinite, batch.format.sampleRate > 0, batch.presentationTime.seconds.isFinite {
+            capturedFrontier = RecordingAudioPresentationTimestamp(
+                seconds: batch.presentationTime.seconds + Double(lastBatchFrameCount) / batch.format.sampleRate,
+                clockDomain: batch.presentationTime.clockDomain)
+        }
         lastAppendAt = date
+        lastCapturedUptime = ProcessInfo.processInfo.systemUptime
         lock.unlock()
     }
 
@@ -131,7 +176,23 @@ public final class BufferedLocalRecordingSampleSource: TimestampedLocalRecording
         timestampedBatches.removeAll(keepingCapacity: true)
         timestampedQueuedFrameCount = 0
         timestampedOverflowed = false
+        capturedFrontier = nil
+        lastBatchFrameCount = 0
+        lastBatchFormat = nil
+        lastCapturedUptime = nil
         lock.unlock()
+    }
+
+    public func withQueuedFrameCountSnapshot(_ body: (Int64) -> Bool) -> Bool {
+        lock.withLock { body(timestampedQueuedFrameCount) }
+    }
+
+    public var timestampedDiagnostics: RecordingSampleSourceDiagnostics? {
+        lock.withLock {
+            RecordingSampleSourceDiagnostics(queuedFrameCount: timestampedQueuedFrameCount,
+                capturedFrontier: capturedFrontier, lastBatchFrameCount: lastBatchFrameCount,
+                lastBatchFormat: lastBatchFormat, lastCapturedUptime: lastCapturedUptime)
+        }
     }
 
     public func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {

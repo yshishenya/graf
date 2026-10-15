@@ -22,6 +22,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 
 import scripts.cleanup_smoke_artifacts as cleanup_smoke_artifacts_module
+from scripts.bootstrap_runtime_database_roles import MEDIA_STORAGE_COLUMNS
 from scripts.cleanup_smoke_artifacts import cleanup_smoke_artifacts
 from scripts.cleanup_smoke_auth_session import cleanup_smoke_auth_session
 from scripts.issue_smoke_auth_session import issue_smoke_auth_session
@@ -257,6 +258,10 @@ async def _create_media_role(migration_url: str) -> tuple[str, bool]:
                     + f" to {quoted_role}"
                 )
             )
+            for table, columns in MEDIA_STORAGE_COLUMNS.items():
+                await conn.execute(text(
+                    f"grant select ({', '.join(columns)}) on public.{table} to {quoted_role}"
+                ))
             for table_name, column_name in MEDIA_LOCK_COLUMNS:
                 await conn.execute(
                     text(f"grant update ({column_name}) on public.{table_name} to {quoted_role}")

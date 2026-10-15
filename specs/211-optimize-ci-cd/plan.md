@@ -497,3 +497,27 @@ FR-010 и анализ CRITICAL0/HIGH0 сохраняются. Нового help
 T097 — исправление установленного preflight дефекта публикации. В существующем sync_public_download после проверки каталога/target обычный непустой runtime PKG выбирается как public_download_source и сохраняется. Отсутствующий target использует прежний исходник и atomic copy/rollback; некорректный существующий target отклоняется. Изменить только общий helper, существующий исполняемый тестовый блок и инструкции публикации. Изолированный тест сначала показывает перезапись newer PKG старым source, затем проверяет сохранность, bootstrap/restore и отрицательные ветки. Review требований и реализации независимый; tracked production PKG восстанавливается только после сохранения и сверки .3. Выпуск выполняется по новому окончательному SHA. FR-010/048→T097→#6989; новые инфраструктурные механизмы не вводятся.
 
 T097 также устраняет наблюдённый process-long cache public_static_asset_url в apps/server/src/twobrain_rec_server/public/templates.py: один существующий cached calculation получает file identity; публичный wrapper делает stat и передаёт identity, сохраняя URL/sha256/maxsize. Старый тест, закреплявший stale URL после replace, заменяется поведением свежей ссылки и реальным ASGI static-response headers. Не менять cabinet static cache или иные продуктовые маршруты: они не публикуют canonical PKG. Дополнительная проверка требований этой границы предшествует коду. После review дополнительно доказано, что существующий опубликованный target сохраняется даже при недоступном tracked bootstrap source; source проверяется только на ветви initial copy.
+
+
+## T098 — точная принадлежность PR диапазону выпуска, 2026-10-06
+
+Lane: active Spec Kit slice / high-risk CI/governance; FR-008/FR-040/SC-019.
+Конституция сохранена: точная identity, полный train, независимый proof,
+отказ при неизвестном состоянии; поправки принципов не требуется.
+
+1. Независимый reviewer проверяет `checklists/release-pr-identity.md` до кода.
+   Analyze сопоставляет требования, задачу и отрицательные сценарии.
+2. В существующем `test_pr_checks.py` переименовать ошибочный `rebase`
+   в `overlapping-checked-ranges`, ожидая оба разных PR7/8. Сохранить
+   mixed-prs отрицательным, parallel two-prs и прежние negatives. Добавить
+   пропуск каждого PR, propagation ошибки раннего PR, настоящий Git linear
+   rebase нескольких commits одного PR, missing terminal, ambiguous owner
+   и changing merge identity. Сначала подтвердить регрессию старого кода.
+3. В `verify_source` заменить broad base..merge coverage на набор точных
+   проверенных PR numbers; уточнить только соответствующий комментарий.
+   Существующие derivation, deferred owners, verify, pool и proof gates сохранить.
+4. Focused pytest файла и соседних consumers release-candidate/train; Ruff,
+   governance/process, changelog и diff. Независимое review/converge.
+5. После проверок: commit, узкий PR, exact SHA/base required checks и общий
+   live verifier. После merge поправку включить в новый train и подготовку
+   v2026.10.07.1; единственный Full только после freeze.

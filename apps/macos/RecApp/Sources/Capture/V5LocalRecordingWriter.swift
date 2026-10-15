@@ -11,7 +11,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     /// A live tick is deliberately bounded so a burst cannot monopolize the
     /// capture queue. Stop uses a larger per-source bound and fails closed only
     /// when the source is still producing beyond that finite drain.
-    private static let maximumBatchesPerLiveDrain = 64
+    private static let maximumTotalBatchesPerLiveDrain = 128
     // Keep finalization responsive even when a broken source ignores the stop
     // boundary.  1,024 batches still covers a bounded burst of several dozen
     // seconds at the writer frame limit while keeping the fail-closed path
@@ -299,7 +299,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 guard let self, let active, self.active === active else { return }
                 self.drainAvailable(
                     for: active,
-                    maximumBatchesPerSource: Self.maximumBatchesPerLiveDrain,
+                    maximumBatchesPerSource: Self.maximumTotalBatchesPerLiveDrain / 2,
                     failWhenLimitIsReached: false
                 )
             }
@@ -425,7 +425,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         return manifest
     }
 
-    private func pausePrivacyOnQueue(startedAt: Date) throws {
+    func pausePrivacyOnQueue(startedAt: Date) throws {
+        dispatchPrecondition(condition: .onQueue(queue))
         guard let active else { throw LocalRecordingWriterError.notRecording }
         guard active.activePrivacySegment == nil else { return }
         active.activePrivacySegment = ProductPrivacySegment(
@@ -445,11 +446,17 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             throw error
         }
         active.privacySource?.update(state: .paused)
+        if let pending = active.pendingBatches[.microphone], let privacySource = active.privacySource {
+            active.pendingBatches[.microphone] = privacySource.suppressPrefetchedBatch(pending)
+        }
     }
 
-    private func resumePrivacyOnQueue(endedAt: Date) throws {
+    func resumePrivacyOnQueue(endedAt: Date) throws {
+        dispatchPrecondition(condition: .onQueue(queue))
         guard let active else { throw LocalRecordingWriterError.notRecording }
-        active.privacySource?.update(state: .capturing)
+        guard active.privacySource?.update(state: .capturing) != false else {
+            throw LocalRecordingPrivacyError.resumeBoundaryUnavailable
+        }
         finalizePrivacySegment(for: active, endedAt: endedAt)
         // Keep the last durable checkpoint conservative if this write fails:
         // an open segment is safer than losing evidence of user-requested mute.
@@ -479,38 +486,92 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         failWhenLimitIsReached: Bool
     ) {
         guard active.terminalFailureReason == nil else { return }
-        for (source, sourceKind) in [
-            (active.microphoneSource, RecordingAudioInput.microphone),
-            (active.incomingSource, RecordingAudioInput.systemAudio)
-        ] {
-            guard let source else { continue }
-            if source.hasTimestampedOverflow {
-                active.recordFailure(.writeFailed, code: "source_overflow")
-                return
-            }
-            var drained = 0
-            while drained < max(1, maximumBatchesPerSource),
-                  let batch = source.readTimestampedBatch(maximumFrameCount: Self.batchFrameLimit)
-            {
-                drained += 1
-                do {
-                    try active.timeline.append(source: sourceKind, batch: batch)
-                    active.observe(batch: batch, source: sourceKind)
-                } catch {
-                    active.recordFailure(
-                        Self.failureReason(for: error),
-                        code: Self.failureCode(for: error)
-                    )
+        let sources: [(TimestampedLocalRecordingSampleSource?, RecordingAudioInput)] = [
+            (active.microphoneSource, .microphone), (active.incomingSource, .systemAudio)
+        ]
+        var drained: [RecordingAudioInput: Int] = [:]
+        let perSourceLimit = max(1, maximumBatchesPerSource)
+        // One batch per source is retained across live ticks. Batch counts do
+        // not represent time: native mic callbacks are smaller than system ones.
+        for _ in 0..<(perSourceLimit * 2) {
+            for (source, kind) in sources {
+                guard let source else { continue }
+                if source.hasTimestampedOverflow {
+                    logSourceProgress(for: active, trigger: "source_overflow")
+                    active.recordFailure(.writeFailed, code: "source_overflow")
+                    return
+                }
+                if active.pendingBatches[kind] == nil {
+                    active.pendingBatches[kind] = source.readTimestampedBatch(maximumFrameCount: Self.batchFrameLimit)
+                }
+                if failWhenLimitIsReached, drained[kind, default: 0] >= perSourceLimit,
+                   active.pendingBatches[kind] != nil {
+                    logSourceProgress(for: active, trigger: "stop_drain_limit_exceeded")
+                    active.recordFailure(.writeFailed, code: "stop_drain_limit_exceeded")
                     return
                 }
             }
-            guard failWhenLimitIsReached, drained == max(1, maximumBatchesPerSource) else {
-                continue
-            }
-            if source.readTimestampedBatch(maximumFrameCount: Self.batchFrameLimit) != nil {
-                active.recordFailure(.writeFailed, code: "stop_drain_limit_exceeded")
+            // Invalid timestamps must reach the timeline's fail-closed check,
+            // rather than waiting indefinitely behind comparable valid batches.
+            guard let next = active.pendingBatches.first(where: { !$0.value.presentationTime.seconds.isFinite }) ?? active.pendingBatches.min(by: {
+                $0.value.presentationTime.seconds == $1.value.presentationTime.seconds
+                    ? $0.key == .microphone : $0.value.presentationTime.seconds < $1.value.presentationTime.seconds
+            }) else { break }
+            do {
+                if let microphone = active.pendingBatches[.microphone],
+                   let system = active.pendingBatches[.systemAudio],
+                   normalizedClockDomain(microphone.presentationTime.clockDomain) != normalizedClockDomain(system.presentationTime.clockDomain) {
+                    throw RecordingAudioTimelineError.uncomparablePresentationTimes
+                }
+                active.pendingBatches.removeValue(forKey: next.key)
+                drained[next.key, default: 0] += 1
+                try active.timeline.append(source: next.key, batch: next.value)
+                active.observe(batch: next.value, source: next.key)
+            } catch {
+                logSourceProgress(for: active, trigger: Self.failureCode(for: error))
+                active.recordFailure(Self.failureReason(for: error), code: Self.failureCode(for: error))
                 return
             }
+        }
+        // Check the finite stop bound even when both sources hit it on the
+        // final iteration. No extra batch is passed to the timeline.
+        if failWhenLimitIsReached {
+            for (source, kind) in sources where drained[kind, default: 0] >= perSourceLimit {
+                if active.pendingBatches[kind] != nil || source?.readTimestampedBatch(maximumFrameCount: Self.batchFrameLimit) != nil {
+                    logSourceProgress(for: active, trigger: "stop_drain_limit_exceeded")
+                    active.recordFailure(.writeFailed, code: "stop_drain_limit_exceeded")
+                    return
+                }
+            }
+        }
+        if ProcessInfo.processInfo.systemUptime - active.lastSourceDiagnosticUptime >= 30 {
+            active.lastSourceDiagnosticUptime = ProcessInfo.processInfo.systemUptime
+            logSourceProgress(for: active, trigger: "periodic")
+        }
+    }
+
+    private func normalizedClockDomain(_ domain: RecordingAudioClockDomain) -> RecordingAudioClockDomain {
+        domain == .sourcePresentationTime ? .hostTime : domain
+    }
+
+    private func logSourceProgress(for active: V5ActiveRecording, trigger: String) {
+        guard let diagnosticLogger else { return }
+        for (source, kind) in [(active.microphoneSource, RecordingAudioInput.microphone), (active.incomingSource, .systemAudio)] {
+            guard let snapshot = source?.timestampedDiagnostics else { continue }
+            var lagMs = -1.0
+            if let frontier = snapshot.capturedFrontier,
+               let processed = active.lastPresentationEndSeconds[kind],
+               let domain = active.clockDomains[kind],
+               normalizedClockDomain(domain) == normalizedClockDomain(frontier.clockDomain) {
+                lagMs = (frontier.seconds - processed) * 1_000
+            }
+            let pending = active.pendingBatches[kind]
+            let pendingFrames = (pending?.samples.count ?? 0) / max(1, pending?.format.channelCount ?? 1)
+            diagnosticLogger(String(format: "recording_writer_progress trigger=%@ source=%@ queued_frames=%lld pending_frames=%ld accepted_minus_processed_ms=%.3f last_batch_frames=%ld rate=%g channels=%ld capture_age_ms=%.3f",
+                trigger, kind.rawValue, snapshot.queuedFrameCount, pendingFrames, lagMs,
+                snapshot.lastBatchFrameCount, snapshot.lastBatchFormat?.sampleRate ?? 0,
+                snapshot.lastBatchFormat?.channelCount ?? 0,
+                snapshot.lastCapturedUptime.map { max(0, ProcessInfo.processInfo.systemUptime - $0) * 1_000 } ?? -1))
         }
     }
 
@@ -905,6 +966,8 @@ private final class V5ActiveRecording {
     var firstPresentationSeconds: [RecordingAudioInput: Double] = [:]
     var lastPresentationEndSeconds: [RecordingAudioInput: Double] = [:]
     var clockDomains: [RecordingAudioInput: RecordingAudioClockDomain] = [:]
+    var pendingBatches: [RecordingAudioInput: RecordingAudioBatch] = [:]
+    var lastSourceDiagnosticUptime: TimeInterval = 0
 
     init(
         sessionId: String,

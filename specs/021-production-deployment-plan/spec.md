@@ -175,3 +175,25 @@ A deployment operator can roll back or halt the first production rollout when he
 - Until `013-federated-auth-foundation` exists, production smoke uses a dedicated internal smoke identity/device created only for validation.
 - Live customer meeting content is not required for deployment validation.
 - MediaScribe at `https://mediascribe.2brain.pro` and Langfuse at `https://langfuse.2brain.pro` remain owner-controlled dependencies for the internal MVP and must be represented truthfully even when not required for ingest-only smoke.
+
+## Восстановительный срез 2026-10-02: deadlock очистки smoke
+
+Это расширение FR-018 существующего helper, а не новый smoke или изменение исторического ingest-only сценария. Современная production проверка включает обработку по уже отдельным разрешенным функциям; здесь меняется только реакция очистки на конкурентную транзакцию. Публичный rollout не выполняется этим срезом.
+
+### Уточнения 2026-10-02
+
+Пользователь/родитель поручил исправить повторный recoverable failure отдельным PR. Удаляется исключительно прежний synthetic run через существующие детерминированные identity/prefix/RLS фильтры; широкая очистка, новые fixtures в production, остановка обработчиков и ослабление gates исключены. Нет критических неясностей: ошибки, границы, критерии и полномочия определены; дополнительных вопросов не требуется.
+
+- FR-023: При транзакционной взаимной блокировке SQLSTATE40P01 до фиксации удаления helper повторяет всю DB транзакцию, максимум3 попытки с паузами100ms и300ms; каждая неудачная попытка полностью откатывается.
+- FR-024: Повтор сохраняет точный run_id/meeting/session, все существующие tenant contexts, синтетические префиксы и порядок удаления. Объектное хранилище затрагивается только после успешного commit; счётчики отражают только зафиксированное удаление.
+- FR-025: Другие ошибки, ошибка после commit и исчерпание попыток сохраняют неуспешный gate. Нет PASS по best_effort/пустому результату/непроверенным остаткам. Не вводятся knobs или дополнительные production права.
+- FR-026: В изолированном PostgreSQL воспроизвести цикл cleanup DELETE processing_workflows ↔ worker INSERT processing_results; прежний helper падает, исправленный завершает точный synthetic run, соседние обычные данные остаются неизменны, storage вызывается один раз после commit.
+- FR-027: CLI/output shape, backup/smoke/residue/readiness/rollback gates, frontend и F283 неизменны. Evidence только безопасные метаданные; production CD запрещен до устранения обоих выявленных блокеров.
+
+Acceptance: transient deadlock→полный rollback→повтор→PASS с нулевыми остатками; persistent40P01→не более3attempts и failure без storage; non40P01→одна попытка/failure; ошибка проверки остатков послеcommit→failure без повторного удаления/потерисчетчиков.
+
+## Legacy Impact
+
+- Classification: untouched
+- СуществующиеSQLfilters/RLS/CLI и pipeline gates сохранены. Новых alias/fallback/env flags/dependencies не вводится; private single-attempt helper является транзакционной границей текущей реализации, не старым альтернативным путем.
+- legacy_new=0, unowned_legacy=0, expired_exceptions=0.

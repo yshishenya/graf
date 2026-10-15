@@ -1,0 +1,18 @@
+const assert = require('node:assert/strict');
+const vm = require('node:vm');
+const fs = require('node:fs');
+const path = require('node:path');
+const context = { window: {}, document: {querySelector:()=>null, querySelectorAll:()=>[], addEventListener:()=>{}} };
+vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../../src/twobrain_rec_server/cabinet/static/cabinet/summary-sharing.js'),'utf8'), context);
+const result = context.window.GRAFSummarySharing.batchResult;
+const batch = states => ({recipients:states.map(state=>({state})),state:'pending'});
+assert.equal(result(batch(['accepted','accepted'])).title,'Итоги отправлены');
+assert.equal(result(batch(['accepted','failed'])).title,'Отправлено не всем');
+assert.equal(result(batch(['accepted','unknown'])).title,'Проверьте отправку');
+assert.equal(result(batch(['unknown'])).title,'Проверьте отправку');
+assert.equal(result(batch(['pending','accepted'])).complete,false);
+assert.equal(result(batch(['sending'])).complete,false);
+assert.notEqual(result(batch([])).title,'Итоги отправлены');
+assert.equal(result(batch(['cancelled'])).title,'Отправка отменена');
+assert.equal(result(batch(['suppressed','accepted'])).title,'Отправлено не всем');
+console.log('summary-sharing: success, known failure, unknown, pending, cancellation and suppression PASS');

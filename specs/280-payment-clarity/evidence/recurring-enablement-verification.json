@@ -1,0 +1,187 @@
+{
+  "schema_version": 1,
+  "feature_id": 280,
+  "scope": "readonly production and synthetic existing integration checks after owner reports provider card binding enabled",
+  "source_sha": "77e6aed8ff79127d6e6b284ad18b58da5793ef51",
+  "deployed_source_sha": "e750ad90facf1f6ffa4aca341136474870a5a003",
+  "deployed_release": "v2026.10.02.5",
+  "provider_support_status": "owner_reports_card_binding_enabled",
+  "provider_support_independent_confirmation": false,
+  "observed_at_utc": "2026-10-02T19:03:25.293027+00:00",
+  "runtime": {
+    "rec-api": {
+      "source_sha": "e750ad90facf1f6ffa4aca341136474870a5a003",
+      "checkout_enabled": true,
+      "scope_public": true,
+      "production": true,
+      "expected_shop": true,
+      "observation": true,
+      "running": true,
+      "health": "healthy",
+      "hashes": {
+        "src/twobrain_rec_server/billing/yookassa.py": "5988391c8a034cab8eb959e53f988eb0fef3b131ed5f845382792f61358157ce",
+        "src/twobrain_rec_server/billing/checkout.py": "5a1143e6809975ba34b027e864e794913d392a6ebd3f584d1381fc0997adf223",
+        "src/twobrain_rec_server/billing/payment_methods.py": "51c0d747daa8ddb5f1b9362ece0123575af8522be72cfc3981af3e933a75e4ef",
+        "src/twobrain_rec_server/billing/entitlements.py": "83f43809f9ec736e028a9d1bcbd9311afa19d7fb0cad195676fba27c1ad0b14b",
+        "src/twobrain_rec_server/billing/renewal.py": "d1f88bd948377e4c80c15f5a8af832f5fb5f8a82d2c5e7f674e3d25059fad17a",
+        "src/twobrain_rec_server/billing/renewal_charge.py": "4322d7a4be80aa1ed6f0ba9020839cc37d0f9043b57106f34b7c7a28a9603810",
+        "src/twobrain_rec_server/billing/reconciliation.py": "56549e38984e6698d57814f10615037d94feb124abd249c266f00d94fa532b83",
+        "src/twobrain_rec_server/billing/maintenance.py": "342912bc2cf2d1aaad3f751c137ab21db31b2f023549c8082ce4d36242d12328",
+        "src/twobrain_rec_server/billing/purchases.py": "30570a337cfd34f3b6db34010946570524319dcba3a47bb78966a230be3b5453",
+        "src/twobrain_rec_server/cabinet/web_routes/billing.py": "60151eb2a2c5d46bff9314eb5e10fbfd0eedeb939029d6fa4fbd9eab53a4dd12",
+        "src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html": "a690a666515d7c9cb2c53595d4527240e57005d3b6be200e85334547a76bfa95"
+      },
+      "billing_code_matches_current_master": true
+    },
+    "rec-processing-worker": {
+      "source_sha": "e750ad90facf1f6ffa4aca341136474870a5a003",
+      "checkout_enabled": true,
+      "scope_public": true,
+      "production": true,
+      "expected_shop": true,
+      "observation": true,
+      "running": true,
+      "health": "healthy",
+      "hashes": {
+        "src/twobrain_rec_server/billing/yookassa.py": "5988391c8a034cab8eb959e53f988eb0fef3b131ed5f845382792f61358157ce",
+        "src/twobrain_rec_server/billing/checkout.py": "5a1143e6809975ba34b027e864e794913d392a6ebd3f584d1381fc0997adf223",
+        "src/twobrain_rec_server/billing/payment_methods.py": "51c0d747daa8ddb5f1b9362ece0123575af8522be72cfc3981af3e933a75e4ef",
+        "src/twobrain_rec_server/billing/entitlements.py": "83f43809f9ec736e028a9d1bcbd9311afa19d7fb0cad195676fba27c1ad0b14b",
+        "src/twobrain_rec_server/billing/renewal.py": "d1f88bd948377e4c80c15f5a8af832f5fb5f8a82d2c5e7f674e3d25059fad17a",
+        "src/twobrain_rec_server/billing/renewal_charge.py": "4322d7a4be80aa1ed6f0ba9020839cc37d0f9043b57106f34b7c7a28a9603810",
+        "src/twobrain_rec_server/billing/reconciliation.py": "56549e38984e6698d57814f10615037d94feb124abd249c266f00d94fa532b83",
+        "src/twobrain_rec_server/billing/maintenance.py": "342912bc2cf2d1aaad3f751c137ab21db31b2f023549c8082ce4d36242d12328",
+        "src/twobrain_rec_server/billing/purchases.py": "30570a337cfd34f3b6db34010946570524319dcba3a47bb78966a230be3b5453",
+        "src/twobrain_rec_server/cabinet/web_routes/billing.py": "60151eb2a2c5d46bff9314eb5e10fbfd0eedeb939029d6fa4fbd9eab53a4dd12",
+        "src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html": "a690a666515d7c9cb2c53595d4527240e57005d3b6be200e85334547a76bfa95"
+      },
+      "billing_code_matches_current_master": true
+    },
+    "rec-maintenance": {
+      "source_sha": "e750ad90facf1f6ffa4aca341136474870a5a003",
+      "checkout_enabled": true,
+      "scope_public": true,
+      "production": true,
+      "expected_shop": true,
+      "observation": true,
+      "running": true,
+      "health": null,
+      "hashes": {
+        "src/twobrain_rec_server/billing/yookassa.py": "5988391c8a034cab8eb959e53f988eb0fef3b131ed5f845382792f61358157ce",
+        "src/twobrain_rec_server/billing/checkout.py": "5a1143e6809975ba34b027e864e794913d392a6ebd3f584d1381fc0997adf223",
+        "src/twobrain_rec_server/billing/payment_methods.py": "51c0d747daa8ddb5f1b9362ece0123575af8522be72cfc3981af3e933a75e4ef",
+        "src/twobrain_rec_server/billing/entitlements.py": "83f43809f9ec736e028a9d1bcbd9311afa19d7fb0cad195676fba27c1ad0b14b",
+        "src/twobrain_rec_server/billing/renewal.py": "d1f88bd948377e4c80c15f5a8af832f5fb5f8a82d2c5e7f674e3d25059fad17a",
+        "src/twobrain_rec_server/billing/renewal_charge.py": "4322d7a4be80aa1ed6f0ba9020839cc37d0f9043b57106f34b7c7a28a9603810",
+        "src/twobrain_rec_server/billing/reconciliation.py": "56549e38984e6698d57814f10615037d94feb124abd249c266f00d94fa532b83",
+        "src/twobrain_rec_server/billing/maintenance.py": "342912bc2cf2d1aaad3f751c137ab21db31b2f023549c8082ce4d36242d12328",
+        "src/twobrain_rec_server/billing/purchases.py": "30570a337cfd34f3b6db34010946570524319dcba3a47bb78966a230be3b5453",
+        "src/twobrain_rec_server/cabinet/web_routes/billing.py": "60151eb2a2c5d46bff9314eb5e10fbfd0eedeb939029d6fa4fbd9eab53a4dd12",
+        "src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html": "a690a666515d7c9cb2c53595d4527240e57005d3b6be200e85334547a76bfa95"
+      },
+      "billing_code_matches_current_master": true
+    }
+  },
+  "account_read": {
+    "method": "GET",
+    "path": "/v3/me",
+    "http_status": 200,
+    "error_code": null,
+    "parameter": null,
+    "account_matches_config": true,
+    "status": "enabled",
+    "test": false,
+    "fiscalization_enabled": true,
+    "payment_methods": [],
+    "capability_fields": [
+      "account_id",
+      "fiscalization",
+      "fiscalization_enabled",
+      "itn",
+      "payment_methods",
+      "status",
+      "test"
+    ],
+    "payment_method_types": [
+      "yoo_money",
+      "bank_card",
+      "sberbank",
+      "sber_loan",
+      "tinkoff_bank",
+      "alfa_pay"
+    ],
+    "safe_nested_flags": {
+      "fiscalization": {
+        "enabled": true
+      }
+    }
+  },
+  "state_read": {
+    "observed_at_utc": "2026-10-02T19:03:25.293027+00:00",
+    "window_hours": 24,
+    "database_mode": "READ ONLY rollback",
+    "provider_mutations": 0,
+    "recent_operations": {
+      "sample_limit": 100,
+      "count": 1,
+      "states": {
+        "canceled": 1
+      },
+      "kinds": {
+        "initial_checkout": 1
+      },
+      "bound_provider_count": 0,
+      "with_recurring_consent": 1,
+      "initial_403": 1
+    },
+    "global_counts_scope": "all_time_current_snapshot",
+    "subscription_recurring_enabled_count": 0,
+    "verified_active_saved_method_count": 1,
+    "recent_grant_count": 0,
+    "recent_webhook_count": 0,
+    "provider_recent_payments": {
+      "read_api": "GET /v3/payments",
+      "count": 0,
+      "more_pages": false,
+      "states": {},
+      "saved_bank_card_success_count": 0,
+      "live_card_attempt_created": false
+    }
+  },
+  "public_health": {
+    "live": 200,
+    "ready": 200
+  },
+  "tests": {
+    "unit": {
+      "passed": 176,
+      "duration_seconds": 1.38
+    },
+    "checkout_renewal_integration": {
+      "passed": 6,
+      "duration_seconds": 0.04,
+      "collection_digest": "51b788a6ee0e37c2bac0b09bfe4728e158185a26546f5e85e8049b9f0fa1efa4"
+    },
+    "money_path_sql": {
+      "passed": 71,
+      "duration_seconds": 63.06,
+      "collection_digest": "730f03bf1a6c92701a74b5cfb5e5d06beb3a869edf81ec91a992e5541ea5d026"
+    }
+  },
+  "diagnostic_script_sha256": "837a048671ba850b4c5d476f3ec44be7bbd1ef538ed6d3475f3aaa27047517cd",
+  "mutations": {
+    "provider": 0,
+    "production_database": 0,
+    "payment_attempts": 0,
+    "deployment": 0,
+    "configuration": 0
+  },
+  "not_proven": [
+    "live_initial_payment_after_provider_enablement",
+    "live_saved_bank_card_and_recurring_authority",
+    "live_renewal_charge",
+    "receipt_bank_settlement_refund_acceptance",
+    "human_acceptance_conversion_retention",
+    "zero_amount_binding"
+  ]
+}

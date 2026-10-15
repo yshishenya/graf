@@ -146,3 +146,7 @@ Validation rules:
 Validation rules:
 
 - Degraded-awareness checks MUST NOT create MediaScribe jobs, content-bearing Langfuse traces, or content egress.
+
+## Cleanup transaction retry
+
+Не добавляет таблиц/полей/миграций. Локальное состояние попытки: synthetic identity → uncommitted transaction → committed deletion → object cleanup → residue check. Только uncommitted40P01 может перейти к новой попытке; counts сбрасываются вместе с rollback. Commit необратимо выключает retry этого вызова.
