@@ -1,7 +1,7 @@
 {
-  "base_sha": "d567a7dc51b0c4d99b22660d27950316ae609a66",
+  "base_sha": "d75ba830c7a08621e9471ef62bf77b5bc66f80fb",
   "branch": "codex/289-organic-measurement",
-  "state": "validated-approved-for-commit",
+  "state": "validated-current-base",
   "files": [
     {
       "path": "apps/server/src/twobrain_rec_server/product_analytics/anonymous_aggregate.py",
@@ -41,7 +41,7 @@
     },
     {
       "path": "docs/growth/organic-growth-plan.md",
-      "sha256": "39f3e468b7707cf9743013ce9ea82dcc229834faa084c6f17c851615e1cd2613"
+      "sha256": "11d94526da632ca06f0fa8b24c05411ea22ebc4b644719ba4e6a950c79806cc6"
     },
     {
       "path": "docs/growth/posthog-baseline-2026-10-16.sql",
@@ -77,7 +77,7 @@
     },
     {
       "path": "specs/289-organic-measurement/evidence/converge.md",
-      "sha256": "9f1ca0837e3c2101fc628bc76205257f9c834c7a46872d9bfce468770b173271"
+      "sha256": "77f1ea3dc5f78c6535134d503208145cc162e2502c91a4c4df136a1c9b824ef3"
     },
     {
       "path": "specs/289-organic-measurement/evidence/posthog-aggregate.txt",
@@ -93,7 +93,7 @@
     },
     {
       "path": "specs/289-organic-measurement/evidence/validation.md",
-      "sha256": "21dbac8715f3956a2ea92e53c26d7fd65ff66032cb96b7a71d83381a5954903f"
+      "sha256": "75b43e78911eb291f890b4f5dab8f0fee769f84051a59976caf6168054a9e334"
     },
     {
       "path": "specs/289-organic-measurement/plan.md",
@@ -101,7 +101,7 @@
     },
     {
       "path": "specs/289-organic-measurement/quickstart.md",
-      "sha256": "6965986865bf2be67ef8650e59eade035784e764f64fd6af3e7e16a497b55a2c"
+      "sha256": "9c48014060a3ff34eb5e3e81f354e294b84c28a36aa4619b5d13790c63a8a9bf"
     },
     {
       "path": "specs/289-organic-measurement/research.md",
@@ -114,6 +114,19 @@
     {
       "path": "specs/289-organic-measurement/tasks.md",
       "sha256": "a1b1607d1c30a0cdf8337c8369cc99ca9225dca1f67fb170a883e1077b15bebe"
+    },
+    {
+      "path": "apps/server/tests/contract/test_product_analytics_anonymous_aggregate_contract.py",
+      "sha256": "a5396d21c9b9678165980e4dd3d1787bb5d56a9e656969ac7e99ba0542409e9d"
+    },
+    {
+      "path": "specs/289-organic-measurement/evidence/pr-review-followup.md",
+      "sha256": "b171e98bc93b5b98ff4a29801389797c6e7c2a6ca0b28781bdc41511881637de"
+    },
+    {
+      "path": "docs/growth/live-search-pages-2026-10-16.json",
+      "sha256": "6cf03262595cf7f132ca1c1cc17ec9268263902b188c78ad8c6bfa9a2dc29c3b"
     }
-  ]
+  ],
+  "prior_base_sha": "d567a7dc51b0c4d99b22660d27950316ae609a66"
 }
