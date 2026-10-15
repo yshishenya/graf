@@ -28,10 +28,10 @@ T001 → T002 → T003 → T004 → T005. Reviewer-owned checklist PASS, analyze
 
 ## GitHub mapping
 
-- T001 — Issue #7394: https://github.com/yshishenya/graf/issues/7394
-- T002 — Issue #7395: https://github.com/yshishenya/graf/issues/7395
-- T003 — Issue #7396: https://github.com/yshishenya/graf/issues/7396
-- T004 — Issue #7397: https://github.com/yshishenya/graf/issues/7397
-- T005 — Issue #7398: https://github.com/yshishenya/graf/issues/7398
+- T001 (Issue #7394): https://github.com/yshishenya/graf/issues/7394
+- T002 (Issue #7395): https://github.com/yshishenya/graf/issues/7395
+- T003 (Issue #7396): https://github.com/yshishenya/graf/issues/7396
+- T004 (Issue #7397): https://github.com/yshishenya/graf/issues/7397
+- T005 (Issue #7398): https://github.com/yshishenya/graf/issues/7398
 
 Umbrella / feature reservation: Issue #7392 — https://github.com/yshishenya/graf/issues/7392 (allocator-created T000; remains open, not a task owner).
