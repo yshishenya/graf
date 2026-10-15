@@ -624,7 +624,7 @@ async def run_billing_reconciliation_reconciler(settings: Any, temporal_client: 
 
 
 async def run_billing_notification_reconciler(settings: Any) -> None:
-    """Deliver bounded transactional notices exactly once per outbox row."""
+    """Deliver notices with bounded retries only for known, unaccepted failures."""
     engine = create_engine(settings)
     sessionmaker = create_sessionmaker(engine)
     context = MaintenanceTenantContext(
@@ -682,6 +682,7 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                         )
                     ).all()
                 for row, recipient_email, optional_email_enabled in rows:
+                    claimed = False
                     try:
                         kind = BillingNotification(row.template_key)
                         if (
@@ -732,6 +733,22 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                             )
                             + "</div>"
                         )
+                        # Persist an uncertain result before POST: a crash must not
+                        # replay mail that Postal may already have accepted.
+                        async with sessionmaker() as db:
+                            await apply_tenant_context(db, context)
+                            sending = await db.scalar(
+                                select(BillingNotificationDelivery)
+                                .where(BillingNotificationDelivery.id == row.id)
+                                .with_for_update()
+                            )
+                            if sending is None or sending.state not in {"pending", "retry"}:
+                                continue
+                            sending.state = "failed"
+                            sending.last_error_code = "postal_outcome_unknown"
+                            sending.attempts += 1
+                            await db.commit()
+                            claimed = True
                         await send_billing_notification(
                             settings=settings,
                             recipient_email=str(recipient_email),
@@ -750,12 +767,23 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                                 .where(BillingNotificationDelivery.id == row.id)
                                 .with_for_update()
                             )
-                            if failed is not None and failed.state in {"pending", "retry"}:
-                                failed.attempts += 1
-                                failed.last_error_code = type(exc).__name__[:64]
-                                failed.state = "retry" if failed.attempts < 5 else "failed"
+                            if failed is not None and (
+                                failed.state in {"pending", "retry"}
+                                or (claimed and failed.state == "failed"
+                                    and failed.last_error_code == "postal_outcome_unknown")
+                            ):
+                                if not claimed:
+                                    failed.attempts += 1
+                                known = isinstance(exc, EmailLoginDeliveryError) and not exc.outcome_unknown
+                                failed.last_error_code = (
+                                    type(exc).__name__[:64] if known or not claimed
+                                    else "postal_outcome_unknown"
+                                )
+                                failed.state = "retry" if (
+                                    known and exc.retryable and failed.attempts < 5
+                                ) else "failed"
                             await db.commit()
-                        logger.warning("billing notification delivery failed", exc_info=True)
+                        logger.warning("billing notification delivery failed")
                     else:
                         async with sessionmaker() as db:
                             await apply_tenant_context(db, context)
@@ -764,14 +792,17 @@ async def run_billing_notification_reconciler(settings: Any) -> None:
                                 .where(BillingNotificationDelivery.id == row.id)
                                 .with_for_update()
                             )
-                            if delivered is not None and delivered.state in {"pending", "retry"}:
+                            if delivered is not None and delivered.state == "failed" and (
+                                delivered.last_error_code == "postal_outcome_unknown"
+                            ):
                                 delivered.state = "delivered"
+                                delivered.last_error_code = None
                                 delivered.delivered_at = datetime.now(UTC)
                             await db.commit()
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception("billing notification reconciliation cycle failed")
+                logger.warning("billing notification reconciliation cycle failed")
             await asyncio.sleep(60)
     finally:
         await engine.dispose()
