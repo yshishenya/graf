@@ -48,6 +48,36 @@ active only while the user can still invoke Stop; it cannot be advertised as a
 normal session. There is no state in which capture is active but the indicator is
 hidden.
 
+### Приватные сегменты сессии — T120, 2026-10-04
+
+`privacySegments` принадлежит логическому v5 manifest той же сессии/пакета,
+не серверному разрешению или отдельному журналу. Модель и Codable names —
+Mac `ProductPrivacySegment`/`LocalRecordingManifest` на c8d67c…:
+
+| Поле | Представление | Правило |
+| --- | --- | --- |
+| segmentId/sessionId | строка | неизменная привязка к текущей сессии; ID сегмента уникален |
+| control | pause/resume/stop | новый Pause создаёт pause, финализация не выдумывает новый control |
+| startedAt/endedAt | ISO8601 UTC | дата начала обязательна; endedAt отсутствует для OPEN |
+| startMonotonicMs/endMonotonicMs | неотрицательное целое | отсчёт от начала записи; end отсутствует для OPEN, не раньше start |
+| durationMs | неотрицательное целое | OPEN0, закрытый max(0,end−start), без overflow |
+| localMicTreatment | silenced/redacted/ended | пользовательская Pause — silenced |
+| initiator | RecordingEvidenceInitiator | пользовательская Pause — user |
+| diagnosticSafe | bool | новый продуктовый сегмент true; не содержит samples/paths |
+
+Mac Codable опускает nil endedAt/endMonotonicMs; Windows fixtures должны
+сохранять этот смысл и known legacy отсутствие privacySegments. ISO8601
+кодирование определено LocalRecordingManifestService, а не угадывается по
+wall-clock числу. JSON whitespace/key order не являются новой authority.
+Полный manifest≤64KiB по local custody §3; не вводится отдельный cap числа
+сегментов или потеря старой истории. Несовместимая/повреждённая форма blocked.
+
+Принятый OPEN предшествует подавлению. Принятый Resume требует точной FIFO
+границы; failed CLOSE сохраняет прежний durable OPEN. Storage completion
+привязан к session/generation; Stop остаётся доступным и late result не
+возобновляет запись. T116 внедряет защищённую запись, T120 — этот control flow;
+наличие модели не означает выполненную интеграцию.
+
 ## 2. PermissionSnapshot
 
 ```json
@@ -271,7 +301,8 @@ Rules:
 - native validates `Source`, exact origin, route kind, version, direction,
   message id, payload size and command-specific payload before action;
 - only `request_app_quit`, `local_recording`, `app_appearance`,
-  `native_settings`, `delete_selection`, `request_app_update` and `calendar_join` are accepted as requests;
+  `native_settings`, `delete_selection`, `request_app_update`, `calendar_join`
+  and cancellation-only `calendar_join_cancel` are accepted as requests;
   their exact payloads and current-state checks are defined in the bridge
   contract; obsolete settings/diagnostics/repair/acknowledgement aliases fail;
 - web receives `native_ready`, typed settings replies, deletion outcomes and
@@ -289,6 +320,63 @@ Session token/https_url нужны только в памяти текущей �
 и не проецируются в web reply/history. Один busy owner для всех Join entrypoints;
 terminal/stale callback не изменяет новую операцию. Record не является payload
 моста; native joinAndRecord проходит отдельную проверку после handoff.
+
+Document Join correlation: canonical event/request UUID, pinned generation/nonce,
+до1024 consumed request UUID без вытеснения. Join consumes UUID даже при busy/
+not-ready; replay не создаёт flight. Cap-отказ — исключение: UUID не admitted/
+consumed, его повтор даёт только cancelled/not_ready без work/history growth;
+replay saved UUID проверяется первым. Cancel содержит только те же два UUID,
+не создаёт request и относится лишь к matching document pending. Новый document
+сбрасывает consumed set, но не завершает actual SDK/worker child прежней операции.
+
+Recovery сохраняет operation/request identity и внешний opening до результата.
+Новый deadline относится только к свежему resolver после явного подтверждения;
+исходный action expiry не продлевается. Terminal UI и actual pending-work drain
+раздельны; новое действие не принимается до drain. State/fence owner не хранит
+ссылку и не считает вызов cancellation доказательством завершения работы.
+
+CalendarNativeLauncher — один ephemeral owned query/launch SDK handle без
+HTTP/dialog/auth/capture authority. State owner сохраняет operation/work ticket.
+Discard-only cancellation удерживает handle; natural Completed/Error означает
+owned API child completion, indeterminate Status/Canceled — busy без разрешения
+drain. StartFailed завершает только синхронный dispatch scope без полученного
+handle, не доказывает отсутствие OS effect. Current/receiver/handoff/Record
+остаются отдельными доказательствами; неопределённая работа не пересоздаётся.
+
+T119 native upcoming projection: CalendarReminderSnapshot дополнен server
+showUpcomingTime/showUpcomingTitle (default true для missing/null), event.allDay
+(default false для missing/null). Present non-bool отвергает весь ответ. Это
+эфемерные поля существующего snapshot, не новые local preferences. Privacy
+titleState и прежняя owner/UUID/instant/link validation остаются обязательными.
+Menu rows — startsAt/eventId sorted prefix12, независимо от card canSurface,
+dismissal/quiet/capture; source current берётся только из доступного принятого
+snapshot. Ошибка refresh очищает menu, даже если card сохраняет failed Retry.
+
+Native menu selection хранит frozen event target (eventId/startsAt/endsAt/link
+availability/URL identity), owner epoch и native action UUID; не свежий row index
+и не card pendingAction. Original endsAt один раз преобразуется из remaining
+wall duration в checked steady_clock expiry на принятии выбора; invalid/expired/
+overflow отвергаются. Current требует неизменного target/owner, доступной текущей
+проекции и исходного expiry. Presentation-only flags/title refresh прекращает
+popup tracking, но не меняет target уже принятого flight. Normal popup close
+после selection — не отмена flight. Ни один из этих фактов не actual drain.
+
+Menu failure Retry — dialog work общего operation owner до terminal, отдельный
+purpose от browser recovery. После matching dialog drain + explicit current
+Primary прежний attempt становится failed, новый request/operation получает тот
+же source/expiry и новый resolver budget click+15s. Не возобновлять terminal,
+не переиспользовать URL, не освобождать busy между попытками для другого Join.
+Cancelled/stale/unknown exit не начинает новую попытку. Menu never Record;
+card/document sources и их lifetime остаются прежними.
+
+T119 display-time context (Round243): ephemeral origin/native owner/workspace/
+auth generation/token identity/document generation/nonce/context revision плюс
+metadata session UUID и optional preferred IANA zone. Metadata не auth authority
+и не persisted preference; принятие только по plan «T119: пользовательское время»
+и bridge§10. Invalid current data сбрасывают preference в system fallback;
+stale completion не стирает более новый context. Account/session/origin switch
+сбрасывает его до нового accepted document. Display revision влияет на popup
+tracking, но не заменяет event/Join identity и immutable action expiry.
 
 ## 9. VerifiedTargetIdentity
 
@@ -453,6 +541,9 @@ Migration делает ledger source/range stamp по whole logical hash/length;
 Initial prepared/fence/destination birth и cuts определены contract §8: closing
 fence не является уже открытой queue. Mutable queue после switch может иметь
 новые generations/ranges; migration copy receipt не отменяет current authority.
+Package-state v1/v2 использует единственный JSON key версии `schema` и ровно
+девять top-level fields базового §8.1. `schema_version` не является alias;
+это уточнение не переименовывает поле версии существующего logical v5 manifest.
 cleanup receipt не заменяет свежую проверку owner/delete rights. Все temp/
 quarantine роли замкнуты §8.2; plaintext leftovers исключают encrypted claim.
 
@@ -487,3 +578,40 @@ stamp и strict codec по packed contract §6.1 до подключения к 
 packed decode. Persistent root stamps обоих metadata slots восстанавливаются
 и full-verified до GC даже вне current media heads. Migration gates T117
 остаются отдельными, новый field list не принимается как runtime implementation.
+
+## T116: runtime ownership полного V5-пути — 2026-10-07
+
+Новых persistent schemas/полей нет: package.v2/queue v3-read-v2 и typed ticket
+определены существующими contracts. Private package owner удерживает настоящую
+root-часть, package-state lease/accepted generation и generated member identities;
+не account/effect authority. Capturing → finalizing → sealed normal/degraded
+или discard pending проверяется существующим codec, с BOTH slots и exact refs.
+Charged recording work удерживается native worker через capture/finalizer/queue
+ACK; UI получает только values. Mutable writer имеет одного serial mutator:
+dispatcher до EOS, finalizer после fence, MF calls через закрытый serial adapter
+без прямого параллельного доступа. Worker очищает native refs до terminal values.
+Short intent не означает removed; codec result не означает saved; stale epoch
+принимает physical generation, но не account/network capability. Это design,
+не утверждение о текущей реализации; допуск следующего кода проверяется отдельно.
+
+## T116: HTTP-flight и результат очереди — 2026-10-10
+
+Persistent schema не меняется. Construction source: `plan.md`, раздел
+«T116: защищённая HTTP-отправка и принятие результата».
+
+- Flight: charged выбранные строки/результаты≤32, captured row identity,
+  store/queue context/base generation, auth epoch/cancel и busy/lease.
+  Retained package inspection принадлежит network worker, не UI completion.
+- Prepare: current protected value → private candidate → committed/adoption →
+  current-context dispatch. Непустой flight сохраняет full candidate и при
+  неизменном payload; пустой выбор не создаёт flight/commit/network.
+  Display snapshot и false от domain helper не дают dispatch authority.
+- Result: network terminal → проверка свежей row/epoch → private full candidate
+  (server truth + status) → committed/adoption → retired. Pending и lost poll
+  сохраняют result/busy; ambiguous закрывает продолжение до reconciliation.
+- Protected HTTP-body: shared immutable CustodyBytes и charged control block;
+  обычный string body пуст. Копирование request удерживает тот же owner, не bytes.
+  Logical chunks≤256KiB не меняют wire part4MiB/clamp64KiB–16MiB.
+
+Это конструкция перед независимым review, не наличие реализации или новое
+разрешение на upload/playback/delete/публичный выпуск.

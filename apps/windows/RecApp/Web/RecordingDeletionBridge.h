@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Upload/DesktopApiClient.h"
+#include "../Storage/ProtectedCustodyCodec.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -63,7 +64,7 @@ struct CabinetDeletionOperation {
 // The waiting reasons the page knows are its own camelCase ones; the ledger keeps
 // its snake_case spellings. An unknown reason is passed through unchanged: the
 // page then prints the phase instead of inventing a state that is not there.
-[[nodiscard]] std::string pageDeletionWaitReason(std::string_view ledgerReason);
+[[nodiscard]] std::string_view pageDeletionWaitReason(std::string_view ledgerReason) noexcept;
 
 // What the cabinet is told once the requests are stored and attempted. The page
 // reads exactly these fields (`cabinet.js:1536-1550`).
@@ -104,7 +105,8 @@ public:
         const CabinetDeletionSelection& selection, const std::vector<CabinetLocalRow>& rows);
     // The answer the page waits for. The request id is re-validated inside: a page
     // cannot smuggle script through it.
-    [[nodiscard]] static std::string completionScript(std::string_view requestId,
+    template<class String = std::string>
+    [[nodiscard]] static String completionScript(std::string_view requestId,
                                                       const CabinetDeletionOutcome& outcome);
     // The script that makes the cabinet see the same bridge it sees on macOS. It
     // declares the version the page gates on, so it must be injected only when a

@@ -22,8 +22,10 @@ TransitionResult WindowsDesktopSession::beginReadinessCheck() {
     if (activeLeaseHeld_) {
         return {TransitionStatus::rejected, state_, ReasonCode::activeSessionExists};
     }
+    try { activeLease_ = std::make_shared<ActiveLease>(); }
+    catch (...) { return {TransitionStatus::rejected, state_, ReasonCode::storageUnavailable}; }
     activeLeaseHeld_ = true;
-    ownsActiveLease_ = true;
+    activeLease_->armed = true;
     return transition(SessionState::checkingReadiness, ReasonCode::none);
 }
 
@@ -120,12 +122,13 @@ bool WindowsDesktopSession::allowed(SessionState from, SessionState to) noexcept
 }
 
 void WindowsDesktopSession::releaseActiveLeaseIfNeeded() noexcept {
-    if (!ownsActiveLease_) {
-        return;
-    }
+    activeLease_.reset();
+}
+
+WindowsDesktopSession::ActiveLease::~ActiveLease() {
+    if (!armed) return;
     std::lock_guard lock(activeLeaseMutex_);
     activeLeaseHeld_ = false;
-    ownsActiveLease_ = false;
 }
 
 } // namespace graf::windows

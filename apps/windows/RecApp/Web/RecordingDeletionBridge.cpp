@@ -1,6 +1,8 @@
 #include "RecordingDeletionBridge.h"
 
 #include <algorithm>
+#include <charconv>
+#include <limits>
 #include <set>
 #include <utility>
 
@@ -67,8 +69,6 @@ constexpr std::string_view kDocumentScript = R"JS(
     return true;
 }
 
-[[nodiscard]] std::string number(std::size_t value) { return std::to_string(value); }
-
 } // namespace
 
 std::optional<CabinetDeletionSelection> RecordingDeletionBridge::validate(
@@ -125,33 +125,46 @@ std::vector<CabinetDeletionTarget> RecordingDeletionBridge::targets(
     return result;
 }
 
-std::string RecordingDeletionBridge::completionScript(std::string_view requestId,
+template<class String>
+String RecordingDeletionBridge::completionScript(std::string_view requestId,
                                                      const CabinetDeletionOutcome& outcome) {
     if (!isUuid(requestId)) return {};
-    std::string result = "{\"saved\":";
+    String result = "window.GRAFLocalRecordings?.deletionCompleted('";
+    result.append(requestId.begin(), requestId.end());
+    result += "', {\"saved\":";
     result += outcome.saved ? "true" : "false";
     if (outcome.unknown) {
         // The cabinet distinguishes "no answer yet" from "could not store":
         // one asks the user to check the deletion list, the other to try again.
         result += ",\"unknown\":true}";
     } else {
-        result += ",\"accepted\":" + number(outcome.accepted);
-        result += ",\"pending\":" + number(outcome.pending);
-        result += ",\"rejected\":" + number(outcome.rejected) + "}";
+        const auto append = [&](std::string_view key, std::size_t value) {
+            result.append(key.begin(), key.end());
+            char digits[std::numeric_limits<std::size_t>::digits10 + 1];
+            const auto converted = std::to_chars(std::begin(digits), std::end(digits), value);
+            result.append(digits, converted.ptr);
+        };
+        append(",\"accepted\":", outcome.accepted);
+        append(",\"pending\":", outcome.pending);
+        append(",\"rejected\":", outcome.rejected);
+        result += "}";
     }
-    return "window.GRAFLocalRecordings?.deletionCompleted('" + std::string(requestId) + "', " + result + ")";
+    result += ")";
+    return result;
 }
+template std::string RecordingDeletionBridge::completionScript<std::string>(std::string_view, const CabinetDeletionOutcome&);
+template CustodyString RecordingDeletionBridge::completionScript<CustodyString>(std::string_view, const CabinetDeletionOutcome&);
 
 std::string_view RecordingDeletionBridge::documentScript() noexcept {
     return kDocumentScript;
 }
 
-std::string pageDeletionWaitReason(std::string_view ledgerReason) {
+std::string_view pageDeletionWaitReason(std::string_view ledgerReason) noexcept {
     // The page prints these five reasons itself; anything else it does not know,
     // and an unknown value must not become a state the user was never told about.
     if (ledgerReason == "rate_limit") return "rateLimit";
     if (ledgerReason == "server_update") return "serverUpdate";
-    return std::string(ledgerReason);
+    return ledgerReason;
 }
 
 } // namespace graf::windows

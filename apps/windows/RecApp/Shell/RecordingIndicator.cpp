@@ -18,7 +18,7 @@ std::string statusText(SessionState state) {
     case SessionState::queued: return "Ожидает отправки";
     case SessionState::uploaded: return "Отправлено";
     case SessionState::blocked: return "Запись недоступна";
-    case SessionState::failed: return "Не удалось сохранить запись";
+    case SessionState::failed: return "Запись завершилась с ошибкой";
     }
     return "Состояние записи неизвестно";
 }

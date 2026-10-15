@@ -45,6 +45,46 @@ void testNotificationV2IsNotStoppedByRecordingV1HostGuard() {
     assert(parse < recordingVersion); // recording-only v1 guard, after the notification branch
 }
 
+void testProtectedPlaybackWindowCallbackWiring() {
+    // Source wiring only: actual WinUI callback/engine acceptance belongs to the native lane.
+    const auto root = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
+    std::ifstream input(root / "RecApp/AppMain.cpp"); assert(input.is_open());
+    const std::string text{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+    const auto begin = text.find("void showLocalPlayback()");
+    const auto end = text.find("void pollLocalPlayback()", begin);
+    assert(begin != std::string::npos && end != std::string::npos);
+    const auto window = text.substr(begin, end - begin);
+    for (const auto callback : {"playbackButton_.Click([this, generation]", "playbackSeek_.ValueChanged([this, generation]", "playbackWindow_.Closed([this, generation]", "playbackPanel_.KeyDown([this, generation]"}) {
+        const auto at = window.find(callback); assert(at != std::string::npos);
+        const auto guard = window.find("generation != playbackWindowGeneration_", at);
+        assert(guard != std::string::npos && guard - at < 160);
+    }
+    assert(window.find("playbackStatus_.TextWrapping(TextWrapping::Wrap)") != std::string::npos);
+    assert(window.find("TextTrimming::CharacterEllipsis") == std::string::npos);
+    assert(window.find("SetLiveSetting(playbackStatus_") != std::string::npos);
+    assert(window.find("scroll.VerticalScrollBarVisibility(ScrollBarVisibility::Auto)") != std::string::npos);
+    assert(window.find("scroll.HorizontalScrollBarVisibility(ScrollBarVisibility::Disabled)") != std::string::npos);
+    assert(window.find("scroll.BringIntoViewOnFocusChange(true)") != std::string::npos);
+    assert(window.find("scroll.Content(playbackPanel_)") != std::string::npos);
+    assert(window.find("playbackWindow_.Content(scroll)") != std::string::npos);
+    assert(window.find("VirtualKey::Escape") != std::string::npos);
+    const auto retryClick = window.find("if (state.terminal && FAILED(state.media.error))");
+    assert(retryClick != std::string::npos && "protected_playback_retry_must_wait_for_actual_terminal");
+    assert(window.find("pendingPlayback_ = *playbackRequest_", retryClick) != std::string::npos);
+    const auto poll = text.substr(end, text.find("void handleLocalRecording(", end) - end);
+    assert(poll.find("const bool retry = !pendingPlayback_ && state.terminal && FAILED(state.media.error)") != std::string::npos);
+    assert(poll.find("playbackButton_.IsEnabled(usable || retry)") != std::string::npos);
+    assert(poll.find("L\"Повторить\"") != std::string::npos);
+    assert(poll.find("L\"Повторить открытие локальной записи\"") != std::string::npos);
+    const auto dismiss = text.find("void dismissPlaybackWindow()");
+    const auto invalidate = text.find("++playbackWindowGeneration_", dismiss);
+    const auto close = text.find("closing.Close()", dismiss);
+    assert(dismiss != std::string::npos && invalidate < close && close != std::string::npos);
+    const auto handler = text.find("void handleLocalRecording(");
+    assert(handler != std::string::npos && text.find("if (action == \"open\")", handler) < text.find("!capture_->localQueueComplete()", handler));
+    assert(text.find("meeting-review.m4a") == std::string::npos); // No external plaintext player fallback.
+}
+
 std::string lastNavigation(std::vector<RouteEvaluation>& seen) {
     assert(!seen.empty());
     return seen.back().normalizedUrl;
@@ -471,6 +511,7 @@ int main() {
     testNestedPaymentPopupKeepsOriginalDeadline();
     testPaymentPopupAdmissionAndLifetime();
     testNotificationV2IsNotStoppedByRecordingV1HostGuard();
+    testProtectedPlaybackWindowCallbackWiring();
     testHttpErrorDocumentGate();
     testAuthRecoveryPresentation();
     testProcessFailureRecovery();
@@ -780,6 +821,24 @@ int main() {
     // The cabinet localizes the row itself, so it receives the instant in wire
     // form and a prefix instead of a date already rendered on this machine.
     {
+        WebViewLocalRecordingRow unmeasured;
+        assert(!std::optional<std::uint64_t>(unmeasured.durationSeconds).has_value() &&
+            "unknown_duration_is_not_measured_zero");
+        unmeasured.canOpen = true;
+        WebView2Host::applyLocalPackageTiming(unmeasured, 0, 0, true);
+        assert(!std::optional<std::uint64_t>(unmeasured.sessionDurationSeconds).has_value());
+        assert(!unmeasured.showsPartialDuration && unmeasured.startedAt.empty());
+        WebView2Host::applyLocalPackageTiming(unmeasured, 1'789722300000ULL, 1'789722363000ULL, true);
+        assert(!std::optional<std::uint64_t>(unmeasured.durationSeconds).has_value());
+        assert(unmeasured.sessionDurationSeconds == 63 && !unmeasured.showsPartialDuration);
+        WebView2Host::applyLocalPackageTiming(unmeasured, 0, 0, true);
+        assert(!std::optional<std::uint64_t>(unmeasured.sessionDurationSeconds).has_value() &&
+            "missing_timing_revokes_previous_session_duration");
+        unmeasured.durationSeconds = 0;
+        WebView2Host::applyLocalPackageTiming(unmeasured, 0, 0, true);
+        assert(std::optional<std::uint64_t>(unmeasured.durationSeconds).has_value());
+        assert(unmeasured.durationSeconds == 0 && unmeasured.sessionDurationSeconds == 0 && !unmeasured.showsPartialDuration);
+
         WebViewLocalRecordingRow row;
         row.durationSeconds = 90;
         row.canOpen = true;

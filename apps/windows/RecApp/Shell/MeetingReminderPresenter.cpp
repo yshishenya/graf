@@ -1,8 +1,13 @@
 #include "MeetingReminderPresenter.h"
 #include <ctime>
+#include <algorithm>
+#include <cmath>
+#include <cwchar>
+#include <limits>
 #include <utility>
 #ifdef _WIN32
 #include <windows.h>
+#include <winrt/Windows.Globalization.h>
 #endif
 
 namespace graf::windows {
@@ -51,25 +56,103 @@ std::wstring startText(double instant) {
     return formatted;
 }
 }
+std::optional<std::wstring> MeetingReminderPresenter::upcomingTime(double instant,
+    std::string_view preferredZone, bool allDay, bool showTime) {
+    if (!std::isfinite(instant) || instant < 0 || instant >= 253402300800.0 || preferredZone.size() > 100 ||
+        (!preferredZone.empty() && preferredZone != "UTC" && preferredZone.find('/') == std::string_view::npos) ||
+        std::any_of(preferredZone.begin(), preferredZone.end(), [](unsigned char c) { return c <= 0x20 || c >= 0x7f; }))
+        return std::nullopt;
+    if (!showTime) return L"";
+    if (allDay) return L"Весь день";
+    int hour = 0, minute = 0;
+#ifdef _WIN32
+    try {
+        using namespace winrt::Windows::Globalization;
+        Calendar calendar;
+        calendar.ChangeCalendarSystem(CalendarIdentifiers::Gregorian());
+        calendar.ChangeClock(ClockIdentifiers::TwentyFourHour());
+        if (!preferredZone.empty()) calendar.ChangeTimeZone(winrt::to_hstring(preferredZone));
+        // HH:mm needs whole seconds. Add the 1601 epoch offset as integers:
+        // MSVC's double-sized long double would round across minute boundaries.
+        const auto seconds = static_cast<std::int64_t>(std::floor(instant));
+        const auto ticks = seconds * 10000000LL + 116444736000000000LL;
+        calendar.SetDateTime(winrt::Windows::Foundation::DateTime{winrt::clock::duration{ticks}});
+        hour = calendar.Hour(); minute = calendar.Minute();
+    } catch (...) { return std::nullopt; }
+#else
+    // Portable tests may cover UTC/system only, never emulate Windows IANA/DST.
+    if (!preferredZone.empty() && preferredZone != "UTC") return std::nullopt;
+    if (instant >= static_cast<double>(std::numeric_limits<std::time_t>::max())) return std::nullopt;
+    const auto time = static_cast<std::time_t>(instant); std::tm value{};
+    if (!(preferredZone.empty() ? localtime_r(&time, &value) : gmtime_r(&time, &value))) return std::nullopt;
+    hour = value.tm_hour; minute = value.tm_min;
+#endif
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return std::nullopt;
+    wchar_t label[6]{};
+    if (std::swprintf(label, 6, L"%02d:%02d", hour, minute) != 5) return std::nullopt;
+    return std::wstring(label);
+}
 MeetingReminderPresenter::MeetingReminderPresenter(RecordingNoticePresenter& card, NotificationPreferenceStore store)
     : card_(card), store_(std::move(store)) {}
 MeetingReminderPresenter::~MeetingReminderPresenter() { retirePresented(); }
+std::optional<RecordingNoticePresenter::Clock::time_point> MeetingReminderPresenter::upcomingExpiry(
+    double endsAt, double wallNow, RecordingNoticePresenter::Clock::time_point steadyNow) {
+    using Clock = RecordingNoticePresenter::Clock;
+    if (!std::isfinite(endsAt) || !std::isfinite(wallNow)) return std::nullopt;
+    const auto remaining = endsAt - wallNow;
+    if (!std::isfinite(remaining) || remaining <= 0) return std::nullopt;
+    const long double ticks = std::floor(static_cast<long double>(remaining) * Clock::period::den / Clock::period::num);
+    // MSVC's long double is double: reject its rounded-up signed maximum before casting.
+    const auto limit = std::nextafter(static_cast<double>(std::numeric_limits<Clock::duration::rep>::max()), 0.0);
+    if (ticks < 1 || ticks > limit) return std::nullopt;
+    const Clock::duration duration{static_cast<Clock::duration::rep>(ticks)};
+    if (steadyNow > Clock::time_point::max() - duration) return std::nullopt;
+    return steadyNow + duration;
+}
+std::optional<std::vector<UpcomingMeetingRow>> MeetingReminderPresenter::upcomingRows(
+    double now, std::string_view preferredZone) const {
+    if (!std::isfinite(now)) return std::nullopt;
+    const auto snapshot = model_.upcoming();
+    if (!snapshot) return std::nullopt;
+    std::vector<UpcomingMeetingRow> rows;
+    rows.reserve(snapshot->events.size());
+    for (auto event : snapshot->events) {
+        const auto time = upcomingTime(event.startsAt, preferredZone, event.allDay, snapshot->showUpcomingTime);
+        if (!time) return std::nullopt;
+        auto title = std::wstring(L"Встреча");
+        if (snapshot->showUpcomingTitle && event.titleAvailable && event.title.size() <= 4096) {
+            const auto decoded = wide(event.title);
+            // Match Mac's whitespace-only empty title without a process-global locale.
+            if (event.title.empty() || !decoded.empty()) {
+                title = decoded.find_first_not_of(L" \t\r\n\v\f\u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000") == std::wstring::npos
+                    ? L"Без названия" : decoded;
+            }
+        }
+        const bool enabled = model_.upcomingCurrent(event, model_.epoch(), now);
+        event.title.clear(); event.titleAvailable = false; // Do not duplicate private/display title in the target.
+        rows.push_back({std::move(event), model_.epoch(), time->empty() ? std::move(title) : *time + L" · " + title, enabled});
+    }
+    return rows;
+}
 void MeetingReminderPresenter::bind(std::string owner, std::string workspace, std::string origin) {
     const auto epoch = model_.epoch(); model_.bind(std::move(owner), std::move(workspace), std::move(origin));
     if (model_.epoch() == epoch) return;
-    presented_.reset(); pendingAction_.reset(); card_.resetContext();
+    presented_.reset(); pendingAction_.reset(); failedJoinUntil_.reset(); joinFailure_.clear(); card_.resetContext();
     preferences_ = store_.load(model_.owner()); card_.setQuiet(preferences_.quiet);
 }
-void MeetingReminderPresenter::invalidate() { model_.invalidate(); presented_.reset(); pendingAction_.reset(); card_.resetContext(); preferences_ = {}; }
+void MeetingReminderPresenter::invalidate() { model_.invalidate(); presented_.reset(); pendingAction_.reset(); failedJoinUntil_.reset(); joinFailure_.clear(); card_.resetContext(); preferences_ = {}; }
 void MeetingReminderPresenter::retirePresented() {
     if (presented_) {
         CalendarReminderEvent event{}; event.eventId = presented_->eventId; event.startsAt = presented_->startsAt;
         model_.dismiss(event);
         if (card_.visible() && card_.kind() == NoticeKind::meeting && card_.id() == model_.dismissalKey(event)) card_.dismiss();
     }
-    presented_.reset(); pendingAction_.reset();
+    presented_.reset(); pendingAction_.reset(); failedJoinUntil_.reset(); joinFailure_.clear();
 }
 void MeetingReminderPresenter::calendarFailed() {
+    model_.invalidateUpcoming();
+    if (failedJoinUntil_ && RecordingNoticePresenter::Clock::now() < *failedJoinUntil_ &&
+        presented_ && card_.visible() && card_.kind() == NoticeKind::meeting) return;
     retirePresented(); model_.clearCalendar();
 }
 bool MeetingReminderPresenter::update(CalendarReminderSnapshot snapshot, std::uint64_t epoch) {
@@ -79,6 +162,7 @@ bool MeetingReminderPresenter::update(CalendarReminderSnapshot snapshot, std::ui
     }
     if (!model_.update(std::move(snapshot), epoch)) return false;
     if (!stillCurrent) retirePresented();
+    else { failedJoinUntil_.reset(); joinFailure_.clear(); }
     return true;
 }
 void MeetingReminderPresenter::reconcile(double now, RecordingNoticePresenter::Clock::time_point steadyNow, bool recording) {
@@ -93,6 +177,7 @@ void MeetingReminderPresenter::reconcile(double now, RecordingNoticePresenter::C
         const bool sameCard = card_.visible() && card_.kind() == NoticeKind::meeting &&
             event && card_.id() == model_.dismissalKey(*event);
         if (!event || now >= presentedDeadline_ || steadyNow >= presentedSteadyDeadline_ ||
+            (failedJoinUntil_ && steadyNow >= *failedJoinUntil_) ||
             card_.automaticPromptActive() || (!sameCard && (card_.visible() || !pendingAction_))) {
             retirePresented(); event.reset();
         } else if (pendingAction_) return;
@@ -108,9 +193,11 @@ void MeetingReminderPresenter::reconcile(double now, RecordingNoticePresenter::C
         title = wide(event->title);
         if (title.find_first_not_of(L" \r\n\t") == std::wstring::npos) title = L"Без названия";
     }
-    NoticeContent content{NoticeKind::meeting, model_.dismissalKey(*event), std::move(title), startText(event->startsAt), {}};
+    NoticeContent content{NoticeKind::meeting, model_.dismissalKey(*event), std::move(title),
+        joinFailure_.empty() ? startText(event->startsAt) : joinFailure_, {}};
     if (event->meetingLinkPresent && MeetingReminderModel::safeMeetingUrl(event->meetingUrl)) {
-        content.buttons = {{L"Подключиться", NoticeAction::join}, {L"Подключиться и начать запись", NoticeAction::joinAndRecord}};
+        content.buttons = {{joinFailure_.empty() ? L"Подключиться" : L"Повторить подключение", NoticeAction::join},
+            {L"Подключиться и начать запись", NoticeAction::joinAndRecord}};
     } else content.buttons = {{L"Начать запись", NoticeAction::record}};
     const auto target = model_.actionTarget(*event);
     const auto deadline = MeetingReminderModel::deadline(*event, preferences_.offsetMinutes);
@@ -163,14 +250,40 @@ std::string MeetingReminderPresenter::settings(const NativeSettingsBridge::Notif
 }
 std::optional<CalendarReminderEvent> MeetingReminderPresenter::completeAction(const ReminderActionTarget& target,
     NoticeAction action, double now, bool recording) {
+    if (!pendingActionExpiry(target, action, now, recording)) return std::nullopt;
+    const auto event = model_.revalidate(target, now, recording, preferences_.offsetMinutes);
+    retirePresented();
+    return event;
+}
+std::optional<RecordingNoticePresenter::Clock::time_point> MeetingReminderPresenter::pendingActionExpiry(
+    const ReminderActionTarget& target, NoticeAction action, double now, bool recording) const {
     if (!presented_ || !sameTarget(target, *presented_) || pendingAction_ != action) return std::nullopt;
     const auto event = model_.revalidate(target, now, recording, preferences_.offsetMinutes);
     const bool allowed = event && preferences_.reminders && !preferences_.quiet && now < presentedDeadline_ &&
         RecordingNoticePresenter::Clock::now() < presentedSteadyDeadline_ &&
-        !card_.automaticPromptActive() && (!card_.visible() || card_.kind() == NoticeKind::meeting) &&
+        (!failedJoinUntil_ || RecordingNoticePresenter::Clock::now() < *failedJoinUntil_) &&
+        !card_.automaticPromptActive() &&
+        (action == NoticeAction::record ? !card_.visible() :
+            card_.visible() && card_.kind() == NoticeKind::meeting && card_.id() == model_.dismissalKey(*event)) &&
         (action == NoticeAction::record || ((action == NoticeAction::join || action == NoticeAction::joinAndRecord) &&
             event->meetingLinkPresent && MeetingReminderModel::safeMeetingUrl(event->meetingUrl)));
-    retirePresented();
-    return allowed ? event : std::nullopt;
+    if (!allowed) return std::nullopt;
+    return failedJoinUntil_ ? std::min(presentedSteadyDeadline_, *failedJoinUntil_) : presentedSteadyDeadline_;
+}
+void MeetingReminderPresenter::failAction(const ReminderActionTarget& target, NoticeAction action,
+    CalendarJoinReason reason, double now, bool recording) {
+    if (!pendingActionExpiry(target, action, now, recording)) return;
+    if (reason == CalendarJoinReason::authRequired || reason == CalendarJoinReason::eventUnavailable ||
+        reason == CalendarJoinReason::stale || reason == CalendarJoinReason::cancelled) { retirePresented(); return; }
+    pendingAction_.reset();
+    const auto until = std::min(presentedSteadyDeadline_, RecordingNoticePresenter::Clock::now() + std::chrono::minutes(5));
+    failedJoinUntil_ = failedJoinUntil_ ? std::min(*failedJoinUntil_, until) : until;
+    joinFailure_ = reason == CalendarJoinReason::busy ? L"Подключение ещё завершается. Повторите после завершения." :
+        L"Не удалось подключиться. Повторите подключение или откройте календарь GRAF.";
+    reconcile(now, RecordingNoticePresenter::Clock::now(), recording);
+}
+bool MeetingReminderPresenter::handoffRecordingCurrent(const ReminderActionTarget& target, double now, bool recording) const {
+    return !presented_ && !pendingAction_ && !card_.visible() && !card_.automaticPromptActive() &&
+        preferences_.reminders && !preferences_.quiet && model_.matchesHandoffTarget(target, now, recording, preferences_.offsetMinutes);
 }
 } // namespace graf::windows

@@ -51,7 +51,7 @@ public:
     // frames; unmatched tails remain untrusted and are not padded.
     [[nodiscard]] bool close();
     [[nodiscard]] std::vector<CanonicalAudioFrame> takeFrames();
-    void setMicrophonePaused(bool paused) noexcept { microphonePaused_ = paused; }
+    void setMicrophonePaused(bool paused) noexcept;
 
     [[nodiscard]] bool healthy() const noexcept { return fault_ == TimelineFault::none; }
     [[nodiscard]] TimelineFault fault() const noexcept { return fault_; }

@@ -19,6 +19,7 @@
 #include <string>
 #include <cstdint>
 #include <functional>
+#include <stdexcept>
 #include <vector>
 
 namespace {
@@ -377,6 +378,8 @@ UploadCustodyItem item(const std::filesystem::path& custodyRoot, std::string rec
     value.status = status;
     value.attempts = attempts;
     value.meetingId = std::move(meetingId);
+    value.ownerUserId = kOwner.userId;
+    value.ownerWorkspaceId = kOwner.workspaceId;
     return value;
 }
 
@@ -547,6 +550,16 @@ void testPurgeRemovesOnlyFinishedCopies() {
     std::filesystem::create_directories(unfinished, error);
 
     std::size_t calls = 0;
+    std::ifstream beforeFile(queue.ledgerPath(), std::ios::binary);
+    const std::string before((std::istreambuf_iterator<char>(beforeFile)), std::istreambuf_iterator<char>());
+    beforeFile.close();
+    assert(queue.removeLocalCopy("local-twenty-three", LocalPurgeProof::serverRequestedPurge, recycling(&calls)) ==
+        LocalCopyRemovalResult::confirmationRequired);
+    std::ifstream afterFile(queue.ledgerPath(), std::ios::binary);
+    const std::string after((std::istreambuf_iterator<char>(afterFile)), std::istreambuf_iterator<char>());
+    afterFile.close();
+    assert(before == after && calls == 0 && std::filesystem::exists(unfinished) &&
+        queue.items()[1].status == UploadQueueStatus::retry && queue.items()[1].safeReason.empty());
     const auto completion = queue.completeLocalPurgeTask(purgeTask(std::string(kMeeting)), recycling(&calls));
     // One copy was removed, the other was not, so nothing is claimed that was not
     // proven: the server is told the purge failed, not that it succeeded.
@@ -584,12 +597,35 @@ void testPurgeOfEveryCopyIsAcknowledged() {
     assert(queue.hasLocalPurgeAcknowledgement("66666666-6666-4666-8666-666666666666"));
     const auto again = queue.completeLocalPurgeTask(purgeTask(std::string(kMeeting)), recycling());
     assert(again.verification == DesktopUploadQueueService::LocalPurgeVerification::deleted);
+    assert(again.ack == LocalPurgeAckState::acknowledged);
     assert(again.reasonCode == "local_artifacts_deleted" && again.removed == 0);
 
     // The proof survives a restart, because it is the answer the server asked for.
     auto reopened = makeQueue(root, "queue");
     assert(reopened.hasLocalPurgeAcknowledgement("66666666-6666-4666-8666-666666666666"));
     assert(reopened.localPurgeAcknowledgements()[0].meetingId == kMeeting);
+    std::size_t repeatedRecycle = 0;
+    const auto restarted = reopened.completeLocalPurgeTask(purgeTask(std::string(kMeeting)), recycling(&repeatedRecycle));
+    assert(restarted.verification == DesktopUploadQueueService::LocalPurgeVerification::deleted &&
+        restarted.ack == LocalPurgeAckState::acknowledged && restarted.reasonCode == "local_artifacts_deleted" &&
+        restarted.removed == 0 && repeatedRecycle == 0);
+    // A retained answer belongs to exactly this task and meeting. Reusing its
+    // task ID must not promote a different meeting/type to proven deletion.
+    assert(reopened.enqueue(item(root, "different-meeting", "different-directory", std::string(kRequest),
+        UploadQueueStatus::uploaded, 1)));
+    std::filesystem::create_directories(root / "different-meeting");
+    const auto before = reopened.items().size();
+    for (const auto& mismatched : {purgeTask(std::string(kRequest)), purgeTask(""),
+        purgeTask(std::string(kMeeting), "purge_local_exports"),
+        purgeTask(std::string(kMeeting), "confirm_local_expiry")}) {
+        const auto refused = reopened.completeLocalPurgeTask(mismatched, recycling(&repeatedRecycle));
+        assert(refused.verification == DesktopUploadQueueService::LocalPurgeVerification::unverified &&
+            refused.ack == LocalPurgeAckState::failed && refused.reasonCode == "local_purge_unverified" &&
+            refused.removed == 0 && repeatedRecycle == 0);
+        assert(reopened.items().size() == before && std::filesystem::exists(root / "different-meeting") &&
+            reopened.localPurgeAcknowledgements().size() == 1 &&
+            reopened.localPurgeAcknowledgements()[0].meetingId == kMeeting);
+    }
 }
 
 void testPurgeOfATypeThisClientCannotVerify() {
@@ -733,12 +769,98 @@ void testSelectionIsStoredAndSent() {
     assert(queue.deletionOperations().size() == 1);
 }
 
+void testSelectionIntentIsOneAtomicMutation() {
+    const auto root = freshRoot("atomic-selection");
+    for (unsigned failure = 0; failure != 3; ++failure) {
+        std::string persisted;
+        unsigned writes = 0;
+        bool planning = false;
+        DesktopUploadQueueService* published = nullptr;
+        DesktopUploadQueueService queue(root / "unused.json", root,
+            [&](const auto&, const auto&, std::string_view bytes) {
+                if (planning) {
+                    ++writes;
+                    assert(published && published->deletionOperations().empty() &&
+                        !DesktopUploadQueueService::localDeletionPending(published->items().front()) &&
+                        "deletion_selection_must_not_publish_before_durable_write");
+                    if (failure == 1) return false;
+                    if (failure == 2) throw std::runtime_error("generated_selection_publication_failure");
+                }
+                persisted.assign(bytes); return true;
+            });
+        published = &queue; queue.setClock([] { return nowMs; });
+        auto local = item(root, "batch-local", "batch-directory", "", UploadQueueStatus::pending, 0);
+        local.ownerUserId = kOwner.userId; local.ownerWorkspaceId = kOwner.workspaceId;
+        assert(queue.enqueue(std::move(local)));
+        const auto before = persisted;
+        const std::vector<DesktopUploadQueueService::DeletionTargetRequest> targets{
+            {DeletionTarget::ownOrigin, "batch-directory"}, {DeletionTarget::meeting, std::string(kMeeting)},
+            {DeletionTarget::meeting, "88888888-8888-4888-8888-888888888888"},
+            {DeletionTarget::meeting, std::string(kMeeting)}};
+        DesktopUploadQueueService::DeletionPlan plan; bool threw = false;
+        planning = true;
+        try { plan = queue.planDeletionSelection(targets, kOwner, kOrigin); }
+        catch (...) { threw = true; }
+        assert(!threw && "deletion_selection_publication_failure_must_retain_previous_value");
+        assert(writes == 1 && "deletion_selection_requires_one_complete_publication");
+        if (failure == 0) {
+            assert(plan.saved && plan.operationIds.size() == 2 && plan.requests.size() == 2 && plan.localOnly.size() == 1);
+            assert(queue.deletionOperations().size() == 2 && DesktopUploadQueueService::localDeletionPending(queue.items().front()));
+            assert(std::filesystem::exists(root)); // Planning never removes files.
+        } else {
+            assert(!plan.saved && plan.operationIds.empty() && plan.requests.empty() && plan.localOnly.empty());
+            assert(queue.deletionOperations().empty() && persisted == before &&
+                !DesktopUploadQueueService::localDeletionPending(queue.items().front()));
+        }
+    }
+}
+
+void testSelectionRejectsUnsafeWholeBatch() {
+    const auto root = freshRoot("selection-scope");
+    auto queue = makeQueue(root, "queue");
+    auto foreign = item(root, "foreign", "foreign-dir", "", UploadQueueStatus::pending, 0);
+    foreign.ownerWorkspaceId = "99999999-9999-4999-8999-999999999999";
+    assert(queue.enqueue(foreign));
+    foreign.localRecordingId = "unowned"; foreign.directoryId = "unowned-dir";
+    foreign.ownerUserId.clear(); foreign.ownerWorkspaceId.clear();
+    assert(queue.enqueue(foreign));
+    for (const auto id : {"foreign-dir", "unowned-dir", "missing"}) {
+        const auto plan = queue.planDeletionSelection({{DeletionTarget::meeting, std::string(kMeeting)},
+            {DeletionTarget::ownOrigin, id}}, kOwner, kOrigin);
+        assert(!plan.saved && queue.deletionOperations().empty());
+    }
+    std::vector<DesktopUploadQueueService::DeletionTargetRequest> excessive(101,
+        {DeletionTarget::meeting, std::string(kMeeting)});
+    assert(!queue.planDeletionSelection(excessive, kOwner, kOrigin).saved && queue.deletionOperations().empty());
+    for (unsigned field = 0; field != 8; ++field) {
+        auto row = item(root, "evidence-" + std::to_string(field), "evidence-dir-" + std::to_string(field),
+            "", UploadQueueStatus::pending, 0);
+        switch (field) {
+        case 0: row.acceptedBytes[0] = 1; break;
+        case 1: row.acceptedBytes[1] = 1; break;
+        case 2: row.acceptedBytes[2] = 1; break;
+        case 3: row.uploadSessionId = "server-upload"; break;
+        case 4: row.mediaRevisionId = "server-revision"; break;
+        case 5: row.serverStatus = "created"; break;
+        case 6: row.processingStatus = "queued"; break;
+        case 7: row.mediaRevisionStatus = "accepted"; break;
+        }
+        assert(DesktopUploadQueueService::hasServerIdentity(row));
+        assert(queue.enqueue(row));
+        const auto plan = queue.planDeletionSelection({{DeletionTarget::ownOrigin, row.directoryId}}, kOwner, kOrigin);
+        assert(plan.saved && plan.localOnly.empty() && plan.requests.size() == 1 &&
+            plan.requests.front().target == DeletionTarget::ownOrigin);
+    }
+}
+
 void testOwnOriginRequestNamesTheCopy() {
     const auto root = freshRoot("apply-origin");
     auto queue = makeQueue(root, "queue");
     // An upload was attempted, so the server has heard of this recording; it has
     // no meeting yet, so the request names the copy the server knows by directory.
-    assert(queue.enqueue(item(root, "local-two", "directory-two", "", UploadQueueStatus::retry, 2)));
+    auto owned = item(root, "local-two", "directory-two", "", UploadQueueStatus::retry, 2);
+    owned.ownerUserId = kOwner.userId; owned.ownerWorkspaceId = kOwner.workspaceId;
+    assert(queue.enqueue(std::move(owned)));
 
     std::string seenPath;
     std::string seenBody;
@@ -764,7 +886,9 @@ void testOwnOriginRequestNamesTheCopy() {
 void testServerMayResolveTheCopyToItsMeeting() {
     const auto root = freshRoot("apply-resolved");
     auto queue = makeQueue(root, "queue");
-    assert(queue.enqueue(item(root, "local-twelve", "directory-twelve", "", UploadQueueStatus::retry, 1)));
+    auto owned = item(root, "local-twelve", "directory-twelve", "", UploadQueueStatus::retry, 1);
+    owned.ownerUserId = kOwner.userId; owned.ownerWorkspaceId = kOwner.workspaceId;
+    assert(queue.enqueue(std::move(owned)));
     // The server answers a request about a local copy with the meeting it resolved
     // that copy to. That is a confirmation of this copy, and the row learns the
     // meeting from the same answer instead of asking for it again.
@@ -778,6 +902,56 @@ void testServerMayResolveTheCopyToItsMeeting() {
     const auto outcome = queue.deletionSelectionOutcome(plan);
     assert(plan.saved && outcome.accepted == 1 && outcome.pending == 0);
     assert(queue.items()[0].meetingId == kMeeting);
+}
+
+void testAnswerIsOneAtomicMutation() {
+    const auto root = freshRoot("atomic-answer");
+    for (unsigned failure = 0; failure != 3; ++failure) {
+        std::string persisted;
+        unsigned writes = 0;
+        bool answering = false;
+        DesktopUploadQueueService* published = nullptr;
+        DesktopUploadQueueService queue(root / "unused.json", root,
+            [&](const auto&, const auto&, std::string_view bytes) {
+                if (answering) {
+                    ++writes;
+                    assert(published && published->deletionOperations().front().phase == DeletionOperationPhase::queued &&
+                        published->deletionOperations().front().attemptCount == 0 && published->items().front().meetingId.empty());
+                    if (failure == 1) return false;
+                    if (failure == 2) throw std::runtime_error("generated_publication_failure");
+                }
+                persisted.assign(bytes);
+                return true;
+            });
+        published = &queue;
+        queue.setClock([] { return nowMs; });
+        auto row = item(root, "atomic-local", "atomic-origin", "", UploadQueueStatus::retry, 2);
+        row.ownerUserId = kOwner.userId; row.ownerWorkspaceId = kOwner.workspaceId;
+        assert(queue.enqueue(std::move(row)));
+        const auto plan = queue.planDeletionSelection({{DeletionTarget::ownOrigin, "atomic-origin"}}, kOwner, kOrigin);
+        assert(plan.saved && plan.requests.size() == 1);
+        const auto before = persisted;
+        auto body = receiptBody("meeting_deletion", std::string(kMeeting));
+        body.insert(body.size() - 1, ",\"local_recording_id\":\"atomic-origin\"");
+        answering = true;
+        unsigned clockReads = 0;
+        queue.setClock([&] { ++clockReads; return nowMs; });
+        bool accepted = false, threw = false;
+        try { accepted = queue.applyDeletionAnswer(plan.requests.front(), kOwner, kOrigin, {200, body, false, 0, ""}); }
+        catch (...) { threw = true; }
+        assert(!threw && "deletion_answer_publication_failure_must_retain_previous_value");
+        assert(writes == 1 && "deletion_answer_receipt_and_identity_require_one_publication");
+        assert(clockReads == 1);
+        const auto& operation = queue.deletionOperations().front();
+        if (failure == 0) {
+            assert(accepted && operation.phase == DeletionOperationPhase::accepted && operation.attemptCount == 1);
+            assert(operation.receiptRequestId == kRequest && queue.items().front().meetingId == kMeeting);
+            assert(persisted.find("\"phase\":\"sending\"") == std::string::npos);
+        } else {
+            assert(!accepted && persisted == before && operation.phase == DeletionOperationPhase::queued &&
+                operation.attemptCount == 0 && operation.receiptRequestId.empty() && queue.items().front().meetingId.empty());
+        }
+    }
 }
 
 void testUnreadableAnswerIsNotAnAnswer() {
@@ -922,8 +1096,11 @@ int main() {
     testServerOriginValidation();
     testNothingIsSentBeforeTheServerDeclaresSupport();
     testSelectionIsStoredAndSent();
+    testSelectionIntentIsOneAtomicMutation();
+    testSelectionRejectsUnsafeWholeBatch();
     testOwnOriginRequestNamesTheCopy();
     testServerMayResolveTheCopyToItsMeeting();
+    testAnswerIsOneAtomicMutation();
     testUnreadableAnswerIsNotAnAnswer();
     testRefusalIsFinalAndSharedFailureIsNot();
     testRefusedBeforeTheWireIsNoAnswer();

@@ -149,6 +149,27 @@ Write/SetSize позиции/диапазоны; все новые nodes и DATA
 flat index, per-block HANDLE или N-sized bitmap. Dirty группа≤4blocks/1MiB;
 одна операция commit может обработать её ограниченное объединение paths.
 Read после proof establishment:≤3 nodes+1 DATA,≤284KiB envelope input.
+Worker-only `setSize(length)` принимает0…64GiB и только текущий selected
+proof. Тот же размер — committed no-op того же proof/generation, но лишь
+после проверки write capability/identity/actual paired heads; stale proof
+даёт conflict без append/head writes. Прочие изменения увеличивают generation
+ровно на1, включая shrink→0; extent никогда не уменьшается и orphan tail
+не переиспользуется. При shrink→0 root EMPTY, extent равен прежнему committed
+extent; отсутствие новых records не отменяет обе проверки heads/guard.
+Операция меняет только bytes после меньшей из двух длин: сохранённый prefix
+точно прежний, grow suffix ZERO. DATA на частичной границе переписывается
+с exact новым payload; ZERO не превращается в DATA. Удалённые DATA не читаются
+для разрешения truncate, но все использованные base nodes/граничный DATA
+сверяются с диска; наблюдаемый fault остаётся sticky. Все новые NODE refs
+сверяются через structural diff с аутентифицированными base refs в двух
+readback проходах, до HEAD и до ACK, по разрешённому диапазону SetSize.
+Полная ZERO subtree не разворачивается в per-block массив: не более7 новых
+NODE+1 DATA и327680B append с padding на один resize; owned/dirty/pin/native
+лимиты не увеличиваются. Старый pinned proof/Reader/Clone видит прежнюю длину
+и прежние bytes после shrink/grow, пока тот же owner не получил sticky fault.
+Invalid size/generation exhaustion/stale/admission refusal до native append
+не публикуют snapshot; physical/crypto/readback failure блокируют owner,
+после первой HEAD попытки результат ambiguous с retained base lease.
 Цена flush/DPAPI/OS scheduling не имеет обещанного wall-time предела.
 Validated cache keyed exact owner/root/ref может обслужить read без повторного
 disk I/O: проверена выдаваемая память, а не свежесть носителя. На ownership gap
@@ -224,6 +245,55 @@ ref и logical SHA finalized artifact. Проверить semantic authority и 
 до открытия; это отдельная versioned strict schema, не угадывание по extension.
 Дополнить базовый metadata codec явно; v1 payload не разрешает v2 сам собой.
 
+### 6.0. Существующий seekable writer, packed v2
+
+Следующий шаг T116 переиспользует `ProtectedCustodyWriter` и его единственный
+State/dirty buffer/API `writeAt/readAt/setSize/checkpoint`. Отдельного writer,
+backend interface, фабрики или нового dispatcher нет. Worker-only packed open
+принимает уже доказанный selected Tree и общий cancellation token, проверяет
+актуальность paired heads и write capability до admission. Role следует из
+проверенного Tree context, а не из произвольного caller enum. Это media-object
+API, не принятие package authority и не внедрение в приложение.
+
+Write принимает байты, не обещает атомарность всего большого вызова или
+долговечность его последнего неполного блока. Крупный вызов проходит частями
+до262144B; один dirty block резервируется до plaintext. Canonical сохраняет
+прежнюю automatic checkpoint cadence при полном блоке. Media/playback также
+могут опубликовать предыдущий dirty block при переходе к другому; checkpoint
+проверяет оставшиеся изменения. Не обещать единственный generation increment
+на весь Write/checkpoint: каждый фактический Tree transition увеличивает
+generation ровно на1; result показывает фактический base/target. Пустой Write
+при valid offset не расширяет EOF. Invalid pointer/offset/overflow или отмена
+делают writer sticky failed, без частичного byte ACK.
+
+Pending logical length/dirty bytes принадлежат writer; Reader/Clone остаются
+на прежнем immutable committed Tree. Нет flat entries, bitmap или массива
+размером с запись в packed State. Частичная перезапись использует проверенный
+старый блок плюс dirty merge, затем существующий replaceBlock; append —
+существующий appendBlock. При sparse Write ZERO разрешён только для явно
+заданного промежутка до записываемых bytes. Нельзя сначала публиковать ZERO
+вместо ещё не сохранённого входного аудио. SetSize может задавать ZERO suffix;
+shrink→grow не восстанавливает отрезанные bytes, включая ещё dirty suffix.
+Writer Read выдаёт его pending view, EOF короткий; любая ошибка стирает уже
+скопированный prefix и не выдаёт partial byte ACK. Cold reopen видит только
+фактически committed Tree, не pending length и не RAM dirty buffer.
+
+Checkpoint flush/append/replace/resize используют единственного прежнего
+owner и publisher, два independent readback и unchanged physical budgets.
+Fail до HEAD — notCommitted; после попытки HEAD — ambiguous; после actual
+ACK сохраняется новый Tree даже при поздней отмене. Более ранние ACK большого
+вызова не откатываются и не объявляются отсутствующими. Первый fault/native
+error и actual base lease удерживаются до worker release/reconciliation;
+повторный вызов не делает новые native writes. Destruction только очищает RAM,
+отзывает writer capability и освобождает refs; не делает flush/checkpoint/I/O.
+Reader/Clone может сохранить тот же owner после healthy writer release.
+
+Приёмка: generated bytes, header rewrite, crossing blocks, EOF, sparse gap,
+SetSize shrink/regrow, pinned Reader/Clone, cold reopen, cancellation и
+invalid input, общие dirty/pin/owned limits, actual native failure cuts и
+plaintext wipe. Реальные V5/MF consumers, schema gate §6.1, cadence/Stop,
+migration, T120, установленный пакет и hardware остаются отдельными gates.
+
 ### 6.1. Точные versioned metadata payloads
 
 Физическая защита служебных payloads остаётся v1. Старые schema strings/field
@@ -233,6 +303,8 @@ sets не расширяются молча. Все bounds/unknown/duplicate/nul
 или JSON subtree. Он декодируется строго с root NODE_L2/base0 правилами.
 
 `graf.custody.package.v2` имеет ровно те же top-level поля, что package.v1,
+то есть девять полей §8.1 с единственным ключом версии `schema` (не
+`schema_version`); значение `schema` здесь строго `graf.custody.package.v2`,
 но каждый `refs` item содержит ровно10 fields: role, object_id, binding,
 generation, length, sha256, representation, container_id, committed_extent,
 root_ref. Representation — `flat_v1|packed_v2`. `flat_v1` сохраняет все прежние

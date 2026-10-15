@@ -104,6 +104,7 @@ bool RecordingNoticePresenter::present(NoticeContent content, Clock::time_point 
     if (same) {
         // Controls and callbacks update; the original deadline/generation/focus do not.
         content_ = std::move(content);
+        actionPending_ = false;
         if (content_.kind == NoticeKind::meeting) deadline_ = std::min(deadline_, deadline);
         onAction_ = std::move(onAction); onClose_ = std::move(onClose);
         hooks_.onExpired = std::move(hooks.onExpired); hooks_.onInvalidated = std::move(hooks.onInvalidated);
@@ -139,7 +140,7 @@ bool RecordingNoticePresenter::present(NoticeContent content, Clock::time_point 
     // An invalidation callback may have installed or cancelled another event.
     if (visible_ || generation_ > beforeDismiss + 1) return false;
     content_ = std::move(content);
-    deadline_ = deadline; lastTick_ = now; holdStarted_.reset();
+    deadline_ = deadline; lastTick_ = now; holdStarted_.reset(); actionPending_ = false;
     ++generation_;
     const auto token = generation_;
     onAction_ = std::move(onAction); onClose_ = std::move(onClose);
@@ -259,7 +260,7 @@ bool RecordingNoticePresenter::presentPendingShort(Clock::time_point now) {
 }
 void RecordingNoticePresenter::finish(bool invalidated) {
     auto callback = invalidated ? std::move(hooks_.onInvalidated) : std::function<void()>{};
-    visible_ = false; ++generation_; holdStarted_.reset();
+    visible_ = false; ++generation_; holdStarted_.reset(); actionPending_ = false;
     interactionEpoch_ = 0;
     onClose_ = {}; onAction_ = {}; hooks_ = {};
 #ifdef _WIN32
@@ -308,14 +309,24 @@ void RecordingNoticePresenter::close(std::uint64_t token) {
 }
 void RecordingNoticePresenter::invoke(NoticeAction action) { invoke(action, generation_, Clock::now()); }
 void RecordingNoticePresenter::invoke(NoticeAction action, std::uint64_t token, Clock::time_point now) {
-    if (!visible_ || token != generation_) return;
+    if (!visible_ || token != generation_ || actionPending_) return;
     if (!requireInteraction() || expired(now)) return;
     if (content_.kind == NoticeKind::recordingPrompt &&
         (now < lastTick_ || now - lastTick_ > std::chrono::milliseconds(2500))) { invalidatePresentation(); return; }
     const bool offered = std::any_of(content_.buttons.begin(), content_.buttons.end(), [action](const auto& b) { return b.action == action; });
     if (!offered) return;
     auto callback = onAction_;
-    dismiss(); // terminal BEFORE callback, including reentrant/double click
+    if (content_.kind == NoticeKind::meeting && (action == NoticeAction::join || action == NoticeAction::joinAndRecord)) {
+        // A click is not handoff. Keep close/expiry available, block every action
+        // before native layout/callback can reenter, and preserve this deadline.
+        actionPending_ = true;
+        content_.body += L"\nОткрываем…";
+#ifdef _WIN32
+        try { if (!updateWindow()) { invalidate(); return; } }
+        catch (...) { invalidate(); return; }
+#endif
+        if (!visible_ || token != generation_ || !requireInteraction()) return;
+    } else dismiss(); // Record/skip/problem actions remain terminal before callback.
     if (callback) callback(action);
 }
 void RecordingNoticePresenter::setRememberChoice(bool value) {
@@ -717,6 +728,7 @@ bool RecordingNoticePresenter::updateWindow() {
     for (std::size_t i = 0; i < content_.buttons.size(); ++i) {
         const auto& button = content_.buttons[i];
         auto child = GetDlgItem(window, 101 + static_cast<int>(button.action));
+        EnableWindow(child, !actionPending_);
         ok = setTextIfChanged(child, button.title) && ok;
         const int h = vertical ? buttonHeights[i] : actionsHeight;
         ok = layout(101 + static_cast<int>(button.action), vertical ? inset + padding : x, y,

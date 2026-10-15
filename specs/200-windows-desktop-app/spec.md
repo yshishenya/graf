@@ -423,7 +423,8 @@ meeting-приложений с обратимой настройкой и ви�
   `local_recordings` display messages use the separate `command/nonce/rows/operations/recoveryRequired`
   shape, bound to the current approved document and nonce, and grant no native
   authority. Only typed `request_app_quit`, `local_recording`, `app_appearance`,
-  `native_settings`, `delete_selection`, `request_app_update` and `calendar_join` requests are accepted, each on its
+  `native_settings`, `delete_selection`, `request_app_update`, `calendar_join`
+  and cancellation-only `calendar_join_cancel` requests are accepted, each on its
   exact approved route with its own payload/capability checks; no web
   acknowledgement establishes capture, upload or deletion truth.
   `request_app_update` is only a bounded intent to open the native update UI;
@@ -433,6 +434,9 @@ meeting-приложений с обратимой настройкой и ви�
   calendar action, never a URL or process command. Native code resolves the
   authorized target afresh and cancels stale actions; bounded replies reveal
   no meeting link and grant no recording authority. See bridge contract §10.
+  `calendar_join_cancel` carries only the matching event/request UUIDs of the
+  current document's pending action. It cannot cancel a native card/menu action,
+  start anything, release an unfinished worker, or affect a later request.
 - **FR-007**: The Feature 200 baseline system track MUST use WASAPI shared-mode loopback on the
   current/default render endpoint and MUST NOT require `Stereo Mix`, a hardware
   loopback device, a virtual driver or exclusive mode.
@@ -469,6 +473,10 @@ meeting-приложений с обратимой настройкой и ви�
   creating an unprotected temporary audio copy. Protection/key/integrity failure
   MUST preserve existing artifacts, block unsafe writes and report a recoverable
   storage failure; it MUST NOT substitute an empty ledger or claim normal saving.
+  Protected package-state JSON v1/v2 MUST use the single version key `schema`
+  and the exact nine top-level fields defined in custody contract §8.1;
+  `schema_version`, aliases, unknown and duplicate fields MUST be rejected.
+  This does not rename or change the existing logical v5 manifest format.
   For the packed media representation, a live checkpoint MAY inherit the proof
   of unchanged data only while the same verified file owner remains continuously
   held. New data and the publication MUST be independently read back and checked
@@ -635,6 +643,37 @@ Classification: remove
 
 ## Clarifications
 
+### Session 2026-10-04
+
+- Q: Используем ли `schema` как единственное имя поля версии нового внутреннего
+  формата защищённых записей? → A: Да, `schema`; подтверждено владельцем.
+
+### Session 2026-10-04 — приватная пауза T120
+
+- Повторный продуктовый вопрос не требуется: владелец уже подтвердил полный
+  паритет с новым GRAF Dev. Для Pause/Resume FR-002/009 применяется поведение
+  Mac F284 на `c8d67ccefe7848f731798b23d72d37757ad812f5`, не переключение
+  одного признака при выдаче кадра. Записанный до Pause доверенный участок
+  не переписывается. Накопленный во время паузы микрофон не восстанавливается
+  после Resume, включая ожидающие, извлечённые и частично обработанные данные.
+- Начало privacy segment обязательно сохраняется до принятия Pause;
+  ошибка не даёт успешной паузы. Resume требует надёжной границы очереди;
+  без неё остаётся paused и доступен Stop. Сохранение конца сегмента после
+  успешного Resume — best-effort: его ошибка не отменяет Resume и оставляет
+  прежнюю сохранённую открытую отметку. Это не разрешение потерять сегмент
+  или признать неизвестную границу успешной.
+- Сведения сохраняются только через защищённый путь T116. Текущий открытый
+  V5 writer не разрешает новый временный plaintext journal. Управление
+  асинхронно, не блокирует UI/Stop и не ждёт опустошения непрерывной очереди.
+- Выявлено ограничение представления: manifest≤4096B несовместим с историей
+  повторных пауз. Проектная поправка — manifest≤64KiB, как существующие
+  служебные metadata, с проверкой полного сериализованного размера до
+  сохранения OPEN. Это не увеличение аудиодопусков, общей памяти или размеров
+  root/cache/queue. Изменение предела и приёмка существующих/новых manifest
+  требуют отдельного независимого review перед кодом; молчаливое обрезание
+  истории, новый открытый файл и произвольный предел количества пауз запрещены.
+  Полная T120 остаётся зависимой от T116 и проверки установленного приложения.
+
 ### Session 2026-10-03
 
 - Q: Разрешается ли вместо полного перечитывания всех ранее сохранённых
@@ -681,7 +720,46 @@ Classification: remove
 - Это уточнение требований, не подтверждение реализации T119, общего analyze
   или исправления аудиочасов.
 
+### Session 2026-10-05 — корреляция отмены T119
+
+- Нового продуктового решения нет: исчезновение/замена действия уже отменяет
+  переход по §10. Уточняется только транспорт `calendar_join_cancel` с двумя
+  UUID и без новых полномочий; исходный JSON проверяется до SDK-нормализации.
+- Request UUID принимается не более одного раза за жизнь документа, включая
+  busy/not-ready отказ. Предел — 1024 принятых UUID; по достижении новый корректный
+  запрос получает cancelled/not_ready до обновления документа. Память ограничена,
+  старые UUID не вытесняются ради повторного использования. Отмена не расходует
+  новый request UUID и не освобождает actual pending-work lease.
+- Сначала проверяется replay уже сохранённого UUID (нет ответа). Новый UUID,
+  отклонённый именно из-за cap, не admitted/consumed: его повтор получает только
+  cancelled/not_ready, без work и роста history. Это исключение из consume-on-
+  not-ready, не разрешение последующего flight в том же документе.
+
+### Session 2026-10-05 — ближайшие встречи в нативном меню T119
+
+- Clarify: новых вопросов и ответов пользователя нет. Область, роли, общий
+  путь подключения, приватность, ошибки, доступность и критерии завершения
+  остаются определены US2/FR-002/005/006 и выбранным Mac. Недостающее техническое
+  сопоставление CalendarTray относится к plan, а не к новому продуктовому выбору.
+- Меню показывает ближайшие встречи отдельно от карточки напоминания: закрытая
+  карточка, «Тихий режим» или текущая запись не запрещают явное подключение из
+  меню. Название и время подчиняются серверным настройкам. Ошибка допускает
+  только явный повтор с новой проверкой доступа; меню не начинает запись.
+- Образец: собственный GRAF CalendarTray/CalendarMeetingOpener на
+  `721b5125d799ea798a4af0b3625e18d3c1109039`. Native conventions отличаются, но
+  список не заменяется двумя кнопками текущей карточки. Lifetime и admission
+  определены в дополнении plan «T119: ближайшие встречи»; готовность исходников
+  или установленного приложения этим не подтверждается.
+- Уточнение Round243: «пользовательский часовой пояс» — выбранная в аккаунте
+  зона, как DesktopUserTimeContext выбранного Mac; системная зона используется
+  только при отсутствии принятой настройки. Зона принадлежит текущему
+  подтверждённому аккаунту/сеансу/документу, не переносится между аккаунтами и
+  не восстанавливается с диска. Переход летнего времени определяется зоной на
+  момент самой встречи, не текущим фиксированным смещением. Нового выбора
+  пользователя нет; источник и проверки Windows конкретизируются в plan.
+
 ### Session 2026-09-30 — часы и унаследованная защита хранения
+
 
 - Дополнительных продуктовых вопросов не требуется: пользователь уже выбрал
   полный паритет, внешних клиентов и отсутствие новых препятствий. Требование

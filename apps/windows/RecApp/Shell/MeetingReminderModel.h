@@ -1,12 +1,15 @@
 #pragma once
 
 #include "../Upload/DesktopApiClient.h"
+#include "../Storage/ProtectedCustodyCodec.h"
+#include <filesystem>
 #include <functional>
 #include <map>
 
 namespace graf::windows {
 
-struct UploadCustodyItem;
+template<class String, class Path> struct BasicUploadCustodyItem;
+using UploadCustodyItem = BasicUploadCustodyItem<std::string, std::filesystem::path>;
 
 // Trusted native identities, already canonicalized by their owner. Comparison
 // is exact; this projection never adopts an unowned recording into an account.
@@ -19,13 +22,15 @@ struct CurrentCaptureProblem {
     bool blocker = false;
 };
 enum class LocalProblemState { unknown, problem, positivelyResolved };
-struct LocalProblemProjection {
-    std::string sessionId;
-    std::string incidentId; // one capture-problem identity per session, not reason/attempt
+template<class String> struct BasicLocalProblemProjection {
+    String sessionId;
+    String incidentId; // one capture-problem identity per session, not reason/attempt
     LocalProblemState state = LocalProblemState::unknown;
     bool fresh = false; // problem updated in [now-300s, now], with strict age <300s
     std::uint64_t occurredAtMs = 0; // oldest known non-future row time; capture-only: now
 };
+using LocalProblemProjection = BasicLocalProblemProjection<std::string>;
+using ProtectedLocalProblemProjection = BasicLocalProblemProjection<CustodyString>;
 
 // Pure, no claims/history/UI. Caller supplies only current-generation native
 // observations; queueContext binds their origin, absent from UploadCustodyItem.
@@ -36,6 +41,13 @@ struct LocalProblemProjection {
 [[nodiscard]] std::vector<LocalProblemProjection> projectLocalRecordingProblems(
     const LocalProblemContext& currentContext, const LocalProblemContext& queueContext,
     const std::vector<UploadCustodyItem>& items, bool queueComplete,
+    const std::optional<CurrentCaptureProblem>& capture, std::uint64_t nowMs);
+
+// Same classification, charged intermediate/output storage. The input remains
+// borrowed for this call; returned identities own their bytes, not native leases.
+[[nodiscard]] CustodyVector<ProtectedLocalProblemProjection> projectProtectedLocalRecordingProblems(
+    const LocalProblemContext& currentContext, const LocalProblemContext& queueContext,
+    const CustodyVector<BasicUploadCustodyItem<CustodyString, CustodyString>>& items, bool queueComplete,
     const std::optional<CurrentCaptureProblem>& capture, std::uint64_t nowMs);
 
 struct NotificationPreferences {
@@ -94,10 +106,17 @@ public:
     void bind(std::string owner, std::string workspace, std::string origin = {});
     void invalidate();
     void clearCalendar();
+    // Failed refresh revokes menu availability without erasing a failed card's retry.
+    void invalidateUpcoming() noexcept { upcomingAvailable_ = false; }
     [[nodiscard]] bool update(CalendarReminderSnapshot snapshot, std::uint64_t epoch);
+    [[nodiscard]] std::optional<CalendarReminderSnapshot> upcoming() const;
+    // Frozen menu identity, not card eligibility or launch/capture authority.
+    [[nodiscard]] bool upcomingCurrent(const CalendarReminderEvent&, std::uint64_t epoch, double now) const;
     [[nodiscard]] std::optional<CalendarReminderEvent> candidate(double now, bool recording, int offsetMinutes = 1) const;
     [[nodiscard]] std::optional<CalendarReminderEvent> revalidate(const ReminderActionTarget& target,
                                                                 double now, bool recording, int offsetMinutes = 1) const;
+    // Observation after a known handoff, not authority to replay a dismissed Join.
+    [[nodiscard]] bool matchesHandoffTarget(const ReminderActionTarget&, double now, bool recording, int offsetMinutes) const;
     [[nodiscard]] ReminderActionTarget actionTarget(const CalendarReminderEvent& event) const;
     void dismiss(const CalendarReminderEvent& event);
     [[nodiscard]] std::string dismissalKey(const CalendarReminderEvent& event) const;
@@ -110,9 +129,11 @@ public:
     [[nodiscard]] static bool eligible(const CalendarReminderEvent& event, double now, bool recording, int offsetMinutes = 1);
     [[nodiscard]] static bool safeMeetingUrl(std::string_view url);
 private:
+    [[nodiscard]] const CalendarReminderEvent* currentEvent(const ReminderActionTarget&, double, bool, int) const;
     std::string owner_, workspace_, origin_;
     std::uint64_t epoch_ = 0;
     std::vector<CalendarReminderEvent> events_;
+    bool upcomingAvailable_ = false, showUpcomingTime_ = true, showUpcomingTitle_ = true;
     // Active-context terminal events; durable receipts survive context changes.
     mutable std::map<std::string, double> dismissed_;
 };

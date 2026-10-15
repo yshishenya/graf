@@ -6,7 +6,12 @@
 #include <algorithm>
 #include <cassert>
 #include <cstring>
+#ifdef _MSC_VER
+#include <crtdbg.h>
+#include <cstdlib>
+#endif
 #include "../../RecApp/Storage/ProtectedPackedCustodyCodec.h"
+#include "../../RecApp/Storage/ProtectedCustodyCodec.h"
 #include "../../RecApp/Storage/Sha256.h"
 
 // Only this synthetic executable replaces native calls. No application fault
@@ -74,9 +79,32 @@ std::array<std::uint8_t, 32> digest(const CustodyBytes& bytes) {
 }
 }
 int main() {
+#ifdef _MSC_VER
+    _set_error_mode(_OUT_TO_STDERR);
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#ifdef _DEBUG
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+#endif
+#endif
     using Codec = ProtectedPackedCustodyCodec;
     using Kind = PackedRecordKind;
     using Error = CustodyCodecError;
+    {
+        const CustodyContext migration{{}, {}, CustodyRole::migrationIntent};
+        fault = Fault::none;
+        const auto cipher = ProtectedCustodyCodec::sealBlock(migration, 0, 17, CustodyBytes(32, 42)); assert(cipher.ok());
+        assert(ProtectedCustodyCodec::openMigrationBirthBlock(migration, 17, *cipher.value).ok());
+        for (const auto selected : {Fault::failure, Fault::shortOutput, Fault::longOutput, Fault::empty, Fault::corrupt}) {
+            fault = selected; const auto before = frees;
+            const auto opened = ProtectedCustodyCodec::openMigrationBirthBlock(migration, 17, *cipher.value);
+            assert(!opened.ok() && !allocation);
+            assert(opened.error == (selected == Fault::failure ? Error::nativeFailed : Error::invalidPlaintext));
+            assert(selected != Fault::failure || opened.nativeError == ERROR_INVALID_DATA);
+            assert(frees == before + (selected == Fault::empty ? 0U : 1U));
+        }
+        fault = Fault::none;
+    }
     const PackedCustodyContext c{{{}, {}, CustodyRole::canonical}, {}};
     for (const auto kind : {Kind::data, Kind::nodeL0, Kind::nodeL1, Kind::nodeL2, Kind::head}) {
         const PackedRecordAddress a{kind, kind == Kind::head ? 128ULL : 32896ULL, 0, 1,
@@ -116,7 +144,7 @@ int main() {
     auto cipher = custody_detail::nativeTransform(&entropy, 1, input.data(), input.size(), 4096, true); assert(cipher.ok());
     const auto base = CustodyOwnedMemory::usedBytes();
     {
-        CustodyBytes full; full.reserve(CustodyOwnedMemory::limit - base);
+        CustodyBytes full; full.reserve(CustodyOwnedMemory::limit - CustodyOwnedMemory::usedBytes());
         // There is NO owned-copy capacity. A transient copy before validation
         // would throw, even if it was released before NativeOutput destruction.
         for (const auto selected : {Fault::shortOutput, Fault::longOutput}) {

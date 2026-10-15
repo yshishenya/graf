@@ -117,6 +117,7 @@ The initial allowlist is intentionally small:
 | `delete_selection` | typed version 1 `deleteSelection`, valid request ID, at most 100 unique known local IDs/server meeting UUIDs; current route and native capability rechecked | active capture/upload targets cannot be purged |
 | `request_app_update` | exact empty payload; open native package-update UI, no URL/path/installer arguments | checking is allowed; installation is deferred until capture/finalization ends |
 | `calendar_join` | exact action/event UUID/request UUID; freshly resolve authorized target, see §10 | Join does not alter capture; native Join-and-record is separately gated |
+| `calendar_join_cancel` | exact event/request UUIDs; cancel only the matching current document's pending Join, see §10 | never starts/stops capture or cancels native card/menu work |
 
 No compatibility aliases are accepted. `open_native_settings`,
 `request_native_settings`, `open_native_diagnostics`, `request_diagnostics`,
@@ -165,6 +166,24 @@ Windows использует существующий `window.GRAFLocalRecording
 состояние, флаги `canOpen`, `canSend`, `canDelete`, `uploadComplete`. Пути,
 учётные данные и содержимое записи в строки не входят. Нет достоверной даты —
 показывается «На этом компьютере», дата не выдумывается.
+
+Уточнение T116: сообщение `local_recordings` может содержать `state` со
+значением `ready`, `checking` или `unavailable`; кабинет принимает его четвёртым
+необязательным аргументом `update(rows, operations, recoveryRequired, state)`.
+Отсутствующий аргумент означает `ready`, поэтому существующий путь macOS не
+меняется. `checking` — принятое последнее известное состояние ещё проверяется;
+`unavailable` — актуальный список подтвердить нельзя. Ни одно из них не означает
+здоровый пустой список. `recoveryRequired` сохраняет только прежний смысл
+скрытых строк с неподтверждённым аккаунтом и не заменяет состояние проверки.
+Защищённый список берётся из принятого неизменяемого наблюдения очереди целиком,
+без ограничения 32 строки, без обычной копии inventory и без файлового IO на UI.
+Публикация требует совпадения аккаунта/пространства/поколения авторизации,
+подтверждённой cookie и личности текущего разрешённого HTML-документа; при их
+смене прежние строки отзываются. Дата изменения очереди не является датой записи,
+принятые байты без полного размера дорожек не являются процентом отправки.
+До подключения соответствующих защищённых действий все три флага действий
+ложны; поддельные команды также отклоняются нативно. Это промежуточное
+подключение отображения, не окончание T116 или общей приёмки Windows.
 
 Единственный новый запрос `local_recording` имеет ровно два строковых поля:
 `{"action":"open|send|delete","id":"known-local-id"}`. Проверяются текущий
@@ -384,6 +403,27 @@ document approved origin с разрешённым `RouteKind::meetings` и ак
 используется существующий точный list/inbox набор, без wildcard/API navigation.
 Auth/settings/billing/payment/detail/review/external/frame не получают Join.
 
+Cancellation-only command `calendar_join_cancel`: payload ровно два строковых
+поля `eventId`, `requestId`, с той же UUID-нормализацией и теми же source/origin/
+route/nonce/message-id проверками. Действует только на совпадающий pending Join
+того же ещё текущего документа; неизвестный/старый запрос не имеет эффекта.
+Не отменяет native card/menu operation, не завершает child work, не снимает busy
+и не запускает resolver/recovery/Record. Исходный envelope проверяется строгим
+JSON reader до SDK Parse/Stringify: duplicate decoded keys, повреждённый UTF-8/
+surrogate и превышение 64KiB отвергаются, payload depth≤8 проверяется отдельно
+от envelope. Разобранные UUID — данные, не доказательство полномочий.
+
+Join request UUID одноразовый в рамках document generation/nonce, включая
+busy/not-ready. Повтор отвергается без нового действия/ответа. На документ
+сохраняется до1024 UUID без вытеснения; после достижения предела новый корректный
+Join получает cancelled/not_ready, пока документ не обновлён. Новый документ
+начинает новый набор. Запоздалый cancel не может совпасть с новым flight через
+повтор UUID; только outer message_id недостаточен. Отмена не добавляет UUID.
+Порядок: replay сохранённого UUID отвергается без ответа; затем cap check.
+Новый UUID, отклонённый по cap, не admitted/consumed: повтор такого UUID получает
+только cancelled/not_ready без работы/роста history. Это единственное исключение
+из consume-on-not-ready; полный набор не освобождается до нового документа.
+
 Shim перехватывает только `event.isTrusted` click `[data-calendar-join]` в capture
 phase до standalone обработчика, включая keyboard activation; synthetic click
 не отправляет intent. Делегированный listener работает после HTMX. До handshake
@@ -467,3 +507,57 @@ launch. Подтверждение запускает свежий resolver то
 Join-and-record существует только нативно: handed_off → current → existing capture
 prerequisites → Record; active/starting/paused/stopping/finalizing не допускают
 предложения второй записи. Индикатор/Stop и автозапись не меняются.
+
+Уточнение жизненного цикла recovery (тот же F279 Mac): запрос остаётся
+нетерминальным `opening` во время предложения браузера и повторного resolver.
+`failed` не отправляется перед этим предложением; после любого terminal ответ
+не возвращается в resolving/opening. Подтверждение браузера запускает новый
+resolver budget15s от момента подтверждения (включая его dispatch/queue),
+не снимая общего busy и не продлевая исходные native action/card сроки.
+Начальный resolver budget также15s от принятия исходного действия. Этот срок
+не переносится автоматически на ожидание пользователя или OS query/launch:
+там продолжают действовать current/отмена и исходные action expiry. Отказ
+recovery resolver/браузера заканчивает запрос; повтор — новое явное действие.
+
+Windows API lifetime уточнён 2026-10-05: отмена действия не вызывает Cancel
+у RemoteAsync query/launch proxy. Handle сохраняется до natural Completed/Error;
+Status exception/непрошенный Canceled не доказывают drain и дают неизвестность
+без handoff/Record, сохраняя busy. Восстановление при недоказанном completion —
+явный выход/перезапуск приложения, не освобождение по таймеру. Throw/null самого
+start API без полученного handle заканчивает только синхронный dispatch scope;
+его child ticket можно снять по этому факту, но не обещать отсутствие OS side
+effect/underlying exit или делать автоматический fallback. Полученный handle
+после reentrant cancel удерживается. Rejected до вызова OS и startFailed после
+возврата API — разные основания completion. Guard действует до подготовки,
+при dispatch и poll; actual current проверяется прямо перед OS-вызовом.
+
+Native menu clarification T119 — 2026-10-05: ближайшие встречи берутся из того
+же authenticated upcoming snapshot, не из текущей reminder card. Sort
+startsAt/eventId, prefix12, server show_upcoming_title/show_upcoming_time и
+all_day определяют безопасную presentation по plan «T119: ближайшие встречи».
+Missing/null flags сохраняют Mac defaults; present non-bool отвергается. Никаких
+новых web commands/payload/authority или automatic capture от меню.
+
+Menu source — frozen current event/owner identity с original endsAt, один раз
+переведённым в steady expiry; не card deadline. Ошибка projection, замена/удаление
+target, account/interaction invalidation/expiry делают поздний result
+неприменимым. Presentation-only cancelTracking относится к незавершённому popup
+selection; normal close после выбора не отозывает принятый flight. Оба не drain.
+
+Explicit menu failure Retry использует owned dialog того же общего owner;
+неизвестный dialog/SDK exit оставляет busy. После actual matching dialog drain
+current Primary завершает прежний attempt failed и допускает новый request и
+operation с тем же source/expiry, без reentrant admission gap. Fresh resolver
+budget click+15s; нет оживления terminal либо старой URL. Browser recovery
+сохраняет прежнюю семантику. Точность native/installed поведения требует отдельной
+приёмки quickstart §16 и не доказывается decoder или source tests.
+
+Display-time read T119 (Round243): существующий native ExecuteScript читает
+userId/workspaceId/sessionId/timeZone/documentURL из current trusted main
+document после native cookie/account reconciliation. Это не новый bridge intent,
+не auth/session proof, не способ launch/Record. Exact raw object и bounds,
+dispatch/completion generations, UUID/account matching, reset/stale/fallback
+семантика определены в plan «T119: пользовательское время». Только presentation
+preference в памяти; raw metadata/session UUID/token/URL не пишутся в diagnostics.
+Timezone/DST label change отменяет popup selection, но не unchanged admitted
+Join и не его original expiry. Новый formatter не заменяет current/worker drain.

@@ -79,14 +79,20 @@ public:
     [[nodiscard]] CaptureClockDiagnostics clockDiagnostics() const noexcept;
 
 private:
+    friend class WindowsCaptureSessionController;
+    void joinStopped(); // Forced owner teardown only; ordinary Stop never joins.
     friend struct CaptureSessionTestPeer;
+    // Bound before Start; the controller joins this worker before destruction.
+    const std::atomic<std::uint64_t>* microphonePrivacyEpoch_ = nullptr;
+    [[nodiscard]] std::optional<std::uint64_t> capturePrivacyEpoch() const noexcept;
     // Shared by the native Stop call and fault-injection tests. Never clears
     // an earlier capture failure; published before the completion fence.
     void completeNativeStop(std::int32_t hresult) noexcept;
     // The device loop and packet regressions share copy/release/normalization.
     [[nodiscard]] bool consumePacket(ClockMapper& mapper, AudioNormalizer& normalizer,
         ClockObservation packet, const void* data, std::uint16_t channels, bool float32,
-        const std::function<CaptureReleaseResult(std::uint32_t)>& releaseBuffer);
+        const std::function<CaptureReleaseResult(std::uint32_t)>& releaseBuffer,
+        std::optional<std::uint64_t> privacyEpoch);
 #ifdef _WIN32
     [[nodiscard]] static std::wstring utf8ToWide(const std::string& value);
 #endif

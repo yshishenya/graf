@@ -31,6 +31,8 @@ private:
     std::uint64_t lastQpc_ = 0;
     std::uint16_t inputChannels_ = 0;
     float previousSample_ = 0.0F;
+    std::optional<std::uint64_t> previousPrivacyEpoch_ = std::nullopt;
+    bool previousMicrophoneSuppressed_ = false;
     bool havePreviousSample_ = false;
     bool initialized_ = false;
     bool healthy_ = true;

@@ -50,7 +50,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # The real product bootstrap emits native_ready. Only a boolean is retained.
         listener = "window.chrome?.webview?.addEventListener('message',e=>{if(e.data?.command==='native_ready'&&typeof e.data.nonce==='string')document.documentElement.dataset.syntheticNativeReady='1';});"
         accepted = " data-post-accepted='1'" if post_accepted else ""
+        identity = ("<meta name='graf-time-user' content='11111111-1111-4111-8111-111111111111'>"
+                    "<meta name='graf-workspace' content='22222222-2222-4222-8222-222222222222'>"
+                    "<meta name='graf-time-session' content='33333333-3333-4333-8333-333333333333'>"
+                    "<meta name='graf-time-preferred' content='UTC'>") if scenario == "initial200" else ""
         data = ("<!doctype html><html><head><meta charset='utf-8'><title>Synthetic T103</title>"
+                f"{identity}"
                 "<link rel='icon' href='data:,'></head><body>"
                 f"<div id='synthetic-marker' data-kind='{kind}'{accepted}>Synthetic</div>{form}"
                 f"<script>{listener}</script></body></html>").encode()
@@ -60,6 +65,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json" if kind == "json" else "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
+        if scenario == "initial200":
+            self.send_header("Set-Cookie", "__Host-twobrain_rec_owner_session=synthetic-inventory-session; Path=/; Secure; HttpOnly; SameSite=Lax")
         if scenario == "reselect" and status == 503 and kind == "form":
             self.send_header("X-GRAF-Cabinet-Recovery", "reselect-space")
         self.end_headers()

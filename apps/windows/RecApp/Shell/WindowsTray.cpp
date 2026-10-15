@@ -14,6 +14,8 @@
 #endif
 
 #include <memory>
+#include <algorithm>
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -32,14 +34,23 @@ struct WindowsTray::Impl {
     static constexpr UINT kSettingsCommand = 6;
     static constexpr UINT kFocusNotificationCommand = 7;
     static constexpr UINT kUpdateCommand = 8;
+    static constexpr UINT kCalendarCommand = 100;
     static constexpr UINT kInteractionInvalidated = WM_APP + 201;
     static constexpr UINT_PTR kInteractionTimer = 201;
 
+    struct MenuStyle {
+        std::shared_ptr<void> font;
+        int dpi = 96, maxWidth = 640;
+        COLORREF background = 0, text = 0, muted = 0, selected = 0, selectedText = 0, line = 0;
+        int scale(int value) const noexcept { return MulDiv(value, dpi, 96); }
+    };
+    struct PopupToken { bool current = true, preparing = true, tracking = false; };
     struct MenuItem {
         // Win32 exposes owner-drawn names to screen readers through this first
         // member; the backing text remains alive throughout the nested menu loop.
         MSAAMENUINFO accessibility{};
         std::wstring text;
+        std::shared_ptr<MenuStyle> style;
         bool separator = false;
         bool disabled = false;
     };
@@ -53,6 +64,12 @@ struct WindowsTray::Impl {
     DWORD shellThreadId = 0, sessionId = 0;
     bool sessionIdKnown = false, sessionSubscribed = false, interactionTimer = false;
     bool queryingInteraction = false, invalidationPending = false, interactionStopped = false;
+    std::shared_ptr<PopupToken> popupToken;
+    void invalidateMenu() noexcept {
+        if (!popupToken) return;
+        popupToken->current = false;
+        if (popupToken->tracking) EndMenu();
+    }
     HPOWERNOTIFY powerSubscription = nullptr;
     HWINEVENTHOOK desktopSubscription = nullptr;
     // Routing only, on the subscribing UI thread. No allocation/global input hook.
@@ -62,6 +79,7 @@ struct WindowsTray::Impl {
     void deliverInvalidation() noexcept {
         if (!invalidationPending || queryingInteraction || interactionStopped) return;
         invalidationPending = false;
+        invalidateMenu();
         try {
             const auto handler = invalidationHandler;
             if (handler) handler(); // may destroy this tray; never touch self after it
@@ -75,6 +93,7 @@ struct WindowsTray::Impl {
     }
     void interactionEvent(InteractionEvent event) noexcept {
         if (interactionStopped) return;
+        invalidateMenu();
         interaction.event(event);
         if (queryingInteraction) { queueInvalidation(); return; }
         invalidationPending = true;
@@ -134,10 +153,11 @@ struct WindowsTray::Impl {
             needed == sizeof(input) && input == TRUE;
         const auto finishedAt = GetTickCount64();
         const auto permit = interaction.observe(sample, now, finishedAt);
-        if (permit.epoch != before) queueInvalidation();
+        if (permit.epoch != before) { invalidateMenu(); queueInvalidation(); }
         return permit; // no external handler, message pumping or capture mutation
     }
     void cleanupInteraction() noexcept {
+        invalidateMenu();
         if (interactionStopped) return;
         interactionStopped = true;
         interaction.event(InteractionEvent::shutdown);
@@ -164,6 +184,7 @@ struct WindowsTray::Impl {
     // Тема приходит из оболочки: меню рисуется её кистями, а не системными.
     bool isDark = true;
     std::vector<std::unique_ptr<MenuItem>> menuItems;
+    std::shared_ptr<MenuStyle> menuStyle;
     Handler openHandler;
     Handler stopHandler;
     Handler quitHandler;
@@ -174,6 +195,10 @@ struct WindowsTray::Impl {
     Handler focusNotificationHandler;
     bool notificationVisible = false;
     std::vector<std::wstring> notificationHistory;
+    CalendarHandler calendarHandler;
+    std::optional<std::vector<UpcomingMeetingRow>> calendarRows;
+    std::uint64_t calendarAuthGeneration = 0, calendarTimeRevision = 0;
+    bool calendarShowTime = true, calendarShowTitle = true;
     RecordingIndicatorSnapshot snapshot;
     MenuAvailability actions{false, false, false, true};
 
@@ -186,6 +211,10 @@ struct WindowsTray::Impl {
             self->window = window;
         }
         if (self == nullptr) return DefWindowProcW(window, message, wParam, lParam);
+        if (message == WM_TIMECHANGE || message == WM_SETTINGCHANGE || message == WM_DISPLAYCHANGE ||
+            (message == WM_DPICHANGED && (!self->popupToken || !self->popupToken->preparing))) {
+            self->invalidateMenu(); // presentation only, never cancel an admitted Join
+        }
         if (message == WM_WTSSESSION_CHANGE) {
             if (!self->sessionIdKnown || static_cast<DWORD>(lParam) != self->sessionId) return 0;
             switch (wParam) {
@@ -222,6 +251,7 @@ struct WindowsTray::Impl {
             return 0;
         }
         if (message == self->taskbarCreated) {
+            self->invalidateMenu();
             self->registered = false;
             (void)self->addIcon();
             return 0;
@@ -237,7 +267,8 @@ struct WindowsTray::Impl {
                 break;
             }
             case WM_CONTEXTMENU:
-                self->showMenu({GET_X_LPARAM(wParam), GET_Y_LPARAM(wParam)});
+                try { self->showMenu({GET_X_LPARAM(wParam), GET_Y_LPARAM(wParam)}); }
+                catch (...) {} // allocation/presentation failure must not cross WindowProc
                 break;
             default:
                 break;
@@ -300,22 +331,57 @@ struct WindowsTray::Impl {
 
 
     // Кисти берутся из палитры оболочки: меню обязано совпадать с окном.
-    COLORREF colorOf(const wchar_t* key, COLORREF fallback) const {
+    static COLORREF colorOf(const wchar_t* key, COLORREF fallback, bool dark) {
         for (const auto& entry : shellPaletteEntries()) {
             if (std::wcscmp(entry.key, key) != 0) continue;
-            const auto value = shellPaletteColor(entry, isDark);
+            const auto value = shellPaletteColor(entry, dark);
             return RGB((value.rgb >> 16) & 0xFF, (value.rgb >> 8) & 0xFF, value.rgb & 0xFF);
         }
         return fallback;
     }
 
-    HBRUSH backgroundBrush() const {
-        return CreateSolidBrush(colorOf(L"GrafPanelBrush", isDark ? RGB(29, 31, 35) : RGB(255, 255, 255)));
+    static std::shared_ptr<MenuStyle> prepareMenuStyle(POINT point, HWND menuWindow, bool dark,
+                                                     const std::shared_ptr<PopupToken>& token) {
+        MONITORINFO monitor{}; monitor.cbSize = sizeof(monitor);
+        if (!GetMonitorInfoW(MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST), &monitor)) return {};
+        // As in RecordingNoticePresenter, associate the invisible window with
+        // the popup's monitor before asking Windows for its font/DPI metrics.
+        if (!SetWindowPos(menuWindow, nullptr, monitor.rcWork.left, monitor.rcWork.top, 1, 1,
+                          SWP_NOACTIVATE | SWP_NOZORDER) || !token->current || !IsWindow(menuWindow)) return {};
+        auto style = std::make_shared<MenuStyle>();
+        const auto dpi = GetDpiForWindow(menuWindow);
+        style->dpi = static_cast<int>(dpi ? dpi : 96);
+        style->maxWidth = (std::min)(style->scale(640),
+            static_cast<int>(monitor.rcWork.right - monitor.rcWork.left) - style->scale(32));
+        if (style->maxWidth <= style->scale(64)) return {};
+        NONCLIENTMETRICSW metrics{}; metrics.cbSize = sizeof(metrics);
+        if (!SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0,
+                                        static_cast<UINT>(style->dpi))) return {};
+        DWORD textScale = 100, bytes = sizeof(textScale);
+        if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Accessibility", L"TextScaleFactor",
+            RRF_RT_REG_DWORD, nullptr, &textScale, &bytes) != ERROR_SUCCESS) textScale = 100;
+        textScale = std::clamp<DWORD>(textScale, 100, 225);
+        metrics.lfMenuFont.lfHeight = -(std::max)(std::abs(static_cast<int>(metrics.lfMenuFont.lfHeight)),
+            MulDiv(style->scale(14), static_cast<int>(textScale), 100));
+        const auto font = CreateFontIndirectW(&metrics.lfMenuFont);
+        if (!font) return {};
+        style->font = std::shared_ptr<void>(font, [](void* value) { DeleteObject(static_cast<HFONT>(value)); });
+        HIGHCONTRASTW contrast{}; contrast.cbSize = sizeof(contrast);
+        if (!SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0)) return {};
+        const bool highContrast = (contrast.dwFlags & HCF_HIGHCONTRASTON) != 0;
+        style->background = highContrast ? GetSysColor(COLOR_MENU) : colorOf(L"GrafPanelBrush", RGB(29, 31, 35), dark);
+        style->text = highContrast ? GetSysColor(COLOR_MENUTEXT) : colorOf(L"GrafTextBrush", RGB(240, 241, 244), dark);
+        style->muted = highContrast ? GetSysColor(COLOR_GRAYTEXT) : colorOf(L"GrafMutedTextBrush", RGB(173, 178, 188), dark);
+        style->selected = highContrast ? GetSysColor(COLOR_HIGHLIGHT) : colorOf(L"GrafAccentSolidBrush", RGB(112, 86, 233), dark);
+        style->selectedText = highContrast ? GetSysColor(COLOR_HIGHLIGHTTEXT) : RGB(255, 255, 255);
+        style->line = highContrast ? GetSysColor(COLOR_MENUTEXT) : colorOf(L"GrafLineSoftBrush", RGB(70, 74, 84), dark);
+        return style;
     }
 
     void addItem(HMENU menu, const std::wstring& text, UINT_PTR id, bool separator, bool disabled = false, bool submenu = false) {
         auto item = std::make_unique<MenuItem>();
         item->text = text;
+        item->style = menuStyle;
         item->accessibility.dwMSAASignature = MSAA_MENU_SIG;
         item->accessibility.cchWText = static_cast<DWORD>(item->text.size());
         item->accessibility.pszWText = item->text.data();
@@ -324,76 +390,93 @@ struct WindowsTray::Impl {
         // Для MF_OWNERDRAW данные пункта передаются в параметре строки.
         const UINT flags = MF_OWNERDRAW | (separator ? MF_SEPARATOR : 0U) | (submenu ? MF_POPUP : 0U) |
             (disabled || separator ? MF_DISABLED | MF_GRAYED : MF_ENABLED);
-        AppendMenuW(menu, flags, id, reinterpret_cast<LPCWSTR>(item.get()));
-        menuItems.push_back(std::move(item));
+        const auto data = item.get();
+        menuItems.push_back(std::move(item)); // Allocate before transferring a submenu to its parent.
+        if (!AppendMenuW(menu, flags, id, reinterpret_cast<LPCWSTR>(data))) {
+            menuItems.pop_back();
+            throw std::runtime_error("GRAF tray menu item unavailable");
+        }
     }
 
     void measureItem(MEASUREITEMSTRUCT* measure) const {
         const auto* item = reinterpret_cast<const MenuItem*>(measure->itemData);
-        if (item == nullptr) return;
-        measure->itemHeight = item->separator ? 9 : 30;
+        if (item == nullptr || !item->style) return;
+        const auto& style = *item->style;
+        measure->itemHeight = static_cast<UINT>(item->separator ? style.scale(9) : style.scale(30));
         if (item->separator) {
-            measure->itemWidth = 220;
+            measure->itemWidth = static_cast<UINT>((std::min)(style.scale(220), style.maxWidth));
             return;
         }
         const auto dc = GetDC(window);
         if (dc == nullptr) {
-            measure->itemWidth = 260;
+            measure->itemWidth = static_cast<UINT>((std::min)(style.scale(260), style.maxWidth));
             return;
         }
         // Ширина по самой длинной строке плюс поля, как у системного меню.
-        auto font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+        auto font = static_cast<HFONT>(style.font.get());
         const auto previous = SelectObject(dc, font);
         SIZE size{};
         GetTextExtentPoint32W(dc, item->text.c_str(), static_cast<int>(item->text.size()), &size);
+        TEXTMETRICW textMetrics{};
+        if (GetTextMetricsW(dc, &textMetrics))
+            measure->itemHeight = static_cast<UINT>((std::max)(style.scale(30),
+                static_cast<int>(textMetrics.tmHeight) + style.scale(12)));
         SelectObject(dc, previous);
         ReleaseDC(window, dc);
-        measure->itemWidth = static_cast<UINT>(size.cx) + 64;
+        measure->itemWidth = static_cast<UINT>((std::min)(style.maxWidth,
+            (std::max)(style.scale(220), static_cast<int>(size.cx) + style.scale(64))));
     }
 
     void drawItem(const DRAWITEMSTRUCT* draw) const {
         const auto* item = reinterpret_cast<const MenuItem*>(draw->itemData);
-        if (item == nullptr) return;
+        if (item == nullptr || !item->style) return;
+        const auto& style = *item->style;
         const bool selected = (draw->itemState & ODS_SELECTED) != 0 && !item->disabled;
         if (item->separator) {
-            const auto background = CreateSolidBrush(colorOf(L"GrafPanelBrush", RGB(29, 31, 35)));
+            const auto background = CreateSolidBrush(style.background);
             FillRect(draw->hDC, &draw->rcItem, background);
             DeleteObject(background);
-            const auto line = CreateSolidBrush(colorOf(L"GrafLineSoftBrush", RGB(70, 74, 84)));
+            const auto line = CreateSolidBrush(style.line);
             RECT rule = draw->rcItem;
-            rule.top += 4;
+            rule.top += style.scale(4);
             rule.bottom = rule.top + 1;
-            rule.left += 12;
-            rule.right -= 12;
+            rule.left += style.scale(12);
+            rule.right -= style.scale(12);
             FillRect(draw->hDC, &rule, line);
             DeleteObject(line);
             return;
         }
-        const auto background = CreateSolidBrush(selected
-            ? colorOf(L"GrafAccentSolidBrush", RGB(112, 86, 233))
-            : colorOf(L"GrafPanelBrush", RGB(29, 31, 35)));
+        const auto background = CreateSolidBrush(selected ? style.selected : style.background);
         FillRect(draw->hDC, &draw->rcItem, background);
         DeleteObject(background);
         SetBkMode(draw->hDC, TRANSPARENT);
-        const COLORREF text = selected ? RGB(255, 255, 255)
-                                       : item->disabled ? colorOf(L"GrafMutedTextBrush", RGB(173, 178, 188))
-                                                        : colorOf(L"GrafTextBrush", RGB(240, 241, 244));
+        const COLORREF text = selected ? style.selectedText : item->disabled ? style.muted : style.text;
         SetTextColor(draw->hDC, text);
-        auto font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+        auto font = static_cast<HFONT>(style.font.get());
         const auto previous = SelectObject(draw->hDC, font);
         RECT text_rect = draw->rcItem;
-        text_rect.left += 16;
-        text_rect.right -= 12;
+        text_rect.left += style.scale(16);
+        text_rect.right -= style.scale(12);
         DrawTextW(draw->hDC, item->text.c_str(), static_cast<int>(item->text.size()), &text_rect,
-                  DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+                  DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS | DT_NOPREFIX);
         SelectObject(draw->hDC, previous);
     }
 
     void showMenu(POINT point) {
+        if (popupToken && (popupToken->preparing || popupToken->tracking)) return;
+        invalidateMenu(); // Reentry after tracking must revoke the previous, still-finishing selection.
+        const auto menuWindow = window;
+        const auto dark = isDark;
+        const auto token = std::make_shared<PopupToken>();
+        popupToken = token;
+        struct PopupScope {
+            std::shared_ptr<PopupToken> token;
+            ~PopupScope() { token->preparing = false; token->tracking = false; }
+        } popupScope{token};
         if (point.x == -1 && point.y == -1) {
             NOTIFYICONIDENTIFIER identifier{};
             identifier.cbSize = sizeof(identifier);
-            identifier.hWnd = window;
+            identifier.hWnd = menuWindow;
             identifier.uID = kIconId;
             RECT bounds{};
             if (SUCCEEDED(Shell_NotifyIconGetRect(&identifier, &bounds))) {
@@ -402,8 +485,23 @@ struct WindowsTray::Impl {
                 GetCursorPos(&point);
             }
         }
-        const auto menu = CreatePopupMenu();
+        if (!token->current || !IsWindow(menuWindow)) return;
+        // This static preparation never accesses Impl across native calls.
+        // WM_DPICHANGED during placement is expected: metrics are read afterwards.
+        auto style = prepareMenuStyle(point, menuWindow, dark, token);
+        if (!style || !token->current || !IsWindow(menuWindow)) return;
+        menuStyle = std::move(style);
+        menuItems.clear();
+        struct MenuScope {
+            HMENU menu = nullptr;
+            HBRUSH background = nullptr;
+            ~MenuScope() { if (menu) DestroyMenu(menu); if (background) DeleteObject(background); }
+        } scope{CreatePopupMenu(), CreateSolidBrush(menuStyle->background)};
+        const auto menu = scope.menu;
+        if (!scope.background) return;
         if (!menu) return;
+        const auto rows = calendarRows;
+        const auto calendar = calendarHandler;
         auto data = iconData();
         // Пункты рисуются сами: системное меню берёт цвета у Windows и на
         // тёмном окне GRAF выглядит светлым чужеродным пятном.
@@ -417,37 +515,58 @@ struct WindowsTray::Impl {
                     kPauseResumeCommand, false, !actions.pauseResume);
         }
         addItem(menu, L"Остановить запись", kStopCommand, false, !actions.stop || !stopHandler);
+        if (rows) {
+            addItem(menu, L"", 0, true);
+            addItem(menu, L"Ближайшие встречи", 0, false, true);
+            for (std::size_t index = 0; index < rows->size(); ++index) {
+                const auto& row = (*rows)[index];
+                addItem(menu, row.label, kCalendarCommand + index, false, !row.enabled || !calendar || !actions.settings);
+            }
+        }
         addItem(menu, L"", 0, true);
         addItem(menu, L"Настройки", kSettingsCommand, false, !actions.settings || !settingsHandler);
         addItem(menu, L"Проверить обновления…", kUpdateCommand, false, !actions.settings || !updateHandler);
         addItem(menu, L"Перейти к уведомлению", kFocusNotificationCommand, false,
                 !actions.settings || !notificationVisible || !focusNotificationHandler);
-        const auto historyMenu = CreatePopupMenu();
+        MenuScope historyScope{CreatePopupMenu(), nullptr};
+        const auto historyMenu = historyScope.menu;
         if (historyMenu) {
             if (notificationHistory.empty()) addItem(historyMenu, L"Уведомлений пока нет", 0, false, true);
             else for (const auto& entry : notificationHistory) addItem(historyMenu, entry, 0, false, true);
             addItem(menu, L"История уведомлений", reinterpret_cast<UINT_PTR>(historyMenu), false, false, true);
+            historyScope.menu = nullptr; // the parent menu now owns this submenu
         }
         addItem(menu, L"Закрыть GRAF", kQuitCommand, false);
         MENUINFO info{};
         info.cbSize = sizeof(info);
         info.fMask = MIM_BACKGROUND | MIM_APPLYTOSUBMENUS;
-        info.hbrBack = backgroundBrush();
+        info.hbrBack = scope.background;
         SetMenuInfo(menu, &info);
-        const auto menuWindow = window;
         // The nested loop can process Quit and destroy this Impl. Item data
         // and the brush must outlive that loop without accessing this afterwards.
         auto menuLifetime = std::move(menuItems);
+        token->preparing = false;
+        token->tracking = true;
         SetForegroundWindow(menuWindow);
-        const auto command = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
-                                             point.x, point.y, menuWindow, nullptr);
+        const auto command = token->current && IsWindow(menuWindow)
+            ? TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
+                              point.x, point.y, menuWindow, nullptr) : 0U;
+        token->tracking = false;
         // The nested menu loop may close the owner. Use only local handles from here.
         DestroyMenu(menu);
+        scope.menu = nullptr;
         menuLifetime.clear();
         DeleteObject(info.hbrBack);
-        if (IsWindow(menuWindow)) {
+        scope.background = nullptr;
+        if (token->current && IsWindow(menuWindow)) {
             PostMessageW(menuWindow, WM_NULL, 0, 0);
             Shell_NotifyIconW(NIM_SETFOCUS, &data);
+            if (!token->current || !IsWindow(menuWindow)) return;
+            if (command >= kCalendarCommand && rows && command - kCalendarCommand < rows->size()) {
+                const auto& row = (*rows)[command - kCalendarCommand];
+                if (row.enabled && calendar) calendar(row); // no access to Impl, including after the callback
+                return;
+            }
             if (command) PostMessageW(menuWindow, WM_COMMAND, command, 0);
         }
     }
@@ -551,10 +670,16 @@ WindowsTray::~WindowsTray() {
     if (impl_->window) DestroyWindow(impl_->window);
 }
 
-void WindowsTray::setState(const RecordingIndicatorSnapshot& snapshot, bool recordingReady, bool exiting) {
+void WindowsTray::setState(const RecordingIndicatorSnapshot& snapshot, bool recordingReady, bool exiting, bool privacyPending) {
     if (!impl_) return;
+    const auto actions = menuAvailability(snapshot, recordingReady, exiting, privacyPending);
+    const auto& old = impl_->snapshot;
+    if (old.visible != snapshot.visible || old.stopAvailable != snapshot.stopAvailable || old.state != snapshot.state ||
+        old.reason != snapshot.reason || old.accessibleName != snapshot.accessibleName || old.statusText != snapshot.statusText ||
+        impl_->actions.start != actions.start || impl_->actions.pauseResume != actions.pauseResume ||
+        impl_->actions.stop != actions.stop || impl_->actions.settings != actions.settings) impl_->invalidateMenu();
     impl_->snapshot = snapshot;
-    impl_->actions = menuAvailability(snapshot, recordingReady, exiting);
+    impl_->actions = actions;
     impl_->updateIcon();
 }
 
@@ -570,18 +695,42 @@ InteractionPermit WindowsTray::interactionPermit() noexcept {
 
 void WindowsTray::setTheme(bool isDark) {
     if (!impl_) return;
+    if (impl_->isDark != isDark) impl_->invalidateMenu();
     impl_->isDark = isDark;
 }
 
 void WindowsTray::setUpdateHandler(Handler handler) {
-    if (impl_) impl_->updateHandler = std::move(handler);
+    if (!impl_) return;
+    impl_->invalidateMenu();
+    impl_->updateHandler = std::move(handler);
 }
 
 void WindowsTray::setNotificationState(bool visible, std::vector<std::wstring> history) {
     if (!impl_) return;
-    impl_->notificationVisible = visible;
     if (history.size() > 50) history.resize(50);
+    if (impl_->notificationVisible != visible || impl_->notificationHistory != history) impl_->invalidateMenu();
+    impl_->notificationVisible = visible;
     impl_->notificationHistory = std::move(history);
+}
+
+void WindowsTray::setCalendarHandler(CalendarHandler handler) {
+    if (!impl_) return;
+    impl_->invalidateMenu();
+    impl_->calendarHandler = std::move(handler);
+}
+
+void WindowsTray::setCalendarState(std::optional<std::vector<UpcomingMeetingRow>> rows,
+    std::uint64_t authGeneration, std::uint64_t timeRevision, bool showTime, bool showTitle) {
+    if (!impl_) return;
+    if (rows && rows->size() > 12) rows->resize(12);
+    if (impl_->calendarRows != rows || impl_->calendarAuthGeneration != authGeneration ||
+        impl_->calendarTimeRevision != timeRevision || impl_->calendarShowTime != showTime ||
+        impl_->calendarShowTitle != showTitle) impl_->invalidateMenu();
+    impl_->calendarRows = std::move(rows);
+    impl_->calendarAuthGeneration = authGeneration;
+    impl_->calendarTimeRevision = timeRevision;
+    impl_->calendarShowTime = showTime;
+    impl_->calendarShowTitle = showTitle;
 }
 
 } // namespace graf::windows
@@ -597,7 +746,7 @@ WindowsTray::WindowsTray(std::uintptr_t, Handler, Handler, Handler, Handler, Han
 
 WindowsTray::~WindowsTray() = default;
 
-void WindowsTray::setState(const RecordingIndicatorSnapshot&, bool, bool) {}
+void WindowsTray::setState(const RecordingIndicatorSnapshot&, bool, bool, bool) {}
 
 bool WindowsTray::available() noexcept { return false; }
 
@@ -607,6 +756,9 @@ void WindowsTray::setTheme(bool) {}
 void WindowsTray::setUpdateHandler(Handler) {}
 
 void WindowsTray::setNotificationState(bool, std::vector<std::wstring>) {}
+void WindowsTray::setCalendarHandler(CalendarHandler) {}
+void WindowsTray::setCalendarState(std::optional<std::vector<UpcomingMeetingRow>>, std::uint64_t,
+                                   std::uint64_t, bool, bool) {}
 
 } // namespace graf::windows
 

@@ -2,6 +2,8 @@
 #include "DesktopHttpTransport.h"
 
 #include "../Storage/Sha256.h"
+#include "../Contracts/JsonString.h"
+#include "../Contracts/JsonReader.h"
 
 #include <cctype>
 #include <charconv>
@@ -20,120 +22,12 @@
 namespace graf::windows {
 namespace {
 
-// Only root fields are retained. Nested objects/arrays are validated and
-// skipped, so policy/device fields cannot impersonate account authority.
-class JsonReader final {
-public:
-    explicit JsonReader(std::string_view json) : json_(json) {}
-    std::optional<std::map<std::string_view, std::string_view>> read() {
-        if (json_.size() > 2 * 1024 * 1024 || !take('{') || !object(0)) return std::nullopt;
-        whitespace();
-        if (cursor_ != json_.size()) return std::nullopt;
-        return fields_;
-    }
-    std::optional<std::vector<std::string_view>> readArray() {
-        if (json_.size() > 2 * 1024 * 1024 || !take('[')) return std::nullopt;
-        std::vector<std::string_view> values;
-        if (!take(']')) {
-            do {
-                whitespace();
-                const auto start = cursor_;
-                if (values.size() == 1024 || !value(1)) return std::nullopt;
-                values.push_back(json_.substr(start, cursor_ - start));
-            } while (take(','));
-            if (!take(']')) return std::nullopt;
-        }
-        whitespace();
-        if (cursor_ != json_.size()) return std::nullopt;
-        return values;
-    }
+std::optional<std::string> calendarString(
+    std::string_view raw, std::size_t maxRawBytes = 16384, bool allowNul = false);
 
-private:
-    void whitespace() {
-        while (cursor_ < json_.size() && std::string_view(" \r\n\t").find(json_[cursor_]) != std::string_view::npos) ++cursor_;
-    }
-    bool take(char c) {
-        whitespace();
-        if (cursor_ == json_.size() || json_[cursor_] != c) return false;
-        ++cursor_;
-        return true;
-    }
-    bool string() {
-        if (!take('"')) return false;
-        while (cursor_ < json_.size()) {
-            const auto c = static_cast<unsigned char>(json_[cursor_++]);
-            if (c < 0x20) return false;
-            if (c == '"') return true;
-            if (c != '\\') continue;
-            if (cursor_ == json_.size()) return false;
-            const auto escape = json_[cursor_++];
-            if (escape == 'u') {
-                for (int i = 0; i < 4; ++i) {
-                    if (cursor_ == json_.size() || !std::isxdigit(static_cast<unsigned char>(json_[cursor_++]))) return false;
-                }
-            } else if (std::string_view("\"\\/bfnrt").find(escape) == std::string_view::npos) return false;
-        }
-        return false;
-    }
-    bool digits() {
-        const auto start = cursor_;
-        while (cursor_ < json_.size() && json_[cursor_] >= '0' && json_[cursor_] <= '9') ++cursor_;
-        return cursor_ != start;
-    }
-    bool number() {
-        if (cursor_ < json_.size() && json_[cursor_] == '-') ++cursor_;
-        if (cursor_ == json_.size()) return false;
-        if (json_[cursor_] == '0') ++cursor_;
-        else if (!digits()) return false;
-        if (cursor_ < json_.size() && json_[cursor_] == '.') {
-            ++cursor_;
-            if (!digits()) return false;
-        }
-        if (cursor_ < json_.size() && (json_[cursor_] == 'e' || json_[cursor_] == 'E')) {
-            ++cursor_;
-            if (cursor_ < json_.size() && (json_[cursor_] == '-' || json_[cursor_] == '+')) ++cursor_;
-            if (!digits()) return false;
-        }
-        return true;
-    }
-    bool value(unsigned depth) {
-        if (depth > 32) return false;
-        whitespace();
-        if (cursor_ == json_.size()) return false;
-        if (json_[cursor_] == '"') return string();
-        if (take('{')) return object(depth);
-        if (take('[')) {
-            if (take(']')) return true;
-            do { if (!value(depth + 1)) return false; } while (take(','));
-            return take(']');
-        }
-        for (const auto literal : {std::string_view("null"), std::string_view("true"), std::string_view("false")}) {
-            if (json_.substr(cursor_, literal.size()) == literal) { cursor_ += literal.size(); return true; }
-        }
-        return number();
-    }
-    bool object(unsigned depth) {
-        if (take('}')) return true;
-        std::set<std::string_view> keys;
-        do {
-            whitespace();
-            const auto keyStart = cursor_;
-            if (!string()) return false;
-            const auto key = json_.substr(keyStart + 1, cursor_ - keyStart - 2);
-            if (key.find('\\') != std::string_view::npos || !keys.insert(key).second) return false;
-            if (!take(':')) return false;
-            whitespace();
-            const auto start = cursor_;
-            if (!value(depth + 1)) return false;
-            if (depth == 0) fields_.emplace(key, json_.substr(start, cursor_ - start));
-        } while (take(','));
-        return take('}');
-    }
-
-    std::string_view json_;
-    std::size_t cursor_ = 0;
-    std::map<std::string_view, std::string_view> fields_;
-};
+using JsonReader = json_detail::JsonReader<>;
+template<class String> using ProtocolJsonReader = std::conditional_t<std::is_same_v<String, CustodyString>,
+    json_detail::JsonReader<CustodyAllocator, String>, json_detail::JsonReader<std::allocator, String>>;
 
 } // namespace
 
@@ -155,7 +49,8 @@ bool DesktopApiClient::accountId(std::string_view value) noexcept {
     return true;
 }
 
-std::string DesktopApiClient::formatDisplayMinute(std::uint64_t epochMs, int displayTimezoneOffsetMinutes) noexcept {
+template<class String>
+String DesktopApiClient::formatDisplayMinute(std::uint64_t epochMs, int displayTimezoneOffsetMinutes) noexcept(std::is_same_v<String, std::string>) {
     if (epochMs == 0) return {};
     if (displayTimezoneOffsetMinutes < -14 * 60 || displayTimezoneOffsetMinutes > 14 * 60) return {};
     const auto shiftedMs = static_cast<long long>(epochMs) +
@@ -180,10 +75,11 @@ std::string DesktopApiClient::formatDisplayMinute(std::uint64_t epochMs, int dis
     char buffer[24] = {};
     std::snprintf(buffer, sizeof(buffer), "%04lld-%02llu-%02llu %02lld:%02lld", civilYear, month, day,
                   minuteOfDay / 60LL, minuteOfDay % 60LL);
-    return std::string(buffer);
+    return String(buffer);
 }
 
-std::string DesktopApiClient::formatUtcInstant(std::uint64_t epochMs) noexcept {
+template<class String>
+String DesktopApiClient::formatUtcInstant(std::uint64_t epochMs) noexcept(std::is_same_v<String, std::string>) {
     if (epochMs == 0) return {};
     const auto totalSeconds = static_cast<long long>(epochMs / 1000ULL);
     const auto days = totalSeconds / 86400LL;
@@ -202,45 +98,50 @@ std::string DesktopApiClient::formatUtcInstant(std::uint64_t epochMs) noexcept {
     char buffer[24] = {};
     std::snprintf(buffer, sizeof(buffer), "%04lld-%02llu-%02lluT%02lld:%02lld:%02lldZ", civilYear, month, day,
                   secondOfDay / 3600LL, (secondOfDay % 3600LL) / 60LL, secondOfDay % 60LL);
-    return std::string(buffer);
+    return String(buffer);
 }
 
-std::string DesktopApiClient::createMeetingBody(const CreateMeetingRequest& request) {
-    const auto escape = [](std::string_view value) {
-        std::string escaped;
-        escaped.reserve(value.size());
+template<class String>
+String DesktopApiClient::createMeetingBody(const BasicCreateMeetingRequest<String>& request) {
+    const auto escape = [](String& body, std::string_view value) {
         for (const char character : value) {
             switch (character) {
-            case '\\': escaped += "\\\\"; break;
-            case '"': escaped += "\\\""; break;
-            case '\n': escaped += "\\n"; break;
-            case '\r': escaped += "\\r"; break;
-            case '\t': escaped += "\\t"; break;
-            default: escaped += character; break;
+            case '\\': body += "\\\\"; break;
+            case '"': body += "\\\""; break;
+            case '\n': body += "\\n"; break;
+            case '\r': body += "\\r"; break;
+            case '\t': body += "\\t"; break;
+            default: body += character; break;
             }
         }
-        return escaped;
     };
-    auto body = std::string("{\"local_recording_id\":\"") + escape(request.localRecordingId) +
-        "\",\"local_media_revision_id\":\"" + escape(request.localMediaRevisionId) +
-        "\",\"source_kind\":\"" + escape(request.sourceKind) +
-        "\",\"media_scribe_source_mode\":\"" + escape(request.mediaScribeSourceMode) +
-        "\",\"duration_seconds\":" + std::to_string(request.durationSeconds);
+    const auto number = [](String& body, auto value) {
+        char digits[24];
+        const auto end = std::to_chars(std::begin(digits), std::end(digits), value);
+        body.append(digits, static_cast<std::size_t>(end.ptr - digits));
+    };
+    String body("{\"local_recording_id\":\"");
+    escape(body, request.localRecordingId);
+    body += "\",\"local_media_revision_id\":\""; escape(body, request.localMediaRevisionId);
+    body += "\",\"source_kind\":\""; escape(body, request.sourceKind);
+    body += "\",\"media_scribe_source_mode\":\""; escape(body, request.mediaScribeSourceMode);
+    body += "\",\"duration_seconds\":"; number(body, request.durationSeconds);
     // The timeline is sent only when the package could support it: the server
     // stores what it is given, and a guessed instant is worse than a missing one.
     if (request.hasTimeline() && !request.title.empty() && !request.titleSource.empty()) {
-        body += ",\"title\":\"" + escape(request.title) +
-            "\",\"title_source\":\"" + escape(request.titleSource) +
-            "\",\"started_at\":\"" + escape(request.startedAtIso) +
-            "\",\"ended_at\":\"" + escape(request.endedAtIso) +
-            "\",\"recording_display_timezone_offset_minutes\":" +
-            std::to_string(request.displayTimezoneOffsetMinutes);
+        body += ",\"title\":\""; escape(body, request.title);
+        body += "\",\"title_source\":\""; escape(body, request.titleSource);
+        body += "\",\"started_at\":\""; escape(body, request.startedAtIso);
+        body += "\",\"ended_at\":\""; escape(body, request.endedAtIso);
+        body += "\",\"recording_display_timezone_offset_minutes\":";
+        number(body, request.displayTimezoneOffsetMinutes);
     }
     body += "}";
     return body;
 }
 
-std::optional<CreateMeetingRequest> DesktopApiClient::createMeetingRequest(
+template<class String>
+std::optional<BasicCreateMeetingRequest<String>> DesktopApiClient::createMeetingRequest(
     std::string_view localRecordingId,
     std::string_view localMediaRevisionId,
     std::uint32_t durationSeconds,
@@ -250,46 +151,52 @@ std::optional<CreateMeetingRequest> DesktopApiClient::createMeetingRequest(
     if (!safeIdentity(localRecordingId) || !safeIdentity(localMediaRevisionId) || durationSeconds == 0) {
         return std::nullopt;
     }
-    CreateMeetingRequest request;
-    request.localRecordingId = std::string(localRecordingId);
-    request.localMediaRevisionId = std::string(localMediaRevisionId);
-    request.sourceKind = std::string(kV5SourceKind);
-    request.mediaScribeSourceMode = std::string(kV5MediaScribeSourceMode);
+    BasicCreateMeetingRequest<String> request;
+    request.localRecordingId.assign(localRecordingId.data(), localRecordingId.size());
+    request.localMediaRevisionId.assign(localMediaRevisionId.data(), localMediaRevisionId.size());
+    request.sourceKind.assign(kV5SourceKind.data(), kV5SourceKind.size());
+    request.mediaScribeSourceMode.assign(kV5MediaScribeSourceMode.data(), kV5MediaScribeSourceMode.size());
     request.durationSeconds = durationSeconds;
     // A package without usable bounds is still uploaded; it simply carries no
     // timeline, exactly as before these fields existed.
     if (startedAtMs != 0 && stoppedAtMs >= startedAtMs) {
-        const auto label = formatDisplayMinute(startedAtMs, displayTimezoneOffsetMinutes);
-        const auto startedAt = formatUtcInstant(startedAtMs);
-        const auto endedAt = formatUtcInstant(stoppedAtMs);
+        const auto label = formatDisplayMinute<String>(startedAtMs, displayTimezoneOffsetMinutes);
+        const auto startedAt = formatUtcInstant<String>(startedAtMs);
+        const auto endedAt = formatUtcInstant<String>(stoppedAtMs);
         if (!label.empty() && !startedAt.empty() && !endedAt.empty()) {
             request.startedAtIso = startedAt;
             request.endedAtIso = endedAt;
             request.displayTimezoneOffsetMinutes = displayTimezoneOffsetMinutes;
-            request.title = "Meeting - " + label;
+            request.title = "Meeting - "; request.title += label;
             request.titleSource = "generic";
         }
     }
     return request;
 }
 
-std::optional<UploadSessionRequest> DesktopApiClient::uploadSessionRequest(
+template<class String>
+std::optional<BasicUploadSessionRequest<String>> DesktopApiClient::uploadSessionRequest(
     const std::array<std::uint64_t, 3>& expectedTrackSizes,
     std::string_view manifestSha256) {
     if (!sha256(manifestSha256)) {
         return std::nullopt;
     }
-    return UploadSessionRequest{kV5WireRoles, expectedTrackSizes, std::string(manifestSha256)};
+    return BasicUploadSessionRequest<String>{kV5WireRoles, expectedTrackSizes, String(manifestSha256)};
 }
 
-std::string DesktopApiClient::idempotencyKey(
+template<class String>
+String DesktopApiClient::idempotencyKey(
     std::string_view scope,
     std::string_view directoryId,
     std::string_view sessionId) {
     if (!safeIdentity(scope) || !safeIdentity(directoryId) || !safeIdentity(sessionId)) {
         return {};
     }
-    return "desktop-upload:" + std::string(scope) + ":" + std::string(directoryId) + ":" + std::string(sessionId);
+    String key("desktop-upload:");
+    key.append(scope.data(), scope.size()); key += ':';
+    key.append(directoryId.data(), directoryId.size()); key += ':';
+    key.append(sessionId.data(), sessionId.size());
+    return key;
 }
 
 bool DesktopApiClient::safeIdentity(std::string_view value) noexcept {
@@ -333,8 +240,8 @@ std::optional<long long> plainInteger(std::string_view value) noexcept {
     return number;
 }
 
-std::string escapeJson(std::string_view value) {
-    std::string escaped;
+template<class String = std::string> String escapeJson(std::string_view value) {
+    String escaped;
     escaped.reserve(value.size());
     for (const char character : value) {
         switch (character) {
@@ -377,8 +284,9 @@ bool validServerInstant(std::string_view value) noexcept {
         digit(cursor + 4) && digit(cursor + 5);
 }
 
-std::optional<LocalPurgeTask> purgeTaskFromFields(
-    const std::map<std::string_view, std::string_view>& fields) {
+template<class String>
+std::optional<BasicLocalPurgeTask<String>> purgeTaskFromFields(
+    const typename ProtocolJsonReader<String>::Fields& fields) {
     const auto taskId = fields.find("task_id");
     const auto meetingId = fields.find("meeting_id");
     const auto taskType = fields.find("task_type");
@@ -402,107 +310,51 @@ std::optional<LocalPurgeTask> purgeTaskFromFields(
         *phase == "failed" || *phase == "unreachable" || *phase == "expired" ||
         *phase == "local_expiry_relied_upon";
     if (!knownType || !knownState) return std::nullopt;
-    LocalPurgeTask task;
-    task.taskId = std::string(*id);
-    task.meetingId = std::string(*meeting);
-    task.taskType = std::string(*type);
-    task.state = std::string(*phase);
-    task.expiresAt = std::string(*expiry);
+    BasicLocalPurgeTask<String> task;
+    task.taskId = *id;
+    task.meetingId = *meeting;
+    task.taskType = *type;
+    task.state = *phase;
+    task.expiresAt = *expiry;
     const auto safeReason = fields.find("safe_reason");
     if (safeReason != fields.end() && safeReason->second != "null") {
         const auto reason = plainString(safeReason->second);
         if (!reason || reason->size() > 120) return std::nullopt;
-        task.safeReason = std::string(*reason);
+        task.safeReason = *reason;
     }
     return task;
 }
 
 } // namespace
 
-std::string DesktopApiClient::ownOriginDeletionPath(std::string_view directoryId) {
+template<class String> String DesktopApiClient::ownOriginDeletionPath(std::string_view directoryId) {
     if (!safeIdentity(directoryId)) return {};
-    return std::string(desktopRecordingPrefix) + std::string(directoryId) + std::string(ownOriginDeletionSuffix);
+    String path(desktopRecordingPrefix); path += directoryId; path += ownOriginDeletionSuffix; return path;
 }
 
-std::string DesktopApiClient::meetingDeletionPath(std::string_view meetingId) {
+template<class String> String DesktopApiClient::meetingDeletionPath(std::string_view meetingId) {
     // A meeting is addressed by UUID, and the server parses that path segment as
     // one. A shorter or differently shaped value would be answered 422 and must
     // never reach the wire as if it identified a meeting.
     if (!accountId(meetingId)) return {};
-    return std::string(cabinetMeetingPrefix) + std::string(meetingId) + std::string(ownOriginDeletionSuffix);
+    String path(cabinetMeetingPrefix); path += meetingId; path += ownOriginDeletionSuffix; return path;
 }
 
 namespace {
 // Calendar strings may contain JSON Unicode escapes. Upload decoding is unchanged.
-std::optional<std::string> calendarString(std::string_view raw) {
-    if (raw.size() < 2 || raw.front() != '"' || raw.back() != '"' || raw.size() > 16384) return std::nullopt;
+std::optional<std::string> calendarString(std::string_view raw, std::size_t maxRawBytes, bool allowNul) {
     std::string result;
-    const auto append = [&](unsigned cp) {
-        if (cp < 0x80) result += static_cast<char>(cp);
-        else if (cp < 0x800) { result += static_cast<char>(0xc0 | (cp >> 6)); result += static_cast<char>(0x80 | (cp & 63)); }
-        else if (cp < 0x10000) {
-            result += static_cast<char>(0xe0 | (cp >> 12)); result += static_cast<char>(0x80 | ((cp >> 6) & 63));
-            result += static_cast<char>(0x80 | (cp & 63));
-        } else {
-            result += static_cast<char>(0xf0 | (cp >> 18)); result += static_cast<char>(0x80 | ((cp >> 12) & 63));
-            result += static_cast<char>(0x80 | ((cp >> 6) & 63)); result += static_cast<char>(0x80 | (cp & 63));
-        }
-    };
-    const auto hex = [&](std::size_t& i) -> std::optional<unsigned> {
-        unsigned cp = 0;
-        for (int n = 0; n < 4; ++n) {
-            if (++i >= raw.size() - 1) return std::nullopt;
-            char c = raw[i];
-            if (c >= '0' && c <= '9') cp = cp * 16 + (c - '0');
-            else if (c >= 'a' && c <= 'f') cp = cp * 16 + (c - 'a' + 10);
-            else if (c >= 'A' && c <= 'F') cp = cp * 16 + (c - 'A' + 10);
-            else return std::nullopt;
-        }
-        return cp;
-    };
-    for (std::size_t i = 1; i < raw.size() - 1; ++i) {
-        auto c = raw[i];
-        if (c != '\\') {
-            if (static_cast<unsigned char>(c) < 0x20 || c == '"') return std::nullopt;
-            unsigned cp = static_cast<unsigned char>(c), count = 0, minimum = 0;
-            if (cp >= 0xf0 && cp <= 0xf4) { cp &= 7; count = 3; minimum = 0x10000; }
-            else if (cp >= 0xe0 && cp <= 0xef) { cp &= 15; count = 2; minimum = 0x800; }
-            else if (cp >= 0xc2 && cp <= 0xdf) { cp &= 31; count = 1; minimum = 0x80; }
-            else if (cp >= 0x80) return std::nullopt;
-            while (count--) {
-                if (++i >= raw.size() - 1) return std::nullopt;
-                const auto next = static_cast<unsigned char>(raw[i]);
-                if ((next & 0xc0) != 0x80) return std::nullopt;
-                cp = (cp << 6) | (next & 63);
-            }
-            if (cp < minimum || cp > 0x10ffff || (cp >= 0xd800 && cp <= 0xdfff)) return std::nullopt;
-            append(cp); continue;
-        }
-        if (++i >= raw.size() - 1) return std::nullopt;
-        switch (raw[i]) {
-        case '"': result += '"'; break;
-        case '\\': result += '\\'; break;
-        case '/': result += '/'; break;
-        case 'n': result += '\n'; break;
-        case 'r': result += '\r'; break;
-        case 't': result += '\t'; break;
-        case 'b': result += '\b'; break;
-        case 'f': result += '\f'; break;
-        case 'u': {
-            auto cp = hex(i); if (!cp) return std::nullopt;
-            if (*cp >= 0xd800 && *cp <= 0xdbff) {
-                if (i + 2 >= raw.size() - 1 || raw[++i] != '\\' || raw[++i] != 'u') return std::nullopt;
-                const auto low = hex(i);
-                if (!low || *low < 0xdc00 || *low > 0xdfff) return std::nullopt;
-                *cp = 0x10000 + ((*cp - 0xd800) << 10) + *low - 0xdc00;
-            } else if (*cp >= 0xdc00 && *cp <= 0xdfff) return std::nullopt;
-            if (*cp == 0) return std::nullopt;
-            append(*cp); break;
-        }
-        default: return std::nullopt;
-        }
-    }
+    if (!json_detail::decodeString(raw, maxRawBytes, allowNul, [&](char byte) { result += byte; })) return std::nullopt;
     return result;
+}
+
+std::optional<std::string> calendarEventId(std::string_view raw) {
+    if (raw.size() != 36) return std::nullopt;
+    std::string id(raw);
+    for (auto& c : id) if (c >= 'A' && c <= 'F') c = static_cast<char>(c + ('a' - 'A'));
+    // Calendar IDs are UUID syntax, not account authority (which excludes nil).
+    if (!DesktopApiClient::accountId(id) && id != "00000000-0000-0000-0000-000000000000") return std::nullopt;
+    return id;
 }
 
 std::optional<double> calendarInstant(std::string_view raw) {
@@ -545,6 +397,84 @@ std::optional<double> calendarInstant(std::string_view raw) {
 }
 }
 
+std::string DesktopApiClient::calendarJoinTargetPath(std::string_view eventId) {
+    const auto id = calendarEventId(eventId);
+    return id ? "/api/v1/calendar/events/" + *id + "/join-target" : std::string{};
+}
+
+std::optional<CalendarJoinTarget> DesktopApiClient::decodeCalendarJoinTarget(
+    std::string_view json, std::string_view expectedEventId) {
+    const auto expected = calendarEventId(expectedEventId);
+    if (!expected || json.size() > 65536) return std::nullopt;
+    JsonReader reader(json, 8, true);
+    const auto fields = reader.read();
+    if (!fields) return std::nullopt;
+    const auto field = [&](std::string_view key) -> std::optional<std::string> {
+        const auto it = fields->find(key);
+        return it == fields->end() ? std::nullopt : calendarString(it->second, 65536);
+    };
+    const auto idText = field("event_id"), family = field("provider_family"), url = field("https_url");
+    const auto id = idText ? calendarEventId(*idText) : std::nullopt;
+    if (!id || *id != *expected || !family || family->size() > 64 || !url || url->size() > 8192) return std::nullopt;
+    return CalendarJoinTarget{*id, *family, *url};
+}
+
+std::optional<CalendarJoinIntent> DesktopApiClient::decodeCalendarJoinIntent(
+    std::string_view payload, std::string_view command) {
+    const bool join = command == "calendar_join";
+    if ((!join && command != "calendar_join_cancel") || payload.size() > kBridgeMaxSerializedBytes)
+        return std::nullopt;
+    JsonReader reader(payload, kBridgeMaxPayloadDepth, true);
+    const auto fields = reader.read();
+    if (!fields || fields->size() != (join ? 3U : 2U)) return std::nullopt;
+    const auto text = [&](std::string_view key) -> std::optional<std::string> {
+        const auto it = fields->find(key);
+        return it == fields->end() ? std::nullopt : calendarString(it->second, kBridgeMaxSerializedBytes);
+    };
+    if (join && text("action") != "joinCalendarEvent") return std::nullopt;
+    const auto eventText = text("eventId"), requestText = text("requestId");
+    const auto event = eventText ? calendarEventId(*eventText) : std::nullopt;
+    const auto request = requestText ? calendarEventId(*requestText) : std::nullopt;
+    if (!event || !request) return std::nullopt;
+    return CalendarJoinIntent{*event, *request};
+}
+
+std::optional<UserTimeMetadata> DesktopApiClient::decodeUserTimeMetadata(std::string_view json) {
+    if (json.size() > 2048) return std::nullopt;
+    JsonReader reader(json, 1, true);
+    const auto fields = reader.read();
+    if (!fields || fields->size() != 5) return std::nullopt;
+    const auto text = [&](std::string_view key) -> std::optional<std::string> {
+        const auto it = fields->find(key);
+        return it == fields->end() ? std::nullopt : calendarString(it->second, 2048);
+    };
+    const auto user = text("userId"), workspace = text("workspaceId"), session = text("sessionId"),
+        zone = text("timeZone"), url = text("documentURL");
+    if (!user || !workspace || !session || !zone || !url ||
+        !accountId(*user) || !accountId(*workspace) || !accountId(*session) ||
+        zone->size() > 100 || url->empty() || url->size() > 1024) return std::nullopt;
+    if ((!zone->empty() && *zone != "UTC" && zone->find('/') == std::string::npos) ||
+        std::any_of(zone->begin(), zone->end(), [](unsigned char c) { return c <= 0x20 || c >= 0x7f; }) ||
+        std::any_of(url->begin(), url->end(), [](unsigned char c) { return c <= 0x20 || c == 0x7f; }))
+        return std::nullopt;
+    return UserTimeMetadata{*user, *workspace, *session, *zone, *url};
+}
+
+std::optional<std::string> DesktopApiClient::calendarJoinEnvelopePayload(
+    std::string_view json, std::string_view command) {
+    if ((command != "calendar_join" && command != "calendar_join_cancel") ||
+        json.size() > kBridgeMaxSerializedBytes) return std::nullopt;
+    // Envelope contributes a root level; payload limits are checked separately.
+    JsonReader reader(json, kBridgeMaxPayloadDepth + 1, true);
+    const auto fields = reader.read();
+    if (!fields) return std::nullopt;
+    const auto rawCommand = fields->find("command"), payload = fields->find("payload");
+    if (rawCommand == fields->end() || payload == fields->end() ||
+        calendarString(rawCommand->second, kBridgeMaxSerializedBytes) != command ||
+        !decodeCalendarJoinIntent(payload->second, command)) return std::nullopt;
+    return std::string(payload->second);
+}
+
 std::optional<CalendarReminderSnapshot> DesktopApiClient::decodeCalendarReminders(std::string_view json) {
     if (json.size() > 1024 * 1024) return std::nullopt;
     const auto root = jsonObjectFields(json); if (!root) return std::nullopt;
@@ -555,7 +485,18 @@ std::optional<CalendarReminderSnapshot> DesktopApiClient::decodeCalendarReminder
     const auto workspace = calendarString(field(*root, "notification_workspace_id"));
     const auto events = jsonArrayValues(field(*root, "events"));
     if (!owner || !workspace || !accountId(*owner) || !accountId(*workspace) || !events || events->size() > 50) return std::nullopt;
+    const auto presentationBoolean = [](std::string_view raw, bool defaultValue) -> std::optional<bool> {
+        if (raw.empty() || raw == "null") return defaultValue;
+        if (raw == "true") return true;
+        if (raw == "false") return false;
+        return std::nullopt;
+    };
+    const auto showTime = presentationBoolean(field(*root, "show_upcoming_time"), true);
+    const auto showTitle = presentationBoolean(field(*root, "show_upcoming_title"), true);
+    if (!showTime || !showTitle) return std::nullopt;
     CalendarReminderSnapshot result{*owner, *workspace, {}};
+    result.showUpcomingTime = *showTime;
+    result.showUpcomingTitle = *showTitle;
     std::set<std::string> ids;
     for (const auto raw : *events) {
         const auto fields = jsonObjectFields(raw); if (!fields) return std::nullopt;
@@ -567,6 +508,9 @@ std::optional<CalendarReminderSnapshot> DesktopApiClient::decodeCalendarReminder
         if (!id || !accountId(*id) || !ids.insert(*id).second || !start || !end || *end <= *start ||
             !state || !titleState || (link != "true" && link != "false")) return std::nullopt;
         CalendarReminderEvent event{*id, *start, *end, *state == "not_due" || *state == "shown", *titleState == "available", "", link == "true", ""};
+        const auto allDay = presentationBoolean(field(*fields, "all_day"), false);
+        if (!allDay) return std::nullopt;
+        event.allDay = *allDay;
         auto title = field(*fields, "title");
         if (!title.empty() && title != "null") {
             auto decoded = calendarString(title); if (!decoded || decoded->size() > 4096) return std::nullopt;
@@ -669,8 +613,11 @@ CalendarReminderResponse DesktopApiClient::calendarReminders(const DesktopHttpCo
     return result;
 }
 
-std::optional<NotificationContext> DesktopApiClient::decodeNotificationContext(std::string_view json) {
-    const auto fields = jsonObjectFields(json);
+template<class String>
+std::optional<BasicNotificationContext<String>> DesktopApiClient::decodeNotificationContext(
+    std::string_view json, const std::atomic<bool>* cancellation) {
+    json_detail::checkCancellation(cancellation);
+    const auto fields = ProtocolJsonReader<String>(json, 32, false, cancellation).read();
     if (!fields) return std::nullopt;
     const auto user = fields->find("user_id");
     const auto workspace = fields->find("workspace_id");
@@ -682,10 +629,11 @@ std::optional<NotificationContext> DesktopApiClient::decodeNotificationContext(s
     if (!userId || !workspaceId || !protocolVersion) return std::nullopt;
     if (!accountId(*userId) || !accountId(*workspaceId)) return std::nullopt;
     if (*protocolVersion < 0 || *protocolVersion > 1000) return std::nullopt;
-    NotificationContext context;
-    context.userId = std::string(*userId);
-    context.workspaceId = std::string(*workspaceId);
+    BasicNotificationContext<String> context;
+    context.userId = *userId;
+    context.workspaceId = *workspaceId;
     context.protocolVersion = static_cast<int>(*protocolVersion);
+    json_detail::checkCancellation(cancellation);
     return context;
 }
 
@@ -741,8 +689,11 @@ std::optional<std::vector<LifecycleEntry>> DesktopApiClient::decodeLifecycleEntr
     return entries;
 }
 
-std::optional<DeletionReceipt> DesktopApiClient::decodeDeletionReceipt(std::string_view json) {
-    const auto fields = jsonObjectFields(json);
+template<class String>
+std::optional<BasicDeletionReceipt<String>> DesktopApiClient::decodeDeletionReceipt(
+    std::string_view json, const std::atomic<bool>* cancellation) {
+    json_detail::checkCancellation(cancellation);
+    const auto fields = ProtocolJsonReader<String>(json, 32, false, cancellation).read();
     if (!fields) return std::nullopt;
     const auto type = fields->find("receipt_type");
     const auto requestId = fields->find("request_id");
@@ -753,11 +704,11 @@ std::optional<DeletionReceipt> DesktopApiClient::decodeDeletionReceipt(std::stri
     const auto state = plainString(phase->second);
     if (!receiptType || !request || !state) return std::nullopt;
     if (!accountId(*request)) return std::nullopt;
-    DeletionReceipt receipt;
-    receipt.receiptType = std::string(*receiptType);
-    receipt.requestId = std::string(*request);
+    BasicDeletionReceipt<String> receipt;
+    receipt.receiptType = *receiptType;
+    receipt.requestId = *request;
     if (*state != "accepted") return std::nullopt;
-    receipt.phase = std::string(*state);
+    receipt.phase = *state;
     // The server counts its own deletion attempts; macOS refuses a receipt that
     // reports a negative one, because such a receipt describes no deletion.
     const auto epoch = fields->find("deletion_epoch");
@@ -772,14 +723,15 @@ std::optional<DeletionReceipt> DesktopApiClient::decodeDeletionReceipt(std::stri
     if (meetingId != fields->end() && meetingId->second != "null") {
         const auto id = plainString(meetingId->second);
         if (!id || !accountId(*id)) return std::nullopt;
-        receipt.meetingId = std::string(*id);
+        receipt.meetingId = *id;
     }
     const auto localId = fields->find("local_recording_id");
     if (localId != fields->end() && localId->second != "null") {
         const auto id = plainString(localId->second);
         if (!id || !safeIdentity(*id)) return std::nullopt;
-        receipt.localRecordingId = std::string(*id);
+        receipt.localRecordingId = *id;
     }
+    json_detail::checkCancellation(cancellation);
     if (*receiptType == "origin_cancellation") {
         // A cancellation has to name the copy it cancelled.
         if (receipt.localRecordingId.empty()) return std::nullopt;
@@ -794,16 +746,16 @@ std::optional<DeletionReceipt> DesktopApiClient::decodeDeletionReceipt(std::stri
     return std::nullopt;
 }
 
-std::string DesktopApiClient::originCancellationBody(std::string_view operationId) {
+template<class String> String DesktopApiClient::originCancellationBody(std::string_view operationId) {
     // The server validates operation_id as a UUID and the confirmation sentence
     // as one exact literal; a request that sends anything else is refused.
     if (!accountId(operationId)) return {};
-    return std::string("{\"operation_id\":\"") + std::string(operationId) +
-        "\",\"confirmation_boundary\":\"" + std::string(deletionConfirmationBoundary) + "\"}";
+    String body("{\"operation_id\":\""); body += operationId;
+    body += "\",\"confirmation_boundary\":\""; body += deletionConfirmationBoundary; body += "\"}"; return body;
 }
 
-std::string DesktopApiClient::meetingDeletionBody() {
-    return std::string("{\"confirmation_boundary\":\"") + std::string(deletionConfirmationBoundary) + "\"}";
+template<class String> String DesktopApiClient::meetingDeletionBody() {
+    String body("{\"confirmation_boundary\":\""); body += deletionConfirmationBoundary; body += "\"}"; return body;
 }
 
 std::string DesktopApiClient::lifecycleBody(const std::vector<std::string>& origins,
@@ -834,12 +786,14 @@ bool DesktopApiClient::validLifecycleSelection(const std::vector<std::string>& o
     return true;
 }
 
-std::vector<std::pair<std::string, std::string>> DesktopApiClient::scopedAccountHeaders(
-    const DeletionScope& scope) {
+template<class String>
+std::optional<std::array<std::pair<std::string_view, std::string_view>, 2>> DesktopApiClient::scopedAccountHeaders(
+    const BasicDeletionScope<String>& scope) {
     // The server compares this pair with the confirmed session before it changes
     // anything, and macOS sends exactly the same two headers.
     if (!accountId(scope.userId) || !accountId(scope.workspaceId)) return {};
-    return {{"X-Graf-Expected-Actor", scope.userId}, {"X-Graf-Expected-Workspace", scope.workspaceId}};
+    return std::array<std::pair<std::string_view, std::string_view>, 2>{{
+        {"X-Graf-Expected-Actor", scope.userId}, {"X-Graf-Expected-Workspace", scope.workspaceId}}};
 }
 
 std::string DesktopApiClient::deletionOperationId(const DeletionScope& scope, DeletionTarget target,
@@ -870,43 +824,50 @@ std::string DesktopApiClient::deletionOperationId(const DeletionScope& scope, De
     return id;
 }
 
-std::string DesktopApiClient::localPurgeTaskPath(std::string_view meetingId) {
+template<class String> String DesktopApiClient::localPurgeTaskPath(std::string_view meetingId) {
     // Purge tasks live under the device-facing desktop prefix, while a meeting
     // deletion request is a cabinet route. Mixing them would address an endpoint
     // that does not exist.
     if (!accountId(meetingId)) return {};
-    return std::string(desktopMeetingPrefix) + std::string(meetingId) + std::string(purgeTaskSuffix);
+    String path(desktopMeetingPrefix); path += meetingId; path += purgeTaskSuffix; return path;
 }
 
-std::string DesktopApiClient::localPurgeAckPath(std::string_view taskId) {
+template<class String> String DesktopApiClient::localPurgeAckPath(std::string_view taskId) {
     if (!accountId(taskId)) return {};
-    return std::string(purgeTasksPath) + "/" + std::string(taskId) + std::string(purgeAckSuffix);
+    String path(purgeTasksPath); path += '/'; path += taskId; path += purgeAckSuffix; return path;
 }
 
-std::optional<LocalPurgeTask> DesktopApiClient::decodeLocalPurgeTask(std::string_view json) {
-    const auto fields = jsonObjectFields(json);
+template<class String>
+std::optional<BasicLocalPurgeTask<String>> DesktopApiClient::decodeLocalPurgeTask(
+    std::string_view json, const std::atomic<bool>* cancellation) {
+    json_detail::checkCancellation(cancellation);
+    const auto fields = ProtocolJsonReader<String>(json, 32, false, cancellation).read();
     if (!fields) return std::nullopt;
-    return purgeTaskFromFields(*fields);
+    auto task = purgeTaskFromFields<String>(*fields);
+    json_detail::checkCancellation(cancellation);
+    return task;
 }
 
-std::optional<std::vector<LocalPurgeTask>> DesktopApiClient::decodeLocalPurgeTaskList(std::string_view json) {
-    const auto fields = jsonObjectFields(json);
+template<class String>
+std::optional<BasicLocalPurgeTasks<String>> DesktopApiClient::decodeLocalPurgeTaskList(
+    std::string_view json, const std::atomic<bool>* cancellation) {
+    json_detail::checkCancellation(cancellation);
+    const auto fields = ProtocolJsonReader<String>(json, 32, false, cancellation).read();
     if (!fields) return std::nullopt;
     const auto tasks = fields->find("tasks");
     if (tasks == fields->end()) return std::nullopt;
-    const auto values = jsonArrayValues(tasks->second);
+    const auto values = ProtocolJsonReader<String>(tasks->second, 32, false, cancellation).readArray();
     if (!values || values->size() > purgeTaskListLimit) return std::nullopt;
-    std::vector<LocalPurgeTask> decoded;
+    BasicLocalPurgeTasks<String> decoded;
     decoded.reserve(values->size());
     for (const auto value : *values) {
-        const auto entry = jsonObjectFields(value);
-        if (!entry) return std::nullopt;
-        auto task = purgeTaskFromFields(*entry);
+        auto task = decodeLocalPurgeTask<String>(value, cancellation);
         // One unusable task rejects the answer: acting on a partial list would
         // leave the device answering for a purge it never saw.
         if (!task) return std::nullopt;
         decoded.push_back(std::move(*task));
     }
+    json_detail::checkCancellation(cancellation);
     return decoded;
 }
 
@@ -928,18 +889,18 @@ bool DesktopApiClient::validAckReasonCode(std::string_view reasonCode) noexcept 
     return true;
 }
 
-std::string DesktopApiClient::localPurgeAckBody(LocalPurgeAckState state, std::string_view reasonCode,
+template<class String> String DesktopApiClient::localPurgeAckBody(LocalPurgeAckState state, std::string_view reasonCode,
                                                std::string_view clientVersion,
                                                std::string_view completedAtIso) {
     const auto name = localPurgeAckStateName(state);
     if (name.empty() || !validAckReasonCode(reasonCode)) return {};
     if (!completedAtIso.empty() && !validServerInstant(completedAtIso)) return {};
     if (clientVersion.size() > 80) return {};
-    std::string body = "{\"state\":\"" + std::string(name) + "\",\"reason_code\":\"" +
-        escapeJson(reasonCode) + "\"";
-    if (!clientVersion.empty()) body += ",\"client_version\":\"" + escapeJson(clientVersion) + "\"";
-    if (!completedAtIso.empty()) body += ",\"completed_at\":\"" + escapeJson(completedAtIso) + "\"";
-    return body + "}";
+    String body("{\"state\":\""); body += name; body += "\",\"reason_code\":\"";
+    body += escapeJson<String>(reasonCode); body += '"';
+    if (!clientVersion.empty()) { body += ",\"client_version\":\""; body += escapeJson<String>(clientVersion); body += '"'; }
+    if (!completedAtIso.empty()) { body += ",\"completed_at\":\""; body += escapeJson<String>(completedAtIso); body += '"'; }
+    body += '}'; return body;
 }
 
 bool DesktopApiClient::sha256(std::string_view value) noexcept {
@@ -953,5 +914,43 @@ bool DesktopApiClient::sha256(std::string_view value) noexcept {
     }
     return true;
 }
+
+// Both representations share one serializer and validation algorithm.
+template std::optional<BasicCreateMeetingRequest<std::string>> DesktopApiClient::createMeetingRequest<std::string>(std::string_view, std::string_view, std::uint32_t, std::uint64_t, std::uint64_t, int);
+template std::optional<BasicCreateMeetingRequest<CustodyString>> DesktopApiClient::createMeetingRequest<CustodyString>(std::string_view, std::string_view, std::uint32_t, std::uint64_t, std::uint64_t, int);
+template std::string DesktopApiClient::formatDisplayMinute<std::string>(std::uint64_t, int) noexcept;
+template CustodyString DesktopApiClient::formatDisplayMinute<CustodyString>(std::uint64_t, int);
+template std::string DesktopApiClient::formatUtcInstant<std::string>(std::uint64_t) noexcept;
+template CustodyString DesktopApiClient::formatUtcInstant<CustodyString>(std::uint64_t);
+template std::string DesktopApiClient::createMeetingBody<std::string>(const BasicCreateMeetingRequest<std::string>&);
+template CustodyString DesktopApiClient::createMeetingBody<CustodyString>(const BasicCreateMeetingRequest<CustodyString>&);
+template std::optional<BasicUploadSessionRequest<std::string>> DesktopApiClient::uploadSessionRequest<std::string>(const std::array<std::uint64_t, 3>&, std::string_view);
+template std::optional<BasicUploadSessionRequest<CustodyString>> DesktopApiClient::uploadSessionRequest<CustodyString>(const std::array<std::uint64_t, 3>&, std::string_view);
+template std::string DesktopApiClient::idempotencyKey<std::string>(std::string_view, std::string_view, std::string_view);
+template CustodyString DesktopApiClient::idempotencyKey<CustodyString>(std::string_view, std::string_view, std::string_view);
+template std::optional<std::array<std::pair<std::string_view, std::string_view>, 2>> DesktopApiClient::scopedAccountHeaders<std::string>(const BasicDeletionScope<std::string>&);
+template std::optional<std::array<std::pair<std::string_view, std::string_view>, 2>> DesktopApiClient::scopedAccountHeaders<CustodyString>(const BasicDeletionScope<CustodyString>&);
+template std::optional<BasicDeletionReceipt<std::string>> DesktopApiClient::decodeDeletionReceipt<std::string>(std::string_view, const std::atomic<bool>*);
+template std::optional<BasicNotificationContext<std::string>> DesktopApiClient::decodeNotificationContext<std::string>(std::string_view, const std::atomic<bool>*);
+template std::optional<BasicNotificationContext<CustodyString>> DesktopApiClient::decodeNotificationContext<CustodyString>(std::string_view, const std::atomic<bool>*);
+template std::optional<BasicDeletionReceipt<CustodyString>> DesktopApiClient::decodeDeletionReceipt<CustodyString>(std::string_view, const std::atomic<bool>*);
+template std::string DesktopApiClient::ownOriginDeletionPath<std::string>(std::string_view);
+template CustodyString DesktopApiClient::ownOriginDeletionPath<CustodyString>(std::string_view);
+template std::string DesktopApiClient::meetingDeletionPath<std::string>(std::string_view);
+template CustodyString DesktopApiClient::meetingDeletionPath<CustodyString>(std::string_view);
+template std::string DesktopApiClient::originCancellationBody<std::string>(std::string_view);
+template CustodyString DesktopApiClient::originCancellationBody<CustodyString>(std::string_view);
+template std::string DesktopApiClient::meetingDeletionBody<std::string>();
+template CustodyString DesktopApiClient::meetingDeletionBody<CustodyString>();
+template std::string DesktopApiClient::localPurgeTaskPath<std::string>(std::string_view);
+template CustodyString DesktopApiClient::localPurgeTaskPath<CustodyString>(std::string_view);
+template std::string DesktopApiClient::localPurgeAckPath<std::string>(std::string_view);
+template CustodyString DesktopApiClient::localPurgeAckPath<CustodyString>(std::string_view);
+template std::optional<LocalPurgeTask> DesktopApiClient::decodeLocalPurgeTask<std::string>(std::string_view, const std::atomic<bool>*);
+template std::optional<BasicLocalPurgeTask<CustodyString>> DesktopApiClient::decodeLocalPurgeTask<CustodyString>(std::string_view, const std::atomic<bool>*);
+template std::optional<BasicLocalPurgeTasks<std::string>> DesktopApiClient::decodeLocalPurgeTaskList<std::string>(std::string_view, const std::atomic<bool>*);
+template std::optional<BasicLocalPurgeTasks<CustodyString>> DesktopApiClient::decodeLocalPurgeTaskList<CustodyString>(std::string_view, const std::atomic<bool>*);
+template std::string DesktopApiClient::localPurgeAckBody<std::string>(LocalPurgeAckState, std::string_view, std::string_view, std::string_view);
+template CustodyString DesktopApiClient::localPurgeAckBody<CustodyString>(LocalPurgeAckState, std::string_view, std::string_view, std::string_view);
 
 } // namespace graf::windows

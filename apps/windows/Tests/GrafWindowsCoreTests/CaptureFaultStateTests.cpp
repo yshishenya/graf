@@ -1,5 +1,6 @@
 #include "../../RecApp/Audio/ClockMapper.h"
 #include "../../RecApp/Audio/AudioNormalizer.h"
+#include "../../RecApp/Audio/RecordingAudioTimeline.h"
 #include "../../RecApp/Capture/WindowsCaptureSessionController.h"
 #include "AutomaticRecordingTestSupport.h"
 #include "../../RecApp/Recording/LocalRecordingPackage.h"
@@ -10,18 +11,28 @@
 #endif
 #include <algorithm>
 #include <cassert>
+#include "../GeneratedRecordingFixtures.h"
 #include <atomic>
 #include <stdexcept>
 #include <thread>
 #include <chrono>
 #include <fstream>
+#include <future>
 #include <cstdlib>
 #include <new>
 #include <utility>
+#if defined(_MSC_VER) && defined(_DEBUG)
+#include <crtdbg.h>
+#endif
 
 // Fail one samples allocation on the capture thread, not the process heap.
-namespace { thread_local bool failSampleAllocation = false; }
+namespace {
+thread_local bool failSampleAllocation = false;
+thread_local std::size_t stopAllocationFloor = 0, stopAllocationOrdinal = 0, stopAllocationCalls = 0;
+}
 void* operator new(std::size_t bytes) {
+    if (stopAllocationFloor && bytes >= stopAllocationFloor && ++stopAllocationCalls == stopAllocationOrdinal)
+        throw std::bad_alloc();
     if (failSampleAllocation && bytes == 480 * sizeof(float)) {
         failSampleAllocation = false;
         throw std::bad_alloc();
@@ -53,6 +64,10 @@ AudioBatch syntheticLifecycleBatch() {
 // Exercise the real controller's sink/Stop/polling without requiring a microphone.
 // Only acquisition is bypassed; production state, finalizer and worker errors run.
 struct CaptureSessionTestPeer {
+    static ReasonCode abandon(WindowsCaptureSessionController& controller) {
+        return controller.drainAbandonedCapture();
+    }
+    static std::size_t eosItemSize() { return sizeof(WindowsCaptureSessionController::DispatchItem); }
     static void nativeStop(WasapiCaptureWorker& worker, std::int32_t result) {
         worker.completeNativeStop(result);
     }
@@ -64,7 +79,20 @@ struct CaptureSessionTestPeer {
     static bool packet(WasapiCaptureWorker& worker, ClockMapper& mapper, AudioNormalizer& normalizer,
         ClockObservation packet, const void* data,
         const std::function<CaptureReleaseResult(std::uint32_t)>& release) {
-        return worker.consumePacket(mapper, normalizer, packet, data, 1, true, release);
+        return worker.consumePacket(mapper, normalizer, packet, data, 1, true, release, worker.capturePrivacyEpoch());
+    }
+    static bool packetWithEpoch(WasapiCaptureWorker& worker, ClockMapper& mapper, AudioNormalizer& normalizer,
+        ClockObservation packet, const void* data,
+        const std::function<CaptureReleaseResult(std::uint32_t)>& release,
+        std::optional<std::uint64_t> epoch) {
+        return worker.consumePacket(mapper, normalizer, packet, data, 1, true, release, epoch);
+    }
+    static std::optional<std::uint64_t> privacyEpoch(const WasapiCaptureWorker& worker) {
+        return worker.capturePrivacyEpoch();
+    }
+    static void privacyEpoch(WindowsCaptureSessionController& controller, std::uint64_t epoch) {
+        std::lock_guard<std::mutex> lock(controller.dispatchMutex_);
+        controller.microphonePrivacyEpoch_.store(epoch, std::memory_order_release);
     }
     static bool packet(WindowsCaptureSessionController& controller, bool render,
                        ClockMapper& mapper, AudioNormalizer& normalizer, ClockObservation observation) {
@@ -80,6 +108,8 @@ struct CaptureSessionTestPeer {
     static void devices(WindowsCaptureSessionController& controller, Render render, Microphone microphone) {
         controller.setEndpoints({"render", "Synthetic render", WasapiDataFlow::render, 48'000, 1, true, false, 1},
                                 {"mic", "Synthetic microphone", WasapiDataFlow::capture, 48'000, 1, true, true, 1});
+        assert(!controller.renderWorker_->microphonePrivacyEpoch_ &&
+            controller.microphoneWorker_->microphonePrivacyEpoch_ == &controller.microphonePrivacyEpoch_);
         controller.renderWorker_->deviceRunForTesting_ = std::move(render);
         controller.microphoneWorker_->deviceRunForTesting_ = std::move(microphone);
     }
@@ -102,7 +132,18 @@ struct CaptureSessionTestPeer {
         assert(controller.session_.beginStart().accepted());
         controller.acceptingBatches_.store(true);
         assert(controller.session_.startRecording().accepted());
+        controller.recordingClockStart_ = std::chrono::steady_clock::now();
         controller.indicator_.publish(controller.session_.state());
+    }
+    // Boundary-only prerequisites, NOT a public/durable Pause acceptance.
+    static TransitionResult boundary(WindowsCaptureSessionController& controller, bool pause) {
+        if (controller.session_.state() != (pause ? SessionState::recording : SessionState::paused))
+            return {TransitionStatus::rejected, controller.session_.state()};
+        if (!controller.applyPrivacyBoundary(pause))
+            return {TransitionStatus::rejected, controller.session_.state(), ReasonCode::queueOverflow};
+        const auto result = pause ? controller.session_.pause() : controller.session_.resume();
+        controller.indicator_.publish(controller.session_.state());
+        return result;
     }
     static bool push(WindowsCaptureSessionController& controller) {
         return controller.handleBatch(syntheticLifecycleBatch());
@@ -155,6 +196,9 @@ struct CaptureSessionTestPeer {
         batch.ptsFrames = sequence;
         return controller.enqueueBatch(std::move(batch));
     }
+    static bool enqueue(WindowsCaptureSessionController& controller, AudioBatch batch) {
+        return controller.enqueueBatch(std::move(batch));
+    }
     static std::size_t pending(WindowsCaptureSessionController& controller) {
         std::lock_guard<std::mutex> lock(controller.dispatchMutex_);
         return controller.pendingBatches_.size();
@@ -163,6 +207,20 @@ struct CaptureSessionTestPeer {
         std::lock_guard<std::mutex> lock(controller.dispatchMutex_);
         return !controller.dispatchBusy_.load(std::memory_order_acquire) &&
             controller.pendingBatches_.empty();
+    }
+    static std::uint64_t privacyBoundary(WindowsCaptureSessionController& controller) {
+        std::lock_guard<std::mutex> lock(controller.dispatchMutex_);
+        return controller.lastSuppressedSequence_;
+    }
+    static void lastSequence(WindowsCaptureSessionController& controller, std::uint64_t value) {
+        std::lock_guard<std::mutex> lock(controller.dispatchMutex_);
+        controller.lastAcceptedSequence_ = value;
+    }
+    static WasapiCaptureWorker& packetWorker(WindowsCaptureSessionController& controller) {
+        controller.microphoneWorker_ = std::make_unique<WasapiCaptureWorker>(
+            WasapiEndpointSnapshot{"mic", "Synthetic microphone", WasapiDataFlow::capture, 48'000, 1, true, true, 1}, false);
+        controller.microphoneWorker_->microphonePrivacyEpoch_ = &controller.microphonePrivacyEpoch_;
+        return *controller.microphoneWorker_;
     }
 };
 }
@@ -183,6 +241,46 @@ void waitUntilImpl(Predicate predicate, const char* text, int line) {
     }
 }
 #define waitUntil(predicate) waitUntilImpl((predicate), #predicate, __LINE__)
+
+void eosAllocationFailureDoesNotHang() {
+    using namespace graf::windows;
+    bool rejectedRender = false, rejectedMicrophone = false;
+    // Vary the actual deque boundary; no allocator geometry is duplicated.
+    for (std::size_t queued = 0; queued != 65; ++queued) for (std::size_t cut : {1U, 2U}) {
+        std::atomic<bool> entered{false}, release{false};
+        WindowsCaptureSessionController controller("eos-allocation-cut", [&](AudioBatch) {
+            entered.store(true);
+            while (!release.load()) std::this_thread::yield();
+            return true;
+        }, [](ReasonCode failure, RecordingStopReason) {
+            return std::optional<CaptureFinalization>{{failure == ReasonCode::none, failure}};
+        });
+        CaptureSessionTestPeer::begin(controller);
+        CaptureSessionTestPeer::startDispatcher(controller);
+        assert(CaptureSessionTestPeer::enqueue(controller, 0));
+        waitUntil([&] { return entered.load(); });
+        for (std::size_t i = 0; i < queued; ++i)
+            assert(CaptureSessionTestPeer::enqueue(controller, static_cast<int>(i + 1)));
+        stopAllocationCalls = 0; stopAllocationOrdinal = cut;
+        stopAllocationFloor = CaptureSessionTestPeer::eosItemSize();
+        (void)controller.stop(); // Must not throw or strand the dispatcher.
+        stopAllocationFloor = 0;
+        release.store(true);
+        waitUntil([&] {
+            (void)controller.pollHealth();
+            return controller.session().state() == SessionState::failed || controller.session().state() == SessionState::savedLocal;
+        });
+        const auto mask = CaptureSessionTestPeer::sourceEndMask(controller);
+        if (mask != 3) {
+            assert(controller.session().state() == SessionState::failed);
+            assert(controller.session().reason() == ReasonCode::queueOverflow);
+            assert(!controller.finalization().savedLocal);
+            rejectedRender |= (mask & 1) == 0;
+            rejectedMicrophone |= (mask & 2) == 0;
+        }
+    }
+    assert(rejectedRender && rejectedMicrophone);
+}
 
 // Simulates device/COM calls that cannot return until explicitly released, but
 // runs inside the actual WasapiCaptureWorker thread and cancellation lifecycle.
@@ -236,21 +334,39 @@ void finalAutomaticStartGate() {
         {
             DesktopUploadQueueService queue(ledger, root);
             assert(queue.load());
-            V5LocalRecordingWriter writer(root, package, [](const auto& path, const auto&, std::uint64_t) {
-                std::ofstream output(path, std::ios::binary); output << "synthetic-playback"; return output.good();
-            });
+            // This is the automatic-start fence/legacy recovery test. Count
+            // accepted callbacks, then create isolated compatibility input only
+            // after finalization. Actual protected V5 is tested by NativeCapture.
+            std::atomic<std::uint64_t> acceptedFrames{0};
+#ifdef _WIN32
+            GeneratedProtectedRecording protectedCapture("automatic-start-guard");
+            prerequisites.capture.storageWritable = protectedCapture.writer->package()->current().phase == CustodyPackagePhase::capturing;
+#endif
             DeviceStage render, microphone;
             render.allowCleanup.store(true); microphone.allowCleanup.store(true);
             WindowsCaptureSessionController controller(id, [&](AudioBatch) {
+#ifdef _WIN32
                 CanonicalAudioFrame frame;
-                frame.ptsFrames = static_cast<std::int64_t>(writer.frameCount() * 480);
-                assert(writer.append(frame));
+                frame.ptsFrames = static_cast<std::int64_t>(acceptedFrames.load()*480);
+                assert(protectedCapture.writer->append(frame));
+#endif
+                ++acceptedFrames;
                 ++delivered;
                 return true;
             }, [&](ReasonCode reason, RecordingStopReason stopReason) {
                 ++finalized;
-                const auto result = writer.finalize(reason, stopReason);
-                if (result.keepablePackage()) {
+#ifdef _WIN32
+                const auto sealed = protectedCapture.writer->finalize(reason,stopReason);
+                assert(sealed.keepablePackage() == (acceptedFrames.load() >= 3000 && reason == ReasonCode::none));
+                // The compatibility fixture below opens another real encoder.
+                // Release terminal native writers first; never raise the shared
+                // four-dirty-block limit to accommodate two test recordings.
+                protectedCapture.writer.reset(); protectedCapture.store.reset();
+#endif
+                if (!acceptedFrames.load()) return CaptureFinalization{false, reason};
+                const auto result = makeGeneratedLegacyPackage(package, acceptedFrames.load(), reason, stopReason);
+                const bool keepable = reason == ReasonCode::none && !result.shortRecordingDiscarded;
+                if (keepable) {
                     UploadCustodyItem item;
                     item.localRecordingId = item.directoryId = item.sessionId = id;
                     item.packageDirectory = package;
@@ -258,14 +374,26 @@ void finalAutomaticStartGate() {
                     item.ownerWorkspaceId = "33333333-3333-4333-8333-333333333333";
                     assert(queue.enqueue(item));
                 }
-                return CaptureFinalization{result.keepablePackage(), reason};
+                return CaptureFinalization{keepable, reason};
             });
-            CaptureSessionTestPeer::devices(controller,
-                [&](const auto& running, auto& deviceReady, const auto& callback) { render.run(running, deviceReady, callback); },
-                [&](const auto& running, auto& deviceReady, const auto& callback) { microphone.run(running, deviceReady, callback); });
-            assert(controller.record(prerequisites.capture, [&](std::string_view session) {
+            const auto generatedDevice = [&](DeviceStage& stage) {
+                return [&, device = &stage](const auto& running, auto& deviceReady, const auto& callback) {
+                    device->run(running, deviceReady, [&](AudioBatch batch) {
+                        // Both generated devices share the dispatch queue with
+                        // the producer below. Bound all three, not just that one.
+                        while (running.load() && CaptureSessionTestPeer::pending(controller) >= 32)
+                            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                        return callback(std::move(batch));
+                    });
+                };
+            };
+            CaptureSessionTestPeer::devices(controller, generatedDevice(render), generatedDevice(microphone));
+            const auto guardedStart = controller.record(prerequisites.capture, [&](std::string_view session) {
                 ++checked;
-                assert(delivered.load() == 0 && writer.frameCount() == 0);
+                assert(delivered.load() == 0 && acceptedFrames.load() == 0);
+#ifdef _WIN32
+                assert(protectedCapture.writer->frameCount() == 0);
+#endif
                 if (scenario == 9) throw std::runtime_error("synthetic guard failure");
                 if (scenario == 10) {
                     assert(controller.pollHealth().state == SessionState::starting);
@@ -274,7 +402,8 @@ void finalAutomaticStartGate() {
                     return true; // A reentrant Stop must win even over a late true result.
                 }
                 return policy.acceptStart(decision.generation, session, observed, prerequisites, now);
-            }).state == SessionState::starting);
+            });
+            assert(guardedStart.state == SessionState::starting);
             render.allowStartup.store(true);
             waitUntil([&] { return render.callbacks.load() > 2; });
             assert(controller.pollHealth().state == SessionState::starting);
@@ -298,13 +427,32 @@ void finalAutomaticStartGate() {
             if (entry == 1) (void)controller.pause();
             if (entry == 2) (void)controller.resume();
             if (scenario == 0) {
-                assert(controller.session().state() == (entry == 1 ? SessionState::paused : SessionState::recording));
+                // The startup gate is not a durable privacy checkpoint. A
+                // controller without that callback cannot grant public Pause.
+                assert(controller.session().state() == SessionState::recording);
                 waitUntil([&] { return delivered.load() > 0; });
                 (void)controller.pollHealth();
                 assert(checked == 1);
                 // Produce the existing 30 s keep threshold, then deliberately
                 // Stop; short-recording policy is not bypassed by this test.
-                while (delivered.load() < 3000) assert(CaptureSessionTestPeer::push(controller));
+                // Use the actual dispatcher, not a tight synchronous producer
+                // competing with it for the sink mutex while native IO runs.
+                // Bound generated input; the separate overflow test still
+                // exercises all 254 data slots and both reserved EOS slots.
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(180);
+                while (delivered.load() < 3000) {
+                    assert(CaptureSessionTestPeer::firstFault(controller) == ReasonCode::none);
+                    if (std::chrono::steady_clock::now() >= deadline) {
+                        std::fprintf(stderr, "GENERATED_START_GATE entry=%d scenario=%d delivered=%d pending=%zu fault=%u\n",
+                            entry, scenario, delivered.load(), CaptureSessionTestPeer::pending(controller),
+                            static_cast<unsigned>(CaptureSessionTestPeer::firstFault(controller)));
+                        std::fflush(stderr);
+                    }
+                    assert(std::chrono::steady_clock::now() < deadline);
+                    if (CaptureSessionTestPeer::pending(controller) < 32)
+                        assert(CaptureSessionTestPeer::enqueue(controller, delivered.load()));
+                    else std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
                 (void)controller.stop();
             } else {
                 assert(controller.session().state() != SessionState::recording &&
@@ -313,8 +461,14 @@ void finalAutomaticStartGate() {
             }
             waitUntil([&] { (void)controller.pollHealth(); return !controller.indicator().snapshot().visible; });
             assert(finalized == 1 && checked == (scenario == 6 ? 0 : 1));
-            assert((writer.frameCount() > 0) == (scenario == 0));
+            assert((acceptedFrames.load() > 0) == (scenario == 0));
+#ifdef _WIN32
             assert((LocalRecordingPackage::inspect(package, root).integrity == PackageIntegrity::valid) == (scenario == 0));
+#else
+            const auto snapshot = LocalRecordingPackage::inspect(package, root);
+            assert(snapshot.integrity != PackageIntegrity::valid);
+            if (scenario == 0) assert(snapshot.integrity == PackageIntegrity::malformed && snapshot.durationMs >= 30'000);
+#endif
         }
         // Reconstruct custody and recovery from disk; no in-memory policy or
         // controller state participates in this decision after restart.
@@ -346,10 +500,10 @@ void finalAutomaticStartGate() {
     assert(policy.setPreference(target(), AutomaticRecordingPreference::always));
     const auto decision = observeFor(policy, 0, 5);
     assert(policy.bindStart(decision.generation, "interrupted"));
-    V5LocalRecordingWriter writer(root, root / "interrupted");
+    std::atomic<std::uint64_t> acceptedFrames{0};
     DeviceStage render, microphone;
     WindowsCaptureSessionController controller("interrupted", [&](AudioBatch) {
-        return writer.append(CanonicalAudioFrame{});
+        ++acceptedFrames; return true;
     });
     CaptureSessionTestPeer::devices(controller,
         [&](const auto& running, auto& ready, const auto& callback) { render.run(running, ready, callback); },
@@ -364,7 +518,7 @@ void finalAutomaticStartGate() {
     waitUntil([&] { return microphone.callbacks.load() > 2; });
     // Both workers deliver callbacks, but no owner-thread acceptance occurred.
     // Terminate the process without Stop, finalization or any C++ destructor.
-    assert(writer.frameCount() == 0 && !std::filesystem::exists(root / "interrupted"));
+    assert(acceptedFrames.load() == 0 && !std::filesystem::exists(root / "interrupted"));
     std::_Exit(73);
 }
 
@@ -460,12 +614,513 @@ void oldDecisionCannotOpenNewSession() {
 }
 }
 
+namespace {
+    class PrivacyAec final : public graf::windows::IAec3Processor {
+    public:
+        bool process(const float* system, const float* mic, float* output) noexcept override {
+            for (std::size_t i = 0; i < 480; ++i) {
+                assert(system[i] == 0.25F);
+                output[i] = mic[i] * 0.5F;
+            }
+            ++calls;
+            return true;
+        }
+        unsigned calls = 0;
+    };
+void privacyPauseKeepsQueuedAndExtractedAudioSuppressed() {
+    using namespace graf::windows;
+    const auto audio = [](AudioSource source, std::int64_t pts, std::size_t count) {
+        return AudioBatch{source, 48'000, 1, pts, 1, 1, false,
+            std::vector<float>(count, source == AudioSource::microphone ? 0.5F : 0.25F),
+            static_cast<std::uint64_t>(pts)};
+    };
+    bool allSuppressed = true;
+    for (const bool extracted : {false, true}) for (const auto count : {240U, 480U}) {
+        PrivacyAec aec;
+        RecordingAudioTimeline timeline(aec);
+        assert(timeline.push(audio(AudioSource::systemRender, 0, 480)));
+        assert(timeline.push(audio(AudioSource::microphone, 0, 480)));
+        const auto prefix = timeline.takeFrames();
+        std::vector<CanonicalAudioFrame> output;
+        int finalized = 0;
+        bool extractionObserved = !extracted;
+        WindowsCaptureSessionController* current = nullptr;
+        WindowsCaptureSessionController controller("privacy-accepted-fifo", [&](AudioBatch batch) {
+            if (!timeline.push(std::move(batch))) return false;
+            for (auto& frame : timeline.takeFrames()) output.push_back(std::move(frame));
+            return true;
+        }, [&](ReasonCode reason, RecordingStopReason) {
+            assert(reason == ReasonCode::none && timeline.close());
+            assert(CaptureSessionTestPeer::sourceEndMask(*current) == 3);
+            ++finalized;
+            return CaptureFinalization{true, ReasonCode::none};
+        }, [&](bool paused) {
+            if (!paused && extracted) {
+                // Resume holds captureMutex_. Observe the real dispatcher's pop,
+                // then release it to process an item no longer in the deque.
+                CaptureSessionTestPeer::startDispatcher(*current);
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+                while (CaptureSessionTestPeer::pending(*current) == 2 &&
+                       std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+                extractionObserved = CaptureSessionTestPeer::pending(*current) == 1;
+            }
+            timeline.setMicrophonePaused(paused);
+        });
+        current = &controller;
+        CaptureSessionTestPeer::begin(controller);
+        assert(CaptureSessionTestPeer::enqueue(controller, audio(AudioSource::microphone, 480, count)));
+        assert(CaptureSessionTestPeer::boundary(controller, true).accepted());
+        assert(CaptureSessionTestPeer::enqueue(controller, audio(AudioSource::microphone, 480 + count, count)));
+        assert(CaptureSessionTestPeer::boundary(controller, false).accepted());
+        if (!extracted) CaptureSessionTestPeer::startDispatcher(controller);
+        const auto resumedPts = 480 + 2 * count;
+        assert(CaptureSessionTestPeer::enqueue(controller, audio(AudioSource::microphone, resumedPts, 480)));
+        assert(CaptureSessionTestPeer::enqueue(controller, audio(AudioSource::systemRender, 480, 2 * count + 480)));
+        (void)controller.stop();
+        waitUntil([&] { return controller.pollHealth().state == SessionState::savedLocal; });
+        assert(extractionObserved && finalized == 1);
+        assert(controller.stop().status == TransitionStatus::idempotent && finalized == 1);
+        assert(output.size() == 2 * count / 480 + 1 && aec.calls == output.size() + 1);
+        bool suppressed = true;
+        for (std::size_t index = 0; index < output.size(); ++index) {
+            const auto& frame = output[index];
+            assert(frame.ptsFrames == 480 + static_cast<std::int64_t>(index) * 480);
+            for (std::size_t i = 0; i < 480; ++i) {
+                assert(frame.system[i] == 0.25F);
+                const auto expected = frame.ptsFrames < resumedPts ? 0.0F : 0.25F;
+                suppressed = suppressed && frame.microphone[i] == expected;
+                assert(frame.mixed[i] == frame.system[i] + frame.microphone[i]);
+            }
+        }
+        assert(prefix.size() == 1 && prefix[0].ptsFrames == 0);
+        for (const auto sample : prefix[0].microphone) assert(sample == 0.25F);
+        std::printf("privacy_fifo extracted=%d batch_frames=%u suppressed=%d\n", extracted, count, suppressed);
+        allSuppressed = allSuppressed && suppressed;
+    }
+    // A continuously running producer and a nonempty FIFO cannot strand Resume.
+    {
+        PrivacyAec aec;
+        RecordingAudioTimeline timeline(aec);
+        std::vector<CanonicalAudioFrame> output;
+        int finalized = 0;
+        WindowsCaptureSessionController controller("privacy-continuous-fifo", [&](AudioBatch batch) {
+            if (!timeline.push(std::move(batch))) return false;
+            for (auto& frame : timeline.takeFrames()) output.push_back(std::move(frame));
+            return true;
+        }, [&](ReasonCode reason, RecordingStopReason) {
+            assert(reason == ReasonCode::none && timeline.close());
+            ++finalized;
+            return CaptureFinalization{true, ReasonCode::none};
+        }, [&](bool paused) { timeline.setMicrophonePaused(paused); });
+        CaptureSessionTestPeer::begin(controller);
+        std::atomic_bool run{true};
+        std::atomic<unsigned> produced{0};
+        std::atomic<unsigned> permitted{8};
+        std::thread producer([&] {
+            while (run.load()) {
+                if (produced.load() >= permitted.load()) { std::this_thread::yield(); continue; }
+                assert(CaptureSessionTestPeer::enqueue(controller,
+                    audio(AudioSource::microphone, produced.load() * 480, 480)));
+                ++produced;
+            }
+        });
+        waitUntil([&] { return produced.load() >= 8; });
+        for (int repeat = 0; repeat < 4; ++repeat) {
+            assert(CaptureSessionTestPeer::pending(controller) != 0);
+            assert(CaptureSessionTestPeer::boundary(controller, true).accepted());
+            assert(CaptureSessionTestPeer::boundary(controller, true).status == TransitionStatus::rejected);
+            const auto beforePaused = produced.load();
+            permitted.store(beforePaused + 2);
+            waitUntil([&] { return produced.load() == beforePaused + 2; });
+            assert(CaptureSessionTestPeer::boundary(controller, false).accepted());
+            const auto boundary = CaptureSessionTestPeer::privacyBoundary(controller);
+            assert(CaptureSessionTestPeer::boundary(controller, false).status == TransitionStatus::rejected);
+            assert(CaptureSessionTestPeer::privacyBoundary(controller) == boundary);
+            const auto beforeResumed = produced.load();
+            permitted.store(beforeResumed + 2);
+            waitUntil([&] { return produced.load() == beforeResumed + 2; });
+        }
+        const auto boundary = CaptureSessionTestPeer::privacyBoundary(controller);
+        run.store(false);
+        producer.join();
+        const auto accepted = produced.load();
+        assert(accepted == 24 && boundary == 22);
+        assert(CaptureSessionTestPeer::enqueue(controller, audio(AudioSource::microphone, accepted * 480, 480)));
+        for (unsigned index = 0; index <= accepted; ++index)
+            assert(CaptureSessionTestPeer::enqueue(controller, audio(AudioSource::systemRender, index * 480, 480)));
+        CaptureSessionTestPeer::startDispatcher(controller);
+        (void)controller.stop();
+        waitUntil([&] { return controller.pollHealth().state == SessionState::savedLocal; });
+        assert(finalized == 1 && CaptureSessionTestPeer::sourceEndMask(controller) == 3);
+        assert(output.size() == accepted + 1 && aec.calls == output.size());
+        for (std::size_t index = 0; index < output.size(); ++index) {
+            assert(output[index].ptsFrames == static_cast<std::int64_t>(index) * 480);
+            for (const auto sample : output[index].microphone)
+                assert(sample == (index < boundary ? 0.0F : 0.25F));
+        }
+    }
+    // Audio sequence cannot wrap and accidentally grant an old block new identity.
+    {
+        unsigned delivered = 0, finalized = 0;
+        WindowsCaptureSessionController controller("privacy-sequence-overflow", [&](AudioBatch) {
+            ++delivered;
+            return true;
+        }, [&](ReasonCode reason, RecordingStopReason) {
+            assert(reason == ReasonCode::queueOverflow);
+            ++finalized;
+            return CaptureFinalization{false, reason};
+        });
+        CaptureSessionTestPeer::begin(controller);
+        CaptureSessionTestPeer::lastSequence(controller, std::numeric_limits<std::uint64_t>::max() - 1);
+        assert(CaptureSessionTestPeer::enqueue(controller, audio(AudioSource::microphone, 0, 480)));
+        assert(!CaptureSessionTestPeer::enqueue(controller, audio(AudioSource::microphone, 480, 480)));
+        CaptureSessionTestPeer::startDispatcher(controller);
+        (void)controller.stop();
+        waitUntil([&] { return controller.pollHealth().state == SessionState::failed; });
+        assert(delivered == 1 && finalized == 1 && CaptureSessionTestPeer::sourceEndMask(controller) == 3);
+        assert(controller.finalization().reason == ReasonCode::queueOverflow);
+    }
+    std::fflush(stdout);
+    assert(allSuppressed); // Only privacy may fail after Stop/EOS/join cleanup.
+}
+
+void privacyPauseKeepsPrefetchedPacketsSuppressed() {
+    using namespace graf::windows;
+    bool allSuppressed = true;
+    // 0: release; 1: normalized callback; 2: acquisition snapshot before consume.
+    for (const unsigned holdStage : {0U, 1U, 2U}) for (const bool acquiredPaused : {false, true}) {
+        PrivacyAec aec;
+        RecordingAudioTimeline timeline(aec);
+        std::vector<CanonicalAudioFrame> output;
+        int finalized = 0;
+        WindowsCaptureSessionController controller("privacy-prefetched", [&](AudioBatch batch) {
+            if (!timeline.push(std::move(batch))) return false;
+            for (auto& frame : timeline.takeFrames()) output.push_back(std::move(frame));
+            return true;
+        }, [&](ReasonCode reason, RecordingStopReason) {
+            assert(reason == ReasonCode::none && timeline.close());
+            ++finalized;
+            return CaptureFinalization{true, ReasonCode::none};
+        }, [&](bool paused) { timeline.setMicrophonePaused(paused); });
+        CaptureSessionTestPeer::begin(controller);
+        if (acquiredPaused) assert(CaptureSessionTestPeer::boundary(controller, true).accepted());
+        auto& worker = CaptureSessionTestPeer::packetWorker(controller);
+        std::atomic_bool held{false}, release{false}, delivered{false};
+        unsigned callbacks = 0, releases = 0;
+        CaptureSessionTestPeer::device(worker, [&](const auto& running, auto&, const auto&) {
+            ClockMapper mapper;
+            AudioNormalizer normalizer;
+            const std::vector<float> samples(480, 0.5F);
+            const auto releasePacket = [&](std::uint32_t count) {
+                assert(count == 480);
+                if (releases++ == 0 && holdStage == 0) {
+                    held.store(true);
+                    waitUntil([&] { return release.load(); });
+                }
+                return CaptureReleaseResult{true, 0};
+            };
+            const auto epoch = CaptureSessionTestPeer::privacyEpoch(worker);
+            if (holdStage == 2) {
+                held.store(true);
+                waitUntil([&] { return release.load(); });
+            }
+            assert(CaptureSessionTestPeer::packetWithEpoch(worker, mapper, normalizer,
+                {0, 0, 48'000, 0, 480}, samples.data(), releasePacket, epoch));
+            assert(CaptureSessionTestPeer::packet(worker, mapper, normalizer,
+                {100'000, 480, 48'000, 0, 480}, samples.data(), releasePacket));
+            delivered.store(true);
+            while (running.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        });
+        assert(worker.start([&](AudioBatch batch) {
+            assert(batch.microphonePrivacyEpoch == std::optional<std::uint64_t>{callbacks == 0 ? (acquiredPaused ? 1U : 0U) : 2U});
+            if (callbacks++ == 0 && holdStage == 1) {
+                held.store(true);
+                waitUntil([&] { return release.load(); });
+            }
+            return CaptureSessionTestPeer::enqueue(controller, std::move(batch));
+        }) == CaptureWorkerError::none);
+        waitUntil([&] { return held.load(); });
+        if (!acquiredPaused) assert(CaptureSessionTestPeer::boundary(controller, true).accepted());
+        assert(CaptureSessionTestPeer::boundary(controller, false).accepted());
+        release.store(true);
+        waitUntil([&] { return delivered.load(); });
+        assert(callbacks == 2 && releases == 2 && worker.lastError() == CaptureWorkerError::none);
+        for (const auto pts : {0, 480})
+            assert(CaptureSessionTestPeer::enqueue(controller,
+                AudioBatch{AudioSource::systemRender, 48'000, 1, pts, 1, 1, false,
+                    std::vector<float>(480, 0.25F), static_cast<std::uint64_t>(pts)}));
+        CaptureSessionTestPeer::startDispatcher(controller);
+        (void)controller.stop();
+        waitUntil([&] { return controller.pollHealth().state == SessionState::savedLocal; });
+        assert(finalized == 1 && CaptureSessionTestPeer::sourceEndMask(controller) == 3);
+        assert(worker.finished() && output.size() == 2 && aec.calls == 2);
+        bool suppressed = true;
+        for (std::size_t index = 0; index < output.size(); ++index) {
+            assert(output[index].ptsFrames == static_cast<std::int64_t>(index * 480));
+            for (std::size_t sample = 0; sample < 480; ++sample) {
+                assert(output[index].system[sample] == 0.25F);
+                const auto expected = index == 0 ? 0.0F : 0.25F;
+                suppressed = suppressed && output[index].microphone[sample] == expected;
+                assert(output[index].mixed[sample] == output[index].system[sample] + output[index].microphone[sample]);
+            }
+        }
+        std::printf("privacy_prefetch hold_stage=%u acquired_paused=%d suppressed=%d\n",
+            holdStage, acquiredPaused, suppressed);
+        allSuppressed = allSuppressed && suppressed;
+    }
+    std::fflush(stdout);
+    assert(allSuppressed); // The real worker/dispatcher/EOS have completed first.
+    for (const auto stamp : {std::optional<std::uint64_t>{}, std::optional<std::uint64_t>{1}})
+    for (const bool releaseSucceeds : {false, true}) {
+        WindowsCaptureSessionController controller("privacy-required-snapshot");
+        auto& worker = CaptureSessionTestPeer::packetWorker(controller);
+        unsigned callbacks = 0, releases = 0;
+        bool accepted = false, untouched = false;
+        CaptureSessionTestPeer::device(worker, [&](const auto&, auto&, const auto&) {
+            ClockMapper mapper;
+            AudioNormalizer normalizer;
+            const std::vector<float> samples(480, 0.5F);
+            accepted = CaptureSessionTestPeer::packetWithEpoch(worker, mapper, normalizer,
+                {0, 0, 48'000, 0, 480}, stamp ? samples.data() : reinterpret_cast<const void*>(1),
+                [&](std::uint32_t count) { assert(count == 480); ++releases; return CaptureReleaseResult{releaseSucceeds, releaseSucceeds ? 0 : -1}; }, stamp);
+            untouched = normalizer.healthy();
+        });
+        assert(worker.start([&](AudioBatch) { ++callbacks; return true; }) == CaptureWorkerError::none);
+        waitUntil([&] { return worker.finished(); });
+        assert(!accepted && untouched && callbacks == 0 && releases == 1 && worker.lastError() ==
+            (releaseSucceeds ? CaptureWorkerError::normalizationFailed : CaptureWorkerError::releaseFailed));
+    }
+    {
+        unsigned finalized = 0;
+        WindowsCaptureSessionController controller("privacy-epoch-overflow", [](AudioBatch) { return true; },
+            [&](ReasonCode reason, RecordingStopReason) { assert(reason == ReasonCode::none); ++finalized; return CaptureFinalization{true, reason}; });
+        CaptureSessionTestPeer::begin(controller);
+        CaptureSessionTestPeer::privacyEpoch(controller, std::numeric_limits<std::uint64_t>::max() - 1);
+        assert(CaptureSessionTestPeer::boundary(controller, true).accepted());
+        const auto resume = CaptureSessionTestPeer::boundary(controller, false);
+        assert(resume.status == TransitionStatus::rejected && resume.state == SessionState::paused && resume.reason == ReasonCode::queueOverflow);
+        assert(CaptureSessionTestPeer::boundary(controller, false).status == TransitionStatus::rejected);
+        CaptureSessionTestPeer::startDispatcher(controller);
+        assert(controller.stop().accepted());
+        waitUntil([&] { return controller.pollHealth().state == SessionState::savedLocal; });
+        assert(finalized == 1 && CaptureSessionTestPeer::sourceEndMask(controller) == 3);
+    }
+}
+void privacyCommandsDoNotWaitOnSink() {
+    using namespace graf::windows;
+    std::atomic_bool entered{false}, released{false}, returned{false};
+    auto ui = std::async(std::launch::async, [&] {
+        WindowsCaptureSessionController controller("privacy-ui-fence", [&](AudioBatch) {
+            entered.store(true);
+            waitUntil([&] { return released.load(); });
+            return true;
+        }, [](ReasonCode reason, RecordingStopReason) {
+            assert(reason == ReasonCode::none);
+            return CaptureFinalization{true, reason};
+        });
+        CaptureSessionTestPeer::begin(controller);
+        CaptureSessionTestPeer::startDispatcher(controller);
+        assert(CaptureSessionTestPeer::enqueue(controller, syntheticLifecycleBatch()));
+        waitUntil([&] { return entered.load(); });
+        (void)controller.pause();
+        returned.store(true);
+        waitUntil([&] { return released.load(); });
+        (void)controller.stop();
+        waitUntil([&] { return controller.pollHealth().state == SessionState::savedLocal; });
+        assert(CaptureSessionTestPeer::sourceEndMask(controller) == 3);
+    });
+    waitUntil([&] { return entered.load(); });
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (!returned.load() && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+    const bool nonblocking = returned.load();
+    released.store(true);
+    ui.get(); // Retire native/dispatcher ownership before the named RED assertion.
+    assert(nonblocking && "privacy_command_must_not_wait_for_inflight_sink_on_ui");
+}
+void privacyAsyncAdmissionAndClose() {
+    using namespace graf::windows;
+    std::atomic<unsigned> opens{0}, closes{0}, delivered{0}, suppressed{0};
+    std::atomic_bool releaseFirst{false}, releaseSecond{false}, releaseClose{false}, micPaused{false};
+    unsigned finalized = 0;
+    const auto ui = std::this_thread::get_id();
+    WindowsCaptureSessionController controller("privacy-async-admission", [&](AudioBatch batch) {
+        suppressed.fetch_add(batch.microphoneSuppressed ? 1 : 0); ++delivered;
+        return true;
+    }, [&](ReasonCode reason, RecordingStopReason) {
+        assert(reason == ReasonCode::none && closes.load() == 2);
+        ++finalized; return CaptureFinalization{true, reason};
+    }, [&](bool pause) { micPaused.store(pause); },
+    [&](bool opening, std::uint64_t wall, std::uint64_t) {
+        assert(std::this_thread::get_id() != ui && wall > 0);
+        if (opening) {
+            const auto n = ++opens;
+            if (n == 1) { waitUntil([&] { return releaseFirst.load(); }); return PrivacyCheckpointResult{false, false}; }
+            assert(n == 2); waitUntil([&] { return releaseSecond.load(); });
+            return PrivacyCheckpointResult{true, false};
+        }
+        if (++closes == 1) waitUntil([&] { return releaseClose.load(); });
+        return PrivacyCheckpointResult{false, false}; // Nonfatal CLOSE / already closed at Stop.
+    });
+    CaptureSessionTestPeer::begin(controller);
+    CaptureSessionTestPeer::startDispatcher(controller);
+    assert(controller.pause().status == TransitionStatus::idempotent && controller.privacyPending());
+    waitUntil([&] { return opens.load() == 1; });
+    assert(controller.pollHealth().state == SessionState::recording && !micPaused.load());
+    for (int i = 0; i != 8; ++i) { (void)controller.pause(); (void)controller.resume(); }
+    assert(opens.load() == 1 && controller.privacyPending());
+    releaseFirst.store(true);
+    waitUntil([&] { (void)controller.pollHealth(); return !controller.privacyPending(); });
+    assert(controller.session().state() == SessionState::recording && !micPaused.load() &&
+        controller.privacyError() == ReasonCode::storageUnavailable && CaptureSessionTestPeer::privacyBoundary(controller) == 0);
+    (void)controller.pause(); waitUntil([&] { return opens.load() == 2; });
+    for (int i = 0; i != 8; ++i) {
+        auto batch = syntheticLifecycleBatch(); batch.source = AudioSource::microphone;
+        assert(CaptureSessionTestPeer::enqueue(controller, std::move(batch)));
+    }
+    releaseSecond.store(true);
+    waitUntil([&] { return controller.pollHealth().state == SessionState::paused; });
+    waitUntil([&] { return delivered.load() == 8; });
+    assert(micPaused.load() && suppressed.load() == 8 && !controller.privacyPending());
+    (void)controller.resume(); waitUntil([&] { return closes.load() == 1; });
+    waitUntil([&] { return controller.pollHealth().state == SessionState::recording; });
+    assert(!micPaused.load() && controller.privacyPending()); // Resume ACK does not wait for CLOSE IO.
+    (void)controller.pause(); assert(opens.load() == 2 && controller.privacyPending());
+    for (int i = 0; i != 8; ++i) {
+        auto batch = syntheticLifecycleBatch(); batch.source = AudioSource::microphone;
+        assert(CaptureSessionTestPeer::enqueue(controller, std::move(batch)));
+    }
+    releaseClose.store(true);
+    waitUntil([&] { (void)controller.pollHealth(); return !controller.privacyPending(); });
+    waitUntil([&] { return delivered.load() == 16; });
+    assert(suppressed.load() == 8 && controller.session().state() == SessionState::recording &&
+        controller.privacyError() == ReasonCode::storageUnavailable);
+    (void)controller.stop();
+    waitUntil([&] { return controller.pollHealth().state == SessionState::savedLocal; });
+    assert(finalized == 1 && CaptureSessionTestPeer::sourceEndMask(controller) == 3);
+}
+void privacyAsyncStopAndFatalClose() {
+    using namespace graf::windows;
+    {
+        std::atomic_bool boundaryAccepted{false}, releaseBoundary{false}, stopReturned{false};
+        auto ui = std::async(std::launch::async, [&] {
+            WindowsCaptureSessionController controller("privacy-stop-after-boundary", [](AudioBatch) { return true; },
+                [](ReasonCode reason, RecordingStopReason) { return CaptureFinalization{true, reason}; },
+                [&](bool paused) {
+                    assert(paused); boundaryAccepted.store(true);
+                    waitUntil([&] { return releaseBoundary.load(); });
+                }, [](bool, std::uint64_t, std::uint64_t) { return PrivacyCheckpointResult{true, false}; });
+            CaptureSessionTestPeer::begin(controller); CaptureSessionTestPeer::startDispatcher(controller);
+            (void)controller.pause(); waitUntil([&] { return boundaryAccepted.load(); });
+            // Boundary accepted before Stop; finishing its handler must not
+            // make Stop wait for captureMutex_ or resurrect the paused UI.
+            assert(controller.stop().state == SessionState::stopping);
+            stopReturned.store(true);
+            waitUntil([&] { return controller.pollHealth().state == SessionState::savedLocal; });
+            assert(!controller.privacyPending());
+        });
+        waitUntil([&] { return boundaryAccepted.load(); });
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+        while (!stopReturned.load() && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+        const bool nonblocking = stopReturned.load();
+        releaseBoundary.store(true); ui.get();
+        assert(nonblocking && "stop_must_not_wait_for_an_already_accepted_privacy_handler");
+    }
+    for (const bool duringOpen : {false, true}) {
+        std::atomic_bool held{false}, release{false};
+        std::atomic<unsigned> opens{0}, closes{0}, pauses{0};
+        unsigned finalized = 0;
+        WindowsCaptureSessionController* current = nullptr;
+        WindowsCaptureSessionController controller("privacy-async-stop", [&](AudioBatch) {
+            held.store(true); waitUntil([&] { return release.load(); }); return true;
+        }, [&](ReasonCode reason, RecordingStopReason) {
+            assert(reason == ReasonCode::none && closes.load() == 1 &&
+                CaptureSessionTestPeer::sourceEndMask(*current) == 3);
+            ++finalized; return CaptureFinalization{true, reason};
+        }, [&](bool) { ++pauses; }, [&](bool opening, std::uint64_t, std::uint64_t) {
+            if (opening) {
+                ++opens; held.store(true); waitUntil([&] { return release.load(); });
+                return PrivacyCheckpointResult{true, false};
+            }
+            ++closes; return PrivacyCheckpointResult{false, false};
+        });
+        current = &controller;
+        CaptureSessionTestPeer::begin(controller); CaptureSessionTestPeer::startDispatcher(controller);
+        if (!duringOpen) {
+            assert(CaptureSessionTestPeer::enqueue(controller, syntheticLifecycleBatch()));
+            waitUntil([&] { return held.load(); });
+        }
+        (void)controller.pause();
+        if (duringOpen) waitUntil([&] { return held.load(); });
+        assert(controller.session().state() == SessionState::recording && controller.privacyPending());
+        assert(controller.stop().state == SessionState::stopping && !controller.privacyPending());
+        release.store(true);
+        waitUntil([&] { return controller.pollHealth().state == SessionState::savedLocal; });
+        assert(opens.load() == (duringOpen ? 1U : 0U) && pauses.load() == 0 && finalized == 1);
+        for (int i = 0; i != 4; ++i) assert(controller.pollHealth().state == SessionState::savedLocal);
+    }
+    {
+        std::atomic<unsigned> resumed{0}, closes{0};
+        unsigned finalized = 0;
+        WindowsCaptureSessionController controller("privacy-fatal-close", [](AudioBatch) { return true; },
+            [&](ReasonCode reason, RecordingStopReason) {
+                assert(reason == ReasonCode::storageUnavailable); ++finalized;
+                return CaptureFinalization{false, reason};
+            }, [&](bool pause) { if (!pause) ++resumed; },
+            [&](bool opening, std::uint64_t, std::uint64_t) {
+                if (opening) return PrivacyCheckpointResult{true, false};
+                ++closes; return PrivacyCheckpointResult{false, true};
+            });
+        CaptureSessionTestPeer::begin(controller); CaptureSessionTestPeer::startDispatcher(controller);
+        (void)controller.pause(); waitUntil([&] { return controller.pollHealth().state == SessionState::paused; });
+        (void)controller.resume(); waitUntil([&] { return controller.pollHealth().state == SessionState::failed; });
+        assert(resumed.load() == 1 && closes.load() == 2 && finalized == 1 &&
+            CaptureSessionTestPeer::sourceEndMask(controller) == 3);
+    }
+    {
+        WindowsCaptureSessionController controller("privacy-missing-checkpoint", [](AudioBatch) { return true; });
+        CaptureSessionTestPeer::begin(controller); CaptureSessionTestPeer::startDispatcher(controller);
+        assert(controller.pause().status == TransitionStatus::rejected && !controller.privacyPending() &&
+            controller.session().state() == SessionState::recording);
+        (void)controller.stop();
+        waitUntil([&] { return controller.pollHealth().state == SessionState::failed; });
+    }
+}
+}
+
 int main(int argc, char** argv) {
+#ifdef _MSC_VER
+    _set_error_mode(_OUT_TO_STDERR);
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#ifdef _DEBUG
+    _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+#endif
+#endif
+    if (argc == 2 && std::string_view(argv[1]) == "--privacy-async") {
+        privacyCommandsDoNotWaitOnSink();
+        privacyAsyncAdmissionAndClose();
+        privacyAsyncStopAndFatalClose();
+        return 0;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--privacy-fifo") {
+        privacyPauseKeepsQueuedAndExtractedAudioSuppressed();
+        return 0;
+    }
+    if (argc == 2 && std::string_view(argv[1]) == "--privacy-prefetch") {
+        privacyPauseKeepsPrefetchedPacketsSuppressed();
+        return 0;
+    }
     if (argc == 3 && std::string_view(argv[1]) == "--interrupt-start-pending") interruptBeforeAcceptance(argv[2], false);
     if (argc == 3 && std::string_view(argv[1]) == "--interrupt-start-cancelled") interruptBeforeAcceptance(argv[2], true);
+    privacyCommandsDoNotWaitOnSink();
+    privacyAsyncAdmissionAndClose();
+    privacyAsyncStopAndFatalClose();
+    privacyPauseKeepsQueuedAndExtractedAudioSuppressed();
+    privacyPauseKeepsPrefetchedPacketsSuppressed();
     interruptedStartRecovery(argv[0]);
     finalAutomaticStartGate();
     oldDecisionCannotOpenNewSession();
+    eosAllocationFailureDoesNotHang();
     using namespace graf::windows;
 #ifdef _WIN32
     // Exercise the exact IMMDevice GetId -> enumeration -> GetDevice conversion
@@ -1080,6 +1735,7 @@ int main(int argc, char** argv) {
         assert(finalized == 1);
         assert(!controller.finalization().savedLocal && controller.finalization().trustedPrefixRetained);
         assert(controller.finalization().reason == ReasonCode::microphoneEndpointUnavailable);
+        assert(controller.indicator().snapshot().statusText == "Запись завершилась с ошибкой");
     }
 
     // The microphone must never continue unpaired after the render source fails.
@@ -1202,6 +1858,7 @@ int main(int argc, char** argv) {
     // Completion time, not UI polling cadence, decides whether drain expired.
     // Move only the deadline in these deterministic boundary cases; the existing
     // real five-second test below still checks the production duration.
+    for (const bool abandoned : {false, true})
     for (const bool late : {true, false}) for (const bool priorFault : {false, true}) {
         std::atomic_bool entered{false}, release{false};
         int finalized = 0;
@@ -1230,6 +1887,11 @@ int main(int argc, char** argv) {
         // No health poll while the sink returns and both EOS cross the queue.
         waitUntil([&] { return CaptureSessionTestPeer::dispatcherFinished(controller); });
         if (!late) CaptureSessionTestPeer::drainDeadline(controller, std::chrono::steady_clock::now());
+        if (abandoned) {
+            assert(CaptureSessionTestPeer::abandon(controller) == expectedReason);
+            assert(finalized == 0); // Abandonment must not call the UI finalizer.
+            continue;
+        }
         const auto terminal = controller.pollHealth();
         assert(terminal.state == (expectedReason == ReasonCode::none ? SessionState::savedLocal : SessionState::failed));
         assert(controller.finalization().reason == expectedReason && controller.finalization().trustedPrefixRetained);
@@ -1244,7 +1906,7 @@ int main(int argc, char** argv) {
     // device cleanup. Finalization still waits for both native completion fences.
     // A worker completing before the deadline cannot fail just because UI polls
     // later; either worker completing after it must fail even with an idle queue.
-    for (const int lateSource : {-1, 0, 1}) {
+    for (const bool abandoned : {false, true}) for (const int lateSource : {-1, 0, 1}) {
         DeviceStage render, microphone;
         render.allowStartup.store(true); microphone.allowStartup.store(true);
         std::atomic<int> delivered{0};
@@ -1287,6 +1949,12 @@ int main(int argc, char** argv) {
         waitUntil([&] { return CaptureSessionTestPeer::finished(controller); });
         if (lateSource < 0)
             CaptureSessionTestPeer::drainDeadline(controller, std::chrono::steady_clock::now());
+        if (abandoned) {
+            assert(CaptureSessionTestPeer::abandon(controller) ==
+                (lateSource < 0 ? ReasonCode::none : ReasonCode::finalizationFailed));
+            assert(finalized == 0 && delivered.load() == beforeCleanup);
+            continue;
+        }
         const auto terminal = controller.pollHealth();
         assert(terminal.state == (lateSource < 0 ? SessionState::savedLocal : SessionState::failed));
         assert(controller.finalization().trustedPrefixRetained && finalized == 1);
@@ -1533,8 +2201,8 @@ int main(int argc, char** argv) {
         return CaptureFinalization{true, ReasonCode::none};
     }, [&](bool value) { paused = value; });
     CaptureSessionTestPeer::begin(normal);
-    assert(normal.pause().state == SessionState::paused && paused);
-    assert(normal.resume().state == SessionState::recording && !paused);
+    assert(CaptureSessionTestPeer::boundary(normal, true).state == SessionState::paused && paused);
+    assert(CaptureSessionTestPeer::boundary(normal, false).state == SessionState::recording && !paused);
     std::thread producer([&] {
         while (run.load()) assert(CaptureSessionTestPeer::push(normal));
     });

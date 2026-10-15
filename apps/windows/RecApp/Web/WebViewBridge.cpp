@@ -189,7 +189,8 @@ bool WebViewBridge::isAllowedWebCommand(std::string_view command) noexcept {
     // строгий и живёт в обработчиках: конверт проверяет только право команды
     // дойти до приложения.
     return command == "request_app_quit" || command == "local_recording" || command == "app_appearance" ||
-           command == "native_settings" || command == "delete_selection" || command == "request_app_update";
+           command == "native_settings" || command == "delete_selection" || command == "request_app_update" ||
+           (calendarJoinEnabled_ && (command == "calendar_join" || command == "calendar_join_cancel"));
 }
 
 std::size_t WebViewBridge::jsonDepth(std::string_view payload) noexcept {

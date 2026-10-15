@@ -51,15 +51,25 @@ bool localPath(const std::filesystem::path& path) {
         || !((text[0] >= L'A' && text[0] <= L'Z') || (text[0] >= L'a' && text[0] <= L'z'))
         || text.find(L'\0') != std::wstring::npos || text.find(L'/') != std::wstring::npos
         || text.find(L':', 2) != std::wstring::npos || text.back() == L'\\') return false;
-    for (const auto& part : path.relative_path()) {
-        const auto& name = part.native();
-        if (name.empty() || name == L"." || name == L".." || name.back() == L'.' || name.back() == L' ') return false;
+    for (std::size_t start = 3; start < text.size();) {
+        auto end = text.find(L'\\', start);
+        if (end == std::wstring::npos) end = text.size();
+        const std::wstring_view name(text.data() + start, end - start);
+        if (!name.empty() && (name == L"." || name == L".." || name.back() == L'.' || name.back() == L' ')) return false;
+        start = end + 1;
     }
-    const auto drive = path.root_path().wstring();
+    const wchar_t drive[]{text[0], L':', L'\\', L'\0'};
     DWORD flags = 0;
-    return GetDriveTypeW(drive.c_str()) == DRIVE_FIXED
-        && GetVolumeInformationW(drive.c_str(), nullptr, 0, nullptr, nullptr, &flags, nullptr, 0)
+    return GetDriveTypeW(drive) == DRIVE_FIXED
+        && GetVolumeInformationW(drive, nullptr, 0, nullptr, nullptr, &flags, nullptr, 0)
         && (flags & FILE_PERSISTENT_ACLS) != 0;
+}
+// API spelling only, after fixed-drive/normalized-path admission. Keep stored
+// paths and handle identity checks unchanged; never accept a caller namespace.
+CustodyWideString win32Path(const std::filesystem::path& path) {
+    CustodyWideString result(L"\\\\?\\");
+    result.append(path.native().data(), path.native().size());
+    return result;
 }
 const wchar_t* roleName(CustodyRole role) {
     switch (role) {
@@ -76,9 +86,17 @@ const wchar_t* roleName(CustodyRole role) {
     return nullptr;
 }
 std::wstring blockName(std::uint64_t position, std::uint64_t version) {
-    return L"block." + std::to_wstring(position) + L"." + std::to_wstring(version);
+    std::wstring name(L"block.");
+    name += std::to_wstring(position);
+    name += L".";
+    name += std::to_wstring(version);
+    return std::wstring(name);
 }
-std::wstring indexName(std::uint32_t slot) { return L"index." + std::to_wstring(slot); }
+std::wstring indexName(std::uint32_t slot) {
+    std::wstring name(L"index.");
+    name += std::to_wstring(slot);
+    return std::wstring(name);
+}
 using RenameFile = NTSTATUS (NTAPI*)(HANDLE, PIO_STATUS_BLOCK, PVOID, ULONG, FILE_INFORMATION_CLASS);
 // Documented FileRenameInformation=10; the user-mode SDK's partial enum omits it.
 constexpr auto nativeRenameInformation = static_cast<FILE_INFORMATION_CLASS>(10);
@@ -88,19 +106,70 @@ struct RenameInfo { BOOLEAN replace; HANDLE root; ULONG nameBytes; WCHAR name[1]
 }
 
 struct ProtectedCustodyFiles::State {
-    CustodyContext context;
+    CustodyContext context{};
     bool writable = false;
     bool failed = false;
+    bool storeBirth = false;
+    std::shared_ptr<const ProtectedCustodyFiles> rootLease;
+    std::shared_ptr<const std::atomic<bool>> cancellation;
+    mutable std::mutex writeGroup;
+    mutable std::atomic<unsigned> pressurePercent{0};
 #ifdef _WIN32
     std::filesystem::path directory;
     std::vector<std::uint8_t> tokenUser;
     LocalMemory descriptor;
     SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES), nullptr, FALSE};
-    struct Directory { std::filesystem::path path; bool privateDirectory; Handle handle; };
+    struct Directory {
+        std::filesystem::path path; bool privateDirectory; Handle handle;
+        Directory() = default;
+        Directory(const std::filesystem::path& p, bool privateDir, Handle&& h)
+            : path(p), privateDirectory(privateDir), handle(std::move(h)) {}
+        Directory(Directory&& other)
+            : Directory(other.path, other.privateDirectory, std::move(other.handle)) {}
+    };
     std::vector<Directory> directories;
     std::filesystem::path trustedRoot;
     Handle storeId;
     Handle objectId;
+
+    explicit State(const std::filesystem::path& root)
+        : directory(root), tokenUser(std::size_t{0}), directories(std::size_t{0}), trustedRoot(root) {}
+
+    const State& storeState() const noexcept { return rootLease ? rootLease->state_->storeState() : *this; }
+
+    CustodyFileResult<std::uint64_t> physicalBytes(const std::filesystem::path& parent,
+        const std::shared_ptr<const std::atomic<bool>>& cancel, unsigned depth = 0) const {
+        if (depth > 8) return failure<std::uint64_t>(CustodyFileError::unsafePath);
+        std::uint64_t total = 0;
+        auto checked = eachChild(parent, cancel, [&](std::wstring_view name, bool directoryEntry) {
+            auto child = parent;
+            child /= std::filesystem::path(name);
+            std::uint64_t bytes = 0;
+            if (directoryEntry) {
+                const auto apiPath = win32Path(child);
+                Handle handle(CreateFileW(apiPath.c_str(), READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY,
+                    FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+                if (!handle.valid()) return failure<bool>(CustodyFileError::ioFailed, GetLastError());
+                if (!inspect(handle.value, child, true, true)) return failure<bool>(CustodyFileError::unsafePath);
+                auto nested = physicalBytes(child, cancel, depth + 1);
+                if (!nested.ok()) return failure<bool>(nested.error, nested.nativeError);
+                bytes = *nested.value;
+            } else {
+                auto file = openFile(child, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE);
+                if (!file.ok()) return failure<bool>(file.error, file.nativeError);
+                FILE_STANDARD_INFO info{};
+                if (!GetFileInformationByHandleEx(file.value->value, FileStandardInfo, &info, sizeof(info)))
+                    return failure<bool>(CustodyFileError::ioFailed, GetLastError());
+                if (info.AllocationSize.QuadPart < 0) return failure<bool>(CustodyFileError::invalidContent);
+                bytes = static_cast<std::uint64_t>(info.AllocationSize.QuadPart);
+            }
+            if (bytes > (std::numeric_limits<std::uint64_t>::max)() - total)
+                return failure<bool>(CustodyFileError::invalidContent);
+            total += bytes;
+            return success(true);
+        });
+        return checked.ok() ? success(total) : failure<std::uint64_t>(checked.error, checked.nativeError);
+    }
 
     PSID sid() const { return reinterpret_cast<const TOKEN_USER*>(tokenUser.data())->User.Sid; }
     bool initializeSecurity() {
@@ -112,7 +181,9 @@ struct ProtectedCustodyFiles::State {
         if (!GetTokenInformation(token.value, TokenUser, tokenUser.data(), size, &size)) return false;
         LocalMemory text;
         if (!ConvertSidToStringSidW(sid(), reinterpret_cast<LPWSTR*>(&text.value))) return false;
-        const auto sddl = std::wstring(L"D:P(A;OICI;FA;;;") + static_cast<wchar_t*>(text.value) + L")";
+        std::wstring sddl(L"D:P(A;OICI;FA;;;");
+        sddl += static_cast<wchar_t*>(text.value);
+        sddl += L")";
         if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1,
             &descriptor.value, nullptr)) return false;
         security.lpSecurityDescriptor = descriptor.value;
@@ -138,44 +209,136 @@ struct ProtectedCustodyFiles::State {
             || (!directoryFile && info.nNumberOfLinks != 1)) return false;
         wchar_t actual[32768]{};
         const auto count = GetFinalPathNameByHandleW(file, actual, 32768, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
-        const auto wanted = std::wstring(L"\\\\?\\") + expected.wstring();
+        std::wstring wanted(L"\\\\?\\");
+        const auto expectedText = expected.wstring();
+        wanted += expectedText;
         return count > 0 && count < 32768 && wanted.size() <= static_cast<std::size_t>(std::numeric_limits<int>::max())
             && CompareStringOrdinal(actual, static_cast<int>(count), wanted.c_str(), static_cast<int>(wanted.size()), TRUE) == CSTR_EQUAL
             && (!privateFile || privateAcl(file));
     }
     CustodyFileResult<Handle> openFile(const std::filesystem::path& path, DWORD access, DWORD share) const {
-        Handle file(CreateFileW(path.c_str(), access | READ_CONTROL, share, nullptr, OPEN_EXISTING,
+        const auto apiPath = win32Path(path);
+        Handle file(CreateFileW(apiPath.c_str(), access | READ_CONTROL, share, nullptr, OPEN_EXISTING,
             FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
         if (!file.valid()) return failure<Handle>(CustodyFileError::ioFailed, GetLastError());
         if (!inspect(file.value, path, false, true)) return failure<Handle>(CustodyFileError::unsafeFile);
         return success(std::move(file));
     }
     CustodyFileResult<bool> lockDirectory(const std::filesystem::path& path, bool privateDirectory, bool create) {
-        if (create && !CreateDirectoryW(path.c_str(), &security) && GetLastError() != ERROR_ALREADY_EXISTS)
+        const auto apiPath = win32Path(path);
+        if (create && !CreateDirectoryW(apiPath.c_str(), &security) && GetLastError() != ERROR_ALREADY_EXISTS)
             return failure<bool>(CustodyFileError::ioFailed, GetLastError());
         // Hold every ancestor without share-write/delete until the object closes.
         // Checking only the final path before opening leaves reparse/rename races.
         // FILE_LIST_DIRECTORY participates in sharing checks. Attribute/control
         // access alone does NOT acquire the share-write/delete exclusion.
-        Handle dir(CreateFileW(path.c_str(), READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY, FILE_SHARE_READ, nullptr,
+        Handle dir(CreateFileW(apiPath.c_str(), READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY, FILE_SHARE_READ, nullptr,
             OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
         if (!dir.valid()) return failure<bool>(CustodyFileError::ioFailed, GetLastError());
         if (!inspect(dir.value, path, true, privateDirectory)) return failure<bool>(CustodyFileError::unsafePath);
-        directories.push_back({path, privateDirectory, std::move(dir)}); return success(true);
+        directories.emplace_back(path, privateDirectory, std::move(dir)); return success(true);
     }
-    CustodyFileResult<bool> identity(Handle& file, const std::filesystem::path& path, const CustodyId& expected, bool writer) {
-        auto opened = openFile(path, GENERIC_READ | (writer ? GENERIC_WRITE : 0),
-            FILE_SHARE_READ | (writer ? 0 : FILE_SHARE_WRITE));
-        if (!opened.ok()) return failure<bool>(opened.error, opened.nativeError);
+    CustodyFileResult<bool> identityValue(HANDLE file, const CustodyId* expected, CustodyId& observed) const {
         LARGE_INTEGER size{}; DWORD got = 0; CustodyId actual{};
-        if (!GetFileSizeEx(opened.value->value, &size) || size.QuadPart != 16
-            || !ReadFile(opened.value->value, actual.data(), 16, &got, nullptr) || got != 16 || actual != expected)
+        if (!GetFileSizeEx(file, &size)) return failure<bool>(CustodyFileError::ioFailed, GetLastError());
+        if (size.QuadPart != 16) return failure<bool>(CustodyFileError::identityMismatch);
+        LARGE_INTEGER start{};
+        if (!SetFilePointerEx(file, start, nullptr, FILE_BEGIN) || !ReadFile(file, actual.data(), 16, &got, nullptr))
+            return failure<bool>(CustodyFileError::ioFailed, GetLastError());
+        if (got != 16 || (expected && actual != *expected))
             return failure<bool>(CustodyFileError::identityMismatch);
+        observed = actual; return success(true);
+    }
+    CustodyFileResult<bool> identity(Handle& file, const std::filesystem::path& path,
+        const CustodyId* expected, CustodyId& observed, bool writer, bool immutable = false) {
+        auto opened = openFile(path, GENERIC_READ | (writer ? GENERIC_WRITE : 0),
+            FILE_SHARE_READ | (writer || immutable ? 0 : FILE_SHARE_WRITE));
+        if (!opened.ok()) return failure<bool>(opened.error, opened.nativeError);
+        auto checked = identityValue(opened.value->value, expected, observed);
+        if (!checked.ok()) return checked;
         file = std::move(*opened.value); return success(true);
+    }
+    CustodyFileResult<bool> lockRoot(bool createMissing) {
+        auto path = trustedRoot.root_path();
+        auto locked = lockDirectory(path, false, false);
+        if (!locked.ok()) return locked;
+        const std::wstring_view names(trustedRoot.native());
+        // Empty components change spelling under ordinary Win32 normalization
+        // and are invalid in the extended namespace. Reject before child IO.
+        if (names.find(L"\\\\", 2) != std::wstring_view::npos)
+            return failure<bool>(CustodyFileError::unsafePath);
+        for (std::size_t start = 3; start < names.size();) {
+            auto end = names.find(L'\\', start);
+            if (end == std::wstring_view::npos) end = names.size();
+            if (end != start) {
+                const std::filesystem::path part(names.substr(start, end - start));
+                path /= part;
+                bool created = false;
+                if (createMissing) {
+                    const auto apiPath = win32Path(path);
+                    created = CreateDirectoryW(apiPath.c_str(), &security) != FALSE;
+                    if (!created && GetLastError() != ERROR_ALREADY_EXISTS)
+                        return failure<bool>(CustodyFileError::ioFailed, GetLastError());
+                }
+                locked = lockDirectory(path, created || path == trustedRoot, false);
+                if (!locked.ok()) return locked;
+            }
+            start = end + 1;
+        }
+        return success(true);
+    }
+    CustodyFileResult<bool> openRole(CustodyFileAccess access, bool discover) {
+        directory /= roleName(context.role);
+        const auto apiPath = win32Path(directory);
+        if (access == CustodyFileAccess::createNew && !CreateDirectoryW(apiPath.c_str(), &security)) {
+            const auto error = GetLastError();
+            return failure<bool>(error == ERROR_ALREADY_EXISTS ? CustodyFileError::conflict : CustodyFileError::ioFailed, error);
+        }
+        auto locked = lockDirectory(directory, true, false);
+        if (!locked.ok()) return locked;
+        std::filesystem::path idPath(directory);
+        idPath /= L"id.bin";
+        if (access == CustodyFileAccess::createNew) {
+            auto created = create(idPath, context.objectId.data(), 16);
+            if (!created.ok()) return failure<bool>(created.error, created.nativeError);
+            // Keep the original CREATE_NEW handle: no close/reopen identity gap.
+            objectId = std::move(*created.value);
+            return identityValue(objectId.value, &context.objectId, context.objectId);
+        }
+        return identity(objectId, idPath, discover ? nullptr : &context.objectId, context.objectId, writable);
+    }
+    template<class Visit>
+    CustodyFileResult<bool> eachChild(const std::filesystem::path& parent,
+        const std::shared_ptr<const std::atomic<bool>>& cancel, Visit visit) const {
+        if (cancel->load()) return failure<bool>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+        auto pattern = parent;
+        pattern /= L"*";
+        const auto apiPath = win32Path(pattern);
+        WIN32_FIND_DATAW data{};
+        struct Find {
+            HANDLE value;
+            ~Find() { if (value != INVALID_HANDLE_VALUE) FindClose(value); }
+        } find{FindFirstFileExW(apiPath.c_str(), FindExInfoBasic, &data, FindExSearchNameMatch, nullptr, 0)};
+        if (find.value == INVALID_HANDLE_VALUE) {
+            const auto error = GetLastError();
+            return error == ERROR_FILE_NOT_FOUND ? success(true) : failure<bool>(CustodyFileError::ioFailed, error);
+        }
+        do {
+            if (cancel->load()) return failure<bool>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+            const std::wstring_view name(data.cFileName);
+            if (name == L"." || name == L"..") continue;
+            if (data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) return failure<bool>(CustodyFileError::unsafePath);
+            const bool isDirectory = (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            auto accepted = visit(name, isDirectory);
+            if (!accepted.ok()) return accepted;
+        } while (FindNextFileW(find.value, &data));
+        const auto error = GetLastError();
+        return error == ERROR_NO_MORE_FILES ? success(true) : failure<bool>(CustodyFileError::ioFailed, error);
     }
     CustodyFileResult<Handle> create(const std::filesystem::path& path, const std::uint8_t* bytes,
                                     std::uint32_t size, bool renameable = false) const {
-        Handle file(CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE | READ_CONTROL | (renameable ? DELETE : 0),
+        const auto apiPath = win32Path(path);
+        Handle file(CreateFileW(apiPath.c_str(), GENERIC_READ | GENERIC_WRITE | READ_CONTROL | (renameable ? DELETE : 0),
             FILE_SHARE_READ, const_cast<SECURITY_ATTRIBUTES*>(&security), CREATE_NEW,
             FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
         if (!file.valid()) {
@@ -222,12 +385,30 @@ struct ProtectedCustodyFiles::State {
 
 ProtectedCustodyFiles::ProtectedCustodyFiles(std::unique_ptr<State> state) : state_(std::move(state)) {}
 ProtectedCustodyFiles::~ProtectedCustodyFiles() = default;
+const CustodyContext& ProtectedCustodyFiles::context() const noexcept { return state_->context; }
+#ifdef _WIN32
+const std::filesystem::path& ProtectedCustodyFiles::trustedRoot() const noexcept { return state_->trustedRoot; }
+std::filesystem::path ProtectedCustodyFiles::packagePath() const { return state_->directory.parent_path(); }
+#endif
 
 CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles::open(
-    const std::filesystem::path& root, std::string_view package, const CustodyContext& context, CustodyFileAccess access) try {
+    const std::filesystem::path& root, std::string_view package, const CustodyContext& context, CustodyFileAccess access) {
+    return openImpl(root, package, context, access, false);
+}
+CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles::discover(
+    const std::filesystem::path& root, CustodyRole role, std::string_view package) {
+    if ((role != CustodyRole::bootstrap && role != CustodyRole::queue && role != CustodyRole::migrationIntent)
+        || (role != CustodyRole::migrationIntent && !package.empty()))
+        return failure<std::unique_ptr<ProtectedCustodyFiles>>(CustodyFileError::invalidInput);
+    CustodyContext context{}; context.role = role;
+    return openImpl(root, package, context, CustodyFileAccess::writeExisting, true);
+}
+CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles::openImpl(
+    const std::filesystem::path& root, std::string_view package, const CustodyContext& context,
+    CustodyFileAccess access, bool discover) try {
     using Result = std::unique_ptr<ProtectedCustodyFiles>;
 #ifndef _WIN32
-    (void)root; (void)package; (void)context; (void)access;
+    (void)root; (void)package; (void)context; (void)access; (void)discover;
     return failure<Result>(CustodyFileError::unsupportedPlatform);
 #else
     const bool service = context.role == CustodyRole::queue || context.role == CustodyRole::bootstrap
@@ -235,46 +416,39 @@ CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles:
     if (!roleName(context.role) || (service ? !package.empty() : !DesktopUploadQueueService::validIdentity(package))
         || (access != CustodyFileAccess::readExisting && access != CustodyFileAccess::writeExisting && access != CustodyFileAccess::createNew))
         return failure<Result>(CustodyFileError::invalidInput);
+    if (!service && !std::all_of(package.begin(), package.end(), [](unsigned char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+            || (c >= '0' && c <= '9') || c == '_' || c == '-';
+    })) return failure<Result>(CustodyFileError::invalidInput);
     if (!localPath(root)) return failure<Result>(CustodyFileError::unsafePath);
-    auto state = std::make_unique<State>(); state->context = context;
-    state->trustedRoot = root;
+    auto state = std::make_unique<State>(root); state->context = context;
     state->writable = access != CustodyFileAccess::readExisting;
     if (!state->initializeSecurity()) return failure<Result>(CustodyFileError::ioFailed, GetLastError());
-    auto path = root.root_path();
-    auto locked = state->lockDirectory(path, false, false);
+    auto locked = state->lockRoot(false);
     if (!locked.ok()) return failure<Result>(locked.error, locked.nativeError);
-    for (const auto& part : root.relative_path()) {
-        path /= part;
-        locked = state->lockDirectory(path, path == root, false);
-        if (!locked.ok()) return failure<Result>(locked.error, locked.nativeError);
-    }
-    path = root / L".custody-v1";
+    auto path = root;
+    path /= L".custody-v1";
     locked = state->lockDirectory(path, true, false);
     if (!locked.ok()) return failure<Result>(locked.error, locked.nativeError);
-    auto identified = state->identity(state->storeId, path / L"store.id", context.storeId, false);
+    std::filesystem::path storePath(path);
+    storePath /= L"store.id";
+    auto identified = state->identity(state->storeId, storePath,
+        discover ? nullptr : &context.storeId, state->context.storeId, false, discover);
     if (!identified.ok()) return failure<Result>(identified.error, identified.nativeError);
     if (!service) {
-        path = root / std::string(package);
+        path = root;
+        const std::wstring packageName(package.begin(), package.end());
+        path /= packageName;
         locked = state->lockDirectory(path, true, false);
         if (!locked.ok()) return failure<Result>(locked.error, locked.nativeError);
         path /= L".custody-v1";
         locked = state->lockDirectory(path, true, access == CustodyFileAccess::createNew);
         if (!locked.ok()) return failure<Result>(locked.error, locked.nativeError);
     }
-    state->directory = path / roleName(context.role);
-    if (access == CustodyFileAccess::createNew && !CreateDirectoryW(state->directory.c_str(), &state->security)) {
-        const auto error = GetLastError();
-        return failure<Result>(error == ERROR_ALREADY_EXISTS ? CustodyFileError::conflict : CustodyFileError::ioFailed, error);
-    }
-    locked = state->lockDirectory(state->directory, true, false);
+    state->directory = path;
+    locked = state->openRole(access, discover);
     if (!locked.ok()) return failure<Result>(locked.error, locked.nativeError);
-    const auto idPath = state->directory / L"id.bin";
-    if (access == CustodyFileAccess::createNew) {
-        auto created = state->create(idPath, context.objectId.data(), 16);
-        if (!created.ok()) return failure<Result>(created.error, created.nativeError);
-    }
-    identified = state->identity(state->objectId, idPath, context.objectId, state->writable);
-    if (!identified.ok()) return failure<Result>(identified.error, identified.nativeError);
+    if (discover) state->writable = false; // Keep exclusive IDs, but allow readonly validation without resetting failures.
     return success(Result(new ProtectedCustodyFiles(std::move(state))));
 #endif
 } catch (const std::bad_alloc&) {
@@ -282,6 +456,352 @@ CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles:
 } catch (const std::filesystem::filesystem_error&) {
     return failure<std::unique_ptr<ProtectedCustodyFiles>>(CustodyFileError::unsafePath);
 }
+
+CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles::lockStoreRoot(
+    const std::filesystem::path& root, std::shared_ptr<const std::atomic<bool>> cancellation,
+    bool& birth) try {
+    using Result = std::unique_ptr<ProtectedCustodyFiles>;
+    birth = false;
+    if (!cancellation) return failure<Result>(CustodyFileError::invalidInput);
+#ifndef _WIN32
+    (void)root;
+    return failure<Result>(CustodyFileError::unsupportedPlatform);
+#else
+    if (cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+    if (!localPath(root)) return failure<Result>(CustodyFileError::unsafePath);
+    auto state = std::make_unique<State>(root);
+    state->cancellation = cancellation;
+    if (!state->initializeSecurity()) return failure<Result>(CustodyFileError::ioFailed, GetLastError());
+    auto locked = state->lockRoot(true);
+    if (!locked.ok()) return failure<Result>(locked.error, locked.nativeError);
+    Result held(new ProtectedCustodyFiles(std::move(state)));
+    auto custody = root;
+    custody /= L".custody-v1";
+    const auto apiCustody = win32Path(custody);
+    const auto attributes = GetFileAttributesW(apiCustody.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        const auto error = GetLastError();
+        if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND)
+            return failure<Result>(CustodyFileError::ioFailed, error);
+        auto empty = held->validateStoreInventory(true, cancellation);
+        if (!empty.ok()) return failure<Result>(empty.error, empty.nativeError);
+        if (cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+        // Exclusive birth: an intervening creator/partial sentinel is a conflict.
+        if (!CreateDirectoryW(apiCustody.c_str(), &held->state_->security)) {
+            const auto native = GetLastError();
+            return failure<Result>(native == ERROR_ALREADY_EXISTS ? CustodyFileError::conflict : CustodyFileError::ioFailed, native);
+        }
+        birth = held->state_->storeBirth = true;
+    }
+    locked = held->state_->lockDirectory(custody, true, false);
+    if (!locked.ok()) return failure<Result>(locked.error, locked.nativeError);
+    auto idPath = custody;
+    idPath /= L"store.id";
+    if (birth) {
+        const auto status = BCryptGenRandom(nullptr, held->state_->context.storeId.data(), 16, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+        if (status < 0) return failure<Result>(CustodyFileError::ioFailed, static_cast<std::uint32_t>(status));
+        auto created = held->state_->create(idPath, held->state_->context.storeId.data(), 16);
+        if (!created.ok()) return failure<Result>(created.error, created.nativeError);
+        held->state_->storeId = std::move(*created.value);
+        auto checked = held->state_->identityValue(held->state_->storeId.value,
+            &held->state_->context.storeId, held->state_->context.storeId);
+        if (!checked.ok()) return failure<Result>(checked.error, checked.nativeError);
+    } else {
+        auto id = held->state_->identity(held->state_->storeId, idPath, nullptr,
+            held->state_->context.storeId, false, true);
+        if (!id.ok()) return failure<Result>(id.error, id.nativeError);
+        auto inventory = held->validateStoreInventory(false, cancellation);
+        if (!inventory.ok()) return failure<Result>(inventory.error, inventory.nativeError);
+    }
+    if (cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+    return success(std::move(held));
+#endif
+} catch (const std::bad_alloc&) { return failure<std::unique_ptr<ProtectedCustodyFiles>>(CustodyFileError::allocationFailed); }
+  catch (const std::filesystem::filesystem_error&) { return failure<std::unique_ptr<ProtectedCustodyFiles>>(CustodyFileError::unsafePath); }
+
+std::unique_lock<std::mutex> ProtectedCustodyFiles::lockWriteGroup() {
+#ifdef _WIN32
+    return std::unique_lock<std::mutex>(state_->storeState().writeGroup);
+#else
+    return std::unique_lock<std::mutex>(state_->writeGroup);
+#endif
+}
+
+unsigned ProtectedCustodyFiles::storagePressurePercent() const noexcept {
+#ifdef _WIN32
+    return state_->storeState().pressurePercent.load(std::memory_order_relaxed);
+#else
+    return 0;
+#endif
+}
+
+CustodyFileResult<std::shared_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles::createPackageRoot(
+    std::shared_ptr<const ProtectedCustodyFiles> root, std::string_view name,
+    std::shared_ptr<const std::atomic<bool>> cancellation, std::shared_ptr<ProtectedCustodyFiles>* retainedFailure) try {
+    using Result = std::shared_ptr<ProtectedCustodyFiles>;
+    if (!root || !cancellation || !retainedFailure || name.empty() || name.size() > 300 ||
+        !std::all_of(name.begin(), name.end(), [](unsigned char c) {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
+        })) return failure<Result>(CustodyFileError::invalidInput);
+#ifndef _WIN32
+    return failure<Result>(CustodyFileError::unsupportedPlatform);
+#else
+    if (cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+    auto state = std::make_unique<State>(root->state_->trustedRoot);
+    state->rootLease = std::move(root); state->cancellation = std::move(cancellation);
+    state->context.storeId = state->rootLease->state_->context.storeId;
+    state->writable = true;
+    if (!state->initializeSecurity()) return failure<Result>(CustodyFileError::ioFailed, GetLastError());
+    Result held(new ProtectedCustodyFiles(std::move(state)), [](ProtectedCustodyFiles* p) { delete p; },
+        CustodyAllocator<ProtectedCustodyFiles>{});
+    *retainedFailure = held;
+    auto group = held->lockWriteGroup();
+    auto reserve = held->checkWriteReserve(128 * 1024, 20); // Exclusive package/role identities and metadata birth peak.
+    if (!reserve.ok()) return failure<Result>(reserve.error, reserve.nativeError);
+    auto& native = *held->state_;
+    const std::wstring packageName(name.begin(), name.end());
+    native.directory /= packageName;
+    const auto apiPackage = win32Path(native.directory);
+    if (!CreateDirectoryW(apiPackage.c_str(), &native.security)) {
+        const auto error = GetLastError();
+        return failure<Result>(error == ERROR_ALREADY_EXISTS ? CustodyFileError::conflict : CustodyFileError::ioFailed, error);
+    }
+    auto checked = native.lockDirectory(native.directory, true, false);
+    if (!checked.ok()) return failure<Result>(checked.error, checked.nativeError);
+    native.directory /= L".custody-v1";
+    const auto apiCustody = win32Path(native.directory);
+    if (!CreateDirectoryW(apiCustody.c_str(), &native.security))
+        return failure<Result>(CustodyFileError::ioFailed, GetLastError());
+    checked = native.lockDirectory(native.directory, true, false);
+    if (!checked.ok()) return failure<Result>(checked.error, checked.nativeError);
+    return success(std::move(held));
+#endif
+} catch (const std::bad_alloc&) { return failure<std::shared_ptr<ProtectedCustodyFiles>>(CustodyFileError::allocationFailed); }
+  catch (const std::filesystem::filesystem_error&) { return failure<std::shared_ptr<ProtectedCustodyFiles>>(CustodyFileError::unsafePath); }
+
+CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles::openPackageState(
+    std::shared_ptr<const ProtectedCustodyFiles> root, std::string_view name,
+    std::shared_ptr<const std::atomic<bool>> cancellation) try {
+    using Result = std::unique_ptr<ProtectedCustodyFiles>;
+    if (!root || !cancellation || name.empty() || name.size() > 300 ||
+        !std::all_of(name.begin(), name.end(), [](unsigned char c) {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-';
+        })) return failure<Result>(CustodyFileError::invalidInput);
+#ifndef _WIN32
+    return failure<Result>(CustodyFileError::unsupportedPlatform);
+#else
+    if (cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+    auto state = std::make_unique<State>(root->state_->trustedRoot);
+    state->context = {root->state_->context.storeId, {}, CustodyRole::packageState};
+    state->rootLease = std::move(root); state->cancellation = std::move(cancellation);
+    if (!state->initializeSecurity()) return failure<Result>(CustodyFileError::ioFailed, GetLastError());
+    state->directory /= std::wstring(name.begin(), name.end());
+    auto checked = state->lockDirectory(state->directory, true, false);
+    if (!checked.ok()) return failure<Result>(checked.error, checked.nativeError);
+    state->directory /= L".custody-v1";
+    checked = state->lockDirectory(state->directory, true, false);
+    if (!checked.ok()) return failure<Result>(checked.error, checked.nativeError);
+    // Acquire the existing identity exclusively, then expose only read validation.
+    // No root/store reopen and no early blockWrites(), which would poison reads.
+    state->writable = true;
+    checked = state->openRole(CustodyFileAccess::writeExisting, true);
+    if (!checked.ok()) return failure<Result>(checked.error, checked.nativeError);
+    state->writable = false;
+    if (state->cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+    return success(Result(new ProtectedCustodyFiles(std::move(state))));
+#endif
+} catch (const std::bad_alloc&) { return failure<std::unique_ptr<ProtectedCustodyFiles>>(CustodyFileError::allocationFailed); }
+  catch (const std::filesystem::filesystem_error&) { return failure<std::unique_ptr<ProtectedCustodyFiles>>(CustodyFileError::unsafePath); }
+
+CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles::openPackageMember(
+    std::shared_ptr<const ProtectedCustodyFiles> packageState, const CustodyContext& context,
+    std::shared_ptr<const std::atomic<bool>> cancellation) try {
+    using Result = std::unique_ptr<ProtectedCustodyFiles>;
+    if (!packageState || !cancellation || !packageState->state_->rootLease ||
+        packageState->state_->writable || packageState->state_->failed ||
+        packageState->context().role != CustodyRole::packageState ||
+        packageState->state_->cancellation.get() != cancellation.get() ||
+        packageState->context().storeId != context.storeId ||
+        context.role < CustodyRole::canonical || context.role > CustodyRole::recovery)
+        return failure<Result>(CustodyFileError::identityMismatch);
+#ifndef _WIN32
+    return failure<Result>(CustodyFileError::unsupportedPlatform);
+#else
+    if (cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+    // Handles keep identities confined, but ACLs can still change while held.
+    // Recheck the genuine parents for flat members too, without path reopening.
+    for (const auto* held = packageState->state_.get(); held; held = held->rootLease ? held->rootLease->state_.get() : nullptr) {
+        for (const auto& directory : held->directories)
+            if (!held->inspect(directory.handle.value, directory.path, true, directory.privateDirectory))
+                return failure<Result>(CustodyFileError::unsafePath);
+        if (held->objectId.valid() && !held->inspect(held->objectId.value, held->directory / L"id.bin", false, true))
+            return failure<Result>(CustodyFileError::unsafeFile);
+    }
+    const auto& retained = *packageState->state_;
+    if (!retained.inspect(retained.storeState().storeId.value,
+        retained.trustedRoot / L".custody-v1" / L"store.id", false, true))
+        return failure<Result>(CustodyFileError::unsafeFile);
+    auto state = std::make_unique<State>(packageState->state_->trustedRoot);
+    state->context = context;
+    // The genuine package-state lease already confines these parents. Keep it,
+    // including the original birth store.id handle, through last member release.
+    state->directory = packageState->state_->directory.parent_path();
+    state->rootLease = std::move(packageState); state->cancellation = std::move(cancellation);
+    if (!state->initializeSecurity()) return failure<Result>(CustodyFileError::ioFailed, GetLastError());
+    state->writable = true; // Acquire the exact existing identity exclusively, never discover/create.
+    auto checked = state->openRole(CustodyFileAccess::writeExisting, false);
+    if (!checked.ok()) return failure<Result>(checked.error, checked.nativeError);
+    state->writable = false;
+    if (state->cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+    return success(Result(new ProtectedCustodyFiles(std::move(state))));
+#endif
+} catch (const std::bad_alloc&) { return failure<std::unique_ptr<ProtectedCustodyFiles>>(CustodyFileError::allocationFailed); }
+  catch (const std::filesystem::filesystem_error&) { return failure<std::unique_ptr<ProtectedCustodyFiles>>(CustodyFileError::unsafePath); }
+
+CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles::createPackageRole(
+    std::shared_ptr<const ProtectedCustodyFiles> root, CustodyRole role,
+    std::unique_ptr<ProtectedCustodyFiles>* retainedFailure) try {
+    using Result = std::unique_ptr<ProtectedCustodyFiles>;
+    if (!root || !retainedFailure || (role != CustodyRole::packageState && (role < CustodyRole::canonical || role > CustodyRole::recovery)))
+        return failure<Result>(CustodyFileError::invalidInput);
+#ifndef _WIN32
+    return failure<Result>(CustodyFileError::unsupportedPlatform);
+#else
+    auto state = std::make_unique<State>(root->state_->trustedRoot);
+    state->context.storeId = root->state_->context.storeId;
+    state->context.role = role; state->writable = true;
+    state->directory = root->state_->directory;
+    state->cancellation = root->state_->cancellation;
+    state->rootLease = std::move(root);
+    if (state->cancellation->load()) return failure<Result>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+    if (!state->initializeSecurity()) return failure<Result>(CustodyFileError::ioFailed, GetLastError());
+    const auto rng = BCryptGenRandom(nullptr, state->context.objectId.data(), 16, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+    if (rng < 0) return failure<Result>(CustodyFileError::ioFailed, static_cast<std::uint32_t>(rng));
+    if (state->context.objectId == CustodyId{} || state->context.objectId == state->context.storeId)
+        return failure<Result>(CustodyFileError::identityMismatch);
+    *retainedFailure = Result(new ProtectedCustodyFiles(std::move(state)));
+    auto opened = (*retainedFailure)->state_->openRole(CustodyFileAccess::createNew, false);
+    if (!opened.ok()) return failure<Result>(opened.error, opened.nativeError);
+    return success(std::move(*retainedFailure));
+#endif
+} catch (const std::bad_alloc&) { return failure<std::unique_ptr<ProtectedCustodyFiles>>(CustodyFileError::allocationFailed); }
+  catch (const std::filesystem::filesystem_error&) { return failure<std::unique_ptr<ProtectedCustodyFiles>>(CustodyFileError::unsafePath); }
+
+CustodyFileResult<std::unique_ptr<ProtectedCustodyFiles>> ProtectedCustodyFiles::openStoreObject(
+    std::shared_ptr<const ProtectedCustodyFiles> root, CustodyRole role, bool birth) try {
+    using Result = std::unique_ptr<ProtectedCustodyFiles>;
+    if (!root || (role != CustodyRole::bootstrap && role != CustodyRole::queue)) return failure<Result>(CustodyFileError::invalidInput);
+#ifndef _WIN32
+    (void)root; (void)birth;
+    return failure<Result>(CustodyFileError::unsupportedPlatform);
+#else
+    // Borrow the continuously held root/store identity; never reopen store.id.
+    auto state = std::make_unique<State>(root->state_->trustedRoot);
+    state->context.storeId = root->state_->context.storeId;
+    state->cancellation = root->state_->cancellation;
+    state->rootLease = std::move(root);
+    state->context.role = role;
+    state->writable = true;
+    if (!state->initializeSecurity()) return failure<Result>(CustodyFileError::ioFailed, GetLastError());
+    state->directory /= L".custody-v1";
+    if (birth) {
+        const auto status = BCryptGenRandom(nullptr, state->context.objectId.data(), 16, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
+        if (status < 0) return failure<Result>(CustodyFileError::ioFailed, static_cast<std::uint32_t>(status));
+        if (state->context.objectId == state->context.storeId) return failure<Result>(CustodyFileError::identityMismatch);
+    }
+    auto opened = state->openRole(birth ? CustodyFileAccess::createNew : CustodyFileAccess::writeExisting, !birth);
+    if (!opened.ok()) return failure<Result>(opened.error, opened.nativeError);
+    return success(Result(new ProtectedCustodyFiles(std::move(state))));
+#endif
+} catch (const std::bad_alloc&) { return failure<std::unique_ptr<ProtectedCustodyFiles>>(CustodyFileError::allocationFailed); }
+  catch (const std::filesystem::filesystem_error&) { return failure<std::unique_ptr<ProtectedCustodyFiles>>(CustodyFileError::unsafePath); }
+
+CustodyFileResult<bool> ProtectedCustodyFiles::validateStoreInventory(
+    bool virgin, std::shared_ptr<const std::atomic<bool>> cancellation, bool completeBirth) const try {
+    if (!cancellation) return failure<bool>(CustodyFileError::invalidInput);
+#ifndef _WIN32
+    (void)virgin; (void)completeBirth;
+    return failure<bool>(CustodyFileError::unsupportedPlatform);
+#else
+    const auto inspectDirectory = [&](const std::filesystem::path& path) {
+        const auto apiPath = win32Path(path);
+        Handle dir(CreateFileW(apiPath.c_str(), READ_CONTROL | FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY,
+            FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+        if (!dir.valid()) return failure<bool>(CustodyFileError::ioFailed, GetLastError());
+        return state_->inspect(dir.value, path, true, true) ? success(true) : failure<bool>(CustodyFileError::unsafePath);
+    };
+    bool fixedSeen = false;
+    auto scanned = state_->eachChild(state_->trustedRoot, cancellation, [&](std::wstring_view name, bool dir) {
+        if (virgin || !dir) return failure<bool>(CustodyFileError::recoveryRequired);
+        auto child = state_->trustedRoot;
+        child /= std::filesystem::path(name);
+        auto checked = inspectDirectory(child);
+        if (!checked.ok()) return checked;
+        if (name == L".custody-v1") {
+            fixedSeen = true;
+            unsigned fixed = 0;
+            auto service = state_->eachChild(child, cancellation, [&](std::wstring_view entry, bool directoryEntry) {
+                unsigned bit = 0;
+                if (entry == L"store.id" && !directoryEntry) bit = 1;
+                if (entry == L"bootstrap" && directoryEntry) bit = 2;
+                if (entry == L"queue" && directoryEntry) bit = 4;
+                if (!bit || (fixed & bit)) return failure<bool>(CustodyFileError::recoveryRequired);
+                fixed |= bit;
+                auto path = child;
+                path /= std::filesystem::path(entry);
+                if (directoryEntry) return inspectDirectory(path);
+                // The birth handle still has write access. Sharing write here
+                // permits that SAME handle, not another writer (it denies share-write).
+                auto id = state_->openFile(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE);
+                if (!id.ok()) return failure<bool>(id.error, id.nativeError);
+                LARGE_INTEGER size{}; DWORD got = 0; CustodyId actual{};
+                if (!GetFileSizeEx(id.value->value, &size) || !ReadFile(id.value->value, actual.data(), 16, &got, nullptr))
+                    return failure<bool>(CustodyFileError::ioFailed, GetLastError());
+                return size.QuadPart == 16 && got == 16 && actual == state_->context.storeId
+                    ? success(true) : failure<bool>(CustodyFileError::identityMismatch);
+            });
+            if (!service.ok()) return service;
+            return fixed == 7 ? success(true) : failure<bool>(CustodyFileError::recoveryRequired);
+        }
+        if (state_->storeBirth || name.empty() || name.size() > 300 ||
+            !std::all_of(name.begin(), name.end(), [](wchar_t c) {
+                return (c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') ||
+                    (c >= L'0' && c <= L'9') || c == L'_' || c == L'-';
+            })) return failure<bool>(CustodyFileError::recoveryRequired);
+        // Known protected package layout only. No legacy reader, intent/tombstone
+        // recovery or package effects authority is inferred from this inventory.
+        bool custodySeen = false;
+        auto package = state_->eachChild(child, cancellation, [&](std::wstring_view entry, bool directoryEntry) {
+            if (entry != L".custody-v1" || !directoryEntry || custodySeen) return failure<bool>(CustodyFileError::recoveryRequired);
+            custodySeen = true;
+            auto path = child;
+            path /= L".custody-v1";
+            auto privateDirectory = inspectDirectory(path);
+            if (!privateDirectory.ok()) return privateDirectory;
+            bool packageState = false;
+            auto roles = state_->eachChild(path, cancellation, [&](std::wstring_view role, bool roleDirectory) {
+                if (!roleDirectory || (role != L"package-state" && role != L"canonical" && role != L"media" &&
+                    role != L"playback" && role != L"manifest" && role != L"recovery"))
+                    return failure<bool>(CustodyFileError::recoveryRequired);
+                packageState |= role == L"package-state";
+                auto rolePath = path;
+                rolePath /= std::filesystem::path(role);
+                return inspectDirectory(rolePath);
+            });
+            if (!roles.ok()) return roles;
+            return packageState ? success(true) : failure<bool>(CustodyFileError::recoveryRequired);
+        });
+        if (!package.ok()) return package;
+        return custodySeen ? success(true) : failure<bool>(CustodyFileError::recoveryRequired);
+    });
+    if (!scanned.ok()) return scanned;
+    if (!virgin && !fixedSeen) return failure<bool>(CustodyFileError::recoveryRequired);
+    if (cancellation->load()) return failure<bool>(CustodyFileError::ioFailed, ERROR_OPERATION_ABORTED);
+    if (completeBirth) state_->storeBirth = false;
+    return success(true);
+#endif
+} catch (const std::bad_alloc&) { return failure<bool>(CustodyFileError::allocationFailed); }
+  catch (const std::filesystem::filesystem_error&) { return failure<bool>(CustodyFileError::unsafePath); }
 
 CustodyFileResult<CustodyBytes> ProtectedCustodyFiles::readBlock(
     std::uint64_t position, std::uint64_t version, std::uint32_t payload, std::uint32_t exact) try {
@@ -295,11 +815,35 @@ CustodyFileResult<CustodyBytes> ProtectedCustodyFiles::readBlock(
         || position >= (logical + ProtectedCustodyCodec::blockBytes - 1) / ProtectedCustodyCodec::blockBytes
         || payload > logical - position * ProtectedCustodyCodec::blockBytes)
         return failure<CustodyBytes>(CustodyFileError::invalidInput);
-    auto result = state_->read(state_->directory / blockName(position, version), limit, exact);
+    const auto name = blockName(position, version);
+    std::filesystem::path path(state_->directory);
+    path /= name;
+    auto result = state_->read(path, limit, exact);
     if (!result.ok()) return result;
     auto decoded = ProtectedCustodyCodec::openBlock(state_->context, position, version, payload, *result.value);
     if (!decoded.ok()) return failure<CustodyBytes>(codecFileError(decoded.error), decoded.nativeError);
     WipePlain wipe{*decoded.value}; return result;
+#endif
+} catch (const std::bad_alloc&) {
+    return failure<CustodyBytes>(CustodyFileError::allocationFailed);
+}
+
+CustodyFileResult<CustodyBytes> ProtectedCustodyFiles::readMigrationBirthEnvelope(
+    std::uint64_t version, std::uint32_t exact) try {
+    const auto limit = ProtectedCustodyCodec::blockEnvelopeLimit(65536);
+    if (state_->context.role != CustodyRole::migrationIntent || !version || exact <= 16 || exact > limit)
+        return failure<CustodyBytes>(CustodyFileError::invalidInput);
+#ifndef _WIN32
+    return failure<CustodyBytes>(CustodyFileError::unsupportedPlatform);
+#else
+    const auto name = blockName(0, version);
+    std::filesystem::path path(state_->directory);
+    path /= name;
+    auto cipher = state_->read(path, limit, exact);
+    if (!cipher.ok()) return cipher;
+    auto plain = ProtectedCustodyCodec::openMigrationBirthBlock(state_->context, version, *cipher.value);
+    if (!plain.ok()) return failure<CustodyBytes>(codecFileError(plain.error), plain.nativeError);
+    return cipher; // Charged plaintext is wiped on release; caller verifies the direct ref.
 #endif
 } catch (const std::bad_alloc&) {
     return failure<CustodyBytes>(CustodyFileError::allocationFailed);
@@ -316,7 +860,10 @@ CustodyFileResult<std::uint32_t> ProtectedCustodyFiles::writeBlock(
     if (!decoded.ok()) return failure<std::uint32_t>(codecFileError(decoded.error), decoded.nativeError);
     WipePlain wipe{*decoded.value};
     const auto size = static_cast<std::uint32_t>(envelope.size()); // Codec proved the physical bound.
-    auto created = state_->create(state_->directory / blockName(position, version), envelope.data(), size);
+    const auto name = blockName(position, version);
+    std::filesystem::path path(state_->directory);
+    path /= name;
+    auto created = state_->create(path, envelope.data(), size);
     if (!created.ok()) { state_->failed = true; return failure<std::uint32_t>(created.error, created.nativeError); }
     created.value->close();
     auto reopened = readBlock(position, version, payload, size);
@@ -344,7 +891,8 @@ CustodyFileResult<std::uint64_t> ProtectedCustodyFiles::nextBlockVersion(std::ui
     const auto prefix = L"block." + std::to_wstring(position) + L".";
     WIN32_FIND_DATAW data{};
     struct Search { HANDLE value; ~Search() { if (value != INVALID_HANDLE_VALUE) FindClose(value); } };
-    Search search{FindFirstFileW((state_->directory / (prefix + L"*")).c_str(), &data)};
+    const auto apiPattern = win32Path(state_->directory / (prefix + L"*"));
+    Search search{FindFirstFileW(apiPattern.c_str(), &data)};
     if (search.value == INVALID_HANDLE_VALUE) {
         const auto error = GetLastError();
         return error == ERROR_FILE_NOT_FOUND ? success(std::uint64_t{1}) : failure<std::uint64_t>(CustodyFileError::ioFailed, error);
@@ -395,6 +943,16 @@ CustodyFileResult<std::uint64_t> ProtectedCustodyFiles::checkWriteReserve(std::u
     const auto available = (availableUnits - unavailableUnits) * cluster;
     const auto reserve = std::min(std::uint64_t{10'000'000'000}, info.ActualTotalAllocationUnits * cluster / 10);
     const auto peak = peakBytes + newFiles * (cluster - 1); // Conservative sum of per-file rounding.
+    if (state_->rootLease) {
+        auto used = state_->physicalBytes(state_->trustedRoot, state_->cancellation);
+        if (!used.ok()) return failure<std::uint64_t>(used.error, used.nativeError);
+        constexpr std::uint64_t cap = 5'000'000'000ULL;
+        state_->storeState().pressurePercent.store(static_cast<unsigned>(std::min<std::uint64_t>(100,
+            *used.value >= cap || peak >= cap - *used.value ? 100 : (*used.value + peak) * 100 / cap)), std::memory_order_relaxed);
+        // The critical95% boundary closes admission; never truncate/GC existing bytes.
+        if (*used.value > cap * 95 / 100 || peak > cap * 95 / 100 - *used.value)
+            return failure<std::uint64_t>(CustodyFileError::ioFailed, ERROR_DISK_FULL);
+    }
     if (available < reserve || peak > available - reserve)
         return failure<std::uint64_t>(CustodyFileError::ioFailed, ERROR_DISK_FULL);
     return success(peak);
@@ -408,7 +966,10 @@ CustodyFileResult<CustodyBytes> ProtectedCustodyFiles::readIndex(std::uint32_t s
     (void)slot; return failure<CustodyBytes>(CustodyFileError::unsupportedPlatform);
 #else
     if (slot > 1) return failure<CustodyBytes>(CustodyFileError::invalidInput);
-    auto bytes = state_->read(state_->directory / indexName(slot), ProtectedCustodyCodec::indexEnvelopeLimit(state_->context.role));
+    const auto name = indexName(slot);
+    std::filesystem::path path(state_->directory);
+    path /= name;
+    auto bytes = state_->read(path, ProtectedCustodyCodec::indexEnvelopeLimit(state_->context.role));
     if (!bytes.ok()) return bytes;
     const auto decoded = ProtectedCustodyCodec::openIndex(state_->context, slot, *bytes.value);
     if (!decoded.ok()) return failure<CustodyBytes>(codecFileError(decoded.error), decoded.nativeError);
@@ -480,13 +1041,32 @@ CustodyPublishResult ProtectedCustodyFiles::publishIndex(std::uint32_t slot, con
     return {publication, CustodyFileError::allocationFailed, 0};
 }
 
-CustodyFileResult<CustodySnapshot> ProtectedCustodyFiles::readValidatedSnapshot() try {
+CustodyFileResult<CustodySnapshot> ProtectedCustodyFiles::readValidatedSnapshot() {
+    return readValidatedSnapshotImpl(nullptr, nullptr);
+}
+CustodyFileResult<CustodyMetadataIndices> ProtectedCustodyFiles::readValidatedMetadataPair() try {
+    const auto role = static_cast<unsigned>(state_->context.role);
+    if (role < static_cast<unsigned>(CustodyRole::manifest) || role > static_cast<unsigned>(CustodyRole::migrationIntent))
+        return failure<CustodyMetadataIndices>(CustodyFileError::invalidInput);
+    CustodyMetadataIndices pair;
+    CustodyIndex peer;
+    auto current = readValidatedSnapshotImpl(&peer, &pair.selectedSlot);
+    if (!current.ok()) return failure<CustodyMetadataIndices>(current.error, current.nativeError);
+    pair.indices[pair.selectedSlot] = std::move(current.value->index);
+    pair.indices[1-pair.selectedSlot] = std::move(peer);
+    return success(std::move(pair));
+} catch (const std::bad_alloc&) {
+    return failure<CustodyMetadataIndices>(CustodyFileError::allocationFailed);
+}
+CustodyFileResult<CustodySnapshot> ProtectedCustodyFiles::readValidatedSnapshotImpl(
+    CustodyIndex* peer, std::uint32_t* selectedSlot) try {
 #ifndef _WIN32
+    (void)peer; (void)selectedSlot;
     return failure<CustodySnapshot>(CustodyFileError::unsupportedPlatform);
 #else
     if (state_->failed) return failure<CustodySnapshot>(CustodyFileError::writerFailed);
     const auto reject = [&](CustodyFileError error, std::uint32_t native = 0) {
-        state_->failed = true;
+        if (!peer || error != CustodyFileError::allocationFailed) state_->failed = true;
         return failure<CustodySnapshot>(error, native);
     };
     const bool audio = state_->context.role == CustodyRole::canonical || state_->context.role == CustodyRole::media
@@ -495,7 +1075,10 @@ CustodyFileResult<CustodySnapshot> ProtectedCustodyFiles::readValidatedSnapshot(
     std::array<CustodyFileResult<CustodyIndex>, 2> candidates;
     std::array<bool, 2> missingSlot{};
     for (std::uint32_t slot = 0; slot < 2; ++slot) {
-        auto cipher = state_->read(state_->directory / indexName(slot), ProtectedCustodyCodec::indexEnvelopeLimit(state_->context.role));
+        const auto name = indexName(slot);
+        std::filesystem::path path(state_->directory);
+        path /= name;
+        auto cipher = state_->read(path, ProtectedCustodyCodec::indexEnvelopeLimit(state_->context.role));
         if (!cipher.ok()) {
             missingSlot[slot] = cipher.error == CustodyFileError::ioFailed && cipher.nativeError == ERROR_FILE_NOT_FOUND;
             candidates[slot] = failure<CustodyIndex>(cipher.error, cipher.nativeError);
@@ -521,6 +1104,10 @@ CustodyFileResult<CustodySnapshot> ProtectedCustodyFiles::readValidatedSnapshot(
             }
         }
         const auto& candidate = candidates[slot];
+        // Metadata requires BOTH slots. Preserve an observed fault even if the
+        // next candidate cannot allocate; a read-only refusal alone is retryable.
+        if (peer && !candidate.ok() && candidate.error != CustodyFileError::allocationFailed)
+            state_->failed = true;
         // Only authenticated semantic invalidity or proven file absence permits
         // trying another candidate. Native/hash/allocation/ACL/unknown IO never does.
         if (!candidate.ok() && candidate.error != CustodyFileError::invalidContent
@@ -546,6 +1133,7 @@ CustodyFileResult<CustodySnapshot> ProtectedCustodyFiles::readValidatedSnapshot(
     const auto selected = candidates[1].ok() && (!candidates[0].ok()
         || candidates[1].value->generation > candidates[0].value->generation) ? 1U : 0U;
     const auto other = 1U - selected;
+    if (peer && both) { *peer = std::move(*candidates[other].value); *selectedSlot = selected; }
     if (both || missingSlot[other])
         return success(CustodySnapshot{std::move(*candidates[selected].value), CustodySnapshotState::verified, CustodyFileError::none, 0});
     if (!prefixAllowed) return reject(candidates[other].error, candidates[other].nativeError);
@@ -554,7 +1142,7 @@ CustodyFileResult<CustodySnapshot> ProtectedCustodyFiles::readValidatedSnapshot(
         candidates[other].error, candidates[other].nativeError});
 #endif
 } catch (const std::bad_alloc&) {
-    state_->failed = true;
+    if (!peer) state_->failed = true;
     return failure<CustodySnapshot>(CustodyFileError::allocationFailed);
 }
 
@@ -582,7 +1170,8 @@ struct ProtectedPackedCustodyOwner::State {
     }
     bool streams(const std::filesystem::path& name, bool directory) {
         WIN32_FIND_STREAM_DATA data{};
-        HANDLE search = FindFirstStreamW(name.c_str(), FindStreamInfoStandard, &data, 0);
+        const auto apiPath = win32Path(name);
+        HANDLE search = FindFirstStreamW(apiPath.c_str(), FindStreamInfoStandard, &data, 0);
         if (search == INVALID_HANDLE_VALUE) {
             const auto error = GetLastError();
             return directory && error == ERROR_HANDLE_EOF ? true : fail(CustodyFileError::unsafeFile, error);
@@ -595,12 +1184,14 @@ struct ProtectedPackedCustodyOwner::State {
     }
     bool check(bool acquire = false) {
         auto& confined = *files->state_;
-        for (const auto& directory : confined.directories) {
-            if (!confined.inspect(directory.handle.value, directory.path, true, directory.privateDirectory))
-                return fail(CustodyFileError::unsafePath);
-            if (!streams(directory.path, true)) return false;
+        for (const auto* held = &confined; held; held = held->rootLease ? held->rootLease->state_.get() : nullptr) {
+            for (const auto& directory : held->directories) {
+                if (!held->inspect(directory.handle.value, directory.path, true, directory.privateDirectory))
+                    return fail(CustodyFileError::unsafePath);
+                if (!streams(directory.path, true)) return false;
+            }
         }
-        const std::array<HANDLE, 3> handles{content.value, confined.storeId.value, confined.objectId.value};
+        const std::array<HANDLE, 3> handles{content.value, confined.storeState().storeId.value, confined.objectId.value};
         const std::array<std::filesystem::path, 3> paths{
             path, confined.trustedRoot / L".custody-v1" / L"store.id", confined.directory / L"id.bin"};
         for (std::size_t i = 0; i < handles.size(); ++i) {
@@ -703,9 +1294,12 @@ ProtectedPackedCustodyOwner::ProtectedPackedCustodyOwner(std::shared_ptr<State> 
 ProtectedPackedCustodyOwner::~ProtectedPackedCustodyOwner() = default;
 std::uint64_t ProtectedPackedCustodyOwner::epoch() const noexcept { return state_->epoch; }
 
-ProtectedPackedCustodyOwner::Guard::Guard(std::shared_ptr<ProtectedPackedCustodyOwner> owner)
+ProtectedPackedCustodyOwner::Guard::Guard(std::shared_ptr<ProtectedPackedCustodyOwner> owner, bool writing)
     : owner_(std::move(owner)), lock_(owner_->state_->mutex, std::defer_lock) {
-    if (job_) lock_.lock(); // Admission BEFORE waiting on the physical owner.
+    if (job_) {
+        if (writing) groupLock_ = owner_->state_->files->lockWriteGroup();
+        lock_.lock(); // Writes: admission -> root group -> physical owner; reads never block another package's growth.
+    }
 }
 const PackedCustodyContext& ProtectedPackedCustodyOwner::Guard::context() const noexcept {
     return owner_->state_->context;
@@ -757,11 +1351,47 @@ CustodyFileResult<CustodyBytes> ProtectedPackedCustodyOwner::Guard::read(std::ui
 #endif
 }
 
+CustodyFileResult<bool> ProtectedPackedCustodyOwner::Guard::writeReady() {
+    const auto checked = check();
+    if (!checked.ok()) return checked;
+    return groupLock_.owns_lock() && owner_->state_->writable ? success(true) : failure<bool>(CustodyFileError::writerFailed);
+}
+CustodyFileResult<std::uint64_t> ProtectedPackedCustodyOwner::Guard::reserve(std::uint64_t bytes) {
+    const auto checked = writeReady();
+    if (!checked.ok()) return failure<std::uint64_t>(checked.error, checked.nativeError);
+    auto result = owner_->state_->files->checkWriteReserve(bytes, 0);
+    if (!result.ok()) {
+        const auto rejected = reject(result.error, result.nativeError);
+        return failure<std::uint64_t>(rejected.error, rejected.nativeError);
+    }
+    return result;
+}
+CustodyFileResult<std::uint32_t> ProtectedPackedCustodyOwner::Guard::append(
+    const PackedRecordAddress& address, const CustodyBytes& envelope) {
+    const auto checked = writeReady();
+    return checked.ok() ? owner_->appendLocked(address, envelope) :
+        failure<std::uint32_t>(checked.error, checked.nativeError);
+}
+CustodyFileResult<bool> ProtectedPackedCustodyOwner::Guard::flush() {
+    const auto checked = writeReady();
+    return checked.ok() ? owner_->flushLocked() : checked;
+}
+CustodyPublishResult ProtectedPackedCustodyOwner::Guard::publishHead(std::uint32_t slot, const CustodyBytes& envelope) {
+    const auto checked = writeReady();
+    return checked.ok() ? owner_->publishHeadLocked(slot, envelope) :
+        CustodyPublishResult{CustodyPublishState::notPublished, checked.error, checked.nativeError};
+}
+
 CustodyFileResult<std::shared_ptr<ProtectedPackedCustodyOwner>> ProtectedPackedCustodyOwner::open(
-    const std::filesystem::path& root, std::string_view package, const PackedCustodyContext& context, CustodyFileAccess access) try {
+    const std::filesystem::path& root, std::string_view package, const PackedCustodyContext& context, CustodyFileAccess access) {
+    return openImpl(root, package, context, access, nullptr);
+}
+CustodyFileResult<std::shared_ptr<ProtectedPackedCustodyOwner>> ProtectedPackedCustodyOwner::openImpl(
+    const std::filesystem::path& root, std::string_view package, const PackedCustodyContext& context, CustodyFileAccess access,
+    std::unique_ptr<ProtectedCustodyFiles>* prepared, std::shared_ptr<ProtectedPackedCustodyOwner>* retainedFailure) try {
     using Owner = std::shared_ptr<ProtectedPackedCustodyOwner>;
 #ifndef _WIN32
-    (void)root; (void)package; (void)context; (void)access;
+    (void)root; (void)package; (void)context; (void)access; (void)prepared; (void)retainedFailure;
     return failure<Owner>(CustodyFileError::unsupportedPlatform);
 #else
     if (!ProtectedPackedCustodyFormat::encodePrefix(context) ||
@@ -778,25 +1408,60 @@ CustodyFileResult<std::shared_ptr<ProtectedPackedCustodyOwner>> ProtectedPackedC
         if (previous == std::numeric_limits<std::uint64_t>::max()) return failure<Owner>(CustodyFileError::recoveryRequired);
     } while (!epochs.compare_exchange_weak(previous, previous + 1, std::memory_order_relaxed));
     state->epoch = previous + 1; // Consume, never recycle, before native content effects.
-    auto opened = ProtectedCustodyFiles::open(root, package, context.object,
-        access == CustodyFileAccess::createNew ? access : CustodyFileAccess::writeExisting);
-    if (!opened.ok()) return failure<Owner>(opened.error, opened.nativeError);
-    state->files = std::move(*opened.value);
+    Owner preparedOwner;
+    if (prepared) {
+        if (!*prepared || (access == CustodyFileAccess::createNew && !retainedFailure))
+            return failure<Owner>(CustodyFileError::invalidInput);
+        const auto& actual = (*prepared)->context();
+        if ((access != CustodyFileAccess::createNew && access != CustodyFileAccess::readExisting) ||
+            !(*prepared)->state_->rootLease ||
+            actual.storeId != context.object.storeId || actual.objectId != context.object.objectId || actual.role != context.object.role)
+            return failure<Owner>(CustodyFileError::identityMismatch);
+        if (access == CustodyFileAccess::readExisting &&
+            ((*prepared)->state_->writable || (*prepared)->state_->failed || (*prepared)->trustedRoot() != root ||
+                (*prepared)->packagePath() != root / std::wstring(package.begin(), package.end()) / L".custody-v1"))
+            return failure<Owner>(CustodyFileError::identityMismatch);
+        // Allocate all ownership/control blocks before transferring any lease.
+        // A partial native content birth stays held by the genuine package,
+        // even though this factory returns no usable owner/proof on failure.
+        if (access == CustodyFileAccess::createNew) {
+            CustodyAllocator<ProtectedPackedCustodyOwner> allocator;
+            auto* raw = allocator.allocate(1);
+            new (raw) ProtectedPackedCustodyOwner(state);
+            preparedOwner = Owner(raw, [](ProtectedPackedCustodyOwner* owner) {
+                owner->~ProtectedPackedCustodyOwner(); CustodyAllocator<ProtectedPackedCustodyOwner>{}.deallocate(owner, 1);
+            }, allocator);
+            *retainedFailure = preparedOwner;
+        }
+        state->files = std::move(*prepared);
+    } else {
+        auto opened = ProtectedCustodyFiles::open(root, package, context.object,
+            access == CustodyFileAccess::createNew ? access : CustodyFileAccess::writeExisting);
+        if (!opened.ok()) return failure<Owner>(opened.error, opened.nativeError);
+        state->files = std::move(*opened.value);
+    }
     auto& confined = *state->files->state_;
-    // Upgrade the immutable store-ID handle before any packed content effects.
-    auto store = confined.openFile(root / L".custody-v1" / L"store.id", GENERIC_READ, FILE_SHARE_READ);
-    if (!store.ok()) return failure<Owner>(store.error, store.nativeError);
-    confined.storeId = std::move(*store.value);
+    // A genuine prepared child borrows the continuously held immutable store
+    // identity. The legacy path entry still upgrades its own original handle.
+    if (!confined.rootLease) {
+        auto store = confined.openFile(root / L".custody-v1" / L"store.id", GENERIC_READ, FILE_SHARE_READ);
+        if (!store.ok()) return failure<Owner>(store.error, store.nativeError);
+        confined.storeId = std::move(*store.value);
+    }
     CustodyId storeBytes{}; DWORD got = 0; LARGE_INTEGER storeSize{}; OVERLAPPED storeOffset{};
-    if (!GetFileSizeEx(confined.storeId.value, &storeSize) || storeSize.QuadPart != 16 ||
-        !ReadFile(confined.storeId.value, storeBytes.data(), 16, &got, &storeOffset) || got != 16 || storeBytes != context.object.storeId)
+    const auto storeHandle = confined.storeState().storeId.value;
+    std::unique_lock<std::mutex> group;
+    if (access != CustodyFileAccess::readExisting) group = state->files->lockWriteGroup();
+    if (!GetFileSizeEx(storeHandle, &storeSize) || storeSize.QuadPart != 16 ||
+        !ReadFile(storeHandle, storeBytes.data(), 16, &got, &storeOffset) || got != 16 || storeBytes != context.object.storeId)
         return failure<Owner>(CustodyFileError::identityMismatch);
     state->path = confined.directory / L"content.packed-v2";
     const auto reserve = access == CustodyFileAccess::createNew
         ? state->files->checkWriteReserve(ProtectedPackedCustodyFormat::appendOffset, 1)
         : success<std::uint64_t>(0);
     if (!reserve.ok()) return failure<Owner>(reserve.error, reserve.nativeError);
-    state->content = Handle(CreateFileW(state->path.c_str(), GENERIC_READ | GENERIC_WRITE | READ_CONTROL, FILE_SHARE_READ,
+    const auto apiContent = win32Path(state->path);
+    state->content = Handle(CreateFileW(apiContent.c_str(), GENERIC_READ | GENERIC_WRITE | READ_CONTROL, FILE_SHARE_READ,
         &confined.security, access == CustodyFileAccess::createNew ? CREATE_NEW : OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
     if (!state->content.valid()) return failure<Owner>(CustodyFileError::ioFailed, GetLastError());
@@ -813,6 +1478,7 @@ CustodyFileResult<std::shared_ptr<ProtectedPackedCustodyOwner>> ProtectedPackedC
             return failure<Owner>(CustodyFileError::identityMismatch);
         if (!state->check()) return failure<Owner>(state->fault, state->nativeError);
     }
+    if (preparedOwner) return success(std::move(preparedOwner));
     CustodyAllocator<ProtectedPackedCustodyOwner> allocator;
     auto* raw = allocator.allocate(1);
     new (raw) ProtectedPackedCustodyOwner(std::move(state));
@@ -909,7 +1575,18 @@ CustodyFileResult<std::uint32_t> ProtectedPackedCustodyOwner::append(const Packe
     CustodyNativeJob job;
     if (!job)
         return failure<std::uint32_t>(CustodyFileError::allocationFailed);
+    auto group = state_->files->lockWriteGroup();
     std::lock_guard<std::mutex> lock(state_->mutex);
+    return appendLocked(address, envelope);
+#endif
+}
+
+CustodyFileResult<std::uint32_t> ProtectedPackedCustodyOwner::appendLocked(
+    const PackedRecordAddress& address, const CustodyBytes& envelope) {
+#ifndef _WIN32
+    (void)address; (void)envelope;
+    return failure<std::uint32_t>(CustodyFileError::unsupportedPlatform);
+#else
     try {
         if (!state_->writable || state_->fault != CustodyFileError::none)
             return failure<std::uint32_t>(state_->fault == CustodyFileError::none ? CustodyFileError::writerFailed : state_->fault,
@@ -975,7 +1652,16 @@ CustodyFileResult<bool> ProtectedPackedCustodyOwner::flush() {
     CustodyNativeJob job;
     if (!job)
         return failure<bool>(CustodyFileError::allocationFailed);
+    auto group = state_->files->lockWriteGroup();
     std::lock_guard<std::mutex> lock(state_->mutex);
+    return flushLocked();
+#endif
+}
+
+CustodyFileResult<bool> ProtectedPackedCustodyOwner::flushLocked() {
+#ifndef _WIN32
+    return failure<bool>(CustodyFileError::unsupportedPlatform);
+#else
     try {
         if (!state_->writable || state_->fault != CustodyFileError::none)
             return failure<bool>(state_->fault == CustodyFileError::none ? CustodyFileError::writerFailed : state_->fault,
@@ -1001,7 +1687,17 @@ CustodyPublishResult ProtectedPackedCustodyOwner::publishHead(std::uint32_t slot
     CustodyNativeJob job;
     if (!job)
         return {CustodyPublishState::notPublished, CustodyFileError::allocationFailed, 0};
+    auto group = state_->files->lockWriteGroup();
     std::lock_guard<std::mutex> lock(state_->mutex);
+    return publishHeadLocked(slot, envelope);
+#endif
+}
+
+CustodyPublishResult ProtectedPackedCustodyOwner::publishHeadLocked(std::uint32_t slot, const CustodyBytes& envelope) {
+#ifndef _WIN32
+    (void)slot; (void)envelope;
+    return {CustodyPublishState::notPublished, CustodyFileError::unsupportedPlatform, 0};
+#else
     try {
         if (!state_->writable || state_->fault != CustodyFileError::none)
             return {state_->headAttempted ? CustodyPublishState::ambiguous : CustodyPublishState::notPublished,

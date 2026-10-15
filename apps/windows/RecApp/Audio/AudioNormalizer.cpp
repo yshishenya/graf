@@ -50,8 +50,14 @@ bool AudioNormalizer::normalize(AudioBatch input, std::uint64_t qpc100ns, AudioB
         return false;
     }
 
+    const bool microphone = input.source == AudioSource::microphone;
+    const bool suppressed = microphone && (input.microphoneSuppressed ||
+        (input.microphonePrivacyEpoch && (*input.microphonePrivacyEpoch & 1U)));
+    const bool suppressTail = microphone && (suppressed || previousMicrophoneSuppressed_ ||
+        previousPrivacyEpoch_ != input.microphonePrivacyEpoch);
     std::vector<float> mono(sourceFrames, 0.0F);
     for (std::size_t frame = 0; frame < sourceFrames; ++frame) {
+        if (suppressed) continue; // All raw samples/format/clock were validated above.
         for (std::size_t channel = 0; channel < input.channels; ++channel) {
             mono[frame] += input.samples[frame * input.channels + channel];
         }
@@ -69,6 +75,8 @@ bool AudioNormalizer::normalize(AudioBatch input, std::uint64_t qpc100ns, AudioB
     output.clockDomain = input.clockDomain;
     output.routeGeneration = input.routeGeneration;
     output.discontinuity = input.discontinuity;
+    output.microphoneSuppressed = suppressed;
+    output.microphonePrivacyEpoch = microphone ? input.microphonePrivacyEpoch : std::nullopt;
     output.normalizedFrameOffset = deliveredFrames_;
     const auto origin = (firstQpc_ / 10'000'000) * targetSampleRate +
         ((firstQpc_ % 10'000'000) * targetSampleRate + 5'000'000) / 10'000'000;
@@ -91,6 +99,8 @@ bool AudioNormalizer::normalize(AudioBatch input, std::uint64_t qpc100ns, AudioB
         submittedFrames_ += sourceFrames;
         deliveredFrames_ += sourceFrames;
         previousSample_ = output.samples.back();
+        previousPrivacyEpoch_ = output.microphonePrivacyEpoch;
+        previousMicrophoneSuppressed_ = suppressed;
         havePreviousSample_ = true;
         return true;
     }
@@ -106,8 +116,12 @@ bool AudioNormalizer::normalize(AudioBatch input, std::uint64_t qpc100ns, AudioB
         float right = 0.0F;
         if (index == -1) {
             if (!havePreviousSample_) break;
-            left = previousSample_;
-            right = mono.front();
+            // The whole deferred position belongs to the old tail. Blending
+            // an old zero with a new voice would still expose paused audio.
+            if (!suppressTail) {
+                left = previousSample_;
+                right = mono.front();
+            }
         } else if (index < -1) {
             fail();
             return false;
@@ -124,6 +138,8 @@ bool AudioNormalizer::normalize(AudioBatch input, std::uint64_t qpc100ns, AudioB
     }
 
     previousSample_ = mono.back();
+    previousPrivacyEpoch_ = output.microphonePrivacyEpoch;
+    previousMicrophoneSuppressed_ = suppressed;
     havePreviousSample_ = true;
     submittedFrames_ += sourceFrames;
     return true;
