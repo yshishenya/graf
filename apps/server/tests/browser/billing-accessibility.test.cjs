@@ -226,6 +226,16 @@ async function checkCancellationReflow(browser, tabKey) {
       assert(bounds.left >= -1 && bounds.right <= width + 1 && bounds.top >= -1 && bounds.bottom <= 901,
         `${label}: focused cancellation fits viewport ${JSON.stringify(bounds)}`);
       assert(bounds.exposed && bounds.outline !== 'none' && bounds.outlineWidth > 0, `${label}: focus visible and unobscured`);
+      const buttonText = await cancel.evaluate(el => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const rect = el.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, lines: [...range.getClientRects()]
+          .map(line => ({ left: line.left, right: line.right })) };
+      });
+      assert(buttonText.lines.length && buttonText.lines.every(line => line.left >= buttonText.left - 1
+        && line.right <= buttonText.right + 1 && line.left >= -1 && line.right <= width + 1),
+      `${label}: cancellation label fits button and viewport ${JSON.stringify(buttonText)}`);
       const consequence = page.getByText('Оплаченный доступ сохранится. Возврат не оформляется.', { exact: true });
       assert(await consequence.isVisible(), `${label}: cancellation consequences visible`);
       // scrollWidth misses clipped grid tracks; check each rendered text line too.
