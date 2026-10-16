@@ -969,3 +969,45 @@ def test_support_help_fallback_and_siblings_are_safe_without_checkout(client, ow
             if path == "/billing/history":
                 assert f'data-copy-value="{normalized}"' in unescape(main)
         assert billing_rows_snapshot(client) == before, path
+
+
+def test_current_receipt_contact_excludes_inactive_unverified_and_other_owner(client):
+    from sqlalchemy import update
+
+    from tests.fakes.auth_contexts import ORG_ID, USER_ID
+    from tests.unit.test_billing_money_path_e2e import _prepare_owner_session
+    from twobrain_rec_server.cabinet.web_routes.billing import _verified_receipt_contact
+    from twobrain_rec_server.db.models import ExternalIdentity, UserIdentity
+
+    _prepare_owner_session(client)
+
+    async def check():
+        async with client.app_state["sessionmaker"]() as db:
+            await db.execute(update(ExternalIdentity).where(
+                ExternalIdentity.user_id == USER_ID,
+            ).values(is_active=False))
+            other_id = uuid4()
+            db.add(UserIdentity(id=other_id, organization_id=ORG_ID, external_subject=f"other-{other_id}"))
+            await db.flush()
+            current = None
+            for offset, (user_id, active, verified, address) in enumerate([
+                (other_id, True, True, "other@example.test"),
+                (USER_ID, False, True, "inactive@example.test"),
+                (USER_ID, True, False, "unverified@example.test"),
+                (USER_ID, True, True, "current@example.test"),
+            ]):
+                identity = ExternalIdentity(
+                    user_id=user_id, provider="email", provider_subject=f"receipt-{uuid4()}",
+                    email=address, is_active=active, is_verified=verified,
+                    created_at=datetime(2026, 1, offset + 1, tzinfo=UTC),
+                )
+                db.add(identity)
+                current = identity
+            await db.flush()
+            assert await _verified_receipt_contact(db, USER_ID) == "current@example.test"
+            current.is_active = False
+            await db.flush()
+            assert await _verified_receipt_contact(db, USER_ID) is None
+            await db.rollback()
+
+    asyncio.run(check())

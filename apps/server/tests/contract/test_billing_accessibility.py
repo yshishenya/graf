@@ -136,6 +136,23 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
             "total_label": f"{1000 + 250 * n} ₽", "cycle_label": "месяц",
         } for n in range(100)],
     )
+    pages["packages-timeline-year"] = render_template(
+        "cabinet/pages/billing_storage_content.html", csrf_token="synthetic",
+        eligible=True, billing_enabled=True, current_capacity_label="10 ГБ",
+        selected_package_count=1, paid_through_label="03.01.2028", next_capacity_label="5 ГБ",
+        selection_version=1,
+        storage_timeline=[{"start": "15.10.2026, 23:50", "end": "03.11.2026, 12:19", "capacity": "10 ГБ", "bonus": True}],
+        storage_options=[{"package_count": n, "label": f"{(n + 1) * 5} ГБ", "addon_label": f"{2500 * n} ₽", "total_label": f"{10000 + 2500 * n} ₽", "cycle_label": "год"} for n in range(100)],
+    )
+    for state in ("fresh", "stale", "unavailable"):
+        pages[f"usage-{state}"] = render_template(
+            "cabinet/pages/billing_usage_content.html", embedded=False, csrf_token="synthetic",
+            billing_owner=True, usage_projection_state=state, processing_unlimited=True,
+            processing_used_label="35 мин 39 сек", processing_threshold="normal",
+            storage_used=715_230_000, storage_used_label="715 МБ", storage_reserved=0,
+            storage_capacity=10_000_000_000, storage_capacity_label="10 ГБ",
+            storage_available_label="9,28 ГБ", storage_threshold="normal",
+        )
     invoice = {
         "safe_number": "INV-SYNTHETIC", "amount_label": "1 000 ₽",
         "cycle_label": "месяц", "created_at_label": "29.09.2026",
@@ -403,7 +420,7 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
     )
     from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 
-    for name in ("checkout", "plans", "packages", "discounts", "discounts-history-year", "discounts-history-unknown", "discounts-error", "subscription-off-no-card", "subscription-off-ready", "subscription", "invoice-future", "invoice-service-gap", "invoice-receipt", "invoice-receipt-no-url", "invoice-intervals"):
+    for name in ("usage-fresh", "packages-timeline-year", "checkout", "plans", "packages", "discounts", "discounts-history-year", "discounts-history-unknown", "discounts-error", "subscription-off-no-card", "subscription-off-ready", "subscription", "invoice-future", "invoice-service-gap", "invoice-receipt", "invoice-receipt-no-url", "invoice-intervals"):
         pages[f"shell-{name}"] = _page_shell(
             "Оплата", content=pages[name], embedded=False,
             csrf_token="synthetic", active_nav="settings", settings_active="billing",
@@ -517,7 +534,7 @@ def test_non_payer_billing_surfaces_keep_quota_state_without_usage_values() -> N
                             plan_code == "personal"
                         )
                         assert "Архив заполнен: новое аудио не сохраняется" in html
-                        assert 'href="/meetings">Управлять архивом</a>' in html
+                        assert 'href="/meetings">Открыть записи</a>' in html
                         assert ("?archive_audio=false#manual-upload" in html) == (
                             plan_code == "personal" or threshold != "exhausted"
                         )

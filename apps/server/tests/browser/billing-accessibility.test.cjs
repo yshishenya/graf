@@ -168,15 +168,16 @@ async function checkCopyEnhancement(browser, tabKey) {
       await page.evaluate(() => document.body.dispatchEvent(new CustomEvent('htmx:afterSwap')));
       assert.equal(await page.evaluate(() => document.activeElement.outerHTML), focus, 're-init must not steal focus');
       if (name === 'packages') {
+        await page.getByText('Условия и оплаченные периоды', { exact: true }).click();
         const select = page.getByLabel('Общий объем хранения', { exact: true });
         await page.getByRole('button', {name: 'Выбрать больший объем'}).click();
         assert.equal(await select.inputValue(), '2');
-        assert.match(await page.locator('#storage-package-summary').innerText(), /15 ГБ всего.*1500 ₽ за месяц/);
+        assert.match(await page.locator('#storage-package-summary').innerText(), /Дополнительное место — 500 ₽ за месяц.*Вместе с тарифом — 1500 ₽ за месяц/);
         await select.selectOption('0');
         assert(await page.getByRole('button', {name: 'Выбрать меньший объем'}).isDisabled());
         await select.selectOption('99');
         assert(await page.getByRole('button', {name: 'Выбрать больший объем'}).isDisabled());
-        assert.match(await page.locator('#storage-package-summary').innerText(), /500 ГБ всего.*25750 ₽/);
+        assert.match(await page.locator('#storage-package-summary').innerText(), /Дополнительное место — 24750 ₽ за месяц.*Вместе с тарифом — 25750 ₽/);
         await select.selectOption('1');
         await page.getByRole('button', {name: 'Выбрать больший объем'}).focus();
         await page.keyboard.press('Space');
@@ -187,6 +188,23 @@ async function checkCopyEnhancement(browser, tabKey) {
         await select.locator('option[value="1"]').evaluate(el => el.remove());
         await page.getByRole('button', {name: 'Выбрать больший объем'}).click();
         assert.equal(await select.inputValue(), '2', 'skip unavailable catalog volume without promising a fixed step');
+      }
+      if (name === 'packages-timeline-year') {
+        const periods = page.getByText('Условия и оплаченные периоды', { exact: true });
+        assert.equal(await page.getByText('15.10.2026, 23:50', { exact: false }).isVisible(), false);
+        assert(await page.getByText('Следующий неоплаченный период после', { exact: false }).isVisible());
+        await periods.focus();
+        await page.keyboard.press('Space');
+        assert(await page.getByText('бонусный срок', { exact: false }).isVisible());
+        assert.match(await page.locator('#storage-package-summary').innerText(), /2500 ₽ за год.*12500 ₽ за год/);
+      }
+      if (name.startsWith('usage-')) {
+        assert.equal(await page.getByRole('progressbar').count(), name === 'usage-unavailable' ? 0 : 1);
+        assert.equal(await page.getByText('35 мин 39 сек', { exact: false }).isVisible(), false);
+        if (name !== 'usage-unavailable') {
+          assert.equal(await page.locator('main .button.primary:visible').count(), 1);
+          assert(await page.getByRole('link', { name: 'Увеличить хранилище', exact: true }).isVisible());
+        }
       }
       if (name === 'checkout' || name === 'error') {
         assert.equal(await page.locator('details.billing-coupon').evaluate(el => el.open), false);
@@ -620,7 +638,7 @@ async function checkCopyEnhancement(browser, tabKey) {
       await page.close();
     }
     for (const name of Object.keys(pages).filter(name => name.startsWith('subscription-restriction-') ||
-      ['subscription-free', 'subscription-trial', 'subscription-expired', 'subscription-unknown-cycle', 'subscription-year'].includes(name))) {
+      ['packages-timeline-year', 'subscription-free', 'subscription-trial', 'subscription-expired', 'subscription-unknown-cycle', 'subscription-year'].includes(name))) {
       const page = await browser.newPage({ javaScriptEnabled: false, viewport: { width: 320, height: 900 } });
       const requests = [];
       await page.route('https://graf.test/**', route => {
@@ -628,7 +646,14 @@ async function checkCopyEnhancement(browser, tabKey) {
         return route.fulfill({ contentType: 'text/html; charset=utf-8', body: `<html lang="ru"><meta charset="utf-8"><body>${pages[name]}</body></html>` });
       });
       await page.goto('https://graf.test/billing/subscription');
-      if (name.startsWith('subscription-restriction-')) {
+      if (name === 'packages-timeline-year') {
+        const select = page.getByLabel('Общий объем хранения', { exact: true });
+        await select.selectOption('2');
+        assert.match(await select.locator('option:checked').innerText(), /15 ГБ.*5000 ₽ \/ год за хранение/);
+        assert.equal(await page.locator('#storage-package-summary').isVisible(), false);
+        assert(await page.getByRole('button', { name: 'Проверить доплату', exact: true }).isVisible());
+        assert.equal(requests.filter(request => request.method() !== 'GET').length, 0);
+      } else if (name.startsWith('subscription-restriction-')) {
         const primary = page.getByRole('link', { name: 'Проверить платеж', exact: true });
         assert(await primary.isVisible());
         await primary.focus();

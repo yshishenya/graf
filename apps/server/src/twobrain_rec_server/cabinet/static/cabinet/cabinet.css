@@ -6456,3 +6456,41 @@ select:focus, .settings-page select:focus, .calendar-settings select:focus {
   .summary-share-dialog .share-dialog__surface { padding: 18px; gap: 16px; }
   .summary-share-dialog .share-recipient-row { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Storage keeps one main action; period accounting remains available on demand. */
+.billing-storage-page .settings-page__content { width: min(640px, 100%); }
+.billing-storage-page .settings-section.cabinet-card { padding: 24px 0; border-color: var(--line-soft); gap: 18px; }
+.billing-storage-page .billing-storage-amount { font-size: 18px; }
+.billing-storage-amount strong { font-size: 28px; font-weight: 600; letter-spacing: -.02em; }
+.billing-storage-meter { display: block; width: 100%; height: 10px; border: 0; border-radius: 8px; overflow: hidden; background: var(--surface-3); color: var(--accent); accent-color: var(--accent); }
+.billing-storage-meter::-webkit-progress-bar { background: var(--surface-3); border-radius: 8px; }
+.billing-storage-meter::-webkit-progress-value { background: var(--accent); border-radius: 8px; }
+.billing-storage-meter::-moz-progress-bar { background: var(--accent); border-radius: 8px; }
+.billing-storage-details > summary { width: fit-content; min-height: 32px; cursor: pointer; color: var(--muted); }
+.billing-storage-details > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.billing-storage-details[open] > :not(summary) { margin-top: 12px; }
+.billing-storage-page .billing-coupon { border: 0; padding: 4px 0; }
+.billing-storage-page .billing-coupon > summary { color: var(--muted); font-weight: 400; }
+.billing-storage-page .billing-package-controls { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; }
+.billing-storage-page .billing-package-controls select { grid-column: 2; grid-row: 1; width: 100%; height: 48px; font-size: 15px; overflow: hidden; text-overflow: ellipsis; }
+.billing-storage-page .billing-package-controls button { width: 44px; padding-inline: 0; }
+.billing-storage-page .billing-package-controls button:first-child { grid-column: 1; grid-row: 1; }
+.billing-storage-page .billing-package-controls button:last-child { grid-column: 3; grid-row: 1; }
+.billing-storage-page .billing-package-controls:has(button[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.billing-storage-page .billing-package-controls:has(button[hidden]) select { grid-column: 1; }
+.billing-storage-page .settings-actions { align-items: center; justify-content: flex-start; gap: 20px; }
+.billing-storage-periods { list-style: none; padding: 0; display: grid; gap: 16px; }
+.billing-storage-periods li { display: grid; gap: 4px; }
+.billing-storage-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; padding-top: 16px; }
+.billing-storage-back { align-self: flex-start; }
+@media (forced-colors: active) {
+  .billing-storage-meter { border: 1px solid CanvasText; }
+  .billing-storage-meter::-webkit-progress-value { background: Highlight; }
+}
+@media (max-width: 480px) {
+  .billing-storage-page .billing-package-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .billing-storage-page .billing-package-controls select { grid-column: 1 / -1; }
+  .billing-storage-page .billing-package-controls button { width: 100%; }
+  .billing-storage-page .billing-package-controls button:first-child { grid-column: 1; grid-row: 2; }
+  .billing-storage-page .billing-package-controls button:last-child { grid-column: 2; grid-row: 2; }
+}

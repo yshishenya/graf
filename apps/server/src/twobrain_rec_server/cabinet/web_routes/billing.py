@@ -95,6 +95,9 @@ from twobrain_rec_server.billing.receipts import (
     receipt_label,
     receipt_state_for_registration,
 )
+from twobrain_rec_server.billing.receipts import (
+    verified_receipt_contact as _verified_receipt_contact,
+)
 from twobrain_rec_server.billing.referrals import referral_token_hash, validate_referral_token
 from twobrain_rec_server.billing.refund_email import (
     build_question_mailto,
@@ -1032,22 +1035,6 @@ def _masked_receipt_contact(value: str | None) -> str | None:
     if not local or not domain:
         return None
     return f"{local[0]}***@{domain}"
-
-
-async def _verified_receipt_contact(db, user_id):
-    if db is None:
-        return None
-    return await db.scalar(
-        select(ExternalIdentity.email)
-        .where(
-            ExternalIdentity.user_id == user_id,
-            ExternalIdentity.is_active.is_(True),
-            ExternalIdentity.is_verified.is_(True),
-            ExternalIdentity.email.is_not(None),
-        )
-        .order_by(ExternalIdentity.created_at.asc())
-        .limit(1)
-    )
 
 
 def _receipt_contact_action_url(request, *, next_path):

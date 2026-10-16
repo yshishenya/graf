@@ -577,13 +577,14 @@ def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> N
     assert "01.09.2026, 03:00 (МСК)" in subscription_html
     assert "2026-09-01 00:00:00" not in subscription_html
     assert "Без лимита по минутам и встречам" in usage_html
-    assert "Место занимают сохраненные аудиозаписи" in usage_html
+    assert "Место занимают сохранённые аудиозаписи" in usage_html
     assert "meeting-review.m4a" not in usage_html
-    assert "Состояние: <strong>В норме</strong>" in usage_html
+    assert "Состояние: <strong>В норме</strong>" not in usage_html
     assert "Состояние: normal" not in usage_html
-    assert "Управлять архивом" in usage_html
+    assert 'href="/meetings"' in usage_html and "Открыть записи" in usage_html
     assert "Увеличить хранилище" in usage_html
-    assert "Обработать без сохранения аудио" in usage_html
+    assert "Обрабатывать без сохранения аудио" in usage_html
+    assert 'href="/meetings?archive_audio=false#manual-upload"' in usage_html
 
 
 def test_billing_notices_and_list_statuses_use_one_toned_component() -> None:
@@ -832,7 +833,7 @@ def test_payment_method_and_storage_surfaces_keep_safe_boundaries() -> None:
     )
     assert "•••• 4242" in method_html
     assert "Данные карты не проходят через GRAF" in method_html
-    assert "Место занимают сохраненные аудиозаписи" in storage_html
+    assert "Место занимают сохранённые аудиозаписи" in storage_html
     assert "Файлы не удаляются" in storage_html
     assert "Рассчитать" not in storage_html  # No catalog was supplied to this fixture.
     assert "5000000000 байт" not in storage_html

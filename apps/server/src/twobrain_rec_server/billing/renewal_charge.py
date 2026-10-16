@@ -50,6 +50,7 @@ from twobrain_rec_server.billing.purchases import (
     storage_price_is_accepted,
     storage_price_snapshot,
 )
+from twobrain_rec_server.billing.receipts import verified_receipt_contact
 from twobrain_rec_server.billing.reconciliation import ProviderScope, validate_purchase_payment
 from twobrain_rec_server.billing.storage import lock_storage_workspace
 from twobrain_rec_server.billing.yookassa import (
@@ -396,16 +397,18 @@ async def plan_due_renewals(
         if default_method is None:
             subscription.renewal_resolution = "method_required"
             continue
-        receipt_contact = await db.scalar(
-            select(BillingInvoice.receipt_contact_snapshot)
-            .where(
-                BillingInvoice.workspace_id == subscription.workspace_id,
-                BillingInvoice.status == "succeeded",
-                BillingInvoice.receipt_contact_snapshot.is_not(None),
+        receipt_contact = await verified_receipt_contact(db, subscription.billing_owner_id)
+        if not receipt_contact:
+            receipt_contact = await db.scalar(
+                select(BillingInvoice.receipt_contact_snapshot)
+                .where(
+                    BillingInvoice.workspace_id == subscription.workspace_id,
+                    BillingInvoice.status == "succeeded",
+                    BillingInvoice.receipt_contact_snapshot.is_not(None),
+                )
+                .order_by(BillingInvoice.created_at.desc())
+                .limit(1)
             )
-            .order_by(BillingInvoice.created_at.desc())
-            .limit(1)
-        )
         if not isinstance(receipt_contact, str) or not receipt_contact.strip():
             subscription.renewal_resolution = "receipt_contact_required"
             continue

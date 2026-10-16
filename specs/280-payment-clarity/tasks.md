@@ -359,3 +359,9 @@ Coverage: FR-053→T062/T065; FR-054→T063/T065; FR-055→T064/T065; SC-018→T
 
 
 Дополнение после штатного входа 2026-10-16: root подтвердил live подписку/историю/существующий оплаченный документ, registered receipt и копирование, отдельные согласия оформления и разовую оплату без автопродления. Неизвестный промокод и очистка не перезагружают документ (CDP loaderId неизменен), сохраняют период и выбор; проверочный код удален, подписка не изменена. [Доказательства](validation-payment-reaudit.md). Предыдущий auth HOLD устранен; T065 отмечена выполненной по совокупности exact-SHA/Full/CD/runtime/tag и живых доказательств. T011/T012/F278 и CD post-deploy сценарии сохраняют отдельную приемку; новых списаний, возвратов или писем не было.
+
+## Phase29 — Простой выбор места и восстановление почты
+
+- [ ] T066 Упростить usage/storage по FR-056–058: existing templates, cabinet.css/js, billing.py только нужные projection labels, contract/browser regression и changelog F280. До кода requirements/analyze/issue sync; после RED/GREEN, Chromium/WebKit/no-JS/320px, independent review/converge. (Issue #7598)
+- [ ] T067 Выполнить явно запрошенное владельцем восстановление/объединение по FR-059: существующий verified proof, retirement недоступных identity на merged alias, scoped ownership/ACL и сохранение user/subscription/записей, новые receipt/notification contact. Backup/restore, dry-run rollback и independent review до записи, postcommit проверки. Учесть подтверждение поступления денег без повторной оплаты. (Issue #7599)
+- [ ] T068 После валидации и разрешённого коммита провести FR-056–058 через PR exact SHA/base checks и новый полный выпуск; проверить runtime/pages/publication. До факта не закрывать T011/T012/umbrella. (Issue #7600)
