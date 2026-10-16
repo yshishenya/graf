@@ -628,7 +628,7 @@ def test_issue_closeout_rejects_wrapped_umbrella_issue_as_task_owner() -> None:
 
 def test_feature_closeout_requires_closed_unique_children_and_umbrella_last() -> None:
     validator = load_script("validate-issue-closeout")
-    tasks = "- [X] T001 Реализовать (Issue #6337)\n"
+    tasks = "- [X] T001 Реализовать (Issue #6337)\n- [X] T017 Завершить (Issue #6415)\n"
     child = {
         **_closeout_issue(_closeout_comment()),
         "state": "CLOSED",
@@ -639,7 +639,7 @@ def test_feature_closeout_requires_closed_unique_children_and_umbrella_last() ->
         "title": "[236][P1][governance] T017: Завершить фичу",
         "state": "CLOSED",
         "closedAt": "2026-09-04T10:01:00Z",
-        "comments": [{"body": _closeout_comment()}],
+        "comments": [{"body": _closeout_comment().replace("T001", "T017")}],
     }
     assert validator.validate_feature(
         [child, umbrella],
@@ -664,6 +664,136 @@ def test_feature_closeout_requires_closed_unique_children_and_umbrella_last() ->
     t000_umbrella = {**umbrella, "title": "[236][P1][governance] T000: Временная резервация"}
     errors = validator.validate_feature([child, t000_umbrella], tasks, "a" * 40, 6415)
     assert any("cannot be closed with temporary T000" in error for error in errors)
+
+
+def test_feature_closeout_validates_umbrella_owned_task_without_weakening_gates() -> (
+    None
+):
+    validator = load_script("validate-issue-closeout")
+    tasks = "- [X] T001 Реализовать (Issue #6337)\n- [X] T017 Завершить (Issue #6415)\n"
+    child = {
+        **_closeout_issue(_closeout_comment()),
+        "state": "CLOSED",
+        "closedAt": "2026-09-04T10:00:00Z",
+    }
+    comment = _closeout_comment().replace("T001", "T017")
+    umbrella = {
+        "number": 6415,
+        "title": "[236][P1][governance] T017: Завершить фичу",
+        "body": "Spec tasks: T017\nЗависимость: T999",
+        "state": "OPEN",
+        "closedAt": None,
+        "comments": [{"body": comment}],
+    }
+    assert (
+        validator.validate_feature(
+            [child, umbrella], tasks, "a" * 40, 6415, allow_open_umbrella=True
+        )
+        == []
+    )
+    closed = {**umbrella, "state": "CLOSED", "closedAt": "2026-09-04T10:01:00Z"}
+    assert validator.validate_feature([child, closed], tasks, "a" * 40, 6415) == []
+    assert validator.validate_feature([child, umbrella], tasks, "a" * 40, 6415)
+
+    for invalid_state in ("UNKNOWN", "", None):
+        errors = validator.validate_feature(
+            [child, {**umbrella, "state": invalid_state}], tasks, "a" * 40, 6415,
+            allow_open_umbrella=True,
+        )
+        assert any("issue #6415 for T017 is still open" in error for error in errors)
+
+    for invalid_tasks, invalid_umbrella, invalid_child, expected in [
+        (
+            tasks.replace("[X] T017", "[ ] T017"),
+            umbrella,
+            child,
+            "unchecked or missing tasks: T017",
+        ),
+        (
+            tasks.replace("Issue #6415", "Issue #999"),
+            umbrella,
+            child,
+            "T017 is not linked to issue #6415",
+        ),
+        (
+            tasks,
+            umbrella,
+            {**child, "body": "Spec tasks: T001, T017"},
+            "T017 has duplicate issue owners",
+        ),
+        (
+            tasks,
+            {**umbrella, "body": "Spec tasks: T017, T999"},
+            child,
+            "issue #6415 is orphaned: T999",
+        ),
+        (
+            tasks,
+            {**umbrella, "comments": []},
+            child,
+            "missing the required Russian closure comment",
+        ),
+        (
+            tasks,
+            {**umbrella, "comments": [{"body": comment.replace("PR: #6383", "")}]},
+            child,
+            "must name a PR number",
+        ),
+        (
+            tasks,
+            {**umbrella, "comments": [{"body": comment.replace("a" * 40, "b" * 40)}]},
+            child,
+            "SHA does not match",
+        ),
+        (
+            tasks,
+            {
+                **umbrella,
+                "comments": [
+                    {
+                        "body": comment.replace(
+                            "governance-fast: PASS", "governance-fast: FAIL"
+                        )
+                    }
+                ],
+            },
+            child,
+            "governance-fast PASS",
+        ),
+        (
+            tasks,
+            {**closed, "title": "[236][P1][governance] T000: Временная резервация"},
+            child,
+            "cannot be closed with temporary T000",
+        ),
+        (
+            tasks,
+            umbrella,
+            {**child, "state": "OPEN", "closedAt": None},
+            "issue #6337 for T001 is still open",
+        ),
+        (
+            tasks,
+            {**closed, "closedAt": "2026-09-04T09:59:00Z"},
+            child,
+            "was closed before child issue #6337",
+        ),
+        (
+            tasks,
+            {**closed, "closedAt": child["closedAt"]},
+            child,
+            "was closed before child issue #6337",
+        ),
+        (tasks, {**closed, "closedAt": None}, child, "has no valid closedAt timestamp"),
+    ]:
+        errors = validator.validate_feature(
+            [invalid_child, invalid_umbrella],
+            invalid_tasks,
+            "a" * 40,
+            6415,
+            allow_open_umbrella=True,
+        )
+        assert any(expected in error for error in errors), (expected, errors)
 
 
 def test_feature_closeout_rejects_duplicate_task_rows() -> None:

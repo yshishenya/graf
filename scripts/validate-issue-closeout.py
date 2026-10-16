@@ -221,13 +221,12 @@ def validate_feature(
     child_issues: list[dict[str, object]] = []
     for issue in issues:
         number = int(issue.get("number", 0) or 0)
-        if number == umbrella_issue:
-            continue
         owned = _owned_task_ids(issue)
         if not owned:
             errors.append(f"issue #{number} has no canonical Spec Kit task ownership")
             continue
-        child_issues.append(issue)
+        if number != umbrella_issue:
+            child_issues.append(issue)
         for task in owned:
             if task not in task_states:
                 errors.append(f"issue #{number} is orphaned: {task} is missing from tasks.md")
@@ -244,7 +243,10 @@ def validate_feature(
             continue
         issue = task_owners[0]
         number = int(issue.get("number", 0) or 0)
-        if str(issue.get("state", "")).upper() != "CLOSED":
+        if str(issue.get("state", "")).upper() != "CLOSED" and not (
+            number == umbrella_issue and allow_open_umbrella
+            and str(issue.get("state", "")).upper() == "OPEN"
+        ):
             errors.append(f"issue #{number} for {task} is still open")
         for error in validate(
             issue,
@@ -582,11 +584,11 @@ def self_test() -> int:
         "title": "[236][P1][governance] T017: Завершить фичу",
         "state": "CLOSED",
         "closedAt": "2026-09-04T10:01:00Z",
-        "comments": issue["comments"],
+        "comments": [{"body": str(issue["comments"][0]["body"]).replace("T001", "T017")}],
     }
     assert validate_feature(
         [child, umbrella],
-        "- [X] T001 Проверить (Issue #6373)\n",
+        "- [X] T001 Проверить (Issue #6373)\n- [X] T017 Завершить (Issue #6415)\n",
         "a" * 40,
         6415,
     ) == []

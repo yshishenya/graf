@@ -26,3 +26,24 @@ Live read-only сравнивает claims/pointer/refs до и после. Ре
 max_feature_id по-прежнему допускают1000+. Проверить совместный номер branch/
 spec/pointer и сохранение его полей, идемпотентность bootstrap overlay.
 Live online proposal не резервирует номер и не меняет refs/claims/pointer.
+
+## Владение главной issue (2026-10-16)
+
+```sh
+/Users/yshishenya/Documents/crisp/apps/server/.venv/bin/python -m pytest tests/governance/test_validator_safety.py -q
+python3 scripts/validate-issue-closeout.py --self-test
+python3 scripts/check_spec_kit_governance.py
+git diff --check
+```
+
+До исправления направленная проверка канонического владельца в главной issue
+падает с `T010 has no task-backed issue`. После исправления эта проверка и
+весь существующий validator suite проходят. Отдельно проверить отказ для
+unchecked, неверной ссылки, двух владельцев, временной T000, открытого
+ребёнка и более раннего closedAt главной issue. Тестовые GitHub объекты
+синтетические; реальные issues тест не изменяет.
+
+Две прежние положительные синтетические связки (pytest и `--self-test`)
+согласовать с каноном: выполненная T017 → #6415 в tasks и T017 в комментарии
+главной issue. Сохранить все прежние assertions и отрицательные ожидания;
+не добавлять исключение для неизвестной задачи.
