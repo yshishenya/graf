@@ -201,3 +201,36 @@ Reviewer изменил только этот отчёт и свой requirement
 | --- | --- |
 | `.dev/storage-copy-chromium.log` | `8cda83dd46d97215ca3d9f7eded5ac7b2b9739fbef8b6c69b1027062b6d9cd24` |
 | `.dev/storage-copy-webkit.log` | `00639da04d591ed5db3f8ae29c549b8fed3ce06da19574d43afff8169fc78853` |
+
+
+## Заключительная независимая оценка выпуска v2026.10.16.2
+
+**RELEASE / INSTALLED SOURCE / RECORDED LIVE EVIDENCE REVIEW PASS — critical0/high0/medium0.** Прочитаны итоговый deployment report, конечное дополнение validation-storage-simplicity и три завершённые отметки Phase29. Выпущенный источник `fb78b469aa7c22ad680424411025166870856b22` отделён от последующих документальных дополнений. Предыдущие сообщения «выпуск ожидается» выше сохраняют историческое состояние и заменяются этим конечным результатом только в рамках FR-056–059/T066–T068.
+
+Независимая проверка метаданных до CD подтвердила PR7617 exact head `fa8a9a50098ef4920c3661bd4c47c8bd8dca2400`/base `278911f31c6ac0edcb478bcc03ad7808b6a15d2c`, общий current validator и три required receipts; stderr пуст. Authoritative Full38842617036 passed/no skipped, requested/start/end/component SHA едины; фактический receipt SHA-256 `fc9e88be37d6d2455e4acb68cd2a339a5baaa8f115ae0637d547bebf2cafa7e6` совпал с train attestation. Candidate/train/decision GO и changelog согласованы. Прочитан штатный dry-run PASS, затем завершённый execute: deploy_resultpass, deployed_sha/runtime_sha совпали с выпущенным источником, infra_smoke_ready; backup/cleanup и конечные readiness PASS. Нефатальные предупреждения compose о secret uid/gid/mode не замалчиваются: штатная отдельная runtime_service_secret_permissions проверка прошла. Четыре required_post_deploy сценария не объявляются выполненными.
+
+Публикация подтверждена неизменяемой publication attestation и завершённым publish log: стабильный v2026.10.16.2 опубликован, source/release_target совпали, decision_digest независимо совпал с фактическим decision JSON. Это оценка записанных проверенных metadata, не повторная самостоятельная команда публикации или запрос GitHub reviewer.
+
+Отдельно проверено содержание runtime-installed.json, а не только его булевый итог: каждый из7 фактически установленных file hashes каждой из3 служб пересчитан против `git show` выпущенного SHA — **21/21 совпали**. Во всех3 службах checkout/provider observation/all_workspaces включены, provider_environmentproduction. Public-runtime-check показывает health200/200; downloaded CSS/JS hashes и число байт независимо совпали с выпущенными Git blobs. До/после runtime asset manifests имеют ровно175 одинаковых строк: ни добавлений, ни пропаж, ни изменений. Это серверный выпуск, а не повторная проверка подписи прежних macOS пакетов или новый macOS релиз.
+
+Приватные live-usage.jpg/live-storage.jpg просмотрены непосредственно. На снимках видны новая storage-first иерархия, занято/ёмкость/индикатор, одно основное увеличение, закрытые пояснения и обработка, текущий общий объём, отдельная цена дополнения, закрытые условия/промокод и шаг без немедленного списания. Снимки согласуются с текущими шаблонами/установленными файлами. Изображения и частные контакты в tracked evidence не копируются.
+
+Интерактивная часть принадлежит root: он сообщил обычный post-CD CUA сеанс с10→15ГБ/preview/возвратом10, month/year1250/12500, новым маскированным receipt contact, сохранённой подпиской/отключённым автопродлением, пятью paid/registered документами, раскрытием invoice и сообщением «Скопировано.». Reviewer оценил согласованность этой записи с source/runtime/двумя снимками, но не повторял вход, нажатия или финансовые действия. Два снимка не доказывают всю последовательность сами по себе. Фактическое новое содержимое clipboard не считывалось; подтверждается сообщение интерфейса, исторические более ранние copy проверки остаются отдельными. Исторические invoice контакты ожидаемо неизменны. Новая доставка письма и реальное будущее списание этим не подтверждены.
+
+**Отметки T066/T067/T068 обоснованы в указанной технической области.** T066 опирается на current source/contracts/browser/runtime и записанную живую проверку; T067 — на ранее рассмотренные backup/restore/dry-run/apply/postcommit27tables/ACL/contact, обычный вход владельца и установленный исправленный planner; T068 — на exact PR/Full/GO/CD/installed/runtime/UI/publication evidence. Каждая отметка встречается один раз. Закрытие GitHub issues с detailed closure/live validator остаётся отдельным действием root; reviewer GitHub не менял.
+
+Честные оставшиеся границы: T011/#7378 (полная установленная macOS приёмка), T012/#7379/SC005/006 (человеческая оценка/метрики), umbrella#7366 и финансовая F278 (включая настоящее будущее автопродление, отдельную банковскую сверку/возвраты) не закрываются этим выпуском. Доставка нового письма не доказана. automatic_retry/backfill_inventory/range_playback/normalization_cleanup остаются required_post_deploy и не подменяются worker readiness. Новых списаний, возвратов и включения автопродления в этой заключительной проверке не делали.
+
+Перечитан весь owned checklist: **7 `[x]`,0 `[ ]`**, все семь требований качества остаются подтверждены. Requirements/operator история и прежние HOLD не переписывались. Reviewer изменил только этот source report, не code/spec/plan/tasks/checklist/Git/GitHub/production; существенных новых замечаний не найдено.
+
+| Прочитанное конечное доказательство | SHA-256 |
+| --- | --- |
+| `release-v2026.10.16.2.md` | `63d85ecafc09038b41fdfc41cc39ac5cba880ce01ade8d2f59ba6efad050db85` |
+| `validation-storage-simplicity.md` | `ba147207ae59e59b91823471eb92ae7e248ab7d2d1d0be7ab89f5cd6eb85f285` |
+| `release-deploy.log` | `0f7b63df7e7b9e12110b9b0ef927794a3fd6a1aab18ade41be58949dfaedb17a` |
+| `storage-release-2026.10.16.2-publish.log` | `f51c391e745daa7dbad901bacb8e2906959201df7bae3662f3ae89a97a91b5ad` |
+| `rc-20261016T025203Z-8b4b9f9d6c64.publication.json` | `bd2335b86fe429194c16d85c0eefd854bcdcd75ddd5dbfa81a59de6f3c994215` |
+| `runtime-installed.json` | `4bb044de4b3cc6d32389179eff85caf0d4db2aaca9bbb24cc9c599d153b5c6e9` |
+| `public-runtime-check.json` | `53b4bb8b39f312260070c083cff701ca1a9168141dd98f5129450d11c47e4fda` |
+| `runtime-assets-before.sha256` | `27bf62d7b20e3115734aec776f6ff7a0ecbb88a4ba4e150cae83775b208a7bc7` |
+| `runtime-assets-after.sha256` | `27bf62d7b20e3115734aec776f6ff7a0ecbb88a4ba4e150cae83775b208a7bc7` |
