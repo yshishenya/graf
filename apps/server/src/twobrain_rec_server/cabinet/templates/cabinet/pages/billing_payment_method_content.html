@@ -17,8 +17,8 @@
         <details class="billing-coupon"><summary>Удалить способ оплаты</summary><p>{% if paid_until %}Оплаченный доступ сохранится до {{ paid_until }}.{% else %}Текущий доступ сохранится.{% endif %} Уже отправленный платеж продолжит проверяться.</p>{% if renewal_is_allowed %}<p>Сначала отключите автопродление.</p><a class="button quiet" href="/billing/subscription">Управлять автопродлением</a>{% else %}<form action="/billing/payment-method/delete" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button quiet" type="submit">Подтвердить удаление</button></form>{% endif %}</details>
         {% else %}
         <p role="status">Сохраненного способа оплаты нет.</p>
-        <p class="muted">Карта сохраняется при оплате тарифа в ЮKassa. Перед оплатой проверите сумму и срок; оплаченный остаток сохранится. Данные карты не проходят через GRAF.</p>
-        {% if billing_enabled %}<a class="button primary" href="{{ manual_checkout_url|default('/billing/checkout') }}">Оплатить тариф и сохранить карту</a>{% else %}<p class="muted" role="status">Оплата временно недоступна.</p>{% endif %}
+        <p class="muted">Для автопродления карту можно сохранить при оплате в ЮKassa. Перед оплатой проверите сумму и срок; оплаченный остаток сохранится. Данные карты не проходят через GRAF.</p>
+        {% if billing_enabled %}<a class="button primary" href="{{ manual_checkout_url|default('/billing/checkout') }}">Перейти к оплате</a>{% else %}<p class="muted" role="status">Оплата временно недоступна.</p>{% endif %}
         {% endif %}
       </section>
       <p class="billing-help"><a class="button quiet" href="/billing/history#billing-help">Нужна помощь с оплатой?</a></p>

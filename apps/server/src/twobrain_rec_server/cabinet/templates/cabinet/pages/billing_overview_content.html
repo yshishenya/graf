@@ -114,7 +114,7 @@
             {% if method_present|default(payment_method_label|default(False)) %}<p>Карта используется для разрешенных вами оплат. Замена карты пока недоступна.</p>
               {% if renewal_allowed %}<p>Перед удалением карты отключите автопродление в настройках выше.</p><a href="#billing-renewal-settings">Настроить автопродление</a>
               {% else %}<p>Удаление карты не меняет оплаченный доступ. Уже отправленный платеж продолжит проверяться.</p><form action="/billing/payment-method/delete" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="return_to" value="overview"><button class="button quiet" type="submit">Подтвердить удаление карты</button></form>{% endif %}
-            {% else %}<p>Карта сохраняется при оплате тарифа в ЮKassa. Данные карты не проходят через GRAF. Перед оплатой проверите сумму и срок.</p>{% endif %}
+            {% else %}<p>Для автопродления карту можно сохранить при оплате в ЮKassa. Данные карты не проходят через GRAF. Перед оплатой проверите сумму и срок.</p>{% endif %}
           </details>{% endif %}
         {% endif %}
       </section>
