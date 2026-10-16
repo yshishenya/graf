@@ -59,3 +59,11 @@ API, upload protocol, нативный мост, аудиозапись, обр�
 | US2; FR-007; SC-003–SC-004 | T002, T005 |
 | US3; FR-003, FR-009–FR-011; SC-005–SC-006 | T003, T006–T009 |
 | FR-008 and the out-of-scope boundaries | T004, T006, T009 |
+
+## Phase 4: Повторная проверка и закрытие umbrella (2026-10-16)
+
+- [ ] T010 [US3] Завершить независимое ревью `specs/265-meeting-list-handoff/checklists/ux.md` с отчетом `specs/265-meeting-list-handoff/review-20261016.md`, согласовать SC-001 с FR-006 в `specs/265-meeting-list-handoff/spec.md`, обновить устаревшее текстовое ожидание F268 в `apps/server/tests/browser/mixed-meeting-list.test.cjs`, повторить проверки `specs/265-meeting-list-handoff/quickstart.md` и записать результаты в `specs/265-meeting-list-handoff/validation-20261016.md`; после принятия PR с проверками точного SHA согласовать закрытие umbrella через штатный live validator. (Issue #7002).
+
+T010 зависит от T001–T009 и полного PASS независимого ревью требований до
+правки теста. Код продукта, нативная приемка и выпуск не входят; открытая T010
+не позволяет объявить umbrella завершенной по одному старому merged PR.

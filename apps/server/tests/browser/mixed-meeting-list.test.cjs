@@ -142,7 +142,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
     assert.equal(await page.locator('[data-delete-dialog]').evaluate(node => node.open),false);
     assert.match(await page.locator('#delete-feedback-region').textContent(),/Ожидают подтверждения: 1/);
     await page.evaluate(() => window.GRAFLocalRecordings.update([], [], true));
-    assert.match(await page.locator('[data-local-account-recovery]').textContent(),/аккаунт не подтверждён/);
+    assert.match(await page.locator('[data-local-account-recovery]').textContent(),/аккаунт не подтвержден/);
     await page.evaluate(() => window.GRAFLocalRecordings.update([], [], false));
     assert.equal(await page.locator('[data-local-account-recovery]').count(),0);
     // A completed manual upload is another view of the same meeting, not a permanent link.
