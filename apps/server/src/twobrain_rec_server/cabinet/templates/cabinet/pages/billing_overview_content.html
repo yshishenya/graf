@@ -11,7 +11,7 @@
 {% set operation_pending = operation_pending|default(False) %}
 {% set renewal_allowed = renewal_allowed|default(False) %}
 {% set can_purchase = billing_owner and billing_data_available and billing_enabled and catalog_ready|default(True) and not operation_pending and not renewal_notice|default(None) %}
-{% set meetings_href = '/desktop/meetings' if embedded else '/meetings' %}
+{% set meetings_href = '/desktop/meetings' if embedded|default(False) else '/meetings' %}
 <main id="cabinet-main" class="cabinet-main billing-page billing-overview" tabindex="-1">
   <div class="cabinet-workspace settings-page">
     <div class="settings-page__content billing-page__content">
