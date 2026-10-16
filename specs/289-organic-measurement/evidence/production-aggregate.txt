@@ -1,48 +1,33 @@
+Пересчёт 16.10.2026: прежняя выгрузка отменена из-за отсутствия
+строчных фильтров reportable_aggregate_criteria(). Ниже новый READ ONLY
+снимок: external, visits >=3 до SUM, группа >=5, окно [17.09,15.10) UTC.
+Остальные счётчики — вся история на момент нового снимка.
+
 BEGIN
 SET
  buckets | requests |    min     |    max
 ---------+----------+------------+------------
-     507 |     1366 | 2026-09-22 | 2026-10-15
+      88 |      413 | 2026-09-22 | 2026-10-14
 (1 row)
 
               surface               | traffic_class | referrer_category | requests
 ------------------------------------+---------------+-------------------+----------
- public_analytics_consent           | automated     | direct            |       45
- public_analytics_consent           | external      | direct            |       15
- public_cookies                     | automated     | direct            |       32
- public_cookies                     | external      | direct            |       13
- public_download                    | automated     | direct            |       87
- public_download                    | external      | direct            |       18
- public_guides                      | automated     | direct            |       42
- public_guides                      | external      | direct            |       33
+ public_guides                      | external      | direct            |       22
  public_guides                      | external      | referral          |        5
- public_installer_delivery          | automated     | unknown           |       68
- public_installer_delivery          | external      | unknown           |        8
- public_landing                     | automated     | direct            |      126
- public_landing                     | automated     | referral          |        8
- public_landing                     | external      | direct            |      208
- public_landing                     | external      | referral          |      113
- public_login                       | automated     | direct            |        9
- public_login                       | external      | direct            |       24
- public_mac_meeting_guide           | automated     | direct            |       44
- public_mac_meeting_guide           | external      | direct            |       14
- public_offer                       | automated     | direct            |       32
- public_offer                       | external      | direct            |       14
- public_privacy                     | automated     | direct            |       50
- public_privacy                     | external      | direct            |       18
- public_protocol_guide              | automated     | direct            |       52
- public_protocol_guide              | external      | direct            |       25
- public_signup                      | external      | direct            |       41
- public_signup_step_viewed          | external      | unknown           |       40
- public_terms                       | automated     | direct            |       30
- public_terms                       | external      | direct            |       12
- public_transcription_quality_guide | automated     | direct            |       41
- public_transcription_quality_guide | external      | direct            |       15
-(31 rows)
+ public_landing                     | external      | direct            |      168
+ public_landing                     | external      | referral          |       89
+ public_login                       | external      | direct            |        7
+ public_mac_meeting_guide           | external      | direct            |        8
+ public_privacy                     | external      | direct            |        5
+ public_protocol_guide              | external      | direct            |       15
+ public_signup                      | external      | direct            |       33
+ public_signup_step_viewed          | external      | unknown           |       33
+ public_transcription_quality_guide | external      | direct            |       10
+(11 rows)
 
  attributed_visits | with_source
 -------------------+-------------
-                 7 |           7
+                 8 |           8
 (1 row)
 
  acquisition_rows | with_bridge
@@ -57,7 +42,7 @@ SET
 
  processing_results
 --------------------
-                197
+                202
 (1 row)
 
 ROLLBACK
