@@ -62,7 +62,10 @@ def test_anonymous_aggregate_module_states_the_identity_ban_in_its_docstring() -
 
 
 def test_public_aggregate_paths_match_the_public_route_inventory() -> None:
-    assert set(PUBLIC_PAGE_PATHS) == set(PUBLIC_ANALYTICS_CONSENT_PATHS)
+    assert set(PUBLIC_PAGE_PATHS) == set(PUBLIC_ANALYTICS_CONSENT_PATHS) | {
+        "/transcription", "/meeting-minutes", "/record-without-bot",
+        "/guides/rasshifrovka-zapisi-zoom",
+    }
     assert surface_for_public_path("/privacy") == "public_privacy"
     assert surface_for_public_path("/analytics-consent") == "public_analytics_consent"
     assert surface_for_public_path("/download/") == "public_download"
@@ -363,3 +366,87 @@ def test_device_class_from_a_bucket_is_the_only_device_dimension() -> None:
         "traffic_class",
         "visits",
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["execute", "commit"])
+async def test_safe_aggregate_write_budget_cancels_stalled_database(stage):
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    async def stalled(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    result = MagicMock()
+    result.scalar_one.return_value = 1
+    session = AsyncMock()
+    session.execute.return_value = result
+    setattr(session, stage, AsyncMock(side_effect=stalled))
+    outcome = await asyncio.wait_for(
+        aggregate.record_anonymous_aggregate_bucket_safely(
+            session, build_anonymous_aggregate_bucket(path="/"), environ={},
+        ), timeout=1,
+    )
+    assert outcome is None
+    getattr(session, stage).assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["prepare", "cleanup", "handler"])
+async def test_public_database_budget_keeps_handler_outside_timeout(stage, monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    import twobrain_rec_server.public.web as web
+
+    async def stalled(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    prepare = AsyncMock(side_effect=stalled if stage == "prepare" else None)
+    if stage == "cleanup":
+        session.close.side_effect = stalled
+        session.__aexit__.side_effect = stalled
+    monkeypatch.setattr(web, "apply_tenant_context", prepare)
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        db_sessionmaker=lambda: session,
+    )))
+    dependency = web.get_public_web_db_session(request)
+    value = await asyncio.wait_for(anext(dependency), timeout=1)
+    assert value is (None if stage == "prepare" else session)
+    if stage == "handler":
+        await asyncio.sleep(0.3)
+    await asyncio.wait_for(dependency.aclose(), timeout=1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["write", "prepare", "cleanup"])
+async def test_public_database_external_cancellation_propagates(stage, monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    import twobrain_rec_server.public.web as web
+
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    if stage == "write":
+        session.execute.side_effect = asyncio.CancelledError
+        with pytest.raises(asyncio.CancelledError):
+            await aggregate.record_anonymous_aggregate_bucket_safely(
+                session, build_anonymous_aggregate_bucket(path="/"), environ={},
+            )
+        return
+    monkeypatch.setattr(web, "apply_tenant_context", AsyncMock(
+        side_effect=asyncio.CancelledError if stage == "prepare" else None,
+    ))
+    session.close.side_effect = asyncio.CancelledError if stage == "cleanup" else None
+    session.__aexit__.side_effect = asyncio.CancelledError if stage == "cleanup" else None
+    dependency = web.get_public_web_db_session(SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(db_sessionmaker=lambda: session)),
+    ))
+    with pytest.raises(asyncio.CancelledError):
+        await anext(dependency)
+        await dependency.aclose()

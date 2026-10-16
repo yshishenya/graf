@@ -508,6 +508,10 @@ def test_public_surfaces_are_the_documented_public_routes() -> None:
     assert set(ANONYMOUS_AGGREGATE_SURFACES) == {
         "public_landing",
         "public_download",
+        "public_transcription",
+        "public_meeting_minutes",
+        "public_record_without_bot",
+        "public_zoom_recording_guide",
         "public_protocol_guide",
         "public_transcription_quality_guide",
         "public_guides",

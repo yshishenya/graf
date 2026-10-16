@@ -6,9 +6,8 @@ and the two are different numbers on purpose. This module is therefore the
 single place that knows which public address is an installer artifact, and the
 static file handler asks it after every successful delivery.
 
-Counting happens after the file was handed to the browser, never before: the
-visitor must never wait for analytics, and a refused counter write leaves a
-measurement gap instead of a broken download (FR-058).
+Counting happens after building a successful file response. Database preparation,
+the counter write and cleanup each have a short budget (FR-058).
 """
 
 from __future__ import annotations
@@ -21,6 +20,7 @@ from starlette.responses import Response
 
 from twobrain_rec_server.public.analytics import record_public_installer_delivery
 from twobrain_rec_server.public.templates import VersionedPublicStaticFiles
+from twobrain_rec_server.public.web import public_web_db_session
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +47,8 @@ async def count_installer_delivery(path: str, scope: dict[str, Any], response: R
     """Count a served installer file; every other delivery is left alone.
 
     The session comes from the application state, because a static file handler
-    has no request dependency to inject. Nothing here can raise or delay: the
-    response is already built, and a missing session, an unreachable database or
-    a refused statement only means that one delivery was not counted.
+    has no request dependency to inject. Database waiting is bounded; an
+    unconfirmed write leaves a measurement gap. External cancellation propagates.
     """
     if not is_installer_artifact(path):
         return
@@ -59,7 +58,7 @@ async def count_installer_delivery(path: str, scope: dict[str, Any], response: R
     if sessionmaker is None:
         return
     try:
-        async with sessionmaker() as session:
+        async with public_web_db_session(Request(scope)) as session:
             await record_public_installer_delivery(session, Request(scope))
     except Exception as exc:  # noqa: BLE001 - a download must reach the visitor
         logger.warning(

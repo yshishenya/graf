@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -21,6 +23,8 @@ from twobrain_rec_server.public.analytics import (
     PublicAnalyticsEventRejected,
     deliver_public_analytics_event,
     normalize_public_analytics_event,
+    normalize_public_campaign_attribution,
+    record_public_page_visit,
 )
 from twobrain_rec_server.public.content import (
     GUIDE_PATH,
@@ -44,6 +48,8 @@ from twobrain_rec_server.public.templates import (
 )
 
 router = APIRouter(tags=["public-web"])
+logger = logging.getLogger(__name__)
+PUBLIC_WEB_DB_PHASE_TIMEOUT_SECONDS = 0.25
 LANDING_AUTORECORD_PRIORITY = (
     "Zoom",
     "Yandex Telemost",
@@ -85,30 +91,44 @@ PUBLIC_SEARCH_PAGES = {
 }
 
 
-async def get_public_web_db_session(request: Request):
+@asynccontextmanager
+async def public_web_db_session(request: Request):
     sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
     if sessionmaker is None:
         yield None
         return
-    async with sessionmaker() as session:
+    session = sessionmaker()
+    try:
         # Billing catalog is global, but PostgreSQL still requires the ordinary
         # request RLS context before reading it.
         # A zero UUID cannot match any tenant-owned row if this dependency is
         # ever extended with another query.
         try:
-            await apply_tenant_context(
-                session,
-                TenantDatabaseContext(
-                    organization_id=PUBLIC_WEB_CONTEXT_ID,
-                    workspace_id=PUBLIC_WEB_CONTEXT_ID,
-                    user_id=PUBLIC_WEB_CONTEXT_ID,
-                ),
-            )
+            async with asyncio.timeout(PUBLIC_WEB_DB_PHASE_TIMEOUT_SECONDS):
+                await apply_tenant_context(
+                    session,
+                    TenantDatabaseContext(
+                        organization_id=PUBLIC_WEB_CONTEXT_ID,
+                        workspace_id=PUBLIC_WEB_CONTEXT_ID,
+                        user_id=PUBLIC_WEB_CONTEXT_ID,
+                    ),
+                )
         except Exception:
             # Keep public pages renderable when the catalog database is down;
             # the offer builder will then fail closed without paid claims.
             yield None
             return
+        yield session
+    finally:
+        try:
+            async with asyncio.timeout(PUBLIC_WEB_DB_PHASE_TIMEOUT_SECONDS):
+                await session.close()
+        except Exception as exc:
+            logger.warning("public database cleanup failed: error=%s", type(exc).__name__)
+
+
+async def get_public_web_db_session(request: Request):
+    async with public_web_db_session(request) as session:
         yield session
 
 
@@ -233,10 +253,15 @@ async def public_transcription_quality_guide(
 
 
 @router.get(ZOOM_GUIDE_PATH, response_class=HTMLResponse, include_in_schema=False)
-async def public_zoom_recording_guide(request: Request) -> HTMLResponse:
-    return public_template_response(
+async def public_zoom_recording_guide(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
+    return await public_page_response(
         request,
         "public/zoom_recording_guide.html",
+        db=db,
+        anonymous_only=True,
         page_title="Как расшифровать запись Zoom в текст — ГРАФ",
         social_description="Найдите запись Zoom, выберите M4A или MP4 с голосами участников и загрузите в ГРАФ. Пошаговая инструкция, проверка результата и частые ошибки.",
     )
@@ -334,11 +359,16 @@ async def public_analytics_consent_page(
 @router.get("/transcription", response_class=HTMLResponse, include_in_schema=False)
 @router.get("/meeting-minutes", response_class=HTMLResponse, include_in_schema=False)
 @router.get("/record-without-bot", response_class=HTMLResponse, include_in_schema=False)
-async def public_search_page(request: Request) -> HTMLResponse:
+async def public_search_page(
+    request: Request,
+    db: AsyncSession | None = PublicWebDbDependency,
+) -> HTMLResponse:
     title, description = PUBLIC_SEARCH_PAGES[request.url.path]
-    return public_template_response(
+    return await public_page_response(
         request,
         "public/search_guide.html",
+        db=db,
+        anonymous_only=True,
         page_title=title,
         social_description=description,
         guide_path=request.url.path,
@@ -351,23 +381,30 @@ async def public_page_response(
     template_name: str,
     *,
     db: AsyncSession | None = None,
+    anonymous_only: bool = False,
     **context: Any,
 ) -> HTMLResponse:
     """Render one public page, count the visit and keep its campaign labels.
 
+    Anonymous-only content counts the current request without campaign storage.
+
     Three rules meet here and none of them may break the other two (FR-009,
     FR-014, FR-058):
 
-    * the page is rendered before anything is measured, so measurement can never
-      block the response;
-    * the visit is counted by one synchronous bucket write that does not raise
-      and does not touch the analytics stack, so the page and the anonymous count
-      survive an unreachable counter;
+    * the page is rendered before measurement;
+    * the anonymous database write has a short budget and ordinary failures do
+      not prevent returning the page; a timeout leaves an uncertain count;
     * the campaign labels of the visit are stored in a session cookie, so they
       survive the move between public pages and are readable by the registration
       path through :func:`read_public_visit_attribution`.
     """
     response = public_template_response(request, template_name, **context)
+    if anonymous_only:
+        attribution = normalize_public_campaign_attribution(
+            request.query_params, referrer=request.headers.get("referer")
+        )
+        await record_public_page_visit(db, request, attribution=attribution)
+        return response
     return await record_public_page_response(request, response, db=db)
 
 

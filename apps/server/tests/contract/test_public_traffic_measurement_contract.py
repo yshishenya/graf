@@ -26,7 +26,7 @@ from twobrain_rec_server.product_analytics.anonymous_aggregate import (
     MINIMUM_AGGREGATE_BUCKET_SIZE,
     PUBLIC_PAGE_PATHS,
     select_reportable_aggregate_buckets,
-    surface_for_public_path,
+    surface_for_anonymous_page,
 )
 from twobrain_rec_server.product_analytics.forbidden_fields import (
     ANONYMOUS_AGGREGATE_ALLOWED_FIELDS,
@@ -194,7 +194,7 @@ def test_every_public_page_is_counted_without_consent(client, postgres_seeded_da
     pages_without_measurement = [
         path
         for path in PUBLIC_PAGE_PATHS
-        if measured.get(surface_for_public_path(path) or "", 0) < 1
+        if measured.get(surface_for_anonymous_page(path) or "", 0) < 1
     ]
     assert pages_without_measurement == []
     # Every public route measured exactly once, and no route measured twice.

@@ -74,6 +74,12 @@ PUBLIC_CONTENT_SURFACES = {
     GUIDES_PATH: "public_guides",
     **{page.path: page.analytics_surface for page in PUBLIC_CONTENT_PAGES if page.analytics_surface},
 }
+PUBLIC_ANONYMOUS_CONTENT_SURFACES = {
+    "/transcription": "public_transcription",
+    "/meeting-minutes": "public_meeting_minutes",
+    "/record-without-bot": "public_record_without_bot",
+    ZOOM_GUIDE_PATH: "public_zoom_recording_guide",
+}
 
 
 def content_for_section(section: ContentSection) -> tuple[PublicContentPage, ...]:
