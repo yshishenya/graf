@@ -223,3 +223,178 @@ def test_shared_and_invitation_dates_use_display_truth_without_changing_transpor
             assert ("06.09.2026, 02:30" if source == "known" else "07.09.2026, 02:30") in html
             assert "data-user-datetime" in html
             assert ("Загружено" in html) == (source == "manual")
+
+
+def test_shared_list_prefetch_preserves_access_across_workspaces(client, monkeypatch) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from tests.fakes.auth_contexts import ORG_ID, USER_ID
+    from tests.fixtures.cabinet_access import SHARED_DEVICE_ID
+    from tests.integration.test_cabinet_meeting_list_query_budget import _meeting
+    from twobrain_rec_server.auth.context import TenantScope
+    from twobrain_rec_server.cabinet import queries
+    from twobrain_rec_server.db.models import (
+        MediaRevision,
+        MeetingShareGrant,
+        Workspace,
+        WorkspaceMembership,
+    )
+
+    add_workspace_user(client)
+    other_workspace = UUID("20000000-0000-0000-0000-000000000424")
+    base = datetime(2026, 4, 1, tzinfo=UTC)
+
+    async def seed():
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                Workspace(
+                    id=other_workspace,
+                    organization_id=ORG_ID,
+                    slug="shared-prefetch-other",
+                    name="Synthetic Other",
+                    kind="corporate",
+                )
+            )
+            await db.flush()
+            db.add(
+                WorkspaceMembership(
+                    workspace_id=other_workspace,
+                    user_id=SHARED_USER_ID,
+                    role="member",
+                    status="active",
+                )
+            )
+            meetings = [_meeting(index, base + timedelta(minutes=index)) for index in range(8)]
+            meetings[6].workspace_id = other_workspace
+            meetings[7].workspace_id = other_workspace
+            meetings[4].deletion_state = "requested"
+            db.add_all(meetings)
+            await db.flush()
+            for index, meeting in enumerate(meetings):
+                db.add(
+                    MeetingShareGrant(
+                        workspace_id=meeting.workspace_id,
+                        meeting_id=meeting.id,
+                        grant_type="user",
+                        grantee_user_id=SHARED_USER_ID,
+                        audience_type="user",
+                        audience_id=SHARED_USER_ID,
+                        content_scope="summary_only" if index in (1, 6) else "full_meeting",
+                        created_by_user_id=USER_ID,
+                        status="revoked" if index == 3 else "active",
+                        expires_at=base if index == 2 else None,
+                    )
+                )
+            # Exercise accepted/latest selection alongside missing revisions.
+            meetings[6].started_at = None
+            for number, status, source in (
+                (1, "accepted", "initial_mixed_recording"),
+                (2, "accepted", "manual_upload"),
+                (3, "pending_upload", "initial_mixed_recording"),
+            ):
+                db.add(
+                    MediaRevision(
+                        workspace_id=other_workspace,
+                        meeting_id=meetings[6].id,
+                        local_media_revision_id=f"shared-prefetch-{number}",
+                        revision_number=number,
+                        status=status,
+                        source_kind=source,
+                        immutable=True,
+                    )
+                )
+            # Two workspace candidates must retain the original single-query choice.
+            for scope, download in (
+                ("summary_only", False), ("full_meeting", False), ("full_meeting", True),
+            ):
+                db.add(
+                    MeetingShareGrant(
+                        workspace_id=other_workspace,
+                        meeting_id=meetings[6].id,
+                        grant_type="workspace",
+                        audience_type="workspace",
+                        audience_id=other_workspace,
+                        content_scope=scope,
+                        can_download=download,
+                        created_by_user_id=USER_ID,
+                        status="active",
+                    )
+                )
+            await db.commit()
+            return {meetings[i].id for i in (0, 1, 5, 6, 7)}
+
+    visible = client.portal.call(seed)
+    scope = TenantScope(
+        organization_id=ORG_ID,
+        workspace_id=WORKSPACE_ID,
+        user_id=SHARED_USER_ID,
+        device_id=SHARED_DEVICE_ID,
+    )
+
+    async def read():
+        return await queries.list_shared_with_me_meetings(
+            client.app_state["sessionmaker"],
+            recipient_scope=scope,
+        )
+
+    from twobrain_rec_server.cabinet import access
+
+    decisions = []
+    fallbacks = []
+    decide = queries.decide_meeting_access
+    prefetched_grant = access._prefetched_grant
+
+    async def observe_decision(db, meeting, **kwargs):
+        decision = await decide(db, meeting, **kwargs)
+        decisions.append((meeting.id, decision))
+        return decision
+
+    def observe_grant(db, **kwargs):
+        grant = prefetched_grant(db, **kwargs)
+        if (queries.active_read_prefetch(db) is not None
+            and kwargs["field_name"] == "full_meeting_workspace_grants"
+            and grant is access._UNPREFETCHED):
+            fallbacks.append(kwargs["meeting_id"])
+        return grant
+
+    monkeypatch.setattr(queries, "decide_meeting_access", observe_decision)
+    monkeypatch.setattr(access, "_prefetched_grant", observe_grant)
+    batched = client.portal.call(read)
+    batched_decisions = list(decisions)
+    decisions.clear()
+    with monkeypatch.context() as original:
+        original.setattr(queries, "install_read_prefetch", lambda *_: None)
+        individual = client.portal.call(read)
+    assert batched == individual
+    assert batched_decisions == decisions
+    assert len(fallbacks) == 1
+    assert len(batched) == len(visible)
+    assert all(any(str(meeting_id) in row.href for row in batched) for meeting_id in visible)
+    # A subsequent request by another recipient must not inherit the previous context.
+    owner_scope = TenantScope(
+        organization_id=ORG_ID,
+        workspace_id=WORKSPACE_ID,
+        user_id=USER_ID,
+        device_id=UUID(auth_headers()["X-Device-Id"]),
+    )
+
+    async def owner_read():
+        return await queries.list_shared_with_me_meetings(
+            client.app_state["sessionmaker"],
+            recipient_scope=owner_scope,
+        )
+
+    assert client.portal.call(owner_read) == ()
+
+    failed_sessions = []
+
+    async def fail_access(db, *args, **kwargs):
+        failed_sessions.append(db)
+        raise RuntimeError("synthetic shared access failure")
+
+    with monkeypatch.context() as failure:
+        failure.setattr(queries, "decide_meeting_access", fail_access)
+        with pytest.raises(RuntimeError, match="synthetic shared access failure"):
+            client.portal.call(read)
+    assert len(failed_sessions) == 1
+    assert queries.active_read_prefetch(failed_sessions[0]) is None

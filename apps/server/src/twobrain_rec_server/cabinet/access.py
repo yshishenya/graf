@@ -708,8 +708,8 @@ async def batch_active_user_grants(
 ) -> dict[UUID, MeetingShareGrant | None]:
     """Batch variant of `active_user_grant` for a set of meetings.
 
-    The active user grant is unique per (workspace, meeting, audience), so the
-    batch reproduces the single row exactly.
+    Unique candidates reproduce the single read. Ambiguous legacy candidates
+    stay unprefetched so the access decision retains its original selection.
     """
     result: dict[UUID, MeetingShareGrant | None] = {meeting_id: None for meeting_id in meeting_ids}
     if not result:
@@ -725,17 +725,19 @@ async def batch_active_user_grants(
             MeetingShareGrant.status == "active",
             MeetingShareGrant.expires_at.is_(None) | (MeetingShareGrant.expires_at > now),
         )
-        .distinct(MeetingShareGrant.meeting_id)
-        .order_by(
-            MeetingShareGrant.meeting_id,
-            MeetingShareGrant.created_at.asc(),
-            MeetingShareGrant.id.asc(),
-        )
         .execution_options(populate_existing=True)
     )
+    ambiguous: set[UUID] = set()
     for row in rows:
+        if result[row.meeting_id] is not None:
+            ambiguous.add(row.meeting_id)
         result[row.meeting_id] = row
+    # Preserve the single-query choice instead of inventing precedence for duplicates.
+    for meeting_id in ambiguous:
+        result.pop(meeting_id)
     if prefetch is not None:
+        for meeting_id in ambiguous:
+            prefetch.user_grants.pop(meeting_id, None)
         prefetch.user_grants.update(result)
     return result
 
@@ -765,21 +767,21 @@ async def batch_workspace_audience_grants(
             MeetingShareGrant.content_scope == "full_meeting",
             or_(MeetingShareGrant.expires_at.is_(None), MeetingShareGrant.expires_at > now),
         )
-    rows = await db.scalars(
-        query.distinct(MeetingShareGrant.meeting_id)
-        .order_by(
-            MeetingShareGrant.meeting_id,
-            MeetingShareGrant.created_at.asc(),
-            MeetingShareGrant.id.asc(),
-        )
-        .execution_options(populate_existing=True)
-    )
+    rows = await db.scalars(query.execution_options(populate_existing=True))
+    ambiguous: set[UUID] = set()
     for row in rows:
+        if result[row.meeting_id] is not None:
+            ambiguous.add(row.meeting_id)
         result[row.meeting_id] = row
+    # Preserve the single-query choice instead of inventing precedence for duplicates.
+    for meeting_id in ambiguous:
+        result.pop(meeting_id)
     if prefetch is not None:
         target = (
             prefetch.full_meeting_workspace_grants if full_meeting_only else prefetch.workspace_grants
         )
+        for meeting_id in ambiguous:
+            target.pop(meeting_id, None)
         target.update(result)
     return result
 

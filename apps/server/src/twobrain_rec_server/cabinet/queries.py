@@ -900,57 +900,91 @@ async def list_shared_with_me_meetings(
                     )
                 )
             }
-            for grant in workspace_grants:
-                meeting = meetings.get(grant.meeting_id)
-                if meeting is None:
-                    continue
-                decision = await decide_meeting_access(
-                    source_db,
-                    meeting,
-                    workspace_id=workspace_id,
-                    viewer_user_id=recipient_scope.user_id,
-                    recipient_proof=proof,
-                )
-                if not decision.can_view:
-                    continue
-                rank = (
-                    int(decision.can_view_full_meeting),
-                    int(decision.can_download),
-                    int(decision.can_export),
-                )
-                revision = await _latest_media_revision(
-                    source_db, workspace_id=workspace_id, meeting_id=meeting.id
-                )
-                source = meeting_source(revision)
-                occurred_at = meeting.started_at or (
-                    meeting.created_at if source == "manual_upload" else None
-                )
-                card = SharedWithMeMeetingItem(
-                    title=meeting_list_title(meeting, source=source),
-                    time_label=meeting_list_time_label(
-                        occurred_at,
-                        timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
-                        time_basis="upload"
-                        if meeting.started_at is None and source == "manual_upload"
-                        else "meeting",
-                    ),
-                    duration_label=format_duration(meeting.duration_seconds),
-                    status_label=(
-                        "В обработке"
-                        if meeting.processing_status in {"submitted", "processing", "uploading"}
-                        else "Готово"
-                    ),
-                    access_label=(
-                        "Полный доступ" if decision.can_view_full_meeting else "Только итоги"
-                    ),
-                    href=(
-                        f"/shared-meetings/{meeting.id}?"
-                        f"{urlencode({'workspace_id': str(workspace_id)})}"
-                    ),
-                )
-                previous = rows.get(meeting.id)
-                if previous is None or rank > previous[1]:
-                    rows[meeting.id] = (occurred_at, rank, card)
+            try:
+                if len(meetings) > 1:
+                    prefetch = CabinetReadPrefetch(
+                        workspace_id=workspace_id, viewer_user_id=recipient_scope.user_id
+                    )
+                    install_read_prefetch(source_db, prefetch)
+                    await batch_active_user_grants(
+                        source_db,
+                        workspace_id=workspace_id,
+                        meeting_ids=meetings,
+                        grantee_user_id=recipient_scope.user_id,
+                        prefetch=prefetch,
+                    )
+                    await batch_workspace_audience_grants(
+                        source_db,
+                        workspace_id=workspace_id,
+                        meeting_ids=meetings,
+                        prefetch=prefetch,
+                    )
+                    await batch_workspace_audience_grants(
+                        source_db,
+                        workspace_id=workspace_id,
+                        meeting_ids=meetings,
+                        full_meeting_only=True,
+                        prefetch=prefetch,
+                    )
+                    await batch_latest_media_revisions(
+                        source_db,
+                        workspace_id=workspace_id,
+                        meeting_ids=meetings,
+                        prefetch=prefetch,
+                    )
+                for grant in workspace_grants:
+                    meeting = meetings.get(grant.meeting_id)
+                    if meeting is None:
+                        continue
+                    decision = await decide_meeting_access(
+                        source_db,
+                        meeting,
+                        workspace_id=workspace_id,
+                        viewer_user_id=recipient_scope.user_id,
+                        recipient_proof=proof,
+                    )
+                    if not decision.can_view:
+                        continue
+                    rank = (
+                        int(decision.can_view_full_meeting),
+                        int(decision.can_download),
+                        int(decision.can_export),
+                    )
+                    revision = await _latest_media_revision(
+                        source_db, workspace_id=workspace_id, meeting_id=meeting.id
+                    )
+                    source = meeting_source(revision)
+                    occurred_at = meeting.started_at or (
+                        meeting.created_at if source == "manual_upload" else None
+                    )
+                    card = SharedWithMeMeetingItem(
+                        title=meeting_list_title(meeting, source=source),
+                        time_label=meeting_list_time_label(
+                            occurred_at,
+                            timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
+                            time_basis="upload"
+                            if meeting.started_at is None and source == "manual_upload"
+                            else "meeting",
+                        ),
+                        duration_label=format_duration(meeting.duration_seconds),
+                        status_label=(
+                            "В обработке"
+                            if meeting.processing_status in {"submitted", "processing", "uploading"}
+                            else "Готово"
+                        ),
+                        access_label=(
+                            "Полный доступ" if decision.can_view_full_meeting else "Только итоги"
+                        ),
+                        href=(
+                            f"/shared-meetings/{meeting.id}?"
+                            f"{urlencode({'workspace_id': str(workspace_id)})}"
+                        ),
+                    )
+                    previous = rows.get(meeting.id)
+                    if previous is None or rank > previous[1]:
+                        rows[meeting.id] = (occurred_at, rank, card)
+            finally:
+                clear_read_prefetch(source_db)
     return tuple(
         card
         for _, _, card in sorted(
