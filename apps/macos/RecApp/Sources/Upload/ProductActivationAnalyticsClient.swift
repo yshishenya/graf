@@ -4,8 +4,9 @@ import TwoBrainRecShared
 public struct ProductActivationAnalyticsClient: Sendable {
     public let baseURL: URL
     public let headers: [String: String]
+    public let explicitFunnel: Bool
 
-    public init?(rawBaseURL: String, headers: [String: String]) {
+    public init?(rawBaseURL: String, headers: [String: String], explicitFunnel: Bool = false) {
         guard let url = URL(string: rawBaseURL),
               let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
@@ -15,10 +16,17 @@ public struct ProductActivationAnalyticsClient: Sendable {
         }
         self.baseURL = origin
         self.headers = headers
+        self.explicitFunnel = explicitFunnel
     }
 
     public func eventURL() -> URL {
-        baseURL.appendingPathComponent("api/v1/product-analytics/events")
+        baseURL.appendingPathComponent(explicitFunnel ? "api/v1/product-analytics/explicit-events" : "api/v1/product-analytics/events")
+    }
+
+    public func contextRequest() -> URLRequest {
+        var request = URLRequest(url: baseURL.appendingPathComponent("api/v1/product-analytics/explicit-context"))
+        for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
+        return request
     }
 
     public func request(for payload: ProductActivationAnalyticsPayload) throws -> URLRequest {
@@ -66,6 +74,20 @@ public struct ProductActivationAnalyticsClient: Sendable {
         directEgressDisclosed: Bool
     ) -> Bool {
         legalApproved && securityApproved && qaApproved && telemetryAccepted && directEgressDisclosed
+    }
+}
+
+public struct ProductActivationAnalyticsContext: Decodable, Sendable {
+    public let enabled: Bool
+    public let telemetryGateState: String
+    public let stablePseudonymousUserId: String?
+    public let csrfToken: String?
+
+    enum CodingKeys: String, CodingKey {
+        case enabled
+        case telemetryGateState = "telemetry_gate_state"
+        case stablePseudonymousUserId = "stable_pseudonymous_user_id"
+        case csrfToken = "csrf_token"
     }
 }
 

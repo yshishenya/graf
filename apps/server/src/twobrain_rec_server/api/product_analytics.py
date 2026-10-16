@@ -5,13 +5,22 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import Problem
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
-from twobrain_rec_server.auth.dependencies import get_principal
+from twobrain_rec_server.auth.csrf import issue_csrf_token
+from twobrain_rec_server.auth.dependencies import (
+    get_principal,
+    is_web_cookie_session,
+    require_web_csrf,
+)
 from twobrain_rec_server.config import Settings, get_settings
+from twobrain_rec_server.db.models import UserIdentity
+from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
 from twobrain_rec_server.product_analytics.event_catalog import (
     anonymous_aggregate_signal_names,
     anonymous_aggregate_signals_payload,
@@ -19,6 +28,12 @@ from twobrain_rec_server.product_analytics.event_catalog import (
     yandex_offline_conversion_event_names,
 )
 from twobrain_rec_server.product_analytics.events import build_activation_event
+from twobrain_rec_server.product_analytics.explicit_funnel import (
+    change_consent,
+    context_for,
+    deliver_milestone,
+    validate_milestone,
+)
 from twobrain_rec_server.product_analytics.forbidden_fields import (
     assert_no_forbidden_fields,
     assert_no_security_credential_fields,
@@ -59,6 +74,12 @@ class ProductAnalyticsEventRequest(BaseModel):
     occurred_at: datetime | None = None
     telemetry_gate_state: str = "accepted"
     properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class ExplicitAnalyticsConsentRequest(BaseModel):
+    accepted: bool
+    copy_version: str = Field(min_length=1, max_length=64)
+    expected_pseudonymous_user_id: str | None = Field(default=None, max_length=80)
 
 
 class PostHogAutocaptureEventRequest(BaseModel):
@@ -124,6 +145,167 @@ PrincipalDependency = Depends(get_principal)
 ReportDbDependency = Depends(get_product_analytics_report_session)
 
 
+async def get_explicit_user_session(
+    request: Request, principal: AuthenticatedPrincipal = PrincipalDependency
+):
+    maker = getattr(request.app.state, "db_sessionmaker", None)
+    workspace = principal.session_workspace_id
+    if workspace is None and len(principal.workspace_ids) == 1:
+        workspace = next(iter(principal.workspace_ids))
+    if maker is None or workspace is None:
+        raise ProblemDetail(
+            status=503, code="analytics_context_unavailable", title="Analytics context unavailable"
+        )
+    async with maker() as session:
+        await apply_tenant_context(
+            session,
+            TenantDatabaseContext(
+                organization_id=principal.organization_id,
+                workspace_id=workspace,
+                user_id=principal.user_id,
+                auth_session_id=principal.session_id,
+            ),
+        )
+        yield session
+
+
+ExplicitDbDependency = Depends(get_explicit_user_session)
+
+
+async def _explicit_user(db: AsyncSession, principal: AuthenticatedPrincipal) -> UserIdentity:
+    row = await db.scalar(
+        select(UserIdentity)
+        .where(
+            UserIdentity.id == principal.user_id,
+            UserIdentity.organization_id == principal.organization_id,
+            UserIdentity.status == "active",
+        )
+        .with_for_update()
+    )
+    if row is None:
+        raise ProblemDetail(
+            status=403, code="analytics_user_unavailable", title="Analytics user unavailable"
+        )
+    return row
+
+
+@router.get("/explicit-context")
+async def explicit_analytics_context(
+    request: Request,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession = ExplicitDbDependency,
+) -> dict[str, Any]:
+    user = await _explicit_user(db, principal)
+    context = context_for(
+        _settings_from_request(request),
+        user_id=str(principal.user_id),
+        state=user.product_analytics_state,
+    )
+    secret = getattr(request.app.state, "web_csrf_secret", None)
+    if is_web_cookie_session(request) and principal.session_id is not None and secret:
+        context["csrf_token"] = issue_csrf_token(
+            session_id=principal.session_id, secret=str(secret)
+        )
+    return context
+
+
+@router.put("/explicit-consent")
+async def explicit_analytics_consent(
+    request: Request,
+    body: ExplicitAnalyticsConsentRequest,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession = ExplicitDbDependency,
+    _csrf: None = Depends(require_web_csrf),
+) -> dict[str, Any]:
+    user = await _explicit_user(db, principal)
+    current = context_for(
+        _settings_from_request(request),
+        user_id=str(principal.user_id),
+        state=user.product_analytics_state,
+    )
+    if (
+        body.expected_pseudonymous_user_id is not None
+        and body.expected_pseudonymous_user_id != current["stable_pseudonymous_user_id"]
+    ):
+        raise ProblemDetail(
+            status=403, code="analytics_identity_changed", title="Analytics identity changed"
+        )
+    try:
+        user.product_analytics_state = change_consent(
+            _settings_from_request(request),
+            user.product_analytics_state,
+            accepted=body.accepted,
+            copy_version=body.copy_version,
+        )
+    except ValueError as exc:
+        raise ProblemDetail(
+            status=403, code="analytics_consent_unavailable", title="Analytics consent unavailable"
+        ) from exc
+    await db.commit()
+    return context_for(
+        _settings_from_request(request),
+        user_id=str(principal.user_id),
+        state=user.product_analytics_state,
+    )
+
+
+@router.post("/explicit-events")
+async def explicit_analytics_event(
+    request: Request,
+    body: ProductAnalyticsEventRequest,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    db: AsyncSession = ExplicitDbDependency,
+    _csrf: None = Depends(require_web_csrf),
+) -> dict[str, Any]:
+    user = await _explicit_user(db, principal)
+    try:
+        if body.event_name == "desktop_account_connected":
+            raise ValueError("account connection is a server-owned milestone")
+        validate_milestone(
+            _settings_from_request(request),
+            user_id=str(principal.user_id),
+            state=user.product_analytics_state,
+            payload=body.model_dump(),
+        )
+        updated, account_receipt = await run_in_threadpool(
+            deliver_milestone,
+            _settings_from_request(request),
+            user_id=str(principal.user_id),
+            state=user.product_analytics_state,
+            payload={
+                "event_name": "desktop_account_connected",
+                "properties": {
+                    "auth_method_category": "unknown",
+                    "bridge_present": False,
+                    "attribution_reliability": "unknown",
+                    "campaign_label_state": "unknown",
+                },
+            },
+        )
+        if not account_receipt["accepted"]:
+            raise ProblemDetail(
+                status=503, code="analytics_delivery_pending", title="Analytics delivery pending"
+            )
+        updated, receipt = await run_in_threadpool(
+            deliver_milestone,
+            _settings_from_request(request),
+            user_id=str(principal.user_id),
+            state=updated,
+            payload=body.model_dump(),
+        )
+    except ValueError as exc:
+        raise ProblemDetail(
+            status=403, code="explicit_analytics_rejected", title="Explicit analytics rejected"
+        ) from exc
+    if not receipt["accepted"]:
+        raise ProblemDetail(
+            status=503, code="analytics_delivery_pending", title="Analytics delivery pending"
+        )
+    user.product_analytics_state = updated
+    await db.commit()
+    return receipt
+
+
 @router.get("/catalog")
 async def product_analytics_catalog(request: Request) -> dict[str, Any]:
     settings = _settings_from_request(request)
@@ -137,7 +319,9 @@ async def product_analytics_catalog(request: Request) -> dict[str, Any]:
         "yandex_offline_conversion_events": list(yandex_offline_conversion_event_names()),
         "page_classes": [policy.as_dict() for policy in page_class_policies()],
         "retention": [rule.as_dict() for rule in retention_rules()],
-        "provider_config": ProductAnalyticsProviderConfig.from_settings(settings).as_redacted_dict(),
+        "provider_config": ProductAnalyticsProviderConfig.from_settings(
+            settings
+        ).as_redacted_dict(),
         "provider_lifecycle": [record.as_dict() for record in provider_lifecycle_records()],
         "providers": build_provider_readiness(settings).as_dict(),
         "rollout_readiness": build_rollout_readiness_report(settings).as_dict(),
@@ -185,7 +369,9 @@ async def product_analytics_telemetry_gate_access(state: str = "not_seen") -> di
 
 
 @router.post("/events")
-async def product_analytics_events(request: Request, body: ProductAnalyticsEventRequest) -> dict[str, Any]:
+async def product_analytics_events(
+    request: Request, body: ProductAnalyticsEventRequest
+) -> dict[str, Any]:
     settings = _settings_from_request(request)
     if not settings.product_analytics_enabled:
         raise ProblemDetail(
@@ -222,6 +408,7 @@ async def product_analytics_posthog_web_capture(
     provider_config = ProductAnalyticsProviderConfig.from_settings(settings)
     if not (
         settings.product_analytics_enabled
+        and not settings.product_analytics_explicit_funnel_enabled
         and provider_config.posthog.enabled
         and provider_config.posthog.autocapture_enabled
         and provider_config.posthog.web_direct_enabled
@@ -294,14 +481,20 @@ async def product_analytics_posthog_web_capture(
             title="PostHog autocapture event rejected",
             detail="Autocapture event contained forbidden analytics material.",
         ) from exc
-    if body.analytics_action is not None and body.analytics_action not in product_analytics_action_allowlist():
+    if (
+        body.analytics_action is not None
+        and body.analytics_action not in product_analytics_action_allowlist()
+    ):
         raise ProblemDetail(
             status=400,
             code="posthog_autocapture_action_rejected",
             title="PostHog autocapture action rejected",
             detail="Autocapture action is not in the approved stable action catalog.",
         )
-    if body.analytics_target is not None and body.analytics_target not in product_analytics_target_allowlist():
+    if (
+        body.analytics_target is not None
+        and body.analytics_target not in product_analytics_target_allowlist()
+    ):
         raise ProblemDetail(
             status=400,
             code="posthog_autocapture_target_rejected",
@@ -345,6 +538,7 @@ async def product_analytics_posthog_desktop_capture(
     settings = _settings_from_request(request)
     if not (
         settings.product_analytics_enabled
+        and not settings.product_analytics_explicit_funnel_enabled
         and settings.product_analytics_posthog_enabled
         and settings.product_analytics_posthog_desktop_direct_enabled
         and settings.product_analytics_direct_desktop_egress_enabled

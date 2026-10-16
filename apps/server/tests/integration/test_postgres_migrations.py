@@ -167,11 +167,20 @@ def test_alembic_migration_files_exist_for_clean_database_path() -> None:
     assert LINKED_WORKSPACE_MIGRATION.exists()
 
 
+@pytest.mark.parametrize(
+    "source_revision",
+    [
+        "0037_auth_rate_limit_buckets",
+        "0104_summary_share_scope_cascade",
+        "0102_explicit_analytics_consent",
+    ],
+)
 def test_production_share_head_upgrades_to_regeneration_merge(
+    source_revision: str,
     postgres_clean_database_url: str,
     monkeypatch,
 ) -> None:
-    """A database at the legacy auth head must reach the current migration head."""
+    """Both sibling heads and the legacy auth head preserve data on upgrade."""
 
     monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
     get_settings.cache_clear()
@@ -180,7 +189,30 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         "script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations")
     )
 
-    command.upgrade(alembic_config, "0037_auth_rate_limit_buckets")
+    command.upgrade(alembic_config, source_revision)
+
+    async def seed_existing_identity() -> None:
+        engine = create_async_engine(postgres_clean_database_url)
+        try:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "insert into organizations (id, slug, name) "
+                        "values (:id, 'migration-test', 'Synthetic organization')"
+                    ),
+                    {"id": ORG_ID},
+                )
+                await connection.execute(
+                    text(
+                        "insert into user_identities (id, organization_id, external_subject) "
+                        "values (:id, :org, 'synthetic-migration-user')"
+                    ),
+                    {"id": USER_ID, "org": ORG_ID},
+                )
+        finally:
+            await engine.dispose()
+
+    asyncio.run(seed_existing_identity())
     command.upgrade(alembic_config, "head")
 
     async def inspect_schema() -> tuple[
@@ -194,15 +226,19 @@ def test_production_share_head_upgrades_to_regeneration_merge(
                 ).all()
                 source_defaults = {
                     (row.table_name, row.column_name): row.column_default
-                    for row in await connection.execute(text(
-                        "select table_name, column_name, column_default "
-                        "from information_schema.columns where table_schema = 'public' "
-                        "and ((table_name = 'mediascribe_jobs' and column_name = 'request_mode') "
-                        "or (table_name = 'media_revisions' and column_name = 'source_kind'))"
-                    ))
+                    for row in await connection.execute(
+                        text(
+                            "select table_name, column_name, column_default "
+                            "from information_schema.columns where table_schema = 'public' "
+                            "and ((table_name = 'mediascribe_jobs' and column_name = 'request_mode') "
+                            "or (table_name = 'media_revisions' and column_name = 'source_kind'))"
+                        )
+                    )
                 }
                 assert "single_track" in source_defaults[("mediascribe_jobs", "request_mode")]
-                assert "initial_mixed_recording" in source_defaults[("media_revisions", "source_kind")]
+                assert (
+                    "initial_mixed_recording" in source_defaults[("media_revisions", "source_kind")]
+                )
                 tables = set(
                     (
                         await connection.scalars(
@@ -225,6 +261,26 @@ def test_production_share_head_upgrades_to_regeneration_merge(
                         )
                     ).all()
                 }
+                consent_column = (
+                    await connection.execute(
+                        text(
+                            "select data_type, is_nullable, column_default from information_schema.columns "
+                            "where table_schema = 'public' and table_name = 'user_identities' "
+                            "and column_name = 'product_analytics_state'"
+                        )
+                    )
+                ).one()
+                assert tuple(consent_column) == ("json", "YES", None)
+                identity = (
+                    await connection.execute(
+                        text(
+                            "select external_subject, product_analytics_state "
+                            "from user_identities where id = :id"
+                        ),
+                        {"id": USER_ID},
+                    )
+                ).one()
+                assert tuple(identity) == ("synthetic-migration-user", None)
                 maintenance_helper = await connection.scalar(
                     text("select pg_get_functiondef('rec_maintenance_allowed()'::regprocedure)")
                 )
@@ -259,10 +315,14 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         promotion_counter_function,
         promotion_counter_config,
     ) = asyncio.run(inspect_schema())
-    assert versions == ["0104_summary_share_scope_cascade"]
+    assert versions == ["0105_merge_analytics_sharing"]
     assert "public.promotion_campaigns" in promotion_counter_function
     assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {
+        "published_meeting_summaries",
+        "summary_delivery_batches",
+        "summary_recipient_deliveries",
+        "summary_email_suppressions",
         "dispatch_intents",
         "meeting_deletion_fences",
         "meeting_purge_journal",

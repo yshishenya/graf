@@ -190,3 +190,41 @@ Generated artifacts:
 ## Complexity Tracking
 
 No constitution violations are accepted in this plan. The broad PostHog autocapture posture is a product-approved first-party analytics requirement from clarification, not an exception to evidence, secret, or Yandex boundaries.
+
+## План минимального среза 2026-10-03
+
+Lane: high-risk privacy/auth/backend. Используем существующие 094/096 события и PostHog wrapper; отдельной analytics subsystem нет. Историческая live-ready запись не переносится на свежий runtime.
+
+1. Зафиксировать authenticated consent/identity contract; server-owned status не выводится из payload или workspace. Неизвестная/неодобренная версия раскрытия fail-closed.
+2. Подключить refresh контекста в desktop при появлении/смене auth; сброс на смену пользователя. Подтверждение конкретного пользователя не синтезируется автоматически.
+3. Исправить provider receipt и одноразовую веху: blocked/error не навсегда потребляет ключ; синтетический тест покрывает повтор и двойную отправку.
+4. Минимальный режим запрещает broad browser/direct desktop routes и IP enrichment; разрешает только каталог. Настройки supported project retention и dashboard/query — предложение, без production mutation или удаления.
+5. Изолированный тест: отдельные synthetic consent/identity fixtures, provider receipt, dedupe; ClickHouse readback только при доступном локальном стенде. HTTP accepted и реально ingested различаются. Обязательные exact PR CI; release/deploy отдельно.
+
+Блокеры выпуска: актуальное legal сопоставление существующих notices; supported management session/access; текущие backup/restore/access proofs; безопасная wiring capture key; реальный ingestion smoke/readback. Подтверждение категории/срока не маркирует эти доказательства выполненными.
+
+### Контракт записи согласия и зависимости
+
+Минимальный draft хранит отдельную запись текущего согласия на существующей user row (JSON, additive nullable migration); organization/user principal и существующий tenant RLS обязательны. В запись входят state/current copy version/accepted timestamp только после личного действия подтверждения; источник — authenticated consent endpoint, не query/event payload. Эндпоинт и запись default-off; тексты раскрытия не меняются. Пока существующая версия не получила реального legal/privacy readiness, context возвращает закрытый gate и запись принятия недоступна. Стенд явно использует synthetic configured version и fixture approval; такие значения не предлагаются для production.
+
+Desktop получает context от собственного API с существующим session transport, передаёт server pseudonym в event contract; accepted snapshot не живёт между аккаунтами. Событие перепроверяет серверную запись, поэтому отозванный snapshot клиента не позволяет продолжать сбор. UI подтверждения на существующем disclosure не считается внедрённым, пока реальный user-action путь не проверен; normal product workflows не блокируются новым default-off режимом. Outbox/delivery proof и dashboard freshness проверяются отдельно от согласия.
+
+### Доступное личное действие, дополнительная проверка 03.10.2026
+
+Связать уже существующий CookieConsent notice и кнопки внутреннего кабинета с explicit-consent. Тексты и версии политик не переиздавать. Для нового explicit контракта authoritative copy_version — существующая public_analytics_consent_copy_version browser notice; legacy product copy_version остается без изменений. Настройка отдельного локального cookie/storage key по серверному user pseudonym исключает перенос выбора между аккаунтами; hydration/onConsent не отправляет accepted. Только доверенное нажатие реальных all/necessary/save кнопок вызывает запись; перед PUT сверяются render-bound и current authenticated pseudonym, версия и CSRF. Server expected pseudonym защищает от account switch. До PUT закрывается local/native gate. Потерянный ответ после commit или ошибка отзыва не доказывают закрытый server gate: состояние может быть прежним или неизвестным. Пользователь получает сообщение, что сохранение/отзыв не подтвержден, и может повторить действие. Native остается закрыт до подтвержденного результата; persisted browser choice не восстанавливает личное согласие. Identity и acceptance-version проверяются под user row lock; withdrawal не блокируется readiness/off/stale copy (ранее исправленный P1).
+
+При default-off новый UI отсутствует. В explicit режиме существующий внутренний notice доступен, но PostHog/Yandex broad routes выключены; общая публичная analytics.js и landing/download/policies не изменяются. Новая кабинетная связка не собирает содержимое и не исполняет capture. После успешного PUT она посылает только сигнал changed в native bridge; desktop заново получает авторизованный серверный контекст, не доверяя сигналу как согласию. Отзыв сразу инвалидирует контекст; существующий session bridge не подменяется.
+
+Проверка: реальный browser click→API→Postgres, reload без autoaccept, A→B без переноса согласия, accept/revoke/error; native notify→context refresh и generation gate. Полный изолированный PostHog ingestion исследовать через существующий официальный dependency path, не через production credentials/fixtures или фиктивный ClickHouse INSERT.
+
+Native completion связан с поколением, полученным синхронно до создания Task: более старый changed не может снять более новый pending. Все trusted UI choices сериализуются; последний отличающийся выбор не теряется во время PUT. Реализационные доказательства и installation boundary: consent-ui-evidence.md / isolated-delivery-plan.md.
+
+## План продолжения 2026-10-04: отдельная политика потери аналитики
+
+Lane: high-risk-product, существующий срез096/issue7472. Уточнение владельца FR-034a заменяет требование нового резервирования только для минимального PostHog. Конституционная deployment граница должна явно разрешить это узкое исключение до реализации; продуктовые backup/release gates не меняются.
+
+1. Независимый reviewer проверяет требования/checklist; analyze подтверждает отсутствие unresolved critical/high и ownership T110 в issue7472.
+2. Settings/Compose/example получают required(default)|owner_accepted_loss. Общие operations evidence и campaign readiness остаются исходными. Только provider=posthog фильтрует восемь backup/restore blockers при строгом minimal scope и сообщает policy, waived blockers и unrecoverable-loss caveat. Retention/access/legal blockers не фильтруются.
+3. PostHog wrapper в этом режиме разрешает только explicit milestone path; generic capture блокируется до secret read/HTTP. Проверки: default/invalid policy; неподходящий scope; отсутствующие/stale/failed backup/restore; сохраняющиеся retention/access/legal блокировки; campaign/Yandex; явный UUID и восстановление required policy.
+4. Review/converge, focused tests, exact PR CI. Production использует обычный master release candidate/full CI/deploy dry-run; никаких прямых draft deploy, новых ключей/grants, extraction cookies или DB login обхода.
+5. Сначала реальные remaining ops proofs. При отсутствии operator доступа/365/noIP/readback/security approval сбор остаётся off; blocker сообщается конкретно. Новое резервирование не предлагается и не выполняется.

@@ -1,0 +1,516 @@
+{
+  "schema_version": 1,
+  "graf_source_sha": "b499eb196fdeabdb559fc76bc3688bfbd4b88d43",
+  "upstream_source_sha": "36259e3a58f40d0d09cbc98f179066a4addbb3db",
+  "synthetic_only": true,
+  "verdict": "BLOCKED_shared_runtime_memory",
+  "attempt_start_utc": "2026-10-03T21:27:00Z",
+  "attempt_deadline_utc": "2026-10-03T22:57:00Z",
+  "bootstrap_stopped_utc": "2026-10-03T22:37:29Z",
+  "postgres_applied_migrations": 3029,
+  "postgres_official_retries": 2,
+  "postgres_retries_exhausted": true,
+  "migration_child_killed": true,
+  "owned_migration_container_OOMKilled": true,
+  "observed_VM_MemAvailable_KiB": 425932,
+  "observed_VM_SwapTotal_KiB": 1048572,
+  "observed_VM_SwapFree_KiB": 196,
+  "successful_bootstrap_marker": false,
+  "clickhouse_scope_started": false,
+  "persons_scope_started": false,
+  "capture_service_started": false,
+  "ingestion_service_started": false,
+  "synthetic_team_seeded": false,
+  "actual_capture_attempts": 0,
+  "delivery_verified": false,
+  "deduplication_verified": false,
+  "persisted_noIP_verified": false,
+  "retention365_verified": false,
+  "production_changed": false,
+  "readiness_test_fixture_is_NOT_ops_evidence": true,
+  "notes": [
+    "Pinned real official pipeline was staged; no HTTP substitute or SQL event insertion.",
+    "Kafka initialization and core storage health succeeded; PostgreSQL bootstrap failed before events could be sent.",
+    "Desktop RAM increase/restart was not used because an original detached AutoRemove container could be removed on daemon exit.",
+    "No claim of preserving all 15 original IDs: other work replaced seven GRAF Dev containers; an AIRIS candidate exited 0 without OOM.",
+    "Production anonymize_ips=false remains a separate blocker: official ingestion can populate ingress IP when outbound $ip is null. Synthetic anonymize_ips=true was prepared but not executed."
+  ],
+  "resources": {
+    "approved_window": "2026-10-03T21:27:00Z/2026-10-03T22:57:00Z",
+    "approved_max_download_GiB": 6,
+    "approved_max_disk_GiB": 20,
+    "approved_max_cpu": 4,
+    "approved_max_runtime_memory_GiB": 10,
+    "approved_optional_Desktop_memory_MiB": 16384,
+    "actual_Desktop_memory_setting_MiB": 8092,
+    "Desktop_setting_changed": false,
+    "daemon_restarted": false,
+    "reason": "An original detached container has AutoRemove=true; daemon restart risks removing it. Preserve shared work instead of using optional RAM increase.",
+    "initial_running_containers": 15,
+    "original_IDS_not_all_preserved": true,
+    "external_changes_observed": "Seven GRAF Dev containers were replaced by other work; one AIRIS candidate exited 0 with OOMKilled=false. This attempt did not stop/recreate any of them.",
+    "network_download_conservative_upper_bound_bytes": 4401066794,
+    "download_method": "All pinned compressed layers + source archive + an entire extra Node image allowance after disconnected pull; cached layers may make actual download smaller.",
+    "service_cap_total_MiB": 7040,
+    "service_cap_total_cpu": 4.0,
+    "no_host_packages_installed": true,
+    "no_production_access": true,
+    "no_new_real_keys_operators_grants": true
+  },
+  "disk": {
+    "image_sizes_upper_bound_bytes": 10800080873,
+    "owned_volumes_bytes": 265839026,
+    "owned_volume_count": 9,
+    "workspace_files_bytes": 927080757,
+    "note": "Sum image sizes conservatively counts shared layers repeatedly; shared unrelated volumes excluded",
+    "disk_upper_bound_bytes": 11993000656,
+    "within_20GiB": true
+  },
+  "cleanup": {
+    "completed_at_utc": "2026-10-03T22:42:46.216277+00:00",
+    "remaining_owned_containers": 0,
+    "remaining_owned_volumes": 0,
+    "remaining_owned_networks": 0,
+    "removed_container_count": 9,
+    "removed_volume_count": 9,
+    "removed_network_count": 1,
+    "image_cleanup": [
+      {
+        "digest": "sha256:a2b77425b3e03cd5d361254178f536491b1864dc35c005231f1f98c3d6b5c795",
+        "action": "removed_own_pinned_reference",
+        "exit_code": 0
+      },
+      {
+        "digest": "sha256:1137e403392402b506ec4098cf223563bba0c8a70e9895e42d93ffbee2828673",
+        "action": "removed_own_pinned_reference",
+        "exit_code": 0
+      },
+      {
+        "digest": "sha256:3234ff82bfec952d8128294267e9a42ac6e403c46463ccfff160831ff73f866b",
+        "action": "removed_own_pinned_reference",
+        "exit_code": 0
+      },
+      {
+        "digest": "sha256:b4ed30348672cbf5a838bbab691fe0024076272e6b181305171ceb85aa991fab",
+        "action": "removed_own_pinned_reference",
+        "exit_code": 0
+      },
+      {
+        "digest": "sha256:14e01f0af72f136b165f78fa11f8a6ce6c058e68c820d166c7591180a1ad1156",
+        "action": "removed_own_pinned_reference",
+        "exit_code": 0
+      },
+      {
+        "digest": "sha256:e581d40ae176a68b441336ba455a63c4e27e402f93195c81dd517f99186651a9",
+        "action": "removed_own_pinned_reference",
+        "exit_code": 0
+      },
+      {
+        "digest": "sha256:d9caee99ca1d2b69165b7015d2fc4bdf484b403edea8ec62d3bc90fa202b10b6",
+        "action": "removed_own_pinned_reference",
+        "exit_code": 0
+      },
+      {
+        "digest": "sha256:3d827f3ffa09130e717f7f5852cbaa86bc6a808632783e5eb5ee1ecb240afaa6",
+        "action": "removed_own_pinned_reference",
+        "exit_code": 0
+      },
+      {
+        "digest": "sha256:a0338805708d3fa0c3b880080a77c8de065abdd45e6b3a6a26e939f97dea3a67",
+        "action": "removed_own_pinned_reference",
+        "exit_code": 0
+      },
+      {
+        "digest": "sha256:5b80401218169818425cd9696dfb361e157477c4a38a3237b4f323763fba2ef6",
+        "action": "removed_own_pinned_reference",
+        "exit_code": 0
+      },
+      {
+        "digest": "sha256:1837ca4a434ce8a5e7e22c9a053ac7445220746325e8d2c532f34e2c201a69b7",
+        "action": "removed_own_pinned_reference",
+        "exit_code": 0
+      }
+    ],
+    "global_prune_used": false,
+    "Desktop_settings_changed": false,
+    "daemon_restarted": false,
+    "shared_containers_stopped_or_recreated_by_attempt": false,
+    "downloaded_source_cache_removed": true
+  },
+  "images": [
+    {
+      "ref": "posthog/posthog:36259e3a58f40d0d09cbc98f179066a4addbb3db",
+      "revision": "36259e3a58f40d0d09cbc98f179066a4addbb3db",
+      "arm64_digest": "sha256:a2b77425b3e03cd5d361254178f536491b1864dc35c005231f1f98c3d6b5c795",
+      "compressed_layer_bytes": 2101308935
+    },
+    {
+      "ref": "ghcr.io/posthog/posthog-node:master",
+      "revision": "a96ef22ee9d646d58705c7ff2249eabd2e7f1c0b",
+      "arm64_digest": "sha256:1137e403392402b506ec4098cf223563bba0c8a70e9895e42d93ffbee2828673",
+      "compressed_layer_bytes": 502578750
+    },
+    {
+      "ref": "ghcr.io/posthog/posthog/capture:master",
+      "revision": "d5392dc4c18391ab68b04ee6816ebaabbbcd07a7",
+      "arm64_digest": "sha256:3234ff82bfec952d8128294267e9a42ac6e403c46463ccfff160831ff73f866b",
+      "compressed_layer_bytes": 145499132
+    },
+    {
+      "ref": "ghcr.io/posthog/posthog/personhog-router:master",
+      "revision": "d384eedc2d81a3de0af031956bf0e9bd3c83ad36",
+      "arm64_digest": "sha256:b4ed30348672cbf5a838bbab691fe0024076272e6b181305171ceb85aa991fab",
+      "compressed_layer_bytes": 107696437
+    },
+    {
+      "ref": "ghcr.io/posthog/posthog/personhog-replica:master",
+      "revision": "d384eedc2d81a3de0af031956bf0e9bd3c83ad36",
+      "arm64_digest": "sha256:14e01f0af72f136b165f78fa11f8a6ce6c058e68c820d166c7591180a1ad1156",
+      "compressed_layer_bytes": 100460625
+    },
+    {
+      "ref": "postgres:15.12-alpine",
+      "revision": null,
+      "arm64_digest": "sha256:e581d40ae176a68b441336ba455a63c4e27e402f93195c81dd517f99186651a9",
+      "compressed_layer_bytes": 104724772
+    },
+    {
+      "ref": "redis:7.2-alpine",
+      "revision": null,
+      "arm64_digest": "sha256:d9caee99ca1d2b69165b7015d2fc4bdf484b403edea8ec62d3bc90fa202b10b6",
+      "compressed_layer_bytes": 16375034
+    },
+    {
+      "ref": "clickhouse/clickhouse-server:26.6.2.158",
+      "revision": null,
+      "arm64_digest": "sha256:3d827f3ffa09130e717f7f5852cbaa86bc6a808632783e5eb5ee1ecb240afaa6",
+      "compressed_layer_bytes": 257395178
+    },
+    {
+      "ref": "zookeeper:3.7.0",
+      "revision": null,
+      "arm64_digest": "sha256:a0338805708d3fa0c3b880080a77c8de065abdd45e6b3a6a26e939f97dea3a67",
+      "compressed_layer_bytes": 95940639
+    },
+    {
+      "ref": "redpandadata/redpanda:v25.1.9",
+      "revision": null,
+      "arm64_digest": "sha256:5b80401218169818425cd9696dfb361e157477c4a38a3237b4f323763fba2ef6",
+      "compressed_layer_bytes": 172790212
+    },
+    {
+      "ref": "chrislusf/seaweedfs:4.29",
+      "revision": null,
+      "arm64_digest": "sha256:1837ca4a434ce8a5e7e22c9a053ac7445220746325e8d2c532f34e2c201a69b7",
+      "compressed_layer_bytes": 94748154
+    }
+  ],
+  "official_source_file_sha256": {
+    "docker-compose.base.yml": "7899eb1b792e3f7686f070a9fe9a30e33c46de008e81707fbee4f4fa84d6ecda",
+    "docker-compose.hobby.yml": "594faac54a8f74587237357b1a7d624468fff4d25fb92d6a230c98fa48b543ce",
+    "docker-compose.dev.yml": "f39215039ac39ffa8e29a25c83ca11a7be99dd6d7543a064392c13ce4cc42072",
+    "bin/migrate": "0da8e191049923822e8f1b4eb39c8670b392eb842e7360d8738237a1a9365fd3",
+    "docker/clickhouse/users-dev.xml": "287be2b6f7600ded238c99bce2618f23fbabfc6d1d51729bd3647df51a5a9d57",
+    "nodejs/src/common/utils/event.ts": "f2cb0ec52ae0f95978ed44c839709140252d7e8844afe5c01dd70419de7df4ac",
+    "nodejs/src/ingestion/common/steps/event-processing/prepare-event-step.ts": "0f708bd3f0a7fbde22b94b342422b9281c998751d4c425e406673971fc70210e"
+  },
+  "limits_of_cause": "OOMKilled and memory pressure observed; cgroup cap versus global OOM not distinguished. Snapshots do not identify which external actor replaced shared IDs.",
+  "independent_read_only_review": {
+    "verdict": "BLOCKED_scope_correct_cleanup_confirmed",
+    "minimal_funnel_checked": 8,
+    "minimal_funnel_unchecked": 0,
+    "provider_rollout_checked": 52,
+    "provider_rollout_unchecked": 0
+  },
+  "shared_original_status_after_cleanup": {
+    "at_utc": "2026-10-03T22:49:35.407930+00:00",
+    "original_count": 15,
+    "original_running": 7,
+    "original_exited": 1,
+    "original_absent": 7,
+    "Docker_memory_setting_MiB": 8092,
+    "setting_was_readable": true,
+    "not_changed_reason": "Preserve detached AutoRemove workload: daemon restart can remove it, despite approved resource ceiling.",
+    "attempt_did_not_stop_or_recreate_shared_containers": true,
+    "rows": [
+      {
+        "initial_id": "8266d0f316f5",
+        "name": "/airis-mail-observation-admin-candidate-candidate-web-1",
+        "original_exists": true,
+        "original_state": {
+          "id": "8266d0f316f5b649090169f7d37f1a215f84b6879947ad7f50ca9796380a2ff1",
+          "name": "/airis-mail-observation-admin-candidate-candidate-web-1",
+          "running": false,
+          "status": "exited",
+          "oom_killed": false,
+          "started_at": "2026-10-03T21:19:34.450314833Z",
+          "finished_at": "2026-10-03T21:59:17.588641796Z",
+          "exit_code": 0,
+          "restart_count": 0,
+          "health": "unhealthy",
+          "auto_remove": false
+        }
+      },
+      {
+        "initial_id": "d227522ed23d",
+        "name": "/graf-dev-rec-media-worker-1",
+        "original_exists": false,
+        "original_state": null,
+        "current_same_name_replacement": {
+          "id": "3605b999a5b1386015b4697d1fe96a62e466280c2211e7f70710f9f1c3f22136",
+          "name": "/graf-dev-rec-media-worker-1",
+          "running": true,
+          "status": "running",
+          "oom_killed": false,
+          "started_at": "2026-10-03T21:59:15.340936129Z",
+          "finished_at": "0001-01-01T00:00:00Z",
+          "exit_code": 0,
+          "restart_count": 0,
+          "health": "healthy",
+          "auto_remove": false
+        }
+      },
+      {
+        "initial_id": "136de5b9dacc",
+        "name": "/graf-dev-api-1",
+        "original_exists": false,
+        "original_state": null,
+        "current_same_name_replacement": {
+          "id": "cf273c6b81ded2e62de40b73d6720a469e11b56f72ec430f24fe6454ae86771a",
+          "name": "/graf-dev-api-1",
+          "running": true,
+          "status": "running",
+          "oom_killed": false,
+          "started_at": "2026-10-03T21:59:15.363495545Z",
+          "finished_at": "0001-01-01T00:00:00Z",
+          "exit_code": 0,
+          "restart_count": 0,
+          "health": "healthy",
+          "auto_remove": false
+        }
+      },
+      {
+        "initial_id": "4d7f22d81912",
+        "name": "/graf-dev-rec-processing-worker-1",
+        "original_exists": false,
+        "original_state": null,
+        "current_same_name_replacement": {
+          "id": "ed922314e0a483e6344c4c540de068bb8131696ce8943a647e8015fcb59cc198",
+          "name": "/graf-dev-rec-processing-worker-1",
+          "running": true,
+          "status": "running",
+          "oom_killed": false,
+          "started_at": "2026-10-03T21:59:15.340014879Z",
+          "finished_at": "0001-01-01T00:00:00Z",
+          "exit_code": 0,
+          "restart_count": 0,
+          "health": "healthy",
+          "auto_remove": false
+        }
+      },
+      {
+        "initial_id": "f809a1c9cf83",
+        "name": "/graf-dev-rec-maintenance-1",
+        "original_exists": false,
+        "original_state": null,
+        "current_same_name_replacement": {
+          "id": "f977630d2697180c56a9ac55e6cdb9026b12820c2d69b0dbda1be6ea5e3c8bc1",
+          "name": "/graf-dev-rec-maintenance-1",
+          "running": true,
+          "status": "running",
+          "oom_killed": false,
+          "started_at": "2026-10-03T21:59:16.503968754Z",
+          "finished_at": "0001-01-01T00:00:00Z",
+          "exit_code": 0,
+          "restart_count": 0,
+          "health": null,
+          "auto_remove": false
+        }
+      },
+      {
+        "initial_id": "e7911ba3f08f",
+        "name": "/graf-dev-rec-temporal-1",
+        "original_exists": false,
+        "original_state": null,
+        "current_same_name_replacement": {
+          "id": "307a36ad46fb124665407e5bfba8305a713c2487d90c1d1c16d21c197f819e14",
+          "name": "/graf-dev-rec-temporal-1",
+          "running": true,
+          "status": "running",
+          "oom_killed": false,
+          "started_at": "2026-10-03T21:58:56.199957217Z",
+          "finished_at": "0001-01-01T00:00:00Z",
+          "exit_code": 0,
+          "restart_count": 0,
+          "health": "healthy",
+          "auto_remove": false
+        }
+      },
+      {
+        "initial_id": "fcd262b4fd8b",
+        "name": "/graf-dev-rec-minio-1",
+        "original_exists": false,
+        "original_state": null,
+        "current_same_name_replacement": {
+          "id": "b2925cd7d09c94e8a3b0abb31c19922e1fe1a10e15643abcef6fdbdc06a7cef6",
+          "name": "/graf-dev-rec-minio-1",
+          "running": true,
+          "status": "running",
+          "oom_killed": false,
+          "started_at": "2026-10-03T21:58:50.345316923Z",
+          "finished_at": "0001-01-01T00:00:00Z",
+          "exit_code": 0,
+          "restart_count": 0,
+          "health": "healthy",
+          "auto_remove": false
+        }
+      },
+      {
+        "initial_id": "063f50c36aeb",
+        "name": "/graf-dev-rec-postgres-1",
+        "original_exists": false,
+        "original_state": null,
+        "current_same_name_replacement": {
+          "id": "ffd833887f027c48ab6ed62cd7fa4e4a4e50566f7a6adaec42daa323a830b4e8",
+          "name": "/graf-dev-rec-postgres-1",
+          "running": true,
+          "status": "running",
+          "oom_killed": false,
+          "started_at": "2026-10-03T21:58:50.311733756Z",
+          "finished_at": "0001-01-01T00:00:00Z",
+          "exit_code": 0,
+          "restart_count": 0,
+          "health": "healthy",
+          "auto_remove": false
+        }
+      },
+      {
+        "initial_id": "761ea5ca98f3",
+        "name": "/airis-paid-email-image-test-postgres-1",
+        "original_exists": true,
+        "original_state": {
+          "id": "761ea5ca98f36071285ba02b4b7d61e0d626c442f6cbc5d1dd72bad3a7c39557",
+          "name": "/airis-paid-email-image-test-postgres-1",
+          "running": true,
+          "status": "running",
+          "oom_killed": false,
+          "started_at": "2026-10-03T04:07:42.697231966Z",
+          "finished_at": "0001-01-01T00:00:00Z",
+          "exit_code": 0,
+          "restart_count": 0,
+          "health": "healthy",
+          "auto_remove": false
+        }
+      },
+      {
+        "initial_id": "335f67a4b1f9",
+        "name": "/airis-image-audit-image-test-postgres-1",
+        "original_exists": true,
+        "original_state": {
+          "id": "335f67a4b1f9284930da44ae013d8bea898b55fa7ff4bd0a10a0e36ece1d68b3",
+          "name": "/airis-image-audit-image-test-postgres-1",
+          "running": true,
+          "status": "running",
+          "oom_killed": false,
+          "started_at": "2026-10-03T01:41:34.763694929Z",
+          "finished_at": "0001-01-01T00:00:00Z",
+          "exit_code": 0,
+          "restart_count": 0,
+          "health": "healthy",
+          "auto_remove": false
+        }
+      },
+      {
+        "initial_id": "52ac456a0c28",
+        "name": "/airis-real-checkout-smtp-1",
+        "original_exists": true,
+        "original_state": {
+          "id": "52ac456a0c2812f95885d92f76cefd614552b513449564d9d41defd9940430ee",
+          "name": "/airis-real-checkout-smtp-1",
+          "running": true,
+          "status": "running",
+          "oom_killed": false,
+          "started_at": "2026-10-02T20:54:03.034942554Z",
+          "finished_at": "0001-01-01T00:00:00Z",
+          "exit_code": 0,
+          "restart_count": 0,
+          "health": null,
+          "auto_remove": false
+        }
+      },
+      {
+        "initial_id": "f77b5f7643ac",
+        "name": "/airis-real-checkout-postgres-1",
+        "original_exists": true,
+        "original_state": {
+          "id": "f77b5f7643acce31355ffcc1f3955d2f17db008af96b1b6851f490ff03f7b932",
+          "name": "/airis-real-checkout-postgres-1",
+          "running": true,
+          "status": "running",
+          "oom_killed": false,
+          "started_at": "2026-10-02T20:54:03.025290096Z",
+          "finished_at": "0001-01-01T00:00:00Z",
+          "exit_code": 0,
+          "restart_count": 0,
+          "health": "healthy",
+          "auto_remove": false
+        }
+      },
+      {
+        "initial_id": "c1428d5f2b45",
+        "name": "/airis-acceptance-audit-postgres-1",
+        "original_exists": true,
+        "original_state": {
+          "id": "c1428d5f2b45907233d1df8ca496808c75f1d407b9007f7c13d03431bef0187b",
+          "name": "/airis-acceptance-audit-postgres-1",
+          "running": true,
+          "status": "running",
+          "oom_killed": false,
+          "started_at": "2026-10-02T19:19:54.665880592Z",
+          "finished_at": "0001-01-01T00:00:00Z",
+          "exit_code": 0,
+          "restart_count": 0,
+          "health": "healthy",
+          "auto_remove": false
+        }
+      },
+      {
+        "initial_id": "cbfaf9a4305b",
+        "name": "/open-webui-metrica-airis-frontend-run-78a094e099a6",
+        "original_exists": true,
+        "original_state": {
+          "id": "cbfaf9a4305b70be9ae6cef6a2bb45441405f469dc9295411fc9a55966d5e13b",
+          "name": "/open-webui-metrica-airis-frontend-run-78a094e099a6",
+          "running": true,
+          "status": "running",
+          "oom_killed": false,
+          "started_at": "2026-10-01T17:50:27.238393222Z",
+          "finished_at": "0001-01-01T00:00:00Z",
+          "exit_code": 0,
+          "restart_count": 0,
+          "health": null,
+          "auto_remove": true
+        }
+      },
+      {
+        "initial_id": "d950fefa7845",
+        "name": "/uag-verify-pg",
+        "original_exists": true,
+        "original_state": {
+          "id": "d950fefa7845e696f259c7abc268e5f2814421b63b9c7902d32e20a4135fa040",
+          "name": "/uag-verify-pg",
+          "running": true,
+          "status": "running",
+          "oom_killed": false,
+          "started_at": "2026-09-29T23:10:27.987877168Z",
+          "finished_at": "0001-01-01T00:00:00Z",
+          "exit_code": 0,
+          "restart_count": 0,
+          "health": null,
+          "auto_remove": false
+        }
+      }
+    ]
+  },
+  "Desktop_RAM_not_changed_reason": "Memory setting readable; approved 16GiB increase was deliberately not used because daemon restart can remove original detached AutoRemove workload."
+}

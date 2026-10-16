@@ -1,0 +1,274 @@
+{
+  "base": "d75ba830c7a08621e9471ef62bf77b5bc66f80fb",
+  "draft_source": "a2bfee6b5ecb4e855cc96e9cc983195ff34adac8",
+  "status": "validated_current_base_approved_commit",
+  "files": [
+    {
+      "path": ".specify/memory/constitution.md",
+      "sha256": "0a8b6b23579443a08765a309705b48a783963f84a4b71e83891db5857ba4635b"
+    },
+    {
+      "path": "apps/macos/RecApp/App/TwoBrainRecApp.swift",
+      "sha256": "5f7e96d6edfded58d2ad392ae55df498a569e6b04a5822862cc5c62d886a21e8"
+    },
+    {
+      "path": "apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift",
+      "sha256": "eb020a00396edaff4de7afde69455b6f566c3f5c1f97faf23eff4d934af295be"
+    },
+    {
+      "path": "apps/macos/RecApp/Sources/Upload/ProductActivationAnalyticsClient.swift",
+      "sha256": "5e198cb13a16e1e7664e14adb54a8c50794abb5a9d64d233ecf18249fba094a2"
+    },
+    {
+      "path": "apps/macos/RecApp/Sources/Upload/ProductActivationAnalyticsReporter.swift",
+      "sha256": "e6d7a88d1f778f242d7eca17700b2ed96f284510e7672b118eb41d6ed35e9604"
+    },
+    {
+      "path": "apps/macos/Shared/Tests/ProductActivationAnalyticsContractTests.swift",
+      "sha256": "3e72fb8d2890667ed6dcc70f905f36580ff6ca7e22c55e79bff530ade07d114e"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/api/product_analytics.py",
+      "sha256": "92cc01bef16987ef27dc72bcbbc69d461991935ba82a2befff9681eb6ae57641"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/explicit-consent.js",
+      "sha256": "ab2d0d85c60dcdf391f93d88a52fb5021ed64c888893275e827ce6a56408f0cf"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/base.html",
+      "sha256": "962653607b5c2883cf2de1fcc94d24cf502b894767a3380c6b114484e594599c"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/config.py",
+      "sha256": "835f900f1e56dd0c6385fe7e477ced311fef002c739a1bb7b0933db1a080d53f"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/db/migrations/versions/0102_explicit_analytics_consent.py",
+      "sha256": "ee2de0f89332f02cdd4ded64d3f0dfc3afa98b2134bebb231eefcd7557fb2cac"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/db/migrations/versions/0105_merge_analytics_sharing.py",
+      "sha256": "b079d194188d6926c91162af9fb0fe3c95fb0607cf01145a76ddc953f33e4748"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/db/models/identity.py",
+      "sha256": "a028c175dc921c6d67b3501ebbf606db4eccd37afaae29dcb689b44c1b496524"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/product_analytics/browser_context.py",
+      "sha256": "649c12e7a1de5361e3f749fe43992f7604339c62952fa4c506a12f09659f84a2"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/product_analytics/explicit_funnel.py",
+      "sha256": "245c1508ae442fb47020623156e80914f3f8b27d23f01710d8e27a83608cf8e4"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/product_analytics/ingest.py",
+      "sha256": "41e3c0bde472c244eff986773bd1c3b388daf28176c42f5e4b81d45faafe662e"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/product_analytics/posthog_client.py",
+      "sha256": "6c9f763f4ed1215bdbfc080a5b95ebf8f11162b80d6a205297dc778a9e202855"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/product_analytics/provider_delivery_gate.py",
+      "sha256": "2b52752106ec76d4012eeb0fee871d712b2187ef5004d8a5ba9efaed73ac8762"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/product_analytics/provider_readiness.py",
+      "sha256": "59dd53db768b798dc30c213f585d7e0e1ddfc0bafb2b7e5510481aca24ee98d8"
+    },
+    {
+      "path": "apps/server/tests/browser/explicit-consent-ui.test.cjs",
+      "sha256": "7c6392f8ddfdfcec7d1ba15363d60911ecb5fda929f2748b0f5c8b63b89bae49"
+    },
+    {
+      "path": "apps/server/tests/integration/test_explicit_consent_ui.py",
+      "sha256": "09f5c630ff921b2e28920eb1cbc96b1ec9b902e951b6e73aab2ac929b36b31f4"
+    },
+    {
+      "path": "apps/server/tests/integration/test_explicit_product_funnel.py",
+      "sha256": "d77e07bf5639727fd796d780d0a3de8fa1a309b0d2fe0ba59e1c6eca3a3effe2"
+    },
+    {
+      "path": "apps/server/tests/integration/test_postgres_migrations.py",
+      "sha256": "1e8b282688d8bcf2318fa50bc6a86973b103f2cd589587353c0afae9c9f87b1a"
+    },
+    {
+      "path": "apps/server/tests/integration/test_product_analytics_provider_env.py",
+      "sha256": "d59ae5e865ae7d8847a297b0ff33f161f11dc0eb7be6c4f2cf279976ce45e5e4"
+    },
+    {
+      "path": "apps/server/tests/unit/test_explicit_product_funnel.py",
+      "sha256": "f69ce42fefd0e9d83b4359a6a76a0a431a00adaf35212c76b07760fd85e4e174"
+    },
+    {
+      "path": "apps/server/tests/unit/test_playback_normalization_worker.py",
+      "sha256": "8c4653ae16c967e154f4d250790fb3860cec3257bb01acca196f2a2add565a15"
+    },
+    {
+      "path": "apps/server/tests/unit/test_product_analytics_provider_delivery_gate.py",
+      "sha256": "fbf9a049634a5b8eadf76dc078bf8a85b9f570fb463e201642b8f5b35cde220c"
+    },
+    {
+      "path": "changes/unreleased/F96.yaml",
+      "sha256": "28b0370e8f0782a004408719ca46a43eff20ca70e0ab852761b0f35d8d5aeef0"
+    },
+    {
+      "path": "docs/agent-guidance/product-gates.md",
+      "sha256": "388310f70243e702f6fdf72b9d0734fad12137420ddb364bcbc63d926e860bf1"
+    },
+    {
+      "path": "infra/docker-compose.yml",
+      "sha256": "68e360684f3117b1d49e28e2142be4eaf700c4951efed60d35003c0a41050d9e"
+    },
+    {
+      "path": "infra/env/rec.production.env.example",
+      "sha256": "19e11cde1aa8483efc4fff573da78550b9eef838187f99c5c3e343f2e715404f"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/checklists/consent-ui.md",
+      "sha256": "02fac0fb1a4e2e130176ff9bb70e14cb7e0008d88a8e476dff7372a50258edb0"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/checklists/integration-recovery.md",
+      "sha256": "9bdb63d902d70b72c724b92c778418dc1d6422264cff8e55e173926333346bfc"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/checklists/minimal-funnel.md",
+      "sha256": "23de18294c997c6e3e90e80b695c914fa2d216166bdc1168e53fe95c7d76ca1c"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/checklists/posthog-no-backup.md",
+      "sha256": "9288c875c0232047428766959cbd2aa096fbd7db6def657e9e2222f1181e563f"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/consent-ui-evidence.md",
+      "sha256": "862377248788de8c0609c743a8d09fa1c4a9100f4d5c4fe858fb0c0d0c13cddc"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/consent-ui-review.md",
+      "sha256": "eab9c1108bfe9f23e5ffb1ca3793615129d2cec7c7a1b8f9a8a2135cc70e0088"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/integration-recovery-analysis-2026-10-16.md",
+      "sha256": "7d81ba8392fa7915e9012eac08f25c217feb9bd1147b287f1db04ccba7307c36"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/integration-recovery-code-review.md",
+      "sha256": "7c4d12bb171b6fac48a841c978c688f65f28aac46df181b4e6155dd462536391"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/integration-recovery-converge-2026-10-16.md",
+      "sha256": "bdb74b12801ef41b34a7f732dafccfb5610244873b7bfd23473c9e0c602020d7"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/integration-recovery-plan-2026-10-16.md",
+      "sha256": "129e29e247ad8773b1f9fba60f9770f03be9a8e1d5684707000c6340c973dc7c"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/integration-recovery-requirements-review.md",
+      "sha256": "bdaa4b882df1e2f4c84f0bab05940988cf0e9806addd96f11127b7fb4a427392"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/integration-recovery-validation-2026-10-16.md",
+      "sha256": "c1cf8ca714cc17f079f706d4f374b9a191a2a26c1b7e54ce728ff2a11e013e1e"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/isolated-delivery-attempt.md",
+      "sha256": "9e12daa2367613a95c727bd0c413d232d3fac52ee57173cd70cba8d7b7916241"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/isolated-delivery-plan.md",
+      "sha256": "66ed28d3c6a30ac61574491f1791907ed9e9095cca465a894639e6fb143c5dc6"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/minimal-funnel-analysis.md",
+      "sha256": "1fa50166b17195256ed6adc90835cfe79855c67eca1c58c40833d7a75b94fcff"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/minimal-funnel-code-review.md",
+      "sha256": "f3e562957a545993bbe4141b8dfc83276ef7bbe599c26d8de938a50ff35b6da9"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/minimal-funnel-operator-handoff.md",
+      "sha256": "f9af3121df0e0b2db35bea813d682647fe282c563abee834558d5216db313447"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/minimal-funnel-queries.sql",
+      "sha256": "ee74d8de0c2a01ded8e08464415b75b71cc58b6cb5043fa4b1cbd6aa6d6f78c2"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/minimal-funnel-review.md",
+      "sha256": "4bdd0da3f32b8f1dae9b19a3f3d66d40d2414d330c9a83dbff5fe03cf92fe819"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/minimal-funnel-validation.md",
+      "sha256": "5dc61a3ca8a3fe954b9251f690b1beca7c2265af278bf798e2c2df32f13ba74a"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/plan.md",
+      "sha256": "ab73f5a59ea0c0622c3648fe0840b3912f4fc21cfef0fb854d0963a4274b2c39"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/posthog-no-backup-analysis.md",
+      "sha256": "75af3e57f7017db55d6ca0d2475fcf7c3d5508143c61dbe47b0dcb7a120208e3"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/posthog-no-backup-code-review.md",
+      "sha256": "277c6600600d784a6ca6d5d8710f16b4303d614e77788006bb39437d02a6a5a1"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/posthog-no-backup-review.md",
+      "sha256": "cacf95e7aa584dbc7f58c68619cb1a38ecfb628133f63521636d0783550dd67d"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/posthog-no-backup-validation.md",
+      "sha256": "6d3cf15f0bc1727485ef759749919dd7d156f8c61dc4d2d6fdf6aa7d40493746"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/quickstart.md",
+      "sha256": "10b3e421861abcfc13dbc008d1f75462e1de494ee3a79b4bfd024d2d54c3c6ed"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/spec.md",
+      "sha256": "5acaa875603f616c17dd102b7e325738823361fcbdef00d8af782e5ff126d91d"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/tasks.md",
+      "sha256": "539ff8e0aad410a8677ddbfea5989159e52067e912faf12bf9bd6f7ab2b27f2c"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/validation/isolated-posthog-attempt.json",
+      "sha256": "56fd46428dd07ca0fc3943439dec5eb027e546a6fc363a2032e7fb78b4aa8eaf"
+    },
+    {
+      "path": "specs/096-product-analytics-provider-rollout/validation/posthog-no-backup-code-ci.json",
+      "sha256": "fb80e0b76cf137a3af1780d90fbbdb646702d8bd31a71681b969358abf7b1bb5"
+    }
+  ],
+  "local_validation_logs": [
+    {
+      "name": "graf-f096-recovery-tests.log",
+      "sha256": "cffe875e799a2a911d9f656e2241bb4627bb81240c22805a6b79f9e27d2d8373"
+    },
+    {
+      "name": "graf-f096-recovery-browser.log",
+      "sha256": "22386e148005255912867cdf4572ca7cb177070c9f72b3ad8b2ff22d92113c75"
+    },
+    {
+      "name": "graf-f096-recovery-regressions.log",
+      "sha256": "804c34ab12a82b07c7b4a3f38811abfb811caebc53d1383fbfb76f3241ca13a3"
+    },
+    {
+      "name": "graf-f096-recovery-swift.log",
+      "sha256": "a6f0ae8b632e0098c313e8e76a7fcff8de8f25a8404a8865858eb334547a0276"
+    },
+    {
+      "name": "graf-f096-current-base-tests.log",
+      "sha256": "219b3778851bf2ddd410757be2f2f99acebc16149c7aae25afd4f1c90702d3b1"
+    }
+  ],
+  "prior_base": "d567a7dc51b0c4d99b22660d27950316ae609a66"
+}

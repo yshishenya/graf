@@ -573,6 +573,118 @@ final class ProductActivationAnalyticsContractTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testExplicitContextUsesServerUserIdentityAndResetsOnAuthChange() async throws {
+        let transport = RecordingProductActivationTransport()
+        let reporter = try Self.makeReporter(transport: transport)
+        transport.setContext(identity: "graf_pseudo_user_" + String(repeating: "a", count: 32))
+        await reporter.refreshContext()
+        _ = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "stable")
+        XCTAssertEqual(transport.payloads.last?.stablePseudonymousUserId, "graf_pseudo_user_" + String(repeating: "a", count: 32))
+        XCTAssertTrue(transport.explicitRoutesOnly)
+        reporter.invalidateContext()
+        let denied = await reporter.noteFirstValueSessionCompleted(usefulResultType: "transcript")
+        XCTAssertEqual(denied, .telemetryGateClosed(.firstValueSessionCompleted))
+        transport.setContext(identity: "graf_pseudo_user_" + String(repeating: "b", count: 32))
+        await reporter.refreshContext()
+        _ = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "stable")
+        XCTAssertEqual(transport.payloads.count, 2)
+        XCTAssertEqual(transport.payloads.last?.stablePseudonymousUserId, "graf_pseudo_user_" + String(repeating: "b", count: 32))
+    }
+
+    @MainActor
+    func testWithdrawnAndWorkspaceContextRemainClosed() async throws {
+        let transport = RecordingProductActivationTransport()
+        let reporter = try Self.makeReporter(transport: transport)
+        for (identity, state) in [("graf_pseudo_workspace_" + String(repeating: "a", count: 32), "accepted"),
+                                  ("graf_pseudo_user_" + String(repeating: "a", count: 32), "withdrawn")] {
+            transport.setContext(identity: identity, state: state)
+            await reporter.refreshContext()
+            let denied = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "stable")
+            XCTAssertEqual(denied, .telemetryGateClosed(.desktopFirstOpened))
+        }
+        XCTAssertTrue(transport.payloads.isEmpty)
+    }
+
+    @MainActor
+    func testFailedExplicitDeliveryDoesNotConsumeFirstMilestone() async throws {
+        let transport = RecordingProductActivationTransport()
+        let reporter = try Self.makeReporter(transport: transport)
+        transport.setContext(identity: "graf_pseudo_user_" + String(repeating: "a", count: 32))
+        await reporter.refreshContext()
+        transport.status = 503
+        let failed = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "stable")
+        XCTAssertEqual(failed, .deliveryFailed(.desktopFirstOpened, status: 503))
+        transport.status = 200
+        let succeeded = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "stable")
+        XCTAssertTrue(succeeded.wasDelivered)
+        let duplicate = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "stable")
+        XCTAssertEqual(duplicate, .alreadyCounted(.desktopFirstOpened))
+        XCTAssertEqual(transport.payloads.count, 2)
+    }
+
+    @MainActor
+    func testExplicitRefreshUsesCurrentAuthHeadersAndDoesNotFallbackAfterLogout() async throws {
+        let transport = RecordingProductActivationTransport()
+        let store = try XCTUnwrap(UserDefaults(suiteName: "graf.product.activation.tests.\(UUID().uuidString)"))
+        let original = try XCTUnwrap(ProductActivationAnalyticsClient(rawBaseURL: "https://rec.2brain.pro", headers: ["X-Test-Auth": "synthetic-A"]))
+        var current: ProductActivationAnalyticsClient? = original
+        let reporter = ProductActivationAnalyticsReporter(client: original, transport: transport,
+            contextClientProvider: { current }, handoffs: ProductAttributionHandoffStore(defaults: store),
+            ledger: UserDefaultsProductActivationMilestoneLedger(defaults: store))
+        transport.setContext(identity: "graf_pseudo_user_" + String(repeating: "a", count: 32))
+        await reporter.refreshContext()
+        _ = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "developer_id")
+        XCTAssertEqual(transport.lastClientHeaders["X-Test-Auth"], "synthetic-A")
+        current = ProductActivationAnalyticsClient(rawBaseURL: "https://rec.2brain.pro", headers: ["X-Test-Auth": "synthetic-B"])
+        transport.setContext(identity: "graf_pseudo_user_" + String(repeating: "b", count: 32))
+        await reporter.refreshContext()
+        _ = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "developer_id")
+        XCTAssertEqual(transport.lastClientHeaders["X-Test-Auth"], "synthetic-B")
+        current = nil
+        await reporter.refreshContext()
+        let denied = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "developer_id")
+        XCTAssertEqual(denied, .telemetryGateClosed(.desktopFirstOpened))
+        XCTAssertEqual(transport.payloads.count, 2)
+    }
+
+    @MainActor
+    func testConsentPendingAndChangedSignalNeverGrantWithoutServerContext() async throws {
+        let transport = RecordingProductActivationTransport()
+        let reporter = try Self.makeReporter(transport: transport)
+        transport.setContext(identity: "graf_pseudo_user_" + String(repeating: "a", count: 32))
+        await reporter.refreshContext()
+        await reporter.consentUpdate("pending")
+        await reporter.refreshContext() // Unrelated refresh cannot reopen an ambiguous choice.
+        let pending = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "developer_id")
+        XCTAssertEqual(pending, .telemetryGateClosed(.desktopFirstOpened))
+        await reporter.consentUpdate("changed")
+        let accepted = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "developer_id")
+        XCTAssertTrue(accepted.wasDelivered)
+        transport.setContext(identity: "graf_pseudo_user_" + String(repeating: "a", count: 32), state: "withdrawn")
+        await reporter.consentUpdate("pending")
+        await reporter.consentUpdate("changed")
+        let withdrawn = await reporter.noteFirstValueSessionCompleted(usefulResultType: "transcript")
+        XCTAssertEqual(withdrawn, .telemetryGateClosed(.firstValueSessionCompleted))
+        XCTAssertFalse(EmbeddedCabinetAnalyticsConsentBridge.publish(["accepted": true]))
+        XCTAssertFalse(EmbeddedCabinetAnalyticsConsentBridge.publish("accepted"))
+    }
+
+    @MainActor
+    func testOlderChangedTaskCannotClearNewerPendingConsent() async throws {
+        let transport = RecordingProductActivationTransport()
+        let reporter = try Self.makeReporter(transport: transport)
+        transport.setContext(identity: "graf_pseudo_user_" + String(repeating: "a", count: 32))
+        await reporter.refreshContext()
+        let olderChanged = reporter.beginConsentUpdate()
+        reporter.beginConsentUpdate() // A newer pending arrives before the changed task runs.
+        await reporter.completeConsentUpdate(generation: olderChanged)
+        await reporter.refreshContext()
+        let result = await reporter.noteFirstLaunch(appVersion: "1.2.3", installChannel: "developer_id")
+        XCTAssertEqual(result, .telemetryGateClosed(.desktopFirstOpened))
+        XCTAssertTrue(transport.payloads.isEmpty)
+    }
+
     private static func readRepositoryFile(_ relativePath: String) throws -> String {
         try String(contentsOf: repositoryRoot().appendingPathComponent(relativePath), encoding: .utf8)
     }
@@ -597,6 +709,23 @@ final class ProductActivationAnalyticsContractTests: XCTestCase {
 private final class RecordingProductActivationTransport: ProductActivationAnalyticsTransport, @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [ProductActivationAnalyticsPayload] = []
+    private var clientHeaders: [String: String] = [:]
+    var lastClientHeaders: [String: String] { lock.withLock { clientHeaders } }
+    private var contextValue: ProductActivationAnalyticsContext?
+    private var routes: [Bool] = []
+    var status = 202
+    var explicitRoutesOnly: Bool { lock.withLock { !routes.isEmpty && routes.allSatisfy { $0 } } }
+
+    func setContext(identity: String, state: String = "accepted") {
+        let data = try! JSONSerialization.data(withJSONObject: ["enabled": true, "telemetry_gate_state": state,
+                                                               "stable_pseudonymous_user_id": identity])
+        let value = try! JSONDecoder().decode(ProductActivationAnalyticsContext.self, from: data)
+        lock.withLock { contextValue = value }
+    }
+
+    func context(using client: ProductActivationAnalyticsClient) async throws -> ProductActivationAnalyticsContext? {
+        lock.withLock { contextValue }
+    }
 
     var payloads: [ProductActivationAnalyticsPayload] {
         lock.withLock { storage }
@@ -606,8 +735,8 @@ private final class RecordingProductActivationTransport: ProductActivationAnalyt
         _ payload: ProductActivationAnalyticsPayload,
         using client: ProductActivationAnalyticsClient
     ) async throws -> Int {
-        lock.withLock { storage.append(payload) }
-        return 202
+        lock.withLock { storage.append(payload); routes.append(client.explicitFunnel); clientHeaders = client.headers }
+        return status
     }
 }
 #endif
