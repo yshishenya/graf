@@ -1,0 +1,16 @@
+        <form action="/billing/storage/preview" method="post" class="billing-checkout-form">
+          {{ sections.csrf_field(csrf_token|default(None)) }}
+          {% if storage_return_to|default('') == 'overview' %}<input type="hidden" name="return_to" value="overview">{% endif %}
+          <label for="storage-packages">Общий объем хранения</label>
+          <div class="billing-package-controls" data-storage-packages>
+            <button class="button quiet" type="button" data-package-step="-1" aria-label="Выбрать меньший объем" hidden>−</button>
+            <select id="storage-packages" name="package_count" required aria-describedby="storage-package-summary">
+              {% for option in storage_options|default([]) %}<option value="{{ option.package_count }}" data-summary="Дополнительное место — {{ option.addon_label }} за {{ option.cycle_label }}. Вместе с тарифом — {{ option.total_label }} за {{ option.cycle_label }}." {% if option.package_count == selected_package_count|default(0) %}selected{% endif %}>{{ option.label }} · {% if option.package_count == 0 %}Включено в тариф{% else %}+{{ option.addon_label }} / {{ option.cycle_label }} за хранение{% endif %}</option>{% endfor %}
+            </select>
+            <button class="button quiet" type="button" data-package-step="1" aria-label="Выбрать больший объем" hidden>+</button>
+          </div>
+          <p id="storage-package-summary" class="muted" aria-live="polite" aria-atomic="true" hidden></p>
+          <p class="muted">Точную доплату за оставшийся оплаченный срок покажем на следующем шаге — без списания.</p>
+          {% if receipt_contact_ready|default(True) %}<details class="billing-coupon"{% if storage_promo_invalid|default(False) or storage_promo_code|default('') %} open{% endif %}><summary>Есть промокод?</summary><label for="storage-promo">Промокод</label><input id="storage-promo" name="promo_code" maxlength="48" autocomplete="off" spellcheck="false" value="{{ storage_promo_code|default('') }}"{% if storage_promo_invalid|default(False) %} aria-invalid="true" aria-describedby="billing-storage-preview-error"{% endif %}></details>{% endif %}
+          {% if storage_options|default([]) %}<button class="button {{ 'quiet' if storage_return_to|default('') == 'overview' else 'primary' }}"{% if storage_return_to|default('') != 'overview' %} data-billing-primary{% endif %} type="submit">Проверить изменение</button>{% else %}<p role="status">Цена временно недоступна. Попробуйте позже.</p>{% endif %}
+        </form>

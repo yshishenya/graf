@@ -19,20 +19,7 @@
         {% endif %}
         {% if eligible and billing_enabled %}
         {% if storage_preview_error|default(None) %}<p id="billing-storage-preview-error" class="notice notice--error" role="alert">{{ storage_preview_error }}</p>{% endif %}
-        <form action="/billing/storage/preview" method="post" class="billing-checkout-form">
-          {{ sections.csrf_field(csrf_token|default(None)) }}
-          <label for="storage-packages">Общий объем хранения</label>
-          <div class="billing-package-controls" data-storage-packages>
-            <button class="button quiet" type="button" data-package-step="-1" aria-label="Выбрать меньший объем" hidden>−</button>
-            <select id="storage-packages" name="package_count" required aria-describedby="storage-package-summary">
-              {% for option in storage_options|default([]) %}<option value="{{ option.package_count }}" data-summary="Дополнительное место — {{ option.addon_label }} за {{ option.cycle_label }}. Вместе с тарифом — {{ option.total_label }} за {{ option.cycle_label }}." {% if option.package_count == selected_package_count|default(0) %}selected{% endif %}>{{ option.label }} · {% if option.package_count == 0 %}Включено в тариф{% else %}+{{ option.addon_label }} / {{ option.cycle_label }} за хранение{% endif %}</option>{% endfor %}
-            </select>
-            <button class="button quiet" type="button" data-package-step="1" aria-label="Выбрать больший объем" hidden>+</button>
-          </div>
-          <p class="muted">Точную доплату за оставшийся оплаченный срок покажем на следующем шаге — без списания.</p>
-          {% if receipt_contact_ready|default(True) %}<details class="billing-coupon"{% if storage_preview_error|default(None) or storage_promo_code|default('') %} open{% endif %}><summary>Есть промокод?</summary><label for="storage-promo">Промокод</label><input id="storage-promo" name="promo_code" maxlength="48" autocomplete="off" spellcheck="false" value="{{ storage_promo_code|default('') }}"{% if storage_preview_error|default(None) %} aria-invalid="true" aria-describedby="billing-storage-preview-error"{% endif %}></details>{% endif %}
-          {% if storage_options|default([]) %}<button class="button primary" data-billing-primary type="submit">Проверить изменение</button>{% else %}<p role="status">Цена временно недоступна. Попробуйте позже.</p>{% endif %}
-        </form>
+        {% include "cabinet/components/billing_storage_editor.html" %}
         <p>Уменьшение — со следующего неоплаченного периода. Файлы не удаляются.</p>
         {% elif not billing_enabled %}
         <p role="status">Платные дополнения пока недоступны.</p>
@@ -41,7 +28,7 @@
         <a class="button primary" href="/billing/checkout">Выбрать тариф «Личный»</a>
         {% endif %}
         {% endif %}
-        {% if eligible and result|default(None) != "unavailable" %}<details class="billing-storage-details"><summary>Условия и оплаченные периоды</summary><p id="storage-package-summary" class="muted" aria-live="polite" aria-atomic="true" hidden></p><noscript><p>Полную сумму тарифа с выбранным местом проверите на следующем шаге.</p></noscript><p>Место занимают сохраненные аудиозаписи. Объем не накапливается каждый месяц. Встречи можно обрабатывать без сохранения аудио.</p>{% if storage_timeline|default([]) %}<ul class="billing-storage-periods">{% for period in storage_timeline %}<li><span>{{ period.capacity }}{% if period.bonus %} · бонусный срок{% endif %}</span><span class="muted">{{ period.start }} — {{ period.end }}</span></li>{% endfor %}</ul>{% endif %}</details>{% endif %}
+        {% if eligible and result|default(None) != "unavailable" %}<details class="billing-storage-details"><summary>Условия и оплаченные периоды</summary><noscript><p>Полную сумму тарифа с выбранным местом проверите на следующем шаге.</p></noscript><p>Место занимают сохраненные аудиозаписи. Объем не накапливается каждый месяц. Встречи можно обрабатывать без сохранения аудио.</p>{% if storage_timeline|default([]) %}<ul class="billing-storage-periods">{% for period in storage_timeline %}<li><span>{{ period.capacity }}{% if period.bonus %} · бонусный срок{% endif %}</span><span class="muted">{{ period.start }} — {{ period.end }}</span></li>{% endfor %}</ul>{% endif %}</details>{% endif %}
       </section>
       <nav class="billing-storage-footer" aria-label="Навигация хранилища"><a href="/billing/usage">← Использование и хранение</a><a href="/billing/history#billing-help">Помощь с оплатой</a></nav>
     </div>

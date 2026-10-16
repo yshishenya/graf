@@ -418,9 +418,41 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
             ("personal", "Личный", "5 ГБ"),
         )],
     )
+    # Synthetic data only: current overview, inline controls, and safe blocked states.
+    from types import SimpleNamespace
+    overview_context = dict(
+        embedded=False, plan=plan_descriptor("personal"), plan_code="personal",
+        billing_owner=True, billing_role="owner", billing_data_available=True,
+        billing_enabled=True, catalog_ready=True, csrf_token="synthetic",
+        paid_through_label="03.01.2028, 12:19 (UTC+03:00)", paid_through_short_label="03.01.2028",
+        current_price_label="10 000 ₽", current_cycle_label="в год",
+        next_charge_amount_label="12 500 ₽", next_charge_label="31.12.2027",
+        manual_checkout_url="/billing/checkout?cycle=year", renewal_allowed=False,
+        subscription=SimpleNamespace(recurring_authority_version=7),
+        storage_used=715000000, storage_used_label="715 МБ", storage_capacity=10000000000,
+        storage_capacity_label="10 ГБ", storage_reserved=0, storage_threshold="normal",
+        processing_used_label="35 мин", processing_threshold="normal",
+        payment_method_label="•••• 4242", method_present=True,
+        selected_package_count=1, storage_return_to="overview",
+        storage_options= [{"package_count": n, "label": f"{(n + 1) * 5} ГБ",
+            "addon_label": f"{2500 * n} ₽", "total_label": f"{10000 + 2500 * n} ₽",
+            "cycle_label": "год"} for n in range(100)],
+        latest_invoice_summary={"safe_number": "INV-SYNTHETIC", "amount_label": "125 ₽",
+            "status_label": "Оплачен", "created_at_label": "04.10.2026"},
+    )
+    for name, changes in {
+        "overview": {},
+        "overview-renewal": {"renewal_allowed": True},
+        "overview-editor": {"request_storage_editor_open": True},
+        "overview-error": {"storage_preview_error": "Промокод не подходит для выбранного объема.", "storage_promo_code": "DEMO", "storage_promo_invalid": True},
+        "overview-pending": {"operation_pending": True, "pending_invoice_summary": {"safe_number": "INV-SYNTHETIC"}},
+        "overview-member": {"billing_owner": False, "billing_role": "member"},
+        "overview-unavailable": {"billing_data_available": False},
+    }.items():
+        pages[name] = render_template("cabinet/pages/billing_overview_content.html", **{**overview_context, **changes})
     from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 
-    for name in ("usage-fresh", "packages-timeline-year", "checkout", "plans", "packages", "discounts", "discounts-history-year", "discounts-history-unknown", "discounts-error", "subscription-off-no-card", "subscription-off-ready", "subscription", "invoice-future", "invoice-service-gap", "invoice-receipt", "invoice-receipt-no-url", "invoice-intervals"):
+    for name in ("overview", "overview-renewal", "overview-editor", "overview-error", "overview-pending", "overview-member", "overview-unavailable", "usage-fresh", "packages-timeline-year", "checkout", "plans", "packages", "discounts", "discounts-history-year", "discounts-history-unknown", "discounts-error", "subscription-off-no-card", "subscription-off-ready", "subscription", "invoice-future", "invoice-service-gap", "invoice-receipt", "invoice-receipt-no-url", "invoice-intervals"):
         pages[f"shell-{name}"] = _page_shell(
             "Оплата", content=pages[name], embedded=False,
             csrf_token="synthetic", active_nav="settings", settings_active="billing",
@@ -480,8 +512,8 @@ def test_every_billing_screen_keeps_payment_help_or_history_after_the_primary_pa
                 operation_state_label="Уточняем статус", updated_at_label="29.09.2026",
             )
         if name == "billing_overview_content.html":
-            assert 'href="/billing/history">История платежей</a>' in html
-            assert html.index('href="/billing/history">История платежей</a>') > html.index('id="billing-history-title"')
+            assert 'href="/billing/history">Все платежи</a>' in html
+            assert html.index('href="/billing/history">Все платежи</a>') > html.index('id="billing-history-title"')
             assert "Нужна помощь с оплатой?" not in html
             continue
         assert "помощь с оплатой" in html.lower()

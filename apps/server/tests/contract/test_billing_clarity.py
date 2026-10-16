@@ -87,7 +87,7 @@ def test_checkout_keeps_full_financial_terms_outside_optional_details(cycle, amo
     assert ("Разовая скидка" in page.visible) == discount
     assert ("−100 ₽" in page.visible) == discount
     assert "synthetic-offer-version" not in page.visible
-    assert "Отключить" in page.visible and "Подписке" in page.visible
+    assert "Отключить" in page.visible and "Тариф и оплата" in page.visible
     consents = [attrs for tag, attrs in page.nodes if tag == "input" and attrs.get("type") == "checkbox"]
     assert {item["name"] for item in consents} == {"offer_consent", "recurring_consent"}
     offer = next(item for item in consents if item["name"] == "offer_consent")
@@ -383,3 +383,127 @@ def test_storage_base_capacity_copy_names_the_paid_plan_for_free_users():
     ))
     assert "В тариф «Личный» включено 5 ГБ" in page.visible
     assert "500 МБ" in page.visible
+
+
+# F280 SC019: a customer manages the subscription from its overview.
+def overview(**overrides):
+    from types import SimpleNamespace
+
+    context = dict(
+        embedded=False, plan=plan_descriptor("personal"), plan_code="personal",
+        billing_owner=True, billing_role="owner", billing_data_available=True,
+        billing_enabled=True, catalog_ready=True, csrf_token="synthetic",
+        paid_through_label="03.01.2028, 12:19 (UTC+03:00)",
+        paid_through_short_label="03.01.2028", current_price_label="10 000 ₽",
+        current_cycle_label="в год", next_charge_amount_label="12 500 ₽",
+        renewal_allowed=False, next_charge_label="не запланировано",
+        manual_checkout_url="/billing/checkout?cycle=year",
+        subscription=SimpleNamespace(recurring_authority_version=7, next_capacity_version=2),
+        storage_used=715000000, storage_capacity=10000000000,
+        storage_used_label="715 МБ", storage_capacity_label="10 ГБ",
+        storage_reserved=1000000, storage_reserved_label="1 МБ",
+        storage_threshold="normal", processing_used_label="35 мин",
+        processing_threshold="normal", free_processing_limit_label="300 минут",
+        payment_method_label="•••• 4242", payment_method_kind_label="Банковская карта",
+        method_present=True, selected_package_count=1, selection_version=2,
+        storage_options=[dict(package_count=1,label="10 ГБ",addon_label="2 500 ₽",total_label="12 500 ₽",cycle_label="год")],
+        receipt_contact_ready=True, storage_return_to="overview",
+        latest_invoice_summary=dict(safe_number="INV-SYNTHETIC",amount_label="125 ₽",status_label="Оплачен",created_at_label="04.10.2026"),
+    )
+    return render_template("cabinet/pages/billing_overview_content.html", **(context | overrides))
+
+
+def test_overview_direct_renewal_storage_and_card_avoid_intermediate_pages():
+    page = Page(overview())
+    links = [attrs.get("href") for tag, attrs in page.nodes if tag == "a"]
+    assert "/billing/checkout?cycle=year" in links
+    assert "/billing/usage" not in links
+    assert "/billing/payment-method" not in links
+    assert "Оплачено до" in page.visible and "03.01.2028" in page.visible
+    assert "Автопродление отключено" in page.visible
+    assert "12 500 ₽" in page.visible and "715 МБ" in page.visible
+    assert "INV-SYNTHETIC" not in page.visible
+    assert any(tag == "progress" and attrs.get("max") == "10000000000" for tag, attrs in page.nodes)
+    assert any(tag == "form" and attrs.get("action") == "/billing/storage/preview" for tag, attrs in page.nodes)
+    assert any(tag == "form" and attrs.get("action") == "/billing/payment-method/delete" for tag, attrs in page.nodes)
+    assert any(attrs.get("name") == "return_to" and attrs.get("value") == "overview" for _, attrs in page.nodes)
+    assert sum("data-billing-primary" in attrs for _, attrs in page.nodes) == 1
+
+
+@pytest.mark.parametrize("overrides", [
+    {"operation_pending": True, "pending_invoice_summary": {"safe_number": "INV-PENDING"}},
+    {"billing_owner": False, "billing_role": "member"},
+    {"billing_data_available": False},
+])
+def test_overview_blocks_private_or_new_money_controls_when_not_permitted(overrides):
+    page = Page(overview(**overrides))
+    assert not any(tag == "form" and attrs.get("action") in {
+        "/billing/storage/preview", "/billing/payment-method/delete",
+    } for tag, attrs in page.nodes)
+    assert not any(tag == "a" and attrs.get("href") == "/billing/checkout?cycle=year" for tag, attrs in page.nodes)
+    if not overrides.get("billing_owner", True):
+        assert "4242" not in page.visible and "715 МБ" not in page.visible and "125 ₽" not in page.visible
+    if overrides.get("operation_pending"):
+        assert "Повторно платить не нужно" in page.visible
+        assert any(tag == "a" and attrs.get("href") == "/billing/checkout/status/INV-PENDING" for tag, attrs in page.nodes)
+
+
+def test_overview_cancel_renewal_is_local_and_versioned_but_not_preconsented():
+    page = Page(overview(renewal_allowed=True, next_charge_label="31.12.2027"))
+    assert "31.12.2027" in page.visible and "12 500 ₽" in page.visible
+    assert any(tag == "form" and attrs.get("action") == "/billing/subscription/cancel" for tag, attrs in page.nodes)
+    assert any(attrs.get("name") == "expected_authority_version" and attrs.get("value") == "7" for _, attrs in page.nodes)
+    assert not any(attrs.get("name") == "resume_consent" for _, attrs in page.nodes)
+
+
+def test_overview_storage_error_preserves_editor_and_deferred_change_is_visible():
+    page = Page(overview(storage_preview_error="Проверьте промокод", storage_promo_code="SYNTHETIC", next_capacity_label="5 ГБ"))
+    assert "Проверьте промокод" in page.visible
+    assert "5 ГБ" in page.visible and "03.01.2028" in page.visible
+    assert any(tag == "details" and attrs.get("id") == "billing-storage-editor" and "open" in attrs for tag, attrs in page.nodes)
+    assert any(attrs.get("name") == "promo_code" and attrs.get("value") == "SYNTHETIC" for _, attrs in page.nodes)
+    assert any(tag == "form" and attrs.get("action") == "/billing/storage/cancel-selection" for tag, attrs in page.nodes)
+
+
+@pytest.mark.parametrize("updates,false_claim", [
+    ({"subscription_result": "cancelled", "renewal_allowed": True}, "Автопродление отключено. Оплаченный доступ сохранен."),
+    ({"payment_result": "removed", "method_present": True}, "Сохраненного способа оплаты в GRAF нет."),
+    ({"storage_result": "scheduled", "next_capacity_label": None}, "Объем следующего периода сохранен."),
+    ({"storage_result": "schedule_canceled", "next_capacity_label": "5 ГБ", "selection_version": 2}, "Изменение объема отменено."),
+])
+def test_old_result_url_does_not_override_current_billing_facts(updates, false_claim):
+    page = Page(overview(**updates))
+    assert false_claim not in page.visible
+    assert "Проверьте" in page.visible
+
+
+def test_general_storage_error_does_not_accuse_an_empty_promo_field():
+    page = Page(overview(storage_preview_error="Объем изменился. Повторите расчет."))
+    promo = next(attrs for _, attrs in page.nodes if attrs.get("name") == "promo_code")
+    assert "aria-invalid" not in promo
+    assert "Объем изменился" in page.visible
+
+
+@pytest.mark.parametrize("mixed", [False, True])
+def test_purchase_period_details_hide_only_equal_capacities(mixed):
+    timeline = [
+        {"start": "01.01.2027", "end": "01.02.2027", "capacity": "10 ГБ", "bonus": False},
+        {"start": "01.02.2027", "end": "01.03.2027", "capacity": "15 ГБ" if mixed else "10 ГБ", "bonus": False},
+    ]
+    page = Page(render_template("cabinet/pages/billing_purchase_content.html", csrf_token="synthetic", purchase_error=None,
+        purchase=dict(quote_id="synthetic", purpose="storage_upgrade", title="Увеличить хранилище",
+            capacity_label="15 ГБ", current_capacity_label="10 ГБ", period_label="До 01.03.2027",
+            payable_label="250 ₽", next_label="1 500 ₽", cycle_label="месяц", recurring_allowed=False,
+            method_label=None, deferred=False, timeline=timeline, return_to="overview", package_count=2)))
+    assert ("01.01.2027" in page.visible) == mixed
+    for term in ("250 ₽", "1 500 ₽", "15 ГБ", "До 01.03.2027", "Автопродление"):
+        assert term in page.visible
+    assert any(attrs.get("href") == "/billing?package_count=2#billing-storage-title" for _, attrs in page.nodes)
+
+
+def test_saved_future_volume_never_claims_no_charge_for_a_pending_payment():
+    page = Page(overview(storage_result="scheduled", next_capacity_label="5 ГБ", selection_version=2,
+        operation_pending=True, pending_invoice_summary={"safe_number": "INV-SYNTHETIC"}))
+    assert "Повторно платить не нужно" in page.visible
+    assert "Сейчас списания не было" not in page.visible
+    assert "Выбранный объем следующего периода показан выше" in page.visible

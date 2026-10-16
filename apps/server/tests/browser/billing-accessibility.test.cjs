@@ -306,6 +306,35 @@ async function checkCancellationReflow(browser, tabKey) {
       assert(!focus.startsWith('<body'), `${name}: keyboard can leave initial focus`);
       await page.evaluate(() => document.body.dispatchEvent(new CustomEvent('htmx:afterSwap')));
       assert.equal(await page.evaluate(() => document.activeElement.outerHTML), focus, 're-init must not steal focus');
+      if (name.startsWith('overview') || name.startsWith('shell-overview')) {
+        const state = name.replace('shell-', '');
+        const blocked = ['overview-pending', 'overview-expired-pending', 'overview-member', 'overview-unavailable'].includes(state);
+        assert.equal(await page.locator('form[action="/billing/storage/preview"]').count(), blocked ? 0 : 1);
+        assert.equal(await page.locator('main [data-billing-primary]').count(), state === 'overview-member' || state === 'overview-unavailable' ? 0 : 1);
+        assert.equal(await page.getByRole('link', { name: 'INV-SYNTHETIC', exact: true }).count(), 0);
+        if (!blocked) {
+          const editor = page.locator('#billing-storage-editor');
+          assert.equal(await editor.evaluate(el => el.open), ['overview-editor', 'overview-error'].includes(state));
+          if (!await editor.evaluate(el => el.open)) {
+            await editor.locator('summary').first().focus();
+            await page.keyboard.press('Space');
+          }
+          const select = page.getByLabel('Общий объем хранения', { exact: true });
+          assert(await select.isVisible());
+          await select.selectOption('2');
+          assert(await page.locator('#storage-package-summary').isVisible(), `${name}: selected price immediately visible`);
+          assert.match(await page.locator('#storage-package-summary').innerText(), /5000 ₽ за год.*15000 ₽ за год/);
+          const form = page.locator('form[action="/billing/storage/preview"]');
+          assert.equal(await form.evaluate(el => new FormData(el).get('return_to')), 'overview');
+          assert.equal(await form.locator('[name="purchase_consent"], [name="recurring_consent"]').count(), 0);
+          if (state === 'overview-error') {
+            assert.equal(await page.getByLabel('Промокод', { exact: true }).inputValue(), 'DEMO');
+            assert.equal(await page.getByLabel('Промокод', { exact: true }).getAttribute('aria-invalid'), 'true');
+          }
+          // Restore initial collapsed state for honest default screenshots.
+          if (!['overview-editor', 'overview-error'].includes(state)) await editor.locator('summary').first().click();
+        }
+      }
       if (name === 'packages') {
         await page.getByText('Условия и оплаченные периоды', { exact: true }).click();
         const select = page.getByLabel('Общий объем хранения', { exact: true });
@@ -384,8 +413,9 @@ async function checkCancellationReflow(browser, tabKey) {
         assert.equal(await page.getByRole('link', { name: 'Выбрать тариф' }).count(), 0);
         assert(await page.locator('a[href="/billing/checkout/status/INV-SYNTHETIC"]').isVisible());
       } else if (name === 'overview-expired-pending') {
-        assert(await page.getByRole('link', { name: 'Управлять автопродлением' }).isVisible());
-        assert(await page.getByRole('link', { name: 'Открыть статус платежа' }).isVisible());
+        await page.locator('#billing-renewal-settings > summary').click();
+        assert(await page.getByRole('button', { name: 'Отключить автопродление', exact: true }).isVisible());
+        assert(await page.getByRole('link', { name: 'Проверить оплату', exact: true }).isVisible());
         assert.equal(await page.locator('main .button.primary:visible').count(), 1);
       } else if (name === 'subscription-prepared') {
         assert(!(await page.locator('main').innerText()).includes('Уже отправленный платеж'));
@@ -776,16 +806,58 @@ async function checkCancellationReflow(browser, tabKey) {
       assert.equal(fields.get('resume_quote_id'), resuming ? 'synthetic-resume' : null);
       await page.close();
     }
-    for (const name of Object.keys(pages).filter(name => name.startsWith('subscription-restriction-') ||
+    for (const name of Object.keys(pages).filter(name => name.startsWith('subscription-restriction-') || name.startsWith('overview') ||
       ['packages-timeline-year', 'subscription-free', 'subscription-trial', 'subscription-expired', 'subscription-unknown-cycle', 'subscription-year'].includes(name))) {
       const page = await browser.newPage({ javaScriptEnabled: false, viewport: { width: 320, height: 900 } });
       const requests = [];
       await page.route('https://graf.test/**', route => {
+        if (route.request().resourceType() !== 'document') {
+          const filename = path.basename(new URL(route.request().url()).pathname);
+          const asset = [assets, publicAssets].map(dir => path.join(dir, filename)).find(file => fs.existsSync(file) && fs.statSync(file).isFile());
+          return asset ? route.fulfill({ path: asset }) : route.fulfill({ status: 204 });
+        }
         requests.push(route.request());
-        return route.fulfill({ contentType: 'text/html; charset=utf-8', body: `<html lang="ru"><meta charset="utf-8"><body>${pages[name]}</body></html>` });
+        const shell = name.startsWith('overview') && pages[`shell-${name}`];
+        return route.fulfill({ contentType: 'text/html; charset=utf-8', body: shell || `<html lang="ru"><meta charset="utf-8"><style>${fs.readFileSync(path.join(assets, 'cabinet.css'), 'utf8')}</style><body>${pages[name]}</body></html>` });
       });
       await page.goto('https://graf.test/billing/subscription');
-      if (name === 'packages-timeline-year') {
+      if (name.startsWith('overview')) {
+        const blocked = ['overview-pending', 'overview-expired-pending', 'overview-member', 'overview-unavailable'].includes(name);
+        assert.equal(await page.locator('form[action="/billing/storage/preview"]').count(), blocked ? 0 : 1);
+        if (!blocked) {
+          const editor = page.locator('#billing-storage-editor');
+          if (!await editor.evaluate(el => el.open)) await editor.locator('summary').first().click();
+          const select = page.getByLabel('Общий объем хранения', { exact: true });
+          await select.selectOption('2');
+          assert.match(await select.locator('option:checked').innerText(), /15 ГБ.*5000 ₽/);
+          assert.equal(await page.locator('[data-package-step]:visible').count(), 0);
+          for (const width of [320, 360, 1280]) for (const theme of ['light', 'dark']) for (const zoom of [1, 2]) {
+            await page.setViewportSize({ width, height: 900 });
+            await page.evaluate(({theme, zoom}) => {
+              document.documentElement.dataset.theme = theme;
+              document.body.style.zoom = String(zoom);
+            }, {theme, zoom});
+            assert(await page.evaluate(() => {
+              const main = document.querySelector('main');
+              return main.scrollWidth <= main.clientWidth + 1 && document.documentElement.scrollWidth <= innerWidth + 1;
+            }), `${name}: NoJS editor fits ${width}px/${theme}/${zoom * 100}%`);
+            assert(await page.getByRole('button', { name: 'Проверить изменение', exact: true }).isVisible());
+          }
+          await page.evaluate(() => { document.body.style.zoom = '1'; });
+          await page.setViewportSize({ width: 320, height: 900 });
+          await Promise.all([
+            page.waitForURL('https://graf.test/billing/storage/preview'),
+            page.getByRole('button', { name: 'Проверить изменение', exact: true }).click(),
+          ]);
+          const posts = requests.filter(request => request.method() === 'POST');
+          assert.equal(posts.length, 1);
+          const fields = new URLSearchParams(posts[0].postData());
+          assert.equal(fields.get('package_count'), '2');
+          assert.equal(fields.get('return_to'), 'overview');
+          assert.equal(fields.get('csrf_token'), 'synthetic');
+          assert.equal(fields.get('purchase_consent'), null);
+        } else assert.equal(requests.length, 1);
+      } else if (name === 'packages-timeline-year') {
         const select = page.getByLabel('Общий объем хранения', { exact: true });
         await select.selectOption('2');
         assert.match(await select.locator('option:checked').innerText(), /15 ГБ.*5000 ₽ \/ год за хранение/);

@@ -1411,6 +1411,39 @@ async def _checkout_referral_candidate(
     return referral_candidate, referred, lineage_ids
 
 
+def _storage_choices(base, prices, *, cycle, capacity, requested_packages=None):
+    """One catalog-backed display format for the overview and legacy editor."""
+    options = []
+    if base is not None:
+        for size in (PERSONAL_STORAGE_BYTES, *ADDON_CAPACITY_BYTES):
+            price = prices.get((size, cycle))
+            if size != PERSONAL_STORAGE_BYTES and price is None:
+                continue
+            options.append({
+                "capacity": size,
+                "package_count": storage_package_count(size),
+                "label": _capacity_label(size),
+                "addon_label": _billing_price_label(price.amount_minor if price else 0),
+                "total_label": _billing_price_label(base.amount_minor + (price.amount_minor if price else 0)),
+                "cycle_label": "месяц" if base.cycle == "month" else "год",
+            })
+    selected = storage_package_count(max(PERSONAL_STORAGE_BYTES, capacity))
+    selected = next((option["package_count"] for option in options
+                     if str(option["package_count"]) == str(requested_packages)), selected)
+    return {"storage_options": options, "selected_package_count": selected}
+
+
+def _control_result_redirect(return_to, *, section, result):
+    if return_to == "overview":
+        if result == "owner_only":
+            return RedirectResponse("/billing?result=owner_only", status_code=303)
+        anchor = {"subscription": "billing-renewal-settings", "payment": "billing-payment-method",
+                  "storage": "billing-storage-title"}[section]
+        return RedirectResponse(f"/billing?{section}_result={result}#{anchor}", status_code=303)
+    path = {"subscription": "subscription", "payment": "payment-method", "storage": "storage"}[section]
+    return RedirectResponse(f"/billing/{path}?result={result}", status_code=303)
+
+
 @router.get("/settings/billing", include_in_schema=False)
 async def settings_billing_alias() -> RedirectResponse:
     return RedirectResponse("/billing", status_code=307)
@@ -1725,6 +1758,14 @@ async def billing_overview_page(
             .order_by(TrialActivation.starts_at.desc())
             .limit(1)
         )
+    storage_choices = _storage_choices(
+        approved_catalog.get(subscription.cycle if subscription else "month"),
+        await storage_catalog(db, now=now) if db is not None and billing_owner else {},
+        cycle=subscription.cycle if subscription else "month",
+        capacity=(subscription.next_capacity_bytes or effective_capacity) if subscription else PERSONAL_STORAGE_BYTES,
+        requested_packages=getattr(request.state, "storage_package_count", request.query_params.get("package_count")),
+    ) if billing_owner and db is not None else {"storage_options": [], "selected_package_count": 0}
+    receipt_contact = await _verified_receipt_contact(db, principal.user_id) if db is not None and billing_owner else None
     content = _page_shell(
         "Тариф и оплата",
         embedded=_is_embedded_request(request),
@@ -1739,6 +1780,28 @@ async def billing_overview_page(
             tenant_scope=tenant_scope,
         ),
         content_template="cabinet/pages/billing_overview_content.html",
+        subscription=subscription if billing_owner else None,
+        paid_through_short_label=local_datetime(subscription.paid_through).strftime("%d.%m.%Y")
+        if billing_owner and plan_code == "personal" and subscription.paid_through else None,
+        next_capacity_label=_capacity_label(subscription.next_capacity_bytes)
+        if billing_owner and subscription and subscription.next_capacity_bytes else None,
+        selection_version=subscription.next_capacity_version if billing_owner and subscription else 0,
+        **storage_choices,
+        storage_preview_error=getattr(request.state, "storage_preview_error", None),
+        storage_promo_invalid=getattr(request.state, "storage_promo_invalid", False),
+        storage_promo_code=getattr(request.state, "storage_promo_code", ""),
+        storage_return_to="overview",
+        request_storage_editor_open=any(str(option["package_count"]) == request.query_params.get("package_count")
+                                        for option in storage_choices["storage_options"]),
+        storage_result=request.query_params.get("storage_result"),
+        subscription_result=request.query_params.get("subscription_result"),
+        payment_result=request.query_params.get("payment_result"),
+        payment_method_kind_label=_payment_method_kind_label(payment_method.kind if payment_method else None),
+        method_present=payment_method is not None,
+        receipt_contact_ready=bool(receipt_contact),
+        receipt_contact_action_url=_receipt_contact_action_url(
+            request, next_path=f"/billing?package_count={storage_choices['selected_package_count']}",
+        ),
         plan=plan,
         plan_code=plan_code,
         current_price_label=current_price_label,
@@ -3044,17 +3107,18 @@ async def delete_billing_payment_method(
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
+    return_to: str = Form(default=""),
 ) -> RedirectResponse:
     """Revoke GRAF's saved-method authority; YooKassa remains merchant-owned."""
     if db is None or not principal.auth_via_session:
-        return RedirectResponse("/billing/payment-method?result=unavailable", status_code=303)
+        return _control_result_redirect(return_to, section="payment", result="unavailable")
     subscription = await _billing_owner_subscription(
         db, tenant_scope=tenant_scope, principal=principal
     )
     if subscription is None:
-        return RedirectResponse("/billing/payment-method?result=owner_only", status_code=303)
+        return _control_result_redirect(return_to, section="payment", result="owner_only")
     if subscription.recurring_allowed:
-        return RedirectResponse("/billing/payment-method?result=renewal_on", status_code=303)
+        return _control_result_redirect(return_to, section="payment", result="renewal_on")
     method = await db.scalar(
         select(BillingPaymentMethod)
         .where(
@@ -3066,7 +3130,7 @@ async def delete_billing_payment_method(
         .with_for_update()
     )
     if method is None:
-        return RedirectResponse("/billing/payment-method?result=none", status_code=303)
+        return _control_result_redirect(return_to, section="payment", result="none")
     method.state = "revoked"
     method.is_default = False
     subscription.recurring_authority_version += 1
@@ -3084,7 +3148,7 @@ async def delete_billing_payment_method(
         )
     )
     await db.commit()
-    return RedirectResponse("/billing/payment-method?result=removed", status_code=303)
+    return _control_result_redirect(return_to, section="payment", result="removed")
 
 
 @router.get("/billing/storage", response_class=HTMLResponse, include_in_schema=False)
@@ -3146,34 +3210,12 @@ async def billing_storage_page(
     base = (await _approved_personal_catalog(db, now=now)).get(
         subscription.cycle if subscription else "month"
     )
-    options = []
-    if base is not None:
-        for capacity in (PERSONAL_STORAGE_BYTES, *ADDON_CAPACITY_BYTES):
-            price = storage_prices.get((capacity, subscription.cycle if subscription else "month"))
-            if capacity != PERSONAL_STORAGE_BYTES and price is None:
-                continue
-            options.append(
-                {
-                    "capacity": capacity,
-                    "package_count": storage_package_count(capacity),
-                    "label": _capacity_label(capacity),
-                    "addon_label": _billing_price_label(price.amount_minor if price else 0),
-                    "total_label": _billing_price_label(
-                        base.amount_minor + (price.amount_minor if price else 0)
-                    ),
-                    "cycle_label": "месяц" if base.cycle == "month" else "год",
-                }
-            )
-    selected_package_count = storage_package_count(
-        max(PERSONAL_STORAGE_BYTES, subscription.next_capacity_bytes or current_capacity)
-    ) if subscription else 0
-    selected_package_count = next(
-        (option["package_count"] for option in options
-         if str(option["package_count"]) == str(getattr(
-             request.state, "storage_package_count", request.query_params.get("package_count"),
-         ))),
-        selected_package_count,
+    storage_choices = _storage_choices(
+        base, storage_prices, cycle=subscription.cycle if subscription else "month",
+        capacity=(subscription.next_capacity_bytes or current_capacity) if subscription else PERSONAL_STORAGE_BYTES,
+        requested_packages=getattr(request.state, "storage_package_count", request.query_params.get("package_count")),
     )
+    selected_package_count = storage_choices["selected_package_count"]
     receipt_contact = await _verified_receipt_contact(db, principal.user_id)
     content = _page_shell(
         "Увеличение хранилища",
@@ -3188,9 +3230,9 @@ async def billing_storage_page(
         content_template="cabinet/pages/billing_storage_content.html",
         current_capacity=current_capacity,
         current_capacity_label=_capacity_label(current_capacity),
-        storage_options=options,
-        selected_package_count=selected_package_count,
+        **storage_choices,
         storage_preview_error=getattr(request.state, "storage_preview_error", None),
+        storage_promo_invalid=getattr(request.state, "storage_promo_invalid", False),
         storage_promo_code=getattr(request.state, "storage_promo_code", ""),
         receipt_contact_ready=bool(receipt_contact),
         receipt_contact_action_url=_receipt_contact_action_url(
@@ -3264,23 +3306,24 @@ async def cancel_billing_subscription(
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
+    return_to: str = Form(default=""),
     expected_authority_version: int | None = Form(default=None, ge=0),
 ) -> RedirectResponse:
     if db is None or not principal.auth_via_session:
-        return RedirectResponse("/billing/subscription?result=unavailable", status_code=303)
+        return _control_result_redirect(return_to, section="subscription", result="unavailable")
     subscription = await _billing_owner_subscription(
         db, tenant_scope=tenant_scope, principal=principal
     )
     if subscription is None or subscription.paid_through is None:
-        return RedirectResponse("/billing/subscription?result=unavailable", status_code=303)
+        return _control_result_redirect(return_to, section="subscription", result="unavailable")
     if not subscription.recurring_allowed:
-        return RedirectResponse("/billing/subscription?result=already_cancelled", status_code=303)
+        return _control_result_redirect(return_to, section="subscription", result="already_cancelled")
     if (
         expected_authority_version is None
         or expected_authority_version != subscription.recurring_authority_version
     ):
         await db.rollback()
-        return RedirectResponse("/billing/subscription?result=conflict", status_code=303)
+        return _control_result_redirect(return_to, section="subscription", result="conflict")
     try:
         changed = cancel_auto_renewal(
             SubscriptionControl(
@@ -3292,7 +3335,7 @@ async def cancel_billing_subscription(
         )
     except ValueError:
         await db.rollback()
-        return RedirectResponse("/billing/subscription?result=conflict", status_code=303)
+        return _control_result_redirect(return_to, section="subscription", result="conflict")
     await cancel_unsent_renewals(
         db, workspace_id=tenant_scope.workspace_id, reason="authority_cancelled"
     )
@@ -3327,7 +3370,7 @@ async def cancel_billing_subscription(
         marketing_allowed=False,
     )
     await db.commit()
-    return RedirectResponse("/billing/subscription?result=cancelled", status_code=303)
+    return _control_result_redirect(return_to, section="subscription", result="cancelled")
 
 
 @router.post("/billing/subscription/resume", response_class=HTMLResponse, include_in_schema=False)
@@ -4598,7 +4641,7 @@ async def _purchase_error_page(
     return cabinet_html_response(content, status_code=status_code)
 
 
-async def _render_purchase_quote(request, tenant_scope, principal, db, bound_quote):
+async def _render_purchase_quote(request, tenant_scope, principal, db, bound_quote, *, return_to=""):
     value = bound_quote.snapshot
     receipt_contact = await _verified_receipt_contact(db, principal.user_id)
     next_storage_price = (
@@ -4618,11 +4661,14 @@ async def _render_purchase_quote(request, tenant_scope, principal, db, bound_quo
         receipt_contact_ready=bound_quote.purpose == "storage_schedule" or bool(receipt_contact),
         receipt_contact_action_url=_receipt_contact_action_url(
             request, next_path="/billing/subscription" if bound_quote.purpose == "early_renewal"
+            else f"/billing?package_count={storage_package_count(value['target_capacity_bytes'])}"
+            if return_to == "overview"
             else f"/billing/storage?package_count={storage_package_count(value['target_capacity_bytes'])}",
         ),
         receipt_contact_message="Подтвердите email для чека в аккаунте, затем вернитесь к покупке.",
         purchase={
             "quote_id": str(bound_quote.id),
+            "return_to": "overview" if return_to == "overview" else "",
             "purpose": bound_quote.purpose,
             "title": "Изменение объёма хранения"
             if bound_quote.purpose != "early_renewal"
@@ -4669,9 +4715,15 @@ async def preview_storage_purchase(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
     package_count: int = Form(ge=0, le=99),
+    return_to: str = Form(default=""),
     promo_code: str = Form(default="", max_length=48),
 ):
     capacity_bytes = storage_package_capacity(package_count)
+    if db is None and return_to == "overview":
+        request.state.storage_preview_error = "Данные хранилища временно недоступны. Попробуйте позже."
+        response = await billing_overview_page(request, tenant_scope, principal, db)
+        response.status_code = 409
+        return response
     if db is None:
         return await _purchase_error_page(
             request, tenant_scope, principal, db, "Оплата временно недоступна"
@@ -4761,13 +4813,16 @@ async def preview_storage_purchase(
             now=now,
         )
         await db.commit()
-        return await _render_purchase_quote(request, tenant_scope, principal, db, bound)
+        return await _render_purchase_quote(request, tenant_scope, principal, db, bound, return_to=return_to)
     except (PurchaseError, PromoError, BillingCheckoutDisabled) as exc:
         await db.rollback()
         request.state.storage_preview_error = str(exc)
+        request.state.storage_promo_invalid = isinstance(exc, PromoError)
         request.state.storage_promo_code = promo_code
         request.state.storage_package_count = package_count
-        response = await billing_storage_page(request, tenant_scope, principal, db)
+        response = await (billing_overview_page if return_to == "overview" else billing_storage_page)(
+            request, tenant_scope, principal, db
+        )
         response.status_code = 409
         return response
 
@@ -4959,8 +5014,14 @@ async def confirm_billing_purchase(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
     quote_id: str = Form(max_length=64),
+    return_to: str = Form(default=""),
     purchase_consent: bool = Form(default=False),
 ):
+    if db is None and return_to == "overview":
+        request.state.storage_preview_error = "Данные хранилища временно недоступны. Попробуйте позже."
+        response = await billing_overview_page(request, tenant_scope, principal, db)
+        response.status_code = 409
+        return response
     if db is None:
         return await _purchase_error_page(
             request, tenant_scope, principal, db, "Оплата временно недоступна"
@@ -5019,7 +5080,8 @@ async def confirm_billing_purchase(
             return RedirectResponse(
                 _checkout_status_location(previous_invoice.safe_number)
                 if previous_invoice
-                else "/billing/storage?result=scheduled",
+                else ("/billing?storage_result=scheduled#billing-storage-title"
+                      if return_to == "overview" else "/billing/storage?result=scheduled"),
                 status_code=303,
             )
         now = datetime.now(UTC)
@@ -5105,7 +5167,7 @@ async def confirm_billing_purchase(
             bound.consumed_operation_id = operation.id
             await _notify_storage_selection(db, subscription=subscription)
             await db.commit()
-            return RedirectResponse("/billing/storage?result=scheduled", status_code=303)
+            return _control_result_redirect(return_to, section="storage", result="scheduled")
         receipt_contact = await _verified_receipt_contact(db, principal.user_id)
         if not receipt_contact:
             next_path = (
@@ -5113,6 +5175,12 @@ async def confirm_billing_purchase(
                 else f"/billing/storage?package_count={storage_package_count(value['target_capacity_bytes'])}"
             )
             await db.rollback()
+            if return_to == "overview":
+                request.state.storage_preview_error = "Подтвердите email для чека в аккаунте, затем вернитесь к покупке."
+                request.state.storage_package_count = storage_package_count(value["target_capacity_bytes"])
+                response = await billing_overview_page(request, tenant_scope, principal, db)
+                response.status_code = 409
+                return response
             return await _purchase_error_page(
                 request, tenant_scope, principal, db,
                 "Подтвердите email для чека в аккаунте, затем вернитесь к покупке.",
@@ -5281,6 +5349,13 @@ async def confirm_billing_purchase(
             if isinstance(exc, (PurchaseError, PromoError))
             else "Покупка не создана. Проверьте условия и повторите расчёт"
         )
+        if return_to == "overview":
+            request.state.storage_preview_error = message
+            if "package_count" in locals():
+                request.state.storage_package_count = package_count
+            response = await billing_overview_page(request, tenant_scope, principal, db)
+            response.status_code = 409
+            return response
         return await _purchase_error_page(
             request, tenant_scope, principal, db, message,
             action_url=recovery_url,
@@ -5296,8 +5371,11 @@ async def cancel_storage_selection(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
     selection_version: int = Form(ge=0),
+    return_to: str = Form(default=""),
 ):
     if db is None:
+        if return_to == "overview":
+            return _control_result_redirect(return_to, section="storage", result="unavailable")
         return await _purchase_error_page(
             request, tenant_scope, principal, db, "Управление временно недоступно"
         )
@@ -5317,6 +5395,8 @@ async def cancel_storage_selection(
     )
     if blocker is not None:
         await db.rollback()
+        if return_to == "overview":
+            return _control_result_redirect(return_to, section="storage", result="pending")
         return await _purchase_error_page(
             request,
             tenant_scope,
@@ -5326,6 +5406,8 @@ async def cancel_storage_selection(
         )
     if subscription.next_capacity_version != selection_version:
         await db.rollback()
+        if return_to == "overview":
+            return _control_result_redirect(return_to, section="storage", result="conflict")
         return await _purchase_error_page(
             request, tenant_scope, principal, db, "Объём уже изменился. Проверьте текущий выбор"
         )
@@ -5334,7 +5416,7 @@ async def cancel_storage_selection(
     subscription.application_version += 1
     await _notify_storage_selection(db, subscription=subscription)
     await db.commit()
-    return RedirectResponse("/billing/storage?result=schedule_canceled", status_code=303)
+    return _control_result_redirect(return_to, section="storage", result="schedule_canceled")
 
 
 async def _next_renewal_label(db, subscription, *, now, for_resume=False, after_price_confirmation=False):

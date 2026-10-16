@@ -321,6 +321,8 @@ async def test_scheduled_renewal_uses_persisted_invoice_amount(
         trial_ends_at=None,
         renewal_resolution=None,
         capacity_bytes=5_000_000_000,
+        next_capacity_bytes=None,
+        next_capacity_version=0,
         cycle="month",
         billing_owner_id=principal.user_id,
         recurring_allowed=True,
@@ -347,7 +349,7 @@ async def test_scheduled_renewal_uses_persisted_invoice_amount(
         return "owner"
 
     async def catalog(*_args: object, **_kwargs: object) -> dict[str, object]:
-        return {"month": SimpleNamespace(amount_minor=99_000)}
+        return {"month": SimpleNamespace(amount_minor=99_000, cycle="month")}
 
     async def storage_projection(*_args: object, **_kwargs: object) -> object:
         return SimpleNamespace(used_bytes=0)
@@ -358,6 +360,8 @@ async def test_scheduled_renewal_uses_persisted_invoice_amount(
         captured.update(context)
         return "billing"
 
+    monkeypatch.setattr(billing_routes, "storage_catalog", AsyncMock(return_value={}))
+    monkeypatch.setattr(billing_routes, "_verified_receipt_contact", AsyncMock(return_value=None))
     monkeypatch.setattr(billing_routes, "_billing_role", owner_role)
     monkeypatch.setattr(billing_routes, "_approved_personal_catalog", catalog)
     monkeypatch.setattr(billing_routes, "project_active_playback_storage", storage_projection)
@@ -527,8 +531,9 @@ def test_billing_hub_uses_exact_free_copy_and_external_refund_boundary() -> None
     assert 'href="/billing/history"' in html
     assert "Нужна помощь с оплатой?" not in html
     assert "Хранилище" in html
-    assert 'href="/billing/payment-method"' in html
-    assert 'href="/billing/storage"' in html
+    assert 'id="billing-card-settings"' in html
+    assert 'href="/billing/payment-method"' not in html
+    assert 'href="/billing/storage"' not in html
 
 
 def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> None:
@@ -679,7 +684,7 @@ def test_checkout_offers_optional_recurring_and_requires_offer_consent() -> None
     )
     assert 'name="recurring_consent"' in html
     assert 'name="offer_consent"' in html
-    assert 'href="/billing/plans">Назад к тарифам</a>' in html
+    assert 'href="/billing">К тарифу и оплате</a>' in html
     assert 'href="/offer"' in html
     assert "required" in html
     recurring = re.search(r'<input[^>]*name="recurring_consent"[^>]*>', html)
@@ -687,7 +692,7 @@ def test_checkout_offers_optional_recurring_and_requires_offer_consent() -> None
     assert recurring and "checked" in recurring.group(0) and "required" not in recurring.group(0)
     assert offer and "checked" not in offer.group(0) and "required" in offer.group(0)
     assert "Разрешаю автоматические списания" in html
-    assert "Отключить можно в «Подписке»" in html
+    assert "Отключить можно в разделе «Тариф и оплата»" in html
     assert "Чек отправится на" in html
     assert "y***@example.com" in html
 
@@ -986,7 +991,7 @@ def test_billing_overview_uses_reference_hierarchy_and_one_primary_action() -> N
     )
     assert html.count("data-billing-primary") == 1
     assert 'href="/billing/plans"' in html
-    assert 'href="/billing/discounts"' in html
+    assert 'href="/billing/discounts"' not in html
     assert "Бонус до" in html
     assert "15.09.2026, 12:00 (МСК)" in html
 
@@ -1030,6 +1035,7 @@ def test_pending_billing_overview_exposes_status_without_competing_checkout(plan
         plan=plan_descriptor(plan_code),
         plan_code=plan_code,
         renewal_allowed=renewal_allowed,
+        subscription=SimpleNamespace(recurring_authority_version=7),
         billing_data_available=True,
         billing_enabled=True,
         catalog_ready=True,
@@ -1059,8 +1065,8 @@ def test_pending_billing_overview_exposes_status_without_competing_checkout(plan
     assert 'href="/billing/checkout"' not in html
     assert 'href="/billing/plans"' not in html
     assert html.count("data-billing-primary") == 1
-    assert ('href="/billing/subscription"' in html) == renewal_allowed
-    assert ("Управлять автопродлением" in html) == renewal_allowed
+    assert ('action="/billing/subscription/cancel"' in html) == renewal_allowed
+    assert ("Отключить автопродление" in html) == renewal_allowed
 
 
 def test_pending_billing_without_invoice_suppresses_new_checkout() -> None:
@@ -1089,9 +1095,10 @@ def test_pending_billing_without_invoice_suppresses_new_checkout() -> None:
         latest_operation_state="provider_pending",
     )
 
-    assert "Новую оплату пока не предлагаем" in html
+    assert "Повторно платить не нужно" in html
     assert 'href="/billing/plans"' not in html
-    assert "data-billing-primary" not in html
+    assert 'href="/billing/checkout"' not in html
+    assert 'data-billing-primary href="/billing/history#billing-help"' in html
 
 
 def test_scheduled_renewal_keeps_subscription_cancellation_reachable() -> None:
@@ -1125,10 +1132,13 @@ def test_scheduled_renewal_keeps_subscription_cancellation_reachable() -> None:
         latest_operation_kind="renewal",
         latest_operation_state="scheduled",
         operation_pending=False,
+        renewal_allowed=True,
+        subscription=SimpleNamespace(recurring_authority_version=7),
     )
 
-    assert 'href="/billing/subscription"' in html
-    assert 'href="/billing/plans"' in html
+    assert 'action="/billing/subscription/cancel"' in html
+    assert 'name="expected_authority_version" value="7"' in html
+    assert 'href="/billing/checkout"' in html
     assert 'href="/billing/checkout/status/INV-RNW-SCHEDULED"' not in html
 
 
