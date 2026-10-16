@@ -2514,8 +2514,8 @@ form[data-state="invalid"] .settings-form-status { color: var(--muted); }
   .app-shell { grid-template-columns: 1fr; }
   .app-shell.desktop-embedded { grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr); }
   html:not([data-cabinet-js="ready"]) .app-shell:not(.desktop-embedded) {
-    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
   }
   html:not([data-cabinet-js="ready"]) .app-shell:not(.desktop-embedded) > .sidebar { display: none; }
   html:not([data-cabinet-js="ready"]) .app-shell:not(.desktop-embedded) > noscript {
