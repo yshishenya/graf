@@ -196,7 +196,7 @@ def test_purchase_keeps_future_price_capacity_transitions_and_payment_intent_vis
     assert "checked" not in consents[0] and "required" in consents[0]
 
 
-def test_storage_choices_use_total_capacity_and_full_price_without_package_math():
+def test_storage_choices_separate_addon_price_from_whole_plan():
     html = render_template(
         "cabinet/pages/billing_storage_content.html", csrf_token="synthetic",
         eligible=True, billing_enabled=True, current_capacity_label="5 ГБ",
@@ -208,8 +208,13 @@ def test_storage_choices_use_total_capacity_and_full_price_without_package_math(
         } for count in (0, 1, 99)],
     )
     page = Page(html)
-    for term in ("5 ГБ", "10 ГБ", "500 ГБ", "1000 ₽", "1250 ₽", "25750 ₽"):
-        assert term in page.visible
+    options = [attrs for tag, attrs in page.nodes if tag == "option"]
+    assert len(options) == 3
+    assert "Включено в тариф" in html
+    assert "+250 ₽ / месяц за хранение" in html
+    assert "+24750 ₽ / месяц за хранение" in html
+    assert "Вместе с тарифом — 1250 ₽ за месяц" in html
+    assert "Точную доплату" in page.visible and "без списания" in page.visible
     assert "×" not in page.visible and "пакет" not in page.visible
     assert "Промокод, если есть" not in page.visible
     assert any(tag == "option" and attrs.get("value") == "99" for tag, attrs in page.nodes)
@@ -231,7 +236,7 @@ def test_storage_without_receipt_contact_allows_capacity_choice_before_coupon_en
         eligible=True, billing_enabled=True, current_capacity_label="10 ГБ",
         selected_package_count=0, receipt_contact_ready=False,
         storage_options=[{
-            "package_count": 0, "label": "5 ГБ", "total_label": "1 000 ₽",
+            "package_count": 0, "label": "5 ГБ", "addon_label": "0 ₽", "total_label": "1 000 ₽",
             "cycle_label": "месяц",
         }],
     ))
@@ -271,14 +276,16 @@ def test_plans_distinguish_trial_capacity_from_the_two_plan_choices():
 def test_disabled_checkout_does_not_hide_already_paid_storage_transitions():
     page = Page(render_template(
         "cabinet/pages/billing_storage_content.html", eligible=True, billing_enabled=False,
+        csrf_token="synthetic", selection_version=1,
         current_capacity_label="10 ГБ", next_capacity_label="5 ГБ",
         paid_through_label="29.10.2026", storage_timeline=[
             {"start": "29.09.2026", "end": "29.10.2026", "capacity": "10 ГБ", "bonus": False},
         ],
     ))
-    for term in ("10 ГБ", "5 ГБ", "29.10.2026", "Уже оплаченные периоды"):
+    for term in ("10 ГБ", "5 ГБ", "29.10.2026", "Условия и оплаченные периоды"):
         assert term in page.visible
-    assert not any(tag == "form" for tag, _ in page.nodes)
+    assert [attrs.get("action") for tag, attrs in page.nodes if tag == "form"] == ["/billing/storage/cancel-selection"]
+    assert "Отменить выбор следующего объема" in page.visible
 
 
 def test_invoice_refund_disclosure_explains_manual_status_and_separate_renewal_control():
@@ -306,3 +313,67 @@ def test_invoice_refund_disclosure_explains_manual_status_and_separate_renewal_c
         assert term in expanded.visible
     assert any(attrs.get("href") == "/billing/subscription" for _, attrs in expanded.nodes)
     assert not any(tag == "form" for tag, _ in expanded.nodes)
+
+
+@pytest.mark.parametrize("state", ["fresh", "stale", "unavailable"])
+@pytest.mark.parametrize("owner", [True, False])
+def test_storage_usage_is_concise_without_losing_privacy_or_unknown_state(state, owner):
+    html = render_template(
+        "cabinet/pages/billing_usage_content.html", embedded=False,
+        billing_owner=owner, usage_projection_state=state,
+        processing_unlimited=True, processing_used_label="35 мин 39 сек",
+        processing_threshold="normal", storage_used=715_230_000,
+        storage_used_label="715 МБ", storage_reserved=100_000_000,
+        storage_reserved_label="100 МБ", storage_capacity=10_000_000_000,
+        storage_capacity_label="10 ГБ", storage_available_label="9,18 ГБ",
+        storage_threshold="normal", storage_threshold_label="В норме",
+    )
+    page = Page(html)
+    progress = [attrs for tag, attrs in page.nodes if tag == "progress"]
+    assert len(progress) == int(owner and state != "unavailable")
+    if owner and state != "unavailable":
+        assert progress[0]["value"] == "715230000"
+        assert progress[0]["max"] == "10000000000"
+        assert "715 МБ из 10 ГБ" in page.visible
+        assert html.index('id="usage-storage-title"') < html.index('id="usage-processing-title"')
+        assert "35 мин 39 сек" not in page.visible
+        assert "Состояние: В норме" not in page.visible
+    else:
+        assert "715 МБ" not in page.visible
+    assert ("устарели" in page.visible) == (state == "stale")
+    assert not any(attrs.get("href") == "/billing/storage" for _, attrs in page.nodes) if not owner else True
+    assert "Нужна помощь с оплатой?" not in page.visible
+
+
+def test_storage_timeline_is_optional_but_future_selection_is_visible():
+    page = Page(render_template(
+        "cabinet/pages/billing_storage_content.html", eligible=True, billing_enabled=False,
+        csrf_token="synthetic", selection_version=1,
+        current_capacity_label="10 ГБ", next_capacity_label="5 ГБ", paid_through_label="03.01.2028",
+        storage_timeline=[{"start": "15.10.2026", "end": "03.11.2026", "capacity": "10 ГБ", "bonus": True}],
+    ))
+    assert "03.01.2028" in page.visible and "5 ГБ" in page.visible
+    assert "15.10.2026" not in page.visible and "бонусный срок" not in page.visible
+    assert any(tag == "details" and "open" not in attrs for tag, attrs in page.nodes)
+
+
+@pytest.mark.parametrize("threshold,notice", [("80%", "Место заканчивается"), ("95%", "Место заканчивается"), ("over_capacity", "Объем хранилища превышен")])
+def test_storage_warning_stays_explicit_after_simplification(threshold, notice):
+    page = Page(render_template(
+        "cabinet/pages/billing_usage_content.html", embedded=False, billing_owner=True,
+        storage_threshold=threshold, processing_unlimited=True, processing_used_label="35 мин",
+        processing_threshold="normal", storage_used=6_000_000_000, storage_capacity=5_000_000_000,
+        storage_used_label="6 ГБ", storage_capacity_label="5 ГБ",
+    ))
+    assert notice in page.visible
+    if threshold == "over_capacity":
+        assert "новое аудио не сохраняется" in page.visible
+
+
+def test_storage_base_capacity_copy_names_the_paid_plan_for_free_users():
+    page = Page(render_template(
+        "cabinet/pages/billing_storage_content.html", eligible=False, billing_enabled=True,
+        current_capacity_label="500 МБ",
+    ))
+    assert "В тариф «Личный» включено 5 ГБ" in page.visible
+    assert "500 МБ" in page.visible

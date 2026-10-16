@@ -34,6 +34,7 @@ from twobrain_rec_server.db.models import (
     BillingPaymentMethod,
     BillingPlanVersion,
     BillingStorageEntitlementGrant,
+    ExternalIdentity,
     TimeCreditLedgerEntry,
     Workspace,
     WorkspaceMembership,
@@ -52,6 +53,7 @@ class FakeDb:
         self.commits = 0
         self.rollbacks = 0
         self.added: list[object] = []
+        self.current_receipt_contact = None
         self.workspace = Workspace(
             id=WORKSPACE_ID,
             organization_id=UUID("44444444-4444-4444-8444-444444444444"),
@@ -84,6 +86,8 @@ class FakeDb:
 
     async def scalar(self, _query: object) -> object:
         descriptions = getattr(_query, "column_descriptions", ())
+        if descriptions and descriptions[0].get("entity") is ExternalIdentity:
+            return self.current_receipt_contact
         if (
             descriptions
             and descriptions[0].get("entity") is BillingInvoice
@@ -365,7 +369,8 @@ def test_every_attempt_has_its_own_key_over_the_same_period() -> None:
 
 
 @pytest.mark.asyncio
-async def test_planner_persists_approved_catalog_and_receipt_snapshot() -> None:
+@pytest.mark.parametrize("current_contact", [None, "new-owner@example.test"])
+async def test_planner_persists_approved_catalog_and_receipt_snapshot(current_contact) -> None:
     subscription = WorkspaceSubscription(
         workspace_id=WORKSPACE_ID,
         billing_owner_id=OWNER_ID,
@@ -391,7 +396,11 @@ async def test_planner_persists_approved_catalog_and_receipt_snapshot() -> None:
     from twobrain_rec_server.billing.purchases import accept_base_price
 
     accept_base_price(subscription, validate_plan_version(catalog).as_dict())
-    db = PlanningDb([subscription, None, catalog, UUID(int=1), "billing@2brain.pro", None, None])
+    db = PlanningDb([
+        subscription, None, catalog, UUID(int=1),
+        *(["billing@2brain.pro"] if current_contact is None else []), None, None,
+    ])
+    db.current_receipt_contact = current_contact
 
     planned = await plan_due_renewals(db, now=datetime(2026, 8, 8, tzinfo=UTC))
 
@@ -409,7 +418,7 @@ async def test_planner_persists_approved_catalog_and_receipt_snapshot() -> None:
         "offer_version": "personal-v7",
         "policy_snapshot": {"offer_version": "personal-v7"},
     }
-    assert invoice.receipt_contact_snapshot == "billing@2brain.pro"
+    assert invoice.receipt_contact_snapshot == (current_contact or "billing@2brain.pro")
 
 
 @pytest.mark.asyncio

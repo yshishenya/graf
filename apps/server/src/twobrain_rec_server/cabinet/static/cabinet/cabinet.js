@@ -9758,7 +9758,10 @@
       const output = document.getElementById('storage-package-summary');
       const buttons = root.querySelectorAll('[data-package-step]');
       const render = () => {
-        if (output) output.textContent = select.selectedOptions[0]?.dataset.summary || 'Цена временно недоступна.';
+        if (output) {
+          output.textContent = select.selectedOptions[0]?.dataset.summary || 'Цена временно недоступна.';
+          output.hidden = false;
+        }
         buttons.forEach(button => {
           button.hidden = false;
           button.disabled = !select.options.length || (Number(button.dataset.packageStep) < 0 ? select.selectedIndex <= 0 : select.selectedIndex >= select.options.length - 1);
