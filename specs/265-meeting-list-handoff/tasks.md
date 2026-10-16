@@ -62,8 +62,30 @@ API, upload protocol, нативный мост, аудиозапись, обр�
 
 ## Phase 4: Повторная проверка и закрытие umbrella (2026-10-16)
 
-- [ ] T010 [US3] Завершить независимое ревью `specs/265-meeting-list-handoff/checklists/ux.md` с отчетом `specs/265-meeting-list-handoff/review-20261016.md`, согласовать SC-001 с FR-006 в `specs/265-meeting-list-handoff/spec.md`, обновить устаревшее текстовое ожидание F268 в `apps/server/tests/browser/mixed-meeting-list.test.cjs`, повторить проверки `specs/265-meeting-list-handoff/quickstart.md` и записать результаты в `specs/265-meeting-list-handoff/validation-20261016.md`; после принятия PR с проверками точного SHA согласовать закрытие umbrella через штатный live validator. (Issue #7002).
+- [X] T010 [US3] Завершить независимое ревью `specs/265-meeting-list-handoff/checklists/ux.md` с отчетом `specs/265-meeting-list-handoff/review-20261016.md`, согласовать SC-001 с FR-006 в `specs/265-meeting-list-handoff/spec.md`, обновить устаревшее текстовое ожидание F268 в `apps/server/tests/browser/mixed-meeting-list.test.cjs`, повторить проверки `specs/265-meeting-list-handoff/quickstart.md` и записать результаты в `specs/265-meeting-list-handoff/validation-20261016.md`; после принятия PR с проверками точного SHA согласовать закрытие umbrella через штатный live validator. (Issue #7002).
 
 T010 зависит от T001–T009 и полного PASS независимого ревью требований до
 правки теста. Код продукта, нативная приемка и выпуск не входят; открытая T010
 не позволяет объявить umbrella завершенной по одному старому merged PR.
+
+
+## Подтверждение T010 — 2026-10-16
+
+PR #7629 принят через штатные проверки GitHub. PR SHA:
+`c2739641a264944b41dcfbdc7a1a1865bc28d59e`; checked base:
+`e8ec10f812c375d1a538c43d2750260e29eaf2a5`; результат слияния:
+`db3eeda4ce118d4203acdde2bb7383ee143acafc`.
+Общий validate-pr-checks.py подтвердил обязательный набор: source
+[governance-fast 38925215653](https://github.com/yshishenya/graf/actions/runs/38925215653),
+[macos-pr 38925215583](https://github.com/yshishenya/graf/actions/runs/38925215583),
+[pr-metadata 38925806442](https://github.com/yshishenya/graf/actions/runs/38925806442),
+а также актуальные проверки описания. Независимое ревью 17/17 и результаты
+178 выбранных тестов описаны в review-20261016.md и validation-20261016.md.
+Отметка фиксирует принятые требования, тест и их проверку; выпуск и
+установленная нативная приёмка в T010 не входят.
+
+Внешняя сверка трекера остаётся открытой: #7002 закрывается отдельно после
+принятия этой документальной отметки и PASS штатного live feature validator.
+Обнаруженный дефект учёта главного владельца исправляется в F259/#7631;
+девять старых дочерних комментариев требуют отдельной сверки SHA. До этого
+umbrella остаётся открытой; отметки задач не заменяют итоговую проверку.
