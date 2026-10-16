@@ -155,3 +155,49 @@ Reviewer изменил только этот отчёт и свой requirement
 Проверен новый HEAD `42b951d33ebdf9c752cc463de987d1cd408fe8b7` на parent master `6de02bc59d20bbab1cfa0487e942963509aa9d15`. Сравнение `git diff d5c174cbe..HEAD` содержит ровно четыре родительских документа: deployment v2026.10.16.1, converge-payment-reaudit, tasks и validation-payment-reaudit; продуктовых исходников/тестов в различии нет. Deployment, converge-payment-reaudit и validation-payment-reaudit байтово совпадают с новым master. `tasks.md` сохраняет весь точный master prefix, а после него ровно прежний собственный Phase29 из d5c174cbe. Маркеры конфликтов во всех четырёх документах отсутствуют. Параллельный validation-storage-simplicity reviewer не менял.
 
 Все13 source/test hashes из текущего допуска повторно вычислены и совпали. **SOURCE / MERGE / BROWSER / POSTGRESQL PASS сохраняется на неизменных продуктовых байтах**; новых запусков tests reviewer не заявляет. Новое родительское подтверждение T065 сохранено как доказательство другого оператора, а не самостоятельно повторённая этим reviewer живая приёмка. Исторический текст о T065 pending выше отражает прежнее состояние и не отменяет это master дополнение; T066–068 сохраняются в своей Phase29. Новая SHA PR требует своих точных CI/base доказательств; новый полный выпуск/production runtime storage и остальные ранее открытые ворота не закрываются сохранением source bytes. Reviewer дописал только свой source report.
+
+
+### Узкое исправление устаревшего контракта test_billing_usability
+
+**TEST-ONLY REVIEW PASS — critical0/high0/medium0.** Область: рабочая ветка codex/280-storage-copy-contract от `278911f31c6ac0edcb478bcc03ad7808b6a15d2c`, перед фиксацией маленького исправления. Прочитан весь файл `tests/integration/test_billing_usability.py`, его diff и текущий usage template. Full38840326933 обнаружил два прежних строковых ожидания; это не новый продуктовый дефект. Actual сохранённый RED:2failed/14passed именно на default storage label и старом «Управлять архивом». Прочитан GREEN157passed из `.dev/storage-usability-green.log`; reviewer самостоятельно повторил полный изменённый файл: **16passed**,2 прежних предупреждения,0.03с.
+
+Новые assertions соответствуют FR-056–058 и сохраняют смысл контракта: прямой вывод `{{ storage_threshold` запрещён вместо требования удалённой normalstatus строки; дополнительно обязательны понятные предупреждения «Место заканчивается.» и «Архив заполнен». Отдельные прежние rendered state tests продолжают проверять реальные80/95/full/over_capacity сценарии. Старый текст ссылки заменён на точную действующую anchor с `meetings_href` и «Открыть записи», поэтому проверяется и назначение перехода, а не только наличие слова. Все соседние checks необязательности перехода, остатка/сброса, увеличения места, удаления записей, обработки без аудио и overview сохранены. Содержательные guards не удалены и продукт под старый тест не изменён.
+
+Сверка всего `apps/server/src` с прежним проверенным d5c174cbe и текущего working tree дала отсутствие любых различий. Все7 ранее записанных product source hashes также повторно совпали. Это узкая коррекция устаревших проверочных строк; она не наследует успешный Full после его фактического падения. Нужны новые точные PR checks и новый полный кандидат/Full; release/CD/runtime остаются отдельными воротами. Требования checklist не менялись, reviewer дописал только этот report.
+
+| Проверенный файл / журнал | SHA-256 |
+| --- | --- |
+| `apps/server/tests/integration/test_billing_usability.py` | `66a486a118ad3dcdd71843cab04399036beb3be52672463ef28959cf347c5db3` |
+| `.dev/storage-usability-red.log` | `626af5e38feed7ce2d5e4a8172ca590d3e3bd9cfcecb2c2b58fa0eaf9a271841` |
+| `.dev/storage-usability-green.log` | `f4d1a9dfc6d2e8a087d9bc26b401a9124b157035b9c5dbb384dd8344e6f2bdf6` |
+
+
+### Combined review: устаревшие подписи и общая конвенция текста
+
+**CURRENT COMBINED SOURCE REVIEW PASS — critical0/high0/medium0.** Этот окончательный срез расширяет предшествующий test-only scope. Независимо проверено точное преобразование каждого из двух usage/storage шаблонов относительно master278911f31: current bytes равны `old.replace("ё", "е").replace("Ё", "Е")`. В usage заменены4 буквы, в storage2; кроме этих двух шаблонов `apps/server/src` не изменён. Следовательно Jinja условия/guards, ссылки, input/form/CSRF/version, числа, цены/расчёт и действия неизменны. Смысл пользовательского текста сохранён, соблюдён существующий общий copy contract без добавления исключений.
+
+В `test_billing_ui.py` синхронизированы только две буквальные строки «сохраненные», сами assertions и все остальные guards сохранены. Usability diff соответствует предыдущему обзору. `test_copy_convention_contract.py` байтово не изменён. Новое окончание quickstart явно добавляет оба полных набора usability/copy к существующей матрице, без замены браузерной/HTTP/storage проверки. Checklist остаётся7/0, новых требований/изменений авторизации или финансов нет.
+
+Прочитаны causal logs: usability2failed/14passed и copy2failed/76passed (обе страницы), затем окончательный `.dev/storage-copy-green-final.log` **235passed**,0.67с. Основной агент сохранил промежуточный2failed/233passed со старыми двумя test_billing_ui литералами; он не объявляется GREEN. Reviewer самостоятельно выполнил изменённый usability, UI contract и неизменённый полный copy convention: **203passed**,2 существующих предупреждения,0.51с. Это текущий собственный повтор, не наследование прежнего Full. Новые Chromium/WebKit на окончательных text bytes ещё ожидаются; прежние52/52 относятся к предыдущим байтам. Фактический предыдущий Full failure/отброшенный кандидат не превращаются этим локальным PASS в выпускное доказательство: новый точный CI/candidate/Full/CD/runtime обязательны отдельно.
+
+| Окончательный combined файл / журнал | SHA-256 |
+| --- | --- |
+| `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_usage_content.html` | `0770fa489b679c7dd147c4f0dd3aab0f32c553d87c726a9bd8d76c08bbd7765d` |
+| `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_storage_content.html` | `5eeb7e154804c7bbe7a1ab49f36e735af12d0528316ac547e9846861a089ca75` |
+| `apps/server/tests/contract/test_billing_ui.py` | `8895017b93da1708dd46e08c38d7c54d84691c39802f4ec4f20602cfb9dd7f58` |
+| `apps/server/tests/integration/test_billing_usability.py` | `66a486a118ad3dcdd71843cab04399036beb3be52672463ef28959cf347c5db3` |
+| `apps/server/tests/contract/test_copy_convention_contract.py` | `88098c871217274b48154ed6acb4d31bd0e4a351583f88345d7346e7cd6d7ae0` |
+| `.dev/storage-copy-red.log` | `fd76f97e115c179069a4f3c5f129bf1aabd5bbdcf49efc2fa2fd7ffd479f1ff4` |
+| `.dev/storage-copy-green-final.log` | `d2fc324740b23e6b2b8c646abe6fa26e38266f66b6fcc9facc2c3ac47ce682be` |
+
+
+### Окончательный браузерный допуск на normalized copy
+
+Непосредственно прочитаны завершённые `.dev/storage-copy-chromium.log` и `.dev/storage-copy-webkit.log`: **Chromium52passed61.95с, WebKit52passed73.21с**, два прежних предупреждения в каждом. Reviewer повторно проверил exact master278911f31 transformation и SHA-256 обоих конечных шаблонов: usage `0770fa489b679c7dd147c4f0dd3aab0f32c553d87c726a9bd8d76c08bbd7765d`, storage `5eeb7e154804c7bbe7a1ab49f36e735af12d0528316ac547e9846861a089ca75`. Остальной apps/server/src совпадает с master278911f31. Assertions и таймеры браузерного runner не изменялись.
+
+**FINAL COMBINED SOURCE / BROWSER REVIEW PASS — critical0/high0/medium0.** Предшествующая пометка новых браузерных запусков как pending заменена этим результатом; старый Full failure и его abandoned candidate остаются историческими неуспехами. Новые точные commit/PR checks, candidate/Full, CD и production runtime этим текущим локальным допуском не закрываются. Reviewer прочитал эти логи, не выдавая их за самостоятельно повторённые browser команды; собственные203PASS остаются отдельным доказательством. Изменён только этот report, требования checklist не менялись.
+
+| Конечный браузерный журнал | SHA-256 |
+| --- | --- |
+| `.dev/storage-copy-chromium.log` | `8cda83dd46d97215ca3d9f7eded5ac7b2b9739fbef8b6c69b1027062b6d9cd24` |
+| `.dev/storage-copy-webkit.log` | `00639da04d591ed5db3f8ae29c549b8fed3ce06da19574d43afff8169fc78853` |

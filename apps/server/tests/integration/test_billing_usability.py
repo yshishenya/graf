@@ -77,7 +77,9 @@ def test_usage_surface_does_not_fall_back_to_raw_storage_threshold() -> None:
         ROOT / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_usage_content.html"
     ).read_text(encoding="utf-8")
     assert "storage_threshold_label|default(storage_threshold)" not in usage
-    assert 'storage_threshold_label|default("Состояние уточняется")' in usage
+    assert "{{ storage_threshold" not in usage
+    assert "Место заканчивается." in usage
+    assert 'else "Архив заполнен"' in usage
 
 
 def test_operation_status_does_not_offer_checkout_when_billing_is_disabled() -> None:
@@ -147,7 +149,7 @@ def test_billing_surfaces_keep_contextual_non_coercive_upgrade_copy() -> None:
     assert "Увеличить хранилище" in usage
     assert "удалить старые записи" in usage
     assert "обработать без сохранения аудио" in usage
-    assert "Управлять архивом" in usage
+    assert '<a href="{{ meetings_href }}">Открыть записи</a>' in usage
 
 
 def test_billing_navigation_uses_approved_russian_labels() -> None:
