@@ -430,6 +430,28 @@ def test_overview_direct_renewal_storage_and_card_avoid_intermediate_pages():
     assert sum("data-billing-primary" in attrs for _, attrs in page.nodes) == 1
 
 
+@pytest.mark.parametrize("surface", ["overview", "payment_method"])
+def test_missing_card_copy_makes_saving_optional_and_requires_auto_renewal(surface):
+    html = (
+        overview(method_present=False, payment_method_label=None, payment_result="none")
+        if surface == "overview"
+        else render_template(
+            "cabinet/pages/billing_payment_method_content.html", embedded=False,
+            method_label=None, billing_enabled=True,
+        )
+    )
+    page = Page(html)
+    assert "Для автопродления карту можно сохранить при оплате в ЮKassa." in page.visible
+    assert "Карта сохраняется при оплате тарифа" not in page.visible
+    assert "Оплатить тариф и сохранить карту" not in page.visible
+    assert not any(tag == "form" and attrs.get("action") in {
+        "/billing/checkout", "/billing/payment-method/delete",
+    } for tag, attrs in page.nodes)
+    if surface == "payment_method":
+        assert any(tag == "a" and attrs.get("href") == "/billing/checkout" for tag, attrs in page.nodes)
+        assert "Перейти к оплате" in page.visible
+
+
 @pytest.mark.parametrize("overrides", [
     {"operation_pending": True, "pending_invoice_summary": {"safe_number": "INV-PENDING"}},
     {"billing_owner": False, "billing_role": "member"},
