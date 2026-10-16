@@ -122,3 +122,36 @@ SHA пул-реквеста. Полный прогон `release-full` выпол
 Это доказательство отсутствия чтений на встречу, а не постоянной стоимости для
 50 разных рабочих пространств. Изоляция нескольких владельцев проверяется отдельно;
 для сравнения бюджета количество групп должно оставаться тем же.
+
+## Сценарий 6. Служебный контекст (#7142/T029–T031)
+
+Использовать существующее окружение и одноразовую PostgreSQL, без сборки приложения:
+
+```sh
+UV_PROJECT_ENVIRONMENT=/Users/yshishenya/Documents/crisp/apps/server/.venv \
+UV_NO_SYNC=1 GRAF_TEST_WORKERS=1 \
+  bash apps/server/scripts/run_local_postgres_tests.sh --focused \
+  tests/integration/test_tenant_context_query_budget.py \
+  tests/unit/test_rls_tenant_context.py \
+  tests/integration/test_rls_postgres_policies.py \
+  tests/integration/test_rls_identity_policies.py \
+  tests/integration/test_rls_meeting_content_policies.py \
+  tests/integration/test_rls_maintenance_context.py \
+  tests/integration/test_rls_worker_context.py \
+  tests/integration/test_rls_application_boundaries.py \
+  tests/integration/test_rls_stale_session_device_context.py -q
+```
+
+Дополнительно повторить сценарий 4 и предохранитель
+`tests/integration/test_cabinet_meeting_list_query_budget.py`. Ожидания старых
+проверок не менять. До исправления новый предохранитель обязан падать на числе
+SQL. После — все значения current_setting совпадают, один непустой проход
+выполняет 1 SQL, первый session apply сохраняет 2 прохода/2 SQL, пустой контекст
+не выполняет SQL. Проверить commit/rollback, замену и восстановление контекста,
+повторное использование физического соединения, параллельные сессии и отказ SQL.
+Ошибочная транзакция не допускает защищённого чтения до rollback; после rollback
+восстановление использует прежний сохранённый контекст.
+
+Сохранить замер той же детали, что дала 84 SQL, и число обращений списков.
+Снижение промежуточного результата не закрывает SC-003 (<=25 SQL); полный
+серверный прогон и сопоставимый эталон SC-005 остаются отдельной T026.
