@@ -1,0 +1,42 @@
+# Проверка F263 / текущая часть US4
+
+Это восстановленный документ2026-10-16. Оригинальные четыре node IDs US2
+неизвестны; команды ниже не заменяют их и не закрывают T002/T005.
+
+## Предпосылки
+
+Python/uv/Node и уже подготовленное серверное окружение; Docker с существующим
+postgres:17-alpine. Проверить свободное место; крупных сборок/копий не делать.
+Сохранять только текстовые итоги, временный контейнер убирает штатный runner.
+
+## Карта и обязательные отказы
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=apps/server/src apps/server/.venv/bin/python -m pytest -q -o addopts= apps/server/tests/contract/test_ci_cd_contract.py
+```
+
+Проверить matching/API/model, calendar prefix, migration0021 и mapped tests;
+union/covered без повторов; кабинет не выбирает календарь; unknown/shared/rename
+и недоступная/неверная база не теряются; missing/empty/syntax/symlink отвергаются;
+skip/deselect/ненулевой runner не дают PASS. Проверка runner-команды подтверждает
+required performance, сброс фильтров и один JUnit. Stub сценарии — проверка
+связывания команд, реальный продуктовый запуск ниже обязателен отдельно.
+
+## Реальный календарь
+
+```sh
+GRAF_PERFORMANCE_GATE=required GRAF_TEST_WORKERS=1 bash apps/server/scripts/run_local_postgres_tests.sh --focused -q -o addopts= tests/contract/test_calendar_auto_context_contract.py tests/integration/test_calendar_auto_context_match.py
+```
+
+Оба файла PASS, включая serial_performance; нетskip, контейнер удалён. Затем
+реальный `--focused` через карту для изменения matching.py должен выбрать и
+выполнить те же файлы. В смешанном --fast целые mapped файлы исключаются из
+changed-tests; calendar performance этап не повторяет исполненный полный файл.
+
+## Регрессия и последующая приёмка
+
+Runner contract, governance, shell syntax, Ruff, process/context/changelog/diff.
+Converge перед запросом commit. Только после разрешения commit/draftPR — три
+required PR checks на точном SHA и checked base. Merge отдельно; release-full
+понадобится только для будущего frozen release. Ни общий CI, ни вся F263,
+ни installedGRAF не считаются принятыми по локальному результатуUS4.

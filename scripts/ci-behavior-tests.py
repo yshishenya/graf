@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Select existing cabinet/settings proofs; Git diff remains owned by ci-local.sh."""
+"""Select existing behavior proofs; Git diff remains owned by ci-local.sh."""
 
 from __future__ import annotations
 
@@ -25,6 +25,10 @@ GROUPS = {
         "tests/contract/test_settings_ui_contract.py",
         "tests/unit/test_settings_view_models.py",
     ),
+    "calendar-auto-context": (
+        "tests/contract/test_calendar_auto_context_contract.py",
+        "tests/integration/test_calendar_auto_context_match.py",
+    ),
 }
 
 
@@ -35,8 +39,16 @@ def select_tests(paths: list[str], covered: list[str], root: Path = ROOT) -> dic
             raise ValueError("unsupported_changed_path")
         shared = path.startswith((CABINET + "static/", CABINET + "templates/", CABINET + "rendering"))
         settings = path.startswith(CABINET + "view_models") or path == CABINET + "web_routes/settings.py"
+        calendar = path.startswith("apps/server/src/twobrain_rec_server/calendar/") or path in {
+            "apps/server/src/twobrain_rec_server/api/calendar.py",
+            "apps/server/src/twobrain_rec_server/db/models/calendar.py",
+            "apps/server/src/twobrain_rec_server/db/migrations/versions/0021_calendar_auto_context_match.py",
+        }
         for group, targets in GROUPS.items():
-            if shared or (settings and group == "settings") or path in {"apps/server/" + t for t in targets}:
+            if ((shared and group in {"cabinet-shell", "settings"})
+                    or (settings and group == "settings")
+                    or (calendar and group == "calendar-auto-context")
+                    or path in {"apps/server/" + t for t in targets}):
                 matches.setdefault(group, []).append(path)
     selected = sorted({target for group in matches for target in GROUPS[group]})
     for target in selected:
@@ -56,7 +68,9 @@ def select_tests(paths: list[str], covered: list[str], root: Path = ROOT) -> dic
                    for group in sorted(matches)],
         "tests": [target for target in selected if target not in covered_tests],
         "covered_tests": covered_tests,
-        "environment": ["prepared server .venv", "Node.js", "no database or Docker"],
+        "environment": (["prepared server .venv", "Node.js", "PostgreSQL", "Docker"]
+                        if "calendar-auto-context" in matches else
+                        ["prepared server .venv", "Node.js", "no database or Docker"]),
         "scope": "working_tree_diagnostic",
         "coverage": "partial",
         "next_gate": "governance-fast_then_release-full",
@@ -82,10 +96,14 @@ def execute(targets: list[str]) -> int:
         raise ValueError("node_missing: cabinet behavior tests require Node.js")
     with tempfile.TemporaryDirectory(prefix="graf-behavior-tests-") as directory:
         report = Path(directory) / "junit.xml"
+        calendar = any(target in GROUPS["calendar-auto-context"] for target in targets)
+        command = (["bash", str(ROOT / "apps/server/scripts/run_local_postgres_tests.sh"), "--focused"]
+                   if calendar else [str(interpreter), "-m", "pytest"])
         result = subprocess.run(
-            [str(interpreter), "-m", "pytest", "-q", "-o", "addopts=", "--junitxml", str(report), *targets],
+            [*command, "-q", "-o", "addopts=", "--junitxml", str(report), *targets],
             cwd=ROOT / "apps/server",
-            env={**os.environ, "PYTHONPATH": "src", "PYTHONDONTWRITEBYTECODE": "1", "PYTEST_ADDOPTS": ""},
+            env={**os.environ, "PYTHONPATH": "src", "PYTHONDONTWRITEBYTECODE": "1", "PYTEST_ADDOPTS": "",
+                 **({"GRAF_PERFORMANCE_GATE": "required"} if calendar else {})},
             check=False,
         )
         if result.returncode:
