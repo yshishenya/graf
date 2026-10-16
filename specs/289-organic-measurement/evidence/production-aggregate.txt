@@ -1,28 +1,31 @@
-Пересчёт 16.10.2026: прежняя выгрузка отменена из-за отсутствия
-строчных фильтров reportable_aggregate_criteria(). Ниже новый READ ONLY
-снимок: external, visits >=3 до SUM, группа >=5, окно [17.09,15.10) UTC.
-Остальные счётчики — вся история на момент нового снимка.
+Пересчёт16.10 после двух замечаний к отчёту: прежние выгрузки отменены.
+External и visits>=3 применены до SUM; группа>=5; окно[17.09,15.10)UTC.
+Просмотры страниц, действия и неизвестные сигналы разделены.
+377 page_requests (81 бакет) и36 actions (7 бакетов); это не люди/сеансы.
+413 — только сумма разнородных сигналов, не трафик.
+Остальные счётчики — вся история. READ ONLY/REPEATABLE READ/ROLLBACK.
 
 BEGIN
 SET
- buckets | requests |    min     |    max
----------+----------+------------+------------
-      88 |      413 | 2026-09-22 | 2026-10-14
-(1 row)
+ counter_kind  | buckets | signals |    min     |    max
+---------------+---------+---------+------------+------------
+ actions       |       7 |      36 | 2026-09-22 | 2026-10-03
+ page_requests |      81 |     377 | 2026-09-22 | 2026-10-14
+(2 rows)
 
-              surface               | traffic_class | referrer_category | requests
-------------------------------------+---------------+-------------------+----------
- public_guides                      | external      | direct            |       22
- public_guides                      | external      | referral          |        5
- public_landing                     | external      | direct            |      168
- public_landing                     | external      | referral          |       89
- public_login                       | external      | direct            |        7
- public_mac_meeting_guide           | external      | direct            |        8
- public_privacy                     | external      | direct            |        5
- public_protocol_guide              | external      | direct            |       15
- public_signup                      | external      | direct            |       33
- public_signup_step_viewed          | external      | unknown           |       33
- public_transcription_quality_guide | external      | direct            |       10
+              surface               | traffic_class | referrer_category | signals
+------------------------------------+---------------+-------------------+---------
+ public_guides                      | external      | direct            |      22
+ public_guides                      | external      | referral          |       5
+ public_landing                     | external      | direct            |     168
+ public_landing                     | external      | referral          |      89
+ public_login                       | external      | direct            |       7
+ public_mac_meeting_guide           | external      | direct            |       8
+ public_privacy                     | external      | direct            |       5
+ public_protocol_guide              | external      | direct            |      15
+ public_signup                      | external      | direct            |      33
+ public_signup_step_viewed          | external      | unknown           |      33
+ public_transcription_quality_guide | external      | direct            |      10
 (11 rows)
 
  attributed_visits | with_source

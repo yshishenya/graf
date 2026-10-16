@@ -12,7 +12,7 @@
 
 ## Phase 3: US1 — Обезличенные входы
 
-- [X] T003 [US1] Подключить четыре поверхности только уровня 1 в apps/server/src/twobrain_rec_server/public/content.py и apps/server/src/twobrain_rec_server/product_analytics/anonymous_aggregate.py; режим anonymous_only и два обработчика в apps/server/src/twobrain_rec_server/public/web.py по FR-001–005.
+- [X] T003 [US1] Подключить четыре поверхности только уровня 1 в apps/server/src/twobrain_rec_server/public/content.py и apps/server/src/twobrain_rec_server/product_analytics/anonymous_aggregate.py; режим anonymous_only и два обработчика в apps/server/src/twobrain_rec_server/public/web.py по FR-001–005,008; общие бюджеты БД и изоляция счётчиков от auth-транзакции в public/web.py, public/downloads.py и cabinet/web_routes/auth.py.
 
 ## Phase 4: US2 — План и проверка
 

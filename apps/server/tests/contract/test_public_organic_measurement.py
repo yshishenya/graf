@@ -127,3 +127,32 @@ def test_anonymous_inventory_does_not_include_help_private_or_unknown_paths():
     assert all(path not in PUBLIC_PAGE_SURFACES for path in (
         '/help', '/help/na-mac-slyshno-tolko-odnu-storonu', '/news', '/meetings', '/guides/unknown',
     ))
+
+
+@pytest.mark.parametrize('path', PAGES)
+@pytest.mark.parametrize('stage', ['prepare', 'write'])
+def test_real_database_timeout_returns_content_and_next_request_works(
+    path, stage, client, postgres_seeded_database_url, monkeypatch,
+):
+    import twobrain_rec_server.product_analytics.anonymous_aggregate as aggregate
+    import twobrain_rec_server.public.web as web
+
+    async def slow_database(session, *args, **kwargs):
+        await session.execute(text('select pg_sleep(5)'))
+
+    with monkeypatch.context() as patch:
+        if stage == 'prepare':
+            patch.setattr(web, 'apply_tenant_context', slow_database)
+        else:
+            patch.setattr(aggregate, 'record_anonymous_aggregate_bucket', slow_database)
+        response = client.get(path)
+        assert response.status_code == 200
+        assert 'set-cookie' not in response.headers
+    # Recovery is a functional check, not a latency benchmark on a shared Mac.
+    # The stalled request above uses the production 250 ms limits.
+    with monkeypatch.context() as patch:
+        patch.setattr(web, 'PUBLIC_WEB_DB_PHASE_TIMEOUT_SECONDS', 2)
+        patch.setattr(aggregate, 'ANONYMOUS_AGGREGATE_WRITE_TIMEOUT_SECONDS', 2)
+        assert client.get(path).status_code == 200
+    assert rows(postgres_seeded_database_url,
+                'select sum(visits) as n from anonymous_page_aggregate_buckets') == [{'n': 1}]

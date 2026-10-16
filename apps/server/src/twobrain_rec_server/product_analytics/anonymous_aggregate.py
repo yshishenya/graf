@@ -25,10 +25,9 @@ What that means for every value that reaches a bucket:
 * buckets smaller than :data:`MINIMUM_AGGREGATE_BUCKET_SIZE` are not disclosed
   in reports (FR-057), so a lone visitor cannot be read out of a report.
 
-Writing follows research.md §2 and §3: one synchronous PostgreSQL
-``INSERT ... ON CONFLICT DO UPDATE`` by bucket key, no network call, no queue
-and no dependency on the analytics stack, so the public page never waits for
-analytics.
+Writing uses one awaited PostgreSQL ``INSERT ... ON CONFLICT DO UPDATE`` by
+bucket key, without a queue or analytics provider. The safe request-path writer
+bounds database waiting; a timeout leaves the measurement outcome unknown.
 
 Internal, support, test and automated traffic is still counted, but it carries
 its own ``traffic_class`` and reports read only the reported classes (FR-013).
@@ -36,6 +35,7 @@ its own ``traffic_class`` and reports read only the reported classes (FR-013).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections.abc import Mapping
@@ -139,6 +139,7 @@ _LABEL_NAME_RE = re.compile(
 _UNSAFE_LABEL_MARKERS = ("://", "/", "\\", "?", "#", "@", " ")
 
 logger = logging.getLogger(__name__)
+ANONYMOUS_AGGREGATE_WRITE_TIMEOUT_SECONDS = 0.25
 
 _TABLET_MARKERS = ("ipad", "tablet", "kindle", "silk/", "playbook", "nexus 7", "nexus 10")
 _MOBILE_MARKERS = (
@@ -374,9 +375,9 @@ async def record_anonymous_aggregate_bucket(
 ) -> int | None:
     """Insert or increment one bucket with a single statement and return its count.
 
-    One ``INSERT ... ON CONFLICT DO UPDATE`` by bucket key: no network call, no
-    queue and no background worker, so the public page never depends on the
-    analytics stack. The counter is committed immediately by default, because a
+    One awaited PostgreSQL ``INSERT ... ON CONFLICT DO UPDATE`` by bucket key,
+    without an analytics provider or background worker. The counter is committed
+    immediately by default, because a
     visit rolled back at the end of the request was never counted; pass
     ``commit=False`` only when the caller already owns the transaction.
     """
@@ -414,28 +415,26 @@ async def record_anonymous_aggregate_bucket_safely(
 ) -> int | None:
     """Count one bucket without ever letting measurement break the page (FR-058).
 
-    The write itself stays exactly one synchronous ``INSERT ... ON CONFLICT DO
-    UPDATE`` with no network call, no queue and no provider access. This wrapper
-    only adds the failure rule the public page needs: an unavailable database, a
-    closed session or a rejected statement is logged and swallowed, so a visitor
-    still gets the page while the missing count stays a measurement gap.
+    One database upsert and its commit share a 250 ms budget. Database failures
+    are logged and swallowed; external cancellation still propagates.
 
-    ``None`` means "not counted"; the caller must not retry, retry would turn one
-    broken write into a request-path loop.
+    ``None`` means "not confirmed": commit may have completed before timeout.
+    The caller must not retry and must discard the request session afterwards.
     """
     if session is None:
         return None
     try:
-        return await record_anonymous_aggregate_bucket(
-            session,
-            bucket,
-            commit=commit,
-            settings=settings,
-            environ=environ,
-        )
+        async with asyncio.timeout(ANONYMOUS_AGGREGATE_WRITE_TIMEOUT_SECONDS):
+            return await record_anonymous_aggregate_bucket(
+                session,
+                bucket,
+                commit=commit,
+                settings=settings,
+                environ=environ,
+            )
     except Exception as exc:  # noqa: BLE001 - measurement must never reach the visitor
         logger.warning(
-            "anonymous aggregate bucket was not recorded: surface=%s error=%s",
+            "anonymous aggregate write unconfirmed: surface=%s error=%s",
             bucket.surface,
             exc.__class__.__name__,
         )

@@ -1,23 +1,43 @@
 {
-  "base_sha": "d75ba830c7a08621e9471ef62bf77b5bc66f80fb",
+  "base_sha": "8bfcf81d4062c58f9fb484a0af0dfa2c71ce9e46",
   "branch": "codex/289-organic-measurement",
-  "state": "validated-current-base",
+  "state": "reviewed-content-snapshot-before-pr-ci",
   "files": [
     {
+      "path": "apps/server/src/twobrain_rec_server/cabinet/web_routes/auth.py",
+      "sha256": "a8025d7ab938cb5bd2d8c36faf55a64c89910dba8b450d1fac4a66b9afed9133"
+    },
+    {
       "path": "apps/server/src/twobrain_rec_server/product_analytics/anonymous_aggregate.py",
-      "sha256": "e610f3dbeda99977751049cd52924561eed55ea5e6e2595c3c85576f6b1d1229"
+      "sha256": "037f9c17bfbc65d7b9985efb3ef327abc060374360dcf6f1a25233feec499f95"
+    },
+    {
+      "path": "apps/server/src/twobrain_rec_server/public/analytics.py",
+      "sha256": "4ba210f6a8d2ad7bc2fabdbdbf64c2b4af3318adb30cd10d528217e7ea51ac68"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/public/content.py",
       "sha256": "690ba2b32ca71a21be5e908fa9fe299e9204d5fd3de6a090d0950d4b032dbde8"
     },
     {
+      "path": "apps/server/src/twobrain_rec_server/public/downloads.py",
+      "sha256": "f849cacbbacf64efb72d3eb75cbcb0a494aee778fff85d64f1d50d744b324c88"
+    },
+    {
       "path": "apps/server/src/twobrain_rec_server/public/web.py",
-      "sha256": "a1dc8347bc1f7d1e91d6e52493dc32272f28102acde72ca8d6c700af33a476e1"
+      "sha256": "beca3b3f013119003345363441234e00d2c42ec78b64a22ab5dec39ae3079c39"
+    },
+    {
+      "path": "apps/server/tests/contract/test_product_analytics_anonymous_aggregate_contract.py",
+      "sha256": "a5396d21c9b9678165980e4dd3d1787bb5d56a9e656969ac7e99ba0542409e9d"
+    },
+    {
+      "path": "apps/server/tests/contract/test_product_analytics_registration_handoff_contract.py",
+      "sha256": "ca183f00da881911546c8d644666c06e3b37f66783b792a84be53a6065a211e6"
     },
     {
       "path": "apps/server/tests/contract/test_public_organic_measurement.py",
-      "sha256": "e2d4cd8e907b3d4502ba9783a24db70c57372e61efcec26e05bb7e759a2a4678"
+      "sha256": "777b667b25a8f7d4d7344ba204db239399eea4f1fd5e40a63b5d29c687e1b7fa"
     },
     {
       "path": "apps/server/tests/contract/test_public_zoom_recording_guide.py",
@@ -25,27 +45,51 @@
     },
     {
       "path": "apps/server/tests/unit/test_product_analytics_anonymous_aggregate.py",
-      "sha256": "ac8f7dc40d74f77eab1d74ec16888a61a2ee3c4310be36598fe8546ef3132c54"
+      "sha256": "5e78ae6da2335815ed1d8d350f87c3cdaf6ccf30d1ae7ba57d0919f2b4475717"
     },
     {
       "path": "changes/unreleased/F289.yaml",
-      "sha256": "6d94b4ca98a2a9883c4c6af3a86033839a4953baaeb92ac3fc59fba093fdae8e"
+      "sha256": "c5f9e97fb1be634ca4c32e20620bf132c4a3d1f2d82bf8a6aaae63d085730d45"
     },
     {
       "path": "docs/growth/audit-2026-10-16.md",
-      "sha256": "03d9bca3c9a6ceed6334d280df5514e5becb52253e3b7e45979fde22eb12b948"
+      "sha256": "761890f4a5bec88c686345d7b409c13959019e4abd4b008b74902badde033d12"
     },
     {
       "path": "docs/growth/baseline-2026-10-16.sql",
-      "sha256": "adcef84588c8e32bd1d40d30dad667a2f8b843353e59a10231d29bcd4e4713ed"
+      "sha256": "e134c5e1dd40f8397519dcb507c2e21cf7ee7cee3cb3fd36c06bb9aa836366e0"
+    },
+    {
+      "path": "docs/growth/check-baseline.py",
+      "sha256": "645fcd53e40617d5ce0fef99a32cc25e28dd2d9a348bdad67bde0441dfd7f8fe"
+    },
+    {
+      "path": "docs/growth/check-evidence-manifest.py",
+      "sha256": "aff06dd19e44d2ad753855fa651226f842eff4021eeeb75e06e39afcc6963172"
+    },
+    {
+      "path": "docs/growth/live-search-pages-2026-10-16.json",
+      "sha256": "6cf03262595cf7f132ca1c1cc17ec9268263902b188c78ad8c6bfa9a2dc29c3b"
+    },
+    {
+      "path": "docs/growth/measurement-recheck-2026-10-16.md",
+      "sha256": "27efb00acea92d0db99bc81248c031cdfdd91fa67c512db754ec8799d074a8a4"
+    },
+    {
+      "path": "docs/growth/measurement-recheck-2026-10-16.sql",
+      "sha256": "9206040d427d85e29aa20c35e7efc8ae07afc4be4243f1e8e7fdfbe3c5ccd4dc"
     },
     {
       "path": "docs/growth/organic-growth-plan.md",
-      "sha256": "11d94526da632ca06f0fa8b24c05411ea22ebc4b644719ba4e6a950c79806cc6"
+      "sha256": "f7a2808487efc4eeb61ca7b910e423ac6cfda7ac052af01386ecd663f25d7eb4"
     },
     {
       "path": "docs/growth/posthog-baseline-2026-10-16.sql",
       "sha256": "6699779feeaa2c118ccefebbe406a498d9d94eb707134e8ace29c54ef455dc6a"
+    },
+    {
+      "path": "docs/growth/promotion-execution-2026-10-16.md",
+      "sha256": "76ae6b77f2f460f10ce04ffc36187442fe0650166f023ed8b5c8de6e3d0300a8"
     },
     {
       "path": "specs/289-organic-measurement/checklists/requirements.md",
@@ -53,11 +97,11 @@
     },
     {
       "path": "specs/289-organic-measurement/checklists/security.md",
-      "sha256": "0cbd458399f3a11096c9aaf5fd13f3ffcd930575a994f720b4a50b49d8f431ed"
+      "sha256": "8dc00691c7d4f07570ae8536d775e07aa7f2d9a4ceed6f0d3a88ef626a794f62"
     },
     {
       "path": "specs/289-organic-measurement/contracts/public-measurement.md",
-      "sha256": "dff2d3fdc9274b557942ea77a7db504eb003d8786c005f35e4676c6c6f79395b"
+      "sha256": "072b958d20eab29c3df6fe47e4cbf5364af95818a55eed43056c43e3c5b3b983"
     },
     {
       "path": "specs/289-organic-measurement/data-model.md",
@@ -66,6 +110,10 @@
     {
       "path": "specs/289-organic-measurement/evidence/analyze.md",
       "sha256": "bf37535f5a9970dc052d77bd4c713b9758f65d134e833a41eb170d64aec579b0"
+    },
+    {
+      "path": "specs/289-organic-measurement/evidence/baseline-review.md",
+      "sha256": "a91657d09a50b61c46157f87b1c3beaaf02e94cb81049178cf65fc116675948d"
     },
     {
       "path": "specs/289-organic-measurement/evidence/checklist-review.md",
@@ -77,11 +125,15 @@
     },
     {
       "path": "specs/289-organic-measurement/evidence/converge.md",
-      "sha256": "77f1ea3dc5f78c6535134d503208145cc162e2502c91a4c4df136a1c9b824ef3"
+      "sha256": "2fdbfcb74b0d76f88bdd35b8902cf26e3f4e5b7a9cbe70571ce13fbc3fb7b19e"
     },
     {
       "path": "specs/289-organic-measurement/evidence/posthog-aggregate.txt",
       "sha256": "e358b41c158efed8eac07abc667a8980c61a2083a3ceeefc533cc53637388518"
+    },
+    {
+      "path": "specs/289-organic-measurement/evidence/pr-review-followup.md",
+      "sha256": "b171e98bc93b5b98ff4a29801389797c6e7c2a6ca0b28781bdc41511881637de"
     },
     {
       "path": "specs/289-organic-measurement/evidence/preflight.md",
@@ -89,19 +141,31 @@
     },
     {
       "path": "specs/289-organic-measurement/evidence/production-aggregate.txt",
-      "sha256": "15ae0e52eeee0a56cbedc3bbfb41e3fe279b83c9c28817225022aca805c176b7"
+      "sha256": "d61e54b71ceadba64d3349ef8ac8d5ec6786b5a90bc7655b6f0da8084090a454"
+    },
+    {
+      "path": "specs/289-organic-measurement/evidence/timeout-code-review.md",
+      "sha256": "6501367d065227b5f50d41f7c399c55ad8a4bbb6649a7608cb03c172a78bcc6e"
+    },
+    {
+      "path": "specs/289-organic-measurement/evidence/timeout-regression.txt",
+      "sha256": "6df4ddd051371fb7b06e35e675df070becc8de208b98894bf532aafd03f8cb85"
+    },
+    {
+      "path": "specs/289-organic-measurement/evidence/timeout-requirements-review.md",
+      "sha256": "41db8a1f8319dac17a9c5ce398cf53f1c62df40a152f9abb651c8d6c7de3fecc"
     },
     {
       "path": "specs/289-organic-measurement/evidence/validation.md",
-      "sha256": "75b43e78911eb291f890b4f5dab8f0fee769f84051a59976caf6168054a9e334"
+      "sha256": "79c99bf8ea897b7cf7a13c707a85ba4a03fe6008d863f128e5d8ccebd51b85ef"
     },
     {
       "path": "specs/289-organic-measurement/plan.md",
-      "sha256": "cae3598f7fcad9ae55a4989c389e2b5f4e4ac68bbed6e6e0c515bee45809fa1f"
+      "sha256": "318309725bb060dfcad33b079354cbae5f63862974d2a09d9f8a5824dcb302c6"
     },
     {
       "path": "specs/289-organic-measurement/quickstart.md",
-      "sha256": "9c48014060a3ff34eb5e3e81f354e294b84c28a36aa4619b5d13790c63a8a9bf"
+      "sha256": "f3d5cdb302167afd6175adf5b1acf42eea9ee25cc81070d94d4cbe0edf1439d0"
     },
     {
       "path": "specs/289-organic-measurement/research.md",
@@ -109,23 +173,11 @@
     },
     {
       "path": "specs/289-organic-measurement/spec.md",
-      "sha256": "371ac2a5d9de9d9bc34b219ef8b2f6eab7bb69d75ffcadbdcb74aead1ad011e5"
+      "sha256": "713ebb62b8c54b2ccafd40c4c67fe926292c2c1cd3450074e1ebd62cab55f47d"
     },
     {
       "path": "specs/289-organic-measurement/tasks.md",
-      "sha256": "a1b1607d1c30a0cdf8337c8369cc99ca9225dca1f67fb170a883e1077b15bebe"
-    },
-    {
-      "path": "apps/server/tests/contract/test_product_analytics_anonymous_aggregate_contract.py",
-      "sha256": "a5396d21c9b9678165980e4dd3d1787bb5d56a9e656969ac7e99ba0542409e9d"
-    },
-    {
-      "path": "specs/289-organic-measurement/evidence/pr-review-followup.md",
-      "sha256": "b171e98bc93b5b98ff4a29801389797c6e7c2a6ca0b28781bdc41511881637de"
-    },
-    {
-      "path": "docs/growth/live-search-pages-2026-10-16.json",
-      "sha256": "6cf03262595cf7f132ca1c1cc17ec9268263902b188c78ad8c6bfa9a2dc29c3b"
+      "sha256": "08e3bc4609d6e157405b5cd31cdb46ee0b344f8e7d87670cdde905712ae1df21"
     }
   ],
   "prior_base_sha": "d567a7dc51b0c4d99b22660d27950316ae609a66"

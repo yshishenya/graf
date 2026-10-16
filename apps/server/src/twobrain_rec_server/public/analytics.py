@@ -801,11 +801,9 @@ async def record_public_page_visit(
 ) -> AnonymousAggregateBucket | None:
     """Count one public page visit without any chance of breaking the page.
 
-    The write is one synchronous ``INSERT ... ON CONFLICT DO UPDATE`` by bucket
-    key in the product database: no network call, no queue, no provider, and no
-    dependency on whether analytics is configured or reachable (FR-009, FR-058).
-    A failed write returns ``None`` and is logged; the visitor still gets the
-    page and the loss stays a measurement gap.
+    The awaited database upsert and commit share a short budget, without a queue
+    or analytics provider (FR-009, FR-058). An unconfirmed write returns ``None``;
+    the visitor still gets the page and the outcome stays a measurement gap.
     """
     bucket = build_public_page_aggregate_bucket(request, attribution=attribution, now=now)
     if bucket is None:
@@ -924,10 +922,8 @@ async def record_public_registration_step(
 ) -> AnonymousAggregateBucket | None:
     """Count one step of web registration without any chance of breaking it.
 
-    The step is written by the same synchronous bucket write as a visit, so a
-    registration never waits for analytics and a refused write leaves a
-    measurement gap instead of a failed registration (FR-058). ``None`` means
-    "not counted", and the caller must not retry.
+    The step uses the same bounded database write as a visit (FR-058).
+    ``None`` means "not confirmed", and the caller must not retry.
     """
     try:
         bucket = build_public_registration_step_bucket(

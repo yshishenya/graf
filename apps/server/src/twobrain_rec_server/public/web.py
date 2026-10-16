@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -46,6 +48,8 @@ from twobrain_rec_server.public.templates import (
 )
 
 router = APIRouter(tags=["public-web"])
+logger = logging.getLogger(__name__)
+PUBLIC_WEB_DB_PHASE_TIMEOUT_SECONDS = 0.25
 LANDING_AUTORECORD_PRIORITY = (
     "Zoom",
     "Yandex Telemost",
@@ -87,30 +91,44 @@ PUBLIC_SEARCH_PAGES = {
 }
 
 
-async def get_public_web_db_session(request: Request):
+@asynccontextmanager
+async def public_web_db_session(request: Request):
     sessionmaker = getattr(request.app.state, "db_sessionmaker", None)
     if sessionmaker is None:
         yield None
         return
-    async with sessionmaker() as session:
+    session = sessionmaker()
+    try:
         # Billing catalog is global, but PostgreSQL still requires the ordinary
         # request RLS context before reading it.
         # A zero UUID cannot match any tenant-owned row if this dependency is
         # ever extended with another query.
         try:
-            await apply_tenant_context(
-                session,
-                TenantDatabaseContext(
-                    organization_id=PUBLIC_WEB_CONTEXT_ID,
-                    workspace_id=PUBLIC_WEB_CONTEXT_ID,
-                    user_id=PUBLIC_WEB_CONTEXT_ID,
-                ),
-            )
+            async with asyncio.timeout(PUBLIC_WEB_DB_PHASE_TIMEOUT_SECONDS):
+                await apply_tenant_context(
+                    session,
+                    TenantDatabaseContext(
+                        organization_id=PUBLIC_WEB_CONTEXT_ID,
+                        workspace_id=PUBLIC_WEB_CONTEXT_ID,
+                        user_id=PUBLIC_WEB_CONTEXT_ID,
+                    ),
+                )
         except Exception:
             # Keep public pages renderable when the catalog database is down;
             # the offer builder will then fail closed without paid claims.
             yield None
             return
+        yield session
+    finally:
+        try:
+            async with asyncio.timeout(PUBLIC_WEB_DB_PHASE_TIMEOUT_SECONDS):
+                await session.close()
+        except Exception as exc:
+            logger.warning("public database cleanup failed: error=%s", type(exc).__name__)
+
+
+async def get_public_web_db_session(request: Request):
+    async with public_web_db_session(request) as session:
         yield session
 
 
@@ -373,11 +391,9 @@ async def public_page_response(
     Three rules meet here and none of them may break the other two (FR-009,
     FR-014, FR-058):
 
-    * the page is rendered before anything is measured, so measurement can never
-      block the response;
-    * the visit is counted by one synchronous bucket write that does not raise
-      and does not touch the analytics stack, so the page and the anonymous count
-      survive an unreachable counter;
+    * the page is rendered before measurement;
+    * the anonymous database write has a short budget and ordinary failures do
+      not prevent returning the page; a timeout leaves an uncertain count;
     * the campaign labels of the visit are stored in a session cookie, so they
       survive the move between public pages and are readable by the registration
       path through :func:`read_public_visit_attribution`.

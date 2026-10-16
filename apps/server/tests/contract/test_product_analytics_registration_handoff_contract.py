@@ -115,6 +115,24 @@ def _new_email(prefix: str) -> str:
     return f"{prefix}-{uuid4().hex[:10]}@example.com"
 
 
+def test_registration_commits_when_anonymous_counter_times_out(
+    client: TestClient, postgres_seeded_database_url: str, monkeypatch,
+) -> None:
+    from twobrain_rec_server.product_analytics import anonymous_aggregate
+
+    async def slow_database(session, *args, **kwargs):
+        await session.execute(sa.text("select pg_sleep(5)"))
+
+    monkeypatch.setattr(
+        anonymous_aggregate, "record_anonymous_aggregate_bucket", slow_database,
+    )
+    before = {row["id"] for row in _rows(postgres_seeded_database_url, "user_identities")}
+    email = _new_email("counter-timeout")
+    _complete_signup(client, email)
+    after = {row["id"] for row in _rows(postgres_seeded_database_url, "user_identities")}
+    assert len(after - before) == 1
+
+
 def test_the_campaign_of_the_visit_reaches_the_client_record(
     client: TestClient, postgres_seeded_database_url: str
 ) -> None:

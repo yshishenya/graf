@@ -89,6 +89,7 @@ from twobrain_rec_server.public.templates import (
     public_analytics_page_context,
     record_public_page_response,
 )
+from twobrain_rec_server.public.web import public_web_db_session
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +137,11 @@ async def _record_web_registration_step(
     settings = getattr(request.app.state, "settings", None)
     if settings is not None and not settings.product_analytics_anonymous_aggregate_enabled:
         return
-    await record_public_registration_step(db, request, step, now=datetime.now(UTC))
+    # The counter must not cancel or commit the registration transaction.
+    async with public_web_db_session(request) as measurement_db:
+        await record_public_registration_step(
+            measurement_db, request, step, now=datetime.now(UTC)
+        )
 
 
 def _request_ip(request: Request) -> str:
@@ -222,7 +227,8 @@ async def browser_login_page(
             public_analytics=public_analytics_page_context(request, "/login"),
         )
     )
-    return await record_public_page_response(request, response, db=db)
+    async with public_web_db_session(request) as measurement_db:
+        return await record_public_page_response(request, response, db=measurement_db)
 
 
 @router.get("/sign-up", response_class=HTMLResponse, include_in_schema=False)
@@ -254,7 +260,8 @@ async def browser_signup_page(
             public_analytics=public_analytics_page_context(request, "/sign-up"),
         )
     )
-    return await record_public_page_response(request, response, db=db)
+    async with public_web_db_session(request) as measurement_db:
+        return await record_public_page_response(request, response, db=measurement_db)
 
 
 @router.post("/login/email/start", response_class=HTMLResponse, include_in_schema=False)
@@ -913,6 +920,7 @@ async def browser_email_signup_verify(
         )
         if not isinstance(result, EmailCodeRetryResponse):
             _clear_email_auth_browser_cookie(request, response, state_nonce=state)
+        await db.commit()
         # The last step of the web registration funnel: either the account was
         # created, or the step was refused. Both carry the campaign of the visit
         # (FR-020), so a campaign with many started and few completed steps is
@@ -926,7 +934,6 @@ async def browser_email_signup_verify(
                 else WEB_REGISTRATION_STEP_FAILED
             ),
         )
-        await db.commit()
         return response
     except Exception:
         await db.rollback()
@@ -1194,9 +1201,11 @@ async def _browser_auth_error_response(
         )
     # An error page of login or sign-up is still that public page, so it is
     # counted and keeps the campaign labels of the visit (FR-009, FR-014, FR-027).
-    return await record_public_page_response(
-        request, HTMLResponse(page, status_code=status_code, headers=headers), db=db
-    )
+    async with public_web_db_session(request) as measurement_db:
+        return await record_public_page_response(
+            request, HTMLResponse(page, status_code=status_code, headers=headers),
+            db=measurement_db,
+        )
 
 
 async def _ambiguous_email_recovery_response(
@@ -1225,29 +1234,30 @@ async def _ambiguous_email_recovery_response(
             else "/settings/account"
         )
     )
-    return await record_public_page_response(
-        request,
-        HTMLResponse(
-            render_login_page(
-                workspace_id=workspace_id,
-                providers=providers,
-                next_path=recovery_next,
-                error=(
-                    "ambiguous_email_recovery_required"
-                    if has_recovery_provider
-                    else "ambiguous_email_recovery_unavailable"
+    async with public_web_db_session(request) as measurement_db:
+        return await record_public_page_response(
+            request,
+            HTMLResponse(
+                render_login_page(
+                    workspace_id=workspace_id,
+                    providers=providers,
+                    next_path=recovery_next,
+                    error=(
+                        "ambiguous_email_recovery_required"
+                        if has_recovery_provider
+                        else "ambiguous_email_recovery_unavailable"
+                    ),
+                    invitation_flow=invitation_flow,
+                    recovery_mode=True,
+                    product_analytics_provider=build_request_browser_provider_context(
+                        request, "login_signup"
+                    ),
+                    public_analytics=public_analytics_page_context(request, "/login"),
                 ),
-                invitation_flow=invitation_flow,
-                recovery_mode=True,
-                product_analytics_provider=build_request_browser_provider_context(
-                    request, "login_signup"
-                ),
-                public_analytics=public_analytics_page_context(request, "/login"),
+                status_code=400,
             ),
-            status_code=400,
-        ),
-        db=db,
-    )
+            db=measurement_db,
+        )
 
 
 async def _prepare_email_auth_response(
