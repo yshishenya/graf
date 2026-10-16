@@ -427,9 +427,19 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         )
     fixture = tmp_path / "billing-pages.json"
     fixture.write_text(json.dumps(pages), encoding="utf-8")
+    from types import SimpleNamespace
+
+    from twobrain_rec_server.admin.templates import render_template as render_admin_template
+    from twobrain_rec_server.admin.view_models import admin_navigation
+
+    admin_fixture = tmp_path / "admin-navigation.html"
+    admin_fixture.write_text(render_admin_template(
+        "admin/base.html", page_title="Администрирование",
+        view=SimpleNamespace(navigation=admin_navigation(active="overview")),
+    ), encoding="utf-8")
     script = Path(__file__).parents[1] / "browser/billing-accessibility.test.cjs"
     result = subprocess.run(
-        ["node", str(script), str(fixture)],
+        ["node", str(script), str(fixture), str(admin_fixture)],
         capture_output=True,
         text=True,
         timeout=300,

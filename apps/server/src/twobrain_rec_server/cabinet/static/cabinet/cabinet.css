@@ -2517,7 +2517,7 @@ form[data-state="invalid"] .settings-form-status { color: var(--muted); }
     grid-template-rows: auto minmax(0, 1fr) auto;
     grid-template-columns: minmax(0, 1fr);
   }
-  html:not([data-cabinet-js="ready"]) .app-shell:not(.desktop-embedded) > .sidebar { display: none; }
+  html:not([data-cabinet-js="ready"]) .app-shell[data-cabinet-shell]:not(.desktop-embedded) > .sidebar { display: none; }
   html:not([data-cabinet-js="ready"]) .app-shell:not(.desktop-embedded) > noscript {
     grid-column: 1;
     grid-row: 1;

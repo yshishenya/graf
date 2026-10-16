@@ -4,7 +4,9 @@ const path = require('node:path');
 const { chromium, webkit } = require('playwright');
 const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/static/cabinet');
 const publicAssets = path.join(__dirname, '../../src/twobrain_rec_server/public/static/public');
+const adminAssets = path.join(__dirname, '../../src/twobrain_rec_server/admin/static/admin');
 const pages = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const adminPage = fs.readFileSync(process.argv[3], 'utf8');
 const visualDirectory = process.env.BILLING_VISUAL_OUTPUT_DIR;
 if (visualDirectory) {
   fs.mkdirSync(visualDirectory, { recursive: true });
@@ -126,6 +128,65 @@ async function checkCopyEnhancement(browser, tabKey) {
   console.log('copy: four callers, NoJS selection/tab order, JS success/fallback/failure, focus and repeated init passed');
 }
 
+async function checkAdminNavigation(browser, tabKey) {
+  for (const width of [320, 360, 980, 1280]) for (const theme of ['light', 'dark']) {
+    for (const javaScriptEnabled of [false, true]) {
+      const label = `admin: ${width}px, ${theme}, JS=${javaScriptEnabled}`;
+      const page = await browser.newPage({ javaScriptEnabled, viewport: { width, height: 900 } });
+      page.setDefaultTimeout(5000);
+      const documents = [];
+      const styles = new Set();
+      await page.route('https://graf.test/**', route => {
+        const request = route.request();
+        if (request.resourceType() === 'document') {
+          documents.push({ url: request.url(), method: request.method() });
+          return route.fulfill({ contentType: 'text/html; charset=utf-8', body: adminPage });
+        }
+        const filename = path.basename(new URL(request.url()).pathname);
+        const asset = [assets, adminAssets, publicAssets].map(dir => path.join(dir, filename))
+          .find(file => fs.existsSync(file) && fs.statSync(file).isFile());
+        if (request.resourceType() === 'stylesheet' && asset) styles.add(filename);
+        return asset ? route.fulfill({ path: asset }) : route.fulfill({ status: 204 });
+      });
+      await page.goto('https://graf.test/admin');
+      await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+      assert(styles.has('cabinet.css') && styles.has('admin.css'), `${label}: actual shared and admin styles loaded`);
+      assert.equal(await page.locator('[data-cabinet-shell], html[data-cabinet-js], script[src*="cabinet.js"]').count(), 0,
+        `${label}: admin does not use cabinet readiness or initialization`);
+      assert(await page.locator('[data-admin-shell] > .sidebar').isVisible(), `${label}: admin sidebar visible`);
+      const links = page.getByRole('navigation', { name: 'Админ-навигация', exact: true }).getByRole('link');
+      assert.equal(await links.count(), 7, `${label}: all real admin links available`);
+      for (const link of await links.all()) {
+        assert(await link.isVisible(), `${label}: admin link visible`);
+        for (let index = 0; index < 20 && !await link.evaluate(el => el === document.activeElement); index++) {
+          await page.keyboard.press(tabKey);
+        }
+        assert(await link.evaluate(el => el === document.activeElement), `${label}: keyboard reaches each admin link`);
+        assert(await link.evaluate(el => {
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight &&
+            style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0 &&
+            el.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+        }), `${label}: focused admin link is visible, unobscured and fits viewport`);
+      }
+      const users = page.getByRole('link', { name: 'Пользователи', exact: true });
+      for (let index = 0; index < 20 && !await users.evaluate(el => el === document.activeElement); index++) {
+        await page.keyboard.press(tabKey);
+      }
+      assert(await users.evaluate(el => el === document.activeElement), `${label}: keyboard reaches users navigation`);
+      await Promise.all([page.waitForURL('https://graf.test/admin/users'), page.keyboard.press('Enter')]);
+      assert.deepEqual(documents, [
+        { url: 'https://graf.test/admin', method: 'GET' },
+        { url: 'https://graf.test/admin/users', method: 'GET' },
+      ], `${label}: one native keyboard navigation without mutation`);
+      assert(await page.locator('[data-admin-shell] > .sidebar').isVisible(), `${label}: admin shell survives navigation`);
+      await page.close();
+    }
+  }
+  console.log('admin: 16 real-base cases, 320/360/980/1280, both themes, JS/NoJS, seven links and keyboard navigation passed');
+}
+
 async function checkCancellationReflow(browser, tabKey) {
   for (const width of [320, 360, 1280]) for (const theme of ['light', 'dark']) {
     for (const zoom of [2, 1]) for (const javaScriptEnabled of [false, true]) {
@@ -198,6 +259,7 @@ async function checkCancellationReflow(browser, tabKey) {
   // WebKit on macOS follows the system preference; Option-Tab reaches every control.
   const tabKey = isWebKit ? 'Alt+Tab' : 'Tab';
   try {
+    await checkAdminNavigation(browser, tabKey);
     await checkCancellationReflow(browser, tabKey);
     await checkCopyEnhancement(browser, tabKey);
     for (const [name, html] of Object.entries(pages)) {
