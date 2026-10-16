@@ -4,7 +4,9 @@ const path = require('node:path');
 const { chromium, webkit } = require('playwright');
 const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/static/cabinet');
 const publicAssets = path.join(__dirname, '../../src/twobrain_rec_server/public/static/public');
+const adminAssets = path.join(__dirname, '../../src/twobrain_rec_server/admin/static/admin');
 const pages = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const adminPage = fs.readFileSync(process.argv[3], 'utf8');
 const visualDirectory = process.env.BILLING_VISUAL_OUTPUT_DIR;
 if (visualDirectory) {
   fs.mkdirSync(visualDirectory, { recursive: true });
@@ -126,12 +128,149 @@ async function checkCopyEnhancement(browser, tabKey) {
   console.log('copy: four callers, NoJS selection/tab order, JS success/fallback/failure, focus and repeated init passed');
 }
 
+async function checkAdminNavigation(browser, tabKey) {
+  for (const width of [320, 360, 980, 1280]) for (const theme of ['light', 'dark']) {
+    for (const javaScriptEnabled of [false, true]) {
+      const label = `admin: ${width}px, ${theme}, JS=${javaScriptEnabled}`;
+      const page = await browser.newPage({ javaScriptEnabled, viewport: { width, height: 900 } });
+      page.setDefaultTimeout(5000);
+      const documents = [];
+      const styles = new Set();
+      await page.route('https://graf.test/**', route => {
+        const request = route.request();
+        if (request.resourceType() === 'document') {
+          documents.push({ url: request.url(), method: request.method() });
+          return route.fulfill({ contentType: 'text/html; charset=utf-8', body: adminPage });
+        }
+        const filename = path.basename(new URL(request.url()).pathname);
+        const asset = [assets, adminAssets, publicAssets].map(dir => path.join(dir, filename))
+          .find(file => fs.existsSync(file) && fs.statSync(file).isFile());
+        if (request.resourceType() === 'stylesheet' && asset) styles.add(filename);
+        return asset ? route.fulfill({ path: asset }) : route.fulfill({ status: 204 });
+      });
+      await page.goto('https://graf.test/admin');
+      await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+      assert(styles.has('cabinet.css') && styles.has('admin.css'), `${label}: actual shared and admin styles loaded`);
+      assert.equal(await page.locator('[data-cabinet-shell], html[data-cabinet-js], script[src*="cabinet.js"]').count(), 0,
+        `${label}: admin does not use cabinet readiness or initialization`);
+      assert(await page.locator('[data-admin-shell] > .sidebar').isVisible(), `${label}: admin sidebar visible`);
+      const links = page.getByRole('navigation', { name: 'Админ-навигация', exact: true }).getByRole('link');
+      assert.equal(await links.count(), 7, `${label}: all real admin links available`);
+      for (const link of await links.all()) {
+        assert(await link.isVisible(), `${label}: admin link visible`);
+        for (let index = 0; index < 20 && !await link.evaluate(el => el === document.activeElement); index++) {
+          await page.keyboard.press(tabKey);
+        }
+        assert(await link.evaluate(el => el === document.activeElement), `${label}: keyboard reaches each admin link`);
+        assert(await link.evaluate(el => {
+          const rect = el.getBoundingClientRect();
+          const style = getComputedStyle(el);
+          return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight &&
+            style.outlineStyle !== 'none' && parseFloat(style.outlineWidth) > 0 &&
+            el.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+        }), `${label}: focused admin link is visible, unobscured and fits viewport`);
+      }
+      const users = page.getByRole('link', { name: 'Пользователи', exact: true });
+      for (let index = 0; index < 20 && !await users.evaluate(el => el === document.activeElement); index++) {
+        await page.keyboard.press(tabKey);
+      }
+      assert(await users.evaluate(el => el === document.activeElement), `${label}: keyboard reaches users navigation`);
+      await Promise.all([page.waitForURL('https://graf.test/admin/users'), page.keyboard.press('Enter')]);
+      assert.deepEqual(documents, [
+        { url: 'https://graf.test/admin', method: 'GET' },
+        { url: 'https://graf.test/admin/users', method: 'GET' },
+      ], `${label}: one native keyboard navigation without mutation`);
+      assert(await page.locator('[data-admin-shell] > .sidebar').isVisible(), `${label}: admin shell survives navigation`);
+      await page.close();
+    }
+  }
+  console.log('admin: 16 real-base cases, 320/360/980/1280, both themes, JS/NoJS, seven links and keyboard navigation passed');
+}
+
+async function checkCancellationReflow(browser, tabKey) {
+  for (const width of [320, 360, 1280]) for (const theme of ['light', 'dark']) {
+    for (const zoom of [2, 1]) for (const javaScriptEnabled of [false, true]) {
+      const label = `cancel: ${width}px, ${theme}, ${zoom * 100}%, JS=${javaScriptEnabled}`;
+      const page = await browser.newPage({ javaScriptEnabled, viewport: { width, height: 900 } });
+      page.setDefaultTimeout(5000);
+      const posts = [];
+      await page.route('https://graf.test/**', route => {
+        const request = route.request();
+        if (request.resourceType() !== 'document') {
+          const filename = path.basename(new URL(request.url()).pathname);
+          const asset = [assets, publicAssets].map(dir => path.join(dir, filename))
+            .find(file => fs.existsSync(file) && fs.statSync(file).isFile());
+          return asset ? route.fulfill({ path: asset }) : route.fulfill({ status: 204 });
+        }
+        if (request.method() === 'POST') posts.push(request);
+        return route.fulfill({ contentType: 'text/html; charset=utf-8', body: request.method() === 'POST'
+          ? '<meta charset="utf-8"><p>Синтетическая отправка принята</p>' : pages['shell-subscription'] });
+      });
+      await page.goto('https://graf.test/billing/subscription');
+      await page.evaluate(({ theme, zoom }) => {
+        document.documentElement.dataset.theme = theme;
+        document.body.style.zoom = String(zoom);
+      }, { theme, zoom });
+      const cancel = page.getByRole('button', { name: 'Отключить автопродление', exact: true });
+      for (let index = 0; index < 90 && !await cancel.evaluate(el => el === document.activeElement); index++) {
+        await page.keyboard.press(tabKey);
+      }
+      assert(await cancel.evaluate(el => el === document.activeElement), `${label}: keyboard reaches cancellation`);
+      const bounds = await cancel.evaluate(el => {
+        const rect = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom,
+          outline: style.outlineStyle, outlineWidth: parseFloat(style.outlineWidth),
+          exposed: document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2) === el };
+      });
+      assert(bounds.left >= -1 && bounds.right <= width + 1 && bounds.top >= -1 && bounds.bottom <= 901,
+        `${label}: focused cancellation fits viewport ${JSON.stringify(bounds)}`);
+      assert(bounds.exposed && bounds.outline !== 'none' && bounds.outlineWidth > 0, `${label}: focus visible and unobscured`);
+      const buttonText = await cancel.evaluate(el => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const rect = el.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, lines: [...range.getClientRects()]
+          .map(line => ({ left: line.left, right: line.right })) };
+      });
+      assert(buttonText.lines.length && buttonText.lines.every(line => line.left >= buttonText.left - 1
+        && line.right <= buttonText.right + 1 && line.left >= -1 && line.right <= width + 1),
+      `${label}: cancellation label fits button and viewport ${JSON.stringify(buttonText)}`);
+      const consequence = page.getByText('Оплаченный доступ сохранится. Возврат не оформляется.', { exact: true });
+      assert(await consequence.isVisible(), `${label}: cancellation consequences visible`);
+      // scrollWidth misses clipped grid tracks; check each rendered text line too.
+      const lines = await consequence.evaluate(el => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        return [...range.getClientRects()].map(rect => ({ left: rect.left, right: rect.right }));
+      });
+      assert(lines.length && lines.every(rect => rect.left >= -1 && rect.right <= width + 1),
+        `${label}: paid-access and refund text fits viewport ${JSON.stringify(lines)}`);
+      if (visualDirectory && width === 320 && zoom === 2) {
+        await page.screenshot({ path: path.join(visualDirectory, `cancel-320-${theme}-200-js${javaScriptEnabled}.png`) });
+      }
+      await Promise.all([
+        page.waitForURL('https://graf.test/billing/subscription/cancel'),
+        page.keyboard.press('Enter'),
+      ]);
+      assert.equal(posts.length, 1, `${label}: one native synthetic submit`);
+      const fields = new URLSearchParams(posts[0].postData());
+      assert.equal(fields.get('csrf_token'), 'synthetic');
+      assert.equal(fields.get('expected_authority_version'), '1');
+      await page.close();
+    }
+  }
+  console.log('cancel: 24 full-shell keyboard/native-submit cases, JS/NoJS, 320/360/1280, both themes, 100/200% passed');
+}
+
 (async () => {
   const isWebKit = process.env.GRAF_BROWSER === 'webkit';
   const browser = await (isWebKit ? webkit : chromium).launch({ headless: true });
   // WebKit on macOS follows the system preference; Option-Tab reaches every control.
   const tabKey = isWebKit ? 'Alt+Tab' : 'Tab';
   try {
+    await checkAdminNavigation(browser, tabKey);
+    await checkCancellationReflow(browser, tabKey);
     await checkCopyEnhancement(browser, tabKey);
     for (const [name, html] of Object.entries(pages)) {
       const page = await browser.newPage();
@@ -651,7 +790,7 @@ async function checkCopyEnhancement(browser, tabKey) {
         await select.selectOption('2');
         assert.match(await select.locator('option:checked').innerText(), /15 ГБ.*5000 ₽ \/ год за хранение/);
         assert.equal(await page.locator('#storage-package-summary').isVisible(), false);
-        assert(await page.getByRole('button', { name: 'Проверить доплату', exact: true }).isVisible());
+        assert(await page.getByRole('button', { name: 'Проверить изменение', exact: true }).isVisible());
         assert.equal(requests.filter(request => request.method() !== 'GET').length, 0);
       } else if (name.startsWith('subscription-restriction-')) {
         const primary = page.getByRole('link', { name: 'Проверить платеж', exact: true });

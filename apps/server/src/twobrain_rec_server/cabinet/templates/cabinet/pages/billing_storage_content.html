@@ -31,7 +31,7 @@
           </div>
           <p class="muted">Точную доплату за оставшийся оплаченный срок покажем на следующем шаге — без списания.</p>
           {% if receipt_contact_ready|default(True) %}<details class="billing-coupon"{% if storage_preview_error|default(None) or storage_promo_code|default('') %} open{% endif %}><summary>Есть промокод?</summary><label for="storage-promo">Промокод</label><input id="storage-promo" name="promo_code" maxlength="48" autocomplete="off" spellcheck="false" value="{{ storage_promo_code|default('') }}"{% if storage_preview_error|default(None) %} aria-invalid="true" aria-describedby="billing-storage-preview-error"{% endif %}></details>{% endif %}
-          {% if storage_options|default([]) %}<button class="button primary" data-billing-primary type="submit">Проверить доплату</button>{% else %}<p role="status">Цена временно недоступна. Попробуйте позже.</p>{% endif %}
+          {% if storage_options|default([]) %}<button class="button primary" data-billing-primary type="submit">Проверить изменение</button>{% else %}<p role="status">Цена временно недоступна. Попробуйте позже.</p>{% endif %}
         </form>
         <p>Уменьшение — со следующего неоплаченного периода. Файлы не удаляются.</p>
         {% elif not billing_enabled %}
