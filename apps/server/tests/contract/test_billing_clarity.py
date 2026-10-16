@@ -230,21 +230,27 @@ def test_referral_copy_action_does_not_promise_sharing():
     assert "Поделиться" not in Page(html).visible
 
 
-def test_storage_without_receipt_contact_allows_capacity_choice_before_coupon_entry():
+@pytest.mark.parametrize("selected_package_count", [0, 2], ids=["decrease", "increase"])
+def test_storage_without_receipt_contact_allows_capacity_choice_before_coupon_entry(selected_package_count):
     page = Page(render_template(
         "cabinet/pages/billing_storage_content.html", csrf_token="synthetic",
         eligible=True, billing_enabled=True, current_capacity_label="10 ГБ",
-        selected_package_count=0, receipt_contact_ready=False,
+        selected_package_count=selected_package_count, receipt_contact_ready=False,
         storage_options=[{
-            "package_count": 0, "label": "5 ГБ", "addon_label": "0 ₽", "total_label": "1 000 ₽",
+            "package_count": count, "label": f"{(count + 1) * 5} ГБ",
+            "addon_label": f"{count * 250} ₽", "total_label": f"{1000 + count * 250} ₽",
             "cycle_label": "месяц",
-        }],
+        } for count in (0, 1, 2)],
     ))
     assert not any(tag == "input" and attrs.get("name") == "promo_code" for tag, attrs in page.nodes)
     assert "Есть промокод?" not in page.visible
     assert any(tag == "select" and attrs.get("name") == "package_count" for tag, attrs in page.nodes)
-    assert any(attrs.get("action") == "/billing/storage/preview" for _, attrs in page.nodes)
-    assert "Проверить доплату" in page.visible
+    assert any(tag == "option" and attrs.get("value") == str(selected_package_count) and "selected" in attrs for tag, attrs in page.nodes)
+    forms = [attrs for tag, attrs in page.nodes if tag == "form"]
+    assert len(forms) == 1 and forms[0].get("action") == "/billing/storage/preview" and forms[0].get("method") == "post"
+    assert any(tag == "input" and attrs.get("name") == "csrf_token" and attrs.get("value") == "synthetic" for tag, attrs in page.nodes)
+    assert not any(attrs.get("name") in {"purchase_consent", "offer_consent", "recurring_consent"} for _, attrs in page.nodes)
+    assert "Проверить изменение" in page.visible
 
 
 def test_plans_distinguish_trial_capacity_from_the_two_plan_choices():
