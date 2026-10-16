@@ -94,3 +94,64 @@ Reviewer изменил только этот отчёт и свой requirement
 | `.dev/storage-contact-postgres.log` | `8e9c2e418ab3e067e332f9e95d6df7861bf94c46149d596484c46412e605160a` |
 
 Дополнительная проверка контекста настоящего фонового обработчика: `workflows/worker.py::run_billing_renewal_reconciler` применяет `MaintenanceTenantContext(operation_name="billing_reconciliation")` перед planner. Эта операция входит в разрешённый список tenant context; существующая migration0076 включает `MAINTENANCE_SCOPE` с `rec_maintenance_allowed()` в SELECT policy external_identities. Поэтому новая выборка не требует расширения RLS (прав доступа на уровне строк); diff миграций отсутствует. Прочитан конечный `.dev/storage-lint.log`: `All checks passed!`. Девять значений `.dev/storage-simplicity/final-source-hashes.json` совпадают с независимо вычисленными выше backend/test hashes и ранее проверенными четырьмя UI файлами. Итоговый PASS не изменён.
+
+
+## Независимый refresh после rebase, 2026-10-16
+
+**CURRENT SOURCE / MERGE REVIEW PASS — critical 0 / high 0 / medium 0.** Источник: `93f8b521a2e445f1ab4c8c63fd7782410fe76f44`, parent/current master `d75ba830c7a08621e9471ef62bf77b5bc66f80fb`. Прочитан полный scoped diff parent..HEAD, оба окончательных шаблона и обновлённые contracts. Эта запись заменяет прежние whole-file hashes как границу текущего source допуска; прежние результаты сохранены исторически. Новая финальная браузерная/PostgreSQL проверка и release проходят отдельно, их прежние GREEN не приписываются новой версии.
+
+Независимо проверено совмещение: AST всех88 функций родительского `web_routes/billing.py` сохранён без изменений, кроме удаления ровно перенесённого helper. Новый helper AST совпал со старым parent selector после нормализации имени. Следовательно соседние изменения checkout hosted recovery, actor/provider guards и пути продолжения сохраняются. В общем JS изменён только render существующего storage summary; копирование/clipboard fallback и повторная инициализация из master не переписаны. CSS сохраняет весь parent prefix и добавляет scoped storage правила. Изменения tests обновляют только соответствующие storage/copy подписи и добавляют asserts/scenarios; соседние recovery/copy проверки не удалены.
+
+Прочитанные final templates сохраняют price/addon/full/proration различие, native no-JS формы/details, показ future cancellation при checkout disabled с прежними CSRF/version inputs, owner privacy/stale/unavailable/reserves/threshold/exhausted guards. Они совпадают с ранее проверенными собственными template bytes. Денежный backend diff прежний узкий: current verified owner перед historical receipt fallback, без изменения авторизации, суммы, authority, method, invoice history или provider dispatch. Конфликтующих преобразований source не найдено.
+
+На rebased source reviewer самостоятельно выполнил из apps/server `.venv/bin/python -m pytest tests/unit/test_renewal_charge.py tests/contract/test_billing_clarity.py tests/contract/test_billing_ui.py -q`: **249 passed**,2 существующих предупреждения,20.22с. Это прямой текущий повтор, а не наследование прежних логов. Текущие расширенные Chromium/WebKit/PostgreSQL запуски основного агента на момент этой записи ещё ожидаются; live production UI, точный PR SHA/base CI, Full/CD/publication и новая доставка не объявляются выполненными.
+
+| Прочитанный текущий файл | SHA-256 |
+| --- | --- |
+| `apps/server/src/twobrain_rec_server/billing/receipts.py` | `71196cf85a24e0bb9d16181a75089fe8969d5acc51b2f4186173039a8f743d9c` |
+| `apps/server/src/twobrain_rec_server/billing/renewal_charge.py` | `1e11a885bea77456d97deded3afeb4a9d3138c47801f38620967d2fed1c4de16` |
+| `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py` | `95c4eea46fcdc581c02a155933f39da9c8459e3df504080a0bb588ab685b68dd` |
+| `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` | `ab3ab44f37d6ac4bf479503f5015f444edd8ef779f39c8fbb7e3251b89cb15cd` |
+| `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` | `43f7db52ac1418adeba6ffc1760df34d57cc5ea238be1d3cdb90bb0e1f8d88df` |
+| `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_storage_content.html` | `ce8a651bcbd36180e05a37d07aa495238c7b8b48efbec2ee0f1a25bccfaefce7` |
+| `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_usage_content.html` | `61cb3de90a5d2f21f62d73e7c3dadbb644ad0753f6cf3de04a74fe4b401f3639` |
+| `apps/server/tests/unit/test_renewal_charge.py` | `2c2233b09115e1f52adf565505532621acdb1d715f7e13f3e7f9fe2ff6d0cdfe` |
+| `apps/server/tests/integration/test_billing_clarity.py` | `44496b7b1bdc1fb7991c2fd1e99bff56d03aeaecefb004c7047ba9a2c49eca64` |
+| `apps/server/tests/contract/test_billing_ui.py` | `cb551e793c68ac7b396c163c53fcf7a2ef9620d3d91237a5a72a78c6ed9b6c5d` |
+| `apps/server/tests/contract/test_billing_clarity.py` | `539ac76d0088d2db5a14cba30668385f275cb2a6bf4ab9992994a2c44d2b1291` |
+| `apps/server/tests/contract/test_billing_accessibility.py` | `c5db39c970ea71e1fc408212d4455515d548f71094f42ce09a988c708d219519` |
+| `apps/server/tests/browser/billing-accessibility.test.cjs` | `f525bd18f39c685c83bbf3e3341f72e183d6bc4522917f3770cce9ca8172bf1d` |
+
+
+### Текущий браузерный GREEN после последовательного повтора
+
+Прочитаны завершённые `.dev/storage-rebased-chromium-retry.log` и `.dev/storage-rebased-webkit-retry.log`: **Chromium52 passed (91.68с), WebKit52 passed (91.17с)**, по два существующих предупреждения. Все13 source/test hashes из предыдущего раздела независимо повторно вычислены и совпали. HEAD остаётся93f8b521a; рабочие изменения только в двух reviewer reports. Таким образом текущий браузерный допуск относится к совмещённым исходникам, а не прежним whole-file hashes.
+
+История первых запусков сохранена: Chromium51passed/1failed (152.52с), `scrollIntoViewIfNeeded` timeout2599.916мс на строке478; WebKit51passed/1failed (179.29с), `locator.click` timeout5000мс на строке418. Оба журнала до ошибки подтверждают standalonecopy четырёх callers, NoJS selection/tab order, JS success/fallback/failure, focus и repeated init. Основной агент сообщил одновременные browser/PG запуски и массовые screenshots под высокой нагрузкой; это контекст запуска, не доказанная единственная причина ошибки. Последовательные повторы прошли на том же коде, assertions и таймерах, без test/product исправлений. Первоначальные неуспехи не скрыты и не переписаны как PASS.
+
+**SOURCE + CURRENT BROWSER REVIEW PASS остаётся в силе; текущий расширенный PostgreSQL запуск ещё ожидается.** Его частичный прогресс не считается GREEN. Release/exact-SHA CI/runtime/human ограничения прежние. Reviewer изменил только этот source report.
+
+| Журнал текущего / первоначального запуска | SHA-256 |
+| --- | --- |
+| `.dev/storage-rebased-chromium-retry.log` | `e21c95f6674318d7ee4cef2cb277e4a2c6b94903316868175fb31d1a6ad9e996` |
+| `.dev/storage-rebased-webkit-retry.log` | `cd0c5655d830eb656806657b4f045e3ad0b82ccb7508fcdf83e447ed98b2083b` |
+| `.dev/storage-rebased-chromium.log` | `9eeba5382b7c01e65637ee0283748a13279f58cbc0d97d6dd22f6188c73c8acb` |
+| `.dev/storage-rebased-webkit.log` | `39318c356c29a394f8d12b0493c9c4a767f85427991beb6c541a41df10d42326` |
+
+
+### Завершение текущей PostgreSQL проверки
+
+Непосредственно прочитан завершённый `.dev/storage-rebased-postgres.log`: **501 passed**,2 существующих предупреждения,454.33с; штатный runner сообщил467с, `postgres_test_result=pass` и `postgres_test_cleanup=isolated_container_removed`. В наборе присутствуют текущие hosted checkout recovery, missing-contact/recovery и money-path сценарии; прежние source hashes после выполнения повторно сверены — все13 совпадают, HEAD остаётся `93f8b521a2e445f1ab4c8c63fd7782410fe76f44`. Reviewer не повторял этот длительный запуск, а прочитал конечный журнал и проверил неизменность исходников. Самостоятельный249PASS остаётся отдельным прямым повтором.
+
+**FINAL CURRENT SOURCE / MERGE / BROWSER / POSTGRESQL REVIEW PASS — critical0/high0/medium0.** Прежняя пометка текущего PostgreSQL как pending заменена этим конечным результатом. История первых браузерных timeout сохранена. PR exact-SHA/base CI, новый полный выпуск, CD dry-run/execute, опубликованная/runtime версия и человеческая приёмка по-прежнему не закрыты этим локальным допуском. Код, таймеры и assertions не менялись; reviewer добавил только это уточнение своего source report.
+
+| Завершённый журнал | SHA-256 |
+| --- | --- |
+| `.dev/storage-rebased-postgres.log` | `699c6fd714e0e3f3d9c471e746730ef31a6a9b025f4504efcfb0139ef5dab1f9` |
+
+
+### Повторный docs-only rebase на подтверждение T065
+
+Проверен новый HEAD `42b951d33ebdf9c752cc463de987d1cd408fe8b7` на parent master `6de02bc59d20bbab1cfa0487e942963509aa9d15`. Сравнение `git diff d5c174cbe..HEAD` содержит ровно четыре родительских документа: deployment v2026.10.16.1, converge-payment-reaudit, tasks и validation-payment-reaudit; продуктовых исходников/тестов в различии нет. Deployment, converge-payment-reaudit и validation-payment-reaudit байтово совпадают с новым master. `tasks.md` сохраняет весь точный master prefix, а после него ровно прежний собственный Phase29 из d5c174cbe. Маркеры конфликтов во всех четырёх документах отсутствуют. Параллельный validation-storage-simplicity reviewer не менял.
+
+Все13 source/test hashes из текущего допуска повторно вычислены и совпали. **SOURCE / MERGE / BROWSER / POSTGRESQL PASS сохраняется на неизменных продуктовых байтах**; новых запусков tests reviewer не заявляет. Новое родительское подтверждение T065 сохранено как доказательство другого оператора, а не самостоятельно повторённая этим reviewer живая приёмка. Исторический текст о T065 pending выше отражает прежнее состояние и не отменяет это master дополнение; T066–068 сохраняются в своей Phase29. Новая SHA PR требует своих точных CI/base доказательств; новый полный выпуск/production runtime storage и остальные ранее открытые ворота не закрываются сохранением source bytes. Reviewer дописал только свой source report.

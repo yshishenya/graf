@@ -209,3 +209,17 @@ Spec явно запрещает переписывать старые/нача�
 | `tasks.md` | `1747a08d4d1aa3d4f8115acdc45e8cb803420cf26ae51440de9207f5379c3445` |
 
 После правок перечитан весь checklist:7 `[x]`,0 `[ ]`. Изменены только owned checklist и этот report; реализация/canonical/БД/Git/GitHub read-only.
+
+
+## Совмещение с текущим master, 2026-10-16
+
+**REQUIREMENTS REFRESH PASS — checked 7 / unchecked 0, blockers 0.** Проверен commit `93f8b521a2e445f1ab4c8c63fd7782410fe76f44` относительно его parent `d75ba830c7a08621e9471ef62bf77b5bc66f80fb`. Прежние общие file hashes являются историческими. Механическая проверка четырёх canonical документов дала точное сохранение всего parent как байтового prefix: spec, plan, tasks и quickstart; конфликт разрешён только добавлением нашего продолжения. Уточнения FR-053 actor/hosted guards и FR-055 copy fallback сохранены вместе с новыми FR-056–059. Phase29 содержит T066/#7598, T067/#7599, T068/#7600; прежний выпуск v2026.10.16.1 и открытый T065 для живой приёмки сохранены. Требования простого хранения/current receipt owner не заменили соседние checkout/copy требования.
+
+Перечитаны новые canonical окончания и весь owned checklist: CHK001–007 остаются evidence-backed quality PASS,7 `[x]`,0 `[ ]`. Отдельные implementation/release/runtime/human gates не закрываются качеством требований или выполненным восстановлением. Старый operator PASS относится к своему сохранённому script hash, не означает повторного применения после rebase. Нет новых конфликтующих требований/нумерации или причин снимать CHK006. Reviewer изменил только свои два review reports; canonical/code/Git/GitHub/production не менял.
+
+| Документ текущего source | SHA-256 |
+| --- | --- |
+| `spec.md` | `15badf6c8b83ba6135f6108c726bde05effe29e4b5ab757a61b2d12345162eab` |
+| `plan.md` | `6ef70bda39094a0487c90774e7ec957b77ef7c66dca616c614c6950d1d0c22f5` |
+| `tasks.md` | `99584af89ed6ecc36b2a3079d9308acd0fc7efc2eb9c18f3bc9964376b4f4fd5` |
+| `quickstart.md` | `c9fab592a7ca42e7a3d5533c1923a071408f485c3b74ae05cc572d077e616807` |
