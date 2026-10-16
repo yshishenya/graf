@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from tests.contract.test_public_protocol_guide import Parser
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.main import create_app
-from twobrain_rec_server.product_analytics.anonymous_aggregate import PUBLIC_PAGE_SURFACES
+from twobrain_rec_server.product_analytics.anonymous_aggregate import ANONYMOUS_PAGE_SURFACES
 from twobrain_rec_server.public.analytics import PUBLIC_ANALYTICS_SURFACES
 from twobrain_rec_server.public.content import (
     GUIDE_PATH,
@@ -37,7 +37,7 @@ def test_zoom_guide_is_indexable_with_only_anonymous_measurement(monkeypatch):
         assert "synthetic-secret" not in response.text
         assert ZOOM_GUIDE_PATH not in PUBLIC_CONTENT_SURFACES
         assert ZOOM_GUIDE_PATH not in PUBLIC_ANALYTICS_SURFACES
-        assert PUBLIC_PAGE_SURFACES[ZOOM_GUIDE_PATH] == "public_zoom_recording_guide"
+        assert ANONYMOUS_PAGE_SURFACES[ZOOM_GUIDE_PATH] == "public_zoom_recording_guide"
         recorder.assert_not_awaited()
         for href in set(parser.links):
             if href.startswith("#"):

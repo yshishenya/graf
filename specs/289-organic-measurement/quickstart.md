@@ -18,3 +18,10 @@
 Контейнер изолированный, runner удаляет его по завершении.
 7. `python3 docs/growth/check-evidence-manifest.py` проверяет SHA-256 и полноту
 снимка diff относительно записанной базы. Manifest пересоздаётся последним.
+
+8. FR-001/003, T006: оба конструктора уровня 2 отвергают четыре пути;
+корректно сформированный поддельный cookie с каждым таким landing_path на
+GET /download не создаёт public_visit_attributions или acquisition и
+не возвращает сохранённые метки. Все четыре бакета уровня 1 продолжают
+записываться. Включить также tests/unit/test_product_analytics_acquisition.py
+и tests/contract/test_public_traffic_measurement_contract.py.

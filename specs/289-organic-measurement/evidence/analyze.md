@@ -17,3 +17,18 @@
 Совместимость tooling: установленный check-prerequisites.sh не поддерживает --require-spec из skill; после --help использован --json --require-tasks --include-tasks, наличие spec проверено напрямую. Защиты не обходились.
 
 После чтения writer gate уточнена семантика отсутствующего withdrawal register: это прежнее разрешение уровня 1, а не новое основание для отключения. Spec/plan/quickstart согласованы с текущим legal gate, новые проверки сохраняют explicit withdrawal и kill switch. FR-004/SC-003 охвачены без изменения общей политики. Повторный analyze: CRITICAL/HIGH/MEDIUM 0.
+
+## Повторный анализ перед T006
+
+Прочитаны актуальные spec/plan/tasks, контракт, data-model и конституция.
+FR-001/003 и SC-002 прямо запрещают новый L2. T006 исправляет ошибочную
+реализацию этих требований без нового продукта и привязана к открытым
+#7603/#7605. План теперь сохраняет PUBLIC_PAGE_SURFACES и
+surface_for_public_path для прежней атрибуции, ANONYMOUS_PAGE_SURFACES и
+surface_for_anonymous_page обслуживают только бакет уровня 1. Каталог
+необязательных провайдеров не расширяется. T001–T005 сохраняют покрытие
+FR-001–008; T006 добавляет отрицательную cookie/acquisition регрессию.
+Порядок: requirements review → причинный RED → runtime → соседние проверки
+→ независимое code review → новые SHA-bound gates. Требующих решения
+владельца неопределённостей нет. CRITICAL 0 / HIGH 0 / MEDIUM 0, coverage
+8/8 FR; T006 не меняет основание, хранение или включение уровня 2.

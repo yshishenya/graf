@@ -9,11 +9,11 @@
     },
     {
       "path": "apps/server/src/twobrain_rec_server/product_analytics/anonymous_aggregate.py",
-      "sha256": "037f9c17bfbc65d7b9985efb3ef327abc060374360dcf6f1a25233feec499f95"
+      "sha256": "e9592184dc94cc3c86c1bbc6fddd4ae25ea1b49f7e8f9150059328d5008a84b8"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/public/analytics.py",
-      "sha256": "4ba210f6a8d2ad7bc2fabdbdbf64c2b4af3318adb30cd10d528217e7ea51ac68"
+      "sha256": "5d99ec2ae2390ff72e2399dcddbdf872ec720683ae8c0706215f6c590e85047e"
     },
     {
       "path": "apps/server/src/twobrain_rec_server/public/content.py",
@@ -37,11 +37,15 @@
     },
     {
       "path": "apps/server/tests/contract/test_public_organic_measurement.py",
-      "sha256": "777b667b25a8f7d4d7344ba204db239399eea4f1fd5e40a63b5d29c687e1b7fa"
+      "sha256": "5d28ee1cd6d3d01ea11a17f12ab8e29389a1b5d38666cd2e56fabb284b86fc6d"
+    },
+    {
+      "path": "apps/server/tests/contract/test_public_traffic_measurement_contract.py",
+      "sha256": "162cc52705511c04f979fbaf76a9f3f1f5cb78aa9a706d9e4c5a7b86d50c21ee"
     },
     {
       "path": "apps/server/tests/contract/test_public_zoom_recording_guide.py",
-      "sha256": "7c9f84a4c03f0a5952fb22e40fc8768cf71ccc079b069057404f0c25e95721a8"
+      "sha256": "bb8b4dd8ce65f1cdd3dc39cfc77102b8bd320f238fe6f0e60171a7e91cc30a31"
     },
     {
       "path": "apps/server/tests/unit/test_product_analytics_anonymous_aggregate.py",
@@ -49,7 +53,7 @@
     },
     {
       "path": "changes/unreleased/F289.yaml",
-      "sha256": "c5f9e97fb1be634ca4c32e20620bf132c4a3d1f2d82bf8a6aaae63d085730d45"
+      "sha256": "bce719b3703494b1f5cacdb88ea9e100b84fcfafa0a23db67339e4c30760bb77"
     },
     {
       "path": "docs/growth/audit-2026-10-16.md",
@@ -97,11 +101,11 @@
     },
     {
       "path": "specs/289-organic-measurement/checklists/security.md",
-      "sha256": "8dc00691c7d4f07570ae8536d775e07aa7f2d9a4ceed6f0d3a88ef626a794f62"
+      "sha256": "c8b7e2c5f1db81e78ff33453b2c3c2042abd6e609fb2fd5857730bdab79ae5c3"
     },
     {
       "path": "specs/289-organic-measurement/contracts/public-measurement.md",
-      "sha256": "072b958d20eab29c3df6fe47e4cbf5364af95818a55eed43056c43e3c5b3b983"
+      "sha256": "78b07678f3ae6b876ca0fa67d248dc2442f3dceee836b448400b1a7533539836"
     },
     {
       "path": "specs/289-organic-measurement/data-model.md",
@@ -109,7 +113,15 @@
     },
     {
       "path": "specs/289-organic-measurement/evidence/analyze.md",
-      "sha256": "bf37535f5a9970dc052d77bd4c713b9758f65d134e833a41eb170d64aec579b0"
+      "sha256": "2ebe79a5e15f746e86c6f22ffbeebf2cd39eaab68f0e15df341ced41048b8d84"
+    },
+    {
+      "path": "specs/289-organic-measurement/evidence/attribution-boundary-regression.txt",
+      "sha256": "7504690e5e9c6b69c22dea0aedaf37b583595212fa6f73402641cb6f80cd07a7"
+    },
+    {
+      "path": "specs/289-organic-measurement/evidence/attribution-boundary-review.md",
+      "sha256": "10432bba509ddd27ac2362051b41e3acd4a924bc4a4788c6be59c4127f9186af"
     },
     {
       "path": "specs/289-organic-measurement/evidence/baseline-review.md",
@@ -125,7 +137,7 @@
     },
     {
       "path": "specs/289-organic-measurement/evidence/converge.md",
-      "sha256": "2fdbfcb74b0d76f88bdd35b8902cf26e3f4e5b7a9cbe70571ce13fbc3fb7b19e"
+      "sha256": "7c3823feff44e078d8773bb4ba76febb00f26a64c79875aabb6bc5e8e751d3aa"
     },
     {
       "path": "specs/289-organic-measurement/evidence/posthog-aggregate.txt",
@@ -157,15 +169,15 @@
     },
     {
       "path": "specs/289-organic-measurement/evidence/validation.md",
-      "sha256": "79c99bf8ea897b7cf7a13c707a85ba4a03fe6008d863f128e5d8ccebd51b85ef"
+      "sha256": "2d307699a6dc7910d9cd3f44e229a813fab96ead8c34a701ac60c093fc8b171f"
     },
     {
       "path": "specs/289-organic-measurement/plan.md",
-      "sha256": "318309725bb060dfcad33b079354cbae5f63862974d2a09d9f8a5824dcb302c6"
+      "sha256": "72e5404e1621ed0348cd9fe66695efef1a722c57bb031959e1c32b2eabdafe3e"
     },
     {
       "path": "specs/289-organic-measurement/quickstart.md",
-      "sha256": "f3d5cdb302167afd6175adf5b1acf42eea9ee25cc81070d94d4cbe0edf1439d0"
+      "sha256": "bacd89c0cc6d16eb9a07d5f37d6e35bb84f392534eb304e87c28b694e538704d"
     },
     {
       "path": "specs/289-organic-measurement/research.md",
@@ -177,7 +189,7 @@
     },
     {
       "path": "specs/289-organic-measurement/tasks.md",
-      "sha256": "08e3bc4609d6e157405b5cd31cdb46ee0b344f8e7d87670cdde905712ae1df21"
+      "sha256": "8edd34475eac198dc3248bc0d9de008a184ef41c5011f02b41cda17c55370734"
     }
   ],
   "prior_base_sha": "d567a7dc51b0c4d99b22660d27950316ae609a66"

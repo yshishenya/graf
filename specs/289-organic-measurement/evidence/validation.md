@@ -102,3 +102,27 @@ Manifest старой базы не прошёл проверку полноты
 apps/server diff до/послеPASS. Повтор PostgreSQL не нужен для неизменного
 кода/проверок; новые GitHub checks обязательны на итоговом SHA/новой основе.
 Manifest пересобран для этой базы после переноса; чужие файлы F280 не включены.
+
+## Новое ревью: граница только уровня 1
+
+После прежнего CI PASS на cc71a28020ced91d288d14125844df988949458d
+новое P2 выявило расширение уровня 2 через общий каталог. Это нарушение
+FR-001/003, прежний CI не означает приёмки. T006 исправляет исходную
+причину: отдельный ANONYMOUS_PAGE_SURFACES и helper только для L1;
+PUBLIC_PAGE_SURFACES, surface_for_public_path и их L2/cookie consumers
+сохраняют прежние границы. PUBLIC_PAGE_PATHS — только inventory L1 coverage
+в тестах; runtime consumers отсутствуют. Traffic contract использует L1 helper.
+
+Причинный RED:12FAIL, включая оба конструктора и реальную запись уровня2
+от поддельного cookie на /download для каждого из4путей. После исправления
+расширенный PostgreSQL профиль:233PASS/0SKIP,1существующее предупреждение,
+52.86с. Изолированный контейнер удалён, данные production не менялись.
+Краткое evidence и хеши полных журналов: attribution-boundary-regression.txt.
+Ruff, process/governance, fragment, baseline и diff checks:PASS. Независимая
+проверка требований7/0 завершена до runtime; code review завершается отдельно
+в attribution-boundary-review.md. Требуются новый SHA и его3PRгейта.
+
+Независимое attribution-boundary-review:PASS, P0–P3 нет. Рецензент отдельно
+повторил84unit и17PG/constructor проверок:PASS. Checklist перечитан7/0.
+Исходники сверены по SHA-256 в отчёте. T006 завершена по реализации и
+локальной проверке; новые PRгейты и общий выпуск требуются отдельно.

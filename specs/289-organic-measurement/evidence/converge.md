@@ -25,3 +25,15 @@ Buildable gaps внутри F289: 0. Новые задачи Convergence не д
 Контрольные суммы пересобираются после независимого ревью. Новых buildable
 gaps в этом срезе не найдено; CI/merge/common release и полная воронка
 не объявляются закрытыми локальным результатом.
+
+## T006: обнаруженная и устранённая граница
+
+Новое review выявило обязательный gap FR-001/003: общий PUBLIC_PAGE_SURFACES
+расширял L2. T006 добавлена append-only; реализация разделяет каталоги,
+причинный RED12 → расширенный GREEN233/0SKIP на PostgreSQL. Старый
+L2/cookie helper и все его consumers сохранены. Текущий scope соответствует
+требованиям; обязательных новых runtime tasks не обнаружено. Независимый
+code-review, exact-SHA CI, merge и выпуск остаются отдельными воротами.
+
+Итог независимого boundary-review:PASS,84unit+17PG/constructorPASS,
+7/0checklist; T006 завершена, новых обязательных buildable gaps нет.

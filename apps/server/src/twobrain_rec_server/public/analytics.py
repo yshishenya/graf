@@ -45,6 +45,7 @@ from twobrain_rec_server.product_analytics.anonymous_aggregate import (
     record_anonymous_aggregate_bucket_safely,
     registration_step_surface,
     sanitize_anonymous_aggregate_label,
+    surface_for_anonymous_page,
     surface_for_public_path,
 )
 from twobrain_rec_server.product_analytics.attribution import (
@@ -762,7 +763,7 @@ def build_public_page_aggregate_bucket(
     the consent decision or a provider setting.
     """
     path = _request_path(request)
-    if surface_for_public_path(path) is None:
+    if surface_for_anonymous_page(path) is None:
         return None
     visit = attribution if attribution is not None else read_public_visit_attribution(request, now=now)
     bucket = build_anonymous_aggregate_bucket_from_attribution(

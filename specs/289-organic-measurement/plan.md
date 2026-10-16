@@ -20,7 +20,7 @@
 
 До исследования: PASS. Capture, доступ, AI и deletion не затронуты. Только существующий обезличенный уровень 1 с действующим legal gate; основания профилирования и внешних провайдеров не предполагаются. Readiness flags не меняются.
 
-После проектирования: PASS. Отдельный PUBLIC_ANONYMOUS_CONTENT_SURFACES включается только в PUBLIC_PAGE_SURFACES уровня 1. Не включать в PUBLIC_CONTENT_SURFACES: он также питает необязательную аналитику. Существующий public_page_response получает явный anonymous_only; текущий URL проходит normalize_public_campaign_attribution, без cookie, L2 и providers. Правовой шлюз и безопасная запись прежние. Ревью требований выполняет отдельный агент.
+После проектирования: PASS. Отдельный PUBLIC_ANONYMOUS_CONTENT_SURFACES включается только в ANONYMOUS_PAGE_SURFACES уровня 1. PUBLIC_PAGE_SURFACES и surface_for_public_path сохраняют прежнюю границу уровня 2 и декодирования cookie; новый surface_for_anonymous_page используется только построением бакета уровня 1. Не включать в PUBLIC_CONTENT_SURFACES: он также питает необязательную аналитику. Существующий public_page_response получает явный anonymous_only; текущий URL проходит normalize_public_campaign_attribution, без cookie, L2 и providers. Правовой шлюз и безопасная запись прежние. Ревью требований выполняет отдельный агент.
 
 ## Validation Plan
 

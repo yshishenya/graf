@@ -78,7 +78,6 @@ PUBLIC_PAGE_SURFACES = {
     "/": "public_landing",
     "/download": "public_download",
     **PUBLIC_CONTENT_SURFACES,
-    **PUBLIC_ANONYMOUS_CONTENT_SURFACES,
     "/privacy": "public_privacy",
     "/cookies": "public_cookies",
     "/terms": "public_terms",
@@ -87,8 +86,12 @@ PUBLIC_PAGE_SURFACES = {
     "/sign-up": "public_signup",
     "/login": "public_login",
 }
-PUBLIC_PAGE_PATHS = tuple(PUBLIC_PAGE_SURFACES)
-ANONYMOUS_AGGREGATE_SURFACES = tuple(PUBLIC_PAGE_SURFACES.values())
+# L2 attribution and cookie validation retain PUBLIC_PAGE_SURFACES above.
+# Anonymous-only content must never enter their shared allowlist.
+ANONYMOUS_PAGE_SURFACES = {**PUBLIC_PAGE_SURFACES, **PUBLIC_ANONYMOUS_CONTENT_SURFACES}
+# This path inventory is consumed only by level 1 coverage checks.
+PUBLIC_PAGE_PATHS = tuple(ANONYMOUS_PAGE_SURFACES)
+ANONYMOUS_AGGREGATE_SURFACES = tuple(ANONYMOUS_PAGE_SURFACES.values())
 # Steps of web registration (FR-020) are counted by the same anonymous counter
 # as a visit, but they carry their own surface. The published page list does not
 # change: a registration step is not a page of the site, so it can never be read
@@ -156,6 +159,11 @@ _MOBILE_MARKERS = (
 def surface_for_public_path(path: str) -> str | None:
     """Return the surface of a public route, or ``None`` for a private one."""
     return PUBLIC_PAGE_SURFACES.get(_normalized_path(path))
+
+
+def surface_for_anonymous_page(path: str) -> str | None:
+    """Return a level 1 surface without expanding cookie or account attribution."""
+    return ANONYMOUS_PAGE_SURFACES.get(_normalized_path(path))
 
 
 def registration_step_surface(step: str) -> str:
@@ -309,7 +317,7 @@ def build_anonymous_aggregate_bucket(
 ) -> AnonymousAggregateBucket:
     """Build one bucket from request-time values, dropping anything unsafe."""
     normalized_path = _normalized_path(path)
-    surface = surface_for_public_path(normalized_path)
+    surface = surface_for_anonymous_page(normalized_path)
     if surface is None:
         raise ValueError("anonymous aggregate covers public pages only")
     moment = occurred_at or datetime.now(UTC)

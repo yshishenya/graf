@@ -32,3 +32,7 @@ T001 → T002 → T003 → T004 → T005. Перед T002: independent checklist
 - T005: https://github.com/yshishenya/graf/issues/7605
 
 Umbrella: https://github.com/yshishenya/graf/issues/7593. Issues остаются открытыми до приёмки.
+
+## Исправление границы уровня 2 по новому ревью
+
+- [X] T006 [US1] В apps/server/src/twobrain_rec_server/product_analytics/anonymous_aggregate.py отделить каталог уровня 1 от PUBLIC_PAGE_SURFACES и сохранить прежнюю границу cookie/acquisition; добавить причинную регрессию четырёх путей в tests/contract/test_public_organic_measurement.py, проверить соседние public/acquisition/handoff, независимый review и обновить evidence. Refs #7603 и #7605; новый объём внутри FR-001/003.
