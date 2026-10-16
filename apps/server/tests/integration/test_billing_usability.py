@@ -161,9 +161,9 @@ def test_billing_navigation_uses_approved_russian_labels() -> None:
         ROOT
         / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_plans_content.html"
     ).read_text(encoding="utf-8")
-    assert "Управлять хранилищем" in overview
-    assert 'href="/billing/payment-method"' in overview
-    assert 'href="/billing/payment-method">Способ оплаты</a>' in overview
+    assert "Изменить объем" in overview
+    assert 'id="billing-card-settings"' in overview
+    assert 'id="billing-method-title">Способ оплаты</h2>' in overview
     assert "Настроить хранилище" in plans
 
 

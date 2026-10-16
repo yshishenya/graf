@@ -102,6 +102,8 @@ async def test_billing_routes_render_real_profile_and_persisted_trial_dates(
         paid_through=None,
         trial_ends_at=trial.ends_at,
         capacity_bytes=500_000_000,
+        next_capacity_bytes=None,
+        next_capacity_version=0,
         billing_owner_id=UUID(int=2),
         cycle=None,
         renewal_resolution=None,

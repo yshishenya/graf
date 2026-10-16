@@ -589,9 +589,9 @@ async function run() {
       await screenshot('applied');
 
       stage = `${width}:back-and-return`;
-      await page.getByRole('link', { name: 'Назад к тарифам', exact: true }).click();
-      stage = `${width}:plans-url`;
-      await page.waitForURL('**/billing/plans');
+      await page.getByRole('link', { name: 'К тарифу и оплате', exact: true }).click();
+      stage = `${width}:overview-url`;
+      await page.waitForURL(`${base}/billing`);
       stage = `${width}:go-back`;
       await page.goBack({ waitUntil: 'domcontentloaded' });
       stage = `${width}:verify-after-back`;

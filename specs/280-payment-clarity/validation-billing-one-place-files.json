@@ -1,0 +1,22 @@
+{
+  "kind": "local_validation_files_before_final_implementation_commit",
+  "base_sha": "2c7f93e6bb4c7264e6b0e131879abe30ed1f326d",
+  "branch": "codex/280-billing-one-place",
+  "files": {
+    "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css": "8300f2e3611f12530641eb48c543e53ee1f1a8100be2c03d91e9be88b4bf1ada",
+    "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/billing_storage_editor.html": "082097f1c2cb4873cec82e27933a7b9ba6b368fb3eac3f34189ec72217636b11",
+    "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_checkout_content.html": "c346049fc6306f1b6cc8c9f61c365773d6f1e5bf2dc6088097bf70f0240be787",
+    "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_overview_content.html": "53b4bdba8e2b869abe2561fe0954bd865dc14da022fccc0b05d3196b81eef5b0",
+    "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_purchase_content.html": "6e932eae2c81fa2acb31f7fe1bc636ef202403738f30c19e3e9ce55bc8874502",
+    "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_storage_content.html": "06e6a0a7aa761f3dde0eef719e807cff90b2a92e128d557552363696fad8fe94",
+    "apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py": "d45ce7f65b56eed17ac838462fb9622df040f168047a69fa7b0643f46403a87e",
+    "apps/server/tests/browser/billing-accessibility.test.cjs": "01e6441b72d87ca3e5b59ae6c8751ab4a78a14238d28e74175af21b2155086c4",
+    "apps/server/tests/browser/billing-promo-refresh.test.cjs": "2576032288ee96c79bffb361dadbd8f5e2a19354c9d218645a85a36598c16f74",
+    "apps/server/tests/contract/test_billing_accessibility.py": "0fb191b7f253d7c5712c97bd681dd4fee2b00f481585422c35e10bec2860d08d",
+    "apps/server/tests/contract/test_billing_clarity.py": "948a66746d48b802107e6b4fdc25ff2c8f88e9a214e868a306dc9cb89ac156b9",
+    "apps/server/tests/contract/test_billing_ui.py": "b85059b21a614d33f7886ba163f9fd0f4bf4120e1d4e7b58207f47e2dab873b5",
+    "apps/server/tests/integration/test_billing_overview_controls.py": "eac0dff4eadc6043f6dd16a5fb2db06742c9ca2ad7d1deba7f5670417386cc67",
+    "apps/server/tests/integration/test_billing_usability.py": "bbbc320dba10c79305d9e1c3067338b6021ff0e132b5472e497f4649763517a7",
+    "apps/server/tests/unit/test_cabinet_audit_fixes.py": "0c4bb38e7543a4b2b5b9cd9c248d32428284e319ea9c2606949180ce9e3f633f"
+  }
+}
