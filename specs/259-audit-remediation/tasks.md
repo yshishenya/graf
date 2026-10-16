@@ -72,3 +72,22 @@ T001–T019 выполнены в ограниченном объёме инст
 - [X] T021 [US3] Добавить регрессии каскада больших specs, границы, ошибок и claims в tests/governance/test_feature_allocator.py; исправить scripts/claim-feature.py и .specify/feature-numbering.json. (Issue #6938)
 - [X] T022 [US3] Согласовать spec creation и pointer в .agents/skills/speckit-specify/SKILL.md, .specify/scripts/bash/create-new-feature.sh и source bootstrap; сохранить контрольные суммы генерируемых файлов. (Issue #6938)
 - [X] T023 [US3] Проверить quickstart, записать validation.md и changes/unreleased/F259.yaml; выполнить converge, отделить локальную готовность от commit/CI/merge. (Issue #6938)
+
+
+## Владение задачей главной issue — 2026-10-16
+
+US3, FR-007/008/020–022, SC-003/004; high-risk-product / significant governance.
+Прежние T001–T023 и принятые #6837/#6938 сохраняются. Новая ошибка обнаружена
+при сверке F265; весь backlog F259 этим этапом не закрывается.
+
+- [X] T024 [US3] В tests/governance/test_validator_safety.py воспроизвести отказ канонического владельца в главной issue и закрепить положительную/отрицательную матрицу из quickstart; согласовать две синтетические T017→#6415 связки в тесте и self-test scripts/validate-issue-closeout.py без ослабления assertions. (Issue #7631)
+- [X] T025 [US3] В scripts/validate-issue-closeout.py включить главную issue в общий учет владельцев через существующие _owned_task_ids/validate, сохранив отдельный список дочерних и все проверки состояния, владения, комментария, SHA/CI, T000 и порядка closedAt. (Issue #7631)
+- [X] T026 [US3] Пройти quickstart, независимое ревью и converge; записать фактические результаты/ограничения в specs/259-audit-remediation/validation-umbrella-ownership-20261016.md и changes/unreleased/F259.yaml; commit/PR/CI/merge и повторное закрытие F265 оставить отдельными gates. (Issue #7631)
+
+Порядок: T024 → T025 → T026. Все три задачи реализуются последовательно,
+параллельных исполнителей кода нет. Независимый reviewer проверяет свои
+контрольные списки и отчет отдельно. Минимальный результат — исправление
+общего обхода, без новых форматов, функций, зависимостей или исключений F265.
+Независимый тест US3: канонический главный владелец проходит до/после закрытия,
+а unchecked, неверная ссылка, дубли, orphan, T000, открытый ребенок и неверный
+порядок закрытия отклоняются. Другие пользовательские истории не меняются.
