@@ -216,7 +216,9 @@ def behavior_repo(tmp_path: Path) -> Path:
         target = tmp_path / "apps/server/tests" / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         name = ("test_cabinet_rail_node_harness_keeps_responsive_defaults_and_manual_state"
-                if "static_assets" in relative else "test_fixture")
+                if "static_assets" in relative else
+                "test_sc017_one_hundred_warmed_atomic_consumptions_are_within_50ms_p95"
+                if "integration/test_calendar" in relative else "test_fixture")
         target.write_text(f"def {name}():\n    assert True\n")
     (tmp_path / ".gitignore").write_text(".venv/\n.pytest_cache/\n__pycache__/\n")
     for args in (("init", "-q"), ("config", "user.email", "ci-contract@example.test"),
@@ -307,19 +309,24 @@ def test_calendar_source_rename_keeps_old_path_and_unknown_destination(tmp_path:
     assert plan["tests"] == CALENDAR_PROOFS and plan["coverage"] == "partial"
 
 
-@pytest.mark.parametrize("condition", ["missing", "empty", "syntax", "symlink"])
+@pytest.mark.parametrize("condition", ["missing", "empty", "syntax", "symlink",
+                                       "performance_removed", "performance_renamed"])
 def test_calendar_missing_or_invalid_proof_fails_before_runtime(tmp_path: Path, condition: str) -> None:
     runner = behavior_repo(tmp_path)
     source = tmp_path / "apps/server/src/twobrain_rec_server/calendar/matching.py"
     source.parent.mkdir(parents=True)
     source.write_text("# changed source\n")
-    target = tmp_path / "apps/server" / CALENDAR_PROOFS[0]
+    target = tmp_path / "apps/server" / CALENDAR_PROOFS[int(condition.startswith("performance_"))]
     if condition == "missing":
         target.unlink()
     elif condition == "empty":
         target.write_text("# no tests\n")
     elif condition == "syntax":
         target.write_text("def test_broken(:\n")
+    elif condition.startswith("performance_"):
+        original = target.read_text()
+        target.write_text("def test_other():\n    assert True\n" if condition == "performance_removed"
+                          else original.replace("test_sc017_", "test_renamed_"))
     else:
         outside = tmp_path.parent / (tmp_path.name + "-outside.py")
         outside.write_text(target.read_text())
@@ -331,7 +338,8 @@ def test_calendar_missing_or_invalid_proof_fails_before_runtime(tmp_path: Path, 
     assert "server_venv_missing" not in result.stdout
 
 
-@pytest.mark.parametrize("condition", ["pass", "skip", "deselect", "failure", "runner_failure"])
+@pytest.mark.parametrize("condition", ["pass", "skip", "deselect", "failure", "runner_failure",
+                                       "performance_deselect", "performance_wrong_module"])
 def test_calendar_executor_uses_isolated_runner_and_requires_execution(tmp_path: Path, condition: str) -> None:
     runner = behavior_repo(tmp_path)
     source = tmp_path / "apps/server/src/twobrain_rec_server/calendar/matching.py"
@@ -347,6 +355,18 @@ def test_calendar_executor_uses_isolated_runner_and_requires_execution(tmp_path:
             "def pytest_collection_modifyitems(items):\n"
             "    items[:] = [i for i in items if 'contract/test_calendar' not in i.nodeid]\n"
         )
+    elif condition.startswith("performance_"):
+        integration = tmp_path / "apps/server" / CALENDAR_PROOFS[1]
+        integration.write_text(integration.read_text() + "\ndef test_other():\n    assert True\n")
+        (integration.parent / "conftest.py").write_text(
+            "def pytest_collection_modifyitems(items):\n"
+            "    items[:] = [i for i in items if not ('integration/test_calendar' in i.nodeid "
+            "and 'sc017' in i.name)]\n"
+        )
+        if condition == "performance_wrong_module":
+            target.write_text(target.read_text() +
+                              "\ndef test_sc017_one_hundred_warmed_atomic_consumptions_are_within_50ms_p95():\n"
+                              "    assert True\n")
     python = tmp_path / "apps/server/.venv/bin/python"
     python.parent.mkdir(parents=True)
     python.symlink_to(sys.executable)

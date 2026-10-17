@@ -30,6 +30,11 @@ GROUPS = {
         "tests/integration/test_calendar_auto_context_match.py",
     ),
 }
+REQUIRED_TESTS = {
+    ASSETS: RAIL_TEST,
+    GROUPS["calendar-auto-context"][1]:
+        "test_sc017_one_hundred_warmed_atomic_consumptions_are_within_50ms_p95",
+}
 
 
 def select_tests(paths: list[str], covered: list[str], root: Path = ROOT) -> dict:
@@ -57,7 +62,7 @@ def select_tests(paths: list[str], covered: list[str], root: Path = ROOT) -> dic
             raise ValueError(f"required_test_file_missing: {target}")
         names = {node.name for node in ast.parse(file.read_text(encoding="utf-8")).body
                  if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_")}
-        if not names or (target == ASSETS and RAIL_TEST not in names):
+        if not names or (target in REQUIRED_TESTS and REQUIRED_TESTS[target] not in names):
             raise ValueError(f"required_test_proof_missing: {target}")
     covered_tests = [target for target in selected if any(
         target == item or target.startswith(item.rstrip("/") + "/") for item in covered
@@ -82,10 +87,14 @@ def check_execution(report: Path, targets: list[str]) -> None:
     if any(case.find("skipped") is not None for case in cases):
         raise ValueError("required_behavior_test_skipped")
     for target in targets:
-        if not any(case.get("classname", "").split(".")[-1] == Path(target).stem for case in cases):
+        executed = [case for case in cases
+                    if case.get("classname", "").split(".")[-1] == Path(target).stem]
+        if not executed:
             raise ValueError(f"required_test_file_not_executed: {target}")
-    if ASSETS in targets and not any(case.get("name") == RAIL_TEST for case in cases):
-        raise ValueError("required_rail_test_not_executed")
+        if target in REQUIRED_TESTS and not any(
+            case.get("name") == REQUIRED_TESTS[target] for case in executed
+        ):
+            raise ValueError(f"required_test_case_not_executed: {target}::{REQUIRED_TESTS[target]}")
 
 
 def execute(targets: list[str]) -> int:
