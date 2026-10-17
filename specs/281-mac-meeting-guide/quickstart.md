@@ -1,5 +1,9 @@
 # Проверка F281
 
+## Редакционное дополнение 2026-10-16
+
+Переиспользовать готовую Python-среду без установки зависимостей. Из `apps/server`: `PYTHONPATH=src /Users/yshishenya/Documents/crisp/apps/server/.venv/bin/python -m pytest -q tests/contract/test_public_protocol_guide.py -k 'indexable or example'`. Проверить rendered HTML в браузере на 360/390/768 px, no-JS, содержание/якорь и переносы второго шаблона; ширина документа не больше окна. Сравнить с базой metadata, исходный учебный диалог и первый pre, а также защищенные главную/download/политики/assets/runtime. Запустить `git diff --check`, governance и fragment validator. Новых проверок runtime/БД/приложения этот текстовый срез не требует. После PR нужны текущие три GitHub checks и общий validator; выпуск и live readback остаются T018.
+
 Lane: tiny-low-risk content, без нового data/API contract.
 
 `PYTHONPATH="$PWD/apps/server/src" bash apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_public_mac_meeting_guide.py tests/unit/test_public_landing.py tests/contract/test_public_landing_contract.py -q`

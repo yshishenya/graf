@@ -1,5 +1,9 @@
 # План F281: раздел руководств
 
+## Редакционное дополнение 2026-10-16
+
+Lane: active Spec Kit slice, docs-only template wording. FR029–31: один раздел и один пункт содержания в `public/templates/public/meeting_protocol_guide.html`; существующая разметка section/pre, без новых стилей, функций или зависимостей. T017 включает локальную проверку и отдельный PR; T018 оставляет выпуск и readback открытыми. Исходная база `aaa5e7a2b01205d4ab962c7fb126ef7e99dadf7d`. Применяются прежние ограничения по учебным примерам и неизменности защищенных страниц. Custom reviewer checklists отсутствуют. Перед реализацией проверить соответствие FR029–31 задачам и текущим правилам; критических/высоких замечаний быть не должно.
+
 Lane: active Spec Kit slice, narrow low-risk public content navigation. Существующий F281 расширяется без новой фичи. Нет публичного data API, schema/migrations, auth, capture, AI или privacy contracts.
 
 ## Архитектура
