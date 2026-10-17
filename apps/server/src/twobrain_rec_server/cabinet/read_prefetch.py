@@ -25,11 +25,14 @@ from twobrain_rec_server.db.models import (
     MeetingShareGrant,
     MeetingSummarySlot,
     PlaybackNormalizationJob,
+    ProcessingDependencyState,
     ProcessingResult,
     ProcessingWorkflow,
     RecordingCalendarContextLink,
+    SummaryTemplate,
     TrackArtifact,
     UploadSession,
+    Workspace,
     WorkspaceMembership,
 )
 
@@ -53,6 +56,16 @@ class CabinetReadPrefetch:
     workspace_id: UUID
     viewer_user_id: UUID
     recipient_proof: ShareRecipientAccessProof | None = None
+    # Detail reads keep every authorization read fresh; list batching is unchanged.
+    cache_access: bool = True
+    workspaces: dict[UUID, Workspace | None] = field(default_factory=dict)
+    dependencies: dict[UUID, ProcessingDependencyState | None] = field(default_factory=dict)
+    summary_templates: dict[UUID, SummaryTemplate | None] = field(default_factory=dict)
+    # Raw, fenced candidates let the resolver apply its own publication flags.
+    outcome_candidates: dict[
+        tuple[UUID, str | None],
+        tuple[MeetingSummarySlot | None, MeetingOutcomeSet | None, ProcessingResult | None],
+    ] = field(default_factory=dict)
 
     # cabinet.queries._latest_media_revision
     media_revisions: dict[UUID, MediaRevision | None] = field(default_factory=dict)
@@ -106,7 +119,7 @@ class CabinetReadPrefetch:
     )
     # outcomes.service.load_pinned_egress_outcome, keyed by
     # (meeting_id, outcome_set_id)
-    pinned_outcomes: dict[UUID, MeetingOutcomeSet | None] = field(default_factory=dict)
+    pinned_outcomes: dict[tuple[UUID, UUID], MeetingOutcomeSet | None] = field(default_factory=dict)
     # cabinet.outcomes.progress.latest_summary_attempt, keyed by
     # (meeting_id, template_key, processing_result_id, media_revision_id)
     summary_attempts: dict[

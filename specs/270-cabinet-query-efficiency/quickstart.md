@@ -155,3 +155,51 @@ SQL. После — все значения current_setting совпадают, 
 Сохранить замер той же детали, что дала 84 SQL, и число обращений списков.
 Снижение промежуточного результата не закрывает SC-003 (<=25 SQL); полный
 серверный прогон и сопоставимый эталон SC-005 остаются отдельной T026.
+
+
+## Сценарий 7. Полная деталь — T032/T033
+
+```sh
+UV_PROJECT_ENVIRONMENT=/Users/yshishenya/Documents/crisp/apps/server/.venv \
+UV_NO_SYNC=1 GRAF_TEST_WORKERS=1 \
+  bash apps/server/scripts/run_local_postgres_tests.sh --focused \
+  tests/integration/test_cabinet_meeting_detail_query_budget.py \
+  tests/integration/test_cabinet_meeting_detail.py \
+  tests/integration/test_shared_with_me.py \
+  tests/integration/test_web_owner_session_context.py \
+  tests/contract/test_cabinet_no_secret_content_egress.py -q
+```
+
+До реализации: бюджетный тест падает на полной готовой детали (68 SQL).
+После: полный web и embedded HTTP каждый <=25 SQL, включая профиль/auth/context;
+готовая запись с опубликованными итогами также <=25. Увеличение связанных
+ревизий/попыток/сегментов/имён с 5 до 50 не увеличивает число SQL. Никаких
+подмен зависимостей в измерении, подготовки данных внутри счётчика или
+отключения PostgreSQL RLS. Отрицательная проба временно возвращает лишние
+SQL в общий путь, получает падение с названием страницы, затем удаляется.
+
+Отдельно сравнить сериализованный `MeetingReviewResponse` старого и нового
+пути (контрольный путь без заполнения предвыборки) на синтетических данных:
+
+| Группа | Состояния и неизменяемый результат |
+|---|---|
+| Данные | нет ревизии, нет полного результата, нет слота, published summary, failed/in-progress, selected/missing template |
+| Версия | старый принятый summary + новый текст, explicit source_result, иной workflow/meeting/workspace у связанных строк |
+| Доступ | owner/member/full grant/summary-only, revoked/expired/ambiguous grants, другой viewer/workspace |
+| Удаление | deleting/deleted и отзыв между двумя вызовами в одной сессии |
+| Календарь | без связи, matching/candidates, previous recurring pointer с отдельной авторизацией |
+| Срок жизни | два вызова с разными viewer/workspace, исключение и вложенный вызов восстанавливают прежнее db.info |
+
+Сравнение с прежним путём не подменяет старые отдельные security assertions.
+Временный тестовый контрольный путь не является новой настройкой продукта.
+API и остальные потребители общего helper покрываются прежними контрактными
+и интеграционными тестами; перечислить точный набор в validation report.
+Только после всех проверок и независимого review отмечать T032/T033/T025.
+T026/T027 и SC-005 этим focused прогоном не закрываются.
+
+Дополнительная обязательная пара результатов одной попытки: более поздняя
+публикация (`imported_at`) имеет меньший `result_version`. Старый и новый путь
+обязаны одинаково сохранять РАЗНЫЙ выбор latest и effective. Published summary
+проверяется как built-in, так и custom template с именем и outcome items; оба
+полных экрана остаются <=25 SQL. Прогресс summary использует прежние правила
+pinned/attempt, включая очередь или сбой вместо принятого результата.

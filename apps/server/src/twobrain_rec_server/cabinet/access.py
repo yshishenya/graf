@@ -666,7 +666,7 @@ async def active_workspace_membership(
     call refreshes the row from the database and the rest reuse that exact row.
     """
     prefetch = active_read_prefetch(db)
-    if prefetch is None:
+    if prefetch is None or not prefetch.cache_access:
         return await _load_active_workspace_membership(
             db, workspace_id=workspace_id, user_id=user_id
         )
@@ -688,7 +688,7 @@ def _prefetched_grant(
 ):
     """Return a batched grant row, or `_UNPREFETCHED` to fall back to one query."""
     prefetch = active_read_prefetch(db)
-    if prefetch is None or prefetch.workspace_id != workspace_id:
+    if prefetch is None or not prefetch.cache_access or prefetch.workspace_id != workspace_id:
         return _UNPREFETCHED
     if field_name == "user_grants" and getattr(prefetch, "viewer_user_id", None) != grantee_user_id:
         return _UNPREFETCHED
@@ -915,7 +915,8 @@ async def _share_grant_recipient_is_valid(
         if recipient_proof is not None:
             return expected_hash in recipient_proof.verified_address_hashes
         prefetch = active_read_prefetch(db)
-        if prefetch is not None and viewer_user_id in prefetch.viewer_verified_emails:
+        if (prefetch is not None and prefetch.cache_access
+                and viewer_user_id in prefetch.viewer_verified_emails):
             verified_emails = prefetch.viewer_verified_emails[viewer_user_id]
         else:
             verified_emails = tuple(
@@ -928,7 +929,7 @@ async def _share_grant_recipient_is_valid(
                     )
                 )
             )
-            if prefetch is not None:
+            if prefetch is not None and prefetch.cache_access:
                 prefetch.viewer_verified_emails[viewer_user_id] = verified_emails
         return any(
             expected_hash in invitation_address_hashes(email) for email in verified_emails if email
@@ -1018,14 +1019,23 @@ async def share_panel_state(
     team_visibility = (
         "enabled" if (meeting.visibility or "").lower() in TEAM_VISIBLE_VALUES else "disabled"
     )
-    calendar_context = await db.scalar(
-        select(RecordingCalendarContextLink.id).where(
-            RecordingCalendarContextLink.workspace_id == meeting.workspace_id,
-            RecordingCalendarContextLink.meeting_id == meeting.id,
-            RecordingCalendarContextLink.context_state.in_(ACTIVE_CALENDAR_CONTEXT_STATES),
-            RecordingCalendarContextLink.calendar_event_snapshot_id.is_not(None),
+    prefetch = active_read_prefetch(db)
+    if (prefetch is not None and not prefetch.cache_access
+            and prefetch.workspace_id == meeting.workspace_id
+            and meeting.id in prefetch.calendar_links):
+        link = prefetch.calendar_links[meeting.id]
+        calendar_context = (link.id if link is not None
+                            and link.context_state in ACTIVE_CALENDAR_CONTEXT_STATES
+                            and link.calendar_event_snapshot_id is not None else None)
+    else:
+        calendar_context = await db.scalar(
+            select(RecordingCalendarContextLink.id).where(
+                RecordingCalendarContextLink.workspace_id == meeting.workspace_id,
+                RecordingCalendarContextLink.meeting_id == meeting.id,
+                RecordingCalendarContextLink.context_state.in_(ACTIVE_CALENDAR_CONTEXT_STATES),
+                RecordingCalendarContextLink.calendar_event_snapshot_id.is_not(None),
+            )
         )
-    )
     capability_state = "available" if decision.can_share else "auth_required"
     capability_reason = (
         None
