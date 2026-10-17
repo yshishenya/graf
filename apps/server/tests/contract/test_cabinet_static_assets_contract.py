@@ -259,10 +259,22 @@ for (const width of [375, 550, 768, 1200]) {
 global.HTMLElement = class {};
 const classes = new Set();
 const submenu = new HTMLElement();
-submenu.getBoundingClientRect = () => classes.has('is-flipped')
-  ? {left: -309, right: 0, top: 50, bottom: 250}
-  : {left: 264, right: 584, top: 50, bottom: 250};
-const details = {open: true, isConnected: true, querySelector: () => submenu,
+const properties = {};
+let shown = false;
+submenu.popover = null;
+submenu.matches = () => shown;
+submenu.showPopover = () => { shown = true; };
+submenu.hidePopover = () => { shown = false; };
+submenu.removeAttribute = () => { submenu.popover = null; };
+submenu.style = {setProperty: (key, value) => properties[key] = value};
+submenu.offsetWidth = 320;
+submenu.getBoundingClientRect = () => ({width: 320, height: Math.min(200, window.innerHeight - 16)});
+let anchor = {left: 16, right: 246, top: 80, bottom: 112};
+const summary = {getBoundingClientRect: () => anchor};
+global.menu = {hidden: false, getBoundingClientRect: () => ({top: 8, bottom: 350}), addEventListener: () => {}};
+global.mobileNav = null;
+global.root = {};
+const details = {open: true, isConnected: true, querySelector: selector => selector === 'summary' ? summary : submenu,
   classList: {remove: (...names) => names.forEach(name => classes.delete(name)),
     toggle: (name, on) => on ? classes.add(name) : classes.delete(name)}};
 vm.runInThisContext(source.slice(
@@ -272,15 +284,34 @@ vm.runInThisContext(source.slice(
 window.innerWidth = 550;
 syncDisclosurePosition(details);
 assert.ok(classes.has('is-inline'), 'neither side fits at 550px');
+assert.ok(!shown && submenu.popover === null, 'inline content leaves the top layer');
 window.innerWidth = 1200;
 syncDisclosurePosition(details);
-assert.ok(!classes.has('is-inline') && !classes.has('is-flipped'), 'resize restores a fitting side');
+assert.ok(!classes.has('is-inline') && shown, 'resize restores a fitting side');
+assert.equal(properties['--profile-submenu-left'], '254px');
 window.innerHeight = 200;
 syncDisclosurePosition(details);
-assert.ok(classes.has('is-inline'), 'short window uses scrollable inline layout');
+assert.ok(!classes.has('is-inline') && shown, 'short window retains a scrollable side panel');
+assert.equal(properties['--profile-submenu-top'], '8px');
+anchor = {left: 950, right: 1180, top: 80, bottom: 112};
+syncDisclosurePosition(details);
+assert.equal(properties['--profile-submenu-left'], '622px', 'right edge flips left');
 details.open = false;
 syncDisclosurePosition(details);
 assert.equal(classes.size, 0);
+assert.ok(!shown, 'closing details closes the top-layer panel');
+details.open = true;
+menu.hidden = true;
+syncDisclosurePosition(details);
+assert.ok(!shown, 'queued positioning cannot reopen a closed menu');
+menu.hidden = false;
+anchor = {left: 16, right: 246, top: -40, bottom: -8};
+window.innerWidth = 560;
+syncDisclosurePosition(details);
+assert.ok(details.open && classes.has('is-inline') && !shown, 'inline content stays open while scrolling its heading away');
+window.innerWidth = 1200;
+syncDisclosurePosition(details);
+assert.ok(!details.open && !shown, 'scrolling the owner row away closes its panel');
 const calls = [];
 global.acceptedFocusKey = 'synthetic';
 window.sessionStorage = {getItem: () => 'current', removeItem: () => calls.push('consume')};

@@ -1,0 +1,334 @@
+# Quickstart: Feature 200 Windows desktop-приложение GRAF
+
+Этот runbook предназначен для реализации и validation gate Feature 200.
+В репозитории уже есть portable CMake contract surface и заготовка MSBuild/
+MSIX; этот runbook не превращает их в доказательство готового Windows продукта.
+Windows host обязателен для claims о WinUI/WebView2, WASAPI, Media Foundation,
+MSIX и hardware.
+
+## 1. Host prerequisites
+
+- Windows 10 22H2 (19045) или поддерживаемый Windows 11; первый claim — x64.
+- Visual Studio с C++/WinRT, Windows App SDK stable и Windows SDK без preview API.
+- WebView2 Evergreen Runtime; отдельно проверяется сценарий отсутствующего или
+  повреждённого runtime.
+- PowerShell 7, `msbuild`, `ctest` и стандартные Media Foundation components.
+- Для hardware evidence: встроенный/USB/Bluetooth microphone, HDMI/DisplayPort
+  или dock render endpoint. RDP проверяется отдельно как ограниченный сценарий.
+
+Не сохранять в evidence реальные meeting audio, transcript, cookies, tokens,
+signed URLs, raw device paths или private meeting ids.
+
+## 2. Build and platform-independent checks
+
+```powershell
+Push-Location apps/windows
+cmake --preset x64-release
+cmake --build --preset x64-release
+ctest --preset x64-release --output-on-failure
+Pop-Location
+msbuild apps/windows/GrafWindows.sln /m /p:Configuration=Release /p:Platform=x64
+ctest --test-dir apps/windows/out/build/x64/Release --output-on-failure
+pwsh -File apps/windows/scripts/validate-audio-contract.ps1
+pwsh -File apps/windows/scripts/validate-webview-boundary.ps1
+```
+
+Ожидается: solution собирается без preview SDK, unit/contract tests проходят,
+не создаются секретные или content-bearing diagnostics, а bridge policy
+останавливает неразрешённые origin/route/command.
+
+Реальные contract/package tests запускаются через CMake/CTest. Пустые тестовые
+проекты удалены из `GrafWindows.sln`; сборка solution не заменяет запуск тестов.
+
+Portable CMake/CTest на macOS подтверждает только platform-independent contracts.
+Он не заменяет MSBuild/WinUI 3, реальный WebView2 lifecycle, WASAPI capture,
+Media Foundation AAC или signed MSIX evidence.
+
+Проверка Constitution 7 (T081/T082): технически готовый manual Start и
+автоматический countdown проходят без полей legal-policy/consent и без WebView.
+Для каждого оставшегося условия отдельно проверить отказ: microphone privacy,
+input, render, normalization, AEC3, storage, AAC, indicator, Stop, active session,
+suppression; неизвестный target не запускает запись. После удаления bool-полей
+пересобрать все тесты, включая позиционные ReadinessInputs. Реальная запись
+частных разговоров для этой проверки не нужна: использовать synthetic fakes.
+
+Фоновая автозапись T081/T082: проверить отдельный индикатор/Stop до старта при
+свёрнутом главном окне; отказ создания/показа не запускает capture. В
+AutomaticRecordingSmokeTests проверить слежение с `starting`, второй процесс
+той же identity, отсутствие 14/15 секунд, разрыв свежести, повторные/старые/
+будущие снимки, предел 599/600 секунд без подтверждения, ручной Stop и ручную
+запись. Каталог синтетических целей не включать в рабочее приложение; отсутствие
+настоящей встречи/каталога явно ограничивает нативную приёмку.
+
+## 3. Synthetic audio gate
+
+Продолжение T085: до реального Record проверить единственный стартовый 0x1,
+запрет повторного/смешанного флага, ReleaseBuffer failure, неизменность
+аудиосостояния при отбрасывании и таймаут без пригодного пакета. Итоговая
+безопасная сводка должна различать причины часов каждого источника и
+стартовые отбрасывания; её нулевые блоки не являются успешной записью.
+
+Источник synthetic fixture должен генерировать только детерминированные тоны и
+шум с известными параметрами: system render reference, microphone near-end,
+controlled echo, ±100 ppm clock drift, jitter, packet partition и injected gap.
+
+```powershell
+ctest --test-dir apps/windows/out/build/x64/Release -R "Timeline|AudioNormalizer|CaptureFaultState|AEC3|Writer" --output-on-failure
+pwsh -File apps/windows/scripts/validate-audio-contract.ps1 -Synthetic
+```
+
+Pass criteria:
+
+T085: отдельно пройти `AudioNormalizerTests` с включёнными проверками Release:
+общая QPC-шкала, несовпадающие device origins, ±100 ppm с округлением,
+441 + 441 и малые переменные пакеты, mapper → normalizer → timeline.
+Точные часы не требуют искусственной коррекции из-за разбиения пакетов.
+`RecordingAudioTimelineTests` проверяет ±48/49 и разрывы; `CaptureFaultStateTests`
+проверяет ошибки меток и native lifecycle. Прохождение моделируемого часа
+одних метаданных не является 60-минутной звуковой/ресурсной приёмкой SC-003.
+
+Для WASAPI дополнительно проверяется `IAudioClock`-позиция: `devicePosition`
+не используется как число engine-кадров при endpoint/engine resampling,
+а отсутствие `IAudioClock` является отказом инициализации.
+
+- два source batch могут иметь разные размеры, но timeline выдаёт только
+  contiguous 480-sample frames;
+- reference передаётся в AEC3 до microphone frame;
+- no dropped/duplicated output frames в 60-minute reference run при ±100 ppm;
+- WAV/M4A/timeline duration difference не больше 100 ms;
+- integrated RMS dBFS of the canonical 48 kHz mono system-render component,
+  measured before final mix over the active synthetic interval, differs from
+  the reference by no more than 1 dB;
+- processor/timestamp/gap/overflow error не включает raw-microphone fallback;
+- только проверенный trusted prefix может быть degraded artifact;
+- after warm-up, native process CPU time is no more than 25% of wall time on the
+  reference four-core x64 machine, resident memory growth is no more than 128
+  MiB, and neither bounded source queue grows without limit.
+
+## 4. Hardware capture matrix
+
+На каждой комбинации Windows 10 22H2/Windows 11 и x64 выполнить manual Record,
+Pause, Resume, Stop, endpoint unplug/replug, default-device change, sleep/wake и
+Audio Service restart. Отдельно проверить microphone privacy denial, exclusive
+consumer, protected/DRM render и disk-full fixture.
+
+Записывать только metadata-safe evidence: OS/build, app build, architecture,
+source class, format class, state, safe reason code, counters, durations и
+redacted endpoint fingerprint. Raw audio остаётся локальным QA input и не
+попадает в git/evidence.
+
+```powershell
+pwsh -File apps/windows/scripts/validate-audio-contract.ps1 -HardwareMatrix `
+  -Os "Windows10-22H2,Windows11" `
+  -Inputs "BuiltIn,USB,Bluetooth" `
+  -Outputs "BuiltIn,HDMI,DisplayPort,Dock"
+```
+
+Pass criteria: active indicator и one-action Stop остаются видимыми при каждом
+fault injection; permission/endpoint/clock/protected/overflow failures не дают
+normal-status claim; silent cross-device continuation отсутствует.
+
+## 5. WebView2 security and parity gate
+
+```powershell
+pwsh -File apps/windows/scripts/validate-webview-boundary.ps1 -Contract
+ctest --test-dir apps/windows/out/build/x64/Release -R "WebView|Bridge|Route" --output-on-failure
+```
+
+Матрица обязана включать trusted origin/routes, auth expiry, redirect,
+cross-frame message, stale nonce, replayed id, malformed JSON, unknown version,
+oversized/deep payload, token/file/process command, WebView close/recreate during
+recording, missing runtime и repair failure. Для embedded profile menu отдельно
+проверяется, что «Закрыть GRAF» отправляет только `request_app_quit` с payload
+`{"action":"quit"}`; любой другой action, origin или route не закрывает shell.
+Record/local custody должны
+оставаться независимыми от результата WebView.
+
+Сравнить с macOS parity matrix: `/desktop/meetings`, detail, settings, auth
+recovery, review и deletion-report. Не добавлять Windows-only business UI.
+
+## 6. Local custody and recovery gate
+
+```powershell
+ctest --test-dir apps/windows/out/build/x64/Release -R "Custody|Queue|Upload" --output-on-failure
+pwsh -File apps/windows/scripts/validate-audio-contract.ps1 -CustodyFaults
+```
+
+Сценарии: offline finalization, process relaunch, network recovery, auth expiry,
+partial accepted range, malformed ledger, duplicate Stop, wake recovery и local
+purge/deletion truth. Требование — 100 циклов recovery без duplicate meeting или
+upload session, когда server truth доступна.
+
+Дополнительные регрессии T083: исчерпать автоматические повторы и нажать
+«Отправить» для одной записи; прервать проверку аккаунта сетевым отказом и
+дождаться планового повтора без перезагрузки кабинета; отдельно проверить
+401/403 и несовпадение владельца. Перезапуск между сохранением принятых
+диапазонов и итогового статуса не оставляет вечное «Отправляется». Повтор
+после нового истечения серверной сессии не использует прежний ключ.
+
+## 7. Automatic recording and accessibility gate
+
+```powershell
+ctest --test-dir apps/windows/out/build/x64/Release -R "Automatic|RecordingIndicatorTests" --output-on-failure
+pwsh -File apps/windows/scripts/validate-package-smoke.ps1 -UiMatrix
+```
+
+Проверить подтверждённое приложение, неизвестное приложение и обычное
+воспроизведение медиа; режимы «Всегда», «Спрашивать» и «Никогда» с начальным
+значением «Спрашивать». В prompt проверить восьмисекундный отсчёт, действия
+«Записать сейчас» и «Не записывать», а также «Запомнить выбор»: настройка
+сохраняется только при явном действии, не при истечении таймера. Проверить
+автоматическое начало записи после отсчёта, изменение настройки для одного
+приложения и для всех подтверждённых приложений, смешанное состояние и отказ
+при невыполненных условиях начала записи.
+
+`RecordingIndicatorTests` проверяет модель индикатора, а не доступность
+настоящего окна. Отдельно на финальной Windows-сборке проверить управление
+клавиатурой, экранный диктор, High Contrast, масштаб 200%, узкое окно и reduced
+motion. До этой проверки доступность и поведение нативного prompt не подтверждены.
+
+## 8. MSIX package smoke
+
+```powershell
+msbuild apps/windows/Installer/GrafWindows.Package.wapproj /p:Configuration=Release /p:Platform=x64
+pwsh -File apps/windows/scripts/build-dev-signed-package.ps1 -Package <unsigned-msix>
+pwsh -File apps/windows/scripts/validate-package-smoke.ps1 -Package <signed-msix>
+```
+
+Предварительных условий у пакета нет — это проверяемое свойство, а не обещание:
+
+- распространяемый пакет Visual C++ лежит рядом с исполняемым файлом внутри
+  пакета (`vcruntime140`, `msvcp140` и спутники), поэтому машинный
+  redistributable не нужен;
+- зависимость `Microsoft.WindowsAppRuntime.2` объявлена в манифесте, а сам
+  framework-пакет лежит рядом с MSIX в `Dependencies\x64\`. Если в системе его
+  нет, поставить его нужно **до** пакета:
+
+```powershell
+Get-ChildItem .\Dependencies\x64\*.msix | ForEach-Object { Add-AppxPackage -Path $_.FullName }
+Add-AppxPackage -Path <signed-msix>
+```
+
+Проверить, что предварительных условий не осталось, можно так:
+
+```powershell
+$p = Get-AppxPackage com.graf.desktop
+Get-ChildItem (Join-Path $p.InstallLocation '*.dll') | Select-Object -ExpandProperty Name
+```
+
+В списке должны быть `vcruntime140.dll` и `msvcp140.dll`: тогда приложение
+берёт их из пакета, а не из системы.
+
+На чистом x64 image проверить install, first launch, WebView2 missing/repair,
+update, interrupted update, rollback, uninstall и сохранность user-scoped
+recordings/queue. До signed-package evidence нельзя заявлять distribution
+readiness; до отдельного approval нельзя публиковать release или deploy.
+
+Ограничение проверки на 2026-09-18: буквальный прогон на образе без среды
+разработки не выполнен — доступна одна виртуальная машина, и в ней есть и среда,
+и runtime. Вместо этого зафиксированы три проверяемых факта: все импортируемые
+библиотеки лежат внутри пакета, framework-пакет поставляется вместе с MSIX, а
+установка, обновление и откат проходят на текущем образе (см.
+`validation-2026-09-17.md`, раздел T070/T093).
+
+## 9. Repository gate and evidence handoff
+
+Основной PR gate — GitHub Actions `governance-fast` на точном SHA PR.
+Для локальной диагностики из корня репозитория доступен:
+
+```sh
+infra/scripts/ci-local.sh --fast
+```
+
+Этот gate не заменяет Windows build/hardware/package evidence. Перед PR должен
+быть приложен список exact commit, host OS/build, architecture, focused commands,
+pass/fail result, exact supported Windows 11 build set, skipped ARM64 lane (если не заявлен), known limitations и
+отсутствие release/deploy claim. Изменения Windows описываются на русском в
+`changes/unreleased/F200.yaml`. Корневой `CHANGELOG.md` собирает оператор
+выпуска для зафиксированного кандидата; эта задача его не редактирует.
+
+Актуальные результаты и ограничения находятся в
+`validation-2026-09-06.md`. Прогоны ниже — исторические и не заменяют проверку
+окончательного состояния.
+
+### Исторические результаты до синхронизации 2026-09-06
+
+- Рабочая база: `59803fc1b95e7b76e84d31ee82b7b2cbd24b2a27`; текущий worktree
+  содержит незакоммиченный implementation diff и не является release SHA.
+- Windows VM: Windows 11 build `10.0.26200.9168`, MSBuild `17.14.51`, x64.
+  `GrafWindowsApp.vcxproj` и `GrafWindows.sln` собраны в Release; native
+  `GrafWindowsApp.exe` запущен с `MainWindowTitle=GRAF`, `Responding=True`.
+  После явного `/utf-8` русские native-строки отображаются корректно. Кнопка
+  Record не переводит сессию в запись при закрытых AEC3/permission gates —
+  fail-closed поведение подтверждено вручную. Это host evidence для dirty
+  worktree, не release SHA.
+- Windows CMake/Ninja после свежего configure через x64 toolchain:
+  `100% tests passed, 20/20`; quickstart scripts: synthetic audio `2/2`,
+  custody `3/3`, WebView boundary `4/4`. Pinned WebRTC AEC3 checkout
+  `846fe90a289f58b7c9303a635142aa2c7caa93e5` собран Meson в `440/440`, а
+  native app перелинкован с adapter/library. Package smoke без signed MSIX
+  проверяет только контракт.
+- После штатного MSBuild restore `GrafWindows.sln`, native
+  `GrafWindowsApp.exe` и `.wapproj` собраны в Release x64. Package stage
+  сформировал unsigned test MSIX; после локальной self-signed проверки static
+  package smoke подтвердил manifest, entry point, capabilities и embedded
+  certificate. Это не заменяет доверенную release-подпись, clean-image
+  install/update/rollback, WebView2 repair и hardware capture. Запрос Windows к
+  `/desktop/meetings` получает `401
+  application/problem+json`, поэтому authenticated cabinet parity ещё не
+  доказана.
+- macOS Swift build, `swift test --disable-swift-testing` (`764/764`),
+  `ContractValidation`, legacy-audio guard, desktop upload queue и local
+  recording persistence — PASS; локальный `GRAF Local.app` собран и прошёл
+  `codesign --verify --deep --strict`.
+- `infra/scripts/ci-local.sh --fast`: `1240 passed`, server lint и Python
+  compile — PASS; macOS portable CMake/CTest — `20/20` PASS.
+- T069: WinHTTP transport использует server-authoritative `sync-state`,
+  повторно использует meeting/session, грузит только missing ranges, проверяет
+  `byte_offset`/`byte_length`, обрабатывает auth/network/server rejection и
+  создаёт новую idempotent session после `upload_session_expired`.
+- T067/T072/T073/T074/T075 implementation: startup WASAPI подтверждается до перехода в
+  `recording`, QPC mapping использует runtime frequency, неподдерживаемый или
+  невалидный PCM не превращается в нулевые samples, worker fault блокирует
+  normal finalization, а v5 writer очищает partial WAV/M4A artifacts.
+- T070 package metadata: manifest объявляет `internetClient`, `microphone` и
+  необходимый для full-trust desktop shell `runFullTrust`; native app и
+  `.wapproj` собираются в unsigned x64 MSIX. Static package smoke проходит;
+  доверенная release-подпись и clean-image smoke ещё не доказаны.
+- Не заявлено: hardware WASAPI run, authenticated cabinet parity, clean-image
+  package evidence и signed MSIX; это остаётся в T070/T071/T063.
+
+## Постоянные ключи приложений и первый Windows-каталог
+
+- VerifiedTargetPolicyTests: все три режима сохраняются после обновления
+  утверждённых EXE/сертификата/ревизии; неподтверждённая identity и подмена
+  targetKey отклоняются. Несколько версий дают одну строку настроек.
+- V2 переживает перезапуск/удаление и возвращение записи каталога; bulk не
+  назначает режим новым приложениям; ошибка записи не меняет состояние.
+  Неверный ключ/enum, дубли, неполный/слишком большой документ не дают Always.
+- Старый V1/global документ не превращается в настройку V2 и не удаляется.
+  Проверки используют внедряемое синтетическое хранилище, не HKCU пользователя.
+- Bundled Teams сверяется с зафиксированными метаданными установки и native
+  signature proof. Отрицательный snapshot выполняется без захвата; наличие
+  строки Teams не выдаётся за подтверждение настоящей встречи или x64-приёмку.
+- Повторить AutomaticRecordingSmokeTests: общий постоянный ключ не разрешает
+  подменить точный EXE в countdown или продлить уже начавшуюся запись другой
+  identity. Перед запуском сборки подтвердить отсутствие активной встречи;
+  не изменять пользовательское Always/Ask/Never ради автоматической записи.
+
+## 10. Latest local implementation re-check (2026-08-30)
+
+- Windows shell no longer hides WebView2 merely because the process is
+  unpackaged. WebView2 gets a user-scoped `%LOCALAPPDATA%\\GRAF\\WebView2`
+  profile in both dev and packaged modes; runtime/network failure alone shows
+  the bounded fallback.
+- Native shell now has a persistent recording strip, notification-area menu
+  with one-action Stop, a WinUI settings window, microphone onboarding dialog,
+  dynamic local-custody summary and allowlisted native bridge handlers.
+- Browser-owned auth is read from the WebView2 session cookie after each
+  successful document boundary and held in memory only for native upload; it is
+  never placed in the bridge, ledger or diagnostics.
+- Portable checks after this slice: CMake/CTest `20/20`, route regressions and
+  `infra/scripts/ci-local.sh --fast` `1240 passed`; Windows MSBuild/UI,
+  hardware, authenticated cabinet and signed MSIX still require the VM gates
+  above and are not claimed here.
