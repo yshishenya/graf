@@ -19,6 +19,8 @@ The physical Codex worktree folder name is not a source of truth.
 
 - `codex-worktrees.md`: how to choose the project root and reason about Codex
   worktrees.
+- `document-reading.md`: повторное использование полного чтения неизменных
+  требований в текущем диалоге, с проверкой контекста и зависимостей.
 - `spec-kit-flow.md`: the full feature workflow and quality gates.
 - `product-gates.md`: non-negotiable product, privacy, AI, deletion,
   reference-fidelity and third-party provenance gates.
