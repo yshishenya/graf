@@ -666,7 +666,7 @@ async def active_workspace_membership(
     call refreshes the row from the database and the rest reuse that exact row.
     """
     prefetch = active_read_prefetch(db)
-    if prefetch is None:
+    if prefetch is None or not prefetch.cache_access:
         return await _load_active_workspace_membership(
             db, workspace_id=workspace_id, user_id=user_id
         )
@@ -688,7 +688,7 @@ def _prefetched_grant(
 ):
     """Return a batched grant row, or `_UNPREFETCHED` to fall back to one query."""
     prefetch = active_read_prefetch(db)
-    if prefetch is None or prefetch.workspace_id != workspace_id:
+    if prefetch is None or not prefetch.cache_access or prefetch.workspace_id != workspace_id:
         return _UNPREFETCHED
     if field_name == "user_grants" and getattr(prefetch, "viewer_user_id", None) != grantee_user_id:
         return _UNPREFETCHED
@@ -708,8 +708,8 @@ async def batch_active_user_grants(
 ) -> dict[UUID, MeetingShareGrant | None]:
     """Batch variant of `active_user_grant` for a set of meetings.
 
-    The active user grant is unique per (workspace, meeting, audience), so the
-    batch reproduces the single row exactly.
+    Unique candidates reproduce the single read. Ambiguous legacy candidates
+    stay unprefetched so the access decision retains its original selection.
     """
     result: dict[UUID, MeetingShareGrant | None] = {meeting_id: None for meeting_id in meeting_ids}
     if not result:
@@ -725,17 +725,19 @@ async def batch_active_user_grants(
             MeetingShareGrant.status == "active",
             MeetingShareGrant.expires_at.is_(None) | (MeetingShareGrant.expires_at > now),
         )
-        .distinct(MeetingShareGrant.meeting_id)
-        .order_by(
-            MeetingShareGrant.meeting_id,
-            MeetingShareGrant.created_at.asc(),
-            MeetingShareGrant.id.asc(),
-        )
         .execution_options(populate_existing=True)
     )
+    ambiguous: set[UUID] = set()
     for row in rows:
+        if result[row.meeting_id] is not None:
+            ambiguous.add(row.meeting_id)
         result[row.meeting_id] = row
+    # Preserve the single-query choice instead of inventing precedence for duplicates.
+    for meeting_id in ambiguous:
+        result.pop(meeting_id)
     if prefetch is not None:
+        for meeting_id in ambiguous:
+            prefetch.user_grants.pop(meeting_id, None)
         prefetch.user_grants.update(result)
     return result
 
@@ -765,21 +767,21 @@ async def batch_workspace_audience_grants(
             MeetingShareGrant.content_scope == "full_meeting",
             or_(MeetingShareGrant.expires_at.is_(None), MeetingShareGrant.expires_at > now),
         )
-    rows = await db.scalars(
-        query.distinct(MeetingShareGrant.meeting_id)
-        .order_by(
-            MeetingShareGrant.meeting_id,
-            MeetingShareGrant.created_at.asc(),
-            MeetingShareGrant.id.asc(),
-        )
-        .execution_options(populate_existing=True)
-    )
+    rows = await db.scalars(query.execution_options(populate_existing=True))
+    ambiguous: set[UUID] = set()
     for row in rows:
+        if result[row.meeting_id] is not None:
+            ambiguous.add(row.meeting_id)
         result[row.meeting_id] = row
+    # Preserve the single-query choice instead of inventing precedence for duplicates.
+    for meeting_id in ambiguous:
+        result.pop(meeting_id)
     if prefetch is not None:
         target = (
             prefetch.full_meeting_workspace_grants if full_meeting_only else prefetch.workspace_grants
         )
+        for meeting_id in ambiguous:
+            target.pop(meeting_id, None)
         target.update(result)
     return result
 
@@ -913,7 +915,8 @@ async def _share_grant_recipient_is_valid(
         if recipient_proof is not None:
             return expected_hash in recipient_proof.verified_address_hashes
         prefetch = active_read_prefetch(db)
-        if prefetch is not None and viewer_user_id in prefetch.viewer_verified_emails:
+        if (prefetch is not None and prefetch.cache_access
+                and viewer_user_id in prefetch.viewer_verified_emails):
             verified_emails = prefetch.viewer_verified_emails[viewer_user_id]
         else:
             verified_emails = tuple(
@@ -926,7 +929,7 @@ async def _share_grant_recipient_is_valid(
                     )
                 )
             )
-            if prefetch is not None:
+            if prefetch is not None and prefetch.cache_access:
                 prefetch.viewer_verified_emails[viewer_user_id] = verified_emails
         return any(
             expected_hash in invitation_address_hashes(email) for email in verified_emails if email
@@ -1016,14 +1019,23 @@ async def share_panel_state(
     team_visibility = (
         "enabled" if (meeting.visibility or "").lower() in TEAM_VISIBLE_VALUES else "disabled"
     )
-    calendar_context = await db.scalar(
-        select(RecordingCalendarContextLink.id).where(
-            RecordingCalendarContextLink.workspace_id == meeting.workspace_id,
-            RecordingCalendarContextLink.meeting_id == meeting.id,
-            RecordingCalendarContextLink.context_state.in_(ACTIVE_CALENDAR_CONTEXT_STATES),
-            RecordingCalendarContextLink.calendar_event_snapshot_id.is_not(None),
+    prefetch = active_read_prefetch(db)
+    if (prefetch is not None and not prefetch.cache_access
+            and prefetch.workspace_id == meeting.workspace_id
+            and meeting.id in prefetch.calendar_links):
+        link = prefetch.calendar_links[meeting.id]
+        calendar_context = (link.id if link is not None
+                            and link.context_state in ACTIVE_CALENDAR_CONTEXT_STATES
+                            and link.calendar_event_snapshot_id is not None else None)
+    else:
+        calendar_context = await db.scalar(
+            select(RecordingCalendarContextLink.id).where(
+                RecordingCalendarContextLink.workspace_id == meeting.workspace_id,
+                RecordingCalendarContextLink.meeting_id == meeting.id,
+                RecordingCalendarContextLink.context_state.in_(ACTIVE_CALENDAR_CONTEXT_STATES),
+                RecordingCalendarContextLink.calendar_event_snapshot_id.is_not(None),
+            )
         )
-    )
     capability_state = "available" if decision.can_share else "auth_required"
     capability_reason = (
         None

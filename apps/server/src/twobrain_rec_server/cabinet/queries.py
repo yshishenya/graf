@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from urllib.parse import urlencode
 from uuid import UUID
@@ -21,10 +22,12 @@ from sqlalchemy import (
     nullslast,
     or_,
     select,
+    true,
     tuple_,
     values,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from twobrain_rec_server.api.schemas import (
     AccessState,
@@ -54,6 +57,8 @@ from twobrain_rec_server.cabinet.access import (
     share_panel_state,
 )
 from twobrain_rec_server.cabinet.egress import (
+    _default_artifact_policy,
+    _validate_canonical_artifact,
     activity_response,
     artifact_egress_states,
     batch_archive_audio_for_revisions,
@@ -122,16 +127,20 @@ from twobrain_rec_server.db.models import (
     ExternalIdentity,
     MediaRevision,
     Meeting,
+    MeetingArtifactPolicy,
+    MeetingOutcomeGenerationAttempt,
     MeetingOutcomeSet,
     MeetingShareGrant,
     MeetingSpeakerName,
     MeetingSummarySlot,
+    PlaybackNormalizationJob,
     ProcessingDependencyState,
     ProcessingResult,
     ProcessingWorkflow,
     RecordingCalendarContextLink,
     RegisteredDevice,
     SummaryTemplate,
+    TrackArtifact,
     TranscriptSegment,
     UploadPart,
     UploadSession,
@@ -151,6 +160,7 @@ from twobrain_rec_server.domain.statuses import (
     MediaRevisionStatus,
     UploadSessionStatus,
 )
+from twobrain_rec_server.normalization.statuses import CANONICAL_PROFILE_VERSION
 from twobrain_rec_server.outcomes.progress import (
     batch_latest_summary_attempts,
     batch_pinned_egress_outcomes,
@@ -900,57 +910,91 @@ async def list_shared_with_me_meetings(
                     )
                 )
             }
-            for grant in workspace_grants:
-                meeting = meetings.get(grant.meeting_id)
-                if meeting is None:
-                    continue
-                decision = await decide_meeting_access(
-                    source_db,
-                    meeting,
-                    workspace_id=workspace_id,
-                    viewer_user_id=recipient_scope.user_id,
-                    recipient_proof=proof,
-                )
-                if not decision.can_view:
-                    continue
-                rank = (
-                    int(decision.can_view_full_meeting),
-                    int(decision.can_download),
-                    int(decision.can_export),
-                )
-                revision = await _latest_media_revision(
-                    source_db, workspace_id=workspace_id, meeting_id=meeting.id
-                )
-                source = meeting_source(revision)
-                occurred_at = meeting.started_at or (
-                    meeting.created_at if source == "manual_upload" else None
-                )
-                card = SharedWithMeMeetingItem(
-                    title=meeting_list_title(meeting, source=source),
-                    time_label=meeting_list_time_label(
-                        occurred_at,
-                        timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
-                        time_basis="upload"
-                        if meeting.started_at is None and source == "manual_upload"
-                        else "meeting",
-                    ),
-                    duration_label=format_duration(meeting.duration_seconds),
-                    status_label=(
-                        "В обработке"
-                        if meeting.processing_status in {"submitted", "processing", "uploading"}
-                        else "Готово"
-                    ),
-                    access_label=(
-                        "Полный доступ" if decision.can_view_full_meeting else "Только итоги"
-                    ),
-                    href=(
-                        f"/shared-meetings/{meeting.id}?"
-                        f"{urlencode({'workspace_id': str(workspace_id)})}"
-                    ),
-                )
-                previous = rows.get(meeting.id)
-                if previous is None or rank > previous[1]:
-                    rows[meeting.id] = (occurred_at, rank, card)
+            try:
+                if len(meetings) > 1:
+                    prefetch = CabinetReadPrefetch(
+                        workspace_id=workspace_id, viewer_user_id=recipient_scope.user_id
+                    )
+                    install_read_prefetch(source_db, prefetch)
+                    await batch_active_user_grants(
+                        source_db,
+                        workspace_id=workspace_id,
+                        meeting_ids=meetings,
+                        grantee_user_id=recipient_scope.user_id,
+                        prefetch=prefetch,
+                    )
+                    await batch_workspace_audience_grants(
+                        source_db,
+                        workspace_id=workspace_id,
+                        meeting_ids=meetings,
+                        prefetch=prefetch,
+                    )
+                    await batch_workspace_audience_grants(
+                        source_db,
+                        workspace_id=workspace_id,
+                        meeting_ids=meetings,
+                        full_meeting_only=True,
+                        prefetch=prefetch,
+                    )
+                    await batch_latest_media_revisions(
+                        source_db,
+                        workspace_id=workspace_id,
+                        meeting_ids=meetings,
+                        prefetch=prefetch,
+                    )
+                for grant in workspace_grants:
+                    meeting = meetings.get(grant.meeting_id)
+                    if meeting is None:
+                        continue
+                    decision = await decide_meeting_access(
+                        source_db,
+                        meeting,
+                        workspace_id=workspace_id,
+                        viewer_user_id=recipient_scope.user_id,
+                        recipient_proof=proof,
+                    )
+                    if not decision.can_view:
+                        continue
+                    rank = (
+                        int(decision.can_view_full_meeting),
+                        int(decision.can_download),
+                        int(decision.can_export),
+                    )
+                    revision = await _latest_media_revision(
+                        source_db, workspace_id=workspace_id, meeting_id=meeting.id
+                    )
+                    source = meeting_source(revision)
+                    occurred_at = meeting.started_at or (
+                        meeting.created_at if source == "manual_upload" else None
+                    )
+                    card = SharedWithMeMeetingItem(
+                        title=meeting_list_title(meeting, source=source),
+                        time_label=meeting_list_time_label(
+                            occurred_at,
+                            timezone_offset_minutes=meeting.recording_display_timezone_offset_minutes,
+                            time_basis="upload"
+                            if meeting.started_at is None and source == "manual_upload"
+                            else "meeting",
+                        ),
+                        duration_label=format_duration(meeting.duration_seconds),
+                        status_label=(
+                            "В обработке"
+                            if meeting.processing_status in {"submitted", "processing", "uploading"}
+                            else "Готово"
+                        ),
+                        access_label=(
+                            "Полный доступ" if decision.can_view_full_meeting else "Только итоги"
+                        ),
+                        href=(
+                            f"/shared-meetings/{meeting.id}?"
+                            f"{urlencode({'workspace_id': str(workspace_id)})}"
+                        ),
+                    )
+                    previous = rows.get(meeting.id)
+                    if previous is None or rank > previous[1]:
+                        rows[meeting.id] = (occurred_at, rank, card)
+            finally:
+                clear_read_prefetch(source_db)
     return tuple(
         card
         for _, _, card in sorted(
@@ -1401,6 +1445,207 @@ def _upload_progress_label(status: str) -> str:
     return "Готово"
 
 
+@contextmanager
+def _meeting_review_read_scope(db: AsyncSession):
+    previous = active_read_prefetch(db)
+    clear_read_prefetch(db)
+    try:
+        yield
+    finally:
+        clear_read_prefetch(db)
+        if previous is not None:
+            install_read_prefetch(db, previous)
+
+
+async def _prefetch_meeting_review_reads(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    viewer_user_id: UUID,
+    selected_summary_template_key: str | None,
+    source_result_id: UUID | None,
+) -> CabinetReadPrefetch:
+    """One row of bounded single-meeting reads; collections stay separate."""
+    workspace_id, meeting_id = meeting.workspace_id, meeting.id
+
+    def one(model, query):
+        return aliased(model, query.limit(1).lateral())
+
+    revision = one(MediaRevision, select(MediaRevision).where(
+        MediaRevision.workspace_id == workspace_id, MediaRevision.meeting_id == meeting_id,
+        MediaRevision.status == "accepted", MediaRevision.immutable.is_(True),
+    ).order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc()))
+    workflow = one(ProcessingWorkflow, select(ProcessingWorkflow).where(
+        ProcessingWorkflow.workspace_id == workspace_id,
+        ProcessingWorkflow.meeting_id == meeting_id,
+        ProcessingWorkflow.media_revision_id.is_not_distinct_from(revision.id),
+    ).order_by(ProcessingWorkflow.attempt_ordinal.desc(), ProcessingWorkflow.created_at.desc()))
+    result_query = effective_processing_result_query(
+        workspace_id=workspace_id, meeting_id=meeting_id, media_revision_id=revision.id,
+    )
+    result = one(ProcessingResult, result_query.order_by(None).order_by(
+        ProcessingWorkflow.attempt_ordinal.desc(), nullslast(ProcessingResult.imported_at.desc()),
+        ProcessingResult.result_version.desc(), ProcessingResult.created_at.desc(),
+        ProcessingResult.id.desc(),
+    ))
+    effective = one(ProcessingResult, result_query)
+    default_slot = one(MeetingSummarySlot, select(MeetingSummarySlot).where(
+        MeetingSummarySlot.workspace_id == workspace_id,
+        MeetingSummarySlot.meeting_id == meeting_id,
+        MeetingSummarySlot.is_meeting_default.is_(True),
+    ))
+    selected_slot = one(MeetingSummarySlot, select(MeetingSummarySlot).where(
+        MeetingSummarySlot.workspace_id == workspace_id,
+        MeetingSummarySlot.meeting_id == meeting_id,
+        MeetingSummarySlot.template_key == selected_summary_template_key,
+    ))
+    rows = {"revision": revision, "workflow": workflow, "result": result,
+            "effective": effective, "default_slot": default_slot, "selected_slot": selected_slot}
+    outcome_models = []
+    for prefix, slot in (("default", default_slot), ("selected", selected_slot)):
+        outcome = one(MeetingOutcomeSet, select(MeetingOutcomeSet).where(
+            MeetingOutcomeSet.workspace_id == workspace_id,
+            MeetingOutcomeSet.meeting_id == meeting_id,
+            MeetingOutcomeSet.id == slot.current_outcome_set_id,
+            MeetingOutcomeSet.lifecycle_state == "active",
+        ))
+        outcome_result = one(ProcessingResult, select(ProcessingResult).where(
+            ProcessingResult.workspace_id == workspace_id,
+            ProcessingResult.meeting_id == meeting_id,
+            ProcessingResult.id == outcome.processing_result_id,
+            ProcessingResult.status == "imported",
+        ))
+        template = one(SummaryTemplate, select(SummaryTemplate).where(
+            SummaryTemplate.workspace_id == workspace_id,
+            SummaryTemplate.id == outcome.template_id,
+        ))
+        rows.update({prefix + "_outcome": outcome, prefix + "_outcome_result": outcome_result,
+                     prefix + "_template": template})
+        outcome_models.append(outcome)
+    default_outcome = outcome_models[0]
+    accepted = one(MediaRevision, select(MediaRevision).where(
+        MediaRevision.workspace_id == workspace_id, MediaRevision.meeting_id == meeting_id,
+        MediaRevision.status == "accepted",
+        or_(default_slot.current_outcome_set_id.is_(None), and_(
+            MediaRevision.id == default_outcome.media_revision_id,
+            MediaRevision.immutable.is_(True),
+        )),
+    ).order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc()))
+    policy = one(MeetingArtifactPolicy, select(MeetingArtifactPolicy).where(
+        MeetingArtifactPolicy.workspace_id == workspace_id,
+        MeetingArtifactPolicy.meeting_id == meeting_id,
+    ))
+    normalization = one(PlaybackNormalizationJob, select(PlaybackNormalizationJob).where(
+        PlaybackNormalizationJob.workspace_id == workspace_id,
+        PlaybackNormalizationJob.meeting_id == meeting_id,
+        PlaybackNormalizationJob.media_revision_id == accepted.id,
+        PlaybackNormalizationJob.profile_version == CANONICAL_PROFILE_VERSION,
+    ))
+    canonical = one(TrackArtifact, select(TrackArtifact).where(
+        TrackArtifact.workspace_id == workspace_id,
+        TrackArtifact.meeting_id == meeting_id,
+        TrackArtifact.media_revision_id == accepted.id,
+        TrackArtifact.id == normalization.canonical_track_artifact_id,
+    ))
+    archive = one(UploadSession, select(UploadSession).where(
+        UploadSession.workspace_id == workspace_id, UploadSession.meeting_id == meeting_id,
+        UploadSession.media_revision_id == accepted.id, UploadSession.status == "finalized",
+    ).order_by(UploadSession.created_at.desc(), UploadSession.id.desc()))
+    calendar = one(RecordingCalendarContextLink, select(RecordingCalendarContextLink).where(
+        RecordingCalendarContextLink.workspace_id == workspace_id,
+        RecordingCalendarContextLink.meeting_id == meeting_id,
+    ))
+    dependency = one(ProcessingDependencyState, select(ProcessingDependencyState).where(
+        ProcessingDependencyState.workspace_id == workspace_id,
+        ProcessingDependencyState.meeting_id == meeting_id,
+    ).order_by(ProcessingDependencyState.updated_at.desc()))
+    personal_default = one(SummaryTemplate, select(SummaryTemplate).where(
+        SummaryTemplate.workspace_id == workspace_id,
+        SummaryTemplate.id == Workspace.default_summary_template_id,
+        SummaryTemplate.owner_user_id == viewer_user_id,
+        SummaryTemplate.template_key == Workspace.default_summary_template_key,
+        SummaryTemplate.version == Workspace.default_summary_template_version,
+        SummaryTemplate.status == "active",
+    ))
+    attempt_key = selected_summary_template_key or default_slot.template_key
+    attempt = one(MeetingOutcomeGenerationAttempt, select(MeetingOutcomeGenerationAttempt).where(
+        MeetingOutcomeGenerationAttempt.workspace_id == workspace_id,
+        MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+        MeetingOutcomeGenerationAttempt.template_key == attempt_key,
+        MeetingOutcomeGenerationAttempt.processing_result_id == (source_result_id or result.id),
+        MeetingOutcomeGenerationAttempt.media_revision_id == revision.id,
+    ).order_by(MeetingOutcomeGenerationAttempt.created_at.desc(), MeetingOutcomeGenerationAttempt.id.desc()))
+    rows.update({"accepted": accepted, "policy": policy, "normalization": normalization,
+                 "canonical": canonical, "archive": archive, "calendar": calendar,
+                 "dependency": dependency, "personal_default": personal_default, "attempt": attempt})
+    query = select(Workspace, *rows.values()).select_from(Workspace).where(Workspace.id == workspace_id)
+    for model in rows.values():
+        query = query.outerjoin(model, true())
+    loaded = (await db.execute(query.execution_options(populate_existing=True))).one()
+    workspace, *values = loaded
+    data = dict(zip(rows, values, strict=True))
+    prefetch = CabinetReadPrefetch(workspace_id=workspace_id, viewer_user_id=viewer_user_id,
+                                  cache_access=False)
+    install_read_prefetch(db, prefetch)
+    prefetch.workspaces[workspace_id] = workspace
+    prefetch.dependencies[meeting_id] = data["dependency"]
+    for prefix, key in (("default", None), ("selected", selected_summary_template_key)):
+        if prefix == "selected" and selected_summary_template_key is None:
+            continue
+        slot, outcome, outcome_result = (data[prefix + suffix] for suffix in
+                                         ("_slot", "_outcome", "_outcome_result"))
+        prefetch.summary_slots[(meeting_id, key)] = slot
+        prefetch.outcome_candidates[(meeting_id, key)] = (slot, outcome, outcome_result)
+        resolved = await current_outcome_set(db, workspace_id=workspace_id,
+                                            meeting_id=meeting_id, processing_result_id=None,
+                                            template_key=key)
+        prefetch.outcome_resolutions[(meeting_id, key)] = (
+            (resolved, outcome_result) if resolved is not None else None
+        )
+        if slot is not None and slot.current_outcome_set_id is not None:
+            prefetch.pinned_outcomes[(meeting_id, slot.current_outcome_set_id)] = resolved
+        template = data[prefix + "_template"]
+        if outcome is not None and outcome.template_id is not None:
+            prefetch.summary_templates[outcome.template_id] = template
+    if workspace.default_summary_template_id is not None:
+        prefetch.summary_templates.setdefault(workspace.default_summary_template_id, data["personal_default"])
+    latest = data["revision"]
+    pair = (meeting_id, latest.id if latest is not None else None)
+    prefetch.media_revisions[meeting_id] = latest
+    prefetch.workflows[pair] = data["workflow"]
+    prefetch.results[pair] = data["result"]
+    prefetch.effective_results[meeting_id] = data["effective"]
+    accepted_row = data["accepted"]
+    default = data["default_slot"]
+    if (default is not None and default.current_outcome_set_id is not None
+            and prefetch.outcome_resolutions[(meeting_id, None)] is None):
+        accepted_row = None
+    prefetch.accepted_media_revisions[meeting_id] = accepted_row
+    prefetch.artifact_policies[meeting_id] = (
+        data["policy"] if data["policy"] is not None
+        else _default_artifact_policy(workspace_id, meeting_id)
+    )
+    prefetch.calendar_links[meeting_id] = data["calendar"]
+    if accepted_row is not None:
+        accepted_pair = (meeting_id, accepted_row.id)
+        prefetch.archive_audio[accepted_pair] = (
+            True if data["archive"] is None or data["archive"].archive_audio is None
+            else bool(data["archive"].archive_audio)
+        )
+        job = data["normalization"]
+        prefetch.normalization_jobs[accepted_pair] = job
+        if job is not None:
+            prefetch.canonical_artifacts[job.id] = _validate_canonical_artifact(job, data["canonical"])
+    selected_result = data["result"]
+    if source_result_id is None and selected_result is not None:
+        slot = prefetch.summary_slots[(meeting_id, selected_summary_template_key)]
+        key = selected_summary_template_key or (slot.template_key if slot is not None else None)
+        if key is not None:
+            prefetch.summary_attempts[(meeting_id, key, selected_result.id,
+                                       selected_result.media_revision_id)] = data["attempt"]
+    return prefetch
+
+
 async def get_cabinet_meeting_review(
     db: AsyncSession,
     *,
@@ -1415,241 +1660,256 @@ async def get_cabinet_meeting_review(
     invitation_encryption_key: bytes | None = None,
     recipient_proof: ShareRecipientAccessProof | None = None,
 ) -> MeetingReviewResponse | None:
-    meeting = await db.scalar(
-        select(Meeting).where(
-            Meeting.workspace_id == workspace_id,
-            Meeting.id == meeting_id,
+    with _meeting_review_read_scope(db):
+        meeting = await db.scalar(
+            select(Meeting).where(
+                Meeting.workspace_id == workspace_id,
+                Meeting.id == meeting_id,
+            )
         )
-    )
-    if meeting is None:
-        return None
-    decision = await decide_meeting_access(
-        db,
-        meeting,
-        workspace_id=workspace_id,
-        viewer_user_id=viewer_user_id,
-        recipient_proof=recipient_proof,
-    )
-    if not decision.can_view:
-        return None
-    media_revision = await _latest_media_revision(
-        db, workspace_id=workspace_id, meeting_id=meeting_id
-    )
-    media_revision_id = media_revision.id if media_revision is not None else None
-    workflow = await _latest_workflow(
-        db,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        media_revision_id=media_revision_id,
-    )
-    result = await _latest_result(
-        db,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        media_revision_id=media_revision_id,
-    )
-    if source_result_id is not None:
-        if not decision.can_view_full_meeting:
+        if meeting is None:
             return None
-        # Keep playback on the same audio revision. A deleted/replaced recording
-        # must never resolve an old source link against different audio.
-        result = await db.scalar(select(ProcessingResult).where(
-            ProcessingResult.id == source_result_id,
-            ProcessingResult.workspace_id == workspace_id,
-            ProcessingResult.meeting_id == meeting_id,
-            ProcessingResult.media_revision_id == media_revision_id,
-            ProcessingResult.status == "imported",
-        ))
-        if result is None:
-            return None
-    transcript_segments: list[TranscriptSegment] = []
-    diarization_segments: list[DiarizationSegment] = []
-    if result is not None:
-        transcript_segments = (
-            await db.scalars(
-                select(TranscriptSegment)
-                .where(
-                    TranscriptSegment.workspace_id == workspace_id,
-                    TranscriptSegment.meeting_id == meeting_id,
-                    TranscriptSegment.processing_result_id == result.id,
-                )
-                .order_by(TranscriptSegment.sequence.asc(), TranscriptSegment.start_seconds.asc())
-            )
-        ).all()
-        diarization_segments = (
-            await db.scalars(
-                select(DiarizationSegment)
-                .where(
-                    DiarizationSegment.workspace_id == workspace_id,
-                    DiarizationSegment.meeting_id == meeting_id,
-                    DiarizationSegment.processing_result_id == result.id,
-                )
-                .order_by(DiarizationSegment.sequence.asc(), DiarizationSegment.start_seconds.asc())
-            )
-        ).all()
-    speaker_names = speaker_names_for_result(
-        (
-            await db.scalars(
-                select(MeetingSpeakerName).where(
-                    MeetingSpeakerName.workspace_id == workspace_id,
-                    MeetingSpeakerName.meeting_id == meeting_id,
-                )
-            )
-        ).all(),
-        result_imported_at=result.imported_at if result is not None else None,
-    )
-    outcome_set = None
-    if selected_summary_template_key:
-        outcome_set = await _current_outcome_set(
-            db,
-            workspace_id=workspace_id,
-            meeting_id=meeting_id,
-            processing_result_id=None,
-            template_key=selected_summary_template_key,
-        )
-    if outcome_set is None:
-        outcome_set = await _current_outcome_set(
-            db,
-            workspace_id=workspace_id,
-            meeting_id=meeting_id,
-            # The default slot is the summary's revision fence.  The transcript
-            # may already have a newer imported result; passing that result ID
-            # here would make a valid last-known-good summary disappear.
-            processing_result_id=None,
-        )
-    outcome_template_name = None
-    if outcome_set is not None and outcome_set.template_id is not None:
-        outcome_template = await db.scalar(
-            select(SummaryTemplate).where(
-                SummaryTemplate.workspace_id == workspace_id,
-                SummaryTemplate.id == outcome_set.template_id,
-            )
-        )
-        outcome_template_name = outcome_template.name if outcome_template is not None else None
-    default_summary_template_key = "graf-auto-v1"
-    default_summary_template_name = None
-    workspace = await db.scalar(select(Workspace).where(Workspace.id == workspace_id))
-    if workspace is not None:
-        default_definition = built_in_template_for_version(
-            workspace.default_summary_template_key,
-            workspace.default_summary_template_version,
-        )
-        if workspace.default_summary_template_id is None and default_definition is not None:
-            default_summary_template_key = default_definition.key
-        elif workspace.default_summary_template_id is not None:
-            personal_default = await db.scalar(
-                select(SummaryTemplate).where(
-                    SummaryTemplate.workspace_id == workspace_id,
-                    SummaryTemplate.id == workspace.default_summary_template_id,
-                    SummaryTemplate.owner_user_id == viewer_user_id,
-                    SummaryTemplate.template_key == workspace.default_summary_template_key,
-                    SummaryTemplate.version == workspace.default_summary_template_version,
-                    SummaryTemplate.status == "active",
-                )
-            )
-            if personal_default is not None:
-                default_summary_template_key = personal_default.template_key
-                default_summary_template_name = personal_default.name
-    if selected_summary_template_key:
-        default_summary_template_key = selected_summary_template_key
-    dependency = await db.scalar(
-        select(ProcessingDependencyState)
-        .where(
-            ProcessingDependencyState.workspace_id == workspace_id,
-            ProcessingDependencyState.meeting_id == meeting_id,
-        )
-        .order_by(ProcessingDependencyState.updated_at.desc())
-    )
-    calendar_context = await _calendar_context_link(
-        db,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-    )
-    calendar_context_detail = await get_meeting_calendar_context_read_model(
-        db,
-        workspace_id=workspace_id,
-        viewer_user_id=viewer_user_id,
-        meeting_id=meeting_id,
-        recipient_proof=recipient_proof,
-    )
-    if include_calendar_correction_candidates and calendar_context_detail.can_change:
-        correction_candidates = await list_owner_context_correction_candidates(
-            db,
-            workspace_id=workspace_id,
-            owner_user_id=viewer_user_id,
-            meeting_id=meeting_id,
-        )
-        calendar_context_detail = calendar_context_detail.model_copy(
-            update={
-                "candidate_count": len(correction_candidates),
-                "candidates": correction_candidates,
-            }
-        )
-    reprocess_available = bool(
-        source_result_id is None
-        and decision.state == "owner"
-        and result_is_complete(result)
-        and media_revision is not None
-        and await load_processing_source(
-            db,
-            workspace_id=workspace_id,
-            meeting_id=meeting_id,
-            media_revision_id=media_revision.id,
-        )
-        is not None
-    )
-    return build_review_response(
-        meeting,
-        summary_progress_state=await summary_progress(
-            db, meeting=meeting, result=result, template_key=selected_summary_template_key,
-        ),
-        media_revision=media_revision,
-        result=result,
-        workflow=workflow,
-        transcript_segments=transcript_segments,
-        diarization_segments=diarization_segments,
-        dependency=dependency,
-        access=decision.to_schema(),
-        share=await share_panel_state(
+        decision = await decide_meeting_access(
             db,
             meeting,
-            decision,
-            external_invitations_enabled=external_invitations_enabled,
-            invitation_encryption_key=invitation_encryption_key,
-        ),
-        artifacts=await artifact_egress_states(db, meeting=meeting, access=decision, result=result),
-        content_exports=await content_export_capabilities(
-            db, meeting=meeting, access=decision, result=result
-        ),
-        review_playback=await review_playback_state(
-            db,
-            meeting=meeting,
-            access=decision,
-            storage=storage,
-        ),
-        calendar_roster=await _calendar_roster_state(
-            db,
             workspace_id=workspace_id,
-            meeting_id=meeting_id,
-            link=calendar_context,
-        ),
-        calendar_context=calendar_context,
-        calendar_context_detail=calendar_context_detail,
-        activity=await _meeting_activity_response(
-            db,
-            workspace_id=workspace_id,
-            meeting_id=meeting_id,
             viewer_user_id=viewer_user_id,
-        ),
-        outcome_set=outcome_set,
-        outcome_template_name=outcome_template_name,
-        default_summary_template_key=default_summary_template_key,
-        default_summary_template_name=default_summary_template_name,
-        outcome_items=await load_outcome_items(db, outcome_set=outcome_set),
-        speaker_names=speaker_names,
-        can_rename_speakers=source_result_id is None and (decision.state == "owner" or decision.can_edit or decision.role in {"owner", "admin"}),
-        reprocess_available=reprocess_available,
-    )
+            recipient_proof=recipient_proof,
+        )
+        if not decision.can_view:
+            return None
+        prefetch = await _prefetch_meeting_review_reads(
+            db, meeting=meeting, viewer_user_id=viewer_user_id,
+            selected_summary_template_key=selected_summary_template_key, source_result_id=source_result_id,
+        )
+        media_revision = await _latest_media_revision(
+            db, workspace_id=workspace_id, meeting_id=meeting_id
+        )
+        media_revision_id = media_revision.id if media_revision is not None else None
+        workflow = await _latest_workflow(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            media_revision_id=media_revision_id,
+        )
+        result = await _latest_result(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            media_revision_id=media_revision_id,
+        )
+        if source_result_id is not None:
+            if not decision.can_view_full_meeting:
+                return None
+            # Keep playback on the same audio revision. A deleted/replaced recording
+            # must never resolve an old source link against different audio.
+            result = await db.scalar(select(ProcessingResult).where(
+                ProcessingResult.id == source_result_id,
+                ProcessingResult.workspace_id == workspace_id,
+                ProcessingResult.meeting_id == meeting_id,
+                ProcessingResult.media_revision_id == media_revision_id,
+                ProcessingResult.status == "imported",
+            ))
+            if result is None:
+                return None
+        transcript_segments: list[TranscriptSegment] = []
+        diarization_segments: list[DiarizationSegment] = []
+        if result is not None:
+            transcript_segments = (
+                await db.scalars(
+                    select(TranscriptSegment)
+                    .where(
+                        TranscriptSegment.workspace_id == workspace_id,
+                        TranscriptSegment.meeting_id == meeting_id,
+                        TranscriptSegment.processing_result_id == result.id,
+                    )
+                    .order_by(TranscriptSegment.sequence.asc(), TranscriptSegment.start_seconds.asc())
+                )
+            ).all()
+            diarization_segments = (
+                await db.scalars(
+                    select(DiarizationSegment)
+                    .where(
+                        DiarizationSegment.workspace_id == workspace_id,
+                        DiarizationSegment.meeting_id == meeting_id,
+                        DiarizationSegment.processing_result_id == result.id,
+                    )
+                    .order_by(DiarizationSegment.sequence.asc(), DiarizationSegment.start_seconds.asc())
+                )
+            ).all()
+        if prefetch is not None and result is not None:
+            prefetch.result_media_presence[result.id] = bool(transcript_segments and diarization_segments)
+        speaker_names = speaker_names_for_result(
+            (
+                await db.scalars(
+                    select(MeetingSpeakerName).where(
+                        MeetingSpeakerName.workspace_id == workspace_id,
+                        MeetingSpeakerName.meeting_id == meeting_id,
+                    )
+                )
+            ).all(),
+            result_imported_at=result.imported_at if result is not None else None,
+        )
+        outcome_set = None
+        if selected_summary_template_key:
+            outcome_set = await _current_outcome_set(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                processing_result_id=None,
+                template_key=selected_summary_template_key,
+            )
+        if outcome_set is None:
+            outcome_set = await _current_outcome_set(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                # The default slot is the summary's revision fence.  The transcript
+                # may already have a newer imported result; passing that result ID
+                # here would make a valid last-known-good summary disappear.
+                processing_result_id=None,
+            )
+        outcome_template_name = None
+        if outcome_set is not None and outcome_set.template_id is not None:
+            outcome_template = (
+                prefetch.summary_templates.get(outcome_set.template_id) if prefetch is not None
+                else await db.scalar(
+                select(SummaryTemplate).where(
+                    SummaryTemplate.workspace_id == workspace_id,
+                    SummaryTemplate.id == outcome_set.template_id,
+                )
+            ))
+            outcome_template_name = outcome_template.name if outcome_template is not None else None
+        default_summary_template_key = "graf-auto-v1"
+        default_summary_template_name = None
+        workspace = (prefetch.workspaces[workspace_id] if prefetch is not None
+                     else await db.scalar(select(Workspace).where(Workspace.id == workspace_id)))
+        if workspace is not None:
+            default_definition = built_in_template_for_version(
+                workspace.default_summary_template_key,
+                workspace.default_summary_template_version,
+            )
+            if workspace.default_summary_template_id is None and default_definition is not None:
+                default_summary_template_key = default_definition.key
+            elif workspace.default_summary_template_id is not None:
+                personal_default = (prefetch.summary_templates.get(workspace.default_summary_template_id)
+                                    if prefetch is not None else await db.scalar(
+                    select(SummaryTemplate).where(
+                        SummaryTemplate.workspace_id == workspace_id,
+                        SummaryTemplate.id == workspace.default_summary_template_id,
+                        SummaryTemplate.owner_user_id == viewer_user_id,
+                        SummaryTemplate.template_key == workspace.default_summary_template_key,
+                        SummaryTemplate.version == workspace.default_summary_template_version,
+                        SummaryTemplate.status == "active",
+                    )
+                ))
+                if (personal_default is not None
+                    and personal_default.owner_user_id == viewer_user_id
+                    and personal_default.template_key == workspace.default_summary_template_key
+                    and personal_default.version == workspace.default_summary_template_version
+                    and personal_default.status == "active"):
+                    default_summary_template_key = personal_default.template_key
+                    default_summary_template_name = personal_default.name
+        if selected_summary_template_key:
+            default_summary_template_key = selected_summary_template_key
+        dependency = (prefetch.dependencies[meeting_id] if prefetch is not None else await db.scalar(
+            select(ProcessingDependencyState)
+            .where(
+                ProcessingDependencyState.workspace_id == workspace_id,
+                ProcessingDependencyState.meeting_id == meeting_id,
+            )
+            .order_by(ProcessingDependencyState.updated_at.desc())
+        ))
+        calendar_context = await _calendar_context_link(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+        )
+        calendar_context_detail = await get_meeting_calendar_context_read_model(
+            db,
+            workspace_id=workspace_id,
+            viewer_user_id=viewer_user_id,
+            meeting_id=meeting_id,
+            recipient_proof=recipient_proof,
+        )
+        if include_calendar_correction_candidates and calendar_context_detail.can_change:
+            correction_candidates = await list_owner_context_correction_candidates(
+                db,
+                workspace_id=workspace_id,
+                owner_user_id=viewer_user_id,
+                meeting_id=meeting_id,
+            )
+            calendar_context_detail = calendar_context_detail.model_copy(
+                update={
+                    "candidate_count": len(correction_candidates),
+                    "candidates": correction_candidates,
+                }
+            )
+        reprocess_available = bool(
+            source_result_id is None
+            and decision.state == "owner"
+            and result_is_complete(result)
+            and media_revision is not None
+            and await load_processing_source(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision.id,
+            )
+            is not None
+        )
+        return build_review_response(
+            meeting,
+            summary_progress_state=await summary_progress(
+                db, meeting=meeting, result=result, template_key=selected_summary_template_key,
+            ),
+            media_revision=media_revision,
+            result=result,
+            workflow=workflow,
+            transcript_segments=transcript_segments,
+            diarization_segments=diarization_segments,
+            dependency=dependency,
+            access=decision.to_schema(),
+            share=await share_panel_state(
+                db,
+                meeting,
+                decision,
+                external_invitations_enabled=external_invitations_enabled,
+                invitation_encryption_key=invitation_encryption_key,
+            ),
+            artifacts=await artifact_egress_states(db, meeting=meeting, access=decision, result=result),
+            content_exports=await content_export_capabilities(
+                db, meeting=meeting, access=decision, result=result
+            ),
+            review_playback=await review_playback_state(
+                db,
+                meeting=meeting,
+                access=decision,
+                storage=storage,
+            ),
+            calendar_roster=await _calendar_roster_state(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                link=calendar_context,
+            ),
+            calendar_context=calendar_context,
+            calendar_context_detail=calendar_context_detail,
+            activity=await _meeting_activity_response(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                viewer_user_id=viewer_user_id,
+            ),
+            outcome_set=outcome_set,
+            outcome_template_name=outcome_template_name,
+            default_summary_template_key=default_summary_template_key,
+            default_summary_template_name=default_summary_template_name,
+            outcome_items=await load_outcome_items(db, outcome_set=outcome_set),
+            speaker_names=speaker_names,
+            can_rename_speakers=source_result_id is None and (decision.state == "owner" or decision.can_edit or decision.role in {"owner", "admin"}),
+            reprocess_available=reprocess_available,
+        )
 
 
 async def _meeting_activity_response(

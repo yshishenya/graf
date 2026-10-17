@@ -764,6 +764,24 @@ async def current_outcome_set(
         if processing_result_id is not None and result.id != processing_result_id:
             return None
         return outcome
+    if (
+        prefetch is not None
+        and prefetch.workspace_id == workspace_id
+        and (meeting_id, template_key) in prefetch.outcome_candidates
+    ):
+        slot, outcome, result = prefetch.outcome_candidates[(meeting_id, template_key)]
+        resolved_template_key = template_key or (slot.template_key if slot is not None else None)
+        if outcome is None or outcome.template_key != resolved_template_key:
+            return None
+        resolution = _validate_outcome_resolution(
+            outcome=outcome,
+            result=result,
+            processing_result_id=processing_result_id,
+            include_non_publishable=include_non_publishable,
+            allow_legacy_read_only=allow_legacy_read_only,
+            slot=slot,
+        )
+        return resolution[0] if resolution is not None else None
     meeting = await db.scalar(
         select(Meeting).where(
             Meeting.workspace_id == workspace_id,
