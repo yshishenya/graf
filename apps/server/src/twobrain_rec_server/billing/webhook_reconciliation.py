@@ -64,7 +64,6 @@ if TYPE_CHECKING:
 
 RECEIPT_OBSERVATION_STATES = ("succeeded", "succeeded_projected", "succeeded_refused")
 RECONCILABLE_WEBHOOK_STATES = frozenset(("accepted", "pending_reconciliation"))
-MAX_REFUND_LIST_PAGES = 20
 
 
 async def apply_confirmed_purchase(
@@ -733,10 +732,10 @@ async def _reconcile_event(
             db, settings, operation=operation, payload=payload, scope=scope
         )
     if event.event_type == "refund.succeeded":
-        candidate = await _find_refund(provider, event.object_id)
-        if candidate is None:
-            raise ProviderObservationError("provider refund was not found in GET/list backstop")
+        candidate = await provider.get_refund(event.object_id)
         observation = extract_refund_observation(candidate, scope=scope)
+        if observation.provider_refund_id != event.object_id:
+            raise ProviderObservationError("provider refund reference does not match event")
         return await record_observed_refund(
             db, workspace_id=event.workspace_id, observation=observation
         )
@@ -801,25 +800,3 @@ async def _reconcile_event(
                     )
         return "receipt_observed"
     raise ProviderEventError("unsupported provider event")
-
-
-async def _find_refund(provider: YooKassaClient, refund_id: str) -> dict[str, object] | None:
-    """Search a bounded number of provider pages without retaining raw payloads."""
-    cursor: str | None = None
-    seen_cursors: set[str] = set()
-    for _ in range(MAX_REFUND_LIST_PAGES):
-        payload = await provider.list_refunds(cursor=cursor, limit=100)
-        items = payload.get("items", [])
-        if not isinstance(items, list):
-            raise ProviderObservationError("provider refund list is invalid")
-        for item in items:
-            if isinstance(item, dict) and item.get("id") == refund_id:
-                return item
-        next_cursor = payload.get("next_cursor")
-        if next_cursor is None:
-            return None
-        if not isinstance(next_cursor, str) or not next_cursor or next_cursor in seen_cursors:
-            raise ProviderObservationError("provider refund cursor is invalid")
-        seen_cursors.add(next_cursor)
-        cursor = next_cursor
-    raise ProviderObservationError("provider refund pagination exceeded safety bound")

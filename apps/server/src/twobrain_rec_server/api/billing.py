@@ -181,6 +181,12 @@ async def _handle_billing_webhook(
                     status_code=200,
                     content={"status": "ignored_workspace_scope"},
                 )
+            if resolved_payment is not None and workspace.kind == "linked":
+                # Account merge retains old roots referenced by financial rows.
+                # Preserve provider retries until their binding can be resolved.
+                return JSONResponse(
+                    status_code=503, content={"status": "deferred_parent_unavailable"}
+                )
             if workspace.kind != "personal" or workspace.owner_user_id is None:
                 return JSONResponse(
                     status_code=200,

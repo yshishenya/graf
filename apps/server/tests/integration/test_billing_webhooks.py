@@ -12,12 +12,12 @@ from twobrain_rec_server.api.billing import (
     SUPPORTED_PROVIDER_EVENTS,
     _handle_billing_webhook,
 )
+from twobrain_rec_server.billing import webhook_reconciliation
 from twobrain_rec_server.billing.provider_events import (
     ProviderEventError,
     WebhookInbox,
     parse_provider_event,
 )
-from twobrain_rec_server.billing.webhook_reconciliation import _find_refund
 from twobrain_rec_server.billing.yookassa import YooKassaClient
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import Workspace
@@ -187,7 +187,7 @@ async def test_provider_webhook_without_proxy_secret_fails_closed(tmp_path: Path
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("scope_kind", ["missing", "corporate", "internal"])
+@pytest.mark.parametrize("scope_kind", ["missing", "corporate", "internal", "linked"])
 async def test_invalid_workspace_webhook_is_terminally_acknowledged(
     tmp_path: Path,
     scope_kind: str,
@@ -203,7 +203,7 @@ async def test_invalid_workspace_webhook_is_terminally_acknowledged(
             organization_id=uuid4(),
             slug="invalid-webhook-scope",
             name="Invalid webhook scope",
-            kind="personal" if scope_kind == "internal" else "corporate",
+            kind="personal" if scope_kind == "internal" else scope_kind,
             owner_user_id=uuid4(),
         )
     )
@@ -276,25 +276,53 @@ def test_payment_method_active_is_observed_without_granting_authority() -> None:
 
 
 @pytest.mark.asyncio
-async def test_refund_backstop_follows_cursor_until_match() -> None:
+@pytest.mark.parametrize("response_id", ["refund-target", "different-refund"])
+async def test_refund_worker_reads_exact_id_without_listing(monkeypatch, response_id) -> None:
+    calls = []
+    saved = []
+    workspace_id = uuid4()
+
     class Provider:
-        def __init__(self) -> None:
-            self.cursors: list[str | None] = []
+        async def get_refund(self, refund_id):
+            calls.append(refund_id)
+            return {
+                "id": response_id,
+                "status": "succeeded",
+                "payment_id": "pay-parent",
+                "amount": {"value": "1.00", "currency": "RUB"},
+                "created_at": "2026-10-17T00:00:00Z",
+            }
 
-        async def list_refunds(
-            self, *, cursor: str | None = None, limit: int | None = None
-        ) -> dict[str, object]:
-            self.cursors.append(cursor)
-            if cursor is None:
-                return {"items": [], "next_cursor": "page-2"}
-            return {"items": [{"id": "refund-target", "status": "succeeded"}]}
+        async def list_refunds(self, **kwargs):
+            pytest.fail("refund worker must not search a bounded global collection")
 
-    provider = Provider()
-    assert await _find_refund(provider, "refund-target") == {
-        "id": "refund-target",
-        "status": "succeeded",
-    }
-    assert provider.cursors == [None, "page-2"]
+    class Db:
+        async def get(self, *args):
+            return SimpleNamespace(kind="personal", owner_user_id=uuid4())
+
+        async def scalar(self, *args):
+            return object()
+
+    async def record(db, **kwargs):
+        saved.append(kwargs)
+        return "inserted"
+
+    monkeypatch.setattr(webhook_reconciliation, "record_observed_refund", record)
+    event = SimpleNamespace(
+        workspace_id=workspace_id, object_id="refund-target", event_type="refund.succeeded"
+    )
+    settings = Settings(billing_yookassa_environment="test", billing_yookassa_shop_id="shop-1")
+    if response_id == "refund-target":
+        assert (
+            await webhook_reconciliation._reconcile_event(Db(), settings, Provider(), event)
+            == "inserted"
+        )
+        assert saved[0]["observation"].provider_refund_id == "refund-target"
+    else:
+        with pytest.raises(ValueError):
+            await webhook_reconciliation._reconcile_event(Db(), settings, Provider(), event)
+        assert saved == []
+    assert calls == ["refund-target"]
 
 
 @pytest.mark.asyncio

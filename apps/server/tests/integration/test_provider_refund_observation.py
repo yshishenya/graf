@@ -229,8 +229,7 @@ async def test_metadata_less_refund_receipt_http_rls_and_financial_invariants(
         assert request.method == "GET", "observation must never initiate a financial mutation"
         if state["delay"]:
             await asyncio.sleep(state["delay"])
-        if request.url.path == "/v3/refunds":
-            return httpx.Response(200, json={"items": [deepcopy(state["refund"])]})
+        assert request.url.path != "/v3/refunds", "worker must use the exact refund endpoint"
         kind = request.url.path.split("/")[-2][:-1]
         return httpx.Response(state["status"], json=deepcopy(state[kind]))
 
@@ -442,6 +441,31 @@ async def test_metadata_less_refund_receipt_http_rls_and_financial_invariants(
             receipt["payment_id"] = "conflicting-payment"
             assert (await post("receipt", receipt)).status_code == 401
             receipt["payment_id"] = payment_id
+            # A previously personal workspace can become linked after account
+            # merge. Keep real provider retries alive without moving any money.
+            async with maintenance_sessions() as db:
+                await apply_tenant_context(db, maintenance)
+                await db.execute(
+                    update(Workspace)
+                    .where(Workspace.id == workspace_id)
+                    .values(kind="linked", owner_user_id=None)
+                )
+                await db.commit()
+            for kind, source in (("refund", refund), ("receipt", receipt)):
+                linked_response = await post(kind, source)
+                assert linked_response.status_code == 503
+                assert linked_response.json()["status"] == "deferred_parent_unavailable"
+            assert len(await inspect_rows(BillingWebhookEvent)) == 1
+            for model in financial_models:
+                assert await inspect_rows(model) == before[model]
+            async with maintenance_sessions() as db:
+                await apply_tenant_context(db, maintenance)
+                await db.execute(
+                    update(Workspace)
+                    .where(Workspace.id == workspace_id)
+                    .values(kind="personal", owner_user_id=user_id)
+                )
+                await db.commit()
             # Refund receipt arrives first: retain it pending until the actual
             # provider refund notification is reconciled by the normal worker.
             calls.clear()
@@ -457,7 +481,23 @@ async def test_metadata_less_refund_receipt_http_rls_and_financial_invariants(
             assert (await post("refund", description_only)).json()["status"] == "duplicate"
             changed = {**refund, "amount": {"value": "0.50", "currency": "RUB"}}
             assert (await post("refund", changed)).json()["status"] == "replay_conflict"
+            # Worker failures must retain the durable signal for retry; no
+            # global list fallback and no fabricated observation on an ID clash.
+            for response_status in (404, 429, 503):
+                state["status"] = response_status
+                result = await reconcile()
+                assert result["pending"] == 2
+                assert await inspect_rows(ObservedProviderRefund) == []
+            state["status"] = 200
+            original_refund_id = refund["id"]
+            refund["id"] = "different-refund"
+            assert (await reconcile())["pending"] == 2
+            assert await inspect_rows(ObservedProviderRefund) == []
+            refund["id"] = original_refund_id
+            calls.clear()
             await reconcile()
+            assert ("GET", f"/v3/refunds/{refund_id}") in calls
+            assert ("GET", "/v3/refunds") not in calls
             # Even metadata-bearing/worker receipt observations cannot use a
             # conflicting optional payment hint to update a refund's invoice.
             receipt["payment_id"] = "foreign-payment"
