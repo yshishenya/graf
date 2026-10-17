@@ -111,9 +111,12 @@ def is_allowed_confirmation_url(value: object) -> bool:
 
 
 def _read_secret(path: Path | None) -> str:
-    if path is None or not path.is_file():
-        raise YooKassaConfigurationError("YooKassa secret is unavailable")
-    value = path.read_text(encoding="utf-8").strip()
+    try:
+        if path is None or not path.is_file():
+            raise YooKassaConfigurationError("YooKassa secret is unavailable")
+        value = path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        raise YooKassaConfigurationError("YooKassa secret is unavailable") from None
     if not value:
         raise YooKassaConfigurationError("YooKassa secret is empty")
     return value
@@ -222,6 +225,9 @@ class YooKassaClient:
             params["cursor"] = cursor
         return await self._request("GET", "/v3/payments", params=params)
 
+    async def get_refund(self, refund_id: str) -> dict[str, Any]:
+        return await self._request("GET", f"/v3/refunds/{validate_provider_identifier(refund_id)}")
+
     async def list_refunds(
         self,
         *,
@@ -273,7 +279,8 @@ class YooKassaClient:
                     isinstance(error, dict)
                     and error.get("type") == "error"
                     and error.get("code") == "forbidden"
-                    and error.get("description") == (
+                    and error.get("description")
+                    == (
                         "This store can't make recurring payments. "
                         "Contact the YooMoney manager to learn more"
                     )

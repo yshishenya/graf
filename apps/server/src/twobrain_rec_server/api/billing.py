@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import httpx
 from fastapi import APIRouter, Header, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
@@ -14,13 +15,29 @@ from twobrain_rec_server.billing.provider_events import (
     redacted_event_metadata,
     validate_webhook_secret,
 )
+from twobrain_rec_server.billing.provider_scope import (
+    CHILD_SCOPE_EVENTS,
+    ProviderScopeUnavailable,
+    resolve_child_scope,
+)
+from twobrain_rec_server.billing.reconciliation import validate_purchase_payment
 from twobrain_rec_server.billing.yookassa import (
     YooKassaConfigurationError,
+    YooKassaProviderError,
     provider_environment,
     read_webhook_secret,
 )
-from twobrain_rec_server.db.models import BillingWebhookEvent, Workspace
-from twobrain_rec_server.db.tenant_context import WorkspaceAuthContext, apply_tenant_context
+from twobrain_rec_server.db.models import (
+    BillingInvoice,
+    BillingOperation,
+    BillingWebhookEvent,
+    Workspace,
+)
+from twobrain_rec_server.db.tenant_context import (
+    TenantDatabaseContext,
+    WorkspaceAuthContext,
+    apply_tenant_context,
+)
 
 router = APIRouter(prefix="/api/v1/billing", tags=["billing"])
 
@@ -122,6 +139,24 @@ async def _handle_billing_webhook(
     except (ProviderEventError, YooKassaConfigurationError, ValueError):
         return JSONResponse(status_code=401, content={"status": "rejected"})
 
+    resolved_payment = None
+    resolved_scope = None
+    if event.workspace_id is None and event.event_type in CHILD_SCOPE_EVENTS:
+        try:
+            event, resolved_payment, resolved_scope = await resolve_child_scope(
+                event, payload["object"], settings
+            )
+        except (
+            ProviderScopeUnavailable,
+            YooKassaConfigurationError,
+            YooKassaProviderError,
+            httpx.HTTPError,
+            TimeoutError,
+        ):
+            return JSONResponse(status_code=503, content={"status": "deferred_provider_scope"})
+        except ValueError:
+            return JSONResponse(status_code=401, content={"status": "rejected"})
+
     if event.workspace_id is None:
         # A provider event without our immutable workspace metadata cannot be
         # safely attached to a tenant. Return a retryable response rather than
@@ -138,6 +173,10 @@ async def _handle_billing_webhook(
             await apply_tenant_context(db, WorkspaceAuthContext(workspace_id=event.workspace_id))
             workspace = await db.get(Workspace, event.workspace_id)
             if workspace is None:
+                if resolved_payment is not None:
+                    return JSONResponse(
+                        status_code=503, content={"status": "deferred_parent_unavailable"}
+                    )
                 return JSONResponse(
                     status_code=200,
                     content={"status": "ignored_workspace_scope"},
@@ -147,6 +186,47 @@ async def _handle_billing_webhook(
                     status_code=200,
                     content={"status": "ignored_workspace_scope"},
                 )
+            if resolved_payment is not None:
+                # Provider-authenticated scope may read its own purchase only;
+                # auth_public intentionally cannot read financial tables.
+                await apply_tenant_context(
+                    db,
+                    TenantDatabaseContext(
+                        organization_id=workspace.organization_id,
+                        workspace_id=workspace.id,
+                        user_id=workspace.owner_user_id,
+                    ),
+                )
+                operation = await db.scalar(
+                    select(BillingOperation).where(
+                        BillingOperation.workspace_id == event.workspace_id,
+                        BillingOperation.id == event.operation_id,
+                    )
+                )
+                invoice = (
+                    None
+                    if operation is None
+                    else await db.scalar(
+                        select(BillingInvoice).where(
+                            BillingInvoice.workspace_id == event.workspace_id,
+                            BillingInvoice.operation_id == operation.id,
+                        )
+                    )
+                )
+                if operation is None or invoice is None or not operation.provider_id:
+                    return JSONResponse(
+                        status_code=503, content={"status": "deferred_parent_unavailable"}
+                    )
+                try:
+                    validate_purchase_payment(
+                        resolved_payment, operation=operation, invoice=invoice, scope=resolved_scope
+                    )
+                except ValueError:
+                    return JSONResponse(status_code=401, content={"status": "rejected"})
+                await apply_tenant_context(
+                    db, WorkspaceAuthContext(workspace_id=event.workspace_id)
+                )
+
             existing = await db.scalar(
                 select(BillingWebhookEvent).where(
                     BillingWebhookEvent.workspace_id == event.workspace_id,
@@ -155,7 +235,11 @@ async def _handle_billing_webhook(
             )
             stored = existing
             if existing is not None:
-                result = "duplicate" if existing.payload_hash == event.payload_hash else "replay_conflict"
+                result = (
+                    "duplicate"
+                    if existing.payload_hash == event.payload_hash
+                    else "replay_conflict"
+                )
             else:
                 stored = BillingWebhookEvent(
                     workspace_id=event.workspace_id,
