@@ -6,12 +6,12 @@
 
 ## Setup и исходные измерения
 
-- [ ] T001 Перепроверить полные требования F263 в specs/263-fast-feedback/spec.md, checklists и analyze. Issue: #6904.
-- [ ] T002 Сохранить три исходных запуска четырёх оригинальных node IDs, условия и медианы в specs/263-fast-feedback/validation.md. Issue: #6904.
+- [ ] T001 Перепроверить полные требования F263 в specs/263-fast-feedback/spec.md, checklists и analyze. (Issue #6904).
+- [ ] T002 Сохранить три исходных запуска четырёх оригинальных node IDs, условия и медианы в specs/263-fast-feedback/validation.md. (Issue #6904).
 
 ## US1 — чтение
 
-- [X] T003 [US1] Согласовать правила целых разделов и четыре сценария в docs/agent-guidance/ и specs/263-fast-feedback/validation.md. Issue: #6905.
+- [X] T003 [US1] Согласовать правила целых разделов и четыре сценария в docs/agent-guidance/ и specs/263-fast-feedback/validation.md. (Issue #6905).
 
 Текущее ограниченное исполнение T003: независимые требования и план US1 →
 review контрольного списка → analyze/сверка #6905 → процедура повторного чтения
@@ -21,18 +21,18 @@ AGENTS.md не меняются. T003 не принимает восстанов
 
 ## US2 — данные
 
-- [ ] T004 [US2] Упростить только четыре исходных теста apps/server/tests/ без потери ready/audio/assertions/negative cases. Issue: #6906.
-- [ ] T005 [US2] Записать три после-замера приworkers1 в specs/263-fast-feedback/validation.md. Issue: #6906.
+- [ ] T004 [US2] Упростить только четыре исходных теста apps/server/tests/ без потери ready/audio/assertions/negative cases. (Issue #6906).
+- [ ] T005 [US2] Записать три после-замера приworkers1 в specs/263-fast-feedback/validation.md. (Issue #6906).
 
 ## US3 — выполнение
 
-- [ ] T006 [US3] Проверить subprocess collection и разбиение apps/server/scripts/run_local_postgres_tests.sh без повторов. Issue: #6907.
-- [ ] T007 [US3] Подтвердить strictpriority/workercap/errors/empty/cleanup и реальныеPG/RLS в specs/263-fast-feedback/validation.md. Issue: #6907.
-- [ ] T008 [US3] Выполнить два независимых запуска и отдельные замерыworkers1/2 в specs/263-fast-feedback/validation.md. Issue: #6907.
+- [ ] T006 [US3] Проверить subprocess collection и разбиение apps/server/scripts/run_local_postgres_tests.sh без повторов. (Issue #6907).
+- [ ] T007 [US3] Подтвердить strictpriority/workercap/errors/empty/cleanup и реальныеPG/RLS в specs/263-fast-feedback/validation.md. (Issue #6907).
+- [ ] T008 [US3] Выполнить два независимых запуска и отдельные замерыworkers1/2 в specs/263-fast-feedback/validation.md. (Issue #6907).
 
 ## US4 — активная независимая часть
 
-- [X] T009 [US4] Добавить картуmatching/API/model→существующиеcalendarcontract/integration в scripts/ci-behavior-tests.py и убрать дубли этапов в infra/scripts/ci-local.sh; регрессии в apps/server/tests/contract/test_ci_cd_contract.py. Issue: #6908.
+- [X] T009 [US4] Добавить картуmatching/API/model→существующиеcalendarcontract/integration в scripts/ci-behavior-tests.py и убрать дубли этапов в infra/scripts/ci-local.sh; регрессии в apps/server/tests/contract/test_ci_cd_contract.py. (Issue #6908).
 
 T009: сначала текущие specify/clarify/plan/checklist review/analyze/issue sync,
 затем red→green; оба календарных файла с настоящимPG и requiredperformance.
@@ -42,8 +42,8 @@ fixtures, правила чтения и разбиение не изменяю�
 
 ## Общая приёмка
 
-- [ ] T010 Сверить все истории, review/converge/validation и changes/unreleased/F263.yaml. Issue: #6909.
-- [ ] T011 После разрешений пройтиcommit/PR/exact-SHAchecks и общую приёмку, записать specs/263-fast-feedback/validation.md. Issue: #6909.
+- [ ] T010 Сверить все истории, review/converge/validation и changes/unreleased/F263.yaml. (Issue #6909).
+- [ ] T011 После разрешений пройтиcommit/PR/exact-SHAchecks и общую приёмку, записать specs/263-fast-feedback/validation.md. (Issue #6909).
 
 ## Зависимости и порядок
 
