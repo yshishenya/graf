@@ -12,12 +12,12 @@ from twobrain_rec_server.api.billing import (
     SUPPORTED_PROVIDER_EVENTS,
     _handle_billing_webhook,
 )
+from twobrain_rec_server.billing import webhook_reconciliation
 from twobrain_rec_server.billing.provider_events import (
     ProviderEventError,
     WebhookInbox,
     parse_provider_event,
 )
-from twobrain_rec_server.billing.webhook_reconciliation import _find_refund
 from twobrain_rec_server.billing.yookassa import YooKassaClient
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import Workspace
@@ -39,7 +39,10 @@ def test_webhook_inbox_is_idempotent_and_detects_conflicting_replay() -> None:
     extra_amount_metadata = parse_provider_event(
         {
             **_payload(),
-            "object": {**_payload()["object"], "amount": {"value": "79.00", "secret": "must-not-hash"}},
+            "object": {
+                **_payload()["object"],
+                "amount": {"value": "79.00", "secret": "must-not-hash"},
+            },
         }
     )
     assert extra_amount_metadata.payload_hash == first.payload_hash
@@ -61,7 +64,9 @@ def test_webhook_parser_accepts_out_of_order_timestamps_but_rejects_malformed() 
 
 def test_webhook_parser_rejects_path_manipulation_in_provider_object_id() -> None:
     with pytest.raises(ProviderEventError):
-        parse_provider_event({**_payload(), "object": {"id": "../refunds", "created_at": "2026-08-06T09:00:00Z"}})
+        parse_provider_event(
+            {**_payload(), "object": {"id": "../refunds", "created_at": "2026-08-06T09:00:00Z"}}
+        )
 
 
 def test_webhook_parser_rejects_non_notification_envelope() -> None:
@@ -140,7 +145,7 @@ async def test_chunked_webhook_body_is_bounded_before_json_parse(tmp_path: Path)
             "type": "http",
             "method": "POST",
             "path": "/api/v1/billing/providers/yookassa/webhook/test",
-            "headers":[
+            "headers": [
                 (b"content-type", b"application/json"),
                 (b"x-billing-webhook-secret", b"expected-secret"),
             ],
@@ -182,7 +187,7 @@ async def test_provider_webhook_without_proxy_secret_fails_closed(tmp_path: Path
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("scope_kind", ["missing", "corporate", "internal"])
+@pytest.mark.parametrize("scope_kind", ["missing", "corporate", "internal", "linked"])
 async def test_invalid_workspace_webhook_is_terminally_acknowledged(
     tmp_path: Path,
     scope_kind: str,
@@ -198,7 +203,7 @@ async def test_invalid_workspace_webhook_is_terminally_acknowledged(
             organization_id=uuid4(),
             slug="invalid-webhook-scope",
             name="Invalid webhook scope",
-            kind="personal" if scope_kind == "internal" else "corporate",
+            kind="personal" if scope_kind == "internal" else scope_kind,
             owner_user_id=uuid4(),
         )
     )
@@ -271,17 +276,115 @@ def test_payment_method_active_is_observed_without_granting_authority() -> None:
 
 
 @pytest.mark.asyncio
-async def test_refund_backstop_follows_cursor_until_match() -> None:
+@pytest.mark.parametrize("response_id", ["refund-target", "different-refund"])
+async def test_refund_worker_reads_exact_id_without_listing(monkeypatch, response_id) -> None:
+    calls = []
+    saved = []
+    workspace_id = uuid4()
+
     class Provider:
-        def __init__(self) -> None:
-            self.cursors: list[str | None] = []
+        async def get_refund(self, refund_id):
+            calls.append(refund_id)
+            return {
+                "id": response_id,
+                "status": "succeeded",
+                "payment_id": "pay-parent",
+                "amount": {"value": "1.00", "currency": "RUB"},
+                "created_at": "2026-10-17T00:00:00Z",
+            }
 
-        async def list_refunds(self, *, cursor: str | None = None, limit: int | None = None) -> dict[str, object]:
-            self.cursors.append(cursor)
-            if cursor is None:
-                return {"items": [], "next_cursor": "page-2"}
-            return {"items": [{"id": "refund-target", "status": "succeeded"}]}
+        async def list_refunds(self, **kwargs):
+            pytest.fail("refund worker must not search a bounded global collection")
 
-    provider = Provider()
-    assert await _find_refund(provider, "refund-target") == {"id": "refund-target", "status": "succeeded"}
-    assert provider.cursors == [None, "page-2"]
+    class Db:
+        async def get(self, *args):
+            return SimpleNamespace(kind="personal", owner_user_id=uuid4())
+
+        async def scalar(self, *args):
+            return object()
+
+    async def record(db, **kwargs):
+        saved.append(kwargs)
+        return "inserted"
+
+    monkeypatch.setattr(webhook_reconciliation, "record_observed_refund", record)
+    event = SimpleNamespace(
+        workspace_id=workspace_id, object_id="refund-target", event_type="refund.succeeded"
+    )
+    settings = Settings(billing_yookassa_environment="test", billing_yookassa_shop_id="shop-1")
+    if response_id == "refund-target":
+        assert (
+            await webhook_reconciliation._reconcile_event(Db(), settings, Provider(), event)
+            == "inserted"
+        )
+        assert saved[0]["observation"].provider_refund_id == "refund-target"
+    else:
+        with pytest.raises(ValueError):
+            await webhook_reconciliation._reconcile_event(Db(), settings, Provider(), event)
+        assert saved == []
+    assert calls == ["refund-target"]
+
+
+@pytest.mark.asyncio
+async def test_metadata_less_refund_resolves_provider_parent_before_store(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A cabinet refund has a payment_id, but no GRAF metadata of its own."""
+    import httpx
+    from fastapi import FastAPI
+
+    from twobrain_rec_server.api.billing import router
+
+    secret = tmp_path / "provider-secret"
+    secret.write_text("test-provider-secret", encoding="utf-8")
+    app = FastAPI()
+    app.include_router(router)
+    app.state.settings = Settings(
+        billing_yookassa_base_url="https://api.yookassa.test",
+        billing_yookassa_environment="test",
+        billing_yookassa_shop_id="shop-1",
+        billing_yookassa_secret_file=secret,
+        billing_yookassa_webhook_secret_file=secret,
+    )
+    calls = []
+    payment = {
+        "id": "pay-parent",
+        "status": "succeeded",
+        "paid": True,
+        "test": True,
+        "recipient": {"account_id": "shop-1"},
+        "amount": {"value": "10.00", "currency": "RUB"},
+        "created_at": "2026-10-17T07:46:30Z",
+        "metadata": {"workspace_id": str(uuid4()), "operation_id": str(uuid4())},
+    }
+    refund = {
+        "id": "refund-child",
+        "payment_id": payment["id"],
+        "status": "succeeded",
+        "amount": {"value": "1.00", "currency": "RUB"},
+        "created_at": "2026-10-17T07:46:30Z",
+    }
+
+    def handle(request):
+        calls.append((request.method, request.url.path))
+        return httpx.Response(
+            200, json=refund if request.url.path.endswith(refund["id"]) else payment
+        )
+
+    original_init = YooKassaClient.__init__
+
+    def provider_init(self, settings, **kwargs):
+        original_init(self, settings, transport=httpx.MockTransport(handle))
+
+    monkeypatch.setattr(YooKassaClient, "__init__", provider_init)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://graf.test"
+    ) as client:
+        response = await client.post(
+            "/api/v1/billing/providers/yookassa/webhook/test",
+            headers={"X-Billing-Webhook-Secret": "test-provider-secret"},
+            json={"type": "notification", "event": "refund.succeeded", "object": refund},
+        )
+    assert response.status_code == 503  # No DB here; the authenticated chain must still run.
+    assert calls == [("GET", "/v3/refunds/refund-child"), ("GET", "/v3/payments/pay-parent")]
+    assert response.json()["status"] == "deferred_store_unavailable"

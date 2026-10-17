@@ -77,6 +77,7 @@ class ReceiptObservation:
     provider_parent_id: str
     status: ReceiptRegistration
     registered_at: datetime | None = None
+    related_payment_id: str | None = None
 
 
 ProviderObservation = PaymentObservation | RefundObservation | ReceiptObservation
@@ -233,12 +234,14 @@ def extract_receipt_observation(
     scope: ProviderScope,
 ) -> ReceiptObservation:
     parent_kind = payload.get("type")
-    if parent_kind not in {"payment", "refund"}:
+    if not isinstance(parent_kind, str) or parent_kind not in {"payment", "refund"}:
         raise ProviderObservationError("provider receipt type is invalid")
     parent_field = f"{parent_kind}_id"
     other_field = "refund_id" if parent_kind == "payment" else "payment_id"
-    if payload.get(parent_field) is None or payload.get(other_field) is not None:
-        raise ProviderObservationError("provider receipt must have exactly one parent")
+    if payload.get(parent_field) is None or (
+        parent_kind == "payment" and payload.get(other_field) is not None
+    ):
+        raise ProviderObservationError("provider receipt parent is invalid")
     status = _receipt_registration(payload.get("status"), required=True)
     registered_at = _timestamp(payload.get("registered_at"), required=False)
     return ReceiptObservation(
@@ -248,6 +251,9 @@ def extract_receipt_observation(
         provider_parent_id=_provider_id(payload.get(parent_field)),
         status=status,
         registered_at=registered_at,
+        related_payment_id=_provider_id(payload["payment_id"])
+        if parent_kind == "refund" and payload.get("payment_id") is not None
+        else None,
     )
 
 
@@ -464,6 +470,18 @@ async def record_observed_receipt(
             )
     if invoice is None:
         return "unmatched"
+    # Check the optional hint before every merge, including duplicate receipts.
+    # Older projections need no new field: the immutable invoice/operation is
+    # the authoritative payment binding of the already observed refund.
+    if observation.related_payment_id is not None:
+        operation = await db.scalar(
+            select(BillingOperation).where(
+                BillingOperation.workspace_id == workspace_id,
+                BillingOperation.id == invoice.operation_id,
+            )
+        )
+        if operation is None or operation.provider_id != observation.related_payment_id:
+            raise ProviderObservationError("provider receipt payment conflicts with refund invoice")
     merged, result = merge_receipt_observation_snapshot(
         invoice.plan_snapshot,
         observation,
@@ -620,7 +638,9 @@ def _money(value: object) -> tuple[int, str]:
 def _payment_status(
     value: object,
 ) -> Literal["pending", "waiting_for_capture", "succeeded", "canceled"]:
-    if value not in {"pending", "waiting_for_capture", "succeeded", "canceled"}:
+    if not isinstance(value, str) or value not in {
+        "pending", "waiting_for_capture", "succeeded", "canceled"
+    }:
         raise ProviderObservationError("provider payment status is invalid")
     return value  # type: ignore[return-value]
 
@@ -632,7 +652,7 @@ def _receipt_registration(
 ) -> ReceiptRegistration | None:
     if value is None and not required:
         return None
-    if value not in {"pending", "succeeded", "canceled"}:
+    if not isinstance(value, str) or value not in {"pending", "succeeded", "canceled"}:
         raise ProviderObservationError("provider receipt status is invalid")
     return value  # type: ignore[return-value]
 
