@@ -638,7 +638,9 @@ def _money(value: object) -> tuple[int, str]:
 def _payment_status(
     value: object,
 ) -> Literal["pending", "waiting_for_capture", "succeeded", "canceled"]:
-    if value not in {"pending", "waiting_for_capture", "succeeded", "canceled"}:
+    if not isinstance(value, str) or value not in {
+        "pending", "waiting_for_capture", "succeeded", "canceled"
+    }:
         raise ProviderObservationError("provider payment status is invalid")
     return value  # type: ignore[return-value]
 
@@ -650,7 +652,7 @@ def _receipt_registration(
 ) -> ReceiptRegistration | None:
     if value is None and not required:
         return None
-    if value not in {"pending", "succeeded", "canceled"}:
+    if not isinstance(value, str) or value not in {"pending", "succeeded", "canceled"}:
         raise ProviderObservationError("provider receipt status is invalid")
     return value  # type: ignore[return-value]
 

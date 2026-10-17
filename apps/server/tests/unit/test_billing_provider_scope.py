@@ -238,9 +238,10 @@ async def test_malformed_authoritative_shape_is_retryable(scope_case, kind, fiel
 
 
 @pytest.mark.asyncio
-async def test_missing_shop_configuration_is_retryable_without_get(scope_case):
+@pytest.mark.parametrize("shop_id", ["", " shop-1 ", "x" * 161])
+async def test_missing_shop_configuration_is_retryable_without_get(scope_case, shop_id):
     settings, state = scope_case
-    settings.billing_yookassa_shop_id = ""
+    settings.billing_yookassa_shop_id = shop_id
     with pytest.raises(provider_scope.YooKassaConfigurationError):
         await resolve_child_scope(signal("refund", state["refund"]), state["refund"], settings)
     assert state["calls"] == []
@@ -292,3 +293,16 @@ async def test_authoritative_child_operation_hint_cannot_conflict(scope_case):
     state["refund"]["metadata"] = {"operation_id": str(uuid4())}
     with pytest.raises(ValueError):
         await resolve_child_scope(signal("receipt", state["receipt"]), state["receipt"], settings)
+
+
+@pytest.mark.parametrize("status", [[], {}, 123, True])
+def test_shared_provider_status_extractors_normalize_malformed_types(status):
+    from twobrain_rec_server.billing.reconciliation import (
+        ProviderObservationError,
+        _payment_status,
+        _receipt_registration,
+    )
+
+    for extractor in (_payment_status, _receipt_registration):
+        with pytest.raises(ProviderObservationError):
+            extractor(status)

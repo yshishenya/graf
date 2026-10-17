@@ -77,12 +77,13 @@ async def resolve_child_scope(
         and (not isinstance(incoming["type"], str) or incoming["type"] not in {"payment", "refund"})
     ):
         raise ProviderEventError("provider event receipt type is malformed")
-    if not settings.billing_yookassa_shop_id:
-        raise YooKassaConfigurationError("provider shop is unavailable")
-    scope = ProviderScope(
-        environment=provider_environment(settings.billing_yookassa_environment),
-        shop_id=settings.billing_yookassa_shop_id,
-    )
+    try:
+        scope = ProviderScope(
+            environment=provider_environment(settings.billing_yookassa_environment),
+            shop_id=settings.billing_yookassa_shop_id,
+        )
+    except ValueError:
+        raise YooKassaConfigurationError("provider scope configuration is invalid") from None
     children = [incoming]
     refund = None
     receipt_payment_id = None

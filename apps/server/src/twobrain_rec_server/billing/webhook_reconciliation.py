@@ -590,7 +590,12 @@ async def reconcile_pending_webhook_events(
         await db.scalars(
             select(BillingWebhookEvent.id)
             .where(BillingWebhookEvent.state.in_(RECONCILABLE_WEBHOOK_STATES))
-            .order_by(BillingWebhookEvent.received_at, BillingWebhookEvent.id)
+            .order_by(
+                BillingWebhookEvent.metadata_json["reconciliation_attempted_at"]
+                .as_string().asc().nullsfirst(),
+                BillingWebhookEvent.received_at,
+                BillingWebhookEvent.id,
+            )
             .limit(max(1, min(limit, 500)))
         )
     )
@@ -606,6 +611,7 @@ async def reconcile_pending_webhook_events(
                 if event is None or event.state not in RECONCILABLE_WEBHOOK_STATES:
                     continue
                 counters["processed"] += 1
+                event_workspace_id = event.workspace_id
                 try:
                     result = await _reconcile_event(db, settings, provider, event)
                     event.state = (
@@ -637,6 +643,24 @@ async def reconcile_pending_webhook_events(
                     httpx.HTTPError,
                 ):
                     await db.rollback()
+                    # Rotate failures behind untouched/older attempts without
+                    # changing the original delivery time or committing any
+                    # partial financial work. Recheck after rollback because
+                    # another worker may have completed this event meanwhile.
+                    retry = await db.scalar(
+                        select(BillingWebhookEvent)
+                        .where(
+                            BillingWebhookEvent.id == event_id,
+                            BillingWebhookEvent.workspace_id == event_workspace_id,
+                        )
+                        .with_for_update()
+                    )
+                    if retry is not None and retry.state in RECONCILABLE_WEBHOOK_STATES:
+                        retry.metadata_json = {
+                            **(retry.metadata_json or {}),
+                            "reconciliation_attempted_at": datetime.now(UTC).isoformat(),
+                        }
+                    await db.commit()
                     counters["pending"] += 1
     except (YooKassaConfigurationError, ValueError):
         counters["failed"] += len(ids)
@@ -705,6 +729,12 @@ async def _reconcile_event(
             )
         )
     if owner is None:
+        if (
+            workspace is not None
+            and workspace.kind == "linked"
+            and (event.event_type == "refund.succeeded" or event.event_type.startswith("receipt."))
+        ):
+            raise ProviderObservationError("linked workspace child binding is temporarily unavailable")
         return "workspace_scope_invalid"
     environment = provider_environment(settings.billing_yookassa_environment)
     scope = ProviderScope(environment=environment, shop_id=settings.billing_yookassa_shop_id)
@@ -736,9 +766,12 @@ async def _reconcile_event(
         observation = extract_refund_observation(candidate, scope=scope)
         if observation.provider_refund_id != event.object_id:
             raise ProviderObservationError("provider refund reference does not match event")
-        return await record_observed_refund(
+        result = await record_observed_refund(
             db, workspace_id=event.workspace_id, observation=observation
         )
+        if result == "unmatched":
+            raise ProviderObservationError("provider refund parent was not found")
+        return result
     if event.event_type == "payment_method.active":
         # The payment.succeeded authoritative GET remains the only path that
         # grants recurring authority. This provider signal is retained as a
