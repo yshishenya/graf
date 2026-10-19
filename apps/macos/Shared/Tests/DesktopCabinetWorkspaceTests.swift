@@ -153,6 +153,162 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
     }
 
     @MainActor
+    func testNewGetAfterPostRestoresHistoryWithoutReplayingOldPost() async throws {
+        _ = NSApplication.shared
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        let listener = try NWListener(using: parameters)
+        let listening = expectation(description: "history fixture listening")
+        let requests = SessionBoundaryRequests()
+        defer { requests.cancelHeldConnection() }
+        listener.stateUpdateHandler = { if case .ready = $0 { listening.fulfill() } }
+        listener.newConnectionHandler = { connection in
+            connection.start(queue: .global())
+            Self.receiveHistoryFixtureRequest(connection, requests: requests)
+        }
+        listener.start(queue: .global())
+        defer { listener.cancel() }
+        await fulfillment(of: [listening], timeout: 5)
+        let origin = try XCTUnwrap(URL(string: "http://127.0.0.1:\(try XCTUnwrap(listener.port).rawValue)"))
+        let sameURL = origin.appendingPathComponent("desktop/settings/account")
+        let nextURL = origin.appendingPathComponent("desktop/settings/integrations/calendar")
+        let controller = EmbeddedCabinetNavigationController()
+        let document = SessionBoundaryDocument(state: .ready)
+        let presenter = DesktopNotificationPresenter(
+            store: .init(defaults: UserDefaults(suiteName: UUID().uuidString)!), model: DesktopControlModel())
+        let host = NSHostingView(rootView: SessionBoundaryFixture(request: URLRequest(url: sameURL),
+            origin: origin, controller: controller, document: document, presenter: presenter))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        defer { window.close() }
+        let web = try XCTUnwrap(Self.sessionFixtureWebView(host))
+        func waitForDocument(_ marker: String, reloadFinished: Bool = false) async throws {
+            for _ in 0..<250 {
+                if !controller.isLoading, !web.isLoading, (!reloadFinished || controller.canReload),
+                   (try? await web.evaluateJavaScript("document.body.dataset.result")) as? String == marker { return }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTFail("History fixture did not settle at \(marker)")
+        }
+        try await waitForDocument("GET /desktop/settings/account")
+        XCTAssertTrue(controller.canReload)
+        _ = try await web.evaluateJavaScript("document.forms[0].submit(); true")
+        try await waitForDocument("POST /desktop/settings/account")
+        let postItem = try XCTUnwrap(web.backForwardList.currentItem)
+        XCTAssertFalse(controller.canReload, "Synthetic finish GET cannot rehabilitate a POST entry")
+        _ = web.load(URLRequest(url: nextURL))
+        try await waitForDocument("GET /desktop/settings/integrations/calendar")
+        _ = web.load(URLRequest(url: sameURL))
+        try await waitForDocument("GET /desktop/settings/account")
+        let getItem = try XCTUnwrap(web.backForwardList.currentItem)
+        XCTAssertFalse(getItem === postItem, "WebKit must retain distinct entries for POST and a new GET at one URL")
+        XCTAssertTrue(controller.canReload, "A real new GET must restore Reload despite the old POST at this URL")
+        guard controller.canReload else { return }
+        controller.reload()
+        try await waitForDocument("GET /desktop/settings/account", reloadFinished: true)
+        _ = web.load(URLRequest(url: nextURL))
+        try await waitForDocument("GET /desktop/settings/integrations/calendar")
+        XCTAssertTrue(controller.canGoBack, "Safe GET history remains useful")
+        controller.goBack()
+        try await waitForDocument("GET /desktop/settings/account")
+        XCTAssertTrue(controller.canReload)
+        XCTAssertTrue(controller.canGoForward)
+        controller.goForward()
+        try await waitForDocument("GET /desktop/settings/integrations/calendar")
+        controller.goBack()
+        try await waitForDocument("GET /desktop/settings/account")
+        controller.goBack()
+        try await waitForDocument("GET /desktop/settings/integrations/calendar")
+        controller.goBack()
+        try await waitForDocument("GET /desktop/settings/account")
+        XCTAssertFalse(web.backForwardList.currentItem === postItem, "Native Back skips the old POST entry, rather than selecting it and stalling")
+        controller.goForward()
+        try await waitForDocument("GET /desktop/settings/integrations/calendar")
+        controller.goForward()
+        try await waitForDocument("GET /desktop/settings/account")
+        controller.goForward()
+        try await waitForDocument("GET /desktop/settings/integrations/calendar")
+        // Exercise WebKit's own history path, including a POST entry whose URL
+        // is identical to the later, explicitly loaded safe GET entry.
+        let coordinator = try XCTUnwrap(web.navigationDelegate as? EmbeddedCabinetWebView.Coordinator)
+        let historyDecision = expectation(description: "real coordinator rejects old POST history")
+        let probe = HistoryPolicyProbe(coordinator: coordinator, decision: historyDecision)
+        web.navigationDelegate = probe
+        _ = web.go(to: postItem)
+        await fulfillment(of: [historyDecision], timeout: 5)
+        web.navigationDelegate = coordinator
+        XCTAssertEqual(probe.policy, .cancel, "The actual coordinator must reject the old entry before dispatch")
+        XCTAssertEqual(probe.method, "POST")
+        for _ in 0..<250 {
+            if web.backForwardList.currentItem !== postItem, !web.isLoading { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(web.url, nextURL, "An old POST entry cannot become navigable because another entry used GET")
+        XCTAssertFalse(web.backForwardList.currentItem === postItem)
+        XCTAssertEqual(requests.count("POST /desktop/settings/account"), 1, "Neither native navigation nor WebKit history may resubmit the form")
+        XCTAssertTrue(Self.sessionFixtureWebView(host) === web, "Ordinary requests preserve the live WebView")
+
+        // A superseded safe request followed by a failed download does not
+        // finish a new document or rehabilitate the preceding POST entry.
+        let source = origin.appendingPathComponent("desktop/meetings/history-source")
+        _ = web.load(URLRequest(url: source))
+        try await waitForDocument("GET /desktop/meetings/history-source")
+        _ = try await web.evaluateJavaScript("document.forms[0].submit(); true")
+        try await waitForDocument("POST /desktop/meetings/history-source")
+        let sourcePost = try XCTUnwrap(web.backForwardList.currentItem)
+        XCTAssertFalse(controller.canReload)
+        _ = web.load(URLRequest(url: origin.appendingPathComponent("desktop/meetings/history-pending")))
+        for _ in 0..<250 {
+            if requests.count("GET /desktop/meetings/history-pending") == 1 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(requests.count("GET /desktop/meetings/history-pending"), 1)
+        XCTAssertTrue(controller.isLoading)
+        _ = try await web.evaluateJavaScript("location.href='/api/v1/cabinet/meetings/history-source/downloads/summary'; true")
+        for _ in 0..<250 {
+            if requests.count("GET /api/v1/cabinet/meetings/history-source/downloads/summary") == 1,
+               !controller.isLoading, !web.isLoading { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(requests.count("GET /api/v1/cabinet/meetings/history-source/downloads/summary"), 1)
+        XCTAssertFalse(controller.isLoading)
+        XCTAssertTrue(web.backForwardList.currentItem === sourcePost, "A resource result leaves the POST document unchanged")
+        XCTAssertFalse(controller.canReload, "An excluded resource cannot certify a document GET or make a POST replayable")
+        requests.cancelHeldConnection()
+    }
+
+    private nonisolated static func receiveHistoryFixtureRequest(
+        _ connection: NWConnection, buffered: Data = Data(), requests: SessionBoundaryRequests
+    ) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { data, _, complete, error in
+            var received = buffered; received.append(data ?? Data())
+            guard let request = String(data: received, encoding: .utf8), request.contains("\r\n\r\n") else {
+                guard !complete, error == nil, received.count < 32_768 else {
+                    XCTFail("Incomplete synthetic history request"); connection.cancel(); return
+                }
+                receiveHistoryFixtureRequest(connection, buffered: received, requests: requests)
+                return
+            }
+            let key = request.components(separatedBy: "\r\n")[0].split(separator: " ").prefix(2).joined(separator: " ")
+            guard ["GET /desktop/settings/account", "POST /desktop/settings/account", "GET /desktop/settings/integrations/calendar",
+                   "GET /desktop/meetings/history-source", "POST /desktop/meetings/history-source",
+                   "GET /desktop/meetings/history-pending", "GET /api/v1/cabinet/meetings/history-source/downloads/summary"].contains(key) else {
+                XCTFail("Unexpected synthetic history route"); connection.cancel(); return
+            }
+            _ = requests.record(key)
+            if key == "GET /desktop/meetings/history-pending" { requests.hold(connection); return }
+            let path = key.split(separator: " ").last!
+            let html = "<!doctype html><body data-result='\(key)'><form method='post' action='\(path)'><input name='synthetic' value='yes'></form></body>"
+            let status = key.contains("/downloads/") ? "404 Not Found" : "200 OK"
+            let response = "HTTP/1.1 \(status)\r\nContent-Type: text/html\r\nCache-Control: no-store\r\nContent-Length: \(html.utf8.count)\r\nConnection: close\r\n\r\n\(html)"
+            connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
+        }
+    }
+
+    @MainActor
     private func checkSessionBoundary(
         method: String, initialPath: String = "/desktop/settings/account",
         targetPath: String = "/desktop/settings/account", status: String = "200 OK",
@@ -1449,6 +1605,26 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         )
     }
 }
+@MainActor
+private final class HistoryPolicyProbe: NSObject, @preconcurrency WKNavigationDelegate {
+    let coordinator: EmbeddedCabinetWebView.Coordinator
+    let decision: XCTestExpectation
+    var policy: WKNavigationActionPolicy?
+    var method: String?
+    init(coordinator: EmbeddedCabinetWebView.Coordinator, decision: XCTestExpectation) {
+        self.coordinator = coordinator; self.decision = decision
+    }
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping EmbeddedCabinetNavigationDecisionHandler) {
+        coordinator.webView(webView, decidePolicyFor: navigationAction) { policy in
+            self.method = navigationAction.request.httpMethod
+            self.policy = policy
+            decisionHandler(policy)
+            self.decision.fulfill()
+        }
+    }
+}
+
 private final class SessionBoundaryRequests: @unchecked Sendable {
     private let lock = NSLock()
     private var counts: [String: Int] = [:]
