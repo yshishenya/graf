@@ -159,6 +159,10 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         cancel: Bool = false, reselect: Bool = false, changesSession: Bool = false, redirect: Bool = false,
         supersedesPendingForm: Bool = false
     ) async throws {
+        let trace = { (phase: String) in
+            FileHandle.standardError.write(Data("F136_NATIVE_SESSION \(phase) method=\(method) status=\(status)\n".utf8))
+        }
+        trace("start")
         _ = NSApplication.shared
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
@@ -181,6 +185,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         listener.start(queue: .global())
         defer { listener.cancel() }
         await fulfillment(of: [listening], timeout: 5)
+        trace("listener-ready")
         let origin = try XCTUnwrap(URL(string: "http://127.0.0.1:\(try XCTUnwrap(listener.port).rawValue)"))
         let request = URLRequest(url: origin.appendingPathComponent(initialPath))
         let controller = EmbeddedCabinetNavigationController()
@@ -193,13 +198,16 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host
+        trace("host-attached")
         host.layoutSubtreeIfNeeded()
+        trace("host-laid-out")
         defer { window.close() }
         await fulfillment(of: [initial], timeout: 10)
         for _ in 0..<250 {
             if controller.canReload { break }
             try await Task.sleep(for: .milliseconds(20))
         }
+        trace("initial-loaded")
         XCTAssertTrue(controller.canReload, "Initial stable document must finish")
         let boundary = controller.sessionBoundaryID
         let webView = try XCTUnwrap(Self.sessionFixtureWebView(host))
@@ -228,6 +236,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             if !controller.isLoading, document.state != .loading { break }
             try await Task.sleep(for: .milliseconds(20))
         }
+        trace("terminal-callback")
         XCTAssertFalse(controller.isLoading, "Terminal callback must release navigation")
         XCTAssertNotEqual(document.state, .loading)
         if cancel { XCTAssertEqual(document.state, .malformedResponse) }
