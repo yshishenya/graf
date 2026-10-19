@@ -29,70 +29,167 @@
       "title": "[230][P1][governance] T003: [P] Добавить synthetic fixtures для branch self-collision, timeout, PR/manual/merge_group и stale receipt.",
       "state_observed": "CLOSED",
       "url": "https://github.com/yshishenya/graf/issues/6317",
-      "body_sha256": "4039d5084396bb24b59d1cfc60259be06cba16ddd2369490c57676e5d4f96615"
+      "body_sha256": "4039d5084396bb24b59d1cfc60259be06cba16ddd2369490c57676e5d4f96615",
+      "state_reason_observed": "NOT_PLANNED",
+      "closed_at_observed": "2026-09-08T13:12:57Z",
+      "closure_comment_url": "https://github.com/yshishenya/graf/issues/6317#issuecomment-5585695303",
+      "closure_comment_sha256": "02851badb3ecd49cf9117cea01b60906237683179d069b861d24ae0fb55ee9dc",
+      "successor_mapping": "NOT_PLANNED duplicate; F227 T003/T007/T015 — #6210; F234 T002 — #6375",
+      "successor_issues": [
+        6210,
+        6375
+      ],
+      "provenance_observed_at": "2026-10-19T08:15:36.623493+00:00"
     },
     {
       "number": 6318,
       "title": "[230][P1][governance] T004: Исправить `scripts/claim-feature.py`, чтобы requested branch не считался внешней коллизией.",
       "state_observed": "CLOSED",
       "url": "https://github.com/yshishenya/graf/issues/6318",
-      "body_sha256": "6829bdc29e2b4a3416c83ecbd07cfe6cf8d89cf5f320fc47046baaf2e7f0d738"
+      "body_sha256": "6829bdc29e2b4a3416c83ecbd07cfe6cf8d89cf5f320fc47046baaf2e7f0d738",
+      "state_reason_observed": "NOT_PLANNED",
+      "closed_at_observed": "2026-09-08T13:06:18Z",
+      "closure_comment_url": "https://github.com/yshishenya/graf/issues/6318#issuecomment-5585606870",
+      "closure_comment_sha256": "c7e4aaf999a9be1b2e9420801bacd4917c5b13ef93cf9ceee7b4a902b4e619a4",
+      "successor_mapping": "NOT_PLANNED duplicate; F234 T001/T002 — #6374/#6375",
+      "successor_issues": [
+        6374,
+        6375
+      ],
+      "provenance_observed_at": "2026-10-19T08:15:36.623653+00:00"
     },
     {
       "number": 6319,
       "title": "[230][P1][governance] T005: Добавить bounded GitHub scan с различением `free`, `occupied` и `blocked` и без ложной записи при timeout.",
       "state_observed": "CLOSED",
       "url": "https://github.com/yshishenya/graf/issues/6319",
-      "body_sha256": "3632fd4ebf28531110c9009152bdfa8a75cd462234d563e2a125ee7a29b57788"
+      "body_sha256": "3632fd4ebf28531110c9009152bdfa8a75cd462234d563e2a125ee7a29b57788",
+      "state_reason_observed": "NOT_PLANNED",
+      "closed_at_observed": "2026-09-08T13:06:24Z",
+      "closure_comment_url": "https://github.com/yshishenya/graf/issues/6319#issuecomment-5585609118",
+      "closure_comment_sha256": "b211237a7a0be615c7d59a72fa4f1a8e1450ce68fd71445ef73a38c04476af77",
+      "successor_mapping": "NOT_PLANNED duplicate; F234 T001/T002 — #6374/#6375",
+      "successor_issues": [
+        6374,
+        6375
+      ],
+      "provenance_observed_at": "2026-10-19T08:15:36.623657+00:00"
     },
     {
       "number": 6320,
       "title": "[230][P1][governance] T006: Добавить parallel/idempotent regression tests и проверить shared lock/atomic claim state.",
       "state_observed": "CLOSED",
       "url": "https://github.com/yshishenya/graf/issues/6320",
-      "body_sha256": "1d2356938d458de5e8589f0e943f35567b1faff863f4482e82e9ee6cf3829bc5"
+      "body_sha256": "1d2356938d458de5e8589f0e943f35567b1faff863f4482e82e9ee6cf3829bc5",
+      "state_reason_observed": "NOT_PLANNED",
+      "closed_at_observed": "2026-09-08T13:06:24Z",
+      "closure_comment_url": "https://github.com/yshishenya/graf/issues/6320#issuecomment-5585609197",
+      "closure_comment_sha256": "7c2a371d5e031716e531d1c727ace065bfaa2677e17f84364606459e29abe22e",
+      "successor_mapping": "NOT_PLANNED duplicate; F234 T001/T002 — #6374/#6375",
+      "successor_issues": [
+        6374,
+        6375
+      ],
+      "provenance_observed_at": "2026-10-19T08:15:36.623659+00:00"
     },
     {
       "number": 6321,
       "title": "[230][P1][governance] T007: Привязать claim к umbrella issue/label и active `.specify/feature.json`.",
       "state_observed": "CLOSED",
       "url": "https://github.com/yshishenya/graf/issues/6321",
-      "body_sha256": "a7419c4556611475b9bcc0507c1f95f0902ea17035f24d62f995bfc5af0d4dfd"
+      "body_sha256": "a7419c4556611475b9bcc0507c1f95f0902ea17035f24d62f995bfc5af0d4dfd",
+      "state_reason_observed": "NOT_PLANNED",
+      "closed_at_observed": "2026-10-16T20:24:49Z",
+      "closure_comment_url": "https://github.com/yshishenya/graf/issues/6321#issuecomment-6224030599",
+      "closure_comment_sha256": "9546e604f03d4fe6fa0a54fda76a011738463a2d27a1242bdce55987f34af3d2",
+      "successor_mapping": "NOT_PLANNED duplicate; F216 T005/T007 — #6092/#6097; F235 T001 — #6400",
+      "successor_issues": [
+        6092,
+        6097,
+        6400
+      ],
+      "provenance_observed_at": "2026-10-19T08:15:36.623662+00:00"
     },
     {
       "number": 6322,
       "title": "[230][P1][governance] T008: Укрепить receipt validator для requested/start/end SHA, conclusion, cancellation и workflow identity.",
       "state_observed": "CLOSED",
       "url": "https://github.com/yshishenya/graf/issues/6322",
-      "body_sha256": "e787f56606bc939b56274e7c763b854d6ae4e1b2a5297b1cc6a87d7d5d70d762"
+      "body_sha256": "e787f56606bc939b56274e7c763b854d6ae4e1b2a5297b1cc6a87d7d5d70d762",
+      "state_reason_observed": "NOT_PLANNED",
+      "closed_at_observed": "2026-09-08T13:13:05Z",
+      "closure_comment_url": "https://github.com/yshishenya/graf/issues/6322#issuecomment-5585697028",
+      "closure_comment_sha256": "db8c49d32f0c75bade97e13c2fe3ac52da68973d7f70323c2546a0d82b842c8a",
+      "successor_mapping": "NOT_PLANNED duplicate; F227 T005/T007/T014 — #6212",
+      "successor_issues": [
+        6212
+      ],
+      "provenance_observed_at": "2026-10-19T08:15:36.623665+00:00"
     },
     {
       "number": 6323,
       "title": "[230][P1][governance] T009: Укрепить PR metadata validator/template для Feature ID, umbrella, task IDs, lane, SHA и Legacy Impact.",
       "state_observed": "CLOSED",
       "url": "https://github.com/yshishenya/graf/issues/6323",
-      "body_sha256": "c5afba683d722833fd6fe25d6205136cf48f33362c7fdd99d42ec84a8679ac09"
+      "body_sha256": "c5afba683d722833fd6fe25d6205136cf48f33362c7fdd99d42ec84a8679ac09",
+      "state_reason_observed": "NOT_PLANNED",
+      "closed_at_observed": "2026-09-08T13:13:13Z",
+      "closure_comment_url": "https://github.com/yshishenya/graf/issues/6323#issuecomment-5585698795",
+      "closure_comment_sha256": "0d94d7eb266505de80caa9fd9d6bff86eee73533f36269e04186fa990490f913",
+      "successor_mapping": "NOT_PLANNED duplicate; F227 T016/T025 — #6223; F234 T005 — #6378",
+      "successor_issues": [
+        6223,
+        6378
+      ],
+      "provenance_observed_at": "2026-10-19T08:15:36.623667+00:00"
     },
     {
       "number": 6324,
       "title": "[230][P1][governance] T010: Добавить negative tests для stale, partial, changed-tree и mismatched base/event.",
       "state_observed": "CLOSED",
       "url": "https://github.com/yshishenya/graf/issues/6324",
-      "body_sha256": "efe3cc6416489b51e40c83935baa099c11c9efc9499d0ca4b608b2ccd11b93e6"
+      "body_sha256": "efe3cc6416489b51e40c83935baa099c11c9efc9499d0ca4b608b2ccd11b93e6",
+      "state_reason_observed": "NOT_PLANNED",
+      "closed_at_observed": "2026-09-08T13:13:21Z",
+      "closure_comment_url": "https://github.com/yshishenya/graf/issues/6324#issuecomment-5585700492",
+      "closure_comment_sha256": "be9a1479832d910f069c5a97622ceda2642deb75e177fed88c8b7b7dd6ea6950",
+      "successor_mapping": "NOT_PLANNED duplicate; F227 T007/T013/T015 — #6222",
+      "successor_issues": [
+        6222
+      ],
+      "provenance_observed_at": "2026-10-19T08:15:36.623671+00:00"
     },
     {
       "number": 6325,
       "title": "[230][P1][governance] T011: Проверить workflow contract для PR, manual и merge_group exact checkout/concurrency.",
       "state_observed": "CLOSED",
       "url": "https://github.com/yshishenya/graf/issues/6325",
-      "body_sha256": "22ef61ef6dd55a07e108bf1d768786a8805979c5dac805d8a051483bbafb142b"
+      "body_sha256": "22ef61ef6dd55a07e108bf1d768786a8805979c5dac805d8a051483bbafb142b",
+      "state_reason_observed": "NOT_PLANNED",
+      "closed_at_observed": "2026-09-08T13:13:29Z",
+      "closure_comment_url": "https://github.com/yshishenya/graf/issues/6325#issuecomment-5585702298",
+      "closure_comment_sha256": "c00f2c69d2f12f69f9b4e5d68e19da7531e5049fde364c0fe444c38a5b591a5a",
+      "successor_mapping": "NOT_PLANNED duplicate; F227 T008–T012 — #6218",
+      "successor_issues": [
+        6218
+      ],
+      "provenance_observed_at": "2026-10-19T08:15:36.623673+00:00"
     },
     {
       "number": 6326,
       "title": "[230][P1][governance] T012: Проверить authoritative merge-group mapping и fail-closed API errors.",
       "state_observed": "CLOSED",
       "url": "https://github.com/yshishenya/graf/issues/6326",
-      "body_sha256": "3732f99abd6ab821ec543c490b456f0f8b536d1fdebbf832ef918f2773d9f00d"
+      "body_sha256": "3732f99abd6ab821ec543c490b456f0f8b536d1fdebbf832ef918f2773d9f00d",
+      "state_reason_observed": "NOT_PLANNED",
+      "closed_at_observed": "2026-09-08T13:13:40Z",
+      "closure_comment_url": "https://github.com/yshishenya/graf/issues/6326#issuecomment-5585704380",
+      "closure_comment_sha256": "a77504e35f995af82bcf2bd15c1f555d5fe3a5f8d0add05220668f047504b9bb",
+      "successor_mapping": "NOT_PLANNED duplicate; F227 T010/T011 — #6217",
+      "successor_issues": [
+        6217
+      ],
+      "provenance_observed_at": "2026-10-19T08:15:36.623677+00:00"
     },
     {
       "number": 6327,
@@ -106,14 +203,34 @@
       "title": "[230][P2][governance] T014: Проверить root-router size, active pointer fail-closed и отсутствие mtime fallback.",
       "state_observed": "CLOSED",
       "url": "https://github.com/yshishenya/graf/issues/6328",
-      "body_sha256": "cb5e0d08de768129cbf887af15574feed800999569d7056d5797c4ccff5ced2a"
+      "body_sha256": "cb5e0d08de768129cbf887af15574feed800999569d7056d5797c4ccff5ced2a",
+      "state_reason_observed": "NOT_PLANNED",
+      "closed_at_observed": "2026-10-16T20:24:54Z",
+      "closure_comment_url": "https://github.com/yshishenya/graf/issues/6328#issuecomment-6224032292",
+      "closure_comment_sha256": "eb0e19c96d71879ad156d093042fa51e5b23e3da116c6b95e9728feaf0fdac7e",
+      "successor_mapping": "NOT_PLANNED duplicate; F216 T007/T008/T009 — #6097/#6099/#6098",
+      "successor_issues": [
+        6097,
+        6099,
+        6098
+      ],
+      "provenance_observed_at": "2026-10-19T08:15:36.623680+00:00"
     },
     {
       "number": 6329,
       "title": "[230][P2][governance] T015: Обновить generic harness schemas/templates/skill только portable правилами, без GRAF data.",
       "state_observed": "CLOSED",
       "url": "https://github.com/yshishenya/graf/issues/6329",
-      "body_sha256": "f796fcc930437b024b4521d1f2f5e09bf08b7e839db00889e97922f21cfad79c"
+      "body_sha256": "f796fcc930437b024b4521d1f2f5e09bf08b7e839db00889e97922f21cfad79c",
+      "state_reason_observed": "NOT_PLANNED",
+      "closed_at_observed": "2026-10-16T20:25:00Z",
+      "closure_comment_url": "https://github.com/yshishenya/graf/issues/6329#issuecomment-6224033797",
+      "closure_comment_sha256": "98ab553dc92f4fb048ca666a1a9b90944364cc7d8c6ed2bd009baf2d0644899f",
+      "successor_mapping": "NOT_PLANNED duplicate; F216 T032 — #6121",
+      "successor_issues": [
+        6121
+      ],
+      "provenance_observed_at": "2026-10-19T08:15:36.623684+00:00"
     },
     {
       "number": 6330,

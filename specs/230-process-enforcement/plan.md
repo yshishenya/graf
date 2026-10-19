@@ -29,7 +29,8 @@ checks; независимое reviewer-owned ревью требований и
 каждое исследование возвращает ограниченный ответ по назначенному вопросу.
 **Constraints**: не менять root AGENTS/CHANGELOG, generic package, workflow,
 защиты GitHub, приложение или данные. Сохранить незакоммиченную работу.
-**Scale/Scope**: 20 исходных task IDs; 12 отменённых дублей; 8 исполняемых задач.
+**Scale/Scope**: 20 исходных task IDs; 12 отменённых дублей; 8 прежних исполняемых задач
+и append-only T021 для незакреплённого операторского применения.
 Главная issue T000 остаётся внешним umbrella, не фиктивной строкой реализации.
 
 ## Constitution Check
@@ -52,16 +53,19 @@ checks; независимое reviewer-owned ревью требований и
    отменённые строки не превращать в completed tasks.
 2. Независимый design review `checklists/governance.md`, затем tasks/analyze;
    после появления tasks повторный review до реализации. Порог Critical0/High0.
-3. `speckit-taskstoissues`: только сверить существующие восемь владельцев;
-   mandatory issue-canon ensure/validate hooks. Не создавать дубли.
+3. `speckit-taskstoissues`: сохранить существующие восемь владельцев; после
+   analyze и поиска дублей найти или создать ровно одну issue-владельца T021
+   до реализации поправок. Mandatory issue-canon ensure/validate hooks; без дублей.
 4. Минимально дополнить `docs/agent-guidance/development-process.md` одной секцией.
-   Не дублировать текст в root или generic harness; текущая ссылка из root/index уже есть.
+   Не дублировать текст в root или generic harness; добавить маршрут в guidance README
+   и проверить переход AGENTS → README → процедура, включая задание без фичи.
 5. Ручной разбор пяти случаев из quickstart, независимое итоговое ревью,
    context/process/changelog/governance checks и git diff --check.
 6. Прогнать существующие четыре профильных test_* из quickstart. Нового parser
    или теста, проверяющего только буквальный текст инструкции, не добавлять.
 7. Converge сверяет весь spec: неполный rehearsal остаётся в T013, финальные
-   точные PR/fast ворота в T019. Уже существующие незавершённые задачи не дублируются.
+   точные PR/fast ворота в T019. Операторское применение закреплено append-only T021
+   с зависимостью от T013; существующие незавершённые задачи не дублируются.
 8. После отдельного разрешения commit выполнить финальные проверки на чистом
    exact SHA; GitHub governance-fast/macOS-pr/pr-metadata через общий validator.
    Никакого dirty bypass. Запрос merge и закрытие issue только после полного evidence.

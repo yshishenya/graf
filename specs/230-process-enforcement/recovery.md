@@ -14,7 +14,7 @@ spec/plan/tasks не найдены; файл не утверждает обра
 | T006 | #6320 | Добавить parallel/idempotent regression tests и проверить shared lock/atomic claim state. | NOT_PLANNED duplicate; F234 T001/T002 — #6374/#6375 |
 | T007 | #6321 | Привязать claim к umbrella issue/label и active `.specify/feature.json`. | NOT_PLANNED duplicate; F216 T005/T007 — #6092/#6097; F235 T001 — #6400 |
 | T008 | #6322 | Укрепить receipt validator для requested/start/end SHA, conclusion, cancellation и workflow identity. | NOT_PLANNED duplicate; F227 T005/T007/T014 — #6212 |
-| T009 | #6323 | Укрепить PR metadata validator/template для Feature ID, umbrella, task IDs, lane, SHA и Legacy Impact. | NOT_PLANNED duplicate; F227 T016/T025 — #6223 |
+| T009 | #6323 | Укрепить PR metadata validator/template для Feature ID, umbrella, task IDs, lane, SHA и Legacy Impact. | NOT_PLANNED duplicate; F227 T016/T025 — #6223; F234 T005 — #6378 |
 | T010 | #6324 | Добавить negative tests для stale, partial, changed-tree и mismatched base/event. | NOT_PLANNED duplicate; F227 T007/T013/T015 — #6222 |
 | T011 | #6325 | Проверить workflow contract для PR, manual и merge_group exact checkout/concurrency. | NOT_PLANNED duplicate; F227 T008–T012 — #6218 |
 | T012 | #6326 | Проверить authoritative merge-group mapping и fail-closed API errors. | NOT_PLANNED duplicate; F227 T010/T011 — #6217 |
@@ -40,3 +40,30 @@ comments остаются в GitHub. План F230 не повторяет их 
 наличием этого документа. Отмена дубликатов требует отдельной семантики closeout,
 которую текущий completed-validator не поддерживает; перед итоговым feature-closeout
 нужно согласованное общее решение, а не фиктивные completed rows или исключение F230.
+
+## Проверка оснований отмен — 2026-10-19
+
+Все 12 старых отмен перечитаны через GitHub: state=CLOSED, stateReason=NOT_PLANNED.
+Индекс сохраняет closure_comment_url, SHA256 полного комментария, время наблюдения,
+закрытия и точное сопоставление с преемниками; body_sha256 отдельно фиксирует описание.
+Это подтверждает основание отмены, а не заменяет итоговую приёмку всей фичи.
+
+| Task | Issue | Основание отмены | Комментарий | Преемники |
+|---|---|---|---|---|
+| T003 | #6317 | NOT_PLANNED | [исходное решение](https://github.com/yshishenya/graf/issues/6317#issuecomment-5585695303) | F227 T003/T007/T015 — #6210; F234 T002 — #6375 |
+| T004 | #6318 | NOT_PLANNED | [исходное решение](https://github.com/yshishenya/graf/issues/6318#issuecomment-5585606870) | F234 T001/T002 — #6374/#6375 |
+| T005 | #6319 | NOT_PLANNED | [исходное решение](https://github.com/yshishenya/graf/issues/6319#issuecomment-5585609118) | F234 T001/T002 — #6374/#6375 |
+| T006 | #6320 | NOT_PLANNED | [исходное решение](https://github.com/yshishenya/graf/issues/6320#issuecomment-5585609197) | F234 T001/T002 — #6374/#6375 |
+| T007 | #6321 | NOT_PLANNED | [исходное решение](https://github.com/yshishenya/graf/issues/6321#issuecomment-6224030599) | F216 T005/T007 — #6092/#6097; F235 T001 — #6400 |
+| T008 | #6322 | NOT_PLANNED | [исходное решение](https://github.com/yshishenya/graf/issues/6322#issuecomment-5585697028) | F227 T005/T007/T014 — #6212 |
+| T009 | #6323 | NOT_PLANNED | [исходное решение](https://github.com/yshishenya/graf/issues/6323#issuecomment-5585698795) | F227 T016/T025 — #6223; F234 T005 — #6378 |
+| T010 | #6324 | NOT_PLANNED | [исходное решение](https://github.com/yshishenya/graf/issues/6324#issuecomment-5585700492) | F227 T007/T013/T015 — #6222 |
+| T011 | #6325 | NOT_PLANNED | [исходное решение](https://github.com/yshishenya/graf/issues/6325#issuecomment-5585702298) | F227 T008–T012 — #6218 |
+| T012 | #6326 | NOT_PLANNED | [исходное решение](https://github.com/yshishenya/graf/issues/6326#issuecomment-5585704380) | F227 T010/T011 — #6217 |
+| T014 | #6328 | NOT_PLANNED | [исходное решение](https://github.com/yshishenya/graf/issues/6328#issuecomment-6224032292) | F216 T007/T008/T009 — #6097/#6099/#6098 |
+| T015 | #6329 | NOT_PLANNED | [исходное решение](https://github.com/yshishenya/graf/issues/6329#issuecomment-6224033797) | F216 T032 — #6121 |
+
+Восемь прежних исполняемых задач сохранены. Дополнительная T021/#7662 закрепляет
+незавершённое операторское применение после T013: это результат новой сверки,
+не изменение двадцати исходных task IDs. Более раннее утверждение об отсутствии
+новых задач в отчёте 16.10 историческое и исправлено этой записью.

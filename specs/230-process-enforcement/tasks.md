@@ -3,6 +3,7 @@
 **Input**: spec/plan/research/data-model/contracts/quickstart этой фичи.
 **Prerequisites**: независимый design review 18/18; перед реализацией повторный
 review этого tasks, analyze и taskstoissues. Номера исходных задач сохранены.
+T021 добавлена при повторной сверке 2026-10-19: отдельный владелец операторского применения.
 **Risk lane**: significant-feature, governance. **Umbrella**: #6314.
 
 Это реконструкция, не оригинальные потерянные байты. Полная таблица T001–T020,
@@ -17,7 +18,7 @@ review этого tasks, analyze и taskstoissues. Номера исходных
 ## Phase 2: Foundational — ворота до реализации
 
 - [X] T017 Выполнить speckit-analyze текущих `specs/230-process-enforcement/{spec.md,plan.md,tasks.md}` с конституцией; устранить Critical/High, не менять reviewer-owned checklist; сохранить read-only результат в журнале проверки. (Issue #6331; umbrella #6314)
-- [X] T018 Выполнить speckit-taskstoissues для `specs/230-process-enforcement/tasks.md`: сверить прежние восемь issues, canon/labels и отсутствие дублей, не создавать повторные задачи. (Issue #6332; umbrella #6314)
+- [X] T018 Выполнить speckit-taskstoissues для `specs/230-process-enforcement/tasks.md`: сверить прежние восемь issues, canon/labels и отсутствие дублей, не создавать повторные задачи. Для добавленной T021 после нового analyze и поиска дублей найти или создать ровно одного отдельного владельца до реализации поправок. (Issue #6332; umbrella #6314)
 
 ## Phase 3: User Story 1 — существующие механизмы (P1)
 
@@ -41,12 +42,16 @@ GET protection/rulesets/effective rules до/после; неизвестный 
 **Independent Test**: пять положительных/отрицательных сценариев из quickstart,
 дополнительно reviewer checklist исключение и запрет передачи секретов/контента.
 
-- [X] T016 [US3] Добавить одну секцию в `docs/agent-guidance/development-process.md`: read-only исследование, назначение executor/owner/worktree/owned paths, конфликт/новый scope и краткий evidence handoff; пройти пять сценариев и независимое итоговое ревью, результаты записать в `specs/230-process-enforcement/validation/agent-delegation-20261016.md`. (Issue #6330; umbrella #6314)
+- [X] T016 [US3] Добавить одну секцию в `docs/agent-guidance/development-process.md` и маршрут к ней в `docs/agent-guidance/README.md`: read-only исследование, назначение executor/owner/worktree/owned paths, конфликт/новый scope и краткий evidence handoff; пройти пять сценариев и независимое итоговое ревью, результаты записать в `specs/230-process-enforcement/validation/agent-delegation-20261016.md`. (Issue #6330; umbrella #6314)
 
 ## Phase 6: Final validation and convergence
 
 - [ ] T019 Выполнить `specs/230-process-enforcement/quickstart.md`, governance checks и `infra/scripts/ci-local.sh --fast` на финальном чистом exact SHA; проверить три required GitHub checks через `scripts/validate-pr-checks.py`; сохранить пределы и результаты в `specs/230-process-enforcement/validation/agent-delegation-20261016.md`. Dirty diagnostics, исходный base или чужой PR не заменяют финальные checks. (Issue #6333; umbrella #6314)
 - [X] T020 Выполнить speckit-converge всего `specs/230-process-enforcement/{spec.md,plan.md,tasks.md}`: новые пробелы добавлять только append-only в этот tasks.md; известные открытые T013/T019 не дублировать, operator-owned gates явно сохранить. (Issue #6334; umbrella #6314)
+
+## Дополнения по повторной сверке 2026-10-19
+
+- [ ] T021 [US2] Оператор F230 после принятой T013 выполняет согласованный переход required checks/режима слияния по `specs/230-process-enforcement/contracts/observe-only-rollout.md`; сохраняет точные before/after, разрешение, реальное испытание и проверку отката в `specs/230-process-enforcement/validation/operator-cutover.md`. Если защита уже включена, сначала проверить историю её перехода и остаток; повторно включать её ради отчёта нельзя. Отсутствие платформенного merge queue оставить открытым ограничением до принятого решения владельца; отсутствие доказательства не считать выполнением. (Issue #7662; umbrella #6314)
 
 ## Dependencies & Execution Order
 
@@ -54,7 +59,9 @@ GET protection/rulesets/effective rules до/после; неизвестный 
 После этих ворот T013 и T016 независимы; отсутствие реального merge_group не
 разрешает T013, но не блокирует письменную процедуру T016. Затем focused checks,
 независимое итоговое ревью и T020; T019 завершить только после разрешённого commit
-на чистом SHA и PR checks. Перед любым изменением design/tasks анализ и review
+на чистом SHA и PR checks. T021 выполняется только после принятой T013 и
+подготовленного конкретного операторского действия/отката; T019 её не заменяет.
+Перед любым изменением design/tasks анализ и review
 актуализируются. К реализации перейти только после полного PASS обязательных ворот.
 
 ## Parallel Opportunities
