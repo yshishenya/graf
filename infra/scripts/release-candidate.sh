@@ -649,10 +649,8 @@ def require_git_commit_relationship(base_sha, synthetic_sha, source_sha):
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except (OSError, subprocess.CalledProcessError):
             die(f"train {label} SHA does not resolve to a local commit")
-    for descendant_label, descendant in (("synthetic merge", synthetic_sha), ("source", source_sha)):
-        if subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", base_sha, descendant]).returncode == 0:
-            return
-    die("train base SHA must be an ancestor of the synthetic merge or source commit")
+    if subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", base_sha, source_sha]).returncode != 0:
+        die("train base SHA must be an ancestor of the source commit")
 
 def decision_identity_path(candidate_id):
     return DECISION_DIR / f".{candidate_id}.decision-identity.json"

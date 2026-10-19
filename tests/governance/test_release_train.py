@@ -132,6 +132,54 @@ def test_train_freeze_is_create_once_and_rejects_synthetic_source(tmp_path: Path
     assert "distinct" in invalid.stderr or "HEAD differs" in invalid.stderr
 
 
+def test_serial_train_requires_base_in_actual_source_history(tmp_path: Path) -> None:
+    root = _fixture(tmp_path)
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(["git", *args], cwd=root, text=True).strip()
+
+    source = git("rev-parse", "HEAD")
+    base = git("rev-parse", "HEAD^")
+    tree = git("rev-parse", "HEAD^{tree}")
+    synthetic = git("commit-tree", tree, "-p", base, "-p", source, "-m", "serial train")
+    args = [
+        "train-freeze", "--source-sha", source, "--base-sha", base,
+        "--synthetic-merge-sha", synthetic, "--prs", "101,102,103",
+        "--features", "227,228", "--operator", "release-operator",
+    ]
+    output = root / ".dev/release/trains/serial.json"
+    frozen = _run(root, *args, "--output", str(output))
+    assert frozen.returncode == 0, frozen.stderr
+    manifest = json.loads(output.read_text(encoding="utf-8"))
+    assert manifest["included_prs"] == [101, 102, 103]
+    assert manifest["source_sha"] == source
+    assert manifest["synthetic_merge_sha"] == synthetic != source
+    assert manifest["merge_group_ids"] == manifest["merge_group_receipts"] == []
+    validated = _run(root, "train-validate", str(output), "--current")
+    assert validated.returncode == 0, validated.stderr
+
+    unrelated_base = git("commit-tree", tree, "-m", "unrelated history")
+    unrelated_synthetic = git("commit-tree", tree, "-p", unrelated_base, "-m", "unrelated train")
+    assert subprocess.run(["git", "merge-base", "--is-ancestor", unrelated_base, source], cwd=root).returncode == 1
+    args[args.index("--base-sha") + 1] = unrelated_base
+    args[args.index("--synthetic-merge-sha") + 1] = unrelated_synthetic
+    rejected_path = output.with_name("unrelated.json")
+    rejected = _run(root, *args, "--output", str(rejected_path))
+    assert rejected.returncode != 0
+    assert "base SHA must be an ancestor of the source commit" in rejected.stderr
+    assert not rejected_path.exists()
+    assert not rejected_path.with_name(".unrelated.json.identity.json").exists()
+
+    args[args.index("--base-sha") + 1] = base
+    args[args.index("--synthetic-merge-sha") + 1] = "f" * 40
+    missing_path = output.with_name("missing.json")
+    missing = _run(root, *args, "--output", str(missing_path))
+    assert missing.returncode != 0
+    assert "synthetic merge SHA does not resolve to a local commit" in missing.stderr
+    assert not missing_path.exists()
+    assert not missing_path.with_name(".missing.json.identity.json").exists()
+
+
 def test_train_freeze_rejects_source_not_on_origin_master(tmp_path: Path) -> None:
     root = _fixture(tmp_path)
     source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()

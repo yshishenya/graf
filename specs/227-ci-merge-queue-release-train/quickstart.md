@@ -24,48 +24,46 @@ Validate synthetic PR, manual and `merge_group` payloads. A merge-group fixture
 must prove synthetic SHA, base SHA and PR mapping. Changed SHA or final tree
 drift must produce a terminal non-success receipt.
 
-## PR-ready gate
+## Действующий serial сценарий и регрессия происхождения
 
 ```sh
-infra/scripts/ci-local.sh --fast
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q \
+  tests/governance/test_release_train.py \
+  tests/governance/test_release_candidate.py \
+  tests/governance/test_merge_group_mapping.py \
+  tests/governance/test_ci_event_identity.py \
+  tests/governance/test_governance_workflow.py
+python3 scripts/validate-release-train.py --self-test
 ```
 
-Record the exact pass evidence path in the PR. Fast coverage remains partial and
-is not release approval.
+`test_release_train.py` создаёт временный Git repo и вызывает настоящий
+release-candidate с отдельным synthetic commit, как serial release operator.
+PR checks и Full CI в fixture подставлены: это проверка контрактов, не GitHub
+приёмка. Serial train сохраняет три PR и пустые merge-group collections.
+Несвязанная с source база должна отклоняться даже при связи с synthetic,
+без manifest/identity на диске. Временные repo создаются pytest отдельно от рабочих копий.
 
-## Release train rehearsal
+## PR и release gates
+
+Локальный `ci-local.sh --fast` — диагностический путь. Для PR обязательны
+`governance-fast`, `macos-pr`, `pr-metadata` на точном SHA и текущей основе:
 
 ```sh
-infra/scripts/release-candidate.sh train-freeze \
-  --source-sha <post-merge-master-sha> --base-sha <base-sha> \
-  --synthetic-merge-sha <merge-group-sha> --prs 101,102,103 \
-  --features 216,227 --merge-groups mg-1 \
-  --pr-receipts pr-101,pr-102,pr-103 --merge-group-receipts mg-1 \
-  --operator release-operator \
-  --output .dev/release/trains/train-<sha12>.json
-infra/scripts/release-candidate.sh train-validate \
-  .dev/release/trains/train-<sha12>.json --current
-
-infra/scripts/release-candidate.sh freeze --sha <post-merge-master-sha> \
-  --features 216,227 --train .dev/release/trains/train-<sha12>.json \
-  --operator release-operator \
-  --output .dev/release/candidates/rc-<sha12>.json
-infra/scripts/release-candidate.sh validate \
-  .dev/release/candidates/rc-<sha12>.json --current
-GRAF_CI_CANDIDATE_FILE=.dev/release/candidates/rc-<sha12>.json \
-  infra/scripts/ci-local.sh --full
-infra/scripts/release-candidate.sh train-attest \
-  .dev/release/trains/train-<sha12>.json \
-  --candidate .dev/release/candidates/rc-<sha12>.json \
-  --evidence .dev/ci-evidence/authoritative-<candidate-id>.json \
-  --output .dev/release/trains/train-<sha12>-go.json
-infra/scripts/release-candidate.sh decide \
-  .dev/release/candidates/rc-<sha12>.json \
-  --train .dev/release/trains/train-<sha12>-go.json \
-  --evidence .dev/ci-evidence/authoritative-<candidate-id>.json \
-  --calver YYYY.MM.DD.N \
-  --output .dev/release/decisions/<candidate-id>.decision.json
+python3 scripts/validate-pr-checks.py --repository yshishenya/graf --pr <номер>
 ```
 
-Never reuse evidence after `master` changes. Do not execute production deploy in
-this feature.
+Выпуск в этот срез не входит. Действующий operator `scripts/release.sh` собирает
+реальные PR proofs, создаёт synthetic commit и замораживает train/candidate на
+фактическом source. Один authoritative GitHub `release-full` запускается только
+для одобренного frozen candidate по действующей инструкции выпуска. Локальный
+`--full` не заменяет этот gate. Не запускать выпуск для проверки данного среза.
+
+Native `merge_group` rehearsal и authoritative API mapping T029/T031 остаются
+отдельными открытыми условиями перед будущим включением очереди. Синтетические
+fixtures и serial train их не выполняют. Защита GitHub не меняется.
+
+## Pinned harness
+
+Матрица Python 3.9/3.12 из закреплённого SHA и successful run описаны в
+[research.md](research.md#r8--закреплённая-матрица-переносимого-инструментария).
+Не обновлять pin и не считать исторический run текущей проверкой продукта.

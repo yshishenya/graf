@@ -82,3 +82,30 @@ post-merge train manifest → one authoritative Full CI → immutable decision
 - Release-candidate rehearsal with at least three synthetic PRs and one Full CI
   receipt.
 - Generic harness self-test on supported Python versions.
+
+## Текущий срез: T032–T033 (2026-10-17)
+
+Lane: `Active Spec Kit slice`, область infrastructure/release provenance.
+Сохраняются все исходные задачи и отдельные native merge-group gates.
+
+1. T032: уточнить serial/native границы, происхождение synthetic, pinned Python
+   matrix и воспроизводимые команды; независимое reviewer-owned ревью и анализ.
+2. T033: в существующем `require_git_commit_relationship` обязать base быть
+   предком source. Сохранить проверку существования трёх commits и все остальные
+   exact-SHA/cleanliness/PR/Full CI gates. Не добавлять nullable-поле или новый
+   режим. Проверить реальный serial commit-tree и несвязанную историю Git.
+
+Владение кодом: `infra/scripts/release-candidate.sh` и существующий
+`tests/governance/test_release_train.py`. Все вызовы общей функции прочитаны:
+её вызывает train-freeze; release operator `scripts/release.sh` уже создаёт
+корректный synthetic commit. Другие операции читают immutable manifest; менять
+их формат и пересоздавать исторические записи не требуется. Pending F259
+proof-binding меняет issue-closeout validator, пересечения кода нет.
+
+Продуктовый код, GitHub protection, очередь, pinned harness package и действующий
+runtime не меняются. Проверка проходит только в изолированном Git fixture;
+GitHub PR proofs и Full CI там подставлены тестом и не считаются живой приёмкой.
+После локальной проверки commit/PR и защищённое слияние выполняются по
+действующему общему разрешению пользователя. Нужны три обязательные проверки
+точного SHA/base; текущее слияние удерживается на окно F280. Выпуск отдельно.
+Конституция после проектирования соблюдена: защиты усилены, выпуск не исполняется.

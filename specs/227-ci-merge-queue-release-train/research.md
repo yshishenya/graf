@@ -39,3 +39,25 @@ embed every pull request in the group. The workflow must resolve the mapping
 from GitHub's authoritative merge-queue API using the group ID or synthetic SHA;
 commit-message parsing is not an acceptable source of provenance. Missing or
 ambiguous mapping is a terminal non-success state.
+
+## R7 — Применимость текущему master (2026-10-17)
+
+Решение: сохранить serial release operator и обязательный synthetic SHA.
+`scripts/release.sh` создаёт его через `git commit-tree` с деревом source и
+родителями base/source; успешный изолированный повтор подтверждён до изменений.
+Nullable SHA или новый режим не устраняют реальный дефект и не нужны.
+
+Реальный отказ защиты: base из отдельной истории принимается, если он предок
+synthetic. Общая функция останавливается на первом успешном из двух отношений.
+Решение: проверять обязательное base → source; synthetic остаётся метаданными.
+Не требуем source → synthetic: настоящий merge-group commit может предшествовать
+post-merge source и отличаться деревом; это не даёт права выпускать его вместо source.
+
+## R8 — Закреплённая матрица переносимого инструментария
+
+`harness/harness.lock.json`: v0.1.13, immutable SHA
+`6a8257186aee878087b68fd77716ddce595a012d`. Workflow self-test на этом SHA
+содержит Python 3.9 и 3.12, оба задания run 33497610330 attempt 1 прошли:
+https://github.com/yshishenya/graf-development-harness/actions/runs/33497610330
+Это историческая проверка закреплённой версии, не новый CI GRAF и не гарантия
+для всех версий Python >=3.9. Обновлять зависимость ради этого среза не нужно.
