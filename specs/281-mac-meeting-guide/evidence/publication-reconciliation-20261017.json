@@ -351,5 +351,36 @@
     },
     "new_product_tests_or_live_deploy_performed": false,
     "merge_hold": "F280 release window"
+  },
+  "rebase_recheck_20261019": {
+    "base": "f0ec4ee2485a7b1aa9a747cbb4ecb2ae7a69ee20",
+    "historical_snapshot": "03cea84dc5deb1d77ea7b4ac2356fa9819123aa9",
+    "unchanged_paths_since_snapshot": [
+      "apps/server/src/twobrain_rec_server/public/templates/public/_content_header.html",
+      "apps/server/src/twobrain_rec_server/public/templates/public/mac_meeting_guide.html",
+      "apps/server/src/twobrain_rec_server/public/templates/public/meeting_protocol_guide.html",
+      "apps/server/src/twobrain_rec_server/public/templates/public/transcription_quality_guide.html",
+      "apps/server/src/twobrain_rec_server/public/templates/public/guides.html",
+      "apps/server/src/twobrain_rec_server/public/templates/public/landing.html",
+      "apps/server/src/twobrain_rec_server/public/static/public/article.css",
+      "apps/server/src/twobrain_rec_server/public/static/public/content-header.css",
+      "apps/server/src/twobrain_rec_server/public/static/public/landing.js",
+      "apps/server/src/twobrain_rec_server/public/static/public/landing.css",
+      "apps/server/src/twobrain_rec_server/public/static/public/content.css"
+    ],
+    "current_sha256": {
+      "apps/server/src/twobrain_rec_server/public/templates/public/_content_header.html": "e47a57f1c801836fd2d64093bc124f535d71114f81822f9998d8f8adb9095694",
+      "apps/server/src/twobrain_rec_server/public/templates/public/mac_meeting_guide.html": "a8317dc3fb5358a939d855434f020956a310255c4741c64fe9c725c0b0e14edc",
+      "apps/server/src/twobrain_rec_server/public/templates/public/meeting_protocol_guide.html": "cc660231b63595b70815013f4018916ca995ae8c319343da8f99792d796a6886",
+      "apps/server/src/twobrain_rec_server/public/templates/public/transcription_quality_guide.html": "4b19478f48fadae717cd8b130e05938ee9746c791e0f3361c8a2c0d70363ea83",
+      "apps/server/src/twobrain_rec_server/public/templates/public/guides.html": "b6ccd8fa6542cc3a39aec1415a1b7719ca4afe8e7795074eaba1c39f00beecb1",
+      "apps/server/src/twobrain_rec_server/public/templates/public/landing.html": "b868cba7deb516890b71f8e9c79f2b8c3a445cc87d078d00dea757430d15d5ec",
+      "apps/server/src/twobrain_rec_server/public/static/public/article.css": "dc940cb6e1209b181235614a1a46066f258c2368fcc8dcac607b60b4e863f8d0",
+      "apps/server/src/twobrain_rec_server/public/static/public/content-header.css": "b649ada7476b2a40baec539c0bd6bbe5a6ce3b60d92db3ff749db169b4d5815f",
+      "apps/server/src/twobrain_rec_server/public/static/public/landing.js": "db64e4dcd20068c0d45e15b141d87e593f76f6eb55e395ce3ec5ed312922e7b4",
+      "apps/server/src/twobrain_rec_server/public/static/public/landing.css": "265802ea98a71bfd1ddaba4429aef369b7771c4a0fce735c365b54040723dc61",
+      "apps/server/src/twobrain_rec_server/public/static/public/content.css": "5289ff49bd2a622a02af3f605101acb046aba6e9d9f3e732889b45936dc1fc86"
+    },
+    "new_runtime_or_browser_execution": false
   }
 }
