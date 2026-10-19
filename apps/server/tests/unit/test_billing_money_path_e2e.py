@@ -1061,7 +1061,7 @@ def test_changed_offer_preserves_year_and_recalculates_promo(client, monkeypatch
     assert 'name="cycle" value="year"' in response.text
     assert 'name="promo_code" value="SAVE10"' in response.text
     assert 'name="offer_version" value="' + PUBLIC_APPROVED_OFFER_VERSION + '"' in response.text
-    assert "Оплатить 9 000 ₽ в ЮKassa" in response.text
+    assert "Оплатить 9 000 ₽ в ЮKassa" in re.sub(r"<[^>]+>", "", response.text)
     assert "<dt>Срок</dt><dd>Год после подтверждения оплаты</dd>" in response.text
     assert '<dt data-billing-renewal-label>При автопродлении</dt>' in response.text
     assert '<span data-billing-renewal-on>10 000 ₽ за год</span>' in response.text

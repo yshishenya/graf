@@ -189,7 +189,7 @@ def assert_checkout(response, *, today, renewal, cycle, promo):
     assert f"К оплате сегодня {today} ₽" in text
     assert f"При автопродлении {renewal} ₽ за {cycle}" in text
     assert ("Разовая скидка" in text) is bool(promo)
-    markup = re.sub(r"(?<=\d)\s+(?=\d)", "", unescape(response.text))
+    markup = re.sub(r"(?<=\d)\s+(?=\d)", "", unescape(re.sub(r"<[^>]+>", "", response.text)))
     assert f"Оплатить {today} ₽ в ЮKassa" in markup
     for name in ("offer_consent", "recurring_consent"):
         checkbox = re.search(rf'<input[^>]*name="{name}"[^>]*>', response.text)

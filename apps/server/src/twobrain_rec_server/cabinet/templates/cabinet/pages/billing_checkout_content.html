@@ -78,7 +78,7 @@
           <input type="hidden" name="cycle" value="{{ checkout_cycle }}">
           <label class="billing-consent"><input type="checkbox" name="offer_consent" value="true" required> <span>Принимаю <a href="/offer" target="_blank" rel="noopener">оферту</a>.</span></label>
           <label class="billing-consent"><input type="checkbox" name="recurring_consent" value="true" checked> <span>Разрешаю автоматические списания. Отключить можно в разделе «Тариф и оплата».</span></label>
-          <button class="button primary billing-checkout-form__submit" data-billing-primary type="submit">Оплатить {{ selected_price_label }} в ЮKassa</button>
+          <button class="button primary billing-checkout-form__submit" data-billing-primary type="submit"><span>Оплатить <span class="billing-checkout-form__amount">{{ selected_price_label }}</span> в ЮKassa</span></button>
         </form>
         {% endif %}
         {% elif not billing_enabled %}<p role="status">Оплата пока недоступна. Попробуйте позже.</p>

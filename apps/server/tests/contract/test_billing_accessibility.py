@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
@@ -15,6 +16,7 @@ TEMPLATE_ROOT = ROOT / "apps/server/src/twobrain_rec_server/cabinet/templates/ca
 @pytest.mark.browser
 def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
     from twobrain_rec_server.billing.catalog import plan_descriptor
+    from twobrain_rec_server.cabinet.web_routes.billing import _annual_saving_label
 
     context = dict(
         plan=plan_descriptor("personal"),
@@ -24,6 +26,7 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         checkout_quote_id="synthetic-quote",
         monthly_price_label="1 000 ₽",
         annual_price_label="10 000 ₽",
+        annual_saving_label=_annual_saving_label(100000, 1000000),
         csrf_token="synthetic",
         embedded=False,
         receipt_contact_ready=True,
@@ -49,6 +52,14 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         for name, result in (("checkout", None), ("error", "offer_changed"))
     }
     for name, changes in {
+        "checkout-discount": {
+            "checkout_has_discount": True,
+            "checkout_preview": {
+                "payable_amount_label": "711 ₽", "list_amount_label": "1 000 ₽",
+                "discount_label": "289 ₽", "next_amount_label": "1 000 ₽",
+                "cycle_label": "месяц",
+            },
+        },
         "checkout-first-annual": {
             "checkout_cycle": "year",
             "checkout_period_label": "Год после подтверждения оплаты",
@@ -428,7 +439,9 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         current_price_label="10 000 ₽", current_cycle_label="в год",
         next_charge_amount_label="12 500 ₽", next_charge_label="31.12.2027",
         manual_checkout_url="/billing/checkout?cycle=year", renewal_allowed=False,
-        subscription=SimpleNamespace(recurring_authority_version=7),
+        subscription=SimpleNamespace(
+            state="active", recurring_authority_version=7, renewal_resolution=None,
+        ),
         storage_used=715000000, storage_used_label="715 МБ", storage_capacity=10000000000,
         storage_capacity_label="10 ГБ", storage_reserved=0, storage_threshold="normal",
         processing_used_label="35 мин", processing_threshold="normal",
@@ -452,7 +465,7 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         pages[name] = render_template("cabinet/pages/billing_overview_content.html", **{**overview_context, **changes})
     from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 
-    for name in ("overview", "overview-renewal", "overview-editor", "overview-error", "overview-pending", "overview-member", "overview-unavailable", "usage-fresh", "packages-timeline-year", "checkout", "plans", "packages", "discounts", "discounts-history-year", "discounts-history-unknown", "discounts-error", "subscription-off-no-card", "subscription-off-ready", "subscription", "invoice-future", "invoice-service-gap", "invoice-receipt", "invoice-receipt-no-url", "invoice-intervals"):
+    for name in ("overview", "overview-renewal", "overview-editor", "overview-error", "overview-pending", "overview-member", "overview-unavailable", "usage-fresh", "packages-timeline-year", "checkout", "checkout-first-annual", "checkout-discount", "plans", "packages", "discounts", "discounts-history-year", "discounts-history-unknown", "discounts-error", "subscription-off-no-card", "subscription-off-ready", "subscription", "invoice-future", "invoice-service-gap", "invoice-receipt", "invoice-receipt-no-url", "invoice-intervals"):
         pages[f"shell-{name}"] = _page_shell(
             "Оплата", content=pages[name], embedded=False,
             csrf_token="synthetic", active_nav="settings", settings_active="billing",
@@ -706,7 +719,7 @@ def test_checkout_renders_server_calculated_promo_amounts() -> None:
     assert "Разовая скидка" in html
     assert "−79 ₽ (10%)" in html
     assert "711 ₽" in html
-    assert "Оплатить 711 ₽ в ЮKassa" in html
+    assert "Оплатить 711 ₽ в ЮKassa" in re.sub(r"<[^>]+>", "", html)
     assert 'action="/billing/checkout/preview"' in html
     assert 'name="promo_code" value="SAVE10"' in html
     assert 'form="billing-promo-preview" type="submit" name="preview_action" value="year"' in html

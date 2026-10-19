@@ -187,6 +187,161 @@ async function checkAdminNavigation(browser, tabKey) {
   console.log('admin: 16 real-base cases, 320/360/980/1280, both themes, JS/NoJS, seven links and keyboard navigation passed');
 }
 
+async function checkPeriodReflow(browser, tabKey) {
+  for (const name of ['shell-checkout', 'shell-checkout-first-annual', 'shell-checkout-discount', 'shell-plans']) {
+    for (const width of [320, 360, 1280]) for (const theme of ['light', 'dark']) {
+      for (const zoom of [2, 1]) for (const javaScriptEnabled of [false, true]) {
+        const label = `${name} period: ${width}px, ${theme}, ${zoom * 100}%, JS=${javaScriptEnabled}`;
+        const page = await browser.newPage({ javaScriptEnabled, viewport: { width, height: 900 } });
+        page.setDefaultTimeout(5000);
+        await page.route('https://graf.test/**', route => {
+          if (route.request().resourceType() === 'document') {
+            return route.fulfill({ contentType: 'text/html; charset=utf-8', body: pages[name] });
+          }
+          const filename = path.basename(new URL(route.request().url()).pathname);
+          const asset = [assets, publicAssets].map(dir => path.join(dir, filename))
+            .find(file => fs.existsSync(file) && fs.statSync(file).isFile());
+          return asset ? route.fulfill({ path: asset }) : route.fulfill({ status: 204 });
+        });
+        await page.goto('https://graf.test/billing');
+        await page.evaluate(({ theme, zoom }) => {
+          document.documentElement.dataset.theme = theme;
+          document.body.style.zoom = String(zoom);
+        }, { theme, zoom });
+        const controls = page.locator('.billing-period-switch :is(a, button)');
+        assert.equal(await controls.count(), 2, `${label}: both existing period controls present`);
+        if (name !== 'shell-plans') {
+          assert.equal(await controls.locator('small').textContent(), 'Экономия 2 000 ₽ (17%)',
+            `${label}: actual annual-saving fixture is exercised`);
+        }
+        const focusFailures = [];
+        for (const control of await controls.all()) {
+          for (let index = 0; index < 90 && !await control.evaluate(el => el === document.activeElement); index++) {
+            await page.keyboard.press(tabKey);
+          }
+          assert(await control.evaluate(el => el === document.activeElement), `${label}: keyboard reaches period`);
+          const bounds = await control.evaluate(el => {
+            const rect = el.getBoundingClientRect();
+            const style = getComputedStyle(el);
+            const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+            const lines = [];
+            while (walker.nextNode()) {
+              if (!walker.currentNode.textContent.trim()) continue;
+              const range = document.createRange();
+              range.selectNodeContents(walker.currentNode);
+              lines.push(...[...range.getClientRects()].map(line => ({
+                left: line.left, right: line.right, top: line.top, bottom: line.bottom,
+              })));
+            }
+            return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, lines,
+              outline: style.outlineStyle, outlineWidth: parseFloat(style.outlineWidth),
+              exposed: el.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)) };
+          });
+          assert(bounds.left >= -1 && bounds.right <= width + 1 && bounds.top >= -1 && bounds.bottom <= 901,
+            `${label}: focused period fits viewport ${JSON.stringify(bounds)}`);
+          assert(bounds.lines.length && bounds.lines.every(line => line.left >= bounds.left - 1
+            && line.right <= bounds.right + 1 && line.left >= -1 && line.right <= width + 1
+            && line.top >= bounds.top - 1 && line.bottom <= bounds.bottom + 1),
+          `${label}: every period text line fits control and viewport ${JSON.stringify(bounds)}`);
+          if (!bounds.exposed || bounds.outline === 'none' || bounds.outlineWidth <= 0) focusFailures.push(bounds);
+        }
+        assert.deepEqual(focusFailures, [], `${label}: period focus is visible and unobscured`);
+        if (name !== 'shell-plans') {
+          const amount = name === 'shell-checkout-first-annual' ? '10 000 ₽'
+            : name === 'shell-checkout-discount' ? '711 ₽' : '1 000 ₽';
+          assert.equal(await page.locator('.billing-order-summary__total dd').textContent(), amount,
+            `${label}: real payable amount is exercised`);
+          const submit = page.getByRole('button', { name: `Оплатить ${amount} в ЮKassa`, exact: true });
+          for (let index = 0; index < 90 && !await submit.evaluate(el => el === document.activeElement); index++) {
+            await page.keyboard.press(tabKey);
+          }
+          assert(await submit.evaluate(el => el === document.activeElement), `${label}: keyboard reaches pay action`);
+          const bounds = await submit.evaluate((el, amount) => {
+            const rect = el.getBoundingClientRect(), style = getComputedStyle(el);
+            const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+            const lines = [], characters = [];
+            while (walker.nextNode()) {
+              const node = walker.currentNode, range = document.createRange();
+              range.selectNodeContents(node);
+              lines.push(...[...range.getClientRects()].map(r => ({ left: r.left, right: r.right, top: r.top, bottom: r.bottom })));
+              for (let i = 0; i < node.length; i++) {
+                range.setStart(node, i); range.setEnd(node, i + 1);
+                const r = range.getBoundingClientRect();
+                characters.push({ value: node.textContent[i], top: r.top, bottom: r.bottom, left: r.left, right: r.right });
+              }
+            }
+            const start = el.textContent.indexOf(amount);
+            return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, lines,
+              amount: characters.slice(start, start + amount.length).filter(c => c.value.trim()),
+              outline: style.outlineStyle, outlineWidth: parseFloat(style.outlineWidth),
+              exposed: el.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)) };
+          }, amount);
+          assert(bounds.amount.length && bounds.amount.every(c => Math.abs(c.top - bounds.amount[0].top) <= 1),
+            `${label}: monetary amount stays on one line ${JSON.stringify(bounds)}`);
+          assert(bounds.left >= -1 && bounds.right <= width + 1 && bounds.top >= -1 && bounds.bottom <= 901,
+            `${label}: pay action fits viewport ${JSON.stringify(bounds)}`);
+          assert(bounds.lines.length && bounds.lines.every(line => line.left >= bounds.left - 1
+            && line.right <= bounds.right + 1 && line.left >= -1 && line.right <= width + 1
+            && line.top >= bounds.top - 1 && line.bottom <= bounds.bottom + 1),
+          `${label}: every pay text line fits action and viewport ${JSON.stringify(bounds)}`);
+          assert(bounds.exposed && bounds.outline !== 'none' && bounds.outlineWidth > 0,
+            `${label}: pay focus is visible and unobscured`);
+          if (visualDirectory && [320, 360].includes(width) && zoom === 2) {
+            await page.screenshot({ path: path.join(visualDirectory, `${name}-pay-${width}-${theme}-200-js${javaScriptEnabled}.png`) });
+          }
+        }
+        if (visualDirectory && [320, 360].includes(width) && zoom === 2) {
+          await page.screenshot({ path: path.join(visualDirectory, `${name}-period-${width}-${theme}-200-js${javaScriptEnabled}.png`) });
+        }
+        await page.close();
+      }
+    }
+  }
+  console.log('period: 96 full-shell cases, checkout month/year/discount buttons and plan links; 72 atomic payable amount cases; JS/NoJS, 320/360/1280, both themes, 100/200%, keyboard and every text line passed');
+}
+
+async function checkRenewalTimingReflow(browser) {
+  const explanation = 'Первая попытка списания планируется за 3 дня до конца оплаченного срока.';
+  for (const name of ['shell-subscription', 'shell-overview-renewal']) {
+    for (const width of [320, 360, 1280]) for (const theme of ['light', 'dark']) {
+      for (const zoom of [2, 1]) for (const javaScriptEnabled of [false, true]) {
+        const label = `${name} renewal timing: ${width}px, ${theme}, ${zoom * 100}%, JS=${javaScriptEnabled}`;
+        const page = await browser.newPage({ javaScriptEnabled, viewport: { width, height: 900 } });
+        await page.route('https://graf.test/**', route => {
+          if (route.request().resourceType() === 'document') {
+            return route.fulfill({ contentType: 'text/html; charset=utf-8', body: pages[name] });
+          }
+          const filename = path.basename(new URL(route.request().url()).pathname);
+          const asset = [assets, publicAssets].map(dir => path.join(dir, filename))
+            .find(file => fs.existsSync(file) && fs.statSync(file).isFile());
+          return asset ? route.fulfill({ path: asset }) : route.fulfill({ status: 204 });
+        });
+        await page.goto('https://graf.test/billing');
+        await page.evaluate(({ theme, zoom }) => {
+          document.documentElement.dataset.theme = theme;
+          document.body.style.zoom = String(zoom);
+        }, { theme, zoom });
+        const copy = page.getByText(explanation, { exact: true });
+        assert.equal(await copy.count(), 1, `${label}: one ordinary first-attempt explanation`);
+        assert(await copy.isVisible(), `${label}: explanation visible without expanding details`);
+        const lines = await copy.evaluate(el => {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          return [...range.getClientRects()].map(rect => ({ left: rect.left, right: rect.right }));
+        });
+        assert(lines.length && lines.every(line => line.left >= -1 && line.right <= width + 1),
+          `${label}: complete explanation fits viewport ${JSON.stringify(lines)}`);
+        if (visualDirectory && [320, 360].includes(width) && zoom === 2) {
+          await copy.scrollIntoViewIfNeeded();
+          await page.screenshot({ path: path.join(visualDirectory, `${name}-renewal-${width}-${theme}-200-js${javaScriptEnabled}.png`) });
+        }
+        await page.close();
+      }
+    }
+  }
+  console.log('renewal timing: 48 full-shell subscription/overview cases, JS/NoJS, 320/360/1280, both themes, 100/200%, complete visible explanation passed');
+}
+
 async function checkCancellationReflow(browser, tabKey) {
   for (const width of [320, 360, 1280]) for (const theme of ['light', 'dark']) {
     for (const zoom of [2, 1]) for (const javaScriptEnabled of [false, true]) {
@@ -270,6 +425,8 @@ async function checkCancellationReflow(browser, tabKey) {
   const tabKey = isWebKit ? 'Alt+Tab' : 'Tab';
   try {
     await checkAdminNavigation(browser, tabKey);
+    await checkPeriodReflow(browser, tabKey);
+    await checkRenewalTimingReflow(browser);
     await checkCancellationReflow(browser, tabKey);
     await checkCopyEnhancement(browser, tabKey);
     for (const [name, html] of Object.entries(pages)) {

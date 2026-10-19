@@ -1619,7 +1619,7 @@ def test_checkout_hides_publishable_price_when_store_is_disabled() -> None:
     )
     assert "Оплата пока недоступна" in html
     assert 'name="cycle" value="month"' not in html
-    assert "Оплатить 790 ₽" not in html
+    assert "Оплатить 790 ₽" not in re.sub(r"<[^>]+>", "", html)
 
 
 def test_manual_checkout_recovery_offers_continue_instead_of_noop_refresh() -> None:
@@ -1692,6 +1692,48 @@ def _subscription_view(**changes) -> str:
             **changes,
         },
     )
+
+
+@pytest.mark.parametrize(("subscription_changes", "view_changes", "expected"), [
+    ({}, {}, True),
+    ({"cycle": "year", "renewal_resolution": "succeeded"}, {}, True),
+    ({"renewal_resolution": "late_success"}, {}, True),
+    ({"recurring_allowed": False}, {}, False),
+    ({"plan_code": "free"}, {}, False),
+    ({"plan_code": "trial"}, {}, False),
+    ({}, {"active": False}, False),
+    ({}, {"next_charge_label": None}, False),
+    ({}, {"operation_pending": True}, False),
+    ({}, {"pending_payment_url": "/billing/history"}, False),
+    ({}, {"pending_charge_amount_label": "1 000 ₽"}, False),
+    ({}, {"renewal_notice": "Автопродление приостановлено.",
+          "renewal_action_url": "/billing/history", "renewal_action_label": "Поддержка"}, False),
+    *[({"renewal_resolution": resolution}, {}, False) for resolution in (
+        "pending", "unknown", "unknown_pending", "price_changed", "method_required",
+        "receipt_contact_required", "acceptance_budget", "provider_unavailable",
+        "catalog_not_approved", "provider_floor", "workspace_scope_invalid",
+        "manual_resume_required", "attempt_failed", "canceled", "provider_key_expired",
+        "authority_refused",
+    )],
+])
+def test_subscription_renewal_timing_explains_only_ordinary_active_renewal(
+    subscription_changes, view_changes, expected,
+):
+    sub = SimpleNamespace(**{
+        "plan_code": "personal", "state": "active", "cycle": "month",
+        "paid_through": datetime(2026, 11, 3, tzinfo=UTC),
+        "recurring_allowed": True, "recurring_authority_version": 7,
+        "renewal_resolution": None, **subscription_changes,
+    })
+    html = _subscription_view(subscription=sub, **view_changes)
+    visible = re.sub(r"<details\b.*?</details>", "", html, flags=re.S)
+    explanation = "Первая попытка списания планируется за 3 дня до конца оплаченного срока."
+    assert (explanation in visible) is expected
+    if expected:
+        assert visible.index("Следующее списание") < visible.index(explanation)
+        assert "31.10.2026, 12:19 (UTC+03:00)" in visible
+        assert "03.11.2026" in visible
+        assert "1 000 ₽" in visible
 
 
 @pytest.mark.parametrize("resolution", [
