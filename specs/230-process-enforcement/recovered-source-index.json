@@ -1,0 +1,154 @@
+{
+  "recovered_on": "2026-10-16",
+  "base_sha": "c6c5441c930b8c1ecffed6de9b80773aa0e757e5",
+  "source_kind": "current public GitHub issues; reconstruction, not recovered original bytes",
+  "issues": [
+    {
+      "number": 6314,
+      "title": "[230][P1][governance] T000: Завершить безопасный enforcement процесса разработки",
+      "state_observed": "OPEN",
+      "url": "https://github.com/yshishenya/graf/issues/6314",
+      "body_sha256": "9182e158c2012deaa00a6982bc4d350f6b125b65d72676e6871a16d9ef0c5277"
+    },
+    {
+      "number": 6315,
+      "title": "[230][P1][governance] T001: [P] Зафиксировать allocator и enforcement contracts, data model и exact base SHA.",
+      "state_observed": "OPEN",
+      "url": "https://github.com/yshishenya/graf/issues/6315",
+      "body_sha256": "8befd6b3b536aebc86aedd80827030f6a4eb8166d6582e6553515c0e7ad74ad0"
+    },
+    {
+      "number": 6316,
+      "title": "[230][P1][governance] T002: [P] Добавить metadata-only changelog fragment `changes/unreleased/F230.yaml`.",
+      "state_observed": "OPEN",
+      "url": "https://github.com/yshishenya/graf/issues/6316",
+      "body_sha256": "4bb4910f37117d92797db254886e80f7d44a616c73f0407d51f64f4446c7636a"
+    },
+    {
+      "number": 6317,
+      "title": "[230][P1][governance] T003: [P] Добавить synthetic fixtures для branch self-collision, timeout, PR/manual/merge_group и stale receipt.",
+      "state_observed": "CLOSED",
+      "url": "https://github.com/yshishenya/graf/issues/6317",
+      "body_sha256": "4039d5084396bb24b59d1cfc60259be06cba16ddd2369490c57676e5d4f96615"
+    },
+    {
+      "number": 6318,
+      "title": "[230][P1][governance] T004: Исправить `scripts/claim-feature.py`, чтобы requested branch не считался внешней коллизией.",
+      "state_observed": "CLOSED",
+      "url": "https://github.com/yshishenya/graf/issues/6318",
+      "body_sha256": "6829bdc29e2b4a3416c83ecbd07cfe6cf8d89cf5f320fc47046baaf2e7f0d738"
+    },
+    {
+      "number": 6319,
+      "title": "[230][P1][governance] T005: Добавить bounded GitHub scan с различением `free`, `occupied` и `blocked` и без ложной записи при timeout.",
+      "state_observed": "CLOSED",
+      "url": "https://github.com/yshishenya/graf/issues/6319",
+      "body_sha256": "3632fd4ebf28531110c9009152bdfa8a75cd462234d563e2a125ee7a29b57788"
+    },
+    {
+      "number": 6320,
+      "title": "[230][P1][governance] T006: Добавить parallel/idempotent regression tests и проверить shared lock/atomic claim state.",
+      "state_observed": "CLOSED",
+      "url": "https://github.com/yshishenya/graf/issues/6320",
+      "body_sha256": "1d2356938d458de5e8589f0e943f35567b1faff863f4482e82e9ee6cf3829bc5"
+    },
+    {
+      "number": 6321,
+      "title": "[230][P1][governance] T007: Привязать claim к umbrella issue/label и active `.specify/feature.json`.",
+      "state_observed": "CLOSED",
+      "url": "https://github.com/yshishenya/graf/issues/6321",
+      "body_sha256": "a7419c4556611475b9bcc0507c1f95f0902ea17035f24d62f995bfc5af0d4dfd"
+    },
+    {
+      "number": 6322,
+      "title": "[230][P1][governance] T008: Укрепить receipt validator для requested/start/end SHA, conclusion, cancellation и workflow identity.",
+      "state_observed": "CLOSED",
+      "url": "https://github.com/yshishenya/graf/issues/6322",
+      "body_sha256": "e787f56606bc939b56274e7c763b854d6ae4e1b2a5297b1cc6a87d7d5d70d762"
+    },
+    {
+      "number": 6323,
+      "title": "[230][P1][governance] T009: Укрепить PR metadata validator/template для Feature ID, umbrella, task IDs, lane, SHA и Legacy Impact.",
+      "state_observed": "CLOSED",
+      "url": "https://github.com/yshishenya/graf/issues/6323",
+      "body_sha256": "c5afba683d722833fd6fe25d6205136cf48f33362c7fdd99d42ec84a8679ac09"
+    },
+    {
+      "number": 6324,
+      "title": "[230][P1][governance] T010: Добавить negative tests для stale, partial, changed-tree и mismatched base/event.",
+      "state_observed": "CLOSED",
+      "url": "https://github.com/yshishenya/graf/issues/6324",
+      "body_sha256": "efe3cc6416489b51e40c83935baa099c11c9efc9499d0ca4b608b2ccd11b93e6"
+    },
+    {
+      "number": 6325,
+      "title": "[230][P1][governance] T011: Проверить workflow contract для PR, manual и merge_group exact checkout/concurrency.",
+      "state_observed": "CLOSED",
+      "url": "https://github.com/yshishenya/graf/issues/6325",
+      "body_sha256": "22ef61ef6dd55a07e108bf1d768786a8805979c5dac805d8a051483bbafb142b"
+    },
+    {
+      "number": 6326,
+      "title": "[230][P1][governance] T012: Проверить authoritative merge-group mapping и fail-closed API errors.",
+      "state_observed": "CLOSED",
+      "url": "https://github.com/yshishenya/graf/issues/6326",
+      "body_sha256": "3732f99abd6ab821ec543c490b456f0f8b536d1fdebbf832ef918f2773d9f00d"
+    },
+    {
+      "number": 6327,
+      "title": "[230][P1][governance] T013: Подготовить observe-only rehearsal report и explicit rollback procedure; required checks не включать автоматически.",
+      "state_observed": "OPEN",
+      "url": "https://github.com/yshishenya/graf/issues/6327",
+      "body_sha256": "8769babc2637d8826a18db077354a8888b0587d326d93a1c4622f65276b60bb7"
+    },
+    {
+      "number": 6328,
+      "title": "[230][P2][governance] T014: Проверить root-router size, active pointer fail-closed и отсутствие mtime fallback.",
+      "state_observed": "CLOSED",
+      "url": "https://github.com/yshishenya/graf/issues/6328",
+      "body_sha256": "cb5e0d08de768129cbf887af15574feed800999569d7056d5797c4ccff5ced2a"
+    },
+    {
+      "number": 6329,
+      "title": "[230][P2][governance] T015: Обновить generic harness schemas/templates/skill только portable правилами, без GRAF data.",
+      "state_observed": "CLOSED",
+      "url": "https://github.com/yshishenya/graf/issues/6329",
+      "body_sha256": "f796fcc930437b024b4521d1f2f5e09bf08b7e839db00889e97922f21cfad79c"
+    },
+    {
+      "number": 6330,
+      "title": "[230][P2][governance] T016: Добавить инструкции для subagents: read-only explorers возвращают summary/evidence, write agents имеют один owner/worktree.",
+      "state_observed": "OPEN",
+      "url": "https://github.com/yshishenya/graf/issues/6330",
+      "body_sha256": "1a98367d62c587c023f7c050f7669cbca78f0bcf1738c0a1edefc6bfdec738b0"
+    },
+    {
+      "number": 6331,
+      "title": "[230][P1][governance] T017: Запустить speckit-analyze, устранить Critical/High findings, не меняя reviewer-owned checklists.",
+      "state_observed": "OPEN",
+      "url": "https://github.com/yshishenya/graf/issues/6331",
+      "body_sha256": "7c7b81b497390114a0226cbc44a1755821a6c36c299779a28591b01a02a8f4a1"
+    },
+    {
+      "number": 6332,
+      "title": "[230][P1][governance] T018: Запустить speckit-taskstoissues, проверить canonical labels/titles и отсутствие дубликатов.",
+      "state_observed": "OPEN",
+      "url": "https://github.com/yshishenya/graf/issues/6332",
+      "body_sha256": "a763747e0f2a8dd13a2e20d207d9a248d8c2e1cc5950bf96b90992b956cba751"
+    },
+    {
+      "number": 6333,
+      "title": "[230][P1][governance] T019: Запустить quickstart, governance tests и `infra/scripts/ci-local.sh --fast` на финальном exact SHA.",
+      "state_observed": "OPEN",
+      "url": "https://github.com/yshishenya/graf/issues/6333",
+      "body_sha256": "4a4844704fdf22b1331a08daeb5458fc3e62a0c211ebcbeb892e4fc4179a4ad6"
+    },
+    {
+      "number": 6334,
+      "title": "[230][P1][governance] T020: Запустить speckit-converge append-only и зафиксировать оставшиеся operator-owned gates.",
+      "state_observed": "OPEN",
+      "url": "https://github.com/yshishenya/graf/issues/6334",
+      "body_sha256": "fd63c6904663679d117ee528f76e50fc84a4d334cff938d83ce7d6444e542615"
+    }
+  ]
+}
