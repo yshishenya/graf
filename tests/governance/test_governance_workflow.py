@@ -183,7 +183,7 @@ def test_governance_text_event_cannot_enter_heavy_or_receipt_steps() -> None:
             continue
         if step.get('name') == 'Checkout current workflow tools':
             assert step['if'] == "needs.scope.outputs.text_only == 'true'"
-            assert step['uses'] == 'actions/checkout@v4'
+            assert step['uses'] == 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
             assert step['with']['ref'] == '${{ github.workflow_sha }}'
             assert step['with']['path'] == '.ci-tools'
         elif '--reuse-component' in step.get('run', ''):
@@ -240,7 +240,7 @@ def test_actual_governance_text_path_propagates_proof_result_without_new_receipt
                    'GITHUB_RUN_ID': '25', 'GITHUB_RUN_ATTEMPT': '1'}
     for step in selected:
         if 'uses' in step:
-            assert step['uses'] == 'actions/checkout@v4'
+            assert step['uses'] == 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
             if step['name'] == 'Checkout current workflow tools':
                 assert step['with']['ref'] == '${{ github.workflow_sha }}'
                 assert step['with']['path'] == '.ci-tools'
@@ -360,3 +360,106 @@ ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ff
         assert installs == []
     if not failed:
         assert rows.count("ffmpeg") == rows.count("ffprobe") == 1
+
+
+ACTION_PINS = {
+    'actions/checkout': '3d3c42e5aac5ba805825da76410c181273ba90b1',
+    'actions/cache': '55cc8345863c7cc4c66a329aec7e433d2d1c52a9',
+    'actions/setup-node': '949feb2413d6458794dcd2491c4babbbce0c15c1',
+    'actions/setup-python': '5fda3b95a4ea91299a34e894583c3862153e4b97',
+    'actions/upload-artifact': 'cf430e030ddbb5b0abf93d22962f4752f3646cd9',
+    'actions/download-artifact': '9000827ccba6bdab643e8b6fd33ac0654aef8333',
+}
+
+
+def test_actions_use_reviewed_node24_pins_and_preserve_artifact_contract():
+    import yaml
+
+    found = set()
+    for path in (ROOT / '.github/workflows').glob('*.yml'):
+        workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+        for job in workflow['jobs'].values():
+            for step in job.get('steps', []):
+                if 'uses' not in step:
+                    continue
+                action, pin = step['uses'].split('@')
+                assert pin == ACTION_PINS[action], (path.name, action, pin)
+                found.add(action)
+                inputs = step.get('with', {})
+                if action == 'actions/checkout':
+                    assert inputs['persist-credentials'] == 'false'
+                elif action == 'actions/setup-node':
+                    assert inputs['package-manager-cache'] == 'false'
+                    assert inputs['node-version'] == '22.22.3'
+                elif action == 'actions/upload-artifact':
+                    assert inputs['archive'] == 'true'
+                    assert inputs['name']
+                elif action == 'actions/download-artifact':
+                    assert inputs.get('skip-decompress', 'false') == 'false'
+                    assert inputs.get('digest-mismatch', 'error') == 'error'
+        assert 'ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION' not in path.read_text()
+        assert 'FORCE_JAVASCRIPT_ACTIONS_TO_NODE' not in path.read_text()
+    assert found == set(ACTION_PINS)
+
+
+@pytest.mark.parametrize('workflow_name', ['macos-pr', 'release-full', 'macos-diagnostic'])
+@pytest.mark.parametrize('scenario', [
+    'valid', 'missing-swift', 'missing-swiftc', 'wrong-swift', 'wrong-swiftc',
+    'prefix-version', 'swift-error', 'swiftc-error', 'sdk-error', 'sdk-drift', 'developer-drift',
+])
+def test_actual_native_toolchain_selection(tmp_path, workflow_name, scenario):
+    import yaml
+
+    workflow = yaml.load((ROOT / f'.github/workflows/{workflow_name}.yml').read_text(), Loader=yaml.BaseLoader)
+    steps = [step for job in workflow['jobs'].values() for step in job.get('steps', [])]
+    selectors = [step for step in steps if step.get('name') == 'Select installed Swift 6.0.3']
+    assert len(selectors) == 1, 'must replace Node20 setup-swift with guarded native selection'
+    command = selectors[0]['run']
+    assert 'DEVELOPER_DIR=' not in command and 'SDKROOT=' not in command
+    assert 'xcode-select --switch' not in command and 'TOOLCHAINS=' not in command
+    toolchain = tmp_path / 'Xcode_16.2.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin'
+    toolchain.mkdir(parents=True)
+    for tool in ('swift', 'swiftc'):
+        if scenario == f'missing-{tool}':
+            continue
+        version = '6.0.31' if scenario == 'prefix-version' else '6.0.2' if scenario == f'wrong-{tool}' else '6.0.3'
+        executable = toolchain / tool
+        executable.write_text(f'#!/bin/sh\nprintf "Apple Swift version {version} (swiftlang-test)\\n"\nexit {1 if scenario == tool+"-error" else 0}\n')
+        executable.chmod(0o755)
+    for tool, initial, changed in [('xcrun', '/synthetic/SDK', '/synthetic/OtherSDK'), ('xcode-select', '/synthetic/Developer', '/synthetic/OtherDeveloper')]:
+        executable = tmp_path / tool
+        counter = tmp_path / f'{tool}-called'
+        drift = scenario == ('sdk-drift' if tool == 'xcrun' else 'developer-drift')
+        executable.write_text(
+            '#!/bin/sh\n' +
+            ('exit 1\n' if tool == 'xcrun' and scenario == 'sdk-error' else
+             f'if [ -f "{counter}" ]; then printf "%s\\n" "{changed if drift else initial}"; else touch "{counter}"; printf "%s\\n" "{initial}"; fi\n')
+        )
+        executable.chmod(0o755)
+    github_path = tmp_path / 'github-path'
+    github_path.write_text('existing-entry\n')
+    # Execute the actual YAML shell; only the three platform filesystem roots
+    # are replaced, so no installed compiler or developer directory is changed.
+    command = command.replace('/Applications/Xcode_16.2.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin', str(toolchain))
+    command = command.replace('/usr/bin/xcrun', str(tmp_path / 'xcrun')).replace('/usr/bin/xcode-select', str(tmp_path / 'xcode-select'))
+    result = subprocess.run(['bash', '-c', command], cwd=tmp_path, env={**os.environ, 'GITHUB_PATH': str(github_path)}, capture_output=True, text=True)
+    if scenario == 'valid':
+        assert result.returncode == 0, result.stderr
+        assert github_path.read_text() == f'existing-entry\n{toolchain}\n'
+        assert '/synthetic/SDK' in result.stdout
+    else:
+        assert result.returncode != 0, result.stdout
+        assert github_path.read_text() == 'existing-entry\n'
+
+
+@pytest.mark.parametrize('workflow_name', ['governance-fast', 'release-full'])
+@pytest.mark.parametrize('replacement', ['v4', 'v99', '0' * 40])
+def test_workflow_validators_reject_unreviewed_action_pin(tmp_path, workflow_name, replacement):
+    validator_path = ROOT / f'scripts/validate-{"governance" if workflow_name == "governance-fast" else "full-ci"}-workflow.py'
+    spec = importlib.util.spec_from_file_location('action_pin_validator', validator_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    source = (ROOT / f'.github/workflows/{workflow_name}.yml').read_text()
+    path = tmp_path / 'workflow.yml'
+    path.write_text(source.replace('actions/checkout@' + ACTION_PINS['actions/checkout'], 'actions/checkout@' + replacement, 1))
+    assert module.validate(path), 'a single unreviewed checkout must fail even when other checkouts match'
