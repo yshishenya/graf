@@ -117,6 +117,8 @@ def test_build_skips_archive_and_removes_build_directory(monkeypatch, tmp_path):
 
 
 def test_promote_archives_previous_manifest_and_removes_stale_sets(monkeypatch, tmp_path):
+    # Model an adopted runtime; all external effects below are replaced.
+    monkeypatch.setattr(dev_harness, "_state_ownership", lambda *a, **kw: True)
     state = tmp_path / "state"
     previous = manifest(tmp_path, "a" * 40)
     candidate = manifest(tmp_path, "b" * 40)
@@ -266,6 +268,8 @@ def _make_prune_state(tmp_path: Path, *, unfinished: bool = False, rollback_requ
 
 
 def test_prune_dry_run_reports_without_mutation_then_applies(monkeypatch, tmp_path):
+    # This checks shared-state retention, including mocked Docker tag removal.
+    monkeypatch.setattr(dev_harness, "_state_ownership", lambda *a, **kw: True)
     state, active, parent, stale_set, snapshot = _make_prune_state(tmp_path)
     monkeypatch.setenv("GRAF_DEV_STATE_DIR", str(state))
     monkeypatch.setenv("TWOBRAIN_ENV", "development")

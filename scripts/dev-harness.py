@@ -18,6 +18,7 @@ import plistlib
 from pathlib import Path
 import re
 import signal
+import stat
 import tarfile
 import shutil
 import socket
@@ -129,20 +130,287 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def _repo_identity() -> str:
-    """Return one stable repository identity shared by every Git worktree."""
+def _canonical_repository(value: str) -> str:
+    """Accept only unambiguous, credential-free GitHub repository URLs."""
+    error = "unsupported or ambiguous GitHub origin"
+    if (not isinstance(value, str) or any(ord(c) < 33 or ord(c) == 127 for c in value)
+            or any(c in value for c in "?#%\\")):
+        raise HarnessError(error)
+    scp = re.fullmatch(r"git@github\.com:(.+)", value, re.IGNORECASE)
+    if scp:
+        path = scp[1]
+    else:
+        try:
+            url = urlsplit(value)
+        except ValueError:
+            raise HarnessError(error) from None
+        authority = {"https": "github.com", "ssh": "git@github.com"}.get(url.scheme)
+        if authority is None or url.netloc.lower() != authority or url.query or url.fragment:
+            raise HarnessError(error)
+        if not url.path.startswith("/"):
+            raise HarnessError(error)
+        path = url.path[1:]
+    if path.endswith("/"):
+        path = path[:-1]
+    if path.lower().endswith(".git"):
+        path = path[:-4]
+    parts = path.split("/")
+    if len(parts) != 2:
+        raise HarnessError(error)
+    owner, repo = parts
+    if (not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?", owner)
+            or "--" in owner or not re.fullmatch(r"[A-Za-z0-9_.-]{1,100}", repo)
+            or repo in {".", ".."}):
+        raise HarnessError(error)
+    return f"github.com/{owner.lower()}/{repo.lower()}"
+
+
+def _repo_identity(root: Optional[Path] = None) -> str:
+    """Compare configured and effective origin; never fall back to a basename."""
     try:
-        common_dir = Path(
-            subprocess.check_output(
-                ["git", "rev-parse", "--git-common-dir"],
-                cwd=_repo_root(),
-                text=True,
-                stderr=subprocess.DEVNULL,
-            ).strip()
-        ).resolve()
-    except (OSError, subprocess.CalledProcessError):
-        common_dir = _repo_root()
-    return common_dir.parent.name if common_dir.name == ".git" else common_dir.name
+        options = {"cwd": root or _repo_root(), "text": True, "stderr": subprocess.DEVNULL, "timeout": 10}
+        raw = subprocess.check_output(["git", "config", "--null", "--get-all", "remote.origin.url"], **options)
+        urls = raw.split("\0")
+        if len(urls) != 2 or urls[-1] != "":
+            raise HarnessError("origin must have exactly one repository URL")
+        identity = _canonical_repository(urls[0])
+        effective = subprocess.check_output(["git", "remote", "get-url", "--all", "origin"], **options)
+        if not effective.endswith("\n") or _canonical_repository(effective[:-1]) != identity:
+            raise HarnessError("effective origin differs from the configured repository")
+        return identity
+    except (OSError, subprocess.SubprocessError):
+        # Git diagnostics can contain credential-bearing URLs.
+        raise HarnessError("cannot establish repository identity from Git") from None
+
+
+def _machine_state_base() -> Path:
+    return Path.home() / ("Library/Application Support" if sys.platform == "darwin" else ".cache") / "GRAF Dev"
+
+
+def _checked_state_path(path: Path, *, file: bool = False) -> Path:
+    """Check original components before resolving; missing tails are allowed."""
+    path = path.expanduser()
+    if not path.is_absolute() or ".." in path.parts:
+        raise HarnessError("Dev state requires an absolute unambiguous path")
+    for component in [*reversed(path.parents), path]:
+        try:
+            info = component.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(info.st_mode):
+            raise HarnessError("symlinked Dev state path is forbidden")
+        if component != path and not stat.S_ISDIR(info.st_mode):
+            raise HarnessError("Dev state ancestor must be a directory")
+        if info.st_uid not in {0, os.getuid()}:
+            raise HarnessError("Dev state path has a foreign owner")
+        if component == path:
+            expected = stat.S_ISREG if file else stat.S_ISDIR
+            if not expected(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o022:
+                raise HarnessError("Dev state has an unsafe type, owner or access mode")
+    lowered = str(path).lower()
+    if (path in {Path('/'), Path.home(), DEV_APP_PATH, PRODUCTION_APP_PATH}
+            or DEV_APP_PATH in path.parents or PRODUCTION_APP_PATH in path.parents
+            or any(token in lowered for token in ("production", "prod-data", "prod_data"))):
+        raise HarnessError("unsafe or production-looking Dev state path")
+    return path
+
+
+def _read_repository_binding() -> Optional[Dict[str, Any]]:
+    base = _checked_state_path(_machine_state_base())
+    path = _checked_state_path(base / "repository-state.json", file=True)
+    if not path.exists():
+        return None
+    try:
+        binding = _read_json(path)
+        if set(binding) != {"schema_version", "repository", "state_root", "adopted_active_sha", "adopted_at"}:
+            raise ValueError()
+        if binding["schema_version"] != "graf-dev-repository-state.v1":
+            raise ValueError()
+        if _canonical_repository("https://" + binding["repository"]) != binding["repository"]:
+            raise ValueError()
+        root = _adoption_root(Path(binding["state_root"]))
+        if str(root) != binding["state_root"] or not root.is_dir():
+            raise ValueError()
+        sha = binding["adopted_active_sha"]
+        if sha is not None and (not isinstance(sha, str) or not SHA_RE.fullmatch(sha)):
+            raise ValueError()
+        stamp = binding["adopted_at"]
+        if not isinstance(stamp, str) or not stamp.endswith("Z"):
+            raise ValueError()
+        dt.datetime.fromisoformat(stamp[:-1] + "+00:00")
+    except (HarnessError, ValueError, TypeError, KeyError, OSError):
+        raise HarnessError("invalid repository binding; explicit recovery is required") from None
+    return binding
+
+
+def _adoption_root(root: Path) -> Path:
+    root = _checked_state_path(root)
+    _checked_state_path(root.parent)
+    base = _checked_state_path(_machine_state_base())
+    if root.name != "harness" or root.parent.parent != base or not MANIFEST_RE.fullmatch(root.parent.name):
+        raise HarnessError("adopted state must be <GRAF Dev>/<storage-name>/harness")
+    return root
+
+
+def _state_ownership(root: Path, *, live: bool = False, repository_root: Optional[Path] = None) -> bool:
+    """Return shared ownership, or allow only disjoint explicit file fixtures."""
+    root = _checked_state_path(root)
+    binding = _read_repository_binding()
+    if binding:
+        if _repo_identity(repository_root) != binding["repository"]:
+            raise HarnessError("Dev state belongs to another repository")
+        shared = Path(binding["state_root"])
+        if root == shared:
+            return True
+        if root in shared.parents or shared in root.parents:
+            raise HarnessError("fixture state must not overlap the shared state")
+    if live:
+        raise HarnessError("live Dev operations require the adopted repository-global state directory")
+    base = _machine_state_base()
+    if root == base or base in root.parents or root in base.parents:
+        raise HarnessError("unadopted machine state is not an isolated fixture")
+    return False
+
+
+def global_state_dir() -> Path:
+    binding = _read_repository_binding()
+    if not binding:
+        raise HarnessError("Dev repository-global state is unbound; explicit adopt-state is required")
+    root = Path(binding["state_root"])
+    _state_ownership(root, live=True)
+    return root
+
+
+def state_dir(*, live: bool = False) -> Path:
+    raw = os.environ.get("GRAF_DEV_STATE_DIR")
+    root = Path(raw).expanduser() if raw else global_state_dir()
+    _state_ownership(root, live=live)
+    return root
+
+
+@contextlib.contextmanager
+def _state_file_lock(path: Path) -> Iterator[None]:
+    _checked_state_path(path, file=True)
+    if fcntl is None:
+        raise HarnessError("Dev state locking is unavailable")
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        info = os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+                or info.st_mode & 0o022 or info.st_nlink != 1):
+            raise HarnessError("unsafe Dev state lock")
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        _checked_state_path(path, file=True)
+        current = path.lstat()
+        if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
+            raise HarnessError("Dev state lock was replaced while waiting")
+        yield
+    finally:
+        os.close(fd)
+
+
+def _assert_empty_dev_machine() -> None:
+    if sys.platform != "darwin" or DEV_APP_PATH.exists() or DEV_APP_PATH.is_symlink():
+        raise HarnessError("cannot prove the absence of the installed Dev app")
+    try:
+        process = subprocess.run(["pgrep", "-f", r"GRAF Dev.app/Contents/MacOS/"],
+                                 capture_output=True, timeout=10)
+        if process.returncode != 1:
+            raise HarnessError("Dev app process is present or its absence is unknown")
+        runtime = subprocess.check_output(
+            ["docker", "ps", "-aq", "--filter", "label=com.docker.compose.project=graf-dev"],
+            text=True, stderr=subprocess.DEVNULL, timeout=10)
+        if runtime.strip():
+            raise HarnessError("graf-dev runtime is present")
+        volumes = subprocess.check_output(
+            ["docker", "volume", "ls", "--format", "{{.Name}}"],
+            text=True, stderr=subprocess.DEVNULL, timeout=10)
+        if {"graf-dev-postgres-data", "graf-dev-minio-data", "graf-dev-media-work"} & set(volumes.splitlines()):
+            raise HarnessError("graf-dev data volumes are present; explicit recovery is required")
+    except (OSError, subprocess.SubprocessError):
+        raise HarnessError("cannot prove an empty Dev machine") from None
+
+
+def operation_adopt_state(args: argparse.Namespace) -> Dict[str, Any]:
+    _assert_dev_environment()
+    if os.environ.get("GRAF_DEV_STATE_DIR") or not args.confirm_repository_ownership:
+        raise HarnessError("adoption requires explicit ownership confirmation and no state override")
+    repository = _repo_identity()
+    if (args.expected_repository != repository
+            or _canonical_repository("https://" + args.expected_repository) != repository):
+        raise HarnessError("adoption repository does not match the expected canonical identity")
+    if bool(args.expected_active_sha) == bool(args.expect_empty):
+        raise HarnessError("adoption requires exactly one expected active SHA or --expect-empty")
+    expected_sha = _sha(args.expected_active_sha) if args.expected_active_sha else None
+    root = _adoption_root(Path(args.state_root))
+    _checked_state_path(root / "promote.lock", file=True)
+    if expected_sha and not root.is_dir():
+        raise HarnessError("expected existing Dev state is missing")
+    base = _checked_state_path(_machine_state_base())
+    _read_repository_binding()  # Damaged binding must fail before lock side effects.
+    base.mkdir(parents=True, exist_ok=True)
+    with _state_file_lock(base / "repository-registration.lock"):
+        binding = _read_repository_binding()
+        if binding:
+            if binding["repository"] != repository or binding["state_root"] != str(root):
+                raise HarnessError("Dev repository binding is immutable")
+            return {"operation": "adopt-state", "idempotent": True, **binding}
+        for child in base.iterdir():
+            candidate = child / "harness"
+            if candidate == root or not child.is_dir():
+                continue
+            _checked_state_path(candidate)
+            if candidate.is_dir() and any(candidate.iterdir()):
+                raise HarnessError("multiple nonempty Dev state roots require explicit classification")
+        if args.expect_empty:
+            _assert_empty_dev_machine()
+        root.mkdir(parents=True, exist_ok=True)
+        with _state_file_lock(root / "promote.lock"):
+            _adoption_root(root)
+            for relative in ("active-manifest.json", "runtime.json", "schema-transition.json",
+                             "rollback-required.json", "app-launch-validation-recovery.json"):
+                _checked_state_path(root / relative, file=True)
+            _assert_no_schema_transition(root)
+            if any((root / marker).exists() for marker in (
+                    "rollback-required.json", "app-launch-validation-recovery.json")):
+                raise HarnessError("recover Dev state before adoption")
+            pointer_path = root / "active-manifest.json"
+            if pointer_path.exists():
+                pointer = _read_json(pointer_path)
+                _checked_state_path(_manifest_path(root, str(pointer.get("manifest_id", ""))), file=True)
+            active = _load_active(root)
+            if expected_sha is None:
+                if active or any(x.name not in {"promote.lock", ".dev-boundary"} for x in root.iterdir()):
+                    raise HarnessError("expected an empty Dev state")
+                _assert_empty_dev_machine()  # Recheck after waiting for the old lock.
+            else:
+                if not active or active["source_sha"] != expected_sha:
+                    raise HarnessError("active Dev SHA changed or differs from the expected version")
+                if active["manifest_id"] != pointer["manifest_id"]:
+                    raise HarnessError("active Dev manifest identity is inconsistent")
+                runtime_path = root / "runtime.json"
+                runtime = _read_json(runtime_path) if runtime_path.exists() else None
+                if pointer.get("runtime_mode") == "live" and runtime is None:
+                    raise HarnessError("live Dev runtime record is missing")
+                if runtime is not None:
+                    if (runtime.get("source_sha") != expected_sha or ("manifest_id" in runtime
+                            and runtime["manifest_id"] != active["manifest_id"])):
+                        raise HarnessError("Dev runtime and active manifest are inconsistent")
+                    # Existing runtime records do not require a manifest_id.
+                    # Validate their recorded images without inventing a new format.
+                    images = runtime.get("images", {})
+                    if not isinstance(images, dict):
+                        raise HarnessError("invalid Dev runtime image record")
+                    for service, image in images.items():
+                        component = COMPOSE_IMAGE_COMPONENTS.get(service)
+                        if component is None or active["components"].get(component[0], {}).get("digest") != image:
+                            raise HarnessError("Dev runtime images differ from the active manifest")
+            binding = {"schema_version": "graf-dev-repository-state.v1", "repository": repository,
+                       "state_root": str(root), "adopted_active_sha": expected_sha, "adopted_at": now()}
+            _write_json(base / "repository-state.json", binding)
+            if _read_repository_binding() != binding:
+                raise HarnessError("Dev repository binding publication could not be verified")
+    return {"operation": "adopt-state", "idempotent": False, **binding}
 
 
 def _active_feature_id() -> str:
@@ -163,42 +431,6 @@ def _active_feature_id() -> str:
     if not re.fullmatch(r"\d{3,}", feature_id) or int(feature_id) == 0:
         raise HarnessError("active feature pointer has no valid non-zero feature_id")
     return feature_id
-
-
-def global_state_dir() -> Path:
-    """Return the repository-global Dev state, ignoring any override.
-
-    The override exists so tests and operators can use a disposable state, but
-    the global directory stays the authority for machine-wide resources such as
-    the single Docker image namespace.
-    """
-    base = Path.home() / ("Library/Application Support" if sys.platform == "darwin" else ".cache") / "GRAF Dev"
-    return (base / _repo_identity() / "harness").resolve()
-
-
-def state_dir(*, live: bool = False) -> Path:
-    global_path = global_state_dir()
-    raw = os.environ.get("GRAF_DEV_STATE_DIR")
-    if raw:
-        path = Path(raw).expanduser()
-    else:
-        # All worktrees of this repository share one machine-local state and
-        # lock because they also share one loopback runtime and one installed
-        # /Applications/GRAF Dev.app.  Tests and operators can still inject an
-        # explicit state directory through GRAF_DEV_STATE_DIR.
-        path = global_path
-    path = path.resolve()
-    if live and path != global_path:
-        raise HarnessError("live Dev operations require the repository-global state directory")
-    lowered = str(path).lower()
-    production_app = Path(os.path.realpath(PRODUCTION_APP_PATH))
-    if production_app == path or production_app in path.parents:
-        raise HarnessError("Refusing a Dev state path inside the production app: " + str(path))
-    if any(token in lowered for token in ("production", "prod-data", "prod_data")):
-        raise HarnessError("Refusing a production-looking Dev state path: " + str(path))
-    if path == Path("/") or path == Path.home():
-        raise HarnessError("Dev state path is too broad: " + str(path))
-    return path
 
 
 def _dev_app_destination() -> Path:
@@ -659,7 +891,7 @@ def _assert_no_schema_transition(root):
 
 
 def _schema_start_guard(root, source_sha):
-    if root.resolve() != state_dir(live=True):
+    if _checked_state_path(root) != state_dir(live=True):
         raise HarnessError("startup requires the repository-global state directory; use dev-harness")
     journal = _read_schema_transition(root)
     if not journal or journal["phase"] in {"complete", "recovered"}:
@@ -836,9 +1068,7 @@ class GrafLocalAdapter:
         checkout = checkout.resolve()
         probe = GrafLocalAdapter(checkout, self.state)
         probe._assert_source_matches_checkout(manifest)
-        def common_dir(root):
-            return (root / _run_command(["git", "rev-parse", "--git-common-dir"], cwd=root)).resolve()
-        if common_dir(checkout) != common_dir(self.root):
+        if _repo_identity(checkout) != _repo_identity(self.root):
             raise HarnessError("transition checkout must belong to this Git repository")
         if record is not None:
             probe._assert_runtime_definition_compatible(record)
@@ -857,6 +1087,24 @@ class GrafLocalAdapter:
                 raise HarnessError(f"transition input differs from committed bytes: {relative}")
             sources[relative] = source
         source_path = checkout / "scripts" / "dev-harness.py"
+        # The pinned startup script will run its own resolver and schema guard.
+        # Probe those exact bytes before stopping anything; never patch the old guard.
+        resolver_probe = (
+            "import json,sys,types; p=json.load(sys.stdin); "
+            "m=types.ModuleType('graf_dev_resolver_probe'); m.__file__=p['path']; "
+            "exec(compile(p['source'],p['path'],'exec'),m.__dict__); "
+            "print(json.dumps(str(m.global_state_dir())))"
+        )
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", resolver_probe], cwd=checkout,
+                input=json.dumps({"path": str(source_path), "source": sources["scripts/dev-harness.py"].decode("utf-8")}),
+                text=True, capture_output=True, timeout=15,
+            )
+            if result.returncode != 0 or json.loads(result.stdout) != str(self.state):
+                raise ValueError()
+        except (OSError, subprocess.SubprocessError, ValueError, UnicodeError):
+            raise HarnessError("pinned checkout resolver does not match the adopted Dev state") from None
         module = types.ModuleType("graf_dev_transition")
         module.__file__ = str(source_path)
         exec(compile(sources["scripts/dev-harness.py"], str(source_path), "exec"), module.__dict__)
@@ -899,6 +1147,7 @@ class GrafLocalAdapter:
             raise HarnessError("cross-definition transition smoke is incomplete or failed")
 
     def _assert_supported(self) -> None:
+        _state_ownership(self.state, live=True, repository_root=self.root)
         if sys.platform != "darwin":
             raise HarnessError("live GRAF adapter requires macOS for the signed Dev app")
         for path in (
@@ -1203,16 +1452,8 @@ class GrafLocalAdapter:
                 temporary_archive.unlink()
 
     def _live_state_owns_tags(self, manifest_ids) -> bool:
-        """Say whether the canonical live state also records these manifests.
-
-        Docker image tags live in one global namespace, so a fixture or a copied
-        state whose manifests came from the live state must not remove them:
-        that would take the images of the live runtime away.
-        """
-        live = global_state_dir()
-        if live == self.state.resolve() or not live.is_dir():
-            return False
-        return any(_manifest_path(live, manifest_id).is_file() for manifest_id in manifest_ids)
+        """Fixtures never own shared tags, regardless of copied manifest IDs."""
+        return not _state_ownership(self.state)
 
     def _rollback_target(self, active: Optional[Dict[str, Any]]) -> tuple:
         """Return the recorded rollback target and why it is unusable.
@@ -1281,6 +1522,8 @@ class GrafLocalAdapter:
         """
         removed = removed if removed is not None else []
         partial_reasons = partial_reasons if partial_reasons is not None else []
+        # Validate before deleting local files, including direct adapter callers.
+        _state_ownership(self.state)
         active_id = str(active_manifest["manifest_id"]) if active_manifest else None
         target_id = str(target_manifest["manifest_id"]) if target_manifest else None
         keep = _retention_keep(active_id, target_id, keep_extra)
@@ -2424,18 +2667,15 @@ def _atomic_write(path: Path, content: str) -> None:
 
 @contextlib.contextmanager
 def state_lock(root: Path) -> Iterator[None]:
-    _mkdirs(root)
-    lock_path = root / "promote.lock"
-    with lock_path.open("a+", encoding="utf-8") as handle:
-        if fcntl is not None:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            if (root / "app-launch-validation-recovery.json").exists():
-                raise HarnessError("launch validation requires resolved recovery state before further lifecycle work")
-            yield
-        finally:
-            if fcntl is not None:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    _state_ownership(root)
+    _checked_state_path(root / "promote.lock", file=True)
+    root.mkdir(parents=True, exist_ok=True)
+    with _state_file_lock(root / "promote.lock"):
+        _state_ownership(root)  # Recheck binding and paths after waiting.
+        _mkdirs(root)
+        if (root / "app-launch-validation-recovery.json").exists():
+            raise HarnessError("launch validation requires resolved recovery state before further lifecycle work")
+        yield
 
 
 def _manifest_path(root: Path, manifest_id: str) -> Path:
@@ -2522,6 +2762,7 @@ def build_manifest(sha: str, feature_id: str, operator: str = "local", migration
     feature_id = _safe_id(feature_id, "feature_id")
     operator = operator.strip() or "local"
     root = root or state_dir()
+    _state_ownership(root)
     active = _load_active(root)
     manifest_id = f"dev-{source_sha[:12]}"
     components = {
@@ -2645,6 +2886,8 @@ def _same_manifest_identity(existing: Dict[str, Any], candidate: Dict[str, Any])
 
 
 def _publish_active(root: Path, manifest: Dict[str, Any], mode: str) -> None:
+    if _state_ownership(root) and mode != "live":
+        raise HarnessError("shared Dev state requires live active publication")
     try:
         _mkdirs(root)
         _write_json(_manifest_path(root, manifest["manifest_id"]), manifest)
@@ -2663,6 +2906,8 @@ def _publish_active(root: Path, manifest: Dict[str, Any], mode: str) -> None:
 def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
     root = state_dir(live=bool(getattr(args, "live", False)))
+    if _state_ownership(root) and not getattr(args, "live", False) and not args.dry_run:
+        raise HarnessError("shared Dev state requires live promotion")
     candidate = _read_json(Path(args.manifest).resolve())
     _validate_manifest(candidate)
     if candidate.get("migration_head") in {None, "", "unknown"}:
@@ -3015,6 +3260,10 @@ def operation_smoke(args: argparse.Namespace) -> Dict[str, Any]:
             "authoritative": "false" if args.fixture else "unknown",
         }
         status = "pass"
+    if getattr(args, "live", False):
+        _state_ownership(root, live=True)
+        if _load_active(root) != active:
+            raise HarnessError("active Dev identity changed during smoke; retry after the operation")
     return {"operation": "smoke", "status": status, "manifest_id": active["manifest_id"], "source_sha": active["source_sha"], "checks": checks}
 
 
@@ -3023,6 +3272,8 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
     # Rollback may inspect an explicitly isolated fixture; live promotion/build
     # remain pinned to the repository-global runtime state.
     root = state_dir(live=bool(getattr(args, "live", False)))
+    if _state_ownership(root) and not getattr(args, "live", False) and not args.dry_run:
+        raise HarnessError("shared Dev state requires live rollback")
     with state_lock(root):
         _assert_no_schema_transition(root)
         active = _load_active(root)
@@ -3068,6 +3319,8 @@ def operation_reset_data(args: argparse.Namespace) -> Dict[str, Any]:
     if not args.confirm_dev_reset:
         raise HarnessError("reset-data requires --confirm-dev-reset")
     root = state_dir(live=bool(getattr(args, "live", False)))
+    if _state_ownership(root) and not args.dry_run:
+        raise HarnessError("shared Dev state cannot be reset by a metadata-only operation")
     _assert_dev_environment()
     with state_lock(root):
         _assert_no_schema_transition(root)
@@ -3092,6 +3345,13 @@ def operation_reset_data(args: argparse.Namespace) -> Dict[str, Any]:
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Portable metadata-only GRAF Dev harness")
     sub = p.add_subparsers(dest="operation", required=True)
+    adoption = sub.add_parser("adopt-state", help="bind the repository to its existing machine state without moving it")
+    adoption.add_argument("--state-root", type=Path, required=True)
+    adoption.add_argument("--expected-repository", required=True)
+    expected = adoption.add_mutually_exclusive_group(required=True)
+    expected.add_argument("--expected-active-sha")
+    expected.add_argument("--expect-empty", action="store_true")
+    adoption.add_argument("--confirm-repository-ownership", action="store_true")
     build = sub.add_parser("build")
     build.add_argument("--sha", required=True)
     build.add_argument("--feature-id", default=None)
@@ -3135,6 +3395,8 @@ def parser() -> argparse.ArgumentParser:
 
 
 def dispatch(args: argparse.Namespace) -> Dict[str, Any]:
+    if args.operation == "adopt-state":
+        return operation_adopt_state(args)
     if args.operation == "schema-start-guard":
         _schema_start_guard(args.state_root, args.sha)
         return {"status": "allowed"}

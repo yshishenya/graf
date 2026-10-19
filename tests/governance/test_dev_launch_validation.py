@@ -28,7 +28,8 @@ def test_parser_exposes_only_opt_in_installed_launch():
 def environment(tmp_path, monkeypatch):
     import plistlib
 
-    state = tmp_path / "state"
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    state = h._machine_state_base() / "launch-fixture" / "harness"
     app = tmp_path / "GRAF Dev.app"
     (app / "Contents").mkdir(parents=True)
     info = {
@@ -39,8 +40,13 @@ def environment(tmp_path, monkeypatch):
     monkeypatch.setattr(h, "DEV_APP_PATH", app)
     monkeypatch.delenv("GRAF_DEV_INSTALL_PATH", raising=False)
     monkeypatch.delenv("GRAF_DEV_STATE_DIR", raising=False)
-    monkeypatch.setattr(h, "global_state_dir", lambda: state)
     monkeypatch.setattr(h, "_repo_root", lambda: ROOT)
+    state.mkdir(parents=True)
+    h._write_json(h._machine_state_base() / "repository-state.json", {
+        "schema_version": "graf-dev-repository-state.v1",
+        "repository": h._repo_identity(), "state_root": str(state),
+        "adopted_active_sha": "a" * 40, "adopted_at": h.now(),
+    })
     active = h.build_manifest("a" * 40, "232", migration_head="test-head", root=state)
     active["status"] = "active"
     active["components"]["macos_app"]["digest"] = h._tree_digest(app)
@@ -391,7 +397,7 @@ def test_recovery_receipt_blocks_other_mutating_operations_before_adapter(enviro
         "promote": ["--manifest", str(manifest), "--live"],
         "rollback": ["--live"], "recover-schema": [],
         "rehydrate": ["--manifest", str(manifest)],
-        "prune": [], "reset-data": ["--confirm-dev-reset"],
+        "prune": [], "reset-data": ["--confirm-dev-reset", "--dry-run"],
     }
     for method in ("build", "promote", "rollback", "rehydrate", "estimate_or_apply_prune"):
         monkeypatch.setattr(h.GrafLocalAdapter, method, lambda *a, **kw: pytest.fail("recovery must block adapter"))
