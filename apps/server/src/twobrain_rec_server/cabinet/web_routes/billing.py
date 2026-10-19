@@ -108,6 +108,7 @@ from twobrain_rec_server.billing.refund_email import (
 from twobrain_rec_server.billing.renewal_charge import (
     cancel_unsent_renewals,
     next_renewal_attempt,
+    renewal_attempt_due_at,
     renewal_attempt_of,
     renewal_canceled_without_payment,
 )
@@ -1683,6 +1684,7 @@ async def billing_overview_page(
         else "период уточняется"
     )
     recurring_next_charge_label = None
+    next_charge_is_nominal_first = False
     recurring_next_charge_amount_label = None
     renewal_notice, renewal_action_url, renewal_action_label = _renewal_notice(subscription)
     if (
@@ -1692,7 +1694,9 @@ async def billing_overview_page(
         and subscription.paid_through > now
     ):
         if subscription.recurring_allowed:
-            recurring_next_charge_label = await _next_renewal_label(db, subscription, now=now)
+            recurring_next_charge_label, next_charge_is_nominal_first = (
+                await _next_renewal_projection(db, subscription, now=now)
+            )
             snapshot = (
                 latest_invoice.plan_snapshot
                 if latest_invoice and isinstance(latest_invoice.plan_snapshot, dict)
@@ -1863,6 +1867,7 @@ async def billing_overview_page(
         paid_through_label=paid_through_label,
         bonus_until_label=_billing_datetime_label(bonus_until),
         next_charge_label=recurring_next_charge_label,
+        next_charge_is_nominal_first=next_charge_is_nominal_first,
         next_charge_amount_label=recurring_next_charge_amount_label,
         renewal_allowed=bool(subscription and subscription.recurring_allowed),
         renewal_notice=renewal_notice,
@@ -2904,8 +2909,9 @@ async def billing_subscription_page(
         else "free"
     )
     active = effective_plan == "personal"
-    next_charge_label = (
-        await _next_renewal_label(db, subscription, now=now) if active and db is not None else None
+    next_charge_label, next_charge_is_nominal_first = (
+        await _next_renewal_projection(db, subscription, now=now)
+        if active and db is not None else (None, False)
     )
     resume_charge_label = (
         await _next_renewal_label(db, subscription, now=now, for_resume=True)
@@ -3015,6 +3021,7 @@ async def billing_subscription_page(
         trial_ends_at_label=_billing_datetime_label(subscription.trial_ends_at)
         if effective_plan == "trial" else None,
         next_charge_label=next_charge_label,
+        next_charge_is_nominal_first=next_charge_is_nominal_first,
         resume_charge_label=resume_charge_label,
         resume_quote_id=resume_quote_id,
         method_available=method_available,
@@ -5419,21 +5426,21 @@ async def cancel_storage_selection(
     return _control_result_redirect(return_to, section="storage", result="schedule_canceled")
 
 
-async def _next_renewal_label(db, subscription, *, now, for_resume=False, after_price_confirmation=False):
+async def _next_renewal_projection(db, subscription, *, now, for_resume=False, after_price_confirmation=False):
     if subscription is None or subscription.paid_through is None:
-        return "не запланировано"
+        return "не запланировано", False
     if not subscription.recurring_allowed and not for_resume:
-        return "не запланировано"
+        return "не запланировано", False
     if subscription.renewal_resolution == "price_changed" and not (for_resume or after_price_confirmation):
-        return "приостановлено: подтвердите новую цену подписки и хранения"
+        return "приостановлено: подтвердите новую цену подписки и хранения", False
     if subscription.renewal_resolution == "method_required" and not for_resume:
-        return "приостановлено: проверьте способ оплаты"
+        return "приостановлено: проверьте способ оплаты", False
     if subscription.renewal_resolution == "receipt_contact_required":
-        return "приостановлено: нужен адрес для чека из подтвержденной оплаты"
+        return "приостановлено: нужен адрес для чека из подтвержденной оплаты", False
     if subscription.renewal_resolution in {
         "acceptance_budget", "provider_unavailable", "catalog_not_approved", "provider_floor"
     } and not for_resume:
-        return "приостановлено: оплата временно недоступна"
+        return "приостановлено: оплата временно недоступна", False
     operations = list(
         await db.scalars(
             select(BillingOperation).where(
@@ -5448,7 +5455,7 @@ async def _next_renewal_label(db, subscription, *, now, for_resume=False, after_
         item.state not in {"canceled", "succeeded", "scheduled"} for item in operations
     )
     if unresolved:
-        return "проверяем результат предыдущего списания; нового платежа не будет до завершения проверки"
+        return "проверяем результат предыдущего списания; нового платежа не будет до завершения проверки", False
     next_at = next_renewal_attempt(
         paid_through=subscription.paid_through,
         now=now,
@@ -5460,16 +5467,27 @@ async def _next_renewal_label(db, subscription, *, now, for_resume=False, after_
         unresolved=False,
     )
     if next_at is None:
-        return "попытки в этом периоде завершены; доступна ручная оплата"
+        return "попытки в этом периоде завершены; доступна ручная оплата", False
     if next_at <= now:
         if after_price_confirmation:
-            return "после сохранения выбора, в ближайшее время"
+            return "после сохранения выбора, в ближайшее время", False
         return (
             "после подтверждения возобновления, в ближайшее время"
             if for_resume
             else "в ближайшее время"
-        )
-    return _billing_datetime_label(next_at)
+        ), False
+    return (
+        _billing_datetime_label(next_at),
+        next_at == renewal_attempt_due_at(paid_through=subscription.paid_through, attempt=1),
+    )
+
+
+async def _next_renewal_label(db, subscription, *, now, for_resume=False, after_price_confirmation=False):
+    label, _ = await _next_renewal_projection(
+        db, subscription, now=now, for_resume=for_resume,
+        after_price_confirmation=after_price_confirmation,
+    )
+    return label
 
 
 async def _resume_renewal_snapshot(db, *, subscription, now):

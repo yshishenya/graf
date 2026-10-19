@@ -432,6 +432,8 @@ def test_overview_direct_renewal_storage_and_card_avoid_intermediate_pages():
 
 @pytest.mark.parametrize(("subscription_changes", "view_changes", "expected"), [
     ({}, {}, True),
+    ({}, {"next_charge_is_nominal_first": False}, False),
+    ({}, {"next_charge_is_nominal_first": None}, False),
     ({"renewal_resolution": "succeeded"}, {}, True),
     ({"renewal_resolution": "late_success"}, {}, True),
     ({}, {"renewal_allowed": False}, False),
@@ -463,7 +465,8 @@ def test_overview_renewal_timing_explains_only_ordinary_active_renewal(
     })
     page = Page(overview(**{
         "subscription": sub, "renewal_allowed": True,
-        "next_charge_label": "31.12.2027, 12:19 (UTC+03:00)", **view_changes,
+        "next_charge_label": "31.12.2027, 12:19 (UTC+03:00)",
+        "next_charge_is_nominal_first": True, **view_changes,
     }))
     explanation = "Первая попытка списания планируется за 3 дня до конца оплаченного срока."
     visible = page.visible
@@ -574,3 +577,13 @@ def test_saved_future_volume_never_claims_no_charge_for_a_pending_payment():
     assert "Повторно платить не нужно" in page.visible
     assert "Сейчас списания не было" not in page.visible
     assert "Выбранный объем следующего периода показан выше" in page.visible
+
+
+def test_overview_missing_nominal_first_flag_hides_explanation():
+    from types import SimpleNamespace
+
+    html = overview(
+        renewal_allowed=True, next_charge_label="31.12.2027",
+        subscription=SimpleNamespace(state="active", recurring_authority_version=7, renewal_resolution=None),
+    )
+    assert "Первая попытка списания" not in html

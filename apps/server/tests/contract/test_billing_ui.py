@@ -306,7 +306,7 @@ async def test_scheduled_renewal_uses_persisted_invoice_amount(
         billing_routes, "effective_paid_storage", AsyncMock(return_value=5_000_000_000)
     )
     monkeypatch.setattr(
-        billing_routes, "_next_renewal_label", AsyncMock(return_value="в ближайшее время")
+        billing_routes, "_next_renewal_projection", AsyncMock(return_value=("в ближайшее время", False))
     )
 
     async def base_composition(_db, *, base, **_kwargs):
@@ -1696,6 +1696,8 @@ def _subscription_view(**changes) -> str:
 
 @pytest.mark.parametrize(("subscription_changes", "view_changes", "expected"), [
     ({}, {}, True),
+    ({}, {"next_charge_is_nominal_first": False}, False),
+    ({}, {"next_charge_is_nominal_first": None}, False),
     ({"cycle": "year", "renewal_resolution": "succeeded"}, {}, True),
     ({"renewal_resolution": "late_success"}, {}, True),
     ({"recurring_allowed": False}, {}, False),
@@ -1725,7 +1727,9 @@ def test_subscription_renewal_timing_explains_only_ordinary_active_renewal(
         "recurring_allowed": True, "recurring_authority_version": 7,
         "renewal_resolution": None, **subscription_changes,
     })
-    html = _subscription_view(subscription=sub, **view_changes)
+    html = _subscription_view(**{
+        "subscription": sub, "next_charge_is_nominal_first": True, **view_changes,
+    })
     visible = re.sub(r"<details\b.*?</details>", "", html, flags=re.S)
     explanation = "Первая попытка списания планируется за 3 дня до конца оплаченного срока."
     assert (explanation in visible) is expected
@@ -1899,6 +1903,8 @@ async def test_subscription_route_uses_effective_plan_and_viewer_local_calendar_
     db = SimpleNamespace(scalar=AsyncMock(side_effect=[subscription, None]), execute=AsyncMock(return_value=[]))
     captured = {}
     monkeypatch.setattr(billing_routes, "_billing_role", AsyncMock(return_value="owner"))
+    projection = AsyncMock(return_value=(None, False))
+    monkeypatch.setattr(billing_routes, "_next_renewal_projection", projection)
     monkeypatch.setattr(billing_routes, "_next_renewal_label", AsyncMock(return_value=None))
     monkeypatch.setattr(billing_routes, "_verified_receipt_contact", AsyncMock(return_value=None))
     monkeypatch.setattr(billing_routes, "_approved_personal_catalog", AsyncMock(return_value={}))
@@ -1914,6 +1920,8 @@ async def test_subscription_route_uses_effective_plan_and_viewer_local_calendar_
         user_time._display_timezone.reset(token)
     assert response.status_code == 200
     assert captured["active"] is (plan_code == "personal")
+    assert captured["next_charge_is_nominal_first"] is False
+    assert projection.await_count == (1 if plan_code == "personal" else 0)
     assert captured["subscription_trial_active"] is (plan_code == "trial")
     expected_local_day = (cutoff + timedelta(hours=3)).strftime("%d.%m.%Y")
     if plan_code == "personal":
@@ -1970,3 +1978,10 @@ def test_subscription_any_unconfirmed_payment_uses_neutral_wording(amount):
     assert 'href="/billing/checkout?cycle=month"' not in html
     assert 'action="/billing/subscription/resume"' not in html
     assert 'action="/billing/subscription/early-preview"' not in html
+
+
+def test_subscription_missing_nominal_first_flag_hides_explanation():
+    sub = SimpleNamespace(plan_code="personal", state="active", cycle="month",
+                          paid_through=datetime(2026, 11, 3, tzinfo=UTC),
+                          recurring_allowed=True, recurring_authority_version=7, renewal_resolution=None)
+    assert "Первая попытка списания" not in _subscription_view(subscription=sub)

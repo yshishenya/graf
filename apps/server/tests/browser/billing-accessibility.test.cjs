@@ -339,6 +339,35 @@ async function checkRenewalTimingReflow(browser) {
       }
     }
   }
+  for (const name of Object.keys(pages).filter(name => /^shell-(overview|subscription)-missed-/.test(name))) {
+    for (const theme of ['light', 'dark']) for (const javaScriptEnabled of [false, true]) {
+      const page = await browser.newPage({ javaScriptEnabled, viewport: { width: 360, height: 900 } });
+      await page.route('https://graf.test/**', route => {
+        if (route.request().resourceType() === 'document') {
+          return route.fulfill({ contentType: 'text/html; charset=utf-8', body: pages[name] });
+        }
+        const filename = path.basename(new URL(route.request().url()).pathname);
+        const asset = [assets, publicAssets].map(dir => path.join(dir, filename))
+          .find(file => fs.existsSync(file) && fs.statSync(file).isFile());
+        return asset ? route.fulfill({ path: asset }) : route.fulfill({ status: 204 });
+      });
+      await page.goto('https://graf.test/billing');
+      await page.evaluate(theme => {
+        document.documentElement.dataset.theme = theme;
+        document.body.style.zoom = '2';
+      }, theme);
+      assert.equal(await page.getByText(explanation, { exact: true }).count(), 0,
+        `${name}/${theme}/JS=${javaScriptEnabled}: missed window does not claim nominal first date`);
+      const date = page.locator('p, dd').filter({ hasText: 'в ближайшее время' }).first();
+      assert(await date.isVisible(), `${name}: existing next-charge label preserved`);
+      if (visualDirectory && name.endsWith('-60')) {
+        await date.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: path.join(visualDirectory, `${name}-${theme}-200-js${javaScriptEnabled}.png`) });
+      }
+      await page.close();
+    }
+  }
+  console.log('renewal missed windows: 40 full-shell cases, both surfaces at72/60/48/24/12h,360px/200%,themes,JS/NoJS passed');
   console.log('renewal timing: 48 full-shell subscription/overview cases, JS/NoJS, 320/360/1280, both themes, 100/200%, complete visible explanation passed');
 }
 

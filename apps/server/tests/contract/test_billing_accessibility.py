@@ -1,9 +1,14 @@
+import asyncio
 import json
 import re
 import subprocess
+from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from urllib.parse import quote
+from uuid import UUID
 
 import pytest
 
@@ -203,6 +208,20 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         "referral_issued": True, "referral_link": "https://graf.test/r/synthetic",
         "referral_expires_at_label": "29.10.2026", "referral_history": [],
     }
+    from twobrain_rec_server.cabinet.web_routes.billing import _next_renewal_projection
+
+    def next_charge(paid_through, hours):
+        return asyncio.run(_next_renewal_projection(
+            SimpleNamespace(scalars=AsyncMock(return_value=[])),
+            SimpleNamespace(workspace_id=UUID(int=2), paid_through=paid_through,
+                            recurring_allowed=True, renewal_resolution=None),
+            now=paid_through - timedelta(hours=hours),
+        ))
+
+    paid_through = datetime(2026, 10, 29, 12, tzinfo=UTC)
+    surface_context["next_charge_label"], surface_context["next_charge_is_nominal_first"] = (
+        next_charge(paid_through, 96)
+    )
     for name in ("overview", "subscription", "payment_method", "history", "invoice", "usage", "discounts"):
         pages[name] = render_template(
             f"cabinet/pages/billing_{name}_content.html", **surface_context,
@@ -357,8 +376,6 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         pages[name] = render_template(
             "cabinet/pages/billing_subscription_content.html", **{**subscription_off, **changes},
         )
-    from types import SimpleNamespace
-
     from twobrain_rec_server.cabinet.web_routes.billing import _renewal_notice
 
     for reason in ("price_changed", "receipt_contact_required", "acceptance_budget", "provider_unavailable",
@@ -430,7 +447,6 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         )],
     )
     # Synthetic data only: current overview, inline controls, and safe blocked states.
-    from types import SimpleNamespace
     overview_context = dict(
         embedded=False, plan=plan_descriptor("personal"), plan_code="personal",
         billing_owner=True, billing_role="owner", billing_data_available=True,
@@ -463,6 +479,28 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
         "overview-unavailable": {"billing_data_available": False},
     }.items():
         pages[name] = render_template("cabinet/pages/billing_overview_content.html", **{**overview_context, **changes})
+    overview_paid_through = datetime(2028, 1, 3, 12, tzinfo=UTC)
+    overview_label, overview_first = next_charge(overview_paid_through, 96)
+    pages["overview-renewal"] = render_template(
+        "cabinet/pages/billing_overview_content.html",
+        **{**overview_context, "renewal_allowed": True,
+           "next_charge_label": overview_label, "next_charge_is_nominal_first": overview_first},
+    )
+    missed_names = []
+    for hours in (72, 60, 48, 24, 12):
+        for surface, base, end in (
+            ("overview", {**overview_context, "renewal_allowed": True}, overview_paid_through),
+            ("subscription", surface_context, paid_through),
+        ):
+            label, first = next_charge(end, hours)
+            assert (label, first) == ("в ближайшее время", False)
+            name = f"{surface}-missed-{hours}"
+            missed_names.append(name)
+            pages[name] = render_template(
+                f"cabinet/pages/billing_{surface}_content.html",
+                **{**base, "next_charge_label": label, "next_charge_is_nominal_first": first},
+            )
+
     from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 
     for name in ("overview", "overview-renewal", "overview-editor", "overview-error", "overview-pending", "overview-member", "overview-unavailable", "usage-fresh", "packages-timeline-year", "checkout", "checkout-first-annual", "checkout-discount", "plans", "packages", "discounts", "discounts-history-year", "discounts-history-unknown", "discounts-error", "subscription-off-no-card", "subscription-off-ready", "subscription", "invoice-future", "invoice-service-gap", "invoice-receipt", "invoice-receipt-no-url", "invoice-intervals"):
@@ -470,10 +508,13 @@ def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
             "Оплата", content=pages[name], embedded=False,
             csrf_token="synthetic", active_nav="settings", settings_active="billing",
         )
+    for name in missed_names:
+        pages[f"shell-{name}"] = _page_shell(
+            "Оплата", content=pages[name], embedded=False, csrf_token="synthetic",
+            active_nav="settings", settings_active="billing",
+        )
     fixture = tmp_path / "billing-pages.json"
     fixture.write_text(json.dumps(pages), encoding="utf-8")
-    from types import SimpleNamespace
-
     from twobrain_rec_server.admin.templates import render_template as render_admin_template
     from twobrain_rec_server.admin.view_models import admin_navigation
 
