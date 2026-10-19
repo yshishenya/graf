@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import AppKit
 import Network
 import SwiftUI
@@ -98,6 +99,216 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             }
             let response = "HTTP/1.1 \(status)\r\nContent-Type: text/html\r\nContent-Length: \(html.utf8.count)\r\nConnection: close\r\n\r\n\(html)"
             connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
+        }
+    }
+
+    @MainActor
+    func testSessionBoundaryOrdinaryGetKeepsWebView() async throws {
+        try await checkSessionBoundary(method: "GET")
+    }
+
+    @MainActor
+    func testSessionBoundarySettingsPostKeepsWebView() async throws {
+        try await checkSessionBoundary(method: "POST")
+    }
+
+    @MainActor
+    func testSessionBoundarySettingsPostRedirectKeepsWebView() async throws {
+        try await checkSessionBoundary(method: "POST", redirect: true)
+    }
+
+    @MainActor
+    func testSessionBoundaryNewFormSupersedesPendingFormWithoutRemount() async throws {
+        try await checkSessionBoundary(method: "POST", supersedesPendingForm: true)
+    }
+
+    @MainActor
+    func testSessionBoundarySettingsPostErrorKeepsWebView() async throws {
+        try await checkSessionBoundary(method: "POST", status: "503 Service Unavailable")
+    }
+
+    @MainActor
+    func testSessionBoundarySettingsPostCancellationKeepsWebView() async throws {
+        try await checkSessionBoundary(method: "POST", cancel: true)
+    }
+
+    @MainActor
+    func testSessionBoundaryLoginCommitsFinalDocumentBeforeRemount() async throws {
+        try await checkSessionBoundary(method: "GET", initialPath: "/login", changesSession: true)
+    }
+
+    @MainActor
+    func testSessionBoundaryLogoutRemovesProtectedHistory() async throws {
+        try await checkSessionBoundary(method: "GET", targetPath: "/login", changesSession: true)
+    }
+
+    @MainActor
+    func testSessionBoundaryExpiredSessionImmediatelyDisablesProtectedCommands() async throws {
+        try await checkSessionBoundary(method: "GET", status: "401 Unauthorized", changesSession: true)
+    }
+
+    @MainActor
+    func testSessionBoundaryReselectionImmediatelyDisablesProtectedCommands() async throws {
+        try await checkSessionBoundary(method: "GET", status: "403 Forbidden", reselect: true, changesSession: true)
+    }
+
+    @MainActor
+    private func checkSessionBoundary(
+        method: String, initialPath: String = "/desktop/settings/account",
+        targetPath: String = "/desktop/settings/account", status: String = "200 OK",
+        cancel: Bool = false, reselect: Bool = false, changesSession: Bool = false, redirect: Bool = false,
+        supersedesPendingForm: Bool = false
+    ) async throws {
+        _ = NSApplication.shared
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        let listener = try NWListener(using: parameters)
+        let listening = expectation(description: "session fixture listening")
+        let submitted = expectation(description: "one explicit form submission")
+        let initial = expectation(description: "initial document")
+        let requests = SessionBoundaryRequests()
+        defer { requests.cancelHeldConnection() }
+        let result = expectation(description: "result request and only the permitted session remount")
+        result.expectedFulfillmentCount = changesSession ? 2 : 1
+        listener.stateUpdateHandler = { if case .ready = $0 { listening.fulfill() } }
+        listener.newConnectionHandler = { connection in
+            connection.start(queue: .global())
+            Self.receiveSessionFixtureRequest(connection, initialPath: initialPath, targetPath: targetPath,
+                method: method, status: status, cancel: cancel, reselect: reselect, redirect: redirect,
+                initial: initial, submitted: submitted, result: result, requests: requests, resultCount: changesSession ? 2 : 1,
+                supersedesPendingForm: supersedesPendingForm)
+        }
+        listener.start(queue: .global())
+        defer { listener.cancel() }
+        await fulfillment(of: [listening], timeout: 5)
+        let origin = try XCTUnwrap(URL(string: "http://127.0.0.1:\(try XCTUnwrap(listener.port).rawValue)"))
+        let request = URLRequest(url: origin.appendingPathComponent(initialPath))
+        let controller = EmbeddedCabinetNavigationController()
+        let document = SessionBoundaryDocument(state: initialPath == "/login" ? .expiredSession : .ready)
+        let presenter = DesktopNotificationPresenter(
+            store: .init(defaults: UserDefaults(suiteName: UUID().uuidString)!), model: DesktopControlModel())
+        let host = NSHostingView(rootView: SessionBoundaryFixture(
+            request: request, origin: origin, controller: controller, document: document, presenter: presenter))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        defer { window.close() }
+        await fulfillment(of: [initial], timeout: 10)
+        for _ in 0..<250 {
+            if controller.canReload { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertTrue(controller.canReload, "Initial stable document must finish")
+        let boundary = controller.sessionBoundaryID
+        let webView = try XCTUnwrap(Self.sessionFixtureWebView(host))
+        var boundaryCount = 0
+        let observation = controller.$sessionBoundaryID.dropFirst().sink { _ in
+            boundaryCount += 1
+            if changesSession, status == "200 OK" {
+                XCTAssertEqual(document.route?.path, targetPath, "Final route precedes the successful session boundary")
+                XCTAssertEqual(document.state, targetPath == "/login" ? .expiredSession : .ready,
+                    "Final state precedes the successful session boundary")
+            }
+        }
+        defer { observation.cancel() }
+        _ = try await webView.evaluateJavaScript("document.forms[0].submit(); undefined")
+        await fulfillment(of: [submitted], timeout: 10)
+        if supersedesPendingForm {
+            XCTAssertTrue(controller.isLoading, "First form is waiting for its server response")
+            XCTAssertEqual(controller.sessionBoundaryID, boundary)
+            // Keep native WebKit callbacks: the second explicit submission must
+            // cancel the provisional first one, even for the same URL and body.
+            _ = try await webView.evaluateJavaScript("document.forms[0].submit(); undefined")
+        }
+        if cancel { webView.stopLoading() }
+        await fulfillment(of: [result], timeout: 10)
+        for _ in 0..<250 {
+            if !controller.isLoading, document.state != .loading { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertFalse(controller.isLoading, "Terminal callback must release navigation")
+        XCTAssertNotEqual(document.state, .loading)
+        if cancel { XCTAssertEqual(document.state, .malformedResponse) }
+        XCTAssertEqual(controller.sessionBoundaryID == boundary, !changesSession)
+        XCTAssertEqual(boundaryCount, changesSession ? 1 : 0)
+        XCTAssertEqual(requests.count("GET \(initialPath)"), 1, "The initial document must not be reloaded after a form")
+        XCTAssertEqual(requests.count("\(method) \(targetPath)" + (method == "GET" ? "?result=yes" : "")),
+            changesSession || supersedesPendingForm ? 2 : 1)
+        if redirect { XCTAssertEqual(requests.count("GET \(targetPath)?result=yes"), 1) }
+        let currentWebView = try XCTUnwrap(Self.sessionFixtureWebView(host))
+        if !changesSession {
+            XCTAssertTrue(currentWebView === webView, "Ordinary form results/errors/cancellation keep the live WebView")
+        } else {
+            XCTAssertFalse(controller.canGoBack, "Previous session history must be inaccessible")
+            XCTAssertFalse(controller.canGoForward)
+            if status != "200 OK" || targetPath == "/login" {
+                XCTAssertFalse(controller.canGoHome, "An expired session cannot navigate to protected home")
+            }
+        }
+        if status == "200 OK", !cancel {
+            XCTAssertEqual(document.route?.path, targetPath)
+            let loaded = try await currentWebView.evaluateJavaScript("Boolean(document.getElementById('result'))")
+            XCTAssertEqual(loaded as? Bool, true, "Keep the actual form result after SwiftUI reconciliation")
+        }
+    }
+
+    @MainActor
+    private static func sessionFixtureWebView(_ view: NSView) -> WKWebView? {
+        if let web = view as? WKWebView { return web }
+        return view.subviews.lazy.compactMap { sessionFixtureWebView($0) }.first
+    }
+
+    private nonisolated static func receiveSessionFixtureRequest(
+        _ connection: NWConnection, data: Data = Data(), initialPath: String, targetPath: String,
+        method: String, status: String, cancel: Bool, reselect: Bool, redirect: Bool,
+        initial: XCTestExpectation, submitted: XCTestExpectation, result: XCTestExpectation,
+        requests: SessionBoundaryRequests, resultCount: Int, supersedesPendingForm: Bool = false
+    ) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { chunk, _, complete, error in
+            var bytes = data; bytes.append(chunk ?? Data())
+            guard let request = String(data: bytes, encoding: .utf8), request.contains("\r\n\r\n") else {
+                guard !complete, error == nil, bytes.count < 32_768 else {
+                    XCTFail("Incomplete synthetic session request"); connection.cancel(); return
+                }
+                receiveSessionFixtureRequest(connection, data: bytes, initialPath: initialPath,
+                    targetPath: targetPath, method: method, status: status, cancel: cancel, reselect: reselect, redirect: redirect,
+                    initial: initial, submitted: submitted, result: result, requests: requests, resultCount: resultCount,
+                    supersedesPendingForm: supersedesPendingForm)
+                return
+            }
+            let key = request.components(separatedBy: "\r\n")[0].split(separator: " ").prefix(2).joined(separator: " ")
+            let count = requests.record(key)
+            let isPost = request.hasPrefix("POST \(targetPath) ")
+            let isResult = isPost || request.hasPrefix("GET \(targetPath)?result=yes ")
+            let html: String
+            let replyStatus: String
+            if isResult {
+                if supersedesPendingForm, isPost, count == 1 {
+                    requests.hold(connection)
+                    submitted.fulfill()
+                    return
+                }
+                if count == 1, isPost || method == "GET" { submitted.fulfill() }
+                if (supersedesPendingForm ? count == 2 : count <= resultCount), !redirect || !isPost { result.fulfill() }
+                if supersedesPendingForm { requests.attemptHeldRedirect() }
+                html = "<!doctype html><title>Synthetic result</title><p id='result'>Result</p>"
+                replyStatus = redirect && isPost ? "303 See Other\r\nLocation: \(targetPath)?result=yes" : status
+            } else if request.hasPrefix("GET \(initialPath) ") {
+                if count == 1 { initial.fulfill() }
+                html = "<!doctype html><title>Synthetic form</title><form method='\(method.lowercased())' action='\(targetPath)'><input name='result' value='yes'></form>"
+                replyStatus = "200 OK"
+            } else {
+                XCTFail("Unexpected synthetic session route"); connection.cancel(); return
+            }
+            let recovery = reselect && isResult ? "X-GRAF-Cabinet-Recovery: reselect-space\r\n" : ""
+            let response = "HTTP/1.1 \(replyStatus)\r\nContent-Type: text/html\r\nCache-Control: no-store\r\n\(recovery)Content-Length: \(html.utf8.count)\r\nConnection: close\r\n\r\n\(html)"
+            if cancel && isResult {
+                DispatchQueue.global().asyncAfter(deadline: .now() + 1) { connection.cancel() }
+            } else {
+                connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
+            }
         }
     }
 
@@ -308,6 +519,49 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             ),
             .unavailable
         )
+    }
+
+    func testOnlyRootAuthDocumentsCanEnterHistoryAndSwiftUIRecovery() throws {
+        let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
+        let policy = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL)
+        for (path, isStable) in [
+            ("/login", true),
+            ("/login/?next=%2Fdesktop%2Fmeetings", true),
+            ("/sign-up", true),
+            ("/sign-up/?next=%2Fdesktop%2Fmeetings", true),
+            ("/login/vk/start", false),
+            ("/login/yandex/start/?next=%2Fdesktop%2Fmeetings", false),
+            ("/sign-up/vk/start", false),
+            ("/sign-up/yandex/start", false),
+            ("/login/email/start", false),
+            ("/login/email/verify", false),
+            ("/sign-up/email/start", false),
+            ("/sign-up/email/verify", false)
+        ] {
+            let url = try XCTUnwrap(URL(string: "https://rec.2brain.dev\(path)"))
+            let decision = policy.decision(for: url)
+            // These actions remain available to the live WebKit navigation.
+            XCTAssertEqual(decision.decision, .allow, path)
+            XCTAssertEqual(EmbeddedCabinetNavigationPolicy.isSafeDocument(url, routePolicy: policy), isStable, path)
+            let request = URLRequest(url: url)
+            XCTAssertEqual(EmbeddedCabinetNavigationPolicy.isSafeHistoryRequest(request, routePolicy: policy), isStable, path)
+            XCTAssertEqual(EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: decision.route.kind, url: url), isStable, path)
+            XCTAssertEqual(EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: decision.route.kind, request: request), isStable, path)
+            XCTAssertEqual(
+                EmbeddedCabinetNavigationPolicy.backDecision(
+                    currentURL: configuration.baseURL.appendingPathComponent("login"),
+                    backURL: url,
+                    fallbackURL: configuration.meetingsURL(),
+                    routePolicy: policy
+                ),
+                isStable ? .history : .unavailable,
+                path
+            )
+            var post = request
+            post.httpMethod = "POST"
+            XCTAssertFalse(EmbeddedCabinetNavigationPolicy.isSafeHistoryRequest(post, routePolicy: policy), path)
+            XCTAssertFalse(EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: decision.route.kind, request: post), path)
+        }
     }
 
     func testEmailFormResponsesDoNotBecomeSwiftUIOwnedGetRoutes() throws {
@@ -1186,4 +1440,52 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         )
     }
 }
+private final class SessionBoundaryRequests: @unchecked Sendable {
+    private let lock = NSLock()
+    private var counts: [String: Int] = [:]
+    private var heldConnection: NWConnection?
+    func record(_ key: String) -> Int {
+        lock.withLock { counts[key, default: 0] += 1; return counts[key]! }
+    }
+    func count(_ key: String) -> Int { lock.withLock { counts[key, default: 0] } }
+    func hold(_ connection: NWConnection) { lock.withLock { heldConnection = connection } }
+    func cancelHeldConnection() {
+        lock.withLock { heldConnection?.cancel(); heldConnection = nil }
+    }
+    func attemptHeldRedirect() {
+        let connection = lock.withLock { let value = heldConnection; heldConnection = nil; return value }
+        guard let connection else { XCTFail("Missing first provisional form"); return }
+        let response = "HTTP/1.1 303 See Other\r\nLocation: /login\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        connection.send(content: Data(response.utf8), completion: .contentProcessed { error in
+            // A send attempt cannot establish that the cancelled WebKit load
+            // received this response. Record that limit instead of claiming it.
+            print("F136_NATIVE_OVERLAP old_response_send=\(error == nil ? "written" : "failed")")
+            connection.cancel()
+        })
+    }
+}
+
+@MainActor
+private final class SessionBoundaryDocument: ObservableObject {
+    @Published var state: DesktopCabinetState
+    @Published var route: URL?
+    init(state: DesktopCabinetState) { self.state = state }
+}
+
+@MainActor
+private struct SessionBoundaryFixture: View {
+    let request: URLRequest
+    let origin: URL
+    @ObservedObject var controller: EmbeddedCabinetNavigationController
+    @ObservedObject var document: SessionBoundaryDocument
+    let presenter: DesktopNotificationPresenter
+    var body: some View {
+        EmbeddedCabinetWebView(request: URLRequest(url: document.route ?? request.url!),
+            routePolicy: DesktopCabinetRoutePolicy(baseURL: origin), cabinetState: $document.state,
+            currentRoute: $document.route, fallbackRequest: URLRequest(url: origin.appendingPathComponent("desktop/meetings")),
+            notificationPresenter: presenter, navigationController: controller)
+            .id(controller.sessionBoundaryID)
+    }
+}
+
 #endif

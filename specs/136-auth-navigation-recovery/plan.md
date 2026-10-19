@@ -1,0 +1,130 @@
+# Implementation Plan: Безопасное восстановление авторизации и навигации
+
+**Branch**: `codex/136-auth-navigation-recovery` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
+
+## Summary
+
+Исправить macOS WebKit-кабинет так, чтобы только стабильная GET-страница
+становилась маршрутом для повторной загрузки и истории. POST-действия,
+OAuth-переходы и callback остаются в живом WebView, но не могут быть повторены
+SwiftUI, Back/Forward или Reload. Граница сессии очищает историю только после
+зафиксированного стабильного результата. Отдельно сохранить безопасный внешний
+OAuth-переход для уже авторизованного подключения провайдера.
+
+## Technical Context
+
+**Language/Version**: Swift, Swift Package Manager, macOS 14+
+**Primary Dependencies**: SwiftUI, AppKit, WebKit, XCTest; существующие
+кабинетные маршруты сервера
+**Storage**: N/A — хранилище сессии и серверные контракты не меняются
+**Testing**: XCTest в существующем `apps/macos/Shared/Tests`, включая synthetic WKWebView fixture; команды и текущие доказательства — в `quickstart.md` и `validation.md`.
+**Risk / Validation Lane**: high-risk feature — меняется auth, граница сессии,
+навигация и пользовательский доступ к защищённым страницам
+**Release Gate**: no deploy — эта фича готовит проверенный код и changelog; выпуск,
+подписание и production deploy требуют отдельного решения пользователя
+**Target Platform**: macOS desktop app, встроенный WKWebView
+**Project Type**: native desktop app с server-owned HTML кабинетом
+**Performance Goals**: после завершения навигации нет самопроизвольной повторной
+загрузки; одна явная отправка формы создаёт не более одного исходного действия
+**Constraints**: не менять серверные методы входа; не передавать desktop headers
+внешнему провайдеру; не логировать коды, cookies, секреты или meeting content;
+сохранить native Record/Stop вне WebView
+**Scale/Scope**: существующие login/signup, VK ID, Яндекс, provider linking,
+настройки и разрешённые страницы кабинета
+
+## Constitution Check
+
+| Gate | Result | Evidence / action |
+|---|---|---|
+| Auth/session boundary remains fail-closed | PASS by design | Повторный POST, callback и protected history исключаются; 401 сохраняет закрытую границу. |
+| Credentials and meeting content stay out of client diagnostics | PASS | Меняется только локальная политика маршрутов и тестовые URL без секретов. |
+| Native capture controls remain available and unchanged | PASS | Изменения ограничены cabinet WebKit files и тестами. |
+| Clean-room, accessibility and local user control | PASS | Существующие native controls и identifiers сохраняются; поведение кнопок тестируется. |
+| Release/deploy integrity | PASS with deferred release | Изменение не развёртывается и не подписывается в этом срезе. |
+
+**Post-design re-check**: PASS. План не вводит серверные обходные GET-маршруты,
+новое хранение сессии, внешние зависимости или ослабление origin/header policy.
+
+## Validation Plan
+
+1. Добавить XCTest-матрицу для replay-safe документа, POST, auth start,
+callback, provider-link continuation, logout/session boundary и normal history.
+2. Запустить focused macOS кабинетные тесты и `swift test --package-path apps/macos`.
+3. Выполнить `quickstart.md`; `infra/scripts/ci-local.sh --fast`/`--full` использовать только как диагностический резерв, не как замену GitHub checks.
+4. Отдельный T016: manual smoke только в `/Applications/GRAF Dev.app` через штатный dev-harness после чтения `docs/agent-guidance/local-development.md`; с разрешённой тестовой учётной записью:
+email start/verify, VK ID, Яндекс, отмена provider flow, Back/Forward/Reload,
+provider link и logout/login. В evidence фиксируются только результаты и коды
+проверок, не учётные данные, URL с кодами или содержание встреч.
+
+## Project Structure
+
+### Documentation
+
+```text
+specs/136-auth-navigation-recovery/
+├── spec.md
+├── plan.md
+├── research.md
+├── data-model.md
+├── quickstart.md
+├── contracts/
+│   └── cabinet-navigation-lifecycle.md
+├── checklists/
+│   └── requirements.md
+└── tasks.md
+```
+
+### Source Code
+
+```text
+apps/macos/
+├── RecApp/Sources/Cabinet/
+│   ├── DesktopCabinetRoutePolicy.swift
+│   ├── DesktopCabinetWorkspaceView.swift
+│   └── EmbeddedCabinetWebView.swift
+└── Shared/Tests/
+    ├── DesktopCabinetRoutePolicyTests.swift
+    └── DesktopCabinetWorkspaceTests.swift
+
+changes/unreleased/F136.yaml
+```
+
+**Structure Decision**: Реализовать в существующем macOS cabinet модуле;
+server routes остаются неизменными. Тесты дополняют текущую policy/workspace
+матрицу без новой инфраструктуры.
+
+## Complexity Tracking
+
+Нет нарушений constitution. Небольшой enum состояния продолжения OAuth
+оправдан двумя различающимися безопасностными режимами: первичный вход меняет
+сессию, а подключение провайдера из Settings не должно её сбрасывать.
+
+## Возобновлённый срез T005/T006/T010 — 2026-10-17
+
+1. Исторические документы восстановлены из защищённого Git ref; старые отметки
+   не являются текущим доказательством. Идентичность F136 и старые task IDs сохранены.
+2. Причина T005 подтверждена на базовом SHA: protected POST устанавливает
+   `historyFencePending`; finish/fail/cancel очищают историю и меняют
+   `sessionBoundaryID`. `.id` в workspace пересоздаёт WebView до route commit.
+3. Минимальное исправление в существующем controller/coordinator: исключить
+   границу только из-за POST, отложить успешную границу до стабильных route и
+   request identity. `markSessionExpired` при 401/выборе пространства остаётся
+   немедленной защитой. Не переносить старый архивный Swift-файл целиком.
+4. Сохранить текущие billing chain, download, navigation identity, отмену и
+   отклонение устаревших callbacks. Все callers finish/fail/cancel и attach/detach
+   входят в анализ. Повторную отправку POST не использовать для восстановления.
+5. До кода — независимое ревью обоих checklists, анализ spec/plan/tasks и sync
+   существующих issues. Затем RED на текущем коде, GREEN после исправления;
+   ordinary GET/POST, ошибка/отмена, вход/выход, 401/выбор пространства, кнопки,
+   устаревшие callbacks и billing проверяются существующим набором XCTest.
+6. T004/T011/T012 и T016 остаются отдельными открытыми воротами всей F136.
+   Если дальнейшая проверка выявит связь OAuth/303 с этим исправлением, добавить
+   обязательную работу через converge; не менять её по предположению.
+7. Перед реализационным коммитом — converge, независимое итоговое ревью,
+   текущие проверки и явное согласие пользователя. Перед принятием PR —
+   governance-fast, macos-pr, pr-metadata на точном SHA/основании через общий
+   `scripts/validate-pr-checks.py`. Merge/release/deploy требуют отдельного решения.
+
+**Constitution re-check**: проект не меняет серверный auth contract, доступы,
+системный захват, хранение и секреты. Требования к metadata-only evidence,
+независимому reviewer и единственному GRAF Dev применяются без исключений.
