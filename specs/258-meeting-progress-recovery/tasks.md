@@ -6,8 +6,10 @@
 > [F6788/spec.md](../6788-macos-notification-recovery/spec.md).
 > Здесь сохранены все 12 исходных описаний, порядок и связи, а не создан новый
 > план реализации. Отметки `[X]` T002/T003 означают проверенную серверную
-> реализацию; закрытие #6819 пока заблокировано проверками CI и принятием этой
-> сверки. Остальные старые `[X]` сняты до индивидуальной сверки и не означают,
+> реализацию. #6819 закрыта 19.10.2026 после принятия сверки, свежих 46 проверок
+> и live-валидации. T009/T010 дополнительно проверены и ожидают принятия текущей
+> сверки и live-валидации #6822. Остальные старые `[X]` сняты до индивидуальной
+> сверки и не означают,
 > что принятую реализацию следует выполнить повторно. T008 включает заменённые
 > владельцем widget/recap: восстанавливать эти поверхности не требуется.
 > Подробная матрица и ограничения — [f258-reconciliation.md](../6788-macos-notification-recovery/f258-reconciliation.md).
@@ -46,8 +48,8 @@ Independent test: synthetic capture start/Stop→transcript→summary с зак�
 
 Independent test: свежие инциденты разных записей не теряются; worker wake работает от узкой media role.
 
-- [ ] T009 [US3] Дополнить регрессии инцидентов/retention/recovery и media-role в `apps/macos/Shared/Tests/DesktopNotificationControlTests.swift`, `apps/server/tests/integration/test_playback_normalization_postgres.py` и `tests/unit/test_playback_normalization_worker.py`. [FR-010/012] (Issue #6822).
-- [ ] T010 [US3] Исправить per-recording incidents/reconciliation в `apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift`; metadata-only wake в `apps/server/src/twobrain_rec_server/normalization/worker.py` и минимальные grants в `apps/server/scripts/bootstrap_runtime_database_roles.py`/соответствующей test fixture. [FR-010/012] (Issue #6822).
+- [X] T009 [US3] Дополнить регрессии инцидентов/retention/recovery и media-role в `apps/macos/Shared/Tests/DesktopNotificationControlTests.swift`, `apps/server/tests/integration/test_playback_normalization_postgres.py` и `tests/unit/test_playback_normalization_worker.py`. [FR-010/012] (Issue #6822).
+- [X] T010 [US3] Исправить per-recording incidents/reconciliation в `apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift`; metadata-only wake в `apps/server/src/twobrain_rec_server/normalization/worker.py` и минимальные grants в `apps/server/scripts/bootstrap_runtime_database_roles.py`/соответствующей test fixture. [FR-010/012] (Issue #6822).
 
 ## Phase 6 — Проверка и PR
 

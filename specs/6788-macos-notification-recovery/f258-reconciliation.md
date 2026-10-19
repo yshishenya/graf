@@ -104,3 +104,59 @@ T002/T003 отмечены как проверенная реализация с
 Здесь не принимаются #6820–#6823, вся F258/F6788, установленный GRAF Dev,
 доставка системных уведомлений, OAuth, новый выпуск или production deploy.
 Исходная #6819 не требует выпуска и deployment; эти действия не выполнялись.
+
+
+## Продолжение сверки 19.10.2026: #6819 и #6822
+
+Первая сверка принята через [PR #7653](https://github.com/yshishenya/graf/pull/7653):
+source `abe6551d64be636623468029148a098ccf6d8945`, merge
+`5f712ba848cae1d7b0310f03c2fad52e126b9a04`. Предыдущие записи «пока открыта»
+выше описывают состояние на 18.10.2026.
+
+#6819/T002–T003 закрыта 19.10.2026 после нового прогона обоих исходных файлов
+на чистом принятом merge: **46 PASS / 0 FAIL / 0 SKIP**, 47.18 с.
+Полные Git-деревья source PR и merge совпали:
+`b6526e7954fd74e4ee537fa61f86c8bc2dce1932`. Общий валидатор PR прошёл до и
+после слияния, затем `validate-issue-closeout.py --verify-live` прошёл для
+подготовленного и опубликованного комментария. [Итоговый комментарий](https://github.com/yshishenya/graf/issues/6819#issuecomment-6261763081)
+разделяет локальный серверный прогон и документальный объём проверок GitHub;
+исторический истёкший артефакт #6838 не использован как актуальный PASS.
+Это не закрытие общей F258 или установленной приёмки.
+
+### Исходные #6822 / T009–T010
+
+| Исходный критерий | Проверенные реализация и доказательства |
+|---|---|
+| Ошибки каждой записи, независимо от лимита групп | `DesktopLocalNotificationIncident.incidents` проходит все `snapshot.uploadItems`; `testEveryFailedRecordingHasFreshIncidentEvenAfterRetention` проверяет восемь отдельных ошибок. |
+| Срок хранения не заменяет свежесть | Свежесть вычисляется по `updatedAt`; тот же тест подтверждает свежие инциденты при уже истёкшем `retentionDeadline`. |
+| Повтор после восстановления, отсутствие повторного claim | `DesktopNotificationPreferencesStore.reconcileIncidents` и `claimLocalIncident`; `testIncidentRecursOnlyAfterObservedRecovery` запрещает повтор без подтверждённого recovery и разрешает после него. Сохраняется изоляция владельца и миграция старых маркеров. |
+| Узкий metadata SELECT и RLS, без DML | `test_media_role_wakes_current_processing_without_content_or_write_privileges` использует настоящий PostgreSQL и отдельную media role: свой workflow и вызов сигнала доступны, чужое пространство не видно, полный ORM SELECT и UPDATE запрещены. Runtime bootstrap проверяет точные восемь колонок метаданных и идемпотентность. |
+
+18.10.2026 на чистом `adc0acba0a05b9353ccfe521a6a005904721c728`
+штатные PostgreSQL/worker проверки дали **42 PASS**, существующие
+`DesktopNotificationControlTests` — **22 PASS**, итого **64 разных проверки,
+0 FAIL / 0 SKIP**. Полное дерево `apps/` этого источника и принятого основания
+текущей сверки `5f712ba848cae1d7b0310f03c2fad52e126b9a04` совпадает:
+`9309bae29b303a06f510788b80b6dd8ae546bcd2`. Повторно проверены контрольные
+суммы исходников и журналов; новый прогон тех же байтов не заявляется.
+
+```sh
+UV_NO_SYNC=1 bash apps/server/scripts/run_local_postgres_tests.sh --focused \
+  tests/integration/test_playback_normalization_postgres.py \
+  tests/unit/test_playback_normalization_worker.py -q --tb=short --show-capture=no
+swift test --package-path apps/macos --scratch-path <отдельный каталог> \
+  --filter DesktopNotificationControlTests
+```
+
+PostgreSQL-контейнер и временная Swift-сборка удалены после успешного завершения;
+сохранены журналы и контрольные суммы. Temporal handle в тесте управляемо
+подменён: это проверка прав и вызова сигнала, не доставки настоящему Temporal.
+Реальные баннеры, захват и установленный GRAF Dev здесь не проверены; они
+не являются собственным критерием #6822 и остаются в #6821/#6823.
+
+T009/T010 отмечены как проверенная реализация с исходным владением #6822;
+issue остаётся открытой до принятия этой сверки, обязательных актуальных
+проверок нового PR на точном SHA/основе и успешного `--verify-live`.
+T004–T008 и T011/T012 остаются открытыми. Устаревший widget/recap не
+восстанавливается. F200/F254, выпуск, production и пользовательские данные
+не затронуты.
