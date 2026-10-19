@@ -221,14 +221,14 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             }
         }
         defer { observation.cancel() }
-        _ = try await webView.evaluateJavaScript("document.forms[0].submit(); undefined")
+        _ = try await webView.evaluateJavaScript("document.forms[0].submit(); true")
         await fulfillment(of: [submitted], timeout: 10)
         if supersedesPendingForm {
             XCTAssertTrue(controller.isLoading, "First form is waiting for its server response")
             XCTAssertEqual(controller.sessionBoundaryID, boundary)
             // Keep native WebKit callbacks: the second explicit submission must
             // cancel the provisional first one, even for the same URL and body.
-            _ = try await webView.evaluateJavaScript("document.forms[0].submit(); undefined")
+            _ = try await webView.evaluateJavaScript("document.forms[0].submit(); true")
         }
         if cancel { webView.stopLoading() }
         await fulfillment(of: [result], timeout: 10)
