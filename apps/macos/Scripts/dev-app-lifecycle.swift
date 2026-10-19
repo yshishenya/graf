@@ -11,8 +11,8 @@ func fail(_ message: String) -> Never {
 let expectedBundleIdentifier = "pro.2brain.graf.dev"
 let expectedDevDestination = URL(fileURLWithPath: "/Applications/GRAF Dev.app").standardizedFileURL
 let arguments = CommandLine.arguments
-guard arguments.count == 3 || (arguments.count == 4 && arguments[1] == "swap") else {
-    fail("usage: dev-app-lifecycle.swift <status|terminate> <app-path> | swap <staged-app-path> <installed-app-path>")
+guard arguments.count == 3 || (arguments.count == 4 && ["swap", "terminate"].contains(arguments[1])) else {
+    fail("usage: dev-app-lifecycle.swift <status|terminate|identity> <app-path> [expected-identity-for-terminate] | swap <staged-app-path> <installed-app-path>")
 }
 
 func assertDevBundle(_ url: URL, label: String) {
@@ -22,6 +22,9 @@ func assertDevBundle(_ url: URL, label: String) {
 }
 
 let action = arguments[1]
+if action == "identity" && URL(fileURLWithPath: arguments[2]).standardizedFileURL != expectedDevDestination {
+    fail("launch observation requires the installed GRAF Dev.app")
+}
 if action == "swap" {
     let staged = URL(fileURLWithPath: arguments[2]).standardizedFileURL
     let installed = URL(fileURLWithPath: arguments[3]).standardizedFileURL
@@ -53,8 +56,8 @@ if action == "swap" {
     exit(0)
 }
 
-guard arguments.count == 3 else {
-    fail("usage: dev-app-lifecycle.swift <status|terminate> <app-path>")
+guard arguments.count == 3 || (arguments.count == 4 && action == "terminate") else {
+    fail("usage: dev-app-lifecycle.swift <status|terminate|identity> <app-path> [expected-identity-for-terminate]")
 }
 
 let requestedDestination = URL(fileURLWithPath: arguments[2]).standardizedFileURL
@@ -72,9 +75,22 @@ let applications = NSWorkspace.shared.runningApplications.filter { application i
 }
 
 switch action {
+case "identity":
+    guard applications.count == 1, let application = applications.first,
+          !application.isTerminated, let launched = application.launchDate else {
+        fail("launch observation requires one unambiguous live Dev process")
+    }
+    print("\(application.processIdentifier):\(launched.timeIntervalSince1970)")
 case "status":
     print(applications.isEmpty ? "stopped" : "running")
 case "terminate":
+    if arguments.count == 4 {
+        guard applications.count == 1, let application = applications.first,
+              !application.isTerminated, let launched = application.launchDate,
+              "\(application.processIdentifier):\(launched.timeIntervalSince1970)" == arguments[3] else {
+            fail("refusing to terminate an unverified replacement Dev process")
+        }
+    }
     guard applications.allSatisfy({ $0.terminate() }) else {
         fail("application refused graceful termination")
     }

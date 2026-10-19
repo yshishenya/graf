@@ -53,3 +53,11 @@
   requirement ambiguity or missing release boundary remains.
 - Reviewer addendum 2026-09-02: CHK021 is satisfied by FR-014, SC-007 and the
   two bounded governance-fixture tasks; product scope remains unchanged.
+- Независимая повторная проверка 2026-10-16: все 21 исходный критерий качества
+  требований сохранены в области исторического релиза; новый установленный
+  Dev-путь проверен отдельно в `dev-launch.md`. Он не заменяет owned direct-child,
+  signing/release gates или установленную приёмку другой фичи. Основания:
+  `../validation/review-dev-launch-requirements-20261016.md`.
+- Независимое перечитывание 2026-10-19: 21 checked / 0 unchecked; исходные
+  релизные требования сохранены, новый Dev-путь их не заменяет. Текущий отчёт:
+  `../validation/review-current-20261019.md`.

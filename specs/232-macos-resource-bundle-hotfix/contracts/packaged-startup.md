@@ -47,3 +47,23 @@ validate-packaged-app-launch.sh /absolute/path/GRAF.app [minimum-seconds] [nativ
 The signing workflow must pass packaged startup before appcast generation or
 upload. Final checksums are derived after app and PKG stapling and final ZIP
 creation. The public appcast is the last mutable production file.
+
+## Установленный Dev, T024–T026
+
+Вход — `dev-harness.sh validate-app-launch --live [--restart-idle-app]`.
+Только `/Applications/GRAF Dev.app`, проверенный active live manifest и чистый
+checkout инструмента. Наблюдается обычный LaunchServices запуск со штатными
+данными/фоновыми действиями; HOME и Application Support не подменяются.
+
+Harness передаёт валидатору отдельный явный режим наблюдения, точный единственный
+PID и новый пустой каталог журнала. Валидатор не владеет Dev как прямым потомком
+и не убивает его. Он подтверждает непрерывную жизнь 5s, точный путь/bundle ID/PID
+и два маркера этого запуска; старые журналы/процессы не подходят.
+
+Harness держит общий lifecycle lock, выполняет graceful quit только после
+явного операторского предусловия idle, восстанавливает исходное running/stopped
+состояние на успехе/ошибке и чистит свой temp. Сбой восстановления блокирует PASS.
+Результат отличает `lifecycle=dev-harness` от релизного `child_pid_owned=yes`.
+
+Релизный CLI, signing caller и все прежние критерии сохраняются. Этот локальный
+режим не является новым release proof и не подтверждает другую installed feature.
