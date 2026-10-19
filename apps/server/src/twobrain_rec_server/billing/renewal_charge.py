@@ -543,6 +543,8 @@ async def plan_due_renewals(
             request_snapshot=snapshot,
         )
         db.add(operation)
+        # Persist the invoice's parent without committing the caller's transaction.
+        await db.flush()
         db.add(
             BillingInvoice(
                 workspace_id=subscription.workspace_id,
