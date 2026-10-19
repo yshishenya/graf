@@ -30,9 +30,11 @@ and one authoritative Full CI before release consideration.
   signing/update continuity are explicit protected boundaries.
 - **Pass**: no root `CHANGELOG.md` or mutable active-feature content in root
   `AGENTS.md`; the Feature owns only its fragment and artifacts.
-- **Gate for implementation**: reviewer-owned requirement/infra checklists must
-  remain unchecked until reviewed; `speckit-analyze` must report no unresolved
-  Critical/High finding before implement.
+- **Gate for implementation**: отдельный независимый reviewer-агент проверяет
+  каждый пункт обоих чеклистов и отмечает только подтверждённое, затем
+  перечитывает их и записывает итоги. Агент реализации отметки не меняет.
+  Неподтверждённое ревью или открытые Critical/High findings
+  `speckit-analyze` блокируют реализацию.
 
 ## Target Design
 
@@ -95,7 +97,8 @@ The reusable harness validates a short fixed sequence:
 
 ```text
 allocate Feature ID → create umbrella issue → specify/clarify/plan/checklist/tasks
-→ analyze → task-to-issues → implement one slice → fast CI on exact SHA
+→ analyze → task-to-issues → implement one slice → approved commit/PR
+→ governance-fast + macos-pr + pr-metadata on exact SHA and checked base
 → merge → freeze release train → one Full CI → release decision
 ```
 
@@ -117,8 +120,10 @@ changelog write target.
    templates; keep root `AGENTS.md` and root changelog conflict-free.
 5. Seed only observed candidates with `candidate`/`blocked` status, then ask
    owner/reviewer to classify each before child removal issues are created.
-6. Run analysis/convergence, exact-SHA fast CI and attach metadata-only
-   evidence. Do not perform a removal or release in this Feature.
+6. Run analysis/convergence and focused checks; после разрешённого коммита/PR
+   получить `governance-fast`, `macos-pr`, `pr-metadata` точного SHA/основы
+   и PASS `scripts/validate-pr-checks.py`. Attach metadata-only evidence.
+   Do not perform a removal or release in this Feature.
 
 ## Planned Repository Surface
 
@@ -152,10 +157,15 @@ Temporal/Apple requirements remain in GRAF.
    forbidden content fields and stale-SHA behavior.
 4. `python3 scripts/check-development-process.py --self-test`
 5. `PYTHONDONTWRITEBYTECODE=1 pytest -q tests/governance`
-6. Feature quickstart, then `infra/scripts/ci-local.sh --fast` once on the
-   PR-ready exact SHA.
-7. `$speckit-analyze`, `$speckit-converge`, GitHub task-to-issues and reviewer
-   checklist review before implementation closeout.
+6. Feature quickstart и профильные локальные проверки. После отдельного
+   разрешения на проверенный коммит/PR — обязательные GitHub `governance-fast`,
+   `macos-pr`, `pr-metadata` точного SHA и проверенной основы, затем
+   `python3 scripts/validate-pr-checks.py --repository yshishenya/graf --pr <номер>`.
+   Локальный `infra/scripts/ci-local.sh --fast` — только диагностика/резервный
+   путь; он не является вторым обязательным этапом и не заменяет GitHub.
+7. Независимое ревью чеклистов и `$speckit-analyze` до реализации, затем
+   GitHub task-to-issues; `$speckit-converge` и повторная сверка доказательств
+   перед завершением реализации.
 
 Full CI, production CD, database repair, Temporal mutation and release
 publication are expressly absent from Feature 228. They occur only for a

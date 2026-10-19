@@ -26,7 +26,8 @@ production rollback. Одновременно рискованно помеща�
 - **Feature agent** получает только контекст одного contour/slice и не может
   удалить чужую совместимость, данные или историю «заодно».
 - **Reviewer** подтверждает классификацию, cutover/rollback и checklist quality;
-  его отметки не меняются агентом.
+  отметки по доказательствам ставит отдельный независимый reviewer-агент,
+  а агент реализации их не меняет.
 - **Release operator** включает только готовые slices в замороженный release
   train и проводит один authoritative Full CI для точного candidate SHA.
 - **Dev operator** репетирует только изолированные Dev/local операции и не
@@ -155,8 +156,13 @@ receipt; stale/cancelled/synthetic merge receipt отклоняется.
 - **FR-016**: Release manifest MUST связывать inclusion contour/slice с
   exact merged SHA, PR/issue/task, changelog fragment digest и одной
   authoritative Full CI receipt; individual fast receipts не заменяют её.
-- **FR-017**: Checklists остаются reviewer-owned; automation/agents MUST NOT
-  отмечать требования checked и MUST NOT закрывать issue без evidence.
+- **FR-017**: Checklists остаются reviewer-owned. До реализации отдельный
+  независимый reviewer-агент MUST проверить каждый пункт, отметить только
+  подтверждённые доказательствами требования, оставить остальные открытыми
+  с причиной, перечитать чеклисты и записать итоги checked/unchecked.
+  Он MAY менять только чеклисты и отдельный отчёт ревью; агент реализации
+  MUST NOT менять эти отметки. Неподтверждённое ревью блокирует реализацию;
+  ни один агент MUST NOT закрывать issue без требуемых доказательств.
 - **FR-018**: Feature 228 MUST NOT удалять runtime code, migrations, Temporal
   histories, customer data, volumes или legacy files; это program-planning
   slice, который создаёт только contracts, validators, guidance, fixtures и
@@ -180,7 +186,10 @@ receipt; stale/cancelled/synthetic merge receipt отклоняется.
 - **SC-007**: Release candidate, включающий retirement slices, отклоняется без
   immutable Full CI evidence на exact candidate SHA и fragment manifest digest.
 - **SC-008**: По завершении Feature 228 отсутствует удаление legacy runtime,
-  production mutation или изменение reviewer-owned checkbox state.
+  production mutation или изменение reviewer-owned checkbox state агентом
+  реализации. Независимый отчёт связывает каждую отметку с доказательствами
+  и содержит итоги после повторного чтения обоих чеклистов; неподтверждённые
+  пункты остаются открытыми и блокируют реализацию.
 
 ## Scope
 
@@ -202,7 +211,9 @@ receipt; stale/cancelled/synthetic merge receipt отклоняется.
   deletion, TCC reset, publication или изменение Apple signing trust.
 - Изменение capture, auth, billing, transcription, deletion или user-visible
   product behavior без отдельного approved Feature.
-- Закрытие GitHub issues, reviewer checklists или implementation commits.
+- Закрытие GitHub issues и implementation commits этим этапом планирования;
+  самостоятельная приёмка чеклистов агентом реализации. Обязательное
+  независимое ревью требований выполняется по FR-017.
 
 ## Assumptions
 
