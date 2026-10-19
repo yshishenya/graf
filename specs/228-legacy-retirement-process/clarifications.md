@@ -19,8 +19,12 @@ existing GRAF governance baseline. No interactive question is pending.
 5. **Bounded agent context.** Root `AGENTS.md` remains a stable router. Active
    feature/contour detail is read from the active Spec Kit path and scoped
    guidance, not written to root instructions.
-6. **Reviewer ownership.** Checklists and issue closure remain reviewer/evidence
-   actions. Agents may generate them but do not mark them complete.
+6. **Reviewer ownership, актуализировано 19.10.2026.** До реализации отдельный
+   независимый reviewer-агент проверяет каждый пункт, отмечает только
+   подтверждённое, записывает причины открытого и итоги повторного чтения.
+   Он меняет только чеклисты и отчёт; агент реализации отметки не меняет.
+   Неподтверждённое ревью блокирует реализацию. Закрытие issues требует
+   отдельной проверки всех критериев и доказательств по tracker-policy.
 7. **GitHub traceability.** A fresh Feature ID is allocated before a feature;
    every executable task has a canonical Russian GitHub issue and PR link.
 

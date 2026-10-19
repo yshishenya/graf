@@ -24,8 +24,12 @@ git diff --check
 ```
 
 Ожидается: `spec.md`, `clarifications.md`, `plan.md`, `data-model.md`,
-`contracts/`, `quickstart.md` и `tasks.md` существуют; все reviewer-owned
-checklist items остаются unchecked.
+`contracts/`, `quickstart.md` и `tasks.md` существуют. До реализации отдельный
+независимый reviewer-агент проверяет каждый пункт обоих чеклистов, отмечает
+только подтверждённое и оставляет остальное открытым с причиной. Он меняет
+только чеклисты и отдельный отчёт, перечитывает их и записывает итоги.
+Агент реализации отметки не меняет; неподтверждённое ревью и открытые
+блокирующие замечания останавливают реализацию.
 
 ## 3. Проверить безопасный registry fixture
 
@@ -61,10 +65,19 @@ exception проходит.
 ```sh
 python3 scripts/check-development-process.py --self-test
 PYTHONDONTWRITEBYTECODE=1 pytest -q tests/governance
-infra/scripts/ci-local.sh --fast
 ```
 
 В PR записываются risk lane `significant-feature`, exact source SHA, feature
 ID/umbrella issue/task IDs, `Legacy Impact: untouched`, `legacy_new=0`,
 `unowned_legacy=0`, `expired_exceptions=0` и открытые reviewer/convergence
-gates. Full CI выполняется только на замороженном будущем release candidate.
+gates. Коммит — только после проверки и отдельного разрешения владельца.
+После PR обязательны GitHub `governance-fast`, `macos-pr`, `pr-metadata`
+точного SHA и проверенной основы, затем:
+
+```sh
+python3 scripts/validate-pr-checks.py --repository yshishenya/graf --pr <номер>
+```
+
+Локальный `infra/scripts/ci-local.sh --fast` остаётся только диагностикой или
+резервной проверкой. Он не заменяет GitHub и не добавляется вторым обязательным
+этапом. Full CI выполняется только на замороженном будущем release candidate.

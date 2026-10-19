@@ -60,10 +60,10 @@ evidence.
 **Independent test**: a synthetic slice fails without every applicable
 protected-domain evidence item and passes only with a bounded scope fence.
 
-- [ ] T020 [P] [US3] Add migration and persistent-data contract fixtures to `tests/governance/test_retirement_slice.py`.
-- [ ] T021 [P] [US3] Add Temporal replay/history compatibility contract fixtures to `tests/governance/test_retirement_slice.py`.
-- [ ] T022 [P] [US3] Add macOS/Sparkle signing/appcast continuity contract fixtures to `tests/governance/test_retirement_slice.py`.
-- [ ] T036 [P] [US3] Add historical MediaScribe dual-track/drain cutoff, canonical-source, unavailable-outcome and bounded-cleanup negative fixtures to `tests/governance/test_retirement_slice.py`.
+- [ ] T020 [US3] Add migration and persistent-data contract fixtures to `tests/governance/test_retirement_slice.py`.
+- [ ] T021 [US3] Add Temporal replay/history compatibility contract fixtures to `tests/governance/test_retirement_slice.py`.
+- [ ] T022 [US3] Add macOS/Sparkle signing/appcast continuity contract fixtures to `tests/governance/test_retirement_slice.py`.
+- [ ] T036 [US3] Add historical MediaScribe dual-track/drain cutoff, canonical-source, unavailable-outcome and bounded-cleanup negative fixtures to `tests/governance/test_retirement_slice.py`.
 - [ ] T023 [US3] Implement protected-domain and rollback/abort validation in `scripts/validate-retirement-slice.py`.
 - [ ] T024 [US3] Add a retirement slice template and per-domain rehearsal references in `docs/agent-guidance/legacy-retirement.md`.
 - [ ] T025 [US3] Create task-backed child issues only for owner/reviewer-approved `remove` records using `.specify/extensions/github-issue-canon/`; leave candidate and blocked records open.
@@ -95,8 +95,8 @@ digest, slice/contour link or authoritative Full receipt is rejected.
 
 ## Phase 8: Analysis, evidence and handoff
 
-- [ ] T033 Run `$speckit-analyze`; resolve every Critical/High planning finding in `specs/228-legacy-retirement-process/` and regenerate affected reviewer checklist items without checking them.
-- [ ] T034 Run Feature 228 metadata-only quickstart scenarios, `python3 scripts/check-development-process.py --self-test`, focused governance tests and `infra/scripts/ci-local.sh --fast` once on the PR-ready exact SHA; attach evidence to the Feature 228 PR.
+- [X] T033 Run `$speckit-analyze`; resolve every Critical/High planning finding in `specs/228-legacy-retirement-process/`, then obtain an independent reviewer-agent check of both checklists with evidence and reread totals; the implementation agent must not change their checkmarks. (Issue #6271).
+- [ ] T034 Run Feature 228 metadata-only quickstart scenarios, `python3 scripts/check-development-process.py --self-test` and focused governance tests; after separately approved commit/PR require GitHub `governance-fast`, `macos-pr`, `pr-metadata` on the exact SHA/checked base and PASS `scripts/validate-pr-checks.py`; attach evidence to the Feature 228 PR. Local wide fast remains diagnostic only.
 - [ ] T035 Run `$speckit-converge`, confirm `legacy_new=0`, `unowned_legacy=0`, `expired_exceptions=0`, and record only the remaining blocked contours/limitations in `changes/unreleased/F228.yaml`.
 
 ## Dependencies and Parallel Opportunities
@@ -104,8 +104,9 @@ digest, slice/contour link or authoritative Full receipt is rejected.
 - T001–T004 establish provenance before implementation.
 - T005–T010 are foundational and block all user stories.
 - US1 (T011–T015) produces the candidate baseline before owner classification.
-- US2 (T016–T019) and US3 fixtures (T020–T022) can proceed in parallel after
-  schemas, because they own separate files.
+- US2 (T016–T019) and US3 fixtures (T020–T022, T036) use separate files after
+  schemas. Within US3, T020, T021, T022 and T036 run sequentially because they
+  all change `tests/governance/test_retirement_slice.py`; all four precede T023.
 - T023–T025 depend on US1/US2 and reviewer-approved records.
 - US4 (T026–T029) can proceed after T015; it must not edit root `AGENTS.md`.
 - US5 (T030–T032) depends on the Feature 227 release-train contract when it is
@@ -122,8 +123,9 @@ digest, slice/contour link or authoritative Full receipt is rejected.
 | FR-010 / SC-005 | T020, T023–T024 | Migration/data protected-domain fixture and rehearsal contract. |
 | FR-011 / SC-005 | T021, T023–T024 | Temporal replay/history protected-domain fixture and contract. |
 | FR-012 / SC-005 | T022, T023–T024 | macOS/Sparkle trust/rollback protected-domain fixture and contract. |
+| FR-008–FR-009, FR-018 / protected MediaScribe boundary | T036, T023–T024 | Historical media cutoff, canonical-source, unavailable-outcome and bounded-cleanup negative fixtures; no runtime deletion. |
 | FR-013 / SC-004 | T014, T018, T023–T025 | Candidate classification plus reviewed, bounded removal-slice criteria. |
 | FR-014 / SC-006 | T026–T029 | Root-router/context validator and scoped guidance review. |
 | FR-015–FR-016 / SC-007 | T019, T030–T032 | PR/fragment/release-candidate schema and receipt tests. |
-| FR-017 / SC-008 | T033–T035 | Unchanged reviewer checkboxes, review record and metadata-only closeout. |
+| FR-017 / SC-008 | T033–T035 | Independent reviewer evidence and reread totals; implementation does not change reviewer checkmarks; metadata-only closeout. |
 | FR-018 / SC-008 | T001, T033–T035 | Planning-only scope and no destructive/production operation in evidence. |
