@@ -1,0 +1,355 @@
+{
+  "checked_at": "2026-10-16T22:06:33.380328+00:00",
+  "risk_lane": "docs-only",
+  "published_source": "834bdc87e3c83ebd86e1afd2c6e7760229b7297d",
+  "release": "v2026.10.16.6",
+  "full_run_id": 38933940635,
+  "run_attempt": 1,
+  "candidate_id": "rc-20261016T164126Z-c39eef276624",
+  "pr_navigation": {
+    "number": 7432,
+    "head": "833770e58d89c3727ba6ceb07d417d4836b8a50a",
+    "base": "721b5125d799ea798a4af0b3625e18d3c1109039",
+    "merge": "d43934dfd445c8b36de82933ff7497f976ae66ed"
+  },
+  "pr_style": {
+    "number": 7437,
+    "head": "75427867f7366a747bb0e5bcb5aecf924feee1b6",
+    "base": "77e6aed8ff79127d6e6b284ad18b58da5793ef51",
+    "merge": "beef1daae368f0d08cbb0d44eea69df7886133b1"
+  },
+  "source_invariants": [
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/mac_meeting_guide.html",
+      "text": true,
+      "ids": true,
+      "hrefs": true,
+      "meta": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/meeting_protocol_guide.html",
+      "text": true,
+      "ids": true,
+      "hrefs": true,
+      "meta": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/transcription_quality_guide.html",
+      "text": true,
+      "ids": true,
+      "hrefs": true,
+      "meta": true
+    }
+  ],
+  "navigation_main_preserved": [
+    {
+      "file": "landing.html",
+      "main_exact_equal": true
+    },
+    {
+      "file": "guides.html",
+      "main_exact_equal": true
+    },
+    {
+      "file": "mac_meeting_guide.html",
+      "main_exact_equal": true
+    },
+    {
+      "file": "meeting_protocol_guide.html",
+      "main_exact_equal": true
+    },
+    {
+      "file": "transcription_quality_guide.html",
+      "main_exact_equal": true
+    }
+  ],
+  "runtime_files": [
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/_content_header.html",
+      "release_sha256": "e47a57f1c801836fd2d64093bc124f535d71114f81822f9998d8f8adb9095694",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/mac_meeting_guide.html",
+      "release_sha256": "a8317dc3fb5358a939d855434f020956a310255c4741c64fe9c725c0b0e14edc",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/meeting_protocol_guide.html",
+      "release_sha256": "225d8fe912401ef25688e665ec5501fbf564e4fae406516935d20360a95e7aa1",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/transcription_quality_guide.html",
+      "release_sha256": "4b19478f48fadae717cd8b130e05938ee9746c791e0f3361c8a2c0d70363ea83",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/guides.html",
+      "release_sha256": "b6ccd8fa6542cc3a39aec1415a1b7719ca4afe8e7795074eaba1c39f00beecb1",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/templates/public/landing.html",
+      "release_sha256": "b868cba7deb516890b71f8e9c79f2b8c3a445cc87d078d00dea757430d15d5ec",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/static/public/article.css",
+      "release_sha256": "dc940cb6e1209b181235614a1a46066f258c2368fcc8dcac607b60b4e863f8d0",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/static/public/content-header.css",
+      "release_sha256": "b649ada7476b2a40baec539c0bd6bbe5a6ce3b60d92db3ff749db169b4d5815f",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/static/public/landing.js",
+      "release_sha256": "db64e4dcd20068c0d45e15b141d87e593f76f6eb55e395ce3ec5ed312922e7b4",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/static/public/landing.css",
+      "release_sha256": "265802ea98a71bfd1ddaba4429aef369b7771c4a0fce735c365b54040723dc61",
+      "current_equal": true
+    },
+    {
+      "file": "apps/server/src/twobrain_rec_server/public/static/public/content.css",
+      "release_sha256": "5289ff49bd2a622a02af3f605101acb046aba6e9d9f3e732889b45936dc1fc86",
+      "current_equal": true
+    }
+  ],
+  "services": [
+    {
+      "service": "rec-api",
+      "running": true,
+      "health": "healthy",
+      "source_label": "834bdc87e3c83ebd86e1afd2c6e7760229b7297d",
+      "all_11_files_match_release": true
+    },
+    {
+      "service": "rec-media-worker",
+      "running": true,
+      "health": "healthy",
+      "source_label": "834bdc87e3c83ebd86e1afd2c6e7760229b7297d",
+      "all_11_files_match_release": true
+    },
+    {
+      "service": "rec-processing-worker",
+      "running": true,
+      "health": "healthy",
+      "source_label": "834bdc87e3c83ebd86e1afd2c6e7760229b7297d",
+      "all_11_files_match_release": true
+    },
+    {
+      "service": "rec-maintenance",
+      "running": true,
+      "health": "not-configured",
+      "source_label": "834bdc87e3c83ebd86e1afd2c6e7760229b7297d",
+      "all_11_files_match_release": true
+    }
+  ],
+  "article_geometry": {
+    "widths": [
+      360,
+      390,
+      768,
+      1440
+    ],
+    "font_multipliers": [
+      1,
+      2
+    ],
+    "cases": 24,
+    "horizontal_overflows": 0
+  },
+  "nojs_paths": [
+    {
+      "path": "/",
+      "status": 200,
+      "h1": 1,
+      "guidesVisible": 1,
+      "mainVisible": true
+    },
+    {
+      "path": "/guides",
+      "status": 200,
+      "h1": 1,
+      "guidesVisible": 1,
+      "mainVisible": true
+    },
+    {
+      "path": "/guides/zapis-vstrechi-na-mac-bez-bota",
+      "status": 200,
+      "h1": 1,
+      "guidesVisible": 1,
+      "mainVisible": true
+    },
+    {
+      "path": "/guides/protokol-vstrechi-iz-zapisi",
+      "status": 200,
+      "h1": 1,
+      "guidesVisible": 1,
+      "mainVisible": true
+    },
+    {
+      "path": "/guides/proverka-kachestva-rasshifrovki-vstrechi",
+      "status": 200,
+      "h1": 1,
+      "guidesVisible": 1,
+      "mainVisible": true
+    }
+  ],
+  "landing_keyboard": {
+    "opened": "true",
+    "closed": "false",
+    "focusRestored": true,
+    "afterEscape": {
+      "tag": "A",
+      "href": "/download",
+      "inClosedNav": false
+    },
+    "resizeClosed": "false"
+  },
+  "contrast": {
+    "solid_background_minimum": 5.118563882360588,
+    "gradient_conservative_minimum": 6.192365557863147,
+    "text_elements": 340,
+    "threshold": 4.5
+  },
+  "recovery_contracts": {
+    "passed": 9,
+    "deselected": 71,
+    "production_restore_executed_in_this_audit": false
+  },
+  "external_evidence_digests": {
+    "F281-current-release-api-20261017.json": "4b4e9e883e9be39f7995c542e587586c3b37186df183916d4deed0ae3390ad00",
+    "F281-source-preservation-20261017.json": "bca611aa41602c01dc9fed1748feba42bd3dddfed071dfc5c1d7eddbab44b37e",
+    "F281-live-runtime-readback-20261017.json": "070da5ac47252315212271fcf4dafa80f6969fc88e41afeb87804c33a97b8766",
+    "F281-durable-deploy-readback-20261017.json": "34c4722b220183fa8b75ac238ac180403917c5fc960a56b2b11da57108465b01",
+    "F281-backup-metadata-readback-20261017.json": "190d87a705e33064e710453e00a751c86c4ee8a60a36006768024200e08b3569",
+    "F281-current-deployment-gates-20261017.json": "3c3b99ea75c9b2c973fc27a3f131d946e1ba74b84c22da16907f8d2f4b37b533",
+    "F281-public-static-health-readback-20261017.json": "38a134e93f4f8b7cfaee19638b51643a75faa3f1cea4d0d8e902fcc8b6703996",
+    "F281-gradient-contrast-bound-20261017.json": "5705df67c2b7b1b41275e72a1fd50b4d7fde8baa4b78fda1051ad7eed7196d22",
+    "checks/F281-live-matrix-20261017.json": "b66df431310b3a0ad71a092cd874302497b6cef61b8ca7137002b39f2d82c47b",
+    "checks/F281-live-accessibility-20261017.json": "7f9477407d7d23a359aa22c67e23f96bbd95654f885bd4d4864062bc888f6d17",
+    "checks/F281-header-keyboard-20261017.log": "5881087558651ae3bd2fea31f6b1056932bb4803632f96fec9959cfa1cac545f",
+    "checks/F281-pr7432-current-20261017.log": "3c40df55d51b5a5d012655e562f7bfaae2cfe17d3f64025ce25f3f2cc8a5a55d",
+    "checks/F281-pr7437-current-20261017.log": "3c2678b74e522eeed16a7d72f78e8d0166586e77a5e3a07b75ff6ff2c9f8c092"
+  },
+  "document_recheck_20261019": {
+    "checked_at": "2026-10-19T12:06:58.150132+00:00",
+    "master_sha": "03cea84dc5deb1d77ea7b4ac2356fa9819123aa9",
+    "original_external_evidence_digest_matches": 13,
+    "source_files": [
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/templates/public/_content_header.html",
+        "master_sha256": "e47a57f1c801836fd2d64093bc124f535d71114f81822f9998d8f8adb9095694",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/templates/public/mac_meeting_guide.html",
+        "master_sha256": "a8317dc3fb5358a939d855434f020956a310255c4741c64fe9c725c0b0e14edc",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/templates/public/meeting_protocol_guide.html",
+        "master_sha256": "cc660231b63595b70815013f4018916ca995ae8c319343da8f99792d796a6886",
+        "same_as_20261017_evidence": false
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/templates/public/transcription_quality_guide.html",
+        "master_sha256": "4b19478f48fadae717cd8b130e05938ee9746c791e0f3361c8a2c0d70363ea83",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/templates/public/guides.html",
+        "master_sha256": "b6ccd8fa6542cc3a39aec1415a1b7719ca4afe8e7795074eaba1c39f00beecb1",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/templates/public/landing.html",
+        "master_sha256": "b868cba7deb516890b71f8e9c79f2b8c3a445cc87d078d00dea757430d15d5ec",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/static/public/article.css",
+        "master_sha256": "dc940cb6e1209b181235614a1a46066f258c2368fcc8dcac607b60b4e863f8d0",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/static/public/content-header.css",
+        "master_sha256": "b649ada7476b2a40baec539c0bd6bbe5a6ce3b60d92db3ff749db169b4d5815f",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/static/public/landing.js",
+        "master_sha256": "db64e4dcd20068c0d45e15b141d87e593f76f6eb55e395ce3ec5ed312922e7b4",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/static/public/landing.css",
+        "master_sha256": "265802ea98a71bfd1ddaba4429aef369b7771c4a0fce735c365b54040723dc61",
+        "same_as_20261017_evidence": true
+      },
+      {
+        "file": "apps/server/src/twobrain_rec_server/public/static/public/content.css",
+        "master_sha256": "5289ff49bd2a622a02af3f605101acb046aba6e9d9f3e732889b45936dc1fc86",
+        "same_as_20261017_evidence": true
+      }
+    ],
+    "accepted_change_pr": 7637,
+    "accepted_change_merge_sha": "431a7857221c2bad1fe27bf1d5b80fee385670fc",
+    "required_pr_checks": {
+      "7432": {
+        "receipt_sha256": "3c40df55d51b5a5d012655e562f7bfaae2cfe17d3f64025ce25f3f2cc8a5a55d",
+        "target_sha": "833770e58d89c3727ba6ceb07d417d4836b8a50a",
+        "base_sha": "721b5125d799ea798a4af0b3625e18d3c1109039",
+        "merge_commit_sha": "d43934dfd445c8b36de82933ff7497f976ae66ed",
+        "checks": {
+          "governance-fast": {
+            "proof_digest": "sha256:ea3730950dfa826ad757e1333aa2048d0df53d167519211c242ff9ca0294d6b3",
+            "run_attempt": 1,
+            "run_id": "36985848526"
+          },
+          "macos-pr": {
+            "proof_digest": "sha256:e3e727cc4c0403a2917077146a8064d46eceb144ef7998e7fa83fc5278d3aa67",
+            "run_attempt": 1,
+            "run_id": "36985848525"
+          },
+          "pr-metadata": {
+            "proof_digest": "sha256:5234271bb4807578d2aad4ac539daa90563cacd5d90a2f194660d4f76217d657",
+            "run_attempt": 1,
+            "run_id": "36985848939"
+          }
+        }
+      },
+      "7437": {
+        "receipt_sha256": "3c2678b74e522eeed16a7d72f78e8d0166586e77a5e3a07b75ff6ff2c9f8c092",
+        "target_sha": "75427867f7366a747bb0e5bcb5aecf924feee1b6",
+        "base_sha": "77e6aed8ff79127d6e6b284ad18b58da5793ef51",
+        "merge_commit_sha": "beef1daae368f0d08cbb0d44eea69df7886133b1",
+        "checks": {
+          "governance-fast": {
+            "proof_digest": "sha256:3c64ce693c67a42bbd33b3c4bcb4a82c119d5fa60c965ac5dc9f6640326212c7",
+            "run_attempt": 1,
+            "run_id": "37052413554"
+          },
+          "macos-pr": {
+            "proof_digest": "sha256:70ad824e5952cf3759797fc32079796382b5428ae3fc92473a9ce94c63161b1a",
+            "run_attempt": 1,
+            "run_id": "37052413559"
+          },
+          "pr-metadata": {
+            "proof_digest": "sha256:b74b21d603438de514e2619e36030098c2d89e1d7552d05c0ddcd8779e122d71",
+            "run_attempt": 1,
+            "run_id": "37052411175"
+          }
+        }
+      }
+    },
+    "new_product_tests_or_live_deploy_performed": false,
+    "merge_hold": "F280 release window"
+  }
+}
