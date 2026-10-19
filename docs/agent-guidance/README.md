@@ -22,6 +22,7 @@ The physical Codex worktree folder name is not a source of truth.
 - `document-reading.md`: повторное использование полного чтения неизменных
   требований в текущем диалоге, с проверкой контекста и зависимостей.
 - `spec-kit-flow.md`: the full feature workflow and quality gates.
+- `development-process.md`: роли, делегирование вспомогательным агентам и приёмка их результатов.
 - `product-gates.md`: non-negotiable product, privacy, AI, deletion,
   reference-fidelity and third-party provenance gates.
 - `tracker-policy.md`: GitHub issue sync, Russian/plain-language comments, and
