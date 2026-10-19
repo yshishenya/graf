@@ -1637,13 +1637,13 @@ class GrafLocalAdapter:
             raise HarnessError(f"unexpected Dev app lifecycle state: {state!r}")
         return state == "running"
 
-    def _terminate_dev_app(self, destination: Path) -> bool:
+    def _terminate_dev_app(self, destination: Path, *, expected_identity: Optional[str] = None) -> bool:
         if not self._app_is_running(destination):
             return False
-        _run_command(
-            ["swift", str(self.app_lifecycle_script), "terminate", str(destination)],
-            cwd=self.root,
-        )
+        command = ["swift", str(self.app_lifecycle_script), "terminate", str(destination)]
+        if expected_identity is not None:
+            command.append(expected_identity)
+        _run_command(command, cwd=self.root)
         deadline = time.monotonic() + APP_STOP_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
             if not self._app_is_running(destination):
@@ -1653,13 +1653,18 @@ class GrafLocalAdapter:
             return True
         raise HarnessError("GRAF Dev.app did not exit after graceful termination")
 
-    def _launch_dev_app(self, destination: Path) -> None:
+    def _launch_dev_app(self, destination: Path, *, log_directory: Optional[Path] = None) -> None:
         self._assert_dev_app_destination(destination)
         if not destination.is_dir():
             raise HarnessError("installed GRAF Dev.app is missing")
         if self._app_is_running(destination):
+            if log_directory is not None:
+                raise HarnessError("refusing to reuse a running Dev process for fresh launch logs")
             return
-        _run_command(["/usr/bin/open", "-n", str(destination)], cwd=self.root)
+        command = ["/usr/bin/open", "-n"]
+        if log_directory is not None:
+            command += ["--env", f"GRAF_LOG_DIRECTORY={log_directory}"]
+        _run_command([*command, str(destination)], cwd=self.root)
         deadline = time.monotonic() + PROCESS_STOP_TIMEOUT_SECONDS
         while time.monotonic() < deadline:
             if self._app_is_running(destination):
@@ -1668,6 +1673,54 @@ class GrafLocalAdapter:
         if self._app_is_running(destination):
             return
         raise HarnessError("newly installed GRAF Dev.app did not launch")
+
+    def _app_launch_identity(self, destination: Path) -> str:
+        identity = _run_command(
+            ["swift", str(self.app_lifecycle_script), "identity", str(destination)], cwd=self.root
+        )
+        if not re.fullmatch(r"[1-9][0-9]*:[0-9]+(?:\.[0-9]+)?", identity):
+            raise HarnessError("installed Dev process identity is invalid")
+        return identity
+
+    def _assert_launch_tooling(self, tooling_sha: str) -> None:
+        self._assert_source_matches_checkout({"source_sha": tooling_sha})
+        for relative in (
+            "scripts/dev-harness.py", "infra/scripts/dev-harness.sh",
+            "apps/macos/Scripts/dev-app-lifecycle.swift",
+            "apps/macos/Scripts/validate-packaged-app-launch.sh",
+        ):
+            path = self.root / relative
+            if not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(self.root.resolve()):
+                raise HarnessError("launch validation tooling must be regular checkout files")
+            actual = _run_command(["git", "hash-object", "--no-filters", "--", relative], cwd=self.root)
+            expected = _run_command(["git", "rev-parse", f"{tooling_sha}:{relative}"], cwd=self.root)
+            if actual != expected:
+                raise HarnessError("launch validation tooling bytes differ from committed source")
+
+    def _validate_launch_bundle(self, manifest: Dict[str, Any], destination: Path) -> None:
+        if destination != DEV_APP_PATH or destination.resolve() != DEV_APP_PATH:
+            raise HarnessError("launch validation requires /Applications/GRAF Dev.app without symlinks")
+        try:
+            info = plistlib.loads((destination / "Contents/Info.plist").read_bytes())
+        except (OSError, ValueError, plistlib.InvalidFileException) as exc:
+            raise HarnessError("installed Dev metadata is unreadable") from exc
+        if (
+            not isinstance(info, dict)
+            or not isinstance(info.get("LSEnvironment"), dict)
+            or info.get("CFBundleIdentifier") != APP_BUNDLE_ID
+            or info.get("GRAFSourceSHA") != manifest["source_sha"]
+            or info.get("LSEnvironment", {}).get("GRAF_APP_CHANNEL") != APP_CHANNEL
+        ):
+            raise HarnessError("installed Dev identity or source SHA differs from active manifest")
+        if _tree_digest(destination) != manifest["components"]["macos_app"]["digest"]:
+            raise HarnessError("installed Dev bytes differ from active manifest")
+        _run_command(["codesign", "--verify", "--deep", "--strict", str(destination)], cwd=self.root)
+        measured = self._measure_signed_app_identity(destination)
+        expected = manifest["app_identity"]
+        if measured != tuple(expected[key] for key in (
+            "signing_identity", "designated_requirement", "entitlements_digest"
+        )):
+            raise HarnessError("installed Dev signing identity differs from active manifest")
 
     @staticmethod
     def _refresh_dev_app_registration(destination: Path) -> None:
@@ -2377,6 +2430,8 @@ def state_lock(root: Path) -> Iterator[None]:
         if fcntl is not None:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
+            if (root / "app-launch-validation-recovery.json").exists():
+                raise HarnessError("launch validation requires resolved recovery state before further lifecycle work")
             yield
         finally:
             if fcntl is not None:
@@ -2742,6 +2797,14 @@ def operation_status(args: argparse.Namespace) -> Dict[str, Any]:
             "recovery": recovery,
             **app_fields,
         }
+    launch_recovery = root / "app-launch-validation-recovery.json"
+    if launch_recovery.exists():
+        return {
+            "operation": "status", "status": "blocked", "state_dir": str(root),
+            "reason": "inspect app-launch-validation-recovery.json before further app lifecycle work",
+            "app_launch_recovery": _read_json(launch_recovery),
+            **_status_app_fields(recovery_hint="resolve the interrupted launch validation first"),
+        }
     active = _load_active(root)
     if active is None:
         app_fields = _status_app_fields(
@@ -2817,6 +2880,106 @@ def operation_prune(args: argparse.Namespace) -> Dict[str, Any]:
                     f"prune receipt could not be appended to history; receipt preserved at {preserved}: {exc}"
                 ) from exc
         return {"operation": "prune", **receipt}
+
+
+def operation_validate_app_launch(args: argparse.Namespace) -> Dict[str, Any]:
+    _assert_dev_environment()
+    if not getattr(args, "live", False):
+        raise HarnessError("launch validation requires explicit --live")
+    root = state_dir(live=True)
+    with state_lock(root):
+        _assert_no_schema_transition(root)
+        if (root / "rollback-required.json").exists():
+            raise HarnessError("launch validation requires resolved recovery state")
+        active = _load_active(root)
+        if active is None:
+            raise HarnessError("launch validation requires an active live Dev manifest")
+        _validate_manifest(active)
+        pointer = _read_json(root / "active-manifest.json")
+        if active["status"] != "active" or pointer.get("runtime_mode") != "live":
+            raise HarnessError("launch validation requires an active live Dev manifest")
+        adapter = GrafLocalAdapter(_repo_root(), root)
+        adapter._assert_supported()
+        tooling_sha = _sha(_run_command(["git", "rev-parse", "HEAD"], cwd=adapter.root))
+        # The checked tool can observe an older installed app; these are distinct SHAs.
+        adapter._assert_launch_tooling(tooling_sha)
+        destination = _dev_app_destination()
+        adapter._validate_launch_bundle(active, destination)
+        was_running = adapter._app_is_running(destination)
+        if was_running and not getattr(args, "restart_idle_app", False):
+            raise HarnessError("Dev is running; confirm idle before explicit --restart-idle-app")
+        initial_identity = adapter._app_launch_identity(destination) if was_running else None
+        log_directory = Path(tempfile.mkdtemp(prefix="graf-dev-launch-"))
+        recovery_path = root / "app-launch-validation-recovery.json"
+        recovery = {
+            "status": "in_progress", "source_sha": active["source_sha"],
+            "tooling_sha": tooling_sha, "was_running": was_running,
+            "initial_identity": initial_identity, "owned_identity": None,
+            "temporary_log_directory": str(log_directory),
+        }
+        try:
+            _write_json(recovery_path, recovery)
+        except BaseException:
+            shutil.rmtree(log_directory)
+            raise
+        attempted_launch = False
+        owned_identity = None
+        validation_error = None
+        try:
+            if was_running:
+                adapter._terminate_dev_app(destination, expected_identity=initial_identity)
+            attempted_launch = True
+            adapter._launch_dev_app(destination, log_directory=log_directory)
+            owned_identity = adapter._app_launch_identity(destination)
+            recovery["owned_identity"] = owned_identity
+            _write_json(recovery_path, recovery)
+            result = _run_command([
+                "sh", str(adapter.root / "apps/macos/Scripts/validate-packaged-app-launch.sh"),
+                "--observe-installed-dev", owned_identity, str(log_directory),
+            ], cwd=adapter.root)
+            if result != "packaged_app_launch=pass minimum_seconds=5 architecture=native lifecycle=dev-harness":
+                raise HarnessError("installed startup validator did not return its expected result")
+        except BaseException as exc:
+            validation_error = exc
+        try:
+            if attempted_launch and adapter._app_is_running(destination):
+                if owned_identity is None or adapter._app_launch_identity(destination) != owned_identity:
+                    raise HarnessError("refusing to terminate an unverified replacement Dev process")
+                adapter._terminate_dev_app(destination, expected_identity=owned_identity)
+            # The test process has stopped; no process can still use this log root.
+            shutil.rmtree(log_directory)
+            if was_running:
+                adapter._launch_dev_app(destination)
+            if adapter._app_is_running(destination) != was_running:
+                raise HarnessError("installed Dev running state was not restored")
+        except BaseException as exc:
+            _write_json(recovery_path, {
+                **recovery, "status": "recovery_required",
+                "temporary_log_directory": str(log_directory) if log_directory.exists() else None,
+                "validation_failed": validation_error is not None,
+                "validation_error": type(validation_error).__name__ if validation_error else None,
+                "validation_message": str(validation_error)[:500] if validation_error else None,
+                "restoration_error": type(exc).__name__,
+                "restoration_message": str(exc)[:500],
+            })
+            raise HarnessError(
+                "installed startup restoration failed; inspect app-launch-validation-recovery.json; "
+                f"validation_failed={validation_error is not None}"
+            ) from exc
+        recovery_path.unlink()
+        if validation_error is not None:
+            raise validation_error
+        adapter._assert_launch_tooling(tooling_sha)
+        adapter._validate_launch_bundle(active, destination)
+        if _load_active(root) != active:
+            raise HarnessError("active Dev manifest changed during launch validation")
+        return {
+            "operation": "validate-app-launch", "status": "pass", "lifecycle": "dev-harness",
+            "tooling_sha": tooling_sha, "source_sha": active["source_sha"],
+            "manifest_id": active["manifest_id"], "process_identity": owned_identity,
+            "minimum_seconds": 5, "markers": ["app_launch_finished", "app_main_window_presented"],
+            "restored_running": was_running, "temporary_logs_removed": True,
+        }
 
 
 def operation_smoke(args: argparse.Namespace) -> Dict[str, Any]:
@@ -2949,6 +3112,9 @@ def parser() -> argparse.ArgumentParser:
     smoke.add_argument("--json", action="store_true")
     smoke.add_argument("--fixture", action="store_true")
     smoke.add_argument("--live", action="store_true", help="explicitly run HTTP and installed-app probes")
+    launch = sub.add_parser("validate-app-launch")
+    launch.add_argument("--live", action="store_true")
+    launch.add_argument("--restart-idle-app", action="store_true", help="operator has just verified idle, no calls or unsaved work")
     rollback = sub.add_parser("rollback")
     rollback.add_argument("--manifest-id")
     rollback.add_argument("--dry-run", action="store_true")
@@ -2974,6 +3140,8 @@ def dispatch(args: argparse.Namespace) -> Dict[str, Any]:
         return {"status": "allowed"}
     if args.operation == "recover-schema":
         return operation_recover_schema(args)
+    if args.operation == "validate-app-launch":
+        return operation_validate_app_launch(args)
     return {"build": operation_build, "promote": operation_promote, "rehydrate": operation_rehydrate, "status": operation_status, "smoke": operation_smoke, "rollback": operation_rollback, "reset-data": operation_reset_data, "prune": operation_prune}[args.operation](args)
 
 
