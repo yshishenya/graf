@@ -1,0 +1,12 @@
+schema_version: 1
+feature_id: 278
+category: Fixed
+summary: "Календарное продление сохраняет операцию до связанного счета"
+issue: 7663
+tasks: [T034]
+compatibility: "Схема данных, цены, оплаченные сроки и согласие на продление не меняются"
+validation_lane: "high-risk-product"
+validation_evidence: "Требования T034: 6/6, анализ CRITICAL 0 / HIGH 0; PostgreSQL RED 3 failed до правки, GREEN 120 passed после; Ruff 0.15.20 и governance PASS. Точные PR/release gates учитываются отдельно; validation-renewal-order.md"
+known_limitations:
+  - "Полная календарная приемка T026 и новое естественное уведомление чека T032 учитываются отдельно"
+release_notes: "Исправлен порядок сохранения операции автоматического продления и ее счета в PostgreSQL. Обе записи и аудит остаются в одной транзакции: повтор не создает второй счет, а откат не оставляет частичную покупку. Настройки подписок и оплаченные права сохранены."
