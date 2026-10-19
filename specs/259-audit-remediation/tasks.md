@@ -91,3 +91,13 @@ US3, FR-007/008/020–022, SC-003/004; high-risk-product / significant governanc
 Независимый тест US3: канонический главный владелец проходит до/после закрытия,
 а unchecked, неверная ссылка, дубли, orphan, T000, открытый ребенок и неверный
 порядок закрытия отклоняются. Другие пользовательские истории не меняются.
+
+
+## Точная связь CI с повторным PR — 2026-10-16
+
+- [X] T027 [US3] Уточнить границу API/immutable proof в spec.md, plan.md и quickstart.md, получить независимый checklists/pr-run-binding.md, analyze и внешнего владельца до кода. (Issue #7644)
+- [X] T028 [US3] В tests/governance/test_validator_safety.py воспроизвести пустую API-связь одного SHA с повторными PR; затем в scripts/validate-issue-closeout.py использовать существующий полный exact-PR/head/base/run proof вместо commit lookup, сохранив прямые противоречия run/API и прежние защитные отрицательные проверки; ошибочное ожидание отказа только из-за двух PR у одного коммита заменить принятием при обязательном успешном полном proof. Зависит от T027; FR-007/008/020–022, SC-003/004. (Issue #7644)
+- [X] T029 [US3] Пройти полный validator suite/self-test, независимое ревью и converge; выполнить read-only live replay #7123 и отказ #7059, записать validation-pr-run-binding-20261016.md и changes/unreleased/F259.yaml. Commit/PR/CI/merge и закрытие исходных issues остаются отдельными воротами. Зависит от T028. (Issue #7644)
+
+T027 → T028 → T029. Проверка старых исходных issues не меняет их состояние.
+Уже закрытая #7631 и её T024–T026 не используются как владельцы нового кода.

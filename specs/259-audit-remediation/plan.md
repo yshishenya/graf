@@ -123,3 +123,26 @@ analyze → новый task-backed issue F259 без дубля историче
 регрессия → общий validator → review/converge → локальные проверки →
 разрешённый коммит/PR и точные GitHub проверки. Автоматическое закрытие
 F265, слияние этого исправления и выпуск в локальную реализацию не входят.
+
+
+## Точная связь CI с повторным PR — 2026-10-16
+
+Lane: high-risk-product / significant governance, существующая US3.
+Clarify задан в spec.md. Конституция и обязательные доказательства сохраняются.
+Ремонт ограничен scripts/validate-issue-closeout.py и его существующим suite
+tests/governance/test_validator_safety.py. Общий validate-pr-checks.py и
+workflow CI не меняются. Новых зависимостей и исключений конкретного PR нет.
+
+В verify_feature_runs повторно использовать существующий _github_pr_checks
+и cache checked_prs. Для governance run точное полное доказательство
+обязательно независимо от наличия API-связи. Непустое run.pull_requests
+проверяется как прежде; пустое не заменяется неоднозначным commit lookup.
+Убрать неиспользуемый _github_commit_pull_requests и его cache после проверки
+всех callers. Release-full по-прежнему проверяется по candidate SHA/event/path
+и не получает PR-исключения. Один полный proof lookup на PR/head/run в вызове.
+
+Порядок: независимый checklist → tasks/analyze/issue sync → отрицательная
+регрессия → минимальная замена проверки → полный прежний suite/self-test →
+реальный read-only replay #7123 и отрицательный #7059 → независимое ревью
+и converge → новое разрешение commit/PR → exact-SHA CI/merge. Никаких
+изменений реальных issues проверяемых фич во время воспроизведения.

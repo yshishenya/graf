@@ -881,8 +881,6 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
         },
     }
     monkeypatch.setattr(validator, "_github_run", lambda _repo, run_id: runs[run_id])
-    commit_prs = [6383]
-    monkeypatch.setattr(validator, "_github_commit_pull_requests", lambda _repo, _sha: commit_prs)
     pr = {
         "state": "MERGED",
         "mergedAt": "2026-09-04T09:00:00Z",
@@ -890,7 +888,8 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
         "body": "Refs #6337",
     }
     monkeypatch.setattr(validator, "_github_pr", lambda _repo, _number: pr)
-    monkeypatch.setattr(validator, "_github_pr_checks", lambda *_args: {})
+    proof_calls = []
+    monkeypatch.setattr(validator, "_github_pr_checks", lambda *args: proof_calls.append(args) or {})
     assert validator.verify_feature_runs(
         "yshishenya/graf",
         [issue],
@@ -899,7 +898,7 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
     ) == []
 
     # GitHub may clear the run's pull_requests array after a rebase merge.
-    # The merged PR head SHA and the pull_request run head SHA still bind it.
+    # Only the mandatory complete proof binds it to this exact PR/run.
     runs["123"] = {**runs["123"], "pullRequestNumbers": []}
     assert validator.verify_feature_runs(
         "yshishenya/graf",
@@ -908,15 +907,17 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
         require_release_full=True,
     ) == []
 
-    commit_prs.append(9999)
+    # Repeated PRs for this SHA must not trigger a commit lookup.
+    monkeypatch.setattr(validator.subprocess, "run", lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("unexpected commit lookup")))
+    proof_calls.clear()
     errors = validator.verify_feature_runs(
         "yshishenya/graf",
         [issue],
         "a" * 40,
         require_release_full=True,
     )
-    assert any("is not uniquely bound to PR #6383" in error for error in errors)
-    commit_prs.pop()
+    assert errors == []
+    assert proof_calls == [("yshishenya/graf", 6383, "a" * 40, "123")]
 
     runs["456"] = {**runs["456"], "headSha": "b" * 40}
     errors = validator.verify_feature_runs(
@@ -1362,13 +1363,27 @@ def test_closeout_requires_current_full_pr_check_set(monkeypatch):
     monkeypatch.setattr(validator, "_github_run", lambda *_args: {
         "conclusion": "success", "workflowName": "governance-fast", "headSha": "a"*40,
         "event": "pull_request", "workflowPath": ".github/workflows/governance-fast.yml",
-        "pullRequestNumbers": [6383],
+        "pullRequestNumbers": [],
     })
     calls = []
     def checks(*args):
         calls.append(args)
-        raise ValueError("stale metadata or missing native proof")
+        raise ValueError(proof_error)
     monkeypatch.setattr(validator, "_github_pr_checks", checks)
-    errors = validator.verify_feature_runs("yshishenya/graf", [issue], "a"*40)
+    for proof_error in ("missing/expired artifact", "code receipt identity mismatch", "stale current PR metadata"):
+        calls.clear()
+        errors = validator.verify_feature_runs("yshishenya/graf", [issue], "a"*40)
+        assert calls == [("yshishenya/graf", 6383, "a"*40, "123")]
+        assert any("current complete PR checks" in error for error in errors)
+
+    # Multiple issues share one full proof only for the same PR/head/run.
+    monkeypatch.setattr(validator, "_github_pr", lambda *_args: {
+        "state": "MERGED", "mergedAt": "2026-09-13T00:00:00Z",
+        "headRefOid": "a"*40, "body": "Refs #6337; Refs #6338",
+    })
+    monkeypatch.setattr(validator, "_github_pr_checks", lambda *args: calls.append(args) or {})
+    calls.clear()
+    assert validator.verify_feature_runs(
+        "yshishenya/graf", [issue, dict(issue, number=6338)], "a"*40,
+    ) == []
     assert calls == [("yshishenya/graf", 6383, "a"*40, "123")]
-    assert any("current complete PR checks" in error for error in errors)
