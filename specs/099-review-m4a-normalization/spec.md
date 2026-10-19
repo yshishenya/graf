@@ -2,7 +2,7 @@
 
 **Feature Branch**: `099-review-m4a-normalization`
 **Created**: 2026-07-09
-**Status**: Implemented, merged, released, and production-validated
+**Status**: Historical release validated; 2026-10-17 attempt-ownership repair in progress
 **Input**: User description: "Давай вариант 3. У нас всегда в записи должен быть m4a. Для загруженных записей будем транскодировать. Запиши это как отдельную будущую фичу 099 с подробным контекстом."
 
 ## Product Context
@@ -19,6 +19,22 @@
 Главный продуктовый принцип 099: каждая запись, которую пользователь может открыть в review, должна иметь один понятный playback artifact. UI и API не должны угадывать, из чего собирать звук в момент просмотра.
 
 ## Clarifications
+
+### Session 2026-10-17 — защита повторной попытки
+
+Уточнение существующих FR-035/FR-044 по воспроизведению F290, без нового
+продуктового выбора. Поздняя ошибка попытки A не вправе менять состояние,
+счётчики, причину, срок повтора, lease или reservation следующей B, даже при
+повторном использовании того же имени исполнителя. Потерявшая владение A
+завершается существующим Deferred. Это не новая автоматическая ошибка B.
+Общее удаление временных объектов также защищает текущую B при действующей
+lease в running/publishing; старую A можно убирать по её неизменяемому ID.
+После истечения lease и для orphan/cleanup_pending/purged сохраняется
+прежняя очистка. Победивший READY и удаление встречи сохраняют приоритет.
+Изменение handoff dispatch → activity и правила повторов Temporal не входят:
+SE03 пока вопрос контракта, а не доказанный дефект. Исследовательские часы и
+pipeline/storage doubles не являются production приёмкой.
+Все категории clarify ясны из действующего контракта; новых вопросов 0.
 
 ### Session 2026-07-14
 
@@ -387,7 +403,7 @@ Source media становится пригодным для downstream processin
 - **FR-041**: Automatic legacy backfill MUST validate any existing playback artifact against the canonical gate, reuse it when valid, regenerate it from retained accepted source when invalid, and produce a final unavailable state plus safe operational alert when neither a valid playback artifact nor usable accepted source exists.
 - **FR-042**: Normalization MUST be scheduled automatically after accepted source media becomes available and MUST NOT depend on transcript or summary completion, while playback and transcript statuses remain independently truthful.
 - **FR-043**: On worker startup, a retained-source normalization job in automatic retry with the machine-readable reason `worker_interrupted` MUST be re-queued and dispatched immediately with the same job/record lineage; this startup recovery MUST NOT shorten scheduled backoff for any other reason.
-- **FR-044**: Automatic temporary-output cleanup MUST NOT select or delete an attempt while its normalization job is `running` or `publishing` with an unexpired worker lease; cleanup MUST remain available after that lease expires or the job leaves its active state.
+- **FR-044**: Automatic temporary-output cleanup MUST NOT delete or change the current attempt owned by a `running` or `publishing` normalization job with an unexpired worker lease. Older immutable attempts may be cleaned without affecting that current attempt; cleanup MUST remain available after lease expiry or when the job leaves its active state. Both direct cleanup and maintenance sweep MUST obey this boundary.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -472,3 +488,17 @@ Source media становится пригодным для downstream processin
 - Automatic attempt cycles, long-term recovery cadence, backfill page/batch
   limits and workload priority are fixed in
   [automatic-backfill-contract.md](./contracts/automatic-backfill-contract.md).
+
+
+## Legacy Impact
+
+- Classification: untouched
+- Текущий срез T125–T128 исправляет владение существующей попыткой обработки;
+  он не добавляет совместимые псевдонимы, запасные механизмы, старые режимы,
+  зависимости или параллельный путь обработки.
+- Существующие API, схема БД, accepted-source и playback contract, автоматические
+  повторы, backfill и deletion остаются действующими. Новых исключений совместимости
+  нет; owner/expiry/removal trigger/retirement task: N/A.
+- Историческая реализация F099 и её опубликованные результаты сохраняют свой
+  объём. Этот раздел описывает текущую поправку #7647 и не объявляет завершённой
+  новую производственную приёмку F290.

@@ -22,13 +22,22 @@ from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.db.models import (
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
+    StorageReservation,
     TrackArtifact,
 )
 from twobrain_rec_server.normalization import pickup as pickup_module
+from twobrain_rec_server.normalization import service as normalization_service
 from twobrain_rec_server.normalization.pickup import reconcile_normalization_jobs
 from twobrain_rec_server.normalization.service import (
+    FFmpegNormalizationPipeline,
     NormalizationExecutionDeferred,
+    NormalizationExecutionFailure,
+    _prepare_attempt,
+    _reserve_playback_storage,
+    cleanup_normalization_attempt,
+    cleanup_unpublished_normalization_attempts,
     publish_uploaded_attempt,
+    record_normalization_failure,
     recover_expired_normalization_job,
     run_normalization_job,
 )
@@ -671,3 +680,530 @@ def test_reconciler_demotes_missing_ready_object_and_automatically_dispatches_re
     assert old_canonical.status == "superseded"
     assert source_keys <= set(client.app_state["storage"].objects)
     assert list(temporal.starts) == [job.workflow_id]
+
+
+async def _ownership_job(db, meeting_id):
+    job = await db.scalar(
+        select(PlaybackNormalizationJob).where(PlaybackNormalizationJob.meeting_id == meeting_id)
+    )
+    assert job is not None
+    await apply_job_worker_scope(db, job)
+    return job
+
+
+def _job_ownership_snapshot(job):
+    return (
+        job.state,
+        job.reason_code,
+        job.next_attempt_at,
+        job.attempt_count,
+        job.cycle_attempt_count,
+        job.retry_cycle_count,
+        job.lease_owner_sha256,
+        job.lease_expires_at,
+        job.last_heartbeat_at,
+        job.canonical_track_artifact_id,
+    )
+
+
+async def _seed_next_owned_attempt(db, storage, job, *, owner, uploaded):
+    failure = await record_normalization_failure(
+        db,
+        job_id=job.id,
+        reason_code=NormalizationReason.WORKER_INTERRUPTED,
+    )
+    assert failure.next_attempt_at is not None
+    prepared = await _prepare_attempt(
+        db,
+        job_id=job.id,
+        lease_owner=owner,
+        now=failure.next_attempt_at + timedelta(seconds=1),
+    )
+    if uploaded:
+        await _reserve_playback_storage(
+            db,
+            job=job,
+            attempt=prepared.attempt,
+            declared_bytes=32,
+            now=datetime.now(UTC),
+        )
+        prepared.attempt.state = "uploaded"
+        prepared.attempt.output_byte_length = len(b"synthetic-next-attempt")
+        prepared.attempt.output_sha256 = sha256(b"synthetic-next-attempt").hexdigest()
+        prepared.attempt.uploaded_at = datetime.now(UTC)
+        job.state = "publishing"
+        await db.commit()
+    storage.put_bytes(prepared.attempt.storage_object_key, b"synthetic-next-attempt")
+    return prepared.attempt
+
+
+@pytest.mark.parametrize(
+    ("uploaded", "same_owner", "lock_old_attempt"),
+    [
+        (False, False, False),
+        (False, True, False),
+        (True, False, False),
+        (True, True, False),
+        (True, True, True),
+    ],
+)
+def test_late_failure_preserves_next_attempt_and_removes_only_old_object(
+    client,
+    tmp_path,
+    monkeypatch,
+    uploaded,
+    same_owner,
+    lock_old_attempt,
+):
+    meeting, result = _accept_first_party_recording(
+        client,
+        local_recording_id="normalization-late-failure-fence",
+        include_playback=True,
+    )
+    assert result["status_code"] == 200
+    meeting_id = UUID(str(meeting["meeting_id"]))
+    storage = client.app_state["storage"]
+    source = dict(storage.objects)
+
+    async def exercise():
+        started, release, discarding = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+        class LateFailurePipeline(BlockingNormalizationPipeline):
+            async def derive_candidate(self, source_path, output_path):
+                self.started.set()
+                await asyncio.wait_for(self.release.wait(), timeout=10)
+                raise OSError("synthetic late failure of attempt A")
+
+        discard = normalization_service._discard_unowned_attempt
+
+        async def observe_discard(**kwargs):
+            discarding.set()
+            return await discard(**kwargs)
+
+        monkeypatch.setattr(normalization_service, "_discard_unowned_attempt", observe_discard)
+
+        async def old_worker():
+            async with client.app_state["sessionmaker"]() as db:
+                job = await _ownership_job(db, meeting_id)
+                with pytest.raises(NormalizationExecutionDeferred):
+                    await run_normalization_job(
+                        db=db,
+                        storage=storage,
+                        job_id=job.id,
+                        work_directory=tmp_path,
+                        pipeline=LateFailurePipeline(started, release),
+                        lease_owner="worker-A",
+                    )
+
+        worker = asyncio.create_task(old_worker())
+        try:
+            await asyncio.wait_for(started.wait(), timeout=5)
+            async with client.app_state["sessionmaker"]() as db:
+                job = await _ownership_job(db, meeting_id)
+                old = await db.scalar(
+                    select(PlaybackNormalizationAttempt).where(
+                        PlaybackNormalizationAttempt.job_id == job.id,
+                    )
+                )
+                old_id, old_key = old.id, old.storage_object_key
+                job.lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+                await db.commit()
+                assert (
+                    await recover_expired_normalization_job(
+                        db,
+                        storage=storage,
+                        job_id=job.id,
+                    )
+                    is not None
+                )
+                newer = await _seed_next_owned_attempt(
+                    db,
+                    storage,
+                    job,
+                    owner="worker-A" if same_owner else "worker-B",
+                    uploaded=uploaded,
+                )
+                job_id, new_id, new_key = job.id, newer.id, newer.storage_object_key
+                expected_job = _job_ownership_snapshot(job)
+                reservation = await db.scalar(
+                    select(StorageReservation).where(
+                        StorageReservation.idempotency_key == f"normalization:{new_id}",
+                    )
+                )
+                expected_reservation = (reservation.id, reservation.state) if reservation else None
+            # A late PUT after recovery has already marked A CLEANED must still be removed.
+            storage.put_bytes(old_key, b"synthetic-late-old-object")
+            async with client.app_state["sessionmaker"]() as locker:
+                if lock_old_attempt:
+                    if locker.bind.dialect.name != "postgresql":
+                        pytest.skip("row lock ownership requires PostgreSQL")
+                    await _ownership_job(locker, meeting_id)
+                    await locker.scalar(
+                        select(PlaybackNormalizationAttempt)
+                        .where(
+                            PlaybackNormalizationAttempt.id == old_id,
+                        )
+                        .with_for_update()
+                    )
+                release.set()
+                if lock_old_attempt:
+                    await asyncio.wait_for(discarding.wait(), timeout=5)
+                    # Failure's Job lock must be released before waiting for old Attempt.
+                    assert (
+                        await locker.scalar(
+                            select(PlaybackNormalizationJob.id)
+                            .where(
+                                PlaybackNormalizationJob.id == job_id,
+                            )
+                            .with_for_update(nowait=True)
+                        )
+                        == job_id
+                    )
+                    await locker.rollback()
+                await asyncio.wait_for(worker, timeout=5)
+            async with client.app_state["sessionmaker"]() as db:
+                job = await _ownership_job(db, meeting_id)
+                newer = await db.get(PlaybackNormalizationAttempt, new_id)
+                reservation = await db.scalar(
+                    select(StorageReservation).where(
+                        StorageReservation.idempotency_key == f"normalization:{new_id}",
+                    )
+                )
+                assert _job_ownership_snapshot(job) == expected_job
+                assert newer.state == ("uploaded" if uploaded else "local_preparing")
+                assert (
+                    (reservation.id, reservation.state) if reservation else None
+                ) == expected_reservation
+            assert storage.objects == {**source, new_key: b"synthetic-next-attempt"}
+        finally:
+            release.set()
+            if not worker.done():
+                worker.cancel()
+            await asyncio.gather(worker, return_exceptions=True)
+
+    asyncio.run(exercise())
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("uploaded", [False, True])
+@pytest.mark.parametrize("job_wide", [False, True])
+def test_delayed_cleanup_preserves_latest_leased_attempt(client, uploaded, job_wide):
+    meeting, result = _accept_first_party_recording(
+        client,
+        local_recording_id="normalization-direct-cleanup-fence",
+        include_playback=True,
+    )
+    assert result["status_code"] == 200
+    meeting_id = UUID(str(meeting["meeting_id"]))
+    storage = client.app_state["storage"]
+    source = dict(storage.objects)
+
+    async def exercise():
+        async with client.app_state["sessionmaker"]() as db:
+            job = await _ownership_job(db, meeting_id)
+            old = await _prepare_attempt(db, job_id=job.id, lease_owner="worker-A")
+            old_id = old.attempt.id
+            newer = await _seed_next_owned_attempt(
+                db,
+                storage,
+                job,
+                owner="worker-B",
+                uploaded=uploaded,
+            )
+            new_id, new_key = newer.id, newer.storage_object_key
+            expected_job = _job_ownership_snapshot(job)
+            if job_wide:
+                assert (
+                    await cleanup_unpublished_normalization_attempts(
+                        db,
+                        storage=storage,
+                        job_id=job.id,
+                    )
+                    == 1
+                )
+            else:
+                assert not await cleanup_normalization_attempt(
+                    db,
+                    storage=storage,
+                    attempt_id=new_id,
+                    cleanup_reason="late_A",
+                )
+                assert await cleanup_normalization_attempt(
+                    db,
+                    storage=storage,
+                    attempt_id=old_id,
+                    cleanup_reason="late_A",
+                )
+            await db.refresh(job)
+            await db.refresh(newer)
+            assert _job_ownership_snapshot(job) == expected_job
+            assert newer.state == ("uploaded" if uploaded else "local_preparing")
+            reservation = await db.scalar(
+                select(StorageReservation).where(
+                    StorageReservation.idempotency_key == f"normalization:{new_id}",
+                )
+            )
+            if uploaded:
+                assert reservation is not None and reservation.state == "active"
+            # Expiry restores ordinary cleanup eligibility.
+            job.lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+            await db.commit()
+            assert await cleanup_normalization_attempt(
+                db,
+                storage=storage,
+                attempt_id=new_id,
+                cleanup_reason="expired",
+            )
+            assert new_key not in storage.objects
+        assert storage.objects == source
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("uploaded", [False, True])
+@pytest.mark.parametrize("created_after_snapshot", [False, True])
+def test_prepare_failure_does_not_blame_an_owned_attempt(
+    client,
+    tmp_path,
+    monkeypatch,
+    uploaded,
+    created_after_snapshot,
+):
+    meeting, result = _accept_first_party_recording(
+        client,
+        local_recording_id="normalization-before-prepare-fence",
+        include_playback=True,
+    )
+    assert result["status_code"] == 200
+    meeting_id = UUID(str(meeting["meeting_id"]))
+    storage = client.app_state["storage"]
+
+    async def exercise():
+        async def create_owned():
+            async with client.app_state["sessionmaker"]() as db:
+                job = await _ownership_job(db, meeting_id)
+                await _prepare_attempt(db, job_id=job.id, lease_owner="worker-A")
+                await _seed_next_owned_attempt(
+                    db, storage, job, owner="worker-B", uploaded=uploaded
+                )
+                return _job_ownership_snapshot(job), dict(storage.objects)
+
+        expected = None if created_after_snapshot else await create_owned()
+
+        async def fail_prepare(*args, **kwargs):
+            nonlocal expected
+            if created_after_snapshot:
+                expected = await create_owned()
+            raise OSError("synthetic preparation failure before ownership check")
+
+        monkeypatch.setattr(normalization_service, "_prepare_attempt", fail_prepare)
+        async with client.app_state["sessionmaker"]() as db:
+            job = await _ownership_job(db, meeting_id)
+            with pytest.raises(NormalizationExecutionDeferred):
+                await run_normalization_job(
+                    db=db,
+                    storage=storage,
+                    job_id=job.id,
+                    work_directory=tmp_path,
+                    pipeline=FakeNormalizationPipeline("copy"),
+                )
+        async with client.app_state["sessionmaker"]() as db:
+            job = await _ownership_job(db, meeting_id)
+            assert (_job_ownership_snapshot(job), storage.objects) == expected
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("locked_model", [PlaybackNormalizationAttempt, PlaybackNormalizationJob])
+def test_cleanup_skips_contended_rows_releases_job_lock_and_retries(client, locked_model):
+    meeting, result = _accept_first_party_recording(
+        client,
+        local_recording_id="normalization-cleanup-lock-order",
+        include_playback=True,
+    )
+    assert result["status_code"] == 200
+    meeting_id = UUID(str(meeting["meeting_id"]))
+    storage = client.app_state["storage"]
+
+    async def exercise():
+        async with client.app_state["sessionmaker"]() as db:
+            if db.bind.dialect.name != "postgresql":
+                pytest.skip("SKIP LOCKED/savepoint requires PostgreSQL")
+            job = await _ownership_job(db, meeting_id)
+            prepared = await _prepare_attempt(db, job_id=job.id, lease_owner="worker-A")
+            attempt_id, job_id = prepared.attempt.id, job.id
+            object_key = prepared.attempt.storage_object_key
+            job.lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+            await db.commit()
+            storage.put_bytes(object_key, b"synthetic-expired-output")
+            before = dict(storage.objects)
+            async with client.app_state["sessionmaker"]() as locker:
+                await _ownership_job(locker, meeting_id)
+                locked_id = attempt_id if locked_model is PlaybackNormalizationAttempt else job_id
+                await locker.scalar(
+                    select(locked_model)
+                    .where(
+                        locked_model.id == locked_id,
+                    )
+                    .with_for_update()
+                )
+                assert not await asyncio.wait_for(
+                    cleanup_normalization_attempt(
+                        db,
+                        storage=storage,
+                        attempt_id=attempt_id,
+                        cleanup_reason="contended",
+                    ),
+                    timeout=3,
+                )
+                assert storage.objects == before
+                # SAVEPOINT rollback must release a Job lock acquired before skipped Attempt.
+                assert (
+                    await locker.scalar(
+                        select(PlaybackNormalizationJob.id)
+                        .where(
+                            PlaybackNormalizationJob.id == job_id,
+                        )
+                        .with_for_update(nowait=True)
+                    )
+                    == job_id
+                )
+                await locker.rollback()
+            assert await cleanup_normalization_attempt(
+                db,
+                storage=storage,
+                attempt_id=attempt_id,
+                cleanup_reason="retry",
+            )
+            assert object_key not in storage.objects
+
+    asyncio.run(exercise())
+
+
+def test_unread_ownership_snapshot_never_records_job_wide_failure(client, tmp_path, monkeypatch):
+    meeting, result = _accept_first_party_recording(
+        client,
+        local_recording_id="normalization-unread-ownership",
+        include_playback=True,
+    )
+    assert result["status_code"] == 200
+    meeting_id = UUID(str(meeting["meeting_id"]))
+
+    async def exercise():
+        async with client.app_state["sessionmaker"]() as db:
+            job = await _ownership_job(db, meeting_id)
+            job_id = job.id
+            expected = _job_ownership_snapshot(job)
+            scalar = db.scalar
+            failed = False
+
+            async def fail_count(statement, *args, **kwargs):
+                nonlocal failed
+                if not failed and statement.column_descriptions[0]["name"] == "attempt_count":
+                    failed = True
+                    raise OSError("synthetic database snapshot failure")
+                return await scalar(statement, *args, **kwargs)
+
+            monkeypatch.setattr(db, "scalar", fail_count)
+            with pytest.raises(NormalizationExecutionFailure) as caught:
+                await run_normalization_job(
+                    db=db,
+                    storage=client.app_state["storage"],
+                    job_id=job_id,
+                    work_directory=tmp_path,
+                    pipeline=FakeNormalizationPipeline("copy"),
+                )
+            assert failed
+            assert caught.value.reason_code is NormalizationReason.DATABASE_UNAVAILABLE
+            assert caught.value.should_retry
+        async with client.app_state["sessionmaker"]() as db:
+            job = await _ownership_job(db, meeting_id)
+            assert _job_ownership_snapshot(job) == expected
+            assert not list(
+                await db.scalars(
+                    select(PlaybackNormalizationAttempt).where(
+                        PlaybackNormalizationAttempt.job_id == job_id,
+                    )
+                )
+            )
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("boundary", ["owner", "expired", "state", "preparing"])
+def test_failure_fence_checks_lease_and_preparation_boundary(client, boundary):
+    meeting, result = _accept_first_party_recording(
+        client,
+        local_recording_id="normalization-failure-lease-fence",
+        include_playback=True,
+    )
+    assert result["status_code"] == 200
+    meeting_id = UUID(str(meeting["meeting_id"]))
+
+    async def exercise():
+        async with client.app_state["sessionmaker"]() as db:
+            job = await _ownership_job(db, meeting_id)
+            prepared = await _prepare_attempt(db, job_id=job.id, lease_owner="worker-A")
+            if boundary == "owner":
+                job.lease_owner_sha256 = sha256(b"another-owner").hexdigest()
+            elif boundary == "expired":
+                job.lease_expires_at = datetime.now(UTC) - timedelta(seconds=1)
+            else:
+                job.state = "queued"
+            await db.commit()
+            expected = _job_ownership_snapshot(job)
+            with pytest.raises(NormalizationExecutionDeferred):
+                await record_normalization_failure(
+                    db,
+                    job_id=job.id,
+                    reason_code=NormalizationReason.STORAGE_UNAVAILABLE,
+                    expected_attempt_count=job.attempt_count,
+                    expected_lease_owner_sha256=(
+                        None if boundary == "preparing" else sha256(b"worker-A").hexdigest()
+                    ),
+                )
+            assert _job_ownership_snapshot(job) == expected
+            assert prepared.attempt.state == "local_preparing"
+
+    asyncio.run(exercise())
+
+
+def test_real_directory_failure_keeps_durable_retry_and_source(client, tmp_path):
+    meeting, result = _accept_first_party_recording(
+        client,
+        local_recording_id="normalization-real-directory-failure",
+        include_playback=True,
+    )
+    assert result["status_code"] == 200
+    meeting_id = UUID(str(meeting["meeting_id"]))
+    storage = client.app_state["storage"]
+    source = dict(storage.objects)
+    blocked = tmp_path / "owned-file"
+    blocked.write_text("synthetic obstruction")
+
+    async def exercise():
+        async with client.app_state["sessionmaker"]() as db:
+            job = await _ownership_job(db, meeting_id)
+            job_id = job.id
+            with pytest.raises(NormalizationExecutionFailure) as caught:
+                await run_normalization_job(
+                    db=db,
+                    storage=storage,
+                    job_id=job_id,
+                    work_directory=blocked,
+                    pipeline=FFmpegNormalizationPipeline(),
+                )
+            assert caught.value.reason_code is NormalizationReason.TEMPORARY_STORAGE_UNAVAILABLE
+            await db.refresh(job)
+            assert job.state == "retry_wait" and job.next_attempt_at is not None
+            assert job.lease_owner_sha256 is None
+            attempt = await db.scalar(
+                select(PlaybackNormalizationAttempt).where(
+                    PlaybackNormalizationAttempt.job_id == job_id,
+                )
+            )
+            assert attempt.state == "cleaned" and attempt.cleaned_at is not None
+
+    asyncio.run(exercise())
+    assert storage.objects == source
+    assert list(tmp_path.iterdir()) == [blocked]
