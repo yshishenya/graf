@@ -252,3 +252,98 @@ async def test_acceptance_account_rejection_requires_support_without_promo_bypas
     assert vars(budget) == before
     db.add.assert_not_called()
     db.flush.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("resolution", [None, "succeeded", "late_success"])
+@pytest.mark.parametrize(("hours", "microseconds", "attempts", "expected_first", "expected_hours"), [
+    (96, 0, (), True, 72),
+    (72, 1, (), True, 72),
+    (72, 0, (), False, None),
+    (60, 0, (), False, None),
+    (48, 0, (), False, None),
+    (24, 0, (), False, None),
+    (12, 0, (), False, None),
+    (60, 0, ((1, "canceled"),), False, 48),
+    (60, 0, ((1, "succeeded"),), False, 48),
+    (36, 0, ((1, "canceled"), (2, "canceled")), False, 24),
+    (12, 0, ((3, "canceled"),), False, -1),
+    (0, 0, (), False, -1),
+])
+async def test_next_charge_projection_uses_the_same_real_attempt_as_displayed_date(
+    hours, microseconds, attempts, expected_first, expected_hours, resolution,
+):
+    from twobrain_rec_server.cabinet.web_routes import billing as routes
+
+    paid_through = datetime(2026, 11, 3, 9, 19, tzinfo=UTC)
+    now = paid_through - timedelta(hours=hours, microseconds=microseconds)
+    subscription = SimpleNamespace(
+        workspace_id=uuid4(), paid_through=paid_through, recurring_allowed=True,
+        renewal_resolution=resolution,
+    )
+    operations = [SimpleNamespace(
+        state=state, provider_id="synthetic", request_snapshot={"renewal_attempt": attempt},
+    ) for attempt, state in attempts]
+    db = SimpleNamespace(scalars=AsyncMock(return_value=operations))
+    label, first = await routes._next_renewal_projection(db, subscription, now=now)
+    expected = (
+        "в ближайшее время" if expected_hours is None else
+        "попытки в этом периоде завершены; доступна ручная оплата" if expected_hours == -1 else
+        routes._billing_datetime_label(paid_through - timedelta(hours=expected_hours))
+    )
+    assert (label, first) == (expected, expected_first)
+    db.scalars.assert_awaited_once()
+    assert await routes._next_renewal_label(db, subscription, now=now) == label
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("changes", "expected"), [
+    ({"paid_through": None}, "не запланировано"),
+    ({"recurring_allowed": False}, "не запланировано"),
+    ({"renewal_resolution": "price_changed"}, "приостановлено: подтвердите новую цену подписки и хранения"),
+    ({"renewal_resolution": "method_required"}, "приостановлено: проверьте способ оплаты"),
+    ({"renewal_resolution": "receipt_contact_required"}, "приостановлено: нужен адрес для чека из подтвержденной оплаты"),
+    *[({"renewal_resolution": reason}, "приостановлено: оплата временно недоступна")
+      for reason in ("acceptance_budget", "provider_unavailable", "catalog_not_approved", "provider_floor")],
+])
+async def test_next_charge_projection_suspensions_keep_labels_and_do_not_query(changes, expected):
+    from twobrain_rec_server.cabinet.web_routes import billing as routes
+
+    subscription = SimpleNamespace(**{
+        "workspace_id": uuid4(), "paid_through": END, "recurring_allowed": True,
+        "renewal_resolution": None, **changes,
+    })
+    db = SimpleNamespace(scalars=AsyncMock(return_value=[]))
+    assert await routes._next_renewal_projection(db, subscription, now=START) == (expected, False)
+    assert await routes._next_renewal_label(db, subscription, now=START) == expected
+    assert await routes._next_renewal_projection(db, None, now=START) == ("не запланировано", False)
+    db.scalars.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["sent", "processing", "unknown", "unknown_pending"])
+async def test_next_charge_projection_unresolved_operation_never_claims_first_date(state):
+    from twobrain_rec_server.cabinet.web_routes import billing as routes
+
+    db = SimpleNamespace(scalars=AsyncMock(return_value=[SimpleNamespace(state=state)]))
+    subscription = SimpleNamespace(workspace_id=uuid4(), paid_through=END,
+                                   recurring_allowed=True, renewal_resolution=None)
+    expected = "проверяем результат предыдущего списания; нового платежа не будет до завершения проверки"
+    assert await routes._next_renewal_projection(db, subscription, now=START) == (expected, False)
+    assert await routes._next_renewal_label(db, subscription, now=START) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("options", "expected"), [
+    ({"for_resume": True}, "после подтверждения возобновления, в ближайшее время"),
+    ({"after_price_confirmation": True}, "после сохранения выбора, в ближайшее время"),
+])
+async def test_next_charge_projection_wrapper_preserves_resume_and_price_confirmation(options, expected):
+    from twobrain_rec_server.cabinet.web_routes import billing as routes
+
+    db = SimpleNamespace(scalars=AsyncMock(return_value=[]))
+    subscription = SimpleNamespace(workspace_id=uuid4(), paid_through=END,
+                                   recurring_allowed=True, renewal_resolution=None)
+    now = END - timedelta(hours=60)
+    assert await routes._next_renewal_projection(db, subscription, now=now, **options) == (expected, False)
+    assert await routes._next_renewal_label(db, subscription, now=now, **options) == expected

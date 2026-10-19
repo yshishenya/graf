@@ -35,7 +35,7 @@ def test_checkout_discloses_components_period_and_undiscounted_renewal():
     assert "24 октября 2026" in html
     assert "Разовая скидка" in html
     assert "1 290 ₽ за месяц" in html
-    assert "Оплатить 12.90 ₽" in html
+    assert "Оплатить 12.90 ₽" in re.sub(r"<[^>]+>", "", html)
     offer = re.search(r'<input\b[^>]*name="offer_consent"[^>]*>', html)
     recurring = re.search(r'<input\b[^>]*name="recurring_consent"[^>]*>', html)
     assert offer and "required" in offer.group() and "checked" not in offer.group()

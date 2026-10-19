@@ -430,6 +430,54 @@ def test_overview_direct_renewal_storage_and_card_avoid_intermediate_pages():
     assert sum("data-billing-primary" in attrs for _, attrs in page.nodes) == 1
 
 
+@pytest.mark.parametrize(("subscription_changes", "view_changes", "expected"), [
+    ({}, {}, True),
+    ({}, {"next_charge_is_nominal_first": False}, False),
+    ({}, {"next_charge_is_nominal_first": None}, False),
+    ({"renewal_resolution": "succeeded"}, {}, True),
+    ({"renewal_resolution": "late_success"}, {}, True),
+    ({}, {"renewal_allowed": False}, False),
+    ({}, {"plan_code": "free"}, False),
+    ({}, {"plan_code": "trial"}, False),
+    ({"state": "inactive"}, {}, False),
+    ({}, {"paid_through_label": None}, False),
+    ({}, {"next_charge_label": None}, False),
+    ({}, {"operation_pending": True}, False),
+    ({}, {"renewal_notice": "Автопродление приостановлено."}, False),
+    ({}, {"billing_owner": False}, False),
+    ({}, {"billing_data_available": False}, False),
+    *[({"renewal_resolution": resolution}, {}, False) for resolution in (
+        "pending", "unknown", "unknown_pending", "price_changed", "method_required",
+        "receipt_contact_required", "acceptance_budget", "provider_unavailable",
+        "catalog_not_approved", "provider_floor", "workspace_scope_invalid",
+        "manual_resume_required", "attempt_failed", "canceled", "provider_key_expired",
+        "authority_refused",
+    )],
+])
+def test_overview_renewal_timing_explains_only_ordinary_active_renewal(
+    subscription_changes, view_changes, expected,
+):
+    from types import SimpleNamespace
+
+    sub = SimpleNamespace(**{
+        "state": "active", "recurring_authority_version": 7,
+        "next_capacity_version": 2, "renewal_resolution": None, **subscription_changes,
+    })
+    page = Page(overview(**{
+        "subscription": sub, "renewal_allowed": True,
+        "next_charge_label": "31.12.2027, 12:19 (UTC+03:00)",
+        "next_charge_is_nominal_first": True, **view_changes,
+    }))
+    explanation = "Первая попытка списания планируется за 3 дня до конца оплаченного срока."
+    visible = page.visible
+    assert (explanation in visible) is expected
+    if expected:
+        assert visible.index("Следующее списание") < visible.index(explanation)
+        assert "31.12.2027, 12:19 (UTC+03:00)" in visible
+        assert "03.01.2028" in visible
+        assert "12 500 ₽" in visible
+
+
 @pytest.mark.parametrize("surface", ["overview", "payment_method"])
 def test_missing_card_copy_makes_saving_optional_and_requires_auto_renewal(surface):
     html = (
@@ -529,3 +577,13 @@ def test_saved_future_volume_never_claims_no_charge_for_a_pending_payment():
     assert "Повторно платить не нужно" in page.visible
     assert "Сейчас списания не было" not in page.visible
     assert "Выбранный объем следующего периода показан выше" in page.visible
+
+
+def test_overview_missing_nominal_first_flag_hides_explanation():
+    from types import SimpleNamespace
+
+    html = overview(
+        renewal_allowed=True, next_charge_label="31.12.2027",
+        subscription=SimpleNamespace(state="active", recurring_authority_version=7, renewal_resolution=None),
+    )
+    assert "Первая попытка списания" not in html

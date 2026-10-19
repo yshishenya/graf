@@ -37,6 +37,7 @@
           <div><dt>Автопродление</dt><dd>{{ "Включено" if subscription.recurring_allowed else "Отключено" }}</dd></div>
           {% if subscription.recurring_allowed %}<div><dt>Следующее списание</dt><dd><strong>{{ next_charge_amount_label|default("сумма уточняется", true) }}</strong> за {{ cycle_label }}<br>{{ next_charge_label|default("дата уточняется", true) }}</dd></div>{% endif %}
         </dl>
+        {% if next_charge_is_nominal_first|default(False) and subscription.plan_code == "personal" and subscription.recurring_allowed and next_charge_label|default(None) and not payment_unresolved and not operation_pending|default(False) and not renewal_notice|default(None) and resolution in [None, "succeeded", "late_success"] %}<p class="muted">Первая попытка списания планируется за 3 дня до конца оплаченного срока.</p>{% endif %}
         {% if next_capacity_label|default(None) %}<p>Со следующего неоплаченного периода: <strong>{{ next_capacity_label }} всего</strong>. <a href="/billing/storage">Изменить выбор объема</a></p>{% endif %}
         {% if not subscription.recurring_allowed %}
         <p>После этого срока без оплаты — бесплатный тариф.</p>

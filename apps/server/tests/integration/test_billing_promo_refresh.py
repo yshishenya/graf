@@ -806,7 +806,7 @@ def test_direct_rejection_without_saved_promo_keeps_submitted_year(client, owner
     }, follow_redirects=False)
     assert promo_input(response, status=409) == ""
     assert 'name="cycle" value="year"' in response.text
-    assert "Оплатить 10 000 ₽ в ЮKassa" in response.text
+    assert "Оплатить 10 000 ₽ в ЮKassa" in re.sub(r"<[^>]+>", "", response.text)
     assert "Условия оплаты изменились" in response.text if reason == "offer_changed" else "Расчет изменился или устарел" in response.text
     assert_no_draft_renewal(response)
     for name in ("offer_consent", "recurring_consent"):
