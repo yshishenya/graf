@@ -47,6 +47,8 @@ def test_live_build_runs_compose_backend_and_signed_app_adapter(monkeypatch, tmp
     sha = "b" * 40
     fake_root = tmp_path / "root"
     adapter = dev_harness.GrafLocalAdapter(fake_root, tmp_path / "state")
+    # This suite substitutes the runtime; real binding is covered by ownership tests.
+    monkeypatch.setattr(dev_harness, "_state_ownership", lambda root, **kw: root == adapter.state)
     for path in (
         adapter.compose_file,
         adapter.start_script,
@@ -124,6 +126,7 @@ def test_live_build_records_and_preserves_every_compose_image_for_future_feature
     sha = "b" * 40
     fake_root = tmp_path / "root"
     adapter = dev_harness.GrafLocalAdapter(fake_root, tmp_path / "state")
+    monkeypatch.setattr(dev_harness, "_state_ownership", lambda root, **kw: root == adapter.state)
     for path in (
         adapter.compose_file,
         adapter.start_script,
@@ -945,12 +948,22 @@ def test_transition_rejects_incomplete_or_failed_smoke(checks):
 
 
 def test_transition_checks_exact_tracked_source_before_loading(monkeypatch, tmp_path):
+    import argparse
     import subprocess
     def git(*args):
         return subprocess.check_output(["git", *args], cwd=tmp_path).decode().strip()
     git("init", "-q")
     git("config", "user.name", "Test")
     git("config", "user.email", "test@example.test")
+    git("config", "remote.origin.url", "https://github.com/example/graf.git")
+    monkeypatch.setenv("HOME", str(tmp_path.parent / (tmp_path.name + "-home")))
+    monkeypatch.setattr(dev_harness, "_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(dev_harness, "_assert_empty_dev_machine", lambda: None)
+    state = dev_harness._machine_state_base() / "existing" / "harness"
+    dev_harness.operation_adopt_state(argparse.Namespace(
+        state_root=state, expected_repository="github.com/example/graf",
+        expected_active_sha=None, expect_empty=True, confirm_repository_ownership=True,
+    ))
     source = (SOURCE_ROOT / "scripts/dev-harness.py").read_text()
     # No native execution needed to prove the source trust boundary.
     source = source.replace('if sys.platform != "darwin":', 'if False:')
@@ -961,7 +974,7 @@ def test_transition_checks_exact_tracked_source_before_loading(monkeypatch, tmp_
     git("add", ".")
     git("commit", "-qm", "fixture")
     sha = git("rev-parse", "HEAD")
-    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path / "state")
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, state)
     item = manifest(tmp_path, sha)
     record = {"runtime_definition_digest": adapter._runtime_definition_digest()}
     loaded = adapter._checkout_adapter(tmp_path, item, record)
