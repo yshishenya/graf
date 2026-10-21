@@ -41,8 +41,8 @@ Read the guidance index first, then only the file for the task:
 - `release-and-validation.md` — CI, deployment, release, and evidence.
 - `macos-notarization.md` — Developer ID, notarization, stapling, and Sparkle.
 
-Closer nested `AGENTS.md` files govern their subtree. Until one exists, this
-file and `docs/agent-guidance/` are the project guidance surface.
+Closer nested `AGENTS.md` files govern their subtree. This file and
+`docs/agent-guidance/` provide the shared project guidance.
 
 ## Workspace and source of truth
 
@@ -128,9 +128,8 @@ Public GRAF macOS distribution is Developer ID-only. Notarization, stapling,
 Gatekeeper, Sparkle signature, and live appcast checks are mandatory; the full
 procedure is in `macos-notarization.md`. Never publish a non-notarized build.
 
-Implementation commits require explicit user approval after validation. Never
-reset or discard user changes. Feature work writes an owned changelog fragment
-under `changes/unreleased/`; the release operator alone assembles root
+Never reset or discard user changes. Feature work writes an owned changelog
+fragment under `changes/unreleased/`; the release operator alone assembles root
 `CHANGELOG.md` for a frozen release candidate.
 
 For a sole-owner public repository with no independent collaborator, GitHub
@@ -157,7 +156,7 @@ URLs, passwords, live secret paths, raw audio, transcript text, or private
 meeting content into specs, plans, tasks, logs, screenshots, diagnostics, or
 evidence.
 
-Spec Kit project files expected in git:
+Spec Kit project files expected in git (except ignored per-worktree state):
 
 - `.specify/`
 - `AGENTS.md`
@@ -202,15 +201,6 @@ infra/scripts/ci-local.sh --full
 - Когда задача отмечена `[X]` в `tasks.md`, закрывай соответствующий GitHub issue только после проверки evidence и добавляй подробный понятный closure comment: что закрыто, почему важно, как проверено, что не входит, какой PR и task закрыты.
 - Если GitHub issue закрыт, но `tasks.md` еще открыт, сначала проверь реализацию и evidence, а не отмечай задачу выполненной молча.
 <!-- SPECKIT GITHUB ISSUE END -->
-Все GitHub issues в этом репозитории, созданные вручную, через
-`$speckit-taskstoissues` или через прямой `gh issue create`, должны следовать
-project issue canon в `docs/agent-guidance/github-issue-canon.md`.
-
-Обязательный формат title:
-
-```text
-[<feature>][<priority>][<area>] T###: <русский результат>
-```
 
 Обязательные секции issue body, в таком порядке:
 
@@ -224,16 +214,5 @@ project issue canon в `docs/agent-guidance/github-issue-canon.md`.
 - `Заметки по реализации`
 - `Ссылки`
 
-Spec Kit issue sync должен сохранять связь с номером фичи, task ID,
-validation evidence, PR и closure criteria. Используй labels как structured
-metadata: `feature:<number>`, `priority:P0`-`priority:P3`, `area:<name>`,
-`gate:<name>` и `type:<name>`.
-
-PR description, issue comments, closure comments и sync notes пиши на русском
-простым языком. `Fixes #...`, `Closes #...` и `Resolves #...` используй
-только когда PR полностью закрывает issue; для частичной связи используй
-`Refs #...` или `Part of #...`.
-
-Перед закрытием issue добавь подробный русский closure comment: что закрыто,
-почему это важно, как проверено, что не входит, какой PR и какой Spec Kit task
-закрыты.
+Используй labels как structured metadata: `feature:<number>`,
+`priority:P0`-`priority:P3`, `area:<name>`, `gate:<name>` и `type:<name>`.

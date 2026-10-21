@@ -182,8 +182,7 @@ unchecked, and explains each remaining blocker in the reviewer notes.
 Implementation MUST NOT mark reviewer checklist items complete itself; the main
 agent only consumes the review result. The user does
 not need to perform this review or approve individual checklist items; the
-agent's recorded review is the required reviewer input. This does not remove
-separate user approval for commits, merges, deploys, or releases.
+agent's recorded review is the required reviewer input.
 
 ### Автоматическое независимое ревью чеклиста
 
@@ -328,8 +327,8 @@ implementation does not satisfy this closeout.
 
 ## Commit Checkpoints
 
-Spec Kit documentation stages may use explicitly approved documentation
-commits, but auto-commit hooks are disabled by default:
+Spec Kit documentation stages correspond to these commit scopes;
+auto-commit hooks are disabled by default:
 
 - `$speckit-constitution` -> constitution updates
 - `$speckit-specify` -> `spec.md`
@@ -340,6 +339,5 @@ commits, but auto-commit hooks are disabled by default:
 - `$speckit-analyze` -> analyze output
 - `$speckit-taskstoissues` -> issue links and labels
 
-Implementation code commits happen only after explicit user approval and
-validation. Never auto-commit generated build outputs, secrets, unrelated
-working tree changes, or user edits.
+Implementation code commits follow validation. Never commit generated build
+outputs, secrets, unrelated working tree changes, or user edits.
