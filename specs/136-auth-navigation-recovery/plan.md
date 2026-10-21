@@ -218,3 +218,72 @@ webView.isLoading и отсутствие didFinish, затем вызывает
 До изменения — независимый допуск обоих checklists, после — отдельный тест,
 весь кабинетный/полный набор quickstart, независимое ревью и новые три
 hosted checks на точном SHA/основе. События и счётчики остаются синтетическими.
+
+
+## Два замечания PR — 21.10.2026
+
+Замечания4337458144/4337458154 проверены чтением настоящего lifecycle.
+Корневые `/login/` и `/sign-up/` имеют тот же auth kind и безопасный статус,
+что и варианты без слеша. Для границы использовать auth kind и существующий
+`isSafeHistoryDocument`; точное сравнение строк пути удалить. Вложенные
+start/verify, provider и callback по-прежнему не сертифицируются.
+
+Настоящий WebKit на текущем Mac до правки прошёл оба trailing-slash сценария:
+Foundation URL.path уже возвращает `/login` для `/login/`, тогда как
+URLComponents.path сохраняет слеш. Runtime-дефект T019 не воспроизведён;
+удаление дублирующего сравнения лишь согласует границу с общим predicate.
+Регрессии сохраняются, исходный PASS не выдаётся за RED.
+
+Ожидаемая provisional cancellation сейчас превращает loading в malformedResponse;
+настоящий DesktopCabinetWorkspaceView удаляет WebView. Контроллер хранит только
+weak ссылку на последний подтверждённый настоящим didFinish безопасный
+WKBackForwardListItem. Присваивать её только при safe pending method; очищать
+при attach/detach, session fence и неподтверждённом/unsafe настоящем finish.
+Ресурсный/синтетический terminal и stale callback ничего не сертифицируют.
+После принятой текущей provisional отмены восстановить finishedState по route kind
+только из loading, при той же currentItem, допустимом общем history/session
+predicate и привязанном WebView. Иначе сохранить существующий error state;
+committed failure, первая незавершённая загрузка, 401/reselection и другой
+документ не получают ready. Отдельный rollback ledger и повторы форм не нужны.
+
+При таком восстановлении вызвать существующие recordingSettingsBridge.activate
+и synchronizeUserTime: последний возобновляет notifications только после cookies,
+authEpoch и current-document проверки. Calendar-операцию не повторять.
+Тестировать настоящее DesktopCabinetWorkspaceView (NSHostingView/NSWindow),
+а не только всегда смонтированный SessionBoundaryFixture: сохранение DOM,
+currentItem и WebView после SwiftUI reconciliation; исходный GET загружен один
+раз, POST один раз, native history/reload остаются безопасными. Добавить
+отрицательные initial-load/committed POST cancellation; сохранить 401/reselection,
+stale/detach проверки и проверить повторную активацию настроек без записи
+пользовательских предпочтений. До кода — reviewer gate, analyze и issue sync;
+RED → GREEN, затем кабинетный/полный XCTest quickstart, converge, независимое
+ревью и три новые обязательные GitHub проверки точного SHA/основы.
+
+Constitution re-check: PASS by design; origin, headers, billing, download,
+секреты, capture, OAuth continuation и T016 не расширяются и не ослабляются.
+
+### Изоляция настоящего Workspace в XCTest
+
+Консольный XCTest не имеет приложения для системной службы уведомлений:
+создание singleton presenter вызывает UNUserNotificationCenter и аварийно
+завершается до проверки навигации. Передать существующую optional зависимость
+notificationPresenter через DesktopCabinetWorkspaceView в EmbeddedCabinetWebView;
+обычный вызов сохраняет nil/default shared. Тест передаёт отдельный presenter
+с изолированными preferences и синтетическим contextProvider, без системной
+доставки и пользовательских настроек. Coordinator хранит уже переданный
+presenter и читает его authEpoch в synchronizeUserTime: bridge и его проверка
+должны относиться к одному экземпляру. Нового режима тестирования, глобальной
+подмены singleton и обхода проверки authEpoch не добавлять. Это уточнение
+T020, а не расширение способов входа или поведения уведомлений. До кода
+требуется повторный независимый допуск обоих checklists.
+
+### Согласование маршрута после отмены другого GET
+
+T020 включает предварительный GET с завершённого безопасного документа A
+к другому разрешённому B. trackPendingRoute обновляет route/identity до ответа;
+при отмене и сохранении подтверждённого currentItem A восстановление обязано
+вернуть route и container.lastLoadedRequestIdentity к A до ready. Использовать
+существующие loadIdentity/trackedRoute и guards; нового ledger и запроса нет.
+Настоящий Workspace должен подтвердить один GET B, прежние DOM/currentItem/view,
+route/identity A после reconciliation и Reload A без повторного B/POST.
+Сначала проба на текущей логике, затем минимальное исправление только при RED.

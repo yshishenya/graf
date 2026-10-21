@@ -94,3 +94,48 @@ commit и завершение загрузки без ослабления за
 не отменён локальным успехом: нужны новые три exact-SHA/base checks.
 T017, OAuth T004/T011/T012, ручная T016 и вся F136 остаются открытыми.
 Повторно проверены все пункты: 16 checked / 0 unchecked. Отметки качества требований сохранены.
+
+Независимый допуск двух новых замечаний PR — 21.10.2026:
+[review-trailing-cancellation-preimplementation-20261021.md](../review-trailing-cancellation-preimplementation-20261021.md).
+Все 16 пунктов и обновлённый план заново проверены: 16 checked / 0 unchecked;
+качество требований и предварительный план PASS, блокеров проверяющего 0.
+Корневой auth со слешем использует общее правило безопасной истории; ожидаемая
+предварительная отмена сохраняет только тот же действительно завершённый
+безопасный документ. План учитывает защищённую повторную активацию настроек
+и настоящее представление Workspace после обновления SwiftUI.
+Первая незавершённая загрузка, committed POST, 401/выбор пространства,
+устаревшие события и detach не получают ложной ready. Это не приёмка кода:
+analyze/issue sync до реализации, RED/GREEN, итоговое ревью, новые точные
+SHA/base GitHub checks, T017, OAuth и ручная T016 остаются отдельными воротами.
+
+Повторный независимый допуск передачи presenter в настоящий Workspace — 21.10.2026:
+[review-workspace-presenter-plan-20261021.md](../review-workspace-presenter-plan-20261021.md).
+Все 16 пунктов повторно проверены: 16 checked / 0 unchecked, блокеров 0.
+Optional зависимость сохраняет обычный default; bridge и authEpoch относятся
+к одному presenter. Тест использует изолированные preferences/contextProvider;
+cookies/current-document/session guards не ослабляются. Crash singleton до
+навигации не считается RED T020. Прежнее подтверждение runtime-дефекта T019
+чтением отозвано: исходный WebKit прошёл оба сценария, 2 PASS / 0 FAIL.
+Это допуск плана; настоящая проверка T020, итоговое ревью, hosted checks,
+OAuth/ручная T016 и T017 остаются открытыми.
+
+
+Дополнительный независимый допуск T020, отмена другого GET — 21.10.2026:
+[review-workspace-cancellation-final-20261021.md](../review-workspace-cancellation-final-20261021.md).
+Все 16 пунктов повторно сопоставлены с текущими требованиями и планом:
+16 checked / 0 unchecked; предварительный план PASS, блокеров0.
+Настоящий Workspace GET A→B RED подтвердил ровно расхождение route/identity:
+1FAIL/2assertions/0unexpected. Допущено восстановление route/GET identityA
+до ready в уже защищённой restore-ветке без запроса/ledger/ослабления guards.
+Это допуск плана: новое исправление, GREEN, итоговое ревью и hosted exact-SHA/base
+проверки ещё ожидаются; T017, OAuth и ручная T016 остаются открытыми.
+
+Итоговое независимое ревью настоящего Workspace и другого GET — 21.10.2026:
+[review-workspace-cancellation-final-20261021.md](../review-workspace-cancellation-final-20261021.md).
+Локальный срез T019/T020 APPROVE, замечаний/блокеров 0. Проверены окончательные
+байты, чистый RED/GREEN route/identity и журналы: 101 профильных PASS,
+полный 1255 — 1246 PASS / 9 SKIP / 0 FAIL, ContractValidation PASS.
+Пропуски не считаются PASS; исходный trailing-slash 2 PASS не считается RED.
+Повторно прочитаны все пункты: 16 checked / 0 unchecked; отметки подтверждают
+качество требований. T017, новый hosted exact-SHA/base результат, OAuth
+T004/T011/T012, ручная T016 и полная F136 остаются открытыми.

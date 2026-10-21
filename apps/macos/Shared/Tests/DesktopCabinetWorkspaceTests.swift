@@ -154,6 +154,16 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
     }
 
     @MainActor
+    func testSessionBoundaryTrailingSlashLoginRemovesProtectedHistory() async throws {
+        try await checkSessionBoundary(method: "GET", targetPath: "/login/", changesSession: true)
+    }
+
+    @MainActor
+    func testSessionBoundaryTrailingSlashSignupRemovesProtectedHistory() async throws {
+        try await checkSessionBoundary(method: "GET", targetPath: "/sign-up/", changesSession: true)
+    }
+
+    @MainActor
     func testSessionBoundaryExpiredSessionImmediatelyDisablesProtectedCommands() async throws {
         try await checkSessionBoundary(method: "GET", status: "401 Unauthorized", changesSession: true)
     }
@@ -321,6 +331,177 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
     }
 
     @MainActor
+    func testRealWorkspaceRetainsFinishedDocumentAfterProvisionalCancellation() async throws {
+        try await checkRealWorkspaceCancellation()
+    }
+
+    @MainActor
+    func testRealWorkspaceRestoresRouteAfterDifferentGetCancellation() async throws {
+        try await checkRealWorkspaceCancellation(differentGet: true)
+    }
+
+    @MainActor
+    func testRealWorkspaceRestoresNotificationSettingsAfterProvisionalCancellation() async throws {
+        try await checkRealWorkspaceCancellation(notifications: true)
+    }
+
+    @MainActor
+    func testRealWorkspaceInitialCancellationDoesNotBecomeReady() async throws {
+        try await checkRealWorkspaceCancellation(holdInitial: true)
+    }
+
+    @MainActor
+    func testRealWorkspaceCommittedPostCancellationDoesNotBecomeReady() async throws {
+        try await checkRealWorkspaceCancellation(committed: true)
+    }
+
+    @MainActor
+    private func checkRealWorkspaceCancellation(holdInitial: Bool = false, committed: Bool = false, notifications: Bool = false, differentGet: Bool = false) async throws {
+        _ = NSApplication.shared
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        let listener = try NWListener(using: parameters)
+        let listening = expectation(description: "real workspace fixture listening")
+        let initial = expectation(description: "initial workspace request")
+        let submitted = expectation(description: "one explicit request")
+        let result = expectation(description: "held response")
+        if holdInitial { submitted.isInverted = true; result.isInverted = true }
+        let requests = SessionBoundaryRequests()
+        let path = notifications ? "/desktop/settings/notifications" : "/desktop/settings/recording"
+        let targetPath = differentGet ? "/desktop/settings/account" : path
+        let connectionCount = notifications ? "window.notificationConnections" : "window.recordingConnections"
+        listener.stateUpdateHandler = { if case .ready = $0 { listening.fulfill() } }
+        listener.newConnectionHandler = { connection in
+            connection.start(queue: .global())
+            Self.receiveSessionFixtureRequest(connection, initialPath: path, targetPath: targetPath,
+                method: differentGet ? "GET" : "POST", status: "200 OK", cancel: true, reselect: false, redirect: false,
+                initial: initial, submitted: submitted, result: result, requests: requests, resultCount: 1,
+                committedCancellation: committed, holdInitial: holdInitial)
+        }
+        listener.start(queue: .global())
+        defer { requests.cancelHeldConnection(); listener.cancel() }
+        await fulfillment(of: [listening], timeout: 5)
+        let origin = try XCTUnwrap(URL(string: "http://127.0.0.1:\(try XCTUnwrap(listener.port).rawValue)"))
+        let url = origin.appendingPathComponent(path)
+        let document = SessionBoundaryDocument(state: .loading)
+        let suite = "F136-workspace-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let user = UUID(), workspace = UUID()
+        let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel(),
+            contextProvider: { DesktopNotificationContext(user_id: user, workspace_id: workspace, recording_deletion_protocol_version: nil) })
+        let host = NSHostingView(rootView: RealWorkspaceFixture(configuration: .init(baseURL: origin),
+            initialRoute: url, document: document, presenter: presenter))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        defer { window.close() }
+        await fulfillment(of: [initial], timeout: 10)
+        let web = try XCTUnwrap(Self.sessionFixtureWebView(host))
+        if !holdInitial {
+            for _ in 0..<250 {
+                if document.state == .ready, !web.isLoading,
+                   (try? await web.evaluateJavaScript(connectionCount)) as? Int == 1 { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertEqual(document.state, .ready)
+            let connections = try await web.evaluateJavaScript(connectionCount)
+            XCTAssertEqual(connections as? Int, 1)
+        }
+        let initialNonce = notifications ? try await web.evaluateJavaScript("window.notificationNonce") as? String : nil
+        let item = web.backForwardList.currentItem
+        var probe: CommittedNavigationProbe?
+        if committed {
+            let coordinator = try XCTUnwrap(web.navigationDelegate as? EmbeddedCabinetWebView.Coordinator)
+            probe = CommittedNavigationProbe(coordinator: coordinator,
+                committed: expectation(description: "actual POST commit"))
+            web.navigationDelegate = probe
+        }
+        if !holdInitial {
+            _ = try await web.evaluateJavaScript("document.forms[0].submit(); true")
+            await fulfillment(of: [submitted, result], timeout: 10)
+        }
+        if let probe {
+            await fulfillment(of: [probe.committed], timeout: 5)
+            for _ in 0..<250 {
+                if requests.count("GET /f136-held-resource") == 1 { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertEqual(requests.count("GET /f136-held-resource"), 1)
+            XCTAssertFalse(web.backForwardList.currentItem === item)
+            XCTAssertEqual(probe.finishCount, 0)
+        }
+        XCTAssertEqual(document.state, .loading)
+        web.stopLoading()
+        for _ in 0..<250 {
+            if document.state != .loading { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        // Let SwiftUI reconcile the production visibility branch, then search
+        // the actual view tree; a retained local reference alone proves nothing.
+        for _ in 0..<10 {
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(requests.count("GET \(path)"), 1)
+        XCTAssertEqual(requests.count("POST \(path)"), holdInitial || differentGet ? 0 : 1)
+        if differentGet { XCTAssertEqual(requests.count("GET \(targetPath)?result=yes"), 1) }
+        if holdInitial || committed {
+            if holdInitial { await fulfillment(of: [submitted, result], timeout: 0.1) }
+            XCTAssertEqual(document.state, .malformedResponse)
+            XCTAssertNil(Self.sessionFixtureWebView(host), "An unconfirmed document must not be restored as ready")
+            return
+        }
+        XCTAssertEqual(document.state, .ready, "Expected provisional cancellation preserves the finished document")
+        guard let visibleWeb = Self.sessionFixtureWebView(host) else {
+            XCTFail("The actual workspace removed its finished document after cancellation")
+            return
+        }
+        XCTAssertTrue(visibleWeb === web)
+        XCTAssertTrue(visibleWeb.window === window)
+        XCTAssertTrue(visibleWeb.backForwardList.currentItem === item)
+        XCTAssertEqual(document.route?.path, path)
+        let container = try XCTUnwrap(visibleWeb.superview as? EmbeddedCabinetWebView.WebViewContainer)
+        XCTAssertEqual(container.lastLoadedRequestIdentity, EmbeddedCabinetWebView.loadIdentity(url: url))
+        let dom = try await visibleWeb.evaluateJavaScript("Boolean(document.forms[0])")
+        XCTAssertEqual(dom as? Bool, true)
+        for _ in 0..<250 {
+            if (try? await visibleWeb.evaluateJavaScript(connectionCount)) as? Int == 2 { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let connections = try await visibleWeb.evaluateJavaScript(connectionCount)
+        XCTAssertEqual(connections as? Int, 2, "Retained settings need a new bridge activation")
+        if notifications {
+            let nonceValue = try await visibleWeb.evaluateJavaScript("window.notificationNonce")
+            let nonce = try XCTUnwrap(nonceValue as? String)
+            XCTAssertNotEqual(nonce, initialNonce, "A retained document needs a new notification nonce")
+            let canEdit = try await visibleWeb.callAsyncJavaScript("""
+                const result = await window.webkit.messageHandlers.grafNotificationSettings.postMessage({version:2,nonce:window.notificationNonce,action:'read'});
+                return result.canEdit;
+                """, arguments: [:], in: nil, contentWorld: .page)
+            XCTAssertEqual(canEdit as? Bool, true)
+            let oldRejected = try await visibleWeb.callAsyncJavaScript("""
+                try { await window.webkit.messageHandlers.grafNotificationSettings.postMessage({version:2,nonce:oldNonce,action:'read'}); return false; }
+                catch { return true; }
+                """, arguments: ["oldNonce": try XCTUnwrap(initialNonce)], in: nil, contentWorld: .page)
+            XCTAssertEqual(oldRejected as? Bool, true, "The pre-navigation connection remains revoked")
+        }
+        _ = try await visibleWeb.evaluateJavaScript("window.domStillWorks = 42; true")
+        let domValue = try await visibleWeb.evaluateJavaScript("window.domStillWorks")
+        XCTAssertEqual(domValue as? Int, 42)
+        _ = visibleWeb.reload()
+        for _ in 0..<250 {
+            if requests.count("GET \(path)") == 2, document.state == .ready, !visibleWeb.isLoading { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(requests.count("GET \(path)"), 2)
+        XCTAssertEqual(requests.count("POST \(path)"), differentGet ? 0 : 1, "Reload cannot replay the cancelled form")
+        if differentGet { XCTAssertEqual(requests.count("GET \(targetPath)?result=yes"), 1, "Reconciliation and Reload cannot retry the cancelled destination") }
+    }
+
+    @MainActor
     private func checkSessionBoundary(
         method: String, initialPath: String = "/desktop/settings/account",
         targetPath: String = "/desktop/settings/account", status: String = "200 OK",
@@ -425,8 +606,8 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         let observation = controller.$sessionBoundaryID.dropFirst().sink { _ in
             boundaryCount += 1
             if changesSession, status == "200 OK" {
-                XCTAssertEqual(document.route?.path, targetPath, "Final route precedes the successful session boundary")
-                XCTAssertEqual(document.state, targetPath == "/login" ? .expiredSession : .ready,
+                XCTAssertEqual(document.route?.path, URL(string: targetPath)?.path, "Final route precedes the successful session boundary")
+                XCTAssertEqual(document.state, ["/login", "/login/", "/sign-up/"].contains(targetPath) ? .expiredSession : .ready,
                     "Final state precedes the successful session boundary")
             }
         }
@@ -468,7 +649,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         trace("terminal-callback")
         XCTAssertFalse(controller.isLoading, "Terminal callback must release navigation")
         XCTAssertNotEqual(document.state, .loading)
-        if cancel { XCTAssertEqual(document.state, .malformedResponse) }
+        if cancel { XCTAssertEqual(document.state, committedCancellation ? .malformedResponse : .ready) }
         XCTAssertEqual(controller.sessionBoundaryID == boundary, !changesSession)
         XCTAssertEqual(boundaryCount, changesSession ? 1 : 0)
         let initialGetCount = probeStaleCallbacks ? 2 : 1
@@ -482,7 +663,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         } else {
             XCTAssertFalse(controller.canGoBack, "Previous session history must be inaccessible")
             XCTAssertFalse(controller.canGoForward)
-            if status != "200 OK" || targetPath == "/login" {
+            if status != "200 OK" || ["/login", "/login/", "/sign-up/"].contains(targetPath) {
                 XCTAssertFalse(controller.canGoHome, "An expired session cannot navigate to protected home")
             }
         }
@@ -535,7 +716,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             }
         }
         if status == "200 OK", !cancel, !networkFailure {
-            XCTAssertEqual(document.route?.path, targetPath)
+            XCTAssertEqual(document.route?.path, URL(string: targetPath)?.path)
             let loaded = try await currentWebView.evaluateJavaScript("Boolean(document.getElementById('result'))")
             XCTAssertEqual(loaded as? Bool, true, "Keep the actual form result after SwiftUI reconciliation")
         }
@@ -552,7 +733,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         method: String, status: String, cancel: Bool, reselect: Bool, redirect: Bool,
         initial: XCTestExpectation, submitted: XCTestExpectation, result: XCTestExpectation,
         requests: SessionBoundaryRequests, resultCount: Int, supersedesPendingForm: Bool = false,
-        networkFailure: Bool = false, committedCancellation: Bool = false
+        networkFailure: Bool = false, committedCancellation: Bool = false, holdInitial: Bool = false
     ) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { chunk, _, complete, error in
             var bytes = data; bytes.append(chunk ?? Data())
@@ -565,7 +746,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                     targetPath: targetPath, method: method, status: status, cancel: cancel, reselect: reselect, redirect: redirect,
                     initial: initial, submitted: submitted, result: result, requests: requests, resultCount: resultCount,
                     supersedesPendingForm: supersedesPendingForm, networkFailure: networkFailure,
-                    committedCancellation: committedCancellation)
+                    committedCancellation: committedCancellation, holdInitial: holdInitial)
                 return
             }
             let key = request.components(separatedBy: "\r\n")[0].split(separator: " ").prefix(2).joined(separator: " ")
@@ -595,7 +776,8 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                 replyStatus = "200 OK"
             } else if request.hasPrefix("GET \(initialPath) ") {
                 if count == 1 { initial.fulfill() }
-                html = "<!doctype html><title>Synthetic form</title><form method='\(method.lowercased())' action='\(targetPath)'><input name='result' value='yes'></form>"
+                if holdInitial { requests.hold(connection); return }
+                html = "<!doctype html><title>Synthetic form</title><form method='\(method.lowercased())' action='\(targetPath)'><input name='result' value='yes'></form><script>window.recordingConnections=0;window.GRAFRecordingSettings={connect(){recordingConnections++}};window.notificationConnections=0;window.GRAFNotificationSettings={connect(nonce){notificationConnections++;window.notificationNonce=nonce},disconnect(){window.notificationNonce=null}};</script>"
                 replyStatus = "200 OK"
             } else {
                 XCTFail("Unexpected synthetic session route"); connection.cancel(); return
@@ -606,7 +788,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             if networkFailure && isResult {
                 connection.cancel()
             } else if cancel && isResult && !committedCancellation {
-                DispatchQueue.global().asyncAfter(deadline: .now() + 1) { connection.cancel() }
+                requests.hold(connection)
             } else {
                 connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
             }
@@ -1813,6 +1995,19 @@ private final class SessionBoundaryDocument: ObservableObject {
     @Published var state: DesktopCabinetState
     @Published var route: URL?
     init(state: DesktopCabinetState) { self.state = state }
+}
+
+@MainActor
+private struct RealWorkspaceFixture: View {
+    let configuration: DesktopCabinetConfiguration
+    let initialRoute: URL
+    @ObservedObject var document: SessionBoundaryDocument
+    let presenter: DesktopNotificationPresenter
+    var body: some View {
+        DesktopCabinetWorkspaceView(configuration: configuration, initialRoute: initialRoute,
+            currentRoute: $document.route, cabinetState: $document.state, presentation: .shell,
+            notificationPresenter: presenter)
+    }
 }
 
 @MainActor

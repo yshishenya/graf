@@ -29,8 +29,8 @@ T010 #4737, T011 #4738, T012 #4739, T016 #4743. Их отметки восста
 
 - [X] T003 Implement stable-document and transient-request predicates, including root-only login/signup replay safety, in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`.
 - [ ] T004 Implement a minimal primary-sign-in versus authenticated-provider-link continuation state and keep external origins blocked outside those continuations in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`.
-- [X] T005 Replace per-POST history fencing with a deferred, committed session-boundary transition in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`.
-- [X] T006 Update the shared regression matrix for the predicates and session transition ordering in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`.
+- [X] T005 Replace per-POST history fencing with a deferred, committed session-boundary transition in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`. (Issue #4732)
+- [X] T006 Update the shared regression matrix for the predicates and session transition ordering in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`. (Issue #4733)
 
 **Checkpoint**: No action, OAuth leg or callback can become the declarative route;
 session history is cleared only after a stable target has been committed.
@@ -60,7 +60,7 @@ or disabled, normal pages remain navigable, and prior protected history remains
 unavailable after logout/login or expiry.
 
 - [X] T009 [US2] Route native Back, Forward, Reload and back/forward gesture decisions through the stable-document predicate and preserve existing accessibility identifiers in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`.
-- [X] T010 [US2] Add normal-history and post-session-boundary control-state assertions in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`.
+- [X] T010 [US2] Add normal-history and post-session-boundary control-state assertions in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`. (Issue #4737)
 
 **Checkpoint**: Native navigation is useful on normal documents and cannot
 replay an action or expose a prior session.
@@ -119,7 +119,7 @@ and preserve metadata-only evidence.
 
 ## Текущая проверка и сопровождение
 
-- [ ] T017 Подготовить `changes/unreleased/F136.yaml`, текущую RED/GREEN матрицу и `specs/136-auth-navigation-recovery/validation.md`, независимое итоговое ревью и converge для T005/T006/T010; подтвердить проверки PR на точном SHA и проверенной основе.
+- [ ] T017 Подготовить `changes/unreleased/F136.yaml`, текущую RED/GREEN матрицу и `specs/136-auth-navigation-recovery/validation.md`, независимое итоговое ревью и converge для T005/T006/T010; подтвердить проверки PR на точном SHA и проверенной основе. (Issue #4732)
 
 T017 зависит от T005/T006/T010. T004/T011/T012 зависят от отдельного
 исправления OAuth continuation. T016 требует единственного доступного GRAF Dev
@@ -140,7 +140,7 @@ T017 зависит от T005/T006/T010. T004/T011/T012 зависят от от
 
 ## Phase 7: Convergence
 
-- [X] T018 Ограничить безопасные auth-документы корневыми `/login` и `/sign-up` в общей политике истории и сохранении маршрута SwiftUI; вложенные email/OAuth actions остаются разрешёнными живому WebKit, но не становятся повторно открываемыми документами. Дополнить `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`, исправить `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift` и записать RED/GREEN в `specs/136-auth-navigation-recovery/validation.md` по FR-002, FR-003, FR-005, SC-002, SC-003 (partial, HIGH).
+- [X] T018 Ограничить безопасные auth-документы корневыми `/login` и `/sign-up` в общей политике истории и сохранении маршрута SwiftUI; вложенные email/OAuth actions остаются разрешёнными живому WebKit, но не становятся повторно открываемыми документами. Дополнить `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`, исправить `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift` и записать RED/GREEN в `specs/136-auth-navigation-recovery/validation.md` по FR-002, FR-003, FR-005, SC-002, SC-003 (partial, HIGH). (Issue #7652)
 
 
 Текущий итог implement 18.10.2026: T005/T006/T010/T018 реализованы и
@@ -167,3 +167,24 @@ fixture T006/T017 — полный основной POST HTML и отдельн�
 Новый отдельный тест1PASS, кабинет86PASS, полный1248:1246PASS/2SKIP/0FAIL.
 GitHubFAIL39607758091 сохранён; новый hosted результат ещё требуется.
 T017 остаётся[ ], OAuth T004/T011/T012 и ручная T016 также открыты.
+
+
+## Phase 8: Convergence
+
+- [X] T019 [US2] Проверить границу сессии для безопасных корневых `/login/` и `/sign-up/` настоящим WebKit в `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`; согласовать её с общим predicate без дублирующего сравнения строк пути в `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`, подтвердить отсутствие прежней protected history и запрет вложенных auth actions по FR-002, FR-003, FR-004, FR-005, SC-003 (partial, HIGH). Исходный код прошёл 2/2: URL.path уже убирает завершающий слеш; runtime-дефект не воспроизведён. (Issue #7688)
+- [X] T020 [US3] Сохранять завершённый безопасный документ после ожидаемой provisional cancellation: связать accepted real didFinish с current WKBackForwardListItem в `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`, восстановить только его finishedState и действующие защищённые настройки без повтора формы; передать существующую notificationPresenter зависимость через `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift` для изолированной проверки; добавить RED/GREEN настоящего DesktopCabinetWorkspaceView с DOM/history/reconciliation и отрицательными initial/committed POST cancellation в `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`, сохранить 401/reselection/stale/detach guards; записать результаты в `specs/136-auth-navigation-recovery/validation.md` по FR-002, FR-004, FR-006, FR-007, FR-008, SC-002, SC-004 (partial, HIGH). (Issue #7689)
+
+T019 и T020 выполняются последовательно: общий файл реализации и тестов.
+Независимые reviewer-owned checklists, актуальный analyze и issue sync обязательны
+до кода. T017 завершается только после этих исправлений, quickstart, повторной
+convergence/независимого ревью и новых GitHub checks точного SHA/основы.
+
+
+Окончательный локальный итог 21.10.2026: T019/T020 реализованы и проверены,
+независимое ревью APPROVE, замечаний 0; requirements 16/0, auth-navigation 20/0.
+101 профильный PASS; полный набор 1255: 1246 PASS / 9 прежних SKIP / 0 FAIL;
+ContractValidation PASS. Другой GET A→B имеет отдельный RED/GREEN маршрута и
+identity; T019 исходно 2 PASS и не считается воспроизведённым runtime-дефектом.
+Отчёт: review-workspace-cancellation-final-20261021.md. T017 пока [ ] до новых
+трёх exact-SHA/base проверок и принятия PR; OAuth T004/T011/T012 и ручная T016
+остаются открытыми. Отметки реализации не заменяют приёмку GitHub и closeout.

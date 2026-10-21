@@ -457,3 +457,160 @@ APPROVE, замечаний0/блокеров0, requirements16/0 и auth-navigat
 Основной агент прочитал фактический отчёт и оба списка; тестовый и продуктовый
 SHA256 совпали с указанными выше. T017 ожидает новые три проверки GitHub
 точного SHA/основы и принятие PR; OAuth и ручная T016 остаются открытыми.
+
+
+## Настоящий Workspace после отмены — 21.10.2026, T019/T020
+
+Полоса high-risk-product; исходный HEAD0c0cfba5690dead496aaa1bc00cabbe9cc0b6a76.
+Обязательный допуск уточнённого плана: review-workspace-presenter-plan-20261021.md,
+36 checked/0 unchecked, блокеров0. analyze-workspace-isolation-plan.json:
+9FR,4SC,20tasks,CRITICAL/HIGH/MEDIUM/LOW0; контрольные суммы plan/tasks совпали.
+T019/#7688 и T020/#7689 синхронизированы до реализации; T020 включает Workspace.
+
+T019: оба исходных настоящих WebKit-сценария `/login/` и `/sign-up/`
+прошли,2PASS/0FAIL,1.062с (`trailing-slash-red.log`; название историческое).
+Foundation URL.path удаляет завершающий слеш; прежнее утверждение о доказанной
+ошибке отозвано, issue#7688 уточнена. Удалено лишь дублирующее точное
+сравнение: auth kind и общий safe predicate сохраняют root-only границу.
+Нельзя представлять эти регрессии как RED/GREEN исправленного runtime-дефекта.
+
+T020: прежнее утверждение, что malformedResponse сохраняет страницу, неверно
+для настоящего DesktopCabinetWorkspaceView: его visibility predicate удаляет
+WebView. Всегда смонтированное старое представление скрывало этот отказ.
+Первый запуск `trailing-cancellation-red.log` аварийно завершился при создании
+singleton presenter до отмены: UNUserNotificationCenter.current в консольном
+XCTest не имеет bundleProxy. Это не продуктовый RED.
+
+Сначала передана существующая optional зависимость presenter через Workspace;
+Coordinator использует authEpoch того же экземпляра, что notification bridge.
+Обычный default сохранён. Тест использует собственный UserDefaults domain и
+синтетический contextProvider, очищает domain; системной доставки и изменения
+пользовательских настроек нет. На прежней navigation logic итоговый
+`workspace-navigation-red-confirmed.log`:3сценария,2PASS,1FAIL/2assertions,
+0unexpected,1.744с. Положительный сценарий получил malformedResponse и удаление
+настоящего WebView; initial и committed POST отрицательные сценарии прошли.
+Предыдущий `workspace-navigation-red.log` также имел unwaited expectations
+самого теста; этот недостаток исправлен и сохранён в истории.
+
+Исправление хранит одну weak ссылку на безопасный current history item,
+подтверждённый accepted real didFinish и безопасным pending method. Synthetic/
+resource terminal ничего не подтверждают. Attach/detach/session fence и unsafe/
+неподтверждённый настоящий finish снимают сертификат. Только accepted current
+provisional cancellation из loading при том же currentItem и прежних
+history/session/attachment guards восстанавливает finishedState. Новый документ,
+initial, committed POST,401/reselection и stale callbacks не получают ready.
+Recording bridge активируется заново; notifications возобновляются через
+существующее согласование cookies, authEpoch и актуальность документа.
+Календарное действие и POST не повторяются; общий mapper ошибок не менялся.
+
+`workspace-navigation-green.log`:5PASS/0SKIP/0FAIL,2.175с. После добавления
+настоящего чтения notification settings и отклонения прежнего nonce:
+`workspace-cabinet-green-final.log`100PASS/0SKIP/0FAIL,6.276с —69Workspace,
+23RoutePolicy,8NotificationSettingsBridge. Эти наборы пересекаются и не
+суммируются. Новый тест сохраняет тот же WKWebView/DOM/window/currentItem
+после SwiftUI reconciliation, один GET до отмены, один POST, новый nonce/
+повторную активацию настроек и безопасный GET Reload. Удержанный synthetic
+HTTP-ответ освобождается при cleanup без произвольного таймера.
+Промежуточная ошибка компиляции async в XCTest autoclosure сохранена в
+workspace-cabinet-green.log; исправлен только тестовый unwrap.
+
+`workspace-full-green.log`:1254 выбранных,1245PASS/9SKIP/0FAIL/0unexpected,
+164.886с,exit0. Семь существующих оконных focus-тестов пропущены из-за
+неподтверждённого фокуса обычного контрольного окна; два optional image-export
+не имеют настроенных каталогов. Кабинетные/settings тесты не пропущены.
+ContractValidation, governance, development-process, changelog и diff-check PASS.
+Итоговое независимое ревью, convergence и три свежих hosted проверки точного
+SHA/основы ещё ожидаются. Найденная чтением гипотеза отмены другого GET
+проверяется отдельно; исходный полный результат не является её доказательством.
+T017 остаётся открытой.
+OAuth T004/T011/T012 и ручная T016 не закрываются. Выпуска, установки,
+подписания, production или изменения GRAF Dev нет.
+
+
+## Окончательная проверка восстановления маршрута — 21.10.2026
+
+T020 включает отмену предварительного GET A→B: настоящий документ A остаётся
+видимым, но trackPendingRoute уже записал B в маршрут и identity контейнера.
+`workspace-different-get-red.log` на промежуточном исправлении подтвердил
+1 FAIL/2 assertion failures/0 unexpected,0.981с: сохранились route B и GET
+identity B вместо A. Это отдельный воспроизведённый дефект, в отличие от T019.
+
+Минимальное исправление в уже защищённой restore-ветке возвращает currentRoute
+и lastLoadedRequestIdentity к URL подтверждённого документа до присваивания
+finishedState. Использованы существующие trackedRoute/loadIdentity; условия
+допуска, методы запросов, history/session guards и остальные callbacks не менялись.
+`workspace-different-get-green.log`:1 PASS/0 FAIL/0 SKIP,0.838с. Настоящий
+Workspace подтверждает WebView/window/DOM/currentItem и route/identity A после
+SwiftUI reconciliation, ровно один GET B и отсутствие его повторения при Reload A.
+
+| Окончательный журнал | Результат | SHA-256 |
+|---|---|---|
+| workspace-different-get-red.log | 1 FAIL,2 ожидаемых assertions,0 unexpected | d1ac1a35aff12d48501d431cfefd3a506e2b9632a329d2e4420f479cc97aa1c7 |
+| workspace-different-get-green.log | 1 PASS,0 FAIL/0 SKIP | 0ded58a70082425f125d7b022b79bf2c5e21612fe6c67e6762fd3492268f3aa2 |
+| workspace-cabinet-route-green.log | 101 PASS,0 FAIL/0 SKIP,6.393с | 0c8a205a102045accebd92028af4c2198cf9235c34a085cb82510adbd701b956 |
+| workspace-full-route-green.log | 1255 выбранных,1246 PASS/9 SKIP/0 FAIL,123.041с,exit0 | 68fe3d9519bc63225f4cf1cb37e25e61feec0eba1d590053a743777598bb7611 |
+| contract-validation-green.log | ContractValidation: PASS,exit0 | 17189bd7192c0e37e850670a49ed6602566a183b4d772c368024c2674e389c87 |
+
+Полная команда: `swift test --package-path apps/macos --scratch-path <temporary-build>`.
+Профиль: тот же swift test с фильтром
+`DesktopCabinetWorkspaceTests|DesktopCabinetRoutePolicyTests|EmbeddedCabinetNotificationSettingsBridgeTests`.
+ContractValidation собран через `swift build --product ContractValidation` и
+запущен из того же scratch-path без установки приложения. В профиле70Workspace,
+23RoutePolicy,8NotificationSettingsBridge. Пересчёт имён подтвердил101 и1255
+уникальных проверок. По сравнению с предыдущим1254 добавлен ровно GET A→B,
+удалённых проверок0; наборы пересекаются и не суммируются.
+
+Пропуски прежние:7AppKit focus (5Accessibility и2PromptLifecycle),
+2необязательных image-export без каталогов. Они не считаются PASS или ручной
+приёмкой. Прежние полный1254, профиль100, исходные отказы и crash сохранены;
+эта таблица относится только к окончательным bytes после восстановления route.
+
+SHA-256 проверенных исходников:
+- DesktopCabinetWorkspaceView.swift: e6e5c5e140a91d641dce0d1355f41640c72b73f1853e87fca4db659b9e1832fa.
+- EmbeddedCabinetWebView.swift: ba955ff6dab10d6c32fcf64db01ce80bedc019287c97be9c3824d32aa91c62d8.
+- DesktopCabinetWorkspaceTests.swift: 43c638b988237c60c04432d7b27be1ac5836ea5313a623a5de7f9863da830110.
+
+### Analyze и convergence текущего среза
+
+Analyze:9FR,4SC,20tasks,100% требований имеют задачи;CRITICAL0/HIGH0,
+новых несогласованностей или запросов уточнения0. Отображение:
+FR001→T001/T002/T005/T007/T008/T011/T012;
+FR002/003→T003/T007/T009/T018/T019/T020;
+FR004→T005/T010/T019/T020;
+FR005→T002/T006/T009/T010/T018/T019;
+FR006→T005/T006/T009/T010/T020;
+FR007→T005/T017/T020;FR008→T004/T008/T011/T012/T020;FR009→T009/T010.
+SC001→T004/T008/T011/T012/T016;
+SC002→T001/T002/T005/T006/T008/T012/T018/T020;
+SC003→T002/T009/T010/T018/T019;SC004→T006/T009/T010/T020.
+T013–T015 — историческое сопровождение, T017 — текущие проверки/доказательства.
+
+Convergence сопоставила9FR,4SC,7AC,7решений плана и7принципов конституции
+с текущими controller/coordinator, Workspace и настоящими WebKit-тестами.
+Для T005/T006/T010/T018/T019/T020 новых missing/partial/contradicts/unrequested
+пробелов0,CRITICAL/HIGH0. Проверены native stack, stable/transient predicate,
+порядок session boundary, current navigation identity, отдельные history items,
+настоящая синтетическая матрица и отдельные ручные/release gates. Новый GET
+восстанавливает только свой завершённый документ; чужой/unsafe/initial/committed
+документ,401/reselection,detach/stale не расширяют доступ. Принципы capture,
+consent,observability,deletion,distribution и reference fidelity не менялись.
+
+Вся F136 не converged: OAuth/provider continuation FR001/003/006/008,
+SC001,US1/AC1,US3/AC1 остаётся partial/HIGH в существующих T004/T011/T012;
+установленная матрица — T016, hosted/принятие — T017. Новые дубли задач
+не добавлялись; во время convergence tasks.md оставлен неизменным.
+Hooks before/after converge отсутствуют; auto-commit hooks отключены.
+
+Независимый предварительный допуск GET A→B записан в
+[review-workspace-cancellation-final-20261021.md](review-workspace-cancellation-final-20261021.md).
+Итоговое ревью окончательных журналов и новые GitHub проверки ещё ожидаются.
+GRAF Dev, пользовательские настройки и production не менялись; выпуска нет.
+
+
+Итоговое независимое ревью окончательных исходников и журналов:
+[review-workspace-cancellation-final-20261021.md](review-workspace-cancellation-final-20261021.md)
+— APPROVE, замечаний 0, блокеров 0. Основной агент прочитал итоговый отчёт,
+сверил три Swift SHA256 и оба списка: requirements 16 checked / 0 unchecked,
+auth-navigation 20/0. T019/T020 отмечены [X] как проверенная локальная реализация.
+T017, новые обязательные GitHub checks точного SHA/основы и принятие PR остаются
+отдельными воротами. OAuth T004/T011/T012, ручная T016 и вся F136 не завершены.
