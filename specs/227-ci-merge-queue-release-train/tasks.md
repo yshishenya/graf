@@ -122,8 +122,8 @@ runtime path is added. Legacy retirement remains Feature 220 and later slices.
 Исходные T001–T031 сохранены без фиктивного завершения. Текущий срез не закрывает
 настоящие GitHub merge-group gates T029/T031 и всю F227.
 
-- [X] T032 Уточнить serial/native границы F227 и pinned harness matrix, провести независимое ревью checklist и повторный анализ spec/plan/tasks без unresolved critical/high; Refs #6233. — #7645.
-- [X] T033 [US3] Требовать base → actual source в `infra/scripts/release-candidate.sh`; в `tests/governance/test_release_train.py` доказать serial freeze с тремя PR без queue receipts и отказ несвязанной базы до создания train/identity, сохранить changelog fragment и итоговую проверку. — #7645.
+- [X] T032 Уточнить serial/native границы F227 и pinned harness matrix, провести независимое ревью checklist и повторный анализ spec/plan/tasks без unresolved critical/high; Refs #6233. (Issue #7645)
+- [X] T033 [US3] Требовать base → actual source в `infra/scripts/release-candidate.sh`; в `tests/governance/test_release_train.py` доказать serial freeze с тремя PR без queue receipts и отказ несвязанной базы до создания train/identity, сохранить changelog fragment и итоговую проверку. (Issue #7645)
 
 Зависимости: T032 → T033. Для T033 до реализации нужен собственный issue;
 исторические закрытые issues не переоткрываются без проверки исходной приёмки.
