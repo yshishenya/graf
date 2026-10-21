@@ -315,7 +315,7 @@ def test_public_disclosure_documents_and_controller_share_consent_contract() -> 
     )
     for document in documents:
         content = document.read_text(encoding="utf-8")
-        assert "2026-09-15.1" in content
+        assert "2026-10-22.1" in content
         assert "Вебвизор" in content or "Webvisor" in content
         assert "отзыв" in content.lower()
 

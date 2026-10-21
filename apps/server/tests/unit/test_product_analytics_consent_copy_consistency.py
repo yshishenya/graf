@@ -42,9 +42,12 @@ PUBLIC_ANALYTICS_SETTINGS = {
     "public_analytics_replay_enabled": True,
 }
 
-EXPECTED_CONSENT_REVISION = "2026-09-15.1"
+EXPECTED_CONSENT_REVISION = "2026-10-22.1"
 
 COMPARISON_DIMENSIONS = (
+    "configured_copy_version_mismatch",
+    "retention_disclosure_missing",
+    "obsolete_retention_disclosure",
     "site_revision_missing",
     "site_revision_outdated",
     "category_not_disclosed",
@@ -122,10 +125,10 @@ def test_a_stale_published_document_is_not_masked_by_another_document() -> None:
     published = PublishedConsentCopy(
         documents={
             PUBLISHED_DOCUMENT_RELATIVE_PATHS[0]: (
-                f"Проверяемая редакция текста согласия — `{EXPECTED_CONSENT_REVISION}`."
+                f"Проверяемая редакция текста согласия — `{EXPECTED_CONSENT_REVISION}`; until_decision."
             ),
             PUBLISHED_DOCUMENT_RELATIVE_PATHS[1]: (
-                "Проверяемая редакция текста согласия — `2026-08-01.1`."
+                "Проверяемая редакция текста согласия — `2026-08-01.1`; until_decision."
             ),
         }
     )
@@ -154,7 +157,7 @@ def test_a_missing_published_document_is_not_replaced_by_combined_text() -> None
     published = PublishedConsentCopy(
         documents={
             PUBLISHED_DOCUMENT_RELATIVE_PATHS[0]: (
-                f"Проверяемая редакция текста согласия — `{EXPECTED_CONSENT_REVISION}`."
+                f"Проверяемая редакция текста согласия — `{EXPECTED_CONSENT_REVISION}`; until_decision."
             )
         }
     )
@@ -182,7 +185,7 @@ def test_rendered_pages_state_the_revision_the_runtime_uses(consistency_report) 
     )
 
     assert rows == [], rows
-    assert consistency_report.copy_version == "2026-09-15.1"
+    assert consistency_report.copy_version == "2026-10-22.1"
 
 
 def test_site_copy_discloses_every_category_the_code_can_grant(consistency_report) -> None:
@@ -280,7 +283,7 @@ def test_the_policy_discloses_registered_user_basis_retention_and_purposes(
     )
     for marker, claim in REQUIRED_REGISTERED_USER_DISCLOSURES.items():
         assert claim in policy, (marker, claim)
-    assert "1095" in policy
+    assert "1095" not in policy
     assert "90" in policy
 
 
@@ -348,7 +351,7 @@ def test_a_divergence_is_detected_before_the_launch() -> None:
     pages = _render_site_pages()
     shifted = dict(pages)
     shifted["cookies"] = shifted["cookies"].replace(
-        "Редакция 2026-09-15.1", "Редакция 2026-08-01.1"
+        "Редакция 2026-10-22.1", "Редакция 2026-08-01.1"
     )
     site = read_site_consent_copy(shifted, static_root=None)
     published = collect_published_consent_documents(REPO_ROOT)
@@ -423,3 +426,80 @@ def test_the_code_copy_version_matches_the_configured_default() -> None:
         "the internal product consent copy version is a separate revision; if it "
         "becomes the same value, re-check which pages it governs"
     )
+
+
+@pytest.mark.parametrize("page", ["analytics_consent", "cookies", "privacy"])
+def test_each_retention_page_separates_history_from_attribution_window(page: str) -> None:
+    text = normalize_consent_copy_text(_render_site_pages()[page])
+    assert "без автоматического удаления по возрасту" in text
+    assert "по отдельному решению или обязательному требованию" in text
+    assert "Окно применения источника — 90 дней" in text
+    assert "1095" not in text
+
+
+@pytest.mark.parametrize("page", tuple(SITE_PAGE_PATHS))
+@pytest.mark.parametrize("revision", ["2026-09-15.1", ""])
+def test_every_page_rejects_old_or_missing_analytics_revision(page: str, revision: str) -> None:
+    pages = _render_site_pages()
+    pages[page] = pages[page].replace(EXPECTED_CONSENT_REVISION, revision)
+    report = consent_copy_consistency(
+        read_site_consent_copy(pages, static_root=None, server_root=SERVER_ROOT),
+        collect_published_consent_documents(REPO_ROOT),
+        code_consent_terms(),
+    )
+    assert any(
+        row.place == page and row.code in {"site_revision_missing", "site_revision_outdated"}
+        for row in report.divergences
+    )
+
+
+def test_a_stale_configured_revision_does_not_pass_the_copy_comparison() -> None:
+    terms = {**code_consent_terms(), "configured_copy_version": "2026-09-15.1"}
+    report = consent_copy_consistency(
+        read_site_consent_copy(_render_site_pages(), static_root=None, server_root=SERVER_ROOT),
+        collect_published_consent_documents(REPO_ROOT),
+        terms,
+    )
+    assert any(row.code == "configured_copy_version_mismatch" for row in report.divergences)
+
+
+@pytest.mark.parametrize("place", ["analytics_consent", "cookies", "privacy", *PUBLISHED_DOCUMENT_RELATIVE_PATHS])
+@pytest.mark.parametrize("old_claim", [
+    " Срок хранения аналитики — 1095 дней.",
+    " Метки кампании в записи о клиенте хранятся 1095 дней.",
+])
+def test_a_previous_retention_limit_cannot_hide_beside_the_new_policy(place: str, old_claim: str) -> None:
+    pages = _render_site_pages()
+    published = collect_published_consent_documents(REPO_ROOT)
+    if place in pages:
+        pages[place] += old_claim
+    else:
+        published = PublishedConsentCopy(documents={
+            key: value + (old_claim if key == place else "")
+            for key, value in published.documents.items()
+        })
+    report = consent_copy_consistency(
+        read_site_consent_copy(pages, static_root=None, server_root=SERVER_ROOT),
+        published,
+        code_consent_terms(),
+    )
+    assert any(row.code == "obsolete_retention_disclosure" and row.place == place for row in report.divergences)
+
+
+@pytest.mark.parametrize("place", ["analytics_consent", "cookies", "privacy", *PUBLISHED_DOCUMENT_RELATIVE_PATHS])
+def test_each_copy_must_state_the_retention_mode(place: str) -> None:
+    pages = _render_site_pages()
+    published = collect_published_consent_documents(REPO_ROOT)
+    if place in pages:
+        pages[place] = pages[place].replace("без автоматического удаления по возрасту", "")
+    else:
+        published = PublishedConsentCopy(documents={
+            key: value.replace("until_decision", "") if key == place else value
+            for key, value in published.documents.items()
+        })
+    report = consent_copy_consistency(
+        read_site_consent_copy(pages, static_root=None, server_root=SERVER_ROOT),
+        published,
+        code_consent_terms(),
+    )
+    assert any(row.code == "retention_disclosure_missing" and row.place == place for row in report.divergences)

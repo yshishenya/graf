@@ -74,6 +74,7 @@ def _event_payload(**overrides: object) -> dict:
         "surface": "public_download",
         "view_id": VIEW_ID,
         "consent_state": "accepted_all",
+        "consent_copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
         "consent_categories": list(PUBLIC_ANALYTICS_CONSENT_CATEGORIES),
     }
     payload.update(overrides)
@@ -183,6 +184,9 @@ def test_relay_refuses_an_event_without_a_valid_consent_decision(
     monkeypatch.setattr(public_web, "deliver_public_analytics_event", _record)
 
     refused_payloads = {
+        "missing_revision": {k: v for k, v in _event_payload().items() if k != "consent_copy_version"},
+        "old_revision": _event_payload(consent_copy_version="2026-09-15.1"),
+        "unknown_revision": _event_payload(consent_copy_version="unknown"),
         "necessary_only": _event_payload(
             consent_state="necessary_only", consent_categories=["necessary"]
         ),
@@ -218,6 +222,7 @@ def test_relay_refuses_an_event_without_a_valid_consent_decision(
     assert len(delivered) == 1
     assert delivered[0]["event_name"] == EVENT_NAME
     assert delivered[0]["consent_state"] == "accepted_all"
+    assert "consent_copy_version" not in delivered[0]["properties"]
     assert [response.status_code for response in after_grant] == [403] * len(refused_payloads)
 
 
@@ -425,3 +430,26 @@ def test_a_damaged_consent_record_is_read_as_a_denial() -> None:
     )
     assert granted["state"] == "accepted_all"
     assert granted["analytics_allowed"] is True
+
+
+@pytest.mark.parametrize("revision", ["2026-09-15.1", "", "unknown"])
+def test_relay_refuses_stale_server_revision_before_delivery(
+    postgres_seeded_database_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+    revision: str,
+) -> None:
+    import twobrain_rec_server.public.web as public_web
+
+    settings = _analytics_settings(postgres_seeded_database_url).model_copy(
+        update={"public_analytics_consent_copy_version": revision}
+    )
+    delivered: list[dict] = []
+    monkeypatch.setattr(
+        public_web, "deliver_public_analytics_event",
+        lambda settings, event: delivered.append(event) or {"delivered": True},
+    )
+    with TestClient(create_app(settings)) as client:
+        response = client.post(PUBLIC_ANALYTICS_CAPTURE_ENDPOINT, json=_event_payload())
+    assert response.status_code == 403
+    assert response.json()["reason"] == "consent_revision_mismatch"
+    assert delivered == []

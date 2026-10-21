@@ -44,7 +44,7 @@ def test_public_analytics_immediate_context_is_narrow_and_public_scoped() -> Non
 
 def test_public_consent_categories_are_strict_and_unknown_is_fail_closed() -> None:
     valid = {
-        "copy_version": "2026-09-15.1",
+        "copy_version": "2026-10-22.1",
         "categories": ["necessary", "analytics"],
         "state": "customized",
     }
@@ -63,7 +63,7 @@ def test_public_consent_categories_are_strict_and_unknown_is_fail_closed() -> No
 
 
 def test_public_consent_states_include_acceptance_and_revoke_transitions() -> None:
-    base = {"copy_version": "2026-09-15.1"}
+    base = {"copy_version": "2026-10-22.1"}
 
     assert normalize_public_analytics_consent(
         {**base, "categories": ["necessary", "analytics", "advertising_attribution", "behavior_replay"]}
@@ -90,6 +90,9 @@ def test_public_analytics_consent_revision_follows_copy_version() -> None:
 
     assert context["consent_copy_version"] == "2026-09-20.7"
     assert context["consent_revision"] == 202609207
+    assert context["enabled"] is False
+    assert context["consent_ui_enabled"] is False
+    assert context["replay_allowed"] is False
 
 
 def test_public_analytics_event_catalog_and_labels_match_new_funnel() -> None:
@@ -281,3 +284,28 @@ def _production_public_analytics_settings(**overrides: object) -> Settings:
     }
     values.update(overrides)
     return Settings(**values)
+
+
+def test_previous_retention_revision_does_not_grant_optional_measurement() -> None:
+    result = normalize_public_analytics_consent({
+        "copy_version": "2026-09-15.1",
+        "categories": ["necessary", "analytics", "advertising_attribution", "behavior_replay"],
+        "state": "accepted_all",
+    })
+    assert result["state"] == "unknown"
+    assert result["analytics_allowed"] is False
+    assert result["advertising_attribution_allowed"] is False
+    assert result["behavior_replay_allowed"] is False
+
+
+def test_old_configured_revision_disables_the_public_counter_and_replay() -> None:
+    context = build_public_analytics_context(Settings(
+        public_analytics_enabled=True,
+        public_analytics_validation_mode="render_only",
+        public_analytics_yandex_metrica_id="12345678",
+        public_analytics_replay_enabled=True,
+        public_analytics_consent_copy_version="2026-09-15.1",
+    ), "/")
+    assert context["enabled"] is False
+    assert context["external_counter_allowed"] is False
+    assert context["replay_allowed"] is False

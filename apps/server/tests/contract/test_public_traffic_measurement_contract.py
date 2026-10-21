@@ -32,6 +32,7 @@ from twobrain_rec_server.product_analytics.forbidden_fields import (
     ANONYMOUS_AGGREGATE_ALLOWED_FIELDS,
 )
 from twobrain_rec_server.public.analytics import (
+    PUBLIC_ANALYTICS_CONSENT_VERSION,
     PUBLIC_VISIT_ATTRIBUTION_COOKIE,
     build_public_consent_share_report,
 )
@@ -365,6 +366,7 @@ def test_an_unavailable_provider_leaves_the_page_and_the_count_intact(
                 "surface": "public_download",
                 "view_id": "graf_public_view_0123456789abcdef",
                 "consent_state": "accepted_all",
+                "consent_copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
                 "consent_categories": ["necessary", "analytics"],
             },
         )

@@ -737,7 +737,7 @@ def test_production_api_allows_runtime_public_analytics_overrides() -> None:
     )
     assert (
         api_env["TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION"]
-        == "${TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION:-2026-09-15.1}"
+        == "${TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION:-2026-10-22.1}"
     )
     assert "TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID" not in worker_env
 

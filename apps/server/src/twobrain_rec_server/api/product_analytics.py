@@ -51,6 +51,7 @@ from twobrain_rec_server.product_analytics.telemetry_gate import (
     limited_access_only,
     requires_acceptance,
 )
+from twobrain_rec_server.public.analytics import PUBLIC_ANALYTICS_CONSENT_VERSION
 
 
 class ProductAnalyticsEventRequest(BaseModel):
@@ -70,6 +71,7 @@ class PostHogAutocaptureEventRequest(BaseModel):
     distinct_id: str = Field(min_length=1, max_length=120)
     event_type: Literal["ready", "pageview", "click"] = "pageview"
     consent_state: Literal["accepted_all", "customized"]
+    consent_copy_version: str = Field(min_length=1, max_length=32)
     page_class: str = Field(min_length=1, max_length=80)
     path_class: str | None = Field(default=None, max_length=80)
     tag_name: str | None = Field(default=None, max_length=24)
@@ -233,6 +235,15 @@ async def product_analytics_posthog_web_capture(
             title="PostHog autocapture disabled",
             detail="PostHog web autocapture is disabled or missing credential suppression.",
         )
+    if (
+        settings.public_analytics_consent_copy_version != PUBLIC_ANALYTICS_CONSENT_VERSION
+        or body.consent_copy_version != PUBLIC_ANALYTICS_CONSENT_VERSION
+    ):
+        raise ProblemDetail(
+            status=403,
+            code="posthog_autocapture_consent_revision_mismatch",
+            title="Current browser consent required",
+        )
     try:
         page_policy = get_page_class_policy(body.page_class)
     except ValueError as exc:
@@ -283,7 +294,7 @@ async def product_analytics_posthog_web_capture(
             title="PostHog autocapture workspace identity rejected",
             detail="Autocapture workspace pseudonym must be a GRAF pseudonymous analytics identity.",
         )
-    properties = body.model_dump(exclude_none=True)
+    properties = body.model_dump(exclude_none=True, exclude={"consent_copy_version"})
     try:
         assert_no_forbidden_fields(properties)
         assert_no_security_credential_fields(properties)

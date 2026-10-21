@@ -18,6 +18,7 @@ from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
 from twobrain_rec_server.public.analytics import (
     PUBLIC_ANALYTICS_CAPTURE_ENDPOINT,
+    PUBLIC_ANALYTICS_CONSENT_VERSION,
     PUBLIC_ANALYTICS_RELAY_MAX_BYTES,
     PublicAnalyticsConsentRequired,
     PublicAnalyticsEventRejected,
@@ -422,6 +423,10 @@ async def public_analytics_event(request: Request) -> JSONResponse:
         return JSONResponse(
             {"accepted": False, "reason": "public_measurement_disabled"},
             status_code=403,
+        )
+    if settings.public_analytics_consent_copy_version != PUBLIC_ANALYTICS_CONSENT_VERSION:
+        return JSONResponse(
+            {"accepted": False, "reason": "consent_revision_mismatch"}, status_code=403,
         )
     if not _same_origin_request(request):
         return JSONResponse({"accepted": False, "reason": "cross_origin"}, status_code=403)
