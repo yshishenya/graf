@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.main import create_app
 from twobrain_rec_server.product_analytics.readiness import build_rollout_readiness_report
+from twobrain_rec_server.public.analytics import PUBLIC_ANALYTICS_CONSENT_VERSION
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 GUARD_PATH = REPO_ROOT / "infra/scripts/posthog-runtime-guard.sh"
@@ -85,6 +86,7 @@ def test_the_product_answers_over_http_while_measurement_is_disabled() -> None:
             json={
                 "distinct_id": "graf_pseudo_visitor_abc",
                 "consent_state": "accepted_all",
+                "consent_copy_version": PUBLIC_ANALYTICS_CONSENT_VERSION,
                 "page_class": "public_landing",
             },
         )

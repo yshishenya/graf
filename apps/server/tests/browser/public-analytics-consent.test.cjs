@@ -81,7 +81,10 @@ function createEnvironment(config, options) {
       }),
       getElementById: (id) =>
         id === "graf-public-analytics-config" || id === "graf-product-analytics-provider-config"
-          ? { textContent: JSON.stringify(config) }
+          ? { textContent: JSON.stringify(
+              id === "graf-product-analytics-provider-config" && settings.productConfig
+                ? settings.productConfig : config,
+            ) }
           : null,
       querySelector: () => null,
       querySelectorAll: () => [],
@@ -164,8 +167,8 @@ function consentRecord(categories, state) {
   }
   return {
     categories,
-    revision: 202609151,
-    copy_version: "2026-09-15.1",
+    revision: 202610221,
+    copy_version: "2026-10-22.1",
     state: state === undefined ? derived : state,
   };
 }
@@ -250,6 +253,24 @@ async function main() {
     console.log("ok refusal_is_kept_on_a_repeat_visit");
   }
 
+  // A previous retention disclosure cannot authorise the new policy.
+  {
+    const previous = {
+      ...consentRecord(["necessary", "analytics", "advertising_attribution", "behavior_replay"]),
+      copy_version: "2026-09-15.1",
+      revision: 202609151,
+    };
+    const environment = createEnvironment(config, {
+      localStorage: { [CONSENT_STORAGE_KEY]: JSON.stringify(previous) },
+    });
+    assert.equal(environment.sandbox.GRAFPublicAnalytics.currentConsentState, "unknown");
+    assert.equal(dispatch(environment, "public_download_viewed"), false);
+    assert.equal(relayCalls(environment.calls), 0);
+    assert.equal(environment.calls.goals.length, 0);
+    assert.equal(environment.sandbox.sessionStorage.length, 0);
+    console.log("ok previous_revision_does_not_authorise_new_retention");
+  }
+
   // 3. A damaged or unreadable decision is a refusal (FR-059).
   {
     const damaged = createEnvironment(config);
@@ -294,6 +315,7 @@ async function main() {
     assert.equal(body.page_path, "/download");
     assert.equal(body.surface, "public_download");
     assert.equal(body.consent_state, "accepted_all");
+    assert.equal(body.consent_copy_version, config.consent_copy_version);
     assert.deepEqual(body.consent_categories, [
       "necessary",
       "analytics",
@@ -491,6 +513,36 @@ async function main() {
     assert.match(consentModal.description, /Отказаться можно кнопкой «Только необходимые»/);
     assert.equal(consentModal.showPreferencesBtn, "Настроить");
     console.log("ok refusal_is_the_same_action_as_consent");
+  }
+
+  // The internal browser relay carries the same current disclosure revision.
+  {
+    const endpoint = "/api/v1/product-analytics/posthog-web-capture";
+    const environment = createEnvironment(config, {
+      productConfig: {
+        enabled: true,
+        page_class: "settings",
+        sensitivity: "product",
+        posthog: {
+          enabled: true,
+          autocapture_enabled: true,
+          capture_endpoint: endpoint,
+          distinct_id: "graf_pseudo_user_c0ffee0000000000",
+        },
+      },
+    });
+    environment.calls.consentOptions.onConsent({
+      cookie: consentRecord(["necessary", "analytics"], "customized"),
+    });
+    const bodies = await Promise.all(environment.calls.beacons
+      .filter((call) => call.url === endpoint)
+      .map(async (call) => JSON.parse(await call.blob.text())));
+    assert.deepEqual(bodies.map((body) => body.event_type), ["ready", "pageview"]);
+    for (const body of bodies) {
+      assert.equal(body.consent_copy_version, config.consent_copy_version);
+      assert.equal(body.consent_state, "customized");
+    }
+    console.log("ok internal_browser_relay_carries_current_revision");
   }
 
   console.log("public_analytics_consent_harness=pass");

@@ -58,7 +58,7 @@ from twobrain_rec_server.product_analytics.advertising_transfer import (
 OFFLINE_PURPOSE = "yandex_offline_conversions"
 TELECOM_PURPOSE = "telecom_network_advertising"
 RECIPIENT = "yandex_metrica"
-CONSENT_REVISION = "2026-09-15.1"
+CONSENT_REVISION = "2026-10-22.1"
 
 # The copy a visitor reads when the transfer really is disclosed: it names the
 # advertising platform, the offline conversions and the optional category.

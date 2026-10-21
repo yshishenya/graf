@@ -53,7 +53,7 @@ REQUIRED_SITE_DISCLOSURES: Mapping[str, str] = {
 # as sentences rather than as numbers alone.
 REQUIRED_REGISTERED_USER_DISCLOSURES: Mapping[str, str] = {
     "registered_user_legal_basis": "исполнения договора и законного интереса",
-    "registered_user_retention": "метки кампании в записи о клиенте — 1095 дней",
+    "registered_user_retention": "без автоматического удаления по возрасту",
     "registered_user_purposes": "не выходит за эти цели",
 }
 
@@ -61,6 +61,19 @@ REQUIRED_REGISTERED_USER_DISCLOSURES: Mapping[str, str] = {
 # document, not only through the combined site text, so a page that stops
 # publishing it is reported by name.
 REGISTERED_USER_POLICY_PAGE = "privacy"
+
+RETENTION_DISCLOSURE_PAGES = ("analytics_consent", "cookies", "privacy")
+REQUIRED_RETENTION_DISCLOSURES = (
+    "без автоматического удаления по возрасту",
+    "по отдельному решению или обязательному требованию",
+    "Окно применения источника — 90 дней",
+)
+OBSOLETE_RETENTION_PATTERN = re.compile(
+    r"(?:—|–|:|=|\||хранятся|хранится)\s*(?:365|1095)\s*(?:дней|days)"
+    r"|(?:запись|история) атрибуции визита\s*—\s*90 дней"
+    r"|события продуктовой аналитики\s*—\s*не менее 90 дней",
+    re.IGNORECASE,
+)
 
 # The public analytics controller is a first-party relay; the disclosure must
 # say so rather than claim a direct third-party embed.
@@ -86,7 +99,10 @@ REPLAY_SURFACE_MARKERS = ("Вебвизор", "карта кликов")
 REVISION_PATTERNS: Mapping[str, re.Pattern[str]] = {
     "analytics_consent": re.compile(r"Редакция\s+(\d{4}-\d{2}-\d{2}\.\d+)"),
     "cookies": re.compile(r"Редакция\s+(\d{4}-\d{2}-\d{2}\.\d+)"),
-    "privacy": re.compile(r"Редакция\s+от\s+(\d{1,2}\s+[а-яё]+\s+\d{4})"),
+    "privacy": re.compile(
+        r"Раскрытие браузерной аналитики действует в редакции\s*"
+        r"(?:<code>)?(\d{4}-\d{2}-\d{2}\.\d+)"
+    ),
     "terms": re.compile(r"раскрытие аналитики\s+(\d{4}-\d{2}-\d{2}\.\d+)"),
 }
 
@@ -315,6 +331,12 @@ def consent_copy_divergences(
     combined_site = site.combined()
     copy_version = str(code_terms["copy_version"])
 
+    if code_terms.get("configured_copy_version") != copy_version:
+        divergences.append(ConsentCopyDivergence(
+            "configured_copy_version_mismatch", "config",
+            "the configured public revision differs from the published runtime revision",
+        ))
+
     for page in site.missing_pages():
         divergences.append(
             ConsentCopyDivergence(
@@ -344,7 +366,7 @@ def consent_copy_divergences(
                     "the page does not state the copy revision a visitor is reading",
                 )
             )
-        elif page in {"analytics_consent", "cookies", "terms"} and revision != copy_version:
+        elif revision != copy_version:
             divergences.append(
                 ConsentCopyDivergence(
                     "site_revision_outdated",
@@ -370,6 +392,29 @@ def consent_copy_divergences(
                     f"the published copy does not name revision {copy_version} directly",
                 )
             )
+
+        if "until_decision" not in document_copy:
+            divergences.append(ConsentCopyDivergence(
+                "retention_disclosure_missing", document,
+                "the repository copy does not name the explicit retention mode",
+            ))
+
+    retention_copies = {
+        page: site.page(page) for page in RETENTION_DISCLOSURE_PAGES if site.page(page)
+    }
+    for page, text in retention_copies.items():
+        if any(claim not in normalize_consent_copy_text(text)
+               for claim in REQUIRED_RETENTION_DISCLOSURES):
+            divergences.append(ConsentCopyDivergence(
+                "retention_disclosure_missing", page,
+                "the page must separate retained history, attribution eligibility and deletion",
+            ))
+    for place, text in {**retention_copies, **published.documents}.items():
+        if OBSOLETE_RETENTION_PATTERN.search(normalize_consent_copy_text(text)):
+            divergences.append(ConsentCopyDivergence(
+                "obsolete_retention_disclosure", place,
+                "the copy still states an obsolete analytics lifetime",
+            ))
 
     disclosed, absent = _disclosed_categories(site)
     code_categories = tuple(str(category) for category in code_terms["categories"])

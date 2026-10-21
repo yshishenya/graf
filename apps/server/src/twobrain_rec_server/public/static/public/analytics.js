@@ -426,6 +426,7 @@
       surface: publicConfig.surface,
       view_id: viewId,
       consent_state: currentConsentState,
+      consent_copy_version: consentCopyVersion(),
       consent_categories: currentCategories.slice(),
     };
     if (
@@ -781,6 +782,7 @@
         source: "browser_autocapture",
         workspace_pseudonym: stableToken(providerConfig.posthog.workspace_pseudonym, 120),
         consent_state: currentConsentState,
+        consent_copy_version: consentCopyVersion(),
       };
       if (tagName && allowedTags.indexOf(tagName) !== -1) {
         payload.tag_name = tagName;

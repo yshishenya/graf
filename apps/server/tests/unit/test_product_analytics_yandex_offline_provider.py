@@ -20,7 +20,7 @@ from twobrain_rec_server.product_analytics.yandex_offline import (
     is_yandex_offline_event_allowed,
 )
 
-CONSENT_REVISION = "2026-09-15.1"
+CONSENT_REVISION = "2026-10-22.1"
 
 # The visitor-facing copy read while a transfer is under test: it names the
 # advertising platform, the category and the offline-conversion transfer.

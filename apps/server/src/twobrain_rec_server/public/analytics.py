@@ -69,7 +69,7 @@ from twobrain_rec_server.public.content import PUBLIC_CONTENT_SURFACES
 logger = logging.getLogger(__name__)
 
 COOKIECONSENT_VERSION = "3.1.0"
-PUBLIC_ANALYTICS_CONSENT_VERSION = "2026-09-15.1"
+PUBLIC_ANALYTICS_CONSENT_VERSION = "2026-10-22.1"
 PUBLIC_ANALYTICS_CONSENT_STORAGE_KEY = "graf_public_cookie_consent"
 PUBLIC_ANALYTICS_PROVIDER = "yandex_metrica"
 PUBLIC_ANALYTICS_PRODUCTION_ENVS = {"production", "staging"}
@@ -297,6 +297,7 @@ PUBLIC_ANALYTICS_RELAY_ALLOWED_FIELDS = (
     PUBLIC_ANALYTICS_VIEW_ID_FIELD,
     "consent_state",
     "consent_categories",
+    "consent_copy_version",
     "campaign_attribution",
     *PUBLIC_ANALYTICS_RELAY_STABLE_LABEL_FIELDS,
 )
@@ -476,7 +477,10 @@ def build_public_analytics_context(
         "render_only",
         "provider_smoke",
     }
-    configured = bool(settings.public_analytics_enabled and environment_allowed and counter_id)
+    configured = bool(
+        settings.public_analytics_enabled and environment_allowed and counter_id
+        and consent_copy_version == PUBLIC_ANALYTICS_CONSENT_VERSION
+    )
     enabled = bool(configured and surface)
     consent_ui_enabled = bool(configured and path in PUBLIC_ANALYTICS_CONSENT_PATHS)
     # Replay stays narrower than measurement: the published cookies policy names
@@ -558,6 +562,7 @@ def build_product_yandex_provider_context(
         provider_gate_allowed = False
     enabled = bool(
         provider_gate_allowed
+        and settings.public_analytics_consent_copy_version == PUBLIC_ANALYTICS_CONSENT_VERSION
         and settings.product_analytics_yandex_all_pages_enabled
         and counter_id
         and settings.product_analytics_legal_approved
@@ -1108,6 +1113,9 @@ def normalize_public_analytics_event(payload: Any) -> dict[str, Any]:
     )
     if catalog_entry is None:
         raise PublicAnalyticsEventRejected("unknown_event")
+
+    if payload.get("consent_copy_version") != PUBLIC_ANALYTICS_CONSENT_VERSION:
+        raise PublicAnalyticsConsentRequired("consent_revision_mismatch")
 
     consent_state = payload.get("consent_state")
     if consent_state not in PUBLIC_ANALYTICS_CONSENT_GRANTED_STATES:
