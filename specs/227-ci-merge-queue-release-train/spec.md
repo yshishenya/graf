@@ -17,6 +17,25 @@
 release train связывает фактический SHA `master` с PR, Feature ID, CI receipt и
 единственным authoritative Full CI.
 
+## Уточнения
+
+### Проверка применимости 2026-10-17
+
+- Вопрос: нужен ли native merge queue для действующего выпуска? Ответ:
+  действующая инструкция требует последовательных слияний с тремя обязательными
+  проверками PR. Очередь — отдельный будущий этап; исходные T029/T031 остаются
+  открытыми до настоящей проверки GitHub. Ни локальные тесты, ни служебный
+  коммит выпуска не подтверждают этот этап.
+- Вопрос: откуда берётся synthetic SHA при последовательном выпуске? Ответ:
+  `scripts/release.sh` создаёт настоящий отдельный Git-коммит с деревом source
+  и родителями base/source. Это метаданные происхождения, не событие очереди.
+  При отсутствии очереди обе коллекции merge-group остаются пустыми.
+- Вопрос: может ли происхождение synthetic заменить происхождение source?
+  Ответ: нет; base обязательно является предком фактического source независимо
+  от служебного коммита. Неполная история Git блокирует заморозку.
+- Вопрос: нужна ли новая матрица Python? Ответ: закреплённый harness v0.1.13
+  проверен на Python 3.9/3.12; проверка других версий здесь не заявляется.
+
 ## User Scenarios & Testing
 
 ### US1 — Проверить PR или merge queue на правильном SHA (P0)
@@ -121,11 +140,20 @@ post-merge SHA `master`, запускает один authoritative Full CI и п
 - **FR-008**: `release-candidate.sh` MUST reject missing, stale, mismatched or
   duplicate authoritative evidence and MUST create a new candidate after SHA
   drift.
-- **FR-009**: Required GitHub checks and merge queue MUST be enabled only after
-  the workflow is present on `master` and its stable check names are verified.
+- **FR-009**: Required GitHub checks MUST be enabled only after the workflow
+  is present on `master` and its stable check names are verified. Native merge
+  queue is a separate operator-owned future gate: all required workflows and
+  authoritative PR mapping MUST pass a real `merge_group` rehearsal first.
+  Serial merges remain the current operating mode.
 - **FR-010**: Generic event/receipt schemas and validators MUST be portable to
   `graf-development-harness`; GRAF-specific capture, privacy, signing, Temporal
   and production gates MUST remain project-local.
+
+- **FR-011**: Release freeze MUST require `base_sha` to be an ancestor of actual
+  `source_sha`; an ancestor relationship to `synthetic_merge_sha` alone MUST NOT
+  satisfy this gate. All three SHAs MUST resolve to local commits; source and
+  synthetic MUST remain distinct. Serial trains MUST use empty merge-group
+  collections without inventing queue evidence.
 
 ## Success Criteria
 
@@ -142,10 +170,17 @@ post-merge SHA `master`, запускает один authoritative Full CI и п
 - **SC-006**: Generic harness self-tests pass on supported Python versions and
   contain no GRAF-specific secrets, private paths, audio or transcript content.
 
+- **SC-007**: An isolated Git rehearsal accepts the real serial operator flow
+  with three PRs and empty queue collections; an unrelated base is rejected even
+  when it is an ancestor of the synthetic commit. Rejection creates no train or
+  immutable identity record.
+
 ## Assumptions
 
-- GitHub Actions and merge queue are available for the public repository after
-  the workflow is merged; until then local evidence remains non-required.
+- GitHub Actions and three strict required PR checks are active. Native merge
+  queue is not active; its platform availability must be established separately
+  before any operator-owned activation. Empty API history is not proof of
+  platform unavailability.
 - PR titles, issue labels and Spec Kit pointers carry the existing Feature ID
   canon.
 - A release train records synthetic merge SHA and final `master` SHA separately.

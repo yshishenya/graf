@@ -82,3 +82,49 @@ post-merge train manifest → one authoritative Full CI → immutable decision
 - Release-candidate rehearsal with at least three synthetic PRs and one Full CI
   receipt.
 - Generic harness self-test on supported Python versions.
+
+## Текущий срез: T032–T033 (2026-10-17)
+
+Lane: `Active Spec Kit slice`, область infrastructure/release provenance.
+Сохраняются все исходные задачи и отдельные native merge-group gates.
+
+1. T032: уточнить serial/native границы, происхождение synthetic, pinned Python
+   matrix и воспроизводимые команды; независимое reviewer-owned ревью и анализ.
+2. T033: в существующем `require_git_commit_relationship` обязать base быть
+   предком source. Сохранить проверку существования трёх commits и все остальные
+   exact-SHA/cleanliness/PR/Full CI gates. Не добавлять nullable-поле или новый
+   режим. Проверить реальный serial commit-tree и несвязанную историю Git.
+
+Владение кодом: `infra/scripts/release-candidate.sh` и существующий
+`tests/governance/test_release_train.py`. Все вызовы общей функции прочитаны:
+её вызывает train-freeze; release operator `scripts/release.sh` уже создаёт
+корректный synthetic commit. Другие операции читают immutable manifest; менять
+их формат и пересоздавать исторические записи не требуется. Pending F259
+proof-binding меняет issue-closeout validator, пересечения кода нет.
+
+Продуктовый код, GitHub protection, очередь, pinned harness package и действующий
+runtime не меняются. Проверка проходит только в изолированном Git fixture;
+GitHub PR proofs и Full CI там подставлены тестом и не считаются живой приёмкой.
+После локальной проверки commit/PR и защищённое слияние выполняются по
+действующему общему разрешению пользователя. Нужны три обязательные проверки
+точного SHA/base. Выпуск отдельно.
+Конституция после проектирования соблюдена: защиты усилены, выпуск не исполняется.
+
+
+## Уточнение замечаний PR7678 — 21.10.2026
+
+Текущая T033 должна защищать не только создание, но и потребление уже
+замороженного train. Замечания4314292416/4314292430 требуют проверки
+связи base→actual source в общей validate_train после проверки схемы:
+её используют train-validate, candidate freeze, train-attest и decide --train. Существующий
+require_git_commit_relationship переиспользуется, формат immutable
+manifest/identity и проверки exact SHA/clean/PR/Full не меняются.
+Git cat-file и merge-base этой проверки выполняются с --no-replace-objects,
+чтобы локальная refs/replace graft не подменяла записанную историю.
+Отдельные временные Git fixtures должны сначала воспроизвести acceptance
+старого manifest и graft bypass, затем отказ всех потребителей без
+новых файлов/перезаписи identity. Корректная serial история и существующая
+положительная матрица остаются успешными. До реализации требуется
+независимое reviewer-owned ревью этого уточнения; затем исходные RED,
+минимальное общее исправление, focused suite и итоговое ревью.
+T032/T033 остаются владельцами; исходные T001–T031 не закрываются.

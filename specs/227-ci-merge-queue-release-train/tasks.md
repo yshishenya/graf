@@ -116,3 +116,17 @@ runtime path is added. Legacy retirement remains Feature 220 and later slices.
   текущий `start-local.sh` запускает server-rendered backend с
   `processing_enabled=false`, а существующая локальная БД содержит revision,
   которого нет в текущей ветке. Production app и production data не трогались.
+
+## Phase 9: Уточнение применимости и защита базы (2026-10-17)
+
+Исходные T001–T031 сохранены без фиктивного завершения. Текущий срез не закрывает
+настоящие GitHub merge-group gates T029/T031 и всю F227.
+
+- [X] T032 Уточнить serial/native границы F227 и pinned harness matrix, провести независимое ревью checklist и повторный анализ spec/plan/tasks без unresolved critical/high; Refs #6233.
+- [X] T033 [US3] Требовать base → actual source в `infra/scripts/release-candidate.sh`; в `tests/governance/test_release_train.py` доказать serial freeze с тремя PR без queue receipts и отказ несвязанной базы до создания train/identity, сохранить changelog fragment и итоговую проверку.
+
+Зависимости: T032 → T033. Для T033 до реализации нужен собственный issue;
+исторические закрытые issues не переоткрываются без проверки исходной приёмки.
+
+Собственник текущих T032–T033: [#7645](https://github.com/yshishenya/graf/issues/7645).
+Дедупликация: проверены все32 исходных issues feature:227; совпадений T032/T033 нет.

@@ -247,6 +247,7 @@ def validate_train(data):
     errors = module.validate(data)
     if errors:
         die("train manifest validation failed: " + "; ".join(errors))
+    require_git_commit_relationship(data["base_sha"], data["synthetic_merge_sha"], data["source_sha"])
 
 def parse_csv(value, field):
     if value is None:
@@ -645,14 +646,12 @@ def changelog_feature_ids():
 def require_git_commit_relationship(base_sha, synthetic_sha, source_sha):
     for label, value in (("base", base_sha), ("synthetic merge", synthetic_sha), ("source", source_sha)):
         try:
-            subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{value}^{{commit}}"], check=True,
+            subprocess.run(["git", "--no-replace-objects", "-C", str(root), "cat-file", "-e", f"{value}^{{commit}}"], check=True,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except (OSError, subprocess.CalledProcessError):
             die(f"train {label} SHA does not resolve to a local commit")
-    for descendant_label, descendant in (("synthetic merge", synthetic_sha), ("source", source_sha)):
-        if subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", base_sha, descendant]).returncode == 0:
-            return
-    die("train base SHA must be an ancestor of the synthetic merge or source commit")
+    if subprocess.run(["git", "--no-replace-objects", "-C", str(root), "merge-base", "--is-ancestor", base_sha, source_sha]).returncode != 0:
+        die("train base SHA must be an ancestor of the source commit")
 
 def decision_identity_path(candidate_id):
     return DECISION_DIR / f".{candidate_id}.decision-identity.json"
