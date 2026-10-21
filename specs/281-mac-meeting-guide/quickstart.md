@@ -1,5 +1,17 @@
 # Проверка F281
 
+## Ссылки действия готовой записи — 2026-10-21
+
+FR032/T020: запустить два существующих файла полностью через изолированный
+runner, без исключения DB-проверки:
+`UV_PROJECT_ENVIRONMENT=/Users/yshishenya/Documents/crisp/apps/server/.venv UV_NO_SYNC=1 bash apps/server/scripts/run_local_postgres_tests.sh --focused -q tests/contract/test_public_protocol_guide.py tests/contract/test_public_zoom_recording_guide.py`.
+Link-тесты используют HTML Accept и проверяют 303/сохранение `next=/meetings`;
+общая ссылка входа в шапке сохраняется. Сравнить оба шаблона с HEAD после
+отмены только JSON-LD и точных редакционных строк; другие public/auth-файлы
+должны совпасть со снимком перед изменениями. Проверить 320/390/768/1440,
+один H1 и адреса действий; выполнить Ruff/fragment/diff. В этом срезе нет
+новой загрузки, публикации учебного результата и проверки реальной конверсии.
+
 ## Редакционное дополнение 2026-10-16
 
 Переиспользовать готовую Python-среду без установки зависимостей. Из `apps/server`: `PYTHONPATH=src /Users/yshishenya/Documents/crisp/apps/server/.venv/bin/python -m pytest -q tests/contract/test_public_protocol_guide.py -k 'indexable or example'`. Проверить rendered HTML в браузере на 360/390/768 px, no-JS, содержание/якорь и переносы второго шаблона; ширина документа не больше окна. Сравнить с базой metadata, исходный учебный диалог и первый pre, а также защищенные главную/download/политики/assets/runtime. Запустить `git diff --check`, governance и fragment validator. Новых проверок runtime/БД/приложения этот текстовый срез не требует. После PR нужны текущие три GitHub checks и общий validator; выпуск и live readback остаются T018.

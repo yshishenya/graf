@@ -11,6 +11,27 @@
   <link rel="stylesheet" href="{{ public_static_asset_url('content.css') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('article.css') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('content-header.css') }}">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Как составить протокол встречи из записи: пример решений и задач",
+        "mainEntityOfPage": {{ canonical_url | tojson }},
+        "inLanguage": "ru",
+        "author": {"@type": "Organization", "name": "Редакция ГРАФ"}
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {"@type": "ListItem", "position": 1, "name": "Руководства", "item": {{ canonical_url.rsplit('/', 1)[0] | tojson }}},
+          {"@type": "ListItem", "position": 2, "name": "Как составить протокол встречи из записи: пример решений и задач", "item": {{ canonical_url | tojson }}}
+        ]
+      }
+    ]
+  }
+  </script>
 </head>
 <body class="guides-page quality-page article-page">
   <a class="skip-link" href="#main">К содержанию</a>
@@ -132,6 +153,7 @@
       <p>Такую инструкцию можно использовать как отправную точку. Получившийся текст все равно нужно сверить с записью. Перед передачей расшифровки выбранному сервису проверьте, разрешены ли ее обработка и содержащиеся в ней данные.</p>
     </section>
     <section><h2>Как здесь помогает ГРАФ</h2><p>ГРАФ записывает системный звук и микрофон на Mac без отдельного бота в звонке. В продукте доступны расшифровка по спикерам с таймкодами, краткий итог и следующие действия. Эти материалы можно использовать как основу для проверки договоренностей.</p>
+      <p>Если запись встречи уже сохранена, <a href="/meetings">откройте ГРАФ и загрузите файл через браузер</a>. После обработки сверьте расшифровку и итоги с записью. Устанавливать приложение для записи нового звонка ради этого не требуется.</p>
       <p>Приложение требует macOS 14.5 или новее. Возможность захвата звука конкретного приложения зависит от разрешений и ограничений macOS. Возможности продукта описаны <a href="/">на странице ГРАФ</a>.</p>
       <p>Если вам сначала нужно подготовить запись, прочитайте <a href="/guides/zapis-vstrechi-na-mac-bez-bota">руководство по записи встречи на Mac без бота</a>.</p>
     </section>

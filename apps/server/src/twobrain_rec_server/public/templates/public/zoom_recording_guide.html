@@ -12,6 +12,27 @@
   <link rel="stylesheet" href="{{ public_static_asset_url('content.css') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('article.css') }}">
   <link rel="stylesheet" href="{{ public_static_asset_url('content-header.css') }}">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Article",
+        "headline": "Как расшифровать готовую запись Zoom в текст",
+        "mainEntityOfPage": {{ canonical_url | tojson }},
+        "inLanguage": "ru",
+        "author": {"@type": "Organization", "name": "Редакция ГРАФ"}
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {"@type": "ListItem", "position": 1, "name": "Руководства", "item": {{ canonical_url.rsplit('/', 1)[0] | tojson }}},
+          {"@type": "ListItem", "position": 2, "name": "Как расшифровать готовую запись Zoom в текст", "item": {{ canonical_url | tojson }}}
+        ]
+      }
+    ]
+  }
+  </script>
 </head>
 <body class="guides-page quality-page article-page">
   <a class="skip-link" href="#main">К содержанию</a>
@@ -25,7 +46,7 @@
     </div></div>
     <div class="quality-body section-light"><div class="quality-width">
       <p>Если встреча уже записана в Zoom, для расшифровки понадобится сохраненный аудио- или видеофайл. Найдите запись, убедитесь, что в ней слышны нужные участники, и загрузите ее в ГРАФ. После обработки можно прочитать текст по спикерам с таймкодами и проверить итоги разговора.</p>
-      <p>Файл уже готов? <a href="/login?next=/meetings">Откройте ГРАФ и загрузите запись через браузер</a> — устанавливать приложение для записи звонка ради этого не требуется. Повторно проводить встречу или воспроизводить ее через динамики для новой записи не нужно. Если звонок еще впереди, начните с <a href="/guides/zapis-vstrechi-na-mac-bez-bota">руководства по записи на Mac</a>.</p>
+      <p>Файл уже готов? <a href="/meetings">Откройте ГРАФ и загрузите запись через браузер</a> — устанавливать приложение для записи звонка ради этого не требуется. Повторно проводить встречу или воспроизводить ее через динамики для новой записи не нужно. Если звонок еще впереди, начните с <a href="/guides/zapis-vstrechi-na-mac-bez-bota">руководства по записи на Mac</a>.</p>
       <nav class="quality-box" aria-label="Содержание"><h2>В этом руководстве</h2><ol>
         <li><a href="#find">Найдите файл встречи</a></li>
         <li><a href="#choose">Выберите файл со всем разговором</a></li>
@@ -61,7 +82,7 @@
       </section>
       <section id="upload"><h2>4. Загрузите запись в ГРАФ</h2>
         <ol>
-          <li><a href="/login?next=/meetings">Войдите в ГРАФ</a> и откройте «Мои встречи».</li>
+          <li><a href="/meetings">Откройте ГРАФ</a> и перейдите в «Мои встречи». Если вы ещё не вошли, сначала появится форма входа.</li>
           <li>Нажмите «Загрузить запись». Откроется окно «Загрузить файл».</li>
           <li>Перетащите один файл в окно или нажмите «Выбрать».</li>
           <li>Сверьте имя и показанную длительность. В поле «Название» укажите понятную тему и дату встречи.</li>
@@ -88,7 +109,7 @@
       </section>
       <section class="quality-box"><h2>Начните с готовой записи</h2>
         <p>Загрузите разрешенный аудио- или видеофайл, дождитесь обработки и сравните важные реплики с оригиналом. После успешной обработки в ГРАФ можно проверить расшифровку по спикерам с таймкодами и итоги разговора.</p>
-        <a class="button quality-cta" href="/login?next=/meetings">Открыть ГРАФ и загрузить запись</a>
+        <a class="button quality-cta" href="/meetings">Открыть ГРАФ и загрузить запись</a>
       </section>
     </div></div>
   </article></main>
