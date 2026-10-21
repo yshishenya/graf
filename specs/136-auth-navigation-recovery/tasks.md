@@ -115,12 +115,11 @@ and preserve metadata-only evidence.
 2. Complete US1 to restore login before expanding the shared behavior.
 3. Complete US2 and US3 using the same predicate; do not add route-specific
    server fallbacks or parallel navigation mechanisms.
-4. Run all focused and repository validation before asking for an implementation
-   commit or release decision.
+4. Run all focused and repository validation before the implementation commit.
 
 ## Текущая проверка и сопровождение
 
-- [ ] T017 Подготовить `changes/unreleased/F136.yaml`, текущую RED/GREEN матрицу и `specs/136-auth-navigation-recovery/validation.md`, независимое итоговое ревью и converge для T005/T006/T010; перед коммитом получить согласие, а проверки PR на точном SHA подтвердить отдельно.
+- [ ] T017 Подготовить `changes/unreleased/F136.yaml`, текущую RED/GREEN матрицу и `specs/136-auth-navigation-recovery/validation.md`, независимое итоговое ревью и converge для T005/T006/T010; подтвердить проверки PR на точном SHA и проверенной основе.
 
 T017 зависит от T005/T006/T010. T004/T011/T012 зависят от отдельного
 исправления OAuth continuation. T016 требует единственного доступного GRAF Dev
@@ -152,3 +151,12 @@ T017 зависит от T005/T006/T010. T004/T011/T012 зависят от от
 принятию GitHub. #4732/#4733/#4737/#7652 остаются OPEN до принятого PR и
 своих критериев закрытия. T017 остаётся [ ]: коммит и PR пока отсутствуют.
 T004/T011/T012/T016 остаются [ ]; вся F136 не завершена.
+
+
+Актуальный итог21.10.2026: PR#7668 существует; замечание4312424786 исправлено
+в рамках T005/T006/T010/T018. Окончательные86 кабинетных проверок PASS;
+полный повтор1248:1239 PASS,9 SKIP,0 FAIL. Первый полный отказ fixture и его
+отдельное воспроизведение сохранены в validation.md. Независимое ревью APPROVE,
+36/36 требований подтверждены; convergence не выявила новых задач текущего
+среза. T017 пока [ ] до обязательных новых GitHub checks и принятия PR.
+T004/T011/T012/T016 остаются [ ]; полная F136 не объявлена завершённой.

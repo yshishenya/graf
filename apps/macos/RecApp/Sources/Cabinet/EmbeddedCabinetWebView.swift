@@ -475,6 +475,17 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         syncNavigationState()
     }
 
+    fileprivate func navigationDidCommit(webView: WKWebView, navigation: WKNavigation?) {
+        guard self.webView === webView, isCurrentNavigation(navigation),
+              pendingHistoryRequestIsSafe == false,
+              let item = webView.backForwardList.currentItem else { return }
+        // Until WebKit replaces the document, a failed form still leaves the
+        // preceding GET visible. Only the new committed item becomes unsafe.
+        unsafeHistoryItems.add(item)
+        unsafeHistoryURLs.insert(item.url)
+        safeHistoryURLs.remove(item.url)
+    }
+
     @discardableResult
     fileprivate func navigationDidFinish(
         webView: WKWebView,
@@ -651,9 +662,6 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
             if !unsafeHistoryURLs.contains(url) {
                 safeHistoryURLs.insert(url)
             }
-        } else {
-            unsafeHistoryURLs.insert(url)
-            safeHistoryURLs.remove(url)
         }
     }
 
@@ -2582,6 +2590,11 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             } else {
                 complete(panel.runModal())
             }
+        }
+
+        @MainActor
+        public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            navigationController.navigationDidCommit(webView: webView, navigation: navigation)
         }
 
         @MainActor

@@ -120,10 +120,10 @@ server routes остаются неизменными. Тесты дополня
 6. T004/T011/T012 и T016 остаются отдельными открытыми воротами всей F136.
    Если дальнейшая проверка выявит связь OAuth/303 с этим исправлением, добавить
    обязательную работу через converge; не менять её по предположению.
-7. Перед реализационным коммитом — converge, независимое итоговое ревью,
-   текущие проверки и явное согласие пользователя. Перед принятием PR —
+7. Перед реализационным коммитом — converge, независимое итоговое ревью
+   и текущие проверки. Перед принятием PR —
    governance-fast, macos-pr, pr-metadata на точном SHA/основании через общий
-   `scripts/validate-pr-checks.py`. Merge/release/deploy требуют отдельного решения.
+   `scripts/validate-pr-checks.py`. Выпуск и развёртывание остаются вне среза.
 
 **Constitution re-check**: проект не меняет серверный auth contract, доступы,
 системный захват, хранение и секреты. Требования к metadata-only evidence,
@@ -177,3 +177,22 @@ WKNavigationAction настоящему Coordinator, без выбора policy 
 Дополнительный риск resource terminal выявлен чтением общих callers;
 этот сценарий на промежуточном коде не дал отдельного продуктового RED,
 поэтому доказательство его воспроизведения не заявляется.
+
+
+## Неудачный POST к текущему GET — замечание4312424786, 21.10.2026
+
+Текущие T005/T006/T010/T018 охватывают этот остаток; OAuth и установленная
+T016 не меняются. До кода требуется независимое ревью требований.
+observeNavigationRequest не должен необратимо помечать прежний GET опасным
+до замены документа: сохраняется только pendingHistoryRequestIsSafe=false.
+При настоящем WKNavigation didCommit контроллер, проверив текущую identity,
+помечает новую POST history item/URL опасными; didFinish сохраняет прежнюю
+сертификацию только настоящего GET. Provisional failure/cancel/response refusal
+без нового commit оставляют прежнюю безопасную запись пригодной для Reload
+и истории. Если новый POST документ уже committed, даже ошибка до didFinish
+не разрешает его повторение. Старые unsafe POST entries и неоднозначные
+WebKit gestures остаются закрытыми. Нужны настоящие WebKit отрицательные
+сценарии same-URL provisional error и response cancellation, положительное
+восстановление Reload/Back и отдельная защита committed-but-failed POST;
+затем весь DesktopCabinetWorkspaceTests и обязательный hosted exact SHA.
+Один общий lifecycle, без отдельного URL rollback ledger или обхода guards.
