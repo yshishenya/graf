@@ -124,6 +124,97 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertTrue(report.localMediaRetained)
     }
 
+    func testUnknownServerDeletionBlocksAccessWithoutClaimingDeletion() throws {
+        for state in ["unknown", "future_deletion_state", ""] {
+            let item = custodyFixtureQueueItem(
+                state: .uploaded,
+                serverTruth: ServerTruthFingerprint(
+                    meetingId: "server-meeting-unknown-deletion",
+                    finalizedAt: Date(timeIntervalSince1970: 200),
+                    deletionState: state,
+                    accessState: "owner",
+                    reviewAvailable: true
+                )
+            )
+            let projection = DesktopUploadCustodyProjection(item: item)
+            let report = try XCTUnwrap(DesktopSupportIncidentReport(item: item, projection: projection))
+
+            XCTAssertFalse(item.hasConfirmedDeletion, state)
+            XCTAssertTrue(item.lifecycleBlocksContent, state)
+            XCTAssertEqual(projection.deletionState, .accessBlocked, state)
+            XCTAssertFalse(projection.reviewAvailable, state)
+            XCTAssertEqual(projection.copyKey, "custody.needs_admin", state)
+            XCTAssertEqual(report.canonicalStage, "server_access", state)
+            XCTAssertEqual(report.problemCode, "custody.server_access_blocked", state)
+            XCTAssertEqual(report.serverCopyState, "blocked", state)
+            XCTAssertFalse(report.serverCopyKnown, state)
+            XCTAssertTrue(report.localMediaRetained, state)
+            XCTAssertEqual(report.localCopyState, "retained", state)
+            XCTAssertEqual(report.deletionState, "access_blocked", state)
+            let payload = try JSONEncoder().encode(report)
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: payload) as? [String: Any])
+            XCTAssertEqual(json["server_copy_state"] as? String, "blocked", state)
+            XCTAssertEqual(json["canonical_stage"] as? String, "server_access", state)
+            XCTAssertFalse(report.clipboardText.contains("Этап: server_deletion"), state)
+            XCTAssertFalse(report.clipboardText.contains("server_meeting_deleted"), state)
+        }
+    }
+
+    func testConfirmedServerDeletionWinsOverUnknownAccessAndStaleUpload() throws {
+        let states = [
+            "requested", "deleting", "active_purge_complete", "pending_backup_expiry",
+            "complete", "retryable_failed", "terminal_failed", "policy_blocked",
+            "post_egress_limit", "local_purge_unverified", "deleted", "purged"
+        ]
+        for state in states + ["unknown", "none"] {
+            let item = custodyFixtureQueueItem(
+                state: .uploaded,
+                serverTruth: ServerTruthFingerprint(
+                    meetingId: "server-meeting-confirmed-deletion",
+                    finalizedAt: Date(timeIntervalSince1970: 200),
+                    deletionState: state,
+                    accessState: "unknown",
+                    reviewAvailable: true
+                ),
+                syncConflictState: states.contains(state) ? .none : .serverMeetingDeleted
+            )
+            let projection = DesktopUploadCustodyProjection(item: item)
+            let report = try XCTUnwrap(DesktopSupportIncidentReport(item: item, projection: projection))
+
+            XCTAssertTrue(item.hasConfirmedDeletion, state)
+            XCTAssertTrue(item.lifecycleBlocksContent, state)
+            XCTAssertEqual(projection.deletionState, .serverDeleted, state)
+            XCTAssertFalse(projection.reviewAvailable, state)
+            XCTAssertEqual(report.canonicalStage, "server_deletion", state)
+            XCTAssertEqual(report.problemCode, "custody.server_meeting_deleted", state)
+            XCTAssertEqual(report.serverCopyState, "deleted", state)
+        }
+    }
+
+    func testLocalDeletionDoesNotClaimServerDeletion() throws {
+        var local = custodyFixtureQueueItem(state: .terminalDeleted)
+        let scope = try RecordingDeletionScope(
+            serverOrigin: "https://graf.invalid", workspaceID: "workspace", actorUserID: "owner"
+        )
+        var canceled = custodyFixtureQueueItem(state: .blocked)
+        let receipt = try JSONDecoder().decode(RecordingDeletionReceipt.self, from: JSONSerialization.data(withJSONObject: [
+            "receipt_type": "origin_cancellation", "request_id": UUID().uuidString,
+            "local_recording_id": canceled.directoryId
+        ]))
+        canceled.deletionOperation = try RecordingDeletionOperation(
+            scope: scope, target: .ownOrigin(canceled.directoryId), requestedAt: Date(timeIntervalSince1970: 100)
+        ).accepting(receipt, at: Date(timeIntervalSince1970: 200))
+        local.retentionDecision.decision = .terminalDeleted
+
+        for item in [local, canceled] {
+            XCTAssertTrue(item.hasConfirmedDeletion)
+            XCTAssertFalse(item.hasConfirmedServerDeletion)
+            XCTAssertTrue(item.lifecycleBlocksContent)
+            let projection = DesktopUploadCustodyProjection(item: item)
+            XCTAssertNotEqual(projection.deletionState, .serverDeleted)
+        }
+    }
+
     func testServerAccessBlockWinsOverStaleFinalizedFlags() throws {
         let item = custodyFixtureQueueItem(
             id: "stale-uploaded-access-blocked",
