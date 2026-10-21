@@ -247,9 +247,9 @@ def test_level_two_tables_keep_only_their_declared_columns(aggregate_database_ur
 def test_aggregate_tables_match_the_registered_retention_categories(
     aggregate_database_url: str,
 ) -> None:
-    assert retention_days_for_category("anonymous_page_aggregate") == 1095
-    assert retention_days_for_category("client_acquisition_attribute") == 1095
-    assert retention_days_for_category("visit_attribution") == 90
+    assert retention_days_for_category("anonymous_page_aggregate") is None
+    assert retention_days_for_category("client_acquisition_attribute") is None
+    assert retention_days_for_category("visit_attribution") is None
 
 
 def test_repeated_visit_increments_the_same_bucket(aggregate_database_url: str) -> None:

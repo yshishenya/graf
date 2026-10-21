@@ -53,7 +53,7 @@ def test_catalog_reports_the_state_of_every_measurement_level(
     assert [level["enabled"] for level in levels] == [True, False, False]
     assert all(level["blocked_reasons"] for level in levels[1:])
     assert levels[0]["blocked_reasons"] == []
-    assert [level["retention_days"] for level in levels] == [1095, 1095, 365]
+    assert [level["retention_days"] for level in levels] == [None, None, None]
     assert levels[0]["identifiers_allowed"] is False
     assert levels[0]["provider_delivery"] is False
     assert levels[1]["identifiers_allowed"] is True
@@ -91,12 +91,12 @@ def test_catalog_registers_retention_for_every_new_category(
         payload = client.get("/api/v1/product-analytics/catalog").json()
 
     retention = {rule["category"]: rule for rule in payload["retention"]}
-    assert retention[ANONYMOUS_AGGREGATE_CATEGORY]["minimum_retention_days"] == 1095
-    assert retention[ANONYMOUS_AGGREGATE_CATEGORY]["maximum_retention_days"] == 1095
-    assert retention[CLIENT_ACQUISITION_CATEGORY]["minimum_retention_days"] == 1095
-    assert retention[VISIT_ATTRIBUTION_CATEGORY]["minimum_retention_days"] == 90
-    assert retention[VISIT_ATTRIBUTION_CATEGORY]["maximum_retention_days"] == 90
-    assert retention[PRODUCT_EVENTS_CATEGORY]["maximum_retention_days"] == 365
+    assert retention[ANONYMOUS_AGGREGATE_CATEGORY]["minimum_retention_days"] is None
+    assert retention[ANONYMOUS_AGGREGATE_CATEGORY]["maximum_retention_days"] is None
+    assert retention[CLIENT_ACQUISITION_CATEGORY]["minimum_retention_days"] is None
+    assert retention[VISIT_ATTRIBUTION_CATEGORY]["minimum_retention_days"] is None
+    assert retention[VISIT_ATTRIBUTION_CATEGORY]["maximum_retention_days"] is None
+    assert retention[PRODUCT_EVENTS_CATEGORY]["maximum_retention_days"] is None
     for category in (
         ANONYMOUS_AGGREGATE_CATEGORY,
         CLIENT_ACQUISITION_CATEGORY,

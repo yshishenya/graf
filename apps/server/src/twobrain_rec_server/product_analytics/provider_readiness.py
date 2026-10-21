@@ -36,14 +36,12 @@ DEFAULT_RESTORE_MAX_AGE_DAYS = 30
 DEFAULT_MINIMUM_COPIES = 2
 DEFAULT_MINIMUM_OFFSITE_COPIES = 1
 
-# Approved retention terms (FR-036, FR-050, contract `operations.md`). A
-# category without a term is a configuration error, never "keep forever", and a
-# term below the approved minimum blocks the analytics readiness claim.
-REQUIRED_RETENTION_TERMS: tuple[tuple[str, int], ...] = (
-    ("measurement_events", 365),
-    ("anonymous_aggregate", 1095),
-    ("visit_attribution", 90),
-    ("acquisition_attribute", 1095),
+# Required categories use an explicit policy; a legacy age receipt is not proof.
+REQUIRED_RETENTION_TERMS: tuple[tuple[str, None], ...] = (
+    ("measurement_events", None),
+    ("anonymous_aggregate", None),
+    ("visit_attribution", None),
+    ("acquisition_attribute", None),
 )
 
 BLOCKER_BACKUP_STATE_UNAVAILABLE = "backup_state_unavailable"
@@ -88,11 +86,13 @@ class RetentionCategoryEvidence:
     storage: str
     enforcement: str
     enforcement_verified: bool
+    retention_mode: str = "unknown"
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "category": self.category,
             "retention_days": self.retention_days,
+            "retention_mode": self.retention_mode,
             "storage": self.storage,
             "enforcement": self.enforcement,
             "enforcement_verified": self.enforcement_verified,
@@ -268,6 +268,11 @@ def collect_analytics_operations_evidence(
                     RetentionCategoryEvidence(
                         category=record["category"],
                         retention_days=_optional_int(record.get("retention_days")),
+                        retention_mode=(
+                            record.get("retention_mode", "unknown")
+                            if record.get("retention_days") == "none"
+                            else "unknown"
+                        ),
                         storage=record.get("storage", "unknown"),
                         enforcement=record.get("enforcement", "unknown"),
                         enforcement_verified=record.get("enforcement_verified") == "true",
@@ -338,7 +343,7 @@ def analytics_operations_blockers(
     if not evidence.retention_state_available:
         blockers.append(BLOCKER_RETENTION_STATE_UNAVAILABLE)
     else:
-        for category, required_days in REQUIRED_RETENTION_TERMS:
+        for category, _ in REQUIRED_RETENTION_TERMS:
             if category in missing_declared:
                 blockers.append(f"{BLOCKER_RETENTION_CATEGORY_MISSING}:{category}")
                 continue
@@ -346,13 +351,13 @@ def analytics_operations_blockers(
             if record is None:
                 blockers.append(f"{BLOCKER_RETENTION_CATEGORY_MISSING}:{category}")
                 continue
-            if record.retention_days is None or record.retention_days <= 0:
+            if record.retention_mode != "until_decision":
                 blockers.append(f"{BLOCKER_RETENTION_TERM_MISSING}:{category}")
                 continue
-            if record.retention_days < required_days:
-                blockers.append(f"{BLOCKER_RETENTION_TERM_BELOW_REQUIRED}:{category}")
+            if record.retention_days is not None or record.enforcement != "decision_required":
+                blockers.append(f"retention_mode_conflict:{category}")
                 continue
-            if not record.enforcement_verified:
+            if not record.enforcement_verified or evidence.retention_result != "pass":
                 blockers.append(f"{BLOCKER_RETENTION_ENFORCEMENT_UNVERIFIED}:{category}")
 
     return tuple(dict.fromkeys(blockers))
@@ -371,10 +376,11 @@ def build_analytics_operations_readiness(
     collected = evidence if evidence is not None else collect_analytics_operations_evidence(environment, now=now)
     blockers = analytics_operations_blockers(collected, environment)
 
-    retention_terms = ",".join(f"{category}={days}" for category, days in REQUIRED_RETENTION_TERMS)
+    retention_terms = ",".join(
+        f"{category}=until_decision" for category, _ in REQUIRED_RETENTION_TERMS
+    )
     declared_terms = ",".join(
-        f"{record.category}={record.retention_days if record.retention_days is not None else 'missing'}"
-        for record in collected.retention_categories
+        f"{record.category}={record.retention_mode}" for record in collected.retention_categories
     )
     metadata = {
         "backup_policy": "scheduled_daily_with_required_offsite_copy",
@@ -403,7 +409,7 @@ def build_analytics_operations_readiness(
         "retention_result": collected.retention_result,
         "retention_required_terms": retention_terms,
         "retention_declared_terms": declared_terms or "none",
-        "retention_enforcement": "row_ttl_and_scheduled_task",
+        "retention_enforcement": "decision_required",
         "evidence": "metadata_only",
         "product_impact": "measurement_gap_only",
     }

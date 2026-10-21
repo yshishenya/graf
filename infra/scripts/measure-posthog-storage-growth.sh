@@ -249,7 +249,7 @@ report_class "relational" "$relational_bytes"
 report_class "events" "$events_bytes"
 report_class "object_storage" "$object_bytes"
 
-printf 'analytics_retention_event_days=%s\n' "${POSTHOG_EVENT_RETENTION_DAYS:-365}"
+printf 'analytics_retention_mode=%s\n' "${GRAF_PRODUCT_ANALYTICS_RETENTION_MODE:-unknown}"
 printf 'events_table=%s\n' "$events_table"
 printf 'event_storage_table=%s\n' "$event_storage_table"
 printf 'content_policy=metadata_only_storage_sizes_and_counts\n'

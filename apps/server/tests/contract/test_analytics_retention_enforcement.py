@@ -6,8 +6,8 @@ Scheduled tasks have to prove three things without a production run:
   at least two copies and alerts when it fails (FR-033, FR-051, FR-052);
 * a restore verification proves that a stored copy can be read back, records
   metadata-only evidence and alerts when it fails (FR-035, SC-010);
-* every retention category has a term, the term is enforced, and every deletion
-  is logged with the row count it removed (FR-036, FR-050, SC-011).
+* every retention category has an explicit mode and scheduled verification never
+  deletes history by age (FR-036, FR-050, SC-011).
 
 The Docker runtime and the shell logger are replaced by deterministic stubs, so
 the tests exercise the scripts themselves and never touch a container, the
@@ -34,12 +34,18 @@ RESTORE_PATH = REPO_ROOT / "infra/scripts/verify-posthog-restore.sh"
 RETENTION_PATH = REPO_ROOT / "infra/scripts/enforce-product-analytics-retention.sh"
 TTL_APPLY_PATH = REPO_ROOT / "infra/scripts/apply-posthog-event-ttl.sh"
 TTL_SQL_PATH = REPO_ROOT / "infra/posthog/clickhouse-retention.sql"
-PRODUCT_ANALYTICS_MODELS_PATH = REPO_ROOT / "apps/server/src/twobrain_rec_server/db/models/product_analytics.py"
+PRODUCT_ANALYTICS_MODELS_PATH = (
+    REPO_ROOT / "apps/server/src/twobrain_rec_server/db/models/product_analytics.py"
+)
 PRODUCT_ANALYTICS_MIGRATIONS = (
-    REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0094_anonymous_page_aggregate.py",
-    REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0095_public_attribution.py",
-    REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0096_client_attribution_bridge.py",
-    REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0097_public_attribution_admission_index.py",
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0094_anonymous_page_aggregate.py",
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0095_public_attribution.py",
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0096_client_attribution_bridge.py",
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0097_public_attribution_admission_index.py",
 )
 BILLING_MODELS_PATH = REPO_ROOT / "apps/server/src/twobrain_rec_server/db/models/billing.py"
 INVENTORY_PATH = REPO_ROOT / "infra/posthog/backup-volumes.txt"
@@ -54,7 +60,7 @@ CAPACITY_PATH = REPO_ROOT / "docs/analytics/product-analytics-capacity-baseline.
 GROWTH_PATH = REPO_ROOT / "infra/scripts/measure-posthog-storage-growth.sh"
 BASH = shutil.which("bash") or "/bin/bash"
 
-FAKE_DOCKER = '''#!{python}
+FAKE_DOCKER = """#!{python}
 import os
 import pathlib
 import sys
@@ -90,8 +96,9 @@ if args[:1] == ["compose"]:
     sys.exit(0)
 if args[:1] == ["exec"]:
     joined = " ".join(args)
-    if "extract" in joined:
-        print(os.environ.get("FAKE_CLICKHOUSE_TTL", "365"))
+    if "create_table_query" in joined:
+        state = pathlib.Path(os.environ["FAKE_TTL_STATE"])
+        print(state.read_text() if state.exists() else os.environ.get("FAKE_CLICKHOUSE_TTL", "0"))
     elif "sum(bytes_on_disk)" in joined:
         print(os.environ.get("FAKE_EVENTS_BYTES", "104857600"))
     elif "INTERVAL" in joined and "count()" in joined:
@@ -102,6 +109,7 @@ if args[:1] == ["exec"]:
         sys.stdin.read()
         if os.environ.get("FAKE_TTL_STATEMENT_FAIL") == "1":
             sys.exit(1)
+        pathlib.Path(os.environ["FAKE_TTL_STATE"]).write_text("0")
     sys.exit(0)
 if args[:1] == ["run"]:
     if os.environ.get("FAKE_DOCKER_FAIL") == "1":
@@ -136,9 +144,9 @@ if args[:1] == ["run"]:
         sys.exit(0)
     sys.exit(0)
 sys.exit(0)
-'''
+"""
 
-FAKE_LOGGER = '''#!{python}
+FAKE_LOGGER = """#!{python}
 import os
 import sys
 
@@ -147,9 +155,9 @@ if target:
     with open(target, "a", encoding="utf-8") as handle:
         handle.write(" ".join(sys.argv[1:]) + "\\n")
 sys.exit(0)
-'''
+"""
 
-FAKE_ALERT = '''#!{python}
+FAKE_ALERT = """#!{python}
 import os
 import sys
 
@@ -158,7 +166,7 @@ if target:
     with open(target, "a", encoding="utf-8") as handle:
         handle.write("alert invoked\\n")
 sys.exit(0)
-'''
+"""
 
 
 def _write_executable(path: Path, content: str) -> Path:
@@ -197,6 +205,8 @@ def _runtime(tmp_path: Path, *, volumes: str | None = None) -> dict[str, str]:
         "FAKE_VOLUMES": volumes
         if volumes is not None
         else "graf-posthog_postgres-data graf-posthog_clickhouse-data graf-posthog_objectstorage graf-posthog_redis-data",
+        "GRAF_PRODUCT_ANALYTICS_RETENTION_MODE": "until_decision",
+        "FAKE_TTL_STATE": str(tmp_path / "ttl-state"),
         "FAKE_DOCKER_LOG": str(tmp_path / "docker.log"),
         "FAKE_LOGGER_LOG": str(tmp_path / "logger.log"),
         "FAKE_ALERT_LOG": str(tmp_path / "alert.log"),
@@ -461,195 +471,132 @@ def test_restore_verification_fails_when_no_copy_exists(tmp_path: Path) -> None:
 
 
 def test_retention_terms_match_the_approved_contract() -> None:
-    terms = dict(provider_readiness.REQUIRED_RETENTION_TERMS)
-    assert terms == {
-        "measurement_events": 365,
-        "anonymous_aggregate": 1095,
-        "visit_attribution": 90,
-        "acquisition_attribute": 1095,
+    assert dict(provider_readiness.REQUIRED_RETENTION_TERMS) == {
+        category: None
+        for category in (
+            "measurement_events",
+            "anonymous_aggregate",
+            "visit_attribution",
+            "acquisition_attribute",
+        )
     }
-
-    script = RETENTION_PATH.read_text(encoding="utf-8")
-    for category, days in terms.items():
-        assert f'"{category}:{days}:' in script, category
-    assert "retention_term_missing" in script
+    script = RETENTION_PATH.read_text()
+    assert "DELETE" not in script
     assert "missing_category=" in script
-    assert 'anonymous_page_aggregate)' not in script
-    assert 'client_acquisition_attribute)' not in script
-    assert "rows_deleted=" in script
-    assert "result=retention_deleted" in script
-    assert "row_ttl" in script
-    assert "scheduled_task" in script
-    assert "information_schema.columns" in script
-    assert "Preflight every target before issuing any DELETE" in script
+    assert "rows_deleted=0" in script
 
 
 def test_retention_dry_run_lists_every_category_and_its_mechanism(tmp_path: Path) -> None:
     environment = _runtime(tmp_path)
-    environment["GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_DIR"] = str(tmp_path / "retention-state-dir")
-
+    environment["GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_DIR"] = str(tmp_path / "state")
     result = _run(RETENTION_PATH, environment)
-
     assert result.returncode == 0, result.stderr
-    assert "retention_result=dry_run" in result.stdout
-    assert "category=measurement_events retention_days=365 storage=clickhouse enforcement=row_ttl" in result.stdout
-    assert "category=anonymous_aggregate retention_days=1095 storage=postgres enforcement=scheduled_task" in result.stdout
-    assert "category=visit_attribution retention_days=90 storage=postgres enforcement=scheduled_task" in result.stdout
-    assert "category=acquisition_attribute retention_days=1095 storage=postgres enforcement=scheduled_task" in result.stdout
-    assert not (tmp_path / "retention-state-dir").exists()
-
-
-def test_retention_rejects_a_shorter_measurement_term_before_database_access(tmp_path: Path) -> None:
-    environment = _runtime(tmp_path)
-    environment["GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_DIR"] = str(tmp_path / "retention-state-dir")
-    environment["POSTHOG_EVENT_RETENTION_DAYS"] = "90"
-
-    result = _run(RETENTION_PATH, environment, "--execute")
-
-    assert result.returncode == 2
-    assert "reason=retention_term_below_required:measurement_events" in result.stdout
+    assert "retention_mode=until_decision" in result.stdout
+    assert "rows_deleted_total=0" in result.stdout
+    assert not (tmp_path / "state").exists()
     assert not (tmp_path / "docker.log").exists()
-    assert not (tmp_path / "retention-state-dir").exists()
 
 
-def test_retention_execution_deletes_by_age_and_logs_every_deletion(tmp_path: Path) -> None:
+def test_retention_rejects_legacy_age_configuration_before_database_access(tmp_path: Path) -> None:
     environment = _runtime(tmp_path)
-    environment["GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_DIR"] = str(tmp_path / "retention-state-dir")
-    environment["GRAF_PRODUCT_ANALYTICS_CLICKHOUSE_CONTAINER"] = "clickhouse-container"
-    environment["GRAF_POSTHOG_ALERT_SCRIPT"] = str(tmp_path / "bin" / "stub-alert.sh")
-    environment["GRAF_APP_COMPOSE_FILE"] = str(tmp_path / "docker-compose.yml")
     environment["POSTHOG_EVENT_RETENTION_DAYS"] = "365"
-    environment["FAKE_ROWS_DELETED"] = "7"
+    result = _run(RETENTION_PATH, environment)
+    assert result.returncode != 0
+    assert "legacy_age_configuration" in result.stdout
+    assert not (tmp_path / "docker.log").exists()
 
+
+def test_retention_execution_only_observes_storage_and_produces_current_evidence(
+    tmp_path: Path,
+) -> None:
+    environment = _runtime(tmp_path)
+    environment["GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_DIR"] = str(tmp_path / "state")
     result = _run(RETENTION_PATH, environment, "--execute")
-
     assert result.returncode == 0, result.stderr
-    assert "retention_result=pass" in result.stdout
-    assert "categories_enforced=4" in result.stdout
-    assert "event_retention_days=365" in result.stdout
-    assert "table=anonymous_page_aggregate_buckets rows_deleted=7" in result.stdout
-
-    state = (tmp_path / "retention-state-dir" / "retention-state").read_text(encoding="utf-8")
+    state_file = tmp_path / "state" / "retention-state"
+    state = state_file.read_text()
     assert "result=pass" in state
-    assert "missing_categories=none" in state
-    assert "rows_deleted_total=21" in state
-    assert state.count("category=") == 4
+    assert "rows_deleted_total=0" in state
     assert state.count("enforcement_verified=true") == 4
-    assert "category=measurement_events retention_days=365 storage=clickhouse enforcement=row_ttl" in state
-    assert "category=visit_attribution retention_days=90" in state
-    assert "content_policy=metadata_only_no_visitor_or_user_data" in state
-
-    journal = (tmp_path / "logger.log").read_text(encoding="utf-8")
-    assert "result=retention_deleted category=anonymous_aggregate" in journal
-    assert "rows=7" in journal
-    docker_log = (tmp_path / "docker.log").read_text(encoding="utf-8")
-    assert "DELETE FROM public.anonymous_page_aggregate_buckets" in docker_log
-    assert "interval '1095 days'" in docker_log
-    assert "DELETE FROM public.public_visit_attributions" in docker_log
-    assert "DELETE FROM public.client_acquisition_attributes" in docker_log
-    assert "< now()" in docker_log
-    assert "interval '1095 days'" in docker_log
-    assert "billing_webhook_events" not in docker_log
-    assert "metadata_json" not in docker_log
+    assert state.count("retention_days=none") == 4
+    log = (tmp_path / "docker.log").read_text()
+    assert not any(word in log for word in ("DELETE", "UPDATE", "ALTER", "TRUNCATE"))
+    evidence = provider_readiness.collect_analytics_operations_evidence(
+        {"GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_FILE": str(state_file)}, now=time.time()
+    )
+    assert not any(
+        "retention" in blocker
+        for blocker in provider_readiness.analytics_operations_blockers(evidence, {})
+    )
 
 
 def test_retention_fails_closed_when_a_category_has_no_storage(tmp_path: Path) -> None:
     environment = _runtime(tmp_path)
-    environment["GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_DIR"] = str(tmp_path / "retention-state-dir")
-    environment["GRAF_PRODUCT_ANALYTICS_CLICKHOUSE_CONTAINER"] = "clickhouse-container"
-    environment["GRAF_POSTHOG_ALERT_SCRIPT"] = str(tmp_path / "bin" / "stub-alert.sh")
+    environment["GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_DIR"] = str(tmp_path / "state")
+    environment["GRAF_POSTHOG_ALERT_SCRIPT"] = str(tmp_path / "bin/stub-alert.sh")
     environment["FAKE_TABLE_MISSING"] = "1"
-
     result = _run(RETENTION_PATH, environment, "--execute")
-
     assert result.returncode == 1
-    assert "retention_result=failed" in result.stdout
     assert "reason=retention_category_missing" in result.stdout
-    state = (tmp_path / "retention-state-dir" / "retention-state").read_text(encoding="utf-8")
-    assert "missing_category=anonymous_aggregate" in state
-    assert "missing_category=visit_attribution" in state
-    assert "missing_category=acquisition_attribute" in state
+    state = (tmp_path / "state/retention-state").read_text()
+    assert "result=failed" in state
     assert "enforcement_verified=false" in state
-    # A category without storage is never treated as retained forever.
-    assert "retention_days=1095" in state
-    assert (tmp_path / "alert.log").read_text(encoding="utf-8").strip() == "alert invoked"
-    # The preflight failure must not issue a partial DELETE for an earlier
-    # category. The database command log contains only schema probes.
-    assert "DELETE FROM public." not in (tmp_path / "docker.log").read_text(encoding="utf-8")
-
-
-def test_retention_fails_closed_when_an_age_column_is_missing(tmp_path: Path) -> None:
-    environment = _runtime(tmp_path)
-    environment["GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_DIR"] = str(tmp_path / "retention-state-dir")
-    environment["GRAF_PRODUCT_ANALYTICS_CLICKHOUSE_CONTAINER"] = "clickhouse-container"
-    environment["GRAF_POSTHOG_ALERT_SCRIPT"] = str(tmp_path / "bin" / "stub-alert.sh")
-    environment["FAKE_COLUMN_MISSING"] = "1"
-
-    result = _run(RETENTION_PATH, environment, "--execute")
-
-    assert result.returncode == 1
-    assert "reason=retention_schema_mismatch" in result.stdout
-    state = (tmp_path / "retention-state-dir" / "retention-state").read_text(encoding="utf-8")
-    assert "missing_category=anonymous_aggregate" in state
-    assert "missing_category=visit_attribution" in state
-    assert "missing_category=acquisition_attribute" in state
     assert "rows_deleted_total=0" in state
-    assert "DELETE FROM public." not in (tmp_path / "docker.log").read_text(encoding="utf-8")
+    assert (tmp_path / "alert.log").read_text().strip() == "alert invoked"
+    assert "DELETE" not in (tmp_path / "docker.log").read_text()
 
 
-def test_retention_verifies_the_clickhouse_row_ttl(tmp_path: Path) -> None:
+def test_missing_or_unknown_mode_never_queries_or_changes_storage(tmp_path: Path) -> None:
     environment = _runtime(tmp_path)
-    environment["GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_DIR"] = str(tmp_path / "retention-state-dir")
-    environment["GRAF_PRODUCT_ANALYTICS_CLICKHOUSE_CONTAINER"] = "clickhouse-container"
-    environment["GRAF_POSTHOG_ALERT_SCRIPT"] = str(tmp_path / "bin" / "stub-alert.sh")
-    environment["FAKE_CLICKHOUSE_TTL"] = "90"
+    environment["GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_DIR"] = str(tmp_path / "state")
+    for mode in ("", "unknown", "age"):
+        environment["GRAF_PRODUCT_ANALYTICS_RETENTION_MODE"] = mode
+        for script in (RETENTION_PATH, TTL_APPLY_PATH):
+            result = _run(script, environment)
+            assert result.returncode != 0
+            assert "retention_mode_missing_or_unknown" in result.stdout
+    assert not (tmp_path / "docker.log").exists()
 
+
+def test_retention_refuses_a_restored_legacy_ttl(tmp_path: Path) -> None:
+    environment = _runtime(tmp_path)
+    environment["GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_DIR"] = str(tmp_path / "state")
+    environment["FAKE_CLICKHOUSE_TTL"] = "1"
     result = _run(RETENTION_PATH, environment, "--execute")
-
     assert result.returncode == 1
-    assert "reason=clickhouse_ttl_not_enforced" in result.stdout
-    state = (tmp_path / "retention-state-dir" / "retention-state").read_text(encoding="utf-8")
-    assert "category=measurement_events retention_days=365 storage=clickhouse" in state
-    assert "enforcement_verified=false" in state
+    assert "reason=age_ttl_present_or_unknown" in result.stdout
+    assert "result=failed" in (tmp_path / "state/retention-state").read_text()
+    assert "DELETE" not in (tmp_path / "docker.log").read_text()
 
 
-def test_event_ttl_statement_targets_the_storage_table_for_365_days() -> None:
-    sql = TTL_SQL_PATH.read_text(encoding="utf-8")
-    assert "ALTER TABLE sharded_events" in sql
-    assert "MODIFY TTL toDateTime(timestamp) + toIntervalDay({{RETENTION_DAYS}});" in sql
-    assert "Distributed" in sql
-
-    compose = COMPOSE_PATH.read_text(encoding="utf-8")
-    assert "x-graf-clickhouse-retention:" in compose
-    assert "retention_days: 365" in compose
-    assert "enforcement: \"row_ttl_on_sharded_events\"" in compose
-    assert "POSTHOG_EVENT_RETENTION_DAYS=365" in compose
-    assert "apply-posthog-event-ttl.sh" in compose
-    # The pre-existing provider retention setting keeps working.
-    assert "POSTHOG_RETENTION_MIN_DAYS=90" in PRODUCTION_ENV_EXAMPLE.read_text(encoding="utf-8")
-    assert "POSTHOG_EVENT_RETENTION_DAYS=365" in PRODUCTION_ENV_EXAMPLE.read_text(encoding="utf-8")
+def test_event_ttl_statement_removes_age_deletion_from_the_storage_table() -> None:
+    sql = TTL_SQL_PATH.read_text()
+    assert "ALTER TABLE posthog.sharded_events REMOVE TTL;" in sql
+    compose = COMPOSE_PATH.read_text()
+    assert 'retention_mode: "until_decision"' in compose
+    assert 'enforcement: "decision_required"' in compose
+    for example in (PRODUCTION_ENV_EXAMPLE, RETENTION_ENV_EXAMPLE):
+        assert "GRAF_PRODUCT_ANALYTICS_RETENTION_MODE=until_decision" in example.read_text()
+        assert "POSTHOG_EVENT_RETENTION_DAYS=" not in example.read_text()
 
 
 def test_event_ttl_applier_is_idempotent_and_verifies_the_result(tmp_path: Path) -> None:
     environment = _runtime(tmp_path)
-    environment["GRAF_POSTHOG_CLICKHOUSE_CONTAINER"] = "clickhouse-container"
-
+    environment["FAKE_CLICKHOUSE_TTL"] = "1"
     dry_run = _run(TTL_APPLY_PATH, environment)
     assert dry_run.returncode == 0, dry_run.stderr
-    assert "posthog_event_ttl_result=dry_run" in dry_run.stdout
-    assert "toIntervalDay(365)" in dry_run.stdout
-    assert "sharded_events" in dry_run.stdout
-
-    applied = _run(TTL_APPLY_PATH, environment, "--execute")
-    assert applied.returncode == 0, applied.stderr
-    assert "posthog_event_ttl_result=pass" in applied.stdout
-    assert "posthog_event_ttl_days=365" in applied.stdout
-    assert "posthog_event_ttl_enforcement=row_ttl" in applied.stdout
-
-    environment["FAKE_CLICKHOUSE_TTL"] = "30"
-    rejected = _run(TTL_APPLY_PATH, environment, "--execute")
-    assert rejected.returncode == 1
-    assert "reason=ttl_not_verified" in rejected.stdout
+    assert "REMOVE TTL" in dry_run.stdout
+    assert not (tmp_path / "docker.log").exists()
+    for _ in range(2):
+        applied = _run(TTL_APPLY_PATH, environment, "--execute")
+        assert applied.returncode == 0, applied.stderr
+        assert "posthog_event_ttl_present=0" in applied.stdout
+    assert (tmp_path / "docker.log").read_text().count("--multiquery") == 1
+    (tmp_path / "ttl-state").unlink()
+    environment["FAKE_TTL_STATEMENT_FAIL"] = "1"
+    assert _run(TTL_APPLY_PATH, environment, "--execute").returncode == 1
+    environment["FAKE_CLICKHOUSE_TTL"] = "unknown"
+    assert _run(TTL_APPLY_PATH, environment, "--execute").returncode == 1
 
 
 def test_storage_growth_measurement_reports_the_documented_keys(tmp_path: Path) -> None:
@@ -712,100 +659,22 @@ def test_backup_state_contract_is_readable_by_readiness_and_alerting(tmp_path: P
     assert evidence.backup_age_hours is not None and evidence.backup_age_hours < 1
 
 
-def test_retention_script_targets_the_tables_and_columns_the_models_declare() -> None:
-    """The retention run has to resolve the real tables, not plausible names.
-
-    The script resolves every GRAF-stored category with
-    ``to_regclass('public.<candidate>')``, which is an exact table name. A
-    candidate that no model declares can never resolve, and then the category is
-    reported as missing on every single run: legally required deletion never
-    happens, the run fails, and analytics readiness stays blocked for good. This
-    cross-check against the models themselves is what was missing, because the
-    script's own execution test answers ``to_regclass`` from a stub and therefore
-    passes for any candidate list.
-    """
-
+def test_retention_script_targets_the_tables_the_models_declare() -> None:
     from twobrain_rec_server.db.models.product_analytics import (
         AnonymousPageAggregateBucket,
         ClientAcquisitionAttribute,
         PublicVisitAttribution,
     )
 
-    text = RETENTION_PATH.read_text(encoding="utf-8")
-
-    def function_body(name: str) -> str:
-        match = re.search(
-            rf"^{name}\(\) \{{(.*?)^\}}", text, re.MULTILINE | re.DOTALL
-        )
-        assert match is not None, f"the script declares no {name}()"
-        return match.group(1)
-
-    tables_body = function_body("table_candidates_for")
-    columns_body = function_body("timestamp_column_for")
-
-    # The category name is the key the retention rules in
-    # product_analytics/retention.py use, and it is also the argument the script
-    # passes to both helpers.
-    expected = {
-        "anonymous_aggregate": (AnonymousPageAggregateBucket, "bucket_date"),
-        "visit_attribution": (PublicVisitAttribution, "expires_at"),
-        "acquisition_attribute": (ClientAcquisitionAttribute, "captured_at"),
-    }
-
-    def resolved(body: str, category: str) -> str:
-        match = re.search(
-            rf"^[ \t]*{category}\)[ \t]*printf[ \t]*'([^']*)'", body, re.MULTILINE
-        )
-        assert match is not None, f"{category} is absent from the script"
-        return match.group(1).strip()
-
-    for category, (model, age_column) in expected.items():
-        table = model.__tablename__
-
-        candidates = resolved(tables_body, category).split()
-        assert candidates, f"{category} resolves to no table name at all"
-        assert table in candidates, (
-            f"{category} resolves to {candidates}, but the model declares {table!r}; "
-            "to_regclass matches exact names, so this category would be reported "
-            "missing and never purged"
-        )
-
-        column = resolved(columns_body, category)
-        declared = {column.name for column in model.__table__.columns}
-        assert column == age_column, (
-            f"{category} purges by {column!r}, but the retention rule and this test "
-            f"expect {age_column!r}"
-        )
-        assert column in declared, (
-            f"{category} purges by {column!r}, which the model {table!r} does not "
-            f"declare; it declares {sorted(declared)}"
-        )
-
-    # Migrations and model metadata must agree with the allowlist too. This is
-    # intentionally source-level: the shell test double must not be able to
-    # make a guessed table name look valid.
-    model_text = PRODUCT_ANALYTICS_MODELS_PATH.read_text(encoding="utf-8")
-    migration_text = "\n".join(path.read_text(encoding="utf-8") for path in PRODUCT_ANALYTICS_MIGRATIONS)
-    expected_migration_columns = {
-        "anonymous_page_aggregate_buckets": "bucket_date",
-        "public_visit_attributions": "expires_at",
-        "client_acquisition_attributes": "captured_at",
-    }
-    for table, age_column in expected_migration_columns.items():
-        assert f'__tablename__ = "{table}"' in model_text
-        assert f'"{table}"' in migration_text
-        assert f'sa.Column("{age_column}"' in migration_text
+    script = RETENTION_PATH.read_text()
+    for model in (AnonymousPageAggregateBucket, ClientAcquisitionAttribute, PublicVisitAttribution):
+        assert model.__tablename__ in script
+    assert "to_regclass" in script
 
 
 def test_retention_scope_excludes_provider_event_metadata_and_provider_held_data() -> None:
-    script = RETENTION_PATH.read_text(encoding="utf-8")
+    script = RETENTION_PATH.read_text()
     assert "billing_webhook_events" not in script
     assert "metadata_json" not in script
-    assert "provider-held" in script
-    assert "DELETE FROM public.$table_name" in script
+    assert "DELETE" not in script
     assert "sharded_events" in script
-    # The billing model still documents where provider-event metadata lives; it
-    # must not accidentally become a product-analytics purge target.
-    billing_model = BILLING_MODELS_PATH.read_text(encoding="utf-8")
-    assert '__tablename__ = "billing_webhook_events"' in billing_model
-    assert "metadata_json" in billing_model

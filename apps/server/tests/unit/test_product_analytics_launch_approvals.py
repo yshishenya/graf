@@ -134,7 +134,7 @@ def _operations_state_files(directory: Path, *, now: int) -> dict[str, str]:
     )
     retention = directory / "retention-state"
     retention_lines = ["retention_state_version=1", "result=pass"]
-    for category, term in (
+    for category, _term in (
         ("measurement_events", "365"),
         ("anonymous_aggregate", "1095"),
         ("visit_attribution", "90"),
@@ -142,8 +142,8 @@ def _operations_state_files(directory: Path, *, now: int) -> dict[str, str]:
     ):
         storage = "clickhouse" if category == "measurement_events" else "postgres"
         retention_lines.append(
-            f"category={category} retention_days={term} storage={storage} "
-            "enforcement=scheduled_task enforcement_verified=true"
+            f"category={category} retention_mode=until_decision retention_days=none storage={storage} "
+            "enforcement=decision_required enforcement_verified=true"
         )
     retention.write_text("\n".join(retention_lines) + "\n", encoding="utf-8")
     return {

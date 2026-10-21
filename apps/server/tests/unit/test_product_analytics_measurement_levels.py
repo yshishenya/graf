@@ -195,9 +195,9 @@ def test_level_retention_follows_the_registered_categories() -> None:
     assert config.measurement_level("provider_analytics").retention_days == (
         retention_days_for_category("posthog_product_events")
     )
-    assert config.measurement_level("anonymous_aggregate").retention_days == 1095
-    assert config.measurement_level("attribution_profiles").retention_days == 1095
-    assert config.measurement_level("provider_analytics").retention_days == 365
+    assert config.measurement_level("anonymous_aggregate").retention_days is None
+    assert config.measurement_level("attribution_profiles").retention_days is None
+    assert config.measurement_level("provider_analytics").retention_days is None
 
 
 def test_unknown_measurement_level_returns_none() -> None:

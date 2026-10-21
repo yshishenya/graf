@@ -1,5 +1,5 @@
 [Unit]
-Description=Enforce GRAF product analytics retention every day
+Description=Verify GRAF analytics storage policy every day
 
 [Timer]
 OnCalendar=*-*-* 03:15:00

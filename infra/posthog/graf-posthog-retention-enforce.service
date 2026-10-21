@@ -1,5 +1,5 @@
 [Unit]
-Description=GRAF product analytics retention enforcement
+Description=Verify GRAF analytics storage policy without age deletion
 After=docker.service network-online.target
 Requires=docker.service
 
