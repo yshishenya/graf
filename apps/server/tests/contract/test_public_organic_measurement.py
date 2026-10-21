@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -67,7 +68,13 @@ def test_search_entry_counts_current_page_without_cookie_or_profile(
             headers={'referer': 'https://yandex.ru/search/?text=synthetic', 'user-agent': 'Mozilla/5.0'},
         )
         assert response.status_code == 200
-        assert 'set-cookie' not in response.headers and '<script' not in response.text
+        assert 'set-cookie' not in response.headers
+        # JSON-LD describes the article and cannot run analytics or JavaScript.
+        scripts = re.findall(r"<script([^>]*)>(.*?)</script>", response.text, re.S)
+        for attrs, data in scripts:
+            assert attrs.strip() == 'type="application/ld+json"'
+            assert isinstance(json.loads(data), dict)
+        assert '<script' not in re.sub(r"<script[^>]*>.*?</script>", "", response.text, flags=re.S)
         assert client.cookies.get(PUBLIC_VISIT_ATTRIBUTION_COOKIE) == 'synthetic-untrusted-cookie'
     buckets = rows(postgres_seeded_database_url, 'select * from anonymous_page_aggregate_buckets')
     assert len(buckets) == 1 and buckets[0]['visits'] == 2
