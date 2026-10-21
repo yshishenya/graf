@@ -34,6 +34,7 @@ def harness(monkeypatch, tmp_path):
     repo = repository(tmp_path / "checkout")
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.delenv("GRAF_DEV_STATE_DIR", raising=False)
+    monkeypatch.delenv("GRAF_DEV_INSTALL_PATH", raising=False)
     monkeypatch.setattr(module, "_repo_root", lambda: repo)
     monkeypatch.setattr(module, "_assert_empty_dev_machine", lambda: None, raising=False)
     return module
@@ -539,3 +540,56 @@ with h.state_lock(Path(p['state'])): pass
         if contender is not None and contender.poll() is None:
             contender.kill()
             contender.communicate()
+
+
+@pytest.mark.parametrize("bound", [False, True])
+def test_adoption_rejects_nonstandard_install_before_registration(harness, tmp_path, monkeypatch, bound):
+    root = harness._machine_state_base() / "empty" / "harness"
+    if bound:
+        adopt(harness, root)
+    alternate = tmp_path / "stopped GRAF Dev.app"
+    alternate.mkdir()
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(alternate))
+    base = harness._machine_state_base()
+    before = {p: (p.read_bytes(), p.stat().st_ino) for p in base.rglob("*") if p.is_file()}
+    with pytest.raises(harness.HarnessError, match="standard Dev app path"):
+        adopt(harness, root)
+    assert before == {p: (p.read_bytes(), p.stat().st_ino) for p in base.rglob("*") if p.is_file()}
+    assert bound or not base.exists()
+
+
+@pytest.mark.parametrize("mode", [None, "lve", "compose", "live-dry-run", {}, [], 7])
+@pytest.mark.parametrize("operation", ["read", "adopt"])
+def test_active_pointer_unknown_runtime_mode_fails_closed(harness, tmp_path, mode, operation):
+    root, item = legacy_state(harness, tmp_path)
+    pointer = root / "active-manifest.json"
+    data = json.loads(pointer.read_text())
+    if mode is None:
+        data.pop("runtime_mode")
+    else:
+        data["runtime_mode"] = mode
+    pointer.write_text(json.dumps(data))
+    (root / "runtime.json").unlink()
+    before = {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    inode = (root / "promote.lock").stat().st_ino
+    with pytest.raises(harness.HarnessError, match="unsupported runtime mode"):
+        if operation == "read":
+            harness._load_active(root)
+        else:
+            adopt(harness, root, expect_empty=False, expected_active_sha=item["source_sha"])
+    assert before == {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+    assert (root / "promote.lock").stat().st_ino == inode
+    assert not (harness._machine_state_base() / "repository-state.json").exists()
+
+
+@pytest.mark.parametrize("mode", ["live", "metadata-only"])
+def test_active_pointer_supported_runtime_modes(harness, tmp_path, mode):
+    root, item = legacy_state(harness, tmp_path)
+    pointer = root / "active-manifest.json"
+    data = json.loads(pointer.read_text())
+    data["runtime_mode"] = mode
+    pointer.write_text(json.dumps(data))
+    if mode == "metadata-only":
+        (root / "runtime.json").unlink()
+    assert harness._load_active(root)["source_sha"] == item["source_sha"]
+    adopt(harness, root, expect_empty=False, expected_active_sha=item["source_sha"])

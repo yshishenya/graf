@@ -41,6 +41,7 @@ def environment(tmp_path, monkeypatch):
     monkeypatch.delenv("GRAF_DEV_INSTALL_PATH", raising=False)
     monkeypatch.delenv("GRAF_DEV_STATE_DIR", raising=False)
     monkeypatch.setattr(h, "_repo_root", lambda: ROOT)
+    monkeypatch.setattr(h, "_repo_identity", lambda root=None: "github.com/example/graf")
     state.mkdir(parents=True)
     h._write_json(h._machine_state_base() / "repository-state.json", {
         "schema_version": "graf-dev-repository-state.v1",

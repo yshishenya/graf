@@ -333,6 +333,8 @@ def _assert_empty_dev_machine() -> None:
 
 def operation_adopt_state(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
+    if _dev_app_destination() != DEV_APP_PATH:
+        raise HarnessError("adoption requires the standard Dev app path")
     if os.environ.get("GRAF_DEV_STATE_DIR") or not args.confirm_repository_ownership:
         raise HarnessError("adoption requires explicit ownership confirmation and no state override")
     repository = _repo_identity()
@@ -2704,6 +2706,8 @@ def _load_active(root: Path) -> Optional[Dict[str, Any]]:
     raw = _read_json(pointer)
     if raw.get("schema_version") != POINTER_VERSION:
         raise HarnessError("active-manifest.json has unsupported pointer schema")
+    if raw.get("runtime_mode") not in ("live", "metadata-only"):
+        raise HarnessError("active-manifest.json has unsupported runtime mode")
     manifest_id = _safe_id(str(raw.get("manifest_id", "")), "manifest_id")
     manifest = _read_json(_manifest_path(root, manifest_id))
     _validate_manifest(manifest)
