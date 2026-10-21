@@ -152,7 +152,7 @@ cancelled, superseded or drifted receipts are not release evidence.
 
 Do not edit root `CHANGELOG.md` during feature work. Do not add current feature
 or task pointers to root `AGENTS.md`. Do not auto-commit implementation code;
-commit only after validation, convergence and explicit owner approval.
+commit only after validation and convergence.
 
 ## Legacy Definition of Done
 
