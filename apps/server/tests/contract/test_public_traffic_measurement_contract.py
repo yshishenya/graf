@@ -283,6 +283,49 @@ def test_real_route_classifies_asgi_peer_for_internal_traffic_without_forwarded_
         external_client.close()
 
 
+def test_native_proxy_boundary_preserves_external_visits_and_excludes_operator(
+    client, postgres_seeded_database_url: str,
+) -> None:
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+    client.app.state.settings.product_analytics_internal_hosts = ("198.51.100.24",)
+    proxy = ProxyHeadersMiddleware(client.app, trusted_hosts="192.0.2.10")
+    cases = (
+        ("external_a", "192.0.2.10", "198.51.100.10", None),
+        ("external_b", "192.0.2.10", "198.51.100.11", None),
+        ("operator", "192.0.2.10", "198.51.100.24", None),
+        ("support", "192.0.2.10", "198.51.100.24", "support"),
+        ("test", "192.0.2.10", "198.51.100.24", "test"),
+        ("forged_operator", "192.0.2.20", "198.51.100.24", "support"),
+    )
+    for label, peer, forwarded, marker in cases:
+        headers = {"x-forwarded-for": forwarded, "x-forwarded-proto": "https"}
+        if marker:
+            headers["x-graf-traffic-class"] = marker
+        boundary_client = TestClient(proxy, client=(peer, 41000), headers=headers)
+        try:
+            for _ in range(MINIMUM_AGGREGATE_BUCKET_SIZE):
+                assert boundary_client.get("/").status_code == 200, label
+            for path in ("/transcription/", "/guides/rasshifrovka-zapisi-zoom/"):
+                response = boundary_client.get(path, follow_redirects=False)
+                assert response.status_code == 307, label
+                expected_scheme = "https" if peer == "192.0.2.10" else "http"
+                assert response.headers["location"].startswith(expected_scheme + "://"), label
+        finally:
+            boundary_client.close()
+    counts = {row["traffic_class"]: row["visits"] for row in _stored_rows(postgres_seeded_database_url)}
+    assert counts == {
+        "external": 3 * MINIMUM_AGGREGATE_BUCKET_SIZE,
+        "internal": MINIMUM_AGGREGATE_BUCKET_SIZE,
+        "support": MINIMUM_AGGREGATE_BUCKET_SIZE,
+        "test": MINIMUM_AGGREGATE_BUCKET_SIZE,
+    }
+    report = _reportable_buckets(postgres_seeded_database_url)
+    assert len(report) == 1
+    assert report[0]["traffic_class"] == "external"
+    assert report[0]["visits"] == 3 * MINIMUM_AGGREGATE_BUCKET_SIZE
+
+
 @pytest.mark.parametrize("traffic_class", ["internal", "support", "test", "automated"])
 def test_excluded_traffic_classes_never_reach_reports(
     client,
