@@ -95,3 +95,24 @@ workflow tests; `changes/unreleased/F290.yaml`.
 ## Complexity Tracking
 
 Новых служб, зависимостей, общего framework и обходных режимов нет.
+
+
+## Уточнение по настоящей Apple Swift сборке — 19.10.2026
+
+Hosted run39257189895 на cff973e67fe3e9fa0ffcbb145d04873d6b861cb8
+подтвердил выбор Apple Swift6.0.3 и нашёл ошибку совместимости:
+`MeetingMuteTruthRuntimeProof/main.swift:8`, чтение изменяемой
+`CommandLine.arguments` из async main не concurrency-safe в этой stdlib.
+Это единственный такой вызов в targets пакета; остальные CommandLine
+в отдельных синхронных scripts не относятся к ошибке. Настоящий native
+build остаётся обязательным; compiler/SDK/strict concurrency не ослабляются.
+
+Минимальное исправление T014 в существующем проверочном инструменте:
+получить тот же argv через Foundation ProcessInfo.processInfo.arguments.
+RuntimeProofConfiguration и все её callers/аргументы, синтетическая запись,
+продуктовые capture paths и actor isolation не меняются. Дополнительный
+owned path: apps/macos/Shared/Tools/MeetingMuteTruthRuntimeProof/main.swift.
+До правки независимо перепроверить применимый checklist/требование FR004;
+после — typecheck малого извлечённого аргументного входа, настоящая
+hosted build/tests/ContractValidation на новом SHA и повторное review.
+Локальный Swift6.3.3 не выдаётся за доказательство Apple Swift6.0.3.

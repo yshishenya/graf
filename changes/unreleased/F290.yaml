@@ -3,8 +3,8 @@ feature_id: 290
 category: Ops
 summary: "Проверки GitHub Actions переведены на поддерживаемый Node24 с сохранением обязательных проверок и квитанций."
 issue: 6501
-tasks: [T001, T002, T003, T004, T005]
-compatibility: "Node приложения остаётся 22.22.3; Swift остаётся 6.0.3, но используется Apple toolchain Xcode16.2 вместо Swift.org. SDK не переключается, кэш компилятора отделён. ZIP и имена артефактов сохранены."
+tasks: [T001, T002, T003, T004, T005, T014]
+compatibility: "Node приложения остаётся 22.22.3; Swift остаётся 6.0.3, но используется Apple toolchain Xcode16.2 вместо Swift.org. SDK не переключается, кэш компилятора отделён. ZIP и имена артефактов сохранены. Проверочный инструмент читает argv через Foundation ProcessInfo для совместимости с concurrency-проверкой Apple Swift6.0.3."
 known_limitations:
   - "Настоящая hosted сборка и три exact-SHA PR проверки обязательны после разрешённого commit."
   - "macos-14 отключается 2026-11-02; перенос на другой image требует отдельного исследования и приёмки."
