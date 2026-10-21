@@ -76,8 +76,9 @@ dashboard freshness/goal visibility, or concrete resource-alert thresholds.
 - Backups are separate from GRAF app database and MinIO backups.
 - Backup evidence is metadata-only.
 - Backup names in evidence must not expose private host paths.
-- Backup retention must support at least 90 days of analytics retention unless
-  a later approved category has a shorter retention.
+- Current F273 target: keep the last 7 successful complete local sets, minimum
+  2 for readiness (FR-052); each contains the retained `until_decision` history.
+  Archive rotation is separate from data retention; 90 daily versions are not required.
 - Backup failures block PostHog readiness, not normal GRAF product use.
 
 ## What A Restore Recreates And What Is Lost
@@ -107,9 +108,8 @@ Permanently lost without a fresh backup:
   when the reviewed runtime actually included it;
 - provider-side data GRAF does not control, such as Yandex.Metrica aggregates,
   which are never restored from this backup set;
-- data already removed by the enforced retention terms: measurement events at
-  365 days, anonymous aggregate at 1095 days, visit attribution at 90 days, and
-  client acquisition attribute at 1095 days.
+- data already removed by an older retention policy or by an explicit deletion;
+  a later change to `until_decision` cannot reconstruct records absent from the archive.
 
 A restore recreates the analytics node only. GRAF product workflows are never
 restored from this backup set, are never stopped by it, and must keep running
@@ -118,27 +118,34 @@ a measurement gap, not a product outage.
 
 ### Copy Count And Placement (FR-052)
 
-A copy that lives only on the same disk as the original is not a backup. At
-least two copies of the analytics backup set are kept at all times, and at least
-one of them is offsite — outside the measured server. When either condition
-fails, analytics readiness stays blocked (`backup_copy_count_below_minimum` or
-`backup_offsite_copy_missing`) and the copy does not count as disaster
-recovery. An offsite copy that no run has refreshed is a stale copy, not a
-second copy.
+The owner accepted local-only copies on 2026-10-22. Target:
+`2brain.dev:/var/backups/graf-posthog`, root-only directory 0700 and files 0600.
+Keep the last 7 successful complete sets, minimum 2 for readiness. Count only
+sets with all required inventory classes and a verified manifest. Partial sets
+must never count or evict usable ones; verify the new set and retained minimum
+before rotation. Each complete set carries the full retained analytics history;
+seven recovery points do not impose seven-day data retention.
+
+These copies do not survive loss of the host/disk. If all local sets are lost,
+rebuild configuration and start a new measurement history with an explicit gap.
+Do not describe the current policy as disaster recovery. An old set cannot
+recreate later records or reverse corruption beyond the retained recovery points.
 
 ### Retention And Recovery Objectives
 
 | Objective | Value | Source |
 | --- | --- | --- |
-| Backup artifact retention | Keep at least two stored copies per FR-052; keep enough history to support the enforced analytics retention categories unless a later approved category is shorter | `## Backup Rules` |
-| Recovery-point objective | Newest archive not older than `26` hours (`GRAF_POSTHOG_BACKUP_MAX_AGE_HOURS`) | FR-033, FR-034 |
-| Recovery-verification objective | Successful restore verification not older than `30` days (`GRAF_POSTHOG_RESTORE_MAX_AGE_DAYS`), recorded as metadata-only evidence | FR-035, SC-010 |
-| Minimum stored copies | `2` (`GRAF_POSTHOG_BACKUP_MIN_COPIES`) | FR-052 |
-| Minimum offsite copies | `1` (`GRAF_POSTHOG_BACKUP_MIN_OFFSITE_COPIES`) | FR-052 |
+| Recovery-point history | Last 7 successful complete sets; minimum 2 | FR-052 |
+| Recovery-point age | 0 ≤ age <26 hours from successful completion; future/unknown/failed blocks | FR-034 |
+| Recovery verification | Successful consistent PostHog restore within 30 days; extracting archives alone is insufficient | FR-035, FR-053, SC-010 |
+| Minimum local sets | 2 | FR-052 |
+| Required offsite copies | 0 in the current owner-approved stage | Session 2026-10-22 |
 
-Backup artifact receipts and the newest archive age are recorded as metadata
-only. Production receipts for the scheduled backup, the restore verification,
-and the first offsite upload are `pending operator receipt`.
+This is the accepted target, not a runtime receipt. T117/T118 must migrate and
+verify the scripts/readiness/examples before operator application. Do not merely
+set the old offsite threshold to zero: its script still requires upload and its
+old counters/time checks are insufficient. Scheduled backup and restore receipts
+remain pending. Existing 2026-07 rehearsal evidence does not prove this migration.
 
 ### Scheduled Automation
 
@@ -149,7 +156,7 @@ alerts on failure instead of stopping the product.
 
 | Task | Unit and timer | State file |
 | --- | --- | --- |
-| Archive every inventory volume class and upload one offsite copy | `infra/posthog/graf-posthog-backup.{service,timer}`, daily 02:30 | `/var/lib/graf-posthog-backup/backup-state` |
+| Archive every inventory volume class as a verified complete local set (target; T117 pending) | `infra/posthog/graf-posthog-backup.{service,timer}`, daily 02:30 | `/var/lib/graf-posthog-backup/backup-state` |
 | Restore one stored copy into isolated rehearsal volumes and read it back | `infra/posthog/graf-posthog-restore-verify.{service,timer}`, days 1 and 15 at 04:30 | `/var/lib/graf-posthog-backup/restore-state` |
 | Enforce the events, aggregate and attribution retention terms | `infra/posthog/graf-posthog-retention-enforce.{service,timer}`, daily 03:15 | `/var/lib/graf-posthog-retention/retention-state` |
 
@@ -227,3 +234,12 @@ If backup or restore rehearsal fails:
 - disable PostHog delivery if needed;
 - add a dashboard caveat;
 - record the blocker code without payload data.
+
+
+## Уточнение хранения 21.10.2026
+
+Владелец отменил автоматическое удаление IP и допустимой аналитики по возрасту.
+Это не меняет отдельно принятую ротацию архивов и не разрешает стирать живые
+данные для экономии места. До рабочего применения T109 при восстановлении
+обязательно проверить старые TTL и таймеры очистки: архив не должен возвращать
+возрастное удаление. Недостающие ранее удалённые данные восстановленными не считать.

@@ -26,15 +26,15 @@ visitor/account identifiers, raw payloads, or provider exports.
 | `backup.env.example` | Out-of-git settings for the scheduled backup, restore verification and their thresholds. |
 | `graf-posthog-runtime-guard.*` | One-minute aggregate health/resource guard with analytics-first and host-only threshold scopes. |
 | `runtime-guard.env.example` | Out-of-git systemd guard settings for both scopes; no secrets. |
-| `graf-posthog-backup.{service,timer}` | Daily backup with a required offsite copy. |
+| `graf-posthog-backup.{service,timer}` | Daily backup; F273 target is local-only verified sets per owner decision 2026-10-22. Script migration T117 pending; do not enable the old offsite-required script as if migrated. |
 | `graf-posthog-restore-verify.{service,timer}` | Twice-a-month restore verification into isolated rehearsal volumes. |
-| `graf-posthog-retention-enforce.{service,timer}` | Daily retention enforcement with per-deletion logging. |
+| `graf-posthog-retention-enforce.{service,timer}` | Legacy age-based cleanup; do not install or enable as the approved `until_decision` policy. Migration pending F273 T109. |
 | `graf-analytics-degradation-alert.{service,timer}` | External degradation alert, delivered inside the fifteen-minute deadline. |
 | `graf-analytics-alert-channel-check.{service,timer}` | Independent probe of the alert channel itself. |
 | `alert-rules.txt` | Every alert code with its scope, owner role, severity and escalation window; the named person lives outside git. |
 | `alert-analytics-degradation.env.example` | Out-of-git alert credentials, deadline, state paths and named owner roles. |
 | `retention.env.example` | Out-of-git retention terms and product-database access for the retention task. |
-| `clickhouse-retention.sql` | Forced 365-day row lifetime for measurement events, applied by `infra/scripts/apply-posthog-event-ttl.sh`. |
+| `clickhouse-retention.sql` | Legacy 365-day TTL, superseded by the owner decision of 2026-10-21; not an instruction to apply it. Migration pending F273 T109. |
 
 ## Runtime Placement
 
