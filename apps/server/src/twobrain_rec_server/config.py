@@ -1,4 +1,5 @@
 import ipaddress
+import os
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -367,6 +368,17 @@ class Settings(BaseSettings):
                     "prompt_optimization_database_url must use the twobrain_rec_maintenance role"
                 )
         return value
+
+    @model_validator(mode="after")
+    def validate_forwarded_allow_ips(self) -> "Settings":
+        # Match Uvicorn's exact env source, independent of Pydantic overrides.
+        value = os.environ.get("FORWARDED_ALLOW_IPS", "127.0.0.1")
+        try:
+            for address in value.split(","):
+                ipaddress.ip_address(address.strip())
+        except ValueError as exc:
+            raise ValueError("FORWARDED_ALLOW_IPS must contain only exact IP addresses") from exc
+        return self
 
     @field_validator("product_analytics_internal_hosts", mode="before")
     @classmethod

@@ -12,6 +12,8 @@ services:
       - ./env/rec.production.env.example
     environment:
       TWOBRAIN_ENV: production
+      # Exact immediate proxy peers only; preserve empty values for validation.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS-127.0.0.1}
       TWOBRAIN_PUBLIC_BASE_URL: ${TWOBRAIN_PUBLIC_BASE_URL:-https://rec.2brain.pro}
       TWOBRAIN_WEB_RUNTIME_ENABLED: "true"
       TWOBRAIN_WEB_CSRF_SECRET_FILE: /run/secrets/twobrain_web_csrf_secret
@@ -67,8 +69,8 @@ services:
       TWOBRAIN_PRODUCT_ANALYTICS_ENABLED: ${TWOBRAIN_PRODUCT_ANALYTICS_ENABLED:-false}
       TWOBRAIN_PRODUCT_ANALYTICS_VALIDATION_MODE: ${TWOBRAIN_PRODUCT_ANALYTICS_VALIDATION_MODE:-disabled}
       TWOBRAIN_PRODUCT_ANALYTICS_PROVIDER_MODE: ${TWOBRAIN_PRODUCT_ANALYTICS_PROVIDER_MODE:-disabled}
-      # Optional operator/test CIDRs are consumed from the ASGI peer after the
-      # loopback-only nginx forwarding boundary; never trust a browser header.
+      # Operator addresses differ from proxy peers. The ASGI client is restored
+      # only through the verified proxy boundary; never trust a browser header.
       TWOBRAIN_PRODUCT_ANALYTICS_INTERNAL_HOSTS: ${TWOBRAIN_PRODUCT_ANALYTICS_INTERNAL_HOSTS:-}
       TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_ENABLED: ${TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_ENABLED:-false}
       TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_HOST: ${TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_HOST:-}

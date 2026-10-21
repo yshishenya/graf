@@ -122,13 +122,14 @@ def test_runtime_image_uses_runtime_dependencies_and_constraints() -> None:
     assert "sqlalchemy==" in constraints
 
 
-def test_runtime_image_uses_loopback_only_sanitized_forwarded_headers() -> None:
+def test_runtime_image_uses_configurable_exact_proxy_trust_without_cli_override() -> None:
     dockerfile = DOCKERFILE_PATH.read_text()
 
     assert '"--no-access-log"' in dockerfile
     assert '"--proxy-headers"' in dockerfile
-    assert '"--forwarded-allow-ips", "127.0.0.1"' in dockerfile
-    assert dockerfile.index('"--proxy-headers"') < dockerfile.index('"--forwarded-allow-ips", "127.0.0.1"')
+    assert '"--forwarded-allow-ips"' not in dockerfile
+    compose = COMPOSE_PATH.read_text()
+    assert "FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS-127.0.0.1}" in compose
 
 
 def test_nginx_sanitizes_forwarded_client_chain_before_loopback_proxy() -> None:
