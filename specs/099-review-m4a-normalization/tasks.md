@@ -377,3 +377,18 @@ US1 alone is an independently testable increment, but it is not a production-rea
 3. Full media matrix, real local/browser E2E, near-limit resource proof and canonical local CI.
 4. User-approved commit/PR/merge.
 5. Freshly approved release/deploy, production backfill/user-path proof and cleanup.
+
+
+## Phase 12: Защита повторной попытки — 2026-10-17
+
+Продолжение существующих US3/US6, FR-035/FR-044, SC-016/SC-024.
+Независимый результат: поздние ошибка/cleanup A не меняют B; обычные
+expiry/deletion/late PUT сохраняются. Последовательно, без [P].
+
+- [X] T125 [US3] Зафиксировать исходный RED и добавить обе гонки, повторный owner, pre-prepare failure и uploaded/reservation в `apps/server/tests/integration/test_playback_normalization_restart.py`; FR-035/044. (Issue #7647)
+- [X] T126 [US3] Оградить общую запись ошибки номером/владельцем попытки и pre-prepare state в `apps/server/src/twobrain_rec_server/normalization/service.py`; сохранить source_missing/recovery/Deferred; FR-035. (Issue #7647)
+- [X] T127 [US6] Защитить обычную прямую cleanup latest leased attempt через неблокирующие Job/Attempt locks/savepoint в `apps/server/src/twobrain_rec_server/normalization/service.py`; сохранить fenced late-object путь и проверить двухсессионное пересечение/повтор в `apps/server/tests/integration/test_playback_normalization_restart.py`; FR-044. (Issue #7647)
+- [ ] T128 Завершить focused PostgreSQL, независимое ревью и converge, записать `specs/099-review-m4a-normalization/validation/attempt-ownership-20261017.md` и `changes/unreleased/F99.yaml`; отдельно получить commit/PR/merge и exact-SHA gates. Production F290 не объявлять завершённой; SC-016/024. (Issue #7647)
+
+Зависимости: reviewer requirements → T125 → T126 → T127 → T128.
+Первый CI срез F290 и его pending approval не изменяются.

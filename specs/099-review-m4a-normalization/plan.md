@@ -339,3 +339,95 @@ temporary attempt whose parent job is actively `running` or `publishing` with
 an unexpired worker lease. This is a single selector predicate plus a matching
 PostgreSQL helper-function migration; it preserves cleanup after lease expiry
 and adds no service, dependency, endpoint, queue or user action.
+
+
+## 2026-10-17 — защита попытки при ошибке и прямой очистке
+
+Lane: **high-risk-product**, продолжение US3/US6 F099 на
+c6c5441c930b8c1ecffed6de9b80773aa0e757e5. Первая CI часть F290 не входит.
+Constitution до/после design: I/II capture неизменен, III metadata-only,
+IV immutable attempt/source и deletion fence, V без выпуска, VI полный
+цикл, VII UI неизменен; исключений нет.
+
+Исследование: два детерминированных PostgreSQL опыта показали, что старая
+ошибка A сбрасывает B, а cleanup после commit A очищает B. Успешный путь
+уже проверяет номер попытки/lease; catch и прямой cleanup этого не делают.
+Реальные failure callers: run_normalization_job и expired recovery. Recovery
+уже проверяет expired running/publishing под блокировкой job до failure.
+Прямые cleanup callers: sweep, expired recovery, catch, discard-unowned и
+losing publisher; защита должна находиться в общей cleanup функции.
+
+Owned runtime paths: только
+`apps/server/src/twobrain_rec_server/normalization/service.py` и
+`apps/server/tests/integration/test_playback_normalization_restart.py`.
+Документы этой F099 и `changes/unreleased/F99.yaml` принадлежат срезу.
+Без схемы, новых зависимостей, endpoint, флагов, фоновых служб и handoff.
+
+Решение: перенести существующую подготовку попытки в run_normalization_job,
+оставив исполнение в прежней функции. Перед prepare сохранить scalar текущего
+attempt_count; после успешного prepare — новый номер и owner hash. В catch
+после rollback/rehydration передать ожидаемые число/owner в общий failure.
+Под блокировкой job сравнить их с текущими; для подготовленной попытки
+проверить также действующую lease. При потере владения вернуть Deferred
+без записи ошибки/инцидента/очистки B. Ошибка до создания попытки сравнивает
+исходный счётчик И допустимое queued/retry_wait состояние без активной
+LOCAL_PREPARING/UPLOADED попытки, сохраняя существующий source_missing путь.
+Если scalar query увидел уже running/publishing B, а prepare затем упал
+до проверки state, совпадающего count недостаточно: такую ошибку тоже
+отклонить через Deferred. Отдельно проверить этот порядок. У recovery
+проверка остаётся под его прежней блокировкой; тестовые прямые вызовы
+сохраняют свой интерфейс. Никогда не читать expired ORM attributes в catch:
+идентичность зафиксировать scalar значениями до rollback. Если исходный
+scalar count вообще не прочитан из-за ошибки БД, не вызывать unfenced
+failure: вернуть существующий DATABASE_UNAVAILABLE/retry без durable mutation.
+
+Для обычной cleanup_normalization_attempt сначала прочитать job_id без блокировки,
+затем брать Job → Attempt только через SKIP LOCKED, повторно читая
+состояние. Оба новых захвата выполняются в savepoint; при занятом или
+исчезнувшем row — rollback savepoint и честный False без изменения данных.
+Это освобождает новые locks, не откатывая caller transaction. Прямой cleanup
+никогда не ждёт Attempt при удержанном Job: deletion purge использует
+Attempt → Job и иногда уже освободил Meeting; общий Meeting lock здесь
+не является достаточным решением. Штатная следующая cleanup повторит
+пропущенную попытку, результат cleaned не выдаётся. Текущая попытка
+с номером job.attempt_count при running/publishing и будущей lease защищена
+до любого изменения attempt/reservation/storage. Старые immutable attempt ID,
+expired/non-active jobs, published winner, purged tombstones и late PUT
+остаются в существующем жизненном цикле. Сохранить неблокирующий порядок Job → Attempt,
+не добавлять I/O под блокировкой: переход cleanup_pending по-прежнему commit
+до storage I/O. Sweep selection не является единственной защитой.
+
+Исключение только для существующего `late_object_arrival=True` пути:
+_discard_unowned_attempt вызывается по неизменяемому ID своей A после
+проверки утраты владения/удаления. Сохранить его прежний Attempt-only lock
+и позднюю очистку (без нового Job lock/SKIP LOCKED), чтобы не потерять
+поздний PUT уже CLEANED/PURGED A из-за нового no-op. Здесь отсутствует
+ожидание Job при удержанном Attempt. Обычная очистка и этот внутренний
+fenced path не взаимозаменяемы; новый внешний параметр/вызов не добавлять.
+После stale failure только подготовленной A также вызвать существующий
+_discard_unowned_attempt по сохранённому до rollback scalar ID своей A;
+B не затрагивается. Перед этим discard обязательно rollback транзакции
+проверки failure и rehydrate контекста: освободить Job lock ДО ожидания
+Attempt, даже если failure вернул Deferred. Двухсессионный тест stale
+failure → discard обязан подтвердить, что держатель Attempt может взять
+Job NOWAIT; затем discard заканчивается после release. Проверить поздний
+объект A и сохранность B вместе.
+
+Матрица: late exception A после B local_preparing и uploaded/reservation;
+совпадающее и разное имя owner; корректная failure A → B → delayed cleanup;
+оба entry points cleanup и expiry; ordinary failure/source_missing;
+готовый canonical winner; deletion/late PUT; tenant boundary. Детерминированное пересечение: другая session
+держит Attempt, cleanup пропускает без изменения, затем та session берёт
+Job без блокировки; после release штатная cleanup работает. Отдельно занятый
+Job тоже даёт no-op. Проверки в
+одноразовом PG17 штатным runner, state/storage doubles явно обозначить.
+Это серверная логика. Для активного repair применяется актуальная
+release-and-validation.md: focused локально, три exact-SHA PR checks и
+новый frozen Full при выпуске. Историческое требование полного local CI
+выше описывало прежний принятый выпуск, оно не добавляет повторную
+нативную сборку к серверной проверке этого repair. Native/manual app
+проверка нужна лишь при изменении приложения; в этом срезе её нет.
+После reviewer/checklist, analyze, issue sync — минимальный код, focused
+regression/ruff/governance; независимый review и converge. Commit только
+после отдельного согласия, затем три exact-SHA PR checks и merge отдельно.
+Production требует нового frozen Full/dry-run/согласия и приёмки F290.

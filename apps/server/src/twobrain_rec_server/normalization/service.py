@@ -1789,6 +1789,8 @@ async def record_normalization_failure(
     job_id: UUID,
     reason_code: NormalizationReason,
     failed_at: datetime | None = None,
+    expected_attempt_count: int | None = None,
+    expected_lease_owner_sha256: str | None = None,
 ) -> NormalizationFailureResult:
     """Persist failure truth before Temporal decides whether to retry the activity."""
 
@@ -1806,6 +1808,23 @@ async def record_normalization_failure(
     if job is None:
         raise ValueError("normalization job not found")
     current_state = JobState(job.state)
+    if expected_attempt_count is not None and (
+        job.attempt_count != expected_attempt_count
+        or (
+            expected_lease_owner_sha256 is not None
+            and (
+                current_state not in {JobState.RUNNING, JobState.PUBLISHING}
+                or job.lease_owner_sha256 != expected_lease_owner_sha256
+                or job.lease_expires_at is None
+                or _aware_utc(job.lease_expires_at) <= now
+            )
+        )
+        or (
+            expected_lease_owner_sha256 is None
+            and current_state not in {JobState.QUEUED, JobState.RETRY_WAIT}
+        )
+    ):
+        raise NormalizationExecutionDeferred("normalization failure no longer owns the attempt")
     if current_state in {JobState.READY, JobState.TERMINAL, JobState.CANCELLED}:
         return NormalizationFailureResult(
             job_id=job.id,
@@ -1833,6 +1852,12 @@ async def record_normalization_failure(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
+    if (
+        expected_attempt_count is not None
+        and expected_lease_owner_sha256 is None
+        and attempt is not None
+    ):
+        raise NormalizationExecutionDeferred("normalization preparation did not own the attempt")
     if attempt is not None:
         ensure_attempt_transition(AttemptState(attempt.state), AttemptState.CLEANUP_PENDING)
         attempt.state = AttemptState.CLEANUP_PENDING.value
@@ -2149,12 +2174,54 @@ async def cleanup_normalization_attempt(
 
     require_database_context(db, allowed_context_kinds=frozenset({"worker"}))
     current_time = now or datetime.now(UTC)
-    attempt = await db.scalar(
-        select(PlaybackNormalizationAttempt)
-        .where(PlaybackNormalizationAttempt.id == attempt_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    if late_object_arrival:
+        # This caller already fenced its own immutable attempt. Keep late PUT
+        # cleanup available even for CLEANED/PURGED rows.
+        attempt = await db.scalar(
+            select(PlaybackNormalizationAttempt)
+            .where(PlaybackNormalizationAttempt.id == attempt_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    else:
+        job_id = await db.scalar(
+            select(PlaybackNormalizationAttempt.job_id).where(
+                PlaybackNormalizationAttempt.id == attempt_id
+            )
+        )
+        if job_id is None:
+            return False
+        savepoint = await db.begin_nested()
+        job = await db.scalar(
+            select(PlaybackNormalizationJob)
+            .where(PlaybackNormalizationJob.id == job_id)
+            .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+        attempt = (
+            await db.scalar(
+                select(PlaybackNormalizationAttempt)
+                .where(PlaybackNormalizationAttempt.id == attempt_id)
+                .with_for_update(skip_locked=True)
+                .execution_options(populate_existing=True)
+            )
+            if job is not None
+            else None
+        )
+        if (
+            job is None
+            or attempt is None
+            or (
+                attempt.attempt_number == job.attempt_count
+                and job.state in {JobState.RUNNING.value, JobState.PUBLISHING.value}
+                and job.lease_expires_at is not None
+                and _aware_utc(job.lease_expires_at) > current_time
+            )
+        ):
+            # Release the new Job lock too: deletion may hold Attempt then Job.
+            await savepoint.rollback()
+            return False
+        await savepoint.commit()
     if attempt is None or attempt.state == AttemptState.PUBLISHED.value:
         return False
     current_state = AttemptState(attempt.state)
@@ -2622,8 +2689,29 @@ async def run_normalization_job(
 ) -> NormalizationExecutionResult:
     require_database_context(db, allowed_context_kinds=frozenset({"worker"}))
     lease_owner_identity = lease_owner or f"direct:{job_id}"
+    expected_attempt_count = None
+    expected_lease_owner_sha256 = None
+    prepared_attempt_id = None
     try:
+        expected_attempt_count = await db.scalar(
+            select(PlaybackNormalizationJob.attempt_count).where(
+                PlaybackNormalizationJob.id == job_id
+            )
+        )
+        prepared = await _prepare_attempt(
+            db,
+            job_id=job_id,
+            lease_owner=lease_owner_identity,
+            lease_duration=lease_duration,
+        )
+        if isinstance(prepared, NormalizationExecutionResult):
+            return prepared
+        # Scalars survive rollback/ORM expiry and repeated worker identities.
+        expected_attempt_count = prepared.attempt.attempt_number
+        expected_lease_owner_sha256 = sha256(lease_owner_identity.encode("utf-8")).hexdigest()
+        prepared_attempt_id = prepared.attempt.id
         return await _execute_normalization_job(
+            prepared=prepared,
             db=db,
             storage=storage,
             job_id=job_id,
@@ -2644,11 +2732,29 @@ async def run_normalization_job(
         with suppress(Exception):
             await rehydrate_tenant_context(db)
         try:
+            if expected_attempt_count is None:
+                raise RuntimeError("normalization ownership was not read")
             failure = await record_normalization_failure(
                 db,
                 job_id=job_id,
                 reason_code=reason_code,
+                expected_attempt_count=expected_attempt_count,
+                expected_lease_owner_sha256=expected_lease_owner_sha256,
             )
+        except NormalizationExecutionDeferred:
+            # Do not retain Job while waiting for old Attempt (purge locks in
+            # the reverse order). Never clean another worker's attempt.
+            with suppress(Exception):
+                await db.rollback()
+                await rehydrate_tenant_context(db)
+                if prepared_attempt_id is not None:
+                    await _discard_unowned_attempt(
+                        db=db,
+                        storage=storage,
+                        attempt_id=prepared_attempt_id,
+                        cleanup_reason=reason_code.value,
+                    )
+            raise
         except Exception:
             raise NormalizationExecutionFailure(
                 reason_code=NormalizationReason.DATABASE_UNAVAILABLE,
@@ -2670,6 +2776,7 @@ async def run_normalization_job(
 
 async def _execute_normalization_job(
     *,
+    prepared: _AttemptInputs,
     db: AsyncSession,
     storage: object,
     job_id: UUID,
@@ -2682,15 +2789,6 @@ async def _execute_normalization_job(
     work_reserve_bytes: int,
 ) -> NormalizationExecutionResult:
     expected_lease_owner_sha256 = sha256(lease_owner.encode("utf-8")).hexdigest()
-    prepared = await _prepare_attempt(
-        db,
-        job_id=job_id,
-        lease_owner=lease_owner,
-        lease_duration=lease_duration,
-    )
-    if isinstance(prepared, NormalizationExecutionResult):
-        return prepared
-
     base_directory = Path(work_directory)
     base_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     work_path = Path(tempfile.mkdtemp(prefix=f"{job_id}-", dir=base_directory))
