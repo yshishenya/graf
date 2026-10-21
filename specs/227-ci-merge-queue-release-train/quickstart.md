@@ -67,3 +67,15 @@ fixtures и serial train их не выполняют. Защита GitHub не 
 Матрица Python 3.9/3.12 из закреплённого SHA и successful run описаны в
 [research.md](research.md#r8--закреплённая-матрица-переносимого-инструментария).
 Не обновлять pin и не считать исторический run текущей проверкой продукта.
+
+## Повторная защита потребителей — 21.10.2026
+
+Тот же test_release_train.py параметризует полноценный serial freeze → candidate
+→ Full fixture → attest → decide. Для legacy-unrelated записываются прежний
+manifest и согласованная immutable identity. Для replace-graft обычный
+merge-base принимает подменённую связь, raw --no-replace-objects её отвергает.
+Все четыре потребителя и новый freeze при graft должны отказать по ancestry;
+все исходные документы/identity побайтово сохранены, новых candidate/go/decision
+записей нет. Стабильный файл decision.lock может быть создан существующим
+decide до проверки train; он не является decision/identity. Положительная
+матрица отдельно проходит без подмен. Production и настоящего Full здесь нет.

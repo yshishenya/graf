@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -239,7 +242,8 @@ def test_train_validate_current_rejects_ignored_train_metadata_drift(tmp_path: P
     assert "metadata drift detected" in result.stderr
 
 
-def test_train_attest_binds_authoritative_full_ci_to_candidate(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("history", ["valid", "legacy-unrelated", "replace-graft"])
+def test_train_attest_binds_authoritative_full_ci_to_candidate(tmp_path: Path, monkeypatch, history: str) -> None:
     root = _fixture(tmp_path)
     source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     train = root / ".dev/release/trains/train.json"
@@ -305,6 +309,53 @@ fi
     }), encoding="utf-8")
     monkeypatch.setenv("TEST_GITHUB_EVIDENCE", str(evidence))
     train_go = root / ".dev/release/trains/train-go.json"
+    if history != "valid":
+        def git(*args: str) -> str:
+            return subprocess.check_output(["git", *args], cwd=root, text=True).strip()
+
+        unrelated = git("commit-tree", git("rev-parse", "HEAD^{tree}"), "-m", "unrelated history")
+        assert subprocess.run(["git", "--no-replace-objects", "merge-base", "--is-ancestor", unrelated, source], cwd=root).returncode == 1
+        if history == "replace-graft":
+            replacement = git("commit-tree", git("rev-parse", "HEAD^{tree}"), "-p", unrelated, "-m", "replacement source")
+            git("replace", source, replacement)
+            assert subprocess.run(["git", "merge-base", "--is-ancestor", unrelated, source], cwd=root).returncode == 0
+
+        # Model a train frozen by the old writer, including its matching digest.
+        # Otherwise the immutable-identity gate would hide the ancestry bypass.
+        data = json.loads(train.read_text(encoding="utf-8"))
+        data["base_sha"] = unrelated
+
+        def write_record(path: Path, record: dict) -> None:
+            path.write_text(json.dumps(record), encoding="utf-8")
+            path.with_name("." + path.name + ".identity.json").write_text(json.dumps({
+                "record_id": record["train_id"], "path": str(path.resolve()),
+                "digest": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
+            }), encoding="utf-8")
+
+        write_record(train, data)
+        go = dict(data, decision="go", authoritative_full_ci_receipt={
+            "run_id": "github-full-123", "target_sha": source, "lane": "full", "status": "passed",
+            "receipt_digest": "sha256:" + hashlib.sha256(evidence.read_bytes()).hexdigest(),
+        })
+        write_record(train_go, go)
+        before = {path: path.read_bytes() for path in (root / ".dev").rglob("*") if path.is_file() and not path.name.endswith(".lock")}
+        commands = [
+            ["train-validate", str(train), "--current"],
+            ["freeze", "--sha", source, "--features", "227,228", "--operator", "release-operator", "--train", str(train), "--output", str(candidate.with_name("rejected.json"))],
+            ["train-attest", str(train), "--candidate", str(candidate), "--evidence", str(evidence), "--output", str(train_go.with_name("rejected-go.json"))],
+            ["decide", str(candidate), "--train", str(train_go), "--evidence", str(evidence), "--calver", "2026.09.01.1", "--output", str(root / ".dev/release/decisions/rejected.json")],
+        ]
+        if history == "replace-graft":
+            args = _freeze_args(source, train.with_name("rejected-freeze.json"))
+            args[args.index("--base-sha") + 1] = unrelated
+            commands.append(args)
+        results = [_run(root, *command) for command in commands]
+        assert all(result.returncode != 0 and "base SHA must be an ancestor of the source commit" in result.stderr for result in results), [
+            (command[0], result.returncode, result.stderr) for command, result in zip(commands, results)
+        ]
+        after = {path: path.read_bytes() for path in (root / ".dev").rglob("*") if path.is_file() and not path.name.endswith(".lock")}
+        assert after == before
+        return
     attested = _run(root, "train-attest", str(train), "--candidate", str(candidate), "--evidence", str(evidence), "--output", str(train_go))
     assert attested.returncode == 0, attested.stderr
     train_data = json.loads(train_go.read_text(encoding="utf-8"))
