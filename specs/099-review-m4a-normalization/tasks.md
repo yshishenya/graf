@@ -388,7 +388,7 @@ expiry/deletion/late PUT сохраняются. Последовательно,
 - [X] T125 [US3] Зафиксировать исходный RED и добавить обе гонки, повторный owner, pre-prepare failure и uploaded/reservation в `apps/server/tests/integration/test_playback_normalization_restart.py`; FR-035/044. (Issue #7647)
 - [X] T126 [US3] Оградить общую запись ошибки номером/владельцем попытки и pre-prepare state в `apps/server/src/twobrain_rec_server/normalization/service.py`; сохранить source_missing/recovery/Deferred; FR-035. (Issue #7647)
 - [X] T127 [US6] Защитить обычную прямую cleanup latest leased attempt через неблокирующие Job/Attempt locks/savepoint в `apps/server/src/twobrain_rec_server/normalization/service.py`; сохранить fenced late-object путь и проверить двухсессионное пересечение/повтор в `apps/server/tests/integration/test_playback_normalization_restart.py`; FR-044. (Issue #7647)
-- [ ] T128 Завершить focused PostgreSQL, независимое ревью и converge, записать `specs/099-review-m4a-normalization/validation/attempt-ownership-20261017.md` и `changes/unreleased/F99.yaml`; отдельно получить commit/PR/merge и exact-SHA gates. Production F290 не объявлять завершённой; SC-016/024. (Issue #7647)
+- [X] T128 Завершить focused PostgreSQL, независимое ревью и converge, записать `specs/099-review-m4a-normalization/validation/attempt-ownership-20261017.md` и `changes/unreleased/F99.yaml`; отдельно получить commit/PR/merge и exact-SHA gates. Production F290 не объявлять завершённой; SC-016/024. (Issue #7647)
 
 Зависимости: reviewer requirements → T125 → T126 → T127 → T128.
 Первый CI срез F290 и его pending approval не изменяются.
