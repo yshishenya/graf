@@ -191,7 +191,7 @@ infra/scripts/ci-local.sh --full
 
 - `tasks.md` остается источником правды по реализации.
 - GitHub issues используются как внешний трекер выполнения, review, PR-связей и evidence.
-- Canon: `docs/agent-guidance/github-issue-canon.md`.
+- Все GitHub issues в этом репозитории следуют `docs/agent-guidance/github-issue-canon.md`.
 - Все GitHub issue titles, issue bodies, PR descriptions, status comments, closure comments и sync notes по умолчанию пиши на русском.
 - Пиши простым, понятным языком, чтобы текст был ясен не только инженерам, но и обычным участникам проекта.
 - Для Spec Kit task-backed issues используй ровно один title format: `[<feature>][<priority>][<area>] T###: <русский результат>`.
