@@ -1,5 +1,6 @@
-"""Real PostgreSQL transaction proof, with synthetic purchase truth and no API."""
+"""Real PostgreSQL transaction proof, with synthetic truth and no external API."""
 
+import json
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
@@ -12,22 +13,29 @@ from cryptography.fernet import Fernet
 from sqlalchemy import select, text, update
 
 from tests.integration.test_rls_postgres_policies import _seed_probe_rows
+from twobrain_rec_server.billing import renewal_charge
 from twobrain_rec_server.billing.catalog import validate_plan_version
 from twobrain_rec_server.billing.purchases import accept_base_price
 from twobrain_rec_server.billing.reconciliation import ProviderScope
 from twobrain_rec_server.billing.renewal_charge import (
+    charge_renewal_operation,
     pending_renewal_charge_candidates,
     plan_due_renewals,
 )
 from twobrain_rec_server.billing.webhook_reconciliation import apply_confirmed_purchase
+from twobrain_rec_server.billing.yookassa import YooKassaClient
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
+    BillingAcceptanceBudget,
+    BillingAcceptanceReservation,
     BillingAuditEvent,
     BillingEntitlementGrant,
     BillingInvoice,
+    BillingNotificationDelivery,
     BillingOperation,
     BillingPaymentMethod,
     BillingPlanVersion,
+    BillingStorageEntitlementGrant,
     ExternalIdentity,
     Workspace,
     WorkspaceSubscription,
@@ -37,6 +45,7 @@ from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, appl
 
 pytest_plugins = ("tests.integration.test_rls_postgres_policies",)
 pytestmark = [pytest.mark.strict_rls, pytest.mark.asyncio]
+_ASYNC_HTTP_SEND = httpx.AsyncClient.send
 
 CONTEXT = MaintenanceTenantContext(
     operation_name="billing_reconciliation",
@@ -409,3 +418,111 @@ async def test_unknown_attempt_blocks_next_window_without_new_rows(paid_workspac
             == stable
         )
         assert await _original_purchase(db, case) == case.original
+
+
+@pytest.mark.parametrize("lost_reply", [True, False], ids=["unknown-no-id", "sent-known-id"])
+async def test_repeat_dispatched_charge_preserves_state(
+    paid_workspace, migrated_postgres_urls, tmp_path, monkeypatch, lost_reply
+):
+    case = paid_workspace
+    secret = tmp_path / "synthetic-provider-secret"
+    secret.write_text("synthetic-offline-not-a-real-key")
+    secret.chmod(0o600)
+    settings = Settings(
+        _env_file=None,
+        env="test",
+        database_url=migrated_postgres_urls.probe_url,
+        public_base_url="https://example.invalid",
+        credential_encryption_key_file=tmp_path / "synthetic-payment-method-key",
+        billing_checkout_enabled=True,
+        billing_provider_observation_enabled=True,
+        billing_checkout_workspace_ids=frozenset({case.workspace}),
+        billing_yookassa_base_url="https://api.yookassa.test",
+        billing_yookassa_environment="test",
+        billing_yookassa_shop_id="1",
+        billing_yookassa_secret_file=secret,
+        billing_yookassa_webhook_secret_file=secret,
+        billing_referral_secret_file=secret,
+        billing_support_email="support@example.invalid",
+        billing_receipt_tax_system_code=2,
+        billing_receipt_vat_code=1,
+    )
+    async with _session(case.factory) as db:
+        (operation_id,) = await plan_due_renewals(
+            db, now=case.t0, allowed_workspace_ids=frozenset({case.workspace})
+        )
+        await db.commit()
+    calls = []
+    provider_id = str(uuid4())
+
+    class LostReply(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            raise httpx.ReadTimeout("synthetic reply lost after acceptance")
+            yield b""
+
+    def provider(request):
+        assert request.method == "POST" and request.url.path == "/v3/payments"
+        calls.append(request.method)
+        assert calls == ["POST"], "a dispatched renewal must never be sent again"
+        payload = json.loads(request.content)
+        assert payload["metadata"]["operation_id"] == str(operation_id)
+        assert payload["metadata"]["workspace_id"] == str(case.workspace)
+        assert payload["amount"] == {
+            "value": f"{case.amount // 100}.{case.amount % 100:02d}",
+            "currency": "RUB",
+        }
+        assert payload["payment_method_id"] == "synthetic-no-provider-method"
+        if lost_reply:
+            return httpx.Response(200, stream=LostReply())
+        return httpx.Response(200, json={"id": provider_id, "status": "pending"})
+
+    transport = httpx.MockTransport(provider)
+
+    async def mock_only_send(client, request, **kwargs):
+        assert request.url.host == "api.yookassa.test"
+        assert client._transport_for_url(request.url) is transport
+        return await _ASYNC_HTTP_SEND(client, request, **kwargs)
+
+    # The fixture still forbids synchronous HTTP; only this offline transport is allowed.
+    monkeypatch.setattr(httpx.AsyncClient, "send", mock_only_send)
+    monkeypatch.setattr(
+        renewal_charge, "YooKassaClient", lambda config: YooKassaClient(config, transport=transport)
+    )
+    async with _session(case.factory) as db:
+        first = await charge_renewal_operation(
+            db, settings, operation_id=operation_id, workspace_id=case.workspace, now=case.t0
+        )
+    assert first.status == ("unknown" if lost_reply else "sent")
+    assert first.provider_id == (None if lost_reply else provider_id)
+
+    async def snapshot():
+        async with _session(case.factory) as db:
+            state = {}
+            for model in (
+                WorkspaceSubscription,
+                BillingOperation,
+                BillingInvoice,
+                BillingEntitlementGrant,
+                BillingStorageEntitlementGrant,
+                BillingPaymentMethod,
+                BillingAcceptanceBudget,
+                BillingAcceptanceReservation,
+                BillingAuditEvent,
+                BillingNotificationDelivery,
+            ):
+                rows = await db.scalars(
+                    select(model)
+                    .where(model.workspace_id == case.workspace)
+                    .order_by(*model.__table__.primary_key.columns)
+                )
+                state[model.__tablename__] = [_row_snapshot(row) for row in rows]
+            return state
+
+    before = await snapshot()
+    async with _session(case.factory) as db:
+        repeated = await charge_renewal_operation(
+            db, settings, operation_id=operation_id, workspace_id=case.workspace, now=case.t0
+        )
+    assert repeated == first
+    assert await snapshot() == before
+    assert calls == ["POST"]
