@@ -36,7 +36,7 @@ Implementation ready не означает hosted/production/closeout PASS.
 
 ## Phase 5 — Convergence и закрытие
 
-- [ ] T012 Сверить `specs/290-post-release-hardening/tasks.md` с реализацией через converge; на каждом новом PR свои checks, merge только после согласия, для нового frozen release свой Full и dry-run/approved deploy; FR010. (Issue #6501)
+- [ ] T012 Сверить `specs/290-post-release-hardening/tasks.md` с реализацией через converge; на каждом новом PR свои checks, merge после обязательных проверок, для нового frozen release свой Full и dry-run/approved deploy; FR010. (Issue #6501)
 - [ ] T013 После всех результатов и T012 выполнить live `scripts/validate-issue-closeout.py` для #6501 и затем umbrella #7646, добавить русские closure comments и проверить actual state; записать `specs/290-post-release-hardening/validation.md`; SC004. (Issue #7646)
 
 ## Dependencies / execution strategy
@@ -51,3 +51,8 @@ T001–T004 локально подтверждены. T005–T013 остают�
 ## Остаток настоящей native-проверки — 19.10.2026
 
 - [ ] T014 [US1] Исправить обнаруженную Apple Swift6.0.3 ошибку чтения argv из async main в `apps/macos/Shared/Tools/MeetingMuteTruthRuntimeProof/main.swift` через существующий Foundation ProcessInfo; сохранить все параметры/синтетические проверки, выполнить независимое review и настоящий native CI нового SHA. FR004; T014 → T005. (Issue #6501)
+
+
+## Phase 6: Convergence — ошибки method reference в Apple Swift6.0.3
+
+- [ ] T015 [US1] Заменить две передачи MainActor-методов в Optional.map на явные синхронные замыкания в `apps/macos/RecApp/App/TwoBrainRecApp.swift`; сохранить проверки свежести решения, recovery text, fallback и actor/compiler/SDK gates; выполнить независимые review, scoped lifecycle/capture tests и настоящий Apple Swift6.0.3 build/XCTest/ContractValidation. FR004/SC001 (partial, HIGH); T015 → T005. (Issue #6501)

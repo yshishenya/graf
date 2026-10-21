@@ -60,3 +60,14 @@ retry/restart/backfill/priority/deletion/Range tests через штатный P
 Ни пользовательские записи, ни healthy worker, ни пустая выборка не заменяют
 сценарии. #6501/#7646 остаются открыты до всех исходных результатов и live
 feature closeout validator. Release/deploy и installed app acceptance раздельны.
+
+
+## T015 — два MainActor method reference
+
+После независимого допуска требований проверить минимальный diff двух map
+в TwoBrainRecApp.swift и все callers методов; выполнить существующие
+MeetingDetectionRecordingLifecycleTests/CaptureControlTests/DesktopNotificationAppIntegrationTests и построение
+TwoBrainRecApp в отдельном временном scratch-path (без установки/запуска).
+Исходный hosted отказ сохраняется; локальный новый compiler — диагностика.
+Решающая приёмка: настоящий AppleSwift6.0.3 в macos-pr, все XCTest,
+ContractValidation, governance-fast и pr-metadata одного PR SHA/основы.

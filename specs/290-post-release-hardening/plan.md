@@ -15,7 +15,7 @@ Node20 поддерживаемыми Node24 actions, сохраняя реал�
 - Dependencies: существующие GitHub-hosted runners, pytest/PyYAML; новых нет.
 - Storage: новые данные продукта не создаются; только безопасные метаданные.
 - Risk / Validation Lane: **high-risk-product**, инфраструктура/backup/deploy.
-- Release Gate: первый срез без deploy; implementation commit после согласия,
+- Release Gate: первый срез без deploy; implementation commit после проверки,
   merge после трёх exact-SHA checks по действующему общему согласию; будущий выпуск —
   один Full нового frozen SHA, dry-run CD и отдельное разрешение execute.
 - Platforms: Ubuntu hosted, macos-14; server Linux только на позднем этапе.
@@ -59,7 +59,7 @@ US2: сначала закрытая read-only инвентаризация не
 включая index и untracked parent, без apply/pop/drop. Сопоставить с пятью
 файлами чужой работы из release-v2026.10.16.6 и действующим владельцем.
 Не проектировать параллельную ротацию до этой проверки. Перенос полезной
-части после уточнения design/review, локальной проверки и согласия на commit.
+части после уточнения design/review и локальной проверки.
 Удаление stash/снимка/сохранённой копии только с отдельным согласием.
 
 US3: переиспользовать worker/service/Range/restore проверки из research.
@@ -116,3 +116,25 @@ owned path: apps/macos/Shared/Tools/MeetingMuteTruthRuntimeProof/main.swift.
 после — typecheck малого извлечённого аргументного входа, настоящая
 hosted build/tests/ContractValidation на новом SHA и повторное review.
 Локальный Swift6.3.3 не выдаётся за доказательство Apple Swift6.0.3.
+
+
+## Второй отказ Apple Swift6.0.3 — 21.10.2026
+
+Run39586205761 на c137a55379d577c818a8510035ea8f03bfefcf46 подтвердил
+проход исправленного argv и обнаружил ещё два отказа `call can throw`
+в TwoBrainRecApp.swift:2022/3049. Небросающие методы MainActor передаются
+через Optional.map как method reference. Прямые вызовы этого же метода
+в startManualRecording и остальные проверки решения уже существуют.
+
+T015 ограничена двумя выражениями в существующем App:
+meetingDetectionTarget.map { isCurrentMeetingDetectionDecision($0) } ?? true
+и snapshot.recoveryAction.map { recoveryActionText($0) } ?? прежняя строка.
+Явные синхронные замыкания остаются в той же MainActor области; fallback,
+порядок, число вызовов, проверка свежести встречи, ошибки и текст не меняются.
+Не добавлять try, unchecked/nonisolated, compiler flags, новую обёртку или
+подмену Swift/SDK. До кода — повторное независимое ревью обоих checklist
+и analyze/task sync. После — чтение двух выражений и всех callers,
+существующие focused lifecycle/capture проверки и настоящий hosted build/
+XCTest/ContractValidation на точном SHA. Локальный Swift6.3.3 не доказывает
+исправление Apple6.0.3; конечный результат требует hosted PASS.
+Вся #6501/F290, stash и post-deploy остаются отдельными открытыми задачами.

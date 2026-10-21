@@ -1,7 +1,7 @@
 # F290: локальная проверка первого CI-среза, 2026-10-17
 
 Режим high-risk-product. Base c6c5441c930b8c1ecffed6de9b80773aa0e757e5,
-ветка 290-post-release-hardening. Implementation ещё не закоммичена.
+ветка 290-post-release-hardening. Далее сохранён исходный checkpoint до первого коммита; актуальные дополнения приведены ниже.
 T001–T004 локально выполнены; текущее независимое ревью APPROVE и общее
 разрешение пользователя позволяют проверенный commit/PR. T005 hosted proof и все US2/US3
 остаются открыты. Ни merge, ни Full, ни release/deploy не выполнялись.
@@ -111,3 +111,55 @@ review-native-argv-final-20261021.md. Проверяющий подтверди�
 одну замену, сохранность parser/caller/Package.swift/native workflows и
 перечитал оба списка (6/0 и13/0). Исходник временного typecheck не сохранён,
 поэтому независимая побайтовая сверка его извлечения не заявляется.
+
+
+## T015: совместимость двух MainActor map — 21.10.2026
+
+Основа текущего среза845e6dcff7eb7f8e0e2b884902080ecb96582a3a;
+локальный HEAD до изменения6fa375205449c551a81d7166ecbdc597a77d31b2.
+Исходный hosted run39586205761 на c137a55379d577c818a8510035ea8f03bfefcf46
+сохранён как FAIL: два method reference в Optional.map дали ошибку rethrows
+при Apple Swift6.0.3. Это не ошибка метода, объявленного throws.
+
+Перед кодом независимый review-native-map-plan-20261021.md дал PASS:
+requirements6/0, infra13/0; собственный analyze — CRITICAL0/HIGH0/MEDIUM0,
+все11FR/4SC связаны с15tasks. Существующая #6501 синхронизирована с T014/T015,
+исходные критерии сохранены; issue canon подтвердил300issues.
+
+В App заменены ровно два method reference на явные синхронные замыкания.
+Прежние nil fallback, false, recovery text, MainActor, проверки решения до
+запуска и после await, Package.swift, Swift/SDK и строгая конкурентность
+сохранены. Новых helpers, зависимостей или тестов формы исходника не добавлено.
+
+- Настоящий локальный build TwoBrainRecApp: PASS,24.03s.
+- MeetingDetectionRecordingLifecycleTests, CaptureControlTests и
+  DesktopNotificationAppIntegrationTests:58tests PASS,0FAIL/0SKIP,2.465s.
+  Файл CaptureControlV5Tests.swift объявляет CaptureControlTests;
+  quickstart исправлен на фактическое имя класса, нулевая выборка не засчитана.
+- Объединённый workflow/metadata/CI contract набор на новой основе:
+  300PASS,73.70s,0FAIL/0SKIP. Это обновляет прежние275; наборы не суммируются.
+- validate-governance-workflow, validate-full-ci-workflow, actionlint,
+  check_spec_kit_governance, check-development-process и diff whitespace:PASS.
+
+Локальный compiler — AppleSwift6.3.3,arm64-apple-macosx26.0. Проверка не
+устанавливает и не запускает приложение; GRAF Dev/production не изменялись.
+Она не заменяет обязательный AppleSwift6.0.3 build/XCTest/ContractValidation
+и три проверки нового точного PR SHA/основы. T005/T014/T015 до настоящей
+hosted приёмки остаются открытыми. US2/US3 и #6501/#7646 также открыты.
+Журналы build/focused/process и workflow-tests-rebased сохранены во внешнем
+реестре f290-pr-closeout; промежуточная сборка удаляется по окончании проверки.
+
+Сверка по speckit-converge: две реализации map соответствуют FR004/SC001,
+новых обязательных кодовых остатков этого среза не выявлено. Уже учтённые
+hosted T005/T014/T015, US2 T006–T008, US3 T009–T011 и closeout T012–T013
+не дублируются. Полная сходимость всей F290 не заявлена.
+
+
+Итоговое независимое ревью T015: APPROVE, замечаний0;
+[review-native-map-final-20261021.md](review-native-map-final-20261021.md).
+Проверены фактические две строки, все callers и журналы сборки/58XCTest/300tests;
+requirements6/0, infra13/0. Проверенная SHA256 App
+812664a5503fe9aba977f4287e9a3a14eebae0dc2a80474a3aca8e4d6b13649d.
+Это локальная приёмка; обязательная hosted Apple6.0.3 и новые три PR checks
+остаются открытыми. Собственный scratch удалён после завершения проверки,
+журналы сохранены. Новых кодовых остатков двух замен не выявлено.
