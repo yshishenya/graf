@@ -4,8 +4,9 @@
 contracts/state-ownership.md, quickstart.md.
 **Status**: полный реестр после независимого ревью требований US1 36/36.
 Исходные T001–T008 восстановлены из #6181–#6188 и сохраняют номера;
-T009–T013 сохраняют широкие обязательства #6180. T001–T007 выполнены локально;
-это не принятие issues. T008 и широкая приёмка остаются открытыми.
+T009–T013 сохраняют широкие обязательства #6180. T001–T008 приняты в границе
+US1 после слияния PR #7676 и проверки его точного SHA/основы. Закрытие issues
+требует отдельной содержательной и live-проверки; широкая приёмка остаётся открытой.
 **Lane**: high-risk product area; analyze и issue sync обязательны до кода.
 Текущий проект разрешает US1. US3 требует отдельного проекта и reviewer gate.
 
@@ -34,7 +35,7 @@ pointer, свободное место и сохранность чужой ра
 - [X] T005 [US1] В scripts/dev-harness.py закрыть все shared callers до первой записи и после lock: binding/live-override, build_manifest, adapter, schema-start-guard, smoke и prune; fixture допускает только изолированные файловые операции и никогда не удаляет общие Docker tags; доказать отсутствие эффектов в tests/governance/test_dev_state_ownership.py (Issue #6185)
 - [X] T007 [US1] В tests/governance/test_dev_state_ownership.py доказать сериализацию двух реальных процессов/регистраций, ожидание прежнего lock без смены inode, отказ при смене active SHA во время ожидания, перепроверку parent кандидата и прерывания/ошибку публикации binding без изменения manifests/runtime/journals (Issue #6187)
 - [X] T006 [US1] Обновить infra/dev/README.md и docs/agent-guidance/local-development.md: один binding/root/lock, явное принятие владельцем, неоднозначное состояние, запрет самостоятельного старого controller, ограничения status/fixture prune; live adoption только после освобождения стенда (Issue #6186)
-- [ ] T008 [US1] В specs/224-dev-stand-completion/validation.md зафиксировать high-risk focused matrix, независимое ревью реализации, ограниченный converge US1, governance/context/process/changelog/diff; после отдельного разрешения commit/PR подтвердить exact-SHA fast на подходящей машине и governance-fast/macos-pr/pr-metadata на точном PR SHA/base, затем сверить критерии #6181–#6188 (Issue #6188)
+- [X] T008 [US1] В specs/224-dev-stand-completion/validation.md зафиксировать high-risk focused matrix, независимое ревью реализации, ограниченный converge US1, governance/context/process/changelog/diff; после commit/PR подтвердить exact-SHA fast на подходящей машине и governance-fast/macos-pr/pr-metadata на точном PR SHA/base, затем сверить критерии #6181–#6188 (Issue #6188)
 
 **Checkpoint**: принятие US1 не завершает US2/US3, live adoption или #6180.
 
@@ -68,8 +69,8 @@ T010 можно исследовать изолированно после T008,
 проекта/checklist/analyze/sync. T011 зависит от T009/T010, schema-changing
 приёмка также от F249 T038/#6786. T012 следует за T011.
 T013 зависит от всех задач и фактической широкой приёмки, не от числа тестов.
-Неисполненные внешние/ручные ворота оставляются открытыми. Commit approval
-не разрешает merge, live adoption, release или deploy.
+Неисполненные внешние/ручные ворота оставляются открытыми. Принятие US1
+не завершает live adoption, release или deploy.
 
 ## Requirement coverage
 
@@ -93,6 +94,6 @@ US2: разбор существующих доказательств можно
 
 ## Implementation strategy
 
-Сначала US1 и изолированная матрица; после validation/commit approval — PR checks.
+Сначала US1 и изолированная матрица; после validation/commit — PR checks.
 Затем фактическая US2, отдельно уточнённая US3 и согласованные живые проверки.
 Ни перенос root, ни повторный lifecycle, ни второй Dev не нужны.
