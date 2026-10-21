@@ -450,8 +450,13 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         if committedCancellation {
             let probe = try XCTUnwrap(probe)
             await fulfillment(of: [probe.committed], timeout: 5)
+            for _ in 0..<250 {
+                if requests.count("GET /f136-held-resource") == 1 { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertEqual(requests.count("GET /f136-held-resource"), 1)
             XCTAssertFalse(webView.backForwardList.currentItem === initialItem)
-            XCTAssertTrue(webView.isLoading, "The response body is deliberately incomplete")
+            XCTAssertTrue(webView.isLoading, "The committed document is waiting for its held resource")
             XCTAssertEqual(probe.finishCount, 0, "Cancellation must occur before didFinish")
         }
         if cancel { webView.stopLoading() }
@@ -565,6 +570,10 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             }
             let key = request.components(separatedBy: "\r\n")[0].split(separator: " ").prefix(2).joined(separator: " ")
             let count = requests.record(key)
+            if committedCancellation, key == "GET /f136-held-resource" {
+                requests.hold(connection)
+                return
+            }
             let isPost = request.hasPrefix("POST \(targetPath) ")
             let isResult = isPost || request.hasPrefix("GET \(targetPath)?result=yes ")
             let html: String
@@ -579,6 +588,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                 if (supersedesPendingForm ? count == 2 : count <= resultCount), !redirect || !isPost { result.fulfill() }
                 if supersedesPendingForm { requests.attemptHeldRedirect() }
                 html = "<!doctype html><title>Synthetic result</title><p id='result'>Result</p>"
+                    + (committedCancellation && isPost ? "<img src='/f136-held-resource'>" : "")
                 replyStatus = redirect && isPost ? "303 See Other\r\nLocation: \(targetPath)?result=yes" : status
             } else if key == "GET /desktop/settings/integrations/calendar" {
                 html = "<!doctype html><title>Next safe document</title>"
@@ -591,16 +601,11 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                 XCTFail("Unexpected synthetic session route"); connection.cancel(); return
             }
             let recovery = reselect && isResult ? "X-GRAF-Cabinet-Recovery: reselect-space\r\n" : ""
-            let length = html.utf8.count + (committedCancellation && isResult ? 1_048_576 : 0)
+            let length = html.utf8.count
             let response = "HTTP/1.1 \(replyStatus)\r\nContent-Type: text/html\r\nCache-Control: no-store\r\n\(recovery)Content-Length: \(length)\r\nConnection: close\r\n\r\n\(html)"
-            if committedCancellation && isResult {
-                requests.hold(connection)
-                connection.send(content: Data(response.utf8), completion: .contentProcessed { error in
-                    XCTAssertNil(error)
-                })
-            } else if networkFailure && isResult {
+            if networkFailure && isResult {
                 connection.cancel()
-            } else if cancel && isResult {
+            } else if cancel && isResult && !committedCancellation {
                 DispatchQueue.global().asyncAfter(deadline: .now() + 1) { connection.cancel() }
             } else {
                 connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })

@@ -406,3 +406,54 @@ OAuth/provider linking требуют существующих T004/T011/T012; �
 Prerequisite script не поддерживает --require-spec: после явного отказа
 использован --require-tasks --include-tasks и отдельная проверка наличия spec.
 До/после converge hooks отсутствуют; auto-commit hooks отключены.
+
+
+## Доставка синтетического POST после отказа GitHub — 21.10.2026
+
+PR#7668 на adb345c42a55ea5a5acf7777fa4e13b7eacef7fc получил настоящий
+macos-pr FAIL39607758091: один committed-cancellation сценарий дал шесть
+ошибок утверждений после отсутствующего didCommit. Исходный журнал
+hosted-final-failure.log сохранён. Прежний локальный PASS этот отказ не отменяет.
+
+Независимый допуск [review-hosted-commit-plan-20261021.md](review-hosted-commit-plan-20261021.md):
+requirements16/0, auth-navigation20/0, блокеров0. Анализ уточнённого плана:
+CRITICAL0/HIGH0; существующие T006/T017 и открытая #4733 сохраняют ownership,
+нового требования или дублирующей задачи нет.
+
+Исправлен только синтетический HTTP fixture: POST получает полный HTML с точным
+Content-Length и img на /f136-held-resource. Сервер фиксирует отдельный GET
+и удерживает его без ответа. Прежняя отмена main connection исключена только
+для committedCancellation; остальные сценарии сохранены. Тест ждёт настоящий
+didCommit и ровно один GET ресурса, затем проверяет новый history item,
+isLoading=true и finishCount=0 перед прежним stopLoading. Reload/Back/новый
+безопасный GET и единственный POST проверяются прежними assertions.
+Таймаут didCommit не увеличен, callbacks не подставляются, новых skip нет.
+Точный порог буферизации неполного HTML WebKit не установлен и не заявляется.
+
+| Текущий журнал | Результат |
+|---|---|
+| held-resource-focused.log | 1 PASS,0FAIL/0SKIP,0.929с |
+| held-resource-cabinet.log | 86 PASS,0FAIL/0SKIP,3.873с |
+| held-resource-full.log | 1248 выбранных,1246 PASS,2 SKIP,0FAIL,111.939с,exit0 |
+
+Два SKIP — существующие экспорты card/permission изображений без настроенных
+каталогов. Они не считаются PASS или установленной приёмкой. Наборы1/86/1248
+пересекаются и не суммируются. Локальная macOS26/Swift6.3.3 не заменяет
+новую проверку GitHub macOS14/Swift6.0.3. check_spec_kit_governance,
+check-development-process и git diff --check:PASS.
+
+Product EmbeddedCabinetWebView.swift не менялся в этой поправке,
+SHA2568dd084e32763ac4d16df6ea6ff76a8114c959e642b0c66fbe83b12331b285078.
+Test SHA256e374b04a579464737a97d9d411a3d5c260edf7ac882a42d9a82986c36b3f0552.
+Сверка по speckit-converge: новых обязательных кодовых остатков данного
+fixture-среза не найдено. T017 остаётся открытой до нового независимого
+итогового ревью, трёх exact-SHA/base checks и принятого PR; OAuth T004/T011/T012,
+ручная T016 и вся F136 остаются открытыми. Приложение/Dev/production не менялись.
+
+
+Итоговое независимое ревью доставки POST:
+[review-held-resource-final-20261021.md](review-held-resource-final-20261021.md),
+APPROVE, замечаний0/блокеров0, requirements16/0 и auth-navigation20/0.
+Основной агент прочитал фактический отчёт и оба списка; тестовый и продуктовый
+SHA256 совпали с указанными выше. T017 ожидает новые три проверки GitHub
+точного SHA/основы и принятие PR; OAuth и ручная T016 остаются открытыми.
