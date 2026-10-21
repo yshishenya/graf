@@ -84,6 +84,7 @@ public enum EmbeddedCabinetNavigationPolicy {
         let decision = routePolicy.decision(for: url)
         return decision.decision == .allow
             && ![.artifactDownload, .authCallback, .authProvider].contains(decision.route.kind)
+            && !isTransientAuthDocument(url)
     }
 
     public static func isSafeHistoryRequest(
@@ -91,11 +92,12 @@ public enum EmbeddedCabinetNavigationPolicy {
         routePolicy: DesktopCabinetRoutePolicy
     ) -> Bool {
         guard (request.httpMethod ?? "GET").uppercased() == "GET" else { return false }
-        guard let url = request.url else { return false }
-        let decision = routePolicy.decision(for: url)
-        guard decision.decision == .allow else { return false }
-        return ![.authCallback, .authProvider].contains(decision.route.kind)
-            && decision.route.kind != .artifactDownload
+        return isSafeDocument(request.url, routePolicy: routePolicy)
+    }
+
+    fileprivate static func isTransientAuthDocument(_ url: URL) -> Bool {
+        let components = url.path.split(separator: "/")
+        return components.count > 1 && ["login", "sign-up"].contains(components.first)
     }
 
     public static func isEmailLinkFormDocument(_ url: URL?) -> Bool {
@@ -169,11 +171,14 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     private var pendingControllerNavigationTargetURL: URL?
     private var pendingControllerNavigationKind: ControllerNavigationKind?
     private let invalidNavigations = NSHashTable<WKNavigation>.weakObjects()
-    private var historyFencePending = false
+    private var sessionBoundaryPending = false
     private var controllerNavigationPending = false
     private var sessionExpired = false
     private var safeHistoryURLs = Set<URL>()
     private var unsafeHistoryURLs = Set<URL>()
+    private let unsafeHistoryItems = NSHashTable<WKBackForwardListItem>.weakObjects()
+    private var pendingHistoryRequestIsSafe: Bool?
+    private weak var finishedHistoryItem: WKBackForwardListItem?
 
     private enum ControllerNavigationKind: Equatable {
         case back
@@ -358,6 +363,9 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         self.sessionExpired = sessionExpired
         safeHistoryURLs = []
         unsafeHistoryURLs = []
+        unsafeHistoryItems.removeAllObjects()
+        finishedHistoryItem = nil
+        pendingHistoryRequestIsSafe = nil
         syntheticMeetingsListURL = nil
         syntheticForwardRequest = nil
         syntheticLoadInFlight = false
@@ -366,7 +374,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         pendingNavigationURL = nil
         clearControllerNavigationTarget()
         invalidNavigations.removeAllObjects()
-        historyFencePending = false
+        sessionBoundaryPending = false
         controllerNavigationPending = false
         observeNavigationRequest(initialRequest, webView: webView)
         isLoading = true
@@ -381,6 +389,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         self.routePolicy = routePolicy
         self.fallbackRequest = fallbackRequest
         if sessionExpired {
+            finishedHistoryItem = nil
             self.sessionExpired = true
         }
         syncNavigationState()
@@ -388,6 +397,8 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
 
     fileprivate func markSessionExpired(webView: WKWebView) {
         guard self.webView === webView else { return }
+        sessionBoundaryPending = false
+        finishedHistoryItem = nil
         if !sessionExpired {
             sessionExpired = true
             sessionBoundaryID = UUID()
@@ -408,11 +419,14 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         pendingNavigationURL = nil
         clearControllerNavigationTarget()
         invalidNavigations.removeAllObjects()
-        historyFencePending = false
+        sessionBoundaryPending = false
         controllerNavigationPending = false
         sessionExpired = false
         safeHistoryURLs = []
         unsafeHistoryURLs = []
+        unsafeHistoryItems.removeAllObjects()
+        finishedHistoryItem = nil
+        pendingHistoryRequestIsSafe = nil
         // Commands are already detached; publish after SwiftUI finishes dismantling its graph.
         Task { @MainActor [weak self] in
             guard let self, self.webView == nil else { return }
@@ -441,6 +455,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     ) {
         guard self.webView === webView else { return }
         guard let navigation else {
+            pendingHistoryRequestIsSafe = nil
             activeNavigation = nil
             activeNavigationURL = nil
             pendingNavigationURL = nil
@@ -465,34 +480,59 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         syncNavigationState()
     }
 
+    fileprivate func navigationDidCommit(webView: WKWebView, navigation: WKNavigation?) {
+        guard self.webView === webView, isCurrentNavigation(navigation),
+              pendingHistoryRequestIsSafe == false,
+              let item = webView.backForwardList.currentItem else { return }
+        // Until WebKit replaces the document, a failed form still leaves the
+        // preceding GET visible. Only the new committed item becomes unsafe.
+        unsafeHistoryItems.add(item)
+        unsafeHistoryURLs.insert(item.url)
+        safeHistoryURLs.remove(item.url)
+    }
+
     @discardableResult
     fileprivate func navigationDidFinish(
         webView: WKWebView,
         navigation: WKNavigation? = nil,
-        expectedURL: URL? = nil
+        expectedURL: URL? = nil,
+        confirmsDocument: Bool = false
     ) -> Bool {
         guard self.webView === webView, isCurrentNavigation(navigation, expectedURL: expectedURL) else { return false }
+        // Download/resource terminals retire navigation without replacing the
+        // current document. Only a real didFinish can certify its request.
+        if confirmsDocument { finishedHistoryItem = nil }
+        if confirmsDocument, let safe = pendingHistoryRequestIsSafe, let item = webView.backForwardList.currentItem {
+            if safe {
+                unsafeHistoryItems.remove(item)
+                unsafeHistoryURLs.remove(item.url)
+                safeHistoryURLs.insert(item.url)
+                if let routePolicy, EmbeddedCabinetNavigationPolicy.isSafeDocument(item.url, routePolicy: routePolicy) {
+                    finishedHistoryItem = item
+                }
+            } else {
+                unsafeHistoryItems.add(item)
+            }
+        }
+        pendingHistoryRequestIsSafe = nil
         activeNavigation = nil
         activeNavigationURL = nil
         pendingNavigationURL = nil
         clearControllerNavigationTarget()
         controllerNavigationPending = false
         isLoading = false
-        let historyWasFenced = fencePendingHistory()
+        sessionBoundaryPending = false
         if let url = webView.url, let routePolicy {
             let wasSessionExpired = sessionExpired
-            let kind = routePolicy.decision(for: url).route.kind
-            if !historyWasFenced {
-                observeNavigationRequest(URLRequest(url: url), webView: webView, registersNavigation: false)
-            }
-            if isAuthRoute(kind) {
+            let route = routePolicy.decision(for: url).route
+            observeNavigationRequest(URLRequest(url: url), webView: webView, registersNavigation: false)
+            if isAuthRoute(route.kind) {
                 sessionExpired = true
-            } else if isProtectedMeetingRoute(url, routePolicy: routePolicy) {
-                if wasSessionExpired && !historyWasFenced {
-                    sessionBoundaryID = UUID()
-                    safeHistoryURLs = []
-                    unsafeHistoryURLs = []
-                }
+                sessionBoundaryPending = !wasSessionExpired
+                    && isSafeHistoryDocument(url, routePolicy: routePolicy)
+            } else if isProtectedMeetingRoute(url, routePolicy: routePolicy),
+                      isSafeHistoryDocument(url, routePolicy: routePolicy) {
+                sessionBoundaryPending = wasSessionExpired
                 sessionExpired = false
             }
         }
@@ -513,11 +553,12 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     @discardableResult
     fileprivate func navigationDidFail(webView: WKWebView, navigation: WKNavigation?, error: Error) -> Bool {
         guard self.webView === webView, isCurrentNavigation(navigation) else { return false }
+        pendingHistoryRequestIsSafe = nil
         activeNavigation = nil
         activeNavigationURL = nil
         pendingNavigationURL = nil
         clearControllerNavigationTarget()
-        fencePendingHistory()
+        sessionBoundaryPending = false
         controllerNavigationPending = false
         syntheticMeetingsListURL = nil
         syntheticForwardRequest = nil
@@ -532,11 +573,12 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         guard self.webView === webView,
               isCurrentNavigation(nil, expectedURL: expectedURL)
         else { return false }
+        pendingHistoryRequestIsSafe = nil
         activeNavigation = nil
         activeNavigationURL = nil
         pendingNavigationURL = nil
         clearControllerNavigationTarget()
-        fencePendingHistory()
+        sessionBoundaryPending = false
         controllerNavigationPending = false
         syntheticMeetingsListURL = nil
         syntheticForwardRequest = nil
@@ -552,6 +594,11 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         guard syntheticMeetingsListURL != webView.url else { return false }
         let isControllerTarget = controllerNavigationPending
             && pendingControllerNavigationTargetURL == url
+        // The public WebKit action identifies a URL, not the history item.
+        // Native controls selected a safe item; an ambiguous gesture must not
+        // restore an older POST item with the same URL, even from page cache.
+        if !isControllerTarget,
+           unsafeHistoryItems.allObjects.contains(where: { $0.url == url }) { return false }
         let isBackNavigation = isControllerTarget
             ? pendingControllerNavigationKind == .back
             : webView.backForwardList.backList.contains { $0.url == url }
@@ -585,6 +632,12 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
             && (!sessionExpired || !isProtectedMeetingRoute(webView.url, routePolicy: routePolicy))
     }
 
+    fileprivate func canRestoreFinishedDocument(in webView: WKWebView) -> Bool {
+        guard let finishedHistoryItem,
+              webView.backForwardList.currentItem === finishedHistoryItem else { return false }
+        return shouldAllowReload(in: webView)
+    }
+
     fileprivate func observeNavigationRequest(
         _ request: URLRequest,
         webView: WKWebView,
@@ -601,16 +654,10 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         )
         guard decision.decision == .allow else { return }
         if registersNavigation {
-            // WebKit may report a server redirect as another action for the
-            // same WKNavigation. Preserve it here; the action policy retires
-            // clearly new user actions before dispatch, while navigationDidStart
-            // replaces the identity for other new operations.
+            // A pending action blocks the preceding terminal callback until
+            // WebKit either starts a new identity or confirms a server redirect.
             pendingNavigationURL = url
-            if (request.httpMethod ?? "GET").uppercased() != "GET",
-               isProtectedMeetingRoute(url, routePolicy: routePolicy),
-               !EmbeddedCabinetNavigationPolicy.isEmailLinkFormDocument(url) {
-                historyFencePending = true
-            }
+            pendingHistoryRequestIsSafe = nil
         }
         // Artifact downloads are intentionally excluded from the document
         // history ledgers, but still need an active target URL. WebKit can
@@ -623,27 +670,28 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
             syntheticMeetingsListURL = nil
             syntheticLoadInFlight = false
         }
-        if EmbeddedCabinetNavigationPolicy.isSafeHistoryRequest(request, routePolicy: routePolicy) {
+        let safe = EmbeddedCabinetNavigationPolicy.isSafeHistoryRequest(request, routePolicy: routePolicy)
+        if registersNavigation { pendingHistoryRequestIsSafe = safe }
+        if safe {
             if !unsafeHistoryURLs.contains(url) {
                 safeHistoryURLs.insert(url)
             }
-        } else {
-            unsafeHistoryURLs.insert(url)
-            safeHistoryURLs.remove(url)
         }
     }
 
     fileprivate func clearPendingNavigation(webView: WKWebView) {
         guard self.webView === webView else { return }
+        pendingHistoryRequestIsSafe = nil
         pendingNavigationURL = nil
     }
 
     fileprivate func cancelPendingNavigation(webView: WKWebView) {
         guard self.webView === webView else { return }
         invalidateActiveNavigation()
+        pendingHistoryRequestIsSafe = nil
         pendingNavigationURL = nil
         clearControllerNavigationTarget()
-        historyFencePending = false
+        sessionBoundaryPending = false
         syntheticMeetingsListURL = nil
         syntheticForwardRequest = nil
         syntheticLoadInFlight = false
@@ -656,17 +704,14 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         cancelPendingNavigation(webView: webView)
     }
 
-    fileprivate func retirePreviousNavigation(before action: WKNavigationAction) {
-        // A new user action must reject the previous terminal callback even when
-        // both documents use the same URL. Redirects keep their WKNavigation.
-        switch action.navigationType {
-        case .linkActivated, .formSubmitted, .formResubmitted:
-            invalidateActiveNavigation()
-        case .reload, .backForward:
-            if !controllerNavigationPending { invalidateActiveNavigation() }
-        default:
-            break
-        }
+    fileprivate func navigationDidRedirect(webView: WKWebView, navigation: WKNavigation?) {
+        guard self.webView === webView, let navigation,
+              activeNavigation === navigation else { return }
+        // WebKit reports a redirect as another action for the same navigation,
+        // then confirms that identity here. A new navigation instead supersedes
+        // the old identity in navigationDidStart.
+        activeNavigationURL = pendingNavigationURL ?? webView.url
+        pendingNavigationURL = nil
     }
 
     private func invalidateActiveNavigation() {
@@ -677,17 +722,19 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         controllerNavigationPending = false
     }
 
-    @discardableResult
-    private func fencePendingHistory() -> Bool {
-        guard historyFencePending else { return false }
-        historyFencePending = false
+    fileprivate func commitPendingSessionBoundary(webView: WKWebView) {
+        guard self.webView === webView, sessionBoundaryPending else { return }
+        sessionBoundaryPending = false
         safeHistoryURLs = []
         unsafeHistoryURLs = []
+        unsafeHistoryItems.removeAllObjects()
+        finishedHistoryItem = nil
+        pendingHistoryRequestIsSafe = nil
         syntheticMeetingsListURL = nil
         syntheticForwardRequest = nil
         syntheticLoadInFlight = false
         sessionBoundaryID = UUID()
-        return true
+        syncNavigationState()
     }
 
     private func syncNavigationState() {
@@ -717,6 +764,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
             && isSafeHistoryDocument(webView.url, routePolicy: routePolicy)
             && (!sessionExpired || !isProtectedMeetingRoute(webView.url, routePolicy: routePolicy))
         canGoHome = !isLoading
+            && !sessionExpired
             && webView.url != fallbackRequest?.url
             && isSafeHomeDocument(fallbackRequest?.url, routePolicy: routePolicy)
     }
@@ -751,7 +799,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
                 || pendingNavigationURL == expectedURL
                 || isEquivalentArtifactURL(activeNavigationURL, expectedURL)
         }
-        guard let activeNavigation else { return false }
+        guard pendingNavigationURL == nil, let activeNavigation else { return false }
         return activeNavigation === navigation
     }
 
@@ -774,7 +822,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         let currentKind = webView.url.map { routePolicy.decision(for: $0).route.kind }
         return EmbeddedCabinetNavigationPolicy.nearestDistinctHistoryItem(
             currentURL: webView.url,
-            candidates: webView.backForwardList.backList.reversed(),
+            candidates: webView.backForwardList.backList.reversed().filter { !unsafeHistoryItems.contains($0) },
             url: { $0.url },
             isAllowed: { url in
                 let decision = routePolicy.decision(for: url)
@@ -796,7 +844,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     ) -> WKBackForwardListItem? {
         EmbeddedCabinetNavigationPolicy.nearestDistinctHistoryItem(
             currentURL: webView.url,
-            candidates: webView.backForwardList.forwardList,
+            candidates: webView.backForwardList.forwardList.filter { !unsafeHistoryItems.contains($0) },
             url: { $0.url },
             isAllowed: { url in
                 isSafeHistoryDocument(url, routePolicy: routePolicy)
@@ -822,6 +870,8 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         _ url: URL?,
         routePolicy: DesktopCabinetRoutePolicy
     ) -> Bool {
+        if url == webView?.url, let item = webView?.backForwardList.currentItem,
+           unsafeHistoryItems.contains(item) { return false }
         guard let url,
               !unsafeHistoryURLs.contains(url),
               safeHistoryURLs.contains(url)
@@ -1442,12 +1492,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         }
         guard let url else { return true }
         return !EmbeddedCabinetNavigationPolicy.isEmailLinkFormDocument(url)
-            && ![
-            "/login/email/start",
-            "/login/email/verify",
-            "/sign-up/email/start",
-            "/sign-up/email/verify"
-        ].contains(url.path)
+            && !EmbeddedCabinetNavigationPolicy.isTransientAuthDocument(url)
     }
 
     public nonisolated static func trackedRoute(current _: URL?, loaded: URL) -> URL {
@@ -1804,6 +1849,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private var onCheckForUpdates: CheckForUpdatesAction
         private let onOpenMeetingDetectionSettings: OpenMeetingDetectionSettingsAction
         private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
+        private let notificationPresenter: DesktopNotificationPresenter
         private let navigationController: EmbeddedCabinetNavigationController
         private var localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = []
         private var recoveryRequired = false
@@ -1840,6 +1886,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         ) {
             self.routePolicy = routePolicy
             recordingSettingsBridge = EmbeddedCabinetRecordingSettingsBridge(routePolicy: routePolicy)
+            self.notificationPresenter = notificationPresenter
             notificationSettingsBridge = EmbeddedCabinetNotificationSettingsBridge(routePolicy: routePolicy, presenter: notificationPresenter)
             self.desktopHeaders = desktopHeaders
             navigationRequestPolicy = DesktopCabinetNavigationRequestPolicy(
@@ -2279,7 +2326,8 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             }
 
             if navigationAction.navigationType == .backForward,
-               !navigationController.shouldAllowBackForwardNavigation(to: url, in: webView) {
+               (!EmbeddedCabinetNavigationPolicy.isSafeHistoryRequest(navigationAction.request, routePolicy: routePolicy)
+                || !navigationController.shouldAllowBackForwardNavigation(to: url, in: webView)) {
                 navigationController.cancelControllerNavigationIfPending(webView: webView)
                 decisionHandler(.cancel)
                 return
@@ -2343,7 +2391,6 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                         decisionHandler(.cancel)
                         return
                     }
-                    navigationController.retirePreviousNavigation(before: navigationAction)
                     if decision.route.kind == .external {
                         paymentNavigation = paymentNavigation.begin(
                             isBillingCheckoutDocument: startsPaymentChain,
@@ -2563,9 +2610,14 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         }
 
         @MainActor
+        public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            navigationController.navigationDidCommit(webView: webView, navigation: navigation)
+        }
+
+        @MainActor
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             guard navigationController.isAttached(to: webView) else { return }
-            guard navigationController.navigationDidFinish(webView: webView, navigation: navigation) else { return }
+            guard navigationController.navigationDidFinish(webView: webView, navigation: navigation, confirmsDocument: true) else { return }
             finishAuthNavigation(in: webView)
             guard let url = webView.url else {
                 return
@@ -2615,6 +2667,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 currentRoute = EmbeddedCabinetWebView.trackedRoute(current: currentRoute, loaded: url)
             }
             cabinetState = finishedState
+            // SwiftUI uses the boundary as the WebView identity. Publish it only
+            // after the final route, request identity and presentation are saved.
+            navigationController.commitPendingSessionBoundary(webView: webView)
             applyUpdateVisibility(to: webView)
             applyLocalRecordingRows(to: webView)
             recordingSettingsBridge.activate(webView)
@@ -2638,7 +2693,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 guard let self, let webView, isCurrentDocument() else { return }
                 // Preferences belong to the authenticated document, after cookie reconciliation.
                 if EmbeddedCabinetNotificationSettingsBridge.isSettingsURL(url, policy: self.routePolicy) {
-                    let authEpoch = DesktopNotificationPresenter.shared.authEpoch
+                    let authEpoch = self.notificationPresenter.authEpoch
                     Task { @MainActor [weak self, weak webView] in
                         guard let self, let webView else { return }
                         await self.notificationSettingsBridge.activateAfterRefreshingContext(
@@ -2743,6 +2798,11 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         }
 
         @MainActor
+        public func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
+            navigationController.navigationDidRedirect(webView: webView, navigation: navigation)
+        }
+
+        @MainActor
         public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             guard navigationController.isAttached(to: webView) else { return }
             calendarJoinBridge.invalidate()
@@ -2772,8 +2832,26 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
 
         private func transitionAfterNavigationFailure(_ error: Error, webView: WKWebView, phase: String) {
             let previousState = cabinetState
-            let nextState = DesktopCabinetState.state(forNavigationError: error, currentState: cabinetState)
+            let failureState = DesktopCabinetState.state(forNavigationError: error, currentState: cabinetState)
+            // This current navigation has terminated; a replacement's stale
+            // callbacks were rejected before reaching this method.
+            let restoresFinishedDocument = phase == "provisional" && failureState == .loading
+                && navigationController.canRestoreFinishedDocument(in: webView)
+            let nextState: DesktopCabinetState
+            if restoresFinishedDocument, let url = webView.url {
+                currentRoute = EmbeddedCabinetWebView.trackedRoute(current: currentRoute, loaded: url)
+                if let container = webView.superview as? WebViewContainer {
+                    container.lastLoadedRequestIdentity = EmbeddedCabinetWebView.loadIdentity(url: url)
+                }
+                nextState = EmbeddedCabinetWebView.finishedState(for: routePolicy.decision(for: url).route.kind)
+            } else {
+                nextState = failureState == .loading ? .malformedResponse : failureState
+            }
             cabinetState = nextState
+            if restoresFinishedDocument, let url = webView.url {
+                recordingSettingsBridge.activate(webView)
+                synchronizeUserTime(from: webView, url: url)
+            }
             if nextState == .expiredSession || nextState == .workspaceReselectionRequired {
                 DesktopUserTimeContext.shared.reset()
                 navigationController.markSessionExpired(webView: webView)
@@ -3100,10 +3178,15 @@ public struct EmbeddedCabinetWebView: View {
     }
 
     public nonisolated static func shouldTrackSwiftUIRequestIdentity(
-        for _: DesktopCabinetRouteKind,
-        url _: URL? = nil
+        for routeKind: DesktopCabinetRouteKind,
+        url: URL? = nil
     ) -> Bool {
-        true
+        guard ![.authProvider, .authCallback, .external].contains(routeKind) else {
+            return false
+        }
+        guard let url else { return true }
+        return !EmbeddedCabinetNavigationPolicy.isEmailLinkFormDocument(url)
+            && !EmbeddedCabinetNavigationPolicy.isTransientAuthDocument(url)
     }
 
     public nonisolated static func shouldTrackSwiftUIRequestIdentity(
