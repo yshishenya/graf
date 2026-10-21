@@ -163,3 +163,39 @@ requirements6/0, infra13/0. Проверенная SHA256 App
 Это локальная приёмка; обязательная hosted Apple6.0.3 и новые три PR checks
 остаются открытыми. Собственный scratch удалён после завершения проверки,
 журналы сохранены. Новых кодовых остатков двух замен не выявлено.
+
+
+## Настоящая приёмка и слияние CI-среза — 21.10.2026
+
+- PR: https://github.com/yshishenya/graf/pull/7679
+- PR SHA: `d10b97b9bba73cdf0c8e8eb295b2eab0963cade4`
+- Checked base: `845e6dcff7eb7f8e0e2b884902080ecb96582a3a`
+- Merge: `a42b78e1878cc4830681e290aed8408cae10c556`
+- Source governance-fast: https://github.com/yshishenya/graf/actions/runs/39612953545 (attempt1,SUCCESS)
+- Source macos-pr: https://github.com/yshishenya/graf/actions/runs/39612953841 (attempt1,SUCCESS)
+- Metadata: https://github.com/yshishenya/graf/actions/runs/39612975553 (attempt1,SUCCESS)
+- Последние gates описания: governance-fast39612974869 SUCCESS и macos-pr39612974970 attempt2 SUCCESS.
+
+Настоящий AppleSwift6.0.3 (swiftlang-6.0.3.1.10) собрал пакет и App;
+1234XCTest:1232PASS/2SKIP/0FAIL,169.313с; ContractValidation:PASS.
+Два предусмотренных пропуска — экспорт изображений, не PASS и не ручная приёмка.
+Исправления argv и двух map прошли тот compiler, на котором прежде отказали.
+Локальный Swift6.3.3 остаётся отдельной диагностикой.
+
+Первый текстовый macos-pr39612974970 завершился отказом missing/duplicate/
+unsuccessful job. После завершения source API однозначно подтвердил три
+успешных задания source39612953841; повторён только лёгкий text workflow,
+attempt2 прошла. История отказа и API-снимок сохранены отдельно. Точный механизм
+первого рассогласования не установлен; исходные продуктовые тесты не повторялись.
+
+Общий scripts/validate-pr-checks.py с --pr 7679 и --expected-sha d10b97b9bba73cdf0c8e8eb295b2eab0963cade4
+завершился exit0 на текущих source/gates/head/base/attempt/metadata digest.
+Результат pr-checks-final.json и hosted-native-success.log сохранены во внешнем
+реестре f290-pr-closeout. Слияние выполнено обычным squash с match-head-commit,
+без обхода защит; live API подтвердил merged=true и merge SHA выше.
+Комментарий приёмки: https://github.com/yshishenya/graf/pull/7679#issuecomment-6318225462
+
+T005/T014/T015 завершены. US2 T006–T008, US3 T009–T011 и итоговые T012–T013
+не завершены; #6501/#7646 остаются открытыми. Выпуск, production, удаление
+сохранённой работы и изменение GRAF Dev не выполнялись. Перенос с macos14
+до отключения2026-11-02 сохраняет отдельные требования plan/review/приёмки.
