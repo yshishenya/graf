@@ -167,3 +167,8 @@ release-full 39250886863 подтверждены заново. Допуск, CD
 выполненной этой отметкой. Полное обоснование —
 [validation-renewal-order.md](validation-renewal-order.md), раздел сверки 22.10.
 T026, T030, T032 и общая F278 сохраняют открытый статус.
+
+
+## Phase 16: Повтор обработчика продления
+
+- [ ] T035 [HIGH] [US3] Исправить чтение загруженного результата до rollback в общем `apps/server/src/twobrain_rec_server/billing/renewal_charge.py`; сначала независимые требования/analyze/issue sync и настоящая PostgreSQL RED/GREEN регрессия двух состояний в `apps/server/tests/integration/test_billing_renewal_planner_postgres.py`, затем полный изолированный recovery PostgreSQL/Temporal, независимый code review, `changes/unreleased/F278.yaml`, exact-SHA PR/full release/CD и read-only production проверка. Сохранить статус/provider_id, POST=1, деньги/права/согласие/outbox; новых списаний/писем нет. FR-014/025/033; частично T026. (Issue #7704; [GitHub](https://github.com/yshishenya/graf/issues/7704))

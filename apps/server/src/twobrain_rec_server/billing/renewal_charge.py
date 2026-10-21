@@ -914,8 +914,9 @@ async def charge_renewal_operation(
         await db.rollback()
         return RenewalChargeResult(operation_id, "missing")
     if operation.provider_id is not None or operation.state not in RENEWAL_CANDIDATE_STATES:
+        result = RenewalChargeResult(operation_id, operation.state, operation.provider_id)
         await db.rollback()
-        return RenewalChargeResult(operation_id, operation.state, operation.provider_id)
+        return result
     invoice = await db.scalar(
         select(BillingInvoice)
         .where(
