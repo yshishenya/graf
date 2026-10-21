@@ -37,10 +37,10 @@ Hub опубликован в v2026.10.02.2: source/runtime/tag540f322b4de8016d3
 
 Третья статья опубликована v2026.10.02.3, source721b5125d, Full36949473232 PASS, CD/backup/readback PASS.
 - [x] T010 Реализовать и проверить общую шапку и ссылку главной, current/mobile/keyboard/no-JS/unchanged body; FR016–18 (Issue #7431).
-- [ ] T011 Пройти exact-SHA PR/Full/CD, backup/recovery и live readback; FR016–18 (Issue #7431).
+- [x] T011 Пройти exact-SHA PR/Full/CD, backup/recovery и live readback; FR016–18 (Issue #7431).
 
 - [x] T012 Унифицировать оформление трех статей с лендингом; сохранить текст/SEO/ссылки и проверить mobile/text200%/keyboard; FR019–20 (Issue #7435).
-- [ ] T013 Пройти exact-SHA CI и штатную публикацию общего дизайна с protected readback; FR019–20 (Issue #7435).
+- [x] T013 Пройти exact-SHA CI и штатную публикацию общего дизайна с protected readback; FR019–20 (Issue #7435).
 
 ## Предметная помощь по двум источникам звука
 
@@ -61,3 +61,19 @@ attempt `599561ecaa474082b65ce28cfe345373`, свежий backup
 immutable attestation 22:25:18Z. Live Help/guides/canonical/sitemap/navigation,
 Chromium320/390/768/1440,text200%,keyboard/noJS и protected/source readback PASS.
 Полные границы проверки и доказательства — в `audio-help-evidence.md`.
+
+## Отдельная сверка T011/T013 — 2026-10-17
+
+Публикация и исходные критерии T011/T013 проверены отдельно от T016.
+PR7432/7437 подтверждены общим валидатором на точных head/base/merge.
+Работающий v2026.10.16.6/source
+`834bdc87e3c83ebd86e1afd2c6e7760229b7297d` содержит оба изменения;
+Full38933940635 attempt1 SUCCESS, durable CD deployed, backup PASS.
+В четырех службах 11 файлов совпали с Git; публичные CSS/JS совпали
+побайтово, live/ready200. Три статьи прошли Chromium360/390/768/1440
+с обычным и удвоенным текстом (24 сочетания), клавиатуру, контраст
+и работу без JavaScript. Подробности и границы —
+[publication-reconciliation.md](publication-reconciliation.md).
+Отметки относятся к проверенной реализации и публикации; issues7431/7435
+закрываются после принятия этой документальной сверки и отдельной
+проверки фактических комментариев. Общая F281 этим не закрывается.
