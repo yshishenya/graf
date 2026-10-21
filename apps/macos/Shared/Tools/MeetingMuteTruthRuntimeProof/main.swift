@@ -5,7 +5,7 @@ import TwoBrainRecShared
 @main
 struct MeetingMuteTruthRuntimeProof {
     static func main() async throws {
-        let configuration = try RuntimeProofConfiguration(arguments: CommandLine.arguments)
+        let configuration = try RuntimeProofConfiguration(arguments: ProcessInfo.processInfo.arguments)
         let store = LocalRecordingStore(rootURL: configuration.outputRootURL)
         let micSource = BufferedLocalRecordingSampleSource(capacity: 48_000 * 8, channelCount: 1)
         let incomingSource = BufferedLocalRecordingSampleSource(capacity: 48_000 * 8, channelCount: 1)

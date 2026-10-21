@@ -24,7 +24,7 @@ jobs:
       REQUESTED_SHA: ${{ inputs.requested_sha }}
     steps:
       - name: Checkout exact SHA
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.requested_sha }}
           fetch-depth: 0
@@ -39,10 +39,28 @@ jobs:
           [[ "$checkout_sha" == "$REQUESTED_SHA" ]]
           [[ "$(uname -m)" == "arm64" ]]
 
-      - name: Install Swift 6 toolchain
-        uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a
-        with:
-          swift-version: "6.0.3"
+      - name: Select installed Swift 6.0.3
+        shell: bash
+        run: |
+          set -euo pipefail
+          toolchain_bin=/Applications/Xcode_16.2.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin
+          developer_before="$(/usr/bin/xcode-select -p)"
+          sdk_before="$(/usr/bin/xcrun --sdk macosx --show-sdk-path)"
+          [[ -n "$developer_before" && -n "$sdk_before" ]]
+          for tool in swift swiftc; do
+            [[ -x "$toolchain_bin/$tool" ]]
+            tool_version="$("$toolchain_bin/$tool" --version)"
+            [[ "$tool_version" =~ (^|[[:space:]])Swift[[:space:]]version[[:space:]]6\.0\.3([[:space:]]|$) ]]
+            printf '%s\n%s\n' "$toolchain_bin/$tool" "$tool_version"
+          done
+          export PATH="$toolchain_bin:$PATH"
+          [[ "$(command -v swift)" == "$toolchain_bin/swift" ]]
+          [[ "$(command -v swiftc)" == "$toolchain_bin/swiftc" ]]
+          developer_after="$(/usr/bin/xcode-select -p)"
+          sdk_after="$(/usr/bin/xcrun --sdk macosx --show-sdk-path)"
+          [[ "$developer_before" == "$developer_after" && "$sdk_before" == "$sdk_after" ]]
+          printf 'developer=%s\nsdk=%s\n' "$developer_after" "$sdk_after"
+          printf '%s\n' "$toolchain_bin" >> "$GITHUB_PATH"
 
       - name: Run macOS diagnostic
         shell: bash

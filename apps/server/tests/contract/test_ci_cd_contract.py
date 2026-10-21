@@ -26,19 +26,19 @@ SIGNING_CUSTODY_TEST = ROOT / "apps/macos/Installer/Scripts/test-release-signing
 
 def test_macos_workflows_cache_swift_build_without_gating_validation() -> None:
     expected_key = (
-        "swift-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-"
+        "swift-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-xcode16.2-"
         "${{ hashFiles('apps/macos/Package.resolved') }}-"
         "${{ hashFiles('apps/macos/**/*.swift', 'apps/macos/Package.swift') }}-v2"
     )
     for workflow in (MACOS_PR_WORKFLOW, FULL_CI_WORKFLOW):
         text = workflow.read_text(encoding="utf-8")
-        assert "actions/cache@v4" in text
+        assert "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9" in text
         assert "id: swift-cache" in text
         assert "apps/macos/.build" in text
         assert "~/.cache/org.swift.swiftpm" in text
         assert "~/Library/Caches/org.swift.swiftpm" in text
         assert expected_key in text
-        assert "swift-version: \"6.0.3\"" in text
+        assert "Select installed Swift 6.0.3" in text
         # A cache hit must never replace or skip a validation step; it only
         # refreshes timestamps so llbuild can honor incremental state.
         assert "if: steps.swift-cache.outputs.cache-hit == 'true'" in text
@@ -665,7 +665,7 @@ def test_macos_xctest_process_boundary_matches_local_and_github() -> None:
 
     assert local_ci.count(command) == 2
     assert command in workflow
-    assert 'swift-version: "6.0.3"' in workflow
+    assert 'Select installed Swift 6.0.3' in workflow
     assert "unset _SWIFTPM_SKIP_TESTS_LIST" in runner
     assert "swift test --package-path apps/macos list" in runner
     assert '[[ -z "$test_list" ]]' in runner
@@ -927,7 +927,7 @@ def test_release_full_artifacts_and_aggregate_prove_shard_coverage() -> None:
         step["with"]["name"]
         for job in jobs.values()
         for step in job.get("steps", [])
-        if step.get("uses") == "actions/upload-artifact@v4" and step.get("with", {}).get("name")
+        if step.get("uses") == "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9" and step.get("with", {}).get("name")
     ]
     # Duplicate artifact names fail the matrix job, so the split must keep them unique.
     assert len(uploads) == len(set(uploads))
@@ -938,7 +938,7 @@ def test_release_full_artifacts_and_aggregate_prove_shard_coverage() -> None:
     assert "server-shard-${{ matrix.shard }}-result.json" in shard_upload["with"]["path"]
     assert "parallel-full-nodeids-${{ matrix.shard }}.txt" in shard_upload["with"]["path"]
     assert "shard-nodeids-${{ matrix.shard }}.txt" in shard_upload["with"]["path"]
-    download = next(step for step in jobs["aggregate"]["steps"] if step.get("uses") == "actions/download-artifact@v4")
+    download = next(step for step in jobs["aggregate"]["steps"] if step.get("uses") == "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333")
     assert download["with"]["merge-multiple"] == "true"
     assert download["with"]["pattern"] == "graf-full-component-*-${{ needs.reserve.outputs.artifact_key }}-*"
 
@@ -1372,8 +1372,8 @@ def test_github_full_workflow_is_manual_exact_sha_and_metadata_only() -> None:
     assert "permissions:\n  contents: read\n  actions: read" in workflow
     assert "ref: ${{ inputs.requested_sha }}" in workflow
     assert '[[ "${master_sha,,}" == "${REQUESTED_SHA,,}" ]]' in workflow
-    assert "actions/upload-artifact@v4" in workflow
-    assert "actions/download-artifact@v4" in workflow
+    assert "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9" in workflow
+    assert "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333" in workflow
     assert "candidate_already_reserved" in workflow
     assert "graf-full-lock-${{ steps.identity.outputs.artifact_key }}" in workflow
     assert "graf-full-ci-${{ needs.reserve.outputs.artifact_key }}" in workflow
@@ -1415,7 +1415,7 @@ def test_macos_diagnostic_workflow_is_exact_sha_and_non_authoritative() -> None:
     assert '[[ "$checkout_sha" == "$REQUESTED_SHA" ]]' in workflow
     assert not re.search(r"\$\{[^}\n]*,,[^}\n]*\}", workflow)
     assert "runs-on: macos-14" in workflow
-    assert 'swift-version: "6.0.3"' in workflow
+    assert 'Select installed Swift 6.0.3' in workflow
     assert "bash apps/macos/Scripts/run-swift-tests.sh" in workflow
     assert "run_local_postgres_tests.sh" not in workflow
     assert "emit-ci-evidence.py" not in workflow

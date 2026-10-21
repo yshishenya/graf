@@ -2019,7 +2019,7 @@ private struct ContentView: View {
         )
         let prerequisite = evaluatedMeetingDetectionRecordingPrerequisite(
             permissions: permissionGate.snapshot,
-            sourceAppIsCurrent: meetingDetectionTarget.map(isCurrentMeetingDetectionDecision) ?? true,
+            sourceAppIsCurrent: meetingDetectionTarget.map { isCurrentMeetingDetectionDecision($0) } ?? true,
             storageRisk: meetingDetectionStorageRisk()
         )
 
@@ -3046,7 +3046,7 @@ private struct ContentView: View {
     }
 
     private func recordingBlockerText(for snapshot: RecordingPrerequisiteSnapshot) -> String {
-        let action = snapshot.recoveryAction.map(recoveryActionText) ?? "Проверьте состояние перед записью"
+        let action = snapshot.recoveryAction.map { recoveryActionText($0) } ?? "Проверьте состояние перед записью"
         switch snapshot.blockedReason {
         case .none:
             return ""

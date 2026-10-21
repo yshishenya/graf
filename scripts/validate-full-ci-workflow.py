@@ -79,7 +79,7 @@ def validate(path: Path) -> list[str]:
         "read-only actions": r"(?ms)^permissions:\s*\n\s*contents:\s*read\s*\n\s*actions:\s*read\s*$",
         "candidate concurrency": r"(?ms)^concurrency:\s*.*?group:.*inputs\.candidate_id",
         "no cancellation": r"(?m)^\s*cancel-in-progress:\s*false\s*$",
-        "reservation job": r"(?ms)^\s*reserve:\s*\n.*?actions/upload-artifact@v4",
+        "reservation job": r"(?ms)^\s*reserve:\s*\n.*?actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9",
         "artifact lookup": r"actions/artifacts",
         "server static job": r"(?ms)^\s*server-static:\s*\n.*?runs-on:\s*ubuntu-latest",
         "server phases job": r"(?ms)^\s*server-phases:\s*\n.*?runs-on:\s*ubuntu-latest",
@@ -107,8 +107,8 @@ def validate(path: Path) -> list[str]:
         "authoritative flag": r"--authoritative-full",
         "zero skipped gates": r"--skipped-gate(?:\s+)?(?:none|\[\])|[\"']?skipped_gates[\"']?\s*[:=]\s*\[\]",
         "component SHAs": r"--component-sha",
-        "download artifact": r"actions/download-artifact@v4",
-        "merged component download": r"(?ms)actions/download-artifact@v4\s*\n\s*with:\s*\n\s*pattern:.*\n\s*merge-multiple:\s*true",
+        "download artifact": r"actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333",
+        "merged component download": r"(?ms)actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333\s*\n\s*with:\s*\n\s*pattern:.*\n\s*merge-multiple:\s*true",
         "aggregate dependency": r"needs:\s*\[?reserve.*server-static.*server-phases.*server-parallel.*macos-full",
         "candidate collision guard": r"candidate_already_reserved",
     }
@@ -122,10 +122,16 @@ def validate(path: Path) -> list[str]:
             errors.append(f"forbidden workflow content: {forbidden}")
     if re.search(r"(?m)^\s*(contents|actions|checks|pull-requests):\s*write\s*$", text):
         errors.append("release-full permissions must remain read-only")
-    if len(re.findall(r"actions/checkout@v4", text)) < 4:
+    if len(re.findall(r"actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", text)) < 4:
         errors.append("reserve and every component job must checkout exact SHA")
-    if re.search(r"(?mi)^\s*[-]?[ ]*uses:\s*actions/(?:checkout|upload-artifact|download-artifact)@v[0-3]\b", text):
-        errors.append("GitHub artifact/checkout actions must use v4")
+    for action, expected in {
+        "checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+        "upload-artifact": "cf430e030ddbb5b0abf93d22962f4752f3646cd9",
+        "download-artifact": "9000827ccba6bdab643e8b6fd33ac0654aef8333",
+    }.items():
+        for actual in re.findall(rf"uses:\s*actions/{action}@([^\s#]+)", text):
+            if actual != expected:
+                errors.append(f"actions/{action} must use its reviewed Node24 commit")
     if "GRAF_CI_CANDIDATE_FILE" in text:
         errors.append("workflow must not depend on a local ignored candidate file")
     if "authoritative_full=true" not in text and "--authoritative-full" not in text:
@@ -199,31 +205,31 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ inputs.requested_sha }}
       - run: gh api repos/o/r/actions/artifacts
       - run: echo candidate_already_reserved
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
   server-static:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - run: cd apps/server && PYTHONPATH=src uv run --extra dev ruff check .
       - run: python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts
       - run: pytest -q tests/governance
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: graf-full-component-server-${{ needs.reserve.outputs.artifact_key }}-${{ github.run_id }}-static
   server-phases:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - run: GRAF_TEST_WORKERS=4 GRAF_PERFORMANCE_GATE=required bash apps/server/scripts/run_local_postgres_tests.sh --focused --partitioned --phases strict,performance -q
       - run: (cd apps/server && PYTHONPATH=src uv run python scripts/verify_rls_hardening.py)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: graf-full-component-server-${{ needs.reserve.outputs.artifact_key }}-${{ github.run_id }}-phases
   server-parallel:
@@ -233,9 +239,9 @@ jobs:
       matrix:
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - run: GRAF_TEST_WORKERS=4 bash apps/server/scripts/run_local_postgres_tests.sh --focused --partitioned --phases parallel --shard ${{ matrix.shard }}/{{SHARD_COUNT}} -q
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: graf-full-component-server-${{ needs.reserve.outputs.artifact_key }}-${{ github.run_id }}-shard-${{ matrix.shard }}
           path: |
@@ -254,7 +260,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: graf-full-component-*-${{ needs.reserve.outputs.artifact_key }}-*
           merge-multiple: true
@@ -284,7 +290,7 @@ jobs:
               printf '%s\\n' "$result"
       - run: python3 scripts/emit-ci-evidence.py --authoritative-full --component-sha server=${{ inputs.requested_sha }} --skipped-gate [] --artifact "parallel-full-nodeids-0=$component_dir/test-timings/parallel-full-nodeids-0.txt" --artifact "shard-nodeids-0=$component_dir/test-timings/shard-nodeids-0.txt"
       - run: python3 scripts/validate-ci-evidence.py evidence.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
 """
     with tempfile.TemporaryDirectory(prefix="graf-full-workflow-") as directory:
         path = Path(directory) / "workflow.yml"

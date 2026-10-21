@@ -270,7 +270,7 @@ def test_metadata_workflow_is_trusted_read_only_and_bounded() -> None:
         "contents: read", "pull-requests: read", "timeout-minutes: 5",
         "group: graf-pr-metadata-${{ github.event.pull_request.number }}",
         "cancel-in-progress: true", "fetch-depth: 0", "persist-credentials: false",
-        "uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+        "uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
         "ref: ${{ github.workflow_sha }}", "python3 -I scripts/validate-pr-metadata.py",
         "retention-days: 90", "--current-pr-after",
     ):
