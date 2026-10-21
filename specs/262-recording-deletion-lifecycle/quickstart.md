@@ -20,7 +20,7 @@ cd apps/server
 uv run pytest tests/integration/test_cabinet_hx_delete_feedback.py tests/integration/test_deletion_lifecycle_blocks_access.py tests/integration/test_local_purge_coordination.py tests/integration/test_recording_sync_conflicts.py tests/integration/test_recording_workflow_deletion_races.py
 ```
 
-Browser baseline использует существующий `apps/server/tests/browser/mixed-meeting-list.test.cjs`; запускать командой проекта с его Playwright environment. Swift baseline — `DesktopUploadQueueV5Tests`, `DesktopMeetingShellWebViewBoundaryTests`, `DesktopLocalPurgeTests`, `DesktopUploadCustodyProjectionTests`. При реализации добавить минимальные тематические тесты к существующим наборам, а не отдельный тестовый framework.
+Browser baseline использует существующий `apps/server/tests/browser/mixed-meeting-list.test.cjs`; запускать командой проекта с его Playwright environment. Swift baseline — `DesktopUploadQueueTests` (файл `DesktopUploadQueueV5Tests.swift`), `DesktopMeetingShellWebViewBoundaryTests`, `DesktopLocalPurgeTests`, `DesktopUploadCustodyProjectionTests`. При реализации добавить минимальные тематические тесты к существующим наборам, а не отдельный тестовый framework.
 
 ## Новые обязательные доказательства
 
