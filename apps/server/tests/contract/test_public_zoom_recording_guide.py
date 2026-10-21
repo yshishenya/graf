@@ -28,7 +28,7 @@ def test_zoom_guide_is_indexable_with_only_anonymous_measurement(monkeypatch):
         assert response.status_code == 200 and "set-cookie" not in response.headers
         parser = Parser()
         parser.feed(response.text)
-        assert parser.h1 == 1 and parser.scripts == 0
+        assert parser.h1 == 1 and parser.scripts == 1
         assert parser.canonical == ["https://rec.2brain.pro" + ZOOM_GUIDE_PATH]
         assert parser.meta["description"] == parser.meta["og:description"]
         assert parser.meta["og:url"] == parser.canonical[0]
@@ -43,7 +43,14 @@ def test_zoom_guide_is_indexable_with_only_anonymous_measurement(monkeypatch):
             if href.startswith("#"):
                 assert href[1:] in parser.ids
             elif href.startswith("/"):
-                assert client.get(href).status_code < 400
+                linked = client.get(href, headers={"accept": "text/html"})
+                assert linked.status_code < 400
+                if href == "/meetings":
+                    assert len(linked.history) == 1 and linked.history[0].status_code == 303
+                    assert linked.url.path == "/login" and linked.url.params["next"] == "/meetings"
+        assert parser.links.count("/meetings") == 3
+        article = response.text.split("<main", 1)[1].split("</main>", 1)[0]
+        assert 'href="/login?next=/meetings"' not in article
         urls = [node.text for node in ElementTree.fromstring(client.get("/sitemap.xml").text).findall("{*}url/{*}loc")]
         assert urls.count(parser.canonical[0]) == 1 and len(urls) == len(set(urls))
         assert ZOOM_GUIDE_PATH in client.get("/guides").text

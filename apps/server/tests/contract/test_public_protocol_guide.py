@@ -1,3 +1,5 @@
+import json
+import re
 from html.parser import HTMLParser
 from pathlib import Path
 from xml.etree import ElementTree
@@ -47,14 +49,19 @@ def test_protocol_guide_is_indexable_and_links_resolve_without_tracking():
         assert p.meta["description"] == p.meta["og:description"]
         assert "учебный диалог" in p.meta["description"]
         assert "Протокол встречи из записи: пример решений и задач — ГРАФ" in r.text
-        assert p.h1 == 1 and p.scripts == 0
+        assert p.h1 == 1 and p.scripts == 1
         assert "noindex" not in p.meta.get("robots", "")
         assert "noindex" not in r.headers.get("x-robots-tag", "")
         for link in set(p.links):
             if link.startswith("#"):
                 assert link[1:] in p.ids
             else:
-                assert c.get(link).status_code == 200
+                linked = c.get(link, headers={"accept": "text/html"})
+                assert linked.status_code == 200
+                if link == "/meetings":
+                    assert len(linked.history) == 1 and linked.history[0].status_code == 303
+                    assert linked.url.path == "/login" and linked.url.params["next"] == "/meetings"
+        assert "/meetings" in p.links
         assert "/guides/zapis-vstrechi-na-mac-bez-bota" in p.links
         sitemap = ElementTree.fromstring(c.get("/sitemap.xml").text)
         urls = [x.text for x in sitemap.findall("{*}url/{*}loc")]
@@ -108,7 +115,9 @@ def test_protocol_guide_counts_visits_and_preserves_campaign_without_optional_tr
             await engine.dispose()
 
     response = client.get(PATH + "?utm_source=example&utm_medium=organic&utm_campaign=protocol&token=synthetic-secret")
-    assert response.status_code == 200 and "<script" not in response.text
+    assert response.status_code == 200
+    without_schema = re.sub(r'<script type="application/ld\+json">.*?</script>', "", response.text, flags=re.S)
+    assert "<script" not in without_schema
     assert PUBLIC_VISIT_ATTRIBUTION_COOKIE in response.cookies
     assert client.get(PATH).status_code == 200
     buckets = asyncio.run(read_rows("anonymous_page_aggregate_buckets"))
@@ -128,3 +137,41 @@ def test_protocol_guide_counts_visits_and_preserves_campaign_without_optional_tr
     assert client.get(PATH).status_code == 200
     guide_rows = [row for row in asyncio.run(read_rows("anonymous_page_aggregate_buckets")) if row["surface"] == "public_protocol_guide"]
     assert guide_rows[0]["visits"] == 2
+
+
+def test_guide_schema_matches_visible_article_and_navigation():
+    paths = (PATH, "/guides/rasshifrovka-zapisi-zoom")
+    with TestClient(create_app(Settings(public_base_url="https://rec.2brain.pro"))) as client:
+        for path in paths:
+            response = client.get(
+                path + "?utm_source=example&token=synthetic-secret",
+                headers={"host": "wrong.example"},
+            )
+            assert response.status_code == 200
+            html = response.text
+            scripts = re.findall(r"<script([^>]*)>(.*?)</script>", html, re.S)
+            assert len(scripts) == 1
+            attrs, data = scripts[0]
+            assert attrs.strip() == 'type="application/ld+json"'
+            schema = json.loads(data)
+            assert schema["@context"] == "https://schema.org"
+            article, breadcrumbs = schema["@graph"]
+            headline = re.search(r"<h1>(.*?)</h1>", html, re.S).group(1)
+            assert article == {
+                "@type": "Article", "headline": headline,
+                "mainEntityOfPage": "https://rec.2brain.pro" + path,
+                "inLanguage": "ru",
+                "author": {"@type": "Organization", "name": "Редакция ГРАФ"},
+            }
+            visible_html = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.S)
+            assert "редакция граф" in visible_html.casefold() and 'href="/guides"' in visible_html
+            assert breadcrumbs == {
+                "@type": "BreadcrumbList",
+                "itemListElement": [
+                    {"@type": "ListItem", "position": 1, "name": "Руководства",
+                     "item": "https://rec.2brain.pro/guides"},
+                    {"@type": "ListItem", "position": 2, "name": headline,
+                     "item": "https://rec.2brain.pro" + path},
+                ],
+            }
+            assert not any(value in data for value in ("wrong.example", "synthetic-secret", "utm_source"))
