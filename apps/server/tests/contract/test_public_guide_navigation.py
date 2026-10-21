@@ -18,9 +18,12 @@ class Header(HTMLParser):
         self.inside = False
         self.links = []
         self.images = []
+        self.scripts = []
 
     def handle_starttag(self, tag, attrs):
         data = dict(attrs)
+        if tag == "script":
+            self.scripts.append(data)
         if tag == "header":
             self.inside = True
         if self.inside and tag == "a":
@@ -48,7 +51,7 @@ def test_content_header_is_consistent_crawlable_and_marks_section():
             assert active[0]["aria-current"] == ("page" if path == "/guides" else "location")
             assert header.images[0]["alt"] == "ГРАФ"
             assert "content-header.css" in response.text
-            assert "<script" not in response.text
+            assert all(attrs == {"type": "application/ld+json"} for attrs in header.scripts)
             assert not any("data-analytics" in key for item in header.links for key in item)
 
 
