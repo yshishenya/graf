@@ -14,7 +14,7 @@ T009–T013 сохраняют широкие обязательства #6180. 
 Новые зависимости, пакет и повторный lifecycle не нужны. Проверить source,
 pointer, свободное место и сохранность чужой работы.
 
-- [X] T001 Зафиксировать принадлежность репозитория в specs/224-dev-stand-completion/spec.md и specs/224-dev-stand-completion/contracts/state-ownership.md; принять независимые checklists/requirements.md и checklists/infra.md, analyze и issue sync перед кодом — #6181.
+- [X] T001 Зафиксировать принадлежность репозитория в specs/224-dev-stand-completion/spec.md и specs/224-dev-stand-completion/contracts/state-ownership.md; принять независимые checklists/requirements.md и checklists/infra.md, analyze и issue sync перед кодом (Issue #6181)
 
 ## Phase 2: общие обязательные ограничения
 
@@ -29,12 +29,12 @@ pointer, свободное место и сохранность чужой ра
 **Независимая проверка**: настоящие временные Git repos/worktrees/clones,
 другой cwd, два процесса и старый удерживаемый lock; внешние эффекты подменены.
 
-- [X] T003 [US1] Воспроизвести исходный отказ и добавить изолированную матрицу origin/binding/path/adoption/frozen-adapter в tests/governance/test_dev_state_ownership.py; сохранить отрицательные Git-failure/чужой repo/другой cwd в specs/259-audit-remediation/evidence/dev-identity-probe.py — #6183.
-- [X] T004 [US1] Исправить принадлежность, одноразовый adopt-state и совместимость закреплённого adapter в scripts/dev-harness.py по contracts/state-ownership.md: schema_version «graf-dev-repository-state.v1», repository «canonical github.com/owner/repo без credentials», state_root «абсолютный реальный путь к единственному принятому harness», adopted_active_sha «полный активный SHA при принятии либо null для нового пустого стенда», adopted_at «время принятия UTC»; строгая проверка полей/путей, registration→прежний operational lock, fsync/атомарная публикация, неизменные данные/inode, безопасный повтор и отказ при неоднозначности — #6184.
-- [X] T005 [US1] В scripts/dev-harness.py закрыть все shared callers до первой записи и после lock: binding/live-override, build_manifest, adapter, schema-start-guard, smoke и prune; fixture допускает только изолированные файловые операции и никогда не удаляет общие Docker tags; доказать отсутствие эффектов в tests/governance/test_dev_state_ownership.py — #6185.
-- [X] T007 [US1] В tests/governance/test_dev_state_ownership.py доказать сериализацию двух реальных процессов/регистраций, ожидание прежнего lock без смены inode, отказ при смене active SHA во время ожидания, перепроверку parent кандидата и прерывания/ошибку публикации binding без изменения manifests/runtime/journals — #6187.
-- [X] T006 [US1] Обновить infra/dev/README.md и docs/agent-guidance/local-development.md: один binding/root/lock, явное принятие владельцем, неоднозначное состояние, запрет самостоятельного старого controller, ограничения status/fixture prune; live adoption только после освобождения стенда — #6186.
-- [ ] T008 [US1] В specs/224-dev-stand-completion/validation.md зафиксировать high-risk focused matrix, независимое ревью реализации, ограниченный converge US1, governance/context/process/changelog/diff; после отдельного разрешения commit/PR подтвердить exact-SHA fast на подходящей машине и governance-fast/macos-pr/pr-metadata на точном PR SHA/base, затем сверить критерии #6181–#6188 — #6188.
+- [X] T003 [US1] Воспроизвести исходный отказ и добавить изолированную матрицу origin/binding/path/adoption/frozen-adapter в tests/governance/test_dev_state_ownership.py; сохранить отрицательные Git-failure/чужой repo/другой cwd в specs/259-audit-remediation/evidence/dev-identity-probe.py (Issue #6183)
+- [X] T004 [US1] Исправить принадлежность, одноразовый adopt-state и совместимость закреплённого adapter в scripts/dev-harness.py по contracts/state-ownership.md: schema_version «graf-dev-repository-state.v1», repository «canonical github.com/owner/repo без credentials», state_root «абсолютный реальный путь к единственному принятому harness», adopted_active_sha «полный активный SHA при принятии либо null для нового пустого стенда», adopted_at «время принятия UTC»; строгая проверка полей/путей, registration→прежний operational lock, fsync/атомарная публикация, неизменные данные/inode, безопасный повтор и отказ при неоднозначности (Issue #6184)
+- [X] T005 [US1] В scripts/dev-harness.py закрыть все shared callers до первой записи и после lock: binding/live-override, build_manifest, adapter, schema-start-guard, smoke и prune; fixture допускает только изолированные файловые операции и никогда не удаляет общие Docker tags; доказать отсутствие эффектов в tests/governance/test_dev_state_ownership.py (Issue #6185)
+- [X] T007 [US1] В tests/governance/test_dev_state_ownership.py доказать сериализацию двух реальных процессов/регистраций, ожидание прежнего lock без смены inode, отказ при смене active SHA во время ожидания, перепроверку parent кандидата и прерывания/ошибку публикации binding без изменения manifests/runtime/journals (Issue #6187)
+- [X] T006 [US1] Обновить infra/dev/README.md и docs/agent-guidance/local-development.md: один binding/root/lock, явное принятие владельцем, неоднозначное состояние, запрет самостоятельного старого controller, ограничения status/fixture prune; live adoption только после освобождения стенда (Issue #6186)
+- [ ] T008 [US1] В specs/224-dev-stand-completion/validation.md зафиксировать high-risk focused matrix, независимое ревью реализации, ограниченный converge US1, governance/context/process/changelog/diff; после отдельного разрешения commit/PR подтвердить exact-SHA fast на подходящей машине и governance-fast/macos-pr/pr-metadata на точном PR SHA/base, затем сверить критерии #6181–#6188 (Issue #6188)
 
 **Checkpoint**: принятие US1 не завершает US2/US3, live adoption или #6180.
 
@@ -56,7 +56,7 @@ recovery-required; совместимый живой rollback и Dev TCC под�
 
 ## Phase 6: общая проверка и закрытие
 
-- [X] T002 Добавить проверенный changes/unreleased/F224.yaml с результатом US1 без сборки root CHANGELOG.md; проверить штатным валидатором фрагментов перед T008 — #6182.
+- [X] T002 Добавить проверенный changes/unreleased/F224.yaml с результатом US1 без сборки root CHANGELOG.md; проверить штатным валидатором фрагментов перед T008 (Issue #6182)
 - [ ] T013 В specs/224-dev-stand-completion/validation.md свести полную приёмку FR-001–018/SC-001–006, T001–T012 и F249 T038/#6786; завершить общий converge, required PR checks exact SHA/base и один release-full замороженного кандидата; проверить live feature closeout и только затем закрыть общую #6180 с подробным русским комментарием; выпуск/развёртывание требуют отдельного разрешения.
 
 ## Dependencies and execution order
