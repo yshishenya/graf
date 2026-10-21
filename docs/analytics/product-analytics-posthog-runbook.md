@@ -288,8 +288,8 @@ blocker code described here.
 | Disk | Keep analytics volumes separate; review below `20%` free and block/rollback before `<10%` free on the configured analytics filesystem. | Mark PostHog not ready, disable provider delivery, preserve GRAF workflows, and restore only after backup and free-space checks pass. |
 | Network | Analytics traffic remains on `analytics.2brain.pro`; probe analytics health every 60 seconds. | The guard alerts after 2 consecutive failed analytics/GRAF probes; latency and 3-of-5 probe review remain operator checks. |
 | Logs | `json-file` rotation `max-size=50m`, `max-file=3` for every generated-stack service. | Review if rotation is missing or forbidden fields appear; stop provider delivery before unbounded growth can affect GRAF. |
-| Backups | Daily metadata-only backup; latest backup age must be `<26h`; retain at least 90 days and rehearse isolated restore at least monthly. | Block readiness if backup is missing/stale or restore rehearsal fails; use the last known-good compose/volume state. |
-| Retention | Product event retention is `84` months; the self-hosted session-recording policy is now `90d` while recording is opted out; the session-replay bucket has an enabled 90-day object-lifecycle rule. | Review any policy/category without a documented owner and deletion behavior; do not claim lifecycle readiness from an empty table alone. The 90-day project value is a reversible self-hosted database override because the supported API rejected the entitlement. |
+| Backups | Daily full local backup, metadata-only evidence; target 0 ≤ completed-set age <26h; last 7 successful complete sets, minimum 2; consistent isolated restore within 30 days. Local-only owner decision 2026-10-22; T117/T118 pending. | Block readiness if backup is missing/stale or restore rehearsal fails; use the last known-good compose/volume state. |
+| Retention (historical 2026-07 receipt, superseded target) | The receipt observed product event retention of `84` months; the historical self-hosted session-recording policy was `90d` while recording is opted out; the session-replay bucket has an enabled 90-day object-lifecycle rule. | Review any policy/category without a documented owner and deletion behavior; do not claim lifecycle readiness from an empty table alone. The 90-day project value is a reversible self-hosted database override because the supported API rejected the entitlement. |
 
 The 2026-07-20 production receipt verified the 35-service Compose configuration,
 35 CPU entries, 35 memory entries, 33 running containers with non-zero runtime
@@ -475,6 +475,23 @@ training alert that proves the deadline is
 `infra/scripts/alert-analytics-degradation.sh --drill`. No production drill
 exists yet, so the SC-009 delivery receipt is `pending operator receipt`.
 
+### Полная потеря целевого сервера
+
+Локальные timer и внешний получатель Telegram сами по себе не обнаруживают
+полную потерю `2brain.dev`. Целевой контракт research §5 требует независимого
+наблюдателя на существующем `astraglobal`: systemd каждые 60 секунд,
+GET публичного `/api/v1/health/live`, timeout 10 секунд, обычная TLS-проверка,
+HTTP 200 и ожидаемый JSON. Два последовательных неуспеха дают
+`target_unreachable` и прямую отправку в Telegram без участия целевого сервера.
+Недоставленное/неизвестное не считается PASS; канал проверяется независимо
+через API и локальный журнал. Секреты только root 0600 вне репозитория.
+Обработка посетителей и архивы на наблюдатель не копируются. Требуется
+изолированная проверка непрерывного отказа и фактическая доставка ≤15 минут;
+до реализации и receipt T119 монитор не объявляется установленным. При потере
+всего сервера доступность продукта не сохраняется. Это отдельный сценарий
+от отключения только аналитики. Реальные учебные сообщения ждут конкретного
+поручения владельца, а не общего разрешения на локальные проверки.
+
 ## Alert Rules And Named Owners
 
 FR-055 requires a named owner for every alert rule, and FR-054 forbids visitor
@@ -623,10 +640,29 @@ retention/lifecycle, and dashboard-freshness reviews.
 
 Backup retention:
 
-- maintain enough backups to support at least the 90-day analytics retention
-  baseline unless a later legal/security rule requires a shorter category;
+- current F273 target keeps the last 7 successful complete local sets, minimum 2,
+  in `2brain.dev:/var/backups/graf-posthog` with root-only access; each carries
+  the retained `until_decision` history, not just seven days of events;
+- offsite copies are not required by the owner decision of 2026-10-22; losing
+  the host/disk may lose all history. See `infra/posthog/backup-restore.md`;
+- script/readiness migration T117/T118 remains pending; the old upload requirement
+  must not be bypassed by changing just one threshold;
 - never commit backup archives or content-bearing exports;
 - record restore rehearsal status before live readiness claims.
+
+### Действующее решение о хранении — 21.10.2026
+
+IP и допустимая аналитика хранятся в явном режиме `until_decision` без удаления
+по возрасту; отдельное решение/обязательное требование на удаление исполняется
+в своём сроке. IP не добавляется в обезличенный агрегат или внешние события.
+Сессии, разрешения и окно атрибуции 90 дней не продлеваются.
+
+**Секция ниже описывает старую реализацию, а не действующую инструкцию.** Не
+включать возрастной таймер и не запускать приведённый `apply-posthog-event-ttl.sh
+--execute` как применение новой политики. T109–T111 ещё открыты: сначала сверить
+установленные TTL/таймеры, проверить безопасную миграцию на изолированном наборе,
+отдельное удаление и восстановление старой копии, затем выполнить штатный выпуск.
+Изменение документа не доказывает отсутствия TTL на рабочем сервере.
 
 ### Scheduled Backup, Restore Verification, And Retention
 
@@ -636,7 +672,7 @@ FR-036, FR-051, FR-052).
 
 | Artifact | Schedule | State file | Contract |
 | --- | --- | --- | --- |
-| `infra/scripts/backup-posthog.sh` | daily systemd timer `graf-posthog-backup.timer`, `OnCalendar=*-*-* 02:30:00` | `/var/lib/graf-posthog-backup/backup-state` | At least two retained copies; exactly one offsite copy is required per run through `GRAF_POSTHOG_OFFSITE_COMMAND`; a run without the offsite copy is a failure, not a partial success |
+| `infra/scripts/backup-posthog.sh` | daily systemd timer `graf-posthog-backup.timer`, `OnCalendar=*-*-* 02:30:00` | `/var/lib/graf-posthog-backup/backup-state` | Target: last 7 verified complete local sets, minimum 2. No offsite requirement in this stage; T117 migration pending. A failed/partial run blocks readiness and cannot evict good sets |
 | `infra/scripts/verify-posthog-restore.sh` | systemd timer `graf-posthog-restore-verify.timer`, days 1 and 15, `OnCalendar=*-*-01,15 04:30:00` | `/var/lib/graf-posthog-backup/restore-state` | Restores into an isolated target and records metadata-only evidence: command names, pass/fail status, duration class, blocker codes |
 | `infra/scripts/enforce-product-analytics-retention.sh` | daily systemd timer `graf-posthog-retention-enforce.timer`, `OnCalendar=*-*-* 03:15:00` | `/var/lib/graf-posthog-retention/retention-state` | Enforces every approved local retention category and records the outcome per category |
 | `infra/scripts/apply-posthog-event-ttl.sh` | operator step whenever the term changes | — | Applies and verifies `infra/posthog/clickhouse-retention.sql`; the term is `POSTHOG_EVENT_RETENTION_DAYS`, default `365` |
@@ -678,7 +714,7 @@ systemd evaluates `OnCalendar` in the
 server timezone: keep the analytics server on UTC so `02:30`, `04:30`, and
 `03:15` are UTC times, and record the timezone with each receipt.
 
-Retention categories enforced by the scheduled task:
+Legacy retention categories implemented by the old scheduled task (superseded; not the accepted target policy):
 
 | Category | Term | Storage | Mechanism |
 | --- | --- | --- | --- |
@@ -688,9 +724,9 @@ Retention categories enforced by the scheduled task:
 | `acquisition_attribute` | `1095` days | PostgreSQL | Scheduled task |
 
 Every deletion is logged with a row count and nothing else: no visitor data, no
-user data, no event content, no account identifiers. A category with no
-retention term is a configuration error, never "keep indefinitely" (FR-050), and
-the task must fail loudly rather than delete by guesswork.
+user data, no event content, no account identifiers. The old numeric terms below must not be used as the new FR-050 contract.
+The accepted target requires an explicit mode: `until_decision` is valid; a
+missing or unknown mode is an error. No deletion may be inferred from a missing value.
 
 The ClickHouse category is enforced as a row TTL rather than a delete loop, so
 it has its own step:
@@ -714,7 +750,7 @@ A failed backup raises an alert (FR-051); a failed restore verification blocks
 the analytics readiness claim (FR-035, FR-051). These timers are installed and
 enabled as a release/deploy step, not by a local smoke run. Scheduled backup,
 restore-verification, retention-enforcement, TTL application, and
-first-offsite-upload receipts are all `pending operator receipt` until they run
+local-complete-set migration receipts are all `pending operator receipt` until they run
 on the analytics server.
 
 ## Analytics Readiness Blockers
@@ -732,7 +768,7 @@ configuration error rather than a ready state.
 | `backup_state_unavailable` | The backup state file is missing or unreadable |
 | `backup_missing` | No stored analytics backup copy exists |
 | `backup_stale` | The newest copy is older than the recovery-point objective |
-| `backup_offsite_copy_missing` | Fewer than the minimum number of copies live outside the measured server |
+| `backup_offsite_copy_missing` | Legacy offsite policy; not required by the current local-only target. Runtime migration T117 pending |
 | `backup_copy_count_below_minimum` | Fewer than the minimum number of stored copies are present |
 | `restore_verification_missing` | No successful restore verification is recorded |
 | `restore_verification_stale` | The last successful verification is older than the verification objective |
@@ -747,10 +783,10 @@ Defaults for every threshold above:
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `GRAF_POSTHOG_BACKUP_MAX_AGE_HOURS` | `26` | Newest backup copy not older than 26 hours |
+| `GRAF_POSTHOG_BACKUP_MAX_AGE_HOURS` | `26` | Completed full set: 0 ≤ age <26 hours; failed/future/unknown blocks (target T117) |
 | `GRAF_POSTHOG_RESTORE_MAX_AGE_DAYS` | `30` | Successful restore verification not older than 30 days (SC-010) |
 | `GRAF_POSTHOG_BACKUP_MIN_COPIES` | `2` | At least two stored copies |
-| `GRAF_POSTHOG_BACKUP_MIN_OFFSITE_COPIES` | `1` | At least one offsite copy |
+| `GRAF_POSTHOG_BACKUP_MIN_OFFSITE_COPIES` | target `0`, runtime migration pending | Owner accepted local-only copies; do not change this alone to claim readiness |
 
 The blocker list carries codes and counts only. It must never expose payload
 data, provider secrets, private host paths, or personal data, and the readiness

@@ -62,9 +62,9 @@ levels that process personal data are off by default.
 
 | Level | What it measures | Legal basis | Storage | Retention | Default |
 |---|---|---|---|---|---|
-| 1 `anonymous_aggregate` | visits to every public page, including visitors who gave no consent | no personal data | GRAF PostgreSQL | 1095 days | on |
-| 2 `attribution_profiles` | campaign attribution and registered-user data | contract / legitimate interest | GRAF PostgreSQL | 1095 days for the client acquisition attribute, 90 days for the visit attribution row | off |
-| 3 `provider_analytics` | consent-based measurement, including replay | consent | self-hosted PostHog ClickHouse | 365 days, replay 90 days | off |
+| 1 `anonymous_aggregate` | visits to every public page, including visitors who gave no consent | no personal data | GRAF PostgreSQL | `until_decision` (target; runtime migration pending) | on |
+| 2 `attribution_profiles` | campaign attribution and registered-user data | contract / legitimate interest | GRAF PostgreSQL | `until_decision`; attribution eligibility remains 90 days | off |
+| 3 `provider_analytics` | consent-based measurement, including replay | consent | self-hosted PostHog ClickHouse | `until_decision` for permitted product events; replay remains separately consented and unapproved for this change | off |
 
 Level 1 is on because two requirements need it: FR-009 requires the anonymous
 count on every public page including visitors who gave no consent, and FR-012
@@ -168,7 +168,7 @@ PostHog:
 
 Yandex:
 
-- public `/` and `/download` remain the only approved live scope from 093;
+- public `/` and `/download` are the historical approved provider scope from 093; F273 FR-027 targets all public pages, but this expansion needs its own accepted disclosure/approval and runtime check before enablement;
 - all-pages inventory exists, but non-public classes are blocked or
   replay-unavailable until evidence passes;
 - default offline conversion subset is only:
@@ -279,7 +279,7 @@ PostHog broad autocapture:
 
 Yandex separation:
 
-- existing 093 public `/` and `/download` scope is preserved;
+- existing 093 public `/` and `/download` scope describes the historical provider approval; F273 all-public expansion is a target, not an already accepted live scope;
 - non-public, admin, callback, meeting/detail, upload, deletion, embedded, and
   future page classes remain blocked or replay-unavailable for Yandex until
   inventory evidence changes;
@@ -307,3 +307,23 @@ Desktop direct provider route:
 infra/scripts/run-product-analytics-provider-smoke.sh
 infra/scripts/validate-product-analytics-provider-pages.sh
 ```
+
+
+## Решение владельца о хранении — 21.10.2026
+
+IP и допустимая продуктовая аналитика: без автоматического удаления по возрасту;
+удаление по отдельному решению или обязательному требованию. Режим задан явно
+как `until_decision`; пропущенная настройка не означает этот режим. Пароли,
+ключи, коды входа и содержимое встреч в этот объём не включены. Действительность
+сессий/разрешений и окно применения источника 90 дней не продлеваются.
+
+IP — отдельные контролируемые сетевые метаданные, не поле уровня 1 и не
+автоматически разрешённое поле внешнего события. Цели: безопасность, исключение
+собственного трафика, качество измерения. До записи принимаются конкретное
+хранилище, основание/раскрытие, доступ/аудит и процедура удаления (F273 FR-061).
+Решение владельца не выдаётся за новое правовое подтверждение.
+
+Изменение документов не изменило рабочие TTL/таймеры. Их миграция и проверка
+открыты в F273 T109–T111; прежние отчёты 365/1095 дней остаются историческими.
+Отдельное удаление имеет основание, охват, ответственного, крайний срок и
+проверенный результат; отсутствие возрастной очистки не отменяет исполнение.

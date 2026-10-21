@@ -19,7 +19,7 @@ This baseline is the number behind that promise:
 
 - it fixes how much disk the self-hosted analytics node actually uses today;
 - it fixes how fast that volume grows per day and per 1000 ingested events;
-- it projects the volume for 12 and 36 months, so the retention terms and the
+- it projects the volume for 12 and 36 months, so the planning horizons and the
   free-space guardrail can be checked against real data instead of an estimate;
 - it gives the evidence needed to justify the analytics-scope alert thresholds
   without raising them by guesswork.
@@ -43,7 +43,7 @@ The script must report, per storage class, metadata only:
 | `bytes_per_1000_events` | Bytes added per 1000 ingested events in the window |
 | `projected_bytes_12_months` | Linear projection from the measured daily growth |
 | `projected_bytes_36_months` | Linear projection from the measured daily growth |
-| `analytics_disk_free_percent` | Free space on the analytics filesystem, checked against the guardrail |
+| `analytics_disk_free_percent` | Free space on the analytics filesystem; on a shared filesystem this is the same resource as host disk free space, not independent analytics usage |
 | `recorded_at` | UTC timestamp of the sample |
 | `growth_basis` | `previous_sample` when the growth came from two samples, `event_rate_and_average_event_size` otherwise |
 
@@ -144,25 +144,41 @@ written into the results table as a measured value.
 | `GRAF_POSTHOG_GUARD_ANALYTICS_QUEUE_GROWTH_PER_MIN` | `5000` per minute | The baseline converts the measured event rate into events per minute. The threshold must sit above the expected peak ingest rate — including the fivefold traffic spike in SC-012 — so ordinary traffic and a spike raise an alert without disabling measurement. |
 | `GRAF_POSTHOG_GUARD_ANALYTICS_DISK_FREE_PERCENT` | `20` (`<20 %` free disables measurement) | The baseline projects daily growth from the measured absolute size, so the free-space floor can be checked against the date it would be reached. If the projection crosses the floor before the next planned capacity action, the capacity action — not the threshold — has to change. |
 
-The measured growth also confirms that the retention terms, not traffic, cap
-long-run volume. While the observed growth stays consistent with the retention
-window, raising a threshold is not justified; a rising projection with flat
-traffic means the retention path is not actually deleting.
+Target accounting and action: `specs/273-paid-traffic-analytics/contracts/operations.md`
+§Один физический диск продукта и аналитики. Record non-overlapping analytics
+class bytes, one filesystem identity/free-space sample, accepted absolute budget,
+growth and expansion deadline. On a shared filesystem `<20%` free triggers
+analytics protection regardless of the unproven cause; `<10%` adds a critical
+host alert. Emit both facts and one protective action. Do not count the same
+free space twice or claim the analytics classes caused its depletion. A missing
+measurement/budget blocks readiness; T097 is still pending.
+
+Measured growth determines the capacity-action deadline under the accepted
+`until_decision` mode. There is no age-based volume cap. Growth with flat
+traffic calls for a measured cause investigation; it does not by itself mean
+that a deletion task is broken. Do not raise thresholds or delete history to
+hide an approaching capacity limit.
 
 ## Load Check And Traffic Spike Behaviour
 
-FR-039 requires a load check before traffic starts, and SC-012 fixes its
-acceptance condition: a spike that multiplies the load on the site fivefold must
-not switch measurement off and must not affect product availability. Ordinary
-load means the 95th percentile of the preceding 7 days.
+FR-039 requires a load check, and SC-012 defines the measurable site profile.
+The normative input, phases and acceptance are in
+`specs/273-paid-traffic-analytics/contracts/operations.md`, «Нагрузка сайта»:
+R is p95 HTML GET requests/second over 10,080 complete UTC minutes from the
+specified five routes; each sample is the minute count divided by 60. Warm up
+5 minutes at R, sustain 20 minutes at 5×R, recover 15 minutes at R. The p95
+uses nearest rank ceil(0.95×N). Missing coverage/classification is unknown,
+not zero; a separate 1→5→1 requests/second engineering probe does not prove
+the measured-baseline criterion. No production load run is authorized here.
 
 Record, per check run:
 
 - the peak ingest rate in events per minute and the peak queue depth;
 - the peak delivery lag and whether the guard reported any analytics-scope
   disable reason — it must not;
-- whether the guard reported host-scope alerts — a host alert is the expected
-  outcome of a resource spike and never disables measurement;
+- all host-scope alerts and any shared-filesystem protection separately;
+  a mere CPU/memory alert does not disable measurement, but shared-disk
+  protection fails and stops the load run according to the operations contract;
 - the `analytics_disk_free_percent` value after the spike.
 
 Traffic generated by the check itself is not visitor traffic. Classify it as
@@ -170,21 +186,18 @@ internal, support, or test through the approved traffic-class marker so the
 baseline and the reports describe real visitors only. The check and its
 observations are `pending operator receipt`.
 
-## Retention Caps Growth
+## Хранение и прогноз роста — актуализация 21.10.2026
 
-Growth is bounded by the enforced retention terms, so the 12-month and 36-month
-projections must be read together with them:
+Решение владельца отменяет возрастную очистку IP и допустимой аналитики:
+явный режим `until_decision`, удаление по отдельному решению/обязательному
+требованию. Прежние 365/1095 дней не ограничивают прогноз. Окно атрибуции
+90 дней ограничивает применение источника, а не автоматически объём истории.
 
-| Category | Term | Effect on the projection |
-| --- | --- | --- |
-| `measurement_events` | `365` days | ClickHouse event volume plateaus after one retention window |
-| `anonymous_aggregate` | `1095` days | PostgreSQL aggregate volume keeps growing until 36 months |
-| `visit_attribution` | `90` days | Short-lived; contributes little to the projection |
-| `acquisition_attribute` | `1095` days | PostgreSQL volume keeps growing until 36 months |
-
-A projection that keeps growing after the retention window has elapsed is
-evidence that the retention enforcement task is not deleting, and it blocks the
-capacity claim in the same way a missing retention term does (FR-036, FR-050).
+Прогнозы 12/36 месяцев остаются горизонтами планирования ёмкости. Плато объёма
+из-за TTL предполагать нельзя. Нужно измерить абсолютный объём, рост в сутки,
+запас и дату исчерпания; результаты T097 ещё ожидают оператора. При нехватке
+места — оповещение и остановка новых необязательных записей, а не удаление истории.
+Рабочая миграция T109 и восстановление старой копии требуют отдельной проверки.
 
 ## Evidence Rules
 
@@ -196,3 +209,16 @@ capacity claim in the same way a missing retention term does (FR-036, FR-050).
   stays until the run happens and its output is filed.
 - A capacity review that changes a guard threshold records the measured
   baseline reference together with the new value.
+
+
+## Initial numeric envelope — 2026-10-22
+
+F273 operations §Начальные численные пределы sets a 128 GiB total ceiling,
+including analytics data, network metadata and local archives; 0.5 GiB/day
+maximum measured aggregate growth and 90-day projected headroom are both
+required. Role: infra_operator; reassess by 2026-11-21 UTC. Begin expansion
+planning 28 days before forecast exhaustion, with an accepted operator action
+within 7 days. Missing/incomplete measurements do not count as zero or PASS.
+A read-only Docker sizing (~6.9 GB PostHog volumes, no analytics backup yet)
+checks plausibility only; it does not close T097 or prove growth/load acceptance.
+The exact byte values and decision limits are canonical in operations.md.
