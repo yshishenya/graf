@@ -18,6 +18,15 @@ async function checkLayout(page, label) {
       if (element.scrollWidth > element.clientWidth + 1) issues.push(`overflow ${element.className}: ${element.scrollWidth}/${element.clientWidth}`);
     }
     if (issues.length) issues.push(...[...main.querySelectorAll('*')].filter(node => node.checkVisibility() && node.clientWidth && node.scrollWidth > node.clientWidth + 1).slice(0, 12).map(node => `overflow child: ${node.tagName}.${node.className} ${node.scrollWidth}/${node.clientWidth} ${node.textContent.slice(0, 40)}`));
+    const cta = main.querySelector('.shared-summary__cta .button');
+    if (main.querySelector('.shared-summary') && !cta) issues.push('missing shared CTA');
+    if (cta) {
+      if (cta.textContent.trim() !== 'Начать со своей встречи') issues.push('changed shared CTA text');
+      if (cta.getAttribute('href') !== '/sign-up?next=%2Fmeetings') issues.push('changed shared CTA destination');
+      const style = getComputedStyle(cta);
+      if (!cta.checkVisibility() || style.visibility !== 'visible' || Number(style.opacity) !== 1) issues.push('hidden shared CTA');
+      if (cta.scrollWidth > cta.clientWidth + 1 || cta.scrollHeight > cta.clientHeight + 1) issues.push('clipped shared CTA');
+    }
     const header = main.querySelector('[data-meeting-detail-header]');
     if (header && header.offsetHeight > main.clientHeight / 2 && getComputedStyle(header).position === 'sticky') issues.push('oversized sticky header');
     for (const table of main.querySelectorAll('.notes-action-table')) {
@@ -107,7 +116,7 @@ async function checkFocus(page) {
             await page.setViewportSize({ width, height: 1000 });
             await load('normal');
             assert.equal(await page.locator('#cabinet-main h1').count(), 1);
-            assert.match(await page.locator('.meeting-about').textContent(), /О чём встреча:/);
+            assert.match(await page.locator('.meeting-about').textContent(), /О чем встреча:/);
             assert.match(await page.locator('#cabinet-main time').first().textContent(), /08.09.2026, 12:05/);
             assert.equal(await page.locator('.notes-topic[open], .notes-protocol-notes[open]').count(), 0);
             const headings = await page.locator('.notes-full-protocol > .notes-section > h2, .notes-full-protocol > .notes-section > h3, .notes-protocol-notes > summary').allTextContents();
@@ -135,6 +144,7 @@ async function checkFocus(page) {
             }
             await doubleText(page);
             await checkLayout(page, `${engine} ${theme} ${surface} ${width} text200`); checks++;
+            if (surface === 'shared' && width === 320) await page.screenshot({ path: path.join(output, `${engine}-${theme}-shared-320-text200.png`), fullPage: true });
           }
           if (engine === 'chromium') for (const variant of ['long', 'empty', 'legacy', 'categories', 'readonly', 'stale']) {
             await page.setViewportSize({ width: 320, height: 1000 });

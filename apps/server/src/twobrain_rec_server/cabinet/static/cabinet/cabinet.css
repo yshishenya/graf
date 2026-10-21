@@ -4878,6 +4878,7 @@ form[data-state="invalid"] .settings-form-status { color: var(--muted); }
 .shared-summary__section p { margin-top: 8px; white-space: pre-wrap; }
 .shared-summary__cta { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 18px; }
 .shared-summary__cta p { margin: 0; }
+.shared-summary__cta .button { white-space: normal; }
 
 @media (max-width: 620px) {
   .meeting-details-dialog,
