@@ -119,7 +119,7 @@ and preserve metadata-only evidence.
 
 ## Текущая проверка и сопровождение
 
-- [ ] T017 Подготовить `changes/unreleased/F136.yaml`, текущую RED/GREEN матрицу и `specs/136-auth-navigation-recovery/validation.md`, независимое итоговое ревью и converge для T005/T006/T010; подтвердить проверки PR на точном SHA и проверенной основе. (Issue #4732)
+- [X] T017 Подготовить `changes/unreleased/F136.yaml`, текущую RED/GREEN матрицу и `specs/136-auth-navigation-recovery/validation.md`, независимое итоговое ревью и converge для T005/T006/T010; подтвердить проверки PR на точном SHA и проверенной основе. (Issue #4732)
 
 T017 зависит от T005/T006/T010. T004/T011/T012 зависят от отдельного
 исправления OAuth continuation. T016 требует единственного доступного GRAF Dev
@@ -188,3 +188,14 @@ identity; T019 исходно 2 PASS и не считается воспроиз
 Отчёт: review-workspace-cancellation-final-20261021.md. T017 пока [ ] до новых
 трёх exact-SHA/base проверок и принятия PR; OAuth T004/T011/T012 и ручная T016
 остаются открытыми. Отметки реализации не заменяют приёмку GitHub и closeout.
+
+
+Приёмка текущего среза 21.10.2026: PR #7668 слит обычным защищённым способом,
+merge 0648784cf9a5365220e421d77c8eb51e3bea6907. Точный PR SHA
+be6d586423c1e7a965e7f05b60fc04a7fb0d6675 и основа
+c4dc6d470446f03acfbafb1d3d80d780f8159314 подтверждены общим
+validate-pr-checks.py: governance-fast39629299734, macos-pr39629299880,
+pr-metadata39629315138 — PASS. Три новых замечания ревью получили ответы
+с доказательствами и разрешены. T017 завершена для T005/T006/T010/T018/T019/T020;
+исходные отказы и пропуски сохранены. OAuth T004/T011/T012 и ручная T016
+остаются [ ]; вся F136, выпуск, установка и production не завершены.
