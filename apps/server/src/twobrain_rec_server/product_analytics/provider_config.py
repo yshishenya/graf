@@ -96,7 +96,8 @@ class MeasurementLevel:
     provider_delivery: bool
     legal_basis: str
     storage: str
-    retention_days: int
+    retention_days: int | None
+    retention_mode: str
     blocked_reasons: tuple[str, ...]
 
     def as_dict(self) -> dict[str, Any]:
@@ -111,6 +112,7 @@ class MeasurementLevel:
             "legal_basis": self.legal_basis,
             "storage": self.storage,
             "retention_days": self.retention_days,
+            "retention_mode": self.retention_mode,
             "blocked_reasons": list(self.blocked_reasons),
         }
 
@@ -181,6 +183,7 @@ def build_measurement_levels(
             ),
             storage=aggregate_rule.storage,
             retention_days=aggregate_rule.enforced_retention_days(),
+            retention_mode=aggregate_rule.retention_mode,
             blocked_reasons=level_one_reasons,
         ),
         MeasurementLevel(
@@ -197,6 +200,7 @@ def build_measurement_levels(
             ),
             storage=attribution_rule.storage,
             retention_days=attribution_rule.enforced_retention_days(),
+            retention_mode=attribution_rule.retention_mode,
             blocked_reasons=level_two_reasons,
         ),
         MeasurementLevel(
@@ -213,6 +217,7 @@ def build_measurement_levels(
             ),
             storage=provider_rule.storage,
             retention_days=provider_rule.enforced_retention_days(),
+            retention_mode=provider_rule.retention_mode,
             blocked_reasons=tuple(level_three_reasons),
         ),
     )

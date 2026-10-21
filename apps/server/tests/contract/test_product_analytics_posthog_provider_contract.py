@@ -61,6 +61,6 @@ def test_posthog_lifecycle_truth_covers_events_autocapture_replay_backups_and_ex
     assert ("posthog", "autocapture_event") in records
     assert ("posthog", "replay_recording") in records
     assert ("posthog", "backup") in records
-    assert records[("posthog", "activation_event")].retention_days >= 90
+    assert records[("posthog", "activation_event")].retention_days is None
     assert records[("posthog", "replay_recording")].deletion_scope == "not_collected"
     assert records[("posthog", "backup")].export_policy == "forbidden_content_bearing_export"

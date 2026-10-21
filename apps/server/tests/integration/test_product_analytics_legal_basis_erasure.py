@@ -9,6 +9,9 @@ and the evidence stays metadata only.
 from __future__ import annotations
 
 import asyncio
+import os
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -27,16 +30,18 @@ from twobrain_rec_server.product_analytics.legal_basis_lifecycle import (
     BASIS_WITHDRAWAL_STATE_FILE_ENV,
     EXECUTION_LOCAL,
     EXECUTION_PROVIDER_REQUEST,
+    LEVEL_RETENTION_CATEGORIES,
+    LegalBasisLifecycleError,
     apply_basis_loss_disposition,
     basis_loss_evidence_lines,
     basis_withdrawal_state_file_path,
     lost_basis_dispositions,
+    plan_processing_stop,
     read_basis_withdrawal_register,
 )
 from twobrain_rec_server.product_analytics.provider_config import (
     ProductAnalyticsProviderConfig,
 )
-from twobrain_rec_server.product_analytics.retention import retention_rule
 
 SERVER_AGGREGATE_TABLE = "anonymous_page_aggregate_buckets"
 SERVER_VISIT_TABLE = "public_visit_attributions"
@@ -77,14 +82,14 @@ async def _rows(database_url: str, table: str) -> list[dict]:
         await engine.dispose()
 
 
-async def _seed(database_url: str) -> None:
+async def _seed(database_url: str, *, moment: datetime = NOW) -> None:
     engine = create_async_engine(database_url, poolclass=NullPool)
     try:
         async with AsyncSession(engine, expire_on_commit=False) as session:
             await record_anonymous_aggregate_bucket(
                 session,
                 build_anonymous_aggregate_bucket(
-                    path="/download", source="yandex_direct", occurred_at=NOW
+                    path="/download", source="yandex_direct", occurred_at=moment
                 ),
             )
             await session.execute(
@@ -93,7 +98,11 @@ async def _seed(database_url: str) -> None:
                     "(id, attribution_ref, landing_path, first_seen_at, expires_at) "
                     "values (gen_random_uuid(), :ref, '/download', :seen, :expires)"
                 ),
-                {"ref": "graf_visit_basis_loss", "seen": NOW, "expires": NOW + timedelta(days=90)},
+                {
+                    "ref": "graf_visit_basis_loss",
+                    "seen": moment,
+                    "expires": moment + timedelta(days=90),
+                },
             )
             await session.execute(
                 sa.text(
@@ -104,7 +113,7 @@ async def _seed(database_url: str) -> None:
                     "'campaign_096', 'banner_a', 'keyword_b', 'yclid_basis_loss', "
                     "'/download', 'last_non_direct_90d', 'linked', :captured)"
                 ),
-                {"account": USER_ID, "captured": NOW},
+                {"account": USER_ID, "captured": moment},
             )
             await session.commit()
     finally:
@@ -158,16 +167,14 @@ def test_basis_loss_plan_covers_every_affected_category(
 def test_provider_held_categories_become_a_dated_provider_request(
     erasure_database_url: str, tmp_path: Path
 ) -> None:
-    register = read_basis_withdrawal_register(_withdrawal_environ(tmp_path))
-    plan = lost_basis_dispositions(_config(), withdrawals=register, now=NOW)[0]
+    plan = _plan_for("provider_analytics", tmp_path)
 
     results = asyncio.run(_apply(erasure_database_url, plan))
 
     assert {result.execution for result in results} == {EXECUTION_PROVIDER_REQUEST}
     assert all(result.rows_affected == 0 for result in results)
     for result in results:
-        rule = retention_rule(result.category)
-        assert result.due_at == plan.basis_lost_at + timedelta(days=rule.enforced_retention_days())
+        assert result.due_at == plan.basis_lost_at + timedelta(days=7)
         assert result.within_deadline is True
 
     lines = basis_loss_evidence_lines(results, reason=plan.reason)
@@ -200,9 +207,7 @@ def test_level_two_data_is_deleted_and_anonymised_within_the_term(
     assert {result.disposition for result in results} == {"delete", "anonymise"}
     for result in results:
         assert result.within_deadline is True
-    assert (
-        basis_loss_evidence_lines(results, reason=plan.reason)[0].count("reason=") == 1
-    )
+    assert basis_loss_evidence_lines(results, reason=plan.reason)[0].count("reason=") == 1
 
 
 def test_level_one_aggregate_is_deleted_within_the_term(
@@ -215,7 +220,7 @@ def test_level_one_aggregate_is_deleted_within_the_term(
     assert asyncio.run(_rows(erasure_database_url, SERVER_AGGREGATE_TABLE)) == []
     assert results[0].rows_affected == 1
     assert results[0].category == "anonymous_page_aggregate"
-    assert results[0].due_at == plan.basis_lost_at + timedelta(days=1095)
+    assert results[0].due_at == plan.basis_lost_at + timedelta(days=7)
     assert results[0].within_deadline is True
 
 
@@ -233,18 +238,21 @@ def test_erasure_leaves_no_personal_data_in_the_evidence(
 
 
 def _plan_for(level_key: str, tmp_path: Path):
-    register = read_basis_withdrawal_register(_withdrawal_environ(tmp_path, level_key))
-    for plan in lost_basis_dispositions(_config(), withdrawals=register, now=NOW):
-        if plan.level_key == level_key:
-            return plan
-    raise AssertionError(f"no withdrawal plan for {level_key}")
+    return plan_processing_stop(
+        level_key=level_key,
+        basis_lost_at=NOW,
+        reason="legal_basis_withdrawn",
+        deletion_deadlines={
+            category: NOW + timedelta(days=7) for category in LEVEL_RETENTION_CATEGORIES[level_key]
+        },
+    )
 
 
 async def _apply(database_url: str, plan):
     engine = create_async_engine(database_url, poolclass=NullPool)
     try:
         async with AsyncSession(engine, expire_on_commit=False) as session:
-            return await apply_basis_loss_disposition(session, plan)
+            return await apply_basis_loss_disposition(session, plan, erased_at=NOW)
     finally:
         await engine.dispose()
 
@@ -257,3 +265,69 @@ def test_state_file_path_is_outside_the_repository(tmp_path: Path) -> None:
         {"GRAF_PRODUCT_ANALYTICS_LEGAL_BASIS_STATE_DIR": str(tmp_path)}
     ) == str(tmp_path / "legal-basis-withdrawals")
     assert basis_withdrawal_state_file_path({}).startswith("/var/lib/")
+
+
+def test_missing_deletion_deadline_preserves_rows_and_cannot_execute(
+    erasure_database_url: str,
+    tmp_path: Path,
+) -> None:
+    plan = plan_processing_stop(
+        level_key="attribution_profiles",
+        basis_lost_at=NOW,
+        reason="legal_basis_withdrawn",
+    )
+    with pytest.raises(LegalBasisLifecycleError, match="deadline"):
+        asyncio.run(_apply(erasure_database_url, plan))
+    assert len(asyncio.run(_rows(erasure_database_url, SERVER_VISIT_TABLE))) == 1
+    assert len(asyncio.run(_rows(erasure_database_url, SERVER_ACQUISITION_TABLE))) == 1
+
+
+def test_daily_policy_check_preserves_history_beyond_the_old_terms(
+    erasure_database_url: str,
+    tmp_path: Path,
+) -> None:
+    asyncio.run(_reset(erasure_database_url))
+    asyncio.run(_seed(erasure_database_url, moment=NOW - timedelta(days=1500)))
+    # Run the actual scheduled script. Its PostgreSQL queries reach this disposable
+    # database; ClickHouse metadata is simulated, so this is no provider acceptance.
+    docker = tmp_path / "docker"
+    docker.write_text(
+        f"#!{sys.executable}\n"
+        + """
+import asyncio, os, sys
+import asyncpg
+async def main():
+    if sys.argv[1] == 'compose':
+        conn = await asyncpg.connect(os.environ['F273_DISPOSABLE_DATABASE_URL'])
+        try:
+            rows = await conn.fetch(sys.argv[-1])
+            for row in rows:
+                print('t' if row[0] is True else 'f' if row[0] is False else row[0])
+        finally:
+            await conn.close()
+    elif sys.argv[1] == 'exec':
+        print(0)
+    else:
+        raise RuntimeError('unexpected storage operation')
+asyncio.run(main())
+"""
+    )
+    docker.chmod(0o700)
+    environment = {
+        **os.environ,
+        "PATH": f"{tmp_path}:{os.environ['PATH']}",
+        "F273_DISPOSABLE_DATABASE_URL": erasure_database_url.replace(
+            "postgresql+asyncpg://", "postgresql://"
+        ),
+        "GRAF_PRODUCT_ANALYTICS_RETENTION_MODE": "until_decision",
+        "GRAF_PRODUCT_ANALYTICS_CLICKHOUSE_CONTAINER": "synthetic-clickhouse",
+        "GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_DIR": str(tmp_path / "state"),
+    }
+    script = Path(__file__).parents[4] / "infra/scripts/enforce-product-analytics-retention.sh"
+    result = subprocess.run(
+        ["bash", str(script), "--execute"], env=environment, capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "rows_deleted_total=0" in result.stdout
+    for table in (SERVER_AGGREGATE_TABLE, SERVER_VISIT_TABLE, SERVER_ACQUISITION_TABLE):
+        assert len(asyncio.run(_rows(erasure_database_url, table))) == 1

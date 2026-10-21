@@ -110,13 +110,13 @@ def _valid_operations_state(directory: Path, *, now: int) -> dict[str, Path]:
         [
             "retention_state_version=1",
             "result=pass",
-            "category=measurement_events retention_days=365 storage=clickhouse enforcement=row_ttl "
+            "category=measurement_events retention_mode=until_decision retention_days=none storage=clickhouse enforcement=decision_required "
             "last_enforced_at=recent rows_deleted=0 enforcement_verified=true",
-            "category=anonymous_aggregate retention_days=1095 storage=postgres enforcement=scheduled_task "
+            "category=anonymous_aggregate retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required "
             "last_enforced_at=recent rows_deleted=1 enforcement_verified=true",
-            "category=visit_attribution retention_days=90 storage=postgres enforcement=scheduled_task "
+            "category=visit_attribution retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required "
             "last_enforced_at=recent rows_deleted=1 enforcement_verified=true",
-            "category=acquisition_attribute retention_days=1095 storage=postgres enforcement=scheduled_task "
+            "category=acquisition_attribute retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required "
             "last_enforced_at=recent rows_deleted=1 enforcement_verified=true",
         ],
     )

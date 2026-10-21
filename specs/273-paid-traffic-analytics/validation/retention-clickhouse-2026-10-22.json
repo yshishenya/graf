@@ -1,0 +1,37 @@
+{
+  "scope": "isolated_synthetic_clickhouse_only",
+  "version": "26.3.10.60",
+  "rows_before": 2,
+  "rows_after": 2,
+  "old_ttl_rejected_before": [
+    "posthog_event_ttl_present=1",
+    "posthog_event_ttl_result=failed",
+    "reason=age_ttl_still_present"
+  ],
+  "migration": [
+    "posthog_event_ttl_present=0",
+    "posthog_event_ttl_result=pass",
+    "retention_mode=until_decision",
+    "posthog_event_ttl_enforcement=decision_required"
+  ],
+  "repeat": [
+    "posthog_event_ttl_present=0",
+    "posthog_event_ttl_result=pass",
+    "retention_mode=until_decision",
+    "posthog_event_ttl_enforcement=decision_required"
+  ],
+  "old_schema_snapshot_restored": [
+    "posthog_event_ttl_present=1",
+    "posthog_event_ttl_result=failed",
+    "reason=age_ttl_still_present"
+  ],
+  "restored_migration": [
+    "posthog_event_ttl_present=0",
+    "posthog_event_ttl_result=pass",
+    "retention_mode=until_decision",
+    "posthog_event_ttl_enforcement=decision_required"
+  ],
+  "full_posthog_restore_acceptance": false,
+  "production_touched": false,
+  "cleanup": "isolated_container_and_tmpfs_removed"
+}

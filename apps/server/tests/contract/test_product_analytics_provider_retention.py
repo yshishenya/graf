@@ -21,7 +21,7 @@ def test_provider_lifecycle_records_cover_posthog_yandex_and_evidence_boundaries
 
 
 def test_provider_retention_keeps_minimum_ninety_days_and_truthful_deletion_scope() -> None:
-    assert all(rule.minimum_retention_days >= 90 for rule in retention_rules())
+    assert all(rule.retention_mode in {"until_decision", "provider_controlled"} for rule in retention_rules())
 
     records = provider_lifecycle_records()
     posthog_autocapture = next(
@@ -32,7 +32,7 @@ def test_provider_retention_keeps_minimum_ninety_days_and_truthful_deletion_scop
     )
     replay = next(record for record in records if record.provider == "posthog" and record.data_class == "replay_recording")
 
-    assert posthog_autocapture.retention_days >= 90
+    assert posthog_autocapture.retention_days is None
     assert posthog_autocapture.deletion_scope == "provider_operator_action"
     assert yandex_offline.deletion_scope == "not_promised"
     assert "already uploaded" in yandex_offline.dashboard_caveat

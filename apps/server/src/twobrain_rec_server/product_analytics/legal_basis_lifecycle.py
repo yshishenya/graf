@@ -9,15 +9,14 @@ gone, three things have to happen in this order and none of them is optional:
 2. **the affected data is deleted or anonymised** — :func:`plan_processing_stop`
    derives one action per registered retention category of the level, and
    :func:`apply_basis_loss_disposition` executes the ones GRAF stores itself;
-3. **the deadline comes from the retention rules** — every action carries
-   ``due_at = basis_lost_at + enforced retention term`` read from
-   :mod:`retention`, so FR-048 introduces no new number and cannot drift away
-   from FR-036 and FR-050.
+3. **the deletion deadline is recorded separately** — storage lifetime never
+   supplies a deletion deadline. A plan without all deadlines remains incomplete;
+   processing stays stopped and erasure execution refuses the incomplete plan.
 
 A level owns the registered retention categories declared in
 :data:`LEVEL_RETENTION_CATEGORIES`. A category without a declared disposition is
 a configuration error, never an implicit "keep it": the same fail-closed rule
-FR-050 applies to a missing term.
+FR-050 applies to a missing policy.
 
 What this module cannot do by itself: level 3 data lives in a provider
 (ClickHouse inside PostHog and the Yandex counter), so its disposition is a
@@ -211,7 +210,7 @@ class BasisWithdrawalRegister:
 
 @dataclass(frozen=True, slots=True)
 class LegalBasisLossAction:
-    """One category to delete or anonymise, with its retention-derived deadline."""
+    """One category to delete or anonymise, with its separately recorded deletion deadline."""
 
     category: str
     storage: str
@@ -219,8 +218,8 @@ class LegalBasisLossAction:
     disposition: str
     method: str
     deletion_truth: str
-    retention_days: int
-    due_at: datetime
+    retention_days: int | None
+    due_at: datetime | None
     execution: str
 
     def as_dict(self) -> dict[str, Any]:
@@ -232,7 +231,7 @@ class LegalBasisLossAction:
             "method": self.method,
             "deletion_truth": self.deletion_truth,
             "retention_days": self.retention_days,
-            "due_at": self.due_at.isoformat(),
+            "due_at": self.due_at.isoformat() if self.due_at is not None else None,
             "execution": self.execution,
         }
 
@@ -248,10 +247,12 @@ class LegalBasisLossDisposition:
     actions: tuple[LegalBasisLossAction, ...]
 
     @property
-    def deadline(self) -> datetime:
+    def deadline(self) -> datetime | None:
         """The binding deadline: every action must be done by its own term."""
 
-        return min(action.due_at for action in self.actions)
+        if any(action.due_at is None for action in self.actions):
+            return None
+        return min(action.due_at for action in self.actions if action.due_at is not None)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -259,7 +260,7 @@ class LegalBasisLossDisposition:
             "reason": self.reason,
             "basis_lost_at": self.basis_lost_at.isoformat(),
             "processing_state": self.processing_state,
-            "deadline": self.deadline.isoformat(),
+            "deadline": self.deadline.isoformat() if self.deadline is not None else None,
             "actions": [action.as_dict() for action in self.actions],
         }
 
@@ -490,22 +491,27 @@ def plan_processing_stop(
     basis_lost_at: datetime,
     reason: str,
     affected_categories: Iterable[str] | None = None,
+    deletion_deadlines: Mapping[str, datetime] | None = None,
 ) -> LegalBasisLossDisposition:
     """Stop the level and put every affected category on a dated clock (FR-048).
 
-    The deadline of each action is the enforced retention term of its own
-    category, read from :mod:`retention`. An unknown category, or a category
-    without a declared disposition, is a configuration error: guessing a term
-    here would be exactly the "keep it forever" default FR-050 forbids.
+    until_decision has no age deadline. Missing separate deadlines leave the
+    plan incomplete and prevent execution; processing remains stopped.
+    An unknown category is a configuration error.
     """
 
     moment = _aware(basis_lost_at)
-    categories = tuple(affected_categories) if affected_categories is not None else (
-        level_retention_categories(level_key)
+    categories = (
+        tuple(affected_categories)
+        if affected_categories is not None
+        else (level_retention_categories(level_key))
     )
     if not categories:
         raise LegalBasisLifecycleError(f"level {level_key} has no affected category")
-    actions = tuple(_loss_action(category, since=moment) for category in categories)
+    actions = tuple(
+        _loss_action(category, since=moment, due_at=(deletion_deadlines or {}).get(category))
+        for category in categories
+    )
     return LegalBasisLossDisposition(
         level_key=level_key,
         reason=reason,
@@ -515,7 +521,12 @@ def plan_processing_stop(
     )
 
 
-def _loss_action(category: str, *, since: datetime) -> LegalBasisLossAction:
+def _loss_action(
+    category: str,
+    *,
+    since: datetime,
+    due_at: datetime | None = None,
+) -> LegalBasisLossAction:
     disposition = CATEGORY_DISPOSITIONS.get(category)
     if disposition is None:
         raise LegalBasisLifecycleError(
@@ -530,17 +541,15 @@ def _loss_action(category: str, *, since: datetime) -> LegalBasisLossAction:
         method=rule.provider_delete_method,
         deletion_truth=rule.deletion_truth,
         retention_days=rule.enforced_retention_days(),
-        due_at=retention_deadline(rule, since=since),
-        execution=(
-            EXECUTION_LOCAL if _is_graf_stored(rule) else EXECUTION_PROVIDER_REQUEST
-        ),
+        due_at=retention_deadline(rule, since=since, due_at=due_at),
+        execution=(EXECUTION_LOCAL if _is_graf_stored(rule) else EXECUTION_PROVIDER_REQUEST),
     )
 
 
 def _is_graf_stored(rule: AnalyticsRetentionRule) -> bool:
     """Whether GRAF itself can delete the rows of this category right now."""
 
-    return rule.storage == "graf_postgres" and rule.enforcement == "scheduled_purge"
+    return rule.storage == "graf_postgres" and rule.enforcement == "decision_required"
 
 
 def lost_basis_dispositions(
@@ -600,13 +609,13 @@ async def apply_basis_loss_disposition(
         PublicVisitAttribution,
     )
 
+    if disposition.deadline is None:
+        raise LegalBasisLifecycleError("separate deletion deadline is required before erasure")
     moment = _aware(erased_at or datetime.now(UTC))
     results: list[BasisLossErasureResult] = []
     for action in disposition.actions:
         if action.execution != EXECUTION_LOCAL:
-            results.append(
-                _result(disposition, action, rows=0, erased_at=moment)
-            )
+            results.append(_result(disposition, action, rows=0, erased_at=moment))
             continue
         if action.category == ANONYMOUS_AGGREGATE_RETENTION_CATEGORY:
             statement = delete(AnonymousPageAggregateBucket)
@@ -641,6 +650,7 @@ def _result(
     rows: int,
     erased_at: datetime,
 ) -> BasisLossErasureResult:
+    assert action.due_at is not None
     return BasisLossErasureResult(
         level_key=disposition.level_key,
         category=action.category,

@@ -134,18 +134,18 @@ def _write_operations_states(
         encoding="utf-8",
     )
     terms = {
-        "measurement_events": "365",
-        "anonymous_aggregate": "1095",
-        "visit_attribution": "90",
-        "acquisition_attribute": "1095",
+        "measurement_events": "none",
+        "anonymous_aggregate": "none",
+        "visit_attribution": "none",
+        "acquisition_attribute": "none",
     }
     terms.update(retention_override or {})
     retention_lines = ["retention_state_version=1", "result=pass"]
     for category, term in terms.items():
         storage = "clickhouse" if category == "measurement_events" else "postgres"
-        enforcement = "row_ttl" if category == "measurement_events" else "scheduled_task"
+        enforcement = "decision_required"
         retention_lines.append(
-            f"category={category} retention_days={term} storage={storage} enforcement={enforcement} "
+            f"category={category} retention_mode=until_decision retention_days={term} storage={storage} enforcement={enforcement} "
             f"last_enforced_at=recent rows_deleted=0 enforcement_verified=true"
         )
     retention = directory / "retention-state"
@@ -331,7 +331,7 @@ def test_readiness_blocks_when_a_retention_term_is_missing_or_too_short(tmp_path
 
     shortened = _write_operations_states(tmp_path, now=now, retention_override={"measurement_events": "90"})
     _apply_states(monkeypatch, shortened)
-    assert "retention_term_below_required:measurement_events" in build_provider_readiness(settings).as_dict()[
+    assert "retention_term_missing:measurement_events" in build_provider_readiness(settings).as_dict()[
         "analytics_operations"
     ]["blockers"]
     assert build_rollout_readiness_report(settings).as_dict()["verdict"] == "blocked"
@@ -360,5 +360,5 @@ def test_readiness_names_a_category_that_has_no_retention_record(tmp_path: Path,
     assert "retention_category_missing:anonymous_aggregate" in operations["blockers"]
     assert "retention_category_missing:visit_attribution" in operations["blockers"]
     assert operations["metadata"]["retention_required_terms"] == (
-        "measurement_events=365,anonymous_aggregate=1095,visit_attribution=90,acquisition_attribute=1095"
+        "measurement_events=until_decision,anonymous_aggregate=until_decision,visit_attribution=until_decision,acquisition_attribute=until_decision"
     )

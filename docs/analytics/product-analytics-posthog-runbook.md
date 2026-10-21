@@ -657,12 +657,10 @@ IP и допустимая аналитика хранятся в явном р�
 в своём сроке. IP не добавляется в обезличенный агрегат или внешние события.
 Сессии, разрешения и окно атрибуции 90 дней не продлеваются.
 
-**Секция ниже описывает старую реализацию, а не действующую инструкцию.** Не
-включать возрастной таймер и не запускать приведённый `apply-posthog-event-ttl.sh
---execute` как применение новой политики. T109–T111 ещё открыты: сначала сверить
-установленные TTL/таймеры, проверить безопасную миграцию на изолированном наборе,
-отдельное удаление и восстановление старой копии, затем выполнить штатный выпуск.
-Изменение документа не доказывает отсутствия TTL на рабочем сервере.
+T109–T111 остаются открыты до операторского применения и приёмки. Перед
+установкой сверить старые таймеры, TTL и политики провайдера. Скрипты ниже
+реализуют целевой режим, но наличие кода не подтверждает настройку сервера.
+После восстановления старой копии повторить проверку до включения измерения.
 
 ### Scheduled Backup, Restore Verification, And Retention
 
@@ -674,20 +672,16 @@ FR-036, FR-051, FR-052).
 | --- | --- | --- | --- |
 | `infra/scripts/backup-posthog.sh` | daily systemd timer `graf-posthog-backup.timer`, `OnCalendar=*-*-* 02:30:00` | `/var/lib/graf-posthog-backup/backup-state` | Target: last 7 verified complete local sets, minimum 2. No offsite requirement in this stage; T117 migration pending. A failed/partial run blocks readiness and cannot evict good sets |
 | `infra/scripts/verify-posthog-restore.sh` | systemd timer `graf-posthog-restore-verify.timer`, days 1 and 15, `OnCalendar=*-*-01,15 04:30:00` | `/var/lib/graf-posthog-backup/restore-state` | Restores into an isolated target and records metadata-only evidence: command names, pass/fail status, duration class, blocker codes |
-| `infra/scripts/enforce-product-analytics-retention.sh` | daily systemd timer `graf-posthog-retention-enforce.timer`, `OnCalendar=*-*-* 03:15:00` | `/var/lib/graf-posthog-retention/retention-state` | Enforces every approved local retention category and records the outcome per category |
-| `infra/scripts/apply-posthog-event-ttl.sh` | operator step whenever the term changes | — | Applies and verifies `infra/posthog/clickhouse-retention.sql`; the term is `POSTHOG_EVENT_RETENTION_DAYS`, default `365` |
+| `infra/scripts/enforce-product-analytics-retention.sh` | daily systemd timer `graf-posthog-retention-enforce.timer`, `OnCalendar=*-*-* 03:15:00` | `/var/lib/graf-posthog-retention/retention-state` | Verifies explicit until_decision policy and absence of event TTL; never deletes rows |
+| `infra/scripts/apply-posthog-event-ttl.sh` | operator migration after isolated validation | — | Removes the old event TTL with `infra/posthog/clickhouse-retention.sql`; requires explicit `GRAF_PRODUCT_ANALYTICS_RETENTION_MODE=until_decision` |
 
-The retention task has a deliberately narrow deletion boundary. Its PostgreSQL
-statements target only the tables declared by the product-analytics SQLAlchemy
-models and Alembic migrations: `anonymous_page_aggregate_buckets` by
-`bucket_date`, `public_visit_attributions` by `expires_at`, and
-`client_acquisition_attributes` by `captured_at`. It verifies every table and
-age column before issuing any `DELETE`; if any mapping, table, column, or
-retention state is missing, the run fails closed and deletes nothing. The
-ClickHouse path reads system metadata to verify the `sharded_events` TTL but does
-not delete provider-held rows. Billing provider-event metadata in
-`billing_webhook_events.metadata_json` is outside this product-analytics purge
-scope; no provider-held data is claimed deleted by this task.
+Проверка хранения читает наличие таблиц `anonymous_page_aggregate_buckets`,
+`public_visit_attributions`, `client_acquisition_attributes` и метаданные
+`posthog.sharded_events`. DELETE/UPDATE/TRUNCATE в ежедневной задаче нет.
+Отсутствующий или неизвестный режим, старая переменная
+`POSTHOG_EVENT_RETENTION_DAYS`, отсутствующая таблица, неизвестное состояние или
+оставшийся TTL блокируют результат. Данные провайдера, платёжные метаданные и
+сетевой IP-журнал эта задача не удаляет; IP-writer остаётся закрыт по T110.
 
 The committed units run the installed copies in `/usr/local/libexec` and read
 root-owned environment files (`/etc/graf-posthog-backup.env`,
@@ -714,37 +708,30 @@ systemd evaluates `OnCalendar` in the
 server timezone: keep the analytics server on UTC so `02:30`, `04:30`, and
 `03:15` are UTC times, and record the timezone with each receipt.
 
-Legacy retention categories implemented by the old scheduled task (superseded; not the accepted target policy):
+Категории `measurement_events`, `anonymous_aggregate`, `visit_attribution` и
+`acquisition_attribute` имеют `retention_mode=until_decision`,
+`retention_days=none`, `enforcement=decision_required`. Старые receipts с
+365/1095/90 днями не подтверждают новую политику и блокируются readiness.
+Неизвестный режим не означает разрешение на бессрочное хранение.
 
-| Category | Term | Storage | Mechanism |
-| --- | --- | --- | --- |
-| `measurement_events` | `365` days | ClickHouse | Row TTL |
-| `anonymous_aggregate` | `1095` days | PostgreSQL | Scheduled task |
-| `visit_attribution` | `90` days | PostgreSQL | Scheduled task |
-| `acquisition_attribute` | `1095` days | PostgreSQL | Scheduled task |
-
-Every deletion is logged with a row count and nothing else: no visitor data, no
-user data, no event content, no account identifiers. The old numeric terms below must not be used as the new FR-050 contract.
-The accepted target requires an explicit mode: `until_decision` is valid; a
-missing or unknown mode is an error. No deletion may be inferred from a missing value.
-
-The ClickHouse category is enforced as a row TTL rather than a delete loop, so
-it has its own step:
+Операторская миграция удаляет только метаданные TTL, без DELETE и MATERIALIZE:
 
 ```sh
-infra/scripts/apply-posthog-event-ttl.sh --dry-run
-infra/scripts/apply-posthog-event-ttl.sh --execute
+GRAF_PRODUCT_ANALYTICS_RETENTION_MODE=until_decision infra/scripts/apply-posthog-event-ttl.sh --dry-run
+# --execute только после проверки учебного набора и разрешённого выпуска.
 ```
 
-The statement in `infra/posthog/clickhouse-retention.sql` targets
-`sharded_events`, the MergeTree table every insert path reaches; `events` and
-`writable_events` are distributed tables and cannot carry a TTL. The committed
-Compose file is a metadata-only handoff for the generated PostHog runtime, so it
-declares the required term in its `x-graf-clickhouse-retention` block instead of
-enforcing it as a service setting; the DDL above is the enforcement. The daily
-retention task reads the enforced TTL back and fails with
-`clickhouse_ttl_not_enforced` when it is missing or shorter than the approved
-term, and the readiness claim stays blocked in that case.
+`ALTER TABLE posthog.sharded_events REMOVE TTL` применяется только при наличии
+TTL и проверяется повторным чтением метаданных. Повторный запуск без TTL ничего
+не меняет. `events` и `writable_events` — распределённые таблицы; отдельные
+политики replay/object storage и настройки проекта проверяются оператором.
+Отсутствие event TTL не подтверждает их состояние. Режим не включает replay.
+
+Отдельное удаление при утрате основания не вычисляет срок из срока хранения.
+`plan_processing_stop(..., deletion_deadlines={category: deadline})` принимает
+отдельные сроки; неполный план не исполняется и не закрывает случай, обработка
+остаётся остановленной. Оператор фиксирует основание, охват, ответственного и
+результат. Удаление у внешнего получателя остаётся запросом, не доказанным purge.
 
 A failed backup raises an alert (FR-051); a failed restore verification blocks
 the analytics readiness claim (FR-035, FR-051). These timers are installed and
@@ -775,9 +762,9 @@ configuration error rather than a ready state.
 | `restore_verification_failed` | The last verification attempt failed |
 | `retention_state_unavailable` | The retention state file is missing or unreadable |
 | `retention_category_missing:<category>` | A required retention category is absent from configuration |
-| `retention_term_missing:<category>` | A configured category has no retention term (FR-050) |
-| `retention_term_below_required:<category>` | A configured term is shorter than the required term for the category |
-| `retention_enforcement_unverified:<category>` | The category has a term but no recorded enforcement |
+| `retention_term_missing:<category>` | A configured category has no valid explicit retention mode (FR-050) |
+| `retention_mode_conflict:<category>` | The declared policy conflicts with age deletion |
+| `retention_enforcement_unverified:<category>` | The policy has no successful verification |
 
 Defaults for every threshold above:
 
