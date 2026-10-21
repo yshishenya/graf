@@ -174,7 +174,7 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
     }
 
     private static func rule(for item: DesktopUploadQueueItem, now: Date) -> Rule {
-        if item.serverTruth.deletionState.map({ $0 != "none" }) == true {
+        if item.hasConfirmedServerDeletion || item.serverTruth.deletionState.map({ $0 != "none" }) == true {
             return Rule(
                 custodyState: .retainedAwaitingCondition,
                 owner: .workspaceAdmin,

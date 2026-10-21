@@ -166,9 +166,10 @@ public struct RecordingDeletionOperation: Codable, Equatable, Identifiable, Send
 }
 
 public extension DesktopUploadQueueItem {
-    /// A server tombstone is independent of upload progress and of the selected sync conflict.
+    /// A server confirmation is independent of upload progress and of the selected sync conflict.
     var hasConfirmedServerDeletion: Bool {
-        syncConflictState == .serverMeetingDeleted ||
+        (deletionOperation?.phase.isAccepted == true && deletionOperation?.receipt?.receiptType == .meetingDeletion) ||
+            syncConflictState == .serverMeetingDeleted ||
             [
                 "requested", "deleting", "active_purge_complete", "pending_backup_expiry",
                 "complete", "retryable_failed", "terminal_failed", "policy_blocked",

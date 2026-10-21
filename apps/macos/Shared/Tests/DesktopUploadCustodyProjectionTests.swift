@@ -191,6 +191,102 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         }
     }
 
+    func testAcceptedMeetingReceiptWinsOverUnknownAccessAndStaleUpload() throws {
+        let scope = try RecordingDeletionScope(
+            serverOrigin: "https://graf.invalid", workspaceID: "workspace", actorUserID: "owner"
+        )
+        let meetingID = "server-meeting-accepted-deletion"
+        let receipt = try JSONDecoder().decode(RecordingDeletionReceipt.self, from: JSONSerialization.data(withJSONObject: [
+            "receipt_type": "meeting_deletion", "request_id": UUID().uuidString,
+            "meeting_id": meetingID, "deletion_epoch": 1,
+            "local_recording_id": custodyFixtureQueueItem().directoryId
+        ]))
+        let operations = try [RecordingDeletionTarget.meeting(meetingID), .ownOrigin(custodyFixtureQueueItem().directoryId)]
+            .flatMap { target in
+                let accepted = try RecordingDeletionOperation(
+                    scope: scope, target: target, requestedAt: Date(timeIntervalSince1970: 100)
+                ).accepting(receipt, at: Date(timeIntervalSince1970: 200))
+                return [accepted, accepted.applying(.verified, at: Date(timeIntervalSince1970: 300))]
+            }
+
+        let configuration = DesktopCabinetConfiguration(baseURL: try XCTUnwrap(URL(string: "https://graf.invalid")))
+        for operation in operations {
+            for state: String? in ["unknown", "future_deletion_state", "", "none", nil] {
+                for access: String? in ["unknown", "owner", nil] {
+                    var item = custodyFixtureQueueItem(
+                        state: .uploaded,
+                        serverTruth: ServerTruthFingerprint(
+                            meetingId: meetingID,
+                            processingStatus: "processed",
+                            finalizedAt: Date(timeIntervalSince1970: 200),
+                            deletionState: state,
+                            accessState: access,
+                            reviewAvailable: true
+                        )
+                    )
+                    item.deletionOperation = try JSONDecoder().decode(
+                        RecordingDeletionOperation.self, from: JSONEncoder().encode(operation)
+                    )
+                    XCTAssertEqual(item.deletionOperation, operation)
+                    let projection = DesktopUploadCustodyProjection(item: item)
+                    let link = UploadReviewLink(item: item, configuration: configuration)
+
+                    XCTAssertTrue(item.hasConfirmedDeletion)
+                    XCTAssertTrue(item.hasConfirmedServerDeletion)
+                    XCTAssertTrue(item.lifecycleBlocksContent)
+                    XCTAssertEqual(projection.deletionState, .serverDeleted)
+                    XCTAssertFalse(projection.reviewAvailable)
+                    XCTAssertNotEqual(projection.normalUserAction, .openReview)
+                    XCTAssertNil(link.destination)
+                    XCTAssertNotEqual(link.availability, .available)
+                    guard let report = DesktopSupportIncidentReport(item: item, projection: projection) else {
+                        XCTFail("Confirmed deletion must retain its support report")
+                        continue
+                    }
+                    XCTAssertEqual(report.canonicalStage, "server_deletion")
+                    XCTAssertEqual(report.problemCode, "custody.server_meeting_deleted")
+                    XCTAssertEqual(report.serverCopyState, "deleted")
+                    XCTAssertTrue(report.localMediaRetained)
+                }
+            }
+        }
+    }
+
+    func testUnacceptedMeetingReceiptDoesNotConfirmServerDeletion() throws {
+        let scope = try RecordingDeletionScope(
+            serverOrigin: "https://graf.invalid", workspaceID: "workspace", actorUserID: "owner"
+        )
+        let meetingID = "server-meeting-unaccepted-deletion"
+        let receipt = try JSONDecoder().decode(RecordingDeletionReceipt.self, from: JSONSerialization.data(withJSONObject: [
+            "receipt_type": "meeting_deletion", "request_id": UUID().uuidString,
+            "meeting_id": meetingID, "deletion_epoch": 1
+        ]))
+        let accepted = try RecordingDeletionOperation(
+            scope: scope, target: .meeting(meetingID), requestedAt: Date(timeIntervalSince1970: 100)
+        ).accepting(receipt, at: Date(timeIntervalSince1970: 200))
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(accepted)) as? [String: Any])
+
+        for phase in [RecordingDeletionPhase.queued, .sending, .resolving, .rejected] {
+            json["phase"] = phase.rawValue
+            var item = custodyFixtureQueueItem(
+                state: .uploaded,
+                serverTruth: ServerTruthFingerprint(meetingId: meetingID, deletionState: "unknown", accessState: "unknown")
+            )
+            item.deletionOperation = try JSONDecoder().decode(
+                RecordingDeletionOperation.self, from: JSONSerialization.data(withJSONObject: json)
+            )
+            let projection = DesktopUploadCustodyProjection(item: item)
+            let report = try XCTUnwrap(DesktopSupportIncidentReport(item: item, projection: projection))
+
+            XCTAssertFalse(item.hasConfirmedDeletion)
+            XCTAssertFalse(item.hasConfirmedServerDeletion)
+            XCTAssertTrue(item.lifecycleBlocksContent)
+            XCTAssertEqual(projection.deletionState, .accessBlocked)
+            XCTAssertEqual(report.canonicalStage, "server_access")
+            XCTAssertEqual(report.serverCopyState, "blocked")
+        }
+    }
+
     func testLocalDeletionDoesNotClaimServerDeletion() throws {
         var local = custodyFixtureQueueItem(state: .terminalDeleted)
         let scope = try RecordingDeletionScope(
@@ -206,7 +302,9 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         ).accepting(receipt, at: Date(timeIntervalSince1970: 200))
         local.retentionDecision.decision = .terminalDeleted
 
-        for item in [local, canceled] {
+        var verified = canceled
+        verified.deletionOperation = canceled.deletionOperation?.applying(.verified, at: Date(timeIntervalSince1970: 300))
+        for item in [local, canceled, verified] {
             XCTAssertTrue(item.hasConfirmedDeletion)
             XCTAssertFalse(item.hasConfirmedServerDeletion)
             XCTAssertTrue(item.lifecycleBlocksContent)
