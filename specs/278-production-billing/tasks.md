@@ -155,4 +155,15 @@ T001–T016/T018/T022 отмечены по исходникам и локаль
 
 ## Phase 15: Календарный планировщик
 
-- [ ] T034 [HIGH] [US3] Сначала воспроизвести внешний ключ на настоящем PostgreSQL и проверить атомарность/повтор в `apps/server/tests/integration/test_billing_renewal_planner_postgres.py`, затем сохранять родительскую операцию до счета в `apps/server/src/twobrain_rec_server/billing/renewal_charge.py`; сохранить caller-owned commit, RLS, цены/срок/согласие и отсутствие отправки. Независимые требования/код, русский `changes/unreleased/F278.yaml`, exact-SHA PR/full release и отдельная приемка расписания обязательны. FR-011/014/024/025/039; частично T026. (Issue #7663; [GitHub](https://github.com/yshishenya/graf/issues/7663))
+- [X] T034 [HIGH] [US3] Сначала воспроизвести внешний ключ на настоящем PostgreSQL и проверить атомарность/повтор в `apps/server/tests/integration/test_billing_renewal_planner_postgres.py`, затем сохранять родительскую операцию до счета в `apps/server/src/twobrain_rec_server/billing/renewal_charge.py`; сохранить caller-owned commit, RLS, цены/срок/согласие и отсутствие отправки. Независимые требования/код, русский `changes/unreleased/F278.yaml`, exact-SHA PR/full release и отдельная приемка расписания обязательны. FR-011/014/024/025/039; частично T026. (Issue #7663; [GitHub](https://github.com/yshishenya/graf/issues/7663))
+
+
+Сверка T034, 22.10.2026: исправление принято в PR #7667 и входит в опубликованный
+v2026.10.19.2, source `bfa7d71839171afd3043768ea736ce76ffa29808`.
+Повторены 120 проверок PostgreSQL/unit; точные PR checks и авторитетный
+release-full 39250886863 подтверждены заново. Допуск, CD и публикация отражены
+в отчёте выпуска. Исходная issue #7663 исключает полную календарную приёмку:
+упомянутая в T034 отдельная приёмка расписания остаётся T026/#7333, не считается
+выполненной этой отметкой. Полное обоснование —
+[validation-renewal-order.md](validation-renewal-order.md), раздел сверки 22.10.
+T026, T030, T032 и общая F278 сохраняют открытый статус.
