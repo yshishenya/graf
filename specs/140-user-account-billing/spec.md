@@ -546,3 +546,12 @@ Owner вводит промокод в checkout или `Скидки`, сраз�
 - Full internal financial superadmin/backoffice UI; refund email and merchant workflow remain outside GRAF, and the product has no refund backoffice/workflow.
 - Redesign of meeting review/capture or replacement of the existing GRAF design system.
 - Claiming full public launch readiness before all other product rollout blockers are independently closed.
+
+## Legacy Impact
+
+- Classification: `untouched`
+- Сверка T042 от 22.10.2026 фиксирует уже принятую реализацию в
+  [storage-closeout-20261022.md](storage-closeout-20261022.md). Исходные
+  требования и исторические финансовые условия сохраняются; эта
+  документальная правка не удаляет и не добавляет пути совместимости.
+- Новых исключений нет: legacy_new=0, unowned_legacy=0, expired_exceptions=0.
