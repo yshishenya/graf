@@ -395,6 +395,8 @@ def test_consent_share_is_published_only_when_it_cannot_point_at_one_person() ->
 
     too_small = build_public_consent_share_report(aggregate_visits=2, consent_visits=1)
     assert too_small["published"] is False
+    assert too_small["aggregate_visits"] is None
+    assert too_small["consent_visits"] is None
     assert too_small["consent_share"] is None
     assert too_small["consent_share_label"] is None
     assert too_small["blocked_reason"] == "below_minimum_bucket_size"

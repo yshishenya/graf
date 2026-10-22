@@ -36,6 +36,8 @@ from twobrain_rec_server.product_analytics.anonymous_aggregate import (
     record_anonymous_aggregate_bucket,
     reportable_aggregate_criteria,
     select_reportable_aggregate_buckets,
+    sum_reportable_aggregate_visits,
+    sum_reportable_aggregate_visits_by_campaign,
 )
 from twobrain_rec_server.product_analytics.forbidden_fields import FORBIDDEN_FIELD_NAMES
 from twobrain_rec_server.product_analytics.retention import retention_days_for_category
@@ -97,6 +99,15 @@ async def _rows(database_url: str, table: str) -> list[dict]:
         async with engine.connect() as connection:
             result = await connection.execute(sa.text(f'select * from "{table}"'))
             return [dict(row._mapping) for row in result]
+    finally:
+        await engine.dispose()
+
+
+async def _execute_sql(database_url: str, statement: str, parameters: dict | None = None) -> None:
+    engine = create_async_engine(database_url, poolclass=NullPool)
+    try:
+        async with engine.begin() as connection:
+            await connection.execute(sa.text(statement), parameters or {})
     finally:
         await engine.dispose()
 
@@ -193,6 +204,7 @@ def test_aggregate_table_has_no_identifier_column(aggregate_database_url: str) -
         "content",
         "term",
         "device_class",
+        "region",
         "referrer_category",
         "traffic_class",
         "visits",
@@ -213,6 +225,80 @@ def test_aggregate_table_has_no_identifier_column(aggregate_database_url: str) -
         "yclid",
     ):
         assert forbidden not in columns
+
+
+def test_region_migration_preserves_history_and_refuses_lossy_downgrade(
+    postgres_clean_database_url: str,
+) -> None:
+    database_url = postgres_clean_database_url
+    previous = "0104_summary_share_scope_cascade"
+    current = "0105_anonymous_aggregate_region"
+    _run_alembic(database_url, upgrade_to=previous)
+    identifier = uuid4()
+    asyncio.run(_execute_sql(database_url, f"""
+        INSERT INTO {AGGREGATE_TABLE} (id, bucket_date, surface, landing_path, visits)
+        VALUES (:id, :day, 'public_landing', '/', 2)
+    """, {"id": identifier, "day": NOW.date()}))
+    _run_alembic(database_url, upgrade_to=current)
+    rows = asyncio.run(_rows(database_url, AGGREGATE_TABLE))
+    assert [(row["id"], row["visits"], row["region"]) for row in rows] == [
+        (identifier, 2, "unknown"),
+    ]
+    assert asyncio.run(_record(database_url, build_anonymous_aggregate_bucket(
+        path="/", occurred_at=NOW,
+    ))) == 3
+    _run_alembic(database_url, upgrade_to=current, downgrade_to=previous)
+    rows = asyncio.run(_rows(database_url, AGGREGATE_TABLE))
+    assert [(row["id"], row["visits"]) for row in rows] == [(identifier, 3)]
+    assert "region" not in rows[0]
+    _run_alembic(database_url, upgrade_to=current)
+    asyncio.run(_record(database_url, build_anonymous_aggregate_bucket(
+        path="/", occurred_at=NOW, region="ru",
+    )))
+    before = asyncio.run(_rows(database_url, AGGREGATE_TABLE))
+    with pytest.raises(sa.exc.DBAPIError, match="nonunknown aggregate region"):
+        _run_alembic(database_url, upgrade_to=current, downgrade_to=previous)
+    after = asyncio.run(_rows(database_url, AGGREGATE_TABLE))
+    assert {row["id"]: row for row in after} == {row["id"]: row for row in before}
+
+
+def test_complete_region_buckets_are_suppressed_before_report_sums(
+    aggregate_database_url: str,
+) -> None:
+    database_url = aggregate_database_url
+    common = {"path": "/", "occurred_at": NOW, "campaign": "t115"}
+
+    async def exercise():
+        await asyncio.gather(*[
+            _record(database_url, build_anonymous_aggregate_bucket(**common, region="ru"))
+            for _ in range(4)
+        ])
+        for region, hour, count in [("non_ru", None, 2), ("unknown", None, 1),
+                                    ("ru", 1, 2), ("ru", 2, 2)]:
+            await _record(database_url, build_anonymous_aggregate_bucket(
+                **common, region=region, bucket_hour=hour, visits=count,
+            ))
+        engine = create_async_engine(database_url, poolclass=NullPool)
+        try:
+            async with AsyncSession(engine) as session:
+                assert await sum_reportable_aggregate_visits(session) == 4
+                assert await sum_reportable_aggregate_visits_by_campaign(
+                    session, surface="public_landing",
+                ) == {"t115": 4}
+                assert await sum_reportable_aggregate_visits(
+                    session, bucket_date_from=NOW.date() + timedelta(days=1),
+                ) == 0
+        finally:
+            await engine.dispose()
+
+    asyncio.run(exercise())
+    rows = asyncio.run(_rows(database_url, AGGREGATE_TABLE))
+    assert len(rows) == 5
+    assert sum(row["visits"] for row in rows) == 11
+    report = asyncio.run(_report(database_url))
+    assert [(row["region"], row["visits"]) for row in report] == [("ru", 4)]
+    with pytest.raises(sa.exc.IntegrityError, match="aggregate_region"):
+        asyncio.run(_execute_sql(database_url, f"UPDATE {AGGREGATE_TABLE} SET region = 'moscow'"))
 
 
 def test_level_two_tables_keep_only_their_declared_columns(aggregate_database_url: str) -> None:

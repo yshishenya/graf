@@ -258,7 +258,7 @@ def test_bucket_key_is_the_upsert_conflict_target() -> None:
 
     assert first.bucket_key() == same.bucket_key()
     assert first.bucket_key() != other.bucket_key()
-    assert len(first.bucket_key()) == 12
+    assert len(first.bucket_key()) == 13
 
 
 def test_minimum_bucket_size_rule_hides_small_buckets() -> None:
@@ -266,7 +266,8 @@ def test_minimum_bucket_size_rule_hides_small_buckets() -> None:
     assert is_disclosed_bucket(1) is False
     assert is_disclosed_bucket(2) is False
     assert is_disclosed_bucket(3) is True
-    assert is_disclosed_bucket(1, minimum_bucket_size=1) is True
+    with pytest.raises(TypeError):
+        is_disclosed_bucket(1, minimum_bucket_size=1)
 
     disclosure = build_minimum_bucket_size_disclosure(suppressed_buckets=2)
     assert disclosure["minimum_bucket_size"] == MINIMUM_AGGREGATE_BUCKET_SIZE
@@ -362,10 +363,29 @@ def test_device_class_from_a_bucket_is_the_only_device_dimension() -> None:
         "content",
         "term",
         "device_class",
+        "region",
         "referrer_category",
         "traffic_class",
         "visits",
     ]
+
+
+def test_region_is_closed_and_part_of_the_complete_bucket_key() -> None:
+    buckets = [build_anonymous_aggregate_bucket(path="/", region=value)
+               for value in ("ru", "non_ru", "unknown")]
+    assert {bucket.region for bucket in buckets} == {"ru", "non_ru", "unknown"}
+    assert len({bucket.bucket_key() for bucket in buckets}) == 3
+    for value in (None, "moscow", "203.0.113.1", "customer@example.com"):
+        bucket = build_anonymous_aggregate_bucket(path="/", region=value)
+        assert bucket.region == "unknown"
+        assert bucket.as_dict()["region"] == bucket.as_row()["region"] == "unknown"
+
+
+def test_public_attribution_cannot_supply_a_region() -> None:
+    bucket = build_anonymous_aggregate_bucket_from_attribution(
+        {"region": "ru", "country": "RU", "utm_region": "ru"}, path="/",
+    )
+    assert bucket.region == "unknown"
 
 
 @pytest.mark.asyncio

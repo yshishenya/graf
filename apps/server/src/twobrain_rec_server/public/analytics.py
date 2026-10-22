@@ -1028,7 +1028,6 @@ def build_public_consent_share_report(
     *,
     aggregate_visits: Any,
     consent_visits: Any,
-    minimum_bucket_size: int = MINIMUM_AGGREGATE_BUCKET_SIZE,
 ) -> dict[str, Any]:
     """Return the share of visitors who granted optional consent (FR-012).
 
@@ -1048,7 +1047,7 @@ def build_public_consent_share_report(
     report: dict[str, Any] = {
         "aggregate_visits": total,
         "consent_visits": consenting,
-        "minimum_bucket_size": int(minimum_bucket_size),
+        "minimum_bucket_size": MINIMUM_AGGREGATE_BUCKET_SIZE,
         "consent_share": None,
         "consent_share_percent": None,
         "consent_share_label": None,
@@ -1056,10 +1055,13 @@ def build_public_consent_share_report(
         "blocked_reason": None,
         "caveat": PUBLIC_CONSENT_SHARE_CAVEAT,
     }
+    # A blocked ratio must not disclose its raw small counters either.
+    if total in (1, 2):
+        report["aggregate_visits"] = report["consent_visits"] = None
     if total is None or consenting is None:
         report["blocked_reason"] = "invalid_counts"
         return report
-    if not is_disclosed_bucket(total, minimum_bucket_size=int(minimum_bucket_size)):
+    if not is_disclosed_bucket(total):
         report["blocked_reason"] = "below_minimum_bucket_size"
         return report
     if consenting > total:
