@@ -624,6 +624,122 @@ def _storage_collector():
     return module
 
 
+def _capacity_evaluator():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("posthog_capacity", REPO_ROOT / "infra/scripts/posthog-capacity.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _capacity_inputs():
+    capacity = _capacity_evaluator()
+    now = 1792634400
+    classes = dict.fromkeys(capacity.CLASSES, 0)
+    classes['events'] = 10_000
+    sample = {'storage_sample_version': 2, 'recorded_at_epoch': now,
+              'inventory_version': 'a' * 64, 'result': 'complete', 'reasons': [],
+              'classes': classes, 'analytics_storage_bytes': 10_000,
+              'filesystems': [{'identity': 'b' * 64, 'total_bytes': 1000,
+                               'available_bytes': 500, 'roles': ['analytics', 'host']}]}
+    budget = {'budget_state_version': 1, 'status': 'accepted', 'role': 'infra_operator',
+              'inventory_version': 'a' * 64, 'budget_version': 'c' * 64,
+              'config_version': 'd' * 64, 't097_evidence_sha256': 'e' * 64,
+              'accepted_at_epoch': now - 1, 'review_deadline_epoch': now + 3600,
+              'analytics_budget_bytes': capacity.INITIAL_CEILING}
+    return capacity, sample, budget, now
+
+
+@pytest.mark.parametrize(('available', 'disable', 'host'), [
+    (200, False, False), (199, True, False), (100, True, False), (99, True, True),
+])
+def test_capacity_uses_exact_bytes_at_shared_filesystem_boundaries(available, disable, host):
+    capacity, sample, budget, now = _capacity_inputs()
+    sample['filesystems'][0]['available_bytes'] = available
+    decision = capacity.evaluate(sample, budget, now=now, config_version='d' * 64)
+    assert decision['input_verified'] and decision['budget_accepted']
+    assert ('analytics_storage' in decision['disable_reasons']) is disable
+    assert ('host_disk' in decision['host_reasons']) is host
+    assert decision['capacity_ready'] is (not disable)
+    assert len(decision['filesystems']) == 1
+
+
+@pytest.mark.parametrize('delta', [-1, 0, 1])
+def test_capacity_budget_boundary_and_combined_causes(delta):
+    capacity, sample, budget, now = _capacity_inputs()
+    sample['analytics_storage_bytes'] = capacity.INITIAL_CEILING + delta
+    sample['classes']['events'] = sample['analytics_storage_bytes']
+    sample['filesystems'][0]['available_bytes'] = 99
+    decision = capacity.evaluate(sample, budget, now=now, config_version='d' * 64)
+    assert ('analytics_storage_budget' in decision['disable_reasons']) is (delta >= 0)
+    assert 'analytics_storage' in decision['disable_reasons']
+    assert decision['host_reasons'] == ['host_disk']
+
+
+@pytest.mark.parametrize('age', [-1, 0, 119, 120])
+def test_capacity_sample_age_is_nonnegative_and_strictly_below_120(age):
+    capacity, sample, budget, now = _capacity_inputs()
+    sample['recorded_at_epoch'] = now - age
+    sample['filesystems'][0]['available_bytes'] = 99
+    decision = capacity.evaluate(sample, budget, now=now, config_version='d' * 64)
+    assert decision['input_verified'] is (0 <= age < 120)
+    assert bool(decision['disable_reasons']) is (0 <= age < 120)
+    assert ('capacity_input_unverified' in decision['analytics_reasons']) is (not 0 <= age < 120)
+
+
+@pytest.mark.parametrize('change', [
+    {'status': 'pending'}, {'role': 'product_owner'}, {'accepted_at_epoch': 1792634401},
+    {'review_deadline_epoch': 1792634400}, {'review_deadline_epoch': 1999999999},
+    {'inventory_version': 'f' * 64}, {'config_version': 'f' * 64},
+    {'t097_evidence_sha256': ''}, {'budget_version': ''},
+    {'analytics_budget_bytes': 0}, {'analytics_budget_bytes': 128 * 1024**3 + 1},
+    {'budget_state_version': True},
+])
+def test_capacity_unaccepted_budget_keeps_readiness_closed_and_known_space_breach(change):
+    capacity, sample, budget, now = _capacity_inputs()
+    sample['filesystems'][0]['available_bytes'] = 99
+    decision = capacity.evaluate(sample, {**budget, **change}, now=now, config_version='d' * 64)
+    assert not decision['budget_accepted'] and not decision['capacity_ready']
+    assert 'capacity_budget_unverified' in decision['analytics_reasons']
+    assert decision['disable_reasons'] == ['analytics_storage']
+
+
+def test_capacity_incomplete_sizes_and_separate_filesystems_remain_distinct():
+    capacity, sample, budget, now = _capacity_inputs()
+    sample['filesystems'] = [
+        {'identity': 'b' * 64, 'total_bytes': 1000, 'available_bytes': 500, 'roles': ['analytics']},
+        {'identity': 'f' * 64, 'total_bytes': 1000, 'available_bytes': 99, 'roles': ['host']},
+    ]
+    decision = capacity.evaluate(sample, budget, now=now, config_version='d' * 64)
+    assert decision['capacity_ready'] and decision['disable_reasons'] == []
+    assert decision['host_reasons'] == ['host_disk']
+    sample['result'] = 'incomplete'
+    sample['filesystems'][0]['available_bytes'] = 199
+    decision = capacity.evaluate(sample, budget, now=now, config_version='d' * 64)
+    assert not decision['capacity_ready'] and not decision['input_verified']
+    assert decision['disable_reasons'] == ['analytics_storage']
+    assert decision['analytics_storage_bytes'] is None
+    assert capacity.evaluate(None, None, now=now, config_version='')['analytics_reasons'] == [
+        'capacity_budget_unverified', 'capacity_input_unverified',
+    ]
+
+
+def test_capacity_invalid_metadata_never_becomes_ready_or_erases_known_low_space():
+    from copy import deepcopy
+    capacity, sample, budget, now = _capacity_inputs()
+    for key, value in [('classes', []), ('analytics_storage_bytes', True),
+                       ('inventory_version', 'bad'), ('filesystems', []),
+                       ('reasons', ['runtime_mount_unclassified']), ('storage_sample_version', True)]:
+        invalid = {**sample, key: value}
+        assert not capacity.evaluate(invalid, budget, now=now, config_version='d' * 64)['capacity_ready']
+    duplicate = deepcopy(sample)
+    duplicate['filesystems'].append({**duplicate['filesystems'][0], 'available_bytes': 99})
+    decision = capacity.evaluate(duplicate, budget, now=now, config_version='d' * 64)
+    assert not decision['input_verified']
+    assert decision['disable_reasons'] == ['analytics_storage']
+    assert decision['host_reasons'] == ['host_disk']
+
+
 def test_allocated_storage_counts_sparse_files_hardlinks_archives_once(tmp_path: Path) -> None:
     import os
     collector = _storage_collector()
