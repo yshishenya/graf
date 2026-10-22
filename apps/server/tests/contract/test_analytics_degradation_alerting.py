@@ -23,6 +23,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.fixtures.analytics_operations import CONSISTENT_RESTORE_LINES
 from twobrain_rec_server.product_analytics import provider_readiness
 
 REPO_ROOT = Path(__file__).parents[4]
@@ -104,7 +105,8 @@ def _valid_operations_state(directory: Path, *, now: int) -> dict[str, Path]:
     _write_state(
         restore,
         [
-            "restore_state_version=1",
+            "restore_state_version=2",
+                *CONSISTENT_RESTORE_LINES,
             "last_verify_result=pass",
             f"last_verify_epoch={now - 86400}",
         ],
@@ -994,3 +996,57 @@ def test_backup_readiness_and_alerting_share_local_set_boundaries(tmp_path: Path
     else:
         assert not any(code.startswith('backup_') for code in blockers)
         assert 'backup_offsite' not in alert.stdout
+
+
+@pytest.mark.parametrize("change", [
+    "old_schema", "consistency", "native_read", "posthog_read", "cleanup",
+    "retention_recheck", "deletion_recheck", "manifest", "runtime",
+    "missing_class", "duplicate_class", "unknown_class", "partial_class", "trailing_class", "empty_class", "all_classes",
+    "future", "boundary", "unknown_time", "overflow", "leading_zero", "huge_epoch", "failed", "valid",
+])
+def test_restore_readiness_and_alerting_require_consistent_native_proof(tmp_path: Path, change: str) -> None:
+    now = int(time.time())
+    state = _valid_operations_state(tmp_path, now=now)
+    restore = state["restore"]
+    text = restore.read_text()
+    replacements = {
+        "old_schema": ("restore_state_version=2", "restore_state_version=1"),
+        "consistency": ("consistency=cold_project_v1", "consistency=archive_only"),
+        **{key: (f"{key}=pass", f"{key}=unknown") for key in (
+            "native_read", "posthog_read", "cleanup", "retention_recheck", "deletion_recheck",
+        )},
+        "manifest": ("manifest_sha256=" + "a" * 64, "manifest_sha256=unknown"),
+        "runtime": ("runtime_sha256=" + "b" * 64, "runtime_sha256=unknown"),
+        "missing_class": ("postgres,clickhouse", "postgres"),
+        "duplicate_class": ("postgres,clickhouse", "postgres,clickhouse,postgres"),
+        "unknown_class": ("postgres,clickhouse", "postgres,clickhouse,unknown"),
+        "trailing_class": ("postgres,clickhouse", "postgres,clickhouse,"),
+        "empty_class": ("postgres,clickhouse", "postgres,,clickhouse"),
+        "all_classes": ("postgres,clickhouse", "postgres,clickhouse,objects,broker,coordination,redis,elasticsearch,proxy"),
+        "partial_class": ("verified_classes=postgres,clickhouse", "verified_classes=postgres"),
+        "future": (f"last_verify_epoch={now - 86400}", f"last_verify_epoch={now + 60}"),
+        "boundary": (f"last_verify_epoch={now - 86400}", f"last_verify_epoch={now - 30 * 86400}"),
+        "unknown_time": (f"last_verify_epoch={now - 86400}", "last_verify_epoch=unknown"),
+        "overflow": (f"last_verify_epoch={now - 86400}", f"last_verify_epoch={2**64 + now - 60}"),
+        "leading_zero": (f"last_verify_epoch={now - 86400}", f"last_verify_epoch=0{now - 40 * 86400}"),
+        "huge_epoch": (f"last_verify_epoch={now - 86400}", "last_verify_epoch=" + "9" * 401),
+        "failed": ("last_verify_result=pass", "last_verify_result=fail"),
+    }
+    if change in replacements:
+        before, after = replacements[change]
+        assert before in text
+        text = text.replace(before, after)
+    restore.write_text(text)
+    environment, _ = _alert_environment(tmp_path, state)
+    environment["GRAF_POSTHOG_RESTORE_STATE_FILE"] = str(restore)
+    environment["GRAF_POSTHOG_RESTORE_MAX_AGE_DAYS"] = "365"
+    evidence = provider_readiness.collect_analytics_operations_evidence(environment, now=now)
+    blockers = provider_readiness.analytics_operations_blockers(evidence, environment)
+    alert = _run_alert(environment, "--dry-run")
+    assert alert.returncode == 0, alert.stderr
+    if change in ("valid", "all_classes"):
+        assert not any(code.startswith("restore_") for code in blockers)
+        assert "restore_verification_" not in alert.stdout
+    else:
+        assert any(code.startswith("restore_") for code in blockers), blockers
+        assert "restore_verification_" in alert.stdout

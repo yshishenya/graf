@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.fixtures.analytics_operations import CONSISTENT_RESTORE_LINES
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.provider_readiness import build_provider_readiness
 from twobrain_rec_server.product_analytics.readiness import build_rollout_readiness_report
@@ -126,7 +127,8 @@ def _write_operations_states(
     restore.write_text(
         "\n".join(
             [
-                "restore_state_version=1",
+                "restore_state_version=2",
+                *CONSISTENT_RESTORE_LINES,
                 f"last_verify_result={restore_result}",
                 f"last_verify_epoch={now - restore_age_days * 86400}",
                 "",
