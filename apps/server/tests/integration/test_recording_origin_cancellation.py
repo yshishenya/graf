@@ -4,8 +4,17 @@ from threading import Event
 from uuid import UUID, uuid4
 
 import pytest
+from sqlalchemy import event, select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
+from twobrain_rec_server.auth.sessions import issue_auth_session
+from twobrain_rec_server.db.models import (
+    AuthSessionDeviceBinding,
+    MeetingLifecycleAuditEvent,
+    RecordingOriginCancellation,
+    RegisteredDevice,
+)
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 
 
@@ -33,6 +42,169 @@ def test_cancel_before_create_is_durable_and_repeatable(client):
     late = create(client, origin)
     assert late.status_code == 409
     assert late.json()["code"] == "recording_deletion_active"
+
+
+def test_repeat_from_another_registered_device_preserves_first_audit(client):
+    origin, second_device = str(uuid4()), uuid4()
+
+    async def sessions():
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(RegisteredDevice(
+                id=second_device, workspace_id=WORKSPACE_ID, user_id=USER_ID,
+                device_public_id=str(second_device), status="active",
+            ))
+            await db.flush()
+            headers = []
+            for device_id in (DEVICE_ID, second_device):
+                session = await issue_auth_session(
+                    db, user_id=USER_ID, workspace_id=WORKSPACE_ID,
+                    device_id=device_id, provider="synthetic-f262",
+                )
+                db.add(AuthSessionDeviceBinding(
+                    auth_session_id=session.id, registered_device_id=device_id,
+                    device_state="trusted",
+                ))
+                headers.append({
+                    "X-Auth-Session": session.token,
+                    "X-Graf-Expected-Actor": str(USER_ID),
+                    "X-Graf-Expected-Workspace": str(WORKSPACE_ID),
+                })
+            await db.commit()
+            return headers
+
+    async def audit_snapshot():
+        async with client.app_state["sessionmaker"]() as db:
+            return (await db.execute(select(
+                MeetingLifecycleAuditEvent.id, MeetingLifecycleAuditEvent.workspace_id,
+                MeetingLifecycleAuditEvent.actor_user_id, MeetingLifecycleAuditEvent.device_id,
+                MeetingLifecycleAuditEvent.created_at, MeetingLifecycleAuditEvent.metadata_json,
+            ))).all()
+
+    first_headers, second_headers = asyncio.run(sessions())
+    first = cancel(client, origin, first_headers)
+    assert first.status_code == 202
+    snapshot = asyncio.run(audit_snapshot())
+    assert len(snapshot) == 1
+    assert snapshot[0][1:4] == (WORKSPACE_ID, USER_ID, DEVICE_ID)
+    assert snapshot[0].metadata_json == {"cancellation_id": first.json()["request_id"]}
+    for headers in (second_headers, first_headers):
+        repeated = cancel(client, origin, headers)
+        assert repeated.status_code == 202
+        assert repeated.json() == first.json()
+        assert create(client, origin, headers).status_code == 409
+        assert asyncio.run(audit_snapshot()) == snapshot
+
+
+def test_audit_insert_failure_rolls_back_origin_cancellation(client):
+    origin = str(uuid4())
+
+    def fail_audit_insert(mapper, connection, target):
+        if target.event_type == "recording_origin_canceled":
+            raise RuntimeError("synthetic audit write failure")
+
+    event.listen(MeetingLifecycleAuditEvent, "before_insert", fail_audit_insert)
+    try:
+        with pytest.raises(RuntimeError, match="synthetic audit write failure"):
+            cancel(client, origin)
+    finally:
+        event.remove(MeetingLifecycleAuditEvent, "before_insert", fail_audit_insert)
+
+    async def inspect():
+        async with client.app_state["sessionmaker"]() as db:
+            assert await db.scalar(select(RecordingOriginCancellation)) is None
+            assert await db.scalar(select(MeetingLifecycleAuditEvent)) is None
+
+    asyncio.run(inspect())
+    assert create(client, origin).status_code == 200
+    # A fresh cancellation can still commit normally after the failed audit.
+    assert cancel(client, str(uuid4())).status_code == 202
+
+
+def test_old_marker_repeat_does_not_fabricate_historical_device_audit(client):
+    origin = str(uuid4())
+
+    async def seed():
+        async with client.app_state["sessionmaker"]() as db:
+            marker = RecordingOriginCancellation(
+                workspace_id=WORKSPACE_ID, created_by_user_id=USER_ID,
+                local_recording_id=origin,
+            )
+            db.add(marker)
+            await db.commit()
+            return marker.id, marker.accepted_at
+
+    marker_id, accepted_at = asyncio.run(seed())
+    response = cancel(client, origin)
+    assert response.status_code == 202
+    assert response.json()["request_id"] == str(marker_id)
+    assert cancel(client, origin).json() == response.json()
+    assert create(client, origin).status_code == 409
+
+    async def inspect():
+        async with client.app_state["sessionmaker"]() as db:
+            marker = await db.get(RecordingOriginCancellation, marker_id)
+            assert marker.accepted_at == accepted_at
+            assert marker.local_recording_id == origin
+            assert await db.scalar(select(MeetingLifecycleAuditEvent)) is None
+
+    asyncio.run(inspect())
+
+
+@pytest.mark.parametrize("device_state", ["revoked", "pending", "other_workspace"])
+def test_unavailable_session_device_cannot_create_cancellation_or_audit(client, device_state):
+    from tests.fakes.auth_contexts import PERSONAL_WORKSPACE_ID
+
+    async def seed():
+        async with client.app_state["sessionmaker"]() as db:
+            session = await issue_auth_session(
+                db, user_id=USER_ID, workspace_id=WORKSPACE_ID,
+                device_id=DEVICE_ID, provider="synthetic-f262",
+            )
+            db.add(AuthSessionDeviceBinding(
+                auth_session_id=session.id, registered_device_id=DEVICE_ID,
+                device_state="trusted",
+            ))
+            device = await db.get(RegisteredDevice, DEVICE_ID)
+            if device_state == "other_workspace":
+                device.workspace_id = PERSONAL_WORKSPACE_ID
+            else:
+                device.registration_state = device_state
+            await db.commit()
+            return session.token
+
+    response = cancel(client, str(uuid4()), {
+        "X-Auth-Session": asyncio.run(seed()),
+        "X-Graf-Expected-Actor": str(USER_ID),
+        "X-Graf-Expected-Workspace": str(WORKSPACE_ID),
+    })
+    assert response.status_code == 403
+    assert "receipt_type" not in response.json()
+
+    async def inspect():
+        async with client.app_state["sessionmaker"]() as db:
+            assert await db.scalar(select(RecordingOriginCancellation)) is None
+            assert await db.scalar(select(MeetingLifecycleAuditEvent)) is None
+
+    asyncio.run(inspect())
+
+
+def test_concurrent_cancellations_commit_one_marker_and_audit(client):
+    origin = str(uuid4())
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(lambda _: cancel(client, origin), range(2)))
+    assert [response.status_code for response in responses] == [202, 202]
+    assert responses[0].json() == responses[1].json()
+
+    async def inspect():
+        async with client.app_state["sessionmaker"]() as db:
+            markers = (await db.scalars(select(RecordingOriginCancellation))).all()
+            audits = (await db.scalars(select(MeetingLifecycleAuditEvent))).all()
+            assert len(markers) == len(audits) == 1
+            assert audits[0].metadata_json == {"cancellation_id": str(markers[0].id)}
+            assert audits[0].device_id == DEVICE_ID
+            assert audits[0].created_at == markers[0].accepted_at
+
+    asyncio.run(inspect())
 
 
 def test_cancel_existing_origin_uses_meeting_deletion_receipt(client):
@@ -187,6 +359,7 @@ def test_cancellation_rls_is_owner_scoped_and_markers_cannot_be_removed(client):
     from tests.integration.test_rls_postgres_policies import _create_probe_role, _drop_probe_role
     from twobrain_rec_server.db.models import RecordingOriginCancellation
     from twobrain_rec_server.db.tenant_context import apply_tenant_scope
+    from twobrain_rec_server.deletion.origin_cancellation import cancel_recording_origin
 
     origin = str(uuid4())
     assert cancel(client, origin).status_code == 202
@@ -204,10 +377,27 @@ def test_cancellation_rls_is_owner_scoped_and_markers_cannot_be_removed(client):
                 assert (await db.execute(update(RecordingOriginCancellation).values(local_recording_id="changed"))).rowcount == 0
                 await db.commit()
                 assert (await db.scalar(select(RecordingOriginCancellation))).local_recording_id == origin
+                receipt = await cancel_recording_origin(
+                    db, scope=tenant_scope(), local_recording_id=str(uuid4()),
+                    confirmation_boundary=BOUNDED_DELETE_COPY,
+                    storage=client.app_state["storage"], local_buffer_expiry_days=7,
+                )
+                await db.commit()
+                audits = (await db.scalars(select(MeetingLifecycleAuditEvent))).all()
+                assert len(audits) == 2
+                audit = next(row for row in audits if row.metadata_json == {
+                    "cancellation_id": str(receipt.request_id),
+                })
+                assert audit.actor_user_id == tenant_scope().user_id
+                assert audit.device_id == tenant_scope().device_id
+                assert audit.workspace_id == tenant_scope().workspace_id
+                assert audit.meeting_id is None and audit.deletion_request_id is None
             for scope in [replace(tenant_scope(), user_id=uuid4()), replace(tenant_scope(), workspace_id=uuid4())]:
                 async with async_sessionmaker(engine)() as db:
                     await apply_tenant_scope(db, scope)
                     assert await db.scalar(select(RecordingOriginCancellation)) is None
+                    if scope.workspace_id != tenant_scope().workspace_id:
+                        assert await db.scalar(select(MeetingLifecycleAuditEvent)) is None
         finally:
             await engine.dispose()
             await _drop_probe_role(database_url, role)

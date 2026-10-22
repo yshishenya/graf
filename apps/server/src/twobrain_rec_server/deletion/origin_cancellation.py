@@ -8,9 +8,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import DeletionRequestResponse, OriginCancellationReceipt
 from twobrain_rec_server.auth.context import TenantScope
-from twobrain_rec_server.db.models import Meeting, RecordingOriginCancellation
+from twobrain_rec_server.db.models import (
+    Meeting,
+    MeetingLifecycleAuditEvent,
+    RecordingOriginCancellation,
+)
+from twobrain_rec_server.deletion.audit import build_lifecycle_audit_metadata
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 from twobrain_rec_server.deletion.service import request_meeting_deletion
+from twobrain_rec_server.domain.statuses import LifecycleAuditOutcome
 
 
 async def lock_recording_origin(db: AsyncSession, scope: TenantScope, origin: str) -> None:
@@ -55,6 +61,15 @@ async def cancel_recording_origin(
             local_recording_id=local_recording_id,
         )
         db.add(cancellation)
+        await db.flush()
+        db.add(MeetingLifecycleAuditEvent(
+            workspace_id=scope.workspace_id, actor_user_id=scope.user_id,
+            device_id=scope.device_id, event_type="recording_origin_canceled",
+            outcome=LifecycleAuditOutcome.ACCEPTED.value,
+            safe_reason="recording_origin_canceled",
+            metadata_json=build_lifecycle_audit_metadata(cancellation_id=cancellation.id),
+            created_at=cancellation.accepted_at,
+        ))
         await db.flush()
     return OriginCancellationReceipt(
         request_id=cancellation.id, local_recording_id=local_recording_id,

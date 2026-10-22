@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from typing import Any
+from uuid import UUID
 
 SAFE_METADATA_KEYS = frozenset(
     {
@@ -18,6 +19,7 @@ SAFE_METADATA_KEYS = frozenset(
         "request_source",
         "task_type",
         "device_state",
+        "cancellation_id",
     }
 )
 
@@ -58,6 +60,10 @@ def build_lifecycle_audit_metadata(**metadata: Any) -> dict[str, str | int | boo
     sanitized: dict[str, str | int | bool | None] = {}
     for key, value in metadata.items():
         _assert_safe_key(key)
+        if key == "cancellation_id":
+            if not isinstance(value, UUID):
+                raise ValueError("lifecycle audit metadata-only payload rejected")
+            value = str(value)
         sanitized[key] = _sanitize_value(value)
     return sanitized
 

@@ -16,6 +16,7 @@ from twobrain_rec_server.domain.statuses import (
 
 
 def test_lifecycle_audit_metadata_keeps_only_safe_lifecycle_fields() -> None:
+    cancellation_id = uuid4()
     metadata = build_lifecycle_audit_metadata(
         state=DeletionArtifactState.PURGE_REQUESTED,
         artifact_class=DeletionArtifactClass.AUDIO_OBJECT,
@@ -23,6 +24,7 @@ def test_lifecycle_audit_metadata_keeps_only_safe_lifecycle_fields() -> None:
         outcome=LifecycleAuditOutcome.ACCEPTED,
         attempt_count=1,
         safe_reason="delete_requested",
+        cancellation_id=cancellation_id,
     )
 
     assert metadata == {
@@ -32,6 +34,7 @@ def test_lifecycle_audit_metadata_keeps_only_safe_lifecycle_fields() -> None:
         "outcome": "accepted",
         "attempt_count": 1,
         "safe_reason": "delete_requested",
+        "cancellation_id": str(cancellation_id),
     }
 
 
@@ -43,6 +46,9 @@ def test_lifecycle_audit_metadata_keeps_only_safe_lifecycle_fields() -> None:
         {"local_path": "/Users/person/private.wav"},
         {"transcript": "private transcript text"},
         {"metadata": {"token": "secret"}},
+        *({"cancellation_id": value} for value in (
+            "client-origin", str(uuid4()), None, True, 1, {}, [],
+        )),
     ],
 )
 def test_lifecycle_audit_metadata_rejects_private_or_secret_payloads(private_payload: dict[str, object]) -> None:

@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
-from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
+from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
 from tests.fixtures.cabinet_access import (
     SHARED_DEVICE_ID,
     SHARED_USER_ID,
@@ -199,7 +199,7 @@ def test_origin_only_receipt_creates_no_meeting_or_meeting_purge_foreign_keys(cl
     origin = str(uuid4())
     meeting_models = (
         Meeting, MeetingDeletionRequest, MeetingDeletionReport, MeetingDeletionArtifactState,
-        LocalPurgeTask, MeetingLifecycleAuditEvent, RetentionPolicySnapshot,
+        LocalPurgeTask, RetentionPolicySnapshot,
     )
 
     async def counts():
@@ -240,6 +240,19 @@ def test_origin_only_receipt_creates_no_meeting_or_meeting_purge_foreign_keys(cl
             assert marker.created_by_user_id == USER_ID
             assert marker.workspace_id == WORKSPACE_ID
             assert marker.local_recording_id == origin
+            events = (await db.scalars(select(MeetingLifecycleAuditEvent))).all()
+            assert len(events) == 1
+            audit = events[0]
+            assert audit.event_type == "recording_origin_canceled"
+            assert audit.outcome == "accepted"
+            assert audit.safe_reason == "recording_origin_canceled"
+            assert audit.workspace_id == WORKSPACE_ID
+            assert audit.actor_user_id == USER_ID
+            assert audit.device_id == DEVICE_ID
+            assert audit.metadata_json == {"cancellation_id": str(marker.id)}
+            assert audit.created_at == marker.accepted_at
+            assert audit.meeting_id is None
+            assert audit.deletion_request_id is None
 
     asyncio.run(inspect_only_marker())
 
