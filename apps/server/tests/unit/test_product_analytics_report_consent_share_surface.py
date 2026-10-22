@@ -358,7 +358,7 @@ def test_report_surface_names_its_sources_and_owners(
     assert os.path.basename(surface["counts_state"]["state_path"]) == "report-counts.json"
 
 
-@pytest.mark.parametrize("aggregate_visits", [1, 2])
+@pytest.mark.parametrize("aggregate_visits", [0, 1, 2])
 @pytest.mark.parametrize("consent_visits", [1, 2, 41])
 def test_small_report_does_not_disclose_counts_through_diagnostic_sibling(
     monkeypatch, tmp_path: Path, aggregate_visits: int, consent_visits: int,
@@ -375,6 +375,26 @@ def test_small_report_does_not_disclose_counts_through_diagnostic_sibling(
             tmp_path, _counts_payload(consent_visits=consent_visits),
         ),
     }))
-    assert surface["consent_share"]["aggregate_visits"] is None
+    assert surface["consent_share"]["aggregate_visits"] == (0 if aggregate_visits == 0 else None)
     assert surface["consent_share"]["consent_visits"] is None
+    assert "consent_visits" not in surface["counts_state"]
+
+
+@pytest.mark.parametrize("consent_visits", [1, 2, 41])
+def test_suppressed_real_buckets_do_not_disclose_consent_counts(
+    report_database_url: str, tmp_path: Path, consent_visits: int,
+) -> None:
+    asyncio.run(_seed_buckets(report_database_url, [
+        {"visits": 1}, {"visits": 2, "landing_path": "/download"},
+    ]))
+    surface = asyncio.run(_surface(report_database_url, {
+        "TWOBRAIN_PRODUCT_ANALYTICS_REPORT_COUNTS_FILE": _write_counts(
+            tmp_path, _counts_payload(consent_visits=consent_visits),
+        ),
+    }))
+    share = surface["consent_share"]
+    assert share["aggregate_visits"] == 0
+    assert share["consent_visits"] is None
+    assert share["published"] is False
+    assert share["blocked_reason"] == "below_minimum_bucket_size"
     assert "consent_visits" not in surface["counts_state"]

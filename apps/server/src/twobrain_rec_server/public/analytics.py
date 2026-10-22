@@ -1056,8 +1056,10 @@ def build_public_consent_share_report(
         "caveat": PUBLIC_CONSENT_SHARE_CAVEAT,
     }
     # A blocked ratio must not disclose its raw small counters either.
+    if total is None or not is_disclosed_bucket(total):
+        report["consent_visits"] = None
     if total in (1, 2):
-        report["aggregate_visits"] = report["consent_visits"] = None
+        report["aggregate_visits"] = None
     if total is None or consenting is None:
         report["blocked_reason"] = "invalid_counts"
         return report
