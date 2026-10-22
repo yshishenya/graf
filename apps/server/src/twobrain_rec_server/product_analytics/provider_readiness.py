@@ -35,6 +35,7 @@ DEFAULT_BACKUP_MAX_AGE_HOURS = 26
 DEFAULT_RESTORE_MAX_AGE_DAYS = 30
 DEFAULT_MINIMUM_COPIES = 2
 DEFAULT_MINIMUM_OFFSITE_COPIES = 1
+RETENTION_MAX_AGE_HOURS = 26
 
 # Required categories use an explicit policy; a legacy age receipt is not proof.
 REQUIRED_RETENTION_TERMS: tuple[tuple[str, None], ...] = (
@@ -113,6 +114,7 @@ class AnalyticsOperationsEvidence:
     restore_result: str = "unknown"
     retention_state_available: bool = False
     retention_result: str = "unknown"
+    retention_age_hours: float | None = None
     retention_categories: tuple[RetentionCategoryEvidence, ...] = ()
     missing_retention_categories: tuple[str, ...] = field(default=())
 
@@ -259,6 +261,12 @@ def collect_analytics_operations_evidence(
 
     retention_text = _read_state_text(retention_state_file_path(environment))
     retention_values = _first_values(retention_text) if retention_text is not None else {}
+    retention_epoch = _optional_epoch(retention_values.get("recorded_at_epoch"))
+    retention_age_hours = (
+        (current_time - retention_epoch) / 3600
+        if retention_epoch is not None and retention_epoch <= current_time
+        else None
+    )
     categories: list[RetentionCategoryEvidence] = []
     missing_categories: list[str] = []
     if retention_text is not None:
@@ -292,6 +300,7 @@ def collect_analytics_operations_evidence(
         restore_result=restore_values.get("last_verify_result", "unknown"),
         retention_state_available=retention_text is not None,
         retention_result=retention_values.get("result", "unknown"),
+        retention_age_hours=retention_age_hours,
         retention_categories=tuple(categories),
         missing_retention_categories=tuple(missing_categories),
     )
@@ -343,6 +352,8 @@ def analytics_operations_blockers(
     if not evidence.retention_state_available:
         blockers.append(BLOCKER_RETENTION_STATE_UNAVAILABLE)
     else:
+        if evidence.retention_age_hours is None or not 0 <= evidence.retention_age_hours < RETENTION_MAX_AGE_HOURS:
+            blockers.append(BLOCKER_RETENTION_ENFORCEMENT_UNVERIFIED)
         for category, _ in REQUIRED_RETENTION_TERMS:
             if category in missing_declared:
                 blockers.append(f"{BLOCKER_RETENTION_CATEGORY_MISSING}:{category}")
@@ -407,6 +418,10 @@ def build_analytics_operations_readiness(
             int(_bounded_number(environment.get(RESTORE_MAX_AGE_DAYS_ENV), float(DEFAULT_RESTORE_MAX_AGE_DAYS)))
         ),
         "retention_result": collected.retention_result,
+        "retention_verification_max_age_hours": str(RETENTION_MAX_AGE_HOURS),
+        "retention_verification_age_hours": (
+            f"{collected.retention_age_hours:.1f}" if collected.retention_age_hours is not None else "unknown"
+        ),
         "retention_required_terms": retention_terms,
         "retention_declared_terms": declared_terms or "none",
         "retention_enforcement": "decision_required",

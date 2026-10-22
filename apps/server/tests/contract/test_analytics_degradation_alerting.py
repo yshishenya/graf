@@ -108,7 +108,8 @@ def _valid_operations_state(directory: Path, *, now: int) -> dict[str, Path]:
     _write_state(
         retention,
         [
-            "retention_state_version=1",
+            "retention_state_version=2",
+                f"recorded_at_epoch={now}",
             "result=pass",
             "category=measurement_events retention_mode=until_decision retention_days=none storage=clickhouse enforcement=decision_required "
             "last_enforced_at=recent rows_deleted=0 enforcement_verified=true",
