@@ -7,13 +7,23 @@ import pytest
 from sqlalchemy import event, select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
-from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
+from tests.fakes.auth_contexts import DEVICE_ID, PERSONAL_WORKSPACE_ID, USER_ID, WORKSPACE_ID
+from tests.fixtures.cabinet import create_ready_meeting
+from tests.fixtures.cabinet_access import (
+    SHARED_DEVICE_ID,
+    SHARED_USER_ID,
+    add_workspace_user,
+    grant_meeting_to_user,
+)
 from twobrain_rec_server.auth.sessions import issue_auth_session
 from twobrain_rec_server.db.models import (
     AuthSessionDeviceBinding,
+    Meeting,
     MeetingLifecycleAuditEvent,
+    MeetingShareGrant,
     RecordingOriginCancellation,
     RegisteredDevice,
+    WorkspaceMembership,
 )
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 
@@ -426,6 +436,26 @@ def test_lifecycle_batch_returns_metadata_receipts_and_bounds_selection(client):
     assert client.post("/api/v1/desktop/recordings/lifecycle", headers=auth_headers(), json={
         "origins": [str(uuid4()) for _ in range(101)],
     }).status_code == 422
+    headers = _lifecycle_session_headers(client, user_id=USER_ID, device_id=DEVICE_ID)
+    # The cap applies before deduplication and to the combined target lists.
+    bounded = client.post("/api/v1/desktop/recordings/lifecycle", headers=headers, json={
+        "origins": [origin] * 50, "meeting_ids": [live["meeting_id"]] * 50,
+    })
+    assert bounded.status_code == 200
+    assert bounded.json() == entries[:2]
+    for invalid in [
+        {},
+        {"origins": [origin] * 50, "meeting_ids": [live["meeting_id"]] * 51},
+        {"origins": [origin], "unexpected": True},
+        {"meeting_ids": ["not-a-uuid"]},
+        {"origins": [""]},
+        {"origins": ["x" * 241]},
+    ]:
+        rejected = client.post(
+            "/api/v1/desktop/recordings/lifecycle", headers=headers, json=invalid,
+        )
+        assert rejected.status_code == 422
+        assert "receipt" not in rejected.json()
 
 
 def test_execution_scope_change_rejects_cancellation_before_any_mutation(client):
@@ -488,3 +518,157 @@ def test_origin_lock_orders_both_interleavings(client, monkeypatch, first_action
     assert deletion.status_code == 202
     assert creation.status_code == (200 if first_action == "create" else 409)
     assert create(client, origin).status_code == 409
+
+
+def _lifecycle_session_headers(client, *, user_id=SHARED_USER_ID, device_id=SHARED_DEVICE_ID):
+    async def issue():
+        async with client.app_state["sessionmaker"]() as db:
+            session = await issue_auth_session(
+                db,
+                user_id=user_id,
+                workspace_id=WORKSPACE_ID,
+                device_id=device_id,
+                provider="synthetic-f262",
+            )
+            db.add(
+                AuthSessionDeviceBinding(
+                    auth_session_id=session.id,
+                    registered_device_id=device_id,
+                    device_state="trusted",
+                )
+            )
+            await db.commit()
+            return session.token
+
+    return {
+        "X-Auth-Session": client.portal.call(issue),
+        "X-Graf-Expected-Actor": str(user_id),
+        "X-Graf-Expected-Workspace": str(WORKSPACE_ID),
+    }
+
+
+def test_lookup_reauthorizes_share_revocation_and_lifecycle_manager(client):
+    meeting_id = create_ready_meeting(client)
+    add_workspace_user(client)
+    reader_headers = _lifecycle_session_headers(client)
+
+    async def origin():
+        async with client.app_state["sessionmaker"]() as db:
+            return (await db.get(Meeting, meeting_id)).local_recording_id
+
+    origin_id = client.portal.call(origin)
+    payload = {"origins": [origin_id], "meeting_ids": [str(meeting_id)]}
+
+    def lookup():
+        result = client.post(
+            "/api/v1/desktop/recordings/lifecycle", headers=reader_headers, json=payload
+        )
+        assert result.status_code == 200, result.text
+        assert result.headers["cache-control"] == "no-store"
+        assert "title" not in result.text and "transcript" not in result.text
+        return result.json()
+
+    denied = lookup()
+    assert [x["state"] for x in denied] == ["unavailable", "unavailable"]
+    assert all(x["receipt"] is None and x["meeting_id"] is None for x in denied)
+    grant_meeting_to_user(client, meeting_id)
+    allowed = lookup()
+    assert [x["state"] for x in allowed] == ["unavailable", "allowed"]
+    assert allowed[0]["receipt"] is None and allowed[1]["receipt"] is None
+
+    async def revoke():
+        async with client.app_state["sessionmaker"]() as db:
+            row = await db.scalar(
+                select(MeetingShareGrant).where(MeetingShareGrant.meeting_id == meeting_id)
+            )
+            row.status = "revoked"
+            await db.commit()
+
+    client.portal.call(revoke)
+    assert lookup() == denied
+    deleted = client.post(
+        f"/api/v1/cabinet/meetings/{meeting_id}/deletion-requests",
+        headers=auth_headers(),
+        json={"confirmation_boundary": BOUNDED_DELETE_COPY},
+    )
+    assert deleted.status_code == 202
+    assert lookup() == denied
+
+    async def make_admin():
+        async with client.app_state["sessionmaker"]() as db:
+            membership = await db.get(
+                WorkspaceMembership, {"workspace_id": WORKSPACE_ID, "user_id": SHARED_USER_ID}
+            )
+            membership.role = "admin"
+            await db.commit()
+
+    client.portal.call(make_admin)
+    managed = lookup()
+    assert managed[0] == denied[0]
+    assert managed[1]["state"] == "deletion_accepted"
+    assert managed[1]["receipt"]["phase"] == "accepted"
+    assert managed[1]["receipt"]["request_id"] == deleted.json()["request_id"]
+    assert managed[1]["receipt"]["local_recording_id"] is None
+
+
+def test_lookup_filters_other_workspace_meeting_and_cancellation(client):
+    meeting_id = create_ready_meeting(client)
+    origin = str(uuid4())
+    assert cancel(client, origin).status_code == 202
+
+    async def move_synthetic_rows():
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            meeting_origin = meeting.local_recording_id
+            meeting.workspace_id = PERSONAL_WORKSPACE_ID
+            marker = await db.scalar(
+                select(RecordingOriginCancellation).where(
+                    RecordingOriginCancellation.local_recording_id == origin
+                )
+            )
+            marker.workspace_id = PERSONAL_WORKSPACE_ID
+            await db.commit()
+            return meeting_origin
+
+    meeting_origin = client.portal.call(move_synthetic_rows)
+    response = client.post(
+        "/api/v1/desktop/recordings/lifecycle",
+        headers=_lifecycle_session_headers(client, user_id=USER_ID, device_id=DEVICE_ID),
+        json={"origins": [origin, meeting_origin], "meeting_ids": [str(meeting_id)]},
+    )
+    assert response.status_code == 200
+    assert len(response.json()) == 3
+    assert all(
+        x["state"] == "unavailable" and x["receipt"] is None and x["meeting_id"] is None
+        for x in response.json()
+    )
+
+
+def test_lookup_rejects_revoked_workspace_membership(client):
+    meeting_id = create_ready_meeting(client)
+    add_workspace_user(client)
+    reader_headers = _lifecycle_session_headers(client)
+    grant_meeting_to_user(client, meeting_id)
+    payload = {"meeting_ids": [str(meeting_id)]}
+    assert (
+        client.post(
+            "/api/v1/desktop/recordings/lifecycle", headers=reader_headers, json=payload
+        ).json()[0]["state"]
+        == "allowed"
+    )
+
+    async def revoke():
+        async with client.app_state["sessionmaker"]() as db:
+            row = await db.get(
+                WorkspaceMembership, {"workspace_id": WORKSPACE_ID, "user_id": SHARED_USER_ID}
+            )
+            row.status = "revoked"
+            await db.commit()
+
+    client.portal.call(revoke)
+    response = client.post(
+        "/api/v1/desktop/recordings/lifecycle", headers=reader_headers, json=payload
+    )
+    assert response.status_code == 403
+    assert response.json()["code"] == "workspace_scope_denied"
+    assert "receipt" not in response.json()
