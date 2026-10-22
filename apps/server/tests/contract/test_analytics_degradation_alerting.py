@@ -84,7 +84,7 @@ def _rule_map() -> dict[str, dict[str, str]]:
 def _write_state(path: Path, lines: list[str]) -> None:
     if path.name == "guard-state":
         # Normal alert fixtures represent the current complete writer schema.
-        lines = ["alert_state_version=2", "capacity_ready=true", "protection_status=observed", *lines]
+        lines = ["alert_state_version=2", "capacity_ready=true", "capacity_input_verified=true", "protection_status=observed", *lines]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -500,6 +500,45 @@ def test_alert_channel_fails_closed_when_last_delivery_file_is_stale(tmp_path: P
     channel_state = (alert_state_dir / "channel-state").read_text(encoding="utf-8")
     assert "reason=last_delivery_stale" in channel_state
     assert "last_delivery_status=stale" in channel_state
+
+
+@pytest.mark.parametrize('value', ['01800000000', '9' * 400, 'future'])
+@pytest.mark.parametrize('source', ['guard', 'delivery', 'first_check', 'repeat'])
+def test_alert_rejects_invalid_or_future_epochs_in_every_consumer(tmp_path: Path, source: str, value: str) -> None:
+    now = int(time.time())
+    value = str(now + 3600) if value == 'future' else value
+    state = _valid_operations_state(tmp_path, now=now)
+    guard = tmp_path / 'guard-state'
+    _write_state(guard, [f'recorded_at_epoch={now}', 'result=pass'])
+    environment, curl_log = _alert_environment(tmp_path, state)
+    alert_dir = tmp_path / 'alert-state'
+    alert_dir.mkdir()
+    if source == 'guard':
+        guard.write_text(guard.read_text().replace(str(now), value))
+        alert = _run_alert(environment, '--dry-run')
+        assert 'guard_state_stale' in alert.stdout
+        assert alert.stderr == ''
+    elif source == 'delivery':
+        _write_state(alert_dir / 'last-delivery', [f'sent_at_epoch={value}'])
+    elif source == 'first_check':
+        _write_state(alert_dir / 'channel-state', [f'first_checked_at_epoch={value}', f'checked_at_epoch={now}'])
+    else:
+        guard.write_text(guard.read_text().replace('result=pass', 'result=alert\nanalytics_breaches=analytics_storage'))
+        first = _run_alert(environment)
+        assert first.returncode == 0, first.stderr
+        delivery = alert_dir / 'last-delivery'
+        delivery.write_text(re.sub(r'sent_at_epoch=[^\n]+', f'sent_at_epoch={value}', delivery.read_text()))
+        repeat = _run_alert(environment)
+        assert repeat.returncode == 0, repeat.stderr
+        assert repeat.stderr == ''
+        assert 'alert_result=delivered' in repeat.stdout
+        assert curl_log.read_text().count('/sendMessage') == 2
+        return
+    for _ in range(2):
+        channel = _run_alert(environment, '--check-channel')
+        assert channel.returncode == 1, channel.stdout
+        assert channel.stderr == ''
+        assert 'alert_channel_result=fail' in channel.stdout
 
 
 def test_alert_labels_a_mixed_breach_list_with_both_scopes(tmp_path: Path) -> None:
@@ -951,11 +990,16 @@ def test_guard_does_not_report_success_when_healthy_state_cannot_be_written(tmp_
     ('future', 'backup_stale'),
     ('boundary', 'backup_stale'),
     ('unknown_time', 'backup_missing'),
+    ('leading_zero', 'backup_missing'),
+    ('overflow', 'backup_missing'),
+    ('zero', 'backup_missing'),
     ('failed', 'backup_failed'),
     ('unknown_result', 'backup_failed'),
     ('old_schema', 'backup_set_unverified'),
     ('incomplete', 'backup_set_unverified'),
     ('unknown_count', 'backup_copy_count_below_minimum'),
+    ('leading_zero_count', 'backup_copy_count_below_minimum'),
+    ('overflow_count', 'backup_copy_count_below_minimum'),
     ('one_copy', 'backup_copy_count_below_minimum'),
     ('valid', None),
 ])
@@ -968,11 +1012,16 @@ def test_backup_readiness_and_alerting_share_local_set_boundaries(tmp_path: Path
         'future': (f'last_success_epoch={now - 3600}', f'last_success_epoch={now + 3600}'),
         'boundary': (f'last_success_epoch={now - 3600}', f'last_success_epoch={now - 26 * 3600}'),
         'unknown_time': (f'last_success_epoch={now - 3600}', 'last_success_epoch=unknown'),
+        'leading_zero': (f'last_success_epoch={now - 3600}', 'last_success_epoch=01800000000'),
+        'overflow': (f'last_success_epoch={now - 3600}', 'last_success_epoch=' + '9' * 400),
+        'zero': (f'last_success_epoch={now - 3600}', 'last_success_epoch=0'),
         'failed': ('last_attempt_result=pass', 'last_attempt_result=failed'),
         'unknown_result': ('last_attempt_result=pass', 'last_attempt_result=unknown'),
         'old_schema': ('backup_state_version=2', 'backup_state_version=1'),
         'incomplete': ('backup_set_complete=true', 'backup_set_complete=false'),
         'unknown_count': ('copies_local=7', 'copies_local=unknown'),
+        'leading_zero_count': ('copies_local=7', 'copies_local=08'),
+        'overflow_count': ('copies_local=7', 'copies_local=' + '9' * 400),
         'one_copy': ('copies_local=7', 'copies_local=1'),
     }
     if change in replacements:
@@ -989,12 +1038,33 @@ def test_backup_readiness_and_alerting_share_local_set_boundaries(tmp_path: Path
     blockers = provider_readiness.analytics_operations_blockers(evidence, environment)
     alert = _run_alert(environment, '--dry-run')
     assert alert.returncode == 0, alert.stderr
+    assert alert.stderr == ''
     if blocker:
         assert blocker in blockers
         assert blocker in alert.stdout
     else:
         assert not any(code.startswith('backup_') for code in blockers)
         assert 'backup_offsite' not in alert.stdout
+
+
+@pytest.mark.parametrize('reason', ['capacity_budget_unverified', 'analytics_storage', 'analytics_protection_latched'])
+def test_alert_preserves_complete_input_when_capacity_is_blocked(tmp_path: Path, reason: str) -> None:
+    now = int(time.time())
+    state = _valid_operations_state(tmp_path, now=now)
+    guard = tmp_path / 'guard-state'
+    guard.write_text(
+        'alert_state_version=2\ncapacity_ready=false\ncapacity_input_verified=true\n'
+        f'protection_status=observed\nrecorded_at_epoch={now}\nresult=alert\nanalytics_breaches={reason}\n'
+    )
+    environment, _ = _alert_environment(tmp_path, state)
+    alert = _run_alert(environment, '--dry-run')
+    assert alert.returncode == 0, alert.stderr
+    assert reason in alert.stdout
+    assert 'capacity_input_unverified' not in alert.stdout
+    guard.write_text(guard.read_text().replace('capacity_input_verified=true', 'capacity_input_verified=false'))
+    alert = _run_alert(environment, '--dry-run')
+    assert alert.returncode == 0, alert.stderr
+    assert 'capacity_input_unverified' in alert.stdout
 
 
 @pytest.mark.parametrize("change", [

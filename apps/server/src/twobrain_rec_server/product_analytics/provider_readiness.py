@@ -229,12 +229,9 @@ def _read_state_text(path: str) -> str | None:
 
 
 def _optional_int(value: str | None) -> int | None:
-    if value is None:
+    if value is None or re.fullmatch(r"0|[1-9][0-9]{0,11}", value) is None:
         return None
-    try:
-        return int(value)
-    except ValueError:
-        return None
+    return int(value)
 
 
 def _optional_epoch(value: str | None) -> int | None:
@@ -478,7 +475,7 @@ def build_analytics_operations_readiness(
             f"{collected.restore_age_days:.1f}" if collected.restore_age_days is not None else "unknown"
         ),
         "restore_verification_max_age_days": str(
-            int(_bounded_number(environment.get(RESTORE_MAX_AGE_DAYS_ENV), float(DEFAULT_RESTORE_MAX_AGE_DAYS)))
+            int(min(_bounded_number(environment.get(RESTORE_MAX_AGE_DAYS_ENV), float(DEFAULT_RESTORE_MAX_AGE_DAYS)), DEFAULT_RESTORE_MAX_AGE_DAYS))
         ),
         "retention_result": collected.retention_result,
         "retention_verification_max_age_hours": str(RETENTION_MAX_AGE_HOURS),

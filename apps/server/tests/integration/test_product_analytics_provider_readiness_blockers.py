@@ -342,6 +342,17 @@ def test_readiness_blocks_when_a_retention_term_is_missing_or_too_short(tmp_path
     assert build_rollout_readiness_report(settings).as_dict()["verdict"] == "blocked"
 
 
+@pytest.mark.parametrize(('configured_days', 'effective_days'), [('365', '30'), ('7', '7')])
+def test_readiness_reports_effective_restore_age_limit(tmp_path: Path, monkeypatch, configured_days, effective_days) -> None:
+    settings = _live_provider_settings(tmp_path)
+    now = int(time.time())
+    _apply_states(monkeypatch, _write_operations_states(tmp_path, now=now, restore_age_days=31))
+    monkeypatch.setenv('GRAF_POSTHOG_RESTORE_MAX_AGE_DAYS', configured_days)
+    operations = build_provider_readiness(settings).as_dict()['analytics_operations']
+    assert 'restore_verification_stale' in operations['blockers']
+    assert operations['metadata']['restore_verification_max_age_days'] == effective_days
+
+
 def test_readiness_names_a_category_that_has_no_retention_record(tmp_path: Path, monkeypatch) -> None:
     settings = _live_provider_settings(tmp_path)
     now = int(time.time())
