@@ -357,3 +357,66 @@ Reviewer прочитал конечный итог;
 GitHub CI, выпуск, рабочую установку, T097, включение аналитики, трафик
 или продажи. Reviewer изменил только этот отчёт; код, задачи, чек-листы,
 Git/GitHub и рабочая среда не менялись. `git diff --check` пройден.
+
+## Узкое исправление CI: fixture Яндекс offline provider
+
+Дата проверки: 2026-10-22. **PASS локального исправления тестовой fixture**.
+Рабочая копия `/Users/yshishenya/.codex/worktrees/growth-guide-links/crisp`,
+ветка `codex/273-storage-accounting`, проверенный базовый HEAD
+`405c58e46082e979de55e38c7bc677ee5bc89782`.
+Разбор связан с сообщённым падением CI `39720760972`; успешный повтор GitHub CI
+этим локальным выводом не заявляется.
+
+Прочитан весь diff: в
+`tests/unit/test_product_analytics_yandex_offline_provider.py` добавлены только
+импорт существующего `write_runtime_guard` и включение результата этого helper
+в `_write_live_gate_evidence(tmp_path)`. Runtime-код, критерии gate, approvals,
+transport и содержимое assertions не изменены. SHA-256 проверенного файла:
+`f2e844c9da2669a97d4346d1e23c9d31b247e8e00b4da9082928e1b0d9dcd96e`.
+
+Причина подтверждена: положительная fixture не предоставляла свежий
+runtime-guard, который readiness теперь требует наряду с прежними
+backup/restore/retention доказательствами. Соседняя PostHog fixture использует
+тот же helper. Тестовый helper пишет только временные синтетические metadata
+и возвращает локальный `GRAF_POSTHOG_GUARD_STATE_DIR`; не включает provider
+и не обращается к рабочим state-файлам. Его SHA-256:
+`5bcfcaf7fa6df0013e3daba665b540ad675874633c1fdd493bb994826ff9366f`.
+
+Тест явно подменяет transport до вызова exporter. Поэтому проверка multipart
+и отсутствие чувствительных значений в результате продолжают выполняться
+на синтетическом transport; реальная передача Яндексу не производится.
+Принятие fixture не является доказательством рабочей готовности guard.
+
+Проверены завершённые журналы:
+
+- `.dev/growth/t116-yandex-before.log`: **1 failed, 12 passed**. Существующий
+  тест ожидал `live_safe_uploaded`, получил `live_safe_blocked`. Это
+  воспроизведение недостающего предусловия, не ошибка сборки/среды.
+  SHA-256 `3786a6dbf1336542cdccd7964b941722f162f445a866d1ad3a56d2d65dd60aa2`.
+- `.dev/growth/t116-provider-fixture-after.log`: **27 passed**, 2 warnings,
+  0.26 s. Набор включает Яндекс offline provider, PostHog provider и
+  provider delivery gate; collection digest
+  `33d3e5a229e05ac8b7a2e5a262dd0ffa10d0a51575c36f38662930103836904b`.
+  Зафиксированы `postgres_test_result=pass mode=focused` и
+  `postgres_test_cleanup=container_not_started`: этим тестам БД не требовалась.
+  SHA-256 `d6c47bb37065a746bea4f17bbc36a17ae5211d480cd3ad55b71abde59c634ac2`.
+
+Reviewer самостоятельно выполнил две ограниченные пробы с временными
+синтетическими файлами и fake transport: полная fixture разрешила ровно один
+fake вызов, отсутствие guard сохранило `live_safe_blocked` и ноль вызовов.
+Обе пробы PASS. Полный профиль повторно reviewer не запускал; runtime gate
+не ослаблен ради зелёного теста.
+
+Файл разрешения узкого чтения отсутствует в `.dev` этой disposable копии;
+проверен исходный файл в
+`/Users/yshishenya/.codex/worktrees/f8bf/crisp/.dev/growth/f273-scoped-reading-authorization-2026-10-22.json`.
+Его SHA-256 `c3283ede037230a5f6b7cd7c0c11463c5e3e357d15e8627edbc945a7d642e0da`;
+все **7/7** базовых хешей совпали с текущей рабочей копией. Полное повторное
+чтение базового набора не заявляется.
+
+Контрольные списки пересчитаны: requirements16/0, privacy-measurement45/0,
+infra25/0, security25/0; всего **111 отмечено, 0 не отмечено**.
+Отметки не менялись: исправлено предусловие существующего положительного
+теста, без изменения требований. Reviewer изменил только это дополнение
+отчёта; `git diff --check` прошёл. Приёмка CI на будущем SHA, рабочей
+установки, T097, включения provider, трафика и продаж остаётся открытой.
