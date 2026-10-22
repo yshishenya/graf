@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -7,6 +8,21 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 STATIC_DIR = ROOT / "src" / "twobrain_rec_server" / "cabinet" / "static" / "cabinet"
+
+
+@pytest.mark.browser
+def test_recording_deletion_recovery_in_browser() -> None:
+    result = subprocess.run(
+        ["node", str(ROOT / "tests/browser/recording-deletion-recovery.test.cjs")],
+        cwd=ROOT,
+        env={**os.environ, "NODE_PATH": os.environ.get("GRAF_NODE_MODULES", str(ROOT / "tests/browser/node_modules"))},
+        capture_output=True,
+        text=True,
+        timeout=90,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "real deletion index pending, phases, report links, safe text and updates passed" in result.stdout
 
 
 def test_local_htmx_asset_is_pinned_with_source_and_license() -> None:
