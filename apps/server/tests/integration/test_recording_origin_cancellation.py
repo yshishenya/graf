@@ -1,7 +1,7 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -9,16 +9,16 @@ from tests.contract.test_ingest_openapi_contract import auth_headers
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 
 
-def cancel(client, origin):
+def cancel(client, origin, headers=None):
     return client.post(
         f"/api/v1/desktop/recordings/{origin}/deletion-requests",
-        headers=auth_headers(),
+        headers=auth_headers() if headers is None else headers,
         json={"operation_id": str(uuid4()), "confirmation_boundary": BOUNDED_DELETE_COPY},
     )
 
 
-def create(client, origin):
-    return client.post("/api/v1/meetings", headers=auth_headers(), json={
+def create(client, origin, headers=None):
+    return client.post("/api/v1/meetings", headers=auth_headers() if headers is None else headers, json={
         "local_recording_id": origin, "duration_seconds": 10, "title": "Synthetic recording",
     })
 
@@ -44,6 +44,121 @@ def test_cancel_existing_origin_uses_meeting_deletion_receipt(client):
     assert deleted.json()["receipt_type"] == "meeting_deletion"
     assert deleted.json()["meeting_id"] == created.json()["meeting_id"]
     assert cancel(client, origin).json() == deleted.json()
+
+
+@pytest.mark.parametrize("other_namespace", ["user", "workspace"])
+def test_equal_origins_keep_create_and_cancel_in_their_owner_namespace(client, other_namespace):
+    from sqlalchemy import select
+
+    from tests.fakes.auth_contexts import ORG_ID, PERSONAL_WORKSPACE_ID, USER_ID, WORKSPACE_ID
+    from twobrain_rec_server.db.models import (
+        Meeting,
+        RecordingOriginCancellation,
+        RegisteredDevice,
+        UserIdentity,
+        WorkspaceMembership,
+    )
+
+    other_user = uuid4() if other_namespace == "user" else USER_ID
+    other_workspace = PERSONAL_WORKSPACE_ID if other_namespace == "workspace" else WORKSPACE_ID
+    other_device = uuid4()
+    other_headers = auth_headers() | {
+        "X-User-Id": str(other_user),
+        "X-Workspace-Id": str(other_workspace),
+        "X-Device-Id": str(other_device),
+    }
+
+    async def seed_owner():
+        async with client.app_state["sessionmaker"]() as db:
+            assert db.bind.dialect.name == "postgresql"
+            if other_namespace == "user":
+                db.add(UserIdentity(
+                    id=other_user, organization_id=ORG_ID,
+                    external_subject=str(other_user), display_name="Synthetic owner",
+                ))
+                await db.flush()
+                db.add(WorkspaceMembership(
+                    workspace_id=other_workspace, user_id=other_user, role="member", status="active",
+                ))
+            db.add(RegisteredDevice(
+                id=other_device, workspace_id=other_workspace, user_id=other_user,
+                device_public_id=str(other_device), status="active",
+            ))
+            await db.commit()
+
+    async def snapshot(origin):
+        async with client.app_state["sessionmaker"]() as db:
+            meetings = (await db.execute(select(
+                Meeting.id, Meeting.workspace_id, Meeting.created_by_user_id,
+                Meeting.deletion_state, Meeting.deletion_epoch,
+            ).where(Meeting.local_recording_id == origin))).all()
+            markers = (await db.execute(select(
+                RecordingOriginCancellation.id, RecordingOriginCancellation.workspace_id,
+                RecordingOriginCancellation.created_by_user_id,
+            ).where(RecordingOriginCancellation.local_recording_id == origin))).all()
+            return meetings, markers
+
+    asyncio.run(seed_owner())
+    origin = str(uuid4())
+    created = create(client, origin, other_headers)
+    assert created.status_code == 200
+    meeting_id = UUID(created.json()["meeting_id"])
+    initial_meetings, initial_markers = asyncio.run(snapshot(origin))
+    assert initial_meetings == [(meeting_id, other_workspace, other_user, "none", 0)]
+    assert initial_markers == []
+
+    canceled = cancel(client, origin)
+    assert canceled.status_code == 202
+    receipt = canceled.json()
+    assert receipt["receipt_type"] == "origin_cancellation"
+    assert "meeting_id" not in receipt
+    meetings, markers = asyncio.run(snapshot(origin))
+    assert meetings == initial_meetings
+    assert markers == [(UUID(receipt["request_id"]), WORKSPACE_ID, USER_ID)]
+
+    late = create(client, origin)
+    assert late.status_code == 409
+    assert late.json()["code"] == "recording_deletion_active"
+    repeated = create(client, origin, other_headers)
+    assert repeated.status_code == 200
+    assert repeated.json()["meeting_id"] == str(meeting_id)
+    assert cancel(client, origin).json() == receipt
+    assert asyncio.run(snapshot(origin)) == (initial_meetings, markers)
+
+    other_canceled = cancel(client, origin, other_headers)
+    assert other_canceled.status_code == 202
+    other_receipt = other_canceled.json()
+    assert other_receipt["receipt_type"] == "meeting_deletion"
+    assert other_receipt["meeting_id"] == str(meeting_id)
+    assert other_receipt["request_id"] != receipt["request_id"]
+    assert cancel(client, origin).json() == receipt
+    meetings, retained_markers = asyncio.run(snapshot(origin))
+    assert len(meetings) == 1
+    assert meetings[0][:3] == initial_meetings[0][:3]
+    assert meetings[0].deletion_state != "none"
+    assert meetings[0].deletion_epoch > 0
+    assert retained_markers == markers
+
+    absent_origin = str(uuid4())
+    absent_receipts = []
+    for headers in [auth_headers(), other_headers]:
+        response = cancel(client, absent_origin, headers)
+        assert response.status_code == 202
+        absent_receipt = response.json()
+        assert absent_receipt["receipt_type"] == "origin_cancellation"
+        assert "meeting_id" not in absent_receipt
+        absent_receipts.append(absent_receipt)
+        late = create(client, absent_origin, headers)
+        assert late.status_code == 409
+        assert late.json()["code"] == "recording_deletion_active"
+        assert cancel(client, absent_origin, headers).json() == absent_receipt
+    assert absent_receipts[0]["request_id"] != absent_receipts[1]["request_id"]
+    meetings, markers = asyncio.run(snapshot(absent_origin))
+    assert meetings == []
+    assert set(markers) == {
+        (UUID(absent_receipts[0]["request_id"]), WORKSPACE_ID, USER_ID),
+        (UUID(absent_receipts[1]["request_id"]), other_workspace, other_user),
+    }
 
 
 def test_concurrent_cancel_and_create_never_leave_live_recording(client):
