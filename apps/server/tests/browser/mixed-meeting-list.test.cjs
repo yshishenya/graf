@@ -66,6 +66,12 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
     await update([{...local, canDelete:false, canOpen:false}]);
     assert.equal(await page.locator('[data-graf-local-recording-row] [data-meeting-select]').isDisabled(),true);
     assert.equal(await page.locator('[data-graf-local-recording-row] [data-meeting-open]').count(),0);
+    await update([{...local, canDelete:true, canOpen:false}]);
+    assert.equal(await page.locator('[data-graf-local-recording-row] [data-meeting-select]').isEnabled(),true);
+    assert.equal(await page.locator('[data-graf-local-recording-row] [data-meeting-open]').count(),0);
+    await update([{...local, canDelete:false, canOpen:true}]);
+    assert.equal(await page.locator('[data-graf-local-recording-row] [data-meeting-select]').isDisabled(),true);
+    assert.equal(await page.locator('[data-graf-local-recording-row] [data-meeting-open]').count(),1);
     await page.locator("ol.meeting-list").evaluate((list, html) => list.insertAdjacentHTML("beforeend", html), retainedServerRow);
     // Equal instants are ordered by stable IDs regardless of incoming array order.
     await page.selectOption('#meeting-sort','started_asc');
