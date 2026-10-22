@@ -154,6 +154,14 @@ function createEnvironment(config, options) {
   return { sandbox, calls };
 }
 
+// The real library saves a fresh choice before notifying the controller.
+function notifyConsent(environment, details) {
+  if (details && details.cookie) {
+    environment.sandbox.localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify(details.cookie));
+  }
+  return environment.calls.consentOptions.onConsent(details);
+}
+
 // The consent library derives the state from the accepted categories, so a
 // consistent record is the only kind a browser can store.
 function consentRecord(categories, state) {
@@ -234,7 +242,7 @@ async function main() {
   // 2. Explicit refusal on this visit and on a repeat visit.
   {
     const refused = createEnvironment(config);
-    refused.calls.consentOptions.onConsent({
+    notifyConsent(refused, {
       cookie: consentRecord(["necessary"], "necessary_only"),
     });
     assert.equal(dispatch(refused, "public_download_viewed"), false);
@@ -271,16 +279,69 @@ async function main() {
     console.log("ok previous_revision_does_not_authorise_new_retention");
   }
 
+  // A fresh-choice callback cannot invent a cookie, its revision, or saved
+  // categories. Metadata failure must keep optional measurement disabled.
+  {
+    const categories = ["necessary", "analytics"];
+    for (const fault of ["missing", "old_revision", "categories", "write"]) {
+      const environment = createEnvironment(config);
+      const cookie = consentRecord(categories);
+      if (fault !== "missing") {
+        environment.sandbox.localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify({
+          ...cookie,
+          revision: fault === "old_revision" ? 202609151 : cookie.revision,
+          categories: fault === "categories" ? ["necessary"] : categories,
+        }));
+      }
+      if (fault === "write") {
+        environment.sandbox.CookieConsent.setCookieData = () => false;
+      }
+      if (fault === "missing") {
+        environment.sandbox.CookieConsent.getUserPreferences = () => ({ acceptedCategories: categories });
+        environment.calls.consentOptions.onFirstConsent({});
+      } else {
+        environment.calls.consentOptions.onFirstConsent({ cookie });
+      }
+      assert.equal(environment.sandbox.GRAFPublicAnalytics.currentConsentState, "unknown", fault);
+      assert.equal(relayCalls(environment.calls), 0, fault);
+      assert.equal(environment.sandbox.sessionStorage.length, 0, fault);
+    }
+    console.log("ok new_choice_requires_current_persisted_cookie");
+  }
+
+  // CookieConsent sends onConsent after onFirstConsent. An unsuccessful saved
+  // revision/category readback must stay blocked on that second callback too.
+  for (const fault of ["revision", "categories"]) {
+    const environment = createEnvironment(config);
+    const cookie = consentRecord(["necessary", "analytics"]);
+    environment.sandbox.CookieConsent.getCookie = () => cookie;
+    environment.sandbox.CookieConsent.setCookieData = (payload) => {
+      cookie.data = Object.assign({}, cookie.data, payload.value);
+      environment.sandbox.localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify({
+        ...cookie,
+        revision: fault === "revision" ? 202609151 : cookie.revision,
+        categories: fault === "categories" ? ["necessary"] : cookie.categories,
+      }));
+    };
+    environment.calls.consentOptions.onFirstConsent({ cookie });
+    assert.equal(environment.sandbox.GRAFPublicAnalytics.currentConsentState, "unknown", fault);
+    environment.calls.consentOptions.onConsent({ cookie });
+    assert.equal(environment.sandbox.GRAFPublicAnalytics.currentConsentState, "unknown", fault);
+    assert.equal(relayCalls(environment.calls), 0, fault);
+    assert.equal(environment.sandbox.sessionStorage.length, 0, fault);
+  }
+  console.log("ok repeated_callback_keeps_failed_readback_blocked");
+
   // 3. A damaged or unreadable decision is a refusal (FR-059).
   {
     const damaged = createEnvironment(config);
-    damaged.calls.consentOptions.onConsent({ cookie: { categories: "analytics" } });
+    notifyConsent(damaged, { cookie: { categories: "analytics" } });
     assert.equal(damaged.sandbox.GRAFPublicAnalytics.currentConsentState, "unknown");
     assert.equal(dispatch(damaged, "public_download_viewed"), false);
     assert.equal(relayCalls(damaged.calls), 0);
 
     const unknownCategory = createEnvironment(config);
-    unknownCategory.calls.consentOptions.onConsent({
+    notifyConsent(unknownCategory, {
       cookie: consentRecord(["necessary", "analytics", "telepathy"], "accepted_all"),
     });
     assert.equal(unknownCategory.sandbox.GRAFPublicAnalytics.currentConsentState, "unknown");
@@ -292,7 +353,7 @@ async function main() {
   // 4. Granted analytics: ordinary page properties go to the first-party relay.
   {
     const granted = createEnvironment(config);
-    granted.calls.consentOptions.onConsent({
+    notifyConsent(granted, {
       cookie: consentRecord([
         "necessary",
         "analytics",
@@ -337,11 +398,11 @@ async function main() {
   // 5. Revoked consent stops optional sends.
   {
     const granted = createEnvironment(config);
-    granted.calls.consentOptions.onConsent({
+    notifyConsent(granted, {
       cookie: consentRecord(["necessary", "analytics"]),
     });
     assert.equal(dispatch(granted, "public_download_viewed"), true);
-    granted.calls.consentOptions.onConsent({
+    notifyConsent(granted, {
       cookie: consentRecord(["necessary"], "revoked"),
     });
     const before = relayCalls(granted.calls);
@@ -357,7 +418,7 @@ async function main() {
     failing.sandbox.fetch = () => {
       throw new Error("network unavailable");
     };
-    failing.calls.consentOptions.onConsent({
+    notifyConsent(failing, {
       cookie: consentRecord(["necessary", "analytics"]),
     });
     const api = failing.sandbox.GRAFPublicAnalytics;
@@ -377,7 +438,7 @@ async function main() {
   // 7. FR-006: consent to analytics alone never starts behaviour recording.
   {
     const analyticsOnly = createEnvironment(config);
-    analyticsOnly.calls.consentOptions.onConsent({
+    notifyConsent(analyticsOnly, {
       cookie: consentRecord(["necessary", "analytics"], "customized"),
     });
     const inits = analyticsOnly.calls.goals.filter((args) => args[1] === "init");
@@ -397,7 +458,7 @@ async function main() {
     // The opposite direction proves the flag is decided by the visitor's choice
     // rather than being hardcoded to false.
     const withReplay = createEnvironment(config);
-    withReplay.calls.consentOptions.onConsent({
+    notifyConsent(withReplay, {
       cookie: consentRecord(["necessary", "analytics", "behavior_replay"]),
     });
     const replayInits = withReplay.calls.goals.filter((args) => args[1] === "init");
@@ -440,7 +501,7 @@ async function main() {
     environment.sandbox.document.querySelectorAll = (selector) =>
       selector.indexOf("input") !== -1 ? [formField] : [];
 
-    environment.calls.consentOptions.onConsent({
+    notifyConsent(environment, {
       cookie: consentRecord([
         "necessary",
         "analytics",
@@ -507,7 +568,8 @@ async function main() {
       "function",
       "both decisions must arrive through the same handler",
     );
-    assert.equal(options.onConsent, options.onChange, "one handler decides both directions");
+    assert.equal(options.onFirstConsent, options.onChange, "fresh choices share one handler");
+    assert.notEqual(options.onConsent, options.onFirstConsent, "stored consent cannot refresh its revision");
     // A refusal is one action: no extra click, no preferences step, and the
     // modal itself must say how to refuse (FR-005).
     assert.match(consentModal.description, /Отказаться можно кнопкой «Только необходимые»/);
@@ -531,7 +593,7 @@ async function main() {
         },
       },
     });
-    environment.calls.consentOptions.onConsent({
+    notifyConsent(environment, {
       cookie: consentRecord(["necessary", "analytics"], "customized"),
     });
     const bodies = await Promise.all(environment.calls.beacons
