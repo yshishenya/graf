@@ -349,6 +349,13 @@ readiness and normal product workflows remain the guarded health checks. A
 rollback or stack-stop failure returns a non-zero status for systemd/alerting.
 The runtime environment example is `infra/posthog/runtime-guard.env.example`.
 
+The installed unit pins both `GRAF_POSTHOG_STORAGE_STATE_DIR` and
+`GRAF_POSTHOG_STORAGE_STATE_FILE` to `/var/lib/graf-posthog-storage` inside its
+write sandbox, even if the environment file specifies another location.
+Relocation requires a reviewed systemd drop-in replacing `ExecStart` and adding
+the matching `ReadWritePaths`; changing only the environment is insufficient.
+Manual collector runs retain their explicit path options.
+
 Installation is a release/deploy step, not a local smoke side effect:
 
 ```sh
@@ -894,6 +901,14 @@ complete sets; require two before readiness. Old sets without proof remain untou
 not silently upgraded. Metadata state version2 is required. No external storage is
 required, and complete host/disk loss can lose all history. T118 consistent restore,
 real receipts and delivery remain separate gates.
+
+Count and rotate only sets matching the current inventory SHA-256, project and
+resolved volume set. Incompatible historical sets stay intact and do not count
+toward the current two-copy gate. Completion markers lacking a project binding
+are historical evidence and cannot be upgraded by editing the marker.
+The retention verifier also publishes its 0640 receipt under a root-owned 2750
+directory using the API runtime-reader group; the API receives only a read-only
+bind at `/run/graf-analytics-retention`, never writable access to host state.
 
 
 ### T118: переход потребителей на согласованное доказательство

@@ -95,6 +95,8 @@ dashboard freshness/goal visibility, or concrete resource-alert thresholds.
   2 for readiness (FR-052); each contains the retained `until_decision` history.
   Archive rotation is separate from data retention; 90 daily versions are not required.
 - Backup failures block PostHog readiness, not normal GRAF product use.
+- Only sets matching the current project, inventory SHA-256 and resolved volumes
+  count or participate in rotation. Incompatible historical sets remain untouched.
 
 ## What A Restore Recreates And What Is Lost
 

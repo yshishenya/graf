@@ -134,7 +134,9 @@ def allocated(roots: list[tuple[str, Path]]) -> tuple[dict[str, int], list[Path]
     return amounts, [path for _, path in normalized]
 
 
-def runtime_roots(directory: Path, project: str) -> tuple[list[tuple[str, Path]], str]:
+def runtime_roots(directory: Path, project: str, discovered_paths: list[Path] | None = None) -> tuple[list[tuple[str, Path]], str]:
+    if discovered_paths is None:
+        discovered_paths = []
     rows = records(directory / "storage-mounts.txt")
     rules = {(service, destination): category for service, destination, category in rows}
     if len(rules) != len(rows) or any(c not in CLASSES for c in rules.values()):
@@ -149,6 +151,8 @@ def runtime_roots(directory: Path, project: str) -> tuple[list[tuple[str, Path]]
     for container in containers:
         service = container["Config"]["Labels"]["com.docker.compose.service"]
         for mount in container["Mounts"]:
+            if mount["Type"] in ("bind", "volume"):
+                discovered_paths.append(Path(mount["Source"]))
             category = rules.get((service, mount["Destination"]))
             if category is None or mount["Type"] not in ("bind", "volume"):
                 raise Incomplete("runtime_mount_unclassified")
@@ -173,6 +177,7 @@ def runtime_roots(directory: Path, project: str) -> tuple[list[tuple[str, Path]]
             raise Incomplete("detached_volume_unclassified")
         category = classes.pop()
         volume = json.loads(command("docker", "volume", "inspect", name))[0]
+        discovered_paths.append(Path(volume["Mountpoint"]))
         roots.append((category, Path(volume["Mountpoint"])))
         scope.append(["detached", digest(name), category])
     if not {"relational", "events"}.issubset({c for c, _ in roots}):
@@ -180,7 +185,9 @@ def runtime_roots(directory: Path, project: str) -> tuple[list[tuple[str, Path]]
     return roots, digest([rows, inventory, sorted({tuple(row) for row in scope})])
 
 
-def graf_relation_roots(directory: Path) -> tuple[list[tuple[str, Path]], str, int, list[str]]:
+def graf_relation_roots(directory: Path, discovered_paths: list[Path] | None = None) -> tuple[list[tuple[str, Path]], str, int, list[str]]:
+    if discovered_paths is None:
+        discovered_paths = []
     inventory = [row[0] for row in records(directory / "storage-relations.txt")]
     if not inventory or any(not re.fullmatch(r"public\.[a-z_]+\??", name) for name in inventory):
         raise Incomplete("relation_inventory_invalid")
@@ -201,14 +208,15 @@ def graf_relation_roots(directory: Path) -> tuple[list[tuple[str, Path]], str, i
       'files',(SELECT json_agg(pg_relation_filepath(oid)) FROM owned WHERE pg_relation_filepath(oid) IS NOT NULL));"""
     metadata = json.loads(command("docker", "exec", ids[0], "psql", "-U", "twobrain_rec", "-d", "twobrain_rec", "-tAqc", query))
     present = set(metadata["present"] or [])
-    if any(n not in present for n in inventory if not n.endswith("?")):
-        raise Incomplete("graf_relation_missing")
     data = Path(metadata["data_directory"])
     mounts = [m for m in container["Mounts"] if Path(m["Destination"]) == data or Path(m["Destination"]) in data.parents]
     if len(mounts) != 1:
         raise Incomplete("graf_database_mount_unverified")
     mount = mounts[0]
     base = Path(mount["Source"]) / data.relative_to(mount["Destination"])
+    discovered_paths.append(base)
+    if any(n not in present for n in inventory if not n.endswith("?")):
+        raise Incomplete("graf_relation_missing")
     roots = []
     for relative in metadata["files"] or []:
         # Tablespaces/symlinks require review; never fall back to product DB size.
@@ -294,8 +302,10 @@ def main() -> int:
             if args.window_hours <= 0:
                 raise Incomplete("window_hours_invalid")
             directory = Path(os.environ.get("GRAF_POSTHOG_STORAGE_INVENTORY_DIR", str(Path(__file__).resolve().parents[1] / "posthog")))
-            roots, mount_version = runtime_roots(directory, os.environ.get("GRAF_POSTHOG_PROJECT", "graf-posthog"))
-            graf_roots, relation_version, present, absent = graf_relation_roots(directory)
+            roots, mount_version = runtime_roots(directory, os.environ.get("GRAF_POSTHOG_PROJECT", "graf-posthog"), measured_paths)
+            measured_paths.extend(path for _, path in roots)
+            graf_roots, relation_version, present, absent = graf_relation_roots(directory, measured_paths)
+            measured_paths.extend(path for _, path in graf_roots)
             backup = Path(os.environ.get("GRAF_POSTHOG_BACKUP_DIR", "/var/backups/graf-posthog"))
             if not backup.is_dir():
                 raise Incomplete("backup_storage_unverified")

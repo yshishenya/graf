@@ -67,7 +67,7 @@ file_size() {
 
 # A directory name or a historical .offsite marker is never proof of a copy.
 verified_sets() {
-  python3 - "$backup_dir" <<'VERIFY'
+  python3 - "$backup_dir" "$inventory_file" "$project" "${volumes[@]-}" <<'VERIFY'
 import fnmatch, hashlib, json, re, sys, time
 from pathlib import Path
 
@@ -78,6 +78,9 @@ def digest(path):
 root = Path(sys.argv[1])
 if not root.exists():
     raise SystemExit(0)
+current_inventory = digest(Path(sys.argv[2]))
+project = sys.argv[3]
+current_volumes = set(filter(None, sys.argv[4:]))
 for directory in sorted(root.iterdir()):
     if not re.fullmatch(r'20[0-9]{6}T[0-9]{6}Z', directory.name) or directory.is_symlink() or not directory.is_dir():
         continue
@@ -90,8 +93,10 @@ for directory in sorted(root.iterdir()):
         completed = json.loads(marker.read_text())
         if (completed.get('version') != 2 or type(completed.get('finished_epoch')) is not int
                 or not 0 < completed['finished_epoch'] <= time.time()
+                or completed.get('project') != project
                 or completed.get('manifest_sha256') != digest(manifest)
-                or completed.get('inventory_sha256') != digest(inventory)):
+                or completed.get('inventory_sha256') != digest(inventory)
+                or completed['inventory_sha256'] != current_inventory):
             continue
         patterns = [line.partition('#')[0].strip() for line in inventory.read_text().splitlines()]
         patterns = [p for p in patterns if p]
@@ -102,7 +107,7 @@ for directory in sorted(root.iterdir()):
         if manifest.read_text().splitlines()[0] != "backup_reference=" + directory.name:
             continue
         volumes = [r['volume'] for r in rows]
-        if (not volumes or len(set(volumes)) != len(volumes)
+        if (not volumes or set(volumes) != current_volumes or len(set(volumes)) != len(volumes)
                 or any(not re.fullmatch(r'[A-Za-z0-9_-]+', v) for v in volumes)
                 or any(not any(fnmatch.fnmatchcase(v, p.rstrip('?')) for p in patterns) for v in volumes)
                 or any(not p.endswith('?') and not any(fnmatch.fnmatchcase(v, p) for v in volumes) for p in patterns)
@@ -448,10 +453,10 @@ for volume in "${volumes[@]}"; do
 done
 
 # Persist the complete set before making it visible to readers/rotation.
-python3 - "$target_dir" "$final_dir" <<'COMPLETE'
+python3 - "$target_dir" "$final_dir" "$project" <<'COMPLETE'
 import hashlib, json, os, sys, time
 from pathlib import Path
-stage, target = map(Path, sys.argv[1:])
+stage, target = map(Path, sys.argv[1:3])
 hashes = {}
 for path in stage.iterdir():
     with path.open('rb') as stream:
@@ -459,7 +464,7 @@ for path in stage.iterdir():
         if path.name in ('manifest.txt', 'inventory.txt'):
             hashes[path.name] = hashlib.file_digest(stream, 'sha256').hexdigest()
 with (stage / '.complete').open('x') as stream:
-    json.dump({'version': 2, 'finished_epoch': int(time.time()),
+    json.dump({'version': 2, 'finished_epoch': int(time.time()), 'project': sys.argv[3],
                'manifest_sha256': hashes['manifest.txt'], 'inventory_sha256': hashes['inventory.txt']}, stream)
     stream.flush()
     os.fsync(stream.fileno())

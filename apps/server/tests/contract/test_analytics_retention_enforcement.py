@@ -355,6 +355,7 @@ def _seed_complete_copy(directory: Path, inventory: Path, label: str) -> None:
     (directory / 'manifest.txt').write_bytes(manifest)
     (directory / '.complete').write_text(json.dumps({
         'version': 2, 'finished_epoch': int(time.time()) - 86400,
+        'project': 'graf-posthog',
         'manifest_sha256': hashlib.sha256(manifest).hexdigest(),
         'inventory_sha256': hashlib.sha256(inventory.read_bytes()).hexdigest(),
     }))
@@ -363,6 +364,7 @@ def _seed_complete_copy(directory: Path, inventory: Path, label: str) -> None:
 def test_backup_rotates_only_verified_complete_sets(tmp_path: Path) -> None:
     inventory = _inventory(tmp_path)
     environment = _backup_environment(tmp_path, inventory)
+    environment['FAKE_VOLUMES'] = 'graf-posthog_postgres-data graf-posthog_clickhouse-data graf-posthog_objectstorage'
     backups = tmp_path / 'backups'
     for day in range(1, 9):
         label = f'202601{day:02d}T023000Z'
@@ -381,6 +383,23 @@ def test_backup_rotates_only_verified_complete_sets(tmp_path: Path) -> None:
     assert incomplete.is_dir() and corrupt.is_dir()
     assert 'retention_deleted=20260101T023000Z' in result.stdout
     assert 'result=retention_deleted reference=20260101T023000Z' in (tmp_path / 'logger.log').read_text()
+
+
+@pytest.mark.parametrize('change', ['inventory', 'project', 'volumes'])
+def test_backup_counts_only_copies_of_current_scope(tmp_path: Path, change: str) -> None:
+    inventory = _inventory(tmp_path)
+    environment = _backup_environment(tmp_path, inventory)
+    old = tmp_path / 'backups/20260101T023000Z'
+    _seed_complete_copy(old, inventory, old.name)
+    if change == 'inventory':
+        inventory.write_text(inventory.read_text() + 'graf-posthog_new-data?\n')
+    elif change == 'project':
+        environment['GRAF_POSTHOG_PROJECT'] = 'replacement-project'
+        environment['FAKE_VOLUMES'] = 'graf-posthog_postgres-data graf-posthog_clickhouse-data graf-posthog_objectstorage'
+    result = _run(BACKUP_PATH, environment, '--execute')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'copies_local=1' in result.stdout
+    assert old.is_dir(), 'Incompatible historical copies must stay intact'
 
 
 def test_backup_fails_closed_and_alerts_when_a_required_class_is_absent(tmp_path: Path) -> None:
@@ -459,6 +478,7 @@ if "os.replace(*sys.argv[1:])" in body:
 os.execv(sys.executable, [sys.executable, "-c", body, *sys.argv[2:]])
 """)
     else:
+        environment['FAKE_VOLUMES'] = 'graf-posthog_postgres-data graf-posthog_clickhouse-data graf-posthog_objectstorage'
         for day in range(1, 9):
             label = f"202601{day:02d}T023000Z"
             _seed_complete_copy(tmp_path / "backups" / label, inventory, label)
@@ -1006,6 +1026,95 @@ def test_collector_shared_filesystem_is_sampled_once_and_first_growth_is_pending
     output = capsys.readouterr().out
     assert 'projected_bytes_12_months=unknown' in output
     assert str(tmp_path) not in output
+
+
+@pytest.mark.parametrize('failure', ['runtime_mount', 'required_volume', 'relations', 'relation_missing', 'backups'])
+def test_incomplete_collector_keeps_discovered_low_space(tmp_path: Path, monkeypatch, failure: str) -> None:
+    collector = _storage_collector()
+    capacity, _, budget, _ = _capacity_inputs()
+    events = tmp_path / 'events'
+    events.mkdir()
+    runtime_roots = collector.runtime_roots
+    monkeypatch.setattr(collector, 'runtime_roots', lambda *args: ([('events', events)], 'mount-v1'))
+    if failure in ('runtime_mount', 'required_volume'):
+        # Use the real discovery function with metadata-only Docker replies.
+        monkeypatch.setattr(collector, 'runtime_roots', runtime_roots)
+        monkeypatch.setattr(collector, 'command', lambda *args: (
+            'container' if args[1] == 'ps' else json.dumps([{
+                'Config': {'Labels': {'com.docker.compose.service': 'db'}},
+                'Mounts': [{'Type': 'volume', 'Name': 'synthetic', 'Source': str(events),
+                            'Destination': '/data'}] + ([{'Type': 'bind', 'Source': str(tmp_path),
+                            'Destination': '/unknown'}] if failure == 'runtime_mount' else []),
+            }]) if args[1] == 'inspect' else ''))
+        (tmp_path / 'storage-mounts.txt').write_text('db /data relational\n')
+        (tmp_path / 'backup-volumes.txt').write_text('graf-posthog_required\n')
+        monkeypatch.setenv('GRAF_POSTHOG_STORAGE_INVENTORY_DIR', str(tmp_path))
+    def relations(*args):
+        if failure == 'relations':
+            raise collector.Incomplete('metadata_probe_failed')
+        return [], 'relations-v1', 0, []
+    if failure == 'relation_missing':
+        monkeypatch.setattr(collector, 'runtime_roots', lambda *args: ([], 'mount-v1'))
+        monkeypatch.setattr(collector, 'command', lambda *args: (
+            'container' if args[1] == 'ps' else json.dumps([{
+                'Mounts': [{'Destination': '/data', 'Source': str(events)}],
+            }]) if args[1] == 'inspect' else json.dumps({
+                'data_directory': '/data', 'present': [], 'files': [],
+            })))
+        (tmp_path / 'storage-relations.txt').write_text('public.required\n')
+        monkeypatch.setenv('GRAF_POSTHOG_STORAGE_INVENTORY_DIR', str(tmp_path))
+    else:
+        monkeypatch.setattr(collector, 'graf_relation_roots', relations)
+    monkeypatch.setenv('GRAF_POSTHOG_STORAGE_STATE_FILE', str(tmp_path / 'state'))
+    monkeypatch.setenv('GRAF_POSTHOG_BACKUP_DIR', str(tmp_path / 'missing'))
+    monkeypatch.setenv('GRAF_APP_DIR', str(tmp_path))
+    monkeypatch.setenv('GRAF_POSTHOG_ANALYTICS_PATH', str(tmp_path))
+    monkeypatch.setattr(sys, 'argv', ['posthog-storage.py'])
+    real_stat = Path.stat
+    from types import SimpleNamespace
+    monkeypatch.setattr(Path, 'stat', lambda path, *args, **kwargs: (
+        SimpleNamespace(st_dev=-1) if path == events else real_stat(path, *args, **kwargs)))
+    monkeypatch.setattr(collector, 'filesystem', lambda path: {
+        'identity': ('e' if path == events else 'f') * 64,
+        'total_bytes': 1000, 'available_bytes': 199 if path == events else 500,
+    })
+    assert collector.main() == 1
+    sample = json.loads((tmp_path / 'state.json').read_text())
+    assert sample['result'] == 'incomplete'
+    assert any(fs['available_bytes'] == 199 for fs in sample['filesystems'])
+    now = sample['recorded_at_epoch']
+    result = capacity.evaluate(sample, budget, now=now, config_version='d' * 64)
+    assert 'analytics_storage' in result['disable_reasons']
+    assert 'capacity_input_unverified' in result['analytics_reasons']
+
+
+def test_installed_guard_constrains_collector_state_to_writable_sandbox(tmp_path: Path) -> None:
+    import os
+    import shlex
+    service = (UNIT_DIR / 'graf-posthog-runtime-guard.service').read_text()
+    command = shlex.split(next(line.split('=', 1)[1] for line in service.splitlines() if line.startswith('ExecStart=')))
+    result = subprocess.run(command[:-1] + [sys.executable, '-c',
+        'import os,json; print(json.dumps({k:os.environ.get(k) for k in ("GRAF_POSTHOG_STORAGE_STATE_DIR","GRAF_POSTHOG_STORAGE_STATE_FILE")}))'],
+        env={**os.environ, 'GRAF_POSTHOG_STORAGE_STATE_DIR': str(tmp_path),
+             'GRAF_POSTHOG_STORAGE_STATE_FILE': str(tmp_path / 'override')}, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    observed = json.loads(result.stdout)
+    assert observed == {'GRAF_POSTHOG_STORAGE_STATE_DIR': '/var/lib/graf-posthog-storage',
+                        'GRAF_POSTHOG_STORAGE_STATE_FILE': '/var/lib/graf-posthog-storage/storage-growth-state'}
+
+
+def test_retention_receipt_has_readonly_api_mount_and_reader_permissions(tmp_path: Path) -> None:
+    import yaml
+    compose = yaml.safe_load((REPO_ROOT / 'infra/docker-compose.yml').read_text())
+    api = compose['services']['rec-api']
+    assert '/var/lib/graf-posthog-retention:/run/graf-analytics-retention:ro' in api['volumes']
+    assert api['environment']['GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_DIR'] == '/run/graf-analytics-retention'
+    environment = _runtime(tmp_path)
+    environment['GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_DIR'] = str(tmp_path / 'state')
+    result = _run(RETENTION_PATH, environment, '--execute')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (tmp_path / 'state').stat().st_mode & 0o777 == 0o750
+    assert (tmp_path / 'state/retention-state').stat().st_mode & 0o777 == 0o640
 
 
 @pytest.mark.parametrize("path", [BACKUP_PATH, RESTORE_PATH, RETENTION_PATH, TTL_APPLY_PATH, GROWTH_PATH])
