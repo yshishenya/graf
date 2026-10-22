@@ -125,7 +125,6 @@ class ReportCounts:
             "state_path": self.state_path,
             "period_start": self.period_start.isoformat() if self.period_start else None,
             "period_end": self.period_end.isoformat() if self.period_end else None,
-            "consent_visits": self.consent_visits,
             "conversion_campaigns": len(self.conversions),
             "file_errors": list(self.file_errors),
         }

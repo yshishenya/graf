@@ -356,3 +356,25 @@ def test_report_surface_names_its_sources_and_owners(
     assert surface["counts_state"]["usable"] is True
     assert any("нижней границей" in caveat for caveat in surface["caveats"])
     assert os.path.basename(surface["counts_state"]["state_path"]) == "report-counts.json"
+
+
+@pytest.mark.parametrize("aggregate_visits", [1, 2])
+@pytest.mark.parametrize("consent_visits", [1, 2, 41])
+def test_small_report_does_not_disclose_counts_through_diagnostic_sibling(
+    monkeypatch, tmp_path: Path, aggregate_visits: int, consent_visits: int,
+) -> None:
+    async def read_aggregate(*args, **kwargs):
+        return "measured", aggregate_visits, {}
+
+    monkeypatch.setattr(
+        "twobrain_rec_server.product_analytics.report_surface._read_level_1_aggregate",
+        read_aggregate,
+    )
+    surface = asyncio.run(build_product_report_surface(None, environ={
+        "TWOBRAIN_PRODUCT_ANALYTICS_REPORT_COUNTS_FILE": _write_counts(
+            tmp_path, _counts_payload(consent_visits=consent_visits),
+        ),
+    }))
+    assert surface["consent_share"]["aggregate_visits"] is None
+    assert surface["consent_share"]["consent_visits"] is None
+    assert "consent_visits" not in surface["counts_state"]
