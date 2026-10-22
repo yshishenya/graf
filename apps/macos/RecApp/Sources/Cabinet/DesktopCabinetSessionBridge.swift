@@ -12,16 +12,23 @@ import WebKit
 public enum DesktopCabinetSessionBridge {
     public static let authSessionCookieName = DesktopCabinetConfiguration.productionAuthSessionCookieName
 
-    @MainActor public private(set) static var generation: UInt64 = 0
+    private final class SessionState: @unchecked Sendable {
+        let lock = NSLock()
+        var generation: UInt64 = 0
+        var navigationBarriers: Set<UUID> = []
+    }
+    private static let sessionState = SessionState()
+    public static var generation: UInt64 { sessionState.lock.withLock { sessionState.generation } }
     @MainActor private static var pendingRenewal: Task<Void, Never>?
-    @MainActor private static var navigationBarriers: Set<UUID> = []
 
     @MainActor
     static func beginNavigation() -> UUID {
-        generation &+= 1
-        let barrier = UUID()
-        navigationBarriers.insert(barrier)
-        return barrier
+        sessionState.lock.withLock {
+            sessionState.generation &+= 1
+            let barrier = UUID()
+            sessionState.navigationBarriers.insert(barrier)
+            return barrier
+        }
     }
 
     @MainActor
@@ -31,19 +38,22 @@ public enum DesktopCabinetSessionBridge {
 
     @MainActor
     static func endNavigation(_ barrier: UUID) {
-        guard navigationBarriers.remove(barrier) != nil else { return }
-        // Responses dispatched during navigation must not become eligible afterwards.
-        generation &+= 1
+        sessionState.lock.withLock {
+            guard sessionState.navigationBarriers.remove(barrier) != nil else { return }
+            // Responses dispatched during navigation must not become eligible afterwards.
+            sessionState.generation &+= 1
+        }
     }
 
-    @MainActor
     public static func isCurrentSession(_ expectedGeneration: UInt64) -> Bool {
-        navigationBarriers.isEmpty && generation == expectedGeneration
+        sessionState.lock.withLock {
+            sessionState.navigationBarriers.isEmpty && sessionState.generation == expectedGeneration
+        }
     }
 
     @MainActor
     private static func canRenew(_ expectedGeneration: UInt64) -> Bool {
-        navigationBarriers.isEmpty && generation == expectedGeneration
+        isCurrentSession(expectedGeneration)
     }
 
     @MainActor
@@ -121,7 +131,7 @@ public enum DesktopCabinetSessionBridge {
                     return
                 }
                 if plan.authenticationChanged {
-                    generation &+= 1
+                    sessionState.lock.withLock { sessionState.generation &+= 1 }
                     DesktopUserTimeContext.shared.reset()
                 }
                 for cookie in plan.cookiesToDelete {

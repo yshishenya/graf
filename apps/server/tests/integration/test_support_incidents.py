@@ -399,6 +399,38 @@ def test_production_support_incident_rejects_legacy_headers_without_session(clie
     assert response.json()["code"] == "legacy_header_auth_disabled"
 
 
+def test_cookie_support_requests_reject_stale_actor_or_workspace_before_side_effects(client):
+    fake_github = FakeGitHubIssueClient()
+    client.app.state.support_incident_github_client = fake_github
+    session = client.portal.call(_seed_support_session, client)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, SUPPORT_SESSION_TOKEN)
+    headers = {
+        "X-CSRF-Token": issue_csrf_token(
+            session_id=session.id, secret=str(client.app.state.web_csrf_secret),
+        ),
+        "X-Graf-Expected-Actor": str(USER_ID),
+        "X-Graf-Expected-Workspace": str(WORKSPACE_ID),
+    }
+    intake = "/api/v1/desktop/support-incidents"
+    for field in ("X-Graf-Expected-Actor", "X-Graf-Expected-Workspace"):
+        stale = headers | {field: str(uuid4())}
+        for path in (intake, f"{intake}/CUST-SYNTHETIC/sync"):
+            response = client.post(path, headers=stale, json=safe_report_payload() if path == intake else None)
+            assert response.status_code == 409
+            assert response.json()["code"] == "recording_scope_changed"
+    async def inspect_no_side_effects():
+        async with client.app_state["sessionmaker"]() as db:
+            assert db.bind.dialect.name == "postgresql"
+            assert (await db.scalars(select(SupportIncident))).all() == []
+            assert (await db.scalars(select(SupportIncidentRateLimitBucket))).all() == []
+    client.portal.call(inspect_no_side_effects)
+    assert fake_github.created_issues == []
+    assert fake_github.updated_issues == []
+    accepted = client.post(intake, headers=headers, json=safe_report_payload())
+    assert accepted.status_code == 201
+    assert len(fake_github.created_issues) == 1
+
+
 def test_pending_support_incident_sync_retries_by_correlation_number_only(client) -> None:
     fake_github = FakeGitHubIssueClient(failure_reason_code="support_incident.github_unavailable")
     client.app.state.support_incident_github_client = fake_github
