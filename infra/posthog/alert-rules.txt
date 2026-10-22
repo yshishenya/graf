@@ -83,3 +83,6 @@ rule code=alert_owner_unnamed scope=alerting owner_role=infra_operator severity=
 rule code=analytics_degradation_drill scope=alerting owner_role=analytics_operator severity=warning escalate_after_minutes=60 requirement=FR-030
 
 rule code=backup_set_unverified scope=backup owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-034
+
+# Independent observer on astraglobal; public endpoint failure is not a host diagnosis.
+rule code=target_unreachable scope=host owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-030

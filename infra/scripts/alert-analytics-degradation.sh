@@ -73,6 +73,9 @@ while (( $# > 0 )); do
     --print-message) print_only=1 ;;
     --drill) mode="drill" ;;
     --check-channel) mode="channel" ;;
+    --external-channel) mode="external-channel" ;;
+    --target-unreachable) mode="target_unreachable" ;;
+    --target-recovered) mode="target_recovered" ;;
     --status) mode="status" ;;
     --rules)
       (( $# > 1 )) || { echo "alert_result=failed"; echo "reason=rules_argument_missing"; exit 2; }
@@ -142,15 +145,6 @@ chat_id="${GRAF_ANALYTICS_ALERT_CHAT_ID:-}"
 if [[ -z "$chat_id" && -n "${GRAF_ANALYTICS_ALERT_CHAT_ID_FILE:-}" ]]; then
   chat_id="$(read_value_file "$GRAF_ANALYTICS_ALERT_CHAT_ID_FILE")"
 fi
-
-redact() {
-  local text="$1"
-  if [[ -n "$bot_token" ]]; then
-    printf '%s' "${text//$bot_token/<redacted>}"
-  else
-    printf '%s' "$text"
-  fi
-}
 
 state_value() {
   local file="$1"
@@ -425,6 +419,18 @@ write_state() {
   mv "$tmp_file" "$channel_state_file"
 }
 
+telegram_response_ok() {
+  [[ "$1" == 200 ]] || return 1
+  printf '%s' "$2" | python3 -c '
+import json, sys
+try:
+    body = json.load(sys.stdin)
+except (ValueError, TypeError):
+    sys.exit(1)
+sys.exit(0 if isinstance(body, dict) and body.get("ok") is True else 1)
+'
+}
+
 deliver_telegram() {
   local text="$1"
   local response="" http_code="" body=""
@@ -439,8 +445,8 @@ deliver_telegram() {
   }
   http_code="${response##*$'\n'}"
   body="${response%$'\n'*}"
-  if [[ "$http_code" != "200" ]] || [[ "$body" != *'"ok":true'* ]]; then
-    log_event critical "result=alert_delivery_failed transport=telegram stage=response status=$http_code detail=$(redact "$body" | tr -d '\n' | cut -c1-200)"
+  if ! telegram_response_ok "$http_code" "$body"; then
+    log_event critical "result=alert_delivery_failed transport=telegram stage=response status=$http_code"
     return 1
   fi
   return 0
@@ -495,6 +501,64 @@ deliver() {
   return 0
 }
 
+# The external observer reuses this transport probe without a local guard.
+probe_telegram_channel() {
+  channel_result="pass"
+  channel_reason="none"
+  if [[ -z "$bot_token" ]]; then
+    channel_result="fail"
+    channel_reason="bot_token_unset"
+  elif [[ -z "$chat_id" ]]; then
+    channel_result="fail"
+    channel_reason="chat_id_unset"
+  else
+    probe="$(curl --silent --show-error --max-time "$timeout_seconds" --write-out '\n%{http_code}' \
+      "${api_base}/bot${bot_token}/getMe" 2>&1)" || probe=""
+    probe_code="${probe##*$'\n'}"
+    probe_body="${probe%$'\n'*}"
+    if ! telegram_response_ok "$probe_code" "$probe_body"; then
+      channel_result="fail"
+      channel_reason="channel_api_unreachable"
+    else
+      chat_probe="$(curl --silent --show-error --max-time "$timeout_seconds" --write-out '\n%{http_code}' \
+        --request POST "${api_base}/bot${bot_token}/getChat" \
+        --data-urlencode "chat_id=${chat_id}" 2>&1)" || chat_probe=""
+      chat_code="${chat_probe##*$'\n'}"
+      chat_body="${chat_probe%$'\n'*}"
+      if ! telegram_response_ok "$chat_code" "$chat_body"; then
+        channel_result="fail"
+        channel_reason="channel_chat_unreachable"
+      fi
+    fi
+  fi
+}
+
+if [[ "$mode" == "external-channel" ]]; then
+  probe_telegram_channel
+  printf 'alert_channel_result=%s\nalert_channel_reason=%s\n' "$channel_result" "$channel_reason"
+  if [[ "$channel_result" != pass ]]; then
+    log_event critical "result=channel_unavailable reason=$channel_reason"
+    exit 1
+  fi
+  exit 0
+fi
+
+if [[ "$mode" == target_unreachable || "$mode" == target_recovered ]]; then
+  text="$(printf '%s\n' 'GRAF availability' "rule: $mode" 'scope: public_service' \
+    'product_impact: public endpoint availability observed independently' \
+    "owner: $(owner_label_for_role infra_operator)" "recorded_at: $recorded_at" 'delivery_deadline_minutes: 15')"
+  if [[ "$print_only" == 1 ]]; then
+    printf '%s\nalert_result=dry_run\n' "$text"
+    exit 0
+  fi
+  if ! deliver "$text" "$(signature_for "$mode")" "$mode"; then
+    printf 'alert_result=failed\nreason=delivery_failed\n'
+    exit 1
+  fi
+  printf 'alert_result=delivered\n'
+  exit 0
+fi
+
 if [[ "$mode" == "status" ]]; then
   collect_reasons
   printf 'alert_state_file=%s\n' "$( [[ -r "$guard_state_file" ]] && printf present || printf missing )"
@@ -526,32 +590,7 @@ if [[ "$mode" == "channel" ]]; then
     channel_first_run_grace="expired"
   fi
 
-  if [[ -z "$bot_token" ]]; then
-    channel_result="fail"
-    channel_reason="bot_token_unset"
-  elif [[ -z "$chat_id" ]]; then
-    channel_result="fail"
-    channel_reason="chat_id_unset"
-  else
-    probe="$(curl --silent --show-error --max-time "$timeout_seconds" --write-out '\n%{http_code}' \
-      "${api_base}/bot${bot_token}/getMe" 2>&1)" || probe=""
-    probe_code="${probe##*$'\n'}"
-    probe_body="${probe%$'\n'*}"
-    if [[ "$probe_code" != "200" ]] || [[ "$probe_body" != *'"ok":true'* ]]; then
-      channel_result="fail"
-      channel_reason="channel_api_unreachable"
-    else
-      chat_probe="$(curl --silent --show-error --max-time "$timeout_seconds" --write-out '\n%{http_code}' \
-        --request POST "${api_base}/bot${bot_token}/getChat" \
-        --data-urlencode "chat_id=${chat_id}" 2>&1)" || chat_probe=""
-      chat_code="${chat_probe##*$'\n'}"
-      chat_body="${chat_probe%$'\n'*}"
-      if [[ "$chat_code" != "200" ]] || [[ "$chat_body" != *'"ok":true'* ]]; then
-        channel_result="fail"
-        channel_reason="channel_chat_unreachable"
-      fi
-    fi
-  fi
+  probe_telegram_channel
   guard_age="$(age_minutes "$(state_value "$guard_state_file" recorded_at_epoch)" unknown)"
   if [[ "$channel_result" == "pass" ]] && [[ "$guard_age" != "unknown" ]] && (( guard_age > guard_state_max_age_minutes )); then
     channel_result="fail"

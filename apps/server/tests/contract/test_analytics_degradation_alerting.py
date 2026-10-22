@@ -261,7 +261,6 @@ def test_alert_script_reads_credentials_outside_the_repository() -> None:
     assert 'GRAF_ANALYTICS_ALERT_BOT_TOKEN_FILE' in script
     assert 'GRAF_ANALYTICS_ALERT_CHAT_ID_FILE' in script
     assert "read_value_file" in script
-    assert "redact()" in script
     assert "alert_secrets=not_printed" in script
     assert "alert_delivery_deadline_minutes=15" in script
 
@@ -1050,3 +1049,173 @@ def test_restore_readiness_and_alerting_require_consistent_native_proof(tmp_path
     else:
         assert any(code.startswith("restore_") for code in blockers), blockers
         assert "restore_verification_" in alert.stdout
+
+
+def _external_observer(tmp_path: Path):
+    state = _valid_operations_state(tmp_path, now=int(time.time()))
+    environment, curl_log = _alert_environment(tmp_path, state)
+    curl = tmp_path / 'bin/curl'
+    curl.write_text('''#!/bin/sh
+printf '%s\\n' "$*" >> "$CURL_LOG"
+case "$*" in
+  *'/api/v1/health/live'*)
+    [ "${TARGET_FAIL:-}" != 1 ] || exit 7
+    printf '%s\\n%s' "$TARGET_BODY" "${TARGET_CODE:-200}"
+    ;;
+  *)
+    [ "${CHANNEL_FAIL:-}" != 1 ] || exit 7
+    printf '%s\\n200' "${CHANNEL_BODY:-}"
+    ;;
+esac
+''')
+    curl.chmod(0o755)
+    environment.update(
+        GRAF_AVAILABILITY_STATE_DIR=str(tmp_path / 'availability'),
+        GRAF_AVAILABILITY_ALERT_SCRIPT=str(ALERT_PATH),
+        TARGET_BODY='{"status":"ok"}',
+        CHANNEL_BODY='{"ok":true}',
+    )
+
+    def run(**overrides):
+        return subprocess.run(
+            [BASH, str(REPO_ROOT / 'infra/scripts/check-graf-availability.sh'), '--execute'],
+            env={**environment, **overrides}, capture_output=True, text=True,
+        )
+
+    return environment, curl_log, run
+
+
+def test_external_observer_threshold_retry_repeat_and_recovery(tmp_path: Path) -> None:
+    environment, curl_log, run = _external_observer(tmp_path)
+    healthy = run()
+    assert healthy.returncode == 0, healthy.stderr
+    assert json.loads(healthy.stdout)['result'] == 'ready'
+    first = json.loads(run(TARGET_FAIL='1').stdout)
+    assert first['target_status'] == 'degraded'
+    assert first['delivery'] == 'not_required'
+    failed = json.loads(run(TARGET_FAIL='1', CHANNEL_FAIL='1').stdout)
+    assert failed['target_status'] == 'unreachable'
+    assert failed['channel_status'] == 'channel_unavailable'
+    assert failed['delivery'] == 'failed'
+    assert not failed['notified_outage']
+    delivered = json.loads(run(TARGET_FAIL='1').stdout)
+    assert delivered['delivery'] == 'delivered'
+    assert delivered['notified_outage']
+    calls = curl_log.read_text().count('sendMessage')
+    repeated = json.loads(run(TARGET_FAIL='1').stdout)
+    assert repeated['delivery'] == 'not_required'
+    assert curl_log.read_text().count('sendMessage') == calls
+    recovered = json.loads(run().stdout)
+    assert recovered['result'] == 'ready'
+    assert recovered['delivery'] == 'delivered'
+    assert not recovered['notified_outage']
+    assert curl_log.read_text().count('sendMessage') == calls + 1
+    output = json.dumps(recovered)
+    assert environment['GRAF_ANALYTICS_ALERT_BOT_TOKEN'] not in output
+    assert environment['GRAF_ANALYTICS_ALERT_CHAT_ID'] not in output
+    assert 'product workflows stay online' not in curl_log.read_text()
+
+
+@pytest.mark.parametrize('overrides', [
+    {'TARGET_CODE': '302'}, {'TARGET_CODE': '500'}, {'TARGET_BODY': 'broken'},
+    {'TARGET_BODY': '{"status":"failed"}'}, {'TARGET_BODY': '[]'}, {'TARGET_FAIL': '1'},
+])
+def test_external_observer_refuses_incomplete_or_wrong_target(tmp_path: Path, overrides: dict) -> None:
+    _, _, run = _external_observer(tmp_path)
+    assert run(**overrides).returncode == 1
+    second = run(**overrides)
+    assert second.returncode == 1
+    assert json.loads(second.stdout)['target_status'] == 'unreachable'
+
+
+def test_external_channel_does_not_require_target_guard_or_recent_delivery(tmp_path: Path) -> None:
+    _, _, run = _external_observer(tmp_path)
+    result = run(CHANNEL_FAIL='1')
+    assert result.returncode == 1
+    state = json.loads(result.stdout)
+    assert state['target_status'] == 'up'
+    assert state['channel_status'] == 'channel_unavailable'
+    assert state['result'] == 'degraded'
+    assert json.loads(run().stdout)['result'] == 'ready'
+
+
+def test_external_observer_does_not_accept_corrupt_state(tmp_path: Path) -> None:
+    environment, _, run = _external_observer(tmp_path)
+    assert run().returncode == 0
+    path = Path(environment['GRAF_AVAILABILITY_STATE_DIR']) / 'state.json'
+    path.write_text('{"recorded_epoch":"private-sentinel"}')
+    result = run()
+    assert result.returncode != 0
+    assert 'state_invalid' in result.stderr
+    assert 'private-sentinel' not in result.stdout + result.stderr
+
+
+def test_external_observer_repeat_window_and_failed_recovery_are_not_lost(tmp_path: Path) -> None:
+    environment, curl_log, run = _external_observer(tmp_path)
+    run(TARGET_FAIL='1')
+    run(TARGET_FAIL='1')
+    path = Path(environment['GRAF_AVAILABILITY_STATE_DIR']) / 'state.json'
+    state = json.loads(path.read_text())
+    state['last_delivery_epoch'] -= 3601
+    path.write_text(json.dumps(state))
+    calls = curl_log.read_text().count('sendMessage')
+    assert json.loads(run(TARGET_FAIL='1').stdout)['delivery'] == 'delivered'
+    assert curl_log.read_text().count('sendMessage') == calls + 1
+    recovery = json.loads(run(CHANNEL_FAIL='1').stdout)
+    assert recovery['target_status'] == 'up'
+    assert recovery['delivery'] == 'failed'
+    assert recovery['notified_outage']
+    retried = json.loads(run().stdout)
+    assert retried['result'] == 'ready'
+    assert retried['delivery'] == 'delivered'
+    assert not retried['notified_outage']
+
+
+def test_external_observer_status_rejects_stale_or_unknown_evidence(tmp_path: Path) -> None:
+    environment, _, run = _external_observer(tmp_path)
+    assert run().returncode == 0
+    path = Path(environment['GRAF_AVAILABILITY_STATE_DIR']) / 'state.json'
+    state = json.loads(path.read_text())
+    state['recorded_epoch'] -= 180
+    path.write_text(json.dumps(state))
+    status = subprocess.run(
+        [BASH, str(REPO_ROOT / 'infra/scripts/check-graf-availability.sh'), '--status'],
+        env=environment, capture_output=True, text=True,
+    )
+    assert status.returncode != 0
+    assert 'state_missing_or_stale' in status.stderr
+    path.write_text(json.dumps({**state, 'unexpected': 'private-sentinel'}))
+    result = run()
+    assert 'state_invalid' in result.stderr
+    assert 'private-sentinel' not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize('body', ['{"ok":true', '{"ok":"true"}', '{"ok":1}', '[]'])
+def test_external_observer_rejects_malformed_telegram_responses(tmp_path: Path, body: str) -> None:
+    _, _, run = _external_observer(tmp_path)
+    healthy = json.loads(run(CHANNEL_BODY=body).stdout)
+    assert healthy['channel_status'] == 'channel_unavailable'
+    assert healthy['result'] == 'degraded'
+    run(TARGET_FAIL='1', CHANNEL_BODY=body)
+    failed = json.loads(run(TARGET_FAIL='1', CHANNEL_BODY=body).stdout)
+    assert failed['delivery'] == 'failed'
+    assert not failed['notified_outage']
+
+
+@pytest.mark.parametrize('optimized', ['0', '1'])
+def test_external_state_schema_validation_survives_python_optimization(tmp_path: Path, optimized: str) -> None:
+    environment, _, run = _external_observer(tmp_path)
+    assert run().returncode == 0
+    path = Path(environment['GRAF_AVAILABILITY_STATE_DIR']) / 'state.json'
+    state = json.loads(path.read_text())
+    state['unexpected'] = 'private-sentinel'
+    path.write_text(json.dumps(state))
+    rejected = run(PYTHONOPTIMIZE=optimized)
+    assert rejected.returncode != 0
+    assert 'state_invalid' in rejected.stderr
+    assert 'private-sentinel' not in rejected.stdout + rejected.stderr
+
+
+def test_external_transport_accepts_valid_telegram_json_with_whitespace(tmp_path: Path) -> None:
+    _, _, run = _external_observer(tmp_path)
+    assert json.loads(run(CHANNEL_BODY='{ "ok": true }').stdout)['result'] == 'ready'
