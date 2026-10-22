@@ -132,6 +132,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     private let clock: Clock
     private let queue = DispatchQueue(label: "pro.2brain.graf.desktop-upload-queue", qos: .utility)
     private var document: DesktopUploadQueueDocument?
+    private var activeSupportIncidentItemIDs: Set<String> = []
     private var deletionExecutionInProgress = false
     private var localPurgeInProgress = false
     private var allowsOfflineScopeRestore = true
@@ -899,13 +900,22 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     ) async throws -> DesktopSupportIncidentResponse {
         let context = client?.supportIncidentContext() ?? .unknown
         let submission = try markSupportIncidentSending(itemIds: itemIds, context: context)
-
+        defer { queue.sync { activeSupportIncidentItemIDs.subtract(submission.itemIds) } }
+        let requestContext = supportIncidentRequestContext(
+            execution: submission.execution, itemIds: submission.itemIds
+        )
         do {
-            let response = try await submitter.submitSupportIncident(report: submission.report)
-            try markSupportIncidentResponse(itemIds: submission.itemIds, report: submission.report, response: response)
+            let response = try await submitter.submitSupportIncident(report: submission.report, context: requestContext)
+            try queue.sync {
+                try validateSupportIncidentExecution(submission.execution, itemIds: submission.itemIds)
+                try markSupportIncidentResponse(itemIds: submission.itemIds, report: submission.report, response: response)
+            }
             return response
         } catch {
-            try markSupportIncidentFailed(itemIds: submission.itemIds, report: submission.report, error: error)
+            try queue.sync {
+                try validateSupportIncidentExecution(submission.execution, itemIds: submission.itemIds)
+                try markSupportIncidentFailed(itemIds: submission.itemIds, report: submission.report, error: error)
+            }
             throw error
         }
     }
@@ -942,17 +952,25 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         using submitter: any DesktopSupportIncidentSubmitting
     ) async throws -> DesktopSupportIncidentResponse {
         let draft = try markSupportIncidentSyncing(itemIds: itemIds)
+        defer { queue.sync { activeSupportIncidentItemIDs.subtract(draft.itemIds) } }
+        let requestContext = supportIncidentRequestContext(
+            execution: draft.execution, itemIds: draft.itemIds
+        )
         do {
-            let response = try await submitter.syncSupportIncident(incidentID: draft.incidentNumber)
-            try markSupportIncidentResponse(
-                itemIds: draft.itemIds,
-                reportFingerprint: draft.reportFingerprint,
-                dedupeKey: draft.dedupeKey,
-                response: response
-            )
+            let response = try await submitter.syncSupportIncident(incidentID: draft.incidentNumber, context: requestContext)
+            try queue.sync {
+                try validateSupportIncidentExecution(draft.execution, itemIds: draft.itemIds)
+                try markSupportIncidentResponse(
+                    itemIds: draft.itemIds, reportFingerprint: draft.reportFingerprint,
+                    dedupeKey: draft.dedupeKey, response: response
+                )
+            }
             return response
         } catch {
-            try markSupportIncidentPendingAfterSyncFailure(draft: draft, error: error)
+            try queue.sync {
+                try validateSupportIncidentExecution(draft.execution, itemIds: draft.itemIds)
+                try markSupportIncidentPendingAfterSyncFailure(draft: draft, error: error)
+            }
             throw error
         }
     }
@@ -1990,12 +2008,43 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         return merged
     }
 
+    private struct SupportIncidentExecution: Sendable {
+        let scope: RecordingDeletionScope?
+        let generation: Int
+        let sessionFingerprint: String?
+        let sessionGeneration: UInt64
+    }
+
+    private func supportIncidentExecution() -> SupportIncidentExecution {
+        SupportIncidentExecution(scope: activeDeletionScope, generation: deletionScopeGeneration,
+                                 sessionFingerprint: client?.recordingSessionFingerprint,
+                                 sessionGeneration: DesktopCabinetSessionBridge.generation)
+    }
+
+    /// Caller holds the queue through validation and any result write.
+    private func validateSupportIncidentExecution(_ execution: SupportIncidentExecution, itemIds: [String]) throws {
+        guard DesktopCabinetSessionBridge.isCurrentSession(execution.sessionGeneration),
+              execution.scope == activeDeletionScope, execution.generation == deletionScopeGeneration,
+              execution.sessionFingerprint == client?.recordingSessionFingerprint else { throw CancellationError() }
+        _ = try supportIncidentItems(itemIds: itemIds, in: loadDocumentOnQueue())
+    }
+
+    private func supportIncidentRequestContext(
+        execution: SupportIncidentExecution, itemIds: [String]
+    ) -> DesktopSupportIncidentRequestContext {
+        DesktopSupportIncidentRequestContext(scope: execution.scope, sessionGeneration: execution.sessionGeneration) { [self] in
+            try queue.sync { try validateSupportIncidentExecution(execution, itemIds: itemIds) }
+        }
+    }
+
     private struct SupportIncidentSubmissionDraft {
+        var execution: SupportIncidentExecution
         var itemIds: [String]
         var report: DesktopSupportIncidentReport
     }
 
     private struct SupportIncidentSyncDraft {
+        var execution: SupportIncidentExecution
         var itemIds: [String]
         var incidentNumber: String
         var reportFingerprint: String
@@ -2027,8 +2076,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         context: DesktopSupportIncidentReportContext
     ) throws -> SupportIncidentSubmissionDraft {
         try queue.sync {
+            let execution = supportIncidentExecution()
             var document = try loadDocumentOnQueue()
             let affectedItems = try supportIncidentItems(itemIds: itemIds, in: document)
+            guard activeSupportIncidentItemIDs.isDisjoint(with: itemIds) else {
+                throw DesktopUploadClientError.httpStatus(409, "support_incident.request_in_progress")
+            }
             guard let index = document.items.firstIndex(where: { $0.id == affectedItems[0].id })
             else {
                 throw DesktopUploadQueueServiceError.packageNotFound(itemIds.first ?? "unknown")
@@ -2066,7 +2119,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             document.items = document.items.sortedForDisplay()
             document.updatedAt = now
             try saveDocumentOnQueue(document)
-            return SupportIncidentSubmissionDraft(itemIds: Array(changedIds), report: report)
+            activeSupportIncidentItemIDs.formUnion(changedIds)
+            return SupportIncidentSubmissionDraft(execution: execution, itemIds: Array(changedIds), report: report)
         }
     }
 
@@ -2159,8 +2213,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     private func markSupportIncidentSyncing(itemIds: [String]) throws -> SupportIncidentSyncDraft {
         try queue.sync {
+            let execution = supportIncidentExecution()
             var document = try loadDocumentOnQueue()
             let affectedItems = try supportIncidentItems(itemIds: itemIds, in: document)
+            guard activeSupportIncidentItemIDs.isDisjoint(with: itemIds) else {
+                throw DesktopUploadClientError.httpStatus(409, "support_incident.request_in_progress")
+            }
             guard let submission = affectedItems[0].supportIncidentSubmission,
                   submission.state == .pendingSync,
                   let incidentNumber = submission.incidentNumber?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -2190,7 +2248,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             document.items = document.items.sortedForDisplay()
             document.updatedAt = now
             try saveDocumentOnQueue(document)
+            activeSupportIncidentItemIDs.formUnion(changedIds)
             return SupportIncidentSyncDraft(
+                execution: execution,
                 itemIds: Array(changedIds),
                 incidentNumber: incidentNumber,
                 reportFingerprint: reportFingerprint,
@@ -2233,27 +2293,26 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
     }
 
+    // Called only after execution validation, while the caller holds queue.sync.
     private func updateSupportIncidentSubmission(
         itemIds: Set<String>,
         update: (inout DesktopUploadQueueItem, Date) -> Void
     ) throws {
-        try queue.sync {
-            var document = try loadDocumentOnQueue()
-            let now = clock()
-            var changed = false
-            document.items = document.items.map { item in
-                guard itemIds.contains(item.id) else { return item }
-                var next = item
-                next.updatedAt = now
-                update(&next, now)
-                changed = true
-                return next
-            }
-            if changed {
-                document.items = document.items.sortedForDisplay()
-                document.updatedAt = now
-                try saveDocumentOnQueue(document)
-            }
+        var document = try loadDocumentOnQueue()
+        let now = clock()
+        var changed = false
+        document.items = document.items.map { item in
+            guard itemIds.contains(item.id) else { return item }
+            var next = item
+            next.updatedAt = now
+            update(&next, now)
+            changed = true
+            return next
+        }
+        if changed {
+            document.items = document.items.sortedForDisplay()
+            document.updatedAt = now
+            try saveDocumentOnQueue(document)
         }
     }
 

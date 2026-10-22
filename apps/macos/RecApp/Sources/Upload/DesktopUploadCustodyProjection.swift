@@ -435,7 +435,7 @@ public struct DesktopUploadCustodyProjection: Equatable, Sendable {
         guard item.serverTruth.accessState == nil || item.serverTruth.accessState == "owner" else {
             return nil
         }
-        let reviewAvailable = item.state == .uploaded && item.serverTruth.processingStatus == "processed"
+        let reviewAvailable = !item.lifecycleBlocksContent && item.state == .uploaded && item.serverTruth.processingStatus == "processed"
         let state: DesktopUploadCustodyState
         if reviewAvailable {
             state = .delivered
@@ -754,6 +754,7 @@ public struct DesktopUploadCustodySummary: Equatable, Sendable {
         for item: DesktopUploadQueueItem,
         projection: DesktopUploadCustodyProjection
     ) -> Bool {
+        guard item.lifecycleAccessAvailable else { return false }
         if projection.copyKey == "custody.known_by_server" {
             return false
         }

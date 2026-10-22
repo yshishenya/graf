@@ -4,9 +4,28 @@ import TwoBrainRecShared
 
 public typealias DesktopUploadProgressHandler = @Sendable (ServerTruthFingerprint) async throws -> Void
 
+/// The native caller pins a session before building a support request.
+public struct DesktopSupportIncidentRequestContext: Sendable {
+    public let scope: RecordingDeletionScope?
+    public let sessionGeneration: UInt64
+    public let validateScope: @Sendable () throws -> Void
+
+    public init(scope: RecordingDeletionScope?, sessionGeneration: UInt64,
+                validateScope: @escaping @Sendable () throws -> Void) {
+        self.scope = scope
+        self.sessionGeneration = sessionGeneration
+        self.validateScope = validateScope
+    }
+
+    public func validate() throws {
+        guard DesktopCabinetSessionBridge.isCurrentSession(sessionGeneration) else { throw CancellationError() }
+        try validateScope()
+    }
+}
+
 public protocol DesktopSupportIncidentSubmitting: Sendable {
-    func submitSupportIncident(report: DesktopSupportIncidentReport) async throws -> DesktopSupportIncidentResponse
-    func syncSupportIncident(incidentID: String) async throws -> DesktopSupportIncidentResponse
+    func submitSupportIncident(report: DesktopSupportIncidentReport, context: DesktopSupportIncidentRequestContext) async throws -> DesktopSupportIncidentResponse
+    func syncSupportIncident(incidentID: String, context: DesktopSupportIncidentRequestContext) async throws -> DesktopSupportIncidentResponse
 }
 
 public protocol DesktopUploadClientProtocol: Sendable {

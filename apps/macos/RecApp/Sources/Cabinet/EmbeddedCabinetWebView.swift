@@ -1201,13 +1201,20 @@ public enum EmbeddedCabinetLocalRecordingBridge {
 public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentSubmitting {
     public static let intakePath = "/api/v1/desktop/support-incidents"
     public static let requestScript = """
+    const read = (name) => document.querySelector(`meta[name="${name}"]`)?.content ?? '';
+    if (location.origin !== request.origin || read('graf-time-user') !== request.actor ||
+        read('graf-workspace') !== request.workspace || read('graf-time-session') !== request.session) {
+      return JSON.stringify([409, JSON.stringify({code: 'recording_scope_changed'})]);
+    }
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
     if (!csrfToken) {
       return JSON.stringify([401, JSON.stringify({code: 'support_incident.auth_session_required'})]);
     }
     const headers = {
       'Accept': 'application/json',
-      'X-CSRF-Token': csrfToken
+      'X-CSRF-Token': csrfToken,
+      'X-Graf-Expected-Actor': request.actor,
+      'X-Graf-Expected-Workspace': request.workspace
     };
     if (request.hasBody) headers['Content-Type'] = 'application/json';
     if (request.idempotencyKey) headers['Idempotency-Key'] = request.idempotencyKey;
@@ -1241,24 +1248,27 @@ public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentS
     }
 
     public func submitSupportIncident(
-        report: DesktopSupportIncidentReport
+        report: DesktopSupportIncidentReport,
+        context: DesktopSupportIncidentRequestContext
     ) async throws -> DesktopSupportIncidentResponse {
         let body = String(decoding: try JSONEncoder().encode(report), as: UTF8.self)
         return try await execute(
             path: Self.intakePath,
             body: body,
-            idempotencyKey: "support-incident:\(report.safeReportFingerprint)"
+            idempotencyKey: "support-incident:\(report.safeReportFingerprint)",
+            context: context
         )
     }
 
-    public func syncSupportIncident(incidentID: String) async throws -> DesktopSupportIncidentResponse {
+    public func syncSupportIncident(incidentID: String, context: DesktopSupportIncidentRequestContext) async throws -> DesktopSupportIncidentResponse {
         guard incidentID.range(of: #"^CUST-[A-Z0-9-]{1,27}$"#, options: .regularExpression) != nil else {
             throw DesktopUploadClientError.httpStatus(400, "support_incident.invalid_correlation_number")
         }
         return try await execute(
             path: "\(Self.intakePath)/\(incidentID)/sync",
             body: nil,
-            idempotencyKey: nil
+            idempotencyKey: nil,
+            context: context
         )
     }
 
@@ -1280,9 +1290,15 @@ public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentS
     private func execute(
         path: String,
         body: String?,
-        idempotencyKey: String?
+        idempotencyKey: String?,
+        context: DesktopSupportIncidentRequestContext
     ) async throws -> DesktopSupportIncidentResponse {
-        guard let webView,
+        try context.validate()
+        guard let scope = context.scope,
+              let preference = DesktopUserTimeContext.shared.preference,
+              preference.origin == scope.serverOrigin,
+              preference.userId.uuidString.lowercased() == scope.actorUserID,
+              let webView,
               let routePolicy,
               let documentURL = webView.url,
               Self.isAllowedCabinetDocument(documentURL, routePolicy: routePolicy)
@@ -1290,13 +1306,28 @@ public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentS
             throw DesktopUploadClientError.httpStatus(401, "support_incident.auth_session_required")
         }
 
+        guard let origin = URLComponents(string: scope.serverOrigin),
+              documentURL.scheme?.lowercased() == origin.scheme,
+              documentURL.host?.lowercased() == origin.host,
+              (documentURL.port ?? (origin.scheme == "https" ? 443 : 80)) == (origin.port ?? (origin.scheme == "https" ? 443 : 80)) else {
+            throw CancellationError()
+        }
         let request: [String: Any] = [
+            "origin": scope.serverOrigin,
+            "actor": scope.actorUserID,
+            "workspace": scope.workspaceID,
+            "session": preference.sessionId.uuidString.lowercased(),
             "path": path,
             "body": body ?? "",
             "hasBody": body != nil,
             "idempotencyKey": idempotencyKey ?? ""
         ]
         let rawResult = try await evaluate(script: Self.requestScript, arguments: ["request": request], in: webView)
+        try context.validate()
+        guard self.webView === webView, self.routePolicy == routePolicy,
+              DesktopUserTimeContext.shared.preference?.origin == preference.origin,
+              DesktopUserTimeContext.shared.preference?.userId == preference.userId,
+              DesktopUserTimeContext.shared.preference?.sessionId == preference.sessionId else { throw CancellationError() }
         let result = try Self.decodeJavaScriptResult(rawResult)
         guard let responseData = result.body.data(using: .utf8) else {
             throw DesktopUploadClientError.invalidResponse
@@ -3111,13 +3142,15 @@ public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentS
     }
 
     public func submitSupportIncident(
-        report _: DesktopSupportIncidentReport
+        report _: DesktopSupportIncidentReport,
+        context _: DesktopSupportIncidentRequestContext
     ) async throws -> DesktopSupportIncidentResponse {
         throw DesktopUploadClientError.httpStatus(401, "support_incident.auth_session_required")
     }
 
     public func syncSupportIncident(
-        incidentID _: String
+        incidentID _: String,
+        context _: DesktopSupportIncidentRequestContext
     ) async throws -> DesktopSupportIncidentResponse {
         throw DesktopUploadClientError.httpStatus(401, "support_incident.auth_session_required")
     }

@@ -43,6 +43,74 @@ final class DesktopUploadCustodyProjectionTests: XCTestCase {
         XCTAssertEqual(projection.serverMeetingId, "server-meeting-057")
     }
 
+    func testReviewLinkRespectsLifecycleBarrierDespiteStaleProcessedFlags() throws {
+        let scope = try RecordingDeletionScope(
+            serverOrigin: "https://graf.invalid", workspaceID: "workspace", actorUserID: "owner"
+        )
+        let configuration = DesktopCabinetConfiguration(baseURL: try XCTUnwrap(URL(string: scope.serverOrigin)))
+        var live = custodyFixtureQueueItem(
+            state: .uploaded,
+            serverTruth: ServerTruthFingerprint(
+                meetingId: "server-meeting", processingStatus: "processed",
+                deletionState: "none", accessState: "owner", reviewAvailable: true
+            )
+        )
+        live.ownerScope = scope
+        live.lifecycleAccessAvailable = true
+        let operation = try RecordingDeletionOperation(
+            scope: scope, target: .ownOrigin(live.directoryId), requestedAt: Date(timeIntervalSince1970: 100)
+        )
+        let receipt = try JSONDecoder().decode(RecordingDeletionReceipt.self, from: JSONSerialization.data(withJSONObject: [
+            "receipt_type": "origin_cancellation", "request_id": UUID().uuidString,
+            "local_recording_id": live.directoryId
+        ]))
+        let accepted = try operation.accepting(receipt, at: Date(timeIntervalSince1970: 200))
+        var denied = live
+        denied.lifecycleAccessAvailable = false
+        var terminal = live
+        terminal.state = .terminalDeleted
+        var cases: [(String, DesktopUploadQueueItem, Bool)] = [("owner", live, true), ("denied", denied, false), ("terminal", terminal, false)]
+        for phase in [RecordingDeletionPhase.queued, .sending, .resolving, .rejected] {
+            var item = live
+            item.deletionOperation = operation.applying(phase, at: Date(timeIntervalSince1970: 150))
+            cases.append((phase.rawValue, item, phase == .rejected))
+        }
+        for op in [accepted, accepted.applying(.verified, at: Date(timeIntervalSince1970: 300))] {
+            var item = live
+            item.deletionOperation = op
+            cases.append((op.phase.rawValue, item, false))
+        }
+        for (name, item, allowed) in cases {
+            let projection = DesktopUploadCustodyProjection(item: item)
+            let link = UploadReviewLink(item: item, configuration: configuration)
+            XCTAssertEqual(projection.reviewAvailable, allowed, name)
+            XCTAssertEqual(projection.normalUserAction == .openReview, allowed, name)
+            XCTAssertEqual(link.destination != nil, allowed, name)
+            XCTAssertEqual(link.availability == .available, allowed, name)
+            XCTAssertFalse(item.hasConfirmedServerDeletion, name)
+            XCTAssertNotEqual(projection.deletionState, .serverDeleted, name)
+        }
+    }
+
+    func testSupportSummariesExcludeItemsOutsideCurrentLifecycleAccess() throws {
+        let current = custodyFixtureQueueItem(id: "current", state: .blocked, failureCategory: .localResource)
+        var foreign = current
+        foreign.id = "foreign"
+        foreign.lifecycleAccessAvailable = false
+        for items in [[foreign, current], [current, foreign]] {
+            let summary = try XCTUnwrap(DesktopUploadCustodySummary.summary(for: items))
+            XCTAssertEqual(summary.primaryItem.id, current.id)
+            XCTAssertEqual(summary.affectedItems.map(\.id), [current.id])
+            XCTAssertEqual(summary.pendingCount, 1)
+            let groups = DesktopUploadCustodySummary.summaries(for: items)
+            XCTAssertEqual(groups.count, 1)
+            XCTAssertEqual(groups.first?.affectedItems.map(\.id), [current.id])
+            XCTAssertEqual(DesktopUploadCustodySummary.attentionItemCount(for: items), 1)
+        }
+        XCTAssertNil(DesktopUploadCustodySummary.summary(for: [foreign]))
+        XCTAssertTrue(DesktopUploadCustodySummary.summaries(for: [foreign], focusedSessionID: foreign.sessionId).isEmpty)
+    }
+
     func testUploadedProcessingFailureKeepsUploadAndProcessingTruthSeparate() {
         let item = custodyFixtureQueueItem(
             id: "processing-failed",

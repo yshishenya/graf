@@ -1,7 +1,7 @@
 import AVFoundation
 import CryptoKit
 import Foundation
-import TwoBrainRecAppCore
+@testable import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
@@ -2816,6 +2816,116 @@ final class DesktopUploadQueueTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testSupportIncidentLateCallbacksCannotWriteAfterScopeChange() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let owner = try RecordingDeletionScope(serverOrigin: "https://graf.invalid", workspaceID: "workspace", actorUserID: "owner")
+        let other = try RecordingDeletionScope(serverOrigin: owner.serverOrigin, workspaceID: owner.workspaceID, actorUserID: "other")
+        for action in ["submit", "sync"] {
+            for boundary in ["scope", "scope-roundtrip", "session"] {
+                for failure in [false, true] {
+                    var item = makeSupportIncidentItem(id: "late-callback")
+                    item.ownerScope = owner
+                    item.isLocalUnbound = false
+                    item.supportIncidentSubmission = .pendingSync(
+                        reportFingerprint: "report_fpr_1234abcd", dedupeKey: "support_dedupe_1234abcd",
+                        incidentNumber: "CUST-PENDING-1", attemptedAt: Date(timeIntervalSince1970: 100),
+                        copyFallbackAvailable: true
+                    )
+                    try JSONEncoder.uploadQueueTestEncoder.encode(DesktopUploadQueueDocument(
+                        updatedAt: item.updatedAt, items: [item]
+                    )).write(to: queueURL, options: [.atomic])
+                    let client = SupportIncidentOnlyClient()
+                    let service = DesktopUploadQueueService(
+                        queueURL: queueURL, recordingsRootURL: root, client: client,
+                        clock: { Date(timeIntervalSince1970: 200) }
+                    )
+                    service.setDeletionScope(owner)
+                    client.beforeResponse = {
+                        if boundary == "session" {
+                            await MainActor.run {
+                                let barrier = DesktopCabinetSessionBridge.beginNavigation()
+                                DesktopCabinetSessionBridge.endNavigation(barrier)
+                            }
+                        } else {
+                            service.setDeletionScope(other)
+                            if boundary == "scope-roundtrip" { service.setDeletionScope(owner) }
+                        }
+                        if failure { throw DesktopUploadClientError.httpStatus(503, "support_incident.network_unavailable") }
+                    }
+                    defer { client.beforeResponse = nil }
+                    do {
+                        if action == "submit" {
+                            _ = try await service.submitSupportIncident(itemId: item.id, using: client)
+                        } else {
+                            _ = try await service.syncSupportIncident(itemId: item.id, using: client)
+                        }
+                        XCTFail("Stale callback must be refused: \(action)/\(boundary)/\(failure)")
+                    } catch is CancellationError {
+                        // Both success and failure from an obsolete session are ignored.
+                    } catch {
+                        XCTFail("Stale error must be cancelled: \(error)")
+                    }
+                    let stored = try JSONDecoder.uploadQueueTestDecoder.decode(
+                        DesktopUploadQueueDocument.self, from: Data(contentsOf: queueURL)
+                    )
+                    XCTAssertEqual(stored.items[0].supportIncidentSubmission?.state, .sending)
+                    XCTAssertNil(stored.items[0].supportIncidentSubmission?.githubIssueNumber)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testSupportIncidentRejectsOverlappingSendOrSync() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        for first in ["submit", "sync"] {
+            for second in ["submit", "sync"] {
+                var item = makeSupportIncidentItem(id: "overlapping-report")
+                item.supportIncidentSubmission = .pendingSync(
+                    reportFingerprint: "report_fpr_1234abcd", dedupeKey: "support_dedupe_1234abcd",
+                    incidentNumber: "CUST-PENDING-1", attemptedAt: Date(timeIntervalSince1970: 100),
+                    copyFallbackAvailable: true
+                )
+                try JSONEncoder.uploadQueueTestEncoder.encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
+                    .write(to: queueURL, options: [.atomic])
+                let client = SupportIncidentOnlyClient()
+                let other = SupportIncidentOnlyClient()
+                let service = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root, client: client)
+                let itemID = item.id
+                client.beforeResponse = {
+                    do {
+                        if second == "submit" {
+                            _ = try await service.submitSupportIncident(itemId: itemID, using: other)
+                        } else {
+                            _ = try await service.syncSupportIncident(itemId: itemID, using: other)
+                        }
+                        XCTFail("Overlapping request must be refused")
+                    } catch let DesktopUploadClientError.httpStatus(status, _) {
+                        XCTAssertEqual(status, 409)
+                    }
+                }
+                defer { client.beforeResponse = nil }
+                if first == "submit" {
+                    _ = try await service.submitSupportIncident(itemId: item.id, using: client)
+                } else {
+                    _ = try await service.syncSupportIncident(itemId: item.id, using: client)
+                }
+                XCTAssertEqual(other.reports.count + other.syncIncidentIDs.count, 0)
+                let stored = try JSONDecoder.uploadQueueTestDecoder.decode(
+                    DesktopUploadQueueDocument.self, from: Data(contentsOf: queueURL)
+                )
+                XCTAssertEqual(stored.items[0].supportIncidentSubmission?.state, .sent)
+            }
+        }
+    }
+
     func testInterruptedSupportIncidentSubmissionRecoversCopyFallbackOnRestart() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -3674,6 +3784,7 @@ final class DesktopUploadQueueTests: XCTestCase {
         private let result: DesktopSupportIncidentResponse?
         private let syncResult: DesktopSupportIncidentResponse?
         private let error: Error?
+        var beforeResponse: (@Sendable () async throws -> Void)?
         private(set) var reports: [DesktopSupportIncidentReport] = []
         private(set) var syncIncidentIDs: [String] = []
 
@@ -3699,8 +3810,9 @@ final class DesktopUploadQueueTests: XCTestCase {
             )
         }
 
-        func submitSupportIncident(report: DesktopSupportIncidentReport) async throws -> DesktopSupportIncidentResponse {
+        func submitSupportIncident(report: DesktopSupportIncidentReport, context: DesktopSupportIncidentRequestContext) async throws -> DesktopSupportIncidentResponse {
             reports.append(report)
+            try await beforeResponse?()
             if let error {
                 throw error
             }
@@ -3716,8 +3828,9 @@ final class DesktopUploadQueueTests: XCTestCase {
             )
         }
 
-        func syncSupportIncident(incidentID: String) async throws -> DesktopSupportIncidentResponse {
+        func syncSupportIncident(incidentID: String, context: DesktopSupportIncidentRequestContext) async throws -> DesktopSupportIncidentResponse {
             syncIncidentIDs.append(incidentID)
+            try await beforeResponse?()
             if let error {
                 throw error
             }
