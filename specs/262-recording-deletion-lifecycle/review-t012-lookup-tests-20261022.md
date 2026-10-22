@@ -141,7 +141,8 @@ Git/GitHub, приложение или данные. Его единствен�
 | `specs/262-recording-deletion-lifecycle/review-t012-lookup-checklists-20261022.md` | `b1c416ff6d7305d9ef8ada3ba3ef8e9f380a2ae10a4087eb43e9a9a596dd974b` |
 
 Внешние файлы находятся в
-`/Users/yshishenya/Documents/Codex/2026-10-21/issues-334-audit/`.
+локальном реестре доказательств `issues-334-audit/`; путь рабочей машины
+в репозиторий не включается.
 
 | Внешний источник | SHA-256 |
 | --- | --- |
