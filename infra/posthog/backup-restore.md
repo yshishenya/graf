@@ -4,6 +4,21 @@ Feature: `096-product-analytics-provider-rollout`
 
 Status: `runtime_inventory_updated_restore_rehearsal_passed_followups_open`
 
+## Текущий переход F273/T118 — 22.10.2026
+
+Применяется [принятый план T118](../../specs/273-paid-traffic-analytics/contracts/operations.md#t118--согласованный-локальный-комплект-и-проверка-чтения).
+Текущий `verify-posthog-restore.sh` выдаёт исторический формат v1: проверка
+архивов, распаковка и число файлов. Он не подтверждает согласованное чтение
+данных и не открывает обновлённую готовность API или оповещений. Июльские
+результаты ниже сохраняются как история; они не принимают T118.
+
+Новые потребители требуют v2/cold_project_v1, контроль всех присутствующих
+классов, чтение PostHog, очистку и повторные проверки хранения/удалений,
+SHA-256 manifest/runtime и возраст от окончания 0≤age<30 суток. Синтетический
+v2 в тестах не является рабочим доказательством. Полный writer и репетиция
+по принятой процедуре ещё не реализованы; до них готовность закрыта.
+Обновлять старый v1 вручную заменой номера запрещено.
+
 This document is safe to commit. It contains no live provider secrets, database
 passwords, backup object URLs, signed URLs, account identifiers, raw payloads,
 screenshots, meeting content, transcript text, audio, or private local paths.
@@ -67,7 +82,7 @@ Receipt label: `20260718T011751Z`.
 - No provider flags, secrets, dashboard data, GRAF services, or user content
   were changed by the rehearsal.
 
-This receipt proves backup/restore recoverability only. It does not prove
+This historical receipt proves only the July rehearsal described above; it does not satisfy current T118 consistent-read acceptance. It also does not prove
 access/RBAC or audit review, retention/deletion lifecycle enforcement,
 dashboard freshness/goal visibility, or concrete resource-alert thresholds.
 
@@ -85,8 +100,8 @@ dashboard freshness/goal visibility, or concrete resource-alert thresholds.
 
 Feature `273-paid-traffic-analytics` requires the restore path to state which
 data comes back completely and which data is gone for good (FR-053). This
-section is the contract for that split. The 2026-07 receipts above stay valid
-for the manual rehearsal path; the scheduled automation that produces the
+section is the contract for that split. The 2026-07 receipts above remain historical evidence
+of the manual rehearsal path and do not satisfy current T118; the scheduled automation that produces the
 archives is described in `docs/analytics/product-analytics-posthog-runbook.md`.
 
 Fully recoverable from the analytics backup set:
@@ -158,7 +173,7 @@ alerts on failure instead of stopping the product.
 | Task | Unit and timer | State file |
 | --- | --- | --- |
 | Archive every inventory volume class as a verified complete local set (T117 local candidate; installation pending) | `infra/posthog/graf-posthog-backup.{service,timer}`, daily 02:30 | `/var/lib/graf-posthog-backup/backup-state` |
-| Restore one stored copy into isolated rehearsal volumes and read it back | `infra/posthog/graf-posthog-restore-verify.{service,timer}`, days 1 and 15 at 04:30 | `/var/lib/graf-posthog-backup/restore-state` |
+| Historical v1: extract one stored copy and count files; does not open current readiness | `infra/posthog/graf-posthog-restore-verify.{service,timer}`, days 1 and 15 at 04:30 | `/var/lib/graf-posthog-backup/restore-state` |
 | Enforce the events, aggregate and attribution retention terms | `infra/posthog/graf-posthog-retention-enforce.{service,timer}`, daily 03:15 | `/var/lib/graf-posthog-retention/retention-state` |
 
 Commands:

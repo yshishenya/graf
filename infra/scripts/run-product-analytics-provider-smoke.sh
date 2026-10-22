@@ -174,7 +174,11 @@ with TemporaryDirectory() as tmpdir:
     )
     restore_state_file = Path(tmpdir) / "restore-state"
     restore_state_file.write_text(
-        "restore_state_version=1\n"
+        "restore_state_version=2\n"
+        "consistency=cold_project_v1\nnative_read=pass\nposthog_read=pass\ncleanup=pass\n"
+        "retention_recheck=pass\ndeletion_recheck=pass\n"
+        f"manifest_sha256={'a' * 64}\nruntime_sha256={'b' * 64}\n"
+        "storage_classes=postgres,clickhouse\nverified_classes=postgres,clickhouse\n"
         "last_verify_result=pass\n"
         f"last_verify_epoch={now - 2 * 86400}\n",
         encoding="utf-8",

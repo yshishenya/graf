@@ -1,6 +1,7 @@
 import time
 from pathlib import Path
 
+from tests.fixtures.analytics_operations import CONSISTENT_RESTORE_TEXT
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.provider_readiness import (
     RETENTION_STATE_FILE_ENV,
@@ -46,8 +47,8 @@ def _live_gate_environment(tmp_path: Path) -> dict[str, str]:
     )
     restore = tmp_path / "restore"
     restore.write_text(
-        "restore_state_version=1\nlast_verify_result=pass\n"
-        f"last_verify_epoch={now - 3600}\n",
+        CONSISTENT_RESTORE_TEXT + "restore_state_version=2\nlast_verify_result=pass\n"
+        + f"last_verify_epoch={now - 3600}\n",
         encoding="utf-8",
     )
     retention = tmp_path / "retention"

@@ -2,6 +2,7 @@ import json
 import time
 from pathlib import Path
 
+from tests.fixtures.analytics_operations import CONSISTENT_RESTORE_LINES
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.approvals import APPROVAL_KINDS
 from twobrain_rec_server.product_analytics.events import build_activation_event
@@ -155,7 +156,8 @@ def _write_live_gate_evidence(tmp_path: Path) -> dict[str, str]:
     restore.write_text(
         "\n".join(
             (
-                "restore_state_version=1",
+                "restore_state_version=2",
+                *CONSISTENT_RESTORE_LINES,
                 "last_verify_result=pass",
                 f"last_verify_epoch={now - 2 * 86400}",
             )

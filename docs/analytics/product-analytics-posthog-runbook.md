@@ -656,7 +656,7 @@ The runbook must always identify:
 
 Evidence remains metadata-only.
 
-Current backup/restore receipt: on 2026-07-18 the generated runtime volume set
+Historical backup/restore receipt (does not satisfy current T118): on 2026-07-18 the generated runtime volume set
 (relational data, ClickHouse, Kafka/Redpanda, Redis, object/blob storage, Caddy,
 and coordination volumes) passed a metadata-only archive integrity check and
 an isolated restore rehearsal. The restored web health endpoint returned `200`,
@@ -697,7 +697,7 @@ FR-036, FR-051, FR-052).
 | Artifact | Schedule | State file | Contract |
 | --- | --- | --- | --- |
 | `infra/scripts/backup-posthog.sh` | daily systemd timer `graf-posthog-backup.timer`, `OnCalendar=*-*-* 02:30:00` | `/var/lib/graf-posthog-backup/backup-state` | Target: last 7 verified complete local sets, minimum 2. No offsite requirement in this stage; T117 local candidate; installation pending. A failed/partial run blocks readiness and cannot evict good sets |
-| `infra/scripts/verify-posthog-restore.sh` | systemd timer `graf-posthog-restore-verify.timer`, days 1 and 15, `OnCalendar=*-*-01,15 04:30:00` | `/var/lib/graf-posthog-backup/restore-state` | Restores into an isolated target and records metadata-only evidence: command names, pass/fail status, duration class, blocker codes |
+| `infra/scripts/verify-posthog-restore.sh` | systemd timer `graf-posthog-restore-verify.timer`, days 1 and 15, `OnCalendar=*-*-01,15 04:30:00` | `/var/lib/graf-posthog-backup/restore-state` | Historical v1 extraction/file-count path; does not satisfy current T118 or open updated readiness |
 | `infra/scripts/enforce-product-analytics-retention.sh` | daily systemd timer `graf-posthog-retention-enforce.timer`, `OnCalendar=*-*-* 03:15:00` | `/var/lib/graf-posthog-retention/retention-state` | Verifies explicit until_decision policy and absence of event TTL; never deletes rows |
 | `infra/scripts/apply-posthog-event-ttl.sh` | operator migration after isolated validation | — | Removes the old event TTL with `infra/posthog/clickhouse-retention.sql`; requires explicit `GRAF_PRODUCT_ANALYTICS_RETENTION_MODE=until_decision` |
 
@@ -894,3 +894,21 @@ complete sets; require two before readiness. Old sets without proof remain untou
 not silently upgraded. Metadata state version2 is required. No external storage is
 required, and complete host/disk loss can lose all history. T118 consistent restore,
 real receipts and delivery remain separate gates.
+
+
+### T118: переход потребителей на согласованное доказательство
+
+API и оповещения больше не принимают исторический tar-only v1 как проверку
+восстановления. Требуются краткий v2 по
+[operations](../../specs/273-paid-traffic-analytics/contracts/operations.md#формат-краткого-результата-t118-v2)
+и полный закрытый отчёт. Будущее время, возраст ≥30 суток, неполные классы,
+отсутствие нативного чтения/чтения PostHog/очистки/проверок хранения и удалений
+блокируют готовность. Параметр возраста не расширяет 30 суток.
+
+Это миграция потребителей, не готовый новый механизм восстановления.
+Старый скрипт остаётся v1 до полного T118; расписание или ручной запуск
+старого скрипта не закрывают гейт. Синтетические результаты в provider smoke
+подтверждают обработку контракта, а не реальное восстановление. Установка
+потребителей выполняется общим выпуском; отдельно подменять рабочий receipt
+или включать измерение нельзя. Полная потеря локальных копий означает пробел
+истории; пустая новая установка не доказывает восстановление.

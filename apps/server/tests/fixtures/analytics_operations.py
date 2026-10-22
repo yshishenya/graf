@@ -17,3 +17,19 @@ def write_runtime_guard(directory: Path, *, now: int) -> dict[str, str]:
         "protection_state_version": 1, "status": "observed", "recorded_at_epoch": now, "reasons": [],
     }))
     return {"GRAF_POSTHOG_GUARD_STATE_DIR": str(guard)}
+
+
+# Synthetic result of a complete native restore; never represents a live receipt.
+CONSISTENT_RESTORE_LINES = (
+    "consistency=cold_project_v1",
+    "native_read=pass",
+    "posthog_read=pass",
+    "cleanup=pass",
+    "retention_recheck=pass",
+    "deletion_recheck=pass",
+    "manifest_sha256=" + "a" * 64,
+    "runtime_sha256=" + "b" * 64,
+    "storage_classes=postgres,clickhouse",
+    "verified_classes=postgres,clickhouse",
+)
+CONSISTENT_RESTORE_TEXT = "\n".join(CONSISTENT_RESTORE_LINES) + "\n"

@@ -161,6 +161,7 @@ class AnalyticsOperationsEvidence:
     restore_state_available: bool = False
     restore_age_days: float | None = None
     restore_result: str = "unknown"
+    restore_consistent: bool = False
     retention_state_available: bool = False
     retention_result: str = "unknown"
     retention_age_hours: float | None = None
@@ -237,10 +238,10 @@ def _optional_int(value: str | None) -> int | None:
 
 
 def _optional_epoch(value: str | None) -> int | None:
-    parsed = _optional_int(value)
-    if parsed is None or parsed <= 0:
+    # Canonical bounded decimal also keeps shell consumers and float age safe.
+    if value is None or re.fullmatch(r"[1-9][0-9]{0,11}", value) is None:
         return None
-    return parsed
+    return int(value)
 
 
 def _bounded_number(value: str | None, default: float) -> float:
@@ -281,6 +282,23 @@ def retention_state_file_path(environ: Mapping[str, str]) -> str:
         DEFAULT_RETENTION_STATE_DIR,
         "retention-state",
     )
+
+
+def _consistent_restore_proof(values: Mapping[str, str]) -> bool:
+    if values.get("restore_state_version") != "2" or values.get("consistency") != "cold_project_v1":
+        return False
+    if any(values.get(key) != "pass" for key in (
+        "native_read", "posthog_read", "cleanup", "retention_recheck", "deletion_recheck",
+    )):
+        return False
+    if any(re.fullmatch(r"[0-9a-f]{64}", values.get(key, "")) is None
+           for key in ("manifest_sha256", "runtime_sha256")):
+        return False
+    classes = values.get("storage_classes", "").split(",")
+    allowed = {"postgres", "clickhouse", "objects", "broker", "coordination", "redis", "elasticsearch", "proxy"}
+    return (values.get("verified_classes") == values.get("storage_classes")
+            and len(classes) == len(set(classes))
+            and {"postgres", "clickhouse"} <= set(classes) <= allowed)
 
 
 def collect_analytics_operations_evidence(
@@ -348,6 +366,7 @@ def collect_analytics_operations_evidence(
         restore_state_available=restore_text is not None,
         restore_age_days=restore_age_days,
         restore_result=restore_values.get("last_verify_result", "unknown"),
+        restore_consistent=_consistent_restore_proof(restore_values),
         retention_state_available=retention_text is not None,
         retention_result=retention_values.get("result", "unknown"),
         retention_age_hours=retention_age_hours,
@@ -389,11 +408,11 @@ def analytics_operations_blockers(
 
     if not evidence.restore_state_available:
         blockers.append(BLOCKER_RESTORE_MISSING)
-    elif evidence.restore_result != "pass":
+    elif evidence.restore_result != "pass" or not evidence.restore_consistent:
         blockers.append(BLOCKER_RESTORE_FAILED)
     elif evidence.restore_age_days is None:
         blockers.append(BLOCKER_RESTORE_MISSING)
-    elif evidence.restore_age_days > restore_max_age_days:
+    elif not 0 <= evidence.restore_age_days < min(restore_max_age_days, DEFAULT_RESTORE_MAX_AGE_DAYS):
         blockers.append(BLOCKER_RESTORE_STALE)
 
     declared = {record.category: record for record in evidence.retention_categories}

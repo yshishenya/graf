@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from tests.fixtures.analytics_operations import CONSISTENT_RESTORE_TEXT
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.legal_basis_lifecycle import (
     BASIS_WITHDRAWAL_STATE_FILE_ENV,
@@ -35,7 +36,7 @@ def _write_evidence(tmp_path: Path) -> dict[str, str]:
     )
     restore = tmp_path / "restore"
     restore.write_text(
-        f"restore_state_version=1\nlast_verify_result=pass\nlast_verify_epoch={now - 3600}\n",
+        CONSISTENT_RESTORE_TEXT + f"restore_state_version=2\nlast_verify_result=pass\nlast_verify_epoch={now - 3600}\n",
         encoding="utf-8",
     )
     retention = tmp_path / "retention"
