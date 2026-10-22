@@ -42,13 +42,13 @@ The script must report, per storage class, metadata only:
 | `absolute_bytes` | Bytes currently used by the class |
 | `window_hours` | Length of the measurement window |
 | `events_in_window` | Events ingested during the same window, counted from the ClickHouse events table (`GRAF_POSTHOG_GUARD_EVENTS_TABLE`, default `events`) |
-| `bytes_per_day` | Growth per 24 hours: the measured difference against the previous sample, or the event-rate estimate when no previous sample exists |
+| `bytes_per_day` | Growth per 24 hours from two comparable complete allocated-block samples at least 24 hours apart; unknown until then |
 | `bytes_per_1000_events` | Bytes added per 1000 ingested events in the window |
 | `projected_bytes_12_months` | Linear projection from the measured daily growth |
 | `projected_bytes_36_months` | Linear projection from the measured daily growth |
 | `analytics_disk_free_percent` | Free space on the analytics filesystem; on a shared filesystem this is the same resource as host disk free space, not independent analytics usage |
 | `recorded_at` | UTC timestamp of the sample |
-| `growth_basis` | `previous_sample` when the growth came from two samples, `event_rate_and_average_event_size` otherwise |
+| `growth_basis` | `previous_sample` only for comparable measured growth; pending/incomplete or decrease_requires_review otherwise |
 
 Growth is a difference, not a snapshot. The script is run twice: once at the
 start of the measurement window and once at the end, with at least 24 hours of
@@ -56,11 +56,12 @@ ordinary traffic between the two runs. Each run stores its sample in
 `/var/lib/graf-posthog-storage/storage-growth-state` (overridable with
 `GRAF_POSTHOG_STORAGE_STATE_FILE` or `GRAF_POSTHOG_STORAGE_STATE_DIR`), so the
 second run reports `growth_basis=previous_sample` with the measured daily
-growth. A first run with no stored sample reports
-`growth_basis=event_rate_and_average_event_size`, derived from the observed
-event rate and the average stored event size. Record which basis the receipt
-used: only `previous_sample` is a measured baseline.
-`--window-hours <n>` widens the event window when traffic is uneven.
+growth. A first run has pending growth and unknown projections; no event-rate
+estimate is accepted as measured growth. Intermediate samples preserve the
+day anchor. `--window-hours <n>` can extend the comparison interval beyond
+24 hours; the event count covers that exact interval. Negative class changes
+remain signed and require review, with live data and archives shown separately.
+An unavailable event count or zero denominator leaves per-1000 growth unknown.
 
 The guardrail is fixed: analytics storage free space must be at least `20 %`
 (`GRAF_POSTHOG_GUARD_ANALYTICS_DISK_FREE_PERCENT`). A run below that floor
@@ -82,10 +83,13 @@ application checkout:
 
 ```sh
 install -o root -g root -m 0755 infra/scripts/measure-posthog-storage-growth.sh /usr/local/libexec/graf-posthog-storage-growth.sh
+install -o root -g root -m 0755 infra/scripts/posthog-storage.py /usr/local/libexec/posthog-storage.py
+install -d -o root -g root -m 0755 /usr/local/share/graf-posthog
+install -o root -g root -m 0644 infra/posthog/storage-mounts.txt infra/posthog/storage-relations.txt infra/posthog/backup-volumes.txt /usr/local/share/graf-posthog/
 set -a
 . /etc/graf-posthog-runtime-guard.env
 set +a
-/usr/local/libexec/graf-posthog-storage-growth.sh
+GRAF_POSTHOG_STORAGE_INVENTORY_DIR=/usr/local/share/graf-posthog /usr/local/libexec/graf-posthog-storage-growth.sh
 ```
 
 Then:
