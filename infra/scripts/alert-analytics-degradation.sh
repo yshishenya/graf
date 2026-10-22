@@ -50,7 +50,6 @@ first_run_grace_minutes="$guard_state_max_age_minutes"
 backup_max_age_hours="${GRAF_POSTHOG_BACKUP_MAX_AGE_HOURS:-26}"
 restore_max_age_days="${GRAF_POSTHOG_RESTORE_MAX_AGE_DAYS:-30}"
 minimum_copies="${GRAF_POSTHOG_BACKUP_MIN_COPIES:-2}"
-minimum_offsite_copies="${GRAF_POSTHOG_BACKUP_MIN_OFFSITE_COPIES:-1}"
 timeout_seconds="${GRAF_ANALYTICS_ALERT_TIMEOUT_SECONDS:-10}"
 api_base="${GRAF_ANALYTICS_ALERT_API_BASE:-https://api.telegram.org}"
 fallback_url="${GRAF_ANALYTICS_ALERT_FALLBACK_URL:-}"
@@ -268,18 +267,20 @@ collect_reasons() {
   fi
 
   if [[ -r "$backup_state_file" ]]; then
-    local backup_age_hours last_success
+    local last_success
     last_success="$(state_value "$backup_state_file" last_success_epoch)"
     if [[ ! "$last_success" =~ ^[0-9]+$ ]]; then
       reasons+=("backup_missing")
     else
-      backup_age_hours=$(( (now_epoch - last_success) / 3600 ))
-      if (( backup_age_hours > backup_max_age_hours )); then
+      if (( now_epoch < last_success || now_epoch - last_success >= backup_max_age_hours * 3600 || now_epoch - last_success >= 26 * 3600 )); then
         reasons+=("backup_stale")
       fi
     fi
-    if [[ "$(state_value "$backup_state_file" last_attempt_result)" == "failed" ]]; then
+    if [[ "$(state_value "$backup_state_file" last_attempt_result)" != "pass" ]]; then
       reasons+=("backup_failed")
+    fi
+    if [[ "$(state_value "$backup_state_file" backup_state_version)" != "2" || "$(state_value "$backup_state_file" backup_set_complete)" != "true" ]]; then
+      reasons+=("backup_set_unverified")
     fi
   else
     reasons+=("backup_missing")
@@ -308,14 +309,10 @@ collect_reasons() {
   fi
 
   if [[ -r "$backup_state_file" ]]; then
-    local copies offsite
+    local copies
     copies="$(state_value "$backup_state_file" copies_local)"
-    offsite="$(state_value "$backup_state_file" copies_offsite)"
-    if [[ "$copies" =~ ^[0-9]+$ ]] && (( copies < minimum_copies )); then
+    if [[ ! "$copies" =~ ^[0-9]+$ ]] || (( copies < minimum_copies || copies < 2 )); then
       reasons+=("backup_copy_count_below_minimum")
-    fi
-    if [[ "$offsite" =~ ^[0-9]+$ ]] && (( offsite < minimum_offsite_copies )); then
-      reasons+=("backup_offsite_missing")
     fi
   fi
 

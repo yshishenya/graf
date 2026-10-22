@@ -1,28 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Automatic PostHog analytics backup (FR-033, FR-051, FR-052).
-#
-# What it does, in order:
-#   1. archives every volume class listed in the backup inventory into a new
-#      dated backup directory with a SHA-256 manifest;
-#   2. ships that directory off the measured server through the reviewed
-#      offsite command and marks the copy offsite only after the upload
-#      succeeded;
-#   3. keeps at least two copies, deletes older copies beyond the retention
-#      count, and logs every deletion;
-#   4. writes a metadata-only state file that the readiness check and the
-#      external alert script read.
-#
-# Nothing here reads event content, provider payloads, account identifiers or
-# credentials. The manifest carries volume names, sizes, digests and the
-# operator-supplied offsite target label only. Backup failure never stops the
-# product: it blocks the analytics readiness claim and raises an alert.
-#
-# Usage:
-#   backup-posthog.sh                 # dry run, prints the plan
-#   backup-posthog.sh --execute       # performs the backup
-#   backup-posthog.sh --status        # prints the recorded state
+# Local PostHog volume backup (T117). Only verified complete sets count or
+# participate in rotation. Consistent runtime restore is a separate T118 gate.
+# --dry-run (default), --execute, --status; metadata-only output.
 
 umask 077
 
@@ -32,11 +13,10 @@ backup_dir="${GRAF_POSTHOG_BACKUP_DIR:-/var/backups/graf-posthog}"
 state_dir="${GRAF_POSTHOG_BACKUP_STATE_DIR:-/var/lib/graf-posthog-backup}"
 keep_copies="${GRAF_POSTHOG_BACKUP_KEEP:-7}"
 inventory_file="${GRAF_POSTHOG_BACKUP_INVENTORY:-$repo_root/infra/posthog/backup-volumes.txt}"
-offsite_command="${GRAF_POSTHOG_OFFSITE_COMMAND:-}"
-offsite_target_label="${GRAF_POSTHOG_OFFSITE_TARGET_LABEL:-operator_offsite_target}"
 backup_image="${GRAF_POSTHOG_BACKUP_IMAGE:-alpine:3.20}"
 alert_script="${GRAF_POSTHOG_ALERT_SCRIPT:-$repo_root/infra/scripts/alert-analytics-degradation.sh}"
 minimum_copies="${GRAF_POSTHOG_BACKUP_MIN_COPIES:-2}"
+project="${GRAF_POSTHOG_PROJECT:-graf-posthog}"
 state_file="$state_dir/backup-state"
 mode="dry-run"
 
@@ -85,16 +65,64 @@ file_size() {
   wc -c < "$path" | awk '{print $1}'
 }
 
-count_copies() {
-  local directory="$1"
-  [[ -d "$directory" ]] || { printf '0'; return 0; }
-  find "$directory" -mindepth 1 -maxdepth 1 -type d -name '20*T*Z' 2>/dev/null | wc -l | awk '{print $1}'
+# A directory name or a historical .offsite marker is never proof of a copy.
+verified_sets() {
+  python3 - "$backup_dir" <<'VERIFY'
+import fnmatch, hashlib, json, re, sys, time
+from pathlib import Path
+
+def digest(path):
+    with path.open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+root = Path(sys.argv[1])
+if not root.exists():
+    raise SystemExit(0)
+for directory in sorted(root.iterdir()):
+    if not re.fullmatch(r'20[0-9]{6}T[0-9]{6}Z', directory.name) or directory.is_symlink() or not directory.is_dir():
+        continue
+    try:
+        marker = directory / '.complete'
+        manifest = directory / 'manifest.txt'
+        inventory = directory / 'inventory.txt'
+        if any(p.is_symlink() for p in (marker, manifest, inventory)):
+            continue
+        completed = json.loads(marker.read_text())
+        if (completed.get('version') != 2 or type(completed.get('finished_epoch')) is not int
+                or not 0 < completed['finished_epoch'] <= time.time()
+                or completed.get('manifest_sha256') != digest(manifest)
+                or completed.get('inventory_sha256') != digest(inventory)):
+            continue
+        patterns = [line.partition('#')[0].strip() for line in inventory.read_text().splitlines()]
+        patterns = [p for p in patterns if p]
+        if not patterns or any(not re.fullmatch(r'[A-Za-z0-9_.*-]+\??', p) for p in patterns):
+            continue
+        rows = [dict(token.split('=', 1) for token in line.split())
+                for line in manifest.read_text().splitlines() if line.startswith('volume=')]
+        if manifest.read_text().splitlines()[0] != "backup_reference=" + directory.name:
+            continue
+        volumes = [r['volume'] for r in rows]
+        if (not volumes or len(set(volumes)) != len(volumes)
+                or any(not re.fullmatch(r'[A-Za-z0-9_-]+', v) for v in volumes)
+                or any(not any(fnmatch.fnmatchcase(v, p.rstrip('?')) for p in patterns) for v in volumes)
+                or any(not p.endswith('?') and not any(fnmatch.fnmatchcase(v, p) for v in volumes) for p in patterns)
+                or {p.name for p in directory.glob('*.tar.gz')} != {v + '.tar.gz' for v in volumes}):
+            continue
+        for row in rows:
+            archive = directory / (row['volume'] + '.tar.gz')
+            if (archive.is_symlink() or archive.stat().st_size <= 0
+                    or archive.stat().st_size != int(row['bytes']) or digest(archive) != row['sha256']):
+                raise ValueError('invalid archive')
+        print(directory.name)
+    except (OSError, ValueError, KeyError, TypeError, IndexError):
+        continue
+VERIFY
 }
 
-count_offsite_copies() {
-  local directory="$1"
-  [[ -d "$directory" ]] || { printf '0'; return 0; }
-  find "$directory" -mindepth 2 -maxdepth 2 -name '.offsite' 2>/dev/null | wc -l | awk '{print $1}'
+count_copies() {
+  local verified
+  verified="$(verified_sets)" || return 1
+  printf '%s\n' "$verified" | awk 'NF {n++} END {print n+0}'
 }
 
 write_state() {
@@ -106,12 +134,12 @@ write_state() {
   local archived_volumes="$6"
   local archived_bytes="$7"
   local copies_local="$8"
-  local copies_offsite="$9"
   local tmp_file
-  mkdir -p "$(dirname "$state_file")"
+  mkdir -p "$(dirname "$state_file")" || return 1
   tmp_file="$(mktemp "$state_file.XXXXXX")" || return 1
   {
-    printf 'backup_state_version=1\n'
+    printf 'backup_state_version=2\n'
+    printf 'backup_set_complete=%s\n' "$([[ "$attempt_result" == pass ]] && printf true || printf false)"
     printf 'recorded_at=%s\n' "$recorded_at_iso"
     printf 'recorded_at_epoch=%s\n' "$now_epoch"
     printf 'last_attempt_at=%s\n' "$recorded_at_iso"
@@ -122,9 +150,6 @@ write_state() {
     printf 'last_success_epoch=%s\n' "$last_success_epoch"
     printf 'last_success_reference=%s\n' "$last_success_reference"
     printf 'copies_local=%s\n' "$copies_local"
-    printf 'copies_offsite=%s\n' "$copies_offsite"
-    printf 'offsite_target_label=%s\n' "$offsite_target_label"
-    printf 'offsite_required=%s\n' "1"
     printf 'retention_keep=%s\n' "$keep_copies"
     printf 'volumes_archived=%s\n' "$archived_volumes"
     printf 'bytes_archived=%s\n' "$archived_bytes"
@@ -136,9 +161,19 @@ write_state() {
       printf 'last_failure_reason=%s\n' "$(previous_failure_reason)"
     fi
     printf 'product_impact=measurement_gap_only\n'
-  } > "$tmp_file"
-  chmod 0640 "$tmp_file" 2>/dev/null || true
-  mv "$tmp_file" "$state_file"
+  } > "$tmp_file" || return 1
+  chmod 0640 "$tmp_file" || return 1
+  python3 - "$tmp_file" "$state_file" <<'STATE'
+import os, sys
+with open(sys.argv[1], 'rb') as stream:
+    os.fsync(stream.fileno())
+os.replace(*sys.argv[1:])
+fd = os.open(os.path.dirname(sys.argv[2]), os.O_RDONLY)
+try:
+    os.fsync(fd)
+finally:
+    os.close(fd)
+STATE
 }
 
 previous_failure_reason() {
@@ -157,6 +192,84 @@ raise_alert() {
 
 now_epoch="$(date +%s 2>/dev/null || printf '')"
 recorded_at_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf 'unknown')"
+previous_success_epoch=""
+previous_success_at=""
+previous_success_reference=""
+volumes=()
+label=unknown
+fail_backup() {
+  local reason="$1"
+  local exit_code="${2:-1}"
+  trap - EXIT ERR
+  now_epoch="$(date +%s 2>/dev/null || printf 0)"
+  recorded_at_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf unknown)"
+  echo "backup_result=failed"
+  echo "reason=$reason"
+  echo "backup_reference=$label"
+  # Invalidate a previous pass even if the atomic replacement below fails.
+  rm -f "$state_file" || log_event critical "result=state_invalidation_failed"
+  if ! write_state "failed" "$reason" "$previous_success_epoch" "$previous_success_at" "$previous_success_reference" \
+    "${#volumes[@]}" "0" "$(count_copies 2>/dev/null || printf 0)"; then
+    log_event critical "result=backup_state_write_failed"
+  fi
+  raise_alert
+  log_event critical "result=backup_failed reason=$reason reference=$label"
+  exit "$exit_code"
+}
+
+if [[ "$mode" == execute ]]; then
+  trap 'result=$?; if (( result != 0 )); then fail_backup unexpected_backup_failure "$result"; fi' EXIT
+fi
+
+# Existing guard pattern: keep the lock in a parent Python process.
+if [[ "${GRAF_BACKUP_LOCK_HELD:-0}" != 1 && "$mode" == execute ]]; then
+  mkdir -p "$state_dir"
+  chmod 0750 "$state_dir"
+  if (( EUID == 0 )); then
+    chgrp "${TWOBRAIN_RUNTIME_SECRET_GID:-1001}" "$state_dir"
+    chmod 2750 "$state_dir"
+  fi
+  if python3 - "$state_dir/backup.lock" "$BASH" "$0" --execute <<'LOCK'
+import fcntl, os, subprocess, sys
+try:
+    lock = open(sys.argv[1], 'a')
+    fcntl.flock(lock, fcntl.LOCK_EX)
+except OSError:
+    raise SystemExit(125)
+with lock:
+    env = dict(os.environ, GRAF_BACKUP_LOCK_HELD='1')
+    raise SystemExit(subprocess.call(sys.argv[2:], env=env))
+LOCK
+  then result=0; else result=$?; fi
+  if (( result == 125 || result == 126 || result == 127 )); then fail_backup lock_unavailable; fi
+  trap - EXIT
+  exit "$result"
+fi
+
+if [[ "$mode" == execute ]]; then
+  if [[ -r "$state_file" ]]; then
+    previous_success_epoch="$(awk 'index($0, "last_success_epoch=") == 1 {print substr($0, 20); exit}' "$state_file")"
+    previous_success_at="$(awk 'index($0, "last_success_at=") == 1 {print substr($0, 17); exit}' "$state_file")"
+    previous_success_reference="$(awk 'index($0, "last_success_reference=") == 1 {print substr($0, 24); exit}' "$state_file")"
+  fi
+  [[ "$previous_success_epoch" =~ ^[0-9]+$ ]] || previous_success_epoch=""
+  if [[ "$previous_success_at" == "unknown" ]]; then
+    previous_success_at=""
+  fi
+
+  # Remove and fsync the old readiness before any probe or fallible state write.
+  rm -f "$state_file"
+  python3 - "$state_dir" <<'INVALIDATE'
+import os, sys
+fd = os.open(sys.argv[1], os.O_RDONLY)
+try:
+    os.fsync(fd)
+finally:
+    os.close(fd)
+INVALIDATE
+  write_state running backup_in_progress "$previous_success_epoch" "$previous_success_at" "$previous_success_reference" 0 0 0
+fi
+
 if [[ ! "$now_epoch" =~ ^[0-9]+$ ]]; then
   echo "backup_result=failed"
   echo "reason=clock_unavailable"
@@ -174,7 +287,7 @@ if [[ "$mode" == "status" ]]; then
   exit 0
 fi
 
-if [[ ! "$keep_copies" =~ ^[0-9]+$ ]] || (( keep_copies < minimum_copies )); then
+if [[ ! "$keep_copies" =~ ^[0-9]+$ || ! "$minimum_copies" =~ ^[0-9]+$ ]] || (( minimum_copies != 2 || keep_copies != 7 )); then
   echo "backup_result=blocked"
   echo "reason=retention_below_minimum_copies"
   echo "retention_keep=$keep_copies"
@@ -188,7 +301,8 @@ if [[ ! -r "$inventory_file" ]]; then
 fi
 
 label="$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null || printf 'unknown')"
-target_dir="$backup_dir/$label"
+target_dir="$backup_dir/.$label.incomplete"
+final_dir="$backup_dir/$label"
 
 required_patterns=()
 optional_patterns=()
@@ -196,6 +310,7 @@ while IFS= read -r line; do
   line="${line%%#*}"
   line="$(printf '%s' "$line" | tr -d '[:space:]')"
   [[ -n "$line" ]] || continue
+  [[ "$line" =~ ^[A-Za-z0-9_.*?-]+$ ]] || { echo "reason=backup_inventory_invalid"; exit 2; }
   if [[ "$line" == *'?' ]]; then
     optional_patterns+=("${line%?}")
   else
@@ -204,6 +319,7 @@ while IFS= read -r line; do
 done < "$inventory_file"
 
 volumes=()
+unclassified_volumes=0
 if ! volume_list="$(docker volume ls --format '{{.Name}}' 2>/dev/null)"; then
   echo "backup_result=blocked"
   echo "reason=docker_volume_list_unavailable"
@@ -211,15 +327,29 @@ if ! volume_list="$(docker volume ls --format '{{.Name}}' 2>/dev/null)"; then
 fi
 while IFS= read -r name; do
   [[ -n "$name" ]] || continue
+  [[ "$name" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "reason=volume_name_invalid"; exit 1; }
+  classified=0
   for pattern in "${required_patterns[@]-}" "${optional_patterns[@]-}"; do
     [[ -n "$pattern" ]] || continue
     # shellcheck disable=SC2053
     if [[ "$name" == $pattern ]]; then
       volumes+=("$name")
+      classified=1
       break
     fi
   done
+  if [[ "$name" == "$project"_* && "$classified" == 0 ]]; then unclassified_volumes=1; fi
 done <<< "$volume_list"
+# Docker project labels also cover explicitly named (non-prefixed) volumes.
+if ! labelled_volumes="$(docker volume ls --format '{{.Name}}' --filter "label=com.docker.compose.project=$project" 2>/dev/null)"; then
+  echo "reason=project_volume_list_unavailable"; exit 1
+fi
+while IFS= read -r name; do
+  [[ -n "$name" ]] || continue
+  classified=0
+  for volume in "${volumes[@]-}"; do [[ "$name" == "$volume" ]] && classified=1; done
+  (( classified == 1 )) || unclassified_volumes=1
+done <<< "$labelled_volumes"
 
 unmatched_required=()
 for pattern in "${required_patterns[@]-}"; do
@@ -245,36 +375,10 @@ if [[ "$mode" != "execute" ]]; then
   printf 'unmatched_required=%s\n' "$( [[ ${#unmatched_required[@]} -eq 0 ]] && printf none || printf '%s' "${unmatched_required[*]}" )"
   printf 'retention_keep=%s\n' "$keep_copies"
   printf 'minimum_copies=%s\n' "$minimum_copies"
-  printf 'offsite_command=%s\n' "$( [[ -n "$offsite_command" ]] && printf configured || printf not_configured )"
-  printf 'offsite_target_label=%s\n' "$offsite_target_label"
+  printf 'copy_policy=local_verified_sets\n'
   printf 'next_step=run_with_--execute_from_the_analytics_host\n'
   exit 0
 fi
-
-previous_success_epoch=""
-previous_success_at=""
-previous_success_reference=""
-if [[ -r "$state_file" ]]; then
-  previous_success_epoch="$(awk 'index($0, "last_success_epoch=") == 1 {print substr($0, 20); exit}' "$state_file")"
-  previous_success_at="$(awk 'index($0, "last_success_at=") == 1 {print substr($0, 17); exit}' "$state_file")"
-  previous_success_reference="$(awk 'index($0, "last_success_reference=") == 1 {print substr($0, 24); exit}' "$state_file")"
-fi
-[[ "$previous_success_epoch" =~ ^[0-9]+$ ]] || previous_success_epoch=""
-if [[ "$previous_success_at" == "unknown" ]]; then
-  previous_success_at=""
-fi
-
-fail_backup() {
-  local reason="$1"
-  echo "backup_result=failed"
-  echo "reason=$reason"
-  echo "backup_reference=$label"
-  write_state "failed" "$reason" "$previous_success_epoch" "$previous_success_at" "$previous_success_reference" \
-    "${#volumes[@]}" "0" "$(count_copies "$backup_dir")" "$(count_offsite_copies "$backup_dir")"
-  raise_alert
-  log_event critical "result=backup_failed reason=$reason reference=$label"
-  exit 1
-}
 
 if (( ${#volumes[@]} == 0 )); then
   fail_backup "no_volumes_matched"
@@ -282,20 +386,22 @@ fi
 if (( ${#unmatched_required[@]} > 0 )); then
   fail_backup "required_volume_class_missing"
 fi
-if [[ -z "$offsite_command" ]]; then
-  fail_backup "offsite_command_not_configured"
-fi
+if (( unclassified_volumes == 1 )); then fail_backup "project_volume_unclassified"; fi
 if ! command -v docker >/dev/null 2>&1; then
   fail_backup "docker_unavailable"
 fi
 
-mkdir -p "$target_dir"
+[[ ! -L "$backup_dir" ]] || fail_backup backup_directory_linked
+mkdir -p "$backup_dir" "$state_dir"
+chmod 0700 "$backup_dir"
+[[ ! -e "$target_dir" && ! -e "$final_dir" ]] || fail_backup backup_reference_exists
+mkdir "$target_dir"
+cp "$inventory_file" "$target_dir/inventory.txt"
 archive_bytes=0
 manifest="$target_dir/manifest.txt"
 {
   printf 'backup_reference=%s\n' "$label"
   printf 'created_at=%s\n' "$recorded_at_iso"
-  printf 'offsite_target_label=%s\n' "$offsite_target_label"
 } > "$manifest"
 
 for volume in "${volumes[@]}"; do
@@ -310,6 +416,7 @@ for volume in "${volumes[@]}"; do
   if [[ ! -s "$archive" ]]; then
     fail_backup "volume_archive_empty"
   fi
+  chmod 0600 "$archive"
   size_bytes="$(file_size "$archive")"
   digest="$(sha256_of "$archive")"
   archive_bytes=$((archive_bytes + size_bytes))
@@ -317,25 +424,48 @@ for volume in "${volumes[@]}"; do
   printf 'volume_archived=%s\n' "$volume"
 done
 
-offsite_resolved="${offsite_command//%ARCHIVE%/$target_dir}"
-offsite_resolved="${offsite_resolved//%LABEL%/$label}"
-if ! GRAF_POSTHOG_BACKUP_ARCHIVE_DIR="$target_dir" GRAF_POSTHOG_BACKUP_REFERENCE="$label" sh -c "$offsite_resolved"; then
-  fail_backup "offsite_upload_failed"
-fi
-if ! : > "$target_dir/.offsite"; then
-  fail_backup "offsite_marker_write_failed"
-fi
-printf 'offsite_copy=uploaded\n'
+# Persist the complete set before making it visible to readers/rotation.
+python3 - "$target_dir" "$final_dir" <<'COMPLETE'
+import hashlib, json, os, sys, time
+from pathlib import Path
+stage, target = map(Path, sys.argv[1:])
+hashes = {}
+for path in stage.iterdir():
+    with path.open('rb') as stream:
+        os.fsync(stream.fileno())
+        if path.name in ('manifest.txt', 'inventory.txt'):
+            hashes[path.name] = hashlib.file_digest(stream, 'sha256').hexdigest()
+with (stage / '.complete').open('x') as stream:
+    json.dump({'version': 2, 'finished_epoch': int(time.time()),
+               'manifest_sha256': hashes['manifest.txt'], 'inventory_sha256': hashes['inventory.txt']}, stream)
+    stream.flush()
+    os.fsync(stream.fileno())
+fd = os.open(stage, os.O_RDONLY)
+try:
+    os.fsync(fd)
+finally:
+    os.close(fd)
+os.rename(stage, target)
+fd = os.open(target.parent, os.O_RDONLY)
+try:
+    os.fsync(fd)
+finally:
+    os.close(fd)
+COMPLETE
+now_epoch="$(date +%s)"
+recorded_at_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+verified="$(verified_sets)" || fail_backup complete_sets_unverified
+printf '%s\n' "$verified" | awk -v label="$label" '$0==label {found=1} END {exit !found}' || fail_backup new_set_unverified
 
 # Retention: keep the newest copies, delete the rest, never below the minimum.
 existing=()
 while IFS= read -r existing_dir; do
   [[ -n "$existing_dir" ]] && existing+=("$existing_dir")
-done < <(find "$backup_dir" -mindepth 1 -maxdepth 1 -type d -name '20*T*Z' -print 2>/dev/null | LC_ALL=C sort)
+done <<< "$verified"
 if (( ${#existing[@]} > keep_copies )); then
   delete_count=$(( ${#existing[@]} - keep_copies ))
   for (( index = 0; index < delete_count; index++ )); do
-    victim="${existing[index]}"
+    victim="$backup_dir/${existing[index]}"
     remaining=$(( ${#existing[@]} - index ))
     if (( remaining <= minimum_copies )); then
       printf 'retention_kept=%s\n' "$(basename "$victim")"
@@ -344,22 +474,23 @@ if (( ${#existing[@]} > keep_copies )); then
     if rm -rf "$victim"; then
       printf 'retention_deleted=%s\n' "$(basename "$victim")"
       log_event pass "result=retention_deleted reference=$(basename "$victim")"
+    else
+      fail_backup retention_delete_failed
     fi
   done
 fi
 
-copies_local="$(count_copies "$backup_dir")"
-copies_offsite="$(count_offsite_copies "$backup_dir")"
-write_state "pass" "none" "$now_epoch" "$recorded_at_iso" "$label" "${#volumes[@]}" "$archive_bytes" "$copies_local" "$copies_offsite"
-log_event pass "result=backup_pass reference=$label volumes=${#volumes[@]} copies_local=$copies_local copies_offsite=$copies_offsite"
+copies_local="$(count_copies)"
+now_epoch="$(date +%s)"
+recorded_at_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+write_state "pass" "none" "$now_epoch" "$recorded_at_iso" "$label" "${#volumes[@]}" "$archive_bytes" "$copies_local"
+log_event pass "result=backup_pass reference=$label volumes=${#volumes[@]} copies_local=$copies_local"
 
 echo "backup_result=pass"
 echo "backup_reference=$label"
 echo "volumes_archived=${#volumes[@]}"
 echo "bytes_archived=$archive_bytes"
 echo "copies_local=$copies_local"
-echo "copies_offsite=$copies_offsite"
-echo "offsite_target_label=$offsite_target_label"
 echo "retention_keep=$keep_copies"
 echo "product_impact=none"
 exit 0

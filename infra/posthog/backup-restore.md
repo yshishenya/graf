@@ -141,11 +141,12 @@ recreate later records or reverse corruption beyond the retained recovery points
 | Minimum local sets | 2 | FR-052 |
 | Required offsite copies | 0 in the current owner-approved stage | Session 2026-10-22 |
 
-This is the accepted target, not a runtime receipt. T117/T118 must migrate and
-verify the scripts/readiness/examples before operator application. Do not merely
-set the old offsite threshold to zero: its script still requires upload and its
-old counters/time checks are insufficient. Scheduled backup and restore receipts
-remain pending. Existing 2026-07 rehearsal evidence does not prove this migration.
+T117 local implementation uses an inventory copy, manifest digest, archive digests,
+and a version-2 completion marker. A staging directory becomes visible atomically;
+only verified complete sets count or rotate. The state records successful completion,
+not start time; API and alerts reject failed/unknown/future/age>=26h and fewer than two sets.
+Old directory names and .offsite markers are not proof. This is not a runtime receipt:
+operator installation and consistent restore T118 remain pending. Existing 2026-07 rehearsal evidence does not prove this migration.
 
 ### Scheduled Automation
 
@@ -156,7 +157,7 @@ alerts on failure instead of stopping the product.
 
 | Task | Unit and timer | State file |
 | --- | --- | --- |
-| Archive every inventory volume class as a verified complete local set (target; T117 pending) | `infra/posthog/graf-posthog-backup.{service,timer}`, daily 02:30 | `/var/lib/graf-posthog-backup/backup-state` |
+| Archive every inventory volume class as a verified complete local set (T117 local candidate; installation pending) | `infra/posthog/graf-posthog-backup.{service,timer}`, daily 02:30 | `/var/lib/graf-posthog-backup/backup-state` |
 | Restore one stored copy into isolated rehearsal volumes and read it back | `infra/posthog/graf-posthog-restore-verify.{service,timer}`, days 1 and 15 at 04:30 | `/var/lib/graf-posthog-backup/restore-state` |
 | Enforce the events, aggregate and attribution retention terms | `infra/posthog/graf-posthog-retention-enforce.{service,timer}`, daily 03:15 | `/var/lib/graf-posthog-retention/retention-state` |
 

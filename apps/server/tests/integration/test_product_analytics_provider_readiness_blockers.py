@@ -104,7 +104,6 @@ def _write_operations_states(
     now: int,
     backup_age_hours: int = 1,
     copies_local: int = 3,
-    copies_offsite: int = 1,
     restore_age_days: int = 2,
     restore_result: str = "pass",
     retention_override: dict[str, str] | None = None,
@@ -113,11 +112,11 @@ def _write_operations_states(
     backup.write_text(
         "\n".join(
             [
-                "backup_state_version=1",
+                "backup_state_version=2",
+                "backup_set_complete=true",
                 "last_attempt_result=pass",
                 f"last_success_epoch={now - backup_age_hours * 3600}",
                 f"copies_local={copies_local}",
-                f"copies_offsite={copies_offsite}",
                 "",
             ]
         ),
@@ -294,17 +293,16 @@ def test_readiness_blocks_when_the_newest_copy_is_stale(tmp_path: Path, monkeypa
     assert build_rollout_readiness_report(settings).as_dict()["verdict"] == "infra_smoke_ready"
 
 
-def test_readiness_blocks_on_missing_offsite_copy_and_copy_count(tmp_path: Path, monkeypatch) -> None:
+def test_readiness_blocks_below_two_complete_local_copies(tmp_path: Path, monkeypatch) -> None:
     settings = _live_provider_settings(tmp_path)
     now = int(time.time())
-    state = _write_operations_states(tmp_path, now=now, copies_local=1, copies_offsite=0)
+    state = _write_operations_states(tmp_path, now=now, copies_local=1)
     _apply_states(monkeypatch, state)
 
     operations = build_provider_readiness(settings).as_dict()["analytics_operations"]
     assert "backup_copy_count_below_minimum" in operations["blockers"]
-    assert "backup_offsite_copy_missing" in operations["blockers"]
     assert operations["metadata"]["backup_minimum_copies"] == "2"
-    assert operations["metadata"]["backup_minimum_offsite_copies"] == "1"
+    assert operations["metadata"]["backup_policy"] == "scheduled_daily_local_verified_sets"
 
 
 def test_readiness_blocks_on_a_failed_or_stale_restore_verification(tmp_path: Path, monkeypatch) -> None:

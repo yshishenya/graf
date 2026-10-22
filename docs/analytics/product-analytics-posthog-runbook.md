@@ -288,7 +288,7 @@ blocker code described here.
 | Disk | Keep analytics volumes separate; review below `20%` free and block/rollback before `<10%` free on the configured analytics filesystem. | Mark PostHog not ready, disable provider delivery, preserve GRAF workflows, and restore only after backup and free-space checks pass. |
 | Network | Analytics traffic remains on `analytics.2brain.pro`; probe analytics health every 60 seconds. | The guard alerts after 2 consecutive failed analytics/GRAF probes; latency and 3-of-5 probe review remain operator checks. |
 | Logs | `json-file` rotation `max-size=50m`, `max-file=3` for every generated-stack service. | Review if rotation is missing or forbidden fields appear; stop provider delivery before unbounded growth can affect GRAF. |
-| Backups | Daily full local backup, metadata-only evidence; target 0 ≤ completed-set age <26h; last 7 successful complete sets, minimum 2; consistent isolated restore within 30 days. Local-only owner decision 2026-10-22; T117/T118 pending. | Block readiness if backup is missing/stale or restore rehearsal fails; use the last known-good compose/volume state. |
+| Backups | Daily full local backup, metadata-only evidence; target 0 ≤ completed-set age <26h; last 7 successful complete sets, minimum 2; consistent isolated restore within 30 days. Local-only owner decision 2026-10-22; T117 local candidate; installation and T118 pending. | Block readiness if backup is missing/stale or restore rehearsal fails; use the last known-good compose/volume state. |
 | Retention (historical 2026-07 receipt, superseded target) | The receipt observed product event retention of `84` months; the historical self-hosted session-recording policy was `90d` while recording is opted out; the session-replay bucket has an enabled 90-day object-lifecycle rule. | Review any policy/category without a documented owner and deletion behavior; do not claim lifecycle readiness from an empty table alone. The 90-day project value is a reversible self-hosted database override because the supported API rejected the entitlement. |
 
 The 2026-07-20 production receipt verified the 35-service Compose configuration,
@@ -671,7 +671,7 @@ Backup retention:
   the retained `until_decision` history, not just seven days of events;
 - offsite copies are not required by the owner decision of 2026-10-22; losing
   the host/disk may lose all history. See `infra/posthog/backup-restore.md`;
-- script/readiness migration T117/T118 remains pending; the old upload requirement
+- T117 local writer/readiness/alerts no longer require upload; installation and T118 remain pending. The historical upload requirement
   must not be bypassed by changing just one threshold;
 - never commit backup archives or content-bearing exports;
 - record restore rehearsal status before live readiness claims.
@@ -696,7 +696,7 @@ FR-036, FR-051, FR-052).
 
 | Artifact | Schedule | State file | Contract |
 | --- | --- | --- | --- |
-| `infra/scripts/backup-posthog.sh` | daily systemd timer `graf-posthog-backup.timer`, `OnCalendar=*-*-* 02:30:00` | `/var/lib/graf-posthog-backup/backup-state` | Target: last 7 verified complete local sets, minimum 2. No offsite requirement in this stage; T117 migration pending. A failed/partial run blocks readiness and cannot evict good sets |
+| `infra/scripts/backup-posthog.sh` | daily systemd timer `graf-posthog-backup.timer`, `OnCalendar=*-*-* 02:30:00` | `/var/lib/graf-posthog-backup/backup-state` | Target: last 7 verified complete local sets, minimum 2. No offsite requirement in this stage; T117 local candidate; installation pending. A failed/partial run blocks readiness and cannot evict good sets |
 | `infra/scripts/verify-posthog-restore.sh` | systemd timer `graf-posthog-restore-verify.timer`, days 1 and 15, `OnCalendar=*-*-01,15 04:30:00` | `/var/lib/graf-posthog-backup/restore-state` | Restores into an isolated target and records metadata-only evidence: command names, pass/fail status, duration class, blocker codes |
 | `infra/scripts/enforce-product-analytics-retention.sh` | daily systemd timer `graf-posthog-retention-enforce.timer`, `OnCalendar=*-*-* 03:15:00` | `/var/lib/graf-posthog-retention/retention-state` | Verifies explicit until_decision policy and absence of event TTL; never deletes rows |
 | `infra/scripts/apply-posthog-event-ttl.sh` | operator migration after isolated validation | — | Removes the old event TTL with `infra/posthog/clickhouse-retention.sql`; requires explicit `GRAF_PRODUCT_ANALYTICS_RETENTION_MODE=until_decision` |
@@ -785,7 +785,7 @@ configuration error rather than a ready state.
 | `backup_state_unavailable` | The backup state file is missing or unreadable |
 | `backup_missing` | No stored analytics backup copy exists |
 | `backup_stale` | The newest copy is older than the recovery-point objective |
-| `backup_offsite_copy_missing` | Legacy offsite policy; not required by the current local-only target. Runtime migration T117 pending |
+| `backup_set_unverified` | Missing version-2 complete-set proof; old directory names and markers do not qualify |
 | `backup_copy_count_below_minimum` | Fewer than the minimum number of stored copies are present |
 | `restore_verification_missing` | No successful restore verification is recorded |
 | `restore_verification_stale` | The last successful verification is older than the verification objective |
@@ -800,7 +800,7 @@ Defaults for every threshold above:
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `GRAF_POSTHOG_BACKUP_MAX_AGE_HOURS` | `26` | Completed full set: 0 ≤ age <26 hours; failed/future/unknown blocks (target T117) |
+| `GRAF_POSTHOG_BACKUP_MAX_AGE_HOURS` | `26` | Completed full set: 0 ≤ age <26 hours; failed/future/unknown blocks (T117; actual installation pending) |
 | `GRAF_POSTHOG_RESTORE_MAX_AGE_DAYS` | `30` | Successful restore verification not older than 30 days (SC-010) |
 | `GRAF_POSTHOG_BACKUP_MIN_COPIES` | `2` | At least two stored copies |
 | `GRAF_POSTHOG_BACKUP_MIN_OFFSITE_COPIES` | target `0`, runtime migration pending | Owner accepted local-only copies; do not change this alone to claim readiness |
@@ -880,3 +880,17 @@ infra/scripts/cd-remote.sh --dry-run
 
 Do not run future production deploys or PostHog stack changes from this runbook
 without explicit release approval.
+
+
+### T117: local-only complete-set installation
+
+Install the updated backup writer and its inventory together, with the matching
+API/alert consumers and read-only API state mount. The root-owned state directory
+uses the existing runtime-reader group (2750); state files are 0640. Archives and
+manifests remain in the root-only backup directory (0700, files 0600). API never
+receives archive access. The completion marker is written after archive persistence;
+failed/incomplete/corrupt sets do not count or evict usable sets. Keep seven verified
+complete sets; require two before readiness. Old sets without proof remain untouched,
+not silently upgraded. Metadata state version2 is required. No external storage is
+required, and complete host/disk loss can lose all history. T118 consistent restore,
+real receipts and delivery remain separate gates.

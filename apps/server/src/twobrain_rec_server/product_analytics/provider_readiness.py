@@ -32,11 +32,9 @@ DEFAULT_RETENTION_STATE_DIR = "/var/lib/graf-posthog-retention"
 BACKUP_MAX_AGE_HOURS_ENV = "GRAF_POSTHOG_BACKUP_MAX_AGE_HOURS"
 RESTORE_MAX_AGE_DAYS_ENV = "GRAF_POSTHOG_RESTORE_MAX_AGE_DAYS"
 MINIMUM_COPIES_ENV = "GRAF_POSTHOG_BACKUP_MIN_COPIES"
-MINIMUM_OFFSITE_COPIES_ENV = "GRAF_POSTHOG_BACKUP_MIN_OFFSITE_COPIES"
 DEFAULT_BACKUP_MAX_AGE_HOURS = 26
 DEFAULT_RESTORE_MAX_AGE_DAYS = 30
 DEFAULT_MINIMUM_COPIES = 2
-DEFAULT_MINIMUM_OFFSITE_COPIES = 1
 RETENTION_MAX_AGE_HOURS = 26
 
 # Required categories use an explicit policy; a legacy age receipt is not proof.
@@ -50,8 +48,9 @@ REQUIRED_RETENTION_TERMS: tuple[tuple[str, None], ...] = (
 BLOCKER_BACKUP_STATE_UNAVAILABLE = "backup_state_unavailable"
 BLOCKER_BACKUP_MISSING = "backup_missing"
 BLOCKER_BACKUP_STALE = "backup_stale"
+BLOCKER_BACKUP_FAILED = "backup_failed"
+BLOCKER_BACKUP_INCOMPLETE = "backup_set_unverified"
 BLOCKER_BACKUP_COPY_COUNT = "backup_copy_count_below_minimum"
-BLOCKER_BACKUP_OFFSITE_COPY = "backup_offsite_copy_missing"
 BLOCKER_RESTORE_MISSING = "restore_verification_missing"
 BLOCKER_RESTORE_FAILED = "restore_verification_failed"
 BLOCKER_RESTORE_STALE = "restore_verification_stale"
@@ -157,8 +156,8 @@ class AnalyticsOperationsEvidence:
     backup_state_available: bool = False
     backup_age_hours: float | None = None
     backup_copies_local: int | None = None
-    backup_copies_offsite: int | None = None
     backup_result: str = "unknown"
+    backup_set_complete: bool = False
     restore_state_available: bool = False
     restore_age_days: float | None = None
     restore_result: str = "unknown"
@@ -343,8 +342,9 @@ def collect_analytics_operations_evidence(
         backup_state_available=backup_text is not None,
         backup_age_hours=backup_age_hours,
         backup_copies_local=_optional_int(backup_values.get("copies_local")),
-        backup_copies_offsite=_optional_int(backup_values.get("copies_offsite")),
         backup_result=backup_values.get("last_attempt_result", "unknown"),
+        backup_set_complete=(backup_values.get("backup_state_version") == "2"
+                             and backup_values.get("backup_set_complete") == "true"),
         restore_state_available=restore_text is not None,
         restore_age_days=restore_age_days,
         restore_result=restore_values.get("last_verify_result", "unknown"),
@@ -370,23 +370,22 @@ def analytics_operations_blockers(
         environment.get(RESTORE_MAX_AGE_DAYS_ENV), float(DEFAULT_RESTORE_MAX_AGE_DAYS)
     )
     minimum_copies = int(_bounded_number(environment.get(MINIMUM_COPIES_ENV), float(DEFAULT_MINIMUM_COPIES)))
-    minimum_offsite_copies = int(
-        _bounded_number(environment.get(MINIMUM_OFFSITE_COPIES_ENV), float(DEFAULT_MINIMUM_OFFSITE_COPIES))
-    )
 
     blockers: list[str] = []
 
     if not evidence.backup_state_available:
         blockers.append(BLOCKER_BACKUP_STATE_UNAVAILABLE)
     else:
+        if evidence.backup_result != "pass":
+            blockers.append(BLOCKER_BACKUP_FAILED)
+        if not evidence.backup_set_complete:
+            blockers.append(BLOCKER_BACKUP_INCOMPLETE)
         if evidence.backup_age_hours is None:
             blockers.append(BLOCKER_BACKUP_MISSING)
-        elif evidence.backup_age_hours > backup_max_age_hours:
+        elif not 0 <= evidence.backup_age_hours < min(backup_max_age_hours, DEFAULT_BACKUP_MAX_AGE_HOURS):
             blockers.append(BLOCKER_BACKUP_STALE)
-        if evidence.backup_copies_local is None or evidence.backup_copies_local < minimum_copies:
+        if evidence.backup_copies_local is None or evidence.backup_copies_local < max(minimum_copies, DEFAULT_MINIMUM_COPIES):
             blockers.append(BLOCKER_BACKUP_COPY_COUNT)
-        if evidence.backup_copies_offsite is None or evidence.backup_copies_offsite < minimum_offsite_copies:
-            blockers.append(BLOCKER_BACKUP_OFFSITE_COPY)
 
     if not evidence.restore_state_available:
         blockers.append(BLOCKER_RESTORE_MISSING)
@@ -445,8 +444,8 @@ def build_analytics_operations_readiness(
         f"{record.category}={record.retention_mode}" for record in collected.retention_categories
     )
     metadata = {
-        "backup_policy": "scheduled_daily_with_required_offsite_copy",
-        "backup_max_age_hours": str(int(_bounded_number(environment.get(BACKUP_MAX_AGE_HOURS_ENV), float(DEFAULT_BACKUP_MAX_AGE_HOURS)))),
+        "backup_policy": "scheduled_daily_local_verified_sets",
+        "backup_max_age_hours": str(int(min(_bounded_number(environment.get(BACKUP_MAX_AGE_HOURS_ENV), float(DEFAULT_BACKUP_MAX_AGE_HOURS)), DEFAULT_BACKUP_MAX_AGE_HOURS))),
         "backup_last_result": collected.backup_result,
         "backup_last_success_age_hours": (
             f"{collected.backup_age_hours:.1f}" if collected.backup_age_hours is not None else "unknown"
@@ -454,13 +453,7 @@ def build_analytics_operations_readiness(
         "backup_copies_local": (
             str(collected.backup_copies_local) if collected.backup_copies_local is not None else "unknown"
         ),
-        "backup_copies_offsite": (
-            str(collected.backup_copies_offsite) if collected.backup_copies_offsite is not None else "unknown"
-        ),
-        "backup_minimum_copies": str(int(_bounded_number(environment.get(MINIMUM_COPIES_ENV), float(DEFAULT_MINIMUM_COPIES)))),
-        "backup_minimum_offsite_copies": str(
-            int(_bounded_number(environment.get(MINIMUM_OFFSITE_COPIES_ENV), float(DEFAULT_MINIMUM_OFFSITE_COPIES)))
-        ),
+        "backup_minimum_copies": str(int(max(_bounded_number(environment.get(MINIMUM_COPIES_ENV), float(DEFAULT_MINIMUM_COPIES)), DEFAULT_MINIMUM_COPIES))),
         "restore_verification_result": collected.restore_result,
         "restore_verification_age_days": (
             f"{collected.restore_age_days:.1f}" if collected.restore_age_days is not None else "unknown"

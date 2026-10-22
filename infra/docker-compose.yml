@@ -13,6 +13,7 @@ services:
     environment:
       TWOBRAIN_ENV: production
       GRAF_POSTHOG_GUARD_STATE_DIR: /run/graf-analytics-guard
+      GRAF_POSTHOG_BACKUP_STATE_DIR: /run/graf-analytics-backup
       # Exact immediate proxy peers only; preserve empty values for validation.
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS-127.0.0.1}
       TWOBRAIN_PUBLIC_BASE_URL: ${TWOBRAIN_PUBLIC_BASE_URL:-https://rec.2brain.pro}
@@ -187,6 +188,7 @@ services:
     volumes:
       - ./runtime/public-downloads:/usr/local/lib/python3.13/site-packages/twobrain_rec_server/public/static/public/downloads:ro
       - /var/lib/graf-posthog-runtime-guard:/run/graf-analytics-guard:ro
+      - /var/lib/graf-posthog-backup:/run/graf-analytics-backup:ro
     healthcheck:
       test:
         - CMD-SHELL

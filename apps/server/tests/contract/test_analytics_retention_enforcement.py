@@ -2,7 +2,7 @@
 
 Scheduled tasks have to prove three things without a production run:
 
-* a backup archives every inventory volume class, ships one copy offsite, keeps
+* a backup archives every inventory volume class as a verified local set, keeps
   at least two copies and alerts when it fails (FR-033, FR-051, FR-052);
 * a restore verification proves that a stored copy can be read back, records
   metadata-only evidence and alerts when it fails (FR-035, SC-010);
@@ -74,6 +74,8 @@ if log:
     handle = None
 
 if args[:2] == ["volume", "ls"]:
+    if os.environ.get("FAKE_VOLUME_LIST_FAIL") == "1" or ("--filter" in args and os.environ.get("FAKE_LABEL_LIST_FAIL") == "1"):
+        sys.exit(7)
     for name in os.environ.get("FAKE_VOLUMES", "").split():
         print(name)
     sys.exit(0)
@@ -221,12 +223,9 @@ def _backup_environment(tmp_path: Path, inventory: Path) -> dict[str, str]:
             "GRAF_POSTHOG_BACKUP_DIR": str(tmp_path / "backups"),
             "GRAF_POSTHOG_BACKUP_STATE_DIR": str(tmp_path / "state"),
             "GRAF_POSTHOG_BACKUP_INVENTORY": str(inventory),
-            "GRAF_POSTHOG_BACKUP_KEEP": "3",
+            "GRAF_POSTHOG_BACKUP_KEEP": "7",
             "GRAF_POSTHOG_BACKUP_MIN_COPIES": "2",
-            "GRAF_POSTHOG_BACKUP_MIN_OFFSITE_COPIES": "1",
             "GRAF_POSTHOG_BACKUP_IMAGE": "alpine:3.20",
-            "GRAF_POSTHOG_OFFSITE_COMMAND": 'printf "%s" "%LABEL%" > "$FAKE_OFFSITE_LOG"',
-            "FAKE_OFFSITE_LOG": str(tmp_path / "offsite.log"),
             "GRAF_POSTHOG_ALERT_SCRIPT": str(tmp_path / "bin" / "stub-alert.sh"),
         }
     )
@@ -257,7 +256,7 @@ def test_scheduled_scripts_are_valid_and_documented() -> None:
         assert result.returncode == 0, result.stderr
         text = path.read_text(encoding="utf-8")
         assert text.startswith("#!/usr/bin/env bash\nset -euo pipefail\n"), path.name
-        assert "secret" not in text.lower().replace("secret_policy", ""), path.name
+        assert "secret" not in text.lower().replace("secret_policy", "").replace("twobrain_runtime_secret_gid", ""), path.name
         assert "password" not in text.lower(), path.name
 
     inventory = INVENTORY_PATH.read_text(encoding="utf-8")
@@ -272,7 +271,7 @@ def test_backup_example_and_units_are_installed_outside_git() -> None:
     for example in (BACKUP_ENV_EXAMPLE, RETENTION_ENV_EXAMPLE):
         text = example.read_text(encoding="utf-8")
         assert "mode 0600" in text
-        assert "GRAF_POSTHOG_OFFSITE_COMMAND" in BACKUP_ENV_EXAMPLE.read_text(encoding="utf-8")
+        assert "GRAF_POSTHOG_OFFSITE_COMMAND" not in BACKUP_ENV_EXAMPLE.read_text(encoding="utf-8")
 
     backup_service = (UNIT_DIR / "graf-posthog-backup.service").read_text(encoding="utf-8")
     assert "ExecStart=/usr/local/libexec/graf-posthog-backup.sh --execute" in backup_service
@@ -287,7 +286,7 @@ def test_backup_example_and_units_are_installed_outside_git() -> None:
     assert "EnvironmentFile=-/etc/graf-posthog-retention.env" in retention_service
 
 
-def test_backup_archives_every_required_class_and_ships_one_copy_offsite(tmp_path: Path) -> None:
+def test_backup_archives_every_required_class_as_verified_local_set(tmp_path: Path) -> None:
     inventory = _inventory(tmp_path)
     environment = _backup_environment(tmp_path, inventory)
 
@@ -306,7 +305,7 @@ def test_backup_archives_every_required_class_and_ships_one_copy_offsite(tmp_pat
     assert "backup_result=pass" in result.stdout
     assert "volumes_archived=4" in result.stdout
     assert "copies_local=1" in result.stdout
-    assert "copies_offsite=1" in result.stdout
+    assert "offsite" not in result.stdout
     assert "product_impact=none" in result.stdout
 
     reference = next(part.split("=", 1)[1] for part in result.stdout.splitlines() if part.startswith("backup_reference="))
@@ -318,39 +317,59 @@ def test_backup_archives_every_required_class_and_ships_one_copy_offsite(tmp_pat
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         assert f"volume={volume}" in manifest
         assert digest in manifest
-    assert (backup_dir / ".offsite").exists()
-    assert (tmp_path / "offsite.log").read_text(encoding="utf-8") == reference
+    assert (backup_dir / ".complete").is_file()
+    assert (backup_dir / "inventory.txt").read_bytes() == inventory.read_bytes()
+    assert backup_dir.stat().st_mode & 0o777 == 0o700
+    assert all(p.stat().st_mode & 0o077 == 0 for p in backup_dir.iterdir())
 
     state = (tmp_path / "state" / "backup-state").read_text(encoding="utf-8")
     assert "last_attempt_result=pass" in state
     assert "copies_local=1" in state
-    assert "copies_offsite=1" in state
-    assert "offsite_required=1" in state
+    assert "backup_state_version=2" in state
+    assert "backup_set_complete=true" in state
     assert f"last_success_reference={reference}" in state
     assert "product_impact=measurement_gap_only" in state
     assert state.count("last_success_epoch=") == 1
 
 
-def test_backup_keeps_two_copies_and_deletes_older_ones_with_a_log(tmp_path: Path) -> None:
+def _seed_complete_copy(directory: Path, inventory: Path, label: str) -> None:
+    directory.mkdir(parents=True)
+    (directory / 'inventory.txt').write_bytes(inventory.read_bytes())
+    rows = []
+    for volume in ('graf-posthog_postgres-data', 'graf-posthog_clickhouse-data', 'graf-posthog_objectstorage'):
+        data = b'synthetic archive'
+        (directory / (volume + '.tar.gz')).write_bytes(data)
+        rows.append(f'volume={volume} bytes={len(data)} sha256={hashlib.sha256(data).hexdigest()}')
+    manifest = ('backup_reference=' + label + '\n' + '\n'.join(rows)).encode()
+    (directory / 'manifest.txt').write_bytes(manifest)
+    (directory / '.complete').write_text(json.dumps({
+        'version': 2, 'finished_epoch': int(time.time()) - 86400,
+        'manifest_sha256': hashlib.sha256(manifest).hexdigest(),
+        'inventory_sha256': hashlib.sha256(inventory.read_bytes()).hexdigest(),
+    }))
+
+
+def test_backup_rotates_only_verified_complete_sets(tmp_path: Path) -> None:
     inventory = _inventory(tmp_path)
     environment = _backup_environment(tmp_path, inventory)
-    backups = tmp_path / "backups"
-    backups.mkdir()
-    for label in ("20260101T023000Z", "20260102T023000Z", "20260103T023000Z", "20260104T023000Z"):
-        (backups / label).mkdir()
-        (backups / label / ".offsite").write_text("", encoding="utf-8")
-
-    result = _run(BACKUP_PATH, environment, "--execute")
-
+    backups = tmp_path / 'backups'
+    for day in range(1, 9):
+        label = f'202601{day:02d}T023000Z'
+        _seed_complete_copy(backups / label, inventory, label)
+    # Incomplete/corrupt sets stay untouched and never count or evict good sets.
+    incomplete = backups / '20260109T023000Z'
+    incomplete.mkdir()
+    corrupt = backups / '20260110T023000Z'
+    _seed_complete_copy(corrupt, inventory, corrupt.name)
+    (corrupt / 'graf-posthog_postgres-data.tar.gz').write_bytes(b'corrupt')
+    result = _run(BACKUP_PATH, environment, '--execute')
     assert result.returncode == 0, result.stderr
-    remaining = sorted(path.name for path in backups.iterdir() if path.is_dir())
-    assert len(remaining) == 3, remaining  # retention keep of three, never below the minimum of two
-    assert "20260101T023000Z" not in remaining
-    assert "retention_deleted=20260101T023000Z" in result.stdout
-    assert "20260102T023000Z" not in remaining
-    assert "retention_deleted=20260102T023000Z" in result.stdout
-    journal = (tmp_path / "logger.log").read_text(encoding="utf-8")
-    assert "result=retention_deleted reference=20260101T023000Z" in journal
+    assert 'copies_local=7' in result.stdout
+    assert not (backups / '20260101T023000Z').exists()
+    assert not (backups / '20260102T023000Z').exists()
+    assert incomplete.is_dir() and corrupt.is_dir()
+    assert 'retention_deleted=20260101T023000Z' in result.stdout
+    assert 'result=retention_deleted reference=20260101T023000Z' in (tmp_path / 'logger.log').read_text()
 
 
 def test_backup_fails_closed_and_alerts_when_a_required_class_is_absent(tmp_path: Path) -> None:
@@ -371,15 +390,81 @@ def test_backup_fails_closed_and_alerts_when_a_required_class_is_absent(tmp_path
     assert "result=backup_failed reason=required_volume_class_missing" in journal
 
 
-def test_backup_requires_an_offsite_destination(tmp_path: Path) -> None:
+def test_backup_fails_closed_for_unclassified_project_volume(tmp_path: Path) -> None:
     inventory = _inventory(tmp_path)
     environment = _backup_environment(tmp_path, inventory)
-    environment["GRAF_POSTHOG_OFFSITE_COMMAND"] = ""
-
-    result = _run(BACKUP_PATH, environment, "--execute")
-
+    environment['FAKE_VOLUMES'] += ' graf-posthog_unreviewed-data'
+    result = _run(BACKUP_PATH, environment, '--execute')
     assert result.returncode == 1
-    assert "reason=offsite_command_not_configured" in result.stdout
+    assert 'reason=project_volume_unclassified' in result.stdout
+    assert not list((tmp_path / 'backups').glob('*/.complete'))
+
+
+def test_failed_archive_does_not_publish_complete_set_or_rotate(tmp_path: Path) -> None:
+    inventory = _inventory(tmp_path)
+    environment = _backup_environment(tmp_path, inventory)
+    backups = tmp_path / 'backups'
+    for day in range(1, 9):
+        label = f'202601{day:02d}T023000Z'
+        _seed_complete_copy(backups / label, inventory, label)
+    environment['FAKE_DOCKER_FAIL'] = '1'
+    result = _run(BACKUP_PATH, environment, '--execute')
+    assert result.returncode == 1
+    assert 'reason=volume_archive_failed' in result.stdout
+    assert len(list(backups.glob('20*/.complete'))) == 8
+    state = (tmp_path / 'state/backup-state').read_text()
+    assert 'last_attempt_result=failed' in state
+    assert 'backup_set_complete=false' in state
+
+
+@pytest.mark.parametrize("failure", ["volume_list", "project_list", "state_write", "inventory", "rotation"])
+def test_failed_attempt_invalidates_previous_pass_and_always_alerts(tmp_path: Path, failure: str) -> None:
+    inventory = _inventory(tmp_path)
+    environment = _backup_environment(tmp_path, inventory)
+    state_file = tmp_path / "state/backup-state"
+    state_file.parent.mkdir()
+    state_file.write_text(
+        "backup_state_version=2\nbackup_set_complete=true\nlast_attempt_result=pass\n"
+        f"last_success_epoch={int(time.time()) - 60}\ncopies_local=2\n"
+    )
+    if failure == "volume_list":
+        environment["FAKE_VOLUME_LIST_FAIL"] = "1"
+    elif failure == "project_list":
+        environment["FAKE_LABEL_LIST_FAIL"] = "1"
+    elif failure == "inventory":
+        inventory.unlink()
+    elif failure == "state_write":
+        _write_executable(tmp_path / "bin/python3", """#!{python}
+import os, sys
+body = sys.stdin.read()
+if "os.replace(*sys.argv[1:])" in body:
+    sys.exit(9)
+os.execv(sys.executable, [sys.executable, "-c", body, *sys.argv[2:]])
+""")
+    else:
+        for day in range(1, 9):
+            label = f"202601{day:02d}T023000Z"
+            _seed_complete_copy(tmp_path / "backups" / label, inventory, label)
+        _write_executable(tmp_path / "bin/rm", """#!{python}
+import os, sys
+if "-rf" in sys.argv:
+    sys.exit(7)
+os.execv("/bin/rm", ["/bin/rm", *sys.argv[1:]])
+""")
+    result = _run(BACKUP_PATH, environment, "--execute")
+    assert result.returncode != 0, result.stdout
+    assert "backup_result=failed" in result.stdout
+    assert "backup_result=pass" not in result.stdout
+    assert (tmp_path / "alert.log").read_text().strip() == "alert invoked"
+    state = state_file.read_text() if state_file.exists() else ""
+    assert "last_attempt_result=pass" not in state
+    evidence = provider_readiness.collect_analytics_operations_evidence({
+        provider_readiness.BACKUP_STATE_FILE_ENV: str(state_file),
+    })
+    assert evidence.backup_result != "pass"
+    if failure == "rotation":
+        assert len(list((tmp_path / "backups").glob("20*/.complete"))) == 9
+        assert "reason=retention_delete_failed" in result.stdout
 
 
 def test_backup_rejects_a_retention_count_below_the_minimum(tmp_path: Path) -> None:
@@ -933,7 +1018,7 @@ def test_backup_state_contract_is_readable_by_readiness_and_alerting(tmp_path: P
     assert evidence.backup_state_available is True
     assert evidence.backup_result == "pass"
     assert evidence.backup_copies_local == 1
-    assert evidence.backup_copies_offsite == 1
+    assert evidence.backup_set_complete is True
     assert evidence.backup_age_hours is not None and evidence.backup_age_hours < 1
 
 
