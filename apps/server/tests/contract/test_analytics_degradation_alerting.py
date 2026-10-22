@@ -12,10 +12,12 @@ visitor or user data, and its own channel must be probed by an independent path.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -79,6 +81,9 @@ def _rule_map() -> dict[str, dict[str, str]]:
 
 
 def _write_state(path: Path, lines: list[str]) -> None:
+    if path.name == "guard-state":
+        # Normal alert fixtures represent the current complete writer schema.
+        lines = ["alert_state_version=2", "capacity_ready=true", "protection_status=observed", *lines]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -173,7 +178,7 @@ def test_guard_splits_analytics_and_host_scopes() -> None:
     # Analytics scope fires first, with thresholds deliberately stricter than the
     # host scope so measurement degrades before the whole host does.
     assert 'analytics_health_failure_threshold="${GRAF_POSTHOG_GUARD_ANALYTICS_HEALTH_FAILURES:-1}"' in script
-    assert 'analytics_disk_free_percent_threshold="${GRAF_POSTHOG_GUARD_ANALYTICS_DISK_FREE_PERCENT:-20}"' in script
+    assert 'capacity_helper="$script_dir/posthog-capacity.py"' in script
     assert 'analytics_lag_seconds_threshold="${GRAF_POSTHOG_GUARD_ANALYTICS_LAG_SECONDS:-900}"' in script
     assert 'analytics_queue_depth_threshold="${GRAF_POSTHOG_GUARD_ANALYTICS_QUEUE_DEPTH:-100000}"' in script
     assert 'analytics_queue_growth_threshold="${GRAF_POSTHOG_GUARD_ANALYTICS_QUEUE_GROWTH_PER_MIN:-5000}"' in script
@@ -182,13 +187,12 @@ def test_guard_splits_analytics_and_host_scopes() -> None:
     # Host scope keeps its own, later thresholds.
     assert 'host_load_threshold="${GRAF_POSTHOG_GUARD_HOST_LOAD:-11}"' in script
     assert 'host_memory_mib_threshold="${GRAF_POSTHOG_GUARD_HOST_MEMORY_MIB:-16384}"' in script
-    assert 'host_disk_free_percent_threshold="${GRAF_POSTHOG_GUARD_HOST_DISK_FREE_PERCENT:-10}"' in script
     assert 'host_health_failure_threshold="${GRAF_POSTHOG_GUARD_HOST_HEALTH_FAILURES:-2}"' in script
 
     # The two scopes are recorded separately and the product keeps running.
     assert 'add_host_breach "host_load"' in script
     assert 'add_host_breach "host_memory"' in script
-    assert 'add_host_breach "host_disk"' in script
+    assert 'host_reasons) capacity_host_reasons="$value"' in script
     assert "posthog_guard_analytics_breaches" in script
     assert "posthog_guard_host_breaches" in script
     assert "posthog_guard_breach_scope" in script
@@ -222,32 +226,30 @@ def test_guard_keeps_legacy_environment_names_for_production() -> None:
         "GRAF_POSTHOG_GUARD_DRY_RUN",
         "GRAF_POSTHOG_GUARD_AUTO_ROLLBACK",
         "GRAF_POSTHOG_GUARD_STOP_STACK",
-        "GRAF_POSTHOG_ANALYTICS_PATH",
         "GRAF_POSTHOG_HEALTH_URL",
         "GRAF_READY_URL",
     ):
         assert legacy in script, legacy
-    assert 'analytics_path="${GRAF_POSTHOG_ANALYTICS_PATH:-$app_dir}"' in script
+    assert 'GRAF_POSTHOG_ANALYTICS_PATH' in (REPO_ROOT / 'infra/scripts/posthog-storage.py').read_text()
     assert "restart_delta=$((restart_delta + restarts - previous_restarts))" in script
     assert 'logger -t graf-posthog-runtime-guard' in script
     assert "docker compose --env-file" in script
     assert "api_key" not in script
-    assert "secret" not in script.lower()
+    # The existing reader-group name is metadata, not access to a credential.
+    assert "secret" not in script.replace("TWOBRAIN_RUNTIME_SECRET_GID", "").lower()
 
     example = GUARD_ENV_EXAMPLE.read_text(encoding="utf-8")
     for name in (
         "GRAF_POSTHOG_GUARD_ANALYTICS_HEALTH_FAILURES",
-        "GRAF_POSTHOG_GUARD_ANALYTICS_DISK_FREE_PERCENT",
         "GRAF_POSTHOG_GUARD_ANALYTICS_LAG_SECONDS",
         "GRAF_POSTHOG_GUARD_ANALYTICS_QUEUE_DEPTH",
         "GRAF_POSTHOG_GUARD_ANALYTICS_QUEUE_GROWTH_PER_MIN",
         "GRAF_POSTHOG_GUARD_HOST_LOAD",
         "GRAF_POSTHOG_GUARD_HOST_MEMORY_MIB",
-        "GRAF_POSTHOG_GUARD_HOST_DISK_FREE_PERCENT",
         "GRAF_POSTHOG_GUARD_HOST_HEALTH_FAILURES",
     ):
         assert name in example, name
-    assert "не отключает измерение" in example or "never disables measurement" in example
+    assert "host scope alone alerts only" in example
 
 
 def test_alert_script_reads_credentials_outside_the_repository() -> None:
@@ -634,7 +636,7 @@ def test_guard_alert_state_keys_match_the_alert_reader() -> None:
     guard = GUARD_PATH.read_text(encoding="utf-8")
     alert = ALERT_PATH.read_text(encoding="utf-8")
 
-    writer = guard.split("alert_state_version=1", 1)[1].split('} > "$tmp_alert_state"', 1)[0]
+    writer = guard.split("alert_state_version=2", 1)[1].split('} > "$tmp_alert_state"', 1)[0]
     written = set(re.findall(r"printf '([a-z0-9_]+)=", writer))
     for key in (
         "recorded_at_epoch",
@@ -678,7 +680,7 @@ def test_guard_state_feeds_the_alert_end_to_end(tmp_path: Path) -> None:
 
     guard_state_dir = tmp_path / "guard-state-dir"
     guard_environment = {
-        "PATH": f"{bin_dir}:{os.defpath}",
+        "PATH": f"{bin_dir}:{Path(sys.executable).parent}:{os.defpath}",
         "HOME": str(tmp_path),
         "GRAF_POSTHOG_PROJECT": "graf-posthog",
         "GRAF_APP_DIR": str(tmp_path),
@@ -717,6 +719,7 @@ def test_guard_state_feeds_the_alert_end_to_end(tmp_path: Path) -> None:
     assert re.search(r"alert_scope=analytics", result.stdout)
     assert "guard_state_missing" not in result.stdout
     assert "guard_state_stale" not in result.stdout
+
     assert "alert_owner_unnamed" not in result.stdout
     message = (
         curl_log.read_text(encoding="utf-8")
@@ -726,3 +729,218 @@ def test_guard_state_feeds_the_alert_end_to_end(tmp_path: Path) -> None:
     assert "analytics_node_unavailable" in message
     assert "analytics-oncall" in message
     assert "delivery_deadline_minutes: 15" in message
+
+
+def _capacity_guard_runtime(tmp_path: Path):
+    from tests.contract.test_analytics_retention_enforcement import _capacity_inputs
+    capacity, sample, budget, _ = _capacity_inputs()
+    now = int(time.time())
+    sample['recorded_at_epoch'] = now
+    budget.update(accepted_at_epoch=now - 1, review_deadline_epoch=now + 3600)
+    bin_dir = tmp_path / 'bin'
+    bin_dir.mkdir()
+    (bin_dir / 'docker').write_text(f'#!{sys.executable}\n' + '''
+import json, os, pathlib, sys
+args = sys.argv[1:]
+if args[0] == 'ps':
+    print('analytics-container')
+elif args[0] == 'exec':
+    print(0)
+elif args[0] == 'compose':
+    if 'up' in args:
+        with open(os.environ['RESTART_LOG'], 'a') as stream: stream.write('restart\\n')
+        raise SystemExit(7 if os.environ.get('FAIL_RESTART') else 0)
+    if 'ps' in args: print('api-container')
+elif args[0] == 'inspect':
+    if '.Config.Env' in args[2]:
+        values = pathlib.Path(os.environ['GRAF_ENV_FILE']).read_text().splitlines()
+        if os.environ.get('FAIL_READBACK'): values = []
+        print(json.dumps(values))
+    else:
+        print('false 0 1000000000 1073741824')
+''')
+    for name in ('curl', 'logger', 'collector'):
+        (bin_dir / name).write_text('#!/bin/sh\nexit 0\n')
+    for p in bin_dir.iterdir():
+        p.chmod(0o755)
+    (tmp_path / 'infra').mkdir()
+    (tmp_path / 'infra/docker-compose.yml').write_text('services: {}\n')
+    env_file = tmp_path / '.env'
+    env_file.write_text('\n'.join(key + '=true' for key in capacity.DISABLED_ENV) + '\n')
+    state = tmp_path / 'storage.state'
+    state.with_suffix('.json').write_text(json.dumps(sample))
+    budget_path = tmp_path / 'budget.json'
+    budget_path.write_text(json.dumps(budget))
+    environment = {
+        'PATH': f'{bin_dir}:{Path(sys.executable).parent}:{os.defpath}',
+        'HOME': str(tmp_path), 'GRAF_APP_DIR': str(tmp_path),
+        'GRAF_ENV_FILE': str(env_file), 'GRAF_POSTHOG_STORAGE_STATE_FILE': str(state),
+        'GRAF_POSTHOG_STORAGE_COLLECTOR': str(bin_dir / 'collector'),
+        'GRAF_POSTHOG_CAPACITY_BUDGET_FILE': str(budget_path),
+        'GRAF_POSTHOG_GUARD_CONFIG_VERSION': 'd' * 64,
+        'GRAF_POSTHOG_GUARD_STATE_DIR': str(tmp_path / 'guard'),
+        'GRAF_POSTHOG_GUARD_AUTO_ROLLBACK': '1', 'GRAF_POSTHOG_GUARD_DRY_RUN': '0',
+        'GRAF_POSTHOG_HEALTH_URL': 'https://guard-test.invalid/health',
+        'GRAF_READY_URL': 'https://guard-test.invalid/ready',
+        'RESTART_LOG': str(tmp_path / 'restart-log'),
+    }
+    return environment, sample, state.with_suffix('.json')
+
+
+def test_guard_persists_one_successful_transition_and_does_not_auto_restore(tmp_path: Path):
+    environment, sample, sample_path = _capacity_guard_runtime(tmp_path)
+    sample['filesystems'][0]['available_bytes'] = 99
+    sample_path.write_text(json.dumps(sample))
+    for _ in range(2):
+        result = subprocess.run([BASH, str(GUARD_PATH)], env=environment, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        assert 'posthog_guard_protection_status=protected' in result.stdout
+    incident_path = tmp_path / 'guard/protection-state.json'
+    incident = json.loads(incident_path.read_text())
+    assert incident['status'] == 'protected'
+    assert incident['reasons'] == ['analytics_storage']
+    assert len(incident['incident_id']) == 32
+    assert (tmp_path / 'restart-log').read_text().splitlines() == ['restart']
+    sample['filesystems'][0]['available_bytes'] = 500
+    sample_path.write_text(json.dumps(sample))
+    result = subprocess.run([BASH, str(GUARD_PATH)], env=environment, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert 'posthog_guard_capacity_ready=false' in result.stdout
+    assert 'analytics_protection_latched' in result.stdout
+    assert (tmp_path / 'restart-log').read_text().splitlines() == ['restart']
+    assert json.loads(incident_path.read_text())['incident_id'] == incident['incident_id']
+    assert str(tmp_path) not in incident_path.read_text()
+
+
+@pytest.mark.parametrize('failure', ['FAIL_RESTART', 'FAIL_READBACK'])
+def test_guard_failure_stays_closed_and_retries_application(tmp_path: Path, failure: str):
+    environment, sample, sample_path = _capacity_guard_runtime(tmp_path)
+    sample['filesystems'][0]['available_bytes'] = 199
+    sample_path.write_text(json.dumps(sample))
+    result = subprocess.run([BASH, str(GUARD_PATH)], env={**environment, failure: '1'}, capture_output=True, text=True)
+    assert result.returncode == 1, result.stderr
+    assert 'posthog_guard_protection_status=apply_failed' in result.stdout
+    assert json.loads((tmp_path / 'guard/protection-state.json').read_text())['status'] == 'apply_failed'
+    # The durable request survives even if the triggering symptom disappears.
+    sample['filesystems'][0]['available_bytes'] = 500
+    sample_path.write_text(json.dumps(sample))
+    result = subprocess.run([BASH, str(GUARD_PATH)], env=environment, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert 'posthog_guard_protection_status=protected' in result.stdout
+    assert len((tmp_path / 'restart-log').read_text().splitlines()) == 2
+
+
+@pytest.mark.parametrize(('mode', 'status'), [
+    ({'GRAF_POSTHOG_GUARD_DRY_RUN': '1'}, 'blocked_dry_run'),
+    ({'GRAF_POSTHOG_GUARD_AUTO_ROLLBACK': '0'}, 'not_enabled'),
+])
+def test_guard_dry_run_and_auto_off_never_claim_protection(tmp_path: Path, mode, status):
+    environment, sample, sample_path = _capacity_guard_runtime(tmp_path)
+    sample['filesystems'][0]['available_bytes'] = 199
+    sample_path.write_text(json.dumps(sample))
+    result = subprocess.run([BASH, str(GUARD_PATH)], env={**environment, **mode}, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert f'posthog_guard_protection_status={status}' in result.stdout
+    assert 'posthog_guard_capacity_ready=false' in result.stdout
+    assert not (tmp_path / 'restart-log').exists()
+
+
+def test_guard_bad_state_and_failed_fresh_probe_prevent_readiness(tmp_path: Path):
+    environment, sample, _ = _capacity_guard_runtime(tmp_path)
+    collector = Path(environment['GRAF_POSTHOG_STORAGE_COLLECTOR'])
+    collector.write_text('#!/bin/sh\nexit 1\n')
+    result = subprocess.run([BASH, str(GUARD_PATH)], env=environment, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert 'capacity_input_unverified' in result.stdout
+    assert 'posthog_guard_capacity_ready=false' in result.stdout
+    assert not (tmp_path / 'restart-log').exists()
+    (tmp_path / 'guard/protection-state.json').write_text('{broken')
+    sample['filesystems'][0]['available_bytes'] = 99
+    Path(environment['GRAF_POSTHOG_STORAGE_STATE_FILE']).with_suffix('.json').write_text(json.dumps(sample))
+    result = subprocess.run([BASH, str(GUARD_PATH)], env=environment, capture_output=True, text=True)
+    assert result.returncode == 1, result.stderr
+    assert 'protection_state_unverified' in result.stdout
+    assert not (tmp_path / 'restart-log').exists()
+
+
+def test_parallel_guard_runs_apply_once_and_real_state_feeds_readiness(tmp_path: Path):
+    environment, sample, sample_path = _capacity_guard_runtime(tmp_path)
+    sample['filesystems'][0]['available_bytes'] = 199
+    sample_path.write_text(json.dumps(sample))
+    runs = [subprocess.Popen([BASH, str(GUARD_PATH)], env=environment, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True) for _ in range(2)]
+    for run in runs:
+        output, error = run.communicate(timeout=30)
+        assert run.returncode == 0, error
+        assert 'posthog_guard_protection_status=protected' in output
+    assert (tmp_path / 'restart-log').read_text().splitlines() == ['restart']
+    assert 'analytics_protection_latched' in provider_readiness.runtime_guard_blockers(environment)
+
+
+@pytest.mark.parametrize('age', [-1, 0, 119, 120])
+def test_readiness_consumes_fresh_capacity_and_immediate_incident_latch(tmp_path: Path, age: int):
+    from tests.fixtures.analytics_operations import write_runtime_guard
+    now = 1792634400
+    environment = write_runtime_guard(tmp_path, now=now - age)
+    blockers = provider_readiness.runtime_guard_blockers(environment, now=now)
+    assert ('capacity_input_unverified' in blockers) is (not 0 <= age < 120)
+    guard = Path(environment['GRAF_POSTHOG_GUARD_STATE_DIR'])
+    # A pre-switch incident must block even while the last alert-state says pass.
+    (guard / 'protection-state.json').write_text(json.dumps({
+        'protection_state_version': 1, 'status': 'protection_requested',
+        'reasons': ['analytics_storage'],
+    }))
+    assert 'analytics_protection_latched' in provider_readiness.runtime_guard_blockers(environment, now=now)
+
+
+def test_readiness_rejects_budget_expiry_between_guard_ticks_and_invalid_state(tmp_path: Path):
+    from tests.fixtures.analytics_operations import write_runtime_guard
+    now = 1792634400
+    environment = write_runtime_guard(tmp_path, now=now)
+    guard = Path(environment['GRAF_POSTHOG_GUARD_STATE_DIR'])
+    state = guard / 'alert-state'
+    state.write_text(state.read_text().replace(str(now + 3600), str(now)))
+    assert 'capacity_budget_unverified' in provider_readiness.runtime_guard_blockers(environment, now=now)
+    (guard / 'protection-state.json').write_text('{broken')
+    assert 'protection_state_unverified' in provider_readiness.runtime_guard_blockers(environment, now=now)
+
+
+@pytest.mark.parametrize('reasons', [None, 'bad', [None], ['unsafe value'], ['analytics_storage']])
+def test_observed_state_validation_matches_guard_and_api(tmp_path: Path, reasons):
+    from tests.contract.test_analytics_retention_enforcement import _capacity_evaluator
+    from tests.fixtures.analytics_operations import write_runtime_guard
+    now = int(time.time())
+    environment = write_runtime_guard(tmp_path, now=now)
+    path = Path(environment['GRAF_POSTHOG_GUARD_STATE_DIR']) / 'protection-state.json'
+    capacity = _capacity_evaluator()
+    assert provider_readiness.runtime_guard_blockers(environment, now=now) == ()
+    assert capacity.transition(path, [], 'status', now=now) == 'observed'
+    state = json.loads(path.read_text())
+    if reasons is None:
+        state.pop('reasons')
+    else:
+        state['reasons'] = reasons
+    path.write_text(json.dumps(state))
+    assert 'protection_state_unverified' in provider_readiness.runtime_guard_blockers(environment, now=now)
+    with pytest.raises(ValueError, match='protection_state_unverified'):
+        capacity.transition(path, [], 'status', now=now)
+
+
+def test_guard_does_not_report_success_when_healthy_state_cannot_be_written(tmp_path: Path):
+    environment, _, _ = _capacity_guard_runtime(tmp_path)
+    real_awk = shutil.which('awk')
+    (tmp_path / 'bin/awk').write_text(
+        '#!/bin/sh\ncase "$*" in\n'
+        '  */proc/loadavg*) printf "1\\n" ;;\n'
+        '  */proc/meminfo*) printf "32768\\n" ;;\n'
+        f'  *) exec "{real_awk}" "$@" ;;\nesac\n'
+    )
+    (tmp_path / 'bin/awk').chmod(0o755)
+    (tmp_path / 'bin/mv').write_text(
+        '#!/bin/sh\ncase "$2" in */alert-state) exit 1 ;; esac\nexec /bin/mv "$@"\n'
+    )
+    (tmp_path / 'bin/mv').chmod(0o755)
+    result = subprocess.run([BASH, str(GUARD_PATH)], env=environment, capture_output=True, text=True)
+    assert result.returncode == 1, result.stderr
+    assert not (tmp_path / 'guard/alert-state').exists()
+    assert not (tmp_path / 'restart-log').exists()

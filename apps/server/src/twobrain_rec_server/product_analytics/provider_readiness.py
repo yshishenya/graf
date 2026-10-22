@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import re
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -58,6 +60,54 @@ BLOCKER_RETENTION_CATEGORY_MISSING = "retention_category_missing"
 BLOCKER_RETENTION_TERM_MISSING = "retention_term_missing"
 BLOCKER_RETENTION_TERM_BELOW_REQUIRED = "retention_term_below_required"
 BLOCKER_RETENTION_ENFORCEMENT_UNVERIFIED = "retention_enforcement_unverified"
+BLOCKER_CAPACITY_INPUT = "capacity_input_unverified"
+BLOCKER_CAPACITY_BUDGET = "capacity_budget_unverified"
+BLOCKER_PROTECTION_STATE = "protection_state_unverified"
+BLOCKER_PROTECTION_LATCHED = "analytics_protection_latched"
+
+
+def runtime_guard_blockers(
+    environ: Mapping[str, str] | None = None, *, now: float | None = None,
+) -> tuple[str, ...]:
+    """Consume the current guard schema, including a pre-switch incident latch."""
+    environment = os.environ if environ is None else environ
+    directory = environment.get("GRAF_POSTHOG_GUARD_STATE_DIR", "/var/lib/graf-posthog-runtime-guard")
+    path = environment.get("GRAF_ANALYTICS_GUARD_STATE_FILE", os.path.join(directory, "alert-state"))
+    values = _first_values(_read_state_text(path) or "")
+    current = time.time() if now is None else now
+    epoch = _optional_epoch(values.get("recorded_at_epoch"))
+    sample_epoch = _optional_epoch(values.get("capacity_sample_epoch"))
+    budget_deadline = _optional_epoch(values.get("capacity_budget_deadline_epoch"))
+    blockers = []
+    if (values.get("alert_state_version") != "2" or epoch is None
+            or not 0 <= current - epoch < 120 or sample_epoch is None
+            or not 0 <= current - sample_epoch < 120
+            or values.get("capacity_input_verified") != "true"
+            or not re.fullmatch(r"[a-f0-9]{64}", values.get("capacity_inventory_version", ""))):
+        blockers.append(BLOCKER_CAPACITY_INPUT)
+    if (values.get("capacity_budget_accepted") != "true"
+            or budget_deadline is None or current >= budget_deadline
+            or not re.fullmatch(r"[a-f0-9]{64}", values.get("capacity_budget_version", ""))):
+        blockers.append(BLOCKER_CAPACITY_BUDGET)
+    if values.get("capacity_ready") != "true":
+        blockers.append(BLOCKER_CAPACITY_INPUT)
+    try:
+        protection = json.loads(_read_state_text(os.path.join(directory, "protection-state.json")) or "null")
+    except ValueError:
+        protection = None
+    if (not isinstance(protection, dict) or type(protection.get("protection_state_version")) is not int
+            or protection.get("protection_state_version") != 1
+            or not isinstance(protection.get("status"), str)
+            or protection.get("status") not in {"observed", "protection_requested", "blocked_dry_run",
+                                                "not_enabled", "apply_failed", "protected"}
+            or not isinstance(protection.get("reasons"), list)
+            or any(not isinstance(code, str) or not re.fullmatch(r"[a-z_]+", code)
+                   for code in protection["reasons"])
+            or (protection["status"] == "observed" and protection["reasons"])):
+        blockers.append(BLOCKER_PROTECTION_STATE)
+    elif protection["status"] != "observed" or values.get("protection_status") != "observed":
+        blockers.append(BLOCKER_PROTECTION_LATCHED)
+    return tuple(dict.fromkeys(blockers))
 
 
 @dataclass(frozen=True, slots=True)
@@ -385,7 +435,8 @@ def build_analytics_operations_readiness(
 
     environment = os.environ if environ is None else environ
     collected = evidence if evidence is not None else collect_analytics_operations_evidence(environment, now=now)
-    blockers = analytics_operations_blockers(collected, environment)
+    blockers = tuple(dict.fromkeys((*analytics_operations_blockers(collected, environment),
+                                   *runtime_guard_blockers(environment, now=now))))
 
     retention_terms = ",".join(
         f"{category}=until_decision" for category, _ in REQUIRED_RETENTION_TERMS

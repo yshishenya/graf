@@ -63,8 +63,8 @@ day anchor. `--window-hours <n>` can extend the comparison interval beyond
 remain signed and require review, with live data and archives shown separately.
 An unavailable event count or zero denominator leaves per-1000 growth unknown.
 
-The guardrail is fixed: analytics storage free space must be at least `20 %`
-(`GRAF_POSTHOG_GUARD_ANALYTICS_DISK_FREE_PERCENT`). A run below that floor
+The guardrail is fixed: analytics storage free space must be at least `20 %`.
+A run below that floor
 blocks baseline acceptance. Exactly 20% does not trigger storage protection;
 all other readiness and capacity requirements still apply. Compare available
 bytes against total bytes without rounding a displayed percentage to an integer.

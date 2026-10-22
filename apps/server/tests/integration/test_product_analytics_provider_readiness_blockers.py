@@ -181,6 +181,9 @@ def _write_access_governance_state(directory: Path, *, now: int) -> Path:
 
 
 def _apply_states(monkeypatch, state: dict[str, Path]) -> None:
+    from tests.fixtures.analytics_operations import write_runtime_guard
+    for key, value in write_runtime_guard(state["backup"].parent, now=int(time.time())).items():
+        monkeypatch.setenv(key, value)
     monkeypatch.setenv("GRAF_POSTHOG_BACKUP_STATE_FILE", str(state["backup"]))
     monkeypatch.setenv("GRAF_POSTHOG_RESTORE_STATE_FILE", str(state["restore"]))
     monkeypatch.setenv("GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_FILE", str(state["retention"]))

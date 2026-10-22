@@ -146,3 +146,21 @@ Restoration after rollback requires:
 Restoration does not approve paid campaign launch. The launch gate is computed
 from the approval records, not from the rollback state
 (`product-analytics-launch-approval.md`).
+
+For a T116 capacity incident, the operator also verifies a fresh complete sample,
+accepted budget/inventory/configuration, measured growth and a 90-day forecast
+within budget. The root-owned receipt names the current incident, operator role,
+approval/expiry, budget/configuration versions, the runtime-switch digest and
+SHA-256 references for growth, expansion, runtime, basis/consent, provider smoke
+and page validation reviews. It must not contain provider values or IP addresses.
+
+After reading the running container's `Config.Env` into the helper's standard
+input through a pipe (never a log or shell variable printed to output), run
+the installed `posthog-capacity.py` with `--protection-state`,
+`--restore-receipt`, `--sample` and `--budget` pointing to the reviewed local
+files, and `GRAF_POSTHOG_GUARD_CONFIG_VERSION` set to the reviewed configuration
+digest. This manual entry point takes the same guard lock and refuses mismatched,
+expired or unsupported evidence/readback. A successful transition records the
+closed incident and receipt digest atomically. The timer never calls it;
+removing a symptom or changing provider flags does not clear the incident or
+approve the separate IP writer.
