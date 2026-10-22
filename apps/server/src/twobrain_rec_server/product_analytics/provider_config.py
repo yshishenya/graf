@@ -20,7 +20,8 @@ class PostHogProviderConfig:
     web_direct_enabled: bool
     desktop_direct_enabled: bool
     replay_enabled: bool
-    retention_min_days: int
+    retention_min_days: int | None
+    retention_mode: str
 
     @property
     def autocapture_scope(self) -> str:
@@ -38,6 +39,7 @@ class PostHogProviderConfig:
             "desktop_direct_enabled": self.desktop_direct_enabled,
             "replay_enabled": self.replay_enabled,
             "retention_min_days": self.retention_min_days,
+            "retention_mode": self.retention_mode,
         }
 
 
@@ -269,7 +271,8 @@ class ProductAnalyticsProviderConfig:
             web_direct_enabled=settings.product_analytics_posthog_web_direct_enabled,
             desktop_direct_enabled=settings.product_analytics_posthog_desktop_direct_enabled,
             replay_enabled=settings.product_analytics_replay_enabled,
-            retention_min_days=settings.product_analytics_retention_min_days,
+            retention_min_days=retention_rule("posthog_product_events").minimum_retention_days,
+            retention_mode=retention_rule("posthog_product_events").retention_mode,
         )
         yandex = YandexProviderConfig(
             all_pages_enabled=settings.product_analytics_yandex_all_pages_enabled,

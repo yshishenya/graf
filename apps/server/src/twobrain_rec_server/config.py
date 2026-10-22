@@ -142,8 +142,7 @@ class Settings(BaseSettings):
     product_analytics_yandex_inventory_version: str = "096.2026-07-09.1"
     product_analytics_rollback_mode: str = "none"
     product_analytics_replay_enabled: bool = False
-    product_analytics_retention_min_days: PositiveInt = Field(default=90)
-    product_analytics_consent_copy_version: str = "2026-07-09.1"
+    product_analytics_consent_copy_version: str = "2026-10-22.1"
     product_analytics_direct_desktop_egress_enabled: bool = False
     product_analytics_direct_desktop_egress_approved: bool = False
     product_analytics_legal_approved: bool = False
@@ -450,13 +449,6 @@ class Settings(BaseSettings):
             )
         return normalized
 
-    @field_validator("product_analytics_retention_min_days")
-    @classmethod
-    def validate_product_analytics_retention_min_days(cls, value: int) -> int:
-        if value < 90:
-            raise ValueError("product_analytics_retention_min_days must be at least 90")
-        return value
-
     @model_validator(mode="after")
     def validate_source_retention_safety(self) -> "Settings":
         if self.retention_source_audio_days is not None and (
@@ -756,8 +748,6 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "production public_analytics_yandex_metrica_id must be a real numeric Yandex counter ID"
                 )
-        if self.product_analytics_retention_min_days < 90:
-            raise ValueError("production product analytics retention must be at least 90 days")
         if self.product_analytics_enabled and self.product_analytics_validation_mode == "disabled":
             raise ValueError("production product analytics requires a non-disabled validation mode")
         if self.product_analytics_enabled and self.product_analytics_provider_mode == "disabled":

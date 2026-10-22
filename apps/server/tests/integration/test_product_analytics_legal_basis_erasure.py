@@ -36,7 +36,6 @@ from twobrain_rec_server.product_analytics.legal_basis_lifecycle import (
     basis_loss_evidence_lines,
     basis_withdrawal_state_file_path,
     lost_basis_dispositions,
-    plan_processing_stop,
     read_basis_withdrawal_register,
 )
 from twobrain_rec_server.product_analytics.provider_config import (
@@ -174,7 +173,7 @@ def test_provider_held_categories_become_a_dated_provider_request(
     assert {result.execution for result in results} == {EXECUTION_PROVIDER_REQUEST}
     assert all(result.rows_affected == 0 for result in results)
     for result in results:
-        assert result.due_at == plan.basis_lost_at + timedelta(days=7)
+        assert result.due_at == NOW + timedelta(days=7)
         assert result.within_deadline is True
 
     lines = basis_loss_evidence_lines(results, reason=plan.reason)
@@ -220,7 +219,7 @@ def test_level_one_aggregate_is_deleted_within_the_term(
     assert asyncio.run(_rows(erasure_database_url, SERVER_AGGREGATE_TABLE)) == []
     assert results[0].rows_affected == 1
     assert results[0].category == "anonymous_page_aggregate"
-    assert results[0].due_at == plan.basis_lost_at + timedelta(days=7)
+    assert results[0].due_at == NOW + timedelta(days=7)
     assert results[0].within_deadline is True
 
 
@@ -238,14 +237,17 @@ def test_erasure_leaves_no_personal_data_in_the_evidence(
 
 
 def _plan_for(level_key: str, tmp_path: Path):
-    return plan_processing_stop(
-        level_key=level_key,
-        basis_lost_at=NOW,
-        reason="legal_basis_withdrawn",
+    register = read_basis_withdrawal_register(_withdrawal_environ(tmp_path, level_key))
+    plans = lost_basis_dispositions(
+        _config(), withdrawals=register, now=NOW,
         deletion_deadlines={
             category: NOW + timedelta(days=7) for category in LEVEL_RETENTION_CATEGORIES[level_key]
         },
     )
+    assert len(plans) == 1
+    assert plans[0].basis_lost_at == datetime(2026, 9, 18, tzinfo=UTC)
+    assert all(action.due_at == NOW + timedelta(days=7) for action in plans[0].actions)
+    return plans[0]
 
 
 async def _apply(database_url: str, plan):
@@ -271,11 +273,8 @@ def test_missing_deletion_deadline_preserves_rows_and_cannot_execute(
     erasure_database_url: str,
     tmp_path: Path,
 ) -> None:
-    plan = plan_processing_stop(
-        level_key="attribution_profiles",
-        basis_lost_at=NOW,
-        reason="legal_basis_withdrawn",
-    )
+    register = read_basis_withdrawal_register(_withdrawal_environ(tmp_path, "attribution_profiles"))
+    plan = lost_basis_dispositions(_config(), withdrawals=register, now=NOW)[0]
     with pytest.raises(LegalBasisLifecycleError, match="deadline"):
         asyncio.run(_apply(erasure_database_url, plan))
     assert len(asyncio.run(_rows(erasure_database_url, SERVER_VISIT_TABLE))) == 1
