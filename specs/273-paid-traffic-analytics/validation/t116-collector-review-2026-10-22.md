@@ -1,5 +1,9 @@
 # T116 — независимое ревью первой части: сборщик расхода
 
+**Актуальный итог v2 от22.10.2026: PASS проверенной первой части — сборщика
+расхода.** V1 FAIL ниже сохранён как история. Это не общая приёмка T116,
+рабочей защиты, readiness или T097.
+
 Дата:22.10.2026. Ветка `codex/273-storage-accounting`, HEAD
 `65d3a4ed5103d6dd15a31e43e79f31745109273f`.
 
@@ -128,3 +132,76 @@ infra25/0, security25/0, privacy45/0, requirements16/0 (checked/open); это н
 | `docs/analytics/product-analytics-capacity-baseline.md` | `5518c40f3e1fb8c3b7848f0f7081254aa2481cb5de21944a3f36307d0fe93da8` |
 
 SHA журнала5PASS: `e97360da06a80fa25f4c836586c90b4f9db68fa82d6b7ac2e2348856cac2af6c`.
+
+
+## Повторный проход collector v2 — 22.10.2026
+
+**PASS проверенного collector-среза; C1–C3 устранены.** Новых блокирующих
+дефектов в повторно проверенных исправлениях не выявлено. Ветка
+`codex/273-storage-accounting`, проверенный HEAD
+`3e145c1951dd6083bb621b09e93badf5d3181bf1`. До записи отчёта рабочая копия чистая.
+
+### Исправления и независимые локальные пробы
+
+- **C1 закрыт.** allocated учитывает блоки самой ссылки, разрешает только
+  успешно разрешённую цель внутри подтверждённого корня того же класса и
+  оставляет target обычному обходу. Локальная структура ClickHouse с directory
+  alias `data/table→../store/part`, дополнительным hardlink и повторным корнем
+  посчитана по уникальным device/inode без двойного target. Отдельно проверены
+  отказ для выхода из корня, dangling и цикла; все дали Incomplete. Проверено
+  сохранение code-only ошибок без раскрытия пути. Cross-class правила и
+  запрет непроверенного nested filesystem сохранены.
+- **C2 закрыт.** До statvfs устанавливается st_dev пути; существующий
+  device_resources кэш делает одну FS-выборку и объединяет роли. Независимая
+  локальная main-проба нескольких реальных путей одного FS подтвердила ровно
+  один вызов filesystem(), один ресурс, роли analytics+host. Первый sample
+  остаётся pending, проекции unknown, сумма равна сумме классов. Private
+  временный путь отсутствует в stdout и JSON. Матрица отдельного guard,
+  бюджетов и рабочих разных FS этим не объявляется пройденной.
+- **C3 закрыт.** Схема anchor.classes проверяется до раннего возврата cached
+  last_growth. Независимая проба classes=[] после корректного измеренного
+  интервала отвергнута как incomplete как через1секунду, так и после следующих
+  24часов. Корректный cached рост при промежуточном вызове сохраняется.
+
+Новый профильный журнал содержит **6passed,27deselected,1warning**; его SHA
+проверен. Reviewer прочитал обновлённые исполняемые тесты, но отдельно pytest
+не запускал. Приведённые выше локальные Python-пробы выполнены reviewer с
+PYTHONDONTWRITEBYTECODE и временными каталогами, автоматически удалёнными после
+проверки; не использовали Docker, SSH, БД, сеть или рабочие данные. Сборщик
+импортировался и запускался с подставленными runtime/catalog функциями только
+в этой временной пробе. Новых файлов тестов или служб не создано.
+
+### Согласованность и ограничения
+
+Wrapper/helper, inventories и baseline соответствуют новому снимку. Установка
+соседнего helper и явного inventory directory в baseline остаётся осуществимой
+инструкцией; применение на сервере не доказано. Ранее проверенные границы
+allocated blocks/overlap/архивов/relations и знаковых суточных рядов сохраняются;
+первый замер и неизвестный denominator не создают выдуманные проекции/per1000.
+Значения рабочего расхода и роста здесь не вычислялись.
+
+Независимый v3 PASS требований не изменён. Снимок collector согласуется с ним:
+общая служебная часть GRAF вне суммы analytics relations, её доля неизвестна;
+128GiB не поднят для PASS. Общие checklist отметки не менялись и не выдаются за
+новую реализационную приёмку. Общая T116, guard/budget/latch/readiness/alert
+consumers, реальные размеры, две сопоставимые выборки≥24часа/нагрузка и операторское
+принятие T097, выпуск и production остаются открытыми отдельными воротами.
+
+История v1 сохранена. Reviewer изменил только этот отчёт. Snapshot6/6 совпал
+до и после независимых проб; committed metadata JSON семантически равен
+.dev snapshot, хеш журнала совпал. Ни один будущий байт, не попавший в этот
+снимок, данным PASS не принимается. `git diff --check` выполнен после записи.
+
+### Принятый снимок collector v2
+
+| Файл | SHA-256 |
+| --- | --- |
+| `infra/scripts/measure-posthog-storage-growth.sh` | `5422d3f1b9f0e359ccc6d124acd191058fa83c66dc4104282e1fbae4a4fefeae` |
+| `infra/scripts/posthog-storage.py` | `d2bbb3dc2c95b87a8045058dfb488a65b478878e0c3999a8ac7d76f1272c75db` |
+| `infra/posthog/storage-mounts.txt` | `0c356dbdbae2af7ba233b017bd2964805972b606c237686c378c3626a738b7d9` |
+| `infra/posthog/storage-relations.txt` | `90d3f40d244f4aaf3c2d6c842aa9ccbf44d5f9bfa8d651f60e5eb25a2b62b2cb` |
+| `apps/server/tests/contract/test_analytics_retention_enforcement.py` | `ef35e15ddbfa46bc33c68f73ead8a52fdff12ee1630ec5219ef4b3d8b67a6e8e` |
+| `docs/analytics/product-analytics-capacity-baseline.md` | `5518c40f3e1fb8c3b7848f0f7081254aa2481cb5de21944a3f36307d0fe93da8` |
+| `specs/273-paid-traffic-analytics/validation/t116-collector-metadata-2026-10-22.json` | `109d74f9c0d5386e8bf2de1d38229fe884d9a6306ff9376e57eb86d9a62c6d3a` |
+| `specs/273-paid-traffic-analytics/validation/t116-requirements-review-2026-10-22.md` | `0495b65c7a1a32122a0eebe6fbffa6cb609084f0f75b81e9be22fc2e8c39901f` |
+| `.dev/growth/t116-collector-focused-v2-2026-10-22.log` | `6679780a6decd1af528bb18bbe067e57c5c492547077903549c4c870ab9d7627` |
