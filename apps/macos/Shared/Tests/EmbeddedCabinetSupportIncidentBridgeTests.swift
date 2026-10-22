@@ -216,7 +216,7 @@ final class EmbeddedCabinetSupportIncidentBridgeTests: XCTestCase {
 }
 
 @MainActor
-private final class SupportNavigationDelegate: NSObject, @preconcurrency WKNavigationDelegate, WKScriptMessageHandler {
+private final class SupportNavigationDelegate: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKScriptMessageHandler {
     let loaded: XCTestExpectation
     let started: XCTestExpectation?
     init(loaded: XCTestExpectation, started: XCTestExpectation? = nil) {
