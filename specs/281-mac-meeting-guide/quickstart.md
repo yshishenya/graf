@@ -50,3 +50,15 @@ Focused: `test_public_audio_help.py`, существующие public guide/hub/
 ## Отдельно разрешенная публикация Help
 
 FR027–28/T016: сначала сверить свежие master, deployed image SHA, deploy lock и последний опубликованный stable Release. Открытый draft F286 не является опубликованным baseline. Пройти новый exact-SHA PR validator после обновления ветки; после завершения чужого выпуска подготовить собственный frozen candidate и одну authoritative Full. Затем штатные CD dry-run/execute с разрешенной свежей копией GRAF и health. Live readback: `/help` и статья200, self canonical, sitemap без дублей, контекстная ссылка руководства и current-навигация, mobile320/390, инварианты главной/download/политик/подписанных macOS артефактов. Личную запись и новые разрешения не использовать; installed-app audio compatibility остается непроверенной.
+
+
+## Учебный результат Zoom — FR033/T021
+
+Сверить публичные утверждения с разрешёнными эталоном и настоящим результатом
+21.10; отметить один голос/WAV/вымышленность, неизвестный срок, предложение
+бюджета и ошибку. Пройти существующие test_public_zoom_recording_guide.py
+и test_public_protocol_guide.py штатным focused runner. После удаления только
+новой section и пункта содержания шаблон должен побайтно совпасть с base.
+Проверить прежние metadata/три CTA/якоря, нулевой diff других public файлов,
+отображение320/390/768/1440 без JS и с реальными прежними CSS. Затем штатные
+exact-SHA gates и выпуск; после него публично прочитать новый раздел.
