@@ -47,6 +47,7 @@ class AnonymousPageAggregateBucket(Base):
             "content",
             "term",
             "device_class",
+            "region",
             "referrer_category",
             "traffic_class",
             name="uq_anonymous_page_aggregate_bucket",
@@ -59,6 +60,10 @@ class AnonymousPageAggregateBucket(Base):
         CheckConstraint(
             "device_class IN ('desktop', 'mobile', 'tablet', 'unknown')",
             name="aggregate_device_class",
+        ),
+        CheckConstraint(
+            "region IN ('ru', 'non_ru', 'unknown')",
+            name="aggregate_region",
         ),
         CheckConstraint(
             "referrer_category IN ('direct', 'organic', 'paid', 'referral', 'unknown')",
@@ -83,6 +88,7 @@ class AnonymousPageAggregateBucket(Base):
     content: Mapped[str | None] = mapped_column(String(96))
     term: Mapped[str | None] = mapped_column(String(96))
     device_class: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")
+    region: Mapped[str] = mapped_column(String(7), nullable=False, default="unknown", server_default="unknown")
     referrer_category: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
     traffic_class: Mapped[str] = mapped_column(String(16), nullable=False, default="external")
     visits: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

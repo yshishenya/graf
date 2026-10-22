@@ -112,6 +112,7 @@ WEB_REGISTRATION_STEPS = tuple(WEB_REGISTRATION_STEP_SURFACES)
 # while the number of files that really reached the browser is a different fact,
 # and only the two together show a link that is clicked but does not work.
 INSTALLER_DELIVERY_SURFACE = "public_installer_delivery"
+REGIONS = ("ru", "non_ru", "unknown")
 DEVICE_CLASSES = ("desktop", "mobile", "tablet", "unknown")
 REFERRER_CATEGORIES = ("direct", "organic", "paid", "referral", "unknown")
 CAMPAIGN_LABEL_FIELDS = ("source", "medium", "campaign", "content", "term")
@@ -217,13 +218,9 @@ def sanitize_anonymous_aggregate_label(value: Any) -> str | None:
     return stripped
 
 
-def is_disclosed_bucket(
-    visits: int,
-    *,
-    minimum_bucket_size: int = MINIMUM_AGGREGATE_BUCKET_SIZE,
-) -> bool:
+def is_disclosed_bucket(visits: int) -> bool:
     """Return whether a bucket may appear in a report (FR-057)."""
-    return visits >= minimum_bucket_size
+    return visits >= MINIMUM_AGGREGATE_BUCKET_SIZE
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,6 +232,7 @@ class AnonymousAggregateBucket:
     landing_path: str
     device_class: str
     referrer_category: str
+    region: str = "unknown"
     traffic_class: str = DEFAULT_TRAFFIC_CLASS
     bucket_hour: int | None = None
     source: str | None = None
@@ -256,6 +254,7 @@ class AnonymousAggregateBucket:
             "content": self.content,
             "term": self.term,
             "device_class": self.device_class,
+            "region": self.region,
             "referrer_category": self.referrer_category,
             "traffic_class": self.traffic_class,
             "visits": self.visits,
@@ -275,6 +274,7 @@ class AnonymousAggregateBucket:
             "content": self.content,
             "term": self.term,
             "device_class": self.device_class,
+            "region": self.region,
             "referrer_category": self.referrer_category,
             "traffic_class": self.traffic_class,
             "visits": self.visits,
@@ -292,6 +292,7 @@ class AnonymousAggregateBucket:
             self.content,
             self.term,
             self.device_class,
+            self.region,
             self.referrer_category,
             self.traffic_class,
         )
@@ -312,6 +313,7 @@ def build_anonymous_aggregate_bucket(
     term: Any = None,
     referrer_category: Any = None,
     device_class: Any = None,
+    region: Any = None,
     traffic_class: Any = None,
     visits: int = 1,
 ) -> AnonymousAggregateBucket:
@@ -339,6 +341,7 @@ def build_anonymous_aggregate_bucket(
         content=sanitize_anonymous_aggregate_label(content),
         term=sanitize_anonymous_aggregate_label(term),
         device_class=_known_value(device_class, DEVICE_CLASSES, "unknown"),
+        region=_known_value(region, REGIONS, "unknown"),
         referrer_category=_known_value(referrer_category, REFERRER_CATEGORIES, "unknown"),
         traffic_class=normalize_traffic_class(traffic_class),
         visits=int(visits),
@@ -449,10 +452,7 @@ async def record_anonymous_aggregate_bucket_safely(
         return None
 
 
-def reportable_aggregate_criteria(
-    *,
-    minimum_bucket_size: int = MINIMUM_AGGREGATE_BUCKET_SIZE,
-) -> tuple[Any, ...]:
+def reportable_aggregate_criteria() -> tuple[Any, ...]:
     """Return the SQL criteria every report over the aggregate must apply.
 
     Two rules are inseparable from a report (FR-013, FR-057): only reported
@@ -462,7 +462,7 @@ def reportable_aggregate_criteria(
     table = AnonymousPageAggregateBucketRow.__table__
     return (
         table.c.traffic_class.in_(tuple(REPORTED_TRAFFIC_CLASSES)),
-        table.c.visits >= int(minimum_bucket_size),
+        table.c.visits >= MINIMUM_AGGREGATE_BUCKET_SIZE,
     )
 
 
@@ -483,14 +483,11 @@ async def select_reportable_aggregate_buckets(
     *,
     bucket_date_from: date | None = None,
     bucket_date_to: date | None = None,
-    minimum_bucket_size: int = MINIMUM_AGGREGATE_BUCKET_SIZE,
     limit: int = 5000,
 ) -> list[dict[str, Any]]:
     """Read report rows: reported traffic classes only, disclosed buckets only."""
     table = AnonymousPageAggregateBucketRow.__table__
-    statement = select(table).where(*reportable_aggregate_criteria(
-        minimum_bucket_size=minimum_bucket_size
-    ))
+    statement = select(table).where(*reportable_aggregate_criteria())
     if bucket_date_from is not None:
         statement = statement.where(table.c.bucket_date >= bucket_date_from)
     if bucket_date_to is not None:
@@ -509,6 +506,7 @@ async def select_reportable_aggregate_buckets(
             "content": row.content,
             "term": row.term,
             "device_class": row.device_class,
+            "region": row.region,
             "referrer_category": row.referrer_category,
             "traffic_class": row.traffic_class,
             "visits": row.visits,
@@ -520,7 +518,7 @@ async def select_reportable_aggregate_buckets(
     return [
         row
         for row in rows
-        if is_disclosed_bucket(row["visits"], minimum_bucket_size=minimum_bucket_size)
+        if is_disclosed_bucket(row["visits"])
     ]
 
 
@@ -530,7 +528,6 @@ async def sum_reportable_aggregate_visits(
     surface: str | None = None,
     bucket_date_from: date | None = None,
     bucket_date_to: date | None = None,
-    minimum_bucket_size: int = MINIMUM_AGGREGATE_BUCKET_SIZE,
 ) -> int:
     """Сумма визитов по раскрытым корзинам уровня 1 (FR-009, FR-012, FR-057).
 
@@ -541,7 +538,7 @@ async def sum_reportable_aggregate_visits(
     """
     table = AnonymousPageAggregateBucketRow.__table__
     statement = select(func.coalesce(func.sum(table.c.visits), 0)).where(
-        *reportable_aggregate_criteria(minimum_bucket_size=minimum_bucket_size)
+        *reportable_aggregate_criteria()
     )
     if surface is not None:
         statement = statement.where(table.c.surface == surface)
@@ -559,7 +556,6 @@ async def sum_reportable_aggregate_visits_by_campaign(
     surface: str,
     bucket_date_from: date | None = None,
     bucket_date_to: date | None = None,
-    minimum_bucket_size: int = MINIMUM_AGGREGATE_BUCKET_SIZE,
 ) -> dict[str, int]:
     """Визиты по метке кампании для одного разреза уровня 1.
 
@@ -572,7 +568,7 @@ async def sum_reportable_aggregate_visits_by_campaign(
     statement = (
         select(table.c.campaign, func.coalesce(func.sum(table.c.visits), 0))
         .where(
-            *reportable_aggregate_criteria(minimum_bucket_size=minimum_bucket_size),
+            *reportable_aggregate_criteria(),
             table.c.surface == surface,
             table.c.campaign.is_not(None),
         )
