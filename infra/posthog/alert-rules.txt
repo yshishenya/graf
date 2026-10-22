@@ -70,6 +70,11 @@ rule code=retention_term_below_required scope=retention owner_role=analytics_ope
 rule code=retention_enforcement_unverified scope=retention owner_role=analytics_operator severity=warning escalate_after_minutes=60 requirement=FR-036
 
 # The alert path itself (FR-056).
+rule code=capacity_input_unverified scope=analytics owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-031
+rule code=capacity_budget_unverified scope=analytics owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-031
+rule code=analytics_storage_budget scope=analytics owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-032
+rule code=protection_state_unverified scope=analytics owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-032
+rule code=analytics_protection_latched scope=analytics owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-032
 rule code=guard_state_missing scope=alerting owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-030
 rule code=guard_state_stale scope=alerting owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-030
 rule code=alert_delivery_failed scope=alerting owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-056

@@ -146,7 +146,9 @@ def _operations_state_files(directory: Path, *, now: int) -> dict[str, str]:
             "enforcement=decision_required enforcement_verified=true"
         )
     retention.write_text("\n".join(retention_lines) + "\n", encoding="utf-8")
+    from tests.fixtures.analytics_operations import write_runtime_guard
     return {
+        **write_runtime_guard(directory, now=now),
         "GRAF_POSTHOG_BACKUP_STATE_FILE": str(backup),
         "GRAF_POSTHOG_RESTORE_STATE_FILE": str(restore),
         "GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_FILE": str(retention),

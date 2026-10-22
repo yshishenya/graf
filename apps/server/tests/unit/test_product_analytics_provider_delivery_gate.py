@@ -91,7 +91,9 @@ def _write_evidence(tmp_path: Path) -> dict[str, str]:
     )
     basis = tmp_path / "basis"
     basis.write_text("basis_state_version=1\n", encoding="utf-8")
+    from tests.fixtures.analytics_operations import write_runtime_guard
     return {
+        **write_runtime_guard(tmp_path, now=now),
         BACKUP_STATE_FILE_ENV: str(backup),
         RESTORE_STATE_FILE_ENV: str(restore),
         RETENTION_STATE_FILE_ENV: str(retention),

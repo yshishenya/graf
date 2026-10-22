@@ -354,6 +354,7 @@ Installation is a release/deploy step, not a local smoke side effect:
 ```sh
 install -d -o root -g root -m 0755 /usr/local/libexec
 install -o root -g root -m 0755 infra/scripts/posthog-runtime-guard.sh /usr/local/libexec/graf-posthog-runtime-guard.sh
+install -o root -g root -m 0755 infra/scripts/posthog-capacity.py /usr/local/libexec/posthog-capacity.py
 install -o root -g root -m 0644 infra/posthog/graf-posthog-runtime-guard.service /etc/systemd/system/
 install -o root -g root -m 0644 infra/posthog/graf-posthog-runtime-guard.timer /etc/systemd/system/
 install -o root -g root -m 0600 infra/posthog/runtime-guard.env.example /etc/graf-posthog-runtime-guard.env
@@ -369,6 +370,26 @@ separate root-owned production override, verify the dry-run receipt, and record
 the operator approval. The contract test checks the thresholds, metadata-only
 logging, fail-closed switches, secure install path, zero-restart execution, and
 one-minute timer; it does not constitute a production timer receipt.
+
+Install the collector, its helper and inventories using
+`product-analytics-capacity-baseline.md` before starting the timer. The guard
+requires both adjacent Python helpers. Preserve an existing reviewed environment
+file during an upgrade; copying the example above is for a fresh installation.
+Create both state directories before systemd starts with `ProtectSystem=strict`.
+The guard directory is root-owned, group `TWOBRAIN_RUNTIME_SECRET_GID` (default
+1001), mode 2750; atomic JSON and alert-state are 0640. The API uses its existing
+supplementary group and a read-only bind mount. It cannot change the incident.
+
+`capacity-budget.json` is an operator-owned acceptance record under the guard
+directory, bound to the reviewed inventory and configuration SHA-256. A pending
+or missing record keeps readiness closed while collection continues. It must
+not be replaced with a test receipt or accepted before T097.
+
+The guard writes `protection-state.json` before changing switches. Only a
+running API container with every measurement switch read back as disabled
+permits `protected`. A failed apply/readback remains `apply_failed` and retries,
+even if the original symptom disappears. A successful incident stays closed
+without further API restarts until the manual Restoration procedure succeeds.
 
 ## Threshold Scopes: Analytics First, Host Second
 
@@ -389,7 +410,8 @@ Analytics scope — these reasons may disable measurement:
 | Reason code | Condition | Threshold variable | Default |
 | --- | --- | --- | --- |
 | `analytics_node_unavailable` | Node availability: failed analytics probes | `GRAF_POSTHOG_GUARD_ANALYTICS_HEALTH_FAILURES` | `1` (one failed analytics probe) |
-| `analytics_storage` | Analytics storage free space below the review floor | `GRAF_POSTHOG_GUARD_ANALYTICS_DISK_FREE_PERCENT` | `20` (`<20 %` free) |
+| `analytics_storage` | Available bytes on the analytics filesystem below the fixed floor | — | `<20 %`, exact bytes |
+| `analytics_storage_budget` | Analytics allocated bytes reach the accepted absolute budget | operator budget record | `>= budget` |
 | `analytics_delivery_lag` | Delivery lag at or above the limit | `GRAF_POSTHOG_GUARD_ANALYTICS_LAG_SECONDS` | `900` (`>=900 s`) |
 | `analytics_queue_depth` | Ingest queue backlog at or above the limit | `GRAF_POSTHOG_GUARD_ANALYTICS_QUEUE_DEPTH` | `100000` (`>=100000`) |
 | `analytics_queue_growth` | Ingest queue growth at or above the limit | `GRAF_POSTHOG_GUARD_ANALYTICS_QUEUE_GROWTH_PER_MIN` | `5000` (`>=5000` per minute) |
@@ -403,7 +425,7 @@ Host scope — these reasons alert only and never disable measurement:
 | --- | --- | --- | --- |
 | `host_load` | Host 1-minute load average at or above the limit | `GRAF_POSTHOG_GUARD_HOST_LOAD` | `11` (`>=11`) |
 | `host_memory` | Host available memory below the limit | `GRAF_POSTHOG_GUARD_HOST_MEMORY_MIB` | `16384` (`<16384 MiB`) |
-| `host_disk` | Host disk free space below the limit | `GRAF_POSTHOG_GUARD_HOST_DISK_FREE_PERCENT` | `10` (`<10 %`) |
+| `host_disk` | Available bytes on the host filesystem below the fixed floor | — | `<10 %`, exact bytes |
 | `host_product_probe_unavailable` | GRAF product readiness probe failing | `GRAF_POSTHOG_GUARD_HOST_HEALTH_FAILURES` | `2` (2 consecutive minutes) |
 
 `GRAF_POSTHOG_GUARD_AUTO_ROLLBACK=1` with `GRAF_POSTHOG_GUARD_DRY_RUN=0` may now
