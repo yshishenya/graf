@@ -2874,6 +2874,28 @@ final class DesktopUploadQueueTests: XCTestCase {
                     )
                     XCTAssertEqual(stored.items[0].supportIncidentSubmission?.state, .sending)
                     XCTAssertNil(stored.items[0].supportIncidentSubmission?.githubIssueNumber)
+                    let beforeRecovery = try Data(contentsOf: queueURL)
+                    if boundary == "scope" {
+                        XCTAssertEqual(try service.loadItems().first?.supportIncidentSubmission?.state, .sending)
+                        XCTAssertEqual(try Data(contentsOf: queueURL), beforeRecovery, "Foreign scope cannot recover owner state")
+                    }
+                    service.setDeletionScope(owner)
+                    let recovered = try XCTUnwrap(service.loadItems().first?.supportIncidentSubmission)
+                    XCTAssertEqual(recovered.state, action == "sync" ? .pendingSync : .failedWithCopyFallback)
+                    XCTAssertEqual(recovered.incidentNumber, action == "sync" ? "CUST-PENDING-1" : nil)
+                    XCTAssertEqual(recovered.localReportFingerprint, stored.items[0].supportIncidentSubmission?.localReportFingerprint)
+                    XCTAssertEqual(recovered.dedupeKey, stored.items[0].supportIncidentSubmission?.dedupeKey)
+                    XCTAssertEqual(recovered.lastFailureCode, "support_incident.interrupted")
+                    XCTAssertNil(recovered.githubIssueNumber, "Recovery must not apply the stale response")
+                    XCTAssertNotNil(try service.supportIncidentReportText(itemIds: [item.id]))
+                    client.beforeResponse = nil
+                    if action == "submit" {
+                        _ = try await service.submitSupportIncident(itemId: item.id, using: client)
+                    } else {
+                        _ = try await service.syncSupportIncident(itemId: item.id, using: client)
+                        XCTAssertEqual(client.syncIncidentIDs, ["CUST-PENDING-1", "CUST-PENDING-1"])
+                    }
+                    XCTAssertEqual(try service.loadItems().first?.supportIncidentSubmission?.state, .sent)
                 }
             }
         }
@@ -2900,6 +2922,8 @@ final class DesktopUploadQueueTests: XCTestCase {
                 let service = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root, client: client)
                 let itemID = item.id
                 client.beforeResponse = {
+                    XCTAssertEqual(try service.loadItems().first?.supportIncidentSubmission?.state, .sending,
+                                   "Reading during an active request must not recover it")
                     do {
                         if second == "submit" {
                             _ = try await service.submitSupportIncident(itemId: itemID, using: other)
@@ -2955,6 +2979,64 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(saved.supportIncidentSubmission?.lastFailureCategory, UploadFailureCategory.network.rawValue)
         XCTAssertEqual(saved.supportIncidentSubmission?.lastFailureCode, "support_incident.interrupted")
         XCTAssertTrue(saved.supportIncidentSubmission?.copyFallbackAvailable == true)
+    }
+
+    func testInterruptedSupportIncidentRecoveryUsesOwnerScopeOnFirstRead() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let owner = try RecordingDeletionScope(serverOrigin: "https://graf.invalid", workspaceID: "workspace", actorUserID: "owner")
+        for syncing in [false, true] {
+            for context in ["explicit", "offline-matching", "offline-mismatch"] {
+                var item = makeSupportIncidentItem(id: "interrupted-owner")
+                item.ownerScope = owner
+                item.isLocalUnbound = false
+                item.supportIncidentSubmission = DesktopSupportIncidentSubmissionState(
+                    state: .sending, localReportFingerprint: "report_fpr_1234abcd",
+                    dedupeKey: "support_dedupe_1234abcd", incidentNumber: syncing ? "CUST-PENDING-1" : nil,
+                    lastSubmissionAttemptAt: Date(timeIntervalSince1970: 100),
+                    copyFallbackAvailable: false, accessibilityLabel: DesktopSupportIncidentActionCopy.sendingMessage
+                )
+                var document = DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item])
+                document.lastAuthenticatedContext = RecordingAuthenticatedContext(scope: owner, sessionFingerprint: "owner-session")
+                try JSONEncoder.uploadQueueTestEncoder.encode(document).write(to: queueURL, options: [.atomic])
+                let before = try Data(contentsOf: queueURL)
+                let client = SupportIncidentOnlyClient()
+                client.recordingSessionFingerprint = context == "offline-mismatch" ? "other-session" : "owner-session"
+                let service = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root, client: client,
+                                                       clock: { Date(timeIntervalSince1970: 200) })
+                if context == "explicit" { service.setDeletionScope(owner) }
+                if context == "offline-mismatch" {
+                    let hidden = try XCTUnwrap(service.loadItems().first)
+                    XCTAssertFalse(hidden.lifecycleAccessAvailable)
+                    XCTAssertEqual(hidden.supportIncidentSubmission?.state, .sending)
+                    XCTAssertEqual(try Data(contentsOf: queueURL), before)
+                    // A failed atomic recovery must remain retryable without changing cached state.
+                    try FileManager.default.removeItem(at: queueURL)
+                    try FileManager.default.createDirectory(at: queueURL, withIntermediateDirectories: true)
+                    try Data([1]).write(to: queueURL.appendingPathComponent("block-replacement"))
+                    service.setDeletionScope(owner)
+                    XCTAssertThrowsError(try service.loadItems())
+                    service.setDeletionScope(nil)
+                    XCTAssertEqual(try service.loadItems().first?.supportIncidentSubmission?.state, .sending)
+                    try FileManager.default.removeItem(at: queueURL)
+                    try before.write(to: queueURL, options: [.atomic])
+                    service.setDeletionScope(owner)
+                }
+                let recovered = try XCTUnwrap(service.loadItems().first?.supportIncidentSubmission)
+                XCTAssertEqual(recovered.state, syncing ? .pendingSync : .failedWithCopyFallback)
+                XCTAssertEqual(recovered.incidentNumber, syncing ? "CUST-PENDING-1" : nil)
+                XCTAssertEqual(recovered.localReportFingerprint, "report_fpr_1234abcd")
+                XCTAssertEqual(recovered.dedupeKey, "support_dedupe_1234abcd")
+                XCTAssertEqual(recovered.copyFallbackAvailable, syncing ? false : true)
+                XCTAssertEqual(recovered.lastFailureCode, "support_incident.interrupted")
+                let recoveredBytes = try Data(contentsOf: queueURL)
+                _ = try service.loadItems()
+                XCTAssertEqual(try Data(contentsOf: queueURL), recoveredBytes, "Recovery is persisted once")
+                XCTAssertTrue(client.reports.isEmpty && client.syncIncidentIDs.isEmpty)
+            }
+        }
     }
 
     func testQueueDocumentUsesRevisionReadyV2Schema() {
@@ -3785,6 +3867,7 @@ final class DesktopUploadQueueTests: XCTestCase {
         private let syncResult: DesktopSupportIncidentResponse?
         private let error: Error?
         var beforeResponse: (@Sendable () async throws -> Void)?
+        var recordingSessionFingerprint: String?
         private(set) var reports: [DesktopSupportIncidentReport] = []
         private(set) var syncIncidentIDs: [String] = []
 

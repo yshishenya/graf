@@ -183,11 +183,12 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     public func loadItems() throws -> [DesktopUploadQueueItem] {
         try queue.sync {
-            let document = try loadDocumentOnQueue()
+            var document = try loadDocumentOnQueue()
             if allowsOfflineScopeRestore, activeDeletionScope == nil,
                let context = document.lastAuthenticatedContext,
                context.sessionFingerprint == client?.recordingSessionFingerprint {
                 activeDeletionScope = context.scope
+                document = try loadDocumentOnQueue()
             }
             return document.items.filter { !isShortRecordingDiscarded($0) }.map { projectLifecycle($0, in: document) }.sortedForDisplay()
         }
@@ -2543,7 +2544,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     private func loadDocumentOnQueue() throws -> DesktopUploadQueueDocument {
         if let document {
-            return document
+            return try recoverInterruptedSupportIncidents(in: document)
         }
         guard FileManager.default.fileExists(atPath: queueURL.path) else {
             let empty = DesktopUploadQueueDocument(updatedAt: clock(), items: [])
@@ -2578,30 +2579,51 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         loaded.items = loaded.items.map { item in
             let normalized = normalizeRetiredItem(item, in: loaded, now: now)
             if normalized != item { needsSave = true }
-            let item = normalized
-            guard let submission = item.supportIncidentSubmission,
-                  submission.state == .sending
-            else {
-                return item
-            }
-            var next = item
-            next.updatedAt = now
-            next.supportIncidentSubmission = .failedWithCopyFallback(
-                reportFingerprint: submission.localReportFingerprint ?? "unknown",
-                dedupeKey: submission.dedupeKey ?? "unknown",
-                attemptedAt: now,
-                failureCategory: UploadFailureCategory.network.rawValue,
-                failureCode: "support_incident.interrupted"
-            )
-            needsSave = true
-            return next
+            return normalized
         }.sortedForDisplay()
         if needsSave {
             loaded.updatedAt = now
             try saveDocumentOnQueue(loaded)
         }
         document = loaded
-        return loaded
+        return try recoverInterruptedSupportIncidents(in: loaded)
+    }
+
+    private func recoverInterruptedSupportIncidents(in document: DesktopUploadQueueDocument) throws -> DesktopUploadQueueDocument {
+        var recovered = document
+        let now = clock()
+        var changed = false
+        recovered.items = document.items.map { item in
+            guard let submission = item.supportIncidentSubmission, submission.state == .sending,
+                  !activeSupportIncidentItemIDs.contains(item.id),
+                  projectLifecycle(item, in: document).lifecycleAccessAvailable else { return item }
+            // Recovery is local owner work, never application of a cancelled request's late result.
+            var next = item
+            next.updatedAt = now
+            if let incidentNumber = submission.incidentNumber {
+                next.supportIncidentSubmission = .pendingSync(
+                    reportFingerprint: submission.localReportFingerprint ?? "unknown",
+                    dedupeKey: submission.dedupeKey ?? "unknown",
+                    incidentNumber: incidentNumber, attemptedAt: now,
+                    copyFallbackAvailable: submission.copyFallbackAvailable,
+                    failureCode: "support_incident.interrupted"
+                )
+            } else {
+                next.supportIncidentSubmission = .failedWithCopyFallback(
+                    reportFingerprint: submission.localReportFingerprint ?? "unknown",
+                    dedupeKey: submission.dedupeKey ?? "unknown", attemptedAt: now,
+                    failureCategory: UploadFailureCategory.network.rawValue,
+                    failureCode: "support_incident.interrupted"
+                )
+            }
+            changed = true
+            return next
+        }
+        if changed {
+            recovered.updatedAt = now
+            try saveDocumentOnQueue(recovered)
+        }
+        return recovered
     }
 
     private func saveDocumentOnQueue(_ document: DesktopUploadQueueDocument) throws {
