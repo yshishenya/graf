@@ -3,6 +3,7 @@ set -euo pipefail
 # Independent public probe; no SSH, Docker or database access to the target.
 exec python3 - "$@" <<'PY'
 import fcntl
+import hashlib
 import json
 import os
 import subprocess
@@ -28,6 +29,10 @@ sender = os.environ.get("GRAF_AVAILABILITY_ALERT_SCRIPT", "/usr/local/libexec/gr
 parsed = urlsplit(url)
 if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
     raise SystemExit("availability_result=failed reason=invalid_target")
+target_id = hashlib.sha256(json.dumps(
+    [parsed.hostname.lower(), parsed.port or 443, parsed.path or "/"],
+    separators=(",", ":"),
+).encode()).hexdigest()
 if mode == ["--dry-run"]:
     print("availability_result=dry_run interval_seconds=60 timeout_seconds=10 failure_threshold=2")
     raise SystemExit(0)
@@ -39,8 +44,9 @@ with (root / "lock").open("a") as lock:
     except BlockingIOError:
         raise SystemExit("availability_result=unknown reason=probe_already_running")
     now = int(time.time())
-    state = dict(recorded_epoch=0, failures=0, first_failure_epoch=0,
+    initial_state = dict(target_id=target_id, recorded_epoch=0, failures=0, first_failure_epoch=0,
                  last_delivery_epoch=0, notified_outage=False)
+    state = initial_state.copy()
     if state_file.exists():
         try:
             loaded = json.loads(state_file.read_text())
@@ -54,16 +60,41 @@ with (root / "lock").open("a") as lock:
                     or loaded["target_status"] not in {"up", "unreachable", "degraded"}
                     or loaded["channel_status"] not in {"available", "channel_unavailable"}
                     or loaded["delivery"] not in {"not_required", "delivered", "failed"}
-                    or loaded["result"] not in {"ready", "degraded"}):
+                    or loaded["result"] not in {"ready", "degraded"}
+                    or not isinstance(loaded["target_id"], str)
+                    or len(loaded["target_id"]) != 64
+                    or any(c not in "0123456789abcdef" for c in loaded["target_id"])):
                 raise ValueError("invalid state schema")
+            failures = loaded["failures"]
+            notified = loaded["notified_outage"]
+            delivery = loaded["delivery"]
+            if (loaded["recorded_epoch"] == 0
+                    or loaded["last_delivery_epoch"] > loaded["recorded_epoch"]
+                    or loaded["target_status"] != ("up" if failures == 0 else "degraded" if failures == 1 else "unreachable")
+                    or (failures == 0 and loaded["first_failure_epoch"] != 0)
+                    or (failures > 0 and not 0 < loaded["first_failure_epoch"] <= loaded["recorded_epoch"])
+                    or (notified and loaded["last_delivery_epoch"] == 0)
+                    or (delivery == "delivered" and loaded["last_delivery_epoch"] == 0)
+                    or (failures == 0 and notified != (delivery == "failed"))
+                    or (failures == 1 and delivery != "not_required")
+                    or (failures == 2 and delivery != "failed" and not notified)
+                    or loaded["result"] != ("ready" if failures == 0 and loaded["channel_status"] == "available" and delivery != "failed" else "degraded")):
+                raise ValueError("inconsistent state")
             state.update(loaded)
         except (OSError, ValueError, KeyError, TypeError):
             raise SystemExit("availability_result=unknown reason=state_invalid")
+    if state["target_id"] != target_id:
+        if mode == ["--status"]:
+            raise SystemExit("availability_result=unknown reason=target_changed")
+        state = initial_state.copy()
     if mode == ["--status"]:
         if not state_file.exists() or now - state["recorded_epoch"] >= 180:
             raise SystemExit("availability_result=unknown reason=state_missing_or_stale")
         print(json.dumps(state, sort_keys=True))
         raise SystemExit(0 if state.get("result") == "ready" else 1)
+
+    # The shared EnvironmentFile may name another sender state directory.
+    os.environ["GRAF_ANALYTICS_ALERT_STATE_DIR"] = str(root / "alert")
 
     def run(argv, timeout):
         try:

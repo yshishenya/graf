@@ -1157,6 +1157,7 @@ def test_external_observer_repeat_window_and_failed_recovery_are_not_lost(tmp_pa
     path = Path(environment['GRAF_AVAILABILITY_STATE_DIR']) / 'state.json'
     state = json.loads(path.read_text())
     state['last_delivery_epoch'] -= 3601
+    state['first_failure_epoch'] -= 3601
     path.write_text(json.dumps(state))
     calls = curl_log.read_text().count('sendMessage')
     assert json.loads(run(TARGET_FAIL='1').stdout)['delivery'] == 'delivered'
@@ -1219,3 +1220,84 @@ def test_external_state_schema_validation_survives_python_optimization(tmp_path:
 def test_external_transport_accepts_valid_telegram_json_with_whitespace(tmp_path: Path) -> None:
     _, _, run = _external_observer(tmp_path)
     assert json.loads(run(CHANNEL_BODY='{ "ok": true }').stdout)['result'] == 'ready'
+
+
+def test_external_observer_sender_state_stays_in_writable_directory(tmp_path: Path) -> None:
+    environment, _, run = _external_observer(tmp_path)
+    conflicting = tmp_path / 'outside-service-sandbox'
+    assert run(GRAF_ANALYTICS_ALERT_STATE_DIR=str(conflicting)).returncode == 0
+    assert not conflicting.exists()
+    assert (Path(environment['GRAF_AVAILABILITY_STATE_DIR']) / 'alert').is_dir()
+
+
+@pytest.mark.parametrize('changes', [
+    {'failures': 2, 'notified_outage': True},
+    {'target_status': 'unreachable'},
+    {'failures': 1, 'target_status': 'degraded'},
+    {'notified_outage': True},
+    {'delivery': 'delivered'},
+    {'delivery': 'failed'},
+    {'channel_status': 'channel_unavailable'},
+    {'result': 'degraded'},
+    {'target_id': 'invalid'},
+])
+def test_external_observer_rejects_inconsistent_state(tmp_path: Path, changes: dict) -> None:
+    environment, curl_log, run = _external_observer(tmp_path)
+    assert run().returncode == 0
+    path = Path(environment['GRAF_AVAILABILITY_STATE_DIR']) / 'state.json'
+    state = json.loads(path.read_text())
+    path.write_text(json.dumps({**state, **changes}))
+    calls = curl_log.read_text()
+    rejected = run(TARGET_FAIL='1')
+    assert rejected.returncode != 0
+    assert 'state_invalid' in rejected.stderr
+    assert curl_log.read_text() == calls
+
+
+def test_external_observer_resets_target_specific_history(tmp_path: Path) -> None:
+    _, curl_log, run = _external_observer(tmp_path)
+    run(TARGET_FAIL='1')
+    previous = json.loads(run(TARGET_FAIL='1').stdout)
+    assert previous['notified_outage']
+    calls = curl_log.read_text().count('sendMessage')
+    equivalent = json.loads(run(
+        TARGET_FAIL='1', GRAF_AVAILABILITY_URL='https://REC.2BRAIN.PRO:443/api/v1/health/live',
+    ).stdout)
+    assert equivalent['target_id'] == previous['target_id']
+    assert equivalent['failures'] == 2
+    assert curl_log.read_text().count('sendMessage') == calls
+    replacement = 'https://replacement.example/api/v1/health/live'
+    first = json.loads(run(TARGET_FAIL='1', GRAF_AVAILABILITY_URL=replacement).stdout)
+    assert first['target_id'] != previous['target_id']
+    assert first['failures'] == 1
+    assert not first['notified_outage']
+    assert first['last_delivery_epoch'] == 0
+    assert curl_log.read_text().count('sendMessage') == calls
+    second = json.loads(run(TARGET_FAIL='1', GRAF_AVAILABILITY_URL=replacement).stdout)
+    assert second['delivery'] == 'delivered'
+    assert curl_log.read_text().count('sendMessage') == calls + 1
+    # Switching from a delivered drill outage to a healthy target is not recovery.
+    healthy = json.loads(run().stdout)
+    assert healthy['result'] == 'ready'
+    assert healthy['delivery'] == 'not_required'
+    assert curl_log.read_text().count('sendMessage') == calls + 1
+
+
+def test_external_observer_recurrence_before_recovery_delivery_keeps_running(tmp_path: Path) -> None:
+    _, curl_log, run = _external_observer(tmp_path)
+    run(TARGET_FAIL='1')
+    assert json.loads(run(TARGET_FAIL='1').stdout)['notified_outage']
+    recovery = json.loads(run(CHANNEL_FAIL='1').stdout)
+    assert recovery['delivery'] == 'failed'
+    calls = curl_log.read_text().count('sendMessage')
+    recurrence = json.loads(run(TARGET_FAIL='1').stdout)
+    assert recurrence['failures'] == 1
+    assert recurrence['notified_outage']
+    repeated = json.loads(run(TARGET_FAIL='1').stdout)
+    assert repeated['failures'] == 2
+    assert repeated['delivery'] == 'not_required'
+    assert curl_log.read_text().count('sendMessage') == calls
+    recovered = json.loads(run().stdout)
+    assert recovered['result'] == 'ready'
+    assert recovered['delivery'] == 'delivered'
+    assert not recovered['notified_outage']

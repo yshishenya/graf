@@ -219,3 +219,145 @@ requirements/tasks/checklists, Git/GitHub и production не менялись.
 и действующая независимость оповещения не приняты. Продуктовая готовность,
 полное T118 восстановление, рост трафика и продажи этим PASS не доказываются.
 `git diff --check` пройден.
+
+
+## Этап 2 v3 — исправления последующего ревью
+
+**FAIL из-за потерянного перехода повторного отказа до подтверждённого
+восстановления.** Поправки sandbox/идентичности цели работают в проверенных
+сценариях, но новое relational validation отвергает одно состояние, которое
+создаёт сам writer, после чего наблюдение и повторы прекращаются.
+
+Ветка `codex/273-external-monitor`, HEAD
+`5acc07558f089a6cecbc9ecb56faef6fae43ba78`. Шесть хешей снимка
+`.dev/growth/t119-monitor-snapshot-v3.json` совпали. Снимок содержит5 путей
+кода/юнитов/теста и завершённый журнал; sender и timer сохранили прежние bytes.
+SHA-256 снимка:
+`a92ec81fa09c184d5c6fc0a7436939353300189ca7c1e745acdf1546416a99c3`.
+Семь опорных scoped-reading хешей совпали. Предоставленный завершённый
+`t119-review-fixes-tests.log` прочитан: **103passed,1warning,39.99s**;
+SHA-256
+`3bcdfedbb5a055c19e03d03336dde8b9f644dee94de1fd829eb14f4322404556`.
+Полный профиль reviewer не повторял.
+
+### Независимый отрицательный сценарий R3
+
+Реальный observer/sender исполнены отдельными запусками через curl/logger
+stubs; только синтетические состояния и временный каталог:
+
+| Шаг | Полученный результат |
+| --- | --- |
+| Здоровая цель | failures0,notifiedfalse,not_required |
+| Первый отказ | failures1,notifiedfalse,not_required |
+| Второй отказ/доставка | failures2,notifiedtrue,delivered |
+| Цель восстановилась, сообщение recovery не доставлено | failures0,notifiedtrue,failed |
+| Цель снова отказала до подтверждения recovery | writer сохраняет failures1,notifiedtrue,not_required |
+| Следующий запуск | state_invalid до любых проверок/попыток доставки |
+
+Указанный writer-produced state запрещён новым правилом
+`failures == 1 and (notified or delivery != "not_required")`; при реальном
+интервале дополнительно несовместимо сравнение last_delivery и нового
+first_failure. Наблюдатель остаётся в отказе разбора, хотя цель требуется
+продолжать проверять и финальное recovery уведомление — повторять.
+Основной задаче дефект передан сразу после независимого воспроизведения.
+Нужно согласовать validation с законными переходами, сохранив смысл:
+получатель уже видел outage, а recovery ещё не подтверждена. Отдельного
+нового правила оповещения/хранилища это не требует.
+
+### Другие независимо проверенные поправки
+
+- Конфликтующий внешний `GRAF_ANALYTICS_ALERT_STATE_DIR` не создаётся;
+  sender пишет в `observer_root/alert`, доступный существующему sandbox.
+- Uppercase hostname/явный443 имеют тот же target_id и сохраняют suppression.
+- `--status` при изменившемся target даёт target_changed без запросов/отправок.
+- Новая цель начинает с failures1/неуведомлённого состояния/нулевой доставки,
+  второй отказ доставляется; переключение обратно на healthy не выдаётся
+  за recovery другой цели.
+- Отдельные несовместимые target_status/channel_status/notified/delivery
+  в otherwise-healthy state отвергаются до любых curl вызовов.
+
+Никаких настоящих сети/сообщений/серверных действий не было. Временные
+каталоги удалены. Reviewer изменил только этот отчёт; чужие изменения не
+отменялись. После сообщения автор начал минимальное исправление R3 и
+повторный профиль; эти новые bytes не принимаются данным историческим v3.
+Отметки требований не меняются: infra25/0, privacy-measurement45/0,
+security25/0, requirements16/0 — **111checked/0open**. Следующий шаг — узкий
+повтор законного recurrence/retry/recovery и отрицательных invariants после
+передачи финального снимка. Рабочая установка/реальный receipt/T119 целиком,
+включение измерения и коммерческие критерии остаются открытыми.
+
+
+## Этап 2 v4 — независимый повтор после исправления recurrence
+
+**Локальный PASS текущих изменений T119.** R3 устранён без потери повтора
+или recovery. Новых конкретных дефектов проверенного узкого среза не найдено.
+Исторический FAIL v3 выше сохранён; прежний PASS v2 не выдаётся за проверку
+найденных позже relational/target/sandbox разрывов.
+
+Ветка `codex/273-external-monitor`, HEAD
+`5acc07558f089a6cecbc9ecb56faef6fae43ba78`. Согласование state validator
+с transition writer теперь допускает ранее уведомлённый outage до принятого
+recovery, даже если после краткого up снова получен первый отказ. Поле
+notified не обязано сбрасываться раньше подтверждения recovery. При этом
+failures1 требует not_required, сохраняются привязка target_id, точные типы,
+закрытые значения и прочие проверенные связи полей.
+
+### Самостоятельные локальные доказательства
+
+Независимо выполнен полный ранее сломанный переход дважды:
+
+1. Outage2/delivered → recoveryfailed → outage1 → outage2 без истечения
+   окна повторов → suppressed → повторная failed recovery → recovery
+   delivered/ready → steady healthy/not_required.
+2. Тот же переход с исходной доставкой старше3600секунд: после нового
+   outage1 состояние читается, outage2 доставляет новый повтор, затем
+   failed recovery и успешный retry приводят к ready. Время изменено только
+   в синтетическом временном state, без сна/реальных исторических данных.
+
+Каждый этап исполнял фактические observer и общий sender отдельно через
+curl/logger stubs. Никаких state_invalid на законных переходах больше нет.
+Ошибки отправки не становятся delivered и не теряют pending recovery.
+
+Другие независимые результаты, полученные на v3 и сохранённые v4 поправкой:
+принудительный sender state под writable observer root при конфликтующем
+EnvironmentFile значении; hostname-case/явный443 нормализуются; новая цель
+сбрасывает только её историю; status чужой цели закрывается без запросов;
+переключение между целями не создаёт ложный recovery. Несовместимые
+healthy target/channel/notified/delivery поля блокируются до curl.
+Из v3 в v4 менялись только relational-проверки probe и соответствующий
+contract test; service/path/target code и sender не менялись. Область
+systemd исполнения прочитана, но реальная sandbox-установка не выполнялась.
+
+### Завершённые результаты и фиксация bytes
+
+Все6 хешей снимка совпали перед и после независимого повтора и финальных
+проверок. Снимок `.dev/growth/t119-monitor-snapshot-v4.json`, SHA-256
+`b105750fc4cb958c022f984c5459836f507824e49da603a75dd970a708da3b8a`:
+
+| Файл | SHA-256 |
+| --- | --- |
+| `infra/scripts/check-graf-availability.sh` | `a2355df92ade26ac0047d1a39f80287f403f21d5bd844113b1a26b1c351d2994` |
+| `infra/scripts/alert-analytics-degradation.sh` | `8e71ec55b0af05766c7686ea626241e4931835d360c3d8bcdccd0255fc600cdd` |
+| `infra/posthog/graf-external-availability.service` | `e341c686e679148a88e56203591c73048c3639fe7126541fedcf1681eefae495` |
+| `infra/posthog/graf-external-availability.timer` | `8056913bba9b2f79ad0e4c134c67223410a9334ee577f95c80abe60707dd7e81` |
+| `apps/server/tests/contract/test_analytics_degradation_alerting.py` | `cc954b4c0d765fd99b6c915066a0e9919b5759bf8ed64341e5f80e8941cb77ae` |
+| `.dev/growth/t119-review-fixes-v4-tests.log` | `7f1839b01d245c6b107f29872d5248fc86551947344efc4e71d1b082f887fed9` |
+
+Предоставленный завершённый профиль прочитан и хеш сверён:
+**104passed,1warning,40.43s**. Reviewer полный104-профиль повторно не запускал.
+Самостоятельно пройдены bash-n probe/sender, Ruff contract test и diff check.
+Семь scoped-reading anchors совпали. Все25 пунктов infra перечитаны;
+итоги неизменны: infra25/0, privacy-measurement45/0, security25/0,
+requirements16/0 — **111checked/0open**. Отметки не менялись.
+
+Reviewer изменил только этот отчёт. Пробы — автоматически удалённые временные
+каталоги, синтетические metadata states и curl/logger stubs, без сети,
+настоящих сообщений, Docker/SSH/серверов. Код, требования/tasks/checklists,
+Git/GitHub и чужие изменения не менялись.
+
+Это локальный PASS source/test состояния на указанной базе. Точные PR CI,
+разрешённый выпуск и установка observer/sender на astraglobal, операторская
+конфигурация в sandbox, реальное раздельное испытание изолированной цели и
+канала и receipt учебной доставки≤15минут остаются отдельными открытыми
+шагами. T119 целиком, включение измерения и коммерческие AC не приняты.
+`git diff --check` пройден.
