@@ -64,7 +64,7 @@ final class RecordingDeletionRecoveryAcceptanceTests: XCTestCase {
                         status = 429; headers["Retry-After"] = "120"
                         body = ["code": "rate_limit_exceeded"]
                     } else {
-                        body = ["receipt_type": "meeting_deletion", "request_id": UUID().uuidString,
+                        body = ["receipt_type": "meeting_deletion", "phase": "accepted", "request_id": UUID().uuidString,
                                 "meeting_id": url.deletingLastPathComponent().lastPathComponent, "deletion_epoch": 1]
                     }
                 }

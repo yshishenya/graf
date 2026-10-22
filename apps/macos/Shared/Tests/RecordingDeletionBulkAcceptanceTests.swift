@@ -151,10 +151,10 @@ private actor BulkDeletionServer {
                     status = 404
                     body = ["code": "meeting_not_found"]
                 } else if case .ownOrigin = operations[index].target {
-                    body = ["receipt_type": "origin_cancellation", "request_id": receiptIDs[index].uuidString,
+                    body = ["receipt_type": "origin_cancellation", "phase": "accepted", "request_id": receiptIDs[index].uuidString,
                             "local_recording_id": target]
                 } else {
-                    body = ["receipt_type": "meeting_deletion", "request_id": receiptIDs[index].uuidString,
+                    body = ["receipt_type": "meeting_deletion", "phase": "accepted", "request_id": receiptIDs[index].uuidString,
                             "meeting_id": target, "deletion_epoch": 1] as [String: Any]
                 }
             }

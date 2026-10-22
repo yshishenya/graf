@@ -274,7 +274,7 @@ final class RecordingDeletionLifecycleTests: XCTestCase {
                     XCTAssertEqual(request.value(forHTTPHeaderField: "X-Graf-Expected-Actor"), scope.actorUserID)
                     XCTAssertEqual(request.value(forHTTPHeaderField: "X-Graf-Expected-Workspace"), scope.workspaceID)
                     body = attempt == 1 ? ["code":"network_unavailable"] : [
-                        "receipt_type":"origin_cancellation", "request_id":receiptID, "local_recording_id":"synthetic-origin"
+                        "receipt_type":"origin_cancellation", "request_id":receiptID, "local_recording_id":"synthetic-origin", "phase": "accepted"
                     ]
                 }
                 return (try JSONSerialization.data(withJSONObject: body), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
@@ -358,7 +358,7 @@ final class RecordingDeletionLifecycleTests: XCTestCase {
                         body = ["code": "meeting_not_found"]
                     } else {
                         XCTAssertTrue(path.contains(allowedID))
-                        body = ["receipt_type": "meeting_deletion", "request_id": UUID().uuidString,
+                        body = ["receipt_type": "meeting_deletion", "phase": "accepted", "request_id": UUID().uuidString,
                                 "meeting_id": allowedID, "deletion_epoch": 1]
                     }
                 }
@@ -383,6 +383,109 @@ final class RecordingDeletionLifecycleTests: XCTestCase {
         let receipt = try JSONDecoder().decode(RecordingDeletionReceipt.self, from: Data(#"{"receipt_type":"origin_cancellation","request_id":"00000000-0000-0000-0000-000000000001","local_recording_id":"different"}"#.utf8))
         let operation = try makeOperation()
         XCTAssertThrowsError(try operation.accepting(receipt, at: Date()))
+    }
+
+    func testNetworkReceiptPhaseControlsAcceptanceAndOriginCleanup() async throws {
+        // Exercise each network entry point through the real queue and filesystem.
+        for route in ["direct-origin", "direct-meeting", "origin-as-meeting", "origin-lookup", "meeting-fallback"] {
+            for phase in ["\"accepted\"", "\"rejected\"", "\"future\"", "null", "1", "true", nil] as [String?] {
+                let accepted = phase == "\"accepted\""
+                let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                defer { try? FileManager.default.removeItem(at: root) }
+                let scope = try RecordingDeletionScope(serverOrigin: "https://graf.invalid", workspaceID: UUID().uuidString.lowercased(), actorUserID: UUID().uuidString.lowercased())
+                let meetingID = UUID().uuidString.lowercased()
+                let origin = "synthetic-origin"
+                let originReceipt = ["direct-origin", "origin-lookup"].contains(route)
+                let meetingTarget = ["direct-meeting", "meeting-fallback"].contains(route)
+                let target: RecordingDeletionTarget = meetingTarget ? .meeting(meetingID) : .ownOrigin(origin)
+                let phaseField = phase.map { ",\"phase\":\($0)" } ?? ""
+                let meetingFields = originReceipt ? "" : ",\"meeting_id\":\"\(meetingID)\",\"deletion_epoch\":1"
+                let receiptJSON = "{\"receipt_type\":\"\(originReceipt ? "origin_cancellation" : "meeting_deletion")\",\"request_id\":\"00000000-0000-0000-0000-000000000001\",\"local_recording_id\":\"\(origin)\"\(meetingFields)\(phaseField)}"
+                let client = DesktopUploadClient(baseURL: URL(string: scope.serverOrigin)!, headers: [:], partSizeBytes: 65536,
+                    authSessionTokenProvider: { _ in "synthetic-session" }, requestExecutor: { request in
+                        let url = try XCTUnwrap(request.url)
+                        let body: Data
+                        var status = 200
+                        if url.path.hasSuffix("notification-context") {
+                            body = try JSONSerialization.data(withJSONObject: ["workspace_id": scope.workspaceID, "user_id": scope.actorUserID, "recording_deletion_protocol_version": 1])
+                        } else if url.path.hasSuffix("/lifecycle") {
+                            let state = originReceipt ? "canceled_before_creation" : "deletion_accepted"
+                            body = Data("[{\"target_type\":\"\(meetingTarget ? "meeting" : "own_origin")\",\"target_id\":\"\(target.identifier)\",\"state\":\"\(state)\",\"receipt\":\(receiptJSON)}]".utf8)
+                        } else if route == "meeting-fallback" {
+                            status = 404; body = Data(#"{"code":"meeting_not_found"}"#.utf8)
+                        } else {
+                            XCTAssertTrue(url.path.hasSuffix("/deletion-requests"))
+                            body = Data(receiptJSON.utf8)
+                        }
+                        return (body, try XCTUnwrap(HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)))
+                    })
+                let directory = root.appendingPathComponent(origin)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let manifest = directory.appendingPathComponent("manifest.json")
+                let bytes = Data("synthetic-preserved-content".utf8)
+                try bytes.write(to: manifest)
+                var item = custodyFixtureQueueItem()
+                item.directoryId = origin; item.directoryPath = directory.path; item.manifestPath = manifest.path
+                item.microphonePath = directory.appendingPathComponent("mic.wav").path
+                item.systemAudioPath = directory.appendingPathComponent("incoming.wav").path
+                item.ownerScope = scope; item.isLocalUnbound = false; item.serverCreationAttempted = true
+                item.meetingId = meetingTarget ? meetingID : nil
+                let file = root.appendingPathComponent("queue.json")
+                let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+                try encoder.encode(DesktopUploadQueueDocument(updatedAt: Date(), items: [item])).write(to: file)
+                let service = DesktopUploadQueueService(queueURL: file, recordingsRootURL: root, client: client)
+                try await service.refreshDeletionScope()
+                let operation = try RecordingDeletionOperation(scope: scope, target: target, requestedAt: Date())
+                if route != "origin-lookup" { try service.persistDeletionRequests([operation]) }
+                do {
+                    if route == "origin-lookup" { try await service.synchronizeRecordingLifecycle() }
+                    try await service.processDeletionRequests()
+                    if !accepted { XCTFail("Invalid network phase accepted: \(route)/\(phase ?? "missing")") }
+                } catch {
+                    if accepted { throw error }
+                }
+                let restarted = DesktopUploadQueueService(queueURL: file, recordingsRootURL: root, client: nil)
+                restarted.setDeletionScope(scope)
+                let stored = try restarted.currentDeletionOperations()
+                if accepted {
+                    XCTAssertEqual(stored.count, 1)
+                    XCTAssertTrue(try XCTUnwrap(stored.first).phase.isAccepted)
+                    XCTAssertEqual(FileManager.default.fileExists(atPath: manifest.path), !originReceipt)
+                } else {
+                    XCTAssertTrue(stored.allSatisfy { !$0.phase.isAccepted && $0.receipt == nil })
+                    if route != "origin-lookup" {
+                        XCTAssertEqual(stored.first?.id, operation.id)
+                        XCTAssertEqual(stored.first?.target, target)
+                        XCTAssertEqual(stored.first?.phase, .resolving)
+                        XCTAssertNotNil(stored.first?.nextAttemptAt)
+                    }
+                    XCTAssertEqual(try Data(contentsOf: manifest), bytes)
+                }
+            }
+        }
+    }
+
+    func testPersistedAcceptedReceiptsWithoutWirePhaseSurviveRestart() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pending = try makeOperation()
+        let receipt = try JSONDecoder().decode(RecordingDeletionReceipt.self, from: Data(#"{"receipt_type":"meeting_deletion","request_id":"00000000-0000-0000-0000-000000000001","meeting_id":"meeting","deletion_epoch":1}"#.utf8))
+        let accepted = try pending.accepting(receipt, at: Date(timeIntervalSince1970: 2))
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        let file = root.appendingPathComponent("queue.json")
+        for operation in [accepted, accepted.applying(.verified, at: Date(timeIntervalSince1970: 3))] {
+            let data = try encoder.encode(DesktopUploadQueueDocument(updatedAt: Date(), items: [], deletionOperations: [operation]))
+            let raw = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            let saved = try XCTUnwrap((raw["deletionOperations"] as? [[String: Any]])?.first?["receipt"] as? [String: Any])
+            XCTAssertNil(saved["phase"], "The existing queue format is independent of the network response")
+            try data.write(to: file)
+            let restarted = DesktopUploadQueueService(queueURL: file, recordingsRootURL: root, client: nil)
+            restarted.setDeletionScope(operation.scope)
+            XCTAssertEqual(try restarted.currentDeletionOperations(), [operation])
+            XCTAssertEqual(operation.applying(.rejected, at: Date()), operation)
+        }
     }
 
     func testHundredLocalPackagesCleanWithinBudgetAndRemainDeletedAfterRestart() throws {
