@@ -52,11 +52,11 @@ def _live_gate_environment(tmp_path: Path) -> dict[str, str]:
     )
     retention = tmp_path / "retention"
     retention.write_text(
-        "retention_state_version=1\nresult=pass\n"
-        "category=measurement_events retention_days=365 storage=clickhouse enforcement=row_ttl enforcement_verified=true\n"
-        "category=anonymous_aggregate retention_days=1095 storage=postgres enforcement=scheduled_task enforcement_verified=true\n"
-        "category=visit_attribution retention_days=90 storage=postgres enforcement=scheduled_task enforcement_verified=true\n"
-        "category=acquisition_attribute retention_days=1095 storage=postgres enforcement=scheduled_task enforcement_verified=true\n",
+        f"retention_state_version=2\nrecorded_at_epoch={now}\nresult=pass\n"
+        "category=measurement_events retention_mode=until_decision retention_days=none storage=clickhouse enforcement=decision_required enforcement_verified=true\n"
+        "category=anonymous_aggregate retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n"
+        "category=visit_attribution retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n"
+        "category=acquisition_attribute retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n",
         encoding="utf-8",
     )
     approvals = tmp_path / "approvals"

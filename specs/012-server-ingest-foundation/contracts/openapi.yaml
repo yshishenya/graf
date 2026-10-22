@@ -18137,6 +18137,11 @@ components:
           - accepted_all
           - customized
           title: Consent State
+        consent_copy_version:
+          type: string
+          maxLength: 32
+          minLength: 1
+          title: Consent Copy Version
         page_class:
           type: string
           maxLength: 80
@@ -18205,6 +18210,7 @@ components:
       required:
       - distinct_id
       - consent_state
+      - consent_copy_version
       - page_class
       title: PostHogAutocaptureEventRequest
     PostHogDesktopCaptureRequest:

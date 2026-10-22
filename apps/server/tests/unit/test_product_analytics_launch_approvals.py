@@ -133,7 +133,7 @@ def _operations_state_files(directory: Path, *, now: int) -> dict[str, str]:
         encoding="utf-8",
     )
     retention = directory / "retention-state"
-    retention_lines = ["retention_state_version=1", "result=pass"]
+    retention_lines = ["retention_state_version=2", f"recorded_at_epoch={now}", "result=pass"]
     for category, _term in (
         ("measurement_events", "365"),
         ("anonymous_aggregate", "1095"),

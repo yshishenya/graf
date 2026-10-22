@@ -167,7 +167,8 @@ def _write_live_gate_evidence(tmp_path: Path) -> dict[str, str]:
     retention.write_text(
         "\n".join(
             (
-                "retention_state_version=1",
+                "retention_state_version=2",
+                f"recorded_at_epoch={now}",
                 "result=pass",
                 "category=measurement_events retention_mode=until_decision retention_days=none storage=clickhouse enforcement=decision_required enforcement_verified=true",
                 "category=anonymous_aggregate retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true",

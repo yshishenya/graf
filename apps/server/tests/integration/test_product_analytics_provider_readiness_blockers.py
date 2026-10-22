@@ -1,6 +1,8 @@
 import time
 from pathlib import Path
 
+import pytest
+
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.provider_readiness import build_provider_readiness
 from twobrain_rec_server.product_analytics.readiness import build_rollout_readiness_report
@@ -140,7 +142,7 @@ def _write_operations_states(
         "acquisition_attribute": "none",
     }
     terms.update(retention_override or {})
-    retention_lines = ["retention_state_version=1", "result=pass"]
+    retention_lines = ["retention_state_version=2", f"recorded_at_epoch={now}", "result=pass"]
     for category, term in terms.items():
         storage = "clickhouse" if category == "measurement_events" else "postgres"
         enforcement = "decision_required"
@@ -344,7 +346,8 @@ def test_readiness_names_a_category_that_has_no_retention_record(tmp_path: Path,
     state["retention"].write_text(
         "\n".join(
             [
-                "retention_state_version=1",
+                "retention_state_version=2",
+                f"recorded_at_epoch={now}",
                 "result=pass",
                 "category=measurement_events retention_days=365 storage=clickhouse enforcement=row_ttl "
                 "last_enforced_at=recent rows_deleted=0 enforcement_verified=true",
@@ -362,3 +365,40 @@ def test_readiness_names_a_category_that_has_no_retention_record(tmp_path: Path,
     assert operations["metadata"]["retention_required_terms"] == (
         "measurement_events=until_decision,anonymous_aggregate=until_decision,visit_attribution=until_decision,acquisition_attribute=until_decision"
     )
+
+
+@pytest.mark.parametrize("epoch", [None, "invalid", "nan", "inf", "0", "future", "expired", "9" * 400])
+def test_retention_verification_requires_recent_valid_time(tmp_path, epoch):
+    from twobrain_rec_server.product_analytics.provider_readiness import (
+        RETENTION_STATE_FILE_ENV,
+        build_analytics_operations_readiness,
+    )
+    now = 1800000000
+    state = _write_operations_states(tmp_path, now=now)
+    value = {"future": str(now + 1), "expired": str(now - 26 * 3600)}.get(epoch, epoch)
+    text = state["retention"].read_text()
+    text = text.replace(f"recorded_at_epoch={now}\n", "" if value is None else f"recorded_at_epoch={value}\n")
+    state["retention"].write_text(text)
+    result = build_analytics_operations_readiness(
+        Settings(), {RETENTION_STATE_FILE_ENV: str(state["retention"])}, now=now,
+    )
+    assert result.configured is False
+    assert "retention_enforcement_unverified" in result.blockers
+
+
+@pytest.mark.parametrize("age_seconds", [0, 26 * 3600 - 1])
+def test_retention_verification_accepts_only_current_daily_window(tmp_path, age_seconds):
+    from twobrain_rec_server.product_analytics.provider_readiness import (
+        RETENTION_STATE_FILE_ENV,
+        build_analytics_operations_readiness,
+    )
+    now = 1800000000
+    state = _write_operations_states(tmp_path, now=now)
+    text = state["retention"].read_text().replace(
+        f"recorded_at_epoch={now}", f"recorded_at_epoch={now - age_seconds}",
+    )
+    state["retention"].write_text(text)
+    result = build_analytics_operations_readiness(
+        Settings(), {RETENTION_STATE_FILE_ENV: str(state["retention"])}, now=now,
+    )
+    assert "retention_enforcement_unverified" not in result.blockers
