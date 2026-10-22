@@ -15,7 +15,9 @@ Rollback reduces measurement. It must not break normal GRAF product workflows.
 The order is fixed by FR-032: measurement is switched off first, the product
 keeps serving. The guard may only disable the measurement scope, and only
 analytics-scope reasons may trigger an automatic rollback, so a site traffic
-spike cannot switch measurement off by itself.
+spike with sufficient filesystem headroom and accepted analytics budget cannot
+switch measurement off by itself. Shared filesystem protection below 20% remains
+an analytics-scope reason regardless of which workload consumed the space.
 
 Rollback must preserve:
 

@@ -378,8 +378,11 @@ independent scopes (FR-031, FR-032, SC-012). The split lives in
 `infra/posthog/runtime-guard.env.example`. Every value below defaults to the
 previously hard-coded threshold, so removing a line keeps production behaviour.
 The analytics scope is evaluated first and may disable measurement only. The
-host scope alerts only and never disables measurement automatically, so a
-traffic spike on the public site cannot stop measurement by itself.
+host scope alone alerts only. A traffic spike with sufficient filesystem
+headroom and analytics budget does not disable measurement. A shared filesystem
+below 20% available separately triggers analytics protection, regardless of
+which workload consumed it; below 10% it also raises the critical host alert.
+Both reasons remain visible, with one successful protective transition.
 
 Analytics scope — these reasons may disable measurement:
 
@@ -406,8 +409,9 @@ Host scope — these reasons alert only and never disable measurement:
 `GRAF_POSTHOG_GUARD_AUTO_ROLLBACK=1` with `GRAF_POSTHOG_GUARD_DRY_RUN=0` may now
 disable measurement only for analytics-scope reasons. Host-scope reasons never
 disable measurement, never edit the provider switches, and only raise an alert.
-This is the rule that keeps SC-012 true: a fivefold traffic spike does not turn
-measurement off and does not affect product availability.
+SC-012 assumes accepted capacity and sufficient filesystem headroom. It does
+not override shared-filesystem protection under FR-032. These are target T116
+requirements; the existing runtime still needs its implementation and acceptance.
 
 Unreadable analytics probes are reported as an analytics alert, not as a silent
 pass: `analytics_delivery_lag_unavailable` when the delivery-lag probe cannot be
