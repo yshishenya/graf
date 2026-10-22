@@ -193,3 +193,13 @@ source `8e37e0e3570372d7375151bf6624d5f0dcc3e627`, release-full 39687378196 PASS
 Первый probe STOP/API0 на ошибке fixture budget сохранён; обычный путь без optional budget
 проверен отдельно. Это частичное покрытие A04/A05/A21/A24/A26/A27/A30/A31/A37,
 не вся T026. [Доказательства и оставшиеся границы](validation-repeat-charge.md#год-промокод-и-хранилище-в-test--22102026).
+
+
+Дополнение T026, HTTP/restart22.10: изолированный настоящий TEST shop/source8e37 —
+PASS91,66с,2TESTPOST/16GET, общий исторический итог21, REAL0/SMTP0. Source HTTP/CSRF
+cancel до/во время отправки, resume/нет карты/stale, новый PID после sent до выдачи,
+GET-only recovery при checkout=false и пять controlled webhook подтверждены.
+Ровно один новый месяц, отмена сохранена, canonical outbox без повторов. Production
+финансовые проекции/настройки неизменны, callbacks восстановлены, свой стенд удалён.
+Это ASGI/управляемое время, не автоматическая доставка из ЮKassa/SMTP/Temporal/native.
+T026 остаётся открытой по остальным исходным критериям; [результат и границы](validation-repeat-charge.md#http-и-перезапуск-процесса-в-test--22102026).
