@@ -97,7 +97,7 @@ async function main() {
     await offline.locator('[data-delete-error]').waitFor({ state: 'visible' });
     assert.equal(await offline.locator('[data-meeting-row]').count(), 1);
     assert.equal(await offline.locator('[data-delete-dialog]').evaluate(dialog => dialog.open), true);
-    assert.match(await offline.locator('[data-delete-error]').textContent(), /Не удалось удалить 1 запись\. Попробуйте ещё раз\./);
+    assert.match(await offline.locator('[data-delete-error]').textContent(), /Не удалось удалить 1 запись\. Попробуйте еще раз\./);
     assert.equal(await offline.locator('[data-delete-confirm]').textContent(), 'Повторить');
     assert.equal(await offline.locator('[data-delete-confirm]').isEnabled(), true);
     assert.doesNotMatch(await offline.locator('#delete-feedback-region').textContent(), /сохран[её]н|Ожидают подтверждения|удалена из списка/);
