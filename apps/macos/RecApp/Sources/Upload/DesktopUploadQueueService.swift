@@ -917,10 +917,11 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         return try queue.sync {
             let document = try loadDocumentOnQueue()
             guard let primaryID = itemIds.first,
-                  let primary = document.items.first(where: { $0.id == primaryID })
+                  let storedPrimary = document.items.first(where: { $0.id == primaryID })
             else {
                 throw DesktopUploadQueueServiceError.packageNotFound(itemIds.first ?? "unknown")
             }
+            let primary = projectLifecycle(storedPrimary, in: document)
             let projection = DesktopUploadCustodyProjection(item: primary, now: clock())
             let affectedItems = itemIds.compactMap { itemID in
                 document.items.first(where: { $0.id == itemID })

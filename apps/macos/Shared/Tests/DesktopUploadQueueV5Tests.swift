@@ -2661,6 +2661,63 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertFalse(text.localizedCaseInsensitiveContains("transcript text"))
     }
 
+    func testSupportIncidentClipboardProjectsPersistedDeletionAfterRestart() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let owner = try RecordingDeletionScope(
+            serverOrigin: "https://graf.invalid", workspaceID: "workspace", actorUserID: "creator"
+        )
+        let manager = try RecordingDeletionScope(
+            serverOrigin: owner.serverOrigin, workspaceID: owner.workspaceID, actorUserID: "manager"
+        )
+        let otherServer = try RecordingDeletionScope(
+            serverOrigin: "https://other.invalid", workspaceID: owner.workspaceID, actorUserID: owner.actorUserID
+        )
+        let otherWorkspace = try RecordingDeletionScope(
+            serverOrigin: owner.serverOrigin, workspaceID: "other-workspace", actorUserID: owner.actorUserID
+        )
+        let receipt = try JSONDecoder().decode(RecordingDeletionReceipt.self, from: Data(
+            #"{"receipt_type":"meeting_deletion","request_id":"00000000-0000-0000-0000-000000000001","meeting_id":"meeting","deletion_epoch":1}"#.utf8
+        ))
+        for scope in [owner, manager, otherServer, otherWorkspace] {
+            for accepted in [false, true] {
+                var operation = try RecordingDeletionOperation(
+                    scope: scope, target: .meeting("meeting"), requestedAt: Date(timeIntervalSince1970: 1)
+                )
+                if accepted { operation = try operation.accepting(receipt, at: Date(timeIntervalSince1970: 2)) }
+                var item = makeQueueItem(
+                    state: .uploaded, meetingId: "meeting",
+                    serverTruth: ServerTruthFingerprint(
+                        meetingId: "meeting", processingStatus: "processed", deletionState: "none", accessState: "owner"
+                    )
+                )
+                item.ownerScope = owner
+                try JSONEncoder.uploadQueueTestEncoder.encode(DesktopUploadQueueDocument(
+                    updatedAt: item.updatedAt, items: [item], deletionOperations: [operation]
+                )).write(to: queueURL, options: [.atomic])
+
+                // A new service reads the durable operation, not a transient item projection.
+                let restarted = DesktopUploadQueueService(
+                    queueURL: queueURL, recordingsRootURL: root, clock: { Date(timeIntervalSince1970: 200) }
+                )
+                restarted.setDeletionScope(owner)
+                let text = try restarted.supportIncidentReportText(itemIds: [item.id])
+                if accepted && scope.serverOrigin == owner.serverOrigin && scope.workspaceID == owner.workspaceID {
+                    let report = try XCTUnwrap(text)
+                    XCTAssertTrue(report.contains("custody.server_meeting_deleted"))
+                    XCTAssertTrue(report.contains("server_deletion"))
+                    XCTAssertTrue(report.contains("server_deleted"))
+                    XCTAssertFalse(report.contains("/tmp/directory"))
+                    XCTAssertFalse(report.contains("00000000-0000-0000-0000-000000000001"))
+                } else {
+                    XCTAssertNil(text, "Unconfirmed or unrelated operations cannot report server deletion")
+                }
+            }
+        }
+    }
+
     func testInterruptedSupportIncidentSubmissionRecoversCopyFallbackOnRestart() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
