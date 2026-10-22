@@ -110,11 +110,11 @@ def _operations_state_files(directory: Path, *, now: int) -> dict[str, str]:
     backup.write_text(
         "\n".join(
             [
-                "backup_state_version=1",
+                "backup_state_version=2",
+                "backup_set_complete=true",
                 "last_attempt_result=pass",
                 f"last_success_epoch={now - 3600}",
                 "copies_local=3",
-                "copies_offsite=1",
                 "",
             ]
         ),

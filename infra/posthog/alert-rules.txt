@@ -54,8 +54,6 @@ rule code=backup_failed scope=backup owner_role=infra_operator severity=critical
 rule code=backup_stale scope=backup owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-034
 rule code=backup_missing scope=backup owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-034
 rule code=backup_state_unavailable scope=backup owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-034
-rule code=backup_offsite_missing scope=backup owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-052
-rule code=backup_offsite_copy_missing scope=backup owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-052
 rule code=backup_copy_count_below_minimum scope=backup owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-052
 rule code=restore_verification_failed scope=restore owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-035
 rule code=restore_verification_missing scope=restore owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-035
@@ -83,3 +81,5 @@ rule code=last_delivery_missing scope=alerting owner_role=infra_operator severit
 rule code=last_delivery_stale scope=alerting owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-056
 rule code=alert_owner_unnamed scope=alerting owner_role=infra_operator severity=warning escalate_after_minutes=60 requirement=FR-055
 rule code=analytics_degradation_drill scope=alerting owner_role=analytics_operator severity=warning escalate_after_minutes=60 requirement=FR-030
+
+rule code=backup_set_unverified scope=backup owner_role=infra_operator severity=critical escalate_after_minutes=15 requirement=FR-034

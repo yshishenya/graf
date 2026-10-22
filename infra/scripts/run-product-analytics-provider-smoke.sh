@@ -26,10 +26,12 @@ grep -Fq 'rollback_execution=metadata_only_no_state_change' <<<"$rollback_metada
 grep -Fq 'provider_state_mutation=not_requested' <<<"$rollback_metadata"
 grep -Fq 'operator_executor_hook=not_invoked' <<<"$rollback_metadata"
 
-PYTHONPATH="$ROOT_DIR/apps/server/src" python3 - <<'PY'
+PYTHONPATH="$ROOT_DIR/apps/server:$ROOT_DIR/apps/server/src" python3 - <<'PY'
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import time
+
+from tests.fixtures.analytics_operations import write_runtime_guard
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.access_governance import (
@@ -163,11 +165,11 @@ with TemporaryDirectory() as tmpdir:
     now = int(time())
     backup_state_file = Path(tmpdir) / "backup-state"
     backup_state_file.write_text(
-        "backup_state_version=1\n"
+        "backup_state_version=2\n"
+        "backup_set_complete=true\n"
         "last_attempt_result=pass\n"
         f"last_success_epoch={now - 3600}\n"
-        "copies_local=2\n"
-        "copies_offsite=1\n",
+        "copies_local=2\n",
         encoding="utf-8",
     )
     restore_state_file = Path(tmpdir) / "restore-state"
@@ -222,6 +224,7 @@ with TemporaryDirectory() as tmpdir:
         encoding="utf-8",
     )
     live_environment = {
+        **write_runtime_guard(Path(tmpdir), now=now),
         BACKUP_STATE_FILE_ENV: str(backup_state_file),
         RESTORE_STATE_FILE_ENV: str(restore_state_file),
         RETENTION_STATE_FILE_ENV: str(retention_state_file),

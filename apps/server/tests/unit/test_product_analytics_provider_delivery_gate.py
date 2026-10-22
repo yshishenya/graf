@@ -23,11 +23,11 @@ def _write_evidence(tmp_path: Path) -> dict[str, str]:
     backup.write_text(
         "\n".join(
             (
-                "backup_state_version=1",
+                "backup_state_version=2",
+                "backup_set_complete=true",
                 "last_attempt_result=pass",
                 f"last_success_epoch={now - 3600}",
                 "copies_local=2",
-                "copies_offsite=1",
             )
         )
         + "\n",

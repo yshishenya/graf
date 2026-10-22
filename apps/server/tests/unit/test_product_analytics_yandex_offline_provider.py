@@ -2,6 +2,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from tests.fixtures.analytics_operations import write_runtime_guard
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.advertising_transfer import (
     ADVERTISING_TRANSFER_STATE_FILE_ENV,
@@ -115,11 +116,11 @@ def _write_live_gate_evidence(tmp_path: Path) -> dict[str, str]:
     backup.write_text(
         "\n".join(
             (
-                "backup_state_version=1",
+                "backup_state_version=2",
+                "backup_set_complete=true",
                 "last_attempt_result=pass",
                 f"last_success_epoch={now - 3600}",
                 "copies_local=2",
-                "copies_offsite=1",
             )
         )
         + "\n",
@@ -189,6 +190,7 @@ def _write_live_gate_evidence(tmp_path: Path) -> dict[str, str]:
         encoding="utf-8",
     )
     return {
+        **write_runtime_guard(tmp_path, now=now),
         BACKUP_STATE_FILE_ENV: str(backup),
         RESTORE_STATE_FILE_ENV: str(restore),
         RETENTION_STATE_FILE_ENV: str(retention),

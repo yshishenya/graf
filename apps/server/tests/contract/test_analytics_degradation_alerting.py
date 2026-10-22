@@ -92,12 +92,12 @@ def _valid_operations_state(directory: Path, *, now: int) -> dict[str, Path]:
     _write_state(
         backup,
         [
-            "backup_state_version=1",
+            "backup_state_version=2",
+                "backup_set_complete=true",
             "last_attempt_result=pass",
             "last_success_at=recent",
             f"last_success_epoch={now - 3600}",
             "copies_local=7",
-            "copies_offsite=1",
         ],
     )
     restore = directory / "restore-state"
@@ -944,3 +944,53 @@ def test_guard_does_not_report_success_when_healthy_state_cannot_be_written(tmp_
     assert result.returncode == 1, result.stderr
     assert not (tmp_path / 'guard/alert-state').exists()
     assert not (tmp_path / 'restart-log').exists()
+
+
+@pytest.mark.parametrize(('change', 'blocker'), [
+    ('future', 'backup_stale'),
+    ('boundary', 'backup_stale'),
+    ('unknown_time', 'backup_missing'),
+    ('failed', 'backup_failed'),
+    ('unknown_result', 'backup_failed'),
+    ('old_schema', 'backup_set_unverified'),
+    ('incomplete', 'backup_set_unverified'),
+    ('unknown_count', 'backup_copy_count_below_minimum'),
+    ('one_copy', 'backup_copy_count_below_minimum'),
+    ('valid', None),
+])
+def test_backup_readiness_and_alerting_share_local_set_boundaries(tmp_path: Path, change: str, blocker: str | None) -> None:
+    now = int(time.time())
+    state = _valid_operations_state(tmp_path, now=now)
+    backup = state['backup']
+    text = backup.read_text()
+    replacements = {
+        'future': (f'last_success_epoch={now - 3600}', f'last_success_epoch={now + 3600}'),
+        'boundary': (f'last_success_epoch={now - 3600}', f'last_success_epoch={now - 26 * 3600}'),
+        'unknown_time': (f'last_success_epoch={now - 3600}', 'last_success_epoch=unknown'),
+        'failed': ('last_attempt_result=pass', 'last_attempt_result=failed'),
+        'unknown_result': ('last_attempt_result=pass', 'last_attempt_result=unknown'),
+        'old_schema': ('backup_state_version=2', 'backup_state_version=1'),
+        'incomplete': ('backup_set_complete=true', 'backup_set_complete=false'),
+        'unknown_count': ('copies_local=7', 'copies_local=unknown'),
+        'one_copy': ('copies_local=7', 'copies_local=1'),
+    }
+    if change in replacements:
+        before, after = replacements[change]
+        assert before in text
+        text = text.replace(before, after)
+    backup.write_text(text)
+    environment, _ = _alert_environment(tmp_path, state)
+    # Operator knobs cannot weaken the accepted 26h/2-set limits.
+    environment['GRAF_POSTHOG_BACKUP_MAX_AGE_HOURS'] = '100'
+    environment['GRAF_POSTHOG_BACKUP_MIN_COPIES'] = '1'
+    environment['GRAF_POSTHOG_BACKUP_STATE_FILE'] = str(backup)
+    evidence = provider_readiness.collect_analytics_operations_evidence(environment, now=now)
+    blockers = provider_readiness.analytics_operations_blockers(evidence, environment)
+    alert = _run_alert(environment, '--dry-run')
+    assert alert.returncode == 0, alert.stderr
+    if blocker:
+        assert blocker in blockers
+        assert blocker in alert.stdout
+    else:
+        assert not any(code.startswith('backup_') for code in blockers)
+        assert 'backup_offsite' not in alert.stdout

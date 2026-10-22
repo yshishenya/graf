@@ -40,8 +40,8 @@ def _live_gate_environment(tmp_path: Path) -> dict[str, str]:
     now = int(time.time())
     backup = tmp_path / "backup"
     backup.write_text(
-        "backup_state_version=1\nlast_attempt_result=pass\n"
-        f"last_success_epoch={now - 3600}\ncopies_local=2\ncopies_offsite=1\n",
+        "backup_state_version=2\nbackup_set_complete=true\nlast_attempt_result=pass\n"
+        f"last_success_epoch={now - 3600}\ncopies_local=2\n",
         encoding="utf-8",
     )
     restore = tmp_path / "restore"
