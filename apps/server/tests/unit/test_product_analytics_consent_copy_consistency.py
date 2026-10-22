@@ -422,10 +422,10 @@ def test_the_code_copy_version_matches_the_configured_default() -> None:
     terms = code_consent_terms()
 
     assert terms["copy_version"] == terms["configured_copy_version"]
-    assert terms["product_copy_version"] != terms["copy_version"], (
-        "the internal product consent copy version is a separate revision; if it "
-        "becomes the same value, re-check which pages it governs"
-    )
+    from twobrain_rec_server.product_analytics.telemetry_gate import build_required_disclosure
+
+    # Separate scopes may publish new terms on the same date.
+    assert terms["product_copy_version"] == build_required_disclosure()["copy_version"]
 
 
 @pytest.mark.parametrize("page", ["analytics_consent", "cookies", "privacy"])
