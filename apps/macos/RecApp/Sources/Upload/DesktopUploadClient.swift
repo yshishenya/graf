@@ -871,7 +871,10 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let receipt: RecordingDeletionReceipt
-        do { receipt = try await client.perform(request, honorRetryAfter: true) }
+        do {
+            let response: AcceptedRecordingDeletionReceipt = try await client.perform(request, honorRetryAfter: true)
+            receipt = response.receipt
+        }
         catch DesktopUploadClientError.httpStatus(404, "meeting_not_found") {
             // A target can disappear or become inaccessible while this durable request
             // waits offline. Resolve it without treating absence as purge permission.
@@ -1706,11 +1709,35 @@ private struct Problem: Decodable {
     let code: String
 }
 
+/// Validate network acceptance without changing the durable queue's receipt format.
+private struct AcceptedRecordingDeletionReceipt: Decodable {
+    let receipt: RecordingDeletionReceipt
+    private enum CodingKeys: String, CodingKey { case phase }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        guard try values.decode(String.self, forKey: .phase) == "accepted" else {
+            throw DesktopUploadClientError.invalidResponse
+        }
+        receipt = try RecordingDeletionReceipt(from: decoder)
+    }
+}
+
 public struct DesktopRecordingLifecycleEntry: Decodable, Sendable {
     public let target_type: String
     public let target_id: String
     public let state: String
     public let receipt: RecordingDeletionReceipt?
+
+    private enum CodingKeys: String, CodingKey { case target_type, target_id, state, receipt }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        target_type = try values.decode(String.self, forKey: .target_type)
+        target_id = try values.decode(String.self, forKey: .target_id)
+        state = try values.decode(String.self, forKey: .state)
+        receipt = try values.decodeIfPresent(AcceptedRecordingDeletionReceipt.self, forKey: .receipt)?.receipt
+    }
 }
 
 /// A resolver response must never forward GRAF authorization through a redirect.
