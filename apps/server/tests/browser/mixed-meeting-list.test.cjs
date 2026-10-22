@@ -102,6 +102,21 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
     await update([{...local,meetingId:'server-a'}]);
     assert.equal(await page.locator('[data-meeting-id="server-a"] [data-meeting-select]').isChecked(),true);
     assert.equal(await page.locator('[data-meeting-id="server-a"] [data-meeting-open]').evaluate(node => node === document.activeElement),true);
+    await page.evaluate(() => {
+      window.GRAFRecordingDeletionBridgeVersion = 1;
+      window.aliasDeletionMessages = [];
+      window.webkit = {messageHandlers:{grafLocalRecording:{postMessage(message) {
+        window.aliasDeletionMessages.push(message);
+        window.GRAFLocalRecordings.deletionCompleted(message.requestId,{saved:true,accepted:0,pending:1,rejected:0});
+      }}}};
+    });
+    await page.locator('[data-selection-delete]').click();
+    await page.locator('[data-delete-confirm]').click();
+    const aliasMessages = await page.evaluate(() => window.aliasDeletionMessages);
+    assert.equal(aliasMessages.length,1,'handoff produces one bridge command');
+    assert.deepEqual(aliasMessages[0].localIds,[]);
+    assert.deepEqual(aliasMessages[0].meetingIds,['server-a']);
+    await page.evaluate(() => { delete window.GRAFRecordingDeletionBridgeVersion; delete window.webkit; });
     const operation = {id:'synthetic-operation', target:{meeting:{_0:'server-a'}}, phase:'sending'};
     await page.evaluate(op => window.GRAFLocalRecordings.update([], [op]), operation);
     assert.equal(await page.locator('[data-meeting-id="server-a"] input').isDisabled(),true);
@@ -122,12 +137,34 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
     await page.evaluate(op => window.GRAFLocalRecordings.update([], [{...op,phase:'rejected'}]), operation);
     assert.equal(await page.evaluate(() => window.rejectionRefreshCount),1,'no refresh storm for unchanged rejection');
     await page.locator('form.cabinet-list-controls').evaluate(form => form.remove());
-    await page.evaluate(op => window.GRAFLocalRecordings.update([], [op]), operation);
-    await page.evaluate(op => window.GRAFLocalRecordings.update([], [{...op,phase:'accepted'}]), operation);
-    assert.equal(await page.locator('[data-meeting-id="server-a"]').count(),0);
-    await page.locator('ol.meeting-list').evaluate((list,html) => list.insertAdjacentHTML('beforeend',html),retainedServerRow);
+    // Multiple accepted deletions keep the visible count and selection coherent.
+    const aliases = [local, {...local,id:'alias-a',meetingId:'server-a',uploadComplete:true}, {...local,id:'alias-z',meetingId:'server-z',uploadComplete:true}];
+    await update(aliases);
+    const staleRows = await page.locator('[data-meeting-id]').evaluateAll(rows => rows.map(row => row.outerHTML).join(''));
+    for (const checkbox of await page.locator('[data-meeting-id] [data-meeting-select]').all()) await checkbox.check();
+    assert.equal(await page.locator('[data-meeting-result-count]').textContent(),'Найдено: 3');
+    assert.equal(await page.locator('[data-selection-count]').textContent(),'Выбрано: 2');
+    const accepted = ['server-a','server-z'].map(id => ({id:`delete-${id}`,target:{meeting:{_0:id}},phase:'accepted'}));
+    await page.evaluate(({rows,operations}) => window.GRAFLocalRecordings.update(rows,operations),{rows:aliases,operations:accepted});
+    assert.deepEqual(await order(),['local-b']);
+    assert.equal(await page.locator('[data-meeting-result-count]').textContent(),'Найдено: 1');
+    assert.equal(await page.locator('[data-selection-count]').textContent(),'Выбрано: 0');
+    assert.equal(await page.locator('[data-selection-toolbar]').isHidden(),true);
+    await page.locator('ol.meeting-list').evaluate((list,html) => list.insertAdjacentHTML('beforeend',html),staleRows);
     await page.evaluate(() => document.body.dispatchEvent(new CustomEvent('htmx:afterSwap',{detail:{target:document.querySelector('#meeting-list-region')}})));
-    assert.equal(await page.locator('[data-meeting-id="server-a"]').count(),0,'stale HTML cannot resurrect accepted deletion');
+    assert.deepEqual(await order(),['local-b'],'stale HTML cannot resurrect accepted deletions before a native update');
+    assert.equal(await page.locator('[data-meeting-result-count]').textContent(),'Найдено: 1');
+    assert.equal(await page.locator('[data-selection-count]').textContent(),'Выбрано: 0');
+    assert.equal(await page.locator('[data-selection-toolbar]').isHidden(),true);
+    await page.evaluate(({rows,operations}) => window.GRAFLocalRecordings.update(rows,operations),{rows:aliases,operations:accepted});
+    assert.deepEqual(await order(),['local-b'],'stale HTML and linked aliases cannot resurrect accepted deletions');
+    assert.equal(await page.locator('[data-meeting-result-count]').textContent(),'Найдено: 1');
+    assert.equal(await page.locator('[data-selection-count]').textContent(),'Выбрано: 0');
+    assert.equal(await page.locator('[data-selection-toolbar]').isHidden(),true);
+    await page.locator('[data-meeting-result-complete]').evaluate(node => { node.dataset.meetingResultComplete = 'false'; });
+    await page.evaluate(({rows,operations}) => window.GRAFLocalRecordings.update(rows,operations),{rows:aliases,operations:accepted});
+    assert.equal(await page.locator('[data-meeting-result-count]').textContent(),'Найдено: больше 1');
+    await page.locator('[data-meeting-result-complete]').evaluate(node => { node.dataset.meetingResultComplete = 'true'; });
     // Native bulk keeps a frozen selection and reports accepted/pending/rejected separately.
     await update([local]);
     await page.locator('[data-graf-local-recording-row] [data-meeting-select]').check();
