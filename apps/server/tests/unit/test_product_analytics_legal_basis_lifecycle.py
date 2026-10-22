@@ -499,3 +499,16 @@ def test_a_recorded_withdrawal_stops_a_level_even_after_its_approvals(
     assert report.states["legal_basis_lifecycle"].startswith(
         "processing_stopped_erasure_required:"
     )
+
+
+def test_withdrawal_helper_preserves_separately_recorded_deadlines(tmp_path: Path) -> None:
+    register = _register(tmp_path, WITHDRAWAL_LINE)
+    now = datetime(2026, 9, 25, tzinfo=UTC)
+    deadlines = {category: now + timedelta(days=index + 1) for index, category in enumerate(PROVIDER_CATEGORIES)}
+    plans = lost_basis_dispositions(_config(), withdrawals=register, now=now, deletion_deadlines=deadlines)
+    assert len(plans) == 1
+    assert {action.category: action.due_at for action in plans[0].actions} == deadlines
+    assert plans[0].deadline == min(deadlines.values())
+    partial = lost_basis_dispositions(_config(), withdrawals=register, now=now, deletion_deadlines={PROVIDER_CATEGORIES[0]: now})
+    assert partial[0].processing_state == "stopped"
+    assert partial[0].deadline is None

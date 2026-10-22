@@ -42,9 +42,8 @@ def test_product_analytics_runtime_env_is_api_only_and_disabled_by_default() -> 
     assert api_env["TWOBRAIN_PRODUCT_ANALYTICS_PROVIDER_MODE"] == (
         "${TWOBRAIN_PRODUCT_ANALYTICS_PROVIDER_MODE:-disabled}"
     )
-    assert api_env["TWOBRAIN_PRODUCT_ANALYTICS_RETENTION_MIN_DAYS"] == (
-        "${TWOBRAIN_PRODUCT_ANALYTICS_RETENTION_MIN_DAYS:-90}"
-    )
+    assert "TWOBRAIN_PRODUCT_ANALYTICS_RETENTION_MIN_DAYS" not in api_env
+    assert api_env["TWOBRAIN_PRODUCT_ANALYTICS_CONSENT_COPY_VERSION"] == "${TWOBRAIN_PRODUCT_ANALYTICS_CONSENT_COPY_VERSION:-2026-10-22.1}"
     assert "TWOBRAIN_PRODUCT_ANALYTICS_ENABLED" not in worker_env
     assert "TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_PROJECT_KEY_FILE" not in worker_env
     assert "TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_OAUTH_TOKEN_FILE" not in worker_env
@@ -52,7 +51,7 @@ def test_product_analytics_runtime_env_is_api_only_and_disabled_by_default() -> 
     assert "TWOBRAIN_PRODUCT_ANALYTICS_ENABLED" not in env_keys
     assert "TWOBRAIN_PRODUCT_ANALYTICS_RETENTION_MIN_DAYS" not in env_keys
     assert "# TWOBRAIN_PRODUCT_ANALYTICS_ENABLED=false" in env_template
-    assert "# TWOBRAIN_PRODUCT_ANALYTICS_RETENTION_MIN_DAYS=90" in env_template
+    assert "TWOBRAIN_PRODUCT_ANALYTICS_RETENTION_MIN_DAYS" not in env_template
 
 
 def test_product_analytics_api_is_disabled_by_default() -> None:

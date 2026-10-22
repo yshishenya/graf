@@ -557,8 +557,13 @@ def lost_basis_dispositions(
     *,
     withdrawals: BasisWithdrawalRegister,
     now: datetime,
+    deletion_deadlines: Mapping[str, datetime] | None = None,
 ) -> tuple[LegalBasisLossDisposition, ...]:
-    """One plan per level whose basis was withdrawn, dated by the record."""
+    """Build plans from withdrawals and separately recorded category deadlines.
+
+    The operator supplies the deadlines from the deletion decision. Missing
+    deadlines keep processing stopped and execution blocked; no age term is used.
+    """
 
     moment = _aware(now)
     plans: list[LegalBasisLossDisposition] = []
@@ -576,6 +581,7 @@ def lost_basis_dispositions(
                 level_key=level_key,
                 basis_lost_at=lost_at,
                 reason=withdrawal.reason,
+                deletion_deadlines=deletion_deadlines,
             )
         )
     return tuple(plans)
