@@ -214,7 +214,9 @@ def _write_live_gate_evidence(tmp_path: Path) -> dict[str, str]:
         + "\n",
         encoding="utf-8",
     )
+    from tests.fixtures.analytics_operations import write_runtime_guard
     return {
+        **write_runtime_guard(tmp_path, now=now),
         BACKUP_STATE_FILE_ENV: str(backup),
         RESTORE_STATE_FILE_ENV: str(restore),
         RETENTION_STATE_FILE_ENV: str(retention),

@@ -12,4 +12,4 @@ ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true
-ReadWritePaths=/var/lib/graf-posthog-runtime-guard /opt/projects/2brain-rec/.env /opt/projects/2brain-rec/.env.lock
+ReadWritePaths=/var/lib/graf-posthog-runtime-guard /var/lib/graf-posthog-storage /opt/projects/2brain-rec

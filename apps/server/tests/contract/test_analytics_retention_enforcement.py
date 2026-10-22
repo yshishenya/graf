@@ -740,6 +740,52 @@ def test_capacity_invalid_metadata_never_becomes_ready_or_erases_known_low_space
     assert decision['host_reasons'] == ['host_disk']
 
 
+def test_protection_requires_durable_request_and_verified_runtime_before_manual_restoration(tmp_path: Path):
+    capacity, sample, budget, now = _capacity_inputs()
+    path = tmp_path / 'protection-state.json'
+    runtime = [f'{key}={value}' for key, value in capacity.DISABLED_ENV.items()]
+    with pytest.raises(ValueError, match='protection_request_required'):
+        capacity.transition(path, [], 'protected', now=now, runtime_env=runtime)
+    assert capacity.transition(path, ['analytics_storage'], 'protection_requested', now=now - 20) == 'protection_requested'
+    incident = json.loads(path.read_text())['incident_id']
+    with pytest.raises(ValueError, match='readback_unverified'):
+        capacity.transition(path, [], 'protected', now=now, runtime_env=[])
+    assert json.loads(path.read_text())['status'] == 'protection_requested'
+    assert capacity.transition(path, [], 'apply_failed', now=now - 10) == 'apply_failed'
+    assert capacity.transition(path, [], 'protected', now=now, runtime_env=runtime) == 'protected'
+    sample['growth'] = {'result': 'measured', 'interval_seconds': 86400, 'end_epoch': now,
+                        'bytes_per_day': dict.fromkeys(capacity.CLASSES, 1)}
+    receipt = {'restore_receipt_version': 1, 'incident_id': incident, 'role': 'infra_operator',
+               'approved_at_epoch': now, 'expires_at_epoch': now + 300,
+               'config_version': 'd' * 64, 'budget_version': 'c' * 64,
+               'runtime_env_sha256': hashlib.sha256(json.dumps(capacity.DISABLED_ENV, sort_keys=True).encode()).hexdigest(),
+               'proofs': dict.fromkeys(['growth_review', 'expansion_review', 'runtime_review',
+                                       'basis_consent_review', 'provider_smoke', 'page_validation'], 'f' * 64)}
+    for invalid in ({**receipt, 'incident_id': '0' * 32}, {**receipt, 'config_version': '0' * 64},
+                    {**receipt, 'expires_at_epoch': now}, {**receipt, 'approved_at_epoch': now + 1},
+                    {**receipt, 'proofs': {}}, {**receipt, 'restore_receipt_version': True}):
+        with pytest.raises(ValueError):
+            capacity.restore(path, invalid, sample, budget, runtime, now=now, config_version='d' * 64)
+        assert json.loads(path.read_text())['status'] == 'protected'
+    with pytest.raises(ValueError, match='readback_unverified'):
+        capacity.restore(path, receipt, sample, budget, [*runtime, runtime[0]], now=now, config_version='d' * 64)
+    assert capacity.restore(path, receipt, sample, budget, runtime, now=now, config_version='d' * 64) == 'observed'
+    assert json.loads(path.read_text())['closed_incident_id'] == incident
+    capacity.transition(path, ['analytics_storage'], 'protection_requested', now=now)
+    with pytest.raises(ValueError):
+        capacity.restore(path, receipt, sample, budget, runtime, now=now, config_version='d' * 64)
+
+
+def test_protection_request_write_failure_does_not_claim_success(tmp_path: Path, monkeypatch):
+    capacity = _capacity_evaluator()
+    def failed_write(*args):
+        raise OSError('synthetic state write failure')
+    monkeypatch.setattr(capacity.runpy, 'run_path', lambda *args: {'atomic_json': failed_write})
+    with pytest.raises(OSError):
+        capacity.transition(tmp_path / 'state', ['analytics_storage'], 'protection_requested', now=1792634400)
+    assert not (tmp_path / 'state').exists()
+
+
 def test_allocated_storage_counts_sparse_files_hardlinks_archives_once(tmp_path: Path) -> None:
     import os
     collector = _storage_collector()

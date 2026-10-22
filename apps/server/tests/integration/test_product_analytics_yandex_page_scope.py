@@ -80,7 +80,9 @@ def _live_gate_environment(tmp_path: Path) -> dict[str, str]:
     )
     basis = tmp_path / "basis"
     basis.write_text("legal_basis_state_version=1\n", encoding="utf-8")
+    from tests.fixtures.analytics_operations import write_runtime_guard
     return {
+        **write_runtime_guard(tmp_path, now=now),
         "GRAF_POSTHOG_BACKUP_STATE_FILE": str(backup),
         "GRAF_POSTHOG_RESTORE_STATE_FILE": str(restore),
         RETENTION_STATE_FILE_ENV: str(retention),

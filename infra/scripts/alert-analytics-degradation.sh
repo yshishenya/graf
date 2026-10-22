@@ -247,8 +247,15 @@ collect_reasons() {
   else
     local recorded
     recorded="$(state_value "$guard_state_file" recorded_at_epoch)"
-    if [[ ! "$recorded" =~ ^[0-9]+$ ]] || (( (now_epoch - recorded) > guard_state_max_age_minutes * 60 )); then
+    if [[ ! "$recorded" =~ ^[0-9]+$ ]] || (( recorded > now_epoch || now_epoch - recorded >= 120 )); then
       reasons+=("guard_state_stale")
+    fi
+    if [[ "$(state_value "$guard_state_file" alert_state_version)" != "2" ]] \
+      || [[ "$(state_value "$guard_state_file" capacity_ready)" != "true" ]]; then
+      reasons+=("capacity_input_unverified")
+    fi
+    if [[ "$(state_value "$guard_state_file" protection_status)" != "observed" ]]; then
+      reasons+=("analytics_protection_latched")
     fi
     if [[ "$(state_value "$guard_state_file" result)" == "alert" ]]; then
       while IFS= read -r code; do
