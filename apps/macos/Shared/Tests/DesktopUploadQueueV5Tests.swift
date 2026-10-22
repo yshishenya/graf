@@ -2718,6 +2718,104 @@ final class DesktopUploadQueueTests: XCTestCase {
         }
     }
 
+    func testSupportIncidentActionsRecheckEverySelectedItemScope() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let queueURL = root.appendingPathComponent("upload-queue.json")
+        let owner = try RecordingDeletionScope(
+            serverOrigin: "https://graf.invalid", workspaceID: "workspace", actorUserID: "creator"
+        )
+        let otherActor = try RecordingDeletionScope(
+            serverOrigin: owner.serverOrigin, workspaceID: owner.workspaceID, actorUserID: "other"
+        )
+        let otherWorkspace = try RecordingDeletionScope(
+            serverOrigin: owner.serverOrigin, workspaceID: "other", actorUserID: owner.actorUserID
+        )
+        let otherServer = try RecordingDeletionScope(
+            serverOrigin: "https://other.invalid", workspaceID: owner.workspaceID, actorUserID: owner.actorUserID
+        )
+        let receipt = try JSONDecoder().decode(RecordingDeletionReceipt.self, from: Data(
+            #"{"receipt_type":"meeting_deletion","request_id":"00000000-0000-0000-0000-000000000001","meeting_id":"meeting","deletion_epoch":1}"#.utf8
+        ))
+        let operation = try RecordingDeletionOperation(
+            scope: owner, target: .meeting("meeting"), requestedAt: Date(timeIntervalSince1970: 1)
+        ).accepting(receipt, at: Date(timeIntervalSince1970: 2))
+        let cases: [(String, RecordingDeletionScope?, RecordingDeletionScope?, Bool, Bool)] = [
+            ("owner", owner, owner, false, true),
+            ("account changed", otherActor, owner, false, false),
+            ("workspace changed", otherWorkspace, owner, false, false),
+            ("server changed", otherServer, owner, false, false),
+            ("logout", nil, owner, false, false),
+            ("unknown", nil, nil, false, false),
+            ("unknown while signed in", owner, nil, false, false),
+            ("local unbound", nil, nil, true, true)
+        ]
+        for (name, current, itemOwner, localUnbound, allowed) in cases {
+            for selectionKind in ["primary", "foreign", "missing", "empty"] {
+                for action in ["copy", "send", "sync"] {
+                    var primary = makeSupportIncidentItem(id: "primary")
+                    primary.ownerScope = itemOwner
+                    primary.isLocalUnbound = localUnbound
+                    primary.meetingId = localUnbound ? nil : "meeting"
+                    primary.supportIncidentSubmission = .pendingSync(
+                        reportFingerprint: "report_fpr_1234abcd", dedupeKey: "support_dedupe_1234abcd",
+                        incidentNumber: "CUST-PENDING-1", attemptedAt: Date(timeIntervalSince1970: 100),
+                        copyFallbackAvailable: true
+                    )
+                    var secondary = makeSupportIncidentItem(id: "secondary")
+                    secondary.ownerScope = otherActor
+                    secondary.isLocalUnbound = false
+                    let selected: [String]
+                    switch selectionKind {
+                    case "foreign": selected = [primary.id, secondary.id]
+                    case "missing": selected = [primary.id, "missing"]
+                    case "empty": selected = []
+                    default: selected = [primary.id]
+                    }
+                    try JSONEncoder.uploadQueueTestEncoder.encode(DesktopUploadQueueDocument(
+                        updatedAt: primary.updatedAt, items: [primary, secondary], deletionOperations: [operation]
+                    )).write(to: queueURL, options: [.atomic])
+                    let client = SupportIncidentOnlyClient()
+                    let service = DesktopUploadQueueService(
+                        queueURL: queueURL, recordingsRootURL: root, client: client,
+                        clock: { Date(timeIntervalSince1970: 200) }
+                    )
+                    service.setDeletionScope(owner)
+                    service.setDeletionScope(current)
+                    let before = try Data(contentsOf: queueURL)
+                    let shouldAllow = allowed && selectionKind == "primary"
+                    do {
+                        switch action {
+                        case "copy":
+                            let text = try service.supportIncidentReportText(itemIds: selected)
+                            XCTAssertNotNil(text)
+                        case "send": _ = try await service.submitSupportIncident(itemIds: selected, using: client)
+                        default: _ = try await service.syncSupportIncident(itemIds: selected, using: client)
+                        }
+                        XCTAssertTrue(shouldAllow, "\(name)/\(selectionKind)/\(action) must refuse")
+                    } catch DesktopUploadClientError.httpStatus(let status, let code) {
+                        XCTAssertFalse(shouldAllow, "\(name)/\(action) should remain available")
+                        XCTAssertEqual(status, 403)
+                        XCTAssertEqual(code, "support_incident.scope_unavailable")
+                    } catch DesktopUploadQueueServiceError.packageNotFound(let id) {
+                        XCTAssertTrue(selectionKind == "missing" || selectionKind == "empty")
+                        XCTAssertEqual(id, selectionKind == "missing" ? "missing" : "unknown")
+                    }
+                    if !shouldAllow {
+                        XCTAssertTrue(client.reports.isEmpty)
+                        XCTAssertTrue(client.syncIncidentIDs.isEmpty)
+                        XCTAssertEqual(try Data(contentsOf: queueURL), before, "Refusal must not change the queue")
+                    }
+                    service.setDeletionScope(owner)
+                    if itemOwner == owner && selectionKind == "primary" {
+                        XCTAssertNotNil(try service.supportIncidentReportText(itemIds: selected), "Returning owner regains access")
+                    }
+                }
+            }
+        }
+    }
+
     func testInterruptedSupportIncidentSubmissionRecoversCopyFallbackOnRestart() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -2853,7 +2951,7 @@ final class DesktopUploadQueueTests: XCTestCase {
     }
 
     private func makeSupportIncidentItem(id: String) -> DesktopUploadQueueItem {
-        makeQueueItem(
+        var item = makeQueueItem(
             id: id,
             state: .blocked,
             retryMode: .manualOnly,
@@ -2861,6 +2959,9 @@ final class DesktopUploadQueueTests: XCTestCase {
             syncConflictState: .retentionExpired,
             updatedAt: Date(timeIntervalSince1970: 20)
         )
+        item.isLocalUnbound = true
+        item.serverCreationAttempted = false
+        return item
     }
 
     private func makeQueueV2Fixture(

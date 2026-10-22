@@ -916,16 +916,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         let context = client?.supportIncidentContext() ?? .unknown
         return try queue.sync {
             let document = try loadDocumentOnQueue()
-            guard let primaryID = itemIds.first,
-                  let storedPrimary = document.items.first(where: { $0.id == primaryID })
-            else {
-                throw DesktopUploadQueueServiceError.packageNotFound(itemIds.first ?? "unknown")
-            }
-            let primary = projectLifecycle(storedPrimary, in: document)
+            let affectedItems = try supportIncidentItems(itemIds: itemIds, in: document)
+            let primary = affectedItems[0]
             let projection = DesktopUploadCustodyProjection(item: primary, now: clock())
-            let affectedItems = itemIds.compactMap { itemID in
-                document.items.first(where: { $0.id == itemID })
-            }
             return DesktopSupportIncidentReport(
                 item: primary,
                 projection: projection,
@@ -2010,23 +2003,39 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         var copyFallbackAvailable: Bool
     }
 
+    /// Called on the queue before report construction, persistence or network work.
+    private func supportIncidentItems(
+        itemIds: [String], in document: DesktopUploadQueueDocument
+    ) throws -> [DesktopUploadQueueItem] {
+        guard !itemIds.isEmpty else {
+            throw DesktopUploadQueueServiceError.packageNotFound("unknown")
+        }
+        return try itemIds.map { itemId in
+            guard let stored = document.items.first(where: { $0.id == itemId }) else {
+                throw DesktopUploadQueueServiceError.packageNotFound(itemId)
+            }
+            let item = projectLifecycle(stored, in: document)
+            guard item.lifecycleAccessAvailable else {
+                throw DesktopUploadClientError.httpStatus(403, "support_incident.scope_unavailable")
+            }
+            return item
+        }
+    }
+
     private func markSupportIncidentSending(
         itemIds: [String],
         context: DesktopSupportIncidentReportContext
     ) throws -> SupportIncidentSubmissionDraft {
         try queue.sync {
             var document = try loadDocumentOnQueue()
-            guard let primaryItemId = itemIds.first,
-                  let index = document.items.firstIndex(where: { $0.id == primaryItemId })
+            let affectedItems = try supportIncidentItems(itemIds: itemIds, in: document)
+            guard let index = document.items.firstIndex(where: { $0.id == affectedItems[0].id })
             else {
                 throw DesktopUploadQueueServiceError.packageNotFound(itemIds.first ?? "unknown")
             }
             let now = clock()
-            let item = projectLifecycle(document.items[index], in: document)
+            let item = affectedItems[0]
             let projection = DesktopUploadCustodyProjection(item: item, now: now)
-            let affectedItems = itemIds.compactMap { itemId in
-                document.items.first { $0.id == itemId }
-            }
             guard let report = DesktopSupportIncidentReport(
                 item: item,
                 projection: projection,
@@ -2151,9 +2160,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     private func markSupportIncidentSyncing(itemIds: [String]) throws -> SupportIncidentSyncDraft {
         try queue.sync {
             var document = try loadDocumentOnQueue()
-            guard let primaryItemId = itemIds.first,
-                  let primaryIndex = document.items.firstIndex(where: { $0.id == primaryItemId }),
-                  let submission = document.items[primaryIndex].supportIncidentSubmission,
+            let affectedItems = try supportIncidentItems(itemIds: itemIds, in: document)
+            guard let submission = affectedItems[0].supportIncidentSubmission,
                   submission.state == .pendingSync,
                   let incidentNumber = submission.incidentNumber?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !incidentNumber.isEmpty,
@@ -2162,10 +2170,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             else {
                 throw DesktopUploadClientError.httpStatus(409, "support_incident.sync_unavailable")
             }
-            let changedIds = Set(itemIds).intersection(Set(document.items.map(\.id)))
-            guard !changedIds.isEmpty else {
-                throw DesktopUploadQueueServiceError.packageNotFound(primaryItemId)
-            }
+            let changedIds = Set(affectedItems.map(\.id))
             let now = clock()
             document.items = document.items.map { candidate in
                 guard changedIds.contains(candidate.id) else { return candidate }
