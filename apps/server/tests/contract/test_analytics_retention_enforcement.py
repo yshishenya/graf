@@ -81,6 +81,17 @@ if args[:2] == ["volume", "ls"]:
     sys.exit(0)
 if args[:2] in (["volume", "create"], ["volume", "rm"]):
     sys.exit(0)
+if args[:1] == ["inspect"]:
+    if os.environ.get("FAKE_INSPECT_FAIL") == "1":
+        sys.exit(7)
+    for name in os.environ.get("FAKE_MOUNTED_VOLUMES", os.environ.get("FAKE_VOLUMES", "")).split():
+        print(name)
+    sys.exit(0)
+if args[:1] == ["ps"] and "--filter" in args:
+    if os.environ.get("FAKE_PROJECT_PS_FAIL") == "1":
+        sys.exit(7)
+    print("c" * 64)
+    sys.exit(0)
 if args[:1] == ["ps"]:
     print(os.environ.get("FAKE_CONTAINER", "clickhouse-container"))
     sys.exit(0)
@@ -417,7 +428,7 @@ def test_failed_archive_does_not_publish_complete_set_or_rotate(tmp_path: Path) 
     assert 'backup_set_complete=false' in state
 
 
-@pytest.mark.parametrize("failure", ["volume_list", "project_list", "state_write", "inventory", "rotation"])
+@pytest.mark.parametrize("failure", ["volume_list", "project_list", "container_list", "mount_inspect", "anonymous_mount", "state_write", "inventory", "rotation"])
 def test_failed_attempt_invalidates_previous_pass_and_always_alerts(tmp_path: Path, failure: str) -> None:
     inventory = _inventory(tmp_path)
     environment = _backup_environment(tmp_path, inventory)
@@ -431,6 +442,12 @@ def test_failed_attempt_invalidates_previous_pass_and_always_alerts(tmp_path: Pa
         environment["FAKE_VOLUME_LIST_FAIL"] = "1"
     elif failure == "project_list":
         environment["FAKE_LABEL_LIST_FAIL"] = "1"
+    elif failure == "container_list":
+        environment["FAKE_PROJECT_PS_FAIL"] = "1"
+    elif failure == "mount_inspect":
+        environment["FAKE_INSPECT_FAIL"] = "1"
+    elif failure == "anonymous_mount":
+        environment["FAKE_MOUNTED_VOLUMES"] = environment["FAKE_VOLUMES"] + " " + "a" * 64
     elif failure == "inventory":
         inventory.unlink()
     elif failure == "state_write":

@@ -351,6 +351,29 @@ while IFS= read -r name; do
   (( classified == 1 )) || unclassified_volumes=1
 done <<< "$labelled_volumes"
 
+# Image-created anonymous volumes may have neither the project prefix nor label.
+# Check actual mounts too; an unknown volume must never yield a complete set.
+if ! project_containers="$(docker ps -aq --filter "label=com.docker.compose.project=$project" 2>/dev/null)"; then
+  echo "reason=project_container_list_unavailable"; exit 1
+fi
+container_ids=()
+while IFS= read -r container_id; do
+  [[ -n "$container_id" ]] || continue
+  [[ "$container_id" =~ ^[a-f0-9]{12,64}$ ]] || { echo "reason=container_id_invalid"; exit 1; }
+  container_ids+=("$container_id")
+done <<< "$project_containers"
+if (( ${#container_ids[@]} > 0 )); then
+  if ! mounted_volumes="$(docker inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{println .Name}}{{end}}{{end}}' "${container_ids[@]}" 2>/dev/null)"; then
+    echo "reason=project_mount_inventory_unavailable"; exit 1
+  fi
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    classified=0
+    for volume in "${volumes[@]-}"; do [[ "$name" == "$volume" ]] && classified=1; done
+    (( classified == 1 )) || unclassified_volumes=1
+  done <<< "$mounted_volumes"
+fi
+
 unmatched_required=()
 for pattern in "${required_patterns[@]-}"; do
   [[ -n "$pattern" ]] || continue
