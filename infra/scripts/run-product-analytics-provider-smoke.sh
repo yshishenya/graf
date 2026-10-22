@@ -179,7 +179,8 @@ with TemporaryDirectory() as tmpdir:
     )
     retention_state_file = Path(tmpdir) / "retention-state"
     retention_state_file.write_text(
-        "retention_state_version=1\n"
+        "retention_state_version=2\n"
+        f"recorded_at_epoch={now}\n"
         "result=pass\n"
         "category=measurement_events retention_mode=until_decision retention_days=none storage=clickhouse enforcement=decision_required enforcement_verified=true\n"
         "category=anonymous_aggregate retention_mode=until_decision retention_days=none storage=postgres enforcement=decision_required enforcement_verified=true\n"

@@ -547,7 +547,7 @@
     }
   }
 
-  function persistedConsentMetadataMatches(state) {
+  function persistedConsentMetadataMatches(state, expectedCategories) {
     var storageKey = config.consent_storage_key || "graf_public_cookie_consent";
     try {
       var raw = window.localStorage.getItem(storageKey);
@@ -556,14 +556,16 @@
       return Boolean(
         data.graf_consent_copy_version === consentCopyVersion() &&
           Number(data.graf_consent_revision) === consentRevision() &&
-          data.graf_consent_state === state,
+          data.graf_consent_state === state &&
+          Number(cookie.revision) === consentRevision() &&
+          JSON.stringify(normalizedCategories(cookie.categories)) === JSON.stringify(expectedCategories),
       );
     } catch (_) {
       return false;
     }
   }
 
-  function persistConsentMetadata(state) {
+  function persistConsentMetadata(state, expectedCategories) {
     if (
       !window.CookieConsent ||
       typeof window.CookieConsent.setCookieData !== "function" ||
@@ -580,7 +582,7 @@
           graf_consent_state: state,
         },
       });
-      return persistedConsentMetadataMatches(state);
+      return persistedConsentMetadataMatches(state, expectedCategories);
     } catch (_) {
       return false;
     }
@@ -598,16 +600,27 @@
         }
       } catch (_) {}
     }
-    if (window.CookieConsent && typeof window.CookieConsent.getUserPreferences === "function") {
-      try {
-        var preferences = window.CookieConsent.getUserPreferences();
-        return {
-          categories: preferences.acceptedCategories || [],
-          revision: consentRevision(),
-        };
-      } catch (_) {}
-    }
     return null;
+  }
+
+  function handleConsentChoice(details) {
+    var cookie = consentCookieFromDetails(null);
+    var categories = normalizedCategories(cookie && cookie.categories);
+    // onConsent also runs at page load. Only a new choice matching the actual
+    // current library cookie can replace stale custom data.
+    if (!cookie || Number(cookie.revision) !== consentRevision() || !categories ||
+        !details || !details.cookie || Number(details.cookie.revision) !== consentRevision() ||
+        JSON.stringify(normalizedCategories(details.cookie.categories)) !== JSON.stringify(categories)) {
+      return handleConsent({ cookie: {} });
+    }
+    cookie = Object.assign({}, cookie, {
+      copy_version: consentCopyVersion(),
+      data: Object.assign({}, cookie.data, {
+        graf_consent_copy_version: consentCopyVersion(),
+        graf_consent_revision: consentRevision(),
+      }),
+    });
+    return handleConsent({ cookie: cookie });
   }
 
   function handleConsent(details) {
@@ -631,7 +644,7 @@
     currentConsentState = nextState;
     api.currentCategories = categories.slice();
     api.currentConsentState = nextState;
-    if (!persistConsentMetadata(nextState)) {
+    if (!persistConsentMetadata(nextState, categories)) {
       currentCategories = [];
       currentConsentState = "unknown";
       api.currentCategories = [];
@@ -1120,9 +1133,9 @@
         },
       },
       mode: "opt-in",
-      onChange: handleConsent,
+      onChange: handleConsentChoice,
       onConsent: handleConsent,
-      onFirstConsent: handleConsent,
+      onFirstConsent: handleConsentChoice,
       revision: consentRevision(),
     };
     // The options stay readable so a test can render the real modal from the
