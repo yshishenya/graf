@@ -1,0 +1,5 @@
+# schema.table; '?' means not present until its reviewed implementation exists.
+public.anonymous_page_aggregate_buckets
+public.public_visit_attributions
+public.client_acquisition_attributes
+public.network_access_metadata?

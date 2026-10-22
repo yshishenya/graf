@@ -1,0 +1,23 @@
+{
+  "scope": "T116 collector only; guard/readiness/production not accepted",
+  "hashes": {
+    "infra/scripts/measure-posthog-storage-growth.sh": "5422d3f1b9f0e359ccc6d124acd191058fa83c66dc4104282e1fbae4a4fefeae",
+    "infra/scripts/posthog-storage.py": "d2bbb3dc2c95b87a8045058dfb488a65b478878e0c3999a8ac7d76f1272c75db",
+    "infra/posthog/storage-mounts.txt": "0c356dbdbae2af7ba233b017bd2964805972b606c237686c378c3626a738b7d9",
+    "infra/posthog/storage-relations.txt": "90d3f40d244f4aaf3c2d6c842aa9ccbf44d5f9bfa8d651f60e5eb25a2b62b2cb",
+    "apps/server/tests/contract/test_analytics_retention_enforcement.py": "ef35e15ddbfa46bc33c68f73ead8a52fdff12ee1630ec5219ef4b3d8b67a6e8e",
+    "docs/analytics/product-analytics-capacity-baseline.md": "5518c40f3e1fb8c3b7848f0f7081254aa2481cb5de21944a3f36307d0fe93da8"
+  },
+  "focused_tests": "6 passed, 27 deselected, 1 warning",
+  "runtime_metadata": {
+    "containers": 34,
+    "mount_references": 31,
+    "mount_classification": "complete",
+    "graf_relations_present": 3,
+    "physical_relation_families": 19,
+    "runtime_mutation": false
+  },
+  "log_sha256": "6679780a6decd1af528bb18bbe067e57c5c492547077903549c4c870ab9d7627",
+  "log": ".dev/growth/t116-collector-focused-v2-2026-10-22.log",
+  "review_status": "v1 failed; C1-C3 corrected locally; v2 independent review pending"
+}

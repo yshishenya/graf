@@ -17,6 +17,7 @@ network or production.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import shutil
 import subprocess
@@ -599,33 +600,148 @@ def test_event_ttl_applier_is_idempotent_and_verifies_the_result(tmp_path: Path)
     assert _run(TTL_APPLY_PATH, environment, "--execute").returncode == 1
 
 
-def test_storage_growth_measurement_reports_the_documented_keys(tmp_path: Path) -> None:
+def test_storage_growth_measurement_fails_closed_without_runtime_metadata(tmp_path: Path) -> None:
     environment = _runtime(tmp_path)
     environment["GRAF_POSTHOG_STORAGE_STATE_FILE"] = str(tmp_path / "storage-state")
     environment["GRAF_POSTHOG_ANALYTICS_PATH"] = str(tmp_path)
-
+    environment["GRAF_APP_DIR"] = str(tmp_path)
     result = _run(GROWTH_PATH, environment)
+    assert result.returncode == 1, result.stderr
+    assert "storage_result=incomplete" in result.stdout
+    assert "analytics_storage_bytes=unknown" in result.stdout
+    assert "storage_growth_result=incomplete" in result.stdout
+    assert "storage_growth_result=pass" not in result.stdout
+    assert str(tmp_path) not in result.stdout
+    assert str(tmp_path) not in (tmp_path / "storage-state.json").read_text()
+    assert "analytics_filesystem_total" not in result.stdout
 
-    assert result.returncode == 0, result.stderr
-    for key in (
-        "storage_class=analytics_filesystem_total",
-        "absolute_bytes=",
-        "window_hours=",
-        "events_in_window=",
-        "bytes_per_day=",
-        "bytes_per_1000_events=",
-        "projected_bytes_12_months=",
-        "projected_bytes_36_months=",
-        "analytics_disk_free_percent=",
-        "recorded_at=",
-    ):
-        assert key in result.stdout, key
 
-    capacity = CAPACITY_PATH.read_text(encoding="utf-8")
-    for key in ("storage_class", "absolute_bytes", "projected_bytes_36_months", "pending operator receipt"):
-        assert key in capacity, key
-    assert "measure-posthog-storage-growth.sh" in capacity
-    assert "measure-posthog-storage-growth.sh" in RUNBOOK_PATH.read_text(encoding="utf-8")
+def _storage_collector():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("posthog_storage", REPO_ROOT / "infra/scripts/posthog-storage.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_allocated_storage_counts_sparse_files_hardlinks_archives_once(tmp_path: Path) -> None:
+    import os
+    collector = _storage_collector()
+    events = tmp_path / "events"
+    backups = tmp_path / "backups"
+    events.mkdir()
+    backups.mkdir()
+    sparse = events / "sparse"
+    with sparse.open("wb") as stream:
+        stream.seek(8 * 1024 * 1024)
+        stream.write(b"x")
+    os.link(sparse, events / "alias")
+    for name in ("complete.tar", "failed.tar", "staging.tar"):
+        (backups / name).write_bytes(b"archive" * 1000)
+    amounts, roots = collector.allocated([("events", events), ("events", events), ("backup_artifacts", backups)])
+    assert amounts["events"] == (events.stat().st_blocks + sparse.stat().st_blocks) * 512
+    # Allocation may be dense on APFS; the measured blocks, not logical length, are authoritative.
+    assert amounts["backup_artifacts"] == sum(p.stat().st_blocks * 512 for p in [backups, *backups.iterdir()])
+    assert len(roots) == 2
+    assert sum(amounts.values()) == amounts["events"] + amounts["backup_artifacts"]
+
+
+def test_allocated_storage_rejects_cross_class_overlap_links_and_missing(tmp_path: Path) -> None:
+    import os
+    collector = _storage_collector()
+    root = tmp_path / "root"
+    root.mkdir()
+    file = root / "data"
+    file.write_bytes(b"x")
+    for roots in ([('events', root), ('relational', file)], [('events', root), ('unknown', root)]):
+        with pytest.raises(collector.Incomplete):
+            collector.allocated(roots)
+    other = tmp_path / "other"
+    os.link(file, other)
+    with pytest.raises(collector.Incomplete):
+        collector.allocated([('events', root), ('relational', other)])
+    link = root / "link"
+    link.symlink_to(file)
+    amounts, _ = collector.allocated([('events', root)])
+    assert amounts['events'] == sum(p.lstat().st_blocks * 512 for p in (root, file, link))
+    link.unlink()
+    link.symlink_to(other)
+    with pytest.raises(collector.Incomplete):
+        collector.allocated([('events', root)])
+    link.unlink()
+    link.symlink_to(root / 'missing')
+    with pytest.raises(collector.Incomplete):
+        collector.allocated([('events', root)])
+    with pytest.raises(OSError):
+        collector.allocated([('events', tmp_path / 'missing')])
+
+
+def test_growth_requires_comparable_day_and_keeps_archive_decrease_visible() -> None:
+    collector = _storage_collector()
+    first = {'inventory_version': 'a', 'recorded_at_epoch': 100000,
+             'classes': dict.fromkeys(collector.CLASSES, 100)}
+    sample = {**first, 'recorded_at_epoch': 186400, 'classes': {**first['classes'], 'events': 300, 'backup_artifacts': 50}}
+    growth, anchor = collector.measured_growth(first, {}, 100000)
+    assert growth['result'] == 'pending'
+    early, unchanged = collector.measured_growth(sample, anchor, 186399)
+    assert early['result'] == 'pending'
+    assert unchanged['recorded_at_epoch'] == 100000
+    growth, anchor = collector.measured_growth(sample, anchor, 186400)
+    assert growth['result'] == 'decrease_requires_review'
+    assert growth['archive_bytes_per_day'] == -50
+    assert growth['live_bytes_per_day'] == 200
+    assert growth['interval_seconds'] == 86400
+    assert collector.measured_growth(sample, anchor, 186401)[0] == growth
+    assert collector.measured_growth({**sample, 'inventory_version': 'b'}, anchor, 300000)[0]['result'] == 'pending'
+    assert collector.measured_growth(sample, anchor, 186399)[0]['reason'] == 'growth_anchor_future'
+    for invalid in ([], {**anchor, 'recorded_at_epoch': 'bad'},
+                    {**anchor, 'classes': []}, {**anchor, 'last_growth': {'result': 'pass'}}):
+        assert collector.measured_growth(sample, invalid, 186401)[0]['result'] == 'incomplete'
+        assert collector.measured_growth(sample, invalid, 300000)[0]['result'] == 'incomplete'
+
+
+def test_relation_inventory_covers_analytics_models() -> None:
+    import inspect
+
+    from twobrain_rec_server.db.models import product_analytics
+    inventory = (REPO_ROOT / 'infra/posthog/storage-relations.txt').read_text()
+    for _, model in inspect.getmembers(product_analytics, inspect.isclass):
+        if hasattr(model, '__tablename__'):
+            assert 'public.' + model.__tablename__ in inventory
+
+
+def test_collector_shared_filesystem_is_sampled_once_and_first_growth_is_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
+) -> None:
+    import sys
+    collector = _storage_collector()
+    events = tmp_path / 'events'
+    backups = tmp_path / 'backups'
+    events.mkdir()
+    backups.mkdir()
+    (events / 'block').write_bytes(b'x' * 8192)
+    monkeypatch.setattr(collector, 'runtime_roots', lambda *args: ([('events', events)], 'mount-v1'))
+    monkeypatch.setattr(collector, 'graf_relation_roots', lambda *args: ([], 'relations-v1', 0, ['public.network_access_metadata']))
+    monkeypatch.setenv('GRAF_POSTHOG_STORAGE_STATE_FILE', str(tmp_path / 'state'))
+    monkeypatch.setenv('GRAF_POSTHOG_BACKUP_DIR', str(backups))
+    monkeypatch.setenv('GRAF_APP_DIR', str(tmp_path))
+    monkeypatch.setenv('GRAF_POSTHOG_ANALYTICS_PATH', str(events))
+    monkeypatch.setattr(sys, 'argv', ['posthog-storage.py'])
+    probes = []
+    filesystem = collector.filesystem
+    def observed(path):
+        probes.append(path)
+        return filesystem(path)
+    monkeypatch.setattr(collector, 'filesystem', observed)
+    assert collector.main() == 0
+    sample = json.loads((tmp_path / 'state.json').read_text())
+    assert len(probes) == len(sample['filesystems']) == 1
+    assert set(sample['filesystems'][0]['roles']) == {'analytics', 'host'}
+    assert sample['analytics_storage_bytes'] == sum(sample['classes'].values())
+    assert sample['growth']['result'] == 'pending'
+    output = capsys.readouterr().out
+    assert 'projected_bytes_12_months=unknown' in output
+    assert str(tmp_path) not in output
 
 
 @pytest.mark.parametrize("path", [BACKUP_PATH, RESTORE_PATH, RETENTION_PATH, TTL_APPLY_PATH, GROWTH_PATH])
