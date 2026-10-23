@@ -252,6 +252,7 @@ jobs:
           paths="$(changed_files)"
           while IFS= read -r path; do
             if [[ "$(classify_path "$path")" == server ]]; then
+              source infra/scripts/prepare-ci-apt.sh
               if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
                 sudo apt-get update
                 sudo apt-get install -y --no-install-recommends ffmpeg

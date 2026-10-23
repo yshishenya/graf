@@ -906,3 +906,20 @@ flags и SHA map175 macOS файлов PASS. Production HTML проверен Ch
 отдельно от случайных bridge ID/expiry; равенство полного HTML-хеша не заявлено.
 Полная причинная проверка — `specs/281-mac-meeting-guide/audio-help-evidence.md`.
 Native capture совместимость и реальные письма этим выпуском не проверялись.
+
+
+## T099 — повторная проверка источника APT, 2026-10-23
+
+1. `python -m pytest -q tests/governance/test_governance_workflow.py`
+   в уже подготовленном окружении: настоящий shell трёх resource steps,
+   временный mirror-list/deb822, сохранность trust fields, порядок, повтор
+   и отказ каждого этапа. Сеть, реальные sudo/APT и Docker не используются.
+2. `bash -n infra/scripts/prepare-ci-apt.sh`; workflow validator/self-test,
+   Ruff, development-process/governance и `git diff --check`.
+3. Независимое requirements/code review и converge T099. Затем required
+   governance-fast/macos-pr/pr-metadata на точных PR SHA/base, общий validator.
+4. После принятия обновить server-change PR до новой основы и сохранить
+   настоящий endpoint, длительность подготовки и полный успешный результат.
+   До этого локальная реализация не подтверждает исправление hosted задержки.
+   Release-full не запускается ради повторения локальных проверок; frozen
+   release gate сохраняется. Production и приложение не меняются.
