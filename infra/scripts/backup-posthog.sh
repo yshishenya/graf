@@ -429,7 +429,7 @@ fi
 [[ ! -L "$backup_dir" ]] || fail_backup backup_directory_linked
 mkdir -p "$backup_dir" "$state_dir"
 chmod 0700 "$backup_dir"
-[[ ! -e "$target_dir" && ! -e "$final_dir" ]] || fail_backup backup_reference_exists
+[[ ! -e "$target_dir" && ! -L "$target_dir" && ! -e "$final_dir" && ! -L "$final_dir" ]] || fail_backup backup_reference_exists
 mkdir "$target_dir"
 staging_owned=1
 cp "$inventory_file" "$target_dir/inventory.txt"

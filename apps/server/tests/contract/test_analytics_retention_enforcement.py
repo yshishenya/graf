@@ -1191,7 +1191,7 @@ def test_custom_project_rejects_old_project_volumes(tmp_path: Path) -> None:
     assert not list((tmp_path / 'backups').glob('*/.complete'))
 
 
-@pytest.mark.parametrize('collision', ['.incomplete', 'final'])
+@pytest.mark.parametrize('collision', ['.incomplete', 'final', 'final_link', 'stage_link'])
 def test_backup_preserves_reference_collision(tmp_path: Path, collision: str) -> None:
     inventory = _inventory(tmp_path)
     environment = _backup_environment(tmp_path, inventory)
@@ -1203,13 +1203,21 @@ if sys.argv[1:] == ['-u', '+%Y%m%dT%H%M%SZ']:
 else:
     os.execv('/bin/date', ['/bin/date', *sys.argv[1:]])
 """)
-    directory = tmp_path / 'backups' / ('.' + label + collision if collision == '.incomplete' else label)
+    directory = tmp_path / 'backups' / ('.' + label + '.incomplete' if collision in ('.incomplete', 'stage_link') else label)
     directory.mkdir(parents=True)
-    (directory / 'keep').write_bytes(b'not owned')
+    if collision.endswith('_link'):
+        directory.rmdir()
+        directory.symlink_to(tmp_path / 'foreign-missing-directory')
+    else:
+        (directory / 'keep').write_bytes(b'not owned')
     result = _run(BACKUP_PATH, environment, '--execute')
     assert result.returncode != 0
     assert 'reason=backup_reference_exists' in result.stdout
-    assert (directory / 'keep').read_bytes() == b'not owned'
+    if collision.endswith('_link'):
+        assert directory.is_symlink()
+        assert directory.readlink() == tmp_path / 'foreign-missing-directory'
+    else:
+        assert (directory / 'keep').read_bytes() == b'not owned'
     assert 'run --rm' not in (tmp_path / 'docker.log').read_text()
 
 
