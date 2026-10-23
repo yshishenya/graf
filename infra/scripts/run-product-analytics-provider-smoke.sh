@@ -27,9 +27,11 @@ grep -Fq 'provider_state_mutation=not_requested' <<<"$rollback_metadata"
 grep -Fq 'operator_executor_hook=not_invoked' <<<"$rollback_metadata"
 
 PYTHONPATH="$ROOT_DIR/apps/server:$ROOT_DIR/apps/server/src" python3 - <<'PY'
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import time
+from unittest.mock import patch
 
 from tests.fixtures.analytics_operations import write_runtime_guard
 
@@ -55,6 +57,7 @@ from twobrain_rec_server.product_analytics.provider_readiness import (
     RESTORE_STATE_FILE_ENV,
     RETENTION_STATE_FILE_ENV,
     build_provider_readiness,
+    collect_analytics_operations_evidence,
 )
 from twobrain_rec_server.product_analytics.readiness import build_rollout_readiness_report
 from twobrain_rec_server.product_analytics.yandex_offline import (
@@ -237,12 +240,16 @@ with TemporaryDirectory() as tmpdir:
         BASIS_WITHDRAWAL_STATE_FILE_ENV: str(legal_basis_state_file),
     }
 
+    transport_calls = {"posthog": 0, "yandex": 0}
+
     def posthog_transport(url, headers, body, timeout):
+        transport_calls["posthog"] += 1
         if not url.endswith("/capture/") or b'"api_key"' not in body or b'"event"' not in body:
             raise SystemExit("provider smoke failed")
         return ProviderTransportResponse(status_code=200, body='{"status":"ok"}')
 
     def yandex_transport(url, headers, body, timeout):
+        transport_calls["yandex"] += 1
         if "offline_conversions/upload" not in url or b"Target,DateTime,UserId,PurchaseId" not in body:
             raise SystemExit("provider smoke failed")
         return ProviderTransportResponse(status_code=200, body='{"uploading":{"id":1}}')
@@ -252,7 +259,6 @@ with TemporaryDirectory() as tmpdir:
         environ=live_environment,
     )
     live_posthog.transport = posthog_transport
-    live_posthog_delivery = live_posthog.capture(yandex_event)
 
     # The advertising transfer gate (FR-028) lets an offline-conversion upload
     # through only with three things at once: a recorded basis that names this
@@ -292,9 +298,42 @@ with TemporaryDirectory() as tmpdir:
         site_pages=smoke_pages,
     )
     live_yandex.transport = yandex_transport
-    live_yandex_delivery = live_yandex.export(yandex_event, visitor_consent=smoke_consent)
-    if live_posthog_delivery.status != "live_safe_sent" or live_yandex_delivery.status != "live_safe_uploaded":
-        raise SystemExit("provider smoke failed")
+
+    def check_restore_blocked():
+        operations = build_provider_readiness(live_settings, environ=live_environment).analytics_operations
+        if "restore_verification_failed" not in operations.blockers:
+            raise SystemExit("provider smoke failed: restore evidence accepted")
+        deliveries = (
+            live_posthog.capture(yandex_event),
+            live_yandex.export(yandex_event, visitor_consent=smoke_consent),
+        )
+        if any(
+            delivery.status != "live_safe_blocked"
+            or "analytics_operations_not_ready" not in delivery.metadata.get("blockers", ())
+            for delivery in deliveries
+        ):
+            raise SystemExit("provider smoke failed: restore gate")
+
+    check_restore_blocked()
+    if transport_calls != {"posthog": 0, "yandex": 0}:
+        raise SystemExit("provider smoke failed: blocked transport called")
+
+    # T118 has no trusted verifier yet. Isolate transport wiring in this test
+    # process; the real collector must reject this self-declared receipt.
+    with patch(
+        "twobrain_rec_server.product_analytics.provider_readiness.collect_analytics_operations_evidence",
+        side_effect=lambda *args, **kwargs: replace(
+            collect_analytics_operations_evidence(*args, **kwargs), restore_consistent=True
+        ),
+    ):
+        live_posthog_delivery = live_posthog.capture(yandex_event)
+        live_yandex_delivery = live_yandex.export(yandex_event, visitor_consent=smoke_consent)
+        if live_posthog_delivery.status != "live_safe_sent" or live_yandex_delivery.status != "live_safe_uploaded":
+            raise SystemExit("provider smoke failed")
+
+    check_restore_blocked()
+    if transport_calls != {"posthog": 1, "yandex": 1}:
+        raise SystemExit("provider smoke failed: unexpected transport calls")
     live_readiness = build_rollout_readiness_report(
         live_settings,
         environ=live_environment,
@@ -325,6 +364,8 @@ print("provider_lifecycle=metadata_only_pass")
 print("posthog_deploy_dry_run=pass")
 print("posthog_delivery=dry_run")
 print("posthog_live_safe_delivery=transport_verified")
+print("provider_transport_evidence=synthetic_test_process_only")
+print("restore_gate=blocked_before_and_after_transport_test")
 print("posthog_web_direct=render_config_present")
 print("posthog_desktop_direct=contract_tested")
 print("posthog_autocapture=current_pages_enabled")
