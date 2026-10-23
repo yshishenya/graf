@@ -390,7 +390,7 @@ def test_actions_use_reviewed_node24_pins_and_preserve_artifact_contract():
                     assert inputs['persist-credentials'] == 'false'
                 elif action == 'actions/setup-node':
                     assert inputs['package-manager-cache'] == 'false'
-                    assert inputs['node-version'] == '22.22.3'
+                    assert inputs['node-version'] == '22.23.4'
                 elif action == 'actions/upload-artifact':
                     assert inputs['archive'] == 'true'
                     assert inputs['name']

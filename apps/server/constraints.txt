@@ -21,12 +21,13 @@ babel==2.18.0
     # via twobrain-rec-server
 backoff==2.2.1
     # via langfuse
-certifi==2026.6.17
+certifi==2026.10.23
     # via
     #   httpcore
     #   httpx
     #   minio
     #   requests
+    #   twobrain-rec-server
 cffi==2.0.0
     # via
     #   argon2-cffi-bindings

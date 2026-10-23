@@ -5,6 +5,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
+RUN apt-get update \
+    && apt-get install --no-install-recommends --yes ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 RUN addgroup --system twobrain && adduser --system --ingroup twobrain twobrain
 COPY apps/server/constraints.txt /app/constraints.txt
 RUN pip install --requirement constraints.txt
