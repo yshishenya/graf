@@ -278,8 +278,18 @@ Full37537979359 SUCCESS, train/decision go, backup/CD/live/publication PASS;
 
 - [X] T099 Устранить подтверждённую задержку Azure APT в `infra/scripts/prepare-ci-apt.sh` и трёх existing resource callers `.github/workflows/{governance-fast,release-full}.yml`; сохранить trust/source metadata, server/text scope и все проверки. До кода уточнить требования, пройти независимый `checklists/ci-package-source.md`, analyze и issue sync; расширить исполняемый shell-harness `tests/governance/test_governance_workflow.py` для порядка, повтора и отказов; подтвердить FAIL до исправления, focused/static, независимый review/converge. Подтверждение hosted результата относится к зависимой T100. (FR-057/SC-025, T089: partial) (Issue #7738)
 
-- [ ] T100 После принятия T099 обновить существующий server-change PR до новой основы, подтвердить настоящий endpoint/время подготовки и весь успешный обязательный набор на точном SHA/base, сохранить evidence в `specs/211-optimize-ci-cd/validation-ci-package-source-20261023.md`; закрыть только issue T099–T100 после merged/live валидации, общую F211 и её прежний остаток оставить открытыми. (FR-057/SC-025) (Issue #7738)
+- [X] T100 После принятия T099 обновить существующий server-change PR до новой основы, подтвердить настоящий endpoint/время подготовки и весь успешный обязательный набор на точном SHA/base, сохранить evidence в `specs/211-optimize-ci-cd/validation-ci-package-source-20261023.md`; закрыть только issue T099–T100 после merged/live валидации, общую F211 и её прежний остаток оставить открытыми. (FR-057/SC-025) (Issue #7738)
 
 T099: локальная реализация и независимое review/converge PASS, 142 профильные
 проверки; отчёт `validation-ci-package-source-20261023.md`. PR exact-SHA/base
 и merge ещё ожидаются; T100 и #7738 остаются открытыми.
+
+T099–T100: реализация принята PR #7739, merge `21e80b29c7f23bddba9eae49c078974ebd244231`.
+Настоящая серверная приёмка выполнена на окончательном PR #7737,
+SHA `f15c1fc6ae812293abe2433ed9dab457f7a07f50`, той же проверенной основе:
+подготовка42s, fast453s, 2465+183+100 PASS; обязательный набор и merge
+`2964952dbd3c03f5730230f134f0715282ffa7fb` подтверждены. Подробности и
+границы — итог T100 в `validation-ci-package-source-20261023.md`.
+Предыдущие ожидающие отметки выше сохраняют историю локальной T099.
+Закрытие #7738 ожидает принятия этой документальной сверки и live-валидации;
+общая F211 и остальные незавершённые задачи остаются открытыми.
