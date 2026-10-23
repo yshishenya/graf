@@ -303,21 +303,70 @@ def test_governance_workflow_self_test() -> None:
     assert load_validator().self_test() == 0
 
 
-@pytest.mark.parametrize("workflow_name", ["release-full", "governance-fast"])
-@pytest.mark.parametrize("tools_state", ["working", "missing-ffmpeg", "missing-ffprobe", "update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe", "non-server"])
-def test_actual_media_resource_preparation(tmp_path, workflow_name, tools_state):
+@pytest.mark.parametrize("workflow_name,job_name", [
+    ("release-full", "server-parallel"), ("release-full", "server-phases"),
+    ("governance-fast", "governance-fast"),
+])
+@pytest.mark.parametrize("tools_state", ["working", "missing-ffmpeg", "missing-ffprobe", "update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe", "non-server", "mirror-failed", "npm-failed", "browser-failed", "write-failed", "unknown-mirror", "duplicate-mirror", "missing-mirror", "bad-source", "missing-source", "crlf-mirror", "mirror-symlink", "source-symlink", "second-source", "continued-source", "disabled-source", "duplicate-source", "multiple-stanzas"])
+def test_actual_media_resource_preparation(tmp_path, workflow_name, job_name, tools_state):
     import yaml
 
     workflow = yaml.load((ROOT / f".github/workflows/{workflow_name}.yml").read_text(), Loader=yaml.BaseLoader)
-    job = workflow["jobs"]["server-parallel" if workflow_name == "release-full" else "governance-fast"]
+    job = workflow["jobs"][job_name]
     step = next(step for step in job["steps"] if "browser" in step.get("name", "").lower() and "resources" in step["name"])
     runner = tmp_path / "infra/scripts/ci-local.sh"
     runner.parent.mkdir(parents=True)
     runner.write_text('source "$CI_SOURCE"\nchanged_files() { printf "%s\\n" "$CHANGED_PATH"; }\n')
     browser = tmp_path / "apps/server/tests/browser/node_modules/.bin/playwright"
     browser.parent.mkdir(parents=True)
-    browser.write_text('#!/bin/sh\nprintf "browser\\n" >> "$PREP_EVENTS"\n')
+    browser.write_text('#!/bin/sh\nprintf "browser\\n" >> "$PREP_EVENTS"\n[ "$TOOLS_STATE" != browser-failed ]\n')
     browser.chmod(0o755)
+    apt = tmp_path / "apt"
+    (apt / "sources.list.d").mkdir(parents=True)
+    source_text = ("Types: deb\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\n"
+                   "Suites: noble noble-updates noble-backports\nComponents: main universe restricted multiverse\n"
+                   "Architectures: amd64\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n")
+    source = apt / "sources.list.d/ubuntu.sources"
+    source.write_text(source_text.replace("/etc/apt", str(apt)))
+    third_party = apt / "sources.list.d/third-party.list"
+    third_party.write_text("deb [signed-by=/some/key.gpg] https://example.invalid/packages stable main\n")
+    mirror = apt / "apt-mirrors.txt"
+    original = ("http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\n"
+                "https://archive.ubuntu.com/ubuntu/\tpriority:2\n"
+                "https://security.ubuntu.com/ubuntu/\tpriority:3\n")
+    mirror.write_text(original)
+    if tools_state == "unknown-mirror":
+        mirror.write_text(original + "https://other.invalid/ubuntu/\tpriority:1\n")
+    elif tools_state == "duplicate-mirror":
+        mirror.write_text(original + original)
+    elif tools_state == "missing-mirror":
+        mirror.unlink()
+    elif tools_state == "bad-source":
+        source.write_text(source.read_text().replace("mirror+file:", "file:"))
+    elif tools_state == "second-source":
+        source.write_text(source.read_text() + "\n" + source_text.replace("mirror+file:/etc/apt/apt-mirrors.txt", "https://other.invalid/ubuntu/"))
+    elif tools_state == "continued-source":
+        source.write_text(source.read_text().replace("\nSuites:", "\n https://other.invalid/ubuntu/\nSuites:"))
+    elif tools_state == "disabled-source":
+        source.write_text(source.read_text() + "Enabled: no\n")
+    elif tools_state == "duplicate-source":
+        source.write_text(source.read_text() + "URIs: https://other.invalid/ubuntu/\n")
+    elif tools_state == "multiple-stanzas":
+        source.write_text(source.read_text() + "\n" + source.read_text().replace("noble noble-updates noble-backports", "noble-security"))
+    elif tools_state == "missing-source":
+        source.unlink()
+    elif tools_state == "crlf-mirror":
+        mirror.write_bytes(original.replace("\n", "\r\n").encode())
+    elif tools_state in {"mirror-symlink", "source-symlink", "second-source", "continued-source", "disabled-source", "duplicate-source"}:
+        target = mirror if tools_state == "mirror-symlink" else source
+        saved = target.with_suffix(".saved")
+        target.rename(saved)
+        target.symlink_to(saved)
+    source_before = source.read_bytes() if source.exists() else None
+    mirror_before = mirror.read_bytes() if mirror.exists() else None
+    helper = ROOT / "infra/scripts/prepare-ci-apt.sh"
+    if helper.exists():
+        (runner.parent / helper.name).write_text(helper.read_text().replace("/etc/apt", str(apt)))
     events = tmp_path / "events"
     harness = r'''
 installed=0
@@ -327,13 +376,24 @@ command() {
   else builtin command "$@"; fi
 }
 sudo() {
+  if [[ "$1" == python3 ]]; then
+    printf 'mirror\n' >> "$PREP_EVENTS"
+    [[ "$TOOLS_STATE" != mirror-failed ]] || return 23
+    if [[ "$TOOLS_STATE" == write-failed ]]; then
+      builtin command python3 -c 'import sys,unittest.mock; unittest.mock.patch("pathlib.Path.write_bytes", side_effect=PermissionError("fixture write denied")).start(); exec(sys.stdin.read())'
+    else
+      builtin command "$@"
+    fi
+    return
+  fi
   [[ "$1" == apt-get ]] || return 99
+  ! grep -q azure "$APT_MIRROR" || return 98
   printf '%s\n' "$*" >> "$PREP_EVENTS"
   [[ "$TOOLS_STATE" != update-failed || "$2" != update ]] || return 23
   [[ "$TOOLS_STATE" != install-failed || "$2" != install ]] || return 23
   if [[ "$2" == install ]]; then installed=1; fi
 }
-npm() { printf 'npm\n' >> "$PREP_EVENTS"; }
+npm() { printf 'npm\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != npm-failed ]]; }
 ffmpeg() { printf 'ffmpeg\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ffmpeg ]]; }
 ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ffprobe ]]; }
 '''
@@ -341,25 +401,47 @@ ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ff
         ["bash", "-e", "-o", "pipefail", "-c", harness + step["run"]], cwd=tmp_path,
         env={**os.environ, "CI_SOURCE": str(ROOT / "infra/scripts/ci-local.sh"),
              "CHANGED_PATH": "README.md" if tools_state == "non-server" else "apps/server/src/example.py",
-             "TOOLS_STATE": tools_state, "PREP_EVENTS": str(events)},
+             "TOOLS_STATE": tools_state, "PREP_EVENTS": str(events),
+             "APT_MIRROR": str(mirror), "GITHUB_ACTIONS": "true", "RUNNER_OS": "Linux"},
         capture_output=True, text=True, check=False, timeout=10,
     )
     rows = events.read_text().splitlines() if events.exists() else []
     if workflow_name == "governance-fast" and tools_state == "non-server":
         assert result.returncode == 0 and not rows, result.stderr
         return
-    failed = tools_state in {"update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe"}
+    failed = tools_state in {"update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe", "mirror-failed", "npm-failed", "browser-failed", "write-failed", "unknown-mirror", "duplicate-mirror", "missing-mirror", "bad-source", "missing-source", "crlf-mirror", "mirror-symlink", "source-symlink", "second-source", "continued-source", "disabled-source", "duplicate-source"}
     assert (result.returncode != 0) == failed, result.stdout + result.stderr
+    assert rows[0] == "mirror", rows
+    assert (source.read_bytes() if source.exists() else None) == source_before
+    assert third_party.read_text() == "deb [signed-by=/some/key.gpg] https://example.invalid/packages stable main\n"
+    helper_failed = tools_state in {"mirror-failed", "write-failed", "unknown-mirror", "duplicate-mirror", "missing-mirror", "bad-source", "missing-source", "crlf-mirror", "mirror-symlink", "source-symlink", "second-source", "continued-source", "disabled-source", "duplicate-source"}
+    if helper_failed:
+        assert rows == ["mirror"]
+        assert (mirror.read_bytes() if mirror.exists() else None) == mirror_before
+    else:
+        assert mirror.read_text() == original.split("\n", 1)[1]
     installs = [row for row in rows if row.startswith("apt-get")]
-    if tools_state.startswith("missing-") or tools_state == "install-failed":
+    if tools_state in {"missing-ffmpeg", "missing-ffprobe", "install-failed"}:
         assert len(installs) == 2 and installs[0] == "apt-get update"
         assert installs[1].endswith("ffmpeg")
     elif tools_state == "update-failed":
         assert installs == ["apt-get update"]
     else:
         assert installs == []
+    if helper_failed or tools_state in {"update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe"}:
+        assert "npm" not in rows and "browser" not in rows
+    elif tools_state == "npm-failed":
+        assert "browser" not in rows
     if not failed:
-        assert rows.count("ffmpeg") == rows.count("ffprobe") == 1
+        assert rows.count("ffmpeg") == rows.count("ffprobe") == rows.count("npm") == rows.count("browser") == 1
+        # The real helper is safe to repeat without rewriting any bytes.
+        before = mirror.stat().st_mtime_ns
+        repeat = subprocess.run(["bash", "-e", "-c", harness + "source infra/scripts/prepare-ci-apt.sh"],
+                                cwd=tmp_path, env={**os.environ, "PREP_EVENTS": str(events),
+                                "TOOLS_STATE": tools_state, "GITHUB_ACTIONS": "true", "RUNNER_OS": "Linux"},
+                                capture_output=True, text=True, check=False)
+        assert repeat.returncode == 0, repeat.stderr
+        assert mirror.stat().st_mtime_ns == before
 
 
 ACTION_PINS = {

@@ -521,3 +521,32 @@ Lane: active Spec Kit slice / high-risk CI/governance; FR-008/FR-040/SC-019.
 5. После проверок: commit, узкий PR, exact SHA/base required checks и общий
    live verifier. После merge поправку включить в новый train и подготовку
    v2026.10.07.1; единственный Full только после freeze.
+
+
+## T099 — минимальная коррекция APT-подготовки CI
+
+Lane: active Spec Kit slice, shared CI/infrastructure. До/после design:
+Constitution VI PASS — требования, независимый checklist, analyze, задача
+и issue предшествуют коду; V/III и release/data gates не затрагиваются.
+Требования: новый раздел T099 spec, исходный T089 сохраняется.
+
+Один `infra/scripts/prepare-ci-apt.sh`, без аргументов и новых зависимостей:
+проверить GitHub Linux среду, точную deb822 ссылку и известный официальный
+список зеркал; удалить только строку Azure через Python stdlib под sudo и
+проверить результат. Принимать только плоские deb822 поля известного runner,
+без продолжений и повторных ключей; все разделы используют ровно ожидаемый
+URI и включены. Несколько таких разделов допустимы. Не переписывать deb822 или ключи. Уже исправленный список — no-op.
+Не создавать selector зеркал, менеджер пакетов, конфигурационный формат или
+поддержку недоказанных образов. Три caller в governance-fast/release-full
+вызывают этот скрипт перед существующей условной установкой ffmpeg.
+
+Расширить существующий `test_actual_media_resource_preparation`: исполнить
+реальные три YAML блока и настоящий helper, перенаправив только `/etc/apt`
+в fixture копии helper. Bash функции перехватывают sudo/apt/npm/Playwright
+и записывают порядок; никаких host installs. Проверить доверенные параметры
+источника побайтно, повтор и отказы. Новые задачи: T099 (реализация), T100 (hosted приёмка); исторические задачи
+не переписываются. Независимый requirements review → analyze → issue sync
+→ регрессия FAIL → код → focused/static → независимый code review/converge
+→ коммит/PR → три exact-SHA/base проверки → merge → новый настоящий
+server-change run и закрытие только этой задачи после live-валидации.
+Общие F211/F263 не объявляются завершёнными.

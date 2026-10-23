@@ -533,3 +533,51 @@ checked_base, ослабление protection/proofs и продуктовые �
 Разрешение: user message 01a1130e-b7cb-7ec1-900d-bfb9cab79306 «выкати в прод все»;
 reply 01a1131a-1412-7cd0-a9c1-b8b6829fcb3d «Да, передай и доведи до выпуска»,
 thread 01a10d09-2d9e-7921-ae20-1f40f15fddf0.
+
+
+### T099 — источник пакетов одноразового GitHub CI, 2026-10-23
+
+Продолжение T089 / FR-057 / SC-025. Run39977036244 attempt1 потратил
+34 минуты 10.7 секунды на подготовку; APT загружал пакеты из Azure
+около40–44 kB/s. Attempt2 также отменён. Это не успешная проверка кода.
+
+Clarify: меняется только список зеркал одноразового GitHub Ubuntu runner.
+В текущем официальном runner-images `configure-apt-sources.sh` deb822
+`ubuntu.sources` ссылается на `mirror+file:/etc/apt/apt-mirrors.txt`;
+Azure имеет priority1, archive.ubuntu.com priority2, security.ubuntu.com
+priority3. Удалить только строку Azure, оставив два официальных HTTPS
+адреса и все источники/suites/components/архитектуры/Signed-By без изменений.
+Это исключает медленный endpoint; заранее скорость не обещается.
+
+- Подготовка выполняется до любого APT, включая Playwright при уже
+  работающих ffmpeg/ffprobe, в server-ветви governance-fast и обоих
+  существующих resource шагах release-full. Non-server и text-only
+  не меняют APT и не получают новую установку.
+- Поддерживается только доказанный формат mirror-list + deb822 GitHub
+  runner. Уже исправленный список допускает повтор без изменения байтов.
+  Отсутствующий/неожиданный источник, неоднозначный список, ошибка чтения
+  или записи завершаются понятным отказом до установки. Поддержка других
+  образов не нужна до появления такого исполнителя.
+- Проверка подписей APT, ключи и весь прежний набор тестов сохраняются.
+  Ошибки зеркала/update/install/media/npm/Playwright блокируют дальнейшие
+  этапы. Timeout45min, имена checks, права, concurrency, SHA/base и
+  доказательства не меняются. Production/APT на Mac, выпуск и приложение
+  вне области. Legacy Impact: untouched; legacy_new=0.
+- Приёмка: исполнять все три настоящих YAML блока на временных файлах
+  без сети и sudo на Mac; проверить оба отсутствующих media tools, оба
+  исправных, повтор, неизвестные конфигурации и отказы каждого этапа.
+  После merge требуется настоящий server-change CI на новой основе;
+  независимые shell checks не объявляются измерением GitHub или Full.
+
+Поддерживаемый mirror-list побайтно (разделитель URI/priority — TAB,
+каждая строка оканчивается LF):
+
+```text
+http://azure.archive.ubuntu.com/ubuntu/	priority:1
+https://archive.ubuntu.com/ubuntu/	priority:2
+https://security.ubuntu.com/ubuntu/	priority:3
+```
+
+Допустимы только эти три строки либо уже исправленные последние две.
+Дубликаты, добавочные/другие строки, неподдерживаемая форма deb822 URI,
+отсутствующие или не обычные файлы дают FAIL; чужие источники не изменяются.
