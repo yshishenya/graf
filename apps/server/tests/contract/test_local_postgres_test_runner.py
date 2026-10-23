@@ -163,6 +163,7 @@ def test_argument_and_collection_paths_do_not_start_docker(tmp_path, args, expec
         capture_output=True, text=True, check=False,
     )
     assert not calls.exists(), result.stdout + result.stderr
+    assert "postgres_test_result=pass" not in result.stdout
     assert result.returncode == expected, result.stdout + result.stderr
 
 
@@ -180,6 +181,7 @@ os.environ["PYTHONPATH"] = {str(ROOT / "apps/server/tests/fixtures")!r}
 os.chdir({str(tmp_path)!r})
 args = sys.argv[sys.argv.index("pytest") + 1:]
 args = ["test_resources" if arg == "tests.fixtures.test_resources" else arg for arg in args]
+args = [{str(tmp_path)!r} if arg == "tests/unit" else arg for arg in args]
 # The real project config is covered by test_test_resources.py; keep this fixture isolated.
 args = [{str(tmp_path / "pytest.ini")!r} if arg == {str(ROOT / "apps/server/pyproject.toml")!r} else arg for arg in args]
 if os.environ.get("TAMPER_PHASE") and "--graf-phase-file" in args:
@@ -209,7 +211,7 @@ def record(request):
     with open(os.environ["EVENTS"], "a") as output:
         output.write(json.dumps({"name": request.node.name,
             "worker": worker, "prefix": os.environ.get("GRAF_TEST_DATABASE_PREFIX"),
-            "database": worker_database_name(worker)}) + "\\n")
+            "database": worker_database_name(worker) if os.environ.get("GRAF_TEST_DATABASE_PREFIX") else None}) + "\\n")
     assert os.environ.get("FAIL_CASE") != request.node.name
 ''')
     for name, markers in {"plain": ["selected"], "other": [],
@@ -221,13 +223,13 @@ def record(request):
             + f"def test_{name}(): pass\n"
         )
 
-    def run(*args, fail_case="", addopts="", config_addopts="", tamper_phase="", full=False):
+    def run(*args, fail_case="", addopts="", config_addopts="", tamper_phase="", full=False, fast=False):
         if config_addopts:
             with (tmp_path / "pytest.ini").open("a") as output:
                 output.write("addopts = " + config_addopts + "\n")
         result = subprocess.run(
-            ["bash", str(RUNNER), "--full" if full else "--focused", *args,
-             *([] if full else [str(tmp_path)])], cwd=ROOT,
+            ["bash", str(RUNNER), "--fast" if fast else "--full" if full else "--focused", *args,
+             *([] if full or fast else [str(tmp_path)])], cwd=ROOT,
             env={**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
                  "EVENTS": str(events), "DOCKER_CALLS": str(docker_calls), "FAIL_CASE": fail_case,
                  "TAMPER_PHASE": tamper_phase,
@@ -508,7 +510,8 @@ def test_partition_phases_select_exact_groups(partition_run, phases, expected):
 
 
 @pytest.mark.parametrize("mode,original_status", [
-    ((), 0), (("--partitioned",), 0), (("--full",), 0),
+    ((), 0), (("--partitioned",), 0), (("--full",), 0), (("--fast",), 0),
+    (("--partitioned", "--shard", "0/2"), 0),
     (("--partitioned",), 17), (("--partitioned",), 130), (("--partitioned",), 143),
 ])
 def test_cleanup_failure_preserves_failure_or_rejects_success(partition_run, tmp_path, mode, original_status):
@@ -527,9 +530,11 @@ def test_cleanup_failure_preserves_failure_or_rejects_success(partition_run, tmp
             + "os.execv(sys.executable,",
         ))
     result, _, calls = partition_run(
-        *(arg for arg in mode if arg != "--full"), "-q", full="--full" in mode,
+        *(arg for arg in mode if arg not in {"--full", "--fast"}), "-q",
+        full="--full" in mode, fast="--fast" in mode,
     )
     assert result.returncode == (original_status or 1), result.stdout + result.stderr
+    assert "postgres_test_result=pass" not in result.stdout
     assert "postgres_test_cleanup=isolated_container_remove_failed" in result.stderr
     assert "postgres_test_cleanup=isolated_container_removed" not in result.stdout
     started = next(call[call.index("--name") + 1] for call in calls if call[0] == "run")
@@ -552,5 +557,28 @@ def test_startup_cleanup_failure_keeps_container_owned(partition_run, tmp_path):
     assert [call for call in calls if call[0] == "rm"] == [
         ["rm", "--force", "--volumes", started], ["rm", "--force", "--volumes", started],
     ]
+    assert "postgres_test_result=pass" not in result.stdout
     assert "postgres_test_cleanup=isolated_container_remove_failed" in result.stderr
     assert "postgres_test_cleanup=isolated_container_removed" not in result.stdout
+
+
+@pytest.mark.parametrize("mode", [(), ("--partitioned",), ("--full",), ("--fast",),
+                                  ("--partitioned", "--shard", "0/2")])
+def test_pass_marker_follows_successful_cleanup(partition_run, mode):
+    result, _, _ = partition_run(
+        *(arg for arg in mode if arg not in {"--full", "--fast"}), "-q",
+        full="--full" in mode, fast="--fast" in mode,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.count("postgres_test_result=pass") == 1
+    assert result.stdout.index("postgres_test_cleanup=isolated_container_removed") < result.stdout.index("postgres_test_result=pass")
+
+
+def test_fast_pure_pass_follows_cleanup_without_starting_docker(partition_run, tmp_path):
+    for name in ("strict", "both"):
+        (tmp_path / f"test_{name}.py").unlink()
+    result, rows, calls = partition_run("-q", fast=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert len(rows) == 3 and not calls
+    assert result.stdout.count("postgres_test_result=pass mode=fast") == 1
+    assert result.stdout.index("postgres_test_cleanup=container_not_started") < result.stdout.index("postgres_test_result=pass")

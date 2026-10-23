@@ -81,3 +81,68 @@ T001/T002/T004/T005/T010/T011 и общая #6901 сохраняют исход�
 Установленный GRAF, Full release, выпуск и production не выполнялись.
 До закрытия #6907 обязательны независимое ревью кода, commit/PR, три успешных
 GitHub checks точного SHA/основы, общий валидатор, merge и live closeout.
+
+
+## Повторная проверка замечания PR: итоговый PASS после очистки
+
+На SHA `fc42afe2aa180309b7e175d6fe28022f11ccf7a6` reviewer GitHub указал
+на сохранившийся ранний `postgres_test_result=pass`. Итоговый код уже был
+правильным, но строка PASS перед неуспешным EXIT противоречила FR-011.
+Предыдущее независимое review принимало эту строку как промежуточную;
+эта оценка оказалась недостаточной. Требование не изменено: исправление T007.
+
+Независимое повторное requirements review: runner checklist 8/0,
+`review-us3-pass-marker-20261023.md`. Текущие spec/plan/tasks, конституция,
+callers и прежний analyze перепроверены: CRITICAL0/HIGH0, противоречий и
+нового владельца задачи нет; live #6907 по-прежнему владеет T006–T008.
+
+Минимальное исправление: одна изначально пустая строка результата; три ветви
+после успешных фаз сохраняют прежний полный marker. Общий cleanup печатает
+его ровно один раз только после очистки и при окончательном exit0.
+Help/inventory-only/setup failures/ошибки/сигналы PASS не получают; чистый
+fast без БД сохраняется. Docker-команды, выборка, миграции/RLS не менялись.
+
+RED: 11 ожидаемых FAIL, 3 PASS, 86 deselected / 67.08s. Настоящий runner
+проверен для focused, partitioned, sharded focused, fast с ресурсами и full;
+также fast pure без Docker. При отказе очистки ранний PASS запрещён, при
+успехе единственный marker следует за cleanup; исходные17/130/143 сохранены.
+Это subprocess/xdist contract с подставными Docker/uv, не runtime PostgreSQL.
+
+Настоящие два независимых PostgreSQL/миграции/RLS прогона после исправления:
+
+| Workers | Время | Call cases | Группы | Итог |
+|---:|---:|---:|---|---|
+| 1 | 64.014s | 68 | 66 parallel +1 performance +1 strict | PASS, exit0 |
+| 2 | 51.210s | 68 | 66 parallel +1 performance +1 strict | PASS, exit0 |
+
+Состав равен, нет повторов и skips; setup/call/teardown passed.
+Required SC017 идентифицирован по прежнему case_id и прошёл в обоих.
+Каждый stdout содержит один итоговый PASS после removed; итоговая
+инвентаризация Docker не обнаружила оставшихся graf-postgres-test контейнеров.
+Прогоны частично пересекались с subprocess contract-проверкой; времена
+записаны как наблюдения и не объявляются ускорением или медианой.
+Case digest двух наборов: `f3ddcacd0583efe9f98ae62c7e5d5b1e5c2df461e049afee03537f17bfc8b24d`.
+
+Точные команды и журналы: `.dev/us3-pass-marker/`; итоговые текстовые
+журналы/JSONL/контрольные суммы сохранены во внешнем реестре аудита
+`graf-issues-audit/f263-pass-marker`. Полные зависимости и сборки туда не копируются.
+
+Проверенные SHA-256 текущей версии:
+
+- `apps/server/scripts/run_local_postgres_tests.sh`: `b5858c56db899be16cdf842c42ecd87aa1984cac94f56015051eeb4e96240d07`
+- `apps/server/tests/contract/test_local_postgres_test_runner.py`: `494eb52775d37fe9a41a81bf0efe621af43794af5a1a4ab94e41c2bbe7b31bad`
+- `apps/server/tests/fixtures/test_resources.py`: `d8486960f20ba89f7c84f66025291c05fc69bf8113a1a02fdc71b69b302cf3f0`
+
+Полный профиль после исправления: **100 PASS**, 2 прежних предупреждения;
+100 passed, 2 warnings in 240.19s (0:04:00)
+
+Bash syntax, Ruff, process/context, governance, changelog и whitespace PASS.
+Независимое code review и новый точный GitHub CI ещё ожидаются.
+
+Независимое итоговое code review: PASS, обязательных замечаний0;
+`review-us3-pass-marker-code-20261023.md`, checklist повторно8/0,15/0,12/0,7/0.
+Scoped converge T006–T008: FR-007–011/015/016, SC-003 и решения плана
+сверены с текущей реализацией и доказательствами; новых пробелов нет.
+Tasks.md во время этой сверки побайтно не менялся. US2 и общая F263
+не объявляются converged. Новый SHA/base CI и merged/live closeout остаются
+обязательными. Commit/PR/merge выполняются в пределах общего разрешения.
