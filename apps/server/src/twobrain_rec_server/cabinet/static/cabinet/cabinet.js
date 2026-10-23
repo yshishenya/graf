@@ -214,8 +214,9 @@
   let localRecordingRows = [];
   let visibleRecordingsFrame = null;
   const publishVisibleRecordings = () => {
-    if (visibleRecordingsFrame !== null) return;
-    visibleRecordingsFrame = requestAnimationFrame(() => {
+    if (visibleRecordingsFrame !== null || !window.webkit?.messageHandlers?.grafLocalRecording
+        || window.GRAFRecordingDeletionBridgeVersion !== 1) return;
+    visibleRecordingsFrame = window.requestAnimationFrame(() => {
       visibleRecordingsFrame = null;
       const bridge = window.webkit?.messageHandlers?.grafLocalRecording;
       if (!bridge || window.GRAFRecordingDeletionBridgeVersion !== 1) return;
