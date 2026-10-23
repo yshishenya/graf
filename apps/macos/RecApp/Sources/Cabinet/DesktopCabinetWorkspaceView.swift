@@ -24,6 +24,7 @@ public struct DesktopCabinetWorkspaceView: View {
     private let localRecordingRows: [EmbeddedCabinetLocalRecordingRow]
     private let onDeleteRecordings: EmbeddedCabinetWebView.DeletionAction
     private let onLocalRecordingAction: EmbeddedCabinetWebView.LocalRecordingAction
+    private let onVisibleRecordings: EmbeddedCabinetWebView.VisibleRecordingsAction
     private let externalCabinetState: Binding<DesktopCabinetState>?
     @StateObject private var navigationController = EmbeddedCabinetNavigationController()
     @State private var internalCabinetState: DesktopCabinetState
@@ -46,6 +47,7 @@ public struct DesktopCabinetWorkspaceView: View {
         deletionOperations: [RecordingDeletionOperation] = [],
         recoveryRequired: Bool = false,
         onLocalRecordingAction: @escaping EmbeddedCabinetWebView.LocalRecordingAction = { _, _ in },
+        onVisibleRecordings: @escaping EmbeddedCabinetWebView.VisibleRecordingsAction = { _ in },
         onDeleteRecordings: @escaping EmbeddedCabinetWebView.DeletionAction = { _ in .failed },
         initialState: DesktopCabinetState? = nil
     ) {
@@ -64,6 +66,7 @@ public struct DesktopCabinetWorkspaceView: View {
         self.deletionOperations = deletionOperations
         self.recoveryRequired = recoveryRequired
         self.onLocalRecordingAction = onLocalRecordingAction
+        self.onVisibleRecordings = onVisibleRecordings
         self.onDeleteRecordings = onDeleteRecordings
         self.externalCabinetState = cabinetState
         _internalCabinetState = State(initialValue: cabinetState?.wrappedValue ?? resolvedInitialState)
@@ -143,6 +146,7 @@ public struct DesktopCabinetWorkspaceView: View {
                 deletionOperations: deletionOperations,
             recoveryRequired: recoveryRequired,
                 onLocalRecordingAction: onLocalRecordingAction,
+                onVisibleRecordings: onVisibleRecordings,
                 onDeleteRecordings: onDeleteRecordings,
                 fallbackRequest: configuration.urlRequest(for: configuration.meetingsURL()),
                 notificationPresenter: notificationPresenter,

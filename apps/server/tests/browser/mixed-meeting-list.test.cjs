@@ -1,10 +1,10 @@
 // Run with NODE_PATH pointing at the existing Playwright installation.
-const { chromium } = require('playwright');
+const { chromium, webkit } = require('playwright');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/static/cabinet');
 (async () => {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await (process.env.GRAF_BROWSER === 'webkit' ? webkit : chromium).launch({ headless: true });
   try {
     const page = await browser.newPage({ timezoneId: 'Asia/Yekaterinburg' });
     const errors = [];
@@ -106,6 +106,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
       window.GRAFRecordingDeletionBridgeVersion = 1;
       window.aliasDeletionMessages = [];
       window.webkit = {messageHandlers:{grafLocalRecording:{postMessage(message) {
+        if (message.action !== 'deleteSelection') return;
         window.aliasDeletionMessages.push(message);
         window.GRAFLocalRecordings.deletionCompleted(message.requestId,{saved:true,accepted:0,pending:1,rejected:0});
       }}}};
@@ -175,6 +176,7 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
     await page.evaluate(() => {
       window.GRAFRecordingDeletionBridgeVersion = 1;
       window.webkit = {messageHandlers:{grafLocalRecording:{postMessage(message) {
+        if (message.action !== 'deleteSelection') return;
         window.syntheticDeletionRequest = message;
         window.GRAFLocalRecordings.deletionCompleted(message.requestId,{saved:true,accepted:0,pending:1,rejected:0});
       }}}};
@@ -188,6 +190,62 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
     assert.match(await page.locator('[data-local-account-recovery]').textContent(),/аккаунт не подтвержден/);
     await page.evaluate(() => window.GRAFLocalRecordings.update([], [], false));
     assert.equal(await page.locator('[data-local-account-recovery]').count(),0);
+    // Viewport hints include local and linked aliases, never filtered/offscreen history.
+    const visibility = await browser.newPage({viewport:{width:800,height:500}});
+    await visibility.route('https://synthetic.invalid/**', route => route.fulfill({contentType:'text/html',body:'<html><body></body></html>'}));
+    await visibility.goto('https://synthetic.invalid/desktop/meetings');
+    await visibility.setContent(`<style>[data-meeting-row]{height:100px} body{margin:0}</style>
+      <input id="meeting-search"><div id="meeting-list-region"><div data-meeting-list><ol class="meeting-list">
+      <li data-meeting-row data-meeting-id="linked" data-sort-started="2026-09-06T00:00:00Z">Linked</li></ol></div></div>`);
+    await visibility.evaluate(() => {
+      window.GRAFRecordingDeletionBridgeVersion = 1; window.visibilityMessages = [];
+      window.webkit = {messageHandlers:{grafLocalRecording:{postMessage(message) {
+        if (message.action === 'visibleRecordings') window.visibilityMessages.push(message);
+      }}}};
+    });
+    await visibility.addScriptTag({path:path.join(assets,'user-time.js')});
+    await visibility.addScriptTag({path:path.join(assets,'cabinet.js')});
+    await visibility.evaluate(local => window.GRAFLocalRecordings.update([
+      {...local,id:'linked-local',meetingId:'linked',uploadComplete:true},
+      ...Array.from({length:12},(_,n)=>({...local,id:`visible-${n}`})),
+      {...local,id:'absent',meetingId:'not-on-page',uploadComplete:true},
+    ]),local);
+    await visibility.evaluate(() => document.body.dispatchEvent(new CustomEvent('htmx:afterSwap',
+      {detail:{target:document.querySelector('#meeting-list-region')}})));
+    await visibility.waitForFunction(() => window.visibilityMessages.at(-1)?.ids.includes('linked-local')
+      && window.visibilityMessages.at(-1).ids.includes('visible-0') && !window.visibilityMessages.at(-1).ids.includes('absent'));
+    const firstVisible = await visibility.evaluate(() => window.visibilityMessages.at(-1).ids);
+    assert.ok(firstVisible.includes('linked-local'));
+    assert.ok(firstVisible.includes('visible-0'));
+    assert.ok(!firstVisible.includes('visible-9'));
+    assert.ok(!firstVisible.includes('absent'));
+    await visibility.locator('[data-graf-local-recording-row][data-graf-local-recording-id="visible-9"]').scrollIntoViewIfNeeded();
+    await visibility.waitForFunction(() => window.visibilityMessages.at(-1).ids.includes('visible-9'));
+    assert.ok(!(await visibility.evaluate(() => window.visibilityMessages.at(-1).ids)).includes('linked-local'));
+    await visibility.fill('#meeting-search','does-not-match');
+    await visibility.evaluate(() => window.GRAFLocalRecordings.update([]));
+    await visibility.waitForFunction(() => window.visibilityMessages.at(-1).ids.length === 0);
+    await visibility.setContent('<main data-meeting-id="00000000-0000-0000-0000-000000000262"></main>');
+    await visibility.addScriptTag({path:path.join(assets,'user-time.js')});
+    await visibility.addScriptTag({path:path.join(assets,'cabinet.js')});
+    await visibility.evaluate(local => window.GRAFLocalRecordings.update([
+      {...local,id:'detail-local',meetingId:'00000000-0000-0000-0000-000000000262'},
+      {...local,id:'unrelated',meetingId:'00000000-0000-0000-0000-000000000263'},
+    ]),local);
+    await visibility.waitForFunction(() => window.visibilityMessages.at(-1).ids.includes('detail-local'));
+    assert.deepEqual(await visibility.evaluate(() => window.visibilityMessages.at(-1).ids),['detail-local']);
+    await visibility.setContent('<div data-meeting-list><ol class="meeting-list"></ol></div>');
+    await visibility.addScriptTag({path:path.join(assets,'user-time.js')});
+    await visibility.addScriptTag({path:path.join(assets,'cabinet.js')});
+    await visibility.evaluate(local => {
+      window.GRAFLocalRecordings.update(Array.from({length:120},(_,n)=>({...local,id:`bounded-${n}`})));
+      document.querySelectorAll('[data-meeting-row]').forEach(row=>{row.style.height='2px';row.style.overflow='hidden'});
+    },local);
+    await visibility.waitForFunction(() => window.visibilityMessages.at(-1).ids.length === 100);
+    const bounded = await visibility.evaluate(() => window.visibilityMessages.at(-1));
+    assert.equal(bounded.version,1);
+    assert.equal(new Set(bounded.ids).size,100);
+    await visibility.close();
     // A completed manual upload is another view of the same meeting, not a permanent link.
     await page.reload();
     await page.setContent(`<meta name="csrf-token" content="synthetic-csrf">

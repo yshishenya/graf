@@ -1195,6 +1195,23 @@ public enum EmbeddedCabinetLocalRecordingBridge {
         }
         return (action, id)
     }
+
+    public static func visibleItemIDs(from body: Any, rows: [EmbeddedCabinetLocalRecordingRow], route: DesktopCabinetRoute) -> [String]? {
+        guard let object = body as? [String: Any], object["action"] as? String == "visibleRecordings",
+              object["version"] as? Int == 1, let ids = object["ids"] as? [String],
+              ids.count <= 100, Set(ids).count == ids.count,
+              [.meetingList, .meetingDetail].contains(route.kind),
+              ids.allSatisfy({ id in
+                  rows.contains { row in
+                      guard row.id == id else { return false }
+                      if route.kind == .meetingList { return true }
+                      guard let meeting = row.meetingId.flatMap(UUID.init(uuidString:)),
+                            let current = route.meetingId.flatMap(UUID.init(uuidString:)) else { return false }
+                      return meeting == current
+                  }
+              }) else { return nil }
+        return ids
+    }
 }
 
 @MainActor
@@ -1423,6 +1440,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     public typealias OpenMeetingDetectionSettingsAction = @MainActor @Sendable () -> Void
     public typealias DeletionAction = @MainActor @Sendable (EmbeddedCabinetDeletionSelection) async -> EmbeddedCabinetDeletionResult
     public typealias LocalRecordingAction = @MainActor @Sendable (_ action: String, _ id: String) -> Void
+    public typealias VisibleRecordingsAction = @MainActor @Sendable ([String]) -> Void
 
     private let notificationPresenter: DesktopNotificationPresenter?
     private let request: URLRequest
@@ -1438,6 +1456,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     private let localRecordingRows: [EmbeddedCabinetLocalRecordingRow]
     private let onDeleteRecordings: DeletionAction
     private let onLocalRecordingAction: LocalRecordingAction
+    private let onVisibleRecordings: VisibleRecordingsAction
     private let fallbackRequest: URLRequest
     private let navigationController: EmbeddedCabinetNavigationController
     @Binding private var cabinetState: DesktopCabinetState
@@ -1458,6 +1477,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         deletionOperations: [RecordingDeletionOperation] = [],
         recoveryRequired: Bool = false,
         onLocalRecordingAction: @escaping LocalRecordingAction = { _, _ in },
+        onVisibleRecordings: @escaping VisibleRecordingsAction = { _ in },
         onDeleteRecordings: @escaping DeletionAction = { _ in .failed },
         fallbackRequest: URLRequest,
         notificationPresenter: DesktopNotificationPresenter? = nil,
@@ -1476,6 +1496,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         self.deletionOperations = deletionOperations
         self.recoveryRequired = recoveryRequired
         self.onLocalRecordingAction = onLocalRecordingAction
+        self.onVisibleRecordings = onVisibleRecordings
         self.onDeleteRecordings = onDeleteRecordings
         self.fallbackRequest = fallbackRequest
         self.navigationController = navigationController
@@ -1755,6 +1776,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             deletionOperations: deletionOperations,
             recoveryRequired: recoveryRequired,
             onLocalRecordingAction: onLocalRecordingAction,
+            onVisibleRecordings: onVisibleRecordings,
             onDeleteRecordings: onDeleteRecordings
         )
         let container = WebViewContainer(webView: webView)
@@ -1778,6 +1800,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             deletionOperations: deletionOperations,
             recoveryRequired: recoveryRequired,
             onLocalRecordingAction: onLocalRecordingAction,
+            onVisibleRecordings: onVisibleRecordings,
             onDeleteRecordings: onDeleteRecordings
         )
         supportIncidentBridge?.attach(webView: container.webView, routePolicy: routePolicy)
@@ -1886,6 +1909,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private var recoveryRequired = false
         private var deletionOperations: [RecordingDeletionOperation] = []
         private var onLocalRecordingAction: LocalRecordingAction = { _, _ in }
+        private var onVisibleRecordings: VisibleRecordingsAction = { _ in }
         private var onDeleteRecordings: DeletionAction = { _ in .failed }
         private weak var downloadHostWindow: NSWindow?
         private var isActive = true
@@ -1943,6 +1967,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             deletionOperations: [RecordingDeletionOperation],
             recoveryRequired: Bool,
             onLocalRecordingAction: @escaping LocalRecordingAction,
+            onVisibleRecordings: @escaping VisibleRecordingsAction = { _ in },
             onDeleteRecordings: @escaping DeletionAction
         ) {
             self.showsAppUpdateBadge = showsAppUpdateBadge
@@ -1951,6 +1976,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             self.deletionOperations = deletionOperations
             self.recoveryRequired = recoveryRequired
             self.onLocalRecordingAction = onLocalRecordingAction
+            self.onVisibleRecordings = onVisibleRecordings
             self.onDeleteRecordings = onDeleteRecordings
         }
 
@@ -2055,6 +2081,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         @discardableResult
         public func detachNavigationController(from webView: WKWebView) -> Task<Void, Never>? {
             isActive = false
+            onVisibleRecordings([])
             userTimeDocumentRevision &+= 1
             var cleanup: Task<Void, Never>?
             if let barrier = authNavigationBarrier {
@@ -2224,7 +2251,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                       routePolicy.decision(for: sourceURL).decision == .allow else { return }
                 let route = routePolicy.decision(for: sourceURL).route
                 guard [.meetingList, .meetingDetail].contains(route.kind) else { return }
-                if let selection = EmbeddedCabinetDeletionSelection.parse(message.body, rows: localRecordingRows) {
+                if let ids = EmbeddedCabinetLocalRecordingBridge.visibleItemIDs(from: message.body, rows: localRecordingRows, route: route) {
+                    onVisibleRecordings(ids)
+                } else if let selection = EmbeddedCabinetDeletionSelection.parse(message.body, rows: localRecordingRows) {
                     guard route.kind == .meetingList || (selection.localIDs.isEmpty && selection.meetingIDs == [route.meetingId].compactMap { $0 }) else { return }
                     Task { @MainActor in
                         let result = await onDeleteRecordings(selection)
@@ -2836,6 +2865,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         @MainActor
         public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             guard navigationController.isAttached(to: webView) else { return }
+            onVisibleRecordings([])
             calendarJoinBridge.invalidate()
             recordingSettingsBridge.invalidate()
             notificationSettingsBridge.invalidate()
@@ -2850,6 +2880,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
 
         public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             guard navigationController.isAttached(to: webView) else { return }
+            onVisibleRecordings([])
             webContentProcessTerminated = true
             calendarJoinBridge.invalidate()
             recordingSettingsBridge.invalidate()
