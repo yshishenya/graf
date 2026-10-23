@@ -26,9 +26,9 @@ AGENTS.md не меняются. T003 не принимает восстанов
 
 ## US3 — выполнение
 
-- [ ] T006 [US3] Проверить subprocess collection и разбиение apps/server/scripts/run_local_postgres_tests.sh без повторов. (Issue #6907).
-- [ ] T007 [US3] Подтвердить strictpriority/workercap/errors/empty/cleanup и реальныеPG/RLS в specs/263-fast-feedback/validation.md. (Issue #6907).
-- [ ] T008 [US3] Выполнить два независимых запуска и отдельные замерыworkers1/2 в specs/263-fast-feedback/validation.md. (Issue #6907).
+- [X] T006 [US3] Проверить subprocess collection и разбиение apps/server/scripts/run_local_postgres_tests.sh без повторов. (Issue #6907).
+- [X] T007 [US3] Подтвердить strictpriority/workercap/errors/empty/cleanup и реальныеPG/RLS в specs/263-fast-feedback/validation.md. (Issue #6907).
+- [X] T008 [US3] Выполнить два независимых запуска и отдельные замерыworkers1/2 в specs/263-fast-feedback/validation.md. (Issue #6907).
 
 ## US4 — активная независимая часть
 
@@ -43,7 +43,7 @@ fixtures, правила чтения и разбиение не изменяю�
 ## Общая приёмка
 
 - [ ] T010 Сверить все истории, review/converge/validation и changes/unreleased/F263.yaml. (Issue #6909).
-- [ ] T011 После разрешений пройтиcommit/PR/exact-SHAchecks и общую приёмку, записать specs/263-fast-feedback/validation.md. (Issue #6909).
+- [ ] T011 После проверки пройтиcommit/PR/exact-SHAchecks и общую приёмку, записать specs/263-fast-feedback/validation.md. (Issue #6909).
 
 ## Зависимости и порядок
 
@@ -53,3 +53,19 @@ fixtures, правила чтения и разбиение не изменяю�
 T011 послеT010. Параллельных изменений общих скриптов сейчас нет.
 Общая issue#6901 не владеетT000: это исторический резерв; согласовать её с
 реальной итоговой задачей до закрытия, не заводить фиктивную задачу.
+
+
+## Текущая самостоятельная приёмка US3 — 2026-10-23
+
+T006/T007/T008 сохраняют исходные описания и #6907. Их текущая предпосылка —
+полный отдельный обзор требований US3, plan §Самостоятельная US3,
+checklists/runner.md, analyze и live issue sync до реализации. Это не отметка
+общей T001 или утраченных baseline T002/T005. US3 не зависит от замены четырёх
+исходных fixtures US2; её собственный состав повторных PG-запусков фиксируется
+в quickstart и validation. Ошибка cleanup входит в исходную T007/FR-011,
+новый дублирующий issue или task для того же требования не нужен.
+
+Локальное исполнение US3 принято 23.10.2026: [отчёт](validation-us3-20261023.md),
+[независимое ревью](review-us3-implementation-20261023.md). T006–T008
+отмечены по фактическим проверкам. Закрытие #6907 требует новых checks/merge/live
+closeout; общая F263 и исходный baseline US2 остаются открытыми.
