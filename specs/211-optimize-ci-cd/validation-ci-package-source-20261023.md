@@ -76,3 +76,62 @@ PASS не является hosted speed, Full, публикацией или р�
 - `.github/workflows/governance-fast.yml`: `18d429b8ff8cc9210cec2097c675396dca1a70dacf9d06df5cb17967572eec0b`
 - `.github/workflows/release-full.yml`: `22a9ba6d7c1e5db47359fcb2e3097b1078c7fb99d903d71205d0cc069a935987`
 - `tests/governance/test_governance_workflow.py`: `00ef8bb79c4305b384690e0c8cfb38a67d6b2ab91a43699f31a77f2b4f98b95f`
+
+
+## Итог T100 — настоящая приёмка в GitHub
+
+Полоса этой сверки: docs-only / mechanical. Изменяются только отметка
+существующей T100, этот отчёт и ограничение фрагмента F211; исполняемый код,
+правила CI, продукт и выпуск не меняются. Предыдущие ожидающие формулировки
+описывают состояние до публикации T099 и не являются текущим итогом.
+
+Реализация T099 принята [PR #7739](https://github.com/yshishenya/graf/pull/7739):
+PR SHA `8bc2e743ed2b822ae71ec5bb02d9cb7769e2a57b`,
+checked base `d6243efb782d889e3b9b10da0b750c7a90f0707f`,
+merge `21e80b29c7f23bddba9eae49c078974ebd244231`.
+Его обязательные проверки governance-fast39994127211,
+macos-pr39994127089 и pr-metadata39994127194 успешны; общий
+validate-pr-checks.py подтвердил точные SHA/base.
+
+После merge существующий серверный [PR #7737](https://github.com/yshishenya/graf/pull/7737)
+обновлён на принятую основу. Окончательный source
+`f15c1fc6ae812293abe2433ed9dab457f7a07f50`,
+checked base `21e80b29c7f23bddba9eae49c078974ebd244231`.
+
+- [governance-fast39999141863](https://github.com/yshishenya/graf/actions/runs/39999141863)
+  SUCCESS, attempt1. Настоящий шаг Prepare browser resources only for server
+  changes: 17:56:50–17:57:32 UTC, **42s**. Журнал APT содержит
+  `https://archive.ubuntu.com/ubuntu` для noble/updates/backports/security;
+  известное медленное Azure-зеркало не используется.
+- Bounded fast: **453s**, **2465 pure unit +183 resource unit +100 changed
+  contract PASS**, без пропусков этих групп. Выбор и результаты относятся
+  к нынешнему source, не к предыдущему92-case варианту. Это выбранный fast,
+  его полное выполнение не является release-full всего репозитория.
+- [macos-pr39999142141](https://github.com/yshishenya/graf/actions/runs/39999142141)
+  SUCCESS. После правки описания финальная
+  [pr-metadata40003002514](https://github.com/yshishenya/graf/actions/runs/40003002514)
+  SUCCESS; актуальные текстовые governance40003001795/macOS40003001836
+  также прошли общий consumer. Описание не подменяет настоящие source runs.
+- Перед слиянием общий validate-pr-checks.py повторно подтвердил source,
+  base и актуальные обязательные gates. Все обсуждения разрешены по
+  проверенным доказательствам, обычный rebase merge без admin bypass:
+  `2964952dbd3c03f5730230f134f0715282ffa7fb`, 18:32:55 UTC.
+- SHA-256 сохранённого журнала source run:
+  `2b94c9afe9d3d2c1db4d24c8e3a058a7adae862e5b391f7e081466aa1c9a3937`.
+  Малые исходные журналы, API snapshots и результаты валидаторов сохранены
+  во внешнем реестре аудита; зависимости и сборки туда не копируются.
+
+Прежние34min10.7s относятся к неуспешному исходному run39977036244,
+42s — к одному нынешнему успешному наблюдению. Другие runner, сеть и состав
+пакетов могут отличаться; медиана, гарантированная скорость либо процент
+устойчивого ускорения не заявляются. Локальные142 проверки отдельно
+подтверждают сохранность APT-конфигурации и отказы; настоящий GitHub run
+подтверждает endpoint и выполнение выбранных тестов.
+
+Содержательная приёмка T099/T100 завершена. Scope review/converge этой
+сверки: все шесть исходных критериев #7738 имеют указанное доказательство,
+новых задач или runtime изменений не требуется. Закрытие #7738 требует
+трёх обязательных проверок и merge документальной сверки, затем повторной
+live-валидации фактической issue. Общая F211, исторические незавершённые
+задачи, F263, macOS-приложение, release-full, выпуск и production этим не
+принимаются и не закрываются.
