@@ -117,7 +117,11 @@ public struct RecordingDeletionOperation: Codable, Equatable, Identifiable, Send
         if phase == .sending { next.attemptCount += 1; next.nextAttemptAt = nil; next.waitReason = nil }
         if phase == .resolving {
             let delays: [TimeInterval] = [5, 15, 30, 60]
-            next.nextAttemptAt = date.addingTimeInterval(delays[min(max(0, attemptCount - 1), delays.count - 1)])
+            // The existing random operation ID keeps jitter stable across restarts.
+            let jitter = 0.8 + 0.4 * Double(id.uuid.0) / Double(UInt8.max)
+            let delay = delays[min(max(0, attemptCount - 1), delays.count - 1)] * jitter
+            // Queue ISO8601 stores seconds. Round up so restart never advances a retry.
+            next.nextAttemptAt = Date(timeIntervalSince1970: ceil(date.timeIntervalSince1970 + delay))
         }
         return next
     }
@@ -130,7 +134,9 @@ public struct RecordingDeletionOperation: Codable, Equatable, Identifiable, Send
 
     public func waiting(until date: Date) -> Self {
         var next = self
-        if !phase.isAccepted { next.nextAttemptAt = max(nextAttemptAt ?? date, date) }
+        if !phase.isAccepted {
+            next.nextAttemptAt = Date(timeIntervalSince1970: ceil(max(nextAttemptAt ?? date, date).timeIntervalSince1970))
+        }
         return next
     }
 

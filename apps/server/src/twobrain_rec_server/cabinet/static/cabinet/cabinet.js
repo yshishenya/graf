@@ -212,6 +212,37 @@
     }
   };
   let localRecordingRows = [];
+  let visibleRecordingsFrame = null;
+  const publishVisibleRecordings = () => {
+    if (visibleRecordingsFrame !== null) return;
+    visibleRecordingsFrame = requestAnimationFrame(() => {
+      visibleRecordingsFrame = null;
+      const bridge = window.webkit?.messageHandlers?.grafLocalRecording;
+      if (!bridge || window.GRAFRecordingDeletionBridgeVersion !== 1) return;
+      const detailId = document.querySelector('main[data-meeting-id]')?.dataset.meetingId?.toLowerCase();
+      const visibleRows = document.hidden ? [] : allRows().filter(row => {
+        const rect = row.getBoundingClientRect();
+        let top = 0, bottom = window.innerHeight, left = 0, right = window.innerWidth;
+        for (let parent = row.parentElement; parent; parent = parent.parentElement) {
+          const style = getComputedStyle(parent), bounds = parent.getBoundingClientRect();
+          if (/(auto|scroll|hidden|clip)/.test(style.overflowY)) { top = Math.max(top, bounds.top); bottom = Math.min(bottom, bounds.bottom); }
+          if (/(auto|scroll|hidden|clip)/.test(style.overflowX)) { left = Math.max(left, bounds.left); right = Math.min(right, bounds.right); }
+        }
+        return rect.width > 0 && rect.height > 0 && rect.bottom > top && rect.right > left
+          && rect.top < bottom && rect.left < right;
+      });
+      const localIds = new Set(visibleRows.map(row => row.dataset.grafLocalRecordingId));
+      const meetingIds = new Set(visibleRows.map(row => row.dataset.meetingId?.toLowerCase()));
+      const ids = localRecordingRows.filter(item => !document.hidden && (detailId
+        ? item.meetingId?.toLowerCase() === detailId
+        : localIds.has(item.id) || item.meetingId && meetingIds.has(item.meetingId.toLowerCase())))
+        .slice(0, 100).map(item => item.id);
+      bridge.postMessage({action: 'visibleRecordings', version: 1, ids});
+    });
+  };
+  document.addEventListener('scroll', publishVisibleRecordings, {capture: true, passive: true});
+  document.addEventListener('visibilitychange', publishVisibleRecordings);
+  window.addEventListener('resize', publishVisibleRecordings);
   const pendingLocalRecordingHandoffs = new Set();
   const requestedLocalRecordingHandoffs = new Set();
   const localRecordingIsRenderable = (item) =>
@@ -273,6 +304,7 @@
       if (emptyState) emptyState.hidden = false;
       updateMixedResultCount();
       restoreLocalFocus();
+      publishVisibleRecordings();
       return;
     }
     if (!list) {
@@ -376,6 +408,7 @@
     sortMeetingRows(list);
     updateMixedResultCount();
     restoreLocalFocus();
+    publishVisibleRecordings();
   };
   let nativeDeletionOperations = [];
   const nativeDeletionReplies = new Map();
@@ -508,6 +541,7 @@
       renderLocalRecordingRows();
       applyNativeDeletionOperations(nativeDeletionOperations);
       renderDetailLocalPlayback();
+      publishVisibleRecordings();
       renderNativeDeletionStatus(nativeDeletionOperations);
       updateMixedResultCount();
       reconcileMeetingSelection();
@@ -7974,6 +8008,7 @@
   let recordingLifecycleTimer = null;
   let recordingLifecycleRequest = null;
   const refreshRecordingLifecycle = async () => {
+    publishVisibleRecordings();
     if (document.hidden || recordingLifecycleRequest) return;
     const detail = document.querySelector("main[data-meeting-id][data-playback-poll-url]");
     const rows = allRows().filter(row => /^[0-9a-f-]{36}$/i.test(row.dataset.meetingId || ""));

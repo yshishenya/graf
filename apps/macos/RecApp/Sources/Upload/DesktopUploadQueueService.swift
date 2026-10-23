@@ -138,6 +138,13 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     private var allowsOfflineScopeRestore = true
     private var deletionScopeGeneration = 0
     private var activeDeletionScope: RecordingDeletionScope?
+    private var lifecycleSyncTask: (id: UUID, task: Task<Void, Error>)?
+    private var lifecyclePriorityItemIDs: Set<String> = []
+    private var visibleLifecycleItemIDs: Set<String> = []
+    private var lifecycleBackgroundCursor: String?
+    private var legacyOwnershipCursor: String?
+    private var legacyOwnershipTask: (id: UUID, task: Task<Void, Error>)?
+    private var deletionScopeRefreshTask: (id: UUID, task: Task<Bool, Error>)?
 
     public init(
         queueURL: URL? = nil,
@@ -196,7 +203,25 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
 
     /// Called with an authenticated native context, never a WebView supplied account.
     public func setDeletionScope(_ scope: RecordingDeletionScope?) {
-        queue.sync { activeDeletionScope = scope; allowsOfflineScopeRestore = false; deletionScopeGeneration += 1 }
+        let cancelled = queue.sync { () -> ([Task<Void, Error>], Task<Bool, Error>?) in
+            activeDeletionScope = scope; allowsOfflineScopeRestore = false; deletionScopeGeneration += 1
+            let cancelled = [legacyOwnershipTask?.task, lifecycleSyncTask?.task].compactMap { $0 }
+            legacyOwnershipTask = nil
+            lifecycleSyncTask = nil
+            lifecyclePriorityItemIDs.removeAll()
+            visibleLifecycleItemIDs.removeAll()
+            lifecycleBackgroundCursor = nil
+            legacyOwnershipCursor = nil
+            let refresh = deletionScopeRefreshTask?.task
+            deletionScopeRefreshTask = nil
+            return (cancelled, refresh)
+        }
+        cancelled.0.forEach { $0.cancel() }
+        cancelled.1?.cancel()
+    }
+
+    public func setVisibleRecordingItemIDs(_ ids: [String]) {
+        queue.sync { visibleLifecycleItemIDs = Set(ids.prefix(100)) }
     }
 
     private func projectLifecycle(_ item: DesktopUploadQueueItem, in document: DesktopUploadQueueDocument) -> DesktopUploadQueueItem {
@@ -217,11 +242,36 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         return projected
     }
 
-    public func refreshDeletionScope() async throws {
-        guard let client else { return }
+    public func refreshDeletionScope(recoverLegacy: Bool = true) async throws {
+        // Activation/manual refresh joins an ongoing lookup instead of adding a third HTTP.
+        if recoverLegacy, let sync = queue.sync(execute: { lifecycleSyncTask?.task }) {
+            try await sync.value
+            if let recovery = queue.sync(execute: { legacyOwnershipTask?.task }) { try await recovery.value }
+            return
+        }
+        let refresh = queue.sync { () -> Task<Bool, Error> in
+            if let existing = deletionScopeRefreshTask { return existing.task }
+            let id = UUID(), generation = deletionScopeGeneration
+            let task = Task {
+                defer { self.queue.sync { if self.deletionScopeRefreshTask?.id == id { self.deletionScopeRefreshTask = nil } } }
+                return try await self.refreshDeletionScopeContext(generation: generation)
+            }
+            deletionScopeRefreshTask = (id, task)
+            return task
+        }
+        guard try await refresh.value, recoverLegacy,
+              let scope = queue.sync(execute: { activeDeletionScope }) else { return }
         let generation = queue.sync { deletionScopeGeneration }
+        try await startLegacyOwnershipRecovery(scope: scope, generation: generation).value
+    }
+
+    private func refreshDeletionScopeContext(generation: Int) async throws -> Bool {
+        guard let client else { return false }
+        try Task.checkCancellation()
         let fingerprint = client.recordingSessionFingerprint
         let scope = try await client.recordingDeletionScope()
+        try Task.checkCancellation()
+        var oldLegacyTask: Task<Void, Error>?
         let applied = try queue.sync { () -> Bool in
             guard deletionScopeGeneration == generation, fingerprint == client.recordingSessionFingerprint else { return false }
             var document = try loadDocumentOnQueue()
@@ -230,23 +280,55 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             }
             document.updatedAt = clock()
             try saveDocumentOnQueue(document)
+            if activeDeletionScope != scope {
+                lifecycleBackgroundCursor = nil; legacyOwnershipCursor = nil
+                oldLegacyTask = legacyOwnershipTask?.task; legacyOwnershipTask = nil
+            }
             activeDeletionScope = scope
             allowsOfflineScopeRestore = true
             return true
         }
-        guard applied, let scope else { return }
+        oldLegacyTask?.cancel()
+        return applied
+    }
+
+    private func startLegacyOwnershipRecovery(scope: RecordingDeletionScope, generation: Int) -> Task<Void, Error> {
+        queue.sync {
+            if let existing = legacyOwnershipTask { return existing.task }
+            let id = UUID()
+            let task = Task {
+                defer { self.queue.sync { if self.legacyOwnershipTask?.id == id { self.legacyOwnershipTask = nil } } }
+                try await self.recoverLegacyDeletionOwnership(scope: scope, generation: generation)
+            }
+            legacyOwnershipTask = (id, task)
+            return task
+        }
+    }
+
+    private func recoverLegacyDeletionOwnership(scope: RecordingDeletionScope, generation: Int) async throws {
+        guard let client else { return }
         let scopedClient: any DesktopUploadClientProtocol = try (client as? DesktopUploadClient)?.scoped(to: scope) ?? client
         // Legacy ownership needs positive server evidence for the already known meeting ID.
-        let candidates = try loadItems().filter { $0.ownerScope == nil && $0.isLocalUnbound != true && $0.meetingId != nil }
-        for item in candidates {
+        let candidate = try queue.sync { () throws -> DesktopUploadQueueItem? in
+            guard deletionScopeGeneration == generation, activeDeletionScope == scope else { throw CancellationError() }
+            let candidates = try loadDocumentOnQueue().items
+                .filter { $0.ownerScope == nil && $0.isLocalUnbound != true && $0.meetingId != nil }.sorted { $0.id < $1.id }
+            let item = candidates.first { $0.id > (legacyOwnershipCursor ?? "") } ?? candidates.first
+            // A failed legacy lookup must not starve the other unknown owners.
+            legacyOwnershipCursor = item?.id
+            return item
+        }
+        if let item = candidate {
+            try Task.checkCancellation()
             let serverTruth = if let native = scopedClient as? DesktopUploadClient {
                 try await native.reconcileServerTruth(item)
             } else {
                 try await scopedClient.reconcile(item)
             }
+            try Task.checkCancellation()
             guard let reconciled = serverTruth,
                   reconciled.serverTruth.meetingId == item.meetingId,
-                  reconciled.serverTruth.accessState == "owner" else { continue }
+                  reconciled.serverTruth.accessState == "owner" else { return }
             try queue.sync {
                 guard activeDeletionScope == scope, deletionScopeGeneration == generation else { return }
                 var document = try loadDocumentOnQueue()
@@ -263,18 +345,80 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
     }
 
-    public func synchronizeRecordingLifecycle() async throws {
+    public func synchronizeRecordingLifecycle(priorityItemIDs: [String] = []) async throws {
+        guard client != nil else { return }
+        let task = queue.sync { () -> Task<Void, Error> in
+            lifecyclePriorityItemIDs.formUnion(priorityItemIDs)
+            lifecyclePriorityItemIDs.formUnion(visibleLifecycleItemIDs)
+            if let existing = lifecycleSyncTask { return existing.task }
+            let id = UUID()
+            let generation = deletionScopeGeneration
+            let task = Task { try await self.runRecordingLifecycleSync(id: id, generation: generation) }
+            lifecycleSyncTask = (id, task)
+            return task
+        }
+        try await task.value
+    }
+
+    private func runRecordingLifecycleSync(id: UUID, generation: Int) async throws {
+        defer {
+            queue.sync {
+                if lifecycleSyncTask?.id == id { lifecycleSyncTask = nil }
+            }
+        }
         guard let client else { return }
-        try await refreshDeletionScope()
+        try Task.checkCancellation()
+        try await refreshDeletionScope(recoverLegacy: false)
         guard let scope = queue.sync(execute: { activeDeletionScope }) else { return }
-        let items = try loadItems().filter { $0.ownerScope == scope && !$0.hasConfirmedDeletion }
-        let generation = queue.sync { deletionScopeGeneration }
-        let origins = Array(Set(items.map(\.directoryId))).sorted()
-        for offset in stride(from: 0, to: origins.count, by: 100) {
-            let batch = Array(origins[offset..<min(origins.count, offset + 100)])
+        // One independent legacy lookup cannot hold up known visible/open origins.
+        // The same periodic trigger advances mixed histories without another timer.
+        let recovery = startLegacyOwnershipRecovery(scope: scope, generation: generation)
+        if try loadItems().allSatisfy({ $0.ownerScope != scope || $0.hasConfirmedDeletion }) {
+            try await recovery.value
+        }
+        var checked: Set<String> = []
+        var checkedBackground = false
+        while true {
+            try Task.checkCancellation()
+            var backgroundPage = false
+            let batch = try queue.sync { () throws -> [String] in
+                guard deletionScopeGeneration == generation, activeDeletionScope == scope else { throw CancellationError() }
+                let document = try loadDocumentOnQueue()
+                let items = document.items.map { projectLifecycle($0, in: document) }
+                    .filter { $0.ownerScope == scope && !$0.hasConfirmedDeletion }
+                let origins = Set(items.map(\.directoryId)).subtracting(checked).sorted()
+                let priority = Set(items.filter { lifecyclePriorityItemIDs.contains($0.id) || $0.deletionOperation != nil }.map(\.directoryId)).subtracting(checked)
+                // Each origin is checked once; repeated opens cannot starve history.
+                if !priority.isEmpty {
+                    return Array(origins.filter { priority.contains($0) }.prefix(100))
+                }
+                if !checkedBackground {
+                    checkedBackground = true
+                    let following = origins.filter { $0 > (lifecycleBackgroundCursor ?? "") }
+                    let page = Array((following.isEmpty ? origins : following).prefix(100))
+                    if !page.isEmpty { backgroundPage = true; return page }
+                }
+                // Clear atomically: a trigger arriving after this point starts a new cycle.
+                lifecyclePriorityItemIDs.removeAll()
+                if lifecycleSyncTask?.id == id { lifecycleSyncTask = nil }
+                return []
+            }
+            guard !batch.isEmpty else { return }
             let entries = try await client.recordingLifecycle(origins: batch, scope: scope)
+            try Task.checkCancellation()
+            guard entries.count == batch.count,
+                  Set(entries.filter { $0.target_type == "own_origin" }.map(\.target_id)) == Set(batch),
+                  entries.allSatisfy({ entry in
+                      switch entry.state {
+                      case "allowed", "unavailable": return true
+                      case "deletion_accepted", "canceled_before_creation":
+                          return entry.receipt?.matches(.ownOrigin(entry.target_id)) == true
+                      default: return false
+                      }
+                  })
+            else { throw DesktopUploadClientError.invalidResponse }
             try queue.sync {
-                guard activeDeletionScope == scope, deletionScopeGeneration == generation else { return }
+                guard activeDeletionScope == scope, deletionScopeGeneration == generation else { throw CancellationError() }
                 var document = try loadDocumentOnQueue()
                 for entry in entries where entry.target_type == "own_origin" && batch.contains(entry.target_id) {
                     if ["deletion_accepted", "canceled_before_creation"].contains(entry.state), let receipt = entry.receipt {
@@ -304,19 +448,32 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 }
                 document.updatedAt = clock()
                 try saveDocumentOnQueue(document)
+                if backgroundPage { lifecycleBackgroundCursor = batch.last }
+            }
+            checked.formUnion(batch)
+        }
+    }
+
+    private func checkingDeletionContext(_ client: any DesktopUploadClientProtocol,
+                                         scope: RecordingDeletionScope, generation: Int) -> any DesktopUploadClientProtocol {
+        guard let native = client as? DesktopUploadClient else { return client }
+        return native.checkingRecordingContext { [self] in
+            guard queue.sync(execute: { activeDeletionScope == scope && deletionScopeGeneration == generation }) else {
+                throw CancellationError()
             }
         }
     }
 
     public func processDeletionRequests(onProgress: @escaping ProgressObserver = { _ in }) async throws {
-        guard let client else { return }
-        let scope = queue.sync { () -> RecordingDeletionScope? in
+        guard let configuredClient = client else { return }
+        let context = queue.sync { () -> (RecordingDeletionScope, Int)? in
             guard !deletionExecutionInProgress, let scope = activeDeletionScope else { return nil }
             deletionExecutionInProgress = true
-            return scope
+            return (scope, deletionScopeGeneration)
         }
-        guard let scope else { return }
+        guard let (scope, generation) = context else { return }
         defer { queue.sync { deletionExecutionInProgress = false } }
+        let client = checkingDeletionContext(configuredClient, scope: scope, generation: generation)
         var firstFailure: Error?
         for operation in try loadDeletionOperations(scope: scope) where !operation.phase.isAccepted && operation.phase != .rejected && (operation.nextAttemptAt ?? .distantPast) <= clock() {
             guard queue.sync(execute: { activeDeletionScope == scope }) else { return }
@@ -1067,7 +1224,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         let (scope, generation) = queue.sync { (activeDeletionScope, deletionScopeGeneration) }
         let client: any DesktopUploadClientProtocol = try (configuredClient as? DesktopUploadClient).map {
             guard let scope else { throw RecordingDeletionError.invalidIdentity }
-            return try $0.scoped(to: scope)
+            return checkingDeletionContext(try $0.scoped(to: scope), scope: scope, generation: generation)
         } ?? configuredClient
         await reconcileUploadedItemsIfNeeded(client: client, excludingItemIds: [])
         var tasks = try await client.listLocalPurgeTasks()

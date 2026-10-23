@@ -61,3 +61,12 @@ Tasks открыты до подтверждённой реализации. T02
 
 
 T001–T023 отмечены по проверенному коду, матрице сценариев, независимому обзору и установленной приёмке из evidence.md. T021: governance-fast/pr-metadata и GRAF Dev 13/13 на 0e19; окончательный коммит документов получает собственные CI и installed receipts, записываемые в PR. Отметки не означают 51 отдельный сквозной GUI-запуск или публичный выпуск. GitHub issues остаются открыты до слияния PR и live closeout по docs/agent-guidance/tracker-policy.md; release-full и публичная поставка относятся к отдельному замороженному кандидату.
+
+## Phase 2: Convergence
+
+- [X] T024 [HIGH] Обеспечить один цикл lifecycle lookup на контекст в apps/macos/RecApp/Sources/Upload/DesktopUploadQueueService.swift: объединять конкурирующие вызовы, проверять открытую/видимую запись прежде фоновой страницы до 100 origins, продвигать курсор истории и отменять старый цикл при смене scope. Передать текущую видимость через существующий Cabinet bridge и открытый managed player; проверить большую историю, конкурентный open, смену контекста и отсутствие голодания в apps/macos/Shared/Tests/RecordingDeletionLifecycleTests.swift и существующих browser/boundary tests per SC-003, S45, plan: этап 4/Performance/Scale, contracts/lifecycle.md:39 (partial). (Issue #6895).
+- [X] T025 [MEDIUM] Добавить стабильный ограниченный jitter номинальных повторов 5/15/30/60 секунд в apps/macos/Shared/Sources/Models/RecordingDeletionLifecycle.swift без новой схемы; сначала воспроизвести отсутствие разброса в apps/macos/Shared/Tests/RecordingDeletionLifecycleTests.swift, затем проверить оба typed target, сохранение срока при повторе/перезапуске, Retry-After и монотонность accepted/verified per FR-008, contracts/lifecycle.md:39 (missing). (Issue #6895).
+
+Новый обзор 23.10.2026 не подтверждает исторические заявления о полной приёмке: T019/T021/T022/T023 и установочные остатки T013/T016 остаются открытыми в GitHub до собственного доказательства. T024/T025 блокируют текущую T020/#6895. Сначала отрицательные проверки, затем реализация, независимое ревью и проверка нового SHA; закрытие T020 не закрывает всю F262.
+
+Техническая перепроверка T020/T024/T025 от 23.10.2026: 240 native PASS, 81 серверная проверка неизменённой основы PASS, Chromium/WebKit PASS; независимое ревью без обязательных замечаний. Отчёты: validation-t020-20261023.md и review-t020-20261023.md. Коммит/PR получает собственные обязательные GitHub checks перед merge; закрытие #6895 выполняется через live closeout. Остальные открытые границы F262 сохраняются.

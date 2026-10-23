@@ -385,6 +385,7 @@ private struct ContentView: View {
                 onLocalRecordingAction: { action, itemId in
                     handleLocalRecordingAction(action, itemId: itemId)
                 },
+                onVisibleRecordings: { ids in desktopUploadQueueService.setVisibleRecordingItemIDs(ids) },
                 onDeleteRecordings: { selection in await deleteRecordingSelection(selection) }
             )
         }
@@ -2933,7 +2934,7 @@ private struct ContentView: View {
         deletionSyncInProgress = true
         defer { deletionSyncInProgress = false }
         let service = desktopUploadQueueService
-        try? await service.synchronizeRecordingLifecycle()
+        try? await service.synchronizeRecordingLifecycle(priorityItemIDs: [LocalRecordingPlayer.shared.itemID].compactMap { $0 })
         uploadQueueItems = (try? service.loadItems()) ?? uploadQueueItems
         recordingDeletionOperations = (try? service.currentDeletionOperations()) ?? recordingDeletionOperations
         LocalRecordingPlayer.shared.reconcile(items: uploadQueueItems)
@@ -3005,7 +3006,7 @@ private struct ContentView: View {
                     do {
                         guard let item = try service.loadItems().first(where: { $0.id == itemId }), !item.lifecycleBlocksContent else { return }
                         if item.serverCreationAttempted == true || item.meetingId != nil {
-                            try await service.synchronizeRecordingLifecycle()
+                            try await service.synchronizeRecordingLifecycle(priorityItemIDs: [itemId])
                         }
                         let url = try await Task.detached(priority: .utility) { try service.localPlaybackURL(itemId: itemId) }.value
                         guard let current = try service.loadItems().first(where: { $0.id == itemId }), !current.lifecycleBlocksContent else { return }
