@@ -27,8 +27,12 @@ cleanup() {
     rm -rf "$metadata_directory"
   fi
   if [[ "$container_started" == true ]]; then
-    docker rm --force --volumes "$postgres_container" >/dev/null 2>&1 || true
-    printf 'postgres_test_cleanup=isolated_container_removed\n'
+    if docker rm --force --volumes "$postgres_container" >/dev/null 2>&1; then
+      printf 'postgres_test_cleanup=isolated_container_removed\n'
+    else
+      printf 'postgres_test_cleanup=isolated_container_remove_failed\n' >&2
+      if (( exit_status == 0 )); then exit_status=1; fi
+    fi
   else
     printf 'postgres_test_cleanup=container_not_started\n'
   fi
@@ -283,7 +287,10 @@ start_postgres() {
       done
     fi
     if [[ "$container_started" == true ]]; then
-      docker rm --force --volumes "$postgres_container" >/dev/null 2>&1 || true
+      if ! docker rm --force --volumes "$postgres_container" >/dev/null 2>&1; then
+        printf 'postgres_test_container_start_cleanup=failed\n' >&2
+        exit 1
+      fi
       container_started=false
     fi
     if (( start_attempt < 2 )); then

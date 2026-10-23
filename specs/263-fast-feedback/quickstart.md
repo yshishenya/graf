@@ -36,8 +36,8 @@ changed-tests; calendar performance этап не повторяет испол�
 ## Регрессия и последующая приёмка
 
 Runner contract, governance, shell syntax, Ruff, process/context/changelog/diff.
-Converge перед запросом commit. Только после разрешения commit/draftPR — три
-required PR checks на точном SHA и checked base. Merge отдельно; release-full
+Converge перед commit. После commit/PR — три
+required PR checks на точном SHA и checked base. Затем merge; release-full
 понадобится только для будущего frozen release. Ни общий CI, ни вся F263,
 ни installedGRAF не считаются принятыми по локальному результатуUS4.
 
@@ -63,5 +63,48 @@ required PR checks на точном SHA и checked base. Merge отдельно
 Это документальная проверка объёма и сохранения обязанностей, не измерение
 токенов, скорости модели или продуктовая приёмка. Итоги записать в validation.md;
 T003 отмечать только после независимого review/converge. Новая часть требует
-отдельного разрешения на commit/обновление draft PR; прежние checks US4 её не
-подтверждают. Остальная F263 остаётся открытой.
+своих checks точного SHA/основы. Остальная F263 остаётся открытой.
+
+
+## Самостоятельная US3 — T006/T007/T008, 23.10.2026
+
+До реализации пройти reviewer-owned `checklists/runner.md`, анализ требований
+и сверку существующей #6907. Первый отрицательный контроль должен подтвердить
+ложный успех при отказе удаления временного контейнера. Режимы, сигналы и
+неуспешные тесты проходят через один cleanup; product/deploy не запускаются.
+
+Contract-профиль (реальные subprocess/xdist; Docker в contract заменён):
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=apps/server:apps/server/src apps/server/.venv/bin/python -m pytest -q -o addopts= apps/server/tests/contract/test_local_postgres_test_runner.py
+```
+
+Команду выполнять из корня репозитория с окружением текущей рабочей копии.
+Отдельного contract-файла plugin нет; его поведение покрывается существующим
+`test_local_postgres_test_runner.py` через настоящие subprocess-запуски.
+
+Два независимых запуска одного набора, отдельно `GRAF_TEST_WORKERS=1` и `2`:
+
+```sh
+GRAF_TEST_WORKERS=1 GRAF_PERFORMANCE_GATE=required PYTEST_ADDOPTS='' \
+  GRAF_TEST_REPORT_DIR=<новый-каталог-метаданных-первого-запуска> \
+  bash apps/server/scripts/run_local_postgres_tests.sh --focused --partitioned \
+  -q -o addopts= \
+  tests/contract/test_calendar_auto_context_contract.py \
+  tests/integration/test_calendar_auto_context_match.py \
+  tests/integration/test_recording_origin_cancellation.py \
+  tests/integration/test_rls_postgres_policies.py::test_runtime_roles_are_non_superuser_and_cannot_bypass_rls
+```
+
+Второй запуск использует workers=2 и другой новый каталог. На исходном коде
+этот набор содержит 68 случаев: 66 parallel, 1 performance, 1 strict. Сверить
+collection count/digest с call case IDs, непересекающиеся группы и одинаковую
+выборку двух прогонов; setup/call/teardown не считать разными тестами.
+Подтвердить настоящее выполнение миграций и RLS, отсутствие skips/failures,
+обязательный SC017 и фактическое удаление собственных контейнеров. Записать
+времена отдельно, не объявлять по двум запускам устойчивое ускорение.
+Это приёмочный набор US3, а не подмена четырёх исходных node IDs US2.
+
+После исправления: shell syntax, Ruff затронутого теста, процесс/governance/
+changelog/diff, независимое code review и convergence; затем точные GitHub
+checks/основа, обычный merge и live closeout. Выпуска и production нет.

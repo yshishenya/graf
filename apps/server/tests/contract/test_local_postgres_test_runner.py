@@ -505,3 +505,52 @@ def test_partition_phases_select_exact_groups(partition_run, phases, expected):
     assert {row["name"] for row in rows} == expected
     assert len(rows) == len(expected)
     assert calls[-1][0] == "rm"
+
+
+@pytest.mark.parametrize("mode,original_status", [
+    ((), 0), (("--partitioned",), 0), (("--full",), 0),
+    (("--partitioned",), 17), (("--partitioned",), 130), (("--partitioned",), 143),
+])
+def test_cleanup_failure_preserves_failure_or_rejects_success(partition_run, tmp_path, mode, original_status):
+    docker = tmp_path / "bin/docker"
+    docker.write_text(docker.read_text().replace(
+        'if sys.argv[1] == "logs":',
+        'if sys.argv[1] == "rm": sys.exit(91)\nif sys.argv[1] == "logs":',
+    ))
+    if original_status:
+        uv = tmp_path / "bin/uv"
+        uv.write_text(uv.read_text().replace(
+            "os.execv(sys.executable,",
+            'if "--collect-only" not in args:\n'
+            + (f'    os.kill(os.getppid(), {original_status - 128})\n    sys.exit(0)\n'
+               if original_status >= 128 else f'    sys.exit({original_status})\n')
+            + "os.execv(sys.executable,",
+        ))
+    result, _, calls = partition_run(
+        *(arg for arg in mode if arg != "--full"), "-q", full="--full" in mode,
+    )
+    assert result.returncode == (original_status or 1), result.stdout + result.stderr
+    assert "postgres_test_cleanup=isolated_container_remove_failed" in result.stderr
+    assert "postgres_test_cleanup=isolated_container_removed" not in result.stdout
+    started = next(call[call.index("--name") + 1] for call in calls if call[0] == "run")
+    assert [call for call in calls if call[0] == "rm"] == [["rm", "--force", "--volumes", started]]
+
+
+def test_startup_cleanup_failure_keeps_container_owned(partition_run, tmp_path):
+    docker = tmp_path / "bin/docker"
+    docker.write_text(docker.read_text().replace(
+        'if sys.argv[1] == "logs":',
+        'if sys.argv[1] == "rm": sys.exit(91)\n'
+        'if sys.argv[1] == "exec" and "psql" in sys.argv: sys.exit(92)\n'
+        'if sys.argv[1] == "logs":',
+    ))
+    result, rows, calls = partition_run("--partitioned", "-q")
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert not rows
+    assert len([call for call in calls if call[0] == "run"]) == 1
+    started = next(call[call.index("--name") + 1] for call in calls if call[0] == "run")
+    assert [call for call in calls if call[0] == "rm"] == [
+        ["rm", "--force", "--volumes", started], ["rm", "--force", "--volumes", started],
+    ]
+    assert "postgres_test_cleanup=isolated_container_remove_failed" in result.stderr
+    assert "postgres_test_cleanup=isolated_container_removed" not in result.stdout
