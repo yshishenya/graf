@@ -1,0 +1,17 @@
+[Unit]
+Description=Check GRAF public availability from the independent observer
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=/etc/graf-analytics-alert.env
+ExecStart=/usr/local/libexec/check-graf-availability.sh --execute
+StateDirectory=graf-external-availability
+StateDirectoryMode=0700
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/graf-external-availability
+TimeoutStartSec=75

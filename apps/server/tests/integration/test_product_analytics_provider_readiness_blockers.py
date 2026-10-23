@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.fixtures.analytics_operations import CONSISTENT_RESTORE_LINES
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.provider_readiness import build_provider_readiness
 from twobrain_rec_server.product_analytics.readiness import build_rollout_readiness_report
@@ -104,7 +105,6 @@ def _write_operations_states(
     now: int,
     backup_age_hours: int = 1,
     copies_local: int = 3,
-    copies_offsite: int = 1,
     restore_age_days: int = 2,
     restore_result: str = "pass",
     retention_override: dict[str, str] | None = None,
@@ -113,11 +113,11 @@ def _write_operations_states(
     backup.write_text(
         "\n".join(
             [
-                "backup_state_version=1",
+                "backup_state_version=2",
+                "backup_set_complete=true",
                 "last_attempt_result=pass",
                 f"last_success_epoch={now - backup_age_hours * 3600}",
                 f"copies_local={copies_local}",
-                f"copies_offsite={copies_offsite}",
                 "",
             ]
         ),
@@ -127,7 +127,8 @@ def _write_operations_states(
     restore.write_text(
         "\n".join(
             [
-                "restore_state_version=1",
+                "restore_state_version=2",
+                *CONSISTENT_RESTORE_LINES,
                 f"last_verify_result={restore_result}",
                 f"last_verify_epoch={now - restore_age_days * 86400}",
                 "",
@@ -181,6 +182,9 @@ def _write_access_governance_state(directory: Path, *, now: int) -> Path:
 
 
 def _apply_states(monkeypatch, state: dict[str, Path]) -> None:
+    from tests.fixtures.analytics_operations import write_runtime_guard
+    for key, value in write_runtime_guard(state["backup"].parent, now=int(time.time())).items():
+        monkeypatch.setenv(key, value)
     monkeypatch.setenv("GRAF_POSTHOG_BACKUP_STATE_FILE", str(state["backup"]))
     monkeypatch.setenv("GRAF_POSTHOG_RESTORE_STATE_FILE", str(state["restore"]))
     monkeypatch.setenv("GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_FILE", str(state["retention"]))
@@ -218,10 +222,11 @@ def test_live_provider_delivery_claim_requires_fresh_operations_evidence(tmp_pat
     _apply_access_governance(monkeypatch, _write_access_governance_state(tmp_path, now=now))
 
     ready = build_rollout_readiness_report(settings).as_dict()
-    assert ready["verdict"] == "infra_smoke_ready"
+    # A self-declared restore receipt does not establish the unfinished T118 gate.
+    assert ready["verdict"] == "blocked"
     assert "posthog_not_ready" not in ready["blockers"]
-    assert "analytics_operations_not_ready" not in ready["blockers"]
-    assert ready["states"]["retention_deletion_lifecycle"] == "enforced_and_verified"
+    assert "analytics_operations_not_ready" in ready["blockers"]
+    assert ready["states"]["retention_deletion_lifecycle"] == "blocked"
     assert ready["states"]["live_provider_delivery"] == "approved"
     assert ready["states"]["rbac_audit"] == "metadata_verified"
     assert ready["states"]["campaign_launch"] == "blocked_pending_launch_approval_record"
@@ -229,8 +234,8 @@ def test_live_provider_delivery_claim_requires_fresh_operations_evidence(tmp_pat
     assert ready["campaign_launch_allowed"] is False
 
     provider_state = build_provider_readiness(settings).as_dict()
-    assert provider_state["analytics_operations"]["configured"] is True
-    assert provider_state["analytics_operations"]["blockers"] == []
+    assert provider_state["analytics_operations"]["configured"] is False
+    assert provider_state["analytics_operations"]["blockers"] == ["restore_verification_failed"]
     assert provider_state["posthog"]["metadata"]["operations_claim_gate"] == "enforced"
 
 
@@ -287,21 +292,21 @@ def test_readiness_blocks_when_the_newest_copy_is_stale(tmp_path: Path, monkeypa
     _apply_states(monkeypatch, fresh)
     _apply_access_governance(monkeypatch, _write_access_governance_state(tmp_path, now=now))
     refreshed = build_provider_readiness(settings).as_dict()["analytics_operations"]
-    assert refreshed["blockers"] == []
-    assert build_rollout_readiness_report(settings).as_dict()["verdict"] == "infra_smoke_ready"
+    assert refreshed["blockers"] == ["restore_verification_failed"]
+    assert "backup_stale" not in refreshed["blockers"]
+    assert build_rollout_readiness_report(settings).as_dict()["verdict"] == "blocked"
 
 
-def test_readiness_blocks_on_missing_offsite_copy_and_copy_count(tmp_path: Path, monkeypatch) -> None:
+def test_readiness_blocks_below_two_complete_local_copies(tmp_path: Path, monkeypatch) -> None:
     settings = _live_provider_settings(tmp_path)
     now = int(time.time())
-    state = _write_operations_states(tmp_path, now=now, copies_local=1, copies_offsite=0)
+    state = _write_operations_states(tmp_path, now=now, copies_local=1)
     _apply_states(monkeypatch, state)
 
     operations = build_provider_readiness(settings).as_dict()["analytics_operations"]
     assert "backup_copy_count_below_minimum" in operations["blockers"]
-    assert "backup_offsite_copy_missing" in operations["blockers"]
     assert operations["metadata"]["backup_minimum_copies"] == "2"
-    assert operations["metadata"]["backup_minimum_offsite_copies"] == "1"
+    assert operations["metadata"]["backup_policy"] == "scheduled_daily_local_verified_sets"
 
 
 def test_readiness_blocks_on_a_failed_or_stale_restore_verification(tmp_path: Path, monkeypatch) -> None:
@@ -337,6 +342,17 @@ def test_readiness_blocks_when_a_retention_term_is_missing_or_too_short(tmp_path
         "analytics_operations"
     ]["blockers"]
     assert build_rollout_readiness_report(settings).as_dict()["verdict"] == "blocked"
+
+
+@pytest.mark.parametrize(('configured_days', 'effective_days'), [('365', '30'), ('7', '7')])
+def test_readiness_reports_effective_restore_age_limit(tmp_path: Path, monkeypatch, configured_days, effective_days) -> None:
+    settings = _live_provider_settings(tmp_path)
+    now = int(time.time())
+    _apply_states(monkeypatch, _write_operations_states(tmp_path, now=now, restore_age_days=31))
+    monkeypatch.setenv('GRAF_POSTHOG_RESTORE_MAX_AGE_DAYS', configured_days)
+    operations = build_provider_readiness(settings).as_dict()['analytics_operations']
+    assert 'restore_verification_stale' in operations['blockers']
+    assert operations['metadata']['restore_verification_max_age_days'] == effective_days
 
 
 def test_readiness_names_a_category_that_has_no_retention_record(tmp_path: Path, monkeypatch) -> None:

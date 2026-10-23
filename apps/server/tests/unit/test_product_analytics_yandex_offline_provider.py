@@ -2,6 +2,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+from tests.fixtures.analytics_operations import CONSISTENT_RESTORE_LINES, write_runtime_guard
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.advertising_transfer import (
     ADVERTISING_TRANSFER_STATE_FILE_ENV,
@@ -115,11 +116,11 @@ def _write_live_gate_evidence(tmp_path: Path) -> dict[str, str]:
     backup.write_text(
         "\n".join(
             (
-                "backup_state_version=1",
+                "backup_state_version=2",
+                "backup_set_complete=true",
                 "last_attempt_result=pass",
                 f"last_success_epoch={now - 3600}",
                 "copies_local=2",
-                "copies_offsite=1",
             )
         )
         + "\n",
@@ -129,7 +130,8 @@ def _write_live_gate_evidence(tmp_path: Path) -> dict[str, str]:
     restore.write_text(
         "\n".join(
             (
-                "restore_state_version=1",
+                "restore_state_version=2",
+                *CONSISTENT_RESTORE_LINES,
                 "last_verify_result=pass",
                 f"last_verify_epoch={now - 2 * 86400}",
             )
@@ -189,6 +191,7 @@ def _write_live_gate_evidence(tmp_path: Path) -> dict[str, str]:
         encoding="utf-8",
     )
     return {
+        **write_runtime_guard(tmp_path, now=now),
         BACKUP_STATE_FILE_ENV: str(backup),
         RESTORE_STATE_FILE_ENV: str(restore),
         RETENTION_STATE_FILE_ENV: str(retention),
@@ -303,7 +306,9 @@ def test_yandex_offline_does_not_treat_stable_user_id_as_yandex_userid_without_p
     assert row.identity_value_source == "runtime_yandex_client_id_redacted"
 
 
-def test_yandex_live_safe_upload_uses_multipart_without_result_value_leak(tmp_path: Path) -> None:
+def test_yandex_live_safe_upload_uses_multipart_without_result_value_leak(tmp_path: Path, monkeypatch) -> None:
+    from tests.fixtures.analytics_operations import stub_verified_restore
+    stub_verified_restore(monkeypatch)
     exporter, calls = _live_exporter(tmp_path)
 
     result = exporter.export(_approved_event(), visitor_consent=_granted_consent())

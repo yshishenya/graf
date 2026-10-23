@@ -288,7 +288,7 @@ blocker code described here.
 | Disk | Keep analytics volumes separate; review below `20%` free and block/rollback before `<10%` free on the configured analytics filesystem. | Mark PostHog not ready, disable provider delivery, preserve GRAF workflows, and restore only after backup and free-space checks pass. |
 | Network | Analytics traffic remains on `analytics.2brain.pro`; probe analytics health every 60 seconds. | The guard alerts after 2 consecutive failed analytics/GRAF probes; latency and 3-of-5 probe review remain operator checks. |
 | Logs | `json-file` rotation `max-size=50m`, `max-file=3` for every generated-stack service. | Review if rotation is missing or forbidden fields appear; stop provider delivery before unbounded growth can affect GRAF. |
-| Backups | Daily full local backup, metadata-only evidence; target 0 ≤ completed-set age <26h; last 7 successful complete sets, minimum 2; consistent isolated restore within 30 days. Local-only owner decision 2026-10-22; T117/T118 pending. | Block readiness if backup is missing/stale or restore rehearsal fails; use the last known-good compose/volume state. |
+| Backups | Daily full local backup, metadata-only evidence; target 0 ≤ completed-set age <26h; last 7 successful complete sets, minimum 2; consistent isolated restore within 30 days. Local-only owner decision 2026-10-22; T117 local candidate; installation and T118 pending. | Block readiness if backup is missing/stale or restore rehearsal fails; use the last known-good compose/volume state. |
 | Retention (historical 2026-07 receipt, superseded target) | The receipt observed product event retention of `84` months; the historical self-hosted session-recording policy was `90d` while recording is opted out; the session-replay bucket has an enabled 90-day object-lifecycle rule. | Review any policy/category without a documented owner and deletion behavior; do not claim lifecycle readiness from an empty table alone. The 90-day project value is a reversible self-hosted database override because the supported API rejected the entitlement. |
 
 The 2026-07-20 production receipt verified the 35-service Compose configuration,
@@ -349,18 +349,26 @@ readiness and normal product workflows remain the guarded health checks. A
 rollback or stack-stop failure returns a non-zero status for systemd/alerting.
 The runtime environment example is `infra/posthog/runtime-guard.env.example`.
 
+The installed unit pins both `GRAF_POSTHOG_STORAGE_STATE_DIR` and
+`GRAF_POSTHOG_STORAGE_STATE_FILE` to `/var/lib/graf-posthog-storage` inside its
+write sandbox, even if the environment file specifies another location.
+Relocation requires a reviewed systemd drop-in replacing `ExecStart` and adding
+the matching `ReadWritePaths`; changing only the environment is insufficient.
+Manual collector runs retain their explicit path options.
+
 Installation is a release/deploy step, not a local smoke side effect:
 
 ```sh
 install -d -o root -g root -m 0755 /usr/local/libexec
 install -o root -g root -m 0755 infra/scripts/posthog-runtime-guard.sh /usr/local/libexec/graf-posthog-runtime-guard.sh
+install -o root -g root -m 0755 infra/scripts/posthog-capacity.py /usr/local/libexec/posthog-capacity.py
 install -o root -g root -m 0644 infra/posthog/graf-posthog-runtime-guard.service /etc/systemd/system/
 install -o root -g root -m 0644 infra/posthog/graf-posthog-runtime-guard.timer /etc/systemd/system/
 install -o root -g root -m 0600 infra/posthog/runtime-guard.env.example /etc/graf-posthog-runtime-guard.env
 systemctl daemon-reload
 stat -c '%U:%G %a %n' /usr/local/libexec/graf-posthog-runtime-guard.sh /etc/graf-posthog-runtime-guard.env
-GRAF_POSTHOG_GUARD_DRY_RUN=1 systemctl start graf-posthog-runtime-guard.service
-systemctl enable --now graf-posthog-runtime-guard.timer
+# До запуска службы и timer выполните обязательную подготовку общей группы
+# чтения состояния ниже, включая все три env-файла.
 ```
 
 The checked-in environment example is observe-only (`AUTO_ROLLBACK=0`,
@@ -370,6 +378,27 @@ the operator approval. The contract test checks the thresholds, metadata-only
 logging, fail-closed switches, secure install path, zero-restart execution, and
 one-minute timer; it does not constitute a production timer receipt.
 
+Install the collector, its helper and inventories using
+`product-analytics-capacity-baseline.md` before starting the timer. The guard
+requires both adjacent Python helpers. Preserve an existing reviewed environment
+file during an upgrade; copying the example above is for a fresh installation.
+Create both state directories before systemd starts with `ProtectSystem=strict`.
+The guard directory is root-owned, group `TWOBRAIN_RUNTIME_SECRET_GID`
+(explicitly selected for the API and persisted below), mode 2750; atomic JSON
+and alert-state are 0640. The API uses its existing
+supplementary group and a read-only bind mount. It cannot change the incident.
+
+`capacity-budget.json` is an operator-owned acceptance record under the guard
+directory, bound to the reviewed inventory and configuration SHA-256. A pending
+or missing record keeps readiness closed while collection continues. It must
+not be replaced with a test receipt or accepted before T097.
+
+The guard writes `protection-state.json` before changing switches. Only a
+running API container with every measurement switch read back as disabled
+permits `protected`. A failed apply/readback remains `apply_failed` and retries,
+even if the original symptom disappears. A successful incident stays closed
+without further API restarts until the manual Restoration procedure succeeds.
+
 ## Threshold Scopes: Analytics First, Host Second
 
 Feature `273-paid-traffic-analytics` splits the guard thresholds into two
@@ -378,15 +407,19 @@ independent scopes (FR-031, FR-032, SC-012). The split lives in
 `infra/posthog/runtime-guard.env.example`. Every value below defaults to the
 previously hard-coded threshold, so removing a line keeps production behaviour.
 The analytics scope is evaluated first and may disable measurement only. The
-host scope alerts only and never disables measurement automatically, so a
-traffic spike on the public site cannot stop measurement by itself.
+host scope alone alerts only. A traffic spike with sufficient filesystem
+headroom and analytics budget does not disable measurement. A shared filesystem
+below 20% available separately triggers analytics protection, regardless of
+which workload consumed it; below 10% it also raises the critical host alert.
+Both reasons remain visible, with one successful protective transition.
 
 Analytics scope — these reasons may disable measurement:
 
 | Reason code | Condition | Threshold variable | Default |
 | --- | --- | --- | --- |
 | `analytics_node_unavailable` | Node availability: failed analytics probes | `GRAF_POSTHOG_GUARD_ANALYTICS_HEALTH_FAILURES` | `1` (one failed analytics probe) |
-| `analytics_storage` | Analytics storage free space below the review floor | `GRAF_POSTHOG_GUARD_ANALYTICS_DISK_FREE_PERCENT` | `20` (`<20 %` free) |
+| `analytics_storage` | Available bytes on the analytics filesystem below the fixed floor | — | `<20 %`, exact bytes |
+| `analytics_storage_budget` | Analytics allocated bytes reach the accepted absolute budget | operator budget record | `>= budget` |
 | `analytics_delivery_lag` | Delivery lag at or above the limit | `GRAF_POSTHOG_GUARD_ANALYTICS_LAG_SECONDS` | `900` (`>=900 s`) |
 | `analytics_queue_depth` | Ingest queue backlog at or above the limit | `GRAF_POSTHOG_GUARD_ANALYTICS_QUEUE_DEPTH` | `100000` (`>=100000`) |
 | `analytics_queue_growth` | Ingest queue growth at or above the limit | `GRAF_POSTHOG_GUARD_ANALYTICS_QUEUE_GROWTH_PER_MIN` | `5000` (`>=5000` per minute) |
@@ -400,14 +433,15 @@ Host scope — these reasons alert only and never disable measurement:
 | --- | --- | --- | --- |
 | `host_load` | Host 1-minute load average at or above the limit | `GRAF_POSTHOG_GUARD_HOST_LOAD` | `11` (`>=11`) |
 | `host_memory` | Host available memory below the limit | `GRAF_POSTHOG_GUARD_HOST_MEMORY_MIB` | `16384` (`<16384 MiB`) |
-| `host_disk` | Host disk free space below the limit | `GRAF_POSTHOG_GUARD_HOST_DISK_FREE_PERCENT` | `10` (`<10 %`) |
+| `host_disk` | Available bytes on the host filesystem below the fixed floor | — | `<10 %`, exact bytes |
 | `host_product_probe_unavailable` | GRAF product readiness probe failing | `GRAF_POSTHOG_GUARD_HOST_HEALTH_FAILURES` | `2` (2 consecutive minutes) |
 
 `GRAF_POSTHOG_GUARD_AUTO_ROLLBACK=1` with `GRAF_POSTHOG_GUARD_DRY_RUN=0` may now
 disable measurement only for analytics-scope reasons. Host-scope reasons never
 disable measurement, never edit the provider switches, and only raise an alert.
-This is the rule that keeps SC-012 true: a fivefold traffic spike does not turn
-measurement off and does not affect product availability.
+SC-012 assumes accepted capacity and sufficient filesystem headroom. It does
+not override shared-filesystem protection under FR-032. These are target T116
+requirements; the existing runtime still needs its implementation and acceptance.
 
 Unreadable analytics probes are reported as an analytics alert, not as a silent
 pass: `analytics_delivery_lag_unavailable` when the delivery-lag probe cannot be
@@ -630,7 +664,7 @@ The runbook must always identify:
 
 Evidence remains metadata-only.
 
-Current backup/restore receipt: on 2026-07-18 the generated runtime volume set
+Historical backup/restore receipt (does not satisfy current T118): on 2026-07-18 the generated runtime volume set
 (relational data, ClickHouse, Kafka/Redpanda, Redis, object/blob storage, Caddy,
 and coordination volumes) passed a metadata-only archive integrity check and
 an isolated restore rehearsal. The restored web health endpoint returned `200`,
@@ -645,7 +679,7 @@ Backup retention:
   the retained `until_decision` history, not just seven days of events;
 - offsite copies are not required by the owner decision of 2026-10-22; losing
   the host/disk may lose all history. See `infra/posthog/backup-restore.md`;
-- script/readiness migration T117/T118 remains pending; the old upload requirement
+- T117 local writer/readiness/alerts no longer require upload; installation and T118 remain pending. The historical upload requirement
   must not be bypassed by changing just one threshold;
 - never commit backup archives or content-bearing exports;
 - record restore rehearsal status before live readiness claims.
@@ -670,8 +704,8 @@ FR-036, FR-051, FR-052).
 
 | Artifact | Schedule | State file | Contract |
 | --- | --- | --- | --- |
-| `infra/scripts/backup-posthog.sh` | daily systemd timer `graf-posthog-backup.timer`, `OnCalendar=*-*-* 02:30:00` | `/var/lib/graf-posthog-backup/backup-state` | Target: last 7 verified complete local sets, minimum 2. No offsite requirement in this stage; T117 migration pending. A failed/partial run blocks readiness and cannot evict good sets |
-| `infra/scripts/verify-posthog-restore.sh` | systemd timer `graf-posthog-restore-verify.timer`, days 1 and 15, `OnCalendar=*-*-01,15 04:30:00` | `/var/lib/graf-posthog-backup/restore-state` | Restores into an isolated target and records metadata-only evidence: command names, pass/fail status, duration class, blocker codes |
+| `infra/scripts/backup-posthog.sh` | daily systemd timer `graf-posthog-backup.timer`, `OnCalendar=*-*-* 02:30:00` | `/var/lib/graf-posthog-backup/backup-state` | Target: last 7 verified complete local sets, minimum 2. No offsite requirement in this stage; T117 local candidate; installation pending. A failed/partial run blocks readiness and cannot evict good sets |
+| `infra/scripts/verify-posthog-restore.sh` | systemd timer `graf-posthog-restore-verify.timer`, days 1 and 15, `OnCalendar=*-*-01,15 04:30:00` | `/var/lib/graf-posthog-backup/restore-state` | Historical v1 extraction/file-count path; does not satisfy current T118 or open updated readiness |
 | `infra/scripts/enforce-product-analytics-retention.sh` | daily systemd timer `graf-posthog-retention-enforce.timer`, `OnCalendar=*-*-* 03:15:00` | `/var/lib/graf-posthog-retention/retention-state` | Verifies explicit until_decision policy and absence of event TTL; never deletes rows |
 | `infra/scripts/apply-posthog-event-ttl.sh` | operator migration after isolated validation | — | Removes the old event TTL with `infra/posthog/clickhouse-retention.sql`; requires explicit `GRAF_PRODUCT_ANALYTICS_RETENTION_MODE=until_decision` |
 
@@ -707,6 +741,44 @@ files with mode `0644`, install the environment files with mode `0600`, then run
 with `--check-channel`, which is why the two alert units share one file. The
 alert units also read the guard and backup environment files because they need
 the same state-file paths the guard and the backup task write.
+
+### Подготовка общей группы чтения состояния
+
+Перед первым запуском guard, backup, retention и включением их timers создайте
+все три env-файла из соответствующих примеров; при обновлении сохраните их
+проверенные параметры. От root выполните блок ниже, передав
+`TWOBRAIN_RUNTIME_SECRET_GID`, уже выбранный и проверенный для API штатным
+развёртыванием. Значение по умолчанию не подставляется. При смене группы API
+повторите этот шаг до следующего запуска служб. Архивы остаются root-only.
+Переменная перед `systemctl start` не попадает в окружение отдельной службы:
+службы читают именно эти файлы. Не выводите их содержимое в журнал.
+
+```bash
+(
+  set -euo pipefail
+  gid="${TWOBRAIN_RUNTIME_SECRET_GID:?Укажите выбранную для API группу}"
+  [[ "$gid" =~ ^[1-9][0-9]{3,9}$ ]] && (( gid <= 2147483647 )) || exit 2
+  files=(/etc/graf-posthog-runtime-guard.env /etc/graf-posthog-backup.env /etc/graf-posthog-retention.env)
+  for file in "${files[@]}"; do
+    [[ -f "$file" && ! -L "$file" ]] || exit 2
+  done
+  temp="$(mktemp)"
+  trap 'rm -f -- "$temp"' EXIT
+  for file in "${files[@]}"; do
+    awk -v gid="$gid" '
+      !/^[[:space:]]*TWOBRAIN_RUNTIME_SECRET_GID[[:space:]]*=/ {print}
+      END {print "TWOBRAIN_RUNTIME_SECRET_GID=" gid}
+    ' "$file" > "$temp"
+    install -o root -g root -m 0600 "$temp" "$file"
+  done
+)
+```
+
+Только после успешного завершения блока и остальных проверок принятой
+установки запускайте соответствующие службы и включайте timers. Ненулевой
+результат требует исправления конфигурации до запуска. Для первого guard
+сохраните `DRY_RUN=1` в его env-файле. Проверка штатного блока на временных
+файлах не доказывает установку или читаемость состояния настоящим API.
 
 systemd evaluates `OnCalendar` in the
 server timezone: keep the analytics server on UTC so `02:30`, `04:30`, and
@@ -759,7 +831,7 @@ configuration error rather than a ready state.
 | `backup_state_unavailable` | The backup state file is missing or unreadable |
 | `backup_missing` | No stored analytics backup copy exists |
 | `backup_stale` | The newest copy is older than the recovery-point objective |
-| `backup_offsite_copy_missing` | Legacy offsite policy; not required by the current local-only target. Runtime migration T117 pending |
+| `backup_set_unverified` | Missing version-2 complete-set proof; old directory names and markers do not qualify |
 | `backup_copy_count_below_minimum` | Fewer than the minimum number of stored copies are present |
 | `restore_verification_missing` | No successful restore verification is recorded |
 | `restore_verification_stale` | The last successful verification is older than the verification objective |
@@ -774,7 +846,7 @@ Defaults for every threshold above:
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `GRAF_POSTHOG_BACKUP_MAX_AGE_HOURS` | `26` | Completed full set: 0 ≤ age <26 hours; failed/future/unknown blocks (target T117) |
+| `GRAF_POSTHOG_BACKUP_MAX_AGE_HOURS` | `26` | Completed full set: 0 ≤ age <26 hours; failed/future/unknown blocks (T117; actual installation pending) |
 | `GRAF_POSTHOG_RESTORE_MAX_AGE_DAYS` | `30` | Successful restore verification not older than 30 days (SC-010) |
 | `GRAF_POSTHOG_BACKUP_MIN_COPIES` | `2` | At least two stored copies |
 | `GRAF_POSTHOG_BACKUP_MIN_OFFSITE_COPIES` | target `0`, runtime migration pending | Owner accepted local-only copies; do not change this alone to claim readiness |
@@ -854,3 +926,74 @@ infra/scripts/cd-remote.sh --dry-run
 
 Do not run future production deploys or PostHog stack changes from this runbook
 without explicit release approval.
+
+
+### T117: local-only complete-set installation
+
+Install the updated backup writer and its inventory together, with the matching
+API/alert consumers and read-only API state mount. The root-owned state directory
+uses the existing runtime-reader group (2750); state files are 0640. Archives and
+manifests remain in the root-only backup directory (0700, files 0600). API never
+receives archive access. The completion marker is written after archive persistence;
+failed/incomplete/corrupt sets do not count or evict usable sets. Keep seven verified
+complete sets; require two before readiness. Old sets without proof remain untouched,
+not silently upgraded. Metadata state version2 is required. No external storage is
+required, and complete host/disk loss can lose all history. T118 consistent restore,
+real receipts and delivery remain separate gates.
+
+Count and rotate only sets matching the current inventory SHA-256, project and
+resolved volume set. Incompatible historical sets stay intact and do not count
+toward the current two-copy gate. Completion markers lacking a project binding
+are historical evidence and cannot be upgraded by editing the marker.
+The retention verifier also publishes its 0640 receipt under a root-owned 2750
+directory using the API runtime-reader group; the API receives only a read-only
+bind at `/run/graf-analytics-retention`, never writable access to host state.
+
+
+### T118: переход потребителей на согласованное доказательство
+
+API и оповещения больше не принимают исторический tar-only v1 как проверку
+восстановления. Требуются краткий v2 по
+[operations](../../specs/273-paid-traffic-analytics/contracts/operations.md#формат-краткого-результата-t118-v2)
+и полный закрытый отчёт. Будущее время, возраст ≥30 суток, неполные классы,
+отсутствие нативного чтения/чтения PostHog/очистки/проверок хранения и удалений
+блокируют готовность. Параметр возраста не расширяет 30 суток.
+
+Это миграция потребителей, не готовый новый механизм восстановления.
+Старый скрипт остаётся v1 до полного T118; расписание или ручной запуск
+старого скрипта не закрывают гейт. Синтетические результаты в provider smoke
+подтверждают обработку контракта, а не реальное восстановление. Установка
+потребителей выполняется общим выпуском; отдельно подменять рабочий receipt
+или включать измерение нельзя. Полная потеря локальных копий означает пробел
+истории; пустая новая установка не доказывает восстановление.
+
+
+## Независимый наблюдатель T119
+
+Подготовлен `infra/scripts/check-graf-availability.sh` и отдельные
+`graf-external-availability.service/.timer` для существующего `astraglobal`.
+Штатная установка через выпуск размещает исполняемый файл и существующий
+`alert-analytics-degradation.sh` как `/usr/local/libexec/graf-analytics-degradation-alert.sh`,
+а service/timer — в systemd. Наблюдатель не получает доступ к БД, Docker
+или SSH целевого сервера. Новый сервер и новое хранилище не создаются.
+
+Проверка раз в 60 секунд: HTTPS GET health/live, timeout 10 секунд,
+HTTP 200 и JSON status=ok. Первый отказ — degraded; два подряд —
+target_unreachable. Неизменная успешно доставленная тревога повторяется
+через 60 минут. Ошибка отправки не создаёт receipt; повторяется на следующем
+запуске. Восстановление фиксируется и при необходимости доставляется отдельно.
+Проверка getMe/getChat выполняется независимо от цели и локального guard;
+channel_unavailable остаётся в закрытом состоянии и журнале systemd.
+
+Root-owned конфигурация `/etc/graf-analytics-alert.env` с правами 0600
+использует уже существующие закрытые token/chat и владельца infra_operator.
+Токен, адресат и ответы API в состояние наблюдателя не попадают.
+Состояние — `/var/lib/graf-external-availability/state.json`, каталог 0700.
+`check-graf-availability.sh --status` отказывает при неизвестном состоянии
+или возрасте от 180 секунд. `--dry-run` не проверяет сеть и не отправляет
+сообщения. `--execute` предназначен для принятой установки наблюдателя.
+
+Это описание подготовленного кода. Перед заявлением о работе монитора
+нужны exact-SHA CI, штатная установка на astraglobal, проверка таймера,
+изолированная цель и конкретно разрешённая учебная доставка за ≤15 минут.
+Реальную цель ради учебной тревоги не отключать.

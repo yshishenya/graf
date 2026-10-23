@@ -1,5 +1,5 @@
 [Unit]
-Description=GRAF PostHog analytics backup with offsite copy
+Description=GRAF PostHog verified local analytics backup
 After=docker.service network-online.target
 Requires=docker.service
 

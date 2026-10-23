@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from tests.fixtures.analytics_operations import CONSISTENT_RESTORE_TEXT
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.legal_basis_lifecycle import (
     BASIS_WITHDRAWAL_STATE_FILE_ENV,
@@ -23,11 +24,11 @@ def _write_evidence(tmp_path: Path) -> dict[str, str]:
     backup.write_text(
         "\n".join(
             (
-                "backup_state_version=1",
+                "backup_state_version=2",
+                "backup_set_complete=true",
                 "last_attempt_result=pass",
                 f"last_success_epoch={now - 3600}",
                 "copies_local=2",
-                "copies_offsite=1",
             )
         )
         + "\n",
@@ -35,7 +36,7 @@ def _write_evidence(tmp_path: Path) -> dict[str, str]:
     )
     restore = tmp_path / "restore"
     restore.write_text(
-        f"restore_state_version=1\nlast_verify_result=pass\nlast_verify_epoch={now - 3600}\n",
+        CONSISTENT_RESTORE_TEXT + f"restore_state_version=2\nlast_verify_result=pass\nlast_verify_epoch={now - 3600}\n",
         encoding="utf-8",
     )
     retention = tmp_path / "retention"
@@ -91,7 +92,9 @@ def _write_evidence(tmp_path: Path) -> dict[str, str]:
     )
     basis = tmp_path / "basis"
     basis.write_text("basis_state_version=1\n", encoding="utf-8")
+    from tests.fixtures.analytics_operations import write_runtime_guard
     return {
+        **write_runtime_guard(tmp_path, now=now),
         BACKUP_STATE_FILE_ENV: str(backup),
         RESTORE_STATE_FILE_ENV: str(restore),
         RETENTION_STATE_FILE_ENV: str(retention),
@@ -190,7 +193,8 @@ def test_provider_gate_scopes_withdrawal_to_provider_level(tmp_path: Path) -> No
         environ=_withdrawal_evidence(tmp_path, "anonymous_aggregate"),
     )
 
-    assert gate.allowed is True
+    assert gate.allowed is False
+    assert "analytics_operations_not_ready" in gate.blockers
     assert "legal_basis_withdrawn" not in gate.blockers
 
 

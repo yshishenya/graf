@@ -110,6 +110,11 @@ done
 result=pass
 [[ -z "$failure_reason" ]] || result=failed
 mkdir -p "$state_dir"
+chmod 0750 "$state_dir"
+if (( EUID == 0 )); then
+  chgrp "${TWOBRAIN_RUNTIME_SECRET_GID:-1001}" "$state_dir"
+  chmod 2750 "$state_dir"
+fi
 tmp_file="$(mktemp "$state_file.XXXXXX")"
 trap 'rm -f "$tmp_file"' EXIT
 {
@@ -121,6 +126,9 @@ trap 'rm -f "$tmp_file"' EXIT
   printf 'content_policy=metadata_only_no_visitor_or_user_data\nproduct_impact=measurement_gap_only\n'
 } > "$tmp_file"
 chmod 0640 "$tmp_file"
+if (( EUID == 0 )); then
+  chgrp "${TWOBRAIN_RUNTIME_SECRET_GID:-1001}" "$tmp_file"
+fi
 mv "$tmp_file" "$state_file"
 if [[ "$result" != pass ]]; then
   printf 'retention_result=failed\nreason=%s\n' "$failure_reason"

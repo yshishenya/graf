@@ -11,9 +11,10 @@ names or emails, and no private host paths.
 ## Purpose
 
 FR-039 requires a load check before paid traffic starts and a recorded absolute
-storage volume plus expected growth rate. SC-012 requires that a traffic spike
-that multiplies the load on the site does not switch measurement off and does not
-affect product availability.
+storage volume plus expected growth rate. With accepted capacity and sufficient
+filesystem headroom, SC-012 requires that a traffic spike does not switch
+measurement off or affect product availability. Shared-space protection below
+20% remains mandatory regardless of which workload consumed the space.
 
 This baseline is the number behind that promise:
 
@@ -24,9 +25,11 @@ This baseline is the number behind that promise:
 - it gives the evidence needed to justify the analytics-scope alert thresholds
   without raising them by guesswork.
 
-The measurement covers the analytics node only. The GRAF product stack keeps its
-own storage accounting and is not restored, resized, or rescheduled from this
-baseline.
+The measurement covers the analytics node, analytics-owned GRAF relations and
+local analytics archives. Product relations remain outside the analytics sum;
+shared GRAF DB overhead remains outside that sum. Its unknown analytics share
+is not assumed zero; the shared filesystem reserve protects against its growth. The product stack is not restored, resized or
+rescheduled by this measurement.
 
 ## Measurement Method
 
@@ -39,13 +42,13 @@ The script must report, per storage class, metadata only:
 | `absolute_bytes` | Bytes currently used by the class |
 | `window_hours` | Length of the measurement window |
 | `events_in_window` | Events ingested during the same window, counted from the ClickHouse events table (`GRAF_POSTHOG_GUARD_EVENTS_TABLE`, default `events`) |
-| `bytes_per_day` | Growth per 24 hours: the measured difference against the previous sample, or the event-rate estimate when no previous sample exists |
+| `bytes_per_day` | Growth per 24 hours from two comparable complete allocated-block samples at least 24 hours apart; unknown until then |
 | `bytes_per_1000_events` | Bytes added per 1000 ingested events in the window |
 | `projected_bytes_12_months` | Linear projection from the measured daily growth |
 | `projected_bytes_36_months` | Linear projection from the measured daily growth |
 | `analytics_disk_free_percent` | Free space on the analytics filesystem; on a shared filesystem this is the same resource as host disk free space, not independent analytics usage |
 | `recorded_at` | UTC timestamp of the sample |
-| `growth_basis` | `previous_sample` when the growth came from two samples, `event_rate_and_average_event_size` otherwise |
+| `growth_basis` | `previous_sample` only for comparable measured growth; pending/incomplete or decrease_requires_review otherwise |
 
 Growth is a difference, not a snapshot. The script is run twice: once at the
 start of the measurement window and once at the end, with at least 24 hours of
@@ -53,16 +56,18 @@ ordinary traffic between the two runs. Each run stores its sample in
 `/var/lib/graf-posthog-storage/storage-growth-state` (overridable with
 `GRAF_POSTHOG_STORAGE_STATE_FILE` or `GRAF_POSTHOG_STORAGE_STATE_DIR`), so the
 second run reports `growth_basis=previous_sample` with the measured daily
-growth. A first run with no stored sample reports
-`growth_basis=event_rate_and_average_event_size`, derived from the observed
-event rate and the average stored event size. Record which basis the receipt
-used: only `previous_sample` is a measured baseline.
-`--window-hours <n>` widens the event window when traffic is uneven.
+growth. A first run has pending growth and unknown projections; no event-rate
+estimate is accepted as measured growth. Intermediate samples preserve the
+day anchor. `--window-hours <n>` can extend the comparison interval beyond
+24 hours; the event count covers that exact interval. Negative class changes
+remain signed and require review, with live data and archives shown separately.
+An unavailable event count or zero denominator leaves per-1000 growth unknown.
 
-The guardrail is fixed: analytics storage free space must stay above `20 %`
-(`GRAF_POSTHOG_GUARD_ANALYTICS_DISK_FREE_PERCENT`). A run that reports free
-space at or below the guardrail is a blocker for the baseline, not a baseline
-value.
+The guardrail is fixed: analytics storage free space must be at least `20 %`.
+A run below that floor
+blocks baseline acceptance. Exactly 20% does not trigger storage protection;
+all other readiness and capacity requirements still apply. Compare available
+bytes against total bytes without rounding a displayed percentage to an integer.
 
 The script above is committed with those exact key names, so a receipt can be
 copied into the results table below without renaming anything. A report with
@@ -78,17 +83,22 @@ application checkout:
 
 ```sh
 install -o root -g root -m 0755 infra/scripts/measure-posthog-storage-growth.sh /usr/local/libexec/graf-posthog-storage-growth.sh
+install -o root -g root -m 0755 infra/scripts/posthog-storage.py /usr/local/libexec/posthog-storage.py
+install -d -o root -g root -m 0755 /usr/local/share/graf-posthog
+install -o root -g root -m 0644 infra/posthog/storage-mounts.txt infra/posthog/storage-relations.txt infra/posthog/backup-volumes.txt /usr/local/share/graf-posthog/
 set -a
 . /etc/graf-posthog-runtime-guard.env
 set +a
-/usr/local/libexec/graf-posthog-storage-growth.sh
+GRAF_POSTHOG_STORAGE_INVENTORY_DIR=/usr/local/share/graf-posthog /usr/local/libexec/graf-posthog-storage-growth.sh
 ```
 
 Then:
 
-1. Confirm the runtime guard reports the analytics scope as `pass`; a baseline
-   taken while measurement is degraded is not a baseline. The guard state file
-   is `$GRAF_POSTHOG_GUARD_STATE_DIR/alert-state`, default
+1. Record the current guard state and all blockers. A pending budget and closed
+   readiness do not prevent collecting complete T097 samples: those samples are
+   needed to accept the budget. Record degraded operation explicitly; it cannot
+   prove accepted normal-load capacity. The guard state file is
+   `$GRAF_POSTHOG_GUARD_STATE_DIR/alert-state`, default
    `/var/lib/graf-posthog-runtime-guard/alert-state`.
 2. Record the first sample, wait at least 24 hours of ordinary traffic, and
    record the second sample.
@@ -115,13 +125,30 @@ different environment, and never fill a cell from a projection.
 | `queue_cache` — queue and cache durability (`graf-posthog_redis7-data`) | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt |
 | `broker` — ingest broker state (`graf-posthog_kafka-data`, `graf-posthog_redpanda-data`) | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt |
 | `coordination` — coordination state (`graf-posthog_zookeeper-*`) | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt |
-| `analytics_filesystem_total` — whole analytics filesystem | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt |
+| `runtime_auxiliary` — reviewed service mounts including caddy data/config; posthog-media belongs to object_storage | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt |
+| `graf_analytics_tables` — allocated relation files, indexes and TOAST owned by analytics; includes the network journal when present | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt |
 | `backup_artifacts` — local backup copies on the measured server | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt | pending operator receipt |
 
 Storage classes follow the volume classes in `infra/posthog/backup-volumes.txt`.
 A class marked optional there is measured only when the reviewed runtime uses
 it; a class absent from the reviewed runtime is recorded as
 `not present in reviewed runtime` instead of a number.
+
+The canonical closed formula and mapping are operations §Состав расхода T116.
+Volume/directory classes use allocated file blocks, never whole-filesystem
+capacity or logical table size on top of the same volume. GRAF analytics
+relations exclude meeting/product data. Shared GRAF DB WAL/catalog overhead
+remains outside the analytics sum; its analytics share is unknown, not zero.
+One filesystem probe and the shared-space protection cover that resource risk.
+The 128 GiB budget compares directly with `analytics_storage_bytes`.
+
+Filesystem total/available bytes, precise available ratio and resource identity
+are separate diagnostics, not a storage class to sum. One shared filesystem
+has one free-space sample. Archive usage includes incomplete, failed and staging
+files; successful-backup count is an independent property. The current script
+does not yet implement this full accounting: T116 updates the existing collector
+and guard before these fields can be accepted. No current `storage_growth_result=pass`
+alone proves complete inventory, measured daily growth or T097 acceptance.
 
 ## Expected Order Of Magnitude
 

@@ -50,7 +50,6 @@ first_run_grace_minutes="$guard_state_max_age_minutes"
 backup_max_age_hours="${GRAF_POSTHOG_BACKUP_MAX_AGE_HOURS:-26}"
 restore_max_age_days="${GRAF_POSTHOG_RESTORE_MAX_AGE_DAYS:-30}"
 minimum_copies="${GRAF_POSTHOG_BACKUP_MIN_COPIES:-2}"
-minimum_offsite_copies="${GRAF_POSTHOG_BACKUP_MIN_OFFSITE_COPIES:-1}"
 timeout_seconds="${GRAF_ANALYTICS_ALERT_TIMEOUT_SECONDS:-10}"
 api_base="${GRAF_ANALYTICS_ALERT_API_BASE:-https://api.telegram.org}"
 fallback_url="${GRAF_ANALYTICS_ALERT_FALLBACK_URL:-}"
@@ -74,6 +73,9 @@ while (( $# > 0 )); do
     --print-message) print_only=1 ;;
     --drill) mode="drill" ;;
     --check-channel) mode="channel" ;;
+    --external-channel) mode="external-channel" ;;
+    --target-unreachable) mode="target_unreachable" ;;
+    --target-recovered) mode="target_recovered" ;;
     --status) mode="status" ;;
     --rules)
       (( $# > 1 )) || { echo "alert_result=failed"; echo "reason=rules_argument_missing"; exit 2; }
@@ -120,15 +122,6 @@ if [[ -z "$chat_id" && -n "${GRAF_ANALYTICS_ALERT_CHAT_ID_FILE:-}" ]]; then
   chat_id="$(read_value_file "$GRAF_ANALYTICS_ALERT_CHAT_ID_FILE")"
 fi
 
-redact() {
-  local text="$1"
-  if [[ -n "$bot_token" ]]; then
-    printf '%s' "${text//$bot_token/<redacted>}"
-  else
-    printf '%s' "$text"
-  fi
-}
-
 state_value() {
   local file="$1"
   local key="$2"
@@ -143,9 +136,13 @@ state_values() {
   awk -v key="$key" 'index($0, key "=") == 1 {print substr($0, length(key) + 2)}' "$file"
 }
 
+valid_epoch() {
+  [[ "$1" =~ ^[1-9][0-9]{0,11}$ ]]
+}
+
 now_epoch="$(date +%s 2>/dev/null || printf '')"
 recorded_at="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf 'unknown')"
-if [[ ! "$now_epoch" =~ ^[0-9]+$ ]]; then
+if ! valid_epoch "$now_epoch"; then
   echo "alert_result=failed"
   echo "reason=clock_unavailable"
   exit 1
@@ -154,7 +151,7 @@ fi
 age_minutes() {
   local stamp="$1"
   local fallback="$2"
-  if [[ "$stamp" =~ ^[0-9]+$ ]] && (( now_epoch >= stamp )); then
+  if valid_epoch "$stamp" && (( now_epoch >= stamp )); then
     printf '%s' "$(( (now_epoch - stamp) / 60 ))"
   else
     printf '%s' "$fallback"
@@ -247,8 +244,15 @@ collect_reasons() {
   else
     local recorded
     recorded="$(state_value "$guard_state_file" recorded_at_epoch)"
-    if [[ ! "$recorded" =~ ^[0-9]+$ ]] || (( (now_epoch - recorded) > guard_state_max_age_minutes * 60 )); then
+    if ! valid_epoch "$recorded" || (( recorded > now_epoch || now_epoch - recorded >= 120 )); then
       reasons+=("guard_state_stale")
+    fi
+    if [[ "$(state_value "$guard_state_file" alert_state_version)" != "2" ]] \
+      || [[ "$(state_value "$guard_state_file" capacity_input_verified)" != "true" ]]; then
+      reasons+=("capacity_input_unverified")
+    fi
+    if [[ "$(state_value "$guard_state_file" protection_status)" != "observed" ]]; then
+      reasons+=("analytics_protection_latched")
     fi
     if [[ "$(state_value "$guard_state_file" result)" == "alert" ]]; then
       while IFS= read -r code; do
@@ -258,35 +262,39 @@ collect_reasons() {
         [[ -n "$code" && "$code" != "none" ]] && reasons+=("$code")
       done < <(state_values "$guard_state_file" host_breaches | tr ',' '\n')
     fi
+    if [[ "$(state_value "$guard_state_file" capacity_ready)" != true ]] && (( ${#reasons[@]} == 0 )); then
+      reasons+=("capacity_not_ready")
+    fi
   fi
 
   if [[ -r "$backup_state_file" ]]; then
-    local backup_age_hours last_success
+    local last_success
     last_success="$(state_value "$backup_state_file" last_success_epoch)"
-    if [[ ! "$last_success" =~ ^[0-9]+$ ]]; then
+    if ! valid_epoch "$last_success"; then
       reasons+=("backup_missing")
     else
-      backup_age_hours=$(( (now_epoch - last_success) / 3600 ))
-      if (( backup_age_hours > backup_max_age_hours )); then
+      if (( now_epoch < last_success || now_epoch - last_success >= backup_max_age_hours * 3600 || now_epoch - last_success >= 26 * 3600 )); then
         reasons+=("backup_stale")
       fi
     fi
-    if [[ "$(state_value "$backup_state_file" last_attempt_result)" == "failed" ]]; then
+    if [[ "$(state_value "$backup_state_file" last_attempt_result)" != "pass" ]]; then
       reasons+=("backup_failed")
+    fi
+    if [[ "$(state_value "$backup_state_file" backup_state_version)" != "2" || "$(state_value "$backup_state_file" backup_set_complete)" != "true" ]]; then
+      reasons+=("backup_set_unverified")
     fi
   else
     reasons+=("backup_missing")
   fi
 
   if [[ -r "$restore_state_file" ]]; then
-    local verify_epoch verify_result
-    verify_result="$(state_value "$restore_state_file" last_verify_result)"
+    local verify_epoch
     verify_epoch="$(state_value "$restore_state_file" last_verify_epoch)"
-    if [[ "$verify_result" != "pass" ]]; then
-      reasons+=("restore_verification_failed")
-    elif [[ ! "$verify_epoch" =~ ^[0-9]+$ ]]; then
+    # T118 has no trusted verifier yet; self-declared classes/hashes cannot pass.
+    reasons+=("restore_verification_failed")
+    if ! valid_epoch "$verify_epoch"; then
       reasons+=("restore_verification_missing")
-    elif (( (now_epoch - verify_epoch) > restore_max_age_days * 86400 )); then
+    elif (( now_epoch < verify_epoch || now_epoch - verify_epoch >= restore_max_age_days * 86400 || now_epoch - verify_epoch >= 30 * 86400 )); then
       reasons+=("restore_verification_stale")
     fi
   else
@@ -301,14 +309,10 @@ collect_reasons() {
   fi
 
   if [[ -r "$backup_state_file" ]]; then
-    local copies offsite
+    local copies
     copies="$(state_value "$backup_state_file" copies_local)"
-    offsite="$(state_value "$backup_state_file" copies_offsite)"
-    if [[ "$copies" =~ ^[0-9]+$ ]] && (( copies < minimum_copies )); then
+    if [[ ! "$copies" =~ ^(0|[1-9][0-9]{0,11})$ ]] || (( copies < minimum_copies || copies < 2 )); then
       reasons+=("backup_copy_count_below_minimum")
-    fi
-    if [[ "$offsite" =~ ^[0-9]+$ ]] && (( offsite < minimum_offsite_copies )); then
-      reasons+=("backup_offsite_missing")
     fi
   fi
 
@@ -397,6 +401,18 @@ write_state() {
   mv "$tmp_file" "$channel_state_file"
 }
 
+telegram_response_ok() {
+  [[ "$1" == 200 ]] || return 1
+  printf '%s' "$2" | python3 -c '
+import json, sys
+try:
+    body = json.load(sys.stdin)
+except (ValueError, TypeError):
+    sys.exit(1)
+sys.exit(0 if isinstance(body, dict) and body.get("ok") is True else 1)
+'
+}
+
 deliver_telegram() {
   local text="$1"
   local response="" http_code="" body=""
@@ -411,8 +427,8 @@ deliver_telegram() {
   }
   http_code="${response##*$'\n'}"
   body="${response%$'\n'*}"
-  if [[ "$http_code" != "200" ]] || [[ "$body" != *'"ok":true'* ]]; then
-    log_event critical "result=alert_delivery_failed transport=telegram stage=response status=$http_code detail=$(redact "$body" | tr -d '\n' | cut -c1-200)"
+  if ! telegram_response_ok "$http_code" "$body"; then
+    log_event critical "result=alert_delivery_failed transport=telegram stage=response status=$http_code"
     return 1
   fi
   return 0
@@ -467,37 +483,10 @@ deliver() {
   return 0
 }
 
-if [[ "$mode" == "status" ]]; then
-  collect_reasons
-  printf 'alert_state_file=%s\n' "$( [[ -r "$guard_state_file" ]] && printf present || printf missing )"
-  printf 'alert_reasons=%s\n' "$( [[ -n "$(unique_reasons)" ]] && unique_reasons || printf none )"
-  printf 'alert_channel=%s\n' "$(state_value "$channel_state_file" result)"
-  printf 'alert_last_delivery=%s\n' "$(state_value "$last_delivery_file" sent_at)"
-  printf 'alert_secrets=not_read_from_repository\n'
-  exit 0
-fi
-
-if [[ "$mode" == "channel" ]]; then
+# The external observer reuses this transport probe without a local guard.
+probe_telegram_channel() {
   channel_result="pass"
   channel_reason="none"
-  channel_delivery_state="not_checked"
-  channel_first_run_grace="inactive"
-  channel_first_checked_at_epoch="$(state_value "$channel_state_file" first_checked_at_epoch)"
-  if [[ ! "$channel_first_checked_at_epoch" =~ ^[0-9]+$ ]]; then
-    # Preserve the age of a state file written by the previous schema. Only a
-    # genuinely new channel check starts the explicit grace window; later
-    # checks cannot silently reset it.
-    channel_first_checked_at_epoch="$(state_value "$channel_state_file" checked_at_epoch)"
-  fi
-  if [[ ! "$channel_first_checked_at_epoch" =~ ^[0-9]+$ ]]; then
-    channel_first_checked_at_epoch="$now_epoch"
-  fi
-  if (( now_epoch - channel_first_checked_at_epoch <= first_run_grace_minutes * 60 )); then
-    channel_first_run_grace="active"
-  else
-    channel_first_run_grace="expired"
-  fi
-
   if [[ -z "$bot_token" ]]; then
     channel_result="fail"
     channel_reason="bot_token_unset"
@@ -509,7 +498,7 @@ if [[ "$mode" == "channel" ]]; then
       "${api_base}/bot${bot_token}/getMe" 2>&1)" || probe=""
     probe_code="${probe##*$'\n'}"
     probe_body="${probe%$'\n'*}"
-    if [[ "$probe_code" != "200" ]] || [[ "$probe_body" != *'"ok":true'* ]]; then
+    if ! telegram_response_ok "$probe_code" "$probe_body"; then
       channel_result="fail"
       channel_reason="channel_api_unreachable"
     else
@@ -518,14 +507,76 @@ if [[ "$mode" == "channel" ]]; then
         --data-urlencode "chat_id=${chat_id}" 2>&1)" || chat_probe=""
       chat_code="${chat_probe##*$'\n'}"
       chat_body="${chat_probe%$'\n'*}"
-      if [[ "$chat_code" != "200" ]] || [[ "$chat_body" != *'"ok":true'* ]]; then
+      if ! telegram_response_ok "$chat_code" "$chat_body"; then
         channel_result="fail"
         channel_reason="channel_chat_unreachable"
       fi
     fi
   fi
+}
+
+if [[ "$mode" == "external-channel" ]]; then
+  probe_telegram_channel
+  printf 'alert_channel_result=%s\nalert_channel_reason=%s\n' "$channel_result" "$channel_reason"
+  if [[ "$channel_result" != pass ]]; then
+    log_event critical "result=channel_unavailable reason=$channel_reason"
+    exit 1
+  fi
+  exit 0
+fi
+
+if [[ "$mode" == target_unreachable || "$mode" == target_recovered ]]; then
+  text="$(printf '%s\n' 'GRAF availability' "rule: $mode" 'scope: public_service' \
+    'product_impact: public endpoint availability observed independently' \
+    "owner: $(owner_label_for_role infra_operator)" "recorded_at: $recorded_at" 'delivery_deadline_minutes: 15')"
+  if [[ "$print_only" == 1 ]]; then
+    printf '%s\nalert_result=dry_run\n' "$text"
+    exit 0
+  fi
+  if ! deliver "$text" "$(signature_for "$mode")" "$mode"; then
+    printf 'alert_result=failed\nreason=delivery_failed\n'
+    exit 1
+  fi
+  printf 'alert_result=delivered\n'
+  exit 0
+fi
+
+if [[ "$mode" == "status" ]]; then
+  collect_reasons
+  printf 'alert_state_file=%s\n' "$( [[ -r "$guard_state_file" ]] && printf present || printf missing )"
+  printf 'alert_reasons=%s\n' "$( [[ -n "$(unique_reasons)" ]] && unique_reasons || printf none )"
+  printf 'alert_channel=%s\n' "$(state_value "$channel_state_file" result)"
+  printf 'alert_last_delivery=%s\n' "$(state_value "$last_delivery_file" sent_at)"
+  printf 'alert_secrets=not_read_from_repository\n'
+  exit 0
+fi
+
+if [[ "$mode" == "channel" ]]; then
+  probe_telegram_channel
+  channel_delivery_state="not_checked"
+  channel_first_run_grace="inactive"
+  channel_first_checked_at_epoch="$(state_value "$channel_state_file" first_checked_at_epoch)"
+  if [[ -z "$channel_first_checked_at_epoch" ]]; then
+    # Preserve the age of a state file written by the previous schema. Only a
+    # genuinely new channel check starts the explicit grace window; later
+    # checks cannot silently reset it.
+    channel_first_checked_at_epoch="$(state_value "$channel_state_file" checked_at_epoch)"
+  fi
+  if [[ ! -e "$channel_state_file" ]]; then
+    channel_first_checked_at_epoch="$now_epoch"
+  fi
+  if ! valid_epoch "$channel_first_checked_at_epoch" || (( channel_first_checked_at_epoch > now_epoch )); then
+    channel_first_checked_at_epoch="invalid"
+    channel_result="fail"
+    channel_reason="channel_state_invalid"
+  elif (( now_epoch - channel_first_checked_at_epoch <= first_run_grace_minutes * 60 )); then
+    channel_first_run_grace="active"
+  else
+    channel_first_run_grace="expired"
+  fi
+
   guard_age="$(age_minutes "$(state_value "$guard_state_file" recorded_at_epoch)" unknown)"
-  if [[ "$channel_result" == "pass" ]] && [[ "$guard_age" != "unknown" ]] && (( guard_age > guard_state_max_age_minutes )); then
+  if [[ "$channel_result" == "pass" && -r "$guard_state_file" ]] && { [[ "$guard_age" == "unknown" ]] || (( guard_age > guard_state_max_age_minutes )); }; then
     channel_result="fail"
     channel_reason="guard_state_stale"
   fi
@@ -542,7 +593,7 @@ if [[ "$mode" == "channel" ]]; then
   if [[ "$channel_result" == "pass" ]]; then
     if [[ -r "$last_delivery_file" ]]; then
       last_delivery_epoch="$(state_value "$last_delivery_file" sent_at_epoch)"
-      if [[ ! "$last_delivery_epoch" =~ ^[0-9]+$ ]] || (( last_delivery_epoch > now_epoch )) \
+      if ! valid_epoch "$last_delivery_epoch" || (( last_delivery_epoch > now_epoch )) \
         || (( (now_epoch - last_delivery_epoch) > guard_state_max_age_minutes * 60 )); then
         channel_delivery_state="stale"
         channel_result="fail"
@@ -693,8 +744,8 @@ fi
 
 last_signature="$(state_value "$last_delivery_file" signature)"
 last_sent_epoch="$(state_value "$last_delivery_file" sent_at_epoch)"
-if [[ "$signature" == "$last_signature" ]] && [[ "$last_sent_epoch" =~ ^[0-9]+$ ]] \
-  && (( (now_epoch - last_sent_epoch) < repeat_minutes * 60 )); then
+if [[ "$signature" == "$last_signature" ]] && valid_epoch "$last_sent_epoch" \
+  && (( now_epoch >= last_sent_epoch && (now_epoch - last_sent_epoch) < repeat_minutes * 60 )); then
   log_event pass "result=alert_suppressed reason=unchanged_within_repeat_window"
   printf 'alert_result=suppressed\n'
   printf 'alert_reasons=%s\n' "$codes"

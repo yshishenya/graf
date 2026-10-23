@@ -1,6 +1,7 @@
 import time
 from pathlib import Path
 
+from tests.fixtures.analytics_operations import CONSISTENT_RESTORE_TEXT
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.provider_readiness import (
     RETENTION_STATE_FILE_ENV,
@@ -40,14 +41,14 @@ def _live_gate_environment(tmp_path: Path) -> dict[str, str]:
     now = int(time.time())
     backup = tmp_path / "backup"
     backup.write_text(
-        "backup_state_version=1\nlast_attempt_result=pass\n"
-        f"last_success_epoch={now - 3600}\ncopies_local=2\ncopies_offsite=1\n",
+        "backup_state_version=2\nbackup_set_complete=true\nlast_attempt_result=pass\n"
+        f"last_success_epoch={now - 3600}\ncopies_local=2\n",
         encoding="utf-8",
     )
     restore = tmp_path / "restore"
     restore.write_text(
-        "restore_state_version=1\nlast_verify_result=pass\n"
-        f"last_verify_epoch={now - 3600}\n",
+        CONSISTENT_RESTORE_TEXT + "restore_state_version=2\nlast_verify_result=pass\n"
+        + f"last_verify_epoch={now - 3600}\n",
         encoding="utf-8",
     )
     retention = tmp_path / "retention"
@@ -80,7 +81,9 @@ def _live_gate_environment(tmp_path: Path) -> dict[str, str]:
     )
     basis = tmp_path / "basis"
     basis.write_text("legal_basis_state_version=1\n", encoding="utf-8")
+    from tests.fixtures.analytics_operations import write_runtime_guard
     return {
+        **write_runtime_guard(tmp_path, now=now),
         "GRAF_POSTHOG_BACKUP_STATE_FILE": str(backup),
         "GRAF_POSTHOG_RESTORE_STATE_FILE": str(restore),
         RETENTION_STATE_FILE_ENV: str(retention),
@@ -90,7 +93,7 @@ def _live_gate_environment(tmp_path: Path) -> dict[str, str]:
     }
 
 
-def test_096_yandex_product_page_context_is_inventory_gated(tmp_path: Path) -> None:
+def test_096_yandex_product_page_context_is_inventory_gated(tmp_path: Path, monkeypatch) -> None:
     settings = Settings(
         product_analytics_enabled=True,
         product_analytics_validation_mode="live_safe",
@@ -108,6 +111,12 @@ def test_096_yandex_product_page_context_is_inventory_gated(tmp_path: Path) -> N
     )
 
     environment = _live_gate_environment(tmp_path)
+    blocked = build_product_yandex_provider_context(settings, "public_landing", environ=environment)
+    assert blocked["enabled"] is False
+    assert blocked["provider_gate_allowed"] is False
+    # Then isolate page inventory policy with explicitly injected typed evidence.
+    from tests.fixtures.analytics_operations import stub_verified_restore
+    stub_verified_restore(monkeypatch)
     public_context = build_product_yandex_provider_context(
         settings, "public_landing", environ=environment
     )

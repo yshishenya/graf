@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import re
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -30,11 +32,9 @@ DEFAULT_RETENTION_STATE_DIR = "/var/lib/graf-posthog-retention"
 BACKUP_MAX_AGE_HOURS_ENV = "GRAF_POSTHOG_BACKUP_MAX_AGE_HOURS"
 RESTORE_MAX_AGE_DAYS_ENV = "GRAF_POSTHOG_RESTORE_MAX_AGE_DAYS"
 MINIMUM_COPIES_ENV = "GRAF_POSTHOG_BACKUP_MIN_COPIES"
-MINIMUM_OFFSITE_COPIES_ENV = "GRAF_POSTHOG_BACKUP_MIN_OFFSITE_COPIES"
 DEFAULT_BACKUP_MAX_AGE_HOURS = 26
 DEFAULT_RESTORE_MAX_AGE_DAYS = 30
 DEFAULT_MINIMUM_COPIES = 2
-DEFAULT_MINIMUM_OFFSITE_COPIES = 1
 RETENTION_MAX_AGE_HOURS = 26
 
 # Required categories use an explicit policy; a legacy age receipt is not proof.
@@ -48,8 +48,9 @@ REQUIRED_RETENTION_TERMS: tuple[tuple[str, None], ...] = (
 BLOCKER_BACKUP_STATE_UNAVAILABLE = "backup_state_unavailable"
 BLOCKER_BACKUP_MISSING = "backup_missing"
 BLOCKER_BACKUP_STALE = "backup_stale"
+BLOCKER_BACKUP_FAILED = "backup_failed"
+BLOCKER_BACKUP_INCOMPLETE = "backup_set_unverified"
 BLOCKER_BACKUP_COPY_COUNT = "backup_copy_count_below_minimum"
-BLOCKER_BACKUP_OFFSITE_COPY = "backup_offsite_copy_missing"
 BLOCKER_RESTORE_MISSING = "restore_verification_missing"
 BLOCKER_RESTORE_FAILED = "restore_verification_failed"
 BLOCKER_RESTORE_STALE = "restore_verification_stale"
@@ -58,6 +59,55 @@ BLOCKER_RETENTION_CATEGORY_MISSING = "retention_category_missing"
 BLOCKER_RETENTION_TERM_MISSING = "retention_term_missing"
 BLOCKER_RETENTION_TERM_BELOW_REQUIRED = "retention_term_below_required"
 BLOCKER_RETENTION_ENFORCEMENT_UNVERIFIED = "retention_enforcement_unverified"
+BLOCKER_CAPACITY_INPUT = "capacity_input_unverified"
+BLOCKER_CAPACITY_BUDGET = "capacity_budget_unverified"
+BLOCKER_CAPACITY_NOT_READY = "capacity_not_ready"
+BLOCKER_PROTECTION_STATE = "protection_state_unverified"
+BLOCKER_PROTECTION_LATCHED = "analytics_protection_latched"
+
+
+def runtime_guard_blockers(
+    environ: Mapping[str, str] | None = None, *, now: float | None = None,
+) -> tuple[str, ...]:
+    """Consume the current guard schema, including a pre-switch incident latch."""
+    environment = os.environ if environ is None else environ
+    directory = environment.get("GRAF_POSTHOG_GUARD_STATE_DIR", "/var/lib/graf-posthog-runtime-guard")
+    path = environment.get("GRAF_ANALYTICS_GUARD_STATE_FILE", os.path.join(directory, "alert-state"))
+    values = _first_values(_read_state_text(path) or "")
+    current = time.time() if now is None else now
+    epoch = _optional_epoch(values.get("recorded_at_epoch"))
+    sample_epoch = _optional_epoch(values.get("capacity_sample_epoch"))
+    budget_deadline = _optional_epoch(values.get("capacity_budget_deadline_epoch"))
+    blockers = []
+    if (values.get("alert_state_version") != "2" or epoch is None
+            or not 0 <= current - epoch < 120 or sample_epoch is None
+            or not 0 <= current - sample_epoch < 120
+            or values.get("capacity_input_verified") != "true"
+            or not re.fullmatch(r"[a-f0-9]{64}", values.get("capacity_inventory_version", ""))):
+        blockers.append(BLOCKER_CAPACITY_INPUT)
+    if (values.get("capacity_budget_accepted") != "true"
+            or budget_deadline is None or current >= budget_deadline
+            or not re.fullmatch(r"[a-f0-9]{64}", values.get("capacity_budget_version", ""))):
+        blockers.append(BLOCKER_CAPACITY_BUDGET)
+    try:
+        protection = json.loads(_read_state_text(os.path.join(directory, "protection-state.json")) or "null")
+    except ValueError:
+        protection = None
+    if (not isinstance(protection, dict) or type(protection.get("protection_state_version")) is not int
+            or protection.get("protection_state_version") != 1
+            or not isinstance(protection.get("status"), str)
+            or protection.get("status") not in {"observed", "protection_requested", "blocked_dry_run",
+                                                "not_enabled", "apply_failed", "protected"}
+            or not isinstance(protection.get("reasons"), list)
+            or any(not isinstance(code, str) or not re.fullmatch(r"[a-z_]+", code)
+                   for code in protection["reasons"])
+            or (protection["status"] == "observed" and protection["reasons"])):
+        blockers.append(BLOCKER_PROTECTION_STATE)
+    elif protection["status"] != "observed" or values.get("protection_status") != "observed":
+        blockers.append(BLOCKER_PROTECTION_LATCHED)
+    if values.get("capacity_ready") != "true" and not blockers:
+        blockers.append(BLOCKER_CAPACITY_NOT_READY)
+    return tuple(dict.fromkeys(blockers))
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,11 +157,12 @@ class AnalyticsOperationsEvidence:
     backup_state_available: bool = False
     backup_age_hours: float | None = None
     backup_copies_local: int | None = None
-    backup_copies_offsite: int | None = None
     backup_result: str = "unknown"
+    backup_set_complete: bool = False
     restore_state_available: bool = False
     restore_age_days: float | None = None
     restore_result: str = "unknown"
+    restore_consistent: bool = False
     retention_state_available: bool = False
     retention_result: str = "unknown"
     retention_age_hours: float | None = None
@@ -179,19 +230,16 @@ def _read_state_text(path: str) -> str | None:
 
 
 def _optional_int(value: str | None) -> int | None:
-    if value is None:
+    if value is None or re.fullmatch(r"0|[1-9][0-9]{0,11}", value) is None:
         return None
-    try:
-        return int(value)
-    except ValueError:
-        return None
+    return int(value)
 
 
 def _optional_epoch(value: str | None) -> int | None:
-    parsed = _optional_int(value)
-    if parsed is None or parsed <= 0:
+    # Canonical bounded decimal also keeps shell consumers and float age safe.
+    if value is None or re.fullmatch(r"[1-9][0-9]{0,11}", value) is None:
         return None
-    return parsed
+    return int(value)
 
 
 def _bounded_number(value: str | None, default: float) -> float:
@@ -293,11 +341,14 @@ def collect_analytics_operations_evidence(
         backup_state_available=backup_text is not None,
         backup_age_hours=backup_age_hours,
         backup_copies_local=_optional_int(backup_values.get("copies_local")),
-        backup_copies_offsite=_optional_int(backup_values.get("copies_offsite")),
         backup_result=backup_values.get("last_attempt_result", "unknown"),
+        backup_set_complete=(backup_values.get("backup_state_version") == "2"
+                             and backup_values.get("backup_set_complete") == "true"),
         restore_state_available=restore_text is not None,
         restore_age_days=restore_age_days,
         restore_result=restore_values.get("last_verify_result", "unknown"),
+        # T118 has no trusted verifier yet; self-declared classes/hashes cannot pass.
+        restore_consistent=False,
         retention_state_available=retention_text is not None,
         retention_result=retention_values.get("result", "unknown"),
         retention_age_hours=retention_age_hours,
@@ -320,32 +371,32 @@ def analytics_operations_blockers(
         environment.get(RESTORE_MAX_AGE_DAYS_ENV), float(DEFAULT_RESTORE_MAX_AGE_DAYS)
     )
     minimum_copies = int(_bounded_number(environment.get(MINIMUM_COPIES_ENV), float(DEFAULT_MINIMUM_COPIES)))
-    minimum_offsite_copies = int(
-        _bounded_number(environment.get(MINIMUM_OFFSITE_COPIES_ENV), float(DEFAULT_MINIMUM_OFFSITE_COPIES))
-    )
 
     blockers: list[str] = []
 
     if not evidence.backup_state_available:
         blockers.append(BLOCKER_BACKUP_STATE_UNAVAILABLE)
     else:
+        if evidence.backup_result != "pass":
+            blockers.append(BLOCKER_BACKUP_FAILED)
+        if not evidence.backup_set_complete:
+            blockers.append(BLOCKER_BACKUP_INCOMPLETE)
         if evidence.backup_age_hours is None:
             blockers.append(BLOCKER_BACKUP_MISSING)
-        elif evidence.backup_age_hours > backup_max_age_hours:
+        elif not 0 <= evidence.backup_age_hours < min(backup_max_age_hours, DEFAULT_BACKUP_MAX_AGE_HOURS):
             blockers.append(BLOCKER_BACKUP_STALE)
-        if evidence.backup_copies_local is None or evidence.backup_copies_local < minimum_copies:
+        if evidence.backup_copies_local is None or evidence.backup_copies_local < max(minimum_copies, DEFAULT_MINIMUM_COPIES):
             blockers.append(BLOCKER_BACKUP_COPY_COUNT)
-        if evidence.backup_copies_offsite is None or evidence.backup_copies_offsite < minimum_offsite_copies:
-            blockers.append(BLOCKER_BACKUP_OFFSITE_COPY)
 
     if not evidence.restore_state_available:
         blockers.append(BLOCKER_RESTORE_MISSING)
-    elif evidence.restore_result != "pass":
-        blockers.append(BLOCKER_RESTORE_FAILED)
-    elif evidence.restore_age_days is None:
-        blockers.append(BLOCKER_RESTORE_MISSING)
-    elif evidence.restore_age_days > restore_max_age_days:
-        blockers.append(BLOCKER_RESTORE_STALE)
+    else:
+        if evidence.restore_result != "pass" or not evidence.restore_consistent:
+            blockers.append(BLOCKER_RESTORE_FAILED)
+        if evidence.restore_age_days is None:
+            blockers.append(BLOCKER_RESTORE_MISSING)
+        elif not 0 <= evidence.restore_age_days < min(restore_max_age_days, DEFAULT_RESTORE_MAX_AGE_DAYS):
+            blockers.append(BLOCKER_RESTORE_STALE)
 
     declared = {record.category: record for record in evidence.retention_categories}
     missing_declared = set(evidence.missing_retention_categories)
@@ -385,7 +436,8 @@ def build_analytics_operations_readiness(
 
     environment = os.environ if environ is None else environ
     collected = evidence if evidence is not None else collect_analytics_operations_evidence(environment, now=now)
-    blockers = analytics_operations_blockers(collected, environment)
+    blockers = tuple(dict.fromkeys((*analytics_operations_blockers(collected, environment),
+                                   *runtime_guard_blockers(environment, now=now))))
 
     retention_terms = ",".join(
         f"{category}=until_decision" for category, _ in REQUIRED_RETENTION_TERMS
@@ -394,8 +446,8 @@ def build_analytics_operations_readiness(
         f"{record.category}={record.retention_mode}" for record in collected.retention_categories
     )
     metadata = {
-        "backup_policy": "scheduled_daily_with_required_offsite_copy",
-        "backup_max_age_hours": str(int(_bounded_number(environment.get(BACKUP_MAX_AGE_HOURS_ENV), float(DEFAULT_BACKUP_MAX_AGE_HOURS)))),
+        "backup_policy": "scheduled_daily_local_verified_sets",
+        "backup_max_age_hours": str(int(min(_bounded_number(environment.get(BACKUP_MAX_AGE_HOURS_ENV), float(DEFAULT_BACKUP_MAX_AGE_HOURS)), DEFAULT_BACKUP_MAX_AGE_HOURS))),
         "backup_last_result": collected.backup_result,
         "backup_last_success_age_hours": (
             f"{collected.backup_age_hours:.1f}" if collected.backup_age_hours is not None else "unknown"
@@ -403,19 +455,13 @@ def build_analytics_operations_readiness(
         "backup_copies_local": (
             str(collected.backup_copies_local) if collected.backup_copies_local is not None else "unknown"
         ),
-        "backup_copies_offsite": (
-            str(collected.backup_copies_offsite) if collected.backup_copies_offsite is not None else "unknown"
-        ),
-        "backup_minimum_copies": str(int(_bounded_number(environment.get(MINIMUM_COPIES_ENV), float(DEFAULT_MINIMUM_COPIES)))),
-        "backup_minimum_offsite_copies": str(
-            int(_bounded_number(environment.get(MINIMUM_OFFSITE_COPIES_ENV), float(DEFAULT_MINIMUM_OFFSITE_COPIES)))
-        ),
+        "backup_minimum_copies": str(int(max(_bounded_number(environment.get(MINIMUM_COPIES_ENV), float(DEFAULT_MINIMUM_COPIES)), DEFAULT_MINIMUM_COPIES))),
         "restore_verification_result": collected.restore_result,
         "restore_verification_age_days": (
             f"{collected.restore_age_days:.1f}" if collected.restore_age_days is not None else "unknown"
         ),
         "restore_verification_max_age_days": str(
-            int(_bounded_number(environment.get(RESTORE_MAX_AGE_DAYS_ENV), float(DEFAULT_RESTORE_MAX_AGE_DAYS)))
+            int(min(_bounded_number(environment.get(RESTORE_MAX_AGE_DAYS_ENV), float(DEFAULT_RESTORE_MAX_AGE_DAYS)), DEFAULT_RESTORE_MAX_AGE_DAYS))
         ),
         "retention_result": collected.retention_result,
         "retention_verification_max_age_hours": str(RETENTION_MAX_AGE_HOURS),

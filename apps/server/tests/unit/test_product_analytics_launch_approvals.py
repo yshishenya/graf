@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.fixtures.analytics_operations import CONSISTENT_RESTORE_LINES
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.main import create_app
 from twobrain_rec_server.product_analytics.access_governance import (
@@ -110,11 +111,11 @@ def _operations_state_files(directory: Path, *, now: int) -> dict[str, str]:
     backup.write_text(
         "\n".join(
             [
-                "backup_state_version=1",
+                "backup_state_version=2",
+                "backup_set_complete=true",
                 "last_attempt_result=pass",
                 f"last_success_epoch={now - 3600}",
                 "copies_local=3",
-                "copies_offsite=1",
                 "",
             ]
         ),
@@ -124,7 +125,8 @@ def _operations_state_files(directory: Path, *, now: int) -> dict[str, str]:
     restore.write_text(
         "\n".join(
             [
-                "restore_state_version=1",
+                "restore_state_version=2",
+                *CONSISTENT_RESTORE_LINES,
                 "last_verify_result=pass",
                 f"last_verify_epoch={now - 2 * 86400}",
                 "",
@@ -146,7 +148,9 @@ def _operations_state_files(directory: Path, *, now: int) -> dict[str, str]:
             "enforcement=decision_required enforcement_verified=true"
         )
     retention.write_text("\n".join(retention_lines) + "\n", encoding="utf-8")
+    from tests.fixtures.analytics_operations import write_runtime_guard
     return {
+        **write_runtime_guard(directory, now=now),
         "GRAF_POSTHOG_BACKUP_STATE_FILE": str(backup),
         "GRAF_POSTHOG_RESTORE_STATE_FILE": str(restore),
         "GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_FILE": str(retention),
@@ -431,13 +435,12 @@ def test_readiness_report_reflects_the_records_truthfully(tmp_path: Path) -> Non
     assert allowed["approval_gate"]["states"] == dict.fromkeys(
         APPROVAL_KINDS, APPROVAL_STATE_RECORDED
     )
-    # Every technical condition holds and every record is present, so the launch
-    # gate finally reports the truth: allowed.
-    assert list(allowed["approval_gate"]["configuration_blockers"]) == []
-    assert allowed["campaign_launch_allowed"] is True
-    assert allowed["product_rollout_allowed"] is True
-    assert allowed["states"]["campaign_launch"] == "allowed_by_records"
-    assert allowed["states"]["product_rollout"] == "allowed_by_records"
+    # Complete approval records cannot turn a self-declared restore into proof.
+    assert list(allowed["approval_gate"]["configuration_blockers"]) == ["analytics_operations_not_ready"]
+    assert allowed["campaign_launch_allowed"] is False
+    assert allowed["product_rollout_allowed"] is False
+    assert allowed["states"]["campaign_launch"] == "blocked_by_records"
+    assert allowed["states"]["product_rollout"] == "blocked_by_records"
 
     for report in (blocked, partial, allowed):
         assert set(report["approval_gate"]["states"]) == set(APPROVAL_KINDS)
