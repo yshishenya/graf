@@ -13,6 +13,7 @@ postgres_port=""
 container_started=false
 metadata_directory=""
 media_password=""
+result_marker=""
 
 if [[ ! "$test_database" =~ ^twobrain_rec_test_[a-z0-9_]+$ ]] \
   || [[ ! "$rls_database" =~ ^twobrain_rec_test_[a-z0-9_]+$ ]]; then
@@ -35,6 +36,9 @@ cleanup() {
     fi
   else
     printf 'postgres_test_cleanup=container_not_started\n'
+  fi
+  if (( exit_status == 0 )) && [[ -n "$result_marker" ]]; then
+    printf '%s\n' "$result_marker"
   fi
   exit "$exit_status"
 }
@@ -425,7 +429,7 @@ if [[ "$mode" == fast ]]; then
     run_phase fast -q -n "$workers" --dist=loadfile \
       -m 'postgres or browser' tests/unit "${timing_args[@]}"
   fi
-  printf 'postgres_test_result=pass mode=fast\n'
+  result_marker="postgres_test_result=pass mode=fast"
   exit 0
 fi
 
@@ -459,7 +463,7 @@ PY_PURE
   else
     run_phase focused "${timing_args[@]}" "${pytest_args[@]}"
   fi
-  printf 'postgres_test_result=pass mode=focused partitioned=%s shard=%s\n' \
+  printf -v result_marker 'postgres_test_result=pass mode=focused partitioned=%s shard=%s' \
     "$partitioned" "${shard_spec:-none}"
   exit 0
 fi
@@ -487,4 +491,4 @@ if run_phase parallel \
 else
   exit 1
 fi
-printf 'postgres_test_result=pass mode=full collection_digest=%s\n' "$collection_digest"
+printf -v result_marker 'postgres_test_result=pass mode=full collection_digest=%s' "$collection_digest"
