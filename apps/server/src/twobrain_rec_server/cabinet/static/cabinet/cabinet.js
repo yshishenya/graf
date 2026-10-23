@@ -412,7 +412,7 @@
       const summary = document.createElement("summary");
       summary.textContent = "Удаления";
       details.append(summary, document.createElement("ul"));
-      document.querySelector("#meeting-list-region")?.after(details);
+      (document.querySelector("#meeting-list-region") || document.querySelector(".deletion-index"))?.after(details);
     }
     const list = details.querySelector("ul");
     list.replaceChildren();
