@@ -193,7 +193,8 @@ def test_provider_gate_scopes_withdrawal_to_provider_level(tmp_path: Path) -> No
         environ=_withdrawal_evidence(tmp_path, "anonymous_aggregate"),
     )
 
-    assert gate.allowed is True
+    assert gate.allowed is False
+    assert "analytics_operations_not_ready" in gate.blockers
     assert "legal_basis_withdrawn" not in gate.blockers
 
 

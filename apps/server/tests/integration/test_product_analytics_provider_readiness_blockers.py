@@ -222,10 +222,11 @@ def test_live_provider_delivery_claim_requires_fresh_operations_evidence(tmp_pat
     _apply_access_governance(monkeypatch, _write_access_governance_state(tmp_path, now=now))
 
     ready = build_rollout_readiness_report(settings).as_dict()
-    assert ready["verdict"] == "infra_smoke_ready"
+    # A self-declared restore receipt does not establish the unfinished T118 gate.
+    assert ready["verdict"] == "blocked"
     assert "posthog_not_ready" not in ready["blockers"]
-    assert "analytics_operations_not_ready" not in ready["blockers"]
-    assert ready["states"]["retention_deletion_lifecycle"] == "enforced_and_verified"
+    assert "analytics_operations_not_ready" in ready["blockers"]
+    assert ready["states"]["retention_deletion_lifecycle"] == "blocked"
     assert ready["states"]["live_provider_delivery"] == "approved"
     assert ready["states"]["rbac_audit"] == "metadata_verified"
     assert ready["states"]["campaign_launch"] == "blocked_pending_launch_approval_record"
@@ -233,8 +234,8 @@ def test_live_provider_delivery_claim_requires_fresh_operations_evidence(tmp_pat
     assert ready["campaign_launch_allowed"] is False
 
     provider_state = build_provider_readiness(settings).as_dict()
-    assert provider_state["analytics_operations"]["configured"] is True
-    assert provider_state["analytics_operations"]["blockers"] == []
+    assert provider_state["analytics_operations"]["configured"] is False
+    assert provider_state["analytics_operations"]["blockers"] == ["restore_verification_failed"]
     assert provider_state["posthog"]["metadata"]["operations_claim_gate"] == "enforced"
 
 
@@ -291,8 +292,9 @@ def test_readiness_blocks_when_the_newest_copy_is_stale(tmp_path: Path, monkeypa
     _apply_states(monkeypatch, fresh)
     _apply_access_governance(monkeypatch, _write_access_governance_state(tmp_path, now=now))
     refreshed = build_provider_readiness(settings).as_dict()["analytics_operations"]
-    assert refreshed["blockers"] == []
-    assert build_rollout_readiness_report(settings).as_dict()["verdict"] == "infra_smoke_ready"
+    assert refreshed["blockers"] == ["restore_verification_failed"]
+    assert "backup_stale" not in refreshed["blockers"]
+    assert build_rollout_readiness_report(settings).as_dict()["verdict"] == "blocked"
 
 
 def test_readiness_blocks_below_two_complete_local_copies(tmp_path: Path, monkeypatch) -> None:

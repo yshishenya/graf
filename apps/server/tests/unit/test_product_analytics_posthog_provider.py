@@ -266,7 +266,9 @@ def test_posthog_live_delivery_never_transports_without_common_gate(tmp_path: Pa
     assert calls == []
 
 
-def test_posthog_live_safe_delivery_posts_capture_payload_without_result_payload_leak(tmp_path: Path) -> None:
+def test_posthog_live_safe_delivery_posts_capture_payload_without_result_payload_leak(tmp_path: Path, monkeypatch) -> None:
+    from tests.fixtures.analytics_operations import stub_verified_restore
+    stub_verified_restore(monkeypatch)
     project_key_file = tmp_path / "posthog_project_key"
     project_key_file.write_text("synthetic-posthog-key", encoding="utf-8")
     calls: list[tuple[str, dict, dict]] = []

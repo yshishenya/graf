@@ -19,7 +19,7 @@ def write_runtime_guard(directory: Path, *, now: int) -> dict[str, str]:
     return {"GRAF_POSTHOG_GUARD_STATE_DIR": str(guard)}
 
 
-# Synthetic result of a complete native restore; never represents a live receipt.
+# Self-declared synthetic receipt; without the T118 verifier it must remain blocked.
 CONSISTENT_RESTORE_LINES = (
     "consistency=cold_project_v1",
     "native_read=pass",
@@ -33,3 +33,17 @@ CONSISTENT_RESTORE_LINES = (
     "verified_classes=postgres,clickhouse",
 )
 CONSISTENT_RESTORE_TEXT = "\n".join(CONSISTENT_RESTORE_LINES) + "\n"
+
+
+def stub_verified_restore(monkeypatch) -> None:
+    """Isolate transport/page-policy tests from the unfinished T118 verifier.
+
+    This injects typed evidence in the test process only; it does not make the
+    self-declared receipt acceptable to the real operations consumer.
+    """
+    from dataclasses import replace
+
+    from twobrain_rec_server.product_analytics import provider_readiness
+    collect = provider_readiness.collect_analytics_operations_evidence
+    monkeypatch.setattr(provider_readiness, "collect_analytics_operations_evidence",
+                        lambda *args, **kwargs: replace(collect(*args, **kwargs), restore_consistent=True))

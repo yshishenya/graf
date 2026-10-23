@@ -306,7 +306,9 @@ def test_yandex_offline_does_not_treat_stable_user_id_as_yandex_userid_without_p
     assert row.identity_value_source == "runtime_yandex_client_id_redacted"
 
 
-def test_yandex_live_safe_upload_uses_multipart_without_result_value_leak(tmp_path: Path) -> None:
+def test_yandex_live_safe_upload_uses_multipart_without_result_value_leak(tmp_path: Path, monkeypatch) -> None:
+    from tests.fixtures.analytics_operations import stub_verified_restore
+    stub_verified_restore(monkeypatch)
     exporter, calls = _live_exporter(tmp_path)
 
     result = exporter.export(_approved_event(), visitor_consent=_granted_consent())

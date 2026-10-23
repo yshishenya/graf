@@ -1113,12 +1113,8 @@ def test_restore_readiness_and_alerting_require_consistent_native_proof(tmp_path
     blockers = provider_readiness.analytics_operations_blockers(evidence, environment)
     alert = _run_alert(environment, "--dry-run")
     assert alert.returncode == 0, alert.stderr
-    if change in ("valid", "all_classes"):
-        assert not any(code.startswith("restore_") for code in blockers)
-        assert "restore_verification_" not in alert.stdout
-    else:
-        assert any(code.startswith("restore_") for code in blockers), blockers
-        assert "restore_verification_" in alert.stdout
+    assert "restore_verification_failed" in blockers, blockers
+    assert "restore_verification_failed" in alert.stdout
 
 
 def _external_observer(tmp_path: Path):
@@ -1371,3 +1367,40 @@ def test_external_observer_recurrence_before_recovery_delivery_keeps_running(tmp
     assert recovered['result'] == 'ready'
     assert recovered['delivery'] == 'delivered'
     assert not recovered['notified_outage']
+
+
+@pytest.mark.parametrize("condition", ["healthy", "budget", "protection", "input", "unexplained"])
+def test_complete_capacity_input_remains_independent_of_readiness(tmp_path: Path, condition: str):
+    from tests.fixtures.analytics_operations import write_runtime_guard
+    now = int(time.time())
+    environment = write_runtime_guard(tmp_path, now=now)
+    directory = Path(environment["GRAF_POSTHOG_GUARD_STATE_DIR"])
+    guard = directory / "alert-state"
+    text = guard.read_text()
+    expected = {
+        "healthy": (), "budget": ("capacity_budget_unverified",),
+        "protection": ("analytics_protection_latched",), "input": ("capacity_input_unverified",),
+        "unexplained": ("capacity_not_ready",),
+    }[condition]
+    if condition != "healthy":
+        text = text.replace("capacity_ready=true", "capacity_ready=false")
+    if condition == "budget":
+        text = text.replace("capacity_budget_accepted=true", "capacity_budget_accepted=false")
+    elif condition == "input":
+        text = text.replace("capacity_input_verified=true", "capacity_input_verified=false")
+    elif condition == "protection":
+        text = text.replace("protection_status=observed", "protection_status=protection_requested")
+        (directory / "protection-state.json").write_text(json.dumps({
+            "protection_state_version": 1, "status": "protection_requested", "reasons": ["analytics_storage"],
+        }))
+    guard.write_text(text)
+    assert provider_readiness.runtime_guard_blockers(environment, now=now) == expected
+    state = _valid_operations_state(tmp_path, now=now)
+    alert_env, _ = _alert_environment(tmp_path, state)
+    alert_env["GRAF_ANALYTICS_GUARD_STATE_FILE"] = str(guard)
+    if condition == "budget":
+        guard.write_text(text + "result=alert\nanalytics_breaches=capacity_budget_unverified\n")
+    alert = _run_alert(alert_env, "--dry-run")
+    assert alert.returncode == 0, alert.stderr
+    for code in ("capacity_input_unverified", "capacity_not_ready", "capacity_budget_unverified", "analytics_protection_latched"):
+        assert (code in alert.stdout) is (code in expected)

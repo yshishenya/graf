@@ -105,30 +105,6 @@ log_event() {
   logger -t graf-analytics-alert "level=$level $*" 2>/dev/null || true
 }
 
-consistent_restore_proof() {
-  [[ "$(state_value "$restore_state_file" restore_state_version)" == 2 ]] || return 1
-  [[ "$(state_value "$restore_state_file" consistency)" == cold_project_v1 ]] || return 1
-  local key value classes verified kind seen=,
-  for key in native_read posthog_read cleanup retention_recheck deletion_recheck; do
-    [[ "$(state_value "$restore_state_file" "$key")" == pass ]] || return 1
-  done
-  for key in manifest_sha256 runtime_sha256; do
-    value="$(state_value "$restore_state_file" "$key")"
-    [[ "$value" =~ ^[0-9a-f]{64}$ ]] || return 1
-  done
-  classes="$(state_value "$restore_state_file" storage_classes)"
-  verified="$(state_value "$restore_state_file" verified_classes)"
-  [[ -n "$classes" && "$classes" == "$verified" && "$classes" != *, ]] || return 1
-  local kinds=()
-  IFS=, read -r -a kinds <<< "$classes"
-  for kind in "${kinds[@]}"; do
-    case "$kind" in postgres|clickhouse|objects|broker|coordination|redis|elasticsearch|proxy) ;; *) return 1 ;; esac
-    [[ "$seen" != *",$kind,"* ]] || return 1
-    seen+="$kind,"
-  done
-  [[ "$seen" == *,postgres,* && "$seen" == *,clickhouse,* ]]
-}
-
 read_value_file() {
   local path="$1"
   local value=""
@@ -286,6 +262,9 @@ collect_reasons() {
         [[ -n "$code" && "$code" != "none" ]] && reasons+=("$code")
       done < <(state_values "$guard_state_file" host_breaches | tr ',' '\n')
     fi
+    if [[ "$(state_value "$guard_state_file" capacity_ready)" != true ]] && (( ${#reasons[@]} == 0 )); then
+      reasons+=("capacity_not_ready")
+    fi
   fi
 
   if [[ -r "$backup_state_file" ]]; then
@@ -309,12 +288,11 @@ collect_reasons() {
   fi
 
   if [[ -r "$restore_state_file" ]]; then
-    local verify_epoch verify_result
-    verify_result="$(state_value "$restore_state_file" last_verify_result)"
+    local verify_epoch
     verify_epoch="$(state_value "$restore_state_file" last_verify_epoch)"
-    if [[ "$verify_result" != "pass" ]] || ! consistent_restore_proof; then
-      reasons+=("restore_verification_failed")
-    elif ! valid_epoch "$verify_epoch"; then
+    # T118 has no trusted verifier yet; self-declared classes/hashes cannot pass.
+    reasons+=("restore_verification_failed")
+    if ! valid_epoch "$verify_epoch"; then
       reasons+=("restore_verification_missing")
     elif (( now_epoch < verify_epoch || now_epoch - verify_epoch >= restore_max_age_days * 86400 || now_epoch - verify_epoch >= 30 * 86400 )); then
       reasons+=("restore_verification_stale")

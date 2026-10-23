@@ -61,6 +61,7 @@ BLOCKER_RETENTION_TERM_BELOW_REQUIRED = "retention_term_below_required"
 BLOCKER_RETENTION_ENFORCEMENT_UNVERIFIED = "retention_enforcement_unverified"
 BLOCKER_CAPACITY_INPUT = "capacity_input_unverified"
 BLOCKER_CAPACITY_BUDGET = "capacity_budget_unverified"
+BLOCKER_CAPACITY_NOT_READY = "capacity_not_ready"
 BLOCKER_PROTECTION_STATE = "protection_state_unverified"
 BLOCKER_PROTECTION_LATCHED = "analytics_protection_latched"
 
@@ -88,8 +89,6 @@ def runtime_guard_blockers(
             or budget_deadline is None or current >= budget_deadline
             or not re.fullmatch(r"[a-f0-9]{64}", values.get("capacity_budget_version", ""))):
         blockers.append(BLOCKER_CAPACITY_BUDGET)
-    if values.get("capacity_ready") != "true":
-        blockers.append(BLOCKER_CAPACITY_INPUT)
     try:
         protection = json.loads(_read_state_text(os.path.join(directory, "protection-state.json")) or "null")
     except ValueError:
@@ -106,6 +105,8 @@ def runtime_guard_blockers(
         blockers.append(BLOCKER_PROTECTION_STATE)
     elif protection["status"] != "observed" or values.get("protection_status") != "observed":
         blockers.append(BLOCKER_PROTECTION_LATCHED)
+    if values.get("capacity_ready") != "true" and not blockers:
+        blockers.append(BLOCKER_CAPACITY_NOT_READY)
     return tuple(dict.fromkeys(blockers))
 
 
@@ -281,23 +282,6 @@ def retention_state_file_path(environ: Mapping[str, str]) -> str:
     )
 
 
-def _consistent_restore_proof(values: Mapping[str, str]) -> bool:
-    if values.get("restore_state_version") != "2" or values.get("consistency") != "cold_project_v1":
-        return False
-    if any(values.get(key) != "pass" for key in (
-        "native_read", "posthog_read", "cleanup", "retention_recheck", "deletion_recheck",
-    )):
-        return False
-    if any(re.fullmatch(r"[0-9a-f]{64}", values.get(key, "")) is None
-           for key in ("manifest_sha256", "runtime_sha256")):
-        return False
-    classes = values.get("storage_classes", "").split(",")
-    allowed = {"postgres", "clickhouse", "objects", "broker", "coordination", "redis", "elasticsearch", "proxy"}
-    return (values.get("verified_classes") == values.get("storage_classes")
-            and len(classes) == len(set(classes))
-            and {"postgres", "clickhouse"} <= set(classes) <= allowed)
-
-
 def collect_analytics_operations_evidence(
     environ: Mapping[str, str] | None = None,
     *,
@@ -363,7 +347,8 @@ def collect_analytics_operations_evidence(
         restore_state_available=restore_text is not None,
         restore_age_days=restore_age_days,
         restore_result=restore_values.get("last_verify_result", "unknown"),
-        restore_consistent=_consistent_restore_proof(restore_values),
+        # T118 has no trusted verifier yet; self-declared classes/hashes cannot pass.
+        restore_consistent=False,
         retention_state_available=retention_text is not None,
         retention_result=retention_values.get("result", "unknown"),
         retention_age_hours=retention_age_hours,
@@ -405,12 +390,13 @@ def analytics_operations_blockers(
 
     if not evidence.restore_state_available:
         blockers.append(BLOCKER_RESTORE_MISSING)
-    elif evidence.restore_result != "pass" or not evidence.restore_consistent:
-        blockers.append(BLOCKER_RESTORE_FAILED)
-    elif evidence.restore_age_days is None:
-        blockers.append(BLOCKER_RESTORE_MISSING)
-    elif not 0 <= evidence.restore_age_days < min(restore_max_age_days, DEFAULT_RESTORE_MAX_AGE_DAYS):
-        blockers.append(BLOCKER_RESTORE_STALE)
+    else:
+        if evidence.restore_result != "pass" or not evidence.restore_consistent:
+            blockers.append(BLOCKER_RESTORE_FAILED)
+        if evidence.restore_age_days is None:
+            blockers.append(BLOCKER_RESTORE_MISSING)
+        elif not 0 <= evidence.restore_age_days < min(restore_max_age_days, DEFAULT_RESTORE_MAX_AGE_DAYS):
+            blockers.append(BLOCKER_RESTORE_STALE)
 
     declared = {record.category: record for record in evidence.retention_categories}
     missing_declared = set(evidence.missing_retention_categories)

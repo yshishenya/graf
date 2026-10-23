@@ -435,13 +435,12 @@ def test_readiness_report_reflects_the_records_truthfully(tmp_path: Path) -> Non
     assert allowed["approval_gate"]["states"] == dict.fromkeys(
         APPROVAL_KINDS, APPROVAL_STATE_RECORDED
     )
-    # Every technical condition holds and every record is present, so the launch
-    # gate finally reports the truth: allowed.
-    assert list(allowed["approval_gate"]["configuration_blockers"]) == []
-    assert allowed["campaign_launch_allowed"] is True
-    assert allowed["product_rollout_allowed"] is True
-    assert allowed["states"]["campaign_launch"] == "allowed_by_records"
-    assert allowed["states"]["product_rollout"] == "allowed_by_records"
+    # Complete approval records cannot turn a self-declared restore into proof.
+    assert list(allowed["approval_gate"]["configuration_blockers"]) == ["analytics_operations_not_ready"]
+    assert allowed["campaign_launch_allowed"] is False
+    assert allowed["product_rollout_allowed"] is False
+    assert allowed["states"]["campaign_launch"] == "blocked_by_records"
+    assert allowed["states"]["product_rollout"] == "blocked_by_records"
 
     for report in (blocked, partial, allowed):
         assert set(report["approval_gate"]["states"]) == set(APPROVAL_KINDS)

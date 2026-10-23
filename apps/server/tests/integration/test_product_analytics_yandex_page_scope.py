@@ -93,7 +93,7 @@ def _live_gate_environment(tmp_path: Path) -> dict[str, str]:
     }
 
 
-def test_096_yandex_product_page_context_is_inventory_gated(tmp_path: Path) -> None:
+def test_096_yandex_product_page_context_is_inventory_gated(tmp_path: Path, monkeypatch) -> None:
     settings = Settings(
         product_analytics_enabled=True,
         product_analytics_validation_mode="live_safe",
@@ -111,6 +111,12 @@ def test_096_yandex_product_page_context_is_inventory_gated(tmp_path: Path) -> N
     )
 
     environment = _live_gate_environment(tmp_path)
+    blocked = build_product_yandex_provider_context(settings, "public_landing", environ=environment)
+    assert blocked["enabled"] is False
+    assert blocked["provider_gate_allowed"] is False
+    # Then isolate page inventory policy with explicitly injected typed evidence.
+    from tests.fixtures.analytics_operations import stub_verified_restore
+    stub_verified_restore(monkeypatch)
     public_context = build_product_yandex_provider_context(
         settings, "public_landing", environ=environment
     )
