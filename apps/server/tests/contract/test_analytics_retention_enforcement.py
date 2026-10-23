@@ -152,6 +152,8 @@ if args[:1] == ["run"]:
             path.parent.mkdir(parents=True, exist_ok=True)
             body = os.environ.get("FAKE_ARCHIVE_BODY", "archive:" + name).encode()
             path.write_bytes(body)
+            if os.environ.get("FAKE_ARCHIVE_LATE_FAIL") == name:
+                sys.exit(7)
         sys.exit(0)
     if "sh" in args or "find" in " ".join(args):
         print(os.environ.get("FAKE_FILE_COUNT", "3"))
@@ -395,11 +397,15 @@ def test_backup_counts_only_copies_of_current_scope(tmp_path: Path, change: str)
         inventory.write_text(inventory.read_text() + 'graf-posthog_new-data?\n')
     elif change == 'project':
         environment['GRAF_POSTHOG_PROJECT'] = 'replacement-project'
-        environment['FAKE_VOLUMES'] = 'graf-posthog_postgres-data graf-posthog_clickhouse-data graf-posthog_objectstorage'
+        environment['FAKE_VOLUMES'] = 'replacement-project_postgres-data replacement-project_clickhouse-data replacement-project_objectstorage'
     result = _run(BACKUP_PATH, environment, '--execute')
     assert result.returncode == 0, result.stdout + result.stderr
     assert 'copies_local=1' in result.stdout
     assert old.is_dir(), 'Incompatible historical copies must stay intact'
+    reference = next(line.split('=', 1)[1] for line in result.stdout.splitlines() if line.startswith('backup_reference='))
+    current = tmp_path / 'backups' / reference
+    assert (current / 'inventory.txt').read_bytes() == inventory.read_bytes()
+    assert json.loads((current / '.complete').read_text())['inventory_sha256'] == hashlib.sha256(inventory.read_bytes()).hexdigest()
 
 
 def test_backup_fails_closed_and_alerts_when_a_required_class_is_absent(tmp_path: Path) -> None:
@@ -437,10 +443,16 @@ def test_failed_archive_does_not_publish_complete_set_or_rotate(tmp_path: Path) 
     for day in range(1, 9):
         label = f'202601{day:02d}T023000Z'
         _seed_complete_copy(backups / label, inventory, label)
-    environment['FAKE_DOCKER_FAIL'] = '1'
+    foreign = backups / '.foreign.incomplete'
+    foreign.mkdir()
+    (foreign / 'keep').write_bytes(b'previous attempt')
+    environment['FAKE_ARCHIVE_LATE_FAIL'] = 'graf-posthog_clickhouse-data.tar.gz'
     result = _run(BACKUP_PATH, environment, '--execute')
     assert result.returncode == 1
     assert 'reason=volume_archive_failed' in result.stdout
+    assert 'volume_archived=graf-posthog_postgres-data' in result.stdout
+    assert list(backups.glob('.*.incomplete')) == [foreign]
+    assert (foreign / 'keep').read_bytes() == b'previous attempt'
     assert len(list(backups.glob('20*/.complete'))) == 8
     state = (tmp_path / 'state/backup-state').read_text()
     assert 'last_attempt_result=failed' in state
@@ -1167,3 +1179,106 @@ def test_retention_scope_excludes_provider_event_metadata_and_provider_held_data
     assert "metadata_json" not in script
     assert "DELETE" not in script
     assert "sharded_events" in script
+
+
+def test_custom_project_rejects_old_project_volumes(tmp_path: Path) -> None:
+    inventory = _inventory(tmp_path)
+    environment = _backup_environment(tmp_path, inventory)
+    environment['GRAF_POSTHOG_PROJECT'] = 'replacement-project'
+    result = _run(BACKUP_PATH, environment, '--execute')
+    assert result.returncode != 0, result.stdout
+    assert 'backup_result=pass' not in result.stdout
+    assert not list((tmp_path / 'backups').glob('*/.complete'))
+
+
+@pytest.mark.parametrize('collision', ['.incomplete', 'final'])
+def test_backup_preserves_reference_collision(tmp_path: Path, collision: str) -> None:
+    inventory = _inventory(tmp_path)
+    environment = _backup_environment(tmp_path, inventory)
+    label = '20261023T120000Z'
+    _write_executable(tmp_path / 'bin/date', """#!{python}
+import os, sys
+if sys.argv[1:] == ['-u', '+%Y%m%dT%H%M%SZ']:
+    print('20261023T120000Z')
+else:
+    os.execv('/bin/date', ['/bin/date', *sys.argv[1:]])
+""")
+    directory = tmp_path / 'backups' / ('.' + label + collision if collision == '.incomplete' else label)
+    directory.mkdir(parents=True)
+    (directory / 'keep').write_bytes(b'not owned')
+    result = _run(BACKUP_PATH, environment, '--execute')
+    assert result.returncode != 0
+    assert 'reason=backup_reference_exists' in result.stdout
+    assert (directory / 'keep').read_bytes() == b'not owned'
+    assert 'run --rm' not in (tmp_path / 'docker.log').read_text()
+
+
+@pytest.mark.parametrize('failure', ['after_rename', 'cleanup'])
+def test_backup_failure_preserves_published_set_and_reports_cleanup_failure(tmp_path: Path, failure: str) -> None:
+    inventory = _inventory(tmp_path)
+    environment = _backup_environment(tmp_path, inventory)
+    if failure == 'after_rename':
+        _write_executable(tmp_path / 'bin/python3', """#!{python}
+import os, sys
+body = sys.stdin.read()
+if 'os.rename(stage, target)' in body:
+    sys.argv = ['-', *sys.argv[2:]]
+    exec(body)
+    sys.exit(7)
+os.execv(sys.executable, [sys.executable, '-c', body, *sys.argv[2:]])
+""")
+    else:
+        environment['FAKE_ARCHIVE_LATE_FAIL'] = 'graf-posthog_clickhouse-data.tar.gz'
+        _write_executable(tmp_path / 'bin/rm', """#!{python}
+import os, sys
+if any(arg.endswith('.incomplete') for arg in sys.argv[1:]):
+    sys.exit(7)
+os.execv('/bin/rm', ['/bin/rm', *sys.argv[1:]])
+""")
+    result = _run(BACKUP_PATH, environment, '--execute')
+    assert result.returncode != 0
+    assert 'backup_result=pass' not in result.stdout
+    assert 'last_attempt_result=failed' in (tmp_path / 'state/backup-state').read_text()
+    assert (tmp_path / 'alert.log').read_text().strip() == 'alert invoked'
+    if failure == 'after_rename':
+        assert len(list((tmp_path / 'backups').glob('20*/.complete'))) == 1
+        assert not list((tmp_path / 'backups').glob('.*.incomplete'))
+    else:
+        assert 'result=backup_staging_cleanup_failed' in (tmp_path / 'logger.log').read_text()
+        assert len(list((tmp_path / 'backups').glob('.*.incomplete'))) == 1
+
+
+@pytest.mark.parametrize('gid', ['', '0', '123', '01001', '2147483648', 'bad', '4321'])
+def test_runbook_persists_selected_gid_for_all_state_writers(tmp_path: Path, gid: str) -> None:
+    runbook = RUNBOOK_PATH.read_text()
+    section = runbook.split('### Подготовка общей группы чтения состояния', 1)[1]
+    block = section.split('```bash\n', 1)[1].split('```', 1)[0]
+    environment = _runtime(tmp_path)
+    if gid:
+        environment['TWOBRAIN_RUNTIME_SECRET_GID'] = gid
+    files = []
+    original = 'KEEP=value with spaces\nTWOBRAIN_RUNTIME_SECRET_GID=1001\nTWOBRAIN_RUNTIME_SECRET_GID=2222\n'
+    for name in ('runtime-guard', 'backup', 'retention'):
+        path = tmp_path / f'graf-posthog-{name}.env'
+        path.write_text(original)
+        files.append(path)
+        block = block.replace(f'/etc/graf-posthog-{name}.env', str(path))
+    _write_executable(tmp_path / 'bin/install', """#!{python}
+import os, shutil, sys
+assert sys.argv[1:7] == ['-o', 'root', '-g', 'root', '-m', '0600']
+shutil.copyfile(*sys.argv[7:])
+os.chmod(sys.argv[8], 0o600)
+""")
+    result = subprocess.run([BASH, '-c', block], env=environment, capture_output=True, text=True)
+    if gid != '4321':
+        assert result.returncode != 0
+        assert all(path.read_text() == original for path in files)
+    else:
+        assert result.returncode == 0, result.stderr
+        for selected in ('4321', '5432'):
+            environment['TWOBRAIN_RUNTIME_SECRET_GID'] = selected
+            result = subprocess.run([BASH, '-c', block], env=environment, capture_output=True, text=True)
+            assert result.returncode == 0, result.stderr
+            for path in files:
+                assert path.read_text() == f'KEEP=value with spaces\nTWOBRAIN_RUNTIME_SECRET_GID={selected}\n'
+                assert path.stat().st_mode & 0o777 == 0o600

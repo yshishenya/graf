@@ -99,7 +99,7 @@ for directory in sorted(root.iterdir()):
                 or completed['inventory_sha256'] != current_inventory):
             continue
         patterns = [line.partition('#')[0].strip() for line in inventory.read_text().splitlines()]
-        patterns = [p for p in patterns if p]
+        patterns = [p.replace("graf-posthog_", project + "_", 1) for p in patterns if p]
         if not patterns or any(not re.fullmatch(r'[A-Za-z0-9_.*-]+\??', p) for p in patterns):
             continue
         rows = [dict(token.split('=', 1) for token in line.split())
@@ -202,6 +202,7 @@ previous_success_at=""
 previous_success_reference=""
 volumes=()
 label=unknown
+staging_owned=0
 fail_backup() {
   local reason="$1"
   local exit_code="${2:-1}"
@@ -211,6 +212,11 @@ fail_backup() {
   echo "backup_result=failed"
   echo "reason=$reason"
   echo "backup_reference=$label"
+  if (( staging_owned == 1 )); then
+    if ! rm -rf -- "$target_dir"; then
+      log_event critical "result=backup_staging_cleanup_failed"
+    fi
+  fi
   # Invalidate a previous pass even if the atomic replacement below fails.
   rm -f "$state_file" || log_event critical "result=state_invalidation_failed"
   if ! write_state "failed" "$reason" "$previous_success_epoch" "$previous_success_at" "$previous_success_reference" \
@@ -316,6 +322,7 @@ while IFS= read -r line; do
   line="$(printf '%s' "$line" | tr -d '[:space:]')"
   [[ -n "$line" ]] || continue
   [[ "$line" =~ ^[A-Za-z0-9_.*?-]+$ ]] || { echo "reason=backup_inventory_invalid"; exit 2; }
+  line="${line/graf-posthog_/${project}_}"
   if [[ "$line" == *'?' ]]; then
     optional_patterns+=("${line%?}")
   else
@@ -424,6 +431,7 @@ mkdir -p "$backup_dir" "$state_dir"
 chmod 0700 "$backup_dir"
 [[ ! -e "$target_dir" && ! -e "$final_dir" ]] || fail_backup backup_reference_exists
 mkdir "$target_dir"
+staging_owned=1
 cp "$inventory_file" "$target_dir/inventory.txt"
 archive_bytes=0
 manifest="$target_dir/manifest.txt"
@@ -480,6 +488,7 @@ try:
 finally:
     os.close(fd)
 COMPLETE
+staging_owned=0
 now_epoch="$(date +%s)"
 recorded_at_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 verified="$(verified_sets)" || fail_backup complete_sets_unverified

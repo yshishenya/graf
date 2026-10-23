@@ -367,8 +367,8 @@ install -o root -g root -m 0644 infra/posthog/graf-posthog-runtime-guard.timer /
 install -o root -g root -m 0600 infra/posthog/runtime-guard.env.example /etc/graf-posthog-runtime-guard.env
 systemctl daemon-reload
 stat -c '%U:%G %a %n' /usr/local/libexec/graf-posthog-runtime-guard.sh /etc/graf-posthog-runtime-guard.env
-GRAF_POSTHOG_GUARD_DRY_RUN=1 systemctl start graf-posthog-runtime-guard.service
-systemctl enable --now graf-posthog-runtime-guard.timer
+# До запуска службы и timer выполните обязательную подготовку общей группы
+# чтения состояния ниже, включая все три env-файла.
 ```
 
 The checked-in environment example is observe-only (`AUTO_ROLLBACK=0`,
@@ -383,8 +383,9 @@ Install the collector, its helper and inventories using
 requires both adjacent Python helpers. Preserve an existing reviewed environment
 file during an upgrade; copying the example above is for a fresh installation.
 Create both state directories before systemd starts with `ProtectSystem=strict`.
-The guard directory is root-owned, group `TWOBRAIN_RUNTIME_SECRET_GID` (default
-1001), mode 2750; atomic JSON and alert-state are 0640. The API uses its existing
+The guard directory is root-owned, group `TWOBRAIN_RUNTIME_SECRET_GID`
+(explicitly selected for the API and persisted below), mode 2750; atomic JSON
+and alert-state are 0640. The API uses its existing
 supplementary group and a read-only bind mount. It cannot change the incident.
 
 `capacity-budget.json` is an operator-owned acceptance record under the guard
@@ -740,6 +741,44 @@ files with mode `0644`, install the environment files with mode `0600`, then run
 with `--check-channel`, which is why the two alert units share one file. The
 alert units also read the guard and backup environment files because they need
 the same state-file paths the guard and the backup task write.
+
+### Подготовка общей группы чтения состояния
+
+Перед первым запуском guard, backup, retention и включением их timers создайте
+все три env-файла из соответствующих примеров; при обновлении сохраните их
+проверенные параметры. От root выполните блок ниже, передав
+`TWOBRAIN_RUNTIME_SECRET_GID`, уже выбранный и проверенный для API штатным
+развёртыванием. Значение по умолчанию не подставляется. При смене группы API
+повторите этот шаг до следующего запуска служб. Архивы остаются root-only.
+Переменная перед `systemctl start` не попадает в окружение отдельной службы:
+службы читают именно эти файлы. Не выводите их содержимое в журнал.
+
+```bash
+(
+  set -euo pipefail
+  gid="${TWOBRAIN_RUNTIME_SECRET_GID:?Укажите выбранную для API группу}"
+  [[ "$gid" =~ ^[1-9][0-9]{3,9}$ ]] && (( gid <= 2147483647 )) || exit 2
+  files=(/etc/graf-posthog-runtime-guard.env /etc/graf-posthog-backup.env /etc/graf-posthog-retention.env)
+  for file in "${files[@]}"; do
+    [[ -f "$file" && ! -L "$file" ]] || exit 2
+  done
+  temp="$(mktemp)"
+  trap 'rm -f -- "$temp"' EXIT
+  for file in "${files[@]}"; do
+    awk -v gid="$gid" '
+      !/^[[:space:]]*TWOBRAIN_RUNTIME_SECRET_GID[[:space:]]*=/ {print}
+      END {print "TWOBRAIN_RUNTIME_SECRET_GID=" gid}
+    ' "$file" > "$temp"
+    install -o root -g root -m 0600 "$temp" "$file"
+  done
+)
+```
+
+Только после успешного завершения блока и остальных проверок принятой
+установки запускайте соответствующие службы и включайте timers. Ненулевой
+результат требует исправления конфигурации до запуска. Для первого guard
+сохраните `DRY_RUN=1` в его env-файле. Проверка штатного блока на временных
+файлах не доказывает установку или читаемость состояния настоящим API.
 
 systemd evaluates `OnCalendar` in the
 server timezone: keep the analytics server on UTC so `02:30`, `04:30`, and
