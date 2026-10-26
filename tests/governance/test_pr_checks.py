@@ -6,18 +6,75 @@ import io
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 import threading
 import zipfile
 
 import pytest
 
-from test_pr_metadata_event import git, snapshot as snapshot, trusted_pr
+from test_pr_metadata_event import git, replay_history, snapshot as snapshot, trusted_pr
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('pr_checks', ROOT / 'scripts/validate-pr-checks.py')
 checks = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(checks)
+
+
+@pytest.mark.parametrize('failure', [
+    'merge-error', 'unknown-tree', 'multiple-trees', 'prefix-diff-error', 'prefix-diff-unknown', 'ancestry-error',
+    'target-empty', 'target-invalid', 'target-noncontiguous', 'target-missing-first',
+])
+def test_replay_git_failure_cannot_become_squash_proof(snapshot, monkeypatch, failure):
+    root, _, pr, _, start, _, _ = replay_history(snapshot)
+    monkeypatch.chdir(root)
+    real_git = checks.metadata._git
+    real_output = subprocess.check_output
+    if failure.startswith('prefix-diff-') or failure.startswith('target-'):
+        tree = git(root, 'merge-tree', '--write-tree', start, pr['head']['sha'])
+        pr['merge_commit_sha'] = git(root, 'commit-tree', tree, '-p', start, '-m', 'independent squash')
+    if failure.startswith('prefix-diff-'):
+        def output(args, **kwargs):
+            if args[:2] == ['git', 'diff']:
+                if failure == 'prefix-diff-error':
+                    raise subprocess.CalledProcessError(128, args)
+                return b'unknown output without NUL delimiter'
+            return real_output(args, **kwargs)
+
+        monkeypatch.setattr(subprocess, 'check_output', output)
+    elif failure == 'ancestry-error':
+        real_run = subprocess.run
+
+        def run(args, **kwargs):
+            if args[:3] == ['git', 'merge-base', '--is-ancestor']:
+                return subprocess.CompletedProcess(args, 128)
+            return real_run(args, **kwargs)
+
+        monkeypatch.setattr(subprocess, 'run', run)
+    else:
+        def failed_git(*args):
+            if failure.startswith('target-') and args == (
+                'rev-list', '--parents', '--max-count=4', pr['merge_commit_sha'],
+            ):
+                if failure == 'target-empty':
+                    return ''
+                if failure == 'target-invalid':
+                    return pr['merge_commit_sha'] + ' unknown-parent'
+                if failure == 'target-missing-first':
+                    return real_git(*args).splitlines()[1]
+                rows = real_git('rev-list', '--parents', '--max-count=4', pr['head']['sha']).splitlines()
+                rows[0] = pr['merge_commit_sha'] + ' ' + pr['head']['sha']
+                return '\n'.join(rows)
+            if args[0] == 'merge-tree':
+                if failure == 'merge-error':
+                    raise subprocess.CalledProcessError(128, ['git', *args])
+                if failure in {'unknown-tree', 'multiple-trees'}:
+                    return 'unknown' if failure == 'unknown-tree' else 'a' * 40 + '\n' + 'b' * 40
+            return real_git(*args)
+
+        monkeypatch.setattr(checks.metadata, '_git', failed_git)
+    with pytest.raises((ValueError, subprocess.CalledProcessError)):
+        checks.metadata.checked_base(pr)
 
 
 @pytest.fixture
@@ -813,3 +870,40 @@ def test_merged_consumer_fetches_missing_history_before_checked_snapshot(github,
     else:
         assert checks.verify('owner/repo', 7)['merge_commit_sha'] == head
         assert git(root, 'rev-parse', head + '^{tree}')
+
+
+@pytest.mark.parametrize("mutation", [None, "receipt-base", "failed-gate", "stale-metadata"])
+def test_full_consumer_of_advanced_replay_keeps_source_identity(github, mutation):
+    pr, root = github["pr"], Path.cwd()
+    _, _, history, base, _, _, _ = replay_history((root, {}, pr))
+    old_head = pr["head"]["sha"]
+    pr["head"]["sha"] = history["head"]["sha"]
+    pr["body"] = pr["body"].replace(old_head, pr["head"]["sha"])
+    pr["base"]["sha"] = history["base"]["sha"]
+    pr.update(state="closed", merged=True, merged_at="2026-09-13T01:00:00Z",
+              commits=4, merge_commit_sha=history["merge_commit_sha"])
+    git(root, "checkout", "-q", "--detach", pr["head"]["sha"])
+    for rows in github["runs"].values():
+        rows[0]["head_sha"] = pr["head"]["sha"]
+    for proof in github["artifacts"].values():
+        for key in ("target_sha", "requested_sha", "observed_sha_start", "observed_sha_end"):
+            if key in proof:
+                proof[key] = pr["head"]["sha"]
+    github["artifacts"][(13, "pr-metadata")].update(checks.metadata.metadata_snapshot(pr, "owner/repo"))
+    # Actual scope uses the recovered source range, excluding target-only.txt.
+    scope = load_scope_for_test().resolve(dict(number=7, pull_request=pr), "pull_request")
+    assert scope["base_sha"] == base == github["base"] != pr["base"]["sha"]
+    assert scope["paths_digest"] == github["artifacts"][(12, "macos-pr")]["paths_digest"]
+    if mutation == "receipt-base":
+        github["artifacts"][(11, "governance-fast")]["base_sha"] = pr["base"]["sha"]
+    elif mutation == "failed-gate":
+        github["runs"]["macos-pr"][0]["jobs"][0]["conclusion"] = "failure"
+    elif mutation == "stale-metadata":
+        pr["body"] += "\nChanged after proof\n"
+    if mutation:
+        with pytest.raises(ValueError):
+            checks.verify("owner/repo", 7)
+    else:
+        result = checks.verify("owner/repo", 7)
+        assert result["base_sha"] == base
+        assert result["merge_commit_sha"] == history["merge_commit_sha"]

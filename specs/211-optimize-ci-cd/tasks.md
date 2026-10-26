@@ -293,3 +293,15 @@ SHA `f15c1fc6ae812293abe2433ed9dab457f7a07f50`, той же проверенно
 Предыдущие ожидающие отметки выше сохраняют историю локальной T099.
 Закрытие #7738 ожидает принятия этой документальной сверки и live-валидации;
 общая F211 и остальные незавершённые задачи остаются открытыми.
+
+
+## Phase 28: A6 — перенос нескольких commits на продвинутую цель
+
+Goal: проверять исторический merge без повторного наложения уже перенесённых
+commits, сохранив защиту промежуточных деревьев и всех исходных proofs.
+Prerequisites: spec T101 clarification, independent `checklists/rebase-proof.md`
+6/0, затем анализ и issue sync до кода. Последовательно; [P] не применяется.
+
+- [ ] T101 Сначала воспроизвести FAIL обычного advanced-target replay и скрытой подмены во временном Git в `tests/governance/test_pr_metadata_event.py`, затем исправить общий `scripts/validate-pr-metadata.py::checked_base` по spec T101.1–5: каждое промежуточное дерево, source base, независимый полный target prefix для squash и fail-closed overlap/unknown/errors; сохранить two-parent/sync формы и всех consumers. Выполнить quickstart focused/static, независимое implementation review/converge; обновить `changes/unreleased/F211.yaml` и отчёт `specs/211-optimize-ci-cd/validation-rebase-proof-20261026.md`; завершить exact-SHA/base PR checks и merge. (FR-008/FR-040/SC-019) (Issue #7742)
+
+- [ ] T102 После T101 выполнить общий live `scripts/validate-pr-checks.py` для каждого точного PR диапазона, подготовить новый frozen candidate, один authoritative release-full, штатный dry-run/backup/CD и публичную приёмку; сохранить source/run/решение/ограничения в `specs/211-optimize-ci-cd/validation-rebase-proof-20261026.md` и выпускном отчёте `docs/deployments/2brain-rec/`. При BLOCK не обходить проверку и не закрывать T102; коммерческие критерии продвижения отдельно открыты. (FR-008/FR-040/SC-019; depends T101) (Issue #7742)

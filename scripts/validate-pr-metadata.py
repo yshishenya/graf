@@ -232,22 +232,34 @@ def checked_base(pr: dict) -> str:
         return base
     merge, count = pr["merge_commit_sha"], pr["commits"]
 
-    def predecessor(sha: str, size: int) -> str:
-        rows = _git("rev-list", "--parents", f"--max-count={size}", sha).splitlines()
-        if len(rows) != size or any(len(row.split()) != 2 for row in rows):
-            raise ValueError("merge/source range must be linear")
+    def linear_rows(sha: str, size: int, *, allow_squash: bool = False) -> list[list[str]]:
+        rows = [row.split() for row in _git("rev-list", "--parents", f"--max-count={size}", sha).splitlines()]
+        if (not rows or len(rows) > size or not rows[0] or rows[0][0] != sha
+                or any(not row or any(not re.fullmatch(r"[0-9a-f]{40}", value) for value in row) for row in rows)
+                or len({row[0] for row in rows}) != len(rows)):
+            raise ValueError("invalid merge/source history output")
         for left, right in zip(rows, rows[1:]):
-            if left.split()[1] != right.split()[0]:
+            if len(left) == 2 and left[1] != right[0]:
                 raise ValueError("merge/source range must be contiguous")
-        return rows[-1].split()[1]
+        if len(rows) != size or any(len(row) != 2 for row in rows):
+            if allow_squash:
+                return []  # A squash may have fewer than N linear ancestors.
+            raise ValueError("merge/source range must be linear")
+        return rows
+
+    def predecessor(sha: str, size: int) -> str:
+        return linear_rows(sha, size)[-1][1]
 
     def is_ancestor(ancestor: str, descendant: str) -> bool:
-        return subprocess.run(
+        result = subprocess.run(
             ["git", "merge-base", "--is-ancestor", ancestor, descendant],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
-        ).returncode == 0
+        ).returncode
+        if result not in (0, 1):
+            raise ValueError("cannot determine merge/source ancestry")
+        return result == 0
 
     merge_rows = _git("rev-list", "--parents", "--max-count=1", merge).split()
     if len(merge_rows) == 3:
@@ -268,26 +280,61 @@ def checked_base(pr: dict) -> str:
     merge_tree = _git("rev-parse", f"{merge}^{{tree}}")
     head_tree = _git("rev-parse", f"{head}^{{tree}}")
     head_row = _git("rev-list", "--parents", "--max-count=1", head).split()
+    if len(head_row) == 2:
+        source_rows = linear_rows(head, count)
+        source_base = source_rows[-1][1]
+        target_rows = linear_rows(merge, count, allow_squash=True)
+        if target_rows and is_ancestor(source_base, target_rows[-1][1]):
+            for (source, source_parent), (target, target_parent) in zip(
+                reversed(source_rows), reversed(target_rows),
+            ):
+                expected = _git("merge-tree", "--write-tree", f"--merge-base={source_parent}",
+                                target_parent, source)
+                if not re.fullmatch(r"[0-9a-f]{40}", expected):
+                    raise ValueError("invalid replay tree")
+                if expected != _git("rev-parse", f"{target}^{{tree}}"):
+                    break
+            else:
+                return source_base
+
+        # A squash and a tampered replay can have identical final trees.
+        # Accept aggregate proof only with an entirely independent target prefix.
+        if not is_ancestor(source_base, merge_parent):
+            raise ValueError("squash target does not descend from checked source base")
+        prefix_count = int(_git("rev-list", "--count", f"{source_base}..{merge_parent}"))
+        prefix_rows = linear_rows(merge_parent, prefix_count) if prefix_count else []
+        if prefix_rows and prefix_rows[-1][1] != source_base:
+            raise ValueError("squash target prefix differs from checked source base")
+
+        def changed_paths(rows: list[list[str]]) -> set[str]:
+            paths: set[str] = set()
+            for commit, parent in rows:
+                output = subprocess.check_output([
+                    "git", "diff", "--no-ext-diff", "--no-textconv", "--name-only",
+                    "--no-renames", "-z", parent, commit,
+                ], stderr=subprocess.DEVNULL).decode("utf-8", errors="surrogateescape")
+                if output:
+                    names = output[:-1].split("\0")
+                    if not output.endswith("\0") or "" in names:
+                        raise ValueError("invalid merge/source path output")
+                    paths.update(names)
+            return paths
+
+        source_paths, target_paths = changed_paths(source_rows), changed_paths(prefix_rows)
+        for paths, other in ((source_paths, target_paths), (target_paths, source_paths)):
+            for path in paths:
+                while path:
+                    if path in other:
+                        raise ValueError("ambiguous squash overlaps checked source paths")
+                    path = path.rpartition("/")[0]
+        expected = _git("merge-tree", "--write-tree", f"--merge-base={source_base}", merge_parent, head)
+        if not re.fullmatch(r"[0-9a-f]{40}", expected) or expected != merge_tree:
+            raise ValueError("squash tree differs from checked source")
+        return source_base
+
     if merge_tree != head_tree:
-        if len(head_row) > 2:
-            # Target advancement and tampered sync replays are ambiguous here,
-            # regardless of replay count. Aggregate equality is not proof.
-            raise ValueError("synced source requires the exact checked final tree")
-        # GitHub can squash a PR whose target advanced after the PR branch was
-        # cut.  The merge tree then contains both the reviewed PR and those
-        # target commits.  Accept only the exact three-way merge result for the
-        # immutable API base and the real merge parent; an edited tree fails.
-        if not (is_ancestor(base, merge_parent) and is_ancestor(base, head)):
-            raise ValueError("merged tree differs from checked PR head")
-        if int(_git("rev-list", "--count", f"{base}..{head}")) != count:
-            raise ValueError("merged PR commit count does not match checked base")
-        try:
-            expected_tree = _git("merge-tree", "--write-tree", merge_parent, head)
-        except subprocess.CalledProcessError as exc:
-            raise ValueError("merged tree cannot be reconstructed from checked base") from exc
-        if not re.fullmatch(r"[0-9a-f]{40}", expected_tree) or expected_tree != merge_tree:
-            raise ValueError("merged tree differs from checked PR merge result")
-        return base
+        # Synced source forms retain their separate exact-final-tree proof.
+        raise ValueError("synced source requires the exact checked final tree")
 
     # Squash preserves a linear target even when the PR incorporated master
     # with a merge commit. Its exact parent/count/tree bind the checked range.
@@ -327,9 +374,6 @@ def checked_base(pr: dict) -> str:
             if expected != _git("rev-parse", f"{target}^{{tree}}"):
                 raise ValueError("synced rebase replay differs from checked source")
         return checked
-    source_base = predecessor(head, count)
-    if predecessor(merge, count) == source_base:
-        return source_base
     raise ValueError("merge is not an exact squash or linear rebase of the checked range")
 
 
