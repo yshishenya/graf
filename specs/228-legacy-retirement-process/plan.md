@@ -157,8 +157,7 @@ Temporal/Apple requirements remain in GRAF.
    forbidden content fields and stale-SHA behavior.
 4. `python3 scripts/check-development-process.py --self-test`
 5. `PYTHONDONTWRITEBYTECODE=1 pytest -q tests/governance`
-6. Feature quickstart и профильные локальные проверки. После отдельного
-   разрешения на проверенный коммит/PR — обязательные GitHub `governance-fast`,
+6. Feature quickstart и профильные локальные проверки. После проверенного коммита/PR — обязательные GitHub `governance-fast`,
    `macos-pr`, `pr-metadata` точного SHA и проверенной основы, затем
    `python3 scripts/validate-pr-checks.py --repository yshishenya/graf --pr <номер>`.
    Локальный `infra/scripts/ci-local.sh --fast` — только диагностика/резервный
@@ -182,3 +181,34 @@ frozen future release candidate under the release operator's approval.
 | Migration/Temporal/Sparkle break rollback | Protected-domain routes require dedicated rehearsal and separate release gate. |
 | Agent context causes stale/conflicting work | Stable root router; active path and contour data are scoped, no mutable feature state in `AGENTS.md`. |
 | CI cost/race returns | Fast CI per exact PR SHA; one Full CI after candidate freeze, no restart on unrelated worktree commits. |
+
+## Самостоятельный срез T009/T019 — 26.10.2026
+
+Исходная основа `2df314e5ca8549e636d386cdb68fecc861ddf015`, ветка
+`codex/228-pr-exception-fields`; задачи #6247 и #6257. Полоса significant-feature.
+Общее разрешение пользователя на проверенные коммиты, PR и обычное слияние
+действует; выпуск и production не входят.
+
+Зависимости уточнены до реализации: T009/T019 читают только один текст
+спецификации/PR и не требуют ещё не созданного реестра или discovery. Они могут
+быть приняты отдельно; T005–T010 продолжают блокировать остальные истории и
+интеграцию с реестром. Это уменьшение объёма текущего изменения, а не критериев
+FR-005/006 или полного SC-003. T017 и changed-path проверки не объявляются
+готовыми. До кода обязательны независимое ревью 21 пункта, новый анализ и
+сверка владельцев T009/T019; общая карта всех 36 задач также проверяется.
+
+Переиспользуется существующий `validate-legacy-impact.py`: проверка полей
+выделяется в функцию, которую вызывает существующий `validate-pr-metadata.py`
+из доверенной версии политики. PR-код не исполняется. Новых зависимостей,
+сканеров, реестра и сетевых запросов в проверке текста нет. Обе прежние
+проверки классификации сохраняются. Нужны RED/GREEN для обоих потребителей,
+проверка настоящего CLI и доверенного режима PR, затем существующие профильные
+проверки управления разработкой и три GitHub-проверки точного SHA/основы.
+
+Подготовительные T001–T004 перепроверяются по исходным закрытиям #6239–#6242,
+слитым PR #6313/#6790 и сохранённому плану. Современное наличие защищённых
+путей `legacy_backfill`, historical workflow и `compatibility_099` подтверждает
+сохранение границы; старые ветки не восстанавливаются и не сливаются заново.
+Исторические сравнения F220/F206 остаются историческими фактами; отсутствующие
+сейчас локальные ветки не выдаются за заново исследованные. Несоответствие
+задач и трекера исправляется явной сверкой, а не общей отметкой всей фичи.

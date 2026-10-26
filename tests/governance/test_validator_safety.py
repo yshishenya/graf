@@ -4,7 +4,10 @@ import importlib.util
 import json
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1249,6 +1252,124 @@ def test_pr_metadata_requires_machine_readable_lane_and_evidence() -> None:
     errors = validator.validate(weak, "216")
     assert any("validation lane" in error for error in errors)
     assert any("validation evidence" in error for error in errors)
+
+
+EXCEPTION = {
+    "owner": "platform",
+    "expiry": "2099-12-31",
+    "reason": "required for supported clients",
+    "compatibility boundary": "clients before the migration cutoff",
+    "removal trigger": "migration complete",
+    "risk": "bounded client compatibility risk",
+    "validation": "focused migration test",
+    "retirement task": "F228 / T017 / #6255",
+}
+
+
+def exception_errors(tmp_path, consumer, fields):
+    declaration = "- Classification: `retain-with-exception`\n" + "\n".join(
+        f"- {field}: {value}" for field, value in fields
+    ) + "\n"
+    if consumer == "spec":
+        path = tmp_path / "spec.md"
+        path.write_text("## Legacy Impact\n" + declaration)
+        return load_script("validate-legacy-impact").validate(path)
+    body = _valid_pr_body().replace("- Classification: `untouched`", declaration)
+    return load_script("validate-pr-metadata").validate(body, "216", title="[F216] Проверить исключение")
+
+
+@pytest.mark.parametrize("consumer", ["spec", "pr"])
+@pytest.mark.parametrize("field", EXCEPTION)
+@pytest.mark.parametrize("mutation", ["missing", "empty", "duplicate", "placeholder"])
+def test_finite_exception_rejects_incomplete_fields(tmp_path, consumer, field, mutation):
+    fields = list(EXCEPTION.items())
+    if mutation == "missing":
+        fields = [(key, value) for key, value in fields if key != field]
+    elif mutation == "duplicate":
+        fields.append((field, EXCEPTION[field]))
+    else:
+        fields = [(key, ("" if mutation == "empty" else "<указать>") if key == field else value)
+                  for key, value in fields]
+    assert exception_errors(tmp_path, consumer, fields), (consumer, field, mutation)
+
+
+@pytest.mark.parametrize("consumer", ["spec", "pr"])
+@pytest.mark.parametrize("expiry", ["today", "yesterday", "2099-02-30", "20991231", "2099-12-31 later"])
+def test_finite_exception_rejects_invalid_or_nonfuture_expiry(tmp_path, consumer, expiry):
+    today = datetime.now(timezone.utc).date()
+    expiry = {"today": today.isoformat(), "yesterday": (today - timedelta(days=1)).isoformat()}.get(expiry, expiry)
+    assert exception_errors(tmp_path, consumer, {**EXCEPTION, "expiry": expiry}.items())
+
+
+@pytest.mark.parametrize("consumer", ["spec", "pr"])
+@pytest.mark.parametrize("task", ["T017", "F228 T017", "F228 #6255", "T017 #6255", "F228 T017 #0",
+                                 "F228 F229 T017 #6255", "F228 T017 T018 #6255", "F228 T017 #6255 #6256"])
+def test_finite_exception_requires_one_feature_task_issue(tmp_path, consumer, task):
+    assert exception_errors(tmp_path, consumer, {**EXCEPTION, "retirement task": task}.items())
+
+
+@pytest.mark.parametrize("consumer", ["spec", "pr"])
+def test_finite_exception_accepts_complete_declaration_and_tomorrow(tmp_path, consumer):
+    tomorrow = (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
+    fields = {**EXCEPTION, "expiry": f"`{tomorrow}`"}
+    assert exception_errors(tmp_path, consumer, fields.items()) == []
+
+
+@pytest.mark.parametrize("consumer", ["spec", "pr"])
+@pytest.mark.parametrize("placeholder", ["TODO", "tbd", "FIXME later", "___", "...", "N/A", "не указано", "`<owner>`"])
+def test_finite_exception_rejects_template_values(tmp_path, consumer, placeholder):
+    assert exception_errors(tmp_path, consumer, {**EXCEPTION, "owner": placeholder}.items())
+
+
+def test_finite_exception_uses_utc_calendar(monkeypatch):
+    validator = load_script("validate-legacy-impact")
+
+    class UtcClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is timezone.utc
+            return cls(2030, 1, 2, 0, 1, tzinfo=tz)
+
+    monkeypatch.setattr(validator, "datetime", UtcClock)
+    for expiry, valid in (("2030-01-01", False), ("2030-01-02", False), ("2030-01-03", True)):
+        fields = {**EXCEPTION, "expiry": expiry}
+        errors = validator.validate_exception("\n".join(f"{key}: {value}" for key, value in fields.items()))
+        assert (errors == []) == valid
+
+
+@pytest.mark.parametrize("consumer", ["spec", "pr"])
+@pytest.mark.parametrize("extra", ["", "invalid"])
+def test_finite_exception_rejects_second_malformed_classification(tmp_path, consumer, extra):
+    assert exception_errors(tmp_path, consumer, [*EXCEPTION.items(), ("Classification", extra)])
+
+
+@pytest.mark.parametrize("consumer", ["spec", "pr"])
+def test_finite_exception_cannot_hide_in_second_legacy_section(tmp_path, consumer):
+    body = _valid_pr_body().replace("## Перед merge", "## Legacy Impact\n- Classification: `retain-with-exception`\n\n## Перед merge")
+    if consumer == "spec":
+        path = tmp_path / "spec.md"
+        path.write_text(body)
+        errors = load_script("validate-legacy-impact").validate(path)
+    else:
+        errors = load_script("validate-pr-metadata").validate(body, "216", title="[F216] Проверить разделы")
+    assert errors
+
+
+@pytest.mark.parametrize("consumer", ["spec", "pr"])
+def test_finite_exception_real_cli_rejects_missing_fields(tmp_path, consumer):
+    path = tmp_path / "body.md"
+    if consumer == "spec":
+        path.write_text("## Legacy Impact\nClassification: retain-with-exception\n")
+        args = ["--feature", str(path)]
+        script = "validate-legacy-impact.py"
+    else:
+        path.write_text(_valid_pr_body().replace("`untouched`", "`retain-with-exception`"))
+        args = [str(path), "--feature-id", "216", "--title", "[F216] Проверить исключение"]
+        script = "validate-pr-metadata.py"
+    result = subprocess.run([sys.executable, "-I", str(ROOT / "scripts" / script), *args],
+                            cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode == 1, result.stdout
+    assert "Traceback" not in result.stderr
 
 
 def test_process_changed_legacy_scan_collects_committed_and_worktree_specs(tmp_path: Path) -> None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 
@@ -14,56 +14,70 @@ CLASSIFICATION_RE = re.compile(
     r"[ \t]*:[ \t]*[`']?(remove|retain-with-exception|untouched)[`']?[ \t]*$",
     re.IGNORECASE | re.MULTILINE,
 )
-EXCEPTION_FIELDS = {
-    "owner": re.compile(r"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?owner(?:\*\*)?[ \t]*:", re.IGNORECASE | re.MULTILINE),
-    "expiry": re.compile(r"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?expiry(?:\*\*)?[ \t]*:", re.IGNORECASE | re.MULTILINE),
-    "removal trigger": re.compile(r"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?removal[ \t]+trigger(?:\*\*)?[ \t]*:", re.IGNORECASE | re.MULTILINE),
-    "retirement task": re.compile(r"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?retirement[ \t]+task(?:\*\*)?[ \t]*:", re.IGNORECASE | re.MULTILINE),
-    "risk": re.compile(r"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?risk(?:\*\*)?[ \t]*:", re.IGNORECASE | re.MULTILINE),
-    "validation": re.compile(r"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?validation(?:\*\*)?[ \t]*:", re.IGNORECASE | re.MULTILINE),
-    "reason": re.compile(r"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?reason(?:\*\*)?[ \t]*:", re.IGNORECASE | re.MULTILINE),
-}
+EXCEPTION_FIELDS = ("owner", "expiry", "reason", "compatibility boundary",
+                    "removal trigger", "risk", "validation", "retirement task")
+
+
+def validate_exception(section: str) -> list[str]:
+    """Check the same finite text contract for a spec and a trusted PR policy."""
+    errors: list[str] = []
+    values: dict[str, str] = {}
+    for field in EXCEPTION_FIELDS:
+        label = re.escape(field).replace(r"\ ", r"[ \t]+")
+        matches = re.findall(
+            rf"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?{label}(?:\*\*)?[ \t]*:[ \t]*([^\n]*)$",
+            section, re.IGNORECASE | re.MULTILINE,
+        )
+        if len(matches) != 1:
+            errors.append(f"compatibility exception needs {field} exactly once")
+            continue
+        value = matches[0].strip().strip("`'\"").strip()
+        if not value:
+            errors.append(f"compatibility exception {field} must not be empty")
+        elif (re.search(r"<[^>]*>|_{2,}|\.{3}|\b(?:TODO|TBD|FIXME|TKTK)\b", value, re.IGNORECASE)
+              or value.casefold() in {"n/a", "none", "null", "указать", "заполнить", "не указано", "-", "?"}):
+            errors.append(f"compatibility exception {field} must not be a placeholder")
+        else:
+            values[field] = value
+
+    if "expiry" in values:
+        value = values["expiry"]
+        try:
+            if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+                raise ValueError()
+            expiry = date.fromisoformat(value)
+        except ValueError:
+            errors.append("invalid ISO expiry date")
+        else:
+            if expiry <= datetime.now(timezone.utc).date():
+                errors.append("compatibility exception expiry must be in the future (UTC)")
+    if "retirement task" in values:
+        value = values["retirement task"]
+        if any(len(re.findall(pattern, value)) != 1 for pattern in
+               (r"\bF[0-9]{3,}\b", r"\bT[0-9]{3,}\b", r"(?<![\w#])#[1-9][0-9]*\b")):
+            errors.append("compatibility exception retirement task needs one F###, T### and #issue")
+    return errors
 
 
 def validate(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8", errors="ignore")
     errors: list[str] = []
-    match = re.search(r"^## Legacy Impact\s*$([\s\S]*?)(?=^## |\Z)", text, re.MULTILINE)
-    if not match:
+    sections = re.findall(r"^## Legacy Impact[ \t]*\n([\s\S]*?)(?=^## |\Z)", text, re.MULTILINE)
+    if not sections:
         return [f"{path}: missing ## Legacy Impact"]
-    section = match.group(1)
+    if len(sections) != 1:
+        return [f"{path}: duplicate ## Legacy Impact"]
+    section = sections[0]
     classifications = CLASSIFICATION_RE.findall(section)
-    if len(classifications) != 1:
+    labels = re.findall(r"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?classification(?:\*\*)?[ \t]*:",
+                        section, re.IGNORECASE | re.MULTILINE)
+    if len(classifications) != 1 or len(labels) != 1:
         errors.append(
             f"{path}: Legacy Impact needs exactly one Classification field with "
             "remove/retain-with-exception/untouched"
         )
     elif classifications[0].lower() == "retain-with-exception":
-        for field, pattern in EXCEPTION_FIELDS.items():
-            match = pattern.search(section)
-            if not match:
-                errors.append(f"{path}: compatibility exception needs {field}")
-            else:
-                value = section[match.end():].splitlines()
-                if not value or not value[0].strip():
-                    errors.append(f"{path}: compatibility exception {field} must not be empty")
-
-        expiry_pattern = EXCEPTION_FIELDS["expiry"]
-        expiry_match = expiry_pattern.search(section)
-        if expiry_match:
-            expiry_line = section[expiry_match.end():].splitlines()[0]
-            date_match = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", expiry_line)
-            if not date_match:
-                errors.append(f"{path}: compatibility exception needs an ISO expiry date")
-            else:
-                value = date_match.group(1)
-                try:
-                    expiry = date.fromisoformat(value)
-                except ValueError:
-                    errors.append(f"{path}: invalid ISO expiry date {value}")
-                else:
-                    if expiry < date.today():
-                        errors.append(f"{path}: expired legacy exception {value}")
+        errors.extend(f"{path}: {error}" for error in validate_exception(section))
     return errors
 
 

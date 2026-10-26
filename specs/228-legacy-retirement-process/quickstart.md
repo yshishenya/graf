@@ -70,7 +70,7 @@ PYTHONDONTWRITEBYTECODE=1 pytest -q tests/governance
 В PR записываются risk lane `significant-feature`, exact source SHA, feature
 ID/umbrella issue/task IDs, `Legacy Impact: untouched`, `legacy_new=0`,
 `unowned_legacy=0`, `expired_exceptions=0` и открытые reviewer/convergence
-gates. Коммит — только после проверки и отдельного разрешения владельца.
+gates. Коммит выполняется после проверки.
 После PR обязательны GitHub `governance-fast`, `macos-pr`, `pr-metadata`
 точного SHA и проверенной основы, затем:
 
@@ -81,3 +81,23 @@ python3 scripts/validate-pr-checks.py --repository yshishenya/graf --pr <ном�
 Локальный `infra/scripts/ci-local.sh --fast` остаётся только диагностикой или
 резервной проверкой. Он не заменяет GitHub и не добавляется вторым обязательным
 этапом. Full CI выполняется только на замороженном будущем release candidate.
+
+## Самостоятельный T009/T019
+
+После нового независимого ревью, анализа и сверки трекера выполнить:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q tests/governance/test_validator_safety.py
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q tests/governance/test_pr_metadata_event.py
+python3 scripts/validate-pr-metadata.py --self-test
+python3 scripts/check-development-process.py --self-test
+python3 scripts/check_spec_kit_governance.py
+git diff --check
+```
+
+Отсутствующие registry/inventory/slice команды выше остаются проверками будущих
+задач и не объявляются выполненными. Для T009/T019 нужны отрицательные случаи
+восьми обязательных полей, границы даты UTC, связей F###/T###/#issue и проверка
+одинакового решения спецификации/PR. Шаблон PR объясняет поля; `remove` и
+`untouched` сохраняют прежнее поведение. После PR — три обязательные проверки,
+общий валидатор и live-проверка закрытия только #6247/#6257.

@@ -2,7 +2,7 @@
 
 **Feature Branch**: `codex/228-legacy-retirement-process`
 **Created**: 2026-08-31
-**Status**: Draft — planning only; no runtime removal is authorized by this feature.
+**Status**: Реализация T009/T019 возобновлена 26.10.2026; удаление рабочего кода и данных этой фичей не разрешено.
 
 **Input**: После настройки общего Dev/CI/release процесса GRAF должен прекращать
 накапливать legacy и безопасно уменьшать уже существующий долг. Владелец работает
@@ -211,9 +211,10 @@ receipt; stale/cancelled/synthetic merge receipt отклоняется.
   deletion, TCC reset, publication или изменение Apple signing trust.
 - Изменение capture, auth, billing, transcription, deletion или user-visible
   product behavior без отдельного approved Feature.
-- Закрытие GitHub issues и implementation commits этим этапом планирования;
-  самостоятельная приёмка чеклистов агентом реализации. Обязательное
-  независимое ревью требований выполняется по FR-017.
+- Самостоятельная приёмка чеклистов агентом реализации. Обязательное
+  независимое ревью требований выполняется по FR-017. Исторический этап
+  планирования не закрывал задачи реализации; возобновлённый T009/T019
+  принимается отдельно после реализации, проверок и слияния.
 
 ## Assumptions
 
