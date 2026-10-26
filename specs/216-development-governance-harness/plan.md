@@ -25,8 +25,9 @@ POSIX shell для orchestration; Swift Package Manager/macOS scripts для Dev
 claims/manifests/evidence; существующие локальные Postgres/MinIO volumes для Dev
 
 **Testing**: validator self-tests, shell/contract checks, focused backend/frontend
-smoke, existing macOS identity/permission scripts, `infra/scripts/ci-local.sh --fast`;
-Full CI только для frozen candidate
+smoke, existing macOS identity/permission scripts; GitHub `governance-fast`,
+`macos-pr`, `pr-metadata` на точном SHA/проверенной основе. Локальные fast/full —
+диагностика; `release-full` только для frozen candidate
 
 **Risk / Validation Lane**: `significant-feature` с governance/infra/release
 контрактами; capture/product runtime не меняется, но Dev app and CI are shared
@@ -83,12 +84,16 @@ external sample project in v1
    fragments, stale CI evidence, Dev manifest invariants and Legacy Impact.
 3. Run existing Dev app identity/permission and no-legacy-driver checks; build
    only against a loopback origin when a real app smoke is needed.
-4. Run synthetic build/promote/status/smoke/rollback/reset fixture with one
-   active manifest and concurrent promotion lock test.
-5. Run focused backend/frontend smoke, then `infra/scripts/ci-local.sh --fast`
-   once on the PR-ready SHA; record exact SHA and skipped gates.
-6. Prepare but do not publish product release; Full CI and CD execute are
-   reserved for a later frozen candidate with explicit approval.
+4. Run isolated build/promote/status/smoke/rollback/reset tests with one
+   active manifest and concurrent promotion lock test. Keep real Dev acceptance
+   separate: first check current F229/F249 evidence, then use only the canonical
+   local-development path for any missing real app/permissions/rollback proof.
+5. Run applicable focused checks and record their scope. Require GitHub
+   `governance-fast`, `macos-pr`, `pr-metadata` on the exact PR SHA and checked
+   base using `scripts/validate-pr-checks.py`; local fast/full are diagnostic.
+6. Validate candidate/attestation contracts in isolation without publishing a
+   product release. GitHub `release-full` and CD execute belong to a separate
+   frozen release candidate and the applicable release approval.
 7. Extract generic harness into a separate repository, run self-test, secret/
    path/provenance scans and a clean sample installation before its SemVer tag.
 

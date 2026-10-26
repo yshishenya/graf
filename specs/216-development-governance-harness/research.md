@@ -96,7 +96,9 @@ the release gate auditable.
 - Run Full CI on every commit: rejected as too slow and contrary to release
   train batching.
 - Trust provider job status without local SHA verification: rejected because
-  GitHub Actions are currently disabled and any provider can report stale data.
+  any provider can report stale data. GitHub Actions are enabled; the current
+  required PR checks are `governance-fast`, `macos-pr` and `pr-metadata`, verified
+  on exact SHA and checked base. Local CI is diagnostic, not a replacement.
 
 ## Decision 6 — Legacy retirement gate
 
@@ -142,11 +144,11 @@ unsafe without cutover evidence.
 ## Decision 8 — Hooks and commits
 
 **Decision**: Keep read-only hooks automatic where safe, disable auto-commit
-  hooks by default, and require explicit approval for implementation commits
-  after validation and convergence.
+  hooks by default, and commit implementation changes only after validation
+  and convergence.
 
-**Rationale**: Unexpected commits are especially harmful in shared worktrees and
-  violate the repository's release safety rule.
+**Rationale**: Явная область владения, проверка изменений и выключенные
+  автоматические коммиты сохраняют чужую работу и понятную историю.
 
 **Alternatives considered**:
 

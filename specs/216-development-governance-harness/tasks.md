@@ -18,8 +18,8 @@ worktree.
   чистоту worktree, `.specify/feature.json`, umbrella issue #6090 и отсутствие
   коллизий ID в `scripts/claim-feature.py` (FR-001–FR-003).
 - [X] T002 Зафиксировать в `docs/agent-guidance/development-process.md` роли,
-  ownership matrix, полный Spec Kit/Ponytail порядок, risk lanes и правило
-  explicit approval для implementation commit (FR-033–FR-036).
+  ownership matrix, полный Spec Kit/Ponytail порядок, risk lanes,
+  проверку и сходимость перед implementation commit (FR-033–FR-036).
 - [X] T003 [P] Добавить в `changes/unreleased/README.md` schema, namespace,
   ownership и lifecycle changelog fragments без изменения корневого
   `CHANGELOG.md` (FR-009).
@@ -127,7 +127,7 @@ worktree.
 
 - [X] T030 [US7] Изменить `.specify/extensions.yml` и git extension config так, чтобы
   read-only context/issue-canon hooks оставались автоматическими, а auto-commit
-  hooks были выключены по умолчанию; сохранить explicit approval rule (FR-033).
+  hooks были выключены по умолчанию; коммиты следуют проверке и сходимости (FR-033).
 - [X] T031 [US7] Добавить `scripts/check-development-process.py` как единый bounded
   preflight, вызывающий validators без дублирования bootstrap doctor
   (FR-004–FR-006, FR-032–FR-035).
@@ -137,7 +137,7 @@ worktree.
 - [X] T033 [US8] Подготовить отдельный публичный репозиторий
   `graf-development-harness` через GitHub, проверить доступность имени,
   provenance, license, README и pinned bootstrap/Spec Kit refs (FR-030–FR-031).
-- [ ] T034 [US8] Установить harness в чистый sample project, пройти self-test,
+- [X] T034 [US8] Установить harness в чистый sample project, пройти self-test,
   secret/path scan и migration/rollback upgrade; сохранить metadata-only
   evidence (SC-007, SC-009).
 - [X] T035 [US8] Запустить Ponytail review для всех новых layers и удалить
@@ -151,7 +151,7 @@ retirement отдельно.
 - [ ] T036 Выполнить reviewer-owned checklists из
   `checklists/requirements.md` и `checklists/governance.md`; implementation
   agent не меняет checkbox state (FR-034).
-- [ ] T037 Запустить `$speckit-analyze`, устранить все Critical/High и повторить
+- [X] T037 Запустить `$speckit-analyze`, устранить все Critical/High и повторить
   до чистого результата; проверить покрытие FR/SC задачами.
 - [X] T038 Запустить `$speckit-taskstoissues`, создать child issues по canon,
   связать их с #6090, проверить labels и заменить временный T000 umbrella на
@@ -159,6 +159,8 @@ retirement отдельно.
 - [X] T039 Выполнить quickstart Feature 216, governance self-tests и
   `infra/scripts/ci-local.sh --fast` на PR-ready SHA; записать exact SHA,
   skipped gates и metadata-only evidence (SC-002, SC-006, SC-009).
+  Исторический локальный fast не заменяет нынешние GitHub-проверки FR-022/SC-009;
+  их текущая приёмка относится к T047.
 - [ ] T040 Выполнить `$speckit-converge`: добавлять найденные задачи append-only,
   повторять issue sync/implementation/validation до отсутствия обязательных
   пунктов.
@@ -168,7 +170,7 @@ retirement отдельно.
   (SC-006, SC-010).
 - [X] T042 Подготовить PR `[F216]` с русским описанием, lane, exact SHA,
   evidence, `Refs #6090`/closing keywords только по факту и checklist
-  release/no-deploy boundary; получить explicit approval перед commit.
+  release/no-deploy boundary; коммит после проверки и сходимости.
 
 ## Phase 8: Convergence
 
@@ -186,11 +188,10 @@ retirement отдельно.
   schema validation, one-authoritative-full guard и go/no-go update без
   перезаписи frozen candidate (FR-020–FR-023; partial).
 - [ ] T047 Провести reviewer-owned checklists, повторный analyze/converge,
-  quickstart и финальный fast CI; закрыть только подтверждённые task issues и
-  подготовить PR после explicit approval (FR-034–FR-035; missing).
+  quickstart и обязательные GitHub-проверки точного SHA/основы; закрыть только
+  подтверждённые task issues и подготовить проверенный PR (FR-034–FR-035; missing).
 
-- [ ] T048 После получения approval на implementation commit выполнить live
-  adapter sequence на чистом exact SHA: `build --live → promote --live →
+- [ ] T048 После проверки изменений выполнить live adapter sequence на чистом exact SHA: `build --live → promote --live →
   status → smoke --live`, сохранить metadata-only evidence и проверить
   rollback/остановку backend без изменения production boundary (FR-011,
   FR-016; convergence of T043).
@@ -201,20 +202,20 @@ retirement отдельно.
   backend-процесс и Dev app до публикации active pointer, либо явно оформить
   отдельный fail-closed adapter с доказанным восстановлением (FR-017, SC-003;
   partial).
-- [ ] T050 Добавить неизменяемую post-publication attestation, связывающую
+- [X] T050 Добавить неизменяемую post-publication attestation, связывающую
   decision, exact SHA, CalVer tag и фактический GitHub Release URL после
   `gh release create`; decision не перезаписывать (FR-024, SC-005; missing).
-- [ ] T051 Перевести producer artifact digests с identity-only записи на
+- [X] T051 Перевести producer artifact digests с identity-only записи на
   хэши фактически созданных release/Dev артефактов и сохранить отдельную
   проверку source-revision (FR-021, SC-005; partial).
 - [ ] T052 После одобренного repair path Feature 221 повторить live Dev
   sequence и сохранить evidence миграционного head, promote, smoke и rollback;
   volume и production не изменять обходными командами (FR-013, SC-003;
   blocked-by-external-feature).
-- [ ] T053 Опубликовать текущий generic harness из чистого exact commit как
+- [X] T053 Опубликовать текущий generic harness из чистого exact commit как
   следующий immutable SemVer release, обновить consumer lock и migration notes,
   затем повторить clean sample/package/provenance checks (FR-030, SC-007;
-  pending explicit approval).
+  публикация по отдельным правилам выпуска).
 - [X] T054 [P] Разрешать актуальный Alembic migration head при
   `dev-harness build` в реальном GRAF checkout и добавить regression test, чтобы
   канонический `build → promote` не создавал манифест с `unknown`; fixture-режим
@@ -241,6 +242,24 @@ retirement отдельно.
   явный stop/rollback порядок в операторском runbook (FR-017, SC-003;
   contradicts).
 
+## Phase 11: Сверка требований и трекера
+
+- [ ] T060 Сверить требования, `tasks.md` и GitHub F216 в
+  `reconciliation-20261026.md`: исправить устаревшие инструкции, восстановить
+  только доказанные отметки, связать T054 с отдельной issue, заменить T000
+  родителя #6090 на эту действительную задачу и перечислить остаток приёмки.
+  PR этой сверки проходит действующие проверки точного SHA/основы (FR-032–FR-035).
+
+### Статусы исторических задач
+
+| Задачи | Решение при сверке 26.10.2026 |
+|---|---|
+| T034, T050, T051, T053 | GitHub уже закрыт как COMPLETED; отметки восстановлены после повторной проверки реализации, пакета, обновления/отката и контрактов публикации. Это исправление рассинхронизации, а не новая реализация. Доказательства: `reconciliation-20261026.md`. |
+| T048, T052 | GitHub уже закрыт как NOT_PLANNED; старый порядок проверки заменён F229/F249. Исходные строки сохранены незавершёнными; повторно запускать отменённый путь не требуется. Это не снимает требования фактической Dev-приёмки T036/T047. |
+| T038 | Историческая синхронизация была неполной. В T060 восстановлены T054 → #7748 и T060 → #6090; повторная выгрузка подтвердила 60 задач и 60 единственных владельцев без пропусков/дублей. |
+| T037 | Повторный анализ требований завершён: Critical 0 / High 0, покрыты все 36 FR и 10 SC. Issue #6132 закрывается только после принятия PR и live-проверки. |
+| T036, T040, T047, T060 | Остаются открытыми до соответствующей проверки и принятия результата; PASS качества требований сам по себе не закрывает приёмку реализации. |
+
 ## Dependencies and parallelism
 
 - T001–T004 создают безопасную основу; T005–T010 зависят от T001.
@@ -253,8 +272,8 @@ retirement отдельно.
 - T030–T035 требуют стабильных validators; T033/T034 имеют внешний GitHub
   side effect и выполняются только после review package contents.
 - T036–T042 — финальные reviewer, analyze, issue-sync, validation, converge и
-  отдельный legacy follow-up gates; implementation commit не делается до
-  explicit approval.
+  отдельный legacy follow-up gates; implementation commit следует проверке
+  и сходимости.
 - T055–T059 — critical convergence hardening; T058 зависит от миграционного
   repair path Feature 221 для полного live rehearsal, но contract и tests могут
   быть подготовлены заранее.

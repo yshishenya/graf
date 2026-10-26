@@ -4,7 +4,7 @@
 
 **Created**: 2026-08-31
 
-**Status**: Draft
+**Status**: Частично реализовано; повторная сверка требований и приёмки
 
 **Input**: Запрос владельца GRAF: перестроить совместную работу с агентами, один полноценный Dev-стенд, безопасные worktree, SHA-привязанный CI, редкие release train, стабильный `AGENTS.md`, changelog fragments, атомарные номера фич, системное удаление legacy и переносимый отдельный репозиторий правил.
 
@@ -40,7 +40,7 @@ Dev operator собирает backend, frontend и macOS-клиент из од�
 
 **Why this priority**: без единого стенда невозможно честно проверить сквозной пользовательский путь.
 
-**Independent Test**: собрать synthetic build, выполнить `build → promote → status → smoke → rollback`, убедившись, что все компоненты ссылаются на один SHA и предыдущий manifest восстанавливается.
+**Independent Test**: изолированные тесты проверяют согласованность SHA, блокировку и восстановление предыдущего manifest. Отдельная приёмка реального стенда через `docs/agent-guidance/local-development.md` должна подтвердить версии работающих компонентов, установленную `/Applications/GRAF Dev.app`, сохранение разрешений и реальный rollback; искусственный manifest её не заменяет. При повторной сверке сначала проверяются действующие доказательства F229/F249, а новый запуск нужен только для оставшихся неподтверждённых критериев.
 
 **Acceptance Scenarios**:
 
@@ -136,6 +136,10 @@ Release operator объединяет несколько завершённых 
 - Legacy path нужен для production compatibility: exception содержит owner, expiry, trigger, migration/cutover и отдельную задачу; «оставить на всякий случай» запрещено.
 - Отдельный harness не может знать GRAF product privacy/capture rules: он применяет generic safety hooks и требует project adapter, не копируя закрытые данные.
 
+## Термины
+
+Claim — запись резервирования номера фичи; pinned version — версия, закреплённая точной ссылкой и SHA. Metadata-only evidence — доказательства из команд, версий, времени, счётчиков и контрольных сумм без содержимого встреч и секретов. Immutable candidate — кандидат выпуска, чьи исходники и метаданные после фиксации неизменны. Authoritative Full CI — единственный полный прогон, разрешающий выпуск этого кандидата; диагностические прогоны таким разрешением не являются.
+
 ## Requirements
 
 ### Functional Requirements
@@ -150,7 +154,7 @@ Release operator объединяет несколько завершённых 
 - **FR-008**: Feature agent MUST изменять только собственные spec/task/fragment/evidence файлы и согласованные source files.
 - **FR-009**: Changelog fragment MUST иметь уникальное имя Feature ID, schema/version и безопасные русские entries; общий `CHANGELOG.md` изменяет только release operator.
 - **FR-010**: PR guard MUST проверять Feature ID, umbrella issue, task IDs, risk lane, validation evidence, Legacy Impact и корректные `Fixes`/`Refs` keywords.
-- **FR-011**: Dev harness MUST предоставлять операции `build`, `promote`, `status`, `rollback`, `reset-data` и `smoke` с dry-run режимом.
+- **FR-011**: Dev harness MUST предоставлять операции `build`, `promote`, `status`, `rollback`, `reset-data` и `smoke`. Изменяющие состояние `build`, `promote`, `rollback` и `reset-data` MUST иметь dry-run; читающие `status` и `smoke` не требуют отдельного dry-run.
 - **FR-012**: Dev promotion MUST быть lock-protected, идемпотентным и атомарным на уровне active manifest.
 - **FR-013**: Dev manifest MUST содержать feature ID, exact source SHA, component digests/versions, migration head, app identity, operator, timestamps, parent manifest и health result.
 - **FR-014**: В active Dev-среде MUST находиться ровно один backend/frontend bundle и одна `/Applications/GRAF Dev.app`; параллельные кандидаты не устанавливаются рядом.
@@ -161,7 +165,7 @@ Release operator объединяет несколько завершённых 
 - **FR-019**: Run для SHA, который больше не является target SHA, MUST быть cancelled/stale и MUST NOT считаться merge/release evidence.
 - **FR-020**: Release candidate MUST быть immutable после metadata freeze; изменение source, lock, changelog или manifest инвалидирует candidate.
 - **FR-021**: На один frozen candidate допускается ровно один authoritative Full CI; retries получают отдельный identity и явно объясненную причину.
-- **FR-022**: Fast CI MUST быть обычным PR feedback, Full CI MUST запускаться только на frozen candidate или для диагностического broad baseline.
+- **FR-022**: PR MUST проходить GitHub Actions `governance-fast`, `macos-pr` и `pr-metadata` на точном SHA и проверенной основе через `scripts/validate-pr-checks.py`. Локальные `ci-local.sh --fast` / `--full` служат диагностикой и не заменяют эти проверки; `release-full` запускается для замороженного кандидата выпуска.
 - **FR-023**: Release train MUST иметь schedule/window, owner, candidate manifest, go/no-go checklist, rollback plan и metadata-only evidence.
 - **FR-024**: Product release MUST использовать CalVer `vYYYY.MM.DD.N`; tag, GitHub Release и русские notes MUST ссылаться на один SHA.
 - **FR-025**: Hotfix MUST быть явно помечен и документировать, почему обычное окно пропущено.
@@ -172,7 +176,7 @@ Release operator объединяет несколько завершённых 
 - **FR-030**: Harness package MUST separate generic rules from GRAF-specific adapters and MUST publish pinned immutable versions with SemVer.
 - **FR-031**: Harness publish guard MUST reject secrets, raw audio, transcript text, private meeting data, credentials, signed URLs and machine-specific absolute paths.
 - **FR-032**: All issue/PR/release text generated by the process MUST follow Russian issue canon, include task IDs and use labels `feature`, `priority`, `area`, `type`, `gate` where applicable.
-- **FR-033**: Optional auto-commit hooks MUST be disabled by default; commits after implementation require explicit owner approval following validation and convergence.
+- **FR-033**: Optional auto-commit hooks MUST be disabled by default; implementation commits MUST follow validation and convergence.
 - **FR-034**: Reviewer-owned checklist states MUST NOT be changed by implementation agents; unresolved required items block convergence.
 - **FR-035**: Every gate result MUST include command, exact SHA, start/end time, status, scope, skipped gates and safe failure reason.
 - **FR-036**: The process MUST provide a short operator runbook with next action for each blocked state and a rollback command for each mutable operation.
@@ -221,13 +225,13 @@ Release operator объединяет несколько завершённых 
 
 - **SC-001**: 100% of new feature preflights either receive a unique claim or fail with an actionable collision/availability reason; no duplicate claim is accepted in a concurrency test.
 - **SC-002**: Two simultaneous feature worktrees complete preflight with zero changes to root `AGENTS.md` and zero writes outside their owned spec/task/fragment/evidence paths.
-- **SC-003**: A Dev promotion/status/smoke sequence proves one active manifest whose backend, frontend and app all report the same exact SHA; rollback restores the prior manifest in under 60 seconds in a local fixture.
+- **SC-003**: Изолированный тест promotion/status/smoke подтверждает единый SHA компонентов и восстановление предыдущего manifest менее чем за 60 секунд. Приёмка реального стенда отдельно подтверждает единый SHA работающих backend/frontend/app, восстановление предыдущего стенда и сохранение разрешений установленного приложения (US2); результат на искусственных данных не закрывает эту часть.
 - **SC-004**: Stale-SHA tests detect 100% of changed-target, interrupted and mismatched-component cases; stale evidence cannot pass the release validator.
-- **SC-005**: A frozen candidate permits one authoritative Full CI identity and produces a complete metadata-only release record with tag, GitHub Release and Russian notes.
+- **SC-005**: Изолированные проверки замороженного кандидата подтверждают единственный разрешающий полный прогон, неизменяемость решения и отдельную запись фактических tag/GitHub Release/русских notes после публикации. Они проверяют механизм записи, но не заявляют реальную публикацию продукта: она проходит отдельные ворота выпуска и остаётся вне F216.
 - **SC-006**: 100% of feature specs/PRs in the new process contain Legacy Impact; zero new unowned legacy paths and zero expired exceptions pass the governance guard.
 - **SC-007**: A clean external sample repository installs the harness from an immutable SemVer, passes self-test and contains no GRAF secrets, private data or machine-specific paths.
 - **SC-008**: Agent preflight context stays bounded to the active feature manifest and linked guidance; it never selects a feature by `mtime` or loads unrelated specs automatically.
-- **SC-009**: The complete declared feature quickstart and `infra/scripts/ci-local.sh --fast` pass on the PR-ready SHA; Full CI is not run before candidate freeze except for explicitly recorded diagnosis.
+- **SC-009**: Применимые проверки quickstart проходят; обязательные GitHub `governance-fast`, `macos-pr`, `pr-metadata` подтверждены на точном PR SHA и проверенной основе. Локальные fast/full — диагностика; `release-full` относится к замороженному кандидату. Непроверенная реальная Dev-приёмка остаётся явным препятствием итоговому закрытию F216.
 - **SC-010**: A separately tracked legacy-cleanup follow-up exists with prioritized contours, owners and safe migration boundaries before this governance feature closes.
 
 ## Assumptions and Dependencies
@@ -235,7 +239,7 @@ Release operator объединяет несколько завершённых 
 - `origin/master` is the integration base; the current repository is public and GitHub account has permission to create issues, labels, branches and PRs.
 - Spec Kit `216` is reserved after checking remote branch `215-summary-auto-recovery` and all visible refs; GitHub issue #6090 is the umbrella reservation record.
 - Existing GRAF constitution, product gates, issue canon and CalVer policy remain authoritative; this feature extends them without weakening safety rules.
-- GitHub Actions may remain disabled; the harness must provide equivalent local/remote evidence and explicit status.
+- GitHub Actions включены; обязательные проверки PR и выпуска определены в `docs/agent-guidance/release-and-validation.md`. Локальные журналы не заменяют GitHub evidence.
 - A macOS developer keychain is available for local Dev app signing; public Developer ID/notarization remains a separate release gate.
 - Dev reset/reseed may recreate local data; production data and migrations require separate approved changes.
 - The reusable repository name is provisional (`graf-development-harness`) and must be checked for availability before creation.

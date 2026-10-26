@@ -1,36 +1,45 @@
 # Specification Quality Checklist: Единый процесс разработки и переносимый harness
 
-**Purpose**: Проверить полноту и качество спецификации до планирования
+**Purpose**: Повторно проверить полноту и качество требований F216; итоговая
+приёмка реализации отдельно фиксируется в `governance.md`.
 **Created**: 2026-08-31
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
 
-- [ ] Нет лишних деталей реализации в пользовательских сценариях
-- [ ] Описана ценность для владельца, агента, reviewer и operator
-- [ ] Текст понятен участникам без знания внутреннего кода
-- [ ] Все обязательные разделы шаблона заполнены
+- [x] Нет лишних деталей реализации в пользовательских сценариях
+- [x] Описана ценность для владельца, агента, reviewer и operator
+- [x] Текст понятен участникам без знания внутреннего кода
+- [x] Все обязательные разделы шаблона заполнены
 
 ## Requirement Completeness
 
-- [ ] Нет нерешённых маркеров `NEEDS CLARIFICATION`
-- [ ] Требования проверяемы и однозначны
-- [ ] Success criteria измеримы и проверяются без скрытых допущений
-- [ ] Описаны позитивные, конкурентные и отказные сценарии
-- [ ] Границы In Scope / Out of Scope явны
-- [ ] Assumptions и зависимости зафиксированы
-- [ ] Legacy Impact и follow-up boundary зафиксированы
+- [x] Нет нерешённых маркеров `NEEDS CLARIFICATION`
+- [x] Требования проверяемы и однозначны
+- [x] Success criteria измеримы и проверяются без скрытых допущений
+- [x] Описаны позитивные, конкурентные и отказные сценарии
+- [x] Границы In Scope / Out of Scope явны
+- [x] Assumptions и зависимости зафиксированы
+- [x] Legacy Impact и follow-up boundary зафиксированы
 
 ## Governance Readiness
 
-- [ ] Каждый user story независимо тестируем
-- [ ] Worktree, Feature ID, Dev, CI, release и harness имеют трассируемые критерии
-- [ ] Reviewer-owned checklist не смешан с implementation DoD
-- [ ] Требования не ослабляют constitution, product gates или public signing rules
-- [ ] Отдельный reusable repository имеет provenance, versioning и secret/path boundary
+- [x] Каждый user story независимо тестируем
+- [x] Worktree, Feature ID, Dev, CI, release и harness имеют трассируемые критерии
+- [x] Reviewer-owned checklist не смешан с implementation DoD
+- [x] Требования не ослабляют constitution, product gates или public signing rules
+- [x] Отдельный reusable repository имеет provenance, versioning и secret/path boundary
 
 ## Notes
 
 Чекбоксы изменяет reviewer, а не агент реализации. После clarify и plan этот
 лист должен быть проверен повторно; незакрытые пункты блокируют переход к
 implementation, если они влияют на безопасность, данные, release или rollback.
+
+## Независимое повторное ревью 26.10.2026
+
+Все 16 исходных требований сохранены и подтверждены по исправленным spec, plan,
+tasks, quickstart и contracts. Источники каждого пункта и границы проверки —
+[отчёт reviewer](../checklist-review-20261026.md). Итог: 16 checked / 0 unchecked.
+Это PASS качества требований, а не приёмка приложения, выпуска или всей F216.
+Незакрытые предметные пункты `governance.md` сохраняют запрет итогового закрытия.
