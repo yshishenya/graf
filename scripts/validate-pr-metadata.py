@@ -280,7 +280,12 @@ def checked_base(pr: dict) -> str:
     merge_tree = _git("rev-parse", f"{merge}^{{tree}}")
     head_tree = _git("rev-parse", f"{head}^{{tree}}")
     head_row = _git("rev-list", "--parents", "--max-count=1", head).split()
+    source_merge = ""
     if len(head_row) == 2:
+        source_merge = _git("rev-list", "--merges", "--max-count=1", f"{merge_parent}..{head}")
+        if source_merge and not re.fullmatch(r"[0-9a-f]{40}", source_merge):
+            raise ValueError("invalid source merge history output")
+    if len(head_row) == 2 and not source_merge:
         source_rows = linear_rows(head, count)
         source_base = source_rows[-1][1]
         target_rows = linear_rows(merge, count, allow_squash=True)
