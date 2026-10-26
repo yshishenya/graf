@@ -49,6 +49,7 @@ def snapshot(tmp_path: Path) -> tuple[Path, dict, dict]:
     script = tmp_path / "scripts/validate-pr-metadata.py"
     script.parent.mkdir()
     shutil.copyfile(SCRIPT, script)
+    shutil.copyfile(ROOT / "scripts/validate-legacy-impact.py", script.with_name("validate-legacy-impact.py"))
     git(tmp_path, "add", ".")
     git(tmp_path, "commit", "-qm", "base")
     base = git(tmp_path, "rev-parse", "HEAD")
@@ -367,7 +368,7 @@ def run_trusted(root, event, current, after=None, *, policy=None):
     result_path = root / "trusted-result.json"
     result_path.unlink(missing_ok=True)
     return subprocess.run([
-        sys.executable, "-I", str(SCRIPT), "--event", str(root / "event.json"),
+        sys.executable, "-I", str(root / "scripts/validate-pr-metadata.py"), "--event", str(root / "event.json"),
         "--current-pr", str(root / "current-pr.json"), "--current-pr-after", str(root / "after.json"),
         "--trusted-policy-sha", policy or git(root, "rev-parse", "HEAD"),
         "--repository", "example/project", "--result", str(result_path),
@@ -392,6 +393,43 @@ def test_trusted_metadata_uses_policy_checkout_and_redacted_double_snapshot(snap
     assert "body" not in proof and "title" not in proof
     assert "private" not in json.dumps(proof)
     assert not (root / "injected").exists()
+
+
+@pytest.mark.parametrize("complete", [False, True])
+def test_trusted_exception_uses_sibling_policy_not_pr_helper_or_cwd(snapshot, complete):
+    root, event, current = snapshot
+    current = trusted_pr(current)
+    policy = current["base"]["sha"]
+    # The PR's helper is executable attacker-controlled source, read only as Git objects.
+    (root / "scripts/validate-legacy-impact.py").write_text(
+        "from pathlib import Path; Path('injected').touch(); raise RuntimeError('private-source')"
+    )
+    git(root, "add", "scripts/validate-legacy-impact.py")
+    git(root, "commit", "-qm", "untrusted PR helper")
+    current["head"]["sha"] = git(root, "rev-parse", "HEAD")
+    current["commits"] = 2
+    declaration = "Classification: `retain-with-exception`"
+    if complete:
+        declaration += """
+- owner: platform
+- expiry: 2099-12-31
+- reason: supported clients
+- compatibility boundary: clients before migration
+- removal trigger: migration complete
+- risk: bounded compatibility
+- validation: focused migration test
+- retirement task: F228 T017 #6255
+"""
+    current["body"] = body(current["head"]["sha"]).replace("Classification: `untouched`", declaration)
+    event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
+    git(root, "checkout", "-q", "--detach", policy)
+    (root / "validate-legacy-impact.py").write_text("raise RuntimeError('private-cwd')")
+    result = run_trusted(root, event, current)
+    assert result.returncode == (0 if complete else 1), result.stderr
+    assert (root / "trusted-result.json").exists() == complete
+    assert not (root / "injected").exists()
+    assert "private" not in result.stderr and "Traceback" not in result.stderr
+    assert git(root, "rev-parse", "HEAD") == policy
 
 
 def test_open_pr_background_test_merge_is_not_source_identity(snapshot):

@@ -159,8 +159,15 @@ commit only after validation and convergence.
 Every spec and PR has one `Legacy Impact` classification: `remove`,
 `retain-with-exception` or `untouched`. New aliases, fallback names, flags,
 dependencies, fixtures, tests or docs that preserve an old path are forbidden.
-An exception requires owner, expiry, removal trigger, risk, validation and a
-retirement task. The closeout target is:
+An exception requires exactly one nonempty, non-placeholder value for each of:
+owner, expiry, reason, compatibility boundary, removal trigger, risk, validation
+and retirement task. Expiry is an exact YYYY-MM-DD date strictly after today's
+UTC date. Retirement task names one `F###`, one `T###` and one positive `#issue`;
+format validation does not prove that the linked work exists or is accepted.
+The spec and PR validators reuse the same finite-exception check from the
+trusted policy checkout; they never execute code from the PR to validate its
+description. Registry ownership and changed-path discovery remain separate
+checks. The closeout target is:
 
 ```text
 legacy_new=0

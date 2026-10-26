@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+import runpy
 import subprocess
 import sys
 from pathlib import Path
@@ -159,8 +160,14 @@ def validate(
     legacy_sections = sections.get("## Legacy Impact", [])
     legacy_section = legacy_sections[0] if len(legacy_sections) == 1 else ""
     classifications = CLASSIFICATION_RE.findall(legacy_section)
-    if len(classifications) != 1:
+    labels = re.findall(r"^[ \t]*(?:[-*][ \t]*)?(?:\*\*)?classification(?:\*\*)?[ \t]*:",
+                        legacy_section, re.IGNORECASE | re.MULTILINE)
+    if len(classifications) != 1 or len(labels) != 1:
         errors.append("Legacy Impact classification is required")
+    elif classifications[0].lower() == "retain-with-exception":
+        # Resolve beside this trusted policy script, never from the PR checkout or cwd.
+        legacy = runpy.run_path(str(Path(__file__).resolve().with_name("validate-legacy-impact.py")))
+        errors.extend(legacy["validate_exception"](legacy_section))
     return errors
 
 
