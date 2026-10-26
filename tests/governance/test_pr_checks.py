@@ -24,6 +24,7 @@ spec.loader.exec_module(checks)
 @pytest.mark.parametrize('failure', [
     'merge-error', 'unknown-tree', 'multiple-trees', 'prefix-diff-error', 'prefix-diff-unknown', 'ancestry-error',
     'target-empty', 'target-invalid', 'target-noncontiguous', 'target-missing-first',
+    'source-merge-error', 'source-merge-unknown', 'source-merge-multiple',
 ])
 def test_replay_git_failure_cannot_become_squash_proof(snapshot, monkeypatch, failure):
     root, _, pr, _, start, _, _ = replay_history(snapshot)
@@ -53,6 +54,10 @@ def test_replay_git_failure_cannot_become_squash_proof(snapshot, monkeypatch, fa
         monkeypatch.setattr(subprocess, 'run', run)
     else:
         def failed_git(*args):
+            if failure.startswith('source-merge-') and args[:3] == ('rev-list', '--merges', '--max-count=1'):
+                if failure == 'source-merge-error':
+                    raise subprocess.CalledProcessError(128, ['git', *args])
+                return 'unknown' if failure == 'source-merge-unknown' else 'a' * 40 + '\n' + 'b' * 40
             if failure.startswith('target-') and args == (
                 'rev-list', '--parents', '--max-count=4', pr['merge_commit_sha'],
             ):

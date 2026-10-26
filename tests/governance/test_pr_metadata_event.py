@@ -512,7 +512,9 @@ def test_merged_metadata_binds_actual_history_not_moving_master(snapshot, kind):
         assert proof["api_base_sha"] == api_base
 
 
-def test_squash_accepts_pr_that_merged_an_updated_master(snapshot):
+@pytest.mark.parametrize("followups", [0, 1, 2])
+@pytest.mark.parametrize("mutation", [None, "wrong-tree", "wrong-count", "wrong-parent"])
+def test_squash_accepts_pr_that_merged_an_updated_master(snapshot, followups, mutation):
     root, event, current = snapshot
     current = trusted_pr(current)
     base, first = current["base"]["sha"], current["head"]["sha"]
@@ -523,19 +525,33 @@ def test_squash_accepts_pr_that_merged_an_updated_master(snapshot):
     checked_base = git(root, "rev-parse", "HEAD")
     git(root, "checkout", "-q", "--detach", first)
     git(root, "merge", "--no-ff", "-qm", "update PR from master", checked_base)
+    for index in range(followups):
+        (root / "follow-up.txt").write_text(f"source follow-up {index}\n")
+        git(root, "add", "follow-up.txt")
+        git(root, "commit", "-qm", "source follow-up")
     head = git(root, "rev-parse", "HEAD")
     count = int(git(root, "rev-list", "--count", f"{checked_base}..{head}"))
     tree = git(root, "rev-parse", f"{head}^{{tree}}")
-    merge = git(root, "commit-tree", tree, "-p", checked_base, "-m", "squashed PR")
+    if mutation == "wrong-tree":
+        tree = git(root, "rev-parse", f"{checked_base}^{{tree}}")
+    parent = base if mutation == "wrong-parent" else checked_base
+    merge = git(root, "commit-tree", tree, "-p", parent, "-m", "squashed PR")
+    if mutation == "wrong-count":
+        count += 1
     current.update(state="closed", merged=True, merge_commit_sha=merge, commits=count)
     current["head"]["sha"] = head
-    current["base"]["sha"] = merge
+    current["base"]["sha"] = git(root, "commit-tree", tree, "-p", merge, "-m", "later master")
     current["body"] = body(head)
     event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
     git(root, "checkout", "-q", "--detach", base)
+    before = (git(root, "rev-parse", "HEAD"), git(root, "for-each-ref"), (root / ".git/index").read_bytes())
     result = run_trusted(root, event, current)
-    assert result.returncode == 0, result.stderr
-    assert json.loads((root / "trusted-result.json").read_text())["base_sha"] == checked_base
+    assert (result.returncode == 0) == (mutation is None), result.stderr
+    if mutation is None:
+        assert json.loads((root / "trusted-result.json").read_text())["base_sha"] == checked_base
+    else:
+        assert not (root / "trusted-result.json").exists()
+    assert before == (git(root, "rev-parse", "HEAD"), git(root, "for-each-ref"), (root / ".git/index").read_bytes())
 
 
 @pytest.fixture
