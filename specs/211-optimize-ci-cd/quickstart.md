@@ -923,3 +923,30 @@ Native capture совместимость и реальные письма эт�
    До этого локальная реализация не подтверждает исправление hosted задержки.
    Release-full не запускается ради повторения локальных проверок; frozen
    release gate сохраняется. Production и приложение не меняются.
+
+
+## T101/T102 — приёмка historical replay, 2026-10-26
+
+Точная матрица — spec T101.5; независимый checklist `checklists/rebase-proof.md`.
+Сначала регрессия на старом коде, затем те же проверки с исправлением:
+
+```sh
+python -m pytest -q tests/governance/test_pr_metadata_event.py tests/governance/test_pr_scope.py tests/governance/test_pr_checks.py tests/governance/test_sync_pr_metadata.py
+ruff check scripts/validate-pr-metadata.py tests/governance/test_pr_metadata_event.py
+python scripts/check-development-process.py
+python scripts/check_spec_kit_governance.py
+python scripts/validate-changelog-fragments.py
+```
+
+Локальная Git/API матрица не является hosted/production приёмкой. После merge
+нового PR: общий verifier всех точных PR диапазона, новый frozen candidate,
+один authoritative Full на его SHA, штатный dry-run/backup/CD и публичная
+приёмка. Неоднозначный overlapping squash блокируется, не обходится whitelist.
+Окончательный focused-набор26.10:288 PASS/95.40s; Ruff/process/governance/
+changelog/diff PASS. Независимый code reviewer снял первоначальный BLOCK
+после11 собственных проверок конечных байтов; requirements checklist6/0.
+Scoped converge:6 групп T101 покрыты или уже учтены T101/T102, новых задач0.
+Настоящий PR #7714 принят общим live verifier; полный диапазон и новый
+выпуск ещё не приняты. Подробности:
+[`validation-rebase-proof-20261026.md`](validation-rebase-proof-20261026.md).
+T101 до exact-SHA/base PR checks и merge, T102 до выпуска остаются открытыми.

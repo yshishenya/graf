@@ -222,7 +222,7 @@ High-risk CI/governance; constitution 7.0.0 PASS, read-only permissions and exis
 5. Extend existing closeout/release consumers through one reusable live PR check validator. Pin the foundation commit as the historical policy boundary after it exists; do not invent its SHA. New PRs require correct workflow/event/head/conclusion for all three checks and fresh current body validation. Historical pre-cutover evidence remains valid; post-merge identity uses final head and merge ancestry. The current personal-repo train remains serial; no unsupported live merge-group claim.
 6. Verify with existing metadata/event/workflow/closeout/train tests and executable shell/event fixtures. Use no new runtime dependency. Record actual activation and final-SHA hosted checks separately from local proofs; update active guidance and owned changelog only after the switch.
 
-A6 consumer implementation details: one `.github/pr-check-policy.json` records the actual foundation SHA/PR and successful protection read-back UTC timestamp. Policy selection uses merged_at < activation only for already merged PRs; open PRs never qualify for the historical exemption. New policy requires code receipt + native scope + metadata snapshot at common head/base and correct run/attempt; current API base for open PRs, exact squash parent or linear rebase-range predecessor plus equal final trees for merged PRs. Trusted metadata refresh also supports verified merged closed PRs and derives the checked base from their immutable merge, retaining double snapshot checks; closed/unmerged is rejected. No missing artifact or ambiguous merge falls back to old policy. Consumers use existing Git/GitHub data and validators; no new external service.
+A6 consumer implementation details: one `.github/pr-check-policy.json` records the actual foundation SHA/PR and successful protection read-back UTC timestamp. Policy selection uses merged_at < activation only for already merged PRs; open PRs never qualify for the historical exemption. New policy requires code receipt + native scope + metadata snapshot at common head/base and correct run/attempt; current API base for open PRs; merged histories follow the current T101 per-tree replay and independent-prefix squash contract below. Trusted metadata refresh also supports verified merged closed PRs and derives the checked base from their immutable merge, retaining double snapshot checks; closed/unmerged is rejected. No missing artifact or ambiguous merge falls back to old policy. Consumers use existing Git/GitHub data and validators; no new external service.
 
 ### A6 исправление последнего набора GitHub checks (T080–T081)
 
@@ -550,3 +550,34 @@ URI и включены. Несколько таких разделов допу
 → коммит/PR → три exact-SHA/base проверки → merge → новый настоящий
 server-change run и закрытие только этой задачи после live-валидации.
 Общие F211/F263 не объявляются завершёнными.
+
+
+## T101–T102 — исторический replay на продвинутую цель
+
+Lane: active Spec Kit slice / high-risk CI/governance. Constitution7.1.0 check
+до исследования и после дизайна: PASS; новые полномочия, данные, внешние сервисы,
+продуктовые поведения и изменения принципов не нужны. T098 и её CHK004 остаются
+исторической приёмкой другого исправления; текущий checklist — `rebase-proof.md`.
+
+1. Общий `scripts/validate-pr-metadata.py::checked_base` уже используется trusted
+   metadata, `ci-pr-scope.resolve`, `validate-pr-checks.code_snapshot/verify`.
+   Исправление остаётся в нём. Переиспользовать `_git`, stdlib и текущие тесты.
+2. Для линейного source получить N пар commit/parent и исходную базу. Попытаться
+   доказать N target пар и каждое дерево через `git merge-tree --write-tree
+   --merge-base=<source_parent> <target_parent> <source_commit>`. Возврат source
+   base разрешён только после всех N точных tree SHA. Ни final equality, ни
+   ancestry, ни ошибочный aggregate на parent последнего replay этого не заменяют.
+3. Если replay не доказан, squash возможен только для линейного независимого
+   target prefix от source base до merge parent. NUL Git diff каждого commit,
+   `--no-renames`, обе стороны удаления/переименования; объединить пути без
+   net-diff сокращения. Пересечение exact path или ancestor directory блокирует.
+   Затем проверить ровно SHA полного aggregate tree с явной source base.
+   Git failure/unknown output не трактуется как пустой prefix. Настоящий squash
+   с пересечением путей может блокироваться как неоднозначный.
+4. Existing non-linear source/sync и actual two-parent обработку не расширять;
+   прежние отдельные доказательства и негативы сохраняются. API snapshots,
+   identity, receipts, run/attempt/freshness/protection/Full/backup/CD не менять.
+5. До source edits: уточнение spec/research, независимый reviewer checklist PASS,
+   scoped analyze без CRITICAL/HIGH и issue sync. Затем сначала FAIL регрессии,
+   минимальный fix, focused tests пяти consumers и Ruff, independent implementation
+   review/converge, owned fragment. T102 остаётся отдельной приёмкой выпуска.

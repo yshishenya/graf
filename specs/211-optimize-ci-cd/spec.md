@@ -287,7 +287,7 @@ Release engineer получает один авторитетный резуль
 8. Перед общим PASS полного consumer повторно сверяются все выбранные source run/attempts и актуальные gate run/attempts всех требуемых компонентов, их identity и успешный терминальный результат. Одного финального PR snapshot недостаточно: same-head/base rerun во время проверки другого компонента обязан сделать прежний набор недействительным, даже если PR identity не изменилась.
 
 
-A6 consumer identity clarification: all three successful results must bind to the same final PR head **and checked base**. Code uses its existing CI receipt, native uses the scope artifact, metadata uses the trusted snapshot artifact; each is tied to the verified workflow run/attempt. Missing, expired, mismatched or mixed-attempt proof fails closed. A fresh metadata result never refreshes stale code/native base evidence. For an open PR the common base must equal the live PR base. For a merged PR it must be the actual base of the merge: squash requires merge_commit first parent = checked base and merge tree = final head tree; linear rebase requires the parent before the recorded PR commit count = checked base, a linear source range of that count, and identical final trees. Mere ancestry is insufficient; unknown merge shape is blocked.
+A6 consumer identity clarification: all three successful results must bind to the same final PR head **and checked base**. Code uses its existing CI receipt, native uses the scope artifact, metadata uses the trusted snapshot artifact; each is tied to the verified workflow run/attempt. Missing, expired, mismatched or mixed-attempt proof fails closed. A fresh metadata result never refreshes stale code/native base evidence. For an open PR the common base must equal the live PR base. For a merged PR the supported historical forms and the distinction between source checked base and target start are defined by the current T101 clarification below. Every replay tree must be proved; ancestry or final-tree equality alone is insufficient. Unsupported or ambiguous histories fail closed.
 
 A6 historical-policy clarification: record the real foundation merge SHA/PR and activation UTC time from the successful protection read-back in `.github/pr-check-policy.json` during T060/T062. A merged PR strictly before that recorded activation (including the foundation and intervening merges) uses the old combined policy. Every open PR at/after activation, and every PR merged at/after activation, uses all three checks regardless of when its branch/head was created. Missing/invalid/ambiguous activation evidence does not grant a historical exemption. The old combined gate stays until the cutover PR, so this recorded boundary cannot create a protection gap.
 
@@ -581,3 +581,53 @@ https://security.ubuntu.com/ubuntu/	priority:3
 Допустимы только эти три строки либо уже исправленные последние две.
 Дубликаты, добавочные/другие строки, неподдерживаемая форма deb822 URI,
 отсутствующие или не обычные файлы дают FAIL; чужие источники не изменяются.
+
+
+### T101–T102 — последовательный перенос на продвинутую цель, 2026-10-26
+
+Продолжение FR-008/FR-040/SC-019; отдельный текущий срез, не изменение
+исторической приёмки T098. Пользователь разрешил исправление и scoped повторное
+чтение для F211; остальные обязательные проверки сохраняются.
+
+Clarify: исправляем общий проверяющий исторического merge, без исключения для
+конкретного PR. `source_checked_base` — база исходного проверенного диапазона;
+`target_start` — предшественник N целевых commits до immutable merge SHA.
+При продвижении цели они различны. Возвращаемая база и все receipts по-прежнему
+привязаны к исходному source. Дополнительные источники доверия не вводятся.
+
+1. Исходный диапазон содержит ровно записанные N линейных смежных commits.
+   Целевой replay заканчивается immutable merge SHA и содержит ровно N
+   линейных смежных commits; target_start является потомком source_checked_base
+   либо равен ей. Для каждой пары обязательно точное равенство полного
+   промежуточного дерева результату three-way replay с явным source parent.
+   Это требуется также при равных конечных деревьях.
+2. Ошибка Git, конфликт, неизвестный вывод, отсутствующий объект, нелинейность,
+   нарушение count/ancestry и промежуточная/конечная подмена не дают replay PASS.
+   Совпадение одного конечного дерева не скрывает промежуточную подмену.
+3. Настоящий squash и испорченный replay иногда неразличимы по доступным входам.
+   Aggregate squash после неуспешного replay допустим только когда весь target
+   prefix от source_checked_base до parent merge линейный и доказанно независим:
+   объединение изменённых путей КАЖДОГО prefix commit не пересекается с путями
+   КАЖДОГО исходного commit. Изменение с возвратом, rename/delete и отношение
+   файл/каталог учитываются. Пустой prefix допускается. Затем требуется точное
+   дерево three-way squash. Пересечение даёт unsupported/ambiguous history;
+   aggregate не обходит отказ. Корректный squash с пересечением путей может
+   оказаться неподдерживаемым — это явная граница, а не доказательство порчи.
+4. Прежние отдельно доказанные two-parent merge и terminal target-sync формы
+   сохраняются; sync merge не принимается обычным линейным путём. Сохраняются
+   before/after snapshots, head/base/repository/ref/state/merge identity,
+   workflow/event/run/attempt, свежесть и fixed-name required checks. Никаких
+   patch-id, эвристик сообщений/авторов, whitelist, skip или нового proof format.
+   Проверка не меняет checkout, refs, index и исходники.
+5. Приёмка: настоящий временный Git с четырьмя source commits, повторно
+   меняющими добавленный файл; FAIL старого кода и PASS исправления на advanced
+   target и без продвижения. Негативы: wrong count, drop/extra/order, нелинейные
+   source/target, unrelated start, конфликт, missing object, Git error/неизвестный
+   вывод и скрытая промежуточная подмена с корректным final tree. Отдельно:
+   независимый squash PASS, пересекающийся/изменённый-с-возвратом squash BLOCK,
+   rename/delete/file-directory overlap BLOCK. Настоящие scope и полный consumer
+   сохраняют source base/diff и все неправильные/missing/stale receipt отказы.
+6. T101 — требования, регрессия, реализация, независимое review/converge и
+   exact-SHA/base PR checks. T102 — общий live verifier диапазона и новый frozen
+   candidate/один authoritative release-full/dry-run/backup/CD/public acceptance.
+   Трафик, продажи и включение полной F273 из этого исправления не следуют.
