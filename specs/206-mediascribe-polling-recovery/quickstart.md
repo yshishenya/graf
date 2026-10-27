@@ -82,6 +82,8 @@ Historical pre-audit evidence 2026-08-27 (не является current-SHA evid
   replay/continue-as-new, double cancellation и sibling-worker cleanup входят в
   обязательную current-SHA matrix ниже; pre-sync evidence не заменяет её.
 
-После scoped/current-SHA validation выполнить уже одобренные PR/review/merge,
-release/deploy и production E2E. Full CI повторно не запускать; repository
-deployment gates и exact-SHA guard обязательны.
+После scoped/current-SHA validation выполнить PR/review/merge, release/deploy
+и production E2E по действующим
+[правилам проверки и выпуска](../../docs/agent-guidance/release-and-validation.md).
+Три обязательные проверки PR и один GitHub `release-full` замороженного
+кандидата обязательны; старый Full другого SHA и локальный fast их не заменяют.
