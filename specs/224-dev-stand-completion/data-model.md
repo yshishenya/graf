@@ -61,3 +61,34 @@ schema-transition.json, rollback-required.json, data_root и secrets не мен
 жизненный цикл и совместимость старых квитанций определены единожды в
 [contracts/promotion-recovery.md](contracts/promotion-recovery.md).
 Формат binding, schema-transition и данные томов этим не меняются.
+
+
+## T009: временный план классификации, 27.10.2026
+
+Binding v1 не меняется. Локальный JSON вне state tree содержит ровно
+`schema_version=graf-dev-state-classification.v1`, canonical `repository`,
+абсолютный `selected_root`, массив `roots`. Каждая запись имеет ровно `path`,
+целые `device`/`inode`, `kind` (`selected`, `preserved-state`, `artifact-only`),
+`tree_sha256`, массивы `artifacts` и `build_archives`, непустое `evidence`.
+Ровно один selected, paths уникальны и совпадают со всеми стандартными непустыми
+roots. Selected/preserved-state имеют пустой `artifacts`; artifact-only перечисляет
+каждый app: относительный `path`, полный `source_sha`, `signing_identity`,
+`designated_requirement`, `entitlements_digest`. Эти факты не присваивают root.
+
+`build_archives` — уникальные относительные POSIX пути `artifacts/<candidate>/build`
+без пустых/точечных компонентов, с реальным sibling-каталогом `GRAF Dev.app`.
+У `artifact-only` каждый app требует отдельной записи `artifacts[]` и проверки
+bundle/SHA/подписи. У `selected`/`preserved-state` архивные app/build остаются
+неизвестными неизменными байтами без права применения; проверяется безопасный
+путь sibling, а не его идентичность. Одно название не разрешает использование;
+правила границ заданы в контракте.
+Состав plan, типы и поля строгие; неизвестное/подменённое значение даёт отказ.
+
+`tree_sha256` — SHA-256 канонического JSON массива root (`path="."`) и потомков,
+отсортированных по относительному POSIX path; UTF-8, `json.dumps(sort_keys=True,
+separators=(",", ":"), ensure_ascii=True)` без newline. Для каждой записи:
+`path`, `type` (directory/file/symlink), целые `device`, `inode`, `uid`, `gid`,
+`mode` (полный st_mode), `size`, `mtime_ns`, `ctime_ns`; у file ещё `sha256`,
+у symlink `target` readlink. Обход по ссылкам не идёт. Atime исключён, потому
+что чтение само его меняет; иных метаданных ОС этот снимок не обещает.
+Изменение любого перечисленного поля, байтов или состава дерева даёт иной снимок.

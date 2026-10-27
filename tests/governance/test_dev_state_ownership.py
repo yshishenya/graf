@@ -593,3 +593,599 @@ def test_active_pointer_supported_runtime_modes(harness, tmp_path, mode):
         (root / "runtime.json").unlink()
     assert harness._load_active(root)["source_sha"] == item["source_sha"]
     adopt(harness, root, expect_empty=False, expected_active_sha=item["source_sha"])
+
+
+# T009 classification fixtures use an independently encoded, disposable tree.
+def classification_digest(root):
+    import hashlib
+    import os
+    import stat
+    rows = []
+    for path in sorted([root, *root.rglob('*')], key=lambda p: p.relative_to(root).as_posix()):
+        info = path.lstat()
+        kind = ('directory' if stat.S_ISDIR(info.st_mode) else 'symlink' if stat.S_ISLNK(info.st_mode)
+                else 'file' if stat.S_ISREG(info.st_mode) else 'special')
+        row = {'path': path.relative_to(root).as_posix(), 'type': kind}
+        row.update(device=info.st_dev, inode=info.st_ino, uid=info.st_uid, gid=info.st_gid,
+                   mode=info.st_mode, size=info.st_size, mtime_ns=info.st_mtime_ns, ctime_ns=info.st_ctime_ns)
+        if kind == 'file':
+            row['sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
+        elif kind == 'symlink':
+            row['target'] = os.readlink(path)
+        rows.append(row)
+    return hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()).hexdigest()
+
+
+def classification_plan(harness, tmp_path, root, *others):
+    entries = []
+    for candidate in (root, *others):
+        info = candidate.stat()
+        entries.append(dict(path=str(candidate), device=info.st_dev, inode=info.st_ino,
+                            kind='selected' if candidate == root else 'preserved-state',
+                            tree_sha256=classification_digest(candidate), artifacts=[], build_archives=[],
+                            evidence=('Selected repository ownership verified; old jobs excluded.' if candidate == root else
+                                      'Historical owner unknown; preserve without ownership or use; old jobs excluded.')))
+    path = tmp_path / 'classification.json'
+    path.write_text(json.dumps(dict(schema_version='graf-dev-state-classification.v1',
+                                   repository='github.com/example/graf', selected_root=str(root), roots=entries)))
+    return path
+
+
+def classified_fixture(harness, tmp_path):
+    root, item = legacy_state(harness, tmp_path)
+    other = harness._machine_state_base() / 'preserved' / 'harness'
+    other.mkdir(parents=True)
+    (other / 'promote.lock').touch()
+    (other / '.dev-boundary').write_text('historical fixture')
+    plan = classification_plan(harness, tmp_path, root, other)
+    return root, item, other, plan
+
+
+def test_classification_preserves_multiple_states_and_binding(harness, tmp_path, monkeypatch):
+    root, item, other, plan = classified_fixture(harness, tmp_path)
+    before = [classification_digest(p) for p in (root, other)]
+    monkeypatch.setattr(harness, '_run_command', lambda *a, **k: pytest.fail('external command'))
+    result = adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert result['state_root'] == str(root)
+    assert before == [classification_digest(p) for p in (root, other)]
+    binding = (harness._machine_state_base() / 'repository-state.json').read_bytes()
+    assert adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)['idempotent']
+    assert (harness._machine_state_base() / 'repository-state.json').read_bytes() == binding
+
+
+def rewrite_classification(path, change):
+    data = json.loads(path.read_text())
+    change(data)
+    path.write_text(json.dumps(data))
+
+
+@pytest.mark.parametrize('case', ['missing', 'extra', 'duplicate', 'unknown-field', 'unknown-kind',
+                                  'foreign', 'selected', 'evidence', 'inode', 'bool-device',
+                                  'hash', 'artifacts', 'empty', 'duplicate-json-key', 'inside-state', 'symlink-plan'])
+def test_classification_invalid_plan_has_no_state_effects(harness, tmp_path, case):
+    root, item, other, plan = classified_fixture(harness, tmp_path)
+    before = [classification_digest(p) for p in (root, other)]
+    if case == 'duplicate-json-key':
+        plan.write_text(plan.read_text()[:-1] + ',"roots":[]}')
+    elif case == 'inside-state':
+        inside = root / 'plan.json'
+        inside.write_bytes(plan.read_bytes())
+        plan = inside
+        before = [classification_digest(p) for p in (root, other)]
+    elif case == 'symlink-plan':
+        alias = tmp_path / 'alias.json'
+        alias.symlink_to(plan)
+        plan = alias
+    else:
+        def mutate(p):
+            e = p['roots'][1]
+            if case == 'missing':
+                p['roots'].pop()
+            elif case == 'extra':
+                p['roots'].append(dict(e, path=str(harness._machine_state_base() / 'absent' / 'harness')))
+            elif case == 'duplicate':
+                p['roots'].append(e)
+            elif case == 'unknown-field':
+                e['force'] = True
+            elif case == 'unknown-kind':
+                e['kind'] = 'unknown'
+            elif case == 'foreign':
+                p['repository'] = 'github.com/other/graf'
+            elif case == 'selected':
+                p['selected_root'] = str(other)
+            elif case == 'evidence':
+                e['evidence'] = ' '
+            elif case == 'inode':
+                e['inode'] += 1
+            elif case == 'bool-device':
+                e['device'] = True
+            elif case == 'hash':
+                e['tree_sha256'] = 'z' * 64
+            elif case == 'artifacts':
+                e['artifacts'] = [{}]
+            elif case == 'empty':
+                p['roots'] = []
+        rewrite_classification(plan, mutate)
+    with pytest.raises(harness.HarnessError):
+        adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert before == [classification_digest(p) for p in (root, other)]
+    assert not (harness._machine_state_base() / 'repository-state.json').exists()
+
+
+@pytest.mark.parametrize('case', ['no-plan', 'missing-lock', 'symlink-lock', 'bad-mode', 'recovery',
+                                  'schema', 'runtime', 'missing-live-runtime', 'active'])
+def test_classification_preserved_state_failures(harness, tmp_path, monkeypatch, case):
+    import shutil
+    root, item, other, plan = classified_fixture(harness, tmp_path)
+    if case == 'missing-lock':
+        (other / 'promote.lock').unlink()
+    elif case == 'symlink-lock':
+        (other / 'promote.lock').unlink()
+        (other / 'promote.lock').symlink_to(tmp_path / 'outside')
+    elif case == 'bad-mode':
+        (other / '.dev-boundary').chmod(0o666)
+    elif case == 'recovery':
+        (other / 'rollback-required.json').write_text('{}')
+    elif case == 'schema':
+        harness._write_json(other / 'schema-transition.json', {'phase': 'prepared'})
+    elif case in ('runtime', 'missing-live-runtime', 'active'):
+        shutil.copytree(root / 'manifests', other / 'manifests')
+        shutil.copyfile(root / 'active-manifest.json', other / 'active-manifest.json')
+        if case != 'missing-live-runtime':
+            harness._write_json(other / 'runtime.json', {'source_sha': 'b' * 40 if case == 'runtime' else item['source_sha']})
+        if case == 'active':
+            monkeypatch.setattr(harness.GrafLocalAdapter, '_pid_owned', lambda *a: True)
+    if case != 'symlink-lock':
+        plan = classification_plan(harness, tmp_path, root, other)
+    # Snapshot helper does not follow the intentionally unsafe lock symlink.
+    before = [classification_digest(p) for p in (root, other)]
+    with pytest.raises(harness.HarnessError):
+        kwargs = {} if case == 'no-plan' else {'classification': plan}
+        adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], **kwargs)
+    assert before == [classification_digest(p) for p in (root, other)]
+    assert not (harness._machine_state_base() / 'repository-state.json').exists()
+    assert not (tmp_path / 'outside').exists()
+
+
+def test_classification_canonical_snapshot_and_completed_journal(harness, tmp_path):
+    root, item, other, plan = classified_fixture(harness, tmp_path)
+    harness._write_json(root / 'schema-transition.json', {
+        'schema_version': 'dev-schema-transition.v1', 'phase': 'complete', 'operation_id': 'upgrade-1',
+        'previous': item, 'target': item, 'volumes': {'graf-dev-postgres-data': {}, 'graf-dev-minio-data': {}},
+    })
+    plan = classification_plan(harness, tmp_path, root, other)
+    assert harness._classification_tree_digest(root) == classification_digest(root)
+    before = classification_digest(root)
+    adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert classification_digest(root) == before
+
+
+def archived_fixture(harness, tmp_path, monkeypatch):
+    import plistlib
+    root, item, other, plan = classified_fixture(harness, tmp_path)
+    git(harness._repo_root(), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+        'commit', '--allow-empty', '-qm', 'Historical archive fixture')
+    source_sha = git(harness._repo_root(), 'rev-parse', 'HEAD')
+    archive = harness._machine_state_base() / 'archive' / 'harness'
+    app = archive / 'artifacts' / 'dev-fixture' / 'GRAF Dev.app'
+    (app / 'Contents').mkdir(parents=True)
+    (app / 'Contents' / 'Info.plist').write_bytes(plistlib.dumps({
+        'CFBundleIdentifier': harness.APP_BUNDLE_ID, 'GRAFSourceSHA': source_sha,
+    }))
+    facts = dict(path=app.relative_to(archive).as_posix(), source_sha=source_sha,
+                 signing_identity='Historical Dev signer', designated_requirement='identifier pro.2brain.graf.dev',
+                 entitlements_digest='sha256:' + '1' * 64)
+    calls = []
+    run_command = harness._run_command
+    def verify(command, **kw):
+        if command[0] == 'git':
+            assert command[:3] == ['git', 'cat-file', '-e']
+            return run_command(command, **kw)
+        assert command[:4] == ['codesign', '--verify', '--deep', '--strict']
+        calls.append(command)
+        return ''
+    monkeypatch.setattr(harness, '_run_command', verify)
+    monkeypatch.setattr(harness.GrafLocalAdapter, '_measure_signed_app_identity',
+                        lambda *a: tuple(facts[k] for k in ('signing_identity', 'designated_requirement', 'entitlements_digest')))
+    plan = classification_plan(harness, tmp_path, root, other, archive)
+    rewrite_classification(plan, lambda p: p['roots'][2].update(kind='artifact-only', artifacts=[dict(facts)]))
+    return root, item, other, archive, app, facts, plan, calls
+
+
+@pytest.mark.parametrize('case', ['valid', 'source', 'missing-commit', 'signature', 'unlisted', 'build', 'lock', 'no-evidence', 'no-apps',
+                                  'outside-link', 'cycle-link', 'valid-link', 'extra-app', 'unknown-artifact-field'])
+def test_classification_archived_apps_are_verified_and_never_registered(harness, tmp_path, monkeypatch, case):
+    import plistlib
+    root, item, other, archive, app, facts, plan, calls = archived_fixture(harness, tmp_path, monkeypatch)
+    if case == 'source':
+        (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': harness.APP_BUNDLE_ID, 'GRAFSourceSHA': 'b' * 40}))
+    elif case == 'missing-commit':
+        facts['source_sha'] = 'b' * 40
+        (app / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleIdentifier': harness.APP_BUNDLE_ID, 'GRAFSourceSHA': 'b' * 40}))
+        rewrite_classification(plan, lambda p: p['roots'][2]['artifacts'][0].update(source_sha='b' * 40))
+    elif case == 'signature':
+        monkeypatch.setattr(harness.GrafLocalAdapter, '_measure_signed_app_identity', lambda *a: ('wrong', 'wrong', 'sha256:' + '2' * 64))
+    elif case == 'unlisted':
+        (archive / 'runtime.json').write_text('{}')
+    elif case == 'build':
+        (app.parent / 'build').mkdir()
+    elif case == 'lock':
+        (archive / 'promote.lock').touch()
+    elif case == 'outside-link':
+        (app / 'Contents/link').symlink_to(tmp_path / 'outside')
+    elif case == 'cycle-link':
+        (app / 'Contents/link').symlink_to('link')
+    elif case == 'valid-link':
+        (app / 'Contents/link').symlink_to('Info.plist')
+    elif case == 'extra-app':
+        (archive / 'artifacts/other/GRAF Dev.app').mkdir(parents=True)
+    rewrite_classification(plan, lambda p: p['roots'][2].update(tree_sha256=classification_digest(archive)))
+    if case == 'no-evidence':
+        rewrite_classification(plan, lambda p: p['roots'][2].update(evidence=''))
+    elif case == 'no-apps':
+        rewrite_classification(plan, lambda p: p['roots'][2].update(artifacts=[]))
+    elif case == 'unknown-artifact-field':
+        rewrite_classification(plan, lambda p: p['roots'][2]['artifacts'][0].update(force=True))
+    before = [classification_digest(p) for p in (root, other, archive)]
+    if case in ('valid', 'valid-link'):
+        adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+        assert calls
+        assert harness.global_state_dir() == root
+    else:
+        with pytest.raises(harness.HarnessError):
+            adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+        assert not (harness._machine_state_base() / 'repository-state.json').exists()
+    assert before == [classification_digest(p) for p in (root, other, archive)]
+    assert not (archive / 'promote.lock').exists() or case == 'lock'
+
+
+@pytest.mark.parametrize('change', ['tree', 'archive', 'build', 'build-link', 'metadata', 'new-root', 'plan', 'plan-inode', 'lock-inode'])
+def test_classification_real_wait_rechecks_complete_state(harness, tmp_path, monkeypatch, change):
+    if change in ('archive', 'build', 'build-link'):
+        root, item, other, archive, app, _, plan, _ = archived_fixture(harness, tmp_path, monkeypatch)
+        if change != 'archive':
+            build = app.parent / 'build'
+            build.mkdir()
+            (build / 'object').write_bytes(b'Never executed')
+            (build / 'alias').symlink_to('object')
+            rewrite_classification(plan, lambda p: p['roots'][2].update(
+                build_archives=[build.relative_to(archive).as_posix()], tree_sha256=classification_digest(archive)))
+    else:
+        root, item, other, plan = classified_fixture(harness, tmp_path)
+    ready, release, waiting = [tmp_path / n for n in ('ready', 'release', 'waiting')]
+    inode = (other / 'promote.lock').stat().st_ino
+    holder = subprocess.Popen([sys.executable, '-c', '''
+import fcntl,sys,time
+from pathlib import Path
+with Path(sys.argv[1]).open('r+') as f:
+ fcntl.flock(f,fcntl.LOCK_EX); Path(sys.argv[2]).touch()
+ while not Path(sys.argv[3]).exists(): time.sleep(.01)
+''', str(other / 'promote.lock'), str(ready), str(release)])
+    process = None
+    try:
+        wait_file(ready, holder)
+        process = child(harness, '''
+from argparse import Namespace
+import os
+original=h.fcntl.flock
+def observed(fd,mode):
+ if os.fstat(fd).st_ino==p['inode']: Path(p['waiting']).touch()
+ return original(fd,mode)
+h.fcntl.flock=observed
+h.operation_adopt_state(Namespace(state_root=Path(p['state']),expected_repository='github.com/example/graf',
+ expected_active_sha='a'*40,expect_empty=False,confirm_repository_ownership=True,classification=Path(p['plan'])))
+''', state=str(root), plan=str(plan), inode=inode, waiting=str(waiting))
+        wait_file(waiting, process)
+        assert process.poll() is None
+        assert not (harness._machine_state_base() / 'repository-state.json').exists()
+        if change == 'tree':
+            (other / '.dev-boundary').write_text('changed while waiting')
+        elif change == 'archive':
+            (app / 'Contents/Info.plist').write_bytes(b'changed while waiting')
+        elif change == 'build':
+            (build / 'object').write_bytes(b'changed while waiting')
+        elif change == 'build-link':
+            (build / 'alias').unlink()
+            (build / 'alias').symlink_to('./object')
+        elif change == 'metadata':
+            (other / '.dev-boundary').chmod(0o400)
+        elif change == 'new-root':
+            extra = harness._machine_state_base() / 'new' / 'harness'
+            extra.mkdir(parents=True)
+            (extra / 'promote.lock').touch()
+        elif change == 'plan':
+            plan.write_bytes(plan.read_bytes() + b' ')
+        elif change == 'plan-inode':
+            replacement = plan.with_suffix('.replacement')
+            replacement.write_bytes(plan.read_bytes())
+            replacement.replace(plan)
+        elif change == 'lock-inode':
+            (other / 'promote.lock').rename(other / 'previous.lock')
+            (other / 'promote.lock').touch()
+        release.touch()
+        stdout, stderr = process.communicate(timeout=10)
+        assert process.returncode != 0, (stdout, stderr)
+        assert not (harness._machine_state_base() / 'repository-state.json').exists()
+    finally:
+        release.touch()
+        holder.wait(timeout=10)
+        if process is not None and process.poll() is None:
+            process.kill()
+            process.communicate()
+
+
+@pytest.mark.parametrize('after', [False, True])
+def test_classification_crash_preserves_roots(harness, tmp_path, after):
+    root, item, other, plan = classified_fixture(harness, tmp_path)
+    before = [classification_digest(p) for p in (root, other)]
+    process = child(harness, '''
+from argparse import Namespace
+import os
+original=h._write_json
+def interrupted(path,value):
+ if p['after']: original(path,value)
+ os._exit(9)
+h._write_json=interrupted
+h.operation_adopt_state(Namespace(state_root=Path(p['state']),expected_repository='github.com/example/graf',
+ expected_active_sha='a'*40,expect_empty=False,confirm_repository_ownership=True,classification=Path(p['plan'])))
+''', state=str(root), plan=str(plan), after=after)
+    stdout, stderr = process.communicate(timeout=10)
+    assert process.returncode == 9, (stdout, stderr)
+    assert (harness._read_repository_binding() is not None) == after
+    assert before == [classification_digest(p) for p in (root, other)]
+
+
+@pytest.mark.parametrize('change', ['atime', 'symlink-race', 'replacement-race'])
+def test_classification_plan_uses_nofollow_and_stable_identity(harness, tmp_path, monkeypatch, change):
+    import os
+    root, _, _, plan = classified_fixture(harness, tmp_path)
+    baseline = harness._classification_input(plan)
+    if change == 'atime':
+        info = plan.stat()
+        os.utime(plan, ns=(info.st_atime_ns - 10_000_000_000, info.st_mtime_ns))
+        # utime changes ctime before the read, which is part of the new baseline.
+        baseline = harness._classification_input(plan)
+        assert harness._classification_input(plan) == baseline
+        return
+    original = harness.os.open
+    def racing_open(path, flags, *args, **kwargs):
+        if Path(path) == plan:
+            assert flags & os.O_NOFOLLOW
+            replacement = tmp_path / 'replacement.json'
+            replacement.write_bytes(plan.read_bytes())
+            if change == 'symlink-race':
+                plan.unlink()
+                plan.symlink_to(replacement)
+            else:
+                replacement.replace(plan)
+        return original(path, flags, *args, **kwargs)
+    monkeypatch.setattr(harness.os, 'open', racing_open)
+    with pytest.raises(harness.HarnessError, match='invalid or changed classification plan'):
+        harness._classification_input(plan)
+    assert not (harness._machine_state_base() / 'repository-state.json').exists()
+
+
+def test_classification_two_registrations_publish_only_one_root(harness, tmp_path):
+    root, item, other, plan = classified_fixture(harness, tmp_path)
+    # Both contenders have coherent historical operational state.
+    import shutil
+    shutil.copytree(root / 'manifests', other / 'manifests')
+    for name in ('active-manifest.json', 'runtime.json'):
+        shutil.copyfile(root / name, other / name)
+    plan = classification_plan(harness, tmp_path, root, other)
+    other_plan = tmp_path / 'other-plan.json'
+    value = json.loads(plan.read_text())
+    value['selected_root'] = str(other)
+    for entry in value['roots']:
+        entry['kind'] = 'selected' if entry['path'] == str(other) else 'preserved-state'
+    other_plan.write_text(json.dumps(value))
+    before = [classification_digest(p) for p in (root, other)]
+    script = """
+from argparse import Namespace
+h.operation_adopt_state(Namespace(state_root=Path(p['state']),expected_repository='github.com/example/graf',
+ expected_active_sha='a'*40,expect_empty=False,confirm_repository_ownership=True,classification=Path(p['plan'])))
+"""
+    processes = [child(harness, script, state=str(state), plan=str(path))
+                 for state, path in ((root, plan), (other, other_plan))]
+    try:
+        for process in processes:
+            process.communicate(timeout=10)
+        assert sorted(p.returncode for p in processes) == [0, 1]
+        assert harness.global_state_dir() in (root, other)
+        assert before == [classification_digest(p) for p in (root, other)]
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+                process.communicate()
+
+
+@pytest.mark.parametrize('change', ['state', 'build', 'build-link'])
+def test_classification_rechecks_snapshot_immediately_before_publication(harness, tmp_path, monkeypatch, change):
+    root, item, other, plan = classified_fixture(harness, tmp_path)
+    if change != 'state':
+        build = other / 'artifacts/fixture/build'
+        build.mkdir(parents=True)
+        (build.parent / 'GRAF Dev.app').mkdir()
+        (build / 'object').write_bytes(b'Never executed')
+        (build / 'alias').symlink_to('object')
+        rewrite_classification(plan, lambda p: p['roots'][1].update(
+            build_archives=[build.relative_to(other).as_posix()], tree_sha256=classification_digest(other)))
+    original = harness._classification_preserved_state
+    def changed_after_validation(path):
+        original(path)
+        if change == 'state':
+            (path / '.dev-boundary').write_text('writer after validation')
+        elif change == 'build':
+            (build / 'object').write_bytes(b'writer after validation')
+        else:
+            (build / 'alias').unlink()
+            (build / 'alias').symlink_to('./object')
+    monkeypatch.setattr(harness, '_classification_preserved_state', changed_after_validation)
+    with pytest.raises(harness.HarnessError, match='classified tree changed'):
+        adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert not (harness._machine_state_base() / 'repository-state.json').exists()
+
+
+def test_classification_failed_binding_write_preserves_roots(harness, tmp_path, monkeypatch):
+    root, item, other, plan = classified_fixture(harness, tmp_path)
+    before = [classification_digest(p) for p in (root, other)]
+    def failed_write(*args):
+        raise OSError('fixture publication failure')
+    monkeypatch.setattr(harness, '_write_json', failed_write)
+    with pytest.raises(OSError, match='fixture publication failure'):
+        adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert not (harness._machine_state_base() / 'repository-state.json').exists()
+    assert before == [classification_digest(p) for p in (root, other)]
+
+
+@pytest.mark.parametrize('case', ['outside-and-back', 'dotdot-after-directory-link'])
+def test_classification_rejects_every_external_symlink_step(harness, tmp_path, monkeypatch, case):
+    import os
+    root, item, other, archive, app, _, plan, _ = archived_fixture(harness, tmp_path, monkeypatch)
+    outside = tmp_path / 'outside-directory'
+    outside.mkdir()
+    (outside / 'return').symlink_to(app / 'Contents', target_is_directory=True)
+    target = os.path.relpath(outside / 'return', app / 'Contents')
+    if case == 'outside-and-back':
+        (app / 'Contents/link').symlink_to(target + '/Info.plist')
+    else:
+        (app / 'Contents/directory-link').symlink_to(target, target_is_directory=True)
+        (app / 'Contents/link').symlink_to('directory-link/../Contents/Info.plist')
+    # The final object is internal in both cases; the path taken is forbidden.
+    assert (app / 'Contents/link').resolve(strict=True) == app / 'Contents/Info.plist'
+    rewrite_classification(plan, lambda p: p['roots'][2].update(tree_sha256=classification_digest(archive)))
+    before = [classification_digest(p) for p in (root, other, archive)]
+    with pytest.raises(harness.HarnessError, match='symlink leaves its archived app'):
+        adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert before == [classification_digest(p) for p in (root, other, archive)]
+    assert not (harness._machine_state_base() / 'repository-state.json').exists()
+
+
+def test_classification_framework_links_remain_supported(harness, tmp_path, monkeypatch):
+    root, item, other, archive, app, _, plan, _ = archived_fixture(harness, tmp_path, monkeypatch)
+    framework = app / 'Contents/Frameworks/Fixture.framework'
+    (framework / 'Versions/A').mkdir(parents=True)
+    (framework / 'Versions/A/Fixture').write_bytes(b'framework fixture')
+    (framework / 'Versions/Current').symlink_to('A', target_is_directory=True)
+    (framework / 'Fixture').symlink_to('Versions/Current/Fixture')
+    # '..' must follow the actual directory symlink, not lexical simplification.
+    (framework / 'Alias').symlink_to('Versions/Current/../A/Fixture')
+    rewrite_classification(plan, lambda p: p['roots'][2].update(tree_sha256=classification_digest(archive)))
+    before = [classification_digest(p) for p in (root, other, archive)]
+    adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert before == [classification_digest(p) for p in (root, other, archive)]
+
+
+def test_classification_rejects_preserved_pointer_manifest_disagreement(harness, tmp_path):
+    root, item, other, plan = classified_fixture(harness, tmp_path)
+    alternate = dict(item, manifest_id='dev-alternate')
+    harness._write_json(other / 'manifests' / (item['manifest_id'] + '.json'), alternate)
+    harness._write_json(other / 'active-manifest.json', {
+        'schema_version': harness.POINTER_VERSION, 'manifest_id': item['manifest_id'], 'runtime_mode': 'live',
+    })
+    harness._write_json(other / 'runtime.json', {'source_sha': item['source_sha'], 'manifest_id': alternate['manifest_id']})
+    plan = classification_plan(harness, tmp_path, root, other)
+    before = [classification_digest(p) for p in (root, other)]
+    with pytest.raises(harness.HarnessError, match='preserved.*manifest identity'):
+        adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert before == [classification_digest(p) for p in (root, other)]
+    assert not (harness._machine_state_base() / 'repository-state.json').exists()
+
+
+@pytest.mark.parametrize('kind', ['artifact-only', 'preserved-state'])
+def test_classification_preserves_explicit_build_archives(harness, tmp_path, monkeypatch, kind):
+    root, item, other, archive, app, _, plan, calls = archived_fixture(harness, tmp_path, monkeypatch)
+    owner = archive if kind == 'artifact-only' else other
+    apps = [app] if kind == 'artifact-only' else [other / 'artifacts' / name / 'GRAF Dev.app' for name in ('first', 'second')]
+    builds = []
+    for bundle in apps:
+        bundle.mkdir(parents=True, exist_ok=True)
+        build = bundle.parent / 'build'
+        (build / 'versions/current').mkdir(parents=True)
+        (build / 'versions/current/object').write_bytes(b'Untrusted archive: never execute or import')
+        (build / 'current').symlink_to('versions/current', target_is_directory=True)
+        (build / 'object').symlink_to('current/object')
+        (build / 'alias').symlink_to('current/../current/object')
+        builds.append(build.relative_to(owner).as_posix())
+    rewrite_classification(plan, lambda p: [e.update(build_archives=builds, tree_sha256=classification_digest(owner))
+                                            for e in p['roots'] if e['path'] == str(owner)])
+    before = [classification_digest(p) for p in (root, other, archive)]
+    adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert before == [classification_digest(p) for p in (root, other, archive)]
+    assert harness.global_state_dir() == root
+    assert not (archive / 'promote.lock').exists()
+    assert calls  # Only the separately listed app was verified, never a build binary.
+
+
+@pytest.mark.parametrize('case', [
+    'not-list', 'duplicate', 'absolute-path', 'dot-path', 'dotdot', 'app-boundary',
+    'missing-app', 'boundary-link', 'absolute-link', 'cross-build', 'cross-app',
+    'cross-root', 'outside-and-back', 'broken', 'cycle', 'special', 'mode', 'unreadable',
+])
+def test_classification_rejects_unsafe_build_archives(harness, tmp_path, monkeypatch, case):
+    import os
+    root, item, other, archive, app, _, plan, _ = archived_fixture(harness, tmp_path, monkeypatch)
+    build = app.parent / 'build'
+    build.mkdir()
+    target = build / 'object'
+    target.write_bytes(b'Unknown provenance; never execute')
+    values = [build.relative_to(archive).as_posix()]
+    if case == 'not-list':
+        values = values[0]
+    elif case == 'duplicate':
+        values *= 2
+    elif case == 'absolute-path':
+        values = [str(build)]
+    elif case == 'dot-path':
+        values = ['artifacts/./dev-fixture/build']
+    elif case == 'dotdot':
+        values = ['artifacts/dev-fixture/../dev-fixture/build']
+    elif case == 'app-boundary':
+        values = [app.relative_to(archive).as_posix()]
+    elif case == 'missing-app':
+        app.rename(app.with_name('Unlisted.app'))
+    elif case == 'boundary-link':
+        build.rename(app.parent / 'saved-build')
+        build.symlink_to('saved-build', target_is_directory=True)
+    elif case == 'special':
+        os.mkfifo(build / 'fifo')
+    elif case == 'mode':
+        target.chmod(0o666)
+    elif case != 'unreadable':
+        if case == 'absolute-link':
+            destination = str(target)
+        elif case == 'cross-build':
+            second = archive / 'artifacts/second/build'
+            second.mkdir(parents=True)
+            (second.parent / 'GRAF Dev.app').mkdir()
+            (second / 'object').write_bytes(b'Other build')
+            values.append(second.relative_to(archive).as_posix())
+            destination = '../../second/build/object'
+        elif case == 'cross-app':
+            destination = '../GRAF Dev.app/Contents/Info.plist'
+        elif case == 'cross-root':
+            destination = os.path.relpath(other / '.dev-boundary', build)
+        elif case == 'outside-and-back':
+            outside = tmp_path / 'outside'
+            outside.mkdir()
+            (outside / 'return').symlink_to(build, target_is_directory=True)
+            destination = os.path.relpath(outside / 'return/object', build)
+        else:
+            destination = 'missing' if case == 'broken' else 'link'
+        (build / 'link').symlink_to(destination)
+    rewrite_classification(plan, lambda p: p['roots'][2].update(
+        build_archives=values, tree_sha256=classification_digest(archive)))
+    before = [classification_digest(p) for p in (root, other, archive)]
+    if case == 'unreadable':
+        original_open = harness.os.open
+        def unreadable(path, *a, **kw):
+            if Path(path) == target:
+                raise PermissionError('fixture unreadable build object')
+            return original_open(path, *a, **kw)
+        monkeypatch.setattr(harness.os, 'open', unreadable)
+    with pytest.raises(harness.HarnessError):
+        adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert before == [classification_digest(p) for p in (root, other, archive)]
+    assert not (harness._machine_state_base() / 'repository-state.json').exists()
+    assert not (archive / 'promote.lock').exists()
