@@ -14,6 +14,7 @@ import contextvars
 import datetime as dt
 import hashlib
 import json
+import math
 import os
 import plistlib
 from pathlib import Path
@@ -556,10 +557,72 @@ def _classification_artifacts(entry: dict) -> None:
             raise HarnessError("artifact-only state contains operational or unknown objects")
 
 
+def _read_preserved_json(path: Path) -> Dict[str, Any]:
+    def object_pairs(pairs):
+        value = dict(pairs)
+        if len(value) != len(pairs):
+            raise ValueError("duplicate keys")
+        return value
+
+    def reject_constant(value):
+        raise ValueError("nonfinite number")
+
+    def finite_float(value):
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("nonfinite number")
+        return number
+
+    try:
+        value = json.loads(_checked_state_path(path, file=True).read_text(encoding="utf-8"),
+                           object_pairs_hook=object_pairs, parse_constant=reject_constant,
+                           parse_float=finite_float)
+        if not isinstance(value, dict):
+            raise ValueError("not an object")
+        return value
+    except (OSError, ValueError, HarnessError):
+        raise HarnessError("invalid preserved Dev description") from None
+
+
 def _classification_preserved_state(root: Path) -> None:
     _assert_no_schema_transition(root)
     if any((root / marker).exists() for marker in ("rollback-required.json", "app-launch-validation-recovery.json")):
         raise HarnessError("recover preserved Dev state before adoption")
+    pointer_path = root / "active-manifest.json"
+    if pointer_path.exists():
+        pointer = _read_preserved_json(pointer_path)
+        if (pointer.get("runtime_mode") == "metadata-only"
+                and not any((root / name).exists() for name in ("runtime.json", "schema-transition.json"))):
+            try:
+                manifest_id = pointer.get("manifest_id")
+                if (pointer.get("schema_version") != POINTER_VERSION
+                        or not isinstance(manifest_id, str) or not MANIFEST_RE.fullmatch(manifest_id)
+                        or "status" in pointer):
+                    raise ValueError("invalid pointer")
+                manifest = _read_preserved_json(_manifest_path(root, manifest_id))
+                for value in (pointer, manifest):
+                    if any(key in value for key in ("recovery_required", "rollback_required")):
+                        raise ValueError("recovery marker")
+                if (manifest.get("manifest_id") != manifest_id
+                        or not isinstance(manifest.get("feature_id"), str)
+                        or not isinstance(manifest.get("source_sha"), str)
+                        or ("source_sha" in pointer and pointer["source_sha"] != manifest["source_sha"])
+                        or ("status" in manifest and (not isinstance(manifest["status"], str)
+                                                     or manifest["status"] not in ("ready", "active")))):
+                    raise ValueError("inconsistent manifest")
+                _validate_manifest_base(manifest)
+                components = manifest["components"]
+                if not isinstance(components, dict) or not {"backend", "frontend", "worker", "macos_app"} <= components.keys():
+                    raise ValueError("missing historical components")
+                for component in components.values():
+                    if (not isinstance(component, dict) or component.get("source_sha") != manifest["source_sha"]
+                            or not isinstance(component.get("version"), str) or not component["version"].strip()
+                            or not isinstance(component.get("digest"), str)
+                            or not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", component["digest"])):
+                        raise ValueError("invalid historical component")
+            except (HarnessError, ValueError, TypeError, KeyError):
+                raise HarnessError("invalid preserved Dev description") from None
+            return
     active = _load_active(root)
     if active and _read_json(root / "active-manifest.json")["manifest_id"] != active["manifest_id"]:
         raise HarnessError("preserved active manifest identity is inconsistent")
@@ -3243,7 +3306,7 @@ def _load_active(root: Path) -> Optional[Dict[str, Any]]:
     return manifest
 
 
-def _validate_manifest(manifest: Dict[str, Any]) -> None:
+def _validate_manifest_base(manifest: Dict[str, Any]) -> None:
     required = {"schema_version", "manifest_id", "feature_id", "source_sha", "components", "migration_head", "app_identity", "operator", "created_at", "parent_manifest_id", "health", "dev_boundary"}
     missing = sorted(required - set(manifest))
     if missing:
@@ -3252,24 +3315,7 @@ def _validate_manifest(manifest: Dict[str, Any]) -> None:
         raise HarnessError("unsupported manifest schema")
     _safe_id(str(manifest["manifest_id"]), "manifest_id")
     _safe_id(str(manifest["feature_id"]), "feature_id")
-    source_sha = _sha(str(manifest["source_sha"]))
-    components = manifest["components"]
-    if not isinstance(components, dict):
-        raise HarnessError("manifest components must be an object")
-    component_names = (
-        "backend", "frontend", "worker", "processing_worker", "media_worker",
-        "maintenance", "temporal", "migration", "database", "storage", "macos_app",
-    ) + (("storage_init",) if "storage_init" in components else ())
-    for name in component_names:
-        component = components.get(name)
-        if not isinstance(component, dict):
-            raise HarnessError(f"manifest component missing: {name}")
-        if _sha(str(component.get("source_sha", ""))) != source_sha:
-            raise HarnessError(f"component {name} does not match manifest source SHA")
-        if not component.get("version"):
-            raise HarnessError(f"component {name} has no version")
-        if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", str(component.get("digest", ""))):
-            raise HarnessError(f"component {name} has invalid digest")
+    _sha(str(manifest["source_sha"]))
     identity = manifest["app_identity"]
     if not isinstance(identity, dict) or identity.get("bundle_id") != APP_BUNDLE_ID or identity.get("channel") != APP_CHANNEL:
         raise HarnessError("manifest is not for the single GRAF Dev app")
@@ -3288,6 +3334,28 @@ def _validate_manifest(manifest: Dict[str, Any]) -> None:
     if not isinstance(health, dict) or health.get("result") not in {"pass", "fail", "unknown"}:
         raise HarnessError("manifest health result is invalid")
 
+
+
+def _validate_manifest(manifest: Dict[str, Any]) -> None:
+    _validate_manifest_base(manifest)
+    source_sha = _sha(str(manifest["source_sha"]))
+    components = manifest["components"]
+    if not isinstance(components, dict):
+        raise HarnessError("manifest components must be an object")
+    component_names = (
+        "backend", "frontend", "worker", "processing_worker", "media_worker",
+        "maintenance", "temporal", "migration", "database", "storage", "macos_app",
+    ) + (("storage_init",) if "storage_init" in components else ())
+    for name in component_names:
+        component = components.get(name)
+        if not isinstance(component, dict):
+            raise HarnessError(f"manifest component missing: {name}")
+        if _sha(str(component.get("source_sha", ""))) != source_sha:
+            raise HarnessError(f"component {name} does not match manifest source SHA")
+        if not component.get("version"):
+            raise HarnessError(f"component {name} has no version")
+        if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", str(component.get("digest", ""))):
+            raise HarnessError(f"component {name} has invalid digest")
 
 def build_manifest(sha: str, feature_id: str, operator: str = "local", migration_head: str = "unknown", root: Optional[Path] = None) -> Dict[str, Any]:
     _assert_dev_environment()

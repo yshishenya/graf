@@ -641,6 +641,266 @@ def classified_fixture(harness, tmp_path):
     return root, item, other, plan
 
 
+def historical_metadata_fixture(harness, tmp_path):
+    root, item, other, _ = classified_fixture(harness, tmp_path)
+    # Encode the historical record independently of the current manifest builder.
+    manifest = {
+        'schema_version': 'dev-manifest.v1', 'manifest_id': 'historical-archive',
+        'feature_id': '216', 'source_sha': 'b' * 40,
+        'components': {name: {'source_sha': 'b' * 40, 'version': 'historical',
+                              'digest': 'sha256:' + 'c' * 64}
+                       for name in ('backend', 'frontend', 'worker', 'macos_app')},
+        'migration_head': 'historical', 'operator': 'fixture',
+        'created_at': '2026-01-01T00:00:00Z', 'parent_manifest_id': None,
+        'health': {'result': 'unknown'},
+        'app_identity': {'bundle_id': 'pro.2brain.graf.dev', 'channel': 'dev',
+                         'signing_identity': 'fixture', 'designated_requirement': 'fixture'},
+        'dev_boundary': {'environment': 'development', 'backend_origin': 'http://127.0.0.1:8765',
+                         'frontend_origin': 'http://127.0.0.1:8765', 'data_root': str(other / 'data')},
+    }
+    pointer = {'schema_version': 'dev-active-pointer.v1', 'manifest_id': manifest['manifest_id'],
+               'runtime_mode': 'metadata-only'}
+    manifest_path = other / 'manifests' / 'historical-archive.json'
+    harness._write_json(manifest_path, manifest)
+    harness._write_json(other / 'active-manifest.json', pointer)
+    return root, item, other, manifest, pointer, manifest_path
+
+
+def test_classification_preserves_historical_metadata_without_using_it(harness, tmp_path, monkeypatch):
+    root, item, other, manifest, pointer, path = historical_metadata_fixture(harness, tmp_path)
+    plan = classification_plan(harness, tmp_path, root, other)
+    before = [classification_digest(p) for p in (root, other)]
+    monkeypatch.setattr(harness, '_run_command', lambda *a, **k: pytest.fail('external command'))
+    result = adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert result['state_root'] == str(root) and result['adopted_active_sha'] == item['source_sha']
+    assert before == [classification_digest(p) for p in (root, other)]
+    assert json.loads(path.read_text()) == manifest
+    assert json.loads((other / 'active-manifest.json').read_text()) == pointer
+    assert adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'],
+                 classification=plan)['idempotent']
+    with pytest.raises(harness.HarnessError, match='processing_worker'):
+        harness._load_active(other)
+
+
+@pytest.mark.parametrize('record,field,value', [
+    ('pointer', 'schema_version', None), ('pointer', 'schema_version', 'other'),
+    ('pointer', 'runtime_mode', None), ('pointer', 'runtime_mode', 'other'),
+    ('pointer', 'runtime_mode', []), ('pointer', 'runtime_mode', True),
+    ('pointer', 'manifest_id', '../PRIVATE_SENTINEL'), ('pointer', 'manifest_id', 12),
+    ('pointer', 'manifest_id', 'missing'), ('pointer', 'manifest_id', None),
+    ('pointer', 'source_sha', 'c' * 40), ('pointer', 'source_sha', None),
+    ('pointer', 'status', 'ready'), ('pointer', 'status', None),
+    ('manifest', 'schema_version', 'other'), ('manifest', 'manifest_id', 'mismatch'),
+    ('manifest', 'manifest_id', 12), ('manifest', 'feature_id', 216),
+    ('manifest', 'feature_id', '../PRIVATE_SENTINEL'),
+    ('manifest', 'source_sha', 12), ('manifest', 'source_sha', 'a' * 39),
+    ('manifest', 'source_sha', 'g' * 40), ('manifest', 'status', 'recovery_required'),
+    ('manifest', 'status', None), ('manifest', 'status', []),
+    ('manifest', 'health.result', 'other'), ('manifest', 'health.result', []),
+    ('manifest', 'app_identity.bundle_id', 'pro.2brain.graf'),
+    ('manifest', 'app_identity.channel', 'production'),
+    ('manifest', 'app_identity.signing_identity', ''),
+    ('manifest', 'app_identity.designated_requirement', ''),
+    ('manifest', 'dev_boundary.environment', 'production'),
+    ('manifest', 'dev_boundary.backend_origin', 'https://example.com'),
+    ('manifest', 'dev_boundary.frontend_origin', 'https://example.com'),
+    ('manifest', 'dev_boundary.data_root', '/production/data'),
+    ('manifest', 'components', []),
+] + [(record, key, value) for record in ('pointer', 'manifest')
+     for key in ('recovery_required', 'rollback_required') for value in (False, None, True)])
+def test_historical_metadata_rejects_invalid_fields(harness, tmp_path, monkeypatch, record, field, value):
+    root, item, other, manifest, pointer, path = historical_metadata_fixture(harness, tmp_path)
+    target = pointer if record == 'pointer' else manifest
+    keys = field.split('.')
+    for key in keys[:-1]:
+        target = target[key]
+    target[keys[-1]] = value
+    harness._write_json(path, manifest)
+    harness._write_json(other / 'active-manifest.json', pointer)
+    plan = classification_plan(harness, tmp_path, root, other)
+    before = [classification_digest(p) for p in (root, other)]
+    monkeypatch.setattr(harness, '_run_command', lambda *a, **k: pytest.fail('external command'))
+    with pytest.raises(harness.HarnessError) as error:
+        adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert 'PRIVATE_SENTINEL' not in str(error.value)
+    assert before == [classification_digest(p) for p in (root, other)]
+    assert not (harness._machine_state_base() / 'repository-state.json').exists()
+
+
+@pytest.mark.parametrize('name', ['backend', 'frontend', 'worker', 'macos_app', 'extra'])
+@pytest.mark.parametrize('damage', ['missing', 'scalar', 'sha', 'version-type', 'version-empty', 'digest'])
+def test_historical_metadata_checks_every_component(harness, tmp_path, monkeypatch, name, damage):
+    root, item, other, manifest, _, path = historical_metadata_fixture(harness, tmp_path)
+    components = manifest['components']
+    components['extra'] = dict(components['worker'])
+    if damage == 'missing':
+        if name == 'extra':
+            # An additional recorded component may not omit its digest either.
+            del components[name]['digest']
+        else:
+            del components[name]
+    elif damage == 'scalar':
+        components[name] = None
+    else:
+        key, value = {'sha': ('source_sha', 'c' * 40), 'version-type': ('version', 1),
+                      'version-empty': ('version', '  '), 'digest': ('digest', 'invalid')}[damage]
+        components[name][key] = value
+    harness._write_json(path, manifest)
+    plan = classification_plan(harness, tmp_path, root, other)
+    before = [classification_digest(p) for p in (root, other)]
+    monkeypatch.setattr(harness, '_run_command', lambda *a, **k: pytest.fail('external command'))
+    with pytest.raises(harness.HarnessError, match='invalid preserved Dev description'):
+        adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert before == [classification_digest(p) for p in (root, other)]
+    assert not (harness._machine_state_base() / 'repository-state.json').exists()
+
+
+@pytest.mark.parametrize('record', ['pointer', 'manifest'])
+@pytest.mark.parametrize('raw', [
+    'null', '[]', '123', '"PRIVATE_SENTINEL"', '{', '{"PRIVATE_SENTINEL":',
+    '{"PRIVATE_SENTINEL":1,"PRIVATE_SENTINEL":2}',
+    '{"nested":{"PRIVATE_SENTINEL":1,"PRIVATE_SENTINEL":2}}',
+    '{"PRIVATE_SENTINEL":NaN}', '{"PRIVATE_SENTINEL":Infinity}', '{"PRIVATE_SENTINEL":-Infinity}',
+])
+def test_historical_metadata_rejects_ambiguous_json(harness, tmp_path, monkeypatch, record, raw):
+    root, item, other, _, _, path = historical_metadata_fixture(harness, tmp_path)
+    (path if record == 'manifest' else other / 'active-manifest.json').write_text(raw)
+    plan = classification_plan(harness, tmp_path, root, other)
+    before = [classification_digest(p) for p in (root, other)]
+    monkeypatch.setattr(harness, '_run_command', lambda *a, **k: pytest.fail('external command'))
+    with pytest.raises(harness.HarnessError, match='^invalid preserved Dev description$') as error:
+        adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert 'PRIVATE_SENTINEL' not in str(error.value)
+    assert before == [classification_digest(p) for p in (root, other)]
+    assert not (harness._machine_state_base() / 'repository-state.json').exists()
+
+
+@pytest.mark.parametrize('case', ['selected', 'live', 'runtime-empty', 'runtime-dead', 'runtime-unknown',
+                                  'journal-complete', 'journal-empty', 'rollback', 'launch-recovery'])
+def test_historical_metadata_never_becomes_a_runtime_profile(harness, tmp_path, monkeypatch, case):
+    root, item, other, _, pointer, _ = historical_metadata_fixture(harness, tmp_path)
+    if case == 'selected':
+        root, other = other, root
+        expected = 'b' * 40
+    else:
+        expected = item['source_sha']
+        if case == 'live':
+            pointer['runtime_mode'] = 'live'
+            harness._write_json(other / 'active-manifest.json', pointer)
+        else:
+            name, value = {
+                'runtime-empty': ('runtime.json', {}),
+                'runtime-dead': ('runtime.json', {'pid': 999999999, 'source_sha': 'b' * 40}),
+                'runtime-unknown': ('runtime.json', {'PRIVATE_SENTINEL': True}),
+                'journal-complete': ('schema-transition.json', {
+                    'schema_version': 'dev-schema-transition.v1', 'phase': 'complete', 'operation_id': 'upgrade-1',
+                    'previous': item, 'target': item,
+                    'volumes': {'graf-dev-postgres-data': {}, 'graf-dev-minio-data': {}},
+                }),
+                'journal-empty': ('schema-transition.json', {}),
+                'rollback': ('rollback-required.json', {}),
+                'launch-recovery': ('app-launch-validation-recovery.json', {}),
+            }[case]
+            harness._write_json(other / name, value)
+            if case == 'journal-complete':
+                assert harness._read_schema_transition(other)['phase'] == 'complete'
+    plan = classification_plan(harness, tmp_path, root, other)
+    before = [classification_digest(p) for p in (root, other)]
+    monkeypatch.setattr(harness, '_run_command', lambda *a, **k: pytest.fail('external command'))
+    with pytest.raises(harness.HarnessError, match='processing_worker' if case == 'journal-complete' else None):
+        adopt(harness, root, expect_empty=False, expected_active_sha=expected, classification=plan)
+    assert before == [classification_digest(p) for p in (root, other)]
+    assert not (harness._machine_state_base() / 'repository-state.json').exists()
+
+
+@pytest.mark.parametrize('record', ['pointer', 'manifest'])
+@pytest.mark.parametrize('extra', ['"aux":' + raw for raw in (
+    '1e999', '-1e999', '{"nested":1e999}', '{"nested":-1e999}',
+    'NaN', 'Infinity', '-Infinity', '{"nested":NaN}', '{"nested":Infinity}', '{"nested":-Infinity}',
+)] + ['"aux":1,"aux":1', '"aux":{"nested":1,"nested":1}'])
+def test_historical_metadata_rejects_ambiguous_values_in_valid_description(harness, tmp_path, monkeypatch, record, extra):
+    root, item, other, manifest, pointer, path = historical_metadata_fixture(harness, tmp_path)
+    target = path if record == 'manifest' else other / 'active-manifest.json'
+    valid = manifest if record == 'manifest' else pointer
+    target.write_text(json.dumps(valid)[:-1] + ',' + extra + '}')
+    plan = classification_plan(harness, tmp_path, root, other)
+    before = [classification_digest(p) for p in (root, other)]
+    monkeypatch.setattr(harness, '_run_command', lambda *a, **k: pytest.fail('external command'))
+    with pytest.raises(harness.HarnessError, match='^invalid preserved Dev description$'):
+        adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert before == [classification_digest(p) for p in (root, other)]
+    assert not (harness._machine_state_base() / 'repository-state.json').exists()
+
+
+@pytest.mark.parametrize('status', [None, 'ready', 'active'])
+def test_historical_metadata_allows_recorded_valid_components(harness, tmp_path, monkeypatch, status):
+    root, item, other, manifest, pointer, path = historical_metadata_fixture(harness, tmp_path)
+    if status is not None:
+        manifest['status'] = status
+    manifest['components']['extra'] = dict(manifest['components']['worker'])
+    # These are inert strings, never resolved or executed during preservation.
+    manifest['components']['extra']['command'] = 'PRIVATE_SENTINEL'
+    manifest['aux'] = {'finite': 1.25}
+    pointer['aux'] = {'finite': -1.25}
+    pointer['source_sha'] = manifest['source_sha']
+    harness._write_json(path, manifest)
+    harness._write_json(other / 'active-manifest.json', pointer)
+    plan = classification_plan(harness, tmp_path, root, other)
+    before = [classification_digest(p) for p in (root, other)]
+    monkeypatch.setattr(harness, '_run_command', lambda *a, **k: pytest.fail('external command'))
+    adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert before == [classification_digest(p) for p in (root, other)]
+
+
+@pytest.mark.parametrize('record,key', [('pointer', key) for key in ('schema_version', 'runtime_mode', 'manifest_id')]
+                         + [('manifest', key) for key in ('schema_version', 'manifest_id', 'feature_id', 'source_sha',
+                            'components', 'migration_head', 'app_identity', 'operator', 'created_at',
+                            'parent_manifest_id', 'health', 'dev_boundary')])
+def test_historical_metadata_requires_base_fields(harness, tmp_path, monkeypatch, record, key):
+    root, item, other, manifest, pointer, path = historical_metadata_fixture(harness, tmp_path)
+    del (pointer if record == 'pointer' else manifest)[key]
+    harness._write_json(path, manifest)
+    harness._write_json(other / 'active-manifest.json', pointer)
+    plan = classification_plan(harness, tmp_path, root, other)
+    before = [classification_digest(p) for p in (root, other)]
+    monkeypatch.setattr(harness, '_run_command', lambda *a, **k: pytest.fail('external command'))
+    with pytest.raises(harness.HarnessError):
+        adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert before == [classification_digest(p) for p in (root, other)]
+    assert not (harness._machine_state_base() / 'repository-state.json').exists()
+
+
+@pytest.mark.parametrize('record', ['pointer', 'manifest'])
+@pytest.mark.parametrize('case', ['symlink', 'mode', 'unreadable', 'invalid-utf8'])
+def test_historical_metadata_rejects_unsafe_files(harness, tmp_path, monkeypatch, record, case):
+    root, item, other, _, _, path = historical_metadata_fixture(harness, tmp_path)
+    target = path if record == 'manifest' else other / 'active-manifest.json'
+    if case == 'symlink':
+        saved = tmp_path / 'PRIVATE_SENTINEL'
+        saved.write_bytes(target.read_bytes())
+        target.unlink()
+        target.symlink_to(saved)
+    elif case == 'mode':
+        target.chmod(0o666)
+    elif case == 'invalid-utf8':
+        target.write_bytes(b'\xffPRIVATE_SENTINEL')
+    else:
+        original = Path.read_text
+        def unreadable(self, *args, **kwargs):
+            if self == target:
+                raise PermissionError('PRIVATE_SENTINEL')
+            return original(self, *args, **kwargs)
+        monkeypatch.setattr(Path, 'read_text', unreadable)
+    plan = classification_plan(harness, tmp_path, root, other)
+    before = [classification_digest(p) for p in (root, other)]
+    monkeypatch.setattr(harness, '_run_command', lambda *a, **k: pytest.fail('external command'))
+    with pytest.raises(harness.HarnessError) as error:
+        adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert 'PRIVATE_SENTINEL' not in str(error.value)
+    assert before == [classification_digest(p) for p in (root, other)]
+    assert not (harness._machine_state_base() / 'repository-state.json').exists()
+
+
 def test_classification_preserves_multiple_states_and_binding(harness, tmp_path, monkeypatch):
     root, item, other, plan = classified_fixture(harness, tmp_path)
     before = [classification_digest(p) for p in (root, other)]
@@ -785,17 +1045,24 @@ def test_classification_preserved_state_failures(harness, tmp_path, monkeypatch,
     assert not (tmp_path / 'outside').exists()
 
 
-def test_classification_canonical_snapshot_and_completed_journal(harness, tmp_path):
+@pytest.mark.parametrize('journal_root', ['selected', 'preserved'])
+def test_classification_canonical_snapshot_and_completed_journal(harness, tmp_path, journal_root):
     root, item, other, plan = classified_fixture(harness, tmp_path)
-    harness._write_json(root / 'schema-transition.json', {
+    target = root if journal_root == 'selected' else other
+    if journal_root == 'preserved':
+        harness._write_json(other / 'manifests' / (item['manifest_id'] + '.json'), item)
+        harness._write_json(other / 'active-manifest.json', {
+            'schema_version': harness.POINTER_VERSION, 'manifest_id': item['manifest_id'], 'runtime_mode': 'metadata-only',
+        })
+    harness._write_json(target / 'schema-transition.json', {
         'schema_version': 'dev-schema-transition.v1', 'phase': 'complete', 'operation_id': 'upgrade-1',
         'previous': item, 'target': item, 'volumes': {'graf-dev-postgres-data': {}, 'graf-dev-minio-data': {}},
     })
     plan = classification_plan(harness, tmp_path, root, other)
     assert harness._classification_tree_digest(root) == classification_digest(root)
-    before = classification_digest(root)
+    before = [classification_digest(p) for p in (root, other)]
     adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
-    assert classification_digest(root) == before
+    assert [classification_digest(p) for p in (root, other)] == before
 
 
 def archived_fixture(harness, tmp_path, monkeypatch):
@@ -877,9 +1144,13 @@ def test_classification_archived_apps_are_verified_and_never_registered(harness,
     assert not (archive / 'promote.lock').exists() or case == 'lock'
 
 
-@pytest.mark.parametrize('change', ['tree', 'archive', 'build', 'build-link', 'metadata', 'new-root', 'plan', 'plan-inode', 'lock-inode', 'selected-lock-inode'])
+@pytest.mark.parametrize('change', ['tree', 'archive', 'build', 'build-link', 'metadata', 'new-root', 'plan', 'plan-inode', 'lock-inode', 'selected-lock-inode',
+                                  'metadata-pointer', 'metadata-manifest', 'metadata-runtime', 'metadata-marker'])
 def test_classification_real_wait_rechecks_complete_state(harness, tmp_path, monkeypatch, change):
-    if change in ('archive', 'build', 'build-link'):
+    if change.startswith('metadata-'):
+        root, item, other, _, _, manifest_path = historical_metadata_fixture(harness, tmp_path)
+        plan = classification_plan(harness, tmp_path, root, other)
+    elif change in ('archive', 'build', 'build-link'):
         root, item, other, archive, app, _, plan, _ = archived_fixture(harness, tmp_path, monkeypatch)
         if change != 'archive':
             build = app.parent / 'build'
@@ -928,6 +1199,11 @@ h.operation_adopt_state(Namespace(state_root=Path(p['state']),expected_repositor
             (build / 'alias').symlink_to('./object')
         elif change == 'metadata':
             (other / '.dev-boundary').chmod(0o400)
+        elif change in ('metadata-pointer', 'metadata-manifest'):
+            path = other / 'active-manifest.json' if change == 'metadata-pointer' else manifest_path
+            path.write_bytes(path.read_bytes() + b' ')
+        elif change in ('metadata-runtime', 'metadata-marker'):
+            (other / ('runtime.json' if change == 'metadata-runtime' else 'rollback-required.json')).write_text('{}')
         elif change == 'new-root':
             extra = harness._machine_state_base() / 'new' / 'harness'
             extra.mkdir(parents=True)
@@ -1039,10 +1315,14 @@ h.operation_adopt_state(Namespace(state_root=Path(p['state']),expected_repositor
                 process.communicate()
 
 
-@pytest.mark.parametrize('change', ['state', 'build', 'build-link'])
+@pytest.mark.parametrize('change', ['state', 'build', 'build-link', 'metadata-pointer', 'metadata-manifest', 'metadata-runtime', 'metadata-marker'])
 def test_classification_rechecks_snapshot_immediately_before_publication(harness, tmp_path, monkeypatch, change):
-    root, item, other, plan = classified_fixture(harness, tmp_path)
-    if change != 'state':
+    if change.startswith('metadata-'):
+        root, item, other, _, _, manifest_path = historical_metadata_fixture(harness, tmp_path)
+        plan = classification_plan(harness, tmp_path, root, other)
+    else:
+        root, item, other, plan = classified_fixture(harness, tmp_path)
+    if change in ('build', 'build-link'):
         build = other / 'artifacts/fixture/build'
         build.mkdir(parents=True)
         (build.parent / 'GRAF Dev.app').mkdir()
@@ -1057,6 +1337,11 @@ def test_classification_rechecks_snapshot_immediately_before_publication(harness
             (path / '.dev-boundary').write_text('writer after validation')
         elif change == 'build':
             (build / 'object').write_bytes(b'writer after validation')
+        elif change in ('metadata-pointer', 'metadata-manifest'):
+            file = path / 'active-manifest.json' if change == 'metadata-pointer' else manifest_path
+            file.write_bytes(file.read_bytes() + b' ')
+        elif change in ('metadata-runtime', 'metadata-marker'):
+            (path / ('runtime.json' if change == 'metadata-runtime' else 'rollback-required.json')).write_text('{}')
         else:
             (build / 'alias').unlink()
             (build / 'alias').symlink_to('./object')
@@ -1066,8 +1351,13 @@ def test_classification_rechecks_snapshot_immediately_before_publication(harness
     assert not (harness._machine_state_base() / 'repository-state.json').exists()
 
 
-def test_classification_failed_binding_write_preserves_roots(harness, tmp_path, monkeypatch):
-    root, item, other, plan = classified_fixture(harness, tmp_path)
+@pytest.mark.parametrize('historical', [False, True])
+def test_classification_failed_binding_write_preserves_roots(harness, tmp_path, monkeypatch, historical):
+    if historical:
+        root, item, other, _, _, _ = historical_metadata_fixture(harness, tmp_path)
+        plan = classification_plan(harness, tmp_path, root, other)
+    else:
+        root, item, other, plan = classified_fixture(harness, tmp_path)
     before = [classification_digest(p) for p in (root, other)]
     def failed_write(*args):
         raise OSError('fixture publication failure')
