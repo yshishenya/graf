@@ -949,4 +949,14 @@ Scoped converge:6 групп T101 покрыты или уже учтены T101
 Настоящий PR #7714 принят общим live verifier; полный диапазон и новый
 выпуск ещё не приняты. Подробности:
 [`validation-rebase-proof-20261026.md`](validation-rebase-proof-20261026.md).
-T101 до exact-SHA/base PR checks и merge, T102 до выпуска остаются открытыми.
+На момент этого локального прогона T101 до exact-SHA/base PR checks и merge,
+T102 до выпуска оставались открытыми.
+
+Приёмка26.10 после слияния: T101 завершена в PR #7745 на head
+`960569e04d577d648e8479f3d4b37640a31dd39f` и checked base
+`ac81b17f193469a18f661eafd0d1fd5c4f86d29b`; общий validator принял три
+обязательных GitHub proof. Merge tip
+`6d4b121db9c8c0bae1444e5a2719e68ac112b8b9`. T102 и issue #7742
+остаются открытыми до общей сверки диапазона и выпуска. Точные runs,
+независимое ревью и ограничение GitHub API — в
+[отчёте](validation-rebase-proof-20261026.md#приёмка-t101-после-слияния--26102026).
