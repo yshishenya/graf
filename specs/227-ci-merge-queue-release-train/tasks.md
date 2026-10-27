@@ -2,34 +2,34 @@
 
 ## Phase 1: Setup
 
-- [ ] T001 [P] Зафиксировать CI receipt и release-train schemas per `specs/227-ci-merge-queue-release-train/contracts/ci-receipt.v1.md` и `contracts/release-train.v1.md`.
-- [ ] T002 [P] Добавить metadata-only changelog fragment в `changes/unreleased/F227.yaml`.
-- [ ] T003 [P] Добавить synthetic PR/manual/merge_group fixtures в `tests/governance/fixtures/feature_227/`.
+- [X] T001 [P] Зафиксировать CI receipt и release-train schemas per `specs/227-ci-merge-queue-release-train/contracts/ci-receipt.v1.md` и `contracts/release-train.v1.md`.
+- [X] T002 [P] Добавить metadata-only changelog fragment в `changes/unreleased/F227.yaml`.
+- [X] T003 [P] Добавить synthetic PR/manual/merge_group fixtures в `tests/governance/fixtures/feature_227/`.
 
 ## Phase 2: Foundational contracts
 
-- [ ] T004 Добавить event identity resolver с fail-closed validation для PR, manual и merge_group в `scripts/ci-event-identity.py`.
-- [ ] T005 [P] Добавить JSON schemas и validator для CI receipt в `infra/release/ci-receipt.schema.json` и `scripts/validate-ci-receipt.py`.
-- [ ] T006 [P] Добавить JSON schema и metadata-only validator для release train в `infra/release/train.schema.json` и `scripts/validate-release-train.py`.
-- [ ] T007 Добавить contract tests для SHA/base/event/conclusion invariants в `tests/governance/test_ci_event_identity.py`.
+- [X] T004 Добавить event identity resolver с fail-closed validation для PR, manual и merge_group в `scripts/ci-event-identity.py`.
+- [X] T005 [P] Добавить JSON schemas и validator для CI receipt в `infra/release/ci-receipt.schema.json` и `scripts/validate-ci-receipt.py`.
+- [X] T006 [P] Добавить JSON schema и metadata-only validator для release train в `infra/release/train.schema.json` и `scripts/validate-release-train.py`.
+- [X] T007 Добавить contract tests для SHA/base/event/conclusion invariants в `tests/governance/test_ci_event_identity.py`.
 
 ## Phase 3: User Story 1 — Exact event validation
 
 **Independent test**: synthetic event fixtures produce a receipt whose target
 SHA equals the checked-out SHA; missing/unknown identity fails closed.
 
-- [ ] T008 [US1] Обновить `.github/workflows/governance-fast.yml` для `pull_request`, `merge_group` и explicit `workflow_dispatch` target resolution.
-- [ ] T009 [US1] Добавить exact checkout и base/SHA verification в `.github/workflows/governance-fast.yml`.
-- [ ] T010 [US1] Добавить merge-group PR mapping и metadata-only receipt upload в `.github/workflows/governance-fast.yml`.
-- [ ] T011 [US1] Покрыть event-specific workflow contract и malformed payloads в `tests/governance/test_governance_workflow.py`.
+- [X] T008 [US1] Обновить `.github/workflows/governance-fast.yml` для `pull_request`, `merge_group` и explicit `workflow_dispatch` target resolution.
+- [X] T009 [US1] Добавить exact checkout и base/SHA verification в `.github/workflows/governance-fast.yml`.
+- [X] T010 [US1] Добавить merge-group PR mapping и metadata-only receipt upload в `.github/workflows/governance-fast.yml`.
+- [X] T011 [US1] Покрыть event-specific workflow contract и malformed payloads в `tests/governance/test_governance_workflow.py`.
 
 ## Phase 4: User Story 2 — Stale and superseded protection
 
 **Independent test**: injected SHA drift, cancellation and final tree changes
 produce terminal non-success receipts rejected by validators.
 
-- [ ] T012 [US2] Ввести canonical concurrency key и cancellation contract в `.github/workflows/governance-fast.yml`.
-- [ ] T013 [US2] Добавить final tracked/untracked cleanliness gate после всех stages в `infra/scripts/ci-local.sh`.
+- [X] T012 [US2] Ввести canonical concurrency key и cancellation contract в `.github/workflows/governance-fast.yml`.
+- [X] T013 [US2] Добавить final tracked/untracked cleanliness gate после всех stages в `infra/scripts/ci-local.sh`.
 - [ ] T014 [US2] Расширить CI evidence producer полями cancellation/supersession/conclusion в `scripts/emit-ci-evidence.py`.
 - [ ] T015 [US2] Добавить stale/superseded negative tests в `tests/governance/test_ci_guard.py` и `tests/governance/test_ci_evidence_producer.py`.
 - [ ] T016 [US2] Обновить PR metadata validator и template полями workflow URL, target/base SHA и receipt в `scripts/validate-pr-metadata.py` и `.github/pull_request_template.md`.
@@ -40,23 +40,23 @@ produce terminal non-success receipts rejected by validators.
 authoritative Full CI receipt and rejects stale, duplicate or synthetic-only
 release evidence.
 
-- [ ] T017 [US3] Добавить train manifest freeze/validate operations в `infra/scripts/release-candidate.sh`.
-- [ ] T018 [US3] Связать train manifest с candidate `freeze`, `validate` и `decide` в `infra/scripts/release-candidate.sh`.
-- [ ] T019 [US3] Проверить post-merge `master` SHA отдельно от synthetic merge SHA и rollback target в `tests/governance/test_release_candidate.py`.
-- [ ] T020 [US3] Добавить release-train rehearsal fixtures и negative tests в `tests/governance/test_release_train.py`.
+- [X] T017 [US3] Добавить train manifest freeze/validate operations в `infra/scripts/release-candidate.sh`.
+- [X] T018 [US3] Связать train manifest с candidate `freeze`, `validate` и `decide` в `infra/scripts/release-candidate.sh`.
+- [X] T019 [US3] Проверить post-merge `master` SHA отдельно от synthetic merge SHA и rollback target в `tests/governance/test_release_candidate.py`.
+- [X] T020 [US3] Добавить release-train rehearsal fixtures и negative tests в `tests/governance/test_release_train.py`.
 
 ## Phase 6: Portable harness and documentation
 
-- [ ] T021 [P] Вынести generic receipt schema, resolver contract и stale validator в `harness/schemas/`, `harness/src/` и `harness/templates/`.
-- [ ] T022 [P] Обновить `harness/harness.lock.json` только после immutable merged harness tag.
-- [ ] T023 Обновить `docs/agent-guidance/development-process.md` правилами merge queue, stale evidence и release train.
-- [ ] T024 Обновить `docs/agent-guidance/release-and-validation.md` train freeze и one-Full-CI workflow.
-- [ ] T025 Обновить `.github/pull_request_template.md` русскими release/provenance gates и ссылками на issue/task.
+- [X] T021 [P] Вынести generic receipt schema, resolver contract и stale validator в `harness/schemas/`, `harness/src/` и `harness/templates/`.
+- [X] T022 [P] Обновить `harness/harness.lock.json` только после immutable merged harness tag.
+- [X] T023 Обновить `docs/agent-guidance/development-process.md` правилами merge queue, stale evidence и release train.
+- [X] T024 Обновить `docs/agent-guidance/release-and-validation.md` train freeze и one-Full-CI workflow.
+- [X] T025 Обновить `.github/pull_request_template.md` русскими release/provenance gates и ссылками на issue/task.
 
 ## Phase 7: Validation and operator gate
 
 - [ ] T026 Запустить `$speckit-analyze`, устранить critical/high findings и сохранить coverage report.
-- [ ] T027 Запустить `$speckit-taskstoissues`, проверить отсутствие дубликатов и canonical labels для T001–T025.
+- [X] T027 Запустить `$speckit-taskstoissues`, проверить отсутствие дубликатов и canonical labels для T001–T025.
 - [ ] T028 Запустить focused governance tests, workflow lint и `infra/scripts/ci-local.sh --fast` на exact SHA.
 - [ ] T029 Провести GitHub Actions PR и `merge_group` rehearsal; enforcement остаётся operator-owned до merge в `master`.
 - [ ] T030 Провести `$speckit-converge` и обновить tasks только append-only remaining work.
@@ -130,3 +130,16 @@ runtime path is added. Legacy retirement remains Feature 220 and later slices.
 
 Собственник текущих T032–T033: [#7645](https://github.com/yshishenya/graf/issues/7645).
 Дедупликация: проверены все32 исходных issues feature:227; совпадений T032/T033 нет.
+
+## Сверка реализации и трекера — 27.10.2026
+
+Индивидуальные основания для 23 восстановленных отметок сохранены в
+[reconciliation-20261027.md](reconciliation-20261027.md). Исходные описания,
+ID и порядок задач сохранены; closed issue не использована как единственное
+основание. Новые focused проверки текущего кода: 393/393 PASS.
+
+T014/T015/T016 остаются `[ ]`: отдельные terminal поля и доверенная проверка PR
+теперь находятся в других частях общей системы; буквальные исходные задания
+не доказаны и повторяющаяся автоматика не добавляется. T028 сохраняется до
+проверки полного exact-SHA fast evidence. T026/T030 и настоящие native
+T029/T031 не объявлены завершёнными. Umbrella #6207 остаётся открытой.
