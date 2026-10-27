@@ -275,7 +275,7 @@ def test_app_restore_keeps_installed_path_during_atomic_swap(monkeypatch, tmp_pa
     assert observed == [True]
     assert destination.is_dir()
     assert (destination / "Contents/marker").read_text(encoding="utf-8") == "previous"
-    assert not backup.exists()
+    assert (backup / "Contents/marker").read_text(encoding="utf-8") == "previous"
 
 
 def test_app_restore_discards_failed_first_install(monkeypatch, tmp_path):

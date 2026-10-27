@@ -1,13 +1,28 @@
+import argparse
+import fcntl
+import importlib.util
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+import tempfile
+
+import pytest
+
 from pathlib import Path
 
 
+OLD = "a" * 40
+NEW = "b" * 40
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_promotion_is_lock_protected_and_pointer_written_after_smoke():
     source = (ROOT / "scripts/dev-harness.py").read_text()
     assert "with state_lock(root)" in source
-    assert "live promotion smoke failed" in source
+    assert "self._assert_transition_smoke(checks)" in source
     assert "active-manifest.json" in source
 
 
@@ -52,9 +67,703 @@ def test_app_swap_rechecks_lifecycle_and_allows_cleanup_grace():
     assert "shutil.rmtree(destination)" not in restore
     assert "self._atomic_swap_dev_app(restored, destination)" in restore
 
-    promote = harness[harness.index("    def promote("):harness.index("    def rollback(")]
-    rollback = harness[harness.index("    def rollback("):]
-    for transaction in (promote, rollback):
-        assert transaction.index("previous_app_was_running = self._app_is_running") < transaction.index(
-            "app_backup = self._snapshot_app()"
-        )
+    transaction = harness[harness.index("    def _ordinary_transition("):harness.index("    def _write_ordinary_receipt(")]
+    assert transaction.index("previous_app_was_running = self._app_is_running") < transaction.index(
+        "app_backup = self._snapshot_app()"
+    )
+
+
+# These subprocesses execute real control flow with file markers in place of
+# all app/runtime effects. No app bundle, Docker, Swift or network is used.
+def _crash_harness(root):
+    spec = importlib.util.spec_from_file_location('crash_probe_harness', ROOT / 'scripts/dev-harness.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module._state_ownership = lambda root: False
+    module.state_dir = lambda **kwargs: root
+    module._repo_root = lambda: root
+    module._assert_dev_environment = lambda: None
+    module._assert_empty_dev_machine = lambda: None
+    module._dev_app_destination = lambda: root / 'installed-marker'
+    module._installed_app_state = lambda: {'installed': (root / 'installed-marker').exists()}
+    module._status_app_fields = lambda **kwargs: {'app': {'installed': (root / 'installed-marker').exists(), 'synthetic': True}}
+    def forbidden(*args, **kwargs):
+        raise AssertionError('Unexpected external command; diagnostic stopped')
+    module._test_command = module._run_command
+    module._run_command = forbidden
+    module._run_command_combined = forbidden
+    return module
+
+
+def _crash_handshake(root, boundary, selected):
+    if selected == boundary:
+        (root / 'ready').write_text(boundary)
+        while True:
+            time.sleep(0.05)
+
+
+def _runtime_marker(sha):
+    return {"source_sha": sha, "mode": "compose", "pid": 99999999,
+            "command": "synthetic runtime marker", "start_token": "synthetic-start",
+            "runtime_definition_digest": "sha256:" + "d" * 64}
+
+
+def _crash_worker(root, selected, command):
+    module = _crash_harness(root)
+    cls = module.GrafLocalAdapter
+    faults = json.loads((root / 'faults.json').read_text()) if (root / 'faults.json').exists() else []
+    def fault(boundary):
+        _crash_handshake(root, boundary, selected)
+        if boundary in faults:
+            faults.remove(boundary)
+            raise OSError('injected ' + boundary)
+    write = module._write_json
+    def write_with_fault(path, value):
+        if path.name == 'rollback-required.json':
+            fault('receipt-write')
+        if (root / 'rollback-required.json').exists():
+            if path.parent.name == 'manifests':
+                fault('manifest-write')
+            elif path.name == 'active-manifest.json':
+                fault('pointer-write')
+        write(path, value)
+    module._write_json = write_with_fault
+    unlink = Path.unlink
+    def unlink_with_fault(path, *args, **kwargs):
+        if path == root / 'rollback-required.json':
+            fault('receipt-unlink')
+        return unlink(path, *args, **kwargs)
+    Path.unlink = unlink_with_fault
+    sync = module._fsync_directory
+    def sync_with_fault(path):
+        if path == root and (root / 'completed-publication').exists() and not (root / 'rollback-required.json').exists():
+            fault('receipt-sync')
+        return sync(path)
+    module._fsync_directory = sync_with_fault
+    cls._assert_supported = lambda self: None
+    cls._assert_source_matches_checkout = lambda self, manifest: None
+    cls._checkout_adapter = lambda self, checkout, manifest: cls(checkout, self.state)
+    cls._runtime_definition_digest = lambda self: 'sha256:' + 'd' * 64
+    cls._checked_app_bundle = lambda self, manifest: root
+    def validate(self, manifest, path):
+        assert path.read_text() == manifest['source_sha']
+    cls._validate_launch_bundle = validate
+    cls._env = lambda self, manifest: {}
+    cls._compose_config = lambda self, env: None
+    cls._runtime_is_live = lambda self, record: record is not None
+    cls._previous_adapter = lambda self, *args: self
+    cls._assert_manifest_images = lambda self, *args: None
+    cls._app_is_running = lambda self, path: False
+    def snapshot(self):
+        if not (root / 'installed-marker').exists():
+            return None
+        backup = root / 'transactions' / 'previous-marker.app'
+        backup.mkdir(parents=True)
+        (backup / 'version').write_bytes((root / 'installed-marker').read_bytes())
+        return backup
+    cls._snapshot_app = snapshot
+    def stop(self):
+        _crash_handshake(root, 'before-stop', selected)
+        (root / 'runtime-observed').write_text('stopped')
+        _crash_handshake(root, 'after-stop', selected)
+    cls._stop_previous = stop
+    cls._terminate_dev_app = lambda self, path: None
+    def install(self, manifest, env):
+        _crash_handshake(root, 'before-install', selected)
+        (root / 'installed-marker').write_text(manifest['source_sha'])
+        _crash_handshake(root, 'after-install', selected)
+        fault('install-failure')
+    cls._install_app = install
+    def start(self, manifest, env):
+        _crash_handshake(root, 'before-start', selected)
+        (root / 'runtime-observed').write_text(manifest['source_sha'])
+        module._write_json(root / 'runtime.json', _runtime_marker(manifest['source_sha']))
+        _crash_handshake(root, 'after-start', selected)
+    cls._start_backend = start
+    cls._launch_dev_app = lambda self, path: None
+    def restore(self, backup):
+        fault('before-restore')
+        if backup is None:
+            (root / 'installed-marker').unlink(missing_ok=True)
+        else:
+            (root / 'installed-marker').write_bytes((backup / 'version').read_bytes())
+        fault('after-restore')
+    cls._restore_app = restore
+    restore_runtime = cls._restore_runtime
+    def restore_backend(self, *args):
+        fault('before-restore-runtime')
+        restore_runtime(self, *args)
+        if args[0] is None:
+            (root / 'runtime-observed').write_text('stopped')
+        fault('after-restore-runtime')
+    cls._restore_runtime = restore_backend
+    def smoke(self, manifest):
+        _crash_handshake(root, 'before-smoke', selected)
+        _crash_handshake(root, 'after-smoke', selected)
+        return {key: 'pass' for key in ('backend_health', 'frontend_reachability',
+            'auth_session_bootstrap', 'representative_api', 'processing_worker_readiness',
+            'media_worker_readiness', 'database_readiness', 'storage_readiness',
+            'temporal_readiness', 'migration_readiness', 'exact_source_sha',
+            'app_identity', 'app_presentation')}
+    cls.smoke = smoke
+    cls._ensure_rollback_archive = lambda self, previous: None
+    cls._apply_retention = lambda self, *args, **kwargs: None
+    remove = module.shutil.rmtree
+    def cleanup(path, *args, **kwargs):
+        if Path(path).name == 'previous-marker.app':
+            _crash_handshake(root, 'before-cleanup', selected)
+            fault('cleanup-failure')
+        result = remove(path, *args, **kwargs)
+        if Path(path).name == 'previous-marker.app':
+            _crash_handshake(root, 'after-cleanup', selected)
+        return result
+    module.shutil.rmtree = cleanup
+    publish = module._publish_active
+    def publish_at_boundary(state, manifest, mode):
+        _crash_handshake(root, 'before-pointer', selected)
+        publish(state, manifest, mode)
+        (root / 'completed-publication').touch()
+        _crash_handshake(root, 'after-pointer', selected)
+    module._publish_active = publish_at_boundary
+    if command == 'rollback':
+        result = module.operation_rollback(argparse.Namespace(manifest_id=None, live=True, dry_run=False, previous_checkout=None, target_checkout=None))
+    else:
+        result = module.operation_promote(argparse.Namespace(manifest=root / 'candidate.json', live=True, dry_run=False, previous_checkout=None))
+    (root / 'completed').write_text(result['status'])
+
+
+
+@pytest.mark.parametrize(("command", "boundary"), [
+    (command, boundary)
+    for command in ("promote", "rollback", "first-install")
+    for boundary in (
+        "none", "before-stop", "after-stop", "before-install", "after-install",
+        "before-start", "after-start", "before-smoke", "after-smoke",
+        "before-pointer", "after-pointer", "before-cleanup", "after-cleanup",
+    )
+    if command != "first-install" or not boundary.endswith("cleanup")
+])
+def test_ordinary_promotion_crash_requires_verified_recovery(command, boundary):
+    with tempfile.TemporaryDirectory(prefix="graf-f224-crash-test-") as temporary:
+        _exercise_crash(Path(temporary).resolve(), command, boundary)
+
+
+def _exercise_crash(root, command, boundary, tamper=None):
+    harness, previous, target, protected, lock, inode = _prepare_crash(root, command)
+    process = _start_crash_worker(root, boundary, command)
+    try:
+        if boundary != "none":
+            deadline = time.monotonic() + 10
+            while not (root / "ready").exists():
+                if process.poll() is not None:
+                    out, err = process.communicate()
+                    pytest.fail(f"worker exited before {boundary}: {process.returncode}: {out} {err}")
+                if time.monotonic() > deadline:
+                    pytest.fail(f"handshake timeout at {boundary}")
+                time.sleep(0.01)
+            process.kill()
+        out, err = process.communicate(timeout=10)
+        assert process.returncode == (0 if boundary == "none" else -signal.SIGKILL), (out, err)
+        assert protected.read_bytes() == b"synthetic protected bytes"
+        assert lock.stat().st_ino == inode
+        status = harness.operation_status(argparse.Namespace())
+        if boundary == "none" or boundary.endswith("cleanup"):
+            assert status["status"] == "active"
+            assert status["manifest"]["source_sha"] == target["source_sha"]
+            assert (root / "installed-marker").read_text() == target["source_sha"]
+            assert (root / "runtime-observed").read_text() == target["source_sha"]
+            assert not (root / "rollback-required.json").exists()
+        else:
+            assert status["status"] == "rollback_required", {
+                "boundary": boundary, "command": command, "reported": status["status"],
+                "active": status.get("manifest", {}).get("source_sha"),
+                "installed": (root / "installed-marker").read_text() if (root / "installed-marker").exists() else None,
+                "runtime": (root / "runtime-observed").read_text() if (root / "runtime-observed").exists() else None,
+            }
+            assert (root / "rollback-required.json").is_file()
+            if command != "first-install":
+                assert (root / "transactions" / "previous-marker.app").is_dir()
+        if boundary != "none" and not boundary.endswith("cleanup"):
+            (root / "faults.json").unlink(missing_ok=True)
+            if tamper is not None:
+                _tamper_recovery(root, tamper)
+            guarded = {name: (root / name).read_bytes() if (root / name).exists() else None for name in
+                       ("rollback-required.json", "installed-marker", "runtime.json", "runtime-observed")}
+            retry = _start_crash_worker(root, "none", "rollback" if tamper == "different-command" else command)
+            retry_out, retry_err = retry.communicate(timeout=10)
+            if tamper is not None:
+                assert retry.returncode != 0 and "HarnessError" in retry_err, retry_err
+                assert guarded == {name: (root / name).read_bytes() if (root / name).exists() else None for name in guarded}
+                assert protected.read_bytes() == b"synthetic protected bytes"
+                assert lock.stat().st_ino == inode
+                return
+            assert retry.returncode == 0, (retry_out, retry_err)
+            restored = harness.operation_status(argparse.Namespace())
+            assert restored["status"] == "active"
+            assert restored["manifest"]["source_sha"] == target["source_sha"]
+            assert (root / "installed-marker").read_text() == target["source_sha"]
+            assert (root / "runtime-observed").read_text() == target["source_sha"]
+            assert not (root / "rollback-required.json").exists()
+            assert not (root / "transactions" / "previous-marker.app").exists()
+            assert protected.read_bytes() == b"synthetic protected bytes"
+            assert lock.stat().st_ino == inode
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+
+
+def _prepare_crash(root, command):
+    harness = _crash_harness(root)
+    previous = harness.build_manifest(OLD, "224", "synthetic-test", "same-revision", root)
+    previous.update(status="active", health={"result": "pass", "checks": {}, "checked_at": harness.now()})
+    if command != "first-install":
+        harness._publish_active(root, previous, "live")
+    target = harness.build_manifest(NEW, "224", "synthetic-test", "same-revision", root)
+    for component in ("database", "storage", "temporal"):
+        target["components"][component]["digest"] = previous["components"][component]["digest"]
+    if command == "rollback":
+        target.update(status="active", health={"result": "pass", "checks": {}, "checked_at": harness.now()})
+        harness._publish_active(root, target, "live")
+        previous, target = target, previous
+    harness._write_json(root / "candidate.json", target)
+    if command != "first-install":
+        harness._write_json(root / "runtime.json", _runtime_marker(previous["source_sha"]))
+        (root / "installed-marker").write_text(previous["source_sha"])
+        (root / "runtime-observed").write_text(previous["source_sha"])
+    protected = root / "protected-data-marker"
+    protected.write_bytes(b"synthetic protected bytes")
+    lock = root / "promote.lock"
+    lock.touch()
+    inode = lock.stat().st_ino
+    return harness, previous, target, protected, lock, inode
+
+
+def _start_crash_worker(root, boundary, command):
+    return subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), "--crash-worker", str(root), boundary, command],
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+
+
+@pytest.mark.parametrize(("command", "failure"), [
+    (command, failure)
+    for command in ("promote", "rollback", "first-install")
+    for failure in ("receipt-write", "manifest-write", "pointer-write", "receipt-unlink", "receipt-sync",
+                    "install-failure", "compensation-failure", "cleanup-failure")
+    if (command, failure) != ("first-install", "cleanup-failure")
+])
+def test_ordinary_write_and_compensation_failures(command, failure):
+    with tempfile.TemporaryDirectory(prefix="graf-f224-write-fault-") as temporary:
+        root = Path(temporary).resolve()
+        harness, previous, target, protected, lock, inode = _prepare_crash(root, command)
+        failures = ["install-failure", "after-restore"] if failure == "compensation-failure" else [failure]
+        (root / "faults.json").write_text(json.dumps(failures))
+        process = _start_crash_worker(root, "none", command)
+        out, err = process.communicate(timeout=10)
+        warning_only = failure in {"receipt-sync", "cleanup-failure"}
+        assert (process.returncode == 0) == warning_only, (out, err)
+        assert protected.read_bytes() == b"synthetic protected bytes"
+        assert lock.stat().st_ino == inode
+        marker = root / "rollback-required.json"
+        backup = root / "transactions/previous-marker.app"
+        active = harness._load_active(root)
+        if warning_only:
+            assert '"status": "warning"' in err
+            assert active["source_sha"] == target["source_sha"]
+            assert (root / "installed-marker").read_text() == target["source_sha"]
+            assert (root / "runtime-observed").read_text() == target["source_sha"]
+            assert not marker.exists()
+            assert backup.exists() == (command != "first-install")
+        elif failure in {"receipt-write", "install-failure"}:
+            assert not marker.exists()
+            if command == "first-install":
+                assert active is None
+                assert not (root / "installed-marker").exists()
+                assert not (root / "runtime.json").exists()
+            else:
+                assert active["source_sha"] == previous["source_sha"]
+                assert (root / "installed-marker").read_text() == previous["source_sha"]
+                assert (root / "runtime-observed").read_text() == previous["source_sha"]
+        else:
+            assert marker.is_file()
+            assert harness.operation_status(argparse.Namespace())["status"] == "rollback_required"
+            assert backup.exists() == (command != "first-install")
+            (root / "faults.json").unlink()
+            retry = _start_crash_worker(root, "none", command)
+            retry_out, retry_err = retry.communicate(timeout=10)
+            assert retry.returncode == 0, (retry_out, retry_err)
+            assert harness._load_active(root)["source_sha"] == target["source_sha"]
+            assert (root / "installed-marker").read_text() == target["source_sha"]
+            assert (root / "runtime-observed").read_text() == target["source_sha"]
+            assert not marker.exists()
+        assert protected.read_bytes() == b"synthetic protected bytes"
+        assert lock.stat().st_ino == inode
+
+
+@pytest.mark.parametrize("command", ["promote", "rollback", "first-install"])
+@pytest.mark.parametrize("boundary", ["before-restore", "after-restore", "before-restore-runtime", "after-restore-runtime"])
+def test_sigkill_during_compensation_keeps_exact_retry(command, boundary):
+    with tempfile.TemporaryDirectory(prefix="graf-f224-compensation-crash-") as temporary:
+        root = Path(temporary).resolve()
+        (root / "faults.json").write_text(json.dumps(["install-failure"]))
+        # The same full coordinator is killed during compensation; the retry
+        # has no injected failure and must still complete the original target.
+        try:
+            _exercise_crash(root, command, boundary)
+        finally:
+            (root / "faults.json").unlink(missing_ok=True)
+
+
+def _tamper_recovery(root, case):
+    path = root / "rollback-required.json"
+    receipt = json.loads(path.read_text())
+    operation = receipt["operation"]
+    candidate_path = root / "candidate.json"
+    candidate = json.loads(candidate_path.read_text())
+    if case == "target-digest":
+        candidate["components"]["macos_app"]["digest"] = "sha256:" + "e" * 64
+    elif case == "identity":
+        candidate["app_identity"]["signing_identity"] = "another signer"
+    elif case == "boundary":
+        candidate["dev_boundary"]["backend_origin"] = "http://127.0.0.1:19999"
+    elif case == "parent":
+        candidate["parent_manifest_id"] = "another-parent"
+    elif case == "operator":
+        candidate["operator"] = "changed operator"
+    elif case == "feature":
+        candidate["feature_id"] = "225"
+    elif case in {"controller-pid", "controller-token"}:
+        operation["controller_pid"] = os.getpid()
+        operation["controller_start"] = (_crash_harness(root).GrafLocalAdapter(root, root)._process_start_token(os.getpid())
+                                         if case == "controller-pid" else "wrong start token")
+    elif case == "backup-digest":
+        operation["backup_digest"] = "sha256:" + "e" * 64
+    elif case == "backup-path":
+        operation["backup"] = "../previous-escape.app"
+    elif case == "backup-link":
+        backup = root / operation["backup"]
+        kept = root / "kept-backup"
+        backup.rename(kept)
+        backup.symlink_to(kept, target_is_directory=True)
+    elif case == "checkout-digest":
+        operation["checkouts"]["target"]["digest"] = "sha256:" + "e" * 64
+    elif case == "checkout-missing":
+        operation["checkouts"]["target"]["root"] = str(root / "missing-checkout")
+    elif case in {"runtime-pid", "runtime-digest"}:
+        runtime_path = root / "runtime.json"
+        runtime = json.loads(runtime_path.read_text())
+        if case == "runtime-pid":
+            runtime["pid"] = os.getpid()
+        else:
+            runtime["runtime_definition_digest"] = "sha256:" + "e" * 64
+        runtime_path.write_text(json.dumps(runtime))
+    elif case == "old-receipt":
+        receipt.pop("operation")
+    elif case != "different-command":
+        raise AssertionError(case)
+    path.write_text(json.dumps(receipt))
+    candidate_path.write_text(json.dumps(candidate))
+
+
+@pytest.mark.parametrize("tamper", [
+    "target-digest", "identity", "boundary", "parent", "operator", "feature",
+    "controller-pid", "controller-token", "backup-digest", "backup-path", "backup-link",
+    "checkout-digest", "checkout-missing", "runtime-pid", "runtime-digest",
+    "old-receipt", "different-command",
+])
+def test_recovery_rejects_changed_identity_before_effects(tamper):
+    with tempfile.TemporaryDirectory(prefix="graf-f224-invalid-retry-") as temporary:
+        _exercise_crash(Path(temporary).resolve(), "promote", "after-install", tamper)
+
+
+def test_operation_lock_context_closes_fd_and_rejects_nested_or_foreign_locks():
+    with tempfile.TemporaryDirectory(prefix="graf-f224-lock-context-") as temporary:
+        root = Path(temporary).resolve()
+        harness = _crash_harness(root)
+        with pytest.raises(RuntimeError, match="injected"):
+            with harness.state_lock(root):
+                fd, = harness._command_lock_fds()
+                assert os.fstat(fd).st_ino == (root / "promote.lock").stat().st_ino
+                with pytest.raises(harness.HarnessError, match="nested"):
+                    with harness.state_lock(root / "other"):
+                        pytest.fail("nested lock was accepted")
+                token = harness._HELD_OPERATION_LOCK.set((99999999, root, fd))
+                try:
+                    with pytest.raises(harness.HarnessError, match="another controller"):
+                        harness._command_lock_fds()
+                finally:
+                    harness._HELD_OPERATION_LOCK.reset(token)
+                raise RuntimeError("injected")
+        assert harness._command_lock_fds() == ()
+        with pytest.raises(OSError):
+            os.fstat(fd)
+
+
+def _lock_busy(path):
+    with path.open("r+") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+    return False
+
+
+def _wait_marker(path):
+    deadline = time.monotonic() + 10
+    while not path.exists():
+        assert time.monotonic() < deadline, f"process did not publish {path.name}"
+        time.sleep(0.01)
+
+
+def _lock_worker(root, route):
+    harness = _crash_harness(root)
+    child = """import pathlib,sys,time
+root=pathlib.Path(sys.argv[1])
+(root/'child-ready').touch()
+deadline=time.monotonic()+10
+while not (root/'release').exists() and time.monotonic()<deadline: time.sleep(.01)
+(root/'child-done').touch()
+"""
+    adapter = harness.GrafLocalAdapter(ROOT, root)
+    harness._run_command = harness._test_command
+    harness._dev_app_destination = lambda: harness.DEV_APP_PATH
+    env = dict(os.environ, GRAF_TEST_ROOT=str(root))
+    if route != "command":
+        binaries = root / "bin"
+        binaries.mkdir()
+        stub = (f'#!{sys.executable}\n' + child.replace(
+            'root=pathlib.Path(sys.argv[1])',
+            'import os\nroot=pathlib.Path(os.environ["GRAF_TEST_ROOT"])')
+            + '\nprint("running")\n')
+        for name in ("swift", "docker"):
+            path = binaries / name
+            path.write_text(stub)
+            path.chmod(0o700)
+        env["PATH"] = str(binaries) + os.pathsep + os.environ["PATH"]
+        env["TMPDIR"] = str(root)
+        os.environ.update(env)
+        adapter._env = lambda manifest: env
+    with harness.state_lock(root):
+        if route == "installer":
+            # The real installer stops at its first lifecycle check. Returning
+            # running prevents any build, copy or write to /Applications.
+            adapter._checked_app_bundle = lambda manifest: root
+            adapter._install_app({}, env)
+        elif route == "compose":
+            adapter._schema_compose({}, "stop")
+        elif route == "lifecycle":
+            adapter._atomic_swap_dev_app(root / "unused", harness.DEV_APP_PATH)
+        else:
+            harness._test_command([sys.executable, "-c", child, str(root)], cwd=root)
+
+
+@pytest.mark.parametrize("route", ["command", "installer", "compose", "lifecycle"])
+def test_mutating_child_keeps_original_lock_after_controller_sigkill(route):
+    with tempfile.TemporaryDirectory(prefix="graf-f224-child-lock-") as temporary:
+        root = Path(temporary).resolve()
+        process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--lock-worker", str(root), route])
+        try:
+            _wait_marker(root / "child-ready")
+            lock = root / "promote.lock"
+            inode = lock.stat().st_ino
+            assert _lock_busy(lock)
+            process.kill()
+            assert process.wait(timeout=5) == -signal.SIGKILL
+            assert _lock_busy(lock), "mutating child survived, but promote.lock was released"
+            assert lock.stat().st_ino == inode
+        finally:
+            (root / "release").touch()
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+            if (root / "child-ready").exists():
+                _wait_marker(root / "child-done")
+                deadline = time.monotonic() + 5
+                while _lock_busy(lock):
+                    assert time.monotonic() < deadline, "finished child did not release lock"
+                    time.sleep(0.01)
+                assert lock.stat().st_ino == inode
+
+
+def _pending_operation(root):
+    prepared = _prepare_crash(root, "promote")
+    process = _start_crash_worker(root, "after-install", "promote")
+    try:
+        _wait_marker(root / "ready")
+    finally:
+        process.kill()
+        process.communicate(timeout=5)
+    assert process.returncode == -signal.SIGKILL
+    (root / "ready").unlink()
+    return prepared
+
+
+def _startup_worker(root, boundary):
+    harness = _crash_harness(root)
+    adapter = harness.GrafLocalAdapter(root, root)
+    adapter.start_script = root / "startup.sh"
+    adapter._runtime_definition_digest = lambda: "sha256:" + "d" * 64
+    adapter._wait_runtime_ready = lambda *args: _crash_handshake(root, "after-permit", boundary)
+    spawn = subprocess.Popen
+    def capture(*args, **kwargs):
+        child = spawn(*args, **kwargs)
+        if harness.SCHEMA_STARTUP_GATE in args[0]:
+            (root / "startup-pid").write_text(str(child.pid))
+        return child
+    harness.subprocess.Popen = capture
+    write = harness._write_json
+    def runtime_write(path, value):
+        if path.name == "runtime.json":
+            if boundary == "record-failure":
+                raise OSError("injected runtime record failure")
+            _crash_handshake(root, "before-record", boundary)
+        write(path, value)
+        if path.name == "runtime.json":
+            _crash_handshake(root, "after-record", boundary)
+    harness._write_json = runtime_write
+    with harness.state_lock(root):
+        operation = harness._read_ordinary_operation(root)
+        operation.update(controller_pid=os.getpid(), controller_start=adapter._process_start_token(os.getpid()))
+        adapter._write_ordinary_receipt(operation)
+        adapter._start_backend(operation["target"], os.environ.copy())
+
+
+@pytest.mark.parametrize("route", [
+    "manifest", "cli-build", "cli-rehydrate", "cli-prune", "cli-smoke", "cli-reset",
+    "promote-dry", "rollback-dry", "build", "rehydrate", "retention", "prune",
+    "schema-cleanup", "startup", "smoke", "startup-guard",
+])
+def test_pending_operation_blocks_competing_routes_before_effects(tmp_path, route):
+    root = tmp_path.resolve()
+    harness, previous, target, protected, lock, inode = _pending_operation(root)
+    adapter = harness.GrafLocalAdapter(root, root)
+    adapter._assert_supported = lambda: None
+    adapter._wait_http = lambda *args, **kwargs: pytest.fail("probe started before recovery guard")
+    args = argparse.Namespace(manifest=root / "candidate.json", live=True, dry_run=True,
+                              fixture=False, confirm_dev_reset=True)
+    actions = {
+        "manifest": lambda: harness.build_manifest(NEW, "224", root=root),
+        "cli-build": lambda: harness.operation_build(args),
+        "cli-rehydrate": lambda: harness.operation_rehydrate(args),
+        "cli-prune": lambda: harness.operation_prune(args),
+        "cli-smoke": lambda: harness.operation_smoke(args),
+        "cli-reset": lambda: harness.operation_reset_data(args),
+        "promote-dry": lambda: harness.operation_promote(args),
+        "rollback-dry": lambda: harness.operation_rollback(args),
+        "build": lambda: adapter.build(target),
+        "rehydrate": lambda: adapter.rehydrate(target),
+        "retention": lambda: adapter._apply_retention(previous, target),
+        "prune": lambda: adapter.estimate_or_apply_prune(dry_run=False),
+        "schema-cleanup": lambda: adapter._cleanup_schema_snapshots(),
+        "startup": lambda: adapter._start_backend(target, {}),
+        "smoke": lambda: adapter.smoke(target),
+        "startup-guard": lambda: harness._schema_start_guard(root, NEW),
+    }
+    before = {str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    with pytest.raises(harness.HarnessError, match="operation|rollback|controller"):
+        actions[route]()
+    assert before == {str(path.relative_to(root)): path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    assert lock.stat().st_ino == inode
+
+
+def test_same_active_target_still_enters_pending_recovery(tmp_path, monkeypatch):
+    root = tmp_path.resolve()
+    harness, previous, target, protected, lock, inode = _pending_operation(root)
+    harness._publish_active(root, target, "live")
+    called = []
+    def retry(self, manifest, **kwargs):
+        called.append(manifest["source_sha"])
+        raise harness.HarnessError("verified retry reached")
+    monkeypatch.setattr(harness.GrafLocalAdapter, "promote", retry)
+    with pytest.raises(harness.HarnessError, match="verified retry reached"):
+        harness.operation_promote(argparse.Namespace(manifest=root / "candidate.json", live=True,
+                                                    dry_run=False, previous_checkout=None))
+    assert called == [NEW]
+    assert (root / "rollback-required.json").exists()
+    assert (root / "transactions/previous-marker.app").exists()
+
+
+def test_smoke_rejects_operation_appearing_during_probes(tmp_path, monkeypatch):
+    root = tmp_path.resolve()
+    harness, previous, target, protected, lock, inode = _pending_operation(root)
+    marker = root / "rollback-required.json"
+    receipt = marker.read_bytes()
+    marker.unlink()
+    adapter = harness.GrafLocalAdapter(root, root)
+    adapter._assert_supported = lambda: None
+    def probe(*args, **kwargs):
+        marker.write_bytes(receipt)
+        return 200
+    adapter._wait_http = probe
+    adapter._env = lambda *args: {}
+    adapter._compose_service_ready = lambda *args: "pass"
+    adapter._tcp_ready = lambda *args: "pass"
+    monkeypatch.setattr(harness, "_run_command", lambda *args, **kwargs: "")
+    with pytest.raises(harness.HarnessError, match="unfinished Dev operation"):
+        adapter.smoke(previous)
+    assert marker.read_bytes() == receipt
+    assert protected.read_bytes() == b"synthetic protected bytes"
+    assert lock.stat().st_ino == inode
+
+
+@pytest.mark.parametrize("boundary", ["before-record", "after-record", "after-permit", "record-failure"])
+def test_ordinary_startup_gate_registers_before_execution(tmp_path, boundary):
+    root = tmp_path.resolve()
+    harness, previous, target, protected, lock, inode = _pending_operation(root)
+    script = root / "startup.sh"
+    script.write_text('cd "$(dirname "$0")"\ntouch startup-executed\n'
+                      'while [ ! -f startup-release ]; do sleep .02; done\n')
+    process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--startup-worker", str(root), boundary],
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    adapter = harness.GrafLocalAdapter(root, root)
+    try:
+        if boundary != "record-failure":
+            _wait_marker(root / "ready")
+            if boundary == "after-permit":
+                _wait_marker(root / "startup-executed")
+                assert adapter._pid_owned(harness._read_json(root / "runtime.json"))
+            else:
+                assert not (root / "startup-executed").exists()
+                record = harness._read_json(root / "runtime.json")
+                assert (record["source_sha"] == target["source_sha"]) == (boundary == "after-record")
+            process.kill()
+        out, err = process.communicate(timeout=5)
+        assert process.returncode != 0, (out, err)
+        pid = int((root / "startup-pid").read_text())
+        if boundary == "after-permit":
+            assert adapter._pid_alive(pid)
+            assert not _lock_busy(lock), "long-lived backend inherited operation lock"
+            adapter._stop_previous()  # Actual ownership check and SIGTERM, no Docker.
+        deadline = time.monotonic() + 5
+        while adapter._pid_alive(pid):
+            assert time.monotonic() < deadline, "startup pipe did not close on controller death"
+            time.sleep(0.01)
+        assert (root / "startup-executed").exists() == (boundary == "after-permit")
+        assert harness.operation_status(argparse.Namespace())["status"] == "rollback_required"
+        assert protected.read_bytes() == b"synthetic protected bytes"
+        assert lock.stat().st_ino == inode
+        retry = _start_crash_worker(root, "none", "promote")
+        out, err = retry.communicate(timeout=10)
+        assert retry.returncode == 0, (out, err)
+        assert harness._load_active(root)["source_sha"] == target["source_sha"]
+    finally:
+        (root / "startup-release").touch()
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=5)
+        if (root / "startup-pid").exists():
+            pid = int((root / "startup-pid").read_text())
+            if adapter._pid_alive(pid):
+                os.kill(pid, signal.SIGTERM)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) == 4 and sys.argv[1] == "--lock-worker":
+        _lock_worker(Path(sys.argv[2]), sys.argv[3])
+    elif len(sys.argv) == 4 and sys.argv[1] == "--startup-worker":
+        _startup_worker(Path(sys.argv[2]), sys.argv[3])
+    else:
+        assert len(sys.argv) == 5 and sys.argv[1] == "--crash-worker"
+        _crash_worker(Path(sys.argv[2]), sys.argv[3], sys.argv[4])
