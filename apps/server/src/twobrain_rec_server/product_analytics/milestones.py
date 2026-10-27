@@ -17,7 +17,7 @@ module keeps three promises that make the funnel readable:
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -265,6 +265,7 @@ async def admit_account_milestone(
     account_id: UUID,
     source_kind: str,
     requested_providers: tuple[str, ...] = (),
+    before_insert: Callable[[], tuple[str, ...]] | None = None,
 ) -> tuple[ProductActivationMilestone, bool]:
     """Atomically keep one immutable account decision and its fixed intents."""
 
@@ -304,9 +305,16 @@ async def admit_account_milestone(
     ).as_payload()
     if len(json.dumps(payload, ensure_ascii=False, allow_nan=False).encode()) > 16384:
         raise ValueError("milestone payload exceeds 16 KiB")
+    # Refresh permissions AFTER waiting for the account lock, directly before
+    # constructing/executing the INSERT. No transport runs in this callback.
+    if before_insert is not None:
+        requested_providers = before_insert()
+        if set(requested_providers) - {"posthog", "yandex"}:
+            raise ValueError("unknown milestone provider")
     event_id = uuid5(
         UUID("2979ac36-e0b5-57cd-9355-8336fdf99b79"), f"{account_id}:{event.event_name}"
     )
+    now = datetime.now(UTC)
     values = dict(
         id=uuid4(),
         account_id=account_id,

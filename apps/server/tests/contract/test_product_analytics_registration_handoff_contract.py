@@ -14,6 +14,7 @@ import asyncio
 import re
 from uuid import uuid4
 
+import pytest
 import sqlalchemy as sa
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -73,11 +74,11 @@ def _surfaces(database_url: str) -> dict[str, int]:
     return counted
 
 
-def _start_signup(client: TestClient, email: str) -> tuple[str, str]:
+def _start_signup(client: TestClient, email: str, next_path="/meetings") -> tuple[str, str]:
     """Open the registration step and return its state nonce and its code."""
     started = client.post(
         "/sign-up/email/start",
-        data={"email": email, "next": "/meetings"},
+        data={"email": email, "next": next_path},
         headers=BROWSER_HEADERS,
     )
     assert started.status_code == 200, started.text[:400]
@@ -95,18 +96,18 @@ def _start_signup(client: TestClient, email: str) -> tuple[str, str]:
     return state_match.group(1), code_match.group(1)
 
 
-def _verify_signup(client: TestClient, email: str, state: str, code: str):
+def _verify_signup(client: TestClient, email: str, state: str, code: str, next_path="/meetings"):
     return client.post(
         "/sign-up/email/verify",
-        data={"email": email, "code": code, "state": state, "next": "/meetings"},
+        data={"email": email, "code": code, "state": state, "next": next_path},
         headers=BROWSER_HEADERS,
         follow_redirects=False,
     )
 
 
-def _complete_signup(client: TestClient, email: str):
-    state, code = _start_signup(client, email)
-    completed = _verify_signup(client, email, state, code)
+def _complete_signup(client: TestClient, email: str, next_path="/meetings"):
+    state, code = _start_signup(client, email, next_path)
+    completed = _verify_signup(client, email, state, code, next_path)
     assert completed.status_code == 303, completed.text[:400]
     return completed
 
@@ -427,11 +428,11 @@ def test_the_delivered_installer_file_is_counted_apart_from_the_page(
     }
 
 
-def _start_login(client: TestClient, email: str) -> tuple[str, str]:
+def _start_login(client: TestClient, email: str, next_path="/meetings") -> tuple[str, str]:
     """Open the sign-in step and return its state nonce and its code."""
     started = client.post(
         "/login/email/start",
-        data={"email": email, "next": "/meetings"},
+        data={"email": email, "next": next_path},
         headers=BROWSER_HEADERS,
     )
     assert started.status_code == 200, started.text[:400]
@@ -449,8 +450,9 @@ def _start_login(client: TestClient, email: str) -> tuple[str, str]:
     return state_match.group(1), code_match.group(1)
 
 
-def test_the_sign_in_by_emailed_code_delivers_the_account_connected_milestone(
-    client: TestClient, monkeypatch
+@pytest.mark.parametrize("next_path", ["/meetings", "/desktop/meetings"])
+def test_only_desktop_sign_in_schedules_account_connected(
+    client: TestClient, monkeypatch, next_path
 ) -> None:
     """FR-021: the milestone comes from the path the desktop app really uses.
 
@@ -471,19 +473,25 @@ def test_the_sign_in_by_emailed_code_delivers_the_account_connected_milestone(
         event = None
         provider_results: tuple[object, ...] = ()
 
-    def capture(self, payload):  # noqa: ANN001 - the service signature
+    async def capture(self, payload, **kwargs):  # noqa: ANN001 - the service signature
+        assert kwargs["principal"] is not None
+        assert kwargs["sessionmaker"] is client.app.state.db_sessionmaker
+        assert kwargs["source_kind"] == "server"
         delivered.append(dict(payload))
         return _Captured()
 
     monkeypatch.setattr(
-        api_auth_module.ProductAnalyticsIngestService, "ingest", capture, raising=True
+        api_auth_module.ProductAnalyticsIngestService, "ingest_authenticated", capture, raising=True
     )
     # Measurement of registered users is off by default; this test is about the
     # milestone the server sends, so it has to be on for the delivery to happen.
     monkeypatch.setattr(client.app.state.settings, "product_analytics_enabled", True)
 
     email = _new_email("milestone-email-code")
-    _complete_signup(client, email)
+    _complete_signup(client, email, next_path)
+    if next_path == "/meetings":
+        assert delivered == []
+        return
 
     assert [payload.get("event_name") for payload in delivered] == ["desktop_account_connected"]
     properties = delivered[0]["properties"]
@@ -493,10 +501,10 @@ def test_the_sign_in_by_emailed_code_delivers_the_account_connected_milestone(
     # The same account signing in again is the ordinary desktop path, and it
     # must deliver the milestone too, not only the first registration.
     delivered.clear()
-    state, code = _start_login(client, email)
+    state, code = _start_login(client, email, next_path)
     signed_in = client.post(
         "/login/email/verify",
-        data={"email": email, "code": code, "state": state, "next": "/meetings"},
+        data={"email": email, "code": code, "state": state, "next": next_path},
         headers=BROWSER_HEADERS,
         follow_redirects=False,
     )

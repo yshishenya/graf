@@ -410,7 +410,11 @@ def read_basis_withdrawal_register(
     withdrawals: list[BasisWithdrawal] = []
     for record in _records(text):
         withdrawal = _withdrawal_record(record, today=current_day)
-        if withdrawal is not None:
+        if withdrawal is None:
+            file_errors.append("legal_basis_record_invalid")
+        elif any(item.level_key == withdrawal.level_key for item in withdrawals):
+            file_errors.append("legal_basis_record_duplicate")
+        else:
             withdrawals.append(withdrawal)
     return BasisWithdrawalRegister(
         available=True,

@@ -592,40 +592,49 @@ async def capture_client_acquisition_attribute(
         return False
 
 
-def record_account_connected_milestone(
+async def record_account_connected_milestone(
     *,
     settings: Settings,
     user_id: UUID,
+    organization_id: UUID,
+    workspace_id: UUID,
+    sessionmaker,
     provider: str,
     handoff: AttributionHandoff | None,
     auth_method_category: str = ACCOUNT_CONNECTED_AUTH_METHOD_CATEGORY,
 ) -> ProductAnalyticsIngestResult | None:
-    """Send the milestone built above (FR-021).
+    """Admit the verified desktop sign-in after the product transaction (FR-021).
 
     Measurement never breaks account connection: a failure of the analytics
     service is swallowed here, after the account itself is already stored.
     """
     if not settings.product_analytics_enabled:
         return None
-    identity = build_safe_identity(user_source_id=str(user_id))
-    payload = build_account_connected_product_analytics_payload(
-        stable_pseudonymous_user_id=identity.stable_pseudonymous_user_id,
-        auth_method_category=auth_method_category,
-        bridge_present=handoff is not None,
-        attribution_reliability=(
-            handoff.reliability(account_connected=True)
-            if handoff
-            else ATTRIBUTION_RELIABILITY_UNKNOWN
-        ),
-        campaign_context=handoff.campaign_context if handoff else None,
-    )
     try:
-        return ProductAnalyticsIngestService(settings).ingest(payload)
+        identity = build_safe_identity(user_source_id=str(user_id))
+        payload = build_account_connected_product_analytics_payload(
+            stable_pseudonymous_user_id=identity.stable_pseudonymous_user_id,
+            auth_method_category=auth_method_category,
+            bridge_present=handoff is not None,
+            attribution_reliability=(
+                handoff.reliability(account_connected=True)
+                if handoff
+                else ATTRIBUTION_RELIABILITY_UNKNOWN
+            ),
+            campaign_context=handoff.campaign_context if handoff else None,
+        )
+        return await ProductAnalyticsIngestService(settings).ingest_authenticated(
+            payload,
+            principal=AuthenticatedPrincipal(
+                user_id=user_id, organization_id=organization_id,
+                workspace_ids=frozenset({workspace_id}), subject=str(user_id),
+            ),
+            sessionmaker=sessionmaker, source_kind="server",
+        )
     except Exception:
         logger.warning(
             "product analytics account-connected milestone was not delivered",
             extra={"provider": provider},
-            exc_info=True,
         )
         return None
 
@@ -635,6 +644,9 @@ def schedule_account_connected_milestone(
     request: Request,
     *,
     user_id: UUID,
+    organization_id: UUID,
+    workspace_id: UUID,
+    desktop_path: bool,
     provider: str,
     handoff: AttributionHandoff | None = None,
     auth_method_category: str = ACCOUNT_CONNECTED_AUTH_METHOD_CATEGORY,
@@ -647,7 +659,7 @@ def schedule_account_connected_milestone(
     read here.
     """
     settings = getattr(request.app.state, "settings", None) or get_settings()
-    if not settings.product_analytics_enabled:
+    if not settings.product_analytics_enabled or not desktop_path:
         return
     if handoff is None:
         handoff = attribution_handoff_for_request(request)
@@ -655,6 +667,9 @@ def schedule_account_connected_milestone(
         record_account_connected_milestone,
         settings=settings,
         user_id=user_id,
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+        sessionmaker=getattr(request.app.state, "db_sessionmaker", None),
         provider=provider,
         handoff=handoff,
         auth_method_category=auth_method_category,
@@ -1579,6 +1594,12 @@ async def callback(
         background_tasks,
         request,
         user_id=profile.user_id,
+        organization_id=profile.organization_id,
+        workspace_id=profile.workspace_id,
+        desktop_path=(
+            not profile.browser_bound
+            or (redirect_path is not None and redirect_path.startswith("/desktop/"))
+        ),
         provider=provider,
         handoff=resolved_handoff,
     )
