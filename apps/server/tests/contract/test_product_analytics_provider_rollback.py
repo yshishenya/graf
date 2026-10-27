@@ -2,6 +2,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from tests.contract.test_analytics_degradation_alerting import _capacity_guard_runtime
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.provider_config import ProductAnalyticsProviderConfig
 
@@ -145,23 +146,23 @@ def test_posthog_runtime_guard_has_metadata_only_alert_and_scoped_rollback() -> 
     service = GUARD_SERVICE_PATH.read_text(encoding="utf-8")
     timer = GUARD_TIMER_PATH.read_text(encoding="utf-8")
 
-    # Legacy production variables keep working.
-    assert 'analytics_path="${GRAF_POSTHOG_ANALYTICS_PATH:-$app_dir}"' in script
+    # Storage now comes from the shared collector and capacity evaluator.
+    assert 'collector="${GRAF_POSTHOG_STORAGE_COLLECTOR:-$script_dir/measure-posthog-storage-growth.sh}"' in script
+    assert 'capacity_helper="$script_dir/posthog-capacity.py"' in script
     assert 'auto_rollback="${GRAF_POSTHOG_GUARD_AUTO_ROLLBACK:-0}"' in script
     assert "restart_delta=$((restart_delta + restarts - previous_restarts))" in script
 
     # Analytics scope: stricter defaults, evaluation first, measurement only.
     assert 'analytics_health_failure_threshold="${GRAF_POSTHOG_GUARD_ANALYTICS_HEALTH_FAILURES:-1}"' in script
-    assert 'analytics_disk_free_percent_threshold="${GRAF_POSTHOG_GUARD_ANALYTICS_DISK_FREE_PERCENT:-20}"' in script
-    assert "disk_free_percent < analytics_disk_free_percent_threshold" in script
+    assert 'analytics_reasons) capacity_analytics_reasons="$value"' in script
+    assert 'disable_reasons) capacity_disable_reasons="$value"' in script
     assert "analytics_health_failures >= analytics_health_failure_threshold" in script
 
     # Host scope: later defaults, alert only, never a measurement rollback.
     assert 'host_memory_mib_threshold="${GRAF_POSTHOG_GUARD_HOST_MEMORY_MIB:-16384}"' in script
-    assert 'host_disk_free_percent_threshold="${GRAF_POSTHOG_GUARD_HOST_DISK_FREE_PERCENT:-10}"' in script
+    assert 'host_reasons) capacity_host_reasons="$value"' in script
     assert 'host_health_failure_threshold="${GRAF_POSTHOG_GUARD_HOST_HEALTH_FAILURES:-2}"' in script
     assert "available_memory_mib < host_memory_mib_threshold" in script
-    assert "disk_free_percent < host_disk_free_percent_threshold" in script
     assert "health_failures >= host_health_failure_threshold" in script
 
     # Only analytics-scope reasons may disable measurement.
@@ -176,45 +177,21 @@ def test_posthog_runtime_guard_has_metadata_only_alert_and_scoped_rollback() -> 
     assert "docker compose --env-file" in script
     assert "rec-api" in script
     assert "api_key" not in script
-    assert "secret" not in script.lower()
+    assert "secret" not in script.replace("TWOBRAIN_RUNTIME_SECRET_GID", "").lower()
     assert "EnvironmentFile=-/etc/graf-posthog-runtime-guard.env" in service
-    assert "ExecStart=/usr/local/libexec/graf-posthog-runtime-guard.sh" in service
+    assert (
+        "ExecStart=/usr/bin/env "
+        "GRAF_POSTHOG_STORAGE_STATE_DIR=/var/lib/graf-posthog-storage "
+        "GRAF_POSTHOG_STORAGE_STATE_FILE=/var/lib/graf-posthog-storage/storage-growth-state "
+        "/usr/local/libexec/graf-posthog-runtime-guard.sh"
+    ) in service
     assert "ProtectSystem=strict" in service
     assert "NoNewPrivileges=true" in service
     assert "OnUnitActiveSec=1min" in timer
 
 
 def test_posthog_runtime_guard_handles_zero_restart_count_without_exiting(tmp_path: Path) -> None:
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    (bin_dir / "docker").write_text(
-        "#!/bin/sh\n"
-        "case \"$1\" in\n"
-        "  ps) printf 'container-1\\n' ;;\n"
-        "  inspect) printf 'false 0 1000000000 1073741824\\n' ;;\n"
-        "esac\n",
-        encoding="utf-8",
-    )
-    (bin_dir / "curl").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    (bin_dir / "logger").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    for executable in bin_dir.iterdir():
-        executable.chmod(0o755)
-
-    state_dir = tmp_path / "state"
-    environment = os.environ.copy()
-    environment.update(
-        {
-            "PATH": f"{bin_dir}:{os.defpath}",
-            "GRAF_POSTHOG_PROJECT": "graf-posthog",
-            "GRAF_APP_DIR": str(tmp_path),
-            "GRAF_POSTHOG_ANALYTICS_PATH": str(tmp_path),
-            "GRAF_POSTHOG_GUARD_STATE_DIR": str(state_dir),
-            "GRAF_POSTHOG_GUARD_AUTO_ROLLBACK": "0",
-            "GRAF_POSTHOG_GUARD_DRY_RUN": "1",
-            "GRAF_POSTHOG_HEALTH_URL": "http://guard-test.invalid/health",
-            "GRAF_READY_URL": "http://guard-test.invalid/ready",
-        }
-    )
+    environment, _, _ = _capacity_guard_runtime(tmp_path)
     result = subprocess.run(
         [str(GUARD_PATH)],
         cwd=REPO_ROOT,
@@ -230,72 +207,41 @@ def test_posthog_runtime_guard_handles_zero_restart_count_without_exiting(tmp_pa
 
 
 def test_posthog_runtime_guard_rollback_is_atomic_and_has_no_secret_backup(tmp_path: Path) -> None:
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    (bin_dir / "docker").write_text(
-        "#!/bin/sh\n"
-        "case \"$1\" in\n"
-        "  ps) printf 'container-1\\n' ;;\n"
-        "  inspect) printf 'false 0 1000000000 1073741824\\n' ;;\n"
-        "  compose) exit 0 ;;\n"
-        "esac\n",
-        encoding="utf-8",
-    )
-    (bin_dir / "curl").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
-    (bin_dir / "logger").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    for executable in bin_dir.iterdir():
-        executable.chmod(0o755)
-
-    app_dir = tmp_path / "app"
-    (app_dir / "infra").mkdir(parents=True)
-    (app_dir / "infra/docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
-    env_file = app_dir / ".env"
-    env_file.write_text(
-        "TWOBRAIN_PRODUCT_ANALYTICS_ENABLED=true\n"
-        "TWOBRAIN_PRODUCT_ANALYTICS_PROVIDER_MODE=posthog\n"
-        "TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_ENABLED=true\n"
-        "TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_WEB_DIRECT_ENABLED=true\n"
-        "TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_DESKTOP_DIRECT_ENABLED=true\n"
-        "TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_AUTOCAPTURE_ENABLED=true\n"
-        "TWOBRAIN_PRODUCT_ANALYTICS_REPLAY_ENABLED=true\n"
-        "TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_ALL_PAGES_ENABLED=true\n"
-        "TWOBRAIN_PRODUCT_ANALYTICS_YANDEX_OFFLINE_ENABLED=true\n"
-        "TWOBRAIN_PRODUCT_ANALYTICS_VALIDATION_MODE=live_safe\n",
-        encoding="utf-8",
-    )
-    state_dir = tmp_path / "state"
-    environment = os.environ.copy()
-    environment.update(
-        {
-            "PATH": f"{bin_dir}:{os.defpath}",
-            "GRAF_POSTHOG_PROJECT": "graf-posthog",
-            "GRAF_APP_DIR": str(app_dir),
-            "GRAF_ENV_FILE": str(env_file),
-            "GRAF_POSTHOG_ANALYTICS_PATH": str(app_dir),
-            "GRAF_POSTHOG_GUARD_STATE_DIR": str(state_dir),
-            "GRAF_POSTHOG_GUARD_AUTO_ROLLBACK": "1",
-            "GRAF_POSTHOG_GUARD_DRY_RUN": "0",
-            "GRAF_POSTHOG_GUARD_STOP_STACK": "0",
-            "GRAF_POSTHOG_HEALTH_URL": "http://guard-test.invalid/health",
-            "GRAF_READY_URL": "http://guard-test.invalid/ready",
-        }
-    )
-
+    environment, _, _ = _capacity_guard_runtime(tmp_path)
+    env_file = Path(environment["GRAF_ENV_FILE"])
+    initial_keys = {line.split("=", 1)[0] for line in env_file.read_text().splitlines()}
+    sentinel = "synthetic-private-value-do-not-export"
+    with env_file.open("a") as stream:
+        stream.write(f"UNRELATED_SETTING={sentinel}\n")
+    # Trigger the real health failure; the reused double reads Config.Env from
+    # the file after the switch and reports the running API container id.
+    (tmp_path / "bin/curl").write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
     results = [
         subprocess.run(
-            [str(GUARD_PATH)],
-            cwd=REPO_ROOT,
-            env=environment,
-            check=False,
-            capture_output=True,
-            text=True,
+            [str(GUARD_PATH)], cwd=REPO_ROOT, env=environment,
+            check=False, capture_output=True, text=True,
         )
         for _ in range(2)
     ]
 
-    assert all(result.returncode == 0 for result in results), [result.stderr for result in results]
-    assert "TWOBRAIN_PRODUCT_ANALYTICS_POSTHOG_ENABLED=false" in env_file.read_text(encoding="utf-8")
-    assert "TWOBRAIN_PRODUCT_ANALYTICS_REPLAY_ENABLED=false" in env_file.read_text(encoding="utf-8")
-    assert "TWOBRAIN_PRODUCT_ANALYTICS_PROVIDER_MODE=disabled" in env_file.read_text(encoding="utf-8")
-    assert not list(app_dir.glob(".env.bak"))
-    assert any("posthog_guard_rollback=executed" in result.stdout for result in results)
+    assert all(result.returncode == 0 for result in results), [
+        (result.stdout, result.stderr) for result in results
+    ]
+    lines = env_file.read_text().splitlines()
+    values = dict(line.split("=", 1) for line in lines)
+    assert len(values) == len(lines)
+    assert set(values) == initial_keys | {"UNRELATED_SETTING"}
+    assert values["UNRELATED_SETTING"] == sentinel
+    for key, value in values.items():
+        if key.startswith("TWOBRAIN_PRODUCT_ANALYTICS_"):
+            assert value == ("false" if key.endswith("ENABLED") else "disabled")
+    assert env_file.stat().st_mode & 0o777 == 0o600
+    assert not list(tmp_path.glob(".env.bak*"))
+    assert not list(tmp_path.glob(".env.guard.*"))
+    assert "posthog_guard_rollback=executed" in results[0].stdout
+    assert "posthog_guard_rollback=already_protected" in results[1].stdout
+    assert (tmp_path / "restart-log").read_text().splitlines() == ["restart"]
+    for result in results:
+        assert "posthog_guard_protection_status=protected" in result.stdout
+        assert sentinel not in result.stdout + result.stderr
+    assert all(sentinel not in path.read_text() for path in (tmp_path / "guard").iterdir())
