@@ -55,7 +55,7 @@ release evidence.
 
 ## Phase 7: Validation and operator gate
 
-- [ ] T026 Запустить `$speckit-analyze`, устранить critical/high findings и сохранить coverage report.
+- [X] T026 Запустить `$speckit-analyze`, устранить critical/high findings и сохранить coverage report.
 - [X] T027 Запустить `$speckit-taskstoissues`, проверить отсутствие дубликатов и canonical labels для T001–T025.
 - [ ] T028 Запустить focused governance tests, workflow lint и `infra/scripts/ci-local.sh --fast` на exact SHA.
 - [ ] T029 Провести GitHub Actions PR и `merge_group` rehearsal; enforcement остаётся operator-owned до merge в `master`.
@@ -143,3 +143,15 @@ T014/T015/T016 остаются `[ ]`: отдельные terminal поля и �
 не доказаны и повторяющаяся автоматика не добавляется. T028 сохраняется до
 проверки полного exact-SHA fast evidence. T026/T030 и настоящие native
 T029/T031 не объявлены завершёнными. Umbrella #6207 остаётся открытой.
+
+
+## Отдельная приёмка T026 — 27.10.2026
+
+- T026 (Issue #6233; umbrella #6207)
+
+Итоговый анализ в существующем `analysis-provenance-20261017.md`:
+CRITICAL 0 / HIGH 0, покрытие 18/18; независимое итоговое ревью APPROVE.
+Отмечена только T026: итог 26 выполненных / 7 открытых задач.
+T014/T015/T016/T028/T029/T030/T031 сохраняют исходные критерии и открытые отметки.
+Историческая матрица выше сохранена; новых задач и дублей issues нет.
+#6233 закрывается после принятия документального PR и live-проверки.
