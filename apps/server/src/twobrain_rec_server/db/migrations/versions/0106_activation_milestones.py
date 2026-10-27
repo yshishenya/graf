@@ -4,8 +4,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
-revision = "0106_activation_milestones"
-down_revision = "0105_anonymous_aggregate_region"
+revision: str = "0106_activation_milestones"
+down_revision: str | None = "0105_anonymous_aggregate_region"
 branch_labels = None
 depends_on = None
 

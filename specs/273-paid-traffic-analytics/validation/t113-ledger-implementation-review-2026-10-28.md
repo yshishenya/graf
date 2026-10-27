@@ -100,3 +100,38 @@ Own fragment и implementation-report описывают промежуточн�
 - Локальный завершённый журнал `.dev/growth/t113-ledger-focused-20261028.log` — `2133d6d00b9ce54e32d8f725335437e66ff1e80005d2b8e58329665b1b84ebbe`.
 
 До и после записи отчёта контрольные суммы входов повторно совпали. Изменён только этот отдельный отчёт; код, требования, tasks, checklist markers, Git/GitHub, commits, runtime и данные проверяющий не менял.
+
+
+## Повторное независимое ревью после CI — 28.10.2026
+
+**Решение: SCOPED PASS узкого исправления регрессий CI.** Новых замечаний в этом дополнении нет; все перечисленные выше обязательные остатки T113 сохраняются. Проверка не закрывает T113, account-merge/deletion-lineage приёмку, включение аналитики, выпуск или доказательство трафика/продаж.
+
+Основа: HEAD `7a674b2a44d97b34a761f8500d21f3359ad918a9`, ветка `codex/273-activation-ledger`, PR #7774; ниже проверен ещё незакоммиченный follow-up. Проверяющий независимо перечитал точный diff трёх тестов и двух аннотаций миграции, необходимые реализации и оба законченных журнала. Самостоятельного повторного запуска тестов в этом назначении не было. Сохранено ограничение записи только в этот отчёт.
+
+1. В `test_worker_schema_head_is_derived_from_packaged_migrations` ожидание0105 заменено на0106. Реальная `packaged_schema_head` читает Alembic ScriptDirectory из поставляемой конфигурации и требует ровно один head; production-проверка сравнивает фактическую версию БД именно с ним. Ожидание0106 соответствует добавленной миграции; проверка не ослаблена.
+2. В FK inventory добавлена `product_activation_milestones.account_id: historical_only`. Inventory тест сравнивает полный набор FK к user_identities с явной таблицей политик. Финализация `confirm_merge_intent` сохраняет source UserIdentity, меняет статус на merged и merged_into_user_id на survivor; ledger там не переносится. Admission принимает только status=active, а immutable trigger сохраняет исходный account_id решения. Следовательно историческая ссылка на исходный аккаунт корректна; эта классификация сама по себе не даёт права новой доставки и не доказывает полный merge/deletion-lineage сценарий.
+3. В интеграционном `test_production_share_head_upgrades_to_regeneration_merge` ожидание результата upgrade legacy0037→head обновлено на0106. Остальные утверждения схемы не удалены. Проверка отдельного регионального перехода0104→0105 не изменена.
+4. В0106 только `revision` и `down_revision` получили аннотации `str` и `str | None`. Значения и SQL остались прежними. Это соответствует существующей проверке всех файлов миграций через regex `^revision: str = ...`; сама проверка не ослаблена.
+
+Независимо прочитаны завершённые журналы:
+
+- `.dev/growth/t113-ci-regressions-20261028.log`: **17 passed,2 warnings in0.30s**, runner3с, collection_count17/digest `1aa6557130d83257d0aa25e6ce978fff7ee82062bd4abea676aebf150d3889c3`; cleanup=`container_not_started`, result=pass. БД-контейнер для этого прогона не запускался.
+- `.dev/growth/t113-migration-regressions-20261028.log`: **17 passed,2 warnings in23.20s**, runner27с, collection_count17/digest `0c9114d65f08bcd03ae260fc594d8033752ccf395fd6aaad1d0c45ab57dcc3c4`; cleanup=`isolated_container_removed`, result=pass. Это весь integration/test_postgres_migrations.py, включая upgrade до head и проверку формата revision.
+
+Оба предупреждения — прежние pytest fixture import rewrite и Starlette/httpx deprecation. Ruff четырёх затронутых файлов сообщил исполнитель; в этом read-only назначении проверяющий его не запускал.
+
+Основной журнал89 проверок и9 из10 исходных файлов сохранили ранее записанные хеши. Единственное изменение10-го файла — рассмотренные выше две аннотации миграции; исходный digest `d8942bebe95592c474cc8329023f9ab247864bde9852c35b74bf3a1f56c65d86` остаётся историческим. Текущий digest10 (тот же формат sort_keys=True, compact JSON path→SHA256): `f16880a13480a2c9eaff936f9b173eed4467506afbbb3cacd10e7ee776aa9493`. Основные89 проверок не называются повторным прогоном нового полного снимка.
+
+### SHA-256 узкого дополнения
+
+- `apps/server/tests/unit/test_playback_normalization_worker.py` — `aea4ed490f63240a54c98dc81136713613202016442d5ad5083a226671f1b296`
+- `apps/server/tests/unit/test_account_merge_policy.py` — `04575f95327618ffb52bd927c4ba2883a31501ab2276f3823d0bd59913632c89`
+- `apps/server/tests/integration/test_postgres_migrations.py` — `2cb8fed7f25066dbddb3ba17b17e7deee27243ba40d5c84569b12aebd0a5841a`
+- `apps/server/src/twobrain_rec_server/db/migrations/versions/0106_activation_milestones.py` — `7e464638f72e3fb240e2af048bcdb25022cb9101df3405aaa14068e7b1386898`
+- `apps/server/src/twobrain_rec_server/normalization/worker.py` — `ab50b798c107f888bf0aa8488a58b12d5029c2d4e720f3eccefef3890eca6b63`
+- `apps/server/src/twobrain_rec_server/auth/account_merge.py` — `7840869e398b8f621d78c27119a7ecbba15f4f6058fac1d7f54e1dd4f598e205`
+- `.dev/growth/t113-ci-regressions-20261028.log` — `ff7061bae961874b80886add19ed04ec7997fba31b01e0ec542637b38dd0b115`
+- `.dev/growth/t113-migration-regressions-20261028.log` — `5723bdffe7aac18a45a36c54b45eb251111e7736a05cc2b2c40ed73ecc1552b3`
+- `.dev/growth/t113-ledger-focused-20261028.log` — `2133d6d00b9ce54e32d8f725335437e66ff1e80005d2b8e58329665b1b84ebbe`
+
+До и после записи дополнения хеши входов сверены и совпали. `git diff --check` выполнен проверяющим. Новый commit изменит SHA; GitHub governance-fast/macos-pr/pr-metadata и проверку актуальной базы требуется принять для нового точного SHA. Это дополнение не подменяет полную проверку кандидата и рабочую приёмку.

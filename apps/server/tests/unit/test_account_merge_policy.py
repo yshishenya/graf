@@ -64,6 +64,9 @@ USER_IDENTITY_FK_DISPOSITIONS = {
     ("meetings", "created_by_user_id"): "transfer_or_deduplicate",
     ("playback_normalization_jobs", "requested_by_user_id"): "historical_only",
     ("processing_audit_events", "actor_user_id"): "historical_only",
+    # First decisions bind the original account and are immutable; merging
+    # identities does not transfer them or authorize a new provider delivery.
+    ("product_activation_milestones", "account_id"): "historical_only",
     ("recording_calendar_match_attempts", "owner_user_id"): "historical_only",
     # Cancellation retains its original (workspace, actor, origin) namespace forever.
     # It is not content to transfer, and cannot authorize actions under a merged account.
