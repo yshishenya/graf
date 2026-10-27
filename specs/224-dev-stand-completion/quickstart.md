@@ -118,6 +118,11 @@ Docker/Swift/сеть и рабочие данные запрещены в эт�
 5. Старый договор без плана, binding v1, повтор, schema/recovery и T010 yield fd
    сохраняются. Повторить ownership/harness/adapter/runtime/promotion/schema/launch
    suites из validation; это регрессия, не приёмка приложения.
+6. План снят без selected lock: точный отказ, файл не создан, полные снимки
+   всех roots неизменны, binding и внешние действия отсутствуют. Все existing
+   locks сохраняют успешный сценарий и inode. Без классификации selected lock
+   по-прежнему создаётся штатно. Удаление до открытия, подмена inode во время
+   ожидания и небезопасный selected lock не разрешают пересоздания.
 
 Команда из существующей подготовленной среды:
 `PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -o addopts= tests/governance/test_dev_state_ownership.py`.
