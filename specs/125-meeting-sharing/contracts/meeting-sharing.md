@@ -304,16 +304,19 @@ Calendar suggestions use the owner-selected current meeting context and show
 empty/degraded state. A selected attendee must still go through the grant or
 gated invitation action.
 
-Address-book suggestions are future native-client input. The native surface asks
-for limited selection permission and returns only the chosen address to the
-typed-recipient flow. It does not upload the whole book. Browser-only clients do
-not request desktop Contacts permission.
+Native address-book input T046/#4451 is NOT_PLANNED under the spec scope
+decision of 2026-10-27. Typed email and existing authorized workspace/calendar
+suggestions remain. If a new decision returns this source, the native surface
+must ask for limited selection permission and return only the chosen address to
+the typed-recipient flow; no full-book upload or implicit grant is allowed.
+Browser-only clients do not request desktop Contacts permission.
 
 ### 8.1. Проект подключения Google/Microsoft (T047)
 
 Это проект T047/#4453; подключение и поиск провайдера ещё не реализованы
-и не включаются этим документом. Native limited picker T046 проверяется
-отдельно. Нынешний браузерный поиск сохраняется.
+и не включаются этим документом. Native limited picker T046 отменён текущим
+решением об объёме; его отмена не меняет требований §8.1. Нынешний браузерный
+поиск сохраняется.
 
 **Права и запросы.** Подключение запускается отдельным явным действием после
 объяснения прав. Вход/календарь не разрешают чтение контактов. Допустимы

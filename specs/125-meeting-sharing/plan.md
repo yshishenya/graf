@@ -20,8 +20,9 @@ audio download and combined summary+transcript export; each egress action
 rechecks policy/readiness. The controlled
 exact-email path is now enabled in production after the delivery, secret,
 abuse, deletion and rollback evidence gates; public links stay disabled. The
-plan also keeps native address-book, viral onboarding and referral
-contracts separate from access delivery. The expanded viral design puts
+plan keeps viral onboarding and referral contracts separate from access
+delivery; native address-book T046 is cancelled by the scope decision below.
+The expanded viral design puts
 participant distribution and `Shared with me` first, followed by opt-in owner
 auto-share, recurring pre-read, team access and existing-grant channel or
 calendar distribution; batch distribution remains a later operation/run slice.
@@ -56,7 +57,7 @@ readiness and explicit user approval. Exact-email external delivery is enabled
 only for the bounded recipient flow; public links, native Contacts/provider
 lookup and referral attribution remain false.
 
-**Target Platform**: browser cabinet and embedded macOS WebKit cabinet backed by the same server routes; native address-book picker is a later macOS client contract, not browser sync
+**Target Platform**: browser cabinet and embedded macOS WebKit cabinet backed by the same server routes; native address-book picker T046 is not planned in the current scope
 
 **Project Type**: server-rendered web application embedded in a native macOS capture product
 
@@ -170,9 +171,18 @@ only; they name the scope but never include meeting content.
 ### Viral and contact phases
 
 Use metadata-only value-led CTA and explicit onboarding as a later gated phase.
-Do not add a new analytics dependency. Address book is native limited selection
-only; browser surfaces do not request Contacts access or sync a full address
-book. Calendar presence is a suggestion source, never consent.
+Do not add a new analytics dependency. Native Contacts picker T046/#4451 is
+cancelled for the early MVP: typed email and existing workspace/calendar hints
+cover recipient entry without another system source. It is not queued for
+automatic later implementation. The spec scope decision defines the trigger
+for a new decision, conditional scenarios and unchanged privacy requirements.
+Browser surfaces do not request Contacts access or sync a full address book.
+Calendar presence is a suggestion source, never consent.
+
+Validation lane for this decision: Active Spec Kit slice, documentation only.
+Preserve the original unchecked T046 and all task descriptions, review the three
+checklists independently, analyze consistency and pass the current exact-SHA/base
+PR gates. No runtime, app, OAuth, release or deployment acceptance is claimed.
 
 T047/#4453 defines only the future Google/Microsoft read-only provider contract
 in research §4 and contract §8.1. This design introduces no runtime connection,
@@ -319,7 +329,8 @@ email provider or a new database table in this slice.
 - admin-gated summary-only team access with no retroactive grant by default;
 - calendar pointer and Slack/Teams distribution that reuse existing grants;
 - public links and edge/app abuse gates;
-- native Contacts picker and provider-specific least-privilege lookup;
+- provider-specific least-privilege lookup remains design-only; native Contacts
+  T046 is cancelled under the spec scope decision;
 - opaque referral attribution and aggregate funnel measurement.
 
 ## Complexity Tracking
