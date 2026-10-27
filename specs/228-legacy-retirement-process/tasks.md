@@ -4,6 +4,13 @@ description: "Dependency-ordered tasks for Feature 228 managed legacy retirement
 
 # Tasks: Управляемое поэтапное retirement legacy
 
+> **Пересмотр объёма 26.10.2026:** действующий объём и индивидуальные решения
+> заданы в [решении для ранней стадии](scope-decision-20261026.md).
+> До его слияния это предложение. После слияния перечисленные там задачи
+> отменены как NOT_PLANNED, сохраняют `[ ]` и не подлежат реализации по старому
+> плану. Принятые защиты и предметные требования безопасности сохраняются.
+
+
 **Input**: `spec.md`, `clarifications.md`, `plan.md`
 **Risk lane**: Significant feature.
 **Precondition for implementation**: reviewer-owned checklists are reviewed,
@@ -152,3 +159,24 @@ PR #6313/#6790 и сохранёнными spec/plan: это только при
 Доказательства: `validation-exceptions-20261026.md` и
 `review-implementation-20261026.md`. Закрытие #6247/#6257 требует слияния
 и итогового live closeout; вся F228 и T034/T035 остаются открытыми.
+
+## Пересмотр объёма — ранняя стадия, 26.10.2026
+
+Исходные 36 строк выше сохранены. После слияния решения 29 исходных задач
+получают NOT_PLANNED по индивидуальной таблице `scope-decision-20261026.md`;
+их `[ ]` не означает исполнительскую очередь и не заменяется на `[X]`.
+Семь принятых задач сохраняют свои результаты и issues.
+
+- [X] T037 Record the early-stage scope decision, preserve all original task rows, obtain independent review, reconcile the cancellation-only tracker procedure in `docs/agent-guidance/tracker-policy.md` and its pointer in `docs/agent-guidance/development-process.md`, validate the unchanged protections, and record evidence in `specs/228-legacy-retirement-process/scope-decision-20261026.md`. (Issue #6238).
+
+T037 — действительная документальная работа текущего пересмотра, а не приёмка
+исходной системы. Она имеет отдельные ревью и проверки PR. Родитель #6238
+владеет только T037; исходный T000 заменяется этим ID с сохранением старого
+названия и критериев в истории. Его окончательное закрытие NOT_PLANNED
+означает отмену первоначального расширенного плана, даже когда T037 выполнена.
+Не считать это завершением всех первоначальных требований родителя.
+
+Локальная документальная T037 проверена: независимое ревью6/0, анализ
+Critical0/High0, 262 профильные проверки PASS и проверки процесса/структуры PASS.
+Результат зафиксирован в validation-scope-20261026.md; PR/merge и фактическая
+отмена трекера остаются отдельными воротами.

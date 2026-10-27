@@ -166,8 +166,8 @@ UTC date. Retirement task names one `F###`, one `T###` and one positive `#issue`
 format validation does not prove that the linked work exists or is accepted.
 The spec and PR validators reuse the same finite-exception check from the
 trusted policy checkout; they never execute code from the PR to validate its
-description. Registry ownership and changed-path discovery remain separate
-checks. The closeout target is:
+description. The text check does not discover active compatibility paths or prove ownership;
+review those consumers and links for each concrete change. The closeout target is:
 
 ```text
 legacy_new=0
@@ -191,7 +191,7 @@ retired in separate small features with cutover and rollback evidence.
 | Checklist/analyze blocker | reviewer updates requirements/design; implementation does not bypass |
 | Legacy exception expired | block merge/release and create/execute retirement task |
 
-Before closing a task-backed issue, export its metadata and run
+Before closing a task-backed issue as `COMPLETED`, export its metadata and run
 `python3 scripts/validate-issue-closeout.py --issue-json /tmp/issue.json
 --tasks specs/<feature>/tasks.md --expected-sha <PR-SHA>`. It must pass for every issue named by the
 feature. A closed issue without a detailed Russian closure comment is a process
@@ -199,6 +199,10 @@ failure even when GitHub closed it automatically; add the comment and reconcile
 the task state before declaring the feature complete.
 The individual JSON command is only a structural pre-close check; it does not
 authenticate GitHub URLs.
-For final feature closeout, use the same script's live feature mode so checked
+For completed feature closeout, use the same script's live feature mode so checked
 tasks cannot coexist with open, missing, duplicate or orphan task-backed
 issues. Task issues close first; the umbrella closes last.
+
+For `NOT_PLANNED`, use the separate cancellation procedure in
+[tracker-policy.md](tracker-policy.md#отмена-запланированной-работы); it does
+not accept implementation or waive product/release evidence.
