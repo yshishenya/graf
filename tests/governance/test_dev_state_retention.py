@@ -159,6 +159,7 @@ def test_promote_archives_previous_manifest_and_removes_stale_sets(monkeypatch, 
         },
     )
 
+    prepare_ordinary_retention_fixture(monkeypatch, adapter, previous, candidate)
     adapter.promote(candidate)
 
     archive = previous_set / "runtime-images.tar"
@@ -209,6 +210,7 @@ def test_promote_refuses_when_rollback_target_images_are_unavailable(monkeypatch
 
     monkeypatch.setattr(dev_harness, "_run_command", no_images)
 
+    prepare_ordinary_retention_fixture(monkeypatch, adapter, previous, candidate)
     with pytest.raises(dev_harness.HarnessError, match="rollback target images are unavailable"):
         adapter.promote(candidate)
 
@@ -343,3 +345,26 @@ def test_prune_receipt_matches_contract_schema_fields(tmp_path, monkeypatch):
     allowed_kinds = set(schema["properties"]["removed"]["items"]["properties"]["kind"]["enum"])
     assert {item["kind"] for item in receipt["removed"]} <= allowed_kinds
     assert receipt["status"] in schema["properties"]["status"]["enum"]
+
+
+def prepare_ordinary_retention_fixture(monkeypatch, adapter, previous, candidate):
+    """Supply the complete ordinary contract; this suite substitutes external effects."""
+    candidate["parent_manifest_id"] = previous["manifest_id"]
+    for key in ("database", "storage", "temporal"):
+        candidate["components"][key]["digest"] = previous["components"][key]["digest"]
+    monkeypatch.setattr(adapter, "_checkout_adapter", lambda *_: adapter)
+    monkeypatch.setattr(dev_harness, "GrafLocalAdapter", lambda *args: adapter)
+    monkeypatch.setattr(dev_harness, "_dev_app_destination", lambda: adapter.state / "GRAF Dev.app")
+    monkeypatch.setattr(adapter, "_checked_app_bundle", lambda value: adapter.state / "artifacts" / value["manifest_id"] / "GRAF Dev.app")
+    monkeypatch.setattr(adapter, "_validate_launch_bundle", lambda *_: None)
+    monkeypatch.setattr(adapter, "smoke", lambda _: dict.fromkeys((
+        "backend_health", "frontend_reachability", "auth_session_bootstrap", "representative_api",
+        "processing_worker_readiness", "media_worker_readiness", "database_readiness",
+        "storage_readiness", "temporal_readiness", "migration_readiness", "exact_source_sha",
+        "app_identity", "app_presentation"), "pass"))
+    def runtime(value):
+        return {"pid": 99999999, "source_sha": value["source_sha"], "command": "synthetic runtime",
+                "start_token": "synthetic start", "runtime_definition_digest": "sha256:" + "d" * 64}
+    dev_harness._write_json(adapter.state / "runtime.json", runtime(previous))
+    monkeypatch.setattr(adapter, "_start_backend", lambda value, env: dev_harness._write_json(
+        adapter.state / "runtime.json", runtime(value)))

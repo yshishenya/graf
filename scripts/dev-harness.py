@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import contextvars
 import datetime as dt
 import hashlib
 import json
@@ -46,6 +47,7 @@ PRODUCTION_APP_PATH = Path("/Applications/GRAF.app")
 DEV_APP_PATH = Path("/Applications/GRAF Dev.app")
 SCHEMA_VERSION = "dev-manifest.v1"
 POINTER_VERSION = "dev-active-pointer.v1"
+_HELD_OPERATION_LOCK = contextvars.ContextVar("graf_dev_operation_lock", default=None)
 PROCESS_STOP_TIMEOUT_SECONDS = 10
 APP_STOP_TIMEOUT_SECONDS = 30
 RUNTIME_CLEANUP_TIMEOUT_SECONDS = 60
@@ -304,7 +306,7 @@ def _state_file_lock(path: Path) -> Iterator[None]:
         current = path.lstat()
         if (current.st_dev, current.st_ino) != (info.st_dev, info.st_ino):
             raise HarnessError("Dev state lock was replaced while waiting")
-        yield
+        yield fd
     finally:
         os.close(fd)
 
@@ -681,6 +683,15 @@ def _prune_receipt(
     }
 
 
+def _command_lock_fds() -> tuple:
+    held = _HELD_OPERATION_LOCK.get()
+    if held is None:
+        return ()
+    if held[0] != os.getpid():
+        raise HarnessError("operation lock belongs to another controller")
+    return (held[2],)
+
+
 def _run_command(command: list[str], *, cwd: Path, env: Optional[Dict[str, str]] = None) -> str:
     """Run one adapter command and expose only a bounded, safe failure message."""
     try:
@@ -692,6 +703,7 @@ def _run_command(command: list[str], *, cwd: Path, env: Optional[Dict[str, str]]
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            pass_fds=_command_lock_fds(),
         )
     except OSError as exc:
         raise HarnessError(f"adapter command unavailable ({command[0]}): {exc}") from exc
@@ -749,6 +761,7 @@ def _run_command_combined(command: list[str], *, cwd: Path, env: Optional[Dict[s
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            pass_fds=_command_lock_fds(),
         )
     except OSError as exc:
         raise HarnessError(f"adapter command unavailable ({command[0]}): {exc}") from exc
@@ -892,11 +905,124 @@ def _assert_no_schema_transition(root):
         raise HarnessError("unfinished schema transition; use recover-schema from its target checkout")
 
 
+def _same_pinned_manifest(left, right):
+    mutable = {"status", "health", "promoted_at"}
+    return ({key: value for key, value in left.items() if key not in mutable}
+            == {key: value for key, value in right.items() if key not in mutable})
+
+
+def _assert_no_ordinary_operation(root):
+    path = root / "rollback-required.json"
+    if path.exists() or path.is_symlink():
+        raise HarnessError("unfinished Dev operation; repeat its exact live promote/rollback")
+
+
+def _read_ordinary_operation(root):
+    path = root / "rollback-required.json"
+    if not path.exists() and not path.is_symlink():
+        return None
+    _checked_state_path(path, file=True)
+    receipt = _read_json(path)
+    operation = receipt.get("operation")
+    if (receipt.get("schema_version") != "dev-rollback-required.v1"
+            or receipt.get("status") != "rollback_required" or not isinstance(operation, dict)):
+        raise HarnessError("rollback receipt has no verified ordinary operation; explicit recovery required")
+    required = {"id", "kind", "previous", "target", "previous_runtime", "previous_was_live",
+                "app_was_running", "backup", "backup_digest", "controller_manifest",
+                "controller_pid", "controller_start", "checkouts"}
+    if (not required.issubset(operation) or operation["kind"] not in {"promote", "rollback"}
+            or not re.fullmatch(r"ordinary-[0-9]+-[0-9]+", str(operation["id"]))
+            or type(operation["controller_pid"]) is not int or operation["controller_pid"] <= 0
+            or not isinstance(operation["controller_start"], str) or not operation["controller_start"]):
+        raise HarnessError("ordinary operation identity is invalid")
+    for key in ("previous_was_live", "app_was_running"):
+        if type(operation[key]) is not bool:
+            raise HarnessError("ordinary operation launch state is invalid")
+    for key in ("target", "controller_manifest", "previous"):
+        value = operation[key]
+        if key == "previous" and value is None:
+            continue
+        if not isinstance(value, dict):
+            raise HarnessError("ordinary operation manifest is invalid")
+        _validate_manifest(value)
+    target = operation["target"]
+    if receipt.get("manifest_id") != target["manifest_id"] or receipt.get("source_sha") != target["source_sha"]:
+        raise HarnessError("ordinary receipt differs from its pinned target")
+    previous = operation["previous"]
+    controller = target if operation["kind"] == "promote" else previous
+    if controller is None or not _same_pinned_manifest(controller, operation["controller_manifest"]):
+        raise HarnessError("ordinary controller manifest differs from its command")
+    if operation["previous_runtime"] is not None and not isinstance(operation["previous_runtime"], dict):
+        raise HarnessError("ordinary operation previous runtime is invalid")
+    if previous is None and (operation["previous_runtime"] is not None or operation["previous_was_live"]):
+        raise HarnessError("first installation has an unknown predecessor")
+    if operation["previous_was_live"] and operation["previous_runtime"] is None:
+        raise HarnessError("ordinary operation lost its previous live runtime")
+    if (operation["previous_runtime"] is not None
+            and operation["previous_runtime"].get("source_sha") != previous["source_sha"]):
+        raise HarnessError("ordinary previous runtime differs from its pinned manifest")
+    checkouts = operation["checkouts"]
+    roles = {"controller", "target"} | ({"previous"} if previous is not None else set())
+    if not isinstance(checkouts, dict) or set(checkouts) != roles:
+        raise HarnessError("ordinary operation checkouts are invalid")
+    for role in roles:
+        record = checkouts[role]
+        manifest = operation["controller_manifest"] if role == "controller" else operation[role]
+        if (not isinstance(record, dict) or not isinstance(record.get("root"), str)
+                or not Path(record["root"]).is_absolute()
+                or record.get("source_sha") != manifest["source_sha"]
+                or not re.fullmatch(r"sha256:[0-9a-f]{64}", str(record.get("digest", "")))):
+            raise HarnessError("ordinary operation checkout identity is invalid")
+        if not _checked_state_path(Path(record["root"])).is_dir():
+            raise HarnessError("pinned ordinary checkout is missing")
+    backup = operation["backup"]
+    if backup is not None:
+        if not isinstance(backup, str) or not re.fullmatch(r"transactions/previous-[A-Za-z0-9-]+\.app", backup):
+            raise HarnessError("ordinary operation backup path is invalid")
+        location = _checked_state_path(root / backup)
+        if (previous is None or not location.is_dir() or location.is_symlink()
+                or _tree_digest(location) != operation["backup_digest"]):
+            raise HarnessError("ordinary operation backup identity is invalid")
+    elif operation["backup_digest"] is not None or operation["app_was_running"]:
+        raise HarnessError("ordinary operation backup is missing")
+    return operation
+
+
+def _assert_ordinary_controller(root, manifest):
+    operation = _read_ordinary_operation(root)
+    if operation is None:
+        return None
+    held = _HELD_OPERATION_LOCK.get()
+    adapter = GrafLocalAdapter(_repo_root(), root)
+    if (held is None or held[:2] != (os.getpid(), root.resolve())
+            or operation["controller_pid"] != os.getpid()
+            or operation["controller_start"] != adapter._process_start_token(os.getpid())
+            or not any(value is not None and _same_pinned_manifest(value, manifest)
+                       for value in (operation["previous"], operation["target"]))):
+        raise HarnessError("ordinary operation requires its current verified controller")
+    return operation
+
+
 def _schema_start_guard(root, source_sha):
     if _checked_state_path(root) != state_dir(live=True):
         raise HarnessError("startup requires the repository-global state directory; use dev-harness")
     journal = _read_schema_transition(root)
     if not journal or journal["phase"] in {"complete", "recovered"}:
+        operation = _read_ordinary_operation(root)
+        if operation is not None:
+            adapter = GrafLocalAdapter(_repo_root(), root)
+            pid = operation["controller_pid"]
+            if (os.environ.get("GRAF_DEV_OPERATION_ID") != operation["id"]
+                    or os.environ.get("GRAF_DEV_CONTROLLER_PID") != str(pid)
+                    or not any(value is not None and value["source_sha"] == source_sha
+                               and value["manifest_id"] == os.environ.get("GRAF_DEV_OPERATION_MANIFEST")
+                               for value in (operation["target"], operation["previous"]))
+                    or not adapter._pid_alive(pid)
+                    or adapter._process_start_token(pid) != operation["controller_start"]):
+                raise HarnessError("startup blocked by unfinished ordinary operation")
+            parent = _run_command(["ps", "-p", str(os.getppid()), "-o", "ppid="], cwd=_repo_root()).strip()
+            if parent != str(pid):
+                raise HarnessError("ordinary startup must be a child of its recovery controller")
         return
     phase = journal["phase"]
     chosen = "target" if phase == "writers_may_have_started" else "previous" if phase == "previous_writers_may_have_started" else None
@@ -1282,6 +1408,7 @@ class GrafLocalAdapter:
             return "fail"
 
     def build(self, manifest: Dict[str, Any]) -> Dict[str, str]:
+        _assert_no_ordinary_operation(self.state)
         self._assert_supported()
         self._assert_source_matches_checkout(manifest)
         env = self._env(manifest, pin_images=False)
@@ -1374,6 +1501,7 @@ class GrafLocalAdapter:
 
     def rehydrate(self, manifest: Dict[str, Any]) -> Dict[str, str]:
         """Restore archived exact image IDs without rebuilding the candidate."""
+        _assert_no_ordinary_operation(self.state)
         self._assert_supported()
         self._assert_source_matches_checkout(manifest)
         archive = self.state / "artifacts" / str(manifest["manifest_id"]) / "runtime-images.tar"
@@ -1522,6 +1650,7 @@ class GrafLocalAdapter:
         Docker hiccup must be reported as a partial result instead of undoing a
         successful build, promotion or rollback.
         """
+        _assert_no_ordinary_operation(self.state)
         removed = removed if removed is not None else []
         partial_reasons = partial_reasons if partial_reasons is not None else []
         # Validate before deleting local files, including direct adapter callers.
@@ -1588,6 +1717,7 @@ class GrafLocalAdapter:
 
     def _cleanup_schema_snapshots(self, *, keep_operation: Optional[str] = None, dry_run: bool = False) -> list:
         """Delete cold volume snapshots of finished schema transitions."""
+        _assert_no_ordinary_operation(self.state)
         directory = self.state / "schema-transactions"
         removed: list = []
         if not directory.is_dir():
@@ -1600,6 +1730,7 @@ class GrafLocalAdapter:
 
     def estimate_or_apply_prune(self, *, dry_run: bool) -> tuple:
         """Compute the retention plan and optionally apply it under the state lock."""
+        _assert_no_ordinary_operation(self.state)
         active = _load_active(self.state)
         target, blocked_reason = self._rollback_target(active)
         removed: list = []
@@ -1753,7 +1884,13 @@ class GrafLocalAdapter:
             phase = "writers_may_have_started" if manifest["source_sha"] == journal["target"]["source_sha"] else "previous_writers_may_have_started"
             if getattr(self, "_schema_operation", None) != journal["operation_id"] or journal["phase"] != phase:
                 raise HarnessError("backend start requires the schema recovery controller")
-        gated = journal is not None and journal["phase"] not in {"complete", "recovered"}
+        schema_pending = journal is not None and journal["phase"] not in {"complete", "recovered"}
+        ordinary = None if schema_pending else _assert_ordinary_controller(self.state, manifest)
+        if ordinary is not None:
+            env = dict(env, GRAF_DEV_OPERATION_ID=ordinary["id"],
+                       GRAF_DEV_CONTROLLER_PID=str(os.getpid()),
+                       GRAF_DEV_OPERATION_MANIFEST=manifest["manifest_id"])
+        gated = schema_pending or ordinary is not None
         gate_read, gate_write = os.pipe() if gated else (None, None)
         command = [sys.executable, "-c", SCHEMA_STARTUP_GATE, str(gate_read), str(self.start_script)] if gated else ["sh", str(self.start_script)]
         runtime = self._runtime_record()
@@ -1799,6 +1936,8 @@ class GrafLocalAdapter:
                 },
             )
             if gate_write is not None:
+                if ordinary is not None:
+                    _assert_ordinary_controller(self.state, manifest)
                 os.write(gate_write, b"1")
         finally:
             if gate_write is not None:
@@ -1982,6 +2121,7 @@ class GrafLocalAdapter:
                     check=True,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
+                    pass_fds=_command_lock_fds(),
                 )
             except subprocess.CalledProcessError as exc:
                 raise HarnessError("LaunchServices registration failed") from exc
@@ -2036,7 +2176,6 @@ class GrafLocalAdapter:
                 shutil.rmtree(restored)
             elif restored.exists() or restored.is_symlink():
                 restored.unlink()
-        shutil.rmtree(backup)
 
     def _restore_runtime(
         self,
@@ -2063,6 +2202,13 @@ class GrafLocalAdapter:
             _write_json(runtime, previous)
 
     def _mark_rollback_required(self, manifest: Dict[str, Any]) -> None:
+        path = self.state / "rollback-required.json"
+        if path.exists():
+            receipt = _read_json(path)
+            if "operation" in receipt:
+                # Publication failure must not replace the pinned operation
+                # with the old, non-resumable compensation marker.
+                return
         blocked = dict(manifest)
         blocked["status"] = "rollback_required"
         blocked["health"] = {
@@ -2348,190 +2494,255 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
                 raise HarnessError("schema transition requires forward recovery; snapshots must not be restored") from failure
             raise
 
-    def promote(self, manifest: Dict[str, Any], *, previous_checkout=None) -> Dict[str, str]:
+    def _ordinary_transition(self, kind, target, *, previous_checkout=None, target_checkout=None):
+        """Repeat one pinned operation; publish and verify before releasing recovery material."""
+        held = _HELD_OPERATION_LOCK.get()
+        if held is None:
+            with state_lock(self.state):
+                return self._ordinary_transition(kind, target, previous_checkout=previous_checkout,
+                                                 target_checkout=target_checkout)
+        if held[:2] != (os.getpid(), self.state.resolve()):
+            raise HarnessError("ordinary transition requires its original state lock")
         self._assert_supported()
-        self._assert_source_matches_checkout(manifest)
-        env = self._env(manifest)
-        self._compose_config(env)
-        previous_runtime = _read_json(self._runtime_record()) if self._runtime_record().exists() else None
-        previous_manifest = _load_active(self.state)
-        previous_was_live = self._runtime_is_live(previous_runtime)
-        if previous_was_live and previous_manifest is None:
-            raise HarnessError("cannot compensate live promotion without the previous active manifest")
-        if (
-            previous_runtime is not None
-            and previous_manifest is not None
-            and previous_runtime.get("source_sha") != previous_manifest.get("source_sha")
-        ):
-            raise HarnessError("previous Dev runtime does not match the active manifest")
-        previous_adapter = self
-        if previous_was_live and previous_runtime is not None:
-            previous_adapter = self._previous_adapter(previous_runtime, previous_manifest, previous_checkout)
-        schema_change = previous_manifest is not None and previous_manifest["migration_head"] != manifest["migration_head"]
-        if previous_adapter is not self and not schema_change:
-            self._assert_transition_compatible(previous_manifest, manifest)
-        self._assert_manifest_images(manifest, env)
-        if previous_was_live and previous_manifest is not None:
-            previous_env = previous_adapter._env(previous_manifest)
-            previous_adapter._compose_config(previous_env)
-            previous_adapter._assert_manifest_images(previous_manifest, previous_env)
-        if schema_change:
-            if not previous_was_live or previous_adapter is self:
-                raise HarnessError("schema transition requires a live verified predecessor checkout")
-            # Feature 269: the predecessor becomes the one rollback target, so
-            # its exact images must be archived before the transition publishes
-            # the new active manifest.  This path returns here, so it cannot be
-            # left to the ordinary path below.
-            self._ensure_rollback_archive(previous_manifest)
-            return self._promote_schema(previous_manifest, manifest, previous_adapter)
-        app_destination = _dev_app_destination()
-        previous_app_was_running = self._app_is_running(app_destination)
-        app_backup = self._snapshot_app()
-        try:
-            self._stop_previous()
-            self._terminate_dev_app(app_destination)
-            self._install_app(manifest, env)
-            self._start_backend(manifest, env)
-            self._launch_dev_app(app_destination)
-            checks = self.smoke(manifest)
-            if previous_adapter is not self:
-                self._assert_transition_smoke(checks)
-            if any(value != "pass" for key, value in checks.items() if key != "mode"):
-                raise HarnessError("live promotion smoke failed")
-            # Feature 269: the previous candidate becomes the one rollback
-            # target, so its exact images must be archived before publication.
-            self._ensure_rollback_archive(previous_manifest)
-        except BaseException as failure:
-            compensation_errors = []
-            try:
-                self._restore_app(app_backup)
-            except Exception as exc:  # pragma: no cover - defensive path
-                compensation_errors.append(f"app restore failed: {exc}")
-            try:
-                # Stop candidate with its controller; restart predecessor with its own tooling.
-                if previous_adapter is not self:
-                    self._stop_previous()
-                previous_adapter._restore_runtime(previous_runtime, previous_manifest, previous_was_live)
-            except Exception as exc:  # pragma: no cover - defensive path
-                compensation_errors.append(f"runtime restore failed: {exc}")
-            if previous_app_was_running and app_backup is not None:
-                try:
-                    self._launch_dev_app(app_destination)
-                except Exception as exc:  # pragma: no cover - defensive path
-                    compensation_errors.append(f"app relaunch failed: {exc}")
-            if compensation_errors:
-                self._mark_rollback_required(previous_manifest or manifest)
-                raise HarnessError("live promotion failed; compensation failed: " + "; ".join(compensation_errors)) from failure
-            if previous_adapter is not self:
-                try:
-                    self._assert_transition_smoke(previous_adapter.smoke(previous_manifest), app_was_running=previous_app_was_running)
-                except Exception as exc:
-                    self._mark_rollback_required(previous_manifest)
-                    raise HarnessError(f"live promotion failed; compensation verification failed: {exc}") from failure
-            raise
+        _assert_no_schema_transition(self.state)
+        operation = _read_ordinary_operation(self.state)
+        active = _load_active(self.state)
+        if operation is not None:
+            if operation["kind"] != kind or not _same_pinned_manifest(operation["target"], target):
+                raise HarnessError("recovery requires the same command and complete pinned target")
+            if not any((value is None and active is None) or
+                       (value is not None and active is not None and _same_pinned_manifest(value, active))
+                       for value in (operation["previous"], operation["target"])):
+                raise HarnessError("active manifest is outside the ordinary recovery pair")
+            if (operation["controller_pid"] != os.getpid()
+                    and self._pid_alive(operation["controller_pid"])):
+                raise HarnessError("ordinary operation has another live controller")
+            controller_manifest = operation["controller_manifest"]
+            previous = operation["previous"]
+            paths = operation["checkouts"]
+            if Path(paths["controller"]["root"]).resolve() != self.root.resolve():
+                raise HarnessError("recovery requires its pinned controller checkout")
+            for argument, role in ((previous_checkout, "previous"), (target_checkout, "target")):
+                if argument is not None and (role not in paths or Path(argument).resolve() != Path(paths[role]["root"])):
+                    raise HarnessError("recovery checkout argument differs from its pinned operation")
         else:
-            if app_backup is not None:
-                shutil.rmtree(app_backup)
-            # A repeat promotion of the unchanged active manifest must not drop
-            # the rollback target: the manifest is then its own predecessor, so
-            # the parent recorded on it is the material a rollback needs.
-            retention_target = previous_manifest
-            if previous_manifest is not None and str(previous_manifest.get("manifest_id")) == str(manifest.get("manifest_id")):
-                retention_target, _ = self._rollback_target(manifest)
-            try:
-                self._apply_retention(manifest, retention_target)
-            except (HarnessError, OSError) as exc:
-                # Retention is best effort and runs after the promotion already
-                # published the manifest and removed the app backup, so a
-                # cleanup failure must not report the promotion as failed.
-                print(
-                    json.dumps(
-                        {"status": "warning", "error": f"retention incomplete: {exc}"},
-                        ensure_ascii=False,
-                    ),
-                    file=sys.stderr,
-                )
-        return {"mode": "live", "backend": "started", "app": "installed", "checks": checks}
-
-    def rollback(self, active: Dict[str, Any], target: Dict[str, Any], *, previous_checkout=None, target_checkout=None) -> Dict[str, Any]:
-        """Restore one previously built Dev target and prove it before commit."""
-        self._assert_supported()
-        # Explicit target tooling lets the current controller retain compensation
-        # even when the target predates cross-definition transitions.
-        target_adapter = self._checkout_adapter(Path(target_checkout), target) if target_checkout else self
-        if target_checkout:
-            self._assert_source_matches_checkout(active)
-        target_adapter._assert_source_matches_checkout(target)
-        env = target_adapter._env(target)
-        target_adapter._compose_config(env)
-        previous_runtime = _read_json(self._runtime_record()) if self._runtime_record().exists() else None
-        previous_was_live = self._runtime_is_live(previous_runtime)
-        if not previous_was_live:
-            raise HarnessError("live rollback requires an owned active Dev backend")
-        if previous_runtime.get("source_sha") != active.get("source_sha"):
-            raise HarnessError("active Dev runtime does not match the active manifest")
-        previous_adapter = self._previous_adapter(previous_runtime, active, previous_checkout)
-        cross_definition = previous_adapter is not self or target_adapter is not self
-        self._assert_transition_compatible(active, target)
-        target_adapter._assert_manifest_images(target, env)
-        previous_env = previous_adapter._env(active)
-        previous_adapter._compose_config(previous_env)
-        previous_adapter._assert_manifest_images(active, previous_env)
+            previous = active
+            if kind == "rollback" and previous is None:
+                raise HarnessError("rollback requires an active Dev manifest")
+            if kind == "promote":
+                if previous is None and target.get("parent_manifest_id") is not None:
+                    raise HarnessError("candidate parent manifest is unavailable")
+                if previous is not None:
+                    if target["manifest_id"] == previous["manifest_id"]:
+                        if not _same_pinned_manifest(target, previous):
+                            raise HarnessError("active manifest identity must not be changed")
+                    elif target.get("parent_manifest_id") != previous["manifest_id"]:
+                        raise HarnessError("candidate parent manifest is stale")
+            controller_manifest = target if kind == "promote" else previous
+            paths = {"controller": {"root": str(self.root.resolve())},
+                     "target": {"root": str(Path(target_checkout or self.root).resolve())}}
+            if previous is not None:
+                paths["previous"] = {"root": str(Path(previous_checkout or self.root).resolve())}
+        self._assert_source_matches_checkout(controller_manifest)
+        adapters = {}
+        for role, record in paths.items():
+            manifest = controller_manifest if role == "controller" else target if role == "target" else previous
+            frozen = self._checkout_adapter(Path(record["root"]), manifest)
+            # Only exact source/resolver validation uses frozen code. Every
+            # mutation and nested self call executes this current class.
+            adapter = GrafLocalAdapter(frozen.root, self.state)
+            digest = adapter._runtime_definition_digest()
+            if operation is not None and (record["source_sha"] != manifest["source_sha"] or record["digest"] != digest):
+                raise HarnessError("pinned recovery runtime bytes changed")
+            adapters[role] = adapter
+            if operation is None:
+                record.update(source_sha=manifest["source_sha"], digest=digest)
+        target_adapter = adapters["target"]
+        previous_adapter = adapters.get("previous")
+        if previous is not None:
+            self._assert_transition_compatible(previous, target)
+        runtime_path = self._runtime_record()
+        current_runtime = _read_json(runtime_path) if runtime_path.exists() else None
+        if current_runtime is not None:
+            roles = [role for role in ("previous", "target") if role in adapters and
+                     (previous if role == "previous" else target)["source_sha"] == current_runtime.get("source_sha")]
+            if (not roles or type(current_runtime.get("pid")) is not int
+                    or not isinstance(current_runtime.get("command"), str) or not current_runtime["command"]
+                    or not isinstance(current_runtime.get("start_token"), str) or not current_runtime["start_token"]):
+                raise HarnessError("ordinary transition runtime identity is unknown")
+            if operation is None and (previous is None or current_runtime["source_sha"] != previous["source_sha"]):
+                raise HarnessError("previous Dev runtime does not match the active manifest")
+            for role in roles:
+                adapters[role]._assert_runtime_definition_compatible(current_runtime)
+            if self._pid_alive(current_runtime["pid"]) and not self._pid_owned(current_runtime):
+                raise HarnessError("refusing to stop an unverified ordinary Dev runtime")
+        elif previous is None and operation is None:
+            _assert_empty_dev_machine()
+        for role in ("target", "previous"):
+            if role in adapters:
+                manifest = target if role == "target" else previous
+                adapter = adapters[role]
+                env = adapter._env(manifest)
+                adapter._compose_config(env)
+                adapter._assert_manifest_images(manifest, env)
+                adapter._checked_app_bundle(manifest)
         app_destination = _dev_app_destination()
-        previous_app_was_running = self._app_is_running(app_destination)
-        app_backup = self._snapshot_app()
+        if operation is None:
+            previous_app_was_running = self._app_is_running(app_destination)
+            if app_destination.exists():
+                if previous is None:
+                    raise HarnessError("first installation cannot replace an unknown Dev app")
+                previous_adapter._validate_launch_bundle(previous, app_destination)
+            app_backup = self._snapshot_app()
+            operation = {"id": f"ordinary-{os.getpid()}-{time.time_ns()}", "kind": kind,
+                         "previous": previous, "target": target,
+                         "controller_manifest": controller_manifest, "checkouts": paths,
+                         "previous_runtime": current_runtime,
+                         "previous_was_live": self._runtime_is_live(current_runtime),
+                         "app_was_running": previous_app_was_running,
+                         "backup": str(app_backup.relative_to(self.state)) if app_backup is not None else None,
+                         "backup_digest": _tree_digest(app_backup) if app_backup is not None else None}
+            _write_json(_manifest_path(self.state, target["manifest_id"]), target)
+        operation.update(controller_pid=os.getpid(), controller_start=self._process_start_token(os.getpid()))
+        self._write_ordinary_receipt(operation)
+        # Re-read validates backup, manifests and the complete pinned record
+        # before the first stop/install, including after a failed fsync/retry.
+        operation = _read_ordinary_operation(self.state)
+        app_backup = self.state / operation["backup"] if operation["backup"] is not None else None
         try:
             self._stop_previous()
             self._terminate_dev_app(app_destination)
-            target_adapter._install_app(target, env)
-            target_adapter._start_backend(target, env)
+            target_adapter._install_app(target, target_adapter._env(target))
+            target_adapter._start_backend(target, target_adapter._env(target))
             self._launch_dev_app(app_destination)
             checks = target_adapter.smoke(target)
-            if cross_definition:
-                self._assert_transition_smoke(checks)
-            if any(value != "pass" for key, value in checks.items() if key != "mode"):
-                raise HarnessError("live rollback smoke failed")
+            self._assert_transition_smoke(checks)
+            target_adapter._validate_launch_bundle(target, app_destination)
+            if kind == "promote" and previous is not None:
+                previous_adapter._ensure_rollback_archive(previous)
         except BaseException as failure:
-            compensation_errors = []
             try:
                 self._restore_app(app_backup)
-            except Exception as exc:  # pragma: no cover - defensive path
-                compensation_errors.append(f"app restore failed: {exc}")
-            try:
-                if cross_definition:
-                    self._stop_previous()
-                previous_adapter._restore_runtime(previous_runtime, active, previous_was_live)
-            except Exception as exc:  # pragma: no cover - defensive path
-                compensation_errors.append(f"runtime restore failed: {exc}")
-            if previous_app_was_running and app_backup is not None:
-                try:
+                restore_adapter = previous_adapter or self
+                restore_adapter._restore_runtime(operation["previous_runtime"], previous, operation["previous_was_live"])
+                if operation["app_was_running"]:
                     self._launch_dev_app(app_destination)
-                except Exception as exc:  # pragma: no cover - defensive path
-                    compensation_errors.append(f"app relaunch failed: {exc}")
-            if compensation_errors:
-                self._mark_rollback_required(active)
-                raise HarnessError("live rollback failed; compensation failed: " + "; ".join(compensation_errors)) from failure
-            if cross_definition:
-                try:
-                    self._assert_transition_smoke(previous_adapter.smoke(active), app_was_running=previous_app_was_running)
-                except Exception as exc:
-                    self._mark_rollback_required(active)
-                    raise HarnessError(f"live rollback failed; compensation verification failed: {exc}") from failure
-            raise
+                if app_backup is not None:
+                    previous_adapter._validate_launch_bundle(previous, app_destination)
+                elif app_destination.exists() or app_destination.is_symlink():
+                    raise HarnessError("compensation did not restore the absent Dev app")
+                if self._app_is_running(app_destination) != operation["app_was_running"]:
+                    raise HarnessError("compensation did not restore the Dev launch state")
+                if previous is not None:
+                    if operation["previous_was_live"]:
+                        restored_checks = previous_adapter.smoke(previous)
+                        self._assert_transition_smoke(restored_checks, app_was_running=operation["app_was_running"])
+                        restored = dict(previous, status="active", health={"result": "pass", "checked_at": now(), "checks": restored_checks})
+                    else:
+                        observed = _read_json(runtime_path) if runtime_path.exists() else None
+                        if observed != operation["previous_runtime"] or self._runtime_is_live(observed):
+                            raise HarnessError("compensation did not restore the stopped runtime")
+                        restored = dict(previous, health={"result": "unknown", "checked_at": now(),
+                                                         "checks": {"previous_runtime_stopped": "pass"}})
+                else:
+                    if runtime_path.exists():
+                        raise HarnessError("first-install compensation left a runtime record")
+                    restored = None
+                if self._complete_ordinary(operation, restored):
+                    self._cleanup_ordinary(operation, restored)
+            except BaseException as compensation:
+                # Keep the original operation and sole backup for an exact retry.
+                raise HarnessError("ordinary transition compensation incomplete; repeat its exact command") from compensation
+            detail = str(failure) if isinstance(failure, HarnessError) else type(failure).__name__
+            raise HarnessError(f"live {kind} failed: {detail}") from failure
+        result = dict(target, status="active", promoted_at=now(),
+                      health={"result": "pass", "checked_at": now(), "checks": checks})
+        if self._complete_ordinary(operation, result):
+            self._cleanup_ordinary(operation, result)
+        return {"mode": "live", "backend": "started", "app": "installed", "checks": checks, "published": True}
+
+    def _write_ordinary_receipt(self, operation):
+        target = operation["target"]
+        _write_json(self.state / "rollback-required.json", {
+            "schema_version": "dev-rollback-required.v1", "status": "rollback_required",
+            "manifest_id": target["manifest_id"], "source_sha": target["source_sha"],
+            "checked_at": now(), "operation": operation,
+        })
+
+    def _complete_ordinary(self, operation, manifest):
+        _assert_ordinary_controller(self.state, operation["target"])
+        if manifest is None:
+            with contextlib.suppress(FileNotFoundError):
+                (self.state / "active-manifest.json").unlink()
+            _fsync_directory(self.state)
+            if _load_active(self.state) is not None:
+                raise HarnessError("first-install compensation left an active pointer")
         else:
-            if app_backup is not None:
-                shutil.rmtree(app_backup)
-            # The restored target becomes active; its own parent becomes the
-            # next rollback target (artifacts may already be gone, which is a
-            # reported state rather than an error).
-            next_target = None
-            next_target_id = target.get("parent_manifest_id")
-            if isinstance(next_target_id, str) and next_target_id:
-                candidate_path = _manifest_path(self.state, _safe_id(next_target_id, "manifest_id"))
-                if candidate_path.exists():
-                    next_target = _read_json(candidate_path)
-            target_adapter._apply_retention(target, next_target)
-        return {"mode": "live", "backend": "started", "app": "installed", "checks": checks}
+            _publish_active(self.state, manifest, "live")
+            pointer = _read_json(self.state / "active-manifest.json")
+            if (pointer.get("runtime_mode") != "live" or pointer.get("manifest_id") != manifest["manifest_id"]
+                    or _load_active(self.state) != manifest):
+                raise HarnessError("ordinary publication readback differs from its verified result")
+        try:
+            (self.state / "rollback-required.json").unlink()
+        except OSError as exc:
+            raise HarnessError("ordinary receipt removal failed; recovery required") from exc
+        try:
+            _fsync_directory(self.state)
+        except OSError:
+            print(json.dumps({"status": "warning", "error": "recovery receipt removed; directory sync failed; cleanup deferred"}), file=sys.stderr)
+            return False
+        return True
+
+    def _cleanup_ordinary(self, operation, active):
+        _assert_no_ordinary_operation(self.state)
+        try:
+            if operation["backup"] is not None:
+                shutil.rmtree(self.state / operation["backup"])
+            if active is not None:
+                rollback_target, blocked = self._rollback_target(active)
+                if blocked is None:
+                    self._apply_retention(active, rollback_target,
+                                          keep_extra=(operation["target"]["manifest_id"],))
+        except (HarnessError, OSError) as exc:
+            print(json.dumps({"status": "warning", "error": "ordinary cleanup deferred: " + type(exc).__name__}), file=sys.stderr)
+
+    def promote(self, manifest: Dict[str, Any], *, previous_checkout=None) -> Dict[str, Any]:
+        if _HELD_OPERATION_LOCK.get() is None:
+            with state_lock(self.state):
+                return self.promote(manifest, previous_checkout=previous_checkout)
+        self._assert_supported()
+        _assert_no_schema_transition(self.state)
+        pending = _read_ordinary_operation(self.state)
+        previous = _load_active(self.state)
+        if (pending is None and previous is not None
+                and previous["migration_head"] != manifest["migration_head"]):
+            self._assert_supported()
+            self._assert_source_matches_checkout(manifest)
+            runtime = _read_json(self._runtime_record()) if self._runtime_record().exists() else None
+            if not self._runtime_is_live(runtime):
+                raise HarnessError("schema transition requires a live verified predecessor checkout")
+            if runtime.get("source_sha") != previous["source_sha"]:
+                raise HarnessError("previous Dev runtime does not match the active manifest")
+            previous_adapter = self._previous_adapter(runtime, previous, previous_checkout)
+            if previous_adapter is self:
+                raise HarnessError("schema transition requires a live verified predecessor checkout")
+            for adapter, candidate in ((self, manifest), (previous_adapter, previous)):
+                env = adapter._env(candidate)
+                adapter._compose_config(env)
+                adapter._assert_manifest_images(candidate, env)
+            self._ensure_rollback_archive(previous)
+            return self._promote_schema(previous, manifest, previous_adapter)
+        return self._ordinary_transition("promote", manifest, previous_checkout=previous_checkout)
+
+    def rollback(self, active: Dict[str, Any], target: Dict[str, Any], *, previous_checkout=None, target_checkout=None) -> Dict[str, Any]:
+        if _HELD_OPERATION_LOCK.get() is None:
+            with state_lock(self.state):
+                return self.rollback(active, target, previous_checkout=previous_checkout, target_checkout=target_checkout)
+        if not (self.state / "rollback-required.json").exists() and _load_active(self.state) != active:
+            raise HarnessError("rollback active manifest changed")
+        return self._ordinary_transition("rollback", target, previous_checkout=previous_checkout,
+                                         target_checkout=target_checkout)
 
     def _wait_http(self, origin: str, path: str, *, headers: Optional[Dict[str, str]] = None, timeout: int = 10) -> int:
         deadline = dt.datetime.now(dt.timezone.utc).timestamp() + timeout
@@ -2560,6 +2771,9 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
 
     def smoke(self, manifest: Dict[str, Any]) -> Dict[str, str]:
         self._assert_supported()
+        journal = _read_schema_transition(self.state)
+        schema_pending = journal and journal["phase"] not in {"complete", "recovered"}
+        ordinary = None if schema_pending else _assert_ordinary_controller(self.state, manifest)
         backend = str(manifest["dev_boundary"]["backend_origin"])
         frontend = str(manifest["dev_boundary"]["frontend_origin"])
         checks: Dict[str, str] = {}
@@ -2638,6 +2852,12 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
             checks["migration_readiness"] = "pass" if observed.get("status") in {"empty", "matching"} else "fail"
         except HarnessError:
             checks["migration_readiness"] = "fail"
+        if ordinary is not None:
+            observed = _assert_ordinary_controller(self.state, manifest)
+            if observed is None or observed["id"] != ordinary["id"]:
+                raise HarnessError("ordinary operation changed during smoke")
+        elif not schema_pending:
+            _assert_no_ordinary_operation(self.state)
         return checks
 
 
@@ -2646,6 +2866,14 @@ def _mkdirs(root: Path) -> None:
     marker = root / ".dev-boundary"
     if not marker.exists():
         _atomic_write(marker, "GRAF Dev metadata-only boundary\n")
+
+
+def _fsync_directory(path):
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def _atomic_write(path: Path, content: str) -> None:
@@ -2657,11 +2885,7 @@ def _atomic_write(path: Path, content: str) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temp_name, path)
-        directory_fd = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+        _fsync_directory(path.parent)
     finally:
         with contextlib.suppress(FileNotFoundError):
             os.unlink(temp_name)
@@ -2669,15 +2893,21 @@ def _atomic_write(path: Path, content: str) -> None:
 
 @contextlib.contextmanager
 def state_lock(root: Path) -> Iterator[None]:
+    if _HELD_OPERATION_LOCK.get() is not None:
+        raise HarnessError("nested Dev operation locks are not allowed")
     _state_ownership(root)
     _checked_state_path(root / "promote.lock", file=True)
     root.mkdir(parents=True, exist_ok=True)
-    with _state_file_lock(root / "promote.lock"):
-        _state_ownership(root)  # Recheck binding and paths after waiting.
-        _mkdirs(root)
-        if (root / "app-launch-validation-recovery.json").exists():
-            raise HarnessError("launch validation requires resolved recovery state before further lifecycle work")
-        yield
+    with _state_file_lock(root / "promote.lock") as fd:
+        token = _HELD_OPERATION_LOCK.set((os.getpid(), root.resolve(), fd))
+        try:
+            _state_ownership(root)  # Recheck binding and paths after waiting.
+            _mkdirs(root)
+            if (root / "app-launch-validation-recovery.json").exists():
+                raise HarnessError("launch validation requires resolved recovery state before further lifecycle work")
+            yield
+        finally:
+            _HELD_OPERATION_LOCK.reset(token)
 
 
 def _manifest_path(root: Path, manifest_id: str) -> Path:
@@ -2767,6 +2997,7 @@ def build_manifest(sha: str, feature_id: str, operator: str = "local", migration
     operator = operator.strip() or "local"
     root = root or state_dir()
     _state_ownership(root)
+    _assert_no_ordinary_operation(root)
     active = _load_active(root)
     manifest_id = f"dev-{source_sha[:12]}"
     components = {
@@ -2814,6 +3045,7 @@ def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
     root = state_dir(live=bool(getattr(args, "live", False)))
     with state_lock(root):
         _assert_no_schema_transition(root)
+        _assert_no_ordinary_operation(root)
         feature_id = args.feature_id or os.environ.get("GRAF_FEATURE_ID") or _active_feature_id()
         migration_head = args.migration_head
         if migration_head in {None, "", "unknown"}:
@@ -2899,8 +3131,12 @@ def _publish_active(root: Path, manifest: Dict[str, Any], mode: str) -> None:
             "schema_version": POINTER_VERSION, "manifest_id": manifest["manifest_id"],
             "runtime_mode": mode, "updated_at": now(),
         })
-        with contextlib.suppress(FileNotFoundError):
-            (root / "rollback-required.json").unlink()
+        recovery = root / "rollback-required.json"
+        if recovery.exists():
+            receipt = _read_json(recovery)
+            journal = _read_schema_transition(root)
+            if "operation" not in receipt and journal and journal["phase"] not in {"complete", "recovered"}:
+                recovery.unlink()
     except OSError as exc:
         if mode == "live":
             GrafLocalAdapter(_repo_root(), root)._mark_rollback_required(manifest)
@@ -2918,16 +3154,21 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
         raise HarnessError("manifest migration_head must be resolved before promotion")
     with state_lock(root):
         _assert_no_schema_transition(root)
+        recovery = _read_ordinary_operation(root)
+        if recovery is not None and (not getattr(args, "live", False) or args.dry_run):
+            raise HarnessError("unfinished operation requires an exact live retry")
+        if recovery is not None and not _same_pinned_manifest(candidate, recovery["target"]):
+            raise HarnessError("recovery candidate differs from its complete pinned target")
         active = _load_active(root)
         expected_parent = candidate.get("parent_manifest_id")
         same_active = active is not None and candidate["manifest_id"] == active["manifest_id"]
-        if same_active and candidate != active:
+        if recovery is None and same_active and candidate != active:
             raise HarnessError("active manifest identity must not be changed")
-        if active and not same_active and expected_parent != active["manifest_id"]:
+        if recovery is None and active and not same_active and expected_parent != active["manifest_id"]:
             raise HarnessError("candidate parent manifest is stale; rebuild from current active Dev manifest")
-        if active is None and expected_parent is not None:
+        if recovery is None and active is None and expected_parent is not None:
             raise HarnessError("candidate parent manifest is unavailable")
-        if active and candidate["manifest_id"] == active["manifest_id"]:
+        if recovery is None and active and candidate["manifest_id"] == active["manifest_id"]:
             pointer = _read_json(root / "active-manifest.json") if (root / "active-manifest.json").exists() else {}
             runtime_mode = pointer.get("runtime_mode")
             live_runtime = GrafLocalAdapter(_repo_root(), root)._runtime_is_live(
@@ -2961,7 +3202,8 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
             }
             _validate_manifest(promoted)
         if not args.dry_run:
-            _publish_active(root, promoted, adapter_info["mode"])
+            if not adapter_info.get("published"):
+                _publish_active(root, promoted, adapter_info["mode"])
             if adapter_info.get("schema_operation"):
                 journal = _read_schema_transition(root)
                 GrafLocalAdapter(_repo_root(), root)._schema_phase(journal, "complete")
@@ -3237,6 +3479,7 @@ def operation_smoke(args: argparse.Namespace) -> Dict[str, Any]:
         raise HarnessError("smoke requires an explicit --live or --fixture mode")
     root = state_dir(live=bool(getattr(args, "live", False)))
     _assert_no_schema_transition(root)
+    _assert_no_ordinary_operation(root)
     active = _load_active(root)
     if active is None:
         raise HarnessError("smoke requires an active Dev manifest")
@@ -3266,6 +3509,7 @@ def operation_smoke(args: argparse.Namespace) -> Dict[str, Any]:
         status = "pass"
     if getattr(args, "live", False):
         _state_ownership(root, live=True)
+        _assert_no_ordinary_operation(root)
         if _load_active(root) != active:
             raise HarnessError("active Dev identity changed during smoke; retry after the operation")
     return {"operation": "smoke", "status": status, "manifest_id": active["manifest_id"], "source_sha": active["source_sha"], "checks": checks}
@@ -3280,6 +3524,9 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
         raise HarnessError("shared Dev state requires live rollback")
     with state_lock(root):
         _assert_no_schema_transition(root)
+        recovery = _read_ordinary_operation(root)
+        if recovery is not None and (not getattr(args, "live", False) or args.dry_run):
+            raise HarnessError("unfinished operation requires an exact live retry")
         active = _load_active(root)
         if active is None:
             raise HarnessError("rollback requires an active Dev manifest")
@@ -3290,7 +3537,7 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
                 raise HarnessError(
                     "live Dev state is active; refusing metadata-only rollback without runtime restoration"
                 )
-        target_id = args.manifest_id or active.get("parent_manifest_id")
+        target_id = args.manifest_id or (recovery["target"]["manifest_id"] if recovery else active.get("parent_manifest_id"))
         if not target_id:
             raise HarnessError("no parent manifest is available for rollback")
         target = _read_json(_manifest_path(root, _safe_id(str(target_id), "manifest_id")))
@@ -3309,7 +3556,8 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
                     "checked_at": now(),
                     "checks": adapter_info.get("checks", {}),
                 }
-            _publish_active(root, target, adapter_info["mode"])
+            if not adapter_info.get("published"):
+                _publish_active(root, target, adapter_info["mode"])
     return {
         "operation": "rollback",
         "dry_run": bool(args.dry_run),
@@ -3328,6 +3576,7 @@ def operation_reset_data(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
     with state_lock(root):
         _assert_no_schema_transition(root)
+        _assert_no_ordinary_operation(root)
         if not args.dry_run:
             pointer_path = root / "active-manifest.json"
             if pointer_path.exists():

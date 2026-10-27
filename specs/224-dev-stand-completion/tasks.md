@@ -51,7 +51,11 @@ pointer, свободное место и сохранность чужой ра
 **Независимая проверка**: crash boundaries дают согласованный результат либо
 recovery-required; совместимый живой rollback и Dev TCC подтверждены отдельно.
 
-- [ ] T010 [US3] В tests/governance/test_dev_promotion_transaction.py сначала изолированно воспроизвести SIGKILL обычного promote на stop/install/pointer; зафиксировать минимальные фазы/recovery в specs/224-dev-stand-completion/contracts/promotion-recovery.md, уточнить plan.md и reviewer-owned infra checklist, повторить analyze/sync; только после отдельного PASS минимально исправить scripts/dev-harness.py и повторить crash matrix с журналом specs/224-dev-stand-completion/validation-recovery.md; не дублировать существующую schema-transition recovery.
+- [X] T010 [US3] В tests/governance/test_dev_promotion_transaction.py сначала изолированно воспроизвести SIGKILL обычного promote на stop/install/pointer; зафиксировать минимальные фазы/recovery в specs/224-dev-stand-completion/contracts/promotion-recovery.md, уточнить plan.md и reviewer-owned infra checklist, повторить analyze/sync; только после отдельного PASS минимально исправить scripts/dev-harness.py и повторить crash matrix с журналом specs/224-dev-stand-completion/validation-recovery.md; не дублировать существующую schema-transition recovery. (Issue #7641)
+
+**T010, 27.10.2026**: локальная реализация принята независимым ревью,
+378 PASS / 0 FAIL / 0 SKIP. Закрытие #7641 требует принятого PR и свежих
+проверок точного SHA/основы; T009/T011/T012/T013 остаются открытыми.
 - [ ] T011 [US3] После T009/T010 и освобождения стенда выполнить штатный живой build→promote→status→smoke→compensation→rollback на одном /Applications/GRAF Dev.app; в specs/224-dev-stand-completion/validation-live.md доказать согласованность app/runtime/pointer, exact SHA и сохранность данных; для schema-changing перехода использовать существующего владельца specs/249-notification-control-design/tasks.md T038/#6786, не дублировать миграционную задачу и не принимать F224 до её доказательства.
 - [ ] T012 [US3] По docs/agent-guidance/local-development.md и specs/224-dev-stand-completion/quickstart.md провести Dev-only проверку разрешений до/update/relaunch/после с тем же подписантом; в specs/224-dev-stand-completion/validation-tcc.md сохранить только технические signer/requirement/entitlements и результаты microphone/system-audio по Dev bundle ID, без reset TCC/отдельного приложения/частных записей; неизвестное состояние не считать PASS.
 

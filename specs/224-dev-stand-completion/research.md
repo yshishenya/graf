@@ -117,3 +117,38 @@ Git fail-open и relative cwd — все три отрицательные пр�
 Отдельный текущий audit проверил origin collisions в настоящих временных Git
 репозиториях; код harness имеет SHA256
 b23eddeb435140b4cbe6bebaede4a0095f889428eb8b0082df3d2fd7f737469a.
+
+## Исследование T010, 26.10.2026
+
+Текущая основа8037c448935441051998995c7a5444a4f9a549ad. Настоящий SIGKILL
+контроллера с подменёнными внешними действиями подтвердил3неполные границы:
+после stop — runtime остановлен; после install — appB/activeA;
+перед pointer — appB/runtimeB/activeA и прежняя копия уже удалена.
+Во всех трёх status ошибочно сообщает active, recovery receipt отсутствует.
+Контрольный успех и прерывание после pointer согласованы. Все5 сохраняют
+защищённые байты и inode lock. Это не доказательство причины отсутствия
+настоящего установленного Dev. Probe исполняет реальные operation_promote,
+GrafLocalAdapter.promote и operation_status, не создаёт app bundle и запрещает
+внешние команды. SHA256 harness:
+4d396a1ab7c3a7abaaee9b9f0cb97eca9872483ded9d81a1d18afdc545a31d50.
+
+Независимый исследователь подтвердил ту же дыру в rollback, преждевременную
+очистку, same-active bypass, прямые retention/build и окно Popen→runtime.json.
+Отдельный опыт darwin с двумя настоящими процессами подтвердил: subprocess
+без pass_fds освобождает flock после SIGKILL родителя; с наследованием того же
+fd удерживает lock до своего выхода. Обе проверки сохраняют inode. Это
+исследование механизма, ещё не приёмка настоящих installer/Compose scripts.
+
+Решение: расширить существующую квитанцию и повторить существующую команду;
+для коротких мутаций наследовать operational fd, для долгого backend повторно
+использовать pipe gate. Причина: одна точная цель и один lock достаточны,
+поэтапное продолжение/новая команда/вторая схема журнала не нужны.
+Marker-only отвергнут: не исправляет runtimeB/activeA и first install;
+try/except-only не ловит SIGKILL. Старый frozen controller как обход отвергнут.
+Полный договор — [contracts/promotion-recovery.md](contracts/promotion-recovery.md).
+
+Внешние воспроизводимые материалы: каталог Documents/Codex/2026-10-26/
+graf-f224-crash-recheck, файлы probe.py/results.json и lock-probe.py/
+lock-results.json. Долговечный профильный тест и собственная матрица будут
+добавлены только после checklist/analyze/sync; старые результаты не станут
+доказательством нового кода.
