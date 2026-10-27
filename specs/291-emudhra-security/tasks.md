@@ -13,7 +13,11 @@ Independent test: resolved locks, governance test, image package checks and ordi
 
 - [X] T003 [US1] Add certifi security floor in `apps/server/pyproject.toml`, targeted upgrade `apps/server/uv.lock` and reproducibly export `apps/server/constraints.txt`; review every dependency delta (FR-001).
 - [X] T004 [US1] Update Node22 pins in `.github/workflows/governance-fast.yml` and `.github/workflows/release-full.yml`, synchronize `tests/governance/test_governance_workflow.py` and run it (FR-002).
-- [ ] T005 [US1] Update the system CA package through `infra/server/Dockerfile`, verify runtime/media image paths and bounded HTTPS checks from `quickstart.md` (FR-003/004).
+- [X] T005 [US1] Update the system CA package through `infra/server/Dockerfile`, verify runtime/media image paths and bounded HTTPS checks from `quickstart.md` (FR-003/004).
+
+Проверка 27.10.2026: оба target собраны; 18 проверок TLS прошли, версии
+пакетов прочитаны из образов. Граница Linux/arm64 и открытая production-приёмка
+указаны в `validation-images-20261027.md`. T006/T007/T008 остаются открытыми.
 
 ## Phase 3: User Story 2 — Verified release (P1)
 
