@@ -71,7 +71,7 @@ async def _require_delivery_database(db) -> None:
         raise PermissionError("protected activation maintenance role required")
 
 
-def _delivery_blocker(settings, provider, event):
+def _delivery_blocker(settings, provider, event, *, event_id=None):
     blockers = activation_milestone_write_blockers(settings)
     if blockers:
         return "purpose_withdrawn" if "legal_basis_withdrawn" in blockers else "basis_unavailable"
@@ -83,7 +83,9 @@ def _delivery_blocker(settings, provider, event):
             return "provider_disabled"
         return "basis_unavailable"
     if provider == "yandex":
-        decision = YandexOfflineConversionExporter.from_settings(settings).transfer_decision(event)
+        decision = YandexOfflineConversionExporter.from_settings(settings).transfer_decision(
+            event, event_id=event_id,
+        )
         if not decision.allowed:
             revoked = {
                 BLOCKER_MEASUREMENT_CONSENT_REVOKED, BLOCKER_RECIPIENT_REVOKED,
@@ -137,7 +139,7 @@ async def _deliver_claim(sessions, settings, row, provider):
                     if exists is None:
                         pre_send_blocker = "purpose_withdrawn"
                         raise PermissionError("purpose_withdrawn")
-                    blocker = _delivery_blocker(settings, provider, event)
+                    blocker = _delivery_blocker(settings, provider, event, event_id=row.event_id)
                     if blocker:
                         pre_send_blocker = blocker
                         raise PermissionError(blocker)
@@ -149,7 +151,7 @@ async def _deliver_claim(sessions, settings, row, provider):
                     guarded_transport(url, headers, body, timeout), loop
                 ).result()
 
-            blocker = _delivery_blocker(settings, provider, event)
+            blocker = _delivery_blocker(settings, provider, event, event_id=row.event_id)
             if blocker:
                 return blocker
             client = (PostHogClientWrapper if provider == "posthog"

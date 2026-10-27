@@ -1,6 +1,7 @@
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import UUID
 
 from tests.fixtures.analytics_operations import CONSISTENT_RESTORE_LINES, write_runtime_guard
 from twobrain_rec_server.config import Settings
@@ -448,3 +449,30 @@ def test_yandex_retransfer_of_already_refused_data_is_refused_again(tmp_path: Pa
     ]
     assert reference in result.metadata["revocation_trace"]["refused_transfer_refs"]
     assert result.metadata["transfer_ref"] == reference
+
+
+def test_durable_event_refusal_matches_the_exact_identifier_sent_to_yandex(tmp_path: Path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "twobrain_rec_server.product_analytics.yandex_offline.resolve_provider_delivery_gate",
+        lambda *a, **kw: SimpleNamespace(allowed=True),
+    )
+    event = _approved_event()
+    event_id = UUID("d56bd0bd-f2ac-4786-aa0c-a487863e21bd")
+    reference = "graf_yandex_dedupe_" + event_id.hex
+    refusal = (
+        "revocation_refusal recipient=yandex_metrica purpose=yandex_offline_conversions "
+        f"transfer_ref={reference} refused_at=2026-09-20 reason=recipient_revocation_recorded"
+    )
+    exporter, calls = _live_exporter(tmp_path, lines=(BASIS_LINE, refusal))
+    result = exporter.export(event, event_id=event_id, visitor_consent=_granted_consent())
+    assert calls == []
+    assert result.status == "recipient_revoked"
+    assert result.metadata["transfer_ref"] == reference
+    assert result.metadata["blockers"] == ["retransfer_of_revoked_data_refused"]
+    assert exporter.transfer_register.refusal(recipient="yandex_metrica", transfer_ref=reference) is not None
+    other = UUID("798a0ae5-c9aa-4701-acfe-a9e50fa78e45")
+    assert exporter.export(event, event_id=other, visitor_consent=_granted_consent()).status == "live_safe_uploaded"
+    assert len(calls) == 1
+    assert ("graf_yandex_dedupe_" + other.hex).encode() in calls[0][2]

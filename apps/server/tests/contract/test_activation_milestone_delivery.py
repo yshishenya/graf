@@ -22,6 +22,7 @@ from twobrain_rec_server.product_analytics.milestones import admit_account_miles
 from twobrain_rec_server.product_analytics.posthog_client import ProviderTransportResponse
 
 REQUIRE_DELIVERY_DATABASE = router._require_delivery_database
+TRANSFER_DECISION = router.YandexOfflineConversionExporter.transfer_decision
 
 
 def run(url, scenario):
@@ -117,7 +118,7 @@ def test_delivery_keeps_one_decision_and_never_confirms_from_2xx(
             assert await db.scalar(select(func.count()).select_from(ProductActivationMilestone)) == 1
         assert len(calls) == 2
         assert json.loads(calls[0][1])["uuid"] == str(original.event_id)
-        assert str(original.event_id).encode() in calls[1][1]
+        assert ("graf_yandex_dedupe_" + original.event_id.hex).encode() in calls[1][1]
         assert str(USER_ID).encode() not in b"".join(body for _, body in calls)
     run(postgres_seeded_database_url, scenario)
 
@@ -300,6 +301,47 @@ def test_provider_register_error_is_not_proof_of_withdrawal(delivery, monkeypatc
         "purpose_withdrawn" if withdrawn else "basis_unavailable"
     )
     assert not calls
+
+
+def test_exact_yandex_refusal_read_after_preparation_stops_durable_delivery(
+    postgres_seeded_database_url, delivery, monkeypatch, tmp_path,
+):
+    from tests.unit.test_product_analytics_yandex_offline_provider import (
+        BASIS_LINE,
+        DISCLOSED_PAGES,
+    )
+    from twobrain_rec_server.product_analytics import yandex_offline
+    from twobrain_rec_server.product_analytics.advertising_transfer import (
+        OptionalMeasurementConsent,
+    )
+
+    settings, calls, _ = delivery
+    register = tmp_path / "fresh-transfer-register"
+    header = "advertising_transfer_state_version=1\n" + BASIS_LINE + "\n"
+    register.write_text(header)
+    monkeypatch.setenv("GRAF_PRODUCT_ANALYTICS_ADVERTISING_TRANSFER_STATE_FILE", str(register))
+    monkeypatch.setattr(router.YandexOfflineConversionExporter, "transfer_decision", TRANSFER_DECISION)
+    monkeypatch.setattr(yandex_offline, "packaged_visitor_disclosure_pages", lambda: DISCLOSED_PAGES)
+    monkeypatch.setattr(yandex_offline, "optional_measurement_consent_from_event",
+                        lambda _: OptionalMeasurementConsent(state="granted"))
+    read = yandex_offline.read_secret_file
+    async def scenario(sessions):
+        (original,) = await seed(sessions, providers=("yandex",))
+        reference = "graf_yandex_dedupe_" + original.event_id.hex
+        def refuse(*args, **kwargs):
+            result = read(*args, **kwargs)
+            register.write_text(header + (
+                "revocation_refusal recipient=yandex_metrica purpose=yandex_offline_conversions "
+                f"transfer_ref={reference} refused_at=2026-10-28 reason=recipient_revocation_recorded\n"
+            ))
+            return result
+        monkeypatch.setattr(yandex_offline, "read_secret_file", refuse)
+        await router.reconcile_activation_milestones_once(sessions, settings=settings)
+        assert not calls
+        async with sessions() as db:
+            row = await db.get(ProductActivationMilestone, original.id)
+            assert row.yandex_state == "cancelled" and row.yandex_reason == "purpose_withdrawn"
+    run(postgres_seeded_database_url, scenario)
 
 
 @pytest.mark.parametrize("blocker,expected", [

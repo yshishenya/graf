@@ -28,7 +28,10 @@ network error и недоказанный non2xx дают ambiguous, без ав
 того же event_id. Неизвестный commit не разрешает транспорт. Отмена ожидания
 дожидается ограниченного реального запроса и оставляет dispatching для
 карантина; забытый dispatching становится ambiguous, без пересылки.
-PostHog получает детерминированный UUID в envelope, Yandex — тот же PurchaseId.
+PostHog получает детерминированный UUID в envelope. Yandex получает
+`graf_yandex_dedupe_{event_id.hex}` в PurchaseId; этот же идентификатор
+проверяется в реестре отказов до подготовки и непосредственно перед сетью.
+Это сопоставление локального запрета, не доказательство внешней дедупликации.
 Исходное решение и счёт не меняются, not_requested не заполняется задним числом.
 
 В begin_account_close_finalization ожидающие pending/pre_send_retry/dispatching
@@ -58,6 +61,15 @@ critical/high; `t113-delivery-before-code-2026-10-28.md`.
 - **V5:98 PASS/2 warnings,42.60с; runner46с.** Наборы перекрываются,
   результаты не суммируются. Warnings: pytest plugin rewrite и прежний
   Starlette/httpx deprecation. Временные контейнеры удалены runner.
+- R04: найдено расхождение PurchaseId и ссылки в реестре отказов. До
+  исправления regression-тест вызвал fake transport один раз вопреки точному
+  запрету. Существующий helper теперь задаёт единую допустимую ссылку для
+  CSV, metadata и обеих свежих проверок; прежние вызовы без event_id сохранены.
+- **V6:100 PASS/2 warnings,43.02с; runner46с**, контейнер удалён. Два новых
+  теста читают настоящий файл реестра: точный запрет останавливает передачу,
+  другой UUID разрешён; запрет после чтения секрета повторно читается перед HTTP.
+  Независимый повторный scoped review PASS; прежний V5 PASS сохранён как
+  исторический и не разрешает слияние неисправленного source700df982.
 - Ruff, git diff --check, governance и changelog-fragments PASS.
 
 ```sh
@@ -70,9 +82,10 @@ bash apps/server/scripts/run_local_postgres_tests.sh --focused \
   tests/unit/test_product_analytics_yandex_offline_provider.py -q
 ```
 
-Collection98; digest `c8b2829b4449ad9b8005c320ac69cdd83bd040edcb8fd17c4de05982cc80345a`.
-Игнорируемый журнал `t113-delivery-focused-v5-20261028.log`:
-SHA-256 `38a9937774bbed6919c2ba3694bafdada83d583fc01cbd3ea61def154772a981`.
+Финальная collection100; digest
+`2351f31f37c8a8ed071b046a31fa4aab2cea1cdee45f2ca2c28cc3b003672a10`.
+Игнорируемый журнал `t113-delivery-focused-v6-20261028.log`:
+SHA-256 `d79b02300195374a13270b010ca3b84e5e957224f8adb917c01769a2395380a6`.
 
 Покрыты20+3 строки, разные процессы/строки/один provider slot, отсутствие
 SQL-lock во время ожидания HTTP, действительный5с timeout и доступность
@@ -110,6 +123,6 @@ converged F273. Независимый implementation review записывае�
 Свежий публичный catalog в22:13:28UTC27.10 (28.10 местного времени):
 enabled=false, validation_mode=disabled, provider_mode=disabled,
 rollout_verdict=blocked. Неизменённый activation_recovery_unverified
-безусловно запрещает новый writer. Для этого участка ещё нужны собственный
-PR, точные GitHub проверки, merge и штатный общий выпуск; для включения —
+безусловно запрещает новый writer. Для этого участка открыт [PR #7776](https://github.com/yshishenya/graf/pull/7776);
+после R04 нужны актуальные точные GitHub проверки, merge и штатный общий выпуск; для включения —
 реальные операционные свидетельства. Трафик, продажи, AC01–AC06 не приняты.
