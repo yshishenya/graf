@@ -206,11 +206,14 @@ async def reconcile_activation_milestones_once(sessions, *, settings: Settings) 
                < datetime.now(UTC) - timedelta(seconds=60))
             for provider in ("posthog", "yandex")
         ))
+        # Retried/blocked rows rotate after each claim/finish, preserving room
+        # for newer decisions even when only one recipient is available.
         ids = list(await db.scalars(select(ProductActivationMilestone.id).where(or_(
             ProductActivationMilestone.posthog_state.in_(("pending", "pre_send_retry")),
             ProductActivationMilestone.yandex_state.in_(("pending", "pre_send_retry")),
             stale,
-        )).order_by(case((stale, 0), else_=1), ProductActivationMilestone.accepted_at,
+        )).order_by(case((stale, 0), else_=1), ProductActivationMilestone.updated_at,
+                    ProductActivationMilestone.accepted_at,
                     ProductActivationMilestone.id).limit(20)))
         await quarantine_milestone_deliveries(db, milestone_ids=tuple(ids))
         await db.commit()

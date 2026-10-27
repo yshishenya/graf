@@ -70,6 +70,22 @@ critical/high; `t113-delivery-before-code-2026-10-28.md`.
   другой UUID разрешён; запрет после чтения секрета повторно читается перед HTTP.
   Независимый повторный scoped review PASS; прежний V5 PASS сохранён как
   исторический и не разрешает слияние неисправленного source700df982.
+- R05: штатное слияние source887dbe7 остановлено GitHub из-за открытых review
+  threads. Новая находка подтверждена: порядок accepted_at постоянно выбирал
+  старые20 pending/pre_send_retry при недоступном получателе. Регрессия до
+  исправления получила20 вместо23 у здорового получателя после двух проходов.
+  После отдельного before-code PASS сортировка сохраняет stale priority,
+  затем использует уже обновляемый claim/finish updated_at и прежние
+  accepted_at/id. Новых полей, интервалов, миграции или очереди нет.
+  Добавлены6 сценариев blocked_provider × basis/disabled/technical_pre_send
+  и проверка приоритета stale за пределом пачки.
+- **V7:107 PASS/2 warnings,84.50с; runner88с**, контейнер удалён. Здоровый
+  получатель получает все23 события за два прохода при каждой из трёх причин
+  недоступности второго. После снятия причины второй также получает23 без
+  повторов первого. accepted_at/event_id/safe_payload сохранены; старый
+  dispatching получает приоритет и ambiguous без повторной отправки.
+  Независимое повторное scoped review PASS, checklist117/0. Предыдущий
+  scoped PASS не обнаружил R05 и не разрешает слияние неисправленного887dbe7.
 - Ruff, git diff --check, governance и changelog-fragments PASS.
 
 ```sh
@@ -82,10 +98,14 @@ bash apps/server/scripts/run_local_postgres_tests.sh --focused \
   tests/unit/test_product_analytics_yandex_offline_provider.py -q
 ```
 
-Финальная collection100; digest
-`2351f31f37c8a8ed071b046a31fa4aab2cea1cdee45f2ca2c28cc3b003672a10`.
-Игнорируемый журнал `t113-delivery-focused-v6-20261028.log`:
+Финальная collection107; digest
+`5fa233cafa8637c5d08686cccd731c4deebbe4d96af505e919a24e9d164247d7`.
+Игнорируемый журнал `t113-delivery-focused-v7-20261028.log`:
+SHA-256 `ec81982f46399d0ad0bb5fe4f38d7240103f8b2b18caa7b7eeb7a9a1a4e4c709`.
+Исторический V6-журнал сохранён:
 SHA-256 `d79b02300195374a13270b010ca3b84e5e957224f8adb917c01769a2395380a6`.
+Before-fix R05: `t113-fairness-before-fix-20261028.log`,
+SHA-256 `e8a61af009b0b2722acef405bd33154488caf8e5fe350452a66fabc91c018cff`.
 
 Покрыты20+3 строки, разные процессы/строки/один provider slot, отсутствие
 SQL-lock во время ожидания HTTP, действительный5с timeout и доступность
@@ -124,5 +144,5 @@ converged F273. Независимый implementation review записывае�
 enabled=false, validation_mode=disabled, provider_mode=disabled,
 rollout_verdict=blocked. Неизменённый activation_recovery_unverified
 безусловно запрещает новый writer. Для этого участка открыт [PR #7776](https://github.com/yshishenya/graf/pull/7776);
-после R04 нужны актуальные точные GitHub проверки, merge и штатный общий выпуск; для включения —
+после R05 нужны актуальные точные GitHub проверки, merge и штатный общий выпуск; для включения —
 реальные операционные свидетельства. Трафик, продажи, AC01–AC06 не приняты.

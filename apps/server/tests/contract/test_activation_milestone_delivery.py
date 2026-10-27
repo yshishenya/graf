@@ -213,6 +213,61 @@ def test_scan_bound_and_no_hidden_backfill(postgres_seeded_database_url, deliver
     run(postgres_seeded_database_url, scenario)
 
 
+@pytest.mark.parametrize("blocked_provider", ["posthog", "yandex"])
+@pytest.mark.parametrize("reason", ["basis_unavailable", "provider_disabled", "technical_pre_send"])
+def test_blocked_old_batch_rotates_and_other_provider_delivers_newer_milestones(
+    postgres_seeded_database_url, delivery, monkeypatch, tmp_path, blocked_provider, reason,
+):
+    settings, calls, _ = delivery
+    blocked = {"active": True}
+    missing_key = tmp_path / "temporarily-unavailable-key"
+    if reason == "technical_pre_send":
+        field = ("product_analytics_posthog_project_key_file" if blocked_provider == "posthog"
+                 else "product_analytics_yandex_oauth_token_file")
+        setattr(settings, field, missing_key)
+    else:
+        def gate(*args, provider, **kwargs):
+            refused = blocked["active"] and provider == blocked_provider
+            blocker = f"{provider}_disabled" if reason == "provider_disabled" else "basis_unknown"
+            return SimpleNamespace(allowed=not refused, blockers=(blocker,) if refused else ())
+        monkeypatch.setattr(router, "resolve_provider_delivery_gate", gate)
+
+    def provider_calls(provider):
+        return [body for url, body in calls
+                if ("analytics.example.test" in url) == (provider == "posthog")]
+
+    async def scenario(sessions):
+        originals = await seed(sessions, count=23)
+        healthy = "yandex" if blocked_provider == "posthog" else "posthog"
+        for _ in range(2):
+            assert await router.reconcile_activation_milestones_once(sessions, settings=settings) == 20
+        assert len(provider_calls(healthy)) == 23
+        assert not provider_calls(blocked_provider)
+        async with sessions() as db:
+            for original in originals:
+                row = await db.get(ProductActivationMilestone, original.id)
+                assert getattr(row, f"{healthy}_state") == "submitted"
+                assert getattr(row, f"{blocked_provider}_state") == (
+                    "pre_send_retry" if reason == "technical_pre_send" else "pending"
+                )
+        blocked["active"] = False
+        if reason == "technical_pre_send":
+            missing_key.write_text("synthetic-provider-key")
+        for _ in range(2):
+            await router.reconcile_activation_milestones_once(sessions, settings=settings)
+        assert len(provider_calls("posthog")) == len(provider_calls("yandex")) == 23
+        async with sessions() as db:
+            for original in originals:
+                row = await db.get(ProductActivationMilestone, original.id)
+                assert row.posthog_state == row.yandex_state == "submitted"
+                assert (row.event_id, row.accepted_at, row.safe_payload) == (
+                    original.event_id, original.accepted_at, original.safe_payload,
+                )
+                assert sum(str(row.event_id).encode() in body for body in provider_calls("posthog")) == 1
+                assert sum(row.event_id.hex.encode() in body for body in provider_calls("yandex")) == 1
+    run(postgres_seeded_database_url, scenario)
+
+
 def test_delete_before_transport_and_late_finish_do_not_recreate_decision(
     postgres_seeded_database_url, delivery, monkeypatch,
 ):
@@ -249,6 +304,27 @@ def test_stale_dispatch_is_quarantined_never_resent(postgres_seeded_database_url
         assert not calls
         async with sessions() as db:
             assert (await db.get(ProductActivationMilestone, original.id)).posthog_state == "ambiguous"
+    run(postgres_seeded_database_url, scenario)
+
+
+def test_stale_claim_precedes_older_pending_rows_in_bounded_scan(postgres_seeded_database_url, delivery):
+    settings, calls, _ = delivery
+    async def scenario(sessions):
+        rows = await seed(sessions, count=23, providers=("posthog",))
+        stale = rows[-1]
+        async with sessions() as db:
+            await db.execute(update(ProductActivationMilestone).where(
+                ProductActivationMilestone.id == stale.id
+            ).values(posthog_state="dispatching", posthog_attempt_id=uuid4(),
+                     posthog_attempted_at=datetime.now(UTC) - timedelta(minutes=2),
+                     updated_at=datetime.now(UTC)))
+            await db.commit()
+        assert await router.reconcile_activation_milestones_once(sessions, settings=settings) == 20
+        assert len(calls) == 19
+        async with sessions() as db:
+            row = await db.get(ProductActivationMilestone, stale.id)
+            assert row.posthog_state == "ambiguous" and row.posthog_reason == "interrupted_dispatch"
+        assert all(str(stale.event_id).encode() not in body for _, body in calls)
     run(postgres_seeded_database_url, scenario)
 
 

@@ -212,3 +212,100 @@ T112, положительный D16, точные PR/GitHub/merge/release/produ
 коммерческие результаты остаются открытыми. В дополнительном назначении
 изменён только этот отчёт; код, спецификации, задачи, checklists, Git/GitHub,
 другие чаты и рабочие данные проверяющий не менял.
+
+## Дополнение R05: продвижение за заблокированную пачку — 28.10.2026
+
+**Текущий scoped PASS исправления R05.** Исходный HEAD
+`887dbe7ee923583dd2173669a652545872434d66`; проверены ещё не
+закоммиченные байты по хешам ниже. Исторические V5/V6 и R04 выше сохранены.
+Before-code gate —
+`validation/t113-delivery-fairness-before-code-2026-10-28.md`, SHA-256
+`70237bf94d7ce3aee3efbfed4b42d2191999c46ea076b2f128c8611cad57d9c0`.
+
+### Дефект и проверенный код
+
+**R05, HIGH — исправлено.** Подбор oldest20 только по accepted_at постоянно
+возвращал первые20 строк, если один получатель оставался pending/pre_send_retry,
+даже когда здоровый получатель этих строк уже submitted. Более новые
+разрешённые события здорового получателя не доходили до claim. Прежний тест
+20+3 с одним получателем этот случай не покрывал.
+
+Собственное чтение diff подтверждает: production-изменение ограничено
+порядком SELECT в `router.py:209–220` и поясняющим комментарием.
+Сохранены stale priority, затем добавлен updated_at, далее accepted_at/id;
+условие отбора и limit20 прежние. Claim/finish/quarantine уже обновляют
+updated_at. Accepted_at, event_id, payload, состояния и права попытки не
+переписываются ради ротации; новых колонок/настроек/интервалов нет.
+
+Для конечного набора и завершающихся попыток рассмотренные blocked/retry
+строки перемещаются за ожидающие: это справедливое продвижение строк, а не
+обещание фиксированного времени доставки при перегрузке или недоступной БД.
+Общий updated_at затрагивает двух получателей; оба по-прежнему рассматриваются
+в выбранном проходе. Отдельная очередь не требуется. Конкурентные SELECT не
+дают права отправки: прежние advisory lock, dispatching slot, attempt owner
+и commit до сети сохранены. Неизвестные submitted/ambiguous/confirmed не
+превращаются в повторяемые состояния. Restore и основания не ослаблены.
+
+### Доказательство до и после
+
+Независимо прочитан журнал фактического запуска до исправления
+`.dev/growth/t113-fairness-before-fix-20261028.log`: regression
+`basis_unavailable-posthog` остановился на **assert20==23**, итог
+**1 failed,29 deselected,2 warnings in7.11s**, runner11s,
+`isolated_container_removed`. Это содержательное воспроизведение starvation,
+а не проверка текста сортировки.
+
+Прочитаны все76 добавленных строк тестов:
+
+- Шесть параметров `blocked_provider × basis_unavailable/provider_disabled/technical_pre_send`
+  создают23 решения с обоими получателями и проходят настоящий
+  `_deliver_claim/claim/finish` в изолированной PostgreSQL. Basis/disabled
+  меняют только scoped readiness gate; technical_pre_send использует отдельный
+  отсутствующий synthetic key только одного получателя. Транспорт fake.
+- После двух проходов выбранный здоровый получатель имеет все23 отправки,
+  заблокированный — ни одной. Проверены его pending/pre_send_retry и
+  submitted здорового. После снятия причины ещё два прохода дают23 у каждого.
+  UUID/reference каждого события встречается ровно один раз у каждого
+  получателя; event_id/accepted_at/safe_payload прежние, итог только submitted.
+- Новый `test_stale_claim_precedes_older_pending_rows_in_bounded_scan`
+  размещает stale dispatching за22 pending с более новым updated_at.
+  В limit20 stale всё равно включается, становится ambiguous/interrupted_dispatch,
+  его UUID не отправляется. Остальные19 разрешённых отправок подтверждают
+  освобождение recipient slot. Stale priority не потерян при ротации.
+
+Независимо прочитан полный законченный журнал V7
+`.dev/growth/t113-delivery-focused-v7-20261028.log`:
+**107 passed,2 warnings in84.50s**, runner88s, status=pass,
+`isolated_container_removed`, partitioned=false/shard=none.
+Collection107, digest
+`5fa233cafa8637c5d08686cccd731c4deebbe4d96af505e919a24e9d164247d7`.
+Оба предупреждения — прежние pytest assert-rewrite и Starlette TestClient
+deprecation; пропущенных или упавших тестов в итоговом журнале нет.
+Профиль включает прежние DB-проверки конкурентного recipient slot,
+отсутствия SQL lock во время сети, crash/timeout/unknown без resend,
+удаления/закрытия аккаунта и late finish. Проверяющий повторно тесты не запускал.
+
+Четыре reviewer-owned checklist повторно пересчитаны и сверены с их ранее
+полностью прочитанными неизменными хешами: requirements16/0,
+privacy-measurement45/0, infra29/0, security27/0; **117 checked/0 unchecked**.
+Отметки не менялись: это качество требований, не исполнение T113 или SC.
+Собственная read-only проверка `git diff --check` — PASS.
+
+### Финальные входные SHA-256 R05
+
+| Файл | SHA-256 |
+| --- | --- |
+| apps/server/src/twobrain_rec_server/product_analytics/router.py | ffe5bccc440c88d98870157c4b74fc7c013823421111775d499056b8ebc5b92a |
+| apps/server/src/twobrain_rec_server/product_analytics/milestones.py, не изменён | b9d6e1de6b80c128af3efd7d23b731e38486f6855fdf7f6fa3750af4bf33e0c6 |
+| apps/server/tests/contract/test_activation_milestone_delivery.py | 38da6753f72473cb44709fb5cb02fe93d37d723d5c2b22c41d12be23a7bd6309 |
+| .dev/growth/t113-fairness-before-fix-20261028.log | e8a61af009b0b2722acef405bd33154488caf8e5fe350452a66fabc91c018cff |
+| .dev/growth/t113-delivery-focused-v7-20261028.log | ec81982f46399d0ad0bb5fe4f38d7240103f8b2b18caa7b7eeb7a9a1a4e4c709 |
+
+Открытых блокирующих находок в R05-срезе нет. Пределы прежние: это локальная
+приёмка конкретного исправления по действующей реализации, не рабочее
+включение, readback, полное восстановление, T112, точные PR/CI/merge/release
+доказательства или рост трафика/продаж. LIMIT20 ограничивает результат подбора,
+а не все прочитанные SQL строки; доказательств производительности большого
+inventory это ревью не добавляет. В этом назначении изменено только данное
+дополнение отчёта; код, checklist, другие документы, Git/GitHub и рабочие
+данные проверяющий не менял.
