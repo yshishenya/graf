@@ -304,4 +304,15 @@ Prerequisites: spec T101 clarification, independent `checklists/rebase-proof.md`
 
 - [X] T101 Сначала воспроизвести FAIL обычного advanced-target replay и скрытой подмены во временном Git в `tests/governance/test_pr_metadata_event.py`, затем исправить общий `scripts/validate-pr-metadata.py::checked_base` по spec T101.1–5: каждое промежуточное дерево, source base, независимый полный target prefix для squash и fail-closed overlap/unknown/errors; сохранить two-parent/sync формы и всех consumers. Выполнить quickstart focused/static, независимое implementation review/converge; обновить `changes/unreleased/F211.yaml` и отчёт `specs/211-optimize-ci-cd/validation-rebase-proof-20261026.md`; завершить exact-SHA/base PR checks и merge. (FR-008/FR-040/SC-019) (Issue #7742)
 
-- [ ] T102 После T101 выполнить общий live `scripts/validate-pr-checks.py` для каждого точного PR диапазона, подготовить новый frozen candidate, один authoritative release-full, штатный dry-run/backup/CD и публичную приёмку; сохранить source/run/решение/ограничения в `specs/211-optimize-ci-cd/validation-rebase-proof-20261026.md` и выпускном отчёте `docs/deployments/2brain-rec/`. При BLOCK не обходить проверку и не закрывать T102; коммерческие критерии продвижения отдельно открыты. (FR-008/FR-040/SC-019; depends T101) (Issue #7742)
+- [X] T102 После T101 выполнить общий live `scripts/validate-pr-checks.py` для каждого точного PR диапазона, подготовить новый frozen candidate, один authoritative release-full, штатный dry-run/backup/CD и публичную приёмку; сохранить source/run/решение/ограничения в `specs/211-optimize-ci-cd/validation-rebase-proof-20261026.md` и выпускном отчёте `docs/deployments/2brain-rec/`. При BLOCK не обходить проверку и не закрывать T102; коммерческие критерии продвижения отдельно открыты. (FR-008/FR-040/SC-019; depends T101) (Issue #7742)
+
+
+T102 принята27.10.2026 в серверном выпуске v2026.10.27.1, source
+`7e32f0da25db5d78d742f9cde1ed59a49ffcaf1a`. Штатная живая сверка
+приняла все32 PR диапазона; frozen candidate rc-20261027T105133Z-c435d904425d,
+единственный authoritative Full40491725053 SUCCESS, decision go,
+dry-run/backup/CD/public readback и publication attestation PASS.
+Подробности и незакрытые ограничения F273/F290 — в
+[выпускном отчёте](../../docs/deployments/2brain-rec/release-v2026.10.27.1.md).
+Общая F211 и коммерческие AC остаются открытыми. Issue7742 закрывается
+после документального PR и отдельного live closeout verifier.
