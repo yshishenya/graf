@@ -66,6 +66,34 @@ FULL_ACTIVATION_FUNNEL = (
     *PRODUCT_ACTIVATION_EVENT_NAMES,
 )
 
+# F125/T042 declares future stages only. No collector or provider registration.
+SHARE_REFERRAL_EVENT_CATALOG: dict[str, ActivationEventDefinition] = {
+    name: ActivationEventDefinition(
+        event_name=name,
+        surface="meeting_sharing",
+        owner="meeting_sharing",
+        posthog_destination="none",
+        yandex_destination="none",
+        allowed_fields=(),
+        delivery_mode="disabled",
+        identity_rule="no identifiers or event properties; collection is disabled",
+        retention_category="posthog_product_events",
+        dashboard_owner="product_analytics_growth",
+        reason="Future share/referral vocabulary; collection requires separate approval and validation.",
+    )
+    for name in (
+        "share_opened",
+        "share_recipient_selected",
+        "share_grant_created",
+        "share_invitation_requested",
+        "share_invitation_opened",
+        "share_summary_viewed",
+        "share_cta_clicked",
+        "share_signup_completed",
+        "share_revoked",
+    )
+}
+
 YANDEX_OFFLINE_CONVERSION_EVENTS = (
     "desktop_account_connected",
     "first_value_session_completed",

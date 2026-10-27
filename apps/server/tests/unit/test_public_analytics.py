@@ -1,6 +1,15 @@
+import pytest
 from pydantic import ValidationError
 
 from twobrain_rec_server.config import Settings
+from twobrain_rec_server.product_analytics import event_catalog
+from twobrain_rec_server.product_analytics.events import build_activation_event
+from twobrain_rec_server.product_analytics.forbidden_fields import (
+    FORBIDDEN_FIELD_NAMES,
+    ForbiddenFieldViolation,
+    assert_no_forbidden_fields,
+)
+from twobrain_rec_server.product_analytics.retention import retention_rule
 from twobrain_rec_server.public.analytics import (
     PUBLIC_ANALYTICS_EVENT_CATALOG,
     PUBLIC_ANALYTICS_TARGET_KINDS,
@@ -309,3 +318,54 @@ def test_old_configured_revision_disables_the_public_counter_and_replay() -> Non
     assert context["enabled"] is False
     assert context["external_counter_allowed"] is False
     assert context["replay_allowed"] is False
+
+
+def test_share_referral_catalog_is_a_disabled_metadata_only_contract() -> None:
+    catalog = event_catalog.SHARE_REFERRAL_EVENT_CATALOG
+    assert tuple(catalog) == (
+        "share_opened",
+        "share_recipient_selected",
+        "share_grant_created",
+        "share_invitation_requested",
+        "share_invitation_opened",
+        "share_summary_viewed",
+        "share_cta_clicked",
+        "share_signup_completed",
+        "share_revoked",
+    )
+    for name, definition in catalog.items():
+        assert definition.event_name == name
+        assert definition.allowed_fields == ()
+        assert definition.posthog_destination == "none"
+        assert definition.yandex_destination == "none"
+        assert definition.delivery_mode == "disabled"
+        assert definition.retention_category == "posthog_product_events"
+        assert retention_rule(definition.retention_category).retention_mode == "until_decision"
+
+
+def test_share_referral_forbidden_fields_are_excluded_and_privacy_guard_rejects_them() -> None:
+    for definition in event_catalog.SHARE_REFERRAL_EVENT_CATALOG.values():
+        assert set(definition.forbidden_fields) == set(FORBIDDEN_FIELD_NAMES)
+        assert set(definition.allowed_fields).isdisjoint(FORBIDDEN_FIELD_NAMES)
+        assert definition.as_dict()["allowed_fields"] == []
+    # Exercise the shared guard separately: unknown-event rejection is not a privacy check.
+    for field in FORBIDDEN_FIELD_NAMES:
+        with pytest.raises(ForbiddenFieldViolation):
+            assert_no_forbidden_fields({"properties": {field: "synthetic"}})
+
+
+def test_share_referral_catalog_is_not_registered_for_active_collection() -> None:
+    public_context = build_public_analytics_context(Settings(), "/")
+    registered = (
+        set(event_catalog.event_names())
+        | set(public_analytics_event_names())
+        | set(event_catalog.anonymous_aggregate_signal_names())
+        | {item["event_name"] for item in event_catalog.catalog_payload()}
+        | {item["event_name"] for item in event_catalog.anonymous_aggregate_signals_payload()}
+        | {item["event_name"] for item in public_context["event_catalog"]}
+    )
+    assert registered.isdisjoint(event_catalog.SHARE_REFERRAL_EVENT_CATALOG)
+    for name in event_catalog.SHARE_REFERRAL_EVENT_CATALOG:
+        for properties in ({}, {"surface": "cabinet_web"}):
+            with pytest.raises(ValueError, match="unknown product activation event"):
+                build_activation_event(name, properties=properties)

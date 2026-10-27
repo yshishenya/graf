@@ -433,9 +433,20 @@ share_signup_completed
 share_revoked
 ```
 
-Referral conversion remains unimplemented and disabled; its design is §9.1.
-The event names above are a design vocabulary, not a claim that T042 has
-registered them or that a provider may receive them.
+T042 объявляет эти девять стадий отдельным `SHARE_REFERRAL_EVENT_CATALOG`
+на существующем `ActivationEventDefinition`: `allowed_fields=()`, оба
+destination — `none`, `delivery_mode=disabled`. Свойств события нет вообще:
+ни содержимого встречи, ни контактов, токенов, идентификаторов или псевдонимов.
+Ссылка `posthog_product_events` использует существующее `until_decision`;
+нового хранилища, срока очистки или отправки в PostHog она не создаёт.
+
+Каталог не зарегистрирован в activation/public/anonymous catalogs и их API
+payload; `build_activation_event` отвергает эти имена даже с пустыми или
+безопасными properties. Это отделённость декларации, а не глобальный запрет
+общего низкоуровневого `capture_event`, который T042 не меняет. Новых callers
+и сборщиков событий нет. Работающая referral-конверсия остаётся выключенной
+и нереализованной; её договор — §9.1, реализация/приёмка — отдельные T044/T045
+после предусмотренных одобрений.
 
 ### 9.1. Проект жизненного цикла referral (T043)
 

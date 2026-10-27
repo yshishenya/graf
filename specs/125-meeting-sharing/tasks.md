@@ -120,7 +120,7 @@ and originating auth event. CTA, setup and first own capture are separate later
 steps, not prerequisites for that conversion or another signup. An existing
 account, repeat opens and forwarding yield no new signup conversion/grant/account.
 
-- [ ] T042 [P] [US5] Add a metadata-only event catalog and forbidden-field tests for share/referral funnel events in `apps/server/src/twobrain_rec_server/product_analytics/event_catalog.py` and `apps/server/tests/unit/test_public_analytics.py`
+- [X] T042 [P] [US5] Add a metadata-only event catalog and forbidden-field tests for share/referral funnel events in `apps/server/src/twobrain_rec_server/product_analytics/event_catalog.py` and `apps/server/tests/unit/test_public_analytics.py` (Issue #4448)
 - [X] T043 [P] [US5] Define opaque referral lifecycle, retention and deletion contract in `specs/125-meeting-sharing/data-model.md` and `specs/125-meeting-sharing/contracts/meeting-sharing.md` (Issue #4449)
 - [ ] T044 [US5] Implement server-issued idempotent referral attribution only after product/privacy/legal/analytics approval in `apps/server/src/twobrain_rec_server/product_analytics/share_referrals.py` (GATE; no production code before approval)
 - [ ] T045 [US5] Run synthetic funnel, replay, forwarding, self-referral, bot and rollback rehearsal before enabling attribution in `specs/125-meeting-sharing/quickstart.md` (GATE)
@@ -327,3 +327,21 @@ Parallel examples:
   Новые код, таблицы, зависимости и сбор событий не добавлены.
 - Три GitHub-проверки точного SHA/основы, слияние и live-проверка комментария
   обязательны перед закрытием #4449. Это не приёмка всей F125 или выпуска.
+
+
+## Индивидуальная сверка T042 — 2026-10-27
+
+- T042 (Issue #4448): добавлен отдельный отключённый каталог девяти стадий
+  contract §9. Пустые properties, destinations none, delivery disabled;
+  существующая категория until_decision, без нового хранилища или сбора.
+- Базовый профиль 82 PASS; три новых теста обнаружили отсутствие каталога;
+  итог 85 PASS/0 SKIP, независимо повторён, Ruff PASS. Два отрицательных
+  контроля в памяти обнаружили запрещённую allowlist и active registration.
+- Итоговое независимое ревью PASS, замечаний 0; requirements 19/0, security
+  24/0, UX 22/0. Все 41 контрольная сумма рассмотренных источников совпали.
+  Анализ/ограниченная сверка T042 не выявили новых CRITICAL/HIGH или пробелов.
+- Все 77 исходных описаний и порядок сохранены; отмечена только T042.
+  T044/T045 открыты; общий транспорт, авторизация, UI и хранение не менялись.
+- Три проверки GitHub точного SHA/основы, слияние и proposed/actual live
+  closeout обязательны перед закрытием #4448. Это не работающая воронка,
+  приёмка всей F125, установленного приложения, выпуска или production.

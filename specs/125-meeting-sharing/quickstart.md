@@ -538,3 +538,41 @@ scenarios §8.4 и Phase 7. Итоговый отчёт `f125-t043-final-review.
 T048 не присвоены T043. Работающее измерение, T042/T044/T045, установленное
 приложение и выпуск не приняты. Exact-SHA/base PR gates, merge и proposed/actual
 live-closeout #4449 остаются последующими обязательными шагами.
+
+## Проверка T042 — 2026-10-27
+
+Область: #4448, `Active Spec Kit slice`, отдельный отключённый каталог девяти
+стадий contract §9 на существующем dataclass. Все properties пусты; destinations
+`none`, delivery `disabled`. Новых сборщиков, зависимостей, хранилищ и сроков
+очистки нет. Каталог не включён в действующие activation/public/anonymous
+каталоги и API payload. Существующая категория `posthog_product_events` /
+`until_decision` не означает создание или отправку данных.
+
+Из `apps/server`, с Python 3.13 и frozen `uv.lock` в изолированном окружении:
+
+```sh
+python -m pytest tests/unit/test_public_analytics.py \
+  tests/unit/test_product_analytics_forbidden_fields.py \
+  tests/unit/test_product_activation_analytics.py \
+  tests/unit/test_product_analytics_aggregate_signals.py \
+  tests/contract/test_product_activation_analytics_contract.py \
+  -q -p no:cacheprovider
+ruff check src/twobrain_rec_server/product_analytics/event_catalog.py \
+  tests/unit/test_public_analytics.py
+```
+
+Исходный профиль: 82 PASS, 0 SKIP. До кода три новых теста отказали из-за
+отсутствующего каталога; после реализации весь профиль: **85 PASS, 0 SKIP**,
+Ruff PASS. Проверены точные девять имён, пустые allowlists, отключённая
+доставка и существующая retention category. Каждый запрещённый ключ отдельно
+отвергается общим privacy guard на синтетическом вложенном payload; отказ
+unknown event не подменяет эту проверку. Все новые имена отсутствуют в
+действующих каталогах/payload и отклоняются `build_activation_event` даже с
+пустыми или безопасными properties. Общий `capture_event` не является
+глобальным allowlist имён: его поведение этим срезом не менялось.
+
+Это приёмка каталога и его границ, не работающей воронки FR-022/FR-042,
+не T044/T045, не удаления у поставщика, macOS, выпуска или production.
+Перед закрытием #4448 нужны независимое итоговое ревью, проверки процесса,
+три GitHub-проверки точного SHA/основы, merged PR и proposed/actual live
+`validate-issue-closeout.py`. Остальные задачи F125 сохраняют свои критерии.
