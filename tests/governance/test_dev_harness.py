@@ -167,7 +167,9 @@ def test_repromote_active_manifest_recovers_stopped_runtime_without_self_parent(
     assert calls == ["a" * 40]
 
 
-def test_build_requires_or_resolves_feature_identity(tmp_path, monkeypatch):
+def test_build_requires_or_resolves_feature_identity(tmp_path, tmp_path_factory, monkeypatch):
+    machine = tmp_path_factory.mktemp("graf-dev-machine")
+    monkeypatch.setattr(dev_harness, "_machine_state_base", lambda: machine)
     monkeypatch.delenv("GRAF_FEATURE_ID", raising=False)
     monkeypatch.setattr(dev_harness, "_repo_root", lambda: tmp_path / "repo")
     with pytest.raises(dev_harness.HarnessError, match="feature id is required"):
@@ -179,7 +181,9 @@ def test_build_requires_or_resolves_feature_identity(tmp_path, monkeypatch):
     assert result["manifest"]["feature_id"] == "216"
 
 
-def test_build_resolves_migration_head_for_real_checkout(tmp_path, monkeypatch):
+def test_build_resolves_migration_head_for_real_checkout(tmp_path, tmp_path_factory, monkeypatch):
+    machine = tmp_path_factory.mktemp("graf-dev-machine")
+    monkeypatch.setattr(dev_harness, "_machine_state_base", lambda: machine)
     repo = tmp_path / "repo"
     (repo / "apps" / "server").mkdir(parents=True)
     (repo / "apps" / "server" / "alembic.ini").write_text("[alembic]\n", encoding="utf-8")
