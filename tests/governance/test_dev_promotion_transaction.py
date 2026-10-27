@@ -132,7 +132,10 @@ def _crash_worker(root, selected, command):
     def unlink_with_fault(path, *args, **kwargs):
         if path == root / 'rollback-required.json':
             fault('receipt-unlink')
-        return unlink(path, *args, **kwargs)
+        result = unlink(path, *args, **kwargs)
+        if path.parent.name == 'manifests':
+            fault('after-target-record-unlink')
+        return result
     Path.unlink = unlink_with_fault
     sync = module._fsync_directory
     def sync_with_fault(path):
@@ -153,7 +156,7 @@ def _crash_worker(root, selected, command):
     cls._runtime_is_live = lambda self, record: record is not None
     cls._previous_adapter = lambda self, *args: self
     cls._assert_manifest_images = lambda self, *args: None
-    cls._app_is_running = lambda self, path: False
+    cls._app_is_running = lambda self, path: (root / 'running-without-bundle').exists()
     def snapshot(self):
         if not (root / 'installed-marker').exists():
             return None
@@ -291,7 +294,7 @@ def _exercise_crash(root, command, boundary, tamper=None):
                        ("rollback-required.json", "installed-marker", "runtime.json", "runtime-observed")}
             retry = _start_crash_worker(root, "none", "rollback" if tamper == "different-command" else command)
             retry_out, retry_err = retry.communicate(timeout=10)
-            if tamper is not None:
+            if tamper is not None and tamper != "controller-token":
                 assert retry.returncode != 0 and "HarnessError" in retry_err, retry_err
                 assert guarded == {name: (root / name).read_bytes() if (root / name).exists() else None for name in guarded}
                 assert protected.read_bytes() == b"synthetic protected bytes"
@@ -345,6 +348,147 @@ def _start_crash_worker(root, boundary, command):
         env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
+
+
+def test_missing_bundle_with_live_app_refuses_before_recovery_writes():
+    with tempfile.TemporaryDirectory(prefix="graf-f224-missing-live-app-") as temporary:
+        root = Path(temporary).resolve()
+        harness, previous, _, protected, lock, inode = _prepare_crash(root, "promote")
+        harness._write_json(root / "candidate.json", previous)
+        (root / "installed-marker").unlink()
+        (root / "running-without-bundle").touch()
+        before = {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+        process = _start_crash_worker(root, "none", "promote")
+        out, err = process.communicate(timeout=10)
+        assert process.returncode != 0 and "running Dev app has no installed bundle" in err, (out, err)
+        assert before == {str(p.relative_to(root)): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+        assert not (root / "rollback-required.json").exists()
+        assert not (root / "transactions").exists()
+        assert protected.read_bytes() == b"synthetic protected bytes"
+        assert lock.stat().st_ino == inode
+
+
+@pytest.mark.parametrize("partial_publication", [False, True])
+@pytest.mark.parametrize("stored_candidate", [False, True])
+def test_compensated_promotion_keeps_ready_candidate_for_prune(partial_publication, stored_candidate):
+    with tempfile.TemporaryDirectory(prefix="graf-f224-ready-candidate-") as temporary:
+        root = Path(temporary).resolve()
+        harness, previous, target, _, _, _ = _prepare_crash(root, "promote")
+        candidate_path = harness._manifest_path(root, target["manifest_id"])
+        if stored_candidate:
+            harness._write_json(candidate_path, target)
+        before = candidate_path.read_bytes() if stored_candidate else None
+        if partial_publication:
+            (root / "faults.json").write_text(json.dumps(["pointer-write"]))
+            process = _start_crash_worker(root, "none", "promote")
+            out, err = process.communicate(timeout=10)
+            assert process.returncode != 0 and "pointer-write" in err, (out, err)
+            assert (root / "rollback-required.json").exists()
+        (root / "faults.json").write_text(json.dumps(["install-failure"]))
+        process = _start_crash_worker(root, "none", "promote")
+        out, err = process.communicate(timeout=10)
+        assert process.returncode != 0 and "live promote failed" in err, (out, err)
+        assert harness._load_active(root)["manifest_id"] == previous["manifest_id"]
+        assert not (root / "rollback-required.json").exists()
+        if not stored_candidate:
+            assert not candidate_path.exists()
+            return
+        assert candidate_path.read_bytes() == before
+        adapter = harness.GrafLocalAdapter(root, root)
+        assert target["manifest_id"] in adapter._pending_candidate_ids(harness._load_active(root))
+        artifact = root / "artifacts" / target["manifest_id"] / "GRAF Dev.app"
+        artifact.mkdir(parents=True)
+        (artifact / "marker").write_text("candidate")
+        harness._run_command = lambda *args, **kwargs: ""
+        harness.operation_prune(argparse.Namespace(dry_run=False, live=False, json=True))
+        assert (artifact / "marker").read_text() == "candidate"
+
+
+def test_recovery_refuses_unknown_live_controller_token(tmp_path, monkeypatch):
+    root = tmp_path.resolve()
+    harness, _, target, _, _, _ = _pending_operation(root)
+    adapter = harness.GrafLocalAdapter(root, root)
+    monkeypatch.setattr(adapter, "_assert_supported", lambda: None)
+    monkeypatch.setattr(adapter, "_pid_alive", lambda pid: True)
+    monkeypatch.setattr(adapter, "_process_start_token", lambda pid: "")
+    before = (root / "rollback-required.json").read_bytes()
+    with pytest.raises(harness.HarnessError, match="another live controller"):
+        adapter._ordinary_transition("promote", target)
+    assert (root / "rollback-required.json").read_bytes() == before
+
+
+def test_same_active_compensation_keeps_active_manifest(tmp_path):
+    root = tmp_path.resolve()
+    harness, previous, _, _, _, _ = _prepare_crash(root, "promote")
+    harness._write_json(root / "candidate.json", previous)
+    (root / "installed-marker").unlink()
+    (root / "faults.json").write_text(json.dumps(["install-failure"]))
+    process = _start_crash_worker(root, "none", "promote")
+    out, err = process.communicate(timeout=10)
+    assert process.returncode != 0 and "live promote failed" in err, (out, err)
+    restored = harness._load_active(root)
+    assert restored["status"] == "active" and harness._same_pinned_manifest(restored, previous)
+    assert not (root / "rollback-required.json").exists()
+    assert not (root / "installed-marker").exists()
+
+
+@pytest.mark.parametrize("command", ["promote", "first-install"])
+def test_compensation_crash_after_target_record_removal_can_retry(tmp_path, command):
+    root = tmp_path.resolve()
+    harness, previous, target, protected, lock, inode = _prepare_crash(root, command)
+    (root / "faults.json").write_text(json.dumps(["receipt-unlink"]))
+    first = _start_crash_worker(root, "none", command)
+    out, err = first.communicate(timeout=10)
+    assert first.returncode != 0 and "receipt removal failed" in err, (out, err)
+    assert harness._load_active(root)["manifest_id"] == target["manifest_id"]
+    (root / "faults.json").write_text(json.dumps(["install-failure"]))
+    second = _start_crash_worker(root, "after-target-record-unlink", command)
+    try:
+        _wait_marker(root / "ready")
+    finally:
+        second.kill()
+        second.communicate(timeout=5)
+    assert second.returncode == -signal.SIGKILL
+    active = harness._load_active(root)
+    assert active is None if command == "first-install" else active["manifest_id"] == previous["manifest_id"]
+    assert (root / "rollback-required.json").exists()
+    (root / "faults.json").unlink()
+    retry = _start_crash_worker(root, "none", command)
+    out, err = retry.communicate(timeout=10)
+    assert retry.returncode == 0, (out, err)
+    assert harness._load_active(root)["manifest_id"] == target["manifest_id"]
+    assert not (root / "rollback-required.json").exists()
+    assert protected.read_bytes() == b"synthetic protected bytes" and lock.stat().st_ino == inode
+
+
+@pytest.mark.parametrize("failure", ["write", "unlink", "sync", "readback"])
+def test_target_record_restore_failure_keeps_receipt(tmp_path, monkeypatch, failure):
+    root = tmp_path.resolve()
+    harness, previous, target, _, _, _ = _pending_operation(root)
+    adapter = harness.GrafLocalAdapter(root, root)
+    path = harness._manifest_path(root, target["manifest_id"])
+    with harness.state_lock(root):
+        operation = harness._read_ordinary_operation(root)
+        operation.update(controller_pid=os.getpid(), controller_start=adapter._process_start_token(os.getpid()),
+                         target_record=target if failure in {"write", "readback"} else None)
+        adapter._write_ordinary_receipt(operation)
+        harness._write_json(path, dict(target, status="active"))
+        before = (root / "rollback-required.json").read_bytes()
+        write, read, unlink, sync = harness._write_json, harness._read_json, Path.unlink, harness._fsync_directory
+        def fail():
+            raise OSError("injected target record " + failure)
+        if failure == "write":
+            monkeypatch.setattr(harness, "_write_json", lambda p, v: fail() if p == path else write(p, v))
+        elif failure == "unlink":
+            monkeypatch.setattr(Path, "unlink", lambda p, *a, **kw: fail() if p == path else unlink(p, *a, **kw))
+        elif failure == "sync":
+            monkeypatch.setattr(harness, "_fsync_directory", lambda p: fail() if p == path.parent else sync(p))
+        else:
+            monkeypatch.setattr(harness, "_read_json", lambda p: dict(target, status="active") if p == path else read(p))
+        with pytest.raises((OSError, harness.HarnessError)):
+            adapter._complete_ordinary(operation, previous)
+        assert (root / "rollback-required.json").read_bytes() == before
+        assert harness._load_active(root)["manifest_id"] == previous["manifest_id"]
 
 
 @pytest.mark.parametrize(("command", "failure"), [

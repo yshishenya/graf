@@ -929,7 +929,7 @@ def _read_ordinary_operation(root):
         raise HarnessError("rollback receipt has no verified ordinary operation; explicit recovery required")
     required = {"id", "kind", "previous", "target", "previous_runtime", "previous_was_live",
                 "app_was_running", "backup", "backup_digest", "controller_manifest",
-                "controller_pid", "controller_start", "checkouts"}
+                "controller_pid", "controller_start", "checkouts", "target_record"}
     if (not required.issubset(operation) or operation["kind"] not in {"promote", "rollback"}
             or not re.fullmatch(r"ordinary-[0-9]+-[0-9]+", str(operation["id"]))
             or type(operation["controller_pid"]) is not int or operation["controller_pid"] <= 0
@@ -946,6 +946,12 @@ def _read_ordinary_operation(root):
             raise HarnessError("ordinary operation manifest is invalid")
         _validate_manifest(value)
     target = operation["target"]
+    if operation["target_record"] is not None:
+        if not isinstance(operation["target_record"], dict):
+            raise HarnessError("ordinary target record is invalid")
+        _validate_manifest(operation["target_record"])
+        if not _same_pinned_manifest(operation["target_record"], target):
+            raise HarnessError("ordinary target record differs from its pinned target")
     if receipt.get("manifest_id") != target["manifest_id"] or receipt.get("source_sha") != target["source_sha"]:
         raise HarnessError("ordinary receipt differs from its pinned target")
     previous = operation["previous"]
@@ -2516,7 +2522,9 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
                 raise HarnessError("active manifest is outside the ordinary recovery pair")
             if (operation["controller_pid"] != os.getpid()
                     and self._pid_alive(operation["controller_pid"])):
-                raise HarnessError("ordinary operation has another live controller")
+                start = self._process_start_token(operation["controller_pid"])
+                if not start or start == operation["controller_start"]:
+                    raise HarnessError("ordinary operation has another live controller")
             controller_manifest = operation["controller_manifest"]
             previous = operation["previous"]
             paths = operation["checkouts"]
@@ -2589,20 +2597,28 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
         app_destination = _dev_app_destination()
         if operation is None:
             previous_app_was_running = self._app_is_running(app_destination)
+            if previous_app_was_running and not app_destination.exists():
+                raise HarnessError("running Dev app has no installed bundle; quit it before repeating promote/rollback")
             if app_destination.exists():
                 if previous is None:
                     raise HarnessError("first installation cannot replace an unknown Dev app")
                 previous_adapter._validate_launch_bundle(previous, app_destination)
+            target_path = _manifest_path(self.state, target["manifest_id"])
+            target_record = (_read_json(_checked_state_path(target_path, file=True))
+                             if target_path.exists() or target_path.is_symlink() else None)
+            if target_record is not None:
+                _validate_manifest(target_record)
+                if not _same_pinned_manifest(target_record, target):
+                    raise HarnessError("stored target record differs from its pinned target")
             app_backup = self._snapshot_app()
             operation = {"id": f"ordinary-{os.getpid()}-{time.time_ns()}", "kind": kind,
-                         "previous": previous, "target": target,
+                         "previous": previous, "target": target, "target_record": target_record,
                          "controller_manifest": controller_manifest, "checkouts": paths,
                          "previous_runtime": current_runtime,
                          "previous_was_live": self._runtime_is_live(current_runtime),
                          "app_was_running": previous_app_was_running,
                          "backup": str(app_backup.relative_to(self.state)) if app_backup is not None else None,
                          "backup_digest": _tree_digest(app_backup) if app_backup is not None else None}
-            _write_json(_manifest_path(self.state, target["manifest_id"]), target)
         operation.update(controller_pid=os.getpid(), controller_start=self._process_start_token(os.getpid()))
         self._write_ordinary_receipt(operation)
         # Re-read validates backup, manifests and the complete pinned record
@@ -2683,6 +2699,19 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
             if (pointer.get("runtime_mode") != "live" or pointer.get("manifest_id") != manifest["manifest_id"]
                     or _load_active(self.state) != manifest):
                 raise HarnessError("ordinary publication readback differs from its verified result")
+        if manifest is None or manifest["manifest_id"] != operation["target"]["manifest_id"]:
+            path = _manifest_path(self.state, operation["target"]["manifest_id"])
+            original = operation["target_record"]
+            if original is None:
+                path.unlink(missing_ok=True)
+                if path.parent.exists():
+                    _fsync_directory(path.parent)
+                if path.exists() or path.is_symlink():
+                    raise HarnessError("ordinary compensation did not restore the absent target record")
+            else:
+                _write_json(path, original)
+                if _read_json(path) != original:
+                    raise HarnessError("ordinary compensation target record readback differs")
         try:
             (self.state / "rollback-required.json").unlink()
         except OSError as exc:
@@ -3271,9 +3300,12 @@ def operation_status(args: argparse.Namespace) -> Dict[str, Any]:
             or not re.fullmatch(r"[0-9a-fA-F]{40}", str(recovery.get("source_sha", "")))
         ):
             raise HarnessError("rollback-required receipt is invalid")
-        manifest = _read_json(
-            _manifest_path(root, _safe_id(str(recovery.get("manifest_id", "")), "manifest_id"))
-        )
+        if "operation" in recovery:
+            manifest = _read_ordinary_operation(root)["target"]
+        else:
+            manifest = _read_json(
+                _manifest_path(root, _safe_id(str(recovery.get("manifest_id", "")), "manifest_id"))
+            )
         _validate_manifest(manifest)
         if manifest["source_sha"] != recovery["source_sha"]:
             raise HarnessError("rollback-required receipt does not match its manifest")
