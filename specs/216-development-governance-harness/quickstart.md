@@ -14,7 +14,7 @@ cat .specify/feature.json
 .specify/scripts/bash/check-prerequisites.sh --json --paths-only
 ```
 
-Expected: branch `codex/216-development-governance-harness`, feature directory
+Expected: явно выбранная ветка `codex/216-…`, feature directory
 `specs/216-development-governance-harness`, and no user changes overwritten.
 
 ## 1a. Confirm Codex instruction scope
@@ -50,25 +50,24 @@ gh issue list --repo yshishenya/graf --search '"[216]" in:title' --limit 100
 Expected: one umbrella reservation, no duplicate active claim, and labels
 `feature:216`, `priority:P0`, `area:docs/governance`, `type:hardening`.
 
-## 4. Focused Dev harness fixture
+## 4. Изолированные проверки Dev harness
 
 ```sh
-./infra/scripts/dev-harness.sh build --sha "$(git rev-parse HEAD)" --migration-head 0085_merge_summary_mediascribe
-dev_state="$(./infra/scripts/dev-harness.sh status --json | jq -r '.state_dir')"
-./infra/scripts/dev-harness.sh promote --manifest "$dev_state/manifests/dev-<sha12>.json"
-./infra/scripts/dev-harness.sh status --json
-./infra/scripts/dev-harness.sh smoke --json --fixture
-./infra/scripts/dev-harness.sh rollback --dry-run
+python3 -m pytest -q \
+  tests/governance/test_dev_harness.py \
+  tests/governance/test_dev_promotion_transaction.py
 ```
 
-For a metadata-only fixture, pass the expected migration head explicitly. In a
-real GRAF checkout, `build` resolves the current Alembic graph head
-automatically; an explicit `--migration-head` remains available for a verified
-override. The unresolved `unknown` value is rejected by promotion. A
-`--dry-run` build does not write a manifest, so `status`/`smoke` correctly report
-that no active manifest exists until a non-dry-run build is promoted. Expected
-successful fixture output shows one SHA across backend/frontend/worker/app and
-a reversible parent manifest; no production origin is ever accepted.
+Эти тесты создают отдельные временные каталоги и проверяют manifest, общий SHA,
+конкурентную блокировку, частичный отказ и rollback. Они не продвигают
+искусственный manifest в общий Dev-стенд. Читающие `status`/`smoke` не требуют
+флага dry-run; изменяющие состояние операции должны его поддерживать.
+
+Реальная приёмка установленного приложения, разрешений и работающих компонентов
+отдельна: сначала сверить действующие доказательства F229/F249, для оставшихся
+пунктов прочитать `docs/agent-guidance/local-development.md` и использовать
+единственную `/Applications/GRAF Dev.app`. Отсутствие такого доказательства
+не позволяет закрыть T036/T047 по результатам искусственных тестов.
 
 ## 5. Dev app identity
 
@@ -81,18 +80,24 @@ When a local build is intentionally run, use only the existing Dev scripts with
 a loopback origin. Verify `pro.2brain.graf.dev`, the same designated requirement
 and atomic replacement; do not run public release/notarization commands here.
 
-## 6. CI feedback gate
+## 6. Проверки PR и механизма выпуска
 
 ```sh
-infra/scripts/ci-local.sh --fast
+python3 -m pytest -q \
+  tests/governance/test_ci_evidence_producer.py \
+  tests/governance/test_release_candidate.py
+python3 scripts/validate-pr-checks.py --help
 ```
 
-Record the exact SHA, effective lane, result and skipped gates in the PR. Each
-run also emits metadata-only evidence under `.dev/ci-evidence/` and prints its
-path as `ci_evidence_path=...`. Do not run `--full` for every edit. Full CI is
-reserved for a frozen release candidate; set `GRAF_CI_CANDIDATE_FILE` for that
-run and retain the printed evidence path. Evidence is invalid if the SHA
-changes afterward.
+Для готового PR вызвать общий валидатор по его справке: обязательны GitHub
+`governance-fast`, `macos-pr`, `pr-metadata` на точном PR SHA и проверенной
+основе. Указать команды, область, результат и пропущенные проверки.
+Локальные `infra/scripts/ci-local.sh --fast` / `--full` — диагностика.
+Один GitHub `release-full` относится к замороженному кандидату выпуска.
+
+Изолированные тесты проверяют хэши реальных тестовых файлов, неизменяемость
+кандидата, решения и отдельной записи публикации. Они не публикуют продукт
+и не служат доказательством реального tag/GitHub Release/CD.
 
 ## 7. Changelog and legacy checks
 
@@ -108,15 +113,21 @@ feature work, Legacy Impact is present, and no exception is expired or ownerless
 ## 8. Reusable harness sample project
 
 The generic core is published at
-`https://github.com/yshishenya/graf-development-harness/releases/tag/v0.1.12`.
-Clone that immutable tag into a clean temporary sample and run:
+`https://github.com/yshishenya/graf-development-harness/releases/tag/v0.1.13`.
+Clone that immutable tag into a clean temporary directory, confirm commit
+`6a8257186aee878087b68fd77716ddce595a012d` against `harness/harness.lock.json`,
+and run from the external repository root:
 
 ```sh
-(cd harness/sample && ../bin/harness-check --spec specs/001-example/spec.md)
+bin/harness-check --self-test
+(cd sample && ../bin/harness-check --spec specs/001-example/spec.md)
 ```
 
 Record the release tag, commit SHA, tool versions and pass/fail counts. This
 step must not include GRAF credentials, private paths or meeting content.
+Also verify published package checksums, install into a temporary consumer,
+and check upgrade/rollback against `v0.1.12`. Keep only logs and checksums;
+remove temporary checkouts, packages and environments after verification.
 
 ## Release-candidate boundary
 

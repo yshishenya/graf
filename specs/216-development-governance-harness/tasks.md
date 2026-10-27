@@ -16,15 +16,15 @@ worktree.
 
 - [X] T001 Провести preflight Feature 216: проверить `origin/master`, ветку,
   чистоту worktree, `.specify/feature.json`, umbrella issue #6090 и отсутствие
-  коллизий ID в `scripts/claim-feature.py` (FR-001–FR-003).
+  коллизий ID в `scripts/claim-feature.py` (FR-001–FR-003). (Issue #6093)
 - [X] T002 Зафиксировать в `docs/agent-guidance/development-process.md` роли,
-  ownership matrix, полный Spec Kit/Ponytail порядок, risk lanes и правило
-  explicit approval для implementation commit (FR-033–FR-036).
+  ownership matrix, полный Spec Kit/Ponytail порядок, risk lanes,
+  проверку и сходимость перед implementation commit (FR-033–FR-036). (Issue #6091)
 - [X] T003 [P] Добавить в `changes/unreleased/README.md` schema, namespace,
   ownership и lifecycle changelog fragments без изменения корневого
-  `CHANGELOG.md` (FR-009).
+  `CHANGELOG.md` (FR-009). (Issue #6094)
 - [X] T004 [P] Добавить project-local `harness/README.md` с границей generic
-  core и GRAF adapter, запретом секретов и правилами контекста (FR-030–FR-031).
+  core и GRAF adapter, запретом секретов и правилами контекста (FR-030–FR-031). (Issue #6095)
 
 ## Phase 2 — Feature identity and bounded agent context
 
@@ -32,23 +32,23 @@ worktree.
 
 - [X] T005 [US4] Написать `scripts/claim-feature.py` на stdlib: сканировать specs,
   local/remote refs, GitHub reservation input, проверять collision и выдавать
-  immutable claim manifest (FR-001, FR-002, FR-003).
+  immutable claim manifest (FR-001, FR-002, FR-003). (Issue #6092)
 - [X] T006 [US4] Добавить self-test к `scripts/claim-feature.py` для параллельных
-  claims, занятого remote номера, повторного claim и offline draft (SC-001).
+  claims, занятого remote номера, повторного claim и offline draft (SC-001). (Issue #6096)
 - [X] T007 [US7] Обновить `.specify/feature.json` contract и
   `docs/agent-guidance/codex-worktrees.md`: active pointer обязателен,
   mtime fallback запрещён, owner/branch/spec/SHA проверяются preflight,
   один worktree принадлежит одной feature и одному owner (FR-005, FR-006,
-  FR-007, FR-008).
+  FR-007, FR-008). (Issue #6097)
 - [X] T008 [P] [US7] Добавить `scripts/validate-agent-context.py` и negative fixtures
   для отсутствующего pointer, чужого feature directory и dynamic root plan
-  pointer (FR-004–FR-006, SC-008).
+  pointer (FR-004–FR-006, SC-008). (Issue #6099)
 - [X] T009 [US7] Обновить managed guidance в `AGENTS.md` и
   `docs/agent-guidance/spec-kit-flow.md`, оставив только стабильные правила,
-  ссылки на active pointer и короткий bounded-context protocol (FR-004–FR-006).
+  ссылки на active pointer и короткий bounded-context protocol (FR-004–FR-006). (Issue #6098)
 - [X] T010 [P] [US4] Расширить `.github/pull_request_template.md` и issue template
   обязательными Feature ID, umbrella issue, task IDs, lane, exact SHA и
-  Legacy Impact; использовать русские формулировки (FR-010, FR-032).
+  Legacy Impact; использовать русские формулировки (FR-010, FR-032). (Issue #6100)
 
 ## Phase 3 — Changelog fragments and legacy DoD
 
@@ -56,18 +56,18 @@ worktree.
 
 - [X] T011 [US6] Написать `scripts/validate-changelog-fragments.py` с проверкой schema,
   уникального Feature ID, категорий, русской записи, ссылок и запрета
-  machine-specific/secret content (FR-009, FR-031).
+  machine-specific/secret content (FR-009, FR-031). (Issue #6102)
 - [X] T012 [US6] Добавить fragment template
   `changes/unreleased/F216.yaml` только для этой фичи и metadata-only запись
-  governance; root `CHANGELOG.md` остаётся неизменённым до release train.
+  governance; root `CHANGELOG.md` остаётся неизменённым до release train. (Issue #6101)
 - [X] T013 [US6] Написать `scripts/validate-legacy-impact.py` для обязательного
   раздела в spec/PR и проверки exception fields owner/expiry/trigger/task
-  (FR-026–FR-029).
+  (FR-026–FR-029). (Issue #6104)
 - [X] T014 [P] [US6] Добавить reusable `Legacy Impact` секцию в Spec Kit templates и
-  issue/PR forms, не меняя исторические specs (FR-026, FR-028).
+  issue/PR forms, не меняя исторические specs (FR-026, FR-028). (Issue #6103)
 - [X] T015 [US6] Добавить в `docs/agent-guidance/release-and-validation.md` DoD:
   `legacy_new=0`, `unowned_legacy=0`, `expired_exceptions=0`, и правило
-  отдельных retirement slices (FR-027–FR-029).
+  отдельных retirement slices (FR-027–FR-029). (Issue #6105)
 
 ## Phase 4 — Single Dev manifest and app identity
 
@@ -75,26 +75,26 @@ worktree.
 
 - [X] T016 [US2] Описать `infra/dev/manifest.schema.json` и
   `infra/dev/README.md` по контракту `contracts/dev-manifest.md` с
-  metadata-only полями и schema version.
+  metadata-only полями и schema version. (Issue #6106)
 - [X] T017 [US2] Реализовать `scripts/dev-harness.py build/status` для existing
   compose, server, frontend boundary и macOS build scripts; не добавлять
-  второй runtime/DB (FR-011–FR-014).
+  второй runtime/DB (FR-011–FR-014). (Issue #6107)
 - [X] T018 [US2] Реализовать lock-protected `promote` с atomic active pointer,
   component SHA/digest checks, migration-head check и dry-run
-  `infra/scripts/dev-harness.sh` (FR-012–FR-013).
+  `infra/scripts/dev-harness.sh` (FR-012–FR-013). (Issue #6108)
 - [X] T019 [US2] Реализовать `rollback` и `reset-data` с parent manifest, explicit
   Dev-only confirmation и fail-closed production endpoint/path checks
-  (FR-017, FR-036).
+  (FR-017, FR-036). (Issue #6109)
 - [X] T020 [US2] Реализовать `smoke --json`: backend health, frontend reachability,
   auth bootstrap, representative API, worker/dependency health и app origin
-  (FR-016).
+  (FR-016). (Issue #6111)
 - [X] T021 [P] [US2] Расширить `apps/macos/Scripts/build-dev-app.sh` записью source
-  SHA/manifest metadata без изменения bundle ID `pro.2brain.graf.dev`.
+  SHA/manifest metadata без изменения bundle ID `pro.2brain.graf.dev`. (Issue #6110)
 - [X] T022 [P] [US2] Усилить `apps/macos/Scripts/install-dev-app.sh` проверками
   designated requirement, signing identity, atomic replacement и сохранения
-  permissions; не трогать `/Applications/GRAF.app` (FR-014–FR-015).
+  permissions; не трогать `/Applications/GRAF.app` (FR-014–FR-015). (Issue #6112)
 - [X] T023 [US2] Добавить Dev manifest concurrent promote, partial failure, mismatch
-  SHA, rollback и production-boundary tests в `tests/governance/` (SC-003).
+  SHA, rollback и production-boundary tests в `tests/governance/` (SC-003). (Issue #6114)
 
 ## Phase 5 — SHA-bound CI and release train
 
@@ -102,23 +102,23 @@ worktree.
 
 - [X] T024 [US3] Реализовать `scripts/validate-ci-evidence.py` с requested/observed
   SHA, stale/cancelled/ambiguous states, artifact digests и skipped gates
-  (FR-018–FR-022).
+  (FR-018–FR-022). (Issue #6113)
 - [X] T025 [US3] Добавить stale-SHA cancellation/invalidating guard в
   `infra/scripts/ci-local.sh`, не перезапуская Full CI для frozen candidate;
-  сохранить текущие product gates (FR-019, FR-022).
+  сохранить текущие product gates (FR-019, FR-022). (Issue #6116)
 - [X] T026 [US3] Добавить self-test для CI evidence: changed SHA, interrupted run,
   mismatched component и один authoritative full identity (FR-019, FR-021,
-  SC-004, SC-005).
+  SC-004, SC-005). (Issue #6115)
 - [X] T027 [US5] Описать `infra/release/candidate.schema.json` и
   `infra/scripts/release-candidate.sh` для freeze, digest и go/no-go, не
-  создавая product tag автоматически (FR-020–FR-023).
+  создавая product tag автоматически (FR-020–FR-023). (Issue #6118)
 - [X] T028 [US5] Обновить `scripts/prepare-release.sh`/release guidance сборкой
   fragments в root `CHANGELOG.md` только release operator и проверкой CalVer,
   Russian notes, compatibility, limitations и rollback (FR-023, FR-024,
-  FR-025).
+  FR-025). (Issue #6117)
 - [X] T029 [P] [US5] Добавить release-train checklist в
   `docs/agent-guidance/release-and-validation.md` и PR template с окнами,
-  hotfix exception и exact-SHA evidence.
+  hotfix exception и exact-SHA evidence. (Issue #6119)
 
 ## Phase 6 — Spec Kit/Ponytail integration and portable extraction
 
@@ -127,21 +127,21 @@ worktree.
 
 - [X] T030 [US7] Изменить `.specify/extensions.yml` и git extension config так, чтобы
   read-only context/issue-canon hooks оставались автоматическими, а auto-commit
-  hooks были выключены по умолчанию; сохранить explicit approval rule (FR-033).
+  hooks были выключены по умолчанию; коммиты следуют проверке и сходимости (FR-033). (Issue #6120)
 - [X] T031 [US7] Добавить `scripts/check-development-process.py` как единый bounded
   preflight, вызывающий validators без дублирования bootstrap doctor
-  (FR-004–FR-006, FR-032–FR-035).
+  (FR-004–FR-006, FR-032–FR-035). (Issue #6122)
 - [X] T032 [US8] Добавить `harness/` portable core: templates, schemas, validators,
   context protocol, CI/release contracts и self-tests; GRAF product gates
-  подключаются только через adapter (FR-030).
+  подключаются только через adapter (FR-030). (Issue #6121)
 - [X] T033 [US8] Подготовить отдельный публичный репозиторий
   `graf-development-harness` через GitHub, проверить доступность имени,
-  provenance, license, README и pinned bootstrap/Spec Kit refs (FR-030–FR-031).
-- [ ] T034 [US8] Установить harness в чистый sample project, пройти self-test,
+  provenance, license, README и pinned bootstrap/Spec Kit refs (FR-030–FR-031). (Issue #6124)
+- [X] T034 [US8] Установить harness в чистый sample project, пройти self-test,
   secret/path scan и migration/rollback upgrade; сохранить metadata-only
-  evidence (SC-007, SC-009).
+  evidence (SC-007, SC-009). (Issue #6123)
 - [X] T035 [US8] Запустить Ponytail review для всех новых layers и удалить
-  необязательные abstraction/dependency, если это не ломает gates и evidence.
+  необязательные abstraction/dependency, если это не ломает gates и evidence. (Issue #6126)
 
 ## Phase 7 — Validation, follow-up and closeout
 
@@ -150,96 +150,115 @@ retirement отдельно.
 
 - [ ] T036 Выполнить reviewer-owned checklists из
   `checklists/requirements.md` и `checklists/governance.md`; implementation
-  agent не меняет checkbox state (FR-034).
-- [ ] T037 Запустить `$speckit-analyze`, устранить все Critical/High и повторить
-  до чистого результата; проверить покрытие FR/SC задачами.
+  agent не меняет checkbox state (FR-034). (Issue #6125)
+- [X] T037 Запустить `$speckit-analyze`, устранить все Critical/High и повторить
+  до чистого результата; проверить покрытие FR/SC задачами. (Issue #6132)
 - [X] T038 Запустить `$speckit-taskstoissues`, создать child issues по canon,
   связать их с #6090, проверить labels и заменить временный T000 umbrella на
-  реальный основной task ID.
+  реальный основной task ID. (Issue #6127)
 - [X] T039 Выполнить quickstart Feature 216, governance self-tests и
   `infra/scripts/ci-local.sh --fast` на PR-ready SHA; записать exact SHA,
   skipped gates и metadata-only evidence (SC-002, SC-006, SC-009).
+  Исторический локальный fast не заменяет нынешние GitHub-проверки FR-022/SC-009;
+  их текущая приёмка относится к T047. (Issue #6129)
 - [ ] T040 Выполнить `$speckit-converge`: добавлять найденные задачи append-only,
   повторять issue sync/implementation/validation до отсутствия обязательных
-  пунктов.
+  пунктов. (Issue #6128)
 - [X] T041 Создать следующую collision-free Feature 217+ для legacy retirement:
   inventory aliases/fallbacks/old states/migrations/Temporal/Sparkle paths,
   owners, risk classes, cutover and separate issues; не удалять legacy здесь
-  (SC-006, SC-010).
+  (SC-006, SC-010). (Issue #6131)
 - [X] T042 Подготовить PR `[F216]` с русским описанием, lane, exact SHA,
   evidence, `Refs #6090`/closing keywords только по факту и checklist
-  release/no-deploy boundary; получить explicit approval перед commit.
+  release/no-deploy boundary; коммит после проверки и сходимости. (Issue #6130)
 
 ## Phase 8: Convergence
 
 - [X] T043 Подключить `scripts/dev-harness.py` к существующим Compose,
   backend/frontend и macOS build/install adapters, чтобы `build → promote →
   smoke` выполнял реальные Dev probes при сохранении metadata-only boundary
-  (FR-011, FR-016; partial).
+  (FR-011, FR-016; partial). (Issue #6135)
 - [X] T044 Добавить source SHA и manifest metadata в
   `apps/macos/Scripts/build-dev-app.sh` и сохранить atomic identity checks в
-  `install-dev-app.sh` (FR-013–FR-015; missing).
+  `install-dev-app.sh` (FR-013–FR-015; missing). (Issue #6136)
 - [X] T045 Подключить `scripts/validate-pr-metadata.py` к pre-merge/fast
   preflight и проверить Feature ID/umbrella/task/SHA linkage на реальном PR
-  body (FR-010; partial).
+  body (FR-010; partial). (Issue #6137)
 - [X] T046 Расширить `infra/scripts/release-candidate.sh` attestation path:
   schema validation, one-authoritative-full guard и go/no-go update без
-  перезаписи frozen candidate (FR-020–FR-023; partial).
+  перезаписи frozen candidate (FR-020–FR-023; partial). (Issue #6138)
 - [ ] T047 Провести reviewer-owned checklists, повторный analyze/converge,
-  quickstart и финальный fast CI; закрыть только подтверждённые task issues и
-  подготовить PR после explicit approval (FR-034–FR-035; missing).
+  quickstart и обязательные GitHub-проверки точного SHA/основы; закрыть только
+  подтверждённые task issues и подготовить проверенный PR (FR-034–FR-035; missing). (Issue #6139)
 
-- [ ] T048 После получения approval на implementation commit выполнить live
-  adapter sequence на чистом exact SHA: `build --live → promote --live →
+- [ ] T048 После проверки изменений выполнить live adapter sequence на чистом exact SHA: `build --live → promote --live →
   status → smoke --live`, сохранить metadata-only evidence и проверить
   rollback/остановку backend без изменения production boundary (FR-011,
-  FR-016; convergence of T043).
+  FR-016; convergence of T043). (Issue #6147)
 
 ## Phase 9: Convergence follow-up
 
 - [X] T049 Реализовать проверенный live rollback: восстановить предыдущий
   backend-процесс и Dev app до публикации active pointer, либо явно оформить
   отдельный fail-closed adapter с доказанным восстановлением (FR-017, SC-003;
-  partial).
-- [ ] T050 Добавить неизменяемую post-publication attestation, связывающую
+  partial). (Issue #6148)
+- [X] T050 Добавить неизменяемую post-publication attestation, связывающую
   decision, exact SHA, CalVer tag и фактический GitHub Release URL после
-  `gh release create`; decision не перезаписывать (FR-024, SC-005; missing).
-- [ ] T051 Перевести producer artifact digests с identity-only записи на
+  `gh release create`; decision не перезаписывать (FR-024, SC-005; missing). (Issue #6149)
+- [X] T051 Перевести producer artifact digests с identity-only записи на
   хэши фактически созданных release/Dev артефактов и сохранить отдельную
-  проверку source-revision (FR-021, SC-005; partial).
+  проверку source-revision (FR-021, SC-005; partial). (Issue #6150)
 - [ ] T052 После одобренного repair path Feature 221 повторить live Dev
   sequence и сохранить evidence миграционного head, promote, smoke и rollback;
   volume и production не изменять обходными командами (FR-013, SC-003;
-  blocked-by-external-feature).
-- [ ] T053 Опубликовать текущий generic harness из чистого exact commit как
+  blocked-by-external-feature). (Issue #6151)
+- [X] T053 Опубликовать текущий generic harness из чистого exact commit как
   следующий immutable SemVer release, обновить consumer lock и migration notes,
   затем повторить clean sample/package/provenance checks (FR-030, SC-007;
-  pending explicit approval).
+  публикация по отдельным правилам выпуска). (Issue #6152)
 - [X] T054 [P] Разрешать актуальный Alembic migration head при
   `dev-harness build` в реальном GRAF checkout и добавить regression test, чтобы
   канонический `build → promote` не создавал манифест с `unknown`; fixture-режим
-  сохраняет явный synthetic head (FR-013, SC-003; convergence follow-up).
+  сохраняет явный synthetic head (FR-013, SC-003; convergence follow-up). (Issue #7748)
 
 ## Phase 10: Critical convergence hardening
 
 - [X] T055 [P] Сделать identity Dev state производной от общего Git metadata
   directory, а не имени физического worktree; добавить regression proof для
   одинакового lock/runtime namespace всех linked worktree (FR-011, SC-003;
-  partial).
+  partial). (Issue #6175)
 - [X] T056 [P] Закрыть Dev manifest по schema contract: отвергать неизвестные
   и sensitive/private поля до записи active state и синхронизировать
   executable validator с `infra/dev/manifest.schema.json` (FR-012, SC-004;
-  contradicts).
+  contradicts). (Issue #6179)
 - [X] T057 [P] Не считать metadata-only manifest live build success: при
   `build --live` проверять наличие и digest реального `GRAF Dev.app`, а при
-  отсутствии пересобирать либо fail-closed (FR-014, SC-003; partial).
+  отсутствии пересобирать либо fail-closed (FR-014, SC-003; partial). (Issue #6176)
 - [X] T058 Поднять в локальном Dev topology Temporal и processing worker,
   включить их в `build → promote → smoke` и отдельно проверять worker health;
   server-rendered frontend считать frontend-компонентом до выделения отдельного
-  frontend runtime (FR-011, FR-016; missing).
+  frontend runtime (FR-011, FR-016; missing). (Issue #6177)
 - [X] T059 Запретить `reset-data` при живом owned backend/runtime и сохранить
   явный stop/rollback порядок в операторском runbook (FR-017, SC-003;
-  contradicts).
+  contradicts). (Issue #6178)
+
+## Phase 11: Сверка требований и трекера
+
+- [ ] T060 Сверить требования, `tasks.md` и GitHub F216 в
+  `reconciliation-20261026.md`: исправить устаревшие инструкции, восстановить
+  только доказанные отметки, связать T054 с отдельной issue, заменить T000
+  родителя #6090 на эту действительную задачу и перечислить остаток приёмки.
+  PR этой сверки проходит действующие проверки точного SHA/основы (FR-032–FR-035). (Issue #6090)
+
+### Статусы исторических задач
+
+| Задачи | Решение при сверке 26.10.2026 |
+|---|---|
+| T034, T050, T051, T053 | GitHub уже закрыт как COMPLETED; отметки восстановлены после повторной проверки реализации, пакета, обновления/отката и контрактов публикации. Это исправление рассинхронизации, а не новая реализация. Доказательства: `reconciliation-20261026.md`. |
+| T048, T052 | GitHub уже закрыт как NOT_PLANNED; старый порядок проверки заменён F229/F249. Исходные строки сохранены незавершёнными; повторно запускать отменённый путь не требуется. Это не снимает требования фактической Dev-приёмки T036/T047. |
+| T038 | Историческая синхронизация была неполной. В T060 восстановлены T054 → #7748 и T060 → #6090; повторная выгрузка подтвердила 60 задач и 60 единственных владельцев без пропусков/дублей. |
+| T037 | Повторный анализ требований завершён: Critical 0 / High 0, покрыты все 36 FR и 10 SC. Issue #6132 закрывается только после принятия PR и live-проверки. |
+| T036, T040, T047, T060 | Остаются открытыми до соответствующей проверки и принятия результата; PASS качества требований сам по себе не закрывает приёмку реализации. |
 
 ## Dependencies and parallelism
 
@@ -253,8 +272,8 @@ retirement отдельно.
 - T030–T035 требуют стабильных validators; T033/T034 имеют внешний GitHub
   side effect и выполняются только после review package contents.
 - T036–T042 — финальные reviewer, analyze, issue-sync, validation, converge и
-  отдельный legacy follow-up gates; implementation commit не делается до
-  explicit approval.
+  отдельный legacy follow-up gates; implementation commit следует проверке
+  и сходимости.
 - T055–T059 — critical convergence hardening; T058 зависит от миграционного
   repair path Feature 221 для полного live rehearsal, но contract и tests могут
   быть подготовлены заранее.
