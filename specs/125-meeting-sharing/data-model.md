@@ -154,19 +154,47 @@ disconnect purge behavior; it must not become a permanent global contact index.
 
 ## 7. Referral attribution
 
-Future gated entity, separate from access tokens:
+Проект T043/#4449, без создания таблицы или работающей атрибуции. Точные
+переходы и отрицательные случаи заданы в [contract §9.1](contracts/meeting-sharing.md#91-проект-жизненного-цикла-referral-t043).
+Это измерение знакомства с продуктом, отдельно от денежных referral F140,
+campaign attribution и серверной авторизации доступа.
 
-- opaque attribution id;
-- invitation/grant relation;
-- one-time conversion state;
-- created/converted/invalidated timestamps;
-- bounded source channel, never raw email/title/transcript.
+Минимальное серверное представление: случайный непрозрачный id, scope
+workspace/invitation/grant/подтверждённого получателя, ссылка на исходное
+событие создания аккаунта, `issued_at`, `eligible_until`, состояние
+`pending|converted|invalidated|expired`, время/ограниченная причина перехода
+и источник из закрытого списка. Id не является приглашением, credential или
+доказательством личности; серверные ссылки не передаются в события поставщика.
+Email, raw token, название/содержимое встречи, IP и отпечаток устройства не
+добавляются. Клиент не назначает получателя или срок и не хранит новый трекер.
 
-Clicks are not conversions. A conversion requires an explicit auth completion
-(including the invite flow's one-step account bootstrap) plus a permitted value
-event, is idempotent, and cannot create another grant or account.
-Until its storage/retention contract is approved, only aggregate metadata events
-through the existing analytics gate may be used.
+Одна signup conversion требует нового аккаунта, созданного исходным явным
+auth-действием приглашённого, и успешного разрешённого просмотра summary
+этим же получателем. Просмотр, CTA и first own capture — разные этапы.
+Существующий аккаунт, self-referral и неопределённая identity не дают новую
+signup conversion. Одна связь может быть converted не более одного раза;
+одно исходное событие создания аккаунта учитывается не более одного раза
+также между приглашениями и пространствами. Повтор не создаёт account/grant.
+
+Окно использования: `eligible_until = min(issued_at + 90 дней,
+invitation.expires_at, grant.expires_at)`, где `issued_at` — неизменяемое
+серверное время первой выдачи связи; отсутствующий bounded expiry запрещает
+выдачу. При `now >= eligible_until` применение запрещено без ожидания уборки.
+Повтор, пересылка, rotation и новая вкладка срок не продлевают.
+
+Хранение истории явно `until_decision`, по F273 FR-036/FR-048–050 и текущему
+`product_analytics/retention.py`: окно применения не является TTL удаления.
+Revoke, expiry, deletion или потеря основания сразу блокируют новые conversion
+и публикацию; отдельное обязательное удаление/обезличивание исполняется по
+датированному случаю с основанием, охватом, сроком, ответственным и результатом.
+Поздние события не восстанавливают связь; сохранённая история не даёт права
+использовать её повторно. Подробные границы копий и удаления — contract §9.1.
+
+Перед T044 обязательны product/privacy/legal/analytics approval, привязка
+будущего представления к существующим idempotency/retention/deletion
+authorities и исполняемая проверка T045. Неизвестная категория или отсутствие
+режима хранения блокируют запуск. T043 не регистрирует новую категорию в коде,
+не выдаёт эти одобрения и не включает сбор или передачу событий.
 
 ## 7.1. Distribution policy and adoption loop
 
