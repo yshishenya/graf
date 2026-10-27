@@ -8,7 +8,8 @@ T009–T013 сохраняют широкие обязательства #6180. 
 US1 после слияния PR #7676 и проверки его точного SHA/основы. Закрытие issues
 требует отдельной содержательной и live-проверки; широкая приёмка остаётся открытой.
 **Lane**: high-risk product area; analyze и issue sync обязательны до кода.
-Текущий проект разрешает US1. US3 требует отдельного проекта и reviewer gate.
+US1 и изолированная T010 приняты через PR #7676/#7753. Уточнение T009/#7640
+требует нового reviewer gate; T011/T012/T013 сохраняют отдельную живую приёмку.
 
 ## Phase 1: подготовка
 
@@ -44,7 +45,7 @@ pointer, свободное место и сохранность чужой ра
 **Независимая проверка**: один установленный Dev/PID и все заявленные компоненты
 соответствуют полному SHA; остановка обязательной службы даёт отказ.
 
-- [ ] T009 [US2] По scripts/dev-harness.py, infra/scripts/graf-local.sh и tests/governance/test_dev_runtime_identity.py подтвердить текущий lifecycle без повторного построения; после освобождения стенда записать в specs/224-dev-stand-completion/validation-runtime.md ровно один PID/path/bundle/signer/channel и фактический SHA app/backend/frontend/workers, включая отрицательную проверку остановленной обязательной службы; обнаруженные дефекты сначала уточнить и независимо проверить по Spec Kit.
+- [ ] T009 [US2] По scripts/dev-harness.py, infra/scripts/graf-local.sh и tests/governance/test_dev_runtime_identity.py подтвердить текущий lifecycle без повторного построения; после освобождения стенда записать в specs/224-dev-stand-completion/validation-runtime.md ровно один PID/path/bundle/signer/channel и фактический SHA app/backend/frontend/workers, включая отрицательную проверку остановленной обязательной службы; обнаруженные дефекты сначала уточнить и независимо проверить по Spec Kit. Уточнение от27.10.2026 в spec/plan/contracts/data-model/quickstart относится к той же #7640: сохранение невыбранных неизвестных соседей без присвоения и явно перечисленных build без использования; новый checklist/analyze/sync до минимального исправления scripts/dev-harness.py и tests/governance/test_dev_state_ownership.py. Binding или исправленный код сами по себе T009 не закрывают.
 
 ## Phase 5: US3 — восстановление и разрешения (P1)
 
@@ -54,8 +55,10 @@ recovery-required; совместимый живой rollback и Dev TCC под�
 - [X] T010 [US3] В tests/governance/test_dev_promotion_transaction.py сначала изолированно воспроизвести SIGKILL обычного promote на stop/install/pointer; зафиксировать минимальные фазы/recovery в specs/224-dev-stand-completion/contracts/promotion-recovery.md, уточнить plan.md и reviewer-owned infra checklist, повторить analyze/sync; только после отдельного PASS минимально исправить scripts/dev-harness.py и повторить crash matrix с журналом specs/224-dev-stand-completion/validation-recovery.md; не дублировать существующую schema-transition recovery. (Issue #7641)
 
 **T010, 27.10.2026**: локальная реализация принята независимым ревью,
-378 PASS / 0 FAIL / 0 SKIP. Закрытие #7641 требует принятого PR и свежих
-проверок точного SHA/основы; T009/T011/T012/T013 остаются открытыми.
+378 PASS / 0 FAIL / 0 SKIP на этапе локальной реализации. PR #7753 принят;
+итоговые 391 проверка и свежие проверки точного SHA/основы подтвердили закрытие
+#7641. Доказательства — validation-recovery.md и комментарий закрытия #7641;
+T009/T011/T012/T013 остаются открытыми.
 - [ ] T011 [US3] После T009/T010 и освобождения стенда выполнить штатный живой build→promote→status→smoke→compensation→rollback на одном /Applications/GRAF Dev.app; в specs/224-dev-stand-completion/validation-live.md доказать согласованность app/runtime/pointer, exact SHA и сохранность данных; для schema-changing перехода использовать существующего владельца specs/249-notification-control-design/tasks.md T038/#6786, не дублировать миграционную задачу и не принимать F224 до её доказательства.
 - [ ] T012 [US3] По docs/agent-guidance/local-development.md и specs/224-dev-stand-completion/quickstart.md провести Dev-only проверку разрешений до/update/relaunch/после с тем же подписантом; в specs/224-dev-stand-completion/validation-tcc.md сохранить только технические signer/requirement/entitlements и результаты microphone/system-audio по Dev bundle ID, без reset TCC/отдельного приложения/частных записей; неизвестное состояние не считать PASS.
 
@@ -80,8 +83,8 @@ T013 зависит от всех задач и фактической широ�
 
 | Требования | Задачи | Проверка |
 |---|---|---|
-| FR-001–003, SC-001 | T001,T003,T004 | Git origins, cwd, aliases, отрицательные случаи |
-| FR-004–007, SC-002–003 (US1) | T003–T007 | прежний lock, binding crash/ошибка, отсутствие shared effects |
+| FR-001–003, SC-001 | T001,T003,T004,T009 | Git origins, cwd, aliases, отрицательные случаи; принадлежность выбранного root |
+| FR-004–007, SC-002–003 (US1) | T003–T007,T009 | прежний lock, binding crash/ошибка, отсутствие shared effects; неизменность невыбранных соседей |
 | FR-008–011, SC-004 | T009,T011 | фактический Dev и службы/образы, negative stopped service |
 | FR-012–013, SC-003–004 (promotion/schema) | T010,T011; F249 T038 | crash/recovery, живой совместимый откат |
 | FR-014, SC-005 | T012 | Dev TCC до/update/relaunch/после |

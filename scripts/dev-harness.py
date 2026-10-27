@@ -291,11 +291,16 @@ def state_dir(*, live: bool = False) -> Path:
 
 
 @contextlib.contextmanager
-def _state_file_lock(path: Path) -> Iterator[None]:
+def _state_file_lock(path: Path, *, create: bool = True) -> Iterator[int]:
     _checked_state_path(path, file=True)
     if fcntl is None:
         raise HarnessError("Dev state locking is unavailable")
-    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fd = os.open(path, os.O_RDWR | (os.O_CREAT if create else 0) | os.O_NOFOLLOW, 0o600)
+    except OSError:
+        if create:
+            raise
+        raise HarnessError("preserved state requires its existing safe lock") from None
     try:
         info = os.fstat(fd)
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
@@ -333,6 +338,251 @@ def _assert_empty_dev_machine() -> None:
         raise HarnessError("cannot prove an empty Dev machine") from None
 
 
+def _classification_build_archives(root: Path, values: list) -> set[Path]:
+    if not isinstance(values, list):
+        raise HarnessError("invalid classified build archives")
+    builds = set()
+    for value in values:
+        if not isinstance(value, str):
+            raise HarnessError("invalid classified build archive path")
+        relative = Path(value)
+        if (len(relative.parts) != 3 or relative.parts[0] != "artifacts"
+                or relative.parts[2] != "build" or not MANIFEST_RE.fullmatch(relative.parts[1])
+                or relative.parts[1] in {".", ".."} or relative.as_posix() != value):
+            raise HarnessError("invalid classified build archive path")
+        build = _checked_state_path(root / relative)
+        app = _checked_state_path(build.parent / "GRAF Dev.app")
+        if build in builds or not build.is_dir() or not app.is_dir():
+            raise HarnessError("missing or duplicate classified build archive or sibling app")
+        builds.add(build)
+    return builds
+
+
+def _classification_tree_digest(root: Path, build_archives: Optional[list] = None) -> str:
+    """Snapshot exactly the canonical POSIX rows in the F224 input contract."""
+    builds = _classification_build_archives(root, [] if build_archives is None else build_archives)
+    rows = []
+    pending = [root]
+    try:
+        while pending:
+            path = pending.pop()
+            info = path.lstat()
+            row = {"path": path.relative_to(root).as_posix(), "device": info.st_dev,
+                   "inode": info.st_ino, "uid": info.st_uid, "gid": info.st_gid,
+                   "mode": info.st_mode, "size": info.st_size,
+                   "mtime_ns": info.st_mtime_ns, "ctime_ns": info.st_ctime_ns}
+            if info.st_uid != os.getuid() or (not stat.S_ISLNK(info.st_mode) and info.st_mode & 0o022):
+                raise HarnessError("unsafe classified tree owner or access mode")
+            if stat.S_ISDIR(info.st_mode):
+                row["type"] = "directory"
+                pending.extend(path.iterdir())
+            elif stat.S_ISREG(info.st_mode):
+                row["type"] = "file"
+                fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                with os.fdopen(fd, "rb") as stream:
+                    if os.fstat(stream.fileno()) != info:
+                        raise HarnessError("classified file changed while opening")
+                    digest = hashlib.sha256()
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                    after = os.fstat(stream.fileno())
+                # Reading may update atime, which is intentionally not bound.
+                if any(getattr(after, field) != getattr(info, field) for field in
+                       ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns", "st_mode", "st_uid", "st_gid")):
+                    raise HarnessError("classified file changed while reading")
+                row["sha256"] = digest.hexdigest()
+            elif stat.S_ISLNK(info.st_mode):
+                row["type"] = "symlink"
+                row["target"] = os.readlink(path)
+                boundary = next((build for build in builds if build in path.parents), None)
+                if boundary is None:
+                    boundary = next((parent for parent in path.parents if parent.name == "GRAF Dev.app"), None)
+                if (boundary is None or root not in boundary.parents or os.path.isabs(row["target"])
+                        or (path.resolve(strict=True) != boundary and boundary not in path.resolve(strict=True).parents)):
+                    raise HarnessError("classified symlink leaves its archived app or build")
+                # Every link is also visited: indirect chains cannot hide an
+                # external step. Do not collapse '..' across directory links.
+                prefix = path.parent
+                for component in Path(row["target"]).parts:
+                    prefix = prefix / component
+                    resolved = prefix.resolve(strict=True)
+                    if resolved != boundary and boundary not in resolved.parents:
+                        raise HarnessError("classified symlink leaves its archived app or build")
+            else:
+                raise HarnessError("unsupported classified tree object")
+            rows.append(row)
+        encoded = json.dumps(sorted(rows, key=lambda row: row["path"]), sort_keys=True,
+                             separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+    except (OSError, ValueError, RuntimeError) as exc:
+        if isinstance(exc, HarnessError):
+            raise
+        raise HarnessError("cannot snapshot classified Dev tree") from None
+
+
+def _classification_input(path: Path) -> tuple[dict, bytes, tuple]:
+    path = _checked_state_path(path, file=True)
+    if _machine_state_base() in path.parents:
+        raise HarnessError("classification plan must be outside machine state")
+    try:
+        before = path.lstat()
+        fields = ("st_dev", "st_ino", "st_mode", "st_uid", "st_gid", "st_size", "st_mtime_ns", "st_ctime_ns")
+        identity = tuple(getattr(before, field) for field in fields)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as stream:
+            opened = os.fstat(stream.fileno())
+            if (not stat.S_ISREG(opened.st_mode) or opened.st_uid != os.getuid()
+                    or opened.st_mode & 0o022 or identity != tuple(getattr(opened, field) for field in fields)):
+                raise ValueError()
+            raw = stream.read()
+            if identity != tuple(getattr(os.fstat(stream.fileno()), field) for field in fields):
+                raise ValueError()
+        if identity != tuple(getattr(path.lstat(), field) for field in fields):
+            raise ValueError()
+        def unique(pairs):
+            value = {}
+            for key, item in pairs:
+                if key in value:
+                    raise ValueError()
+                value[key] = item
+            return value
+        value = json.loads(raw, object_pairs_hook=unique)
+        if not isinstance(value, dict):
+            raise ValueError()
+        return value, raw, identity
+    except (OSError, ValueError, TypeError):
+        raise HarnessError("invalid or changed classification plan") from None
+
+
+def _classification_roots(base: Path) -> set[Path]:
+    roots = set()
+    for child in base.iterdir():
+        if child.is_symlink():
+            raise HarnessError("symlinked machine state is forbidden")
+        if child.is_dir():
+            candidate = _adoption_root(child / "harness")
+            if candidate.is_dir() and any(candidate.iterdir()):
+                roots.add(candidate)
+    return roots
+
+
+def _classification_recheck(path: Path, original: tuple, root: Path, repository: str) -> list[dict]:
+    try:
+        current = _classification_input(path)
+        if current != original:
+            raise HarnessError("classification plan changed")
+        plan = current[0]
+        if (set(plan) != {"schema_version", "repository", "selected_root", "roots"}
+                or plan["schema_version"] != "graf-dev-state-classification.v1"
+                or plan["repository"] != repository or plan["selected_root"] != str(root)
+                or not isinstance(plan["roots"], list) or not plan["roots"]):
+            raise HarnessError("classification identity or format differs")
+        entries = plan["roots"]
+        found = set()
+        selected = 0
+        for entry in entries:
+            if (not isinstance(entry, dict) or set(entry) != {
+                    "path", "device", "inode", "kind", "tree_sha256", "artifacts", "build_archives", "evidence"}
+                    or not isinstance(entry["path"], str) or not isinstance(entry["evidence"], str)
+                    or not entry["evidence"].strip() or not isinstance(entry["artifacts"], list)
+                    or not isinstance(entry["build_archives"], list)
+                    or not isinstance(entry["tree_sha256"], str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", entry["tree_sha256"])
+                    or entry["kind"] not in ("selected", "preserved-state", "artifact-only")
+                    or any(type(entry[field]) is not int or entry[field] < 0 for field in ("device", "inode"))):
+                raise HarnessError("invalid classified root record")
+            candidate = _adoption_root(Path(entry["path"]))
+            if str(candidate) != entry["path"] or candidate in found:
+                raise HarnessError("duplicate or ambiguous classified root")
+            found.add(candidate)
+            info = candidate.lstat()
+            if (info.st_dev, info.st_ino) != (entry["device"], entry["inode"]):
+                raise HarnessError("classified root identity changed")
+            if entry["kind"] == "selected":
+                selected += 1
+                if candidate != root:
+                    raise HarnessError("classification selects another root")
+            if entry["kind"] != "artifact-only" and entry["artifacts"]:
+                raise HarnessError("operational state cannot use artifact-only evidence")
+            if _classification_tree_digest(candidate, entry["build_archives"]) != entry["tree_sha256"]:
+                raise HarnessError("classified tree changed")
+        if selected != 1 or found != _classification_roots(_machine_state_base()):
+            raise HarnessError("classification must cover every nonempty Dev state root")
+        return sorted(entries, key=lambda entry: entry["path"])
+    except (OSError, ValueError, TypeError, KeyError):
+        raise HarnessError("invalid or changed classified Dev state") from None
+
+
+def _classification_artifacts(entry: dict) -> None:
+    root = Path(entry["path"])
+    builds = _classification_build_archives(root, entry["build_archives"])
+    apps = set()
+    adapter = GrafLocalAdapter(_repo_root(), root)
+    for item in entry["artifacts"]:
+        if (not isinstance(item, dict) or set(item) != {
+                "path", "source_sha", "signing_identity", "designated_requirement", "entitlements_digest"}
+                or any(not isinstance(value, str) or not value.strip() for value in item.values())
+                or not SHA_RE.fullmatch(item["source_sha"])
+                or not re.fullmatch(r"sha256:[0-9a-f]{64}", item["entitlements_digest"])):
+            raise HarnessError("invalid archived app evidence")
+        relative = Path(item["path"])
+        if (relative.is_absolute() or ".." in relative.parts or str(relative) != item["path"]
+                or len(relative.parts) < 3 or relative.parts[0] != "artifacts" or relative.name != "GRAF Dev.app"):
+            raise HarnessError("invalid archived app path")
+        app = _checked_state_path(root / relative)
+        if not app.is_dir() or app in apps:
+            raise HarnessError("missing or duplicate archived app")
+        apps.add(app)
+        try:
+            info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
+        except (OSError, ValueError, plistlib.InvalidFileException):
+            raise HarnessError("unreadable archived app identity") from None
+        if (not isinstance(info, dict) or info.get("CFBundleIdentifier") != APP_BUNDLE_ID
+                or info.get("GRAFSourceSHA") != item["source_sha"]):
+            raise HarnessError("archived app bundle or source differs from historical evidence")
+        _run_command(["git", "cat-file", "-e", item["source_sha"] + "^{commit}"], cwd=_repo_root())
+        _run_command(["codesign", "--verify", "--deep", "--strict", str(app)], cwd=_repo_root())
+        observed = adapter._measure_signed_app_identity(app)
+        if observed != tuple(item[key] for key in ("signing_identity", "designated_requirement", "entitlements_digest")):
+            raise HarnessError("archived app signature differs from historical evidence")
+    if not apps:
+        raise HarnessError("artifact-only state needs verified archived apps")
+    for path in root.rglob("*"):
+        if path in apps or any(app in path.parents for app in apps):
+            continue
+        if path in builds or any(build in path.parents for build in builds):
+            continue
+        if not path.is_dir() or not any(path in app.parents for app in apps):
+            raise HarnessError("artifact-only state contains operational or unknown objects")
+
+
+def _classification_preserved_state(root: Path) -> None:
+    _assert_no_schema_transition(root)
+    if any((root / marker).exists() for marker in ("rollback-required.json", "app-launch-validation-recovery.json")):
+        raise HarnessError("recover preserved Dev state before adoption")
+    active = _load_active(root)
+    if active and _read_json(root / "active-manifest.json")["manifest_id"] != active["manifest_id"]:
+        raise HarnessError("preserved active manifest identity is inconsistent")
+    runtime_path = root / "runtime.json"
+    if runtime_path.exists():
+        runtime = _read_json(runtime_path)
+        if not active or runtime.get("source_sha") != active["source_sha"]:
+            raise HarnessError("preserved runtime and active manifest differ")
+        if "manifest_id" in runtime and runtime["manifest_id"] != active["manifest_id"]:
+            raise HarnessError("preserved runtime and active identity differ")
+        images = runtime.get("images", {})
+        if not isinstance(images, dict):
+            raise HarnessError("invalid preserved runtime images")
+        for service, image in images.items():
+            component = COMPOSE_IMAGE_COMPONENTS.get(service)
+            if component is None or active["components"].get(component[0], {}).get("digest") != image:
+                raise HarnessError("preserved runtime images differ")
+        if GrafLocalAdapter(_repo_root(), root)._pid_owned(runtime):
+            raise HarnessError("preserved Dev runtime is still active")
+    elif active and _read_json(root / "active-manifest.json")["runtime_mode"] == "live":
+        raise HarnessError("preserved live runtime record is missing")
+
+
 def operation_adopt_state(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
     if _dev_app_destination() != DEV_APP_PATH:
@@ -352,6 +602,9 @@ def operation_adopt_state(args: argparse.Namespace) -> Dict[str, Any]:
         raise HarnessError("expected existing Dev state is missing")
     base = _checked_state_path(_machine_state_base())
     _read_repository_binding()  # Damaged binding must fail before lock side effects.
+    classification = getattr(args, "classification", None)
+    classification = Path(classification) if classification is not None else None
+    original = _classification_input(classification) if classification is not None else None
     base.mkdir(parents=True, exist_ok=True)
     with _state_file_lock(base / "repository-registration.lock"):
         binding = _read_repository_binding()
@@ -359,17 +612,32 @@ def operation_adopt_state(args: argparse.Namespace) -> Dict[str, Any]:
             if binding["repository"] != repository or binding["state_root"] != str(root):
                 raise HarnessError("Dev repository binding is immutable")
             return {"operation": "adopt-state", "idempotent": True, **binding}
-        for child in base.iterdir():
-            candidate = child / "harness"
-            if candidate == root or not child.is_dir():
-                continue
-            _checked_state_path(candidate)
-            if candidate.is_dir() and any(candidate.iterdir()):
-                raise HarnessError("multiple nonempty Dev state roots require explicit classification")
-        if args.expect_empty:
-            _assert_empty_dev_machine()
-        root.mkdir(parents=True, exist_ok=True)
-        with _state_file_lock(root / "promote.lock"):
+        with contextlib.ExitStack() as locks:
+            if classification is not None:
+                entries = _classification_recheck(classification, original, root, repository)
+                for entry in entries:
+                    candidate = Path(entry["path"])
+                    if entry["kind"] != "artifact-only":
+                        locks.enter_context(_state_file_lock(candidate / "promote.lock", create=(candidate == root)))
+                        _classification_recheck(classification, original, root, repository)
+                for entry in entries:
+                    if entry["kind"] == "artifact-only":
+                        _classification_artifacts(entry)
+                    elif entry["kind"] == "preserved-state":
+                        _classification_preserved_state(Path(entry["path"]))
+            else:
+                for child in base.iterdir():
+                    candidate = child / "harness"
+                    if candidate == root or not child.is_dir():
+                        continue
+                    _checked_state_path(candidate)
+                    if candidate.is_dir() and any(candidate.iterdir()):
+                        raise HarnessError("multiple nonempty Dev state roots require explicit classification")
+            if args.expect_empty:
+                _assert_empty_dev_machine()
+            root.mkdir(parents=True, exist_ok=True)
+            if classification is None:
+                locks.enter_context(_state_file_lock(root / "promote.lock"))
             _adoption_root(root)
             for relative in ("active-manifest.json", "runtime.json", "schema-transition.json",
                              "rollback-required.json", "app-launch-validation-recovery.json"):
@@ -409,6 +677,8 @@ def operation_adopt_state(args: argparse.Namespace) -> Dict[str, Any]:
                         component = COMPOSE_IMAGE_COMPONENTS.get(service)
                         if component is None or active["components"].get(component[0], {}).get("digest") != image:
                             raise HarnessError("Dev runtime images differ from the active manifest")
+            if classification is not None:
+                _classification_recheck(classification, original, root, repository)
             binding = {"schema_version": "graf-dev-repository-state.v1", "repository": repository,
                        "state_root": str(root), "adopted_active_sha": expected_sha, "adopted_at": now()}
             _write_json(base / "repository-state.json", binding)
@@ -3637,6 +3907,7 @@ def parser() -> argparse.ArgumentParser:
     expected.add_argument("--expected-active-sha")
     expected.add_argument("--expect-empty", action="store_true")
     adoption.add_argument("--confirm-repository-ownership", action="store_true")
+    adoption.add_argument("--classification", type=Path, help="explicit complete plan for preserved historical roots")
     build = sub.add_parser("build")
     build.add_argument("--sha", required=True)
     build.add_argument("--feature-id", default=None)

@@ -96,3 +96,32 @@ schema/launch/retention suites; точные имена уточняются п�
 процессы используются только для lock/startup/SIGKILL. Прямой запуск Dev,
 Docker/Swift/сеть и рабочие данные запрещены в этом наборе.
 Успех isolated tests не закрывает T009/T011/T012/#6180.
+
+
+## T009: изолированная матрица уточнённого договора, 27.10.2026
+
+До кода — новый независимый PASS обеих checklists, analyze/sync #7640.
+Только временные HOME/Git/state; внешние build/install/app/Docker действия запрещены.
+
+1. RED на06ad4cb: app+sibling build с relative chain; несколько build внутри
+   preserved-state. Затем GREEN нового кода, полный снимок и inode неизменны.
+2. Явно учтённые невыбранные roots неизвестного владельца сохраняются без
+   присвоения/управления; выбранный недоказанный root, неизвестный/лишний объект
+   artifact-only, скрытая управляющая запись вместо build или неверная граница
+   дают отказ. Неполный/лишний/дублированный/изменённый план и root set — отказ.
+3. Неперечисленный build, absolute/cross-build/app/root link, escape-and-return,
+   broken/cyclic link, symlink boundary, special file/небезопасные права — отказ.
+   Успех app signature не разрешает запуск/импорт/копирование build.
+4. Настоящий отдельный процесс держит selected/sibling lock. Изменение плана,
+   root set, metadata, app/build bytes или link во время ожидания — отказ до
+   binding. Проверить каждый исходный tree/lock inode; соседние файлы не создаются.
+5. Старый договор без плана, binding v1, повтор, schema/recovery и T010 yield fd
+   сохраняются. Повторить ownership/harness/adapter/runtime/promotion/schema/launch
+   suites из validation; это регрессия, не приёмка приложения.
+
+Команда из существующей подготовленной среды:
+`PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -o addopts= tests/governance/test_dev_state_ownership.py`.
+После независимого review/converge и обычных PR gates выполняется отдельное
+реальное принятие/проверка всех компонентов и остановленной обязательной службы.
+Архивы не исполняются/не импортируются/не перемещаются; временные тестовые
+материалы удаляются, результаты/хеши сохраняются. T009 открыта до этого конца.
