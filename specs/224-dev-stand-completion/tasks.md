@@ -52,6 +52,12 @@ missing-selected-lock и выбранных lock races входит в ту же
 
 - [ ] T009 [US2] По scripts/dev-harness.py, infra/scripts/graf-local.sh и tests/governance/test_dev_runtime_identity.py подтвердить текущий lifecycle без повторного построения; после освобождения стенда записать в specs/224-dev-stand-completion/validation-runtime.md ровно один PID/path/bundle/signer/channel и фактический SHA app/backend/frontend/workers, включая отрицательную проверку остановленной обязательной службы; обнаруженные дефекты сначала уточнить и независимо проверить по Spec Kit. Уточнение от27.10.2026 в spec/plan/contracts/data-model/quickstart относится к той же #7640: сохранение невыбранных неизвестных соседей без присвоения и явно перечисленных build без использования; новый checklist/analyze/sync до минимального исправления scripts/dev-harness.py и tests/governance/test_dev_state_ownership.py. Binding или исправленный код сами по себе T009 не закрывают.
 
+Уточнение той же T009/#7640 от27.10.2026: архивное metadata-only описание
+сохраняется только по contracts/state-ownership.md §Неисполняемое metadata-only
+описание. Новый reviewer/analyze/sync до кода; RED/GREEN и отказные JSON/component/
+selected-live/lock-race случаи по quickstart. Общие loaders остаются строгими;
+исходная строка T009 и её открытая реальная приёмка не меняются.
+
 ## Phase 5: US3 — восстановление и разрешения (P1)
 
 **Независимая проверка**: crash boundaries дают согласованный результат либо

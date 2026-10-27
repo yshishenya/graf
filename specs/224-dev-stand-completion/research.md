@@ -179,3 +179,22 @@ ROOT0 имеет complete schema journal; отсутствие установл�
 Безопасные внешние результаты: Documents/Codex/2026-10-27/graf-repository-audit/
 f224-classification-feasibility-current.json, f224-build-link-prefix-check-current.json
 и f224-classification-design-review-current.md. Частное содержимое roots не копируется.
+
+
+## T009: историческое описание без исполняемого профиля, 27.10.2026
+
+Решение для нового reviewer gate: внутри существующего preserved-state разрешить
+только строго определённое неисполняемое metadata-only описание по договору.
+Причина: на c4a742eb _classification_preserved_state → _load_active →
+_validate_manifest требует processing_worker у невыбранного архивного v1
+с четырьмя историческими компонентами. Runtime/recovery/journal отсутствуют.
+Это статический readback и независимое чтение кода, ещё не исполняемый RED.
+Сохранение безопасных неизменных байтов не требует разрешить их исполнение.
+
+Отвергнуты: переписать архив под современную схему; синтезировать компоненты;
+обойти отказ через catch; ослабить общий loader; удалить соседний root;
+завести новый kind/flag/реестр. Нужны однозначный JSON, проверка каждого
+записанного компонента и прежних Dev границ, существующие locks/снимки.
+Предварительный внешний отчёт f224-preserved-metadata-precheck.md имеет SHA256
+51f11311163f410eed7c7c5ec14920316c70fa5dc7019d49930d79d903394c25;
+он не подтверждает приёмку checklist, приложения или конкретного старого root.

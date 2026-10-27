@@ -130,3 +130,35 @@ Docker/Swift/сеть и рабочие данные запрещены в эт�
 реальное принятие/проверка всех компонентов и остановленной обязательной службы.
 Архивы не исполняются/не импортируются/не перемещаются; временные тестовые
 материалы удаляются, результаты/хеши сохраняются. T009 открыта до этого конца.
+
+
+## T009: неисполняемое metadata-only описание, 27.10.2026
+
+Перед кодом — независимые requirements/infra, analyze и sync существующей #7640.
+Все новые сценарии идут через operation_adopt_state во временных HOME/state,
+с современным выбранным root и независимо закодированным историческим v1
+соседом из backend/frontend/worker/macos_app. Внешние воздействия запрещены.
+
+1. На исходном c4a742eb сценарий должен отказать по processing_worker; после
+   исправления публикуется только выбранный binding, все исходные снимки,
+   байты pointer/manifest и inode locks совпадают. Архив не исполняется.
+2. Тот же manifest в selected или preserved live отклоняется. Runtime record
+   (пустой, мёртвый, неизвестный), любой journal исключают архивную область;
+   recovery markers/незавершённая схема всегда дают отказ. Современный строгий
+   путь и complete journal сохраняют прежний результат.
+3. Missing/unknown/wrong-type mode/schema/ID, ID disagreement, traversal,
+   missing manifest, short/nonhex/source mismatch, каждый отсутствующий базовый
+   или повреждённый дополнительный компонент, version/digest/Dev identity/
+   boundary/health ошибки — отказ без записи binding и внешних действий.
+4. Scalar/list/null/malformed/truncated/duplicate-key/nonfinite JSON, явный
+   recovery status, symlink/unsafe/unreadable объект или предок — безопасный
+   отказ без частного payload в диагностике. Ни один компонент не синтезируется.
+5. Настоящее ожидание lock с изменением pointer/manifest/runtime/marker и
+   изменение после архивной проверки перед binding обнаруживаются полным
+   повторным snapshot. Ошибка публикации и повтор сохраняют архивы.
+6. Повторить существующий ownership suite и затронутые harness/adapter/runtime/
+   promotion/schema/launch/retention регрессии. No-plan, artifact-only/build links,
+   missing/replaced/unsafe locks, binding v1 и T010 fd сохраняются.
+
+Команда ownership приведена выше. Новые успешные тесты не закрывают реальную
+T009/T011/T012/T013; поздний живой план требует собственного актуального proof.
