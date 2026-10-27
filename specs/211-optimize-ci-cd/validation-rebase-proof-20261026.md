@@ -187,3 +187,31 @@ Full CI и выкладка не начаты. Коммерческие AC01–A
 в отдельном тексте Zoom и старых guard-тестах исправляются в F273/T116;
 это не отменяет принятие T101 и не закрывает T102. Нужен новый замороженный
 источник и его собственный Full/CD/publication. Старые manifests сохранены.
+
+
+## Приёмка T102 —27.10.2026
+
+После исправления трёх отказов старого Full в #7750 и подготовки #7751
+штатный train-freeze принял общий live verifier всех32 PR после
+опубликованной базы v2026.10.22.1. Source
+`7e32f0da25db5d78d742f9cde1ed59a49ffcaf1a`, train
+train-20261027T104755Z-7e32f0da25db, candidate
+rc-20261027T105133Z-c435d904425d. Единственный новый authoritative
+[Full40491725053](https://github.com/yshishenya/graf/actions/runs/40491725053)
+SUCCESS: все observed/component SHA совпали, skipped_gates пуст.
+Artifact SHA256:
+`76455777b25e3d4f36f85a92ac6d280bd1710e974ddb151cd2c4ddd4835320cf`.
+Train-attest/decide go, штатные dry-run/backup/CD и post-smoke readiness PASS.
+Все17 публичных canonical URL, неизвестный404, разрешённый учебный раздел
+и путь готового файла приняты; браузерный переход к кабинету проверен.
+
+[Release v2026.10.27.1](https://github.com/yshishenya/graf/releases/tag/v2026.10.27.1)
+опубликован11:11:57 UTC; publication attestation11:11:59 UTC привязана к тому
+же tag/source. Отдельный повторный Full/CD не запускался. Это завершает
+T102 и критерии выпуска issue7742, не всю F211. Перед закрытием issue
+требуется live closeout verifier и подробный комментарий.
+[Полный отчёт и ограничения](../../docs/deployments/2brain-rec/release-v2026.10.27.1.md).
+F273/T098, T118/T119, выключенная аналитика/IP, четыре отдельных сценария
+F290 и skipped outcome proof явно остаются открытыми. Трафик/продажи не
+выводятся из этого выпуска. Локальное расхождение расширений Spec Kit с lock
+не объявлено PASS; GitHub governance и frozen Full на source успешны.
