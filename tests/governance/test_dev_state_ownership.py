@@ -653,6 +653,39 @@ def test_classification_preserves_multiple_states_and_binding(harness, tmp_path,
     assert (harness._machine_state_base() / 'repository-state.json').read_bytes() == binding
 
 
+@pytest.mark.parametrize('removed_before_open', [False, True])
+def test_classification_missing_selected_lock_has_no_state_effects(harness, tmp_path, monkeypatch, removed_before_open):
+    root, item, other, plan = classified_fixture(harness, tmp_path)
+    lock = root / 'promote.lock'
+    if not removed_before_open:
+        lock.unlink()
+        plan = classification_plan(harness, tmp_path, root, other)
+    before = [classification_digest(p) for p in (root, other)]
+    original = harness._state_file_lock
+    def open_lock(path, **kwargs):
+        nonlocal before
+        if path == lock and removed_before_open:
+            lock.unlink()
+            before = [classification_digest(p) for p in (root, other)]
+        return original(path, **kwargs)
+    monkeypatch.setattr(harness, '_state_file_lock', open_lock)
+    monkeypatch.setattr(harness, '_run_command', lambda *a, **k: pytest.fail('external command'))
+    with pytest.raises(harness.HarnessError) as error:
+        adopt(harness, root, expect_empty=False, expected_active_sha=item['source_sha'], classification=plan)
+    assert not lock.exists()
+    assert before == [classification_digest(p) for p in (root, other)]
+    assert not (harness._machine_state_base() / 'repository-state.json').exists()
+    assert str(error.value) == 'Dev state requires its existing safe lock'
+
+
+def test_unclassified_initialization_creates_selected_lock(harness):
+    root = harness._machine_state_base() / 'new' / 'harness'
+    assert not root.exists()
+    adopt(harness, root)
+    assert (root / 'promote.lock').is_file()
+    assert harness.global_state_dir() == root
+
+
 def rewrite_classification(path, change):
     data = json.loads(path.read_text())
     change(data)
@@ -712,7 +745,7 @@ def test_classification_invalid_plan_has_no_state_effects(harness, tmp_path, cas
     assert not (harness._machine_state_base() / 'repository-state.json').exists()
 
 
-@pytest.mark.parametrize('case', ['no-plan', 'missing-lock', 'symlink-lock', 'bad-mode', 'recovery',
+@pytest.mark.parametrize('case', ['no-plan', 'missing-lock', 'symlink-lock', 'selected-symlink-lock', 'selected-unsafe-lock', 'bad-mode', 'recovery',
                                   'schema', 'runtime', 'missing-live-runtime', 'active'])
 def test_classification_preserved_state_failures(harness, tmp_path, monkeypatch, case):
     import shutil
@@ -722,6 +755,11 @@ def test_classification_preserved_state_failures(harness, tmp_path, monkeypatch,
     elif case == 'symlink-lock':
         (other / 'promote.lock').unlink()
         (other / 'promote.lock').symlink_to(tmp_path / 'outside')
+    elif case == 'selected-symlink-lock':
+        (root / 'promote.lock').unlink()
+        (root / 'promote.lock').symlink_to(tmp_path / 'outside')
+    elif case == 'selected-unsafe-lock':
+        (root / 'promote.lock').chmod(0o666)
     elif case == 'bad-mode':
         (other / '.dev-boundary').chmod(0o666)
     elif case == 'recovery':
@@ -735,7 +773,7 @@ def test_classification_preserved_state_failures(harness, tmp_path, monkeypatch,
             harness._write_json(other / 'runtime.json', {'source_sha': 'b' * 40 if case == 'runtime' else item['source_sha']})
         if case == 'active':
             monkeypatch.setattr(harness.GrafLocalAdapter, '_pid_owned', lambda *a: True)
-    if case != 'symlink-lock':
+    if case not in ('symlink-lock', 'selected-symlink-lock'):
         plan = classification_plan(harness, tmp_path, root, other)
     # Snapshot helper does not follow the intentionally unsafe lock symlink.
     before = [classification_digest(p) for p in (root, other)]
@@ -839,7 +877,7 @@ def test_classification_archived_apps_are_verified_and_never_registered(harness,
     assert not (archive / 'promote.lock').exists() or case == 'lock'
 
 
-@pytest.mark.parametrize('change', ['tree', 'archive', 'build', 'build-link', 'metadata', 'new-root', 'plan', 'plan-inode', 'lock-inode'])
+@pytest.mark.parametrize('change', ['tree', 'archive', 'build', 'build-link', 'metadata', 'new-root', 'plan', 'plan-inode', 'lock-inode', 'selected-lock-inode'])
 def test_classification_real_wait_rechecks_complete_state(harness, tmp_path, monkeypatch, change):
     if change in ('archive', 'build', 'build-link'):
         root, item, other, archive, app, _, plan, _ = archived_fixture(harness, tmp_path, monkeypatch)
@@ -853,14 +891,15 @@ def test_classification_real_wait_rechecks_complete_state(harness, tmp_path, mon
     else:
         root, item, other, plan = classified_fixture(harness, tmp_path)
     ready, release, waiting = [tmp_path / n for n in ('ready', 'release', 'waiting')]
-    inode = (other / 'promote.lock').stat().st_ino
+    locked_root = root if change == 'selected-lock-inode' else other
+    inode = (locked_root / 'promote.lock').stat().st_ino
     holder = subprocess.Popen([sys.executable, '-c', '''
 import fcntl,sys,time
 from pathlib import Path
 with Path(sys.argv[1]).open('r+') as f:
  fcntl.flock(f,fcntl.LOCK_EX); Path(sys.argv[2]).touch()
  while not Path(sys.argv[3]).exists(): time.sleep(.01)
-''', str(other / 'promote.lock'), str(ready), str(release)])
+''', str(locked_root / 'promote.lock'), str(ready), str(release)])
     process = None
     try:
         wait_file(ready, holder)
@@ -899,9 +938,9 @@ h.operation_adopt_state(Namespace(state_root=Path(p['state']),expected_repositor
             replacement = plan.with_suffix('.replacement')
             replacement.write_bytes(plan.read_bytes())
             replacement.replace(plan)
-        elif change == 'lock-inode':
-            (other / 'promote.lock').rename(other / 'previous.lock')
-            (other / 'promote.lock').touch()
+        elif change in ('lock-inode', 'selected-lock-inode'):
+            (locked_root / 'promote.lock').rename(locked_root / 'previous.lock')
+            (locked_root / 'promote.lock').touch()
         release.touch()
         stdout, stderr = process.communicate(timeout=10)
         assert process.returncode != 0, (stdout, stderr)

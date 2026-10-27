@@ -300,7 +300,7 @@ def _state_file_lock(path: Path, *, create: bool = True) -> Iterator[int]:
     except OSError:
         if create:
             raise
-        raise HarnessError("preserved state requires its existing safe lock") from None
+        raise HarnessError("Dev state requires its existing safe lock") from None
     try:
         info = os.fstat(fd)
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
@@ -618,7 +618,7 @@ def operation_adopt_state(args: argparse.Namespace) -> Dict[str, Any]:
                 for entry in entries:
                     candidate = Path(entry["path"])
                     if entry["kind"] != "artifact-only":
-                        locks.enter_context(_state_file_lock(candidate / "promote.lock", create=(candidate == root)))
+                        locks.enter_context(_state_file_lock(candidate / "promote.lock", create=False))
                         _classification_recheck(classification, original, root, repository)
                 for entry in entries:
                     if entry["kind"] == "artifact-only":
