@@ -160,7 +160,7 @@ FR-038–041 / SC-019. Independent checklist + analyze + task ownership before c
 - [X] T060 Проверить и опубликовать foundation PR с прежним combined gate; получить исходный SHA включения, проверить новые checks и добавить required `pr-metadata`/`macos-pr` без удаления `governance-fast`; сохранить read-back evidence. (Issue #6986)
 - [X] T061 После T060 исключить только text-only code reruns в `.github/workflows/governance-fast.yml`, согласовать `scripts/validate-governance-workflow.py` и `tests/governance/test_governance_workflow.py`; по уточнённому FR-040 доказать отсутствие отмены/повтора source code и разрешать новый stable required PASS только после проверки действительного source proof. Исправление live expected-check дефекта вынесено в T080–T081. (Issue #6986)
 - [X] T062 Добавить единый `scripts/validate-pr-checks.py` для актуального полного набора, подключить `scripts/validate-issue-closeout.py` и `infra/scripts/release-candidate.sh` / train validation; сохранить исторический policy boundary и post-merge ancestry. (Issue #6986)
-- [ ] T063 Проверить события/fork/identity/failure/consumer матрицу, пройти review/converge; согласовать `docs/agent-guidance/release-and-validation.md`, quickstart и фрагмент F211 с реально включённой политикой; опубликовать cutover PR и получить exact-SHA hosted evidence. (Issue #6986)
+- [X] T063 Проверить события/fork/identity/failure/consumer матрицу, пройти review/converge; согласовать `docs/agent-guidance/release-and-validation.md`, quickstart и фрагмент F211 с реально включённой политикой; опубликовать cutover PR и получить exact-SHA hosted evidence. (Issue #6986)
 
 
 ## Phase 16: Convergence — deterministic native boundary fixture
@@ -198,7 +198,7 @@ FR-044–048 / SC-021; reviewer-owned image-reuse checklist and clean analyze be
 
 ## A6 convergence correction after GitHub review
 
-- [ ] T087 Исправить два review P1 в `scripts/ci-pr-scope.py`, `scripts/validate-pr-checks.py` и `.github/workflows/governance-fast.yml`: merged text использует проверенную историю/базу и сохраняет merge identity; артефакт различает run attempts с безопасным чтением старого имени. Проверить реальные Git истории и API/ZIP отрицательные регрессии в `tests/governance/test_pr_checks.py`, consumer suite, независимый review и live post-merge edit. (FR-040/SC-019) (Issue #6986)
+- [X] T087 Исправить два review P1 в `scripts/ci-pr-scope.py`, `scripts/validate-pr-checks.py` и `.github/workflows/governance-fast.yml`: merged text использует проверенную историю/базу и сохраняет merge identity; артефакт различает run attempts с безопасным чтением старого имени. Проверить реальные Git истории и API/ZIP отрицательные регрессии в `tests/governance/test_pr_checks.py`, consumer suite, независимый review и live post-merge edit. (FR-040/SC-019) (Issue #6986)
 
 
 
