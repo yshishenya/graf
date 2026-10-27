@@ -114,12 +114,14 @@ automatic workspace membership.
 **Story goal**: prepare a value-led, consent-based referral path with bounded
 attribution and no meeting-content tracking.
 
-**Independent test**: synthetic invitation → summary view → CTA → verified
-signup yields at most one attributed conversion and no new grant/account on
-repeat opens or forwarding.
+**Independent test**: synthetic invitation → explicit acceptance/new account →
+authorized summary view yields at most one signup conversion per invitation
+and originating auth event. CTA, setup and first own capture are separate later
+steps, not prerequisites for that conversion or another signup. An existing
+account, repeat opens and forwarding yield no new signup conversion/grant/account.
 
 - [ ] T042 [P] [US5] Add a metadata-only event catalog and forbidden-field tests for share/referral funnel events in `apps/server/src/twobrain_rec_server/product_analytics/event_catalog.py` and `apps/server/tests/unit/test_public_analytics.py`
-- [ ] T043 [P] [US5] Define opaque referral lifecycle, retention and deletion contract in `specs/125-meeting-sharing/data-model.md` and `specs/125-meeting-sharing/contracts/meeting-sharing.md`
+- [X] T043 [P] [US5] Define opaque referral lifecycle, retention and deletion contract in `specs/125-meeting-sharing/data-model.md` and `specs/125-meeting-sharing/contracts/meeting-sharing.md` (Issue #4449)
 - [ ] T044 [US5] Implement server-issued idempotent referral attribution only after product/privacy/legal/analytics approval in `apps/server/src/twobrain_rec_server/product_analytics/share_referrals.py` (GATE; no production code before approval)
 - [ ] T045 [US5] Run synthetic funnel, replay, forwarding, self-referral, bot and rollback rehearsal before enabling attribution in `specs/125-meeting-sharing/quickstart.md` (GATE)
 
@@ -310,3 +312,18 @@ Parallel examples:
 - #4451 закрывается как `NOT_PLANNED` только после принятого PR, подробного
   комментария и индивидуальной live-сверки state/reason/comment. Эта запись
   не принимает runtime, всю F125, остальные задачи или выпуск.
+
+## Индивидуальная сверка T043 — 2026-10-27
+
+- T043 (Issue #4449): завершён документальный договор жизненного цикла
+  referral в data-model §7/contract §9.1; исходная issue допускает ручную
+  проверку. 11 случаев и результат находятся в quickstart T043.
+- Независимое итоговое ревью: requirements 19/0, security 24/0, UX 22/0;
+  65 подтверждённых пунктов, неподтверждённых нет. G1–G5 сняты; критерий signup
+  согласован с US2/US5, scenarios §8.4 и Phase 7. Анализ среза после исправления:
+  CRITICAL 0 / HIGH 0 / MEDIUM 0. Проверки процесса, governance и diff PASS.
+- Сохранены все 77 исходных описаний и порядок задач. Изменена только отметка
+  T043; T042/T044/T045 остаются открытыми, T046 — исходная `[ ]` и NOT_PLANNED.
+  Новые код, таблицы, зависимости и сбор событий не добавлены.
+- Три GitHub-проверки точного SHA/основы, слияние и live-проверка комментария
+  обязательны перед закрытием #4449. Это не приёмка всей F125 или выпуска.
