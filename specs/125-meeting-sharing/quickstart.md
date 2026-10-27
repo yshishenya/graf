@@ -145,8 +145,10 @@ user and one unknown external address.
 3. Confirm attendee presence does not create a grant or change recording state.
 4. In browser-only mode, confirm no Contacts permission is requested and typed
    email remains available according to policy.
-5. In a future native-picker fixture, select one synthetic address and confirm
-   only that selection enters the recipient flow; no full contact list is sent.
+5. Only after a new scope decision returns native picker T046, use a synthetic
+   fixture to confirm only the selected address enters the recipient flow and
+   no full contact list is sent. T046 is NOT_PLANNED for the current MVP; this
+   scenario is conditional and has no runtime PASS claim.
 
 ### F. Accessibility and presentation
 
@@ -465,3 +467,21 @@ governance PASS; prerequisites подтверждают активную F125. �
 T047. Продуктовые тесты и OAuth-запросы не запускались, результаты T048
 не присвоены этому проекту. PR/merge/live-closeout остаются последующими
 обязательными шагами; runtime-матрица §8.1 не выполнена.
+
+## Проверка решения T046 — 2026-10-27
+
+Полоса: Active Spec Kit slice, только отмена дополнительного плана #4451.
+Сверить решение spec с plan/research/contract §8, условным E5 и ссылками на
+data-model/scenarios: native Contacts сейчас не обещан. Проверить сохранение
+ручного email, текущих подсказок, всех защитных требований и полного §8.1 T047.
+Сравнить с основой все 77 строк задач: T046 остаётся `[ ]`, остальные отметки,
+описания и порядок неизменны; отдельно указаны владелец, причина и возврат.
+
+Для принятия решения нужны независимые requirements/security/UX checklists,
+анализ без CRITICAL/HIGH, `git diff --check`, проверки процесса/governance и
+три GitHub-проверки точного SHA/основы. После слияния перечитать #4451,
+добавить обоснованный комментарий, закрыть как NOT_PLANNED и проверить
+state/reason/comment. Валидатор COMPLETED для отмены неприменим.
+Никакие продуктовые/аппаратные тесты не заявляются: их результаты T048
+не принимают native picker. Установленное приложение, OAuth, выпуск и сервер
+не меняются. Остальные незавершённые критерии F125 сохраняются.
