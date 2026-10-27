@@ -277,6 +277,14 @@ artifact при включённом архиве.
 - The internal `normalization_pending` activity result is orchestration metadata,
   not a new public lifecycle status.
 - The existing server-side MediaScribe credential boundary is preserved.
-- Production deployment and E2E are in scope under the user's current approval;
-  Full CI is not repeated, while scoped/current-SHA validation and deployment
-  gates remain mandatory.
+- Выпуск, развёртывание и production E2E учитываются отдельно в T031 по
+  действующим [правилам проверки и выпуска](../../docs/agent-guidance/release-and-validation.md).
+  Результаты T029 не заменяют обязательные проверки PR и один GitHub
+  `release-full` замороженного кандидата; прежний Full другого SHA не подходит.
+
+## Legacy Impact
+
+- Classification: `untouched`
+- Документальная сверка T029 не меняет рабочий код, миграции, сохранённые
+  записи или Temporal History. Новые пути совместимости не добавляются;
+  историческое чтение и replay сохраняют свои действующие границы.

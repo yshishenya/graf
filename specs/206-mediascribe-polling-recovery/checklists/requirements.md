@@ -19,3 +19,11 @@
 - [x] Описаны corrupt, terminal, deletion, supersession и crash boundaries.
 - [x] Указаны измеримые pass-count, exact-byte и one-provider-job критерии;
   ambiguous POST может иметь несколько exact same-key HTTP attempts.
+
+## Независимая сверка 28.10.2026
+
+Подтверждены 12 из 12 пунктов качества требований. Перечитаны актуальные
+`spec.md`, `plan.md`, `tasks.md`, `quickstart.md` и договор обработки. Устаревшая
+инструкция о пропуске Full CI исправлена; добавлена классификация Legacy Impact
+для документальной сверки. Это не приёмка реализации, T030 или T031.
+Постатейные основания и ограничения: [отчёт](../review-t029-20261028.md).

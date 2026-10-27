@@ -43,9 +43,10 @@
 
 Сначала минимально разделить polling budget и recovery limit, затем покрыть
 Temporal/status projection. Не менять MediaScribe и не создавать новые
-provider jobs. Пользователь уже одобрил commit, PR, merge, release, deploy и
-production smoke; повторный Full CI не выполняется, scoped/current-SHA и deploy
-gates остаются обязательными.
+provider jobs. Полномочия пользователя не заменяют действующие
+[правила проверки и выпуска](../../docs/agent-guidance/release-and-validation.md):
+проверки точного SHA/основы PR, один GitHub `release-full` замороженного
+кандидата и отдельную production E2E приёмку T031.
 
 Canonical slice выполняется test-first: pass-count/source/MIME, Temporal
 crash/replay, no-archive и terminal UI contracts добавляются до реализации.
@@ -114,7 +115,7 @@ crash/replay, no-archive и terminal UI contracts добавляются до р
 - [X] T028 [P] Обновить `[Unreleased]`, operational metrics и runbook в `CHANGELOG.md`, `apps/server/src/twobrain_rec_server/admin/metrics.py` и `specs/206-mediascribe-polling-recovery/quickstart.md`.
 - [ ] T029 Повторить updated checklists, `$speckit-analyze`, quickstart, focused tests, replay evidence, `git diff --check` и `infra/scripts/ci-local.sh --fast` после исправлений повторного аудита.
 - [ ] T030 Провести Product Design audit web/embedded flow на pending, retry countdown, terminal failure и success; сохранить текущие screenshots/evidence вне git.
-- [ ] T031 Выполнить scoped/current-SHA gate без повторного Full CI, PR/review/merge/release/deploy и production E2E на real ready, recoverable corrupt, no-archive и terminal recordings.
+- [ ] T031 Выполнить scoped/current-SHA и обязательные PR/review/merge/release/deploy gates по действующим правилам проекта, включая GitHub `release-full` замороженного кандидата, и production E2E на real ready, recoverable corrupt, no-archive и terminal recordings.
 
 ## Phase 9: Post-release terminal refresh hardening
 
