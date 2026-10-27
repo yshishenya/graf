@@ -66,7 +66,8 @@ def _ingest(properties: dict[str, object]):
             "properties": properties,
         }
     )
-    assert result.accepted is True
+    assert result.accepted is False
+    assert result.status == "trusted_context_required"
     assert result.event is not None
     return result.event
 

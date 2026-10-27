@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import Problem
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
-from twobrain_rec_server.auth.dependencies import get_principal
+from twobrain_rec_server.auth.dependencies import get_optional_principal, get_principal
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.product_analytics.event_catalog import (
     anonymous_aggregate_signal_names,
@@ -18,7 +18,6 @@ from twobrain_rec_server.product_analytics.event_catalog import (
     catalog_payload,
     yandex_offline_conversion_event_names,
 )
-from twobrain_rec_server.product_analytics.events import build_activation_event
 from twobrain_rec_server.product_analytics.forbidden_fields import (
     assert_no_forbidden_fields,
     assert_no_security_credential_fields,
@@ -123,6 +122,7 @@ async def get_product_analytics_report_session(request: Request):
 
 
 PrincipalDependency = Depends(get_principal)
+OptionalPrincipalDependency = Depends(get_optional_principal)
 ReportDbDependency = Depends(get_product_analytics_report_session)
 
 
@@ -187,7 +187,11 @@ async def product_analytics_telemetry_gate_access(state: str = "not_seen") -> di
 
 
 @router.post("/events")
-async def product_analytics_events(request: Request, body: ProductAnalyticsEventRequest) -> dict[str, Any]:
+async def product_analytics_events(
+    request: Request,
+    body: ProductAnalyticsEventRequest,
+    principal: AuthenticatedPrincipal | None = OptionalPrincipalDependency,
+) -> dict[str, Any]:
     settings = _settings_from_request(request)
     if not settings.product_analytics_enabled:
         raise ProblemDetail(
@@ -198,13 +202,17 @@ async def product_analytics_events(request: Request, body: ProductAnalyticsEvent
         )
     service = ProductAnalyticsIngestService(settings)
     try:
-        result = service.ingest(body.model_dump(), telemetry_gate_state=body.telemetry_gate_state)
+        result = await service.ingest_authenticated(
+            body.model_dump(), principal=principal,
+            sessionmaker=getattr(request.app.state, "db_sessionmaker", None),
+            source_kind="desktop", telemetry_gate_state=body.telemetry_gate_state,
+        )
     except ValueError as exc:
         raise ProblemDetail(
             status=400,
             code="product_analytics_event_rejected",
             title="Product analytics event rejected",
-            detail=str(exc),
+            detail="The event did not match the approved analytics contract.",
         ) from exc
     if not result.accepted:
         raise ProblemDetail(
@@ -352,6 +360,7 @@ async def product_analytics_posthog_web_capture(
 async def product_analytics_posthog_desktop_capture(
     request: Request,
     body: PostHogDesktopCaptureRequest,
+    principal: AuthenticatedPrincipal | None = OptionalPrincipalDependency,
 ) -> dict[str, Any]:
     settings = _settings_from_request(request)
     if not (
@@ -384,46 +393,28 @@ async def product_analytics_posthog_desktop_capture(
         if key not in {"delivery_mode", "source_feature", "api_key_state"}
     }
     try:
-        event = build_activation_event(
-            body.event,
-            stable_pseudonymous_user_id=body.distinct_id,
-            occurred_at=body.timestamp,
-            properties=event_properties,
+        result = await ProductAnalyticsIngestService(settings).ingest_authenticated(
+            {
+                "event_name": body.event,
+                "stable_pseudonymous_user_id": body.distinct_id,
+                "occurred_at": body.timestamp,
+                "properties": event_properties,
+            },
+            principal=principal,
+            sessionmaker=getattr(request.app.state, "db_sessionmaker", None),
+            source_kind="desktop", telemetry_gate_state=body.telemetry_gate_state,
         )
     except ValueError as exc:
         raise ProblemDetail(
             status=400,
             code="posthog_desktop_event_rejected",
             title="PostHog desktop event rejected",
-            detail=str(exc),
+            detail="The event did not match the approved analytics contract.",
         ) from exc
-    properties = dict(event.properties)
-    properties.update(
-        {
-            "surface": event.surface,
-            "owner": event.owner,
-            "delivery_mode": "first_party_desktop_proxy",
-            "source_feature": "096-product-analytics-provider-rollout",
-        }
-    )
-    result = PostHogClientWrapper.from_settings(settings).capture_event(
-        event_name=event.event_name,
-        distinct_id=event.stable_pseudonymous_user_id,
-        properties=properties,
-        timestamp=event.occurred_at,
-    )
-    if result.status == "payload_rejected":
-        raise ProblemDetail(
-            status=400,
-            code="posthog_desktop_payload_rejected",
-            title="PostHog desktop payload rejected",
-            detail="PostHog desktop payload contained forbidden analytics material.",
-        )
-    if result.status in {"configuration_error", "disabled"}:
+    if not result.accepted:
         raise ProblemDetail(
             status=403,
             code=f"posthog_desktop_{result.status}",
             title="PostHog desktop event not accepted",
-            detail=result.detail,
         )
     return result.as_dict()

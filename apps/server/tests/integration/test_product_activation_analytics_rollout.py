@@ -136,13 +136,13 @@ def test_synthetic_source_to_first_value_funnel_is_safe_and_server_mediated() ->
         for event_name, properties in events
     ]
 
-    assert [result.accepted for result in results] == [True, True, True, True, True, True]
+    assert all(not result.accepted and result.status == "trusted_context_required" for result in results)
     assert [result.event.event_name for result in results if result.event] == [event_name for event_name, _ in events]
     assert all(result.event and result.event.delivery_mode == "server_mediated" for result in results)
-    assert all(result.delivery_gap for result in results)
+    assert all(not result.provider_results and result.delivery_gap is None for result in results)
 
 
-def test_provider_failure_is_reported_as_measurement_gap_without_blocking_acceptance() -> None:
+def test_no_trusted_context_never_dispatches_to_providers() -> None:
     identity = build_safe_identity(user_source_id="user-094")
     service = ProductAnalyticsIngestService(
         Settings(product_analytics_enabled=True, product_analytics_validation_mode="render_only")
@@ -160,13 +160,13 @@ def test_provider_failure_is_reported_as_measurement_gap_without_blocking_accept
         }
     )
 
-    assert result.accepted is True
-    assert result.delivery_gap is not None
-    assert result.delivery_gap.status == "measurement_gap"
-    assert {provider.status for provider in result.provider_results} == {"disabled"}
+    assert result.accepted is False
+    assert result.status == "trusted_context_required"
+    assert result.delivery_gap is None
+    assert result.provider_results == []
 
 
-def test_enabled_api_accepts_synthetic_event_without_live_provider_delivery() -> None:
+def test_enabled_api_refuses_unverified_installation() -> None:
     identity = build_safe_identity(user_source_id="user-094")
     app = create_app(Settings(product_analytics_enabled=True, product_analytics_validation_mode="render_only"))
 
@@ -180,14 +180,11 @@ def test_enabled_api_accepts_synthetic_event_without_live_provider_delivery() ->
             },
         )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["accepted"] is True
-    assert body["event"]["event_name"] == "desktop_first_opened"
-    assert body["provider_results"][0]["status"] == "disabled"
+    assert response.status_code == 403
+    assert response.json()["code"] == "product_analytics_install_key_unverified"
 
 
-def test_desktop_posthog_proxy_endpoint_accepts_posthog_style_body_in_provider_smoke(tmp_path: Path) -> None:
+def test_desktop_posthog_proxy_keeps_shape_but_requires_authentication(tmp_path: Path) -> None:
     key_file = tmp_path / "posthog_project_key"
     key_file.write_text("synthetic-posthog-key", encoding="utf-8")
     app = create_app(
@@ -221,9 +218,9 @@ def test_desktop_posthog_proxy_endpoint_accepts_posthog_style_body_in_provider_s
             },
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 403
     body = response.json()
-    assert body["status"] == "dry_run"
+    assert body["code"] == "posthog_desktop_authentication_required"
     assert "synthetic-posthog-key" not in str(body)
     assert "properties" not in str(body)
 

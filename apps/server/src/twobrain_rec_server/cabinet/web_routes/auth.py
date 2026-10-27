@@ -1324,19 +1324,16 @@ async def _prepare_email_auth_response(
             samesite="lax",
         )
     if background_tasks is not None:
-        # The route commits after this helper returns; the resolved handoff is
-        # passed explicitly so the background task does not inspect an unsigned
-        # cookie after the request transaction has closed.
-        # FR-021: the embedded cabinet sign-in by emailed code is the path the
-        # desktop application actually uses to connect an account, so the
-        # account-connected milestone has to come from here too. Without it the
-        # activation funnel silently loses its key step and channel numbers
-        # understate what the product achieved. Delivery happens after the
-        # response and never blocks or breaks the sign-in.
+        # The route commits after this helper returns. Only the verified desktop
+        # return path schedules an account-connected milestone; ordinary browser
+        # sign-in is not a desktop connection. Admission runs after the response.
         schedule_account_connected_milestone(
             background_tasks,
             request,
             user_id=result.user_id,
+            organization_id=result.organization_id,
+            workspace_id=result.workspace_id,
+            desktop_path=bool(redirect_path and redirect_path.startswith("/desktop/")),
             provider=EMAIL_SIGNUP_PROVIDER,
             handoff=resolved_handoff,
             auth_method_category=EMAIL_CODE_AUTH_METHOD_CATEGORY,

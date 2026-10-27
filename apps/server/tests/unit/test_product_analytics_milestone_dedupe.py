@@ -1,9 +1,7 @@
-"""FR-025: повторная отправка вехи не удваивает счёт (T052).
+"""Legacy local guard and safe event descriptions; durable count is tested in PostgreSQL.
 
-Решение принимается до того, как событие увидит провайдер, поэтому повторная
-отправка не доходит ни до PostHog, ни до офлайн-конверсии Яндекса. Журнал
-отправленных вех по умолчанию живёт в процессе, поэтому каждый тест берёт свой
-псевдонимный идентификатор и не зависит от других тестов.
+The synchronous ingest no longer counts or sends. Runtime acceptance belongs to
+contract/test_activation_milestone_ingress.py and test_activation_milestone_ledger.py.
 """
 
 from uuid import uuid4
@@ -89,34 +87,19 @@ def test_accept_refuses_a_non_milestone_event_and_an_unsafe_identity() -> None:
             guard.accept(stable_pseudonymous_user_id=unsafe, event_name=MILESTONE)
 
 
-def test_the_ingest_service_delivers_a_repeated_milestone_only_once() -> None:
+def test_legacy_ingest_never_counts_or_sends_without_trusted_context() -> None:
     payload = {
         "event_name": MILESTONE,
         "stable_pseudonymous_user_id": _pseudonymous_user(),
-        "properties": milestone_attribution_properties(
-            attribution_reliability="weak", campaign_known=True, bridge_present=True
-        ),
+        "properties": milestone_attribution_properties(),
     }
-
-    first = ProductAnalyticsIngestService(Settings(product_analytics_enabled=True)).ingest(payload)
-
-    assert first.accepted is True
-    assert first.status != MILESTONE_STATUS_DUPLICATE
-    assert first.event is not None
-    assert first.event.event_name == MILESTONE
-    assert first.provider_results != []
-
-    # Другой экземпляр сервиса всё равно видит ту же веху: журнал живёт в
-    # процессе, а не в объекте сервиса (FR-025).
-    repeated = ProductAnalyticsIngestService(Settings(product_analytics_enabled=True)).ingest(
-        payload
-    )
-
-    assert repeated.accepted is True
-    assert repeated.status == MILESTONE_STATUS_DUPLICATE
-    assert repeated.event is not None
-    assert repeated.provider_results == []
-    assert repeated.delivery_gap is None
+    for _ in range(2):
+        result = ProductAnalyticsIngestService(Settings(product_analytics_enabled=True)).ingest(payload)
+        assert result.accepted is False
+        assert result.status == "trusted_context_required"
+        assert result.event is not None  # validated description, never an accepted decision
+        assert result.provider_results == []
+        assert result.delivery_gap is None
 
 
 @pytest.mark.parametrize(
