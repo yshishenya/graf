@@ -46,8 +46,11 @@ storage models.
 
 **Risk / Validation Lane**: high-risk-feature. The slice changes privacy-sensitive sharing, identity search, invitations, authorization, token-bearing links, deletion/expiry behavior and a user-facing modal. It requires full Spec Kit, security/UX checklists, threat-model gates, focused quickstart and repository CI.
 
-**Release Gate**: PR/closeout requires the focused quickstart and
-`infra/scripts/ci-local.sh`. A production deploy is allowed only for the
+**Release Gate**: PR/closeout requires the focused quickstart and current
+exact-SHA/base GitHub `governance-fast`, `macos-pr`, `pr-metadata` gates.
+Local `infra/scripts/ci-local.sh --fast|--full` is diagnostic/fallback only;
+the frozen release candidate requires GitHub `release-full`.
+A production deploy is allowed only for the
 validated slice after `cd-remote.sh --dry-run`, Russian release notes, rollback
 readiness and explicit user approval. Exact-email external delivery is enabled
 only for the bounded recipient flow; public links, native Contacts/provider
@@ -59,7 +62,7 @@ lookup and referral attribution remain false.
 
 **Performance Goals**: internal recipient search p95 under 1 second for the bounded 20-result query in synthetic fixtures; no network request for disabled capabilities; Share modal remains responsive at the existing cabinet scale
 
-**Constraints**: fail closed; internal defaults are summary-only/view-only, while the explicit exact-email recording preset is full-meeting/view-only with download/export capabilities; external/public flags stay false by default; no raw meeting content, contact records, email delivery secret or bearer token in evidence/logs/analytics; no full address-book sync; 320 CSS px and 200% zoom; browser/embedded parity; no copied competitor UI
+**Constraints**: fail closed; internal defaults are summary-only/view-only, while the explicit exact-email recording preset is full-meeting/view-only with download/export capabilities; external/public flags stay false by default; no raw meeting content, contact records, email delivery secret or bearer token in evidence/logs/analytics; no full address-book sync; 320 CSS px and 200% zoom; browser/embedded parity; reference fidelity under Constitution VII with independent code and documented asset rights
 
 **Scale/Scope**: one meeting Share fragment, current workspace/meeting roster candidate search, existing grant/invitation/link lifecycle, existing summary route, exact-email delivery, synthetic security/UX tests; public/contact/referral rollout remains independently gated
 
@@ -84,7 +87,7 @@ lookup and referral attribution remain false.
 - **Spec-driven delivery**: PASS. Specify, clarification scan, research, plan,
   data model, contracts, checklist, tasks, analyze, issue sync and implementation
   are required.
-- **Original design/accessibility**: PASS pending QA. The modal reuses GRAF cabinet
+- **Reference fidelity/accessibility**: PASS pending QA. The modal reuses GRAF cabinet
   tokens and native controls, with keyboard/focus/reduced-motion/contrast and
   browser/embedded parity requirements.
 
@@ -171,6 +174,11 @@ Do not add a new analytics dependency. Address book is native limited selection
 only; browser surfaces do not request Contacts access or sync a full address
 book. Calendar presence is a suggestion source, never consent.
 
+T047/#4453 defines only the future Google/Microsoft read-only provider contract
+in research §4 and contract §8.1. This design introduces no runtime connection,
+storage, flag or dependency and does not accept T046 or authorize rollout.
+Its document review and future execution gates are separate in quickstart T047.
+
 Participant distribution is not a loop over the existing single-recipient POST.
 Before implementation, select a replay-safe idempotency/run authority, define
 per-recipient partial outcomes and keep bearer URLs out of the batch response
@@ -192,7 +200,8 @@ when `Shared with me` is sufficient. Retry must never rotate a grant token.
 6. Execute [quickstart.md](quickstart.md), including browser/embedded parity,
    keyboard, VoiceOver, 320 CSS px, 200% zoom, light/dark, reduced motion and
    increased contrast.
-7. Run `git diff --check` and `infra/scripts/ci-local.sh` before PR/closeout.
+7. Run `git diff --check` and the focused quickstart before PR/closeout;
+   require the three current exact-SHA/base GitHub gates above.
 8. Run Ponytail review, product-design audit and code/security review. Production
    deploy is allowed only for the exact-email capability after the recorded
    rollout gate; public/contact/referral deploy remains out of scope.

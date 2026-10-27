@@ -153,7 +153,9 @@ user and one unknown external address.
 Check browser and embedded surfaces in dark/light themes, 320 CSS px width,
 200% zoom, keyboard-only navigation, VoiceOver labels, increased contrast and
 reduced motion. Confirm no horizontal scroll, focus loss, hidden disabled action
-that still fires a request, or copied competitor visual treatment.
+that still fires a request, or reuse of competitor code/assets without rights.
+Observable reference fidelity follows Constitution VII, including literal
+functional wording; required accessibility/privacy deviations remain explicit.
 
 ## Security checks
 
@@ -415,3 +417,51 @@ fragment с `summary-sharing.js`; новые зависимости не доб�
 Contacts/provider, referral и внешняя отправка этой проверкой не включаются.
 Перед слиянием нужны `governance-fast`, `macos-pr`, `pr-metadata` на точном
 SHA и проверенной основе, затем общий `scripts/validate-pr-checks.py`.
+
+## Проверка проекта T047 — 2026-10-27
+
+Область: #4453, полоса `Active Spec Kit slice`, только проект будущего
+подключения контактов. Обязательные результаты T047 находятся в research §4
+и contract §8.1: delegated read-only scopes, операции/поля/лимиты, TTL,
+отключение/поздние ответы, русский текст согласия и серверная авторизация.
+Это ручная проверка документов, предусмотренная исходной issue, а не
+исполнение Google/Microsoft integration. T046 и включение остаются отдельно.
+
+1. Сверить scopes и допустимые операции с официальными ссылками research §4.
+   Убедиться, что контактное право не добавляется к обычному входу, не
+   обещает выборочное OAuth-разрешение, не разрешает запись или directory.
+2. Проверить contract §8.1: TTL 0 для постоянного/server cache, 60 секунд
+   для памяти диалога; ограничения источника/контекста и ранняя очистка;
+   поздний ответ не восстанавливает результат. Срок проверяется при выборе.
+   Общий срок поиска с warmup — 5 секунд; timeout/429/401 не запускают
+   фоновый повтор. Поисковая строка, URL/body поставщика исключены из обычных
+   журналов, traces, diagnostics и autocapture, включая ошибки.
+3. Прочитать текст согласия целиком: права аккаунта, временная память,
+   запрет неявного доступа, предел отключения и сохранённый ручной ввод.
+4. Проверить все три независимых checklist и нулевой незакрытый остаток
+   требований именно T047. Старые отметки T048 не являются его приёмкой.
+5. Выполнить `git diff --check`, `python3 scripts/check-development-process.py`
+   и `python3 scripts/check_spec_kit_governance.py`; проверить точную связь
+   T047/#4453 и сохранение остальных task IDs/описаний/открытых задач.
+
+Продуктовые тесты T048 выше не являются доказательством работы провайдера
+и не требуют повтора из-за документальной правки. Исполняемая матрица перед
+будущим включением задана в contract §8.1 и остаётся невыполненной. Перед
+принятием проекта требуются независимое ревью, отсутствие CRITICAL/HIGH
+в анализе среза и три GitHub-проверки точного SHA/основы; затем merged PR
+и proposed/actual live `validate-issue-closeout.py` для #4453.
+
+### Результат документальной проверки T047
+
+Все пять шагов выше выполнены: исходные критерии #4453 сопоставлены с
+research §4/contract §8.1, новые строки проверены на секреты и частные данные.
+Независимый проверяющий повторно открыл официальную документацию Google/
+Microsoft и подтвердил проект: requirements 17/0, security 23/0, UX 21/0,
+всего 61/0. Первоначальные замечания и дополнения по сроку ожидания/журналам
+устранены; итоговый отчёт `f125-t047-precheck.md` хранится вне репозитория.
+Повторный анализ: 42 FR, 21 SC, 77 исходных task IDs; в срезе T047
+CRITICAL 0 / HIGH 0 / MEDIUM 0. `git diff --check`, проверки процесса и
+governance PASS; prerequisites подтверждают активную F125. Отмечена только
+T047. Продуктовые тесты и OAuth-запросы не запускались, результаты T048
+не присвоены этому проекту. PR/merge/live-closeout остаются последующими
+обязательными шагами; runtime-матрица §8.1 не выполнена.

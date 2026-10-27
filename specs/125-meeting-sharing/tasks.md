@@ -129,7 +129,7 @@ repeat opens or forwarding.
 server-side contact index.
 
 - [ ] T046 [P] [US4] Add native macOS contact-picker integration contract and limited-selection handoff in `apps/macos/RecApp/Sources/Cabinet/ContactPickerBridge.swift` (GATE)
-- [ ] T047 [P] [US4] Define Google People/Microsoft Graph delegated read-only scopes, cache TTL, disconnect purge and consent copy in `specs/125-meeting-sharing/research.md` and `specs/125-meeting-sharing/contracts/meeting-sharing.md`
+- [X] T047 [P] [US4] Define Google People/Microsoft Graph delegated read-only scopes, cache TTL, disconnect purge and consent copy in `specs/125-meeting-sharing/research.md` and `specs/125-meeting-sharing/contracts/meeting-sharing.md` (Issue #4453)
 - [X] T048 [US4] Keep browser-only path typed-email based and add a negative test proving no full address-book sync is attempted in `apps/server/tests/contract/test_meeting_sharing_contract.py`
 
 ## Phase 9 — Polish and cross-cutting validation
@@ -281,3 +281,18 @@ Parallel examples:
 - Изменена только отметка T048. Исходные описания и порядок задач сохранены;
   T042–T047 остаются открытыми. Поиск и выбор получателя не принимают весь
   внешний обмен, Contacts/provider, referral или выпуск F125.
+
+## Индивидуальная сверка T047 — 2026-10-27
+
+- T047 (Issue #4453): завершён только проект подключения контактов Google/
+  Microsoft в research §4 и contract §8.1. Исходная задача требует определить
+  права, срок хранения, отключение и согласие; ручная проверка документов
+  предусмотрена issue. Работающий importer/OAuth не заявляется.
+- Независимое ревью требований: requirements 17/0, security 23/0, UX 21/0;
+  всего 61 подтверждённый пункт, неподтверждённых нет. Анализ среза:
+  CRITICAL 0 / HIGH 0 / MEDIUM 0. Проверки процесса, governance и diff PASS.
+- Сохранены все 77 исходных описаний и порядок задач. Изменена только
+  отметка T047; T042–T046 остаются открытыми, история T048 сохранена.
+  Исполняемая матрица contract §8.1 обязательна перед будущим включением.
+- Принятие PR и закрытие #4453 требуют трёх проверок точного SHA/основы,
+  слияния и live-проверки комментария; это не приёмка всей F125 или выпуска.
