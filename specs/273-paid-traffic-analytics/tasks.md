@@ -341,6 +341,17 @@ T088, T090 и T093 не назначаются дублирующие задач
 - [ ] T114 [US2] Сверить реализацию и отчёт полной выдачи установщика с FR-019: полный GET/200/размер/отсутствие обрыва отдельно от HEAD, 3xx, 206, ошибки и unknown. Пути: `public/downloads.py`, `public/web.py`, `product_analytics/anonymous_aggregate.py`, фактический конечный отправитель и focused download/report tests. Не выдавать серверную выдачу за установку на устройстве (FR-019).
 - [ ] T115 [US2] Привести агрегат, модель/миграцию и отчёт к закрытому региону `ru/non_ru/unknown` и нормативному порогу 3 до суммирования; проверить отсутствие запрещённых источников географии, публикации точного подавленного остатка и влияние фильтров/разностей. Пути: `product_analytics/anonymous_aggregate.py`, `db/models/product_analytics.py`, `product_analytics/report_surface.py` и профильные contract tests (FR-010, FR-057).
 
+Исполнение T112/T113 уточнено27.10: T113 предшествует включению T112.
+Действуют trusted account, одна admission boundary для обоих API ingress и
+server-auth, одна GRAF DB relation и закрытые per-provider переходы из
+activation-milestones/data-model. T113 включает ограниченный существующий
+maintenance dispatcher и профильные DB/failure/security проверки; T106 —
+свежий withdrawal-aware gate перед записью и каждым получателем. Его категорию,
+удаление и restore/inventory связывают T109/T110/T111/T116; T118 остаётся
+отдельным cold PostHog restore, не доказательством GRAF DB backup. Ни одна из этих
+задач не закрывается одним проектированием или локальной реализацией;
+исторические отметки и закрытия не изменяются. Новых дублирующих задач нет.
+
 Локальное состояние T115 — 22.10.2026: реализация и независимое ревью PASS;
 162 профильных теста с изолированной PostgreSQL прошли, контейнер удалён.
 [Отчёт реализации](validation/t115-implementation-review-2026-10-22.md)

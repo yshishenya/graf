@@ -41,7 +41,7 @@
 
 **Primary Dependencies**: FastAPI ≥0.115, SQLAlchemy 2.x (асинхронный), Alembic, httpx 0.28.1, Jinja2-шаблоны; self-hosted PostHog (ClickHouse, Kafka, Postgres, Elasticsearch) в Docker Compose; Яндекс.Метрика как внешний счётчик; cookieconsent v3.1.0 (локальная копия)
 
-**Storage**: PostgreSQL — агрегаты уровня 1, атрибуция визита, атрибут привлечения клиента, состояние выбора посетителя, записи одобрений и готовности. ClickHouse внутри PostHog — события уровней 2 и 3, целевой режим `until_decision`. Категория IP проектируется в отдельной таблице public.network_access_metadata существующей БД GRAF; writer закрыт до основания/раскрытия/прав/копий T110. Файловое хранилище сервера — резервные копии.
+**Storage**: PostgreSQL — агрегаты уровня 1, атрибуция визита, атрибут привлечения клиента, состояние выбора посетителя, записи одобрений и готовности. ClickHouse внутри PostHog — события уровней 2 и 3, целевой режим `until_decision`. T113 добавляет в существующую GRAF DB одну product_activation_milestones для устойчивого принятия account-вех и двух состояний доставки; полный контракт — activation-milestones/data-model. Категория IP проектируется в отдельной таблице public.network_access_metadata существующей БД GRAF; writer закрыт до основания/раскрытия/прав/копий T110. Файловое хранилище сервера — резервные копии.
 
 **Testing**: pytest (`apps/server/tests/{unit,contract,integration,browser}`), XCTest (`apps/macos/Shared/Tests`), node-тесты браузерных сценариев (`apps/server/tests/browser/*.cjs`)
 
@@ -489,3 +489,39 @@ Lane: existing high-risk Spec Kit slice T116/T117. Новых продуктов
    обязательные проверки точного SHA/base и обычный merge. Заменяемые
    #7721/#7723/#7725 закрывать только после принятия #7727 с объяснением
    переноса. T116–T119 целиком и #7697 остаются открыты до исходной приёмки.
+
+
+## Продолжение T112/T113 — 27.10.2026
+
+Clarify-проверка: новых решений владельца о целях, получателях и хранении не
+требуется; перечисленные ниже пробелы — инженерный способ исполнения уже
+принятых FR-021/025/048/049. Устойчивые решения/доставка/идентичность и lifecycle
+уточнены в activation-milestones и data-model. Это проектирование, не готовый код.
+
+Порядок: T113 admission/модель/миграция и unit/DB-конкуренция → оба API ingress
+и серверная авторизация → bounded maintenance delivery/T106 → T112 реальный
+видимый браузерный триггер и desktop совместимость → профильная изолированная
+приёмка. T112 не включается раньше устойчивой общей границы T113. Результат
+продукта, успешный login и локальная запись не зависят от аналитической записи.
+
+Пути: product_analytics/{milestones,ingest,router,posthog_client,yandex_offline,
+legal_basis_gate,legal_basis_lifecycle,retention}.py, db/models/product_analytics.py,
+новая штатная Alembic migration, api/{product_analytics,auth}.py,
+workflows/maintenance_worker.py, auth/account_closure.py (узкий analytic purge),
+cabinet/web.py и реальные web_routes,
+ProductActivationAnalyticsClient.swift и существующие профильные tests.
+Существующие SQLAlchemy/session/maintenance-patterns переиспользуются; новый
+брокер, новый сервис и общая фабрика очередей не вводятся.
+
+Before-code gates: обновлённое независимое ревью всех четырёх checklists,
+analyze без critical/high, действующая связь T112/T113/T106 с GitHub.
+После кода: профильные DB/browser/Swift/failure checks, converge и точные
+обязательные GitHub checks. Существующая неготовность T098/T109–T111/T118/T119
+не запрещает изолированную разработку, но блокирует рабочее включение.
+Root CHANGELOG и опубликованный выпуск не меняются.
+
+Constitution до/после уточнения: II — действующие согласия и отзыв перед каждым
+side effect; III — только прежние получатели, metadata-only; IV — новая
+категория зарегистрирована с until_decision, отдельным удалением/restore; VI —
+high-risk gate сохранён. Нарушений не выявлено; полноту подтверждает reviewer,
+а не этот текст. Неизвестная доставка остаётся неизвестной.
