@@ -563,3 +563,16 @@ FR-036–FR-042 и SC-017–SC-021 ниже описывают следующи�
   required acceptance surfaces.
 - GRAF-controlled deletion does not claim universal erasure from operator-managed
   observability systems; deletion copy follows the existing product gate.
+
+
+## Legacy Impact
+
+- Classification: untouched
+
+Сверка 2026-10-27 ограничена T048/#4454: добавляет отрицательные тесты
+существующего поиска получателей, не меняя продуктовые пути. Прежний
+`share-recipients` проверяется вместе с действующим `summary-sharing/recipients`;
+оба используют существующую серверную авторизацию и общий поиск. Новые
+алиасы, резервные пути, флаги, зависимости, источники контактов и слои
+совместимости не добавляются. Эта классификация относится к текущему
+тестовому срезу и не объявляет всю историческую F125 завершённой.

@@ -130,7 +130,7 @@ server-side contact index.
 
 - [ ] T046 [P] [US4] Add native macOS contact-picker integration contract and limited-selection handoff in `apps/macos/RecApp/Sources/Cabinet/ContactPickerBridge.swift` (GATE)
 - [ ] T047 [P] [US4] Define Google People/Microsoft Graph delegated read-only scopes, cache TTL, disconnect purge and consent copy in `specs/125-meeting-sharing/research.md` and `specs/125-meeting-sharing/contracts/meeting-sharing.md`
-- [ ] T048 [US4] Keep browser-only path typed-email based and add a negative test proving no full address-book sync is attempted in `apps/server/tests/contract/test_meeting_sharing_contract.py`
+- [X] T048 [US4] Keep browser-only path typed-email based and add a negative test proving no full address-book sync is attempted in `apps/server/tests/contract/test_meeting_sharing_contract.py`
 
 ## Phase 9 — Polish and cross-cutting validation
 
@@ -272,3 +272,12 @@ Parallel examples:
 | SC-010–SC-012 parity, rollback and owner comprehension | T019–T020, T028, T036, T040–T052, T075–T077 |
 | SC-013–SC-016 meeting-bound search, bounded expiry, token hygiene and throttling | T004–T011, T021–T028, T037–T045, T052, T075–T077 |
 | SC-017–SC-021 participant distribution, adoption and rollback | Spec/data-model/contract design; synthetic execution requires a later gated task slice |
+
+## Индивидуальная сверка T048 — 2026-10-27
+
+- T048 (Issue #4454): отрицательные проверки настоящего браузерного поиска и
+  двух серверных маршрутов; команды, результаты и границы находятся в
+  [quickstart](quickstart.md#проверка-t048--2026-10-27).
+- Изменена только отметка T048. Исходные описания и порядок задач сохранены;
+  T042–T047 остаются открытыми. Поиск и выбор получателя не принимают весь
+  внешний обмен, Contacts/provider, referral или выпуск F125.
