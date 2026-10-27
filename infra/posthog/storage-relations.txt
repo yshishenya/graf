@@ -2,4 +2,5 @@
 public.anonymous_page_aggregate_buckets
 public.public_visit_attributions
 public.client_acquisition_attributes
+public.product_activation_milestones
 public.network_access_metadata?

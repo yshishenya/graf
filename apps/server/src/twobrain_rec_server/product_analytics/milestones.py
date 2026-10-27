@@ -16,10 +16,22 @@ module keeps three promises that make the funnel readable:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID, uuid4, uuid5
 
+from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from twobrain_rec_server.db.models.identity import UserIdentity
+from twobrain_rec_server.db.models.product_analytics import (
+    ACCOUNT_ACTIVATION_EVENTS,
+    ProductActivationMilestone,
+)
 from twobrain_rec_server.product_analytics.attribution import (
     CAMPAIGN_LABEL_FIELDS,
     CAMPAIGN_LABEL_STATE_KNOWN,
@@ -28,8 +40,15 @@ from twobrain_rec_server.product_analytics.attribution import (
     resolve_conversion_reliability,
 )
 from twobrain_rec_server.product_analytics.event_catalog import PRODUCT_ACTIVATION_EVENT_NAMES
+from twobrain_rec_server.product_analytics.events import (
+    ProductActivationEvent,
+    build_activation_event,
+)
 from twobrain_rec_server.product_analytics.forbidden_fields import assert_no_forbidden_fields
-from twobrain_rec_server.product_analytics.identity import is_safe_pseudonymous_id
+from twobrain_rec_server.product_analytics.identity import (
+    build_safe_identity,
+    is_safe_pseudonymous_id,
+)
 
 FIRST_MILESTONE_EVENTS = PRODUCT_ACTIVATION_EVENT_NAMES
 USEFUL_RESULT_TYPES = ("transcript", "summary", "outcome", "action_items", "approved_equivalent")
@@ -171,7 +190,11 @@ def milestone_attribution_properties(
     # A caller that carries no label may still know that the campaign is real —
     # the label set of the visit is not the only evidence of it — so an explicit
     # claim is honored, while silence stays ``unknown`` (FR-024).
-    known = label_state == CAMPAIGN_LABEL_STATE_KNOWN if campaign_known is None else bool(campaign_known)
+    known = (
+        label_state == CAMPAIGN_LABEL_STATE_KNOWN
+        if campaign_known is None
+        else bool(campaign_known)
+    )
     level = normalize_attribution_reliability(attribution_reliability)
     if level is None:
         level = resolve_conversion_reliability(
@@ -189,9 +212,7 @@ def milestone_attribution_properties(
         properties["graf_attribution_id"] = graf_attribution_id
     # Only the labels are untrusted here: the reliability level, the state and
     # the presence flag are produced by this module from a closed vocabulary.
-    assert_no_forbidden_fields(
-        {field: labels[field] for field in CAMPAIGN_LABEL_FIELDS}
-    )
+    assert_no_forbidden_fields({field: labels[field] for field in CAMPAIGN_LABEL_FIELDS})
     return properties
 
 
@@ -233,3 +254,209 @@ def is_first_value_eligible(
         useful_result_type=useful_result_type,
         imported_or_historical=imported_or_historical,
     ).eligible
+
+
+# These SQL primitives do not commit or send. The trusted ingress must perform
+# fresh legal/readiness checks, commit admission, then let maintenance deliver.
+async def admit_account_milestone(
+    db: AsyncSession,
+    event: ProductActivationEvent,
+    *,
+    account_id: UUID,
+    source_kind: str,
+    requested_providers: tuple[str, ...] = (),
+) -> tuple[ProductActivationMilestone, bool]:
+    """Atomically keep one immutable account decision and its fixed intents."""
+
+    if not isinstance(account_id, UUID):
+        raise ValueError("trusted account UUID required")
+    if event.event_name not in ACCOUNT_ACTIVATION_EVENTS:
+        raise ValueError("account milestone required")
+    if source_kind not in {"browser", "desktop", "server"}:
+        raise ValueError("trusted milestone source required")
+    if set(requested_providers) - {"posthog", "yandex"}:
+        raise ValueError("unknown milestone provider")
+    identity = build_safe_identity(user_source_id=str(account_id)).stable_pseudonymous_user_id
+    if event.stable_pseudonymous_user_id != identity:
+        raise ValueError("milestone identity does not match trusted account")
+    now = datetime.now(UTC)
+    if event.occurred_at.tzinfo is None or event.occurred_at > now:
+        raise ValueError("milestone occurrence time is not verified")
+    # Account close takes the same identity lock before purge. A delayed auth
+    # background task must not reinsert a first decision after that purge.
+    active_account = await db.scalar(
+        select(UserIdentity.id)
+        .where(
+            UserIdentity.id == account_id,
+            UserIdentity.status == "active",
+        )
+        .with_for_update(read=True)
+    )
+    if active_account is None:
+        raise ValueError("milestone account is not active")
+    # Revalidate at storage ingress; a dataclass constructed by a caller is not
+    # itself evidence that the catalog/forbidden-field boundary was passed.
+    payload = build_activation_event(
+        event.event_name,
+        stable_pseudonymous_user_id=identity,
+        occurred_at=event.occurred_at,
+        properties=event.properties,
+    ).as_payload()
+    if len(json.dumps(payload, ensure_ascii=False, allow_nan=False).encode()) > 16384:
+        raise ValueError("milestone payload exceeds 16 KiB")
+    event_id = uuid5(
+        UUID("2979ac36-e0b5-57cd-9355-8336fdf99b79"), f"{account_id}:{event.event_name}"
+    )
+    values = dict(
+        id=uuid4(),
+        account_id=account_id,
+        event_name=event.event_name,
+        event_id=event_id,
+        occurred_at=event.occurred_at,
+        accepted_at=now,
+        safe_payload=payload,
+        source_kind=source_kind,
+        updated_at=now,
+    )
+    for provider in ("posthog", "yandex"):
+        requested = provider in requested_providers
+        values[f"{provider}_state"] = "pending" if requested else "not_requested"
+        values[f"{provider}_reason"] = "accepted" if requested else "not_requested"
+    statement = (
+        insert(ProductActivationMilestone)
+        .values(**values)
+        .on_conflict_do_nothing()
+        .returning(ProductActivationMilestone)
+    )
+    row = (await db.execute(statement)).scalar_one_or_none()
+    if row is not None:
+        return row, True
+    row = await db.scalar(
+        select(ProductActivationMilestone).where(
+            ProductActivationMilestone.account_id == account_id,
+            ProductActivationMilestone.event_name == event.event_name,
+        )
+    )
+    if row is None:
+        raise RuntimeError("milestone decision unavailable")
+    return row, False
+
+
+def _provider_columns(provider: str):
+
+    if provider not in {"posthog", "yandex"}:
+        raise ValueError("unknown milestone provider")
+    return ProductActivationMilestone, getattr(ProductActivationMilestone, f"{provider}_state")
+
+
+async def claim_milestone_delivery(
+    db: AsyncSession,
+    *,
+    milestone_id: UUID,
+    provider: str,
+) -> ProductActivationMilestone | None:
+    """Claim once; the caller MUST commit before entering the transport."""
+
+    model, state = _provider_columns(provider)
+    now = datetime.now(UTC)
+    attempt_id = uuid4()
+    return (
+        await db.execute(
+            update(model)
+            .where(
+                model.id == milestone_id,
+                state.in_(("pending", "pre_send_retry")),
+            )
+            .values(
+                **{
+                    f"{provider}_state": "dispatching",
+                    f"{provider}_reason": "dispatch_started",
+                    f"{provider}_attempt_id": attempt_id,
+                    f"{provider}_attempted_at": now,
+                    "updated_at": now,
+                }
+            )
+            .returning(model)
+        )
+    ).scalar_one_or_none()
+
+
+async def finish_milestone_delivery(
+    db: AsyncSession,
+    *,
+    milestone_id: UUID,
+    provider: str,
+    attempt_id: UUID,
+    outcome: str,
+) -> bool:
+    """Only the current attempt can finish; uncertainty is never a retry."""
+
+    outcomes = {
+        "technical_pre_send": ("pre_send_retry", "technical_pre_send"),
+        "http_accepted": ("submitted", "http_accepted"),
+        "transport_ambiguous": ("ambiguous", "transport_ambiguous"),
+        "http_ambiguous": ("ambiguous", "http_ambiguous"),
+        "purpose_withdrawn": ("cancelled", "purpose_withdrawn"),
+        "payload_rejected": ("rejected", "payload_rejected"),
+    }
+    if outcome not in outcomes:
+        raise ValueError("unknown milestone outcome")
+    model, state = _provider_columns(provider)
+    next_state, reason = outcomes[outcome]
+    result = await db.execute(
+        update(model)
+        .where(
+            model.id == milestone_id,
+            state == "dispatching",
+            getattr(model, f"{provider}_attempt_id") == attempt_id,
+        )
+        .values(
+            **{
+                f"{provider}_state": next_state,
+                f"{provider}_reason": reason,
+                "updated_at": datetime.now(UTC),
+            }
+        )
+        .returning(model.id)
+    )
+    return result.scalar_one_or_none() is not None
+
+
+async def quarantine_milestone_deliveries(
+    db: AsyncSession,
+    *,
+    after_restore: bool = False,
+) -> int:
+    """Never resend an interrupted transport or an unconfirmed restored intent.
+
+    This does not reopen admission after restore: a missing post-backup row
+    cannot be detected here. Readiness stays closed until separate reconciliation.
+    """
+
+    total = 0
+    now = datetime.now(UTC)
+    for provider in ("posthog", "yandex"):
+        model, state = _provider_columns(provider)
+        condition = (
+            state.in_(("pending", "pre_send_retry", "dispatching", "submitted"))
+            if after_restore
+            else (
+                (state == "dispatching")
+                & (getattr(model, f"{provider}_attempted_at") < now - timedelta(seconds=60))
+            )
+        )
+        result = await db.execute(
+            update(model)
+            .where(condition)
+            .values(
+                **{
+                    f"{provider}_state": "ambiguous",
+                    f"{provider}_reason": "restore_quarantine"
+                    if after_restore
+                    else "interrupted_dispatch",
+                    "updated_at": now,
+                }
+            )
+        )
+        total += result.rowcount
+    return total

@@ -20,10 +20,104 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from twobrain_rec_server.db.base import Base
+
+ACTIVATION_MILESTONE_STATES = (
+    "not_requested",
+    "pending",
+    "pre_send_retry",
+    "dispatching",
+    "submitted",
+    "ambiguous",
+    "confirmed",
+    "cancelled",
+    "rejected",
+)
+ACTIVATION_MILESTONE_REASONS = (
+    "not_requested",
+    "accepted",
+    "technical_pre_send",
+    "dispatch_started",
+    "http_accepted",
+    "transport_ambiguous",
+    "http_ambiguous",
+    "interrupted_dispatch",
+    "readback_confirmed",
+    "purpose_withdrawn",
+    "basis_unavailable",
+    "provider_disabled",
+    "payload_rejected",
+    "restore_quarantine",
+)
+ACCOUNT_ACTIVATION_EVENTS = (
+    "desktop_account_connected",
+    "desktop_autorecord_enabled",
+    "first_recording_completed",
+    "first_result_viewed",
+    "first_value_session_completed",
+)
+
+
+class ProductActivationMilestone(Base):
+    """One durable first decision and two fixed delivery intents (F273/T113)."""
+
+    __tablename__ = "product_activation_milestones"
+    __table_args__ = (
+        UniqueConstraint("account_id", "event_name", name="uq_activation_account_event"),
+        CheckConstraint(f"event_name IN {ACCOUNT_ACTIVATION_EVENTS}", name="activation_event"),
+        CheckConstraint(
+            "source_kind IN ('browser', 'desktop', 'server')", name="activation_source"
+        ),
+        CheckConstraint(
+            "jsonb_typeof(safe_payload) = 'object' AND "
+            "octet_length(convert_to(safe_payload::text, 'UTF8')) <= 16384",
+            name="activation_payload_size",
+        ),
+        *(
+            CheckConstraint(
+                f"{provider}_state IN {ACTIVATION_MILESTONE_STATES}",
+                name=f"activation_{provider}_state",
+            )
+            for provider in ("posthog", "yandex")
+        ),
+        *(
+            CheckConstraint(
+                f"{provider}_reason IN {ACTIVATION_MILESTONE_REASONS}",
+                name=f"activation_{provider}_reason",
+            )
+            for provider in ("posthog", "yandex")
+        ),
+        Index("ix_activation_posthog_pending", "posthog_state", "accepted_at"),
+        Index("ix_activation_yandex_pending", "yandex_state", "accepted_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    account_id: Mapped[UUID] = mapped_column(
+        ForeignKey("user_identities.id", ondelete="CASCADE"), nullable=False
+    )
+    event_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_id: Mapped[UUID] = mapped_column(nullable=False, unique=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    safe_payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    source_kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    posthog_state: Mapped[str] = mapped_column(String(16), nullable=False, default="not_requested")
+    yandex_state: Mapped[str] = mapped_column(String(16), nullable=False, default="not_requested")
+    posthog_reason: Mapped[str] = mapped_column(String(80), nullable=False, default="not_requested")
+    yandex_reason: Mapped[str] = mapped_column(String(80), nullable=False, default="not_requested")
+    posthog_attempt_id: Mapped[UUID | None] = mapped_column()
+    yandex_attempt_id: Mapped[UUID | None] = mapped_column()
+    posthog_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    yandex_attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    posthog_confirmation_ref: Mapped[str | None] = mapped_column(String(120))
+    yandex_confirmation_ref: Mapped[str | None] = mapped_column(String(120))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
 
 class AnonymousPageAggregateBucket(Base):
@@ -88,7 +182,9 @@ class AnonymousPageAggregateBucket(Base):
     content: Mapped[str | None] = mapped_column(String(96))
     term: Mapped[str | None] = mapped_column(String(96))
     device_class: Mapped[str] = mapped_column(String(16), nullable=False, default="unknown")
-    region: Mapped[str] = mapped_column(String(7), nullable=False, default="unknown", server_default="unknown")
+    region: Mapped[str] = mapped_column(
+        String(7), nullable=False, default="unknown", server_default="unknown"
+    )
     referrer_category: Mapped[str] = mapped_column(String(32), nullable=False, default="unknown")
     traffic_class: Mapped[str] = mapped_column(String(16), nullable=False, default="external")
     visits: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

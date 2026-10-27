@@ -117,6 +117,17 @@ class ProviderLifecycleRecord:
 
 RETENTION_RULES: tuple[AnalyticsRetentionRule, ...] = (
     AnalyticsRetentionRule(
+        "activation_milestone_decisions",
+        None,
+        None,
+        "graf_controlled",
+        "delete account-first decisions on account/category deletion decision",
+        "Meeting deletion does not reset the account-first count; restore requires deletion replay.",
+        "graf_postgres",
+        "decision_required",
+        retention_mode="until_decision",
+    ),
+    AnalyticsRetentionRule(
         "attribution_bridge",
         None,
         None,

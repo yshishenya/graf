@@ -119,6 +119,57 @@ cookie, псевдоним из `product_analytics/identity.py`.
 `contracts/activation-milestones.md`; серверная дедупликация должна переживать
 перезапуск, несколько процессов, повтор и смену устройства одного аккаунта.
 
+### Устойчивое решение первой account-вехи — T113
+
+Хранилище: существующий GRAF PostgreSQL, `public.product_activation_milestones`.
+Это локальное принятие и очередь двух известных получателей; ClickHouse остаётся
+хранилищем внешнего события. Не используется новая система идентичности.
+
+| Поле | Правило |
+| --- | --- |
+| `id` | UUID строки, внутренний; не передаётся как личный идентификатор. |
+| `account_id` | FK user_identities.id, только trusted principal/server auth; уникальность с event_name. |
+| `event_name` | Пять account-вех существующего каталога; desktop_first_opened не входит. |
+| `event_id` | Детерминированный серверный непрозрачный ключ account+event, уникальный; общий для повторов и provider readback. |
+| `occurred_at`, `accepted_at` | UTC, серверное время принятия отдельно от проверенного времени триггера; будущее/неизвестное время не подменяет факт. |
+| `safe_payload` | Только разрешённые свойства существующего каталога, server pseudonym; максимум 16 KiB после JSON-кодирования. Без произвольного client JSON. |
+| `source_kind` | Внутренняя колонка browser/desktop/server из проверенного вызывающего пути, не client JSON и не внешнее свойство события. |
+| `posthog_state`, `yandex_state` | Фиксированный закрытый перечень из activation-milestones; по умолчанию not_requested. |
+| `posthog_attempt_id`, `yandex_attempt_id` | UUID права единственной текущей попытки; не auth credential. |
+| `posthog_attempted_at`, `yandex_attempted_at`, `updated_at` | UTC наблюдаемых переходов, без пользовательских путей. |
+| `posthog_reason`, `yandex_reason` | Код из закрытого перечня, максимум 80 символов; без exception text/response body. |
+| `posthog_confirmation_ref`, `yandex_confirmation_ref` | Непрозрачная ссылка на защищённое metadata-only readback, не произвольный URL. |
+
+Закрытый server enum reason: `not_requested`, `accepted`, `technical_pre_send`,
+`dispatch_started`, `http_accepted`, `transport_ambiguous`, `http_ambiguous`,
+`interrupted_dispatch`, `readback_confirmed`, `purpose_withdrawn`,
+`basis_unavailable`, `provider_disabled`, `payload_rejected`, `restore_quarantine`.
+Клиент не задаёт reason; неизвестный код отклоняется. Ответ/исключение не
+преобразуются в свободный текст этого поля.
+
+Unique(account_id,event_name) и условная смена состояния обеспечивают одно
+решение и одну попытку каждого получателя при конкурентных процессах. Решение и
+начальные delivery states фиксируются одной транзакцией. Не больше пяти строк
+на аккаунт и двух delivery intents на строку; UPDATE не меняет исходный payload.
+Нет неограниченного списка попыток/ответов и отдельного универсального outbox.
+
+Права: приложение не раскрывает таблицу публичным API; чтение/запись только
+для проверенного аккаунта, maintenance — существующий проверенный серверный
+контекст. Миграция не выдаёт новые внешние роли или обходы tenant-ограничений.
+Регистрация `activation_milestone_decisions`, until_decision, удаление,
+карантин restore и размер relation — по contracts/activation-milestones и
+operations. Удаление account/категории исполняется существующим защищённым
+lifecycle-путём: расширяется `legal_basis_lifecycle.py` (категория уровня2,
+DISPOSITION_DELETE, local statement) для полного category-case и
+`auth/account_closure.py:finalize_account_close` для точного account-case.
+Второй удаляет только строки `account_id=request.requested_by_user_id` в своей
+транзакции перед финализацией; подтверждённый case фиксирует owner/deadline/result.
+FK имеет ON DELETE CASCADE только как последнюю защиту физического удаления
+identity, но не заменяет account-case: существующий close сохраняет identity.
+Без проверки FK/порядка и повторного применения case после restore writer не включается. Удаление встречи не
+сбрасывает account-счёт. Исторические записи из ClickHouse не импортируются
+как доказанные первые вехи.
+
 ## Уровень 3 — измерение по согласию
 
 ### Состояние выбора посетителя
