@@ -1,10 +1,35 @@
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from twobrain_rec_server.workflows import maintenance_worker as worker
+
+
+@pytest.mark.asyncio
+async def test_activation_poll_sleeps_after_failure_and_disposes_on_cancel(monkeypatch):
+    engine = SimpleNamespace(dispose=AsyncMock())
+    monkeypatch.setattr(worker, "create_engine", lambda _: engine)
+    monkeypatch.setattr(worker, "create_sessionmaker", lambda _: "synthetic-sessions")
+    reconcile = AsyncMock(side_effect=ConnectionError("private detail must not be logged"))
+    monkeypatch.setattr(worker, "reconcile_activation_milestones_once", reconcile)
+    error = Mock()
+    monkeypatch.setattr(worker, "logger", SimpleNamespace(error=error))
+    delays = []
+    async def sleep(seconds):
+        delays.append(seconds)
+        raise asyncio.CancelledError
+    monkeypatch.setattr(worker.asyncio, "sleep", sleep)
+    await worker.run_activation_milestone_reconciler(SimpleNamespace(product_analytics_enabled=False))
+    reconcile.assert_not_awaited()
+    settings = SimpleNamespace(product_analytics_enabled=True)
+    with pytest.raises(asyncio.CancelledError):
+        await worker.run_activation_milestone_reconciler(settings)
+    reconcile.assert_awaited_once_with("synthetic-sessions", settings=settings)
+    assert delays == [60]
+    error.assert_called_once_with("activation delivery failed; error_type=%s", "ConnectionError")
+    engine.dispose.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -202,6 +202,19 @@ async def begin_account_close_finalization(
             title="Не удалось подтвердить закрываемый профиль",
         )
     identity.status = "closed"
+    # Close queued transports in the same commit as access, before async fanout.
+    # A late delivery finish cannot reopen a cancelled attempt.
+    for provider in ("posthog", "yandex"):
+        await db.execute(update(ProductActivationMilestone).where(
+            ProductActivationMilestone.account_id == identity.id,
+            getattr(ProductActivationMilestone, f"{provider}_state").in_(
+                ("pending", "pre_send_retry", "dispatching")
+            ),
+        ).values(**{
+            f"{provider}_state": "cancelled",
+            f"{provider}_reason": "purpose_withdrawn",
+            "updated_at": now_utc,
+        }))
     request.state = "finalizing"
     request.failure_reason = None
     request.metadata_json = {

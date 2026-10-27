@@ -4,10 +4,11 @@ import csv
 import hashlib
 import io
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
+from uuid import UUID
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.advertising_transfer import (
@@ -311,6 +312,7 @@ class YandexOfflineConversionExporter:
         event: ProductActivationEvent,
         *,
         visitor_consent: OptionalMeasurementConsent | None = None,
+        event_id: UUID | None = None,
     ) -> ProviderDeliveryResult:
         if not is_yandex_offline_event_allowed(event.event_name):
             return ProviderDeliveryResult("yandex_offline", "not_applicable", "Event is not in Yandex offline subset")
@@ -323,6 +325,10 @@ class YandexOfflineConversionExporter:
                 "Yandex counter and auth secret file are required before offline conversion upload",
             )
         row = build_yandex_offline_conversion(event)
+        if event_id is not None:
+            if not isinstance(event_id, UUID):
+                raise ValueError("server event UUID required")
+            row = replace(row, dedupe_key=str(event_id))
         if self.validation_mode == "provider_smoke":
             return ProviderDeliveryResult("yandex_offline", "dry_run", "Provider smoke mode does not upload conversions")
         if self.validation_mode != "live_safe":

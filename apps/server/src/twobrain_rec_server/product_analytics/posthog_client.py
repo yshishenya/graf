@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib import error, request
+from uuid import UUID
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.events import ProductActivationEvent
@@ -101,7 +102,7 @@ class PostHogClientWrapper:
             environ=environ,
         )
 
-    def capture(self, event: ProductActivationEvent) -> ProviderDeliveryResult:
+    def capture(self, event: ProductActivationEvent, *, event_id: UUID | None = None) -> ProviderDeliveryResult:
         if not self.enabled:
             return ProviderDeliveryResult("posthog", "disabled", "PostHog product analytics is disabled")
         if not event.stable_pseudonymous_user_id:
@@ -125,6 +126,7 @@ class PostHogClientWrapper:
             distinct_id=event.stable_pseudonymous_user_id,
             properties=properties,
             timestamp=event.occurred_at,
+            event_id=event_id,
         )
 
     def capture_event(
@@ -134,6 +136,7 @@ class PostHogClientWrapper:
         distinct_id: str,
         properties: Mapping[str, Any],
         timestamp: datetime | None = None,
+        event_id: UUID | None = None,
     ) -> ProviderDeliveryResult:
         if not self.enabled:
             return ProviderDeliveryResult("posthog", "disabled", "PostHog product analytics is disabled")
@@ -204,6 +207,10 @@ class PostHogClientWrapper:
             "timestamp": (timestamp or datetime.now(UTC)).isoformat(),
             "properties": dict(properties),
         }
+        if event_id is not None:
+            if not isinstance(event_id, UUID):
+                raise ValueError("server event UUID required")
+            body["uuid"] = str(event_id)
         try:
             response = self.transport(
                 f"{self.host}/capture/",
