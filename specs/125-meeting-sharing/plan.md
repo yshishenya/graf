@@ -170,6 +170,15 @@ only; they name the scope but never include meeting content.
 
 ### Viral and contact phases
 
+Новая F125 share-origin attribution T044/#4450 и её исполняемая приёмка
+T045/#4452 сняты с текущего плана как NOT_PLANNED по [решению spec](spec.md#решение-об-объёме-t044t045--2026-10-27).
+Оно задаёт условные ссылки всех артефактов, сохранённые защиты и возврат;
+этот план не ставит реализацию в автоматическую очередь. T042/T043 учитываются
+отдельно. F140 referral и F273 campaign/activation analytics не меняются.
+Полоса решения — Active Spec Kit slice, только документы: исходные задачи
+остаются `[ ]`, независимое ревью трёх checklist, анализ согласованности,
+три текущие PR-проверки точного SHA/основы; затем отдельный NOT_PLANNED closeout.
+
 Use metadata-only value-led CTA and explicit onboarding as a later gated phase.
 Do not add a new analytics dependency. Native Contacts picker T046/#4451 is
 cancelled for the early MVP: typed email and existing workspace/calendar hints
