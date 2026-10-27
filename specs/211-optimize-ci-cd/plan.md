@@ -278,7 +278,11 @@ helpers/policy beside its own file while Git still reads the primary checkout.
 The shared release PR-check subprocess runs with `cwd=root`, matching the
 script's other Git readers. Regressions cover old heads without these tools,
 real merged history, failure propagation and invocation from another directory.
-Post-merge acceptance must edit an older merged PR (#6991), as well as #6990.
+Post-merge acceptance must exercise a merged PR whose selected workflow contains
+the current text-reuse implementation. The historical #6991 edit executed its
+older YAML; restored historical checks do not prove the newer workflow. Preserve
+that result and record further historical closeout in issue comments without
+editing #6991 again, as required by the current release guidance.
 
 
 ## A9 implementation design
