@@ -17,15 +17,25 @@ Independent test: resolved locks, governance test, image package checks and ordi
 
 Проверка 27.10.2026: оба target собраны; 18 проверок TLS прошли, версии
 пакетов прочитаны из образов. Граница Linux/arm64 и открытая production-приёмка
-указаны в `validation-images-20261027.md`. T006/T007/T008 остаются открытыми.
+указаны в `validation-images-20261027.md`. На момент проверки образов
+T006/T007/T008 оставались открытыми; принятие исходного PR ниже относится
+к более поздней проверке.
 
 ## Phase 3: User Story 2 — Verified release (P1)
 
 Independent test: exact-SHA PR/CI/release decision and production receipt; no claims from a draft release.
 
-- [ ] T006 [US2] Add `changes/unreleased/F291.yaml`, run focused checks and convergence, open draft PR and require exact governance-fast/macos-pr/pr-metadata evidence before reviewed merge (FR-005/006).
+- [X] T006 [US2] Add `changes/unreleased/F291.yaml`, run focused checks and convergence, open draft PR and require exact governance-fast/macos-pr/pr-metadata evidence before reviewed merge (FR-005/006).
 - [ ] T007 [US2] Verify current release owner/range and backup permission/restore applicability; prepare candidate/train/full CI/decision and CD dry-run under existing `infra/scripts/` processes, keeping execute blocked on missing authority/evidence (FR-005/007/008).
 - [ ] T008 [US2] Execute authorized guarded server release only after gates; record image/package/TLS/health/smoke and repeated worker readiness plus rollback outcome in `docs/deployments/2brain-rec/` metadata-only receipt, preserving published macOS assets (FR-004/005/006/008; SC-001/002/003).
+
+## Принятие исходного PR — 27.10.2026
+
+T006 завершена: #7735 принят обычным rebase после всех обязательных проверок
+точного SHA и основы, общий валидатор повторно прошёл после слияния.
+Точные версии, запуски и границы: [validation-pr-20261027.md](validation-pr-20261027.md).
+T007/T008 и #7734 остаются открытыми до полного выпуска и фактической
+production-приёмки. Слияние исходников не является выпуском.
 
 ## Dependencies and implementation strategy
 
