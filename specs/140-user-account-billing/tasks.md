@@ -197,7 +197,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 ### Tests for User Story 8
 
 - [X] T061 [P] [US8] Add attribution, self-referral, duplicate, masked-identity and risk-signal tests in `apps/server/tests/unit/test_referrals.py`.
-- [X] T062 [P] [US8] Add monthly/yearly maturity, 14-day hold, 180-day rolling cap, contiguous credit, cancel-scheduled, and authoritative-observed-refund reversal tests in `apps/server/tests/integration/test_referral_rewards.py`. (Issue #4917).
+- [ ] T062 [P] [US8] Add monthly/yearly maturity, 14-day hold, 180-day rolling cap, contiguous credit, cancel-scheduled, and authoritative-observed-refund reversal tests in `apps/server/tests/integration/test_referral_rewards.py`. (Issue #4917).
 
 ### Implementation for User Story 8
 
@@ -217,12 +217,12 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 ### Tests for User Story 9
 
 - [X] T067 [P] [US9] Add notification outbox idempotency, preference bypass, delivery failure, masking, and safe-link tests in `apps/server/tests/unit/test_billing_notifications.py`.
-- [X] T068 [P] [US9] Add end-to-end event coverage for trial reminders, payment success/failure, storage thresholds, receipt state, referral credit, unknown and late outcomes in `apps/server/tests/integration/test_billing_notification_flow.py`. (Issue #4922).
+- [ ] T068 [P] [US9] Add end-to-end event coverage for trial reminders, payment success/failure, storage thresholds, receipt state, referral credit, unknown and late outcomes in `apps/server/tests/integration/test_billing_notification_flow.py`. (Issue #4922).
 
 ### Implementation for User Story 9
 
 - [X] T069 [US9] Implement billing notification event taxonomy, idempotent outbox records, Russian-first templates, and delivery state in `apps/server/src/twobrain_rec_server/billing/notifications.py`, `apps/server/src/twobrain_rec_server/billing/events.py`, and the existing Postal delivery worker.
-- [X] T070 [US9] Implement fair-use classification/review-deadline/appeal state with bounded reason and wire trial, payment, renewal, storage, receipt, referral, fair-use and account-close events to notifications without creating a refund correspondence event in `apps/server/src/twobrain_rec_server/billing/fair_use.py`, `apps/server/src/twobrain_rec_server/billing/events.py`, and `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py`. (Issue #4926).
+- [ ] T070 [US9] Implement fair-use classification/review-deadline/appeal state with bounded reason and wire trial, payment, renewal, storage, receipt, referral, fair-use and account-close events to notifications without creating a refund correspondence event in `apps/server/src/twobrain_rec_server/billing/fair_use.py`, `apps/server/src/twobrain_rec_server/billing/events.py`, and `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py`. (Issue #4926).
 - [X] T071 [US9] Add notification preferences, legal/financial override rules, safe deep links and accessible live-status rendering in `apps/server/src/twobrain_rec_server/cabinet/web_routes/settings.py`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/notifications.html`, and `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`.
 
 **Checkpoint**: Users receive useful next actions without GRAF receiving or storing support-email content or raw financial identifiers.
@@ -241,9 +241,9 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 ### Implementation for User Story 10
 
-- [X] T075 [US10] Implement provider polling, observed refund/receipt/method reconciliation, separate payments/refunds registry import, completeness hashes and metadata-only gap ownership in `apps/server/src/twobrain_rec_server/billing/reconciliation.py` and `apps/server/src/twobrain_rec_server/billing/registry.py`. (Issue #4930).
+- [ ] T075 [US10] Implement provider polling, observed refund/receipt/method reconciliation, separate payments/refunds registry import, completeness hashes and metadata-only gap ownership in `apps/server/src/twobrain_rec_server/billing/reconciliation.py` and `apps/server/src/twobrain_rec_server/billing/registry.py`. (Issue #4930).
 - [X] T076 [US10] Implement Temporal reconciliation, stuck-operation, storage projection, add-on/time-credit and notification maintenance workflows in `apps/server/src/twobrain_rec_server/workflows/billing_reconciliation_workflow.py` and `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py`.
-- [X] T077 [US10] Add operational metrics, dashboards, emergency stop and read-only launch diagnostics through existing observability patterns in `apps/server/src/twobrain_rec_server/billing/monitoring.py`, `apps/server/src/twobrain_rec_server/readiness/checks.py`, and `apps/server/src/twobrain_rec_server/admin/metrics.py`. (Issue #4932).
+- [ ] T077 [US10] Add operational metrics, dashboards, emergency stop and read-only launch diagnostics through existing observability patterns in `apps/server/src/twobrain_rec_server/billing/monitoring.py`, `apps/server/src/twobrain_rec_server/readiness/checks.py`, and `apps/server/src/twobrain_rec_server/admin/metrics.py`. (Issue #4932).
 - [ ] T078 [US10] Add test-shop and controlled real-shop canary runbooks, environment separation, provider capability evidence, legal/finance sign-off records, and rollback/stop procedure in `specs/140-user-account-billing/quickstart.md` and `docs/runbooks/billing-launch.md`.
 
 **Checkpoint**: Launch evidence proves immediate-Free behavior, unlimited paid core, finite storage, provider reconciliation and external merchant refund handling before public enablement.
@@ -314,3 +314,12 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 - No task may add an in-product refund form, claim/status/timeline, amount calculator, operator refund UI, refund CLI, or outbound refund mutation.
 - No task may introduce a second paid base tier, commercial paid-minute cap, renewal grace/retry path, or duplicate storage inventory.
 - Implementation changes require explicit user approval before commit, push, merge or production release.
+
+
+## Сверка отметок — 2026-10-27
+
+У T062/#4917, T068/#4922, T070/#4926, T075/#4930 и T077/#4932 сняты
+неподтверждённые отметки выполнения. Исходные требования, порядок и связи
+всех 87 задач сохранены; другие отметки не менялись. Причины и границы
+проверки: [quickstart](quickstart.md#сверка-пяти-открытых-задач--2026-10-27).
+Это исправление учёта, а не отмена задач или приёмка оставшейся реализации.
