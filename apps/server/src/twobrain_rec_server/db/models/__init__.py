@@ -141,6 +141,7 @@ from twobrain_rec_server.db.models.processing import (
 from twobrain_rec_server.db.models.product_analytics import (
     AnonymousPageAggregateBucket,
     ClientAcquisitionAttribute,
+    ProductActivationMilestone,
     PublicVisitAttribution,
 )
 from twobrain_rec_server.db.models.summary_autosend import (
@@ -286,5 +287,6 @@ __all__ = [
     "SupportIncidentRateLimitBucket",
     "AnonymousPageAggregateBucket",
     "ClientAcquisitionAttribute",
+    "ProductActivationMilestone",
     "PublicVisitAttribution",
 ]

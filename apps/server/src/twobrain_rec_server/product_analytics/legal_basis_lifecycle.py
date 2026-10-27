@@ -74,6 +74,7 @@ LEVEL_RETENTION_CATEGORIES: Mapping[str, tuple[str, ...]] = {
     ATTRIBUTION_PROFILES_LEVEL: (
         ATTRIBUTION_PROFILES_RETENTION_CATEGORY,
         "visit_attribution",
+        "activation_milestone_decisions",
     ),
     PROVIDER_ANALYTICS_LEVEL: (
         PROVIDER_ANALYTICS_RETENTION_CATEGORY,
@@ -120,6 +121,7 @@ CATEGORY_DISPOSITIONS: Mapping[str, str] = {
     ANONYMOUS_AGGREGATE_RETENTION_CATEGORY: DISPOSITION_DELETE,
     ATTRIBUTION_PROFILES_RETENTION_CATEGORY: DISPOSITION_ANONYMISE,
     "visit_attribution": DISPOSITION_DELETE,
+    "activation_milestone_decisions": DISPOSITION_DELETE,
     PROVIDER_ANALYTICS_RETENTION_CATEGORY: DISPOSITION_DELETE,
     "yandex_page_events": DISPOSITION_DELETE,
     "yandex_offline_conversions": DISPOSITION_DELETE,
@@ -612,6 +614,7 @@ async def apply_basis_loss_disposition(
     from twobrain_rec_server.db.models.product_analytics import (
         AnonymousPageAggregateBucket,
         ClientAcquisitionAttribute,
+        ProductActivationMilestone,
         PublicVisitAttribution,
     )
 
@@ -627,6 +630,8 @@ async def apply_basis_loss_disposition(
             statement = delete(AnonymousPageAggregateBucket)
         elif action.category == "visit_attribution":
             statement = delete(PublicVisitAttribution)
+        elif action.category == "activation_milestone_decisions":
+            statement = delete(ProductActivationMilestone)
         elif action.category == ATTRIBUTION_PROFILES_RETENTION_CATEGORY:
             statement = update(ClientAcquisitionAttribute).values(
                 source=None,

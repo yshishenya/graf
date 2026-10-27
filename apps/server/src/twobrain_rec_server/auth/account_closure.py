@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -14,6 +14,7 @@ from twobrain_rec_server.billing.storage import lock_storage_workspace
 from twobrain_rec_server.db.models import (
     AccountClosureRequest,
     AuthSession,
+    ProductActivationMilestone,
     RegisteredDevice,
     UserIdentity,
     Workspace,
@@ -415,11 +416,18 @@ async def finalize_account_close(
         )
         .values(status="inactive")
     )
+    activation_purge = await db.execute(
+        delete(ProductActivationMilestone).where(
+            ProductActivationMilestone.account_id == request.requested_by_user_id,
+        )
+    )
     request.state = "completed"
     request.finalized_at = now_utc
     request.metadata_json = {
         **(request.metadata_json or {}),
         "access_revoked_at": now_utc.isoformat(),
+        "activation_decisions_purged_at": now_utc.isoformat(),
+        "activation_decisions_purged_count": activation_purge.rowcount,
         "meeting_deletion_boundary": "delegated_to_deletion_reconciler",
     }
     await db.flush()
