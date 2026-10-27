@@ -173,7 +173,13 @@ headers, browser history/autocapture fixtures and audit JSON:
 
 ## Repository gate and release boundary
 
-Before PR/closeout for this high-risk feature:
+Исторические команды и результаты ниже сохранены для исходных поставок.
+Для текущего среза используйте явную полосу проверок из действующего
+`docs/agent-guidance/release-and-validation.md`; команда без `--fast`/`--full`
+больше не выбирает полосу автоматически. Текущая проверка T048 описана отдельно
+в конце этого файла.
+
+Команда из исходного плана, не текущая команда запуска:
 
 ```sh
 infra/scripts/ci-local.sh
@@ -356,3 +362,56 @@ attribution remain disabled.
 - The production browser navigation used for diagnosis timed out, so no live
   rendered screenshot or console-clean claim is made. This change is validated
   only with synthetic local fixtures until the release deploy gate is approved.
+
+## Проверка T048 — 2026-10-27
+
+Область: #4454, существующая T048, полоса `Active Spec Kit slice`.
+Изменены только тесты и доказательства: код продукта, схема, зависимости и
+настройки не меняются. Проверен действующий путь `summary-sharing.js` →
+`/summary-sharing/recipients` → `owner_meeting` → `search_share_recipients`,
+а также прежний `/share-recipients`, который использует тот же поиск.
+
+Из корня репозитория, в штатном изолированном PostgreSQL:
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused -q \
+  tests/unit/test_recording_workflow_access.py \
+  tests/unit/test_meeting_sharing.py \
+  tests/contract/test_recording_share_ui_contract.py \
+  tests/contract/test_recording_share_invitation_contract.py \
+  tests/contract/test_meeting_sharing_contract.py \
+  tests/contract/test_summary_sharing_runtime_contract.py \
+  tests/integration/test_meeting_share_links.py \
+  tests/integration/test_invitation_delivery_workflow.py \
+  tests/integration/test_summary_sharing.py \
+  tests/integration/test_summary_sharing_account_merge.py
+```
+
+Результат: **67 разных проверок PASS, 0 SKIP**; изолированный контейнер удалён
+штатным runner. Python и пакеты соответствуют текущему `uv.lock`.
+Браузерный тест использует существующий Playwright 1.63.0 и настоящий Jinja2
+fragment с `summary-sharing.js`; новые зависимости не добавлены.
+
+- В Chromium выбор подсказки и ввод неизвестного синтетического email
+  добавляют только локально выбранных получателей. Наблюдаются только загрузка
+  страницы и ожидаемые GET `/link`, `/auto-send`, `/recipients`; нет POST,
+  сторонних HTTP-запросов, обращения к Contacts, разрешениям или native bridge.
+- Настоящий API возвращает ровно разрешённую workspace identity; неизвестный
+  адрес даёт пустой результат. Пользователь без права отправки, другой tenant,
+  чужая встреча и удаляемая встреча получают общий отказ без списка людей.
+- До и после поиска совпадают строки таблиц встречи, identities, membership,
+  consent, provider links, календаря, grants, invitations, публикаций,
+  batches/deliveries, уведомлений и egress audit. Служебная запись ограничения
+  частоты поиска допускается. В проверке нет подключённого календарного
+  поставщика или разрешённого источника контактов.
+- Ловушки реальных HTTP-транспортов и Temporal запрещают скрытые provider
+  запросы и запуск доставки. Отрицательный контроль временно подставил вызов
+  поставщика контактов в оба маршрута и Contacts API в браузере: все три
+  проверки ожидаемо отказали; тестовые файлы восстановлены побайтно, затем
+  весь приведённый профиль прошёл. Продуктовые файлы при этом не менялись.
+
+Это приёмка только T048. Она не заменяет ручную матрицу всей F125, проверку
+работающего приложения, выпуск или production. T042–T047 остаются открытыми;
+Contacts/provider, referral и внешняя отправка этой проверкой не включаются.
+Перед слиянием нужны `governance-fast`, `macos-pr`, `pr-metadata` на точном
+SHA и проверенной основе, затем общий `scripts/validate-pr-checks.py`.

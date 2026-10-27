@@ -1,5 +1,30 @@
+import asyncio
+import subprocess
+import urllib.request
 from pathlib import Path
 
+import httpx
+import pytest
+import urllib3
+from jinja2 import Template
+from sqlalchemy import select
+from temporalio.client import Client
+
+from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.fixtures.cabinet import (
+    FOREIGN_DEVICE_ID,
+    FOREIGN_ORG_ID,
+    FOREIGN_USER_ID,
+    FOREIGN_WORKSPACE_ID,
+    _create_foreign_meeting,
+    create_ready_meeting,
+)
+from tests.fixtures.cabinet_access import (
+    SHARED_USER_ID,
+    add_workspace_user,
+    auth_headers_for,
+    set_meeting_deletion_state,
+)
 from twobrain_rec_server.db import models
 from twobrain_rec_server.db.base import Base
 from twobrain_rec_server.observability.logging import template_path
@@ -76,3 +101,106 @@ def test_share_security_persistence_is_tenant_bound_and_migration_backed() -> No
     assert 'revision: str = "0035_meeting_share_security"' in source
     assert "meeting_share_rate_limit_buckets_isolation" in source
     assert "continuation_nonce" in source
+
+
+@pytest.mark.parametrize("route,key", [
+    ("summary-sharing/recipients", "recipients"),
+    ("share-recipients", "items"),
+])
+def test_recipient_lookup_never_imports_contacts_or_grants_access(client, monkeypatch, route, key):
+    meeting_id = create_ready_meeting(client)
+    foreign_meeting_id = _create_foreign_meeting(client)
+    add_workspace_user(client, display_name="Synthetic Teammate")
+
+    async def seed():
+        async with client.app_state["sessionmaker"]() as db:
+            for user_id, email in [
+                (SHARED_USER_ID, "teammate@example.test"),
+                (FOREIGN_USER_ID, "teammate-foreign@example.test"),
+            ]:
+                db.add(models.ExternalIdentity(
+                    user_id=user_id, provider="synthetic", provider_subject=str(user_id),
+                    email=email, is_verified=True,
+                ))
+            await db.commit()
+
+    asyncio.run(seed())
+    # Compare rows, not only counts: a hidden refresh or consent update is also a defect.
+    # The intentional recipient-search rate-limit bucket is outside this snapshot.
+    table_names = {
+        "meetings", "user_identities", "external_identities", "workspace_memberships",
+        "workspace_provider_link_states", "workspace_consent_copy", "workspace_auth_policies",
+        "meeting_share_grants", "meeting_share_invitations", "meeting_egress_audit_events",
+        "published_meeting_summaries", "summary_delivery_batches", "summary_recipient_deliveries",
+        "external_calendars", "recording_calendar_context_links", "server_notifications",
+    } | {name for name in Base.metadata.tables if name.startswith("calendar_")}
+
+    async def snapshot():
+        async with client.app_state["sessionmaker"]() as db:
+            return {
+                name: (await db.execute(select(Base.metadata.tables[name]).order_by(
+                    *Base.metadata.tables[name].primary_key.columns
+                ))).all()
+                for name in sorted(table_names)
+            }
+
+    calls = []
+
+    def unexpected(*args, **kwargs):
+        calls.append("provider_or_delivery")
+        raise AssertionError("Recipient lookup must not call providers or start delivery")
+
+    async def unexpected_async(*args, **kwargs):
+        unexpected()
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", unexpected_async)
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", unexpected)
+    monkeypatch.setattr(urllib.request.OpenerDirector, "open", unexpected)
+    monkeypatch.setattr(urllib3.connectionpool.HTTPConnectionPool, "urlopen", unexpected)
+    monkeypatch.setattr(Client, "connect", unexpected_async)
+    monkeypatch.setattr(Client, "start_workflow", unexpected_async)
+
+    before = asyncio.run(snapshot())
+    assert before["calendar_sources"] == []  # No permission or provider connection.
+    url = f"/api/v1/cabinet/meetings/{meeting_id}/{route}"
+    found = client.get(url, headers=auth_headers(), params={"query": "teammate"})
+    assert found.status_code == 200, found.text
+    assert [row["user_id"] for row in found.json()[key]] == [str(SHARED_USER_ID)]
+    assert found.json()[key][0]["source"] == "workspace"
+    unknown = client.get(url, headers=auth_headers(), params={"query": "unknown@example.test"})
+    assert unknown.status_code == 200
+    assert unknown.json()[key] == []
+    foreign_headers = auth_headers_for(
+        user_id=FOREIGN_USER_ID, device_id=FOREIGN_DEVICE_ID,
+        workspace_id=FOREIGN_WORKSPACE_ID, organization_id=FOREIGN_ORG_ID,
+    )
+    for denied_url, headers in [
+        (url, auth_headers_for()),
+        (url, foreign_headers),
+        (f"/api/v1/cabinet/meetings/{foreign_meeting_id}/{route}", auth_headers()),
+    ]:
+        denied = client.get(denied_url, headers=headers, params={"query": "teammate"})
+        assert denied.status_code == 404, denied.text
+        assert denied.json()["code"] == "meeting_not_found"
+    assert asyncio.run(snapshot()) == before
+
+    set_meeting_deletion_state(client, meeting_id, "deleting")
+    before_deleting = asyncio.run(snapshot())
+    deleted = client.get(url, headers=auth_headers(), params={"query": "teammate"})
+    assert deleted.status_code == 404
+    assert deleted.json()["code"] == "meeting_not_found"
+    assert asyncio.run(snapshot()) == before_deleting
+    assert calls == []
+
+
+@pytest.mark.browser
+def test_browser_recipient_selection_never_requests_contacts_or_sends(tmp_path):
+    page = tmp_path / "share.html"
+    page.write_text(Template(FRAGMENT.read_text(encoding="utf-8")).render(
+        meeting_id="synthetic-meeting", share_workspace_id="synthetic-workspace",
+    ), encoding="utf-8")
+    script = Path(__file__).parents[1] / "browser/share-recipient-privacy.test.cjs"
+    result = subprocess.run(
+        ["node", str(script), str(page)], capture_output=True, text=True, timeout=90,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
