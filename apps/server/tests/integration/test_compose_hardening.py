@@ -134,11 +134,28 @@ def test_runtime_image_uses_configurable_exact_proxy_trust_without_cli_override(
 
 def test_nginx_sanitizes_forwarded_client_chain_before_loopback_proxy() -> None:
     nginx = NGINX_PATH.read_text()
+    http, rec, webhook = nginx.split("\nserver {")
 
-    assert "proxy_pass http://127.0.0.1:18081;" in nginx
-    assert "proxy_set_header X-Forwarded-For $remote_addr;" in nginx
+    assert "10444" not in rec
+    assert "listen 127.0.0.1:10445 ssl http2 proxy_protocol;" in rec
+    assert "listen [::1]:10445 ssl http2 proxy_protocol;" in rec
+    assert 'if ($proxy_protocol_addr = "") { return 400; }' in rec
+    assert 'if ($host != rec.2brain.pro) { return 421; }' in rec
+    # Check every actual API proxy location, including the private share route.
+    locations = rec.split("proxy_pass http://127.0.0.1:18081;")[1:]
+    assert len(locations) == 2
+    for location in locations:
+        directives = location.split("}", 1)[0]
+        assert "proxy_set_header X-Forwarded-For $proxy_protocol_addr;" in directives
+        assert "proxy_set_header X-Real-IP $proxy_protocol_addr;" in directives
+        assert "proxy_set_header X-Forwarded-Proto https;" in directives
     assert "proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;" not in nginx
-    assert "proxy_set_header X-Real-IP $remote_addr;" in nginx
+    assert "real_ip_header" not in nginx
+    assert "set_real_ip_from" not in nginx
+    assert "proxy_protocol" not in http
+    assert "listen 8443 ssl http2;" in webhook
+    assert "proxy_set_header X-Forwarded-For $remote_addr;" in webhook
+    assert "proxy_protocol" not in webhook
 
 
 def test_runtime_image_copy_sources_exist_in_repository() -> None:
