@@ -106,3 +106,65 @@ README теперь маршрутизирует к существующей п�
 Индекс/recovery сохраняют NOT_PLANNED и точные ссылки/хеши комментариев всех
 12 отмен с преемниками. Реализацию этих поправок проверяет независимый reviewer.
 T013/T019/T021, операторский переход и вся F230 остаются открытыми.
+
+## Итоговая проверка T019, 27.10.2026
+
+Проверен финальный чистый исходник принятого [PR #7658](https://github.com/yshishenya/graf/pull/7658):
+`845c01a4cf20d61ab807d7be3d10e50556173206`, checked base
+`52117d838ae291072efa41568b8e0d7411609486`, merge
+`1db11087aff983642c291984e534526bab577f21`. Это результат именно исходника
+F230, не нынешнего master или чужого PR. Дальнейшая запись этих фактов —
+docs-only/mechanical в существующей F230; процедура и требования не меняются.
+
+- На чистой рабочей копии выполнен исходно требуемый
+  `GRAF_CI_BASE_REF=52117d838ae291072efa41568b8e0d7411609486 infra/scripts/ci-local.sh --fast`:
+  PASS,2s; requested/start/end SHA одинаковы, requested/effective=fast,
+  components=docs, coverage=partial, next_gate=full_before_release,
+  skipped_gates пуст, final cleanliness PASS. Run ID
+  `ci-fast-845c01a4cf20-dcf5b111a431`,27.10.2026 15:37:12–15:37:15UTC.
+  Это локальный диагностический receipt, не разрешение выпуска.
+- Четыре файла quickstart повторены на том же чистом исходнике:
+  169PASS/15SKIP,12.42s; XML содержит184 уникальных случая, ошибок0.
+  Все15SKIP вызваны отсутствием pwsh: allocator2, identity-guidance13.
+  PowerShell не объявляется прошедшим; quickstart требует перечислить эти пропуски.
+- `claim-feature.py --self-test` и `validate-agent-context.py --self-test`: PASS.
+  Первоначальный вывод на845c сохранён в журнале сессии; по запросу reviewer
+  отдельно сохранён повторный вывод с exit0 на основе5dffd053. Git blobs обоих
+  исполняемых scripts совпали с845c; это отдельно обозначенная повторная
+  самопроверка, не новый clean-845c fast. Операторский файл:
+  `f230-self-tests-current.json`.
+  Process/context/changelog/governance, whitespace и документационная проверка
+  прошли в финальном fast; приложение, Docker и GitHub settings не менялись.
+- Свежий общий `validate-pr-checks.py --repository yshishenya/graf --pr 7658
+  --expected-sha 845c01a4cf20d61ab807d7be3d10e50556173206`: PASS.
+  Проверены реальные source/gate proofs и история слияния:
+  [governance-fast39222279366](https://github.com/yshishenya/graf/actions/runs/39222279366),
+  [macos-pr39222279342](https://github.com/yshishenya/graf/actions/runs/39222279342),
+  [pr-metadata39222278785](https://github.com/yshishenya/graf/actions/runs/39222278785),
+  attempt1 у всех; точные SHA/base совпали.
+
+Текущие spec/plan/tasks F230 до записи итога побайтно равны принятым в845c.
+Сама секция делегирования и пять сценариев US3 сохранены. Позднейшие изменения
+общего development-process находятся за её пределами: разрешения на коммит,
+конечные legacy exceptions и отдельная отмена NOT_PLANNED. Исторический тест
+не выдаётся за повторную приёмку всех последующих изменений проекта.
+
+Журналы/XML/receipt сохранены в операторском каталоге graf-repository-audit
+за27.10.2026. SHA-256:
+
+```text
+final-fast.json 8f5245ce9ac0219510818741c7ba8b76c6264b2dd73bafa2d40d40e08d9ddb8d
+final-fast.log 95f1863c41d341f36c55eb3f30432c95dda083949f1a35ff508e7855cceb75b0
+focused.xml c842d948a820da7bf100fcc85af6ead0351e5a1e42df8a7d7cb9d50f5647ddee
+common-validator.log 0fcf47652a88dfda156ce47e8405c10ddb82e9cbad25a2b3e472c495e3aef2b4
+self-tests.json 67328001496da519d4fb0cac7f58f799a4fef9f8d70ff5b30cf4c5bb821b46c2
+```
+
+Независимая сверка доказательств: PASS, замечаний 0; requirements 12/0,
+governance 18/0. Reviewer перечитал оба списка; флажки не менял. Внешний отчёт
+`f230-t019-independent-review.md`, SHA-256
+`1365e7b38b0884650767b8595f85922e906baeed1319d5bbafb7a36ec0f74303`.
+Только T019 отмечена выполненной. #6333 закрывается после принятия нового
+документального PR с собственными SHA/base checks и повторного live-валидатора.
+T013/#6327, T021/#7662 и общая #6314 сохраняют первоначальные открытые критерии;
+отсутствующие реальные manual/merge_group/cutover/rollback не приняты.

@@ -46,7 +46,7 @@ GET protection/rulesets/effective rules до/после; неизвестный 
 
 ## Phase 6: Final validation and convergence
 
-- [ ] T019 Выполнить `specs/230-process-enforcement/quickstart.md`, governance checks и `infra/scripts/ci-local.sh --fast` на финальном чистом exact SHA; проверить три required GitHub checks через `scripts/validate-pr-checks.py`; сохранить пределы и результаты в `specs/230-process-enforcement/validation/agent-delegation-20261016.md`. Dirty diagnostics, исходный base или чужой PR не заменяют финальные checks. (Issue #6333; umbrella #6314)
+- [X] T019 Выполнить `specs/230-process-enforcement/quickstart.md`, governance checks и `infra/scripts/ci-local.sh --fast` на финальном чистом exact SHA; проверить три required GitHub checks через `scripts/validate-pr-checks.py`; сохранить пределы и результаты в `specs/230-process-enforcement/validation/agent-delegation-20261016.md`. Dirty diagnostics, исходный base или чужой PR не заменяют финальные checks. (Issue #6333; umbrella #6314)
 - [X] T020 Выполнить speckit-converge всего `specs/230-process-enforcement/{spec.md,plan.md,tasks.md}`: новые пробелы добавлять только append-only в этот tasks.md; известные открытые T013/T019 не дублировать, operator-owned gates явно сохранить. (Issue #6334; umbrella #6314)
 
 ## Дополнения по повторной сверке 2026-10-19
