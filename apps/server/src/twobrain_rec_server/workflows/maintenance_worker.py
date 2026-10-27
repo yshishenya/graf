@@ -17,6 +17,7 @@ from twobrain_rec_server.calendar.worker import run_calendar_sync_reconciler
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
 from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+from twobrain_rec_server.product_analytics.router import reconcile_activation_milestones_once
 from twobrain_rec_server.workflows.billing_reconciliation_workflow import (
     BILLING_RECONCILIATION_ACTIVITY_NAME,
     BillingReconciliationWorkflow,
@@ -45,6 +46,7 @@ async def run_maintenance_worker() -> None:
     tasks = [
         asyncio.create_task(run_calendar_sync_reconciler(settings)),
         asyncio.create_task(run_billing_notification_reconciler(settings)),
+        asyncio.create_task(run_activation_milestone_reconciler(settings)),
         asyncio.create_task(_run_temporal_maintenance(settings)),
     ]
     try:
@@ -151,6 +153,22 @@ async def run_summary_sharing_reconciler(settings, temporal_client) -> None:
             except Exception as error:
                 logger.error("summary sharing recovery failed; error_type=%s", type(error).__name__)
             await asyncio.sleep(5)
+    finally:
+        await engine.dispose()
+
+
+async def run_activation_milestone_reconciler(settings: Settings) -> None:
+    if not getattr(settings, "product_analytics_enabled", False):
+        return
+    engine = create_engine(settings)
+    sessions = create_sessionmaker(engine)
+    try:
+        while True:
+            try:
+                await reconcile_activation_milestones_once(sessions, settings=settings)
+            except Exception as error:
+                logger.error("activation delivery failed; error_type=%s", type(error).__name__)
+            await asyncio.sleep(60)
     finally:
         await engine.dispose()
 

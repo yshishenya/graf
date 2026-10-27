@@ -4,10 +4,11 @@ import csv
 import hashlib
 import io
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
+from uuid import UUID
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.advertising_transfer import (
@@ -164,7 +165,7 @@ def _transfer_metadata(
     return metadata
 
 
-def yandex_offline_transfer_ref(event: ProductActivationEvent) -> str:
+def yandex_offline_transfer_ref(event: ProductActivationEvent, *, event_id: UUID | None = None) -> str:
     """The opaque reference of one transfer.
 
     It is the same value the provider receives as the purchase id, so a refused
@@ -172,6 +173,10 @@ def yandex_offline_transfer_ref(event: ProductActivationEvent) -> str:
     naming a visitor (FR-049).
     """
 
+    if event_id is not None:
+        if not isinstance(event_id, UUID):
+            raise ValueError("server event UUID required")
+        return "graf_yandex_dedupe_" + event_id.hex
     try:
         identity_kind, _ = _identity_source_for_event(event)
     except ValueError:
@@ -271,6 +276,7 @@ class YandexOfflineConversionExporter:
         event: ProductActivationEvent,
         *,
         visitor_consent: OptionalMeasurementConsent | None = None,
+        event_id: UUID | None = None,
     ) -> AdvertisingTransferDecision:
         """Ask the transfer gate about one event (FR-028, FR-029, FR-049).
 
@@ -302,7 +308,7 @@ class YandexOfflineConversionExporter:
             disclosure=self.visitor_disclosure,
             measurement_consent=consent,
             register=register,
-            transfer_ref=yandex_offline_transfer_ref(event),
+            transfer_ref=yandex_offline_transfer_ref(event, event_id=event_id),
             expected_disclosure_revision=self.disclosure_revision,
         )
 
@@ -311,6 +317,7 @@ class YandexOfflineConversionExporter:
         event: ProductActivationEvent,
         *,
         visitor_consent: OptionalMeasurementConsent | None = None,
+        event_id: UUID | None = None,
     ) -> ProviderDeliveryResult:
         if not is_yandex_offline_event_allowed(event.event_name):
             return ProviderDeliveryResult("yandex_offline", "not_applicable", "Event is not in Yandex offline subset")
@@ -323,6 +330,8 @@ class YandexOfflineConversionExporter:
                 "Yandex counter and auth secret file are required before offline conversion upload",
             )
         row = build_yandex_offline_conversion(event)
+        if event_id is not None:
+            row = replace(row, dedupe_key=yandex_offline_transfer_ref(event, event_id=event_id))
         if self.validation_mode == "provider_smoke":
             return ProviderDeliveryResult("yandex_offline", "dry_run", "Provider smoke mode does not upload conversions")
         if self.validation_mode != "live_safe":
@@ -335,7 +344,7 @@ class YandexOfflineConversionExporter:
         # FR-028/FR-049: no confirmed basis, no visitor disclosure or a revoked
         # recipient means no transfer at all, and no secret is read and no
         # request is built before that is settled.
-        decision = self.transfer_decision(event, visitor_consent=visitor_consent)
+        decision = self.transfer_decision(event, visitor_consent=visitor_consent, event_id=event_id)
         if not decision.allowed:
             return ProviderDeliveryResult(
                 "yandex_offline",

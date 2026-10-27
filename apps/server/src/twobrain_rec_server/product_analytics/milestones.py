@@ -23,7 +23,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4, uuid5
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -366,6 +366,12 @@ async def claim_milestone_delivery(
     """Claim once; the caller MUST commit before entering the transport."""
 
     model, state = _provider_columns(provider)
+    # One in-flight request per recipient across workers. The short transaction
+    # lock serializes claims; committed dispatching holds the slot during HTTP.
+    if not await db.scalar(select(func.pg_try_advisory_xact_lock(273, 1 if provider == "posthog" else 2))):
+        return None
+    if await db.scalar(select(select(model.id).where(state == "dispatching").exists())):
+        return None
     now = datetime.now(UTC)
     attempt_id = uuid4()
     return (
@@ -406,6 +412,8 @@ async def finish_milestone_delivery(
         "http_ambiguous": ("ambiguous", "http_ambiguous"),
         "purpose_withdrawn": ("cancelled", "purpose_withdrawn"),
         "payload_rejected": ("rejected", "payload_rejected"),
+        "basis_unavailable": ("pending", "basis_unavailable"),
+        "provider_disabled": ("pending", "provider_disabled"),
     }
     if outcome not in outcomes:
         raise ValueError("unknown milestone outcome")
@@ -434,6 +442,7 @@ async def quarantine_milestone_deliveries(
     db: AsyncSession,
     *,
     after_restore: bool = False,
+    milestone_ids: tuple[UUID, ...] | None = None,
 ) -> int:
     """Never resend an interrupted transport or an unconfirmed restored intent.
 
@@ -453,6 +462,8 @@ async def quarantine_milestone_deliveries(
                 & (getattr(model, f"{provider}_attempted_at") < now - timedelta(seconds=60))
             )
         )
+        if milestone_ids is not None:
+            condition &= model.id.in_(milestone_ids)
         result = await db.execute(
             update(model)
             .where(condition)
