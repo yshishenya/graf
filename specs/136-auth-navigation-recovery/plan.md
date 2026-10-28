@@ -99,6 +99,30 @@ server routes остаются неизменными. Тесты дополня
 оправдан двумя различающимися безопасностными режимами: первичный вход меняет
 сессию, а подключение провайдера из Settings не должно её сбрасывать.
 
+## Активный срез T004/T011/T012 — 2026-10-28
+
+Основа: `888ad9539c8bc21a9fe4c3935d6647e035272aa3`.
+Правила входа, приоритетов и сброса заданы таблицей продолжения в существующем
+`contracts/cabinet-navigation-lifecycle.md`. Один enum заменяет существующий
+Bool, без нового слоя навигации, серверных изменений и зависимостей.
+Тип продолжения учитывается в controller.navigationDidFinish и presentation
+coordinator; иначе промежуточный authProvider всё ещё менял бы сессию.
+Все callers finish/fail/cancel/response/redirect, attach/detach и нового окна
+сверяются с одной текущей identity. Существующий auth-cookie barrier сохраняется.
+
+До реализации: независимое ревью обоих чеклистов, актуальный analyze и сверка
+существующих #4731/#4738/#4739. Затем настоящий WebKit сначала проверяет POST
+start с промежуточным документом и redirect-only возвратом, оба без смены
+сессии и повторов. Отрицательные варианты: GET/чужой source/нет авторизации,
+ошибка/отмена/blocked, stale/detach, 401/reselection, root login/logout.
+Сохранить обычный вход, safe GET history, POST replay guards, desktop headers,
+download и billing. Профильные и полный XCTest из quickstart, независимое
+итоговое ревью и convergence обязательны; приёмка PR по новым exact-SHA/base
+checks. T016, вся F136 и выпуск не объявляются завершёнными этим срезом.
+
+Constitution re-check: PASS by design; native Record/Stop, доступ, cookies,
+секреты, серверные протоколы и единственный GRAF Dev не меняются.
+
 ## Возобновлённый срез T005/T006/T010 — 2026-10-17
 
 1. Исторические документы восстановлены из защищённого Git ref; старые отметки

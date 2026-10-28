@@ -6,6 +6,17 @@
 **Risk / Validation Lane**: High-risk feature — auth, sessions, WebKit history
 and user-visible native navigation.
 
+## Активный срез 2026-10-28
+
+T004/#4731, T011/#4738 и T012/#4739 продолжают существующий контракт
+OAuth continuation. Приёмка включает таблицу переходов из
+`contracts/cabinet-navigation-lifecycle.md`, настоящий WebKit RED/GREEN,
+профильные и полный XCTest из quickstart, независимые требования/итоговое
+ревью, convergence и три новые exact-SHA/base проверки PR. Отметки T004/T011/T012
+отмечаются выполненными после локальной проверки и независимого ревью;
+GitHub issues остаются открытыми до принятия PR и live closeout. T016/#4743 остаётся отдельной ручной
+приёмкой; старые результаты и прежний срез ниже сохранены как история.
+
 ## Статус восстановления 2026-10-17
 
 Исторические IDs и завершённые отметки сохранены из архива; `[X]` ниже, кроме
@@ -28,7 +39,7 @@ T010 #4737, T011 #4738, T012 #4739, T016 #4743. Их отметки восста
 сессии, от которых зависят все пользовательские сценарии.
 
 - [X] T003 Implement stable-document and transient-request predicates, including root-only login/signup replay safety, in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`.
-- [ ] T004 Implement a minimal primary-sign-in versus authenticated-provider-link continuation state and keep external origins blocked outside those continuations in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`.
+- [X] T004 Implement a minimal primary-sign-in versus authenticated-provider-link continuation state and keep external origins blocked outside those continuations in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`. (Issue #4731)
 - [X] T005 Replace per-POST history fencing with a deferred, committed session-boundary transition in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`. (Issue #4732)
 - [X] T006 Update the shared regression matrix for the predicates and session transition ordering in `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`. (Issue #4733)
 
@@ -74,8 +85,8 @@ current session and only commit their stable result page.
 continuation can use OAuth without a session reset, while arbitrary external
 links remain blocked and Settings POST never becomes a declarative GET.
 
-- [ ] T011 [US3] Apply the continuation and transient-route rules to provider-link and Settings action paths in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`.
-- [ ] T012 [US3] Add provider-link and Settings POST regression coverage in `apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift` and `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`.
+- [X] T011 [US3] Apply the continuation and transient-route rules to provider-link and Settings action paths in `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`. (Issue #4738)
+- [X] T012 [US3] Add provider-link and Settings POST regression coverage in `apps/macos/Shared/Tests/DesktopCabinetRoutePolicyTests.swift` and `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`. (Issue #4739)
 
 **Checkpoint**: Authenticated provider linking works inside the allowed boundary
 without opening arbitrary external content or losing the active session.
@@ -199,3 +210,22 @@ pr-metadata39629315138 — PASS. Три новых замечания ревью
 с доказательствами и разрешены. T017 завершена для T005/T006/T010/T018/T019/T020;
 исходные отказы и пропуски сохранены. OAuth T004/T011/T012 и ручная T016
 остаются [ ]; вся F136, выпуск, установка и production не завершены.
+
+
+## Локальный итог T004/T011/T012 — 28.10.2026
+
+T004/#4731, T011/#4738 и T012/#4739 реализованы и проверены локально.
+Независимое итоговое ревью APPROVE, замечаний/блокеров0:
+[review-provider-link-final-20261028.md](review-provider-link-final-20261028.md).
+Основной агент сверил все40 контрольных сумм входов отчёта и тождество внешней
+копии. Требования: requirements16 checked/0 unchecked, auth-navigation20/0.
+Окончательные106 профильных PASS; полный XCTest1296 различных:1287PASS/9SKIP/0FAIL;
+ContractValidation PASS. Девять пропусков не считаются ручной приёмкой.
+Convergence не выявила новых обязательных задач; её прежний неизменный снимок
+tasks.md сохранён в отчёте, отметки реализации добавлены после ревью.
+
+Статус: implementation ready; tracker pending. Три новые обязательные проверки
+GitHub точного PR SHA/основы, принятие PR и отдельный live closeout каждой issue
+ещё ожидаются. Слияние удерживается по согласованному окну серверного выпуска.
+T016/#4743 остаётся [ ]; вся F136, реальный внешний OAuth, установленный GRAF Dev,
+выпуск и production не объявляются принятыми. Отметки [X] не заменяют эти этапы.

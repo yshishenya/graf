@@ -30,12 +30,34 @@ provider protocols are unchanged.
 
 ## Observable behavior
 
+### Продолжение OAuth, T004/T011/T012 — 2026-10-28
+
+Разрешение действует только в текущем присоединённом WebView. Оно выбирается
+до отправки одобренного main-frame действия и передаётся общим controller и
+coordinator при обработке настоящего завершения документа.
+
+| Событие | Продолжение и обязательный результат |
+|---|---|
+| POST на точный same-origin `/desktop/settings/provider-links/{provider}/start` из текущего завершённого авторизованного Settings | `providerLink`; начальный и исходный документы принадлежат тому же origin, source/target — main frame; путь без кодирования разделителей, query и fragment; provider принят действующей route policy. |
+| Начало существующего входа из login/signup | `primarySignIn`; не смешивается с подключением провайдера. |
+| Внешний HTTPS или callback в текущем продолжении | Сохраняет выбранный тип; документ transient, не становится route/Reload/history target. `providerLink` не устанавливает sessionExpired и не создаёт boundary. |
+| Возврат на стабильный защищённый документ | Сначала route/request identity и presentation; `primarySignIn` применяет новую границу, `providerLink` сохраняет прежнюю. Затем разрешение внешнего OAuth снимается. |
+| Корневой login/signup, включая logout | Приоритет обычной auth-границы над `providerLink`; прежняя защищённая история недоступна. |
+| 401 или workspace reselection | Немедленная блокировка прежней истории, сброс продолжения; providerLink не маскирует потерю сессии. |
+| Текущая отмена/ошибка/запрещённый переход, замена самостоятельной навигацией вне цепочки, detach или завершение процесса WebKit | Сброс продолжения без повторного POST; восстановление только по существующим safe-document guards. Redirect и внутреннее добавление headers не считаются самостоятельной заменой. |
+| Устаревший callback прежней навигации | Не меняет ни новое продолжение, ни границу, ни документ. |
+
+Прямой GET к start, запрос из неподтверждённого/чужого документа и callback
+без текущего продолжения не открывают доступ к внешнему провайдеру.
+Платёжная цепочка и скачивания сохраняют собственные существующие ограничения;
+они не получают auth-разрешение. Сервер проверяет подлинность привязки как прежде.
+
 - Reload and Forward are disabled whenever their target is transient or belongs
   to a prior protected session.
 - Back may jump over transient entries to the nearest permitted stable entry.
 - No diagnostic event includes credential, code, cookie or meeting-content data.
 
-## Уточнение текущего среза 2026-10-17
+## Уточнение среза 2026-10-17 (история)
 
 Обычный POST настроек с 200, ошибкой или отменой не означает смену сессии.
 Не повторять POST как GET; отложенная успешная граница применяется только

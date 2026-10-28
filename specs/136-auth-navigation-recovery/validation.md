@@ -647,3 +647,126 @@ mechanical в составе существующей F136. #4732 закрыва
 принятия этой записи, подробного комментария и повторной live-проверки.
 OAuth T004/T011/T012, установленная ручная T016, вся F136, подписание, выпуск
 и production остаются вне завершённого объёма. GRAF Dev не заменялся.
+
+
+## T004/T011/T012: подключение провайдера — 28.10.2026
+
+Полоса: high-risk-product. Основа разработки:
+`888ad9539c8bc21a9fe4c3935d6647e035272aa3`.
+Ветка `codex/136-provider-link-continuation`; существующие #4731/#4738/#4739.
+T016/#4743 — отдельная ручная приёмка. Архивные результаты выше сохранены.
+
+### Причина и минимальное исправление
+
+Общий Bool смешивал первичный вход с подключением провайдера из авторизованных
+Settings. Настоящий промежуточный authProvider didFinish переводил shell в
+expiredSession. Он заменён enum none/primarySignIn/providerLink в существующем
+Coordinator. Начало providerLink допускает только точный same-origin main-frame
+POST из текущего завершённого авторизованного Settings; источник равен документу,
+URL без query/fragment/кодирования разделителей/двойного или завершающего слеша.
+Continuation применяется после принятого отложенного dispatch, сохраняет ready,
+sessionBoundaryID, route/request identity и снимается после стабильного результата.
+Root login/logout,401 и reselection сохраняют настоящую границу сессии.
+
+Все callers finish/fail/cancel, response, redirects, downloads, новое окно и
+detach проверены. Текущая отмена/ошибка/blocked/openExternally/termination и
+resource/download terminal снимают continuation. Старый response cancel сначала
+должен принадлежать текущей ожидающей/активной навигации; idle response не может
+сбросить завершённое новое продолжение даже при том же URL. Общий документный
+finish/download fallback не ослаблен. Новый слой, зависимость и серверный обход
+не добавлены. Native Record/Stop, хранение cookies и auth-cookie barrier сохранены.
+
+### Команды и результаты
+
+Журналы находятся во внешнем реестре `graf-repository-audit` за 27–28.10.2026.
+Существующий loopback fixture расширен без реальных аккаунтов/секретов.
+Команды из quickstart, scratch `/private/tmp/graf-f136-provider-link-build`:
+
+```sh
+swift test --package-path apps/macos --scratch-path /private/tmp/graf-f136-provider-link-build --filter 'DesktopCabinetWorkspaceTests|DesktopCabinetRoutePolicyTests'
+swift test --package-path apps/macos --scratch-path /private/tmp/graf-f136-provider-link-build
+swift run --package-path apps/macos --scratch-path /private/tmp/graf-f136-provider-link-build ContractValidation
+```
+
+| Журнал | Результат и смысл |
+| --- | --- |
+| f136-provider-link-baseline-tests-20261028.log | исходные93 PASS |
+| f136-provider-link-red-20261028.log | исходный отказ intermediate: expiredSession вместо ready; причина подтверждена |
+| f136-provider-link-green-20261028.log |2 PASS после исходного исправления |
+| f136-provider-link-focused-20261028.log |97 PASS |
+| f136-provider-link-expanded-20261028.log |4 теста/1 отказ: двойной слеш ошибочно принят промежуточным predicate |
+| f136-provider-link-policy-20261028.log |7 PASS после запрета двойного слеша |
+| f136-provider-link-focused-latest-20261028.log |100 PASS |
+| f136-provider-link-stale-response-red-runtime-20261028.log | настоящий сохранённый response другого URL:1 тест,2 assertion failures,0 unexpected |
+| f136-provider-link-stale-response-green-20261028.log |104 PASS после проверки текущего response |
+| f136-provider-link-full-20261028.log |1295 selected:1286 PASS/9 SKIP/0 FAIL до последнего same-URL guard |
+| f136-provider-link-stale-same-url-red-20261028.log | повторное явное действие на том же URL, затем старый response:1 тест,2 assertion failures,0 unexpected |
+| f136-provider-link-stale-same-url-green-20261028.log | окончательные106 PASS/0 SKIP/0 FAIL:83 Workspace+23 RoutePolicy |
+| f136-provider-link-full-final-20261028.log | окончательные1296 selected:1287 PASS/9 SKIP/0 FAIL,169.782s |
+| f136-provider-link-contracts-final-20261028.log | ContractValidation PASS, exit0 |
+
+13 новых providerLink tests. Наборы пересекаются и не суммируются.
+Redirect-only на исходном коде уже PASS и не считается RED.
+9 SKIP:7 проверок фокуса обычного AppKit окна,2 необязательных image-export
+без настроенных каталогов. Это не успешная ручная приёмка доступности.
+
+Неуспешные промежуточные тестовые заготовки сохранены отдельно:
+`f136-provider-link-green-first-20261028.log` — переполненное expectation
+после дополнительного результата; исправлен счётчик заготовки.
+`f136-provider-link-boundary-20261028.log` —10 тестов/6 assertions из-за
+синтетического remount Settings200 после401/reselection; исправлена тестовая
+auth truth, продуктовые защиты не ослаблены.
+`f136-provider-link-stale-response-red-20261028.log` дополнительно содержал
+unwaited expectation, `...-red-isolated-20261028.log` — compile error optional
+expectation. После исправления заготовки отдельный `...-red-runtime-...`
+подтвердил продуктовый отказ; ошибки заготовки не названы runtime proof.
+
+ProviderPolicyProbe передаёт настоящие WK actions/response Coordinator и
+наблюдает его решение. Для provider.invalid WebKit получает cancel, чтобы
+не обращаться к внешнему сервису: это проверка policy, не настоящий OAuth.
+Старый сохранённый настоящий response передаётся явно после завершения новой
+навигации. Для same-URL первый POST503, второй POST200, два явных действия,
+GET start=0. Проверен контролируемый порядок callbacks; естественная сетевая
+гонка не заявляется. Для одновременно активных навигаций одного URL публичный
+WKNavigationResponse не несёт WKNavigation identity; отдельный недоказанный
+механизм поколений не вводился.
+
+### Analyze, convergence и независимая приёмка
+
+Analyze:9 FR/4 SC/20 уникальных tasks,100% coverage,CRITICAL0/HIGH0/MEDIUM0,
+новых вопросов уточнения0. Независимые reviewer-owned checklists: requirements
+16 checked/0 unchecked, auth-navigation20/0; итоговый review оформляется после
+сверки окончательных журналов/документов. Основной агент не отмечал их пункты.
+
+Convergence:9 FR,4 SC,7 AC,8 переходов контракта,7 решений плана,7 принципов
+конституции сопоставлены с текущим controller/coordinator/policy/Workspace и
+настоящими WebKit тестами. Новых обязательных задач/дублей0; tasks.md оставлен
+побайтно неизменным во время convergence. Полная F136 не завершена: реальный
+OAuth/установленная ручная матрица остаётся в T016/#4743. Hooks converge отсутствуют.
+
+Окончательные SHA-256:
+- EmbeddedCabinetWebView.swift: `4d1d05138a4a29d1bcc01353f33e2fb36d7c00dcaf7cd3a6b5d669920005dd2e`.
+- DesktopCabinetWorkspaceTests.swift: `ea878feea392f0bdc3c24174c9cef2d1641b9338c943af731f19170194699df2`.
+
+Новые GitHub governance-fast/macos-pr/pr-metadata точного PR SHA и основы,
+обычное слияние и отдельные live closeout проверки ещё ожидаются. GRAF Dev,
+production, release-full/CD, выпуск и настоящие внешние провайдеры не менялись.
+
+
+### Итог независимого ревью и отметки реализации — 28.10.2026
+
+[review-provider-link-final-20261028.md](review-provider-link-final-20261028.md):
+APPROVE ограниченного локального среза T004/T011/T012, открытых замечаний0.
+Основной агент перечитал отчёт и оба checklist; все40 контрольных сумм входов
+совпали с фактическими файлами, репозиторная и внешняя копии отчёта тождественны
+(SHA-256 `3b9c67f2364105802ad727a58c82306c629d6a69dbd86ca68f2ec0b9e0086d63`).
+Текущие source/tests сохранили окончательные SHA-256 выше. В tasks.md после
+решения отмечены T004/T011/T012 и добавлены их существующие Issue #4731/#4738/#4739.
+Хеш tasks.md в reviewer report намеренно относится к снимку до этих отметок.
+
+106 профильных PASS, полный1296=1287PASS/9SKIP/0FAIL и ContractValidation PASS
+остаются доказательствами тех же байтов кода; текстовые отметки тесты не меняют.
+Статус implementation ready; tracker pending. Новые exact-SHA/base GitHub gates,
+обычное принятие PR после освобождения согласованного окна и индивидуальные
+live closeout ещё ожидаются. T016/#4743, вся F136, внешний OAuth, GRAF Dev,
+выпуск и production не завершены.
