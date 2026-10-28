@@ -114,3 +114,14 @@ Zoom и одну ссылку протокола на `/meetings`, штатны�
 [Доказательства и оставшиеся ограничения](tracker-reconciliation-20261028.md).
 Общая #7391 остается открытой: обязательна сверка владельцев исторических
 задач; отдельно подтверждено переполнение `/guides` при увеличении текста.
+
+## Перенос увеличенного текста — FR034
+
+- [X] T022 Сначала воспроизвести переполнение настоящих public templates в `apps/server/tests/browser/public-audio-help.test.cjs`, сохранить обнаружение в вызывающем `apps/server/tests/contract/test_public_audio_help.py`, затем исправить перенос в `apps/server/src/twobrain_rec_server/public/static/public/content.css`; пройти70 сочетаний FR034, прежние keyboard/no-JS/reduced-motion и focused contracts, независимый checklist, convergence и exact-SHA/base PR gates. (Issue #7796)
+- [ ] T023 После T022 включить исправление в согласованный штатный выпуск и подтвердить FR034 на публичных7 страницах; записать candidate/Full/CD и live70 в `specs/281-mac-meeting-guide/text-reflow-validation-20261028.md`. До публикации оставить задачу открытой. (Issue #7797)
+
+Отметка T022 фиксирует локальную реализацию и проверку28.10: исходный отказ
+471px воспроизведён, CSS-перенос проходит70 сочетаний, все20 профильных
+контрактов PASS. [Отчёт и границы](text-reflow-validation-20261028.md).
+Принятие PR и закрытие #7796 требуют новых exact-SHA/base GitHub checks
+и общего валидатора; локальная отметка их не заменяет. T023 не выполнена.

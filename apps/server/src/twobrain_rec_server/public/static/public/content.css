@@ -1,4 +1,5 @@
 .guides-header{position:relative;border-bottom:1px solid var(--night-line)}
+.guides-intro,.guide-card{overflow-wrap:break-word}
 .guides-intro{padding:76px 0 80px;background:radial-gradient(ellipse at 90% 0,rgba(140,92,255,.13),transparent 55%),var(--night)}
 .guides-intro h1{max-width:1000px;margin:0;font-size:clamp(40px,6vw,76px);font-weight:590;letter-spacing:-.055em;line-height:1.07}
 .guides-lead{max-width:710px;margin:28px 0 0;color:#b6bac5;font-size:20px;line-height:1.65}
