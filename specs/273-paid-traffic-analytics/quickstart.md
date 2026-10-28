@@ -372,3 +372,16 @@ apps/server/.venv/bin/python -m pytest -q apps/server/tests/contract/test_produc
    считаются трафиком. T112 принимает только реальный видимый результат
    владельца и серверную lineage; GET/prefetch/браузерная загрузка не доказывают
    desktop_first_recording. Не включать production по учебному PASS.
+
+### Первый срез безопасной репетиции T113 — 28.10.2026
+
+`apps/server/.venv/bin/python -m pytest -q apps/server/tests/integration/test_deployment_restore_safety.py apps/server/tests/integration/test_deployment_backup_restore_rehearsal.py`
+
+Настоящие shell-команды исполняются с подставными Docker/MinIO и учебными
+файлами. Проверить конфликт create-only БД/bucket без удаления чужой цели,
+ошибку restore/mirror/drop/readback, отсутствие общего контейнерного дампа,
+закрытый временный журнал и его очистку до PASS. Параллельная репетиция
+отклоняется общей deployment-блокировкой. Автоматический выбор исключает
+nginx-edge, ссылки и неполные комплекты; нестандартное имя полного комплекта
+допустимо только явным reference. Ни этот профиль, ни обычный pg_restore
+не принимают полную сверку schema/roles/RLS/ledger/deletions первого периода.
