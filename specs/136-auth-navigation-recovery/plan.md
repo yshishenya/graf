@@ -99,6 +99,30 @@ server routes остаются неизменными. Тесты дополня
 оправдан двумя различающимися безопасностными режимами: первичный вход меняет
 сессию, а подключение провайдера из Settings не должно её сбрасывать.
 
+## Активный срез T004/T011/T012 — 2026-10-28
+
+Основа: `888ad9539c8bc21a9fe4c3935d6647e035272aa3`.
+Правила входа, приоритетов и сброса заданы таблицей продолжения в существующем
+`contracts/cabinet-navigation-lifecycle.md`. Один enum заменяет существующий
+Bool, без нового слоя навигации, серверных изменений и зависимостей.
+Тип продолжения учитывается в controller.navigationDidFinish и presentation
+coordinator; иначе промежуточный authProvider всё ещё менял бы сессию.
+Все callers finish/fail/cancel/response/redirect, attach/detach и нового окна
+сверяются с одной текущей identity. Существующий auth-cookie barrier сохраняется.
+
+До реализации: независимое ревью обоих чеклистов, актуальный analyze и сверка
+существующих #4731/#4738/#4739. Затем настоящий WebKit сначала проверяет POST
+start с промежуточным документом и redirect-only возвратом, оба без смены
+сессии и повторов. Отрицательные варианты: GET/чужой source/нет авторизации,
+ошибка/отмена/blocked, stale/detach, 401/reselection, root login/logout.
+Сохранить обычный вход, safe GET history, POST replay guards, desktop headers,
+download и billing. Профильные и полный XCTest из quickstart, независимое
+итоговое ревью и convergence обязательны; приёмка PR по новым exact-SHA/base
+checks. T016, вся F136 и выпуск не объявляются завершёнными этим срезом.
+
+Constitution re-check: PASS by design; native Record/Stop, доступ, cookies,
+секреты, серверные протоколы и единственный GRAF Dev не меняются.
+
 ## Возобновлённый срез T005/T006/T010 — 2026-10-17
 
 1. Исторические документы восстановлены из защищённого Git ref; старые отметки
@@ -287,3 +311,27 @@ T020 включает предварительный GET с завершённо
 Настоящий Workspace должен подтвердить один GET B, прежние DOM/currentItem/view,
 route/identity A после reconciliation и Reload A без повторного B/POST.
 Сначала проба на текущей логике, затем минимальное исправление только при RED.
+
+
+## Исправление порядка synthetic stale-callback пробы — 28.10.2026
+
+Hosted macos-pr40609780164 на63272ac68dd3dda584d019c173fca39f4b0fa7c3
+завершился FAIL:1296 тестов,1293PASS/1FAIL/2SKIP; у одного нового теста
+две assertions pending/currentItem. Локальный PASS не снимает этот отказ.
+Текущий fixture сигнализирует submitted до немедленной отправки ответа:
+ожидание получения POST не гарантирует, что новый документ ещё не committed.
+Это установленный пробел синхронизации; причинность hosted порядка проверяется
+отдельной управляемой пробой и не выводится только из текста журнала.
+
+В рамках существующей T012/CHK018/019, без нового продуктового требования:
+сначала позволить настоящему POST завершиться до stale injection и записать
+состояние до него. Затем только для providerLink+probeStaleCallbacks удержать
+подготовленный ответ в существующем SessionBoundaryRequests до submitted;
+проверить pending/currentItem/boundary до и после прежних stale callbacks,
+явно отпустить ответ и пройти прежние terminal/external-policy assertions.
+Не убирать assertions, не добавлять retry/sleep/skip вместо серверного барьера.
+Сохраняется настоящий WebKit и один POST; продуктовый source не меняется.
+До кода — независимый допуск обоих checklist; после — направленная проба,
+профильные и полный XCTest quickstart, независимое итоговое ревью/converge,
+новые exact-SHA/base GitHub checks. T016 и live closeout остаются открытыми.
+Полоса active Spec Kit F136; constitution/product/security gates неизменны.

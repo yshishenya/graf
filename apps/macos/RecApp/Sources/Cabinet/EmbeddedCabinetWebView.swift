@@ -496,7 +496,8 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         webView: WKWebView,
         navigation: WKNavigation? = nil,
         expectedURL: URL? = nil,
-        confirmsDocument: Bool = false
+        confirmsDocument: Bool = false,
+        preservingProviderLink: Bool = false
     ) -> Bool {
         guard self.webView === webView, isCurrentNavigation(navigation, expectedURL: expectedURL) else { return false }
         // Download/resource terminals retire navigation without replacing the
@@ -526,7 +527,8 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
             let wasSessionExpired = sessionExpired
             let route = routePolicy.decision(for: url).route
             observeNavigationRequest(URLRequest(url: url), webView: webView, registersNavigation: false)
-            if isAuthRoute(route.kind) {
+            if isAuthRoute(route.kind),
+               !(preservingProviderLink && [.authProvider, .authCallback].contains(route.kind)) {
                 sessionExpired = true
                 sessionBoundaryPending = !wasSessionExpired
                     && isSafeHistoryDocument(url, routePolicy: routePolicy)
@@ -571,6 +573,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     @discardableResult
     fileprivate func navigationDidCancel(webView: WKWebView, expectedURL: URL? = nil) -> Bool {
         guard self.webView === webView,
+              pendingNavigationURL != nil || activeNavigation != nil,
               isCurrentNavigation(nil, expectedURL: expectedURL)
         else { return false }
         pendingHistoryRequestIsSafe = nil
@@ -794,10 +797,10 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     private func isCurrentNavigation(_ navigation: WKNavigation?, expectedURL: URL? = nil) -> Bool {
         if navigation == nil {
             guard let expectedURL else { return activeNavigation == nil }
-            guard activeNavigation != nil else { return true }
-            return activeNavigationURL == expectedURL
-                || pendingNavigationURL == expectedURL
-                || isEquivalentArtifactURL(activeNavigationURL, expectedURL)
+            // A newer accepted action owns pending responses, even before its
+            // provisional start. An idle view accepts only its own document.
+            let currentURL = pendingNavigationURL ?? activeNavigationURL ?? webView?.url
+            return currentURL == expectedURL || isEquivalentArtifactURL(currentURL, expectedURL)
         }
         guard pendingNavigationURL == nil, let activeNavigation else { return false }
         return activeNavigation === navigation
@@ -1897,7 +1900,8 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private let desktopHeaders: [String: String]
         private let navigationRequestPolicy: DesktopCabinetNavigationRequestPolicy
         private let navigationEventLogger: NavigationEventLogger?
-        private var authContinuationActive = false
+        private enum AuthContinuation { case none, primarySignIn, providerLink }
+        private var authContinuation = AuthContinuation.none
         private var paymentNavigation: DesktopCabinetPaymentNavigation
         private var showsAppUpdateBadge: Bool
         private var onCheckForUpdates: CheckForUpdatesAction
@@ -2032,6 +2036,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private func cancelAuthNavigation(in webView: WKWebView) {
             // Cancel the network writer too, before a fresh cookie snapshot can
             // release its barrier. Superseded, undispatched policies skip this.
+            authContinuation = .none
             webView.stopLoading()
             finishAuthNavigation(in: webView, cancelled: true)
         }
@@ -2081,6 +2086,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         @discardableResult
         public func detachNavigationController(from webView: WKWebView) -> Task<Void, Never>? {
             isActive = false
+            authContinuation = .none
             onVisibleRecordings([])
             userTimeDocumentRevision &+= 1
             var cleanup: Task<Void, Never>?
@@ -2339,7 +2345,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             }
             if url.scheme?.lowercased() == "about" {
                 if navigationAction.targetFrame?.isMainFrame != false {
-                    dispatchAuthNavigation(in: webView, targetURL: url, decisionHandler: decisionHandler) { decisionHandler(.allow) }
+                    dispatchAuthNavigation(in: webView, targetURL: url, decisionHandler: decisionHandler) { [self] in
+                        authContinuation = .none
+                        decisionHandler(.allow)
+                    }
                 } else { decisionHandler(.allow) }
                 return
             }
@@ -2399,10 +2408,11 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 return
             }
 
+            let nextAuthContinuation = continuation(for: navigationAction, in: webView)
             navigationController.observeNavigationRequest(
                 navigationAction.request,
                 webView: webView,
-                allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url)
+                allowExternalAuthProvider: nextAuthContinuation != .none
             )
 
             let paymentChainActive = paymentNavigation.externalProviderNavigationAllowed()
@@ -2410,7 +2420,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 || isCabinetBillingRoute(navigationAction.sourceFrame.documentRequestURL)
             let decision = routePolicy.decision(
                 for: url,
-                allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url),
+                allowExternalAuthProvider: nextAuthContinuation != .none,
                 allowExternalPaymentProvider: paymentChainActive,
                 allowExternalPaymentProviderHandoff: startsPaymentChain
             )
@@ -2442,7 +2452,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                     let chainStillAllowsExternal = paymentNavigation.externalProviderNavigationAllowed()
                     let refreshedDecision = routePolicy.decision(
                         for: url,
-                        allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url),
+                        allowExternalAuthProvider: nextAuthContinuation != .none,
                         allowExternalPaymentProvider: chainStillAllowsExternal,
                         allowExternalPaymentProviderHandoff: startsPaymentChain
                     )
@@ -2457,7 +2467,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                             destination: url
                         )
                     }
-                    updateAuthContinuation(for: decision.route.kind)
+                    authContinuation = nextAuthContinuation
                     switch navigationRequestPolicy.decision(
                         forNavigationRequest: navigationAction.request,
                         isForMainFrame: navigationAction.targetFrame?.isMainFrame != false
@@ -2471,7 +2481,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                             navigationController.observeNavigationRequest(
                                 reloadedRequest,
                                 webView: webView,
-                                allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url)
+                                allowExternalAuthProvider: nextAuthContinuation != .none
                             )
                         }
                         guard let replacementNavigation = webView.load(reloadedRequest) else {
@@ -2499,7 +2509,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                     decisionHandler(.allow)
                 }
             case .openExternally:
-                authContinuationActive = false
+                authContinuation = .none
                 navigationController.clearPendingNavigation(webView: webView)
                 guard let sanitizedURL = routePolicy.sanitizedExternalURL(for: url) else {
                     cabinetState = .blockedRoute
@@ -2511,7 +2521,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 decisionHandler(.cancel)
                 NSWorkspace.shared.open(sanitizedURL)
             case .blockWithMessage:
-                authContinuationActive = false
+                authContinuation = .none
                 navigationController.cancelPendingNavigation(webView: webView)
                 cabinetState = .blockedRoute
                 cancelAuthNavigation(in: webView)
@@ -2531,7 +2541,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             if navigationController.navigationDidFinish(
                 webView: webView,
                 expectedURL: navigationAction.request.url
-            ) { finishAuthNavigation(in: webView, expectedURL: navigationAction.request.url) }
+            ) {
+                authContinuation = .none
+                finishAuthNavigation(in: webView, expectedURL: navigationAction.request.url)
+            }
         }
 
         @MainActor
@@ -2546,7 +2559,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             if navigationController.navigationDidFinish(
                 webView: webView,
                 expectedURL: navigationResponse.response.url
-            ) { finishAuthNavigation(in: webView, expectedURL: navigationResponse.response.url) }
+            ) {
+                authContinuation = .none
+                finishAuthNavigation(in: webView, expectedURL: navigationResponse.response.url)
+            }
         }
 
         @MainActor
@@ -2677,14 +2693,15 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         @MainActor
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             guard navigationController.isAttached(to: webView) else { return }
-            guard navigationController.navigationDidFinish(webView: webView, navigation: navigation, confirmsDocument: true) else { return }
+            guard navigationController.navigationDidFinish(webView: webView, navigation: navigation,
+                confirmsDocument: true, preservingProviderLink: authContinuation == .providerLink) else { return }
             finishAuthNavigation(in: webView)
             guard let url = webView.url else {
                 return
             }
             let routeDecision = routePolicy.decision(
                 for: url,
-                allowExternalAuthProvider: authContinuationActive,
+                allowExternalAuthProvider: authContinuation != .none,
                 allowExternalPaymentProvider: paymentNavigation.externalProviderNavigationAllowed()
             )
             if paymentNavigation.isActive, paymentNavigation.report(loadedURL: url) == .stopSession {
@@ -2704,7 +2721,6 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 // workspace document or overwrite the last useful route.
                 return
             }
-            updateAuthContinuation(for: routeDecision.route.kind)
             if routeDecision.route.kind == .meetingDetail {
                 // Пользователь открыл результат встречи во встроенном кабинете:
                 // это настоящий путь просмотра результата (FR-021).
@@ -2714,7 +2730,13 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                     userInfo: ["meetingId": routeDecision.route.meetingId ?? ""]
                 )
             }
-            let finishedState = EmbeddedCabinetWebView.finishedState(for: routeDecision.route.kind)
+            let linkingDocument = authContinuation == .providerLink
+                && [.authProvider, .authCallback].contains(routeDecision.route.kind)
+            let finishedState: DesktopCabinetState = linkingDocument ? .ready
+                : EmbeddedCabinetWebView.finishedState(for: routeDecision.route.kind)
+            if EmbeddedCabinetNavigationPolicy.isSafeDocument(url, routePolicy: routePolicy) {
+                authContinuation = .none
+            }
             webContentProcessTerminated = false
             synchronizeUserTime(from: webView, url: url)
             if EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: routeDecision.route.kind, url: url),
@@ -2795,7 +2817,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 if navigationController.navigationDidFinish(
                     webView: webView,
                     expectedURL: navigationResponse.response.url
-                ) { finishAuthNavigation(in: webView, expectedURL: navigationResponse.response.url) }
+                ) {
+                    authContinuation = .none
+                    finishAuthNavigation(in: webView, expectedURL: navigationResponse.response.url)
+                }
                 logNavigationEvent(
                     "cabinet_download_response",
                     detail: responseLogDetail(navigationResponse.response, state: .ready)
@@ -2805,21 +2830,25 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 if navigationController.navigationDidFinish(
                     webView: webView,
                     expectedURL: navigationResponse.response.url
-                ) { finishAuthNavigation(in: webView, expectedURL: navigationResponse.response.url) }
+                ) {
+                    authContinuation = .none
+                    finishAuthNavigation(in: webView, expectedURL: navigationResponse.response.url)
+                }
                 logNavigationEvent(
                     "cabinet_download_response_blocked",
                     detail: responseLogDetail(navigationResponse.response, state: cabinetState)
                 )
                 decisionHandler(.cancel)
             case let .cancel(state):
+                guard navigationController.navigationDidCancel(
+                    webView: webView, expectedURL: navigationResponse.response.url
+                ) else { decisionHandler(.cancel); return }
+                authContinuation = .none
+                finishAuthNavigation(in: webView, expectedURL: navigationResponse.response.url)
                 cancelJavaScriptConfirmation()
                 if navigationResponse.isForMainFrame {
                     paymentNavigation = paymentNavigation.stopped()
                 }
-                if navigationController.navigationDidCancel(
-                    webView: webView,
-                    expectedURL: navigationResponse.response.url
-                ) { finishAuthNavigation(in: webView, expectedURL: navigationResponse.response.url) }
                 if state == .expiredSession || state == .workspaceReselectionRequired {
                     DesktopUserTimeContext.shared.reset()
                     navigationController.markSessionExpired(webView: webView)
@@ -2840,6 +2869,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 ?? navigationController.activeNavigationURL
             guard navigationController.navigationDidFail(webView: webView, navigation: navigation, error: error) else { return }
             finishAuthNavigation(in: webView, expectedURL: failedURL)
+            authContinuation = .none
             paymentNavigation = paymentNavigation.stopped()
             cancelJavaScriptConfirmation()
             transitionAfterNavigationFailure(error, webView: webView, phase: "committed")
@@ -2852,6 +2882,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 ?? navigationController.activeNavigationURL
             guard navigationController.navigationDidFail(webView: webView, navigation: navigation, error: error) else { return }
             finishAuthNavigation(in: webView, expectedURL: failedURL)
+            authContinuation = .none
             paymentNavigation = paymentNavigation.stopped()
             cancelJavaScriptConfirmation()
             transitionAfterNavigationFailure(error, webView: webView, phase: "provisional")
@@ -2882,6 +2913,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             guard navigationController.isAttached(to: webView) else { return }
             onVisibleRecordings([])
             webContentProcessTerminated = true
+            authContinuation = .none
             calendarJoinBridge.invalidate()
             recordingSettingsBridge.invalidate()
             notificationSettingsBridge.invalidate()
@@ -2932,7 +2964,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             guard let url = request.url else { return }
             let routeKind = routePolicy.decision(
                 for: url,
-                allowExternalAuthProvider: authContinuationActive,
+                allowExternalAuthProvider: authContinuation != .none,
                 allowExternalPaymentProvider: paymentNavigation.externalProviderNavigationAllowed()
             ).route.kind
             guard routeKind != .external else { return }
@@ -3001,7 +3033,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
 
         private func isAuthRoute(_ url: URL?) -> Bool {
             guard let url else { return false }
-            let decision = routePolicy.decision(for: url, allowExternalAuthProvider: authContinuationActive)
+            let decision = routePolicy.decision(for: url, allowExternalAuthProvider: authContinuation != .none)
             return [
                 .authLogin,
                 .authSignup,
@@ -3031,13 +3063,51 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             return nil
         }
 
-        private func updateAuthContinuation(for routeKind: DesktopCabinetRouteKind) {
-            authContinuationActive = [
-                .authLogin,
-                .authSignup,
-                .authProvider,
-                .authCallback
-            ].contains(routeKind)
+        private func continuation(for action: WKNavigationAction, in webView: WKWebView) -> AuthContinuation {
+            guard let url = action.request.url else { return .none }
+            let kind = routePolicy.decision(for: url, allowExternalAuthProvider: authContinuation != .none).route.kind
+            if Self.allowsProviderLinkStart(request: action.request,
+                sourceURL: action.sourceFrame.documentRequestURL,
+                sourceIsMainFrame: action.sourceFrame.isMainFrame,
+                targetIsMainFrame: action.targetFrame?.isMainFrame == true,
+                documentURL: webView.url,
+                documentIsAuthenticated: cabinetState == .ready && navigationController.canRestoreFinishedDocument(in: webView),
+                routePolicy: routePolicy) {
+                return .providerLink
+            }
+            if EmbeddedCabinetNavigationPolicy.isSafeDocument(url, routePolicy: routePolicy) { return .none }
+            if authContinuation != .none, [.authLogin, .authSignup, .authProvider, .authCallback].contains(kind) {
+                return authContinuation
+            }
+            if routePolicy.sharesSessionOrigin(with: url), isAuthRoute(webView.url),
+               let source = action.sourceFrame.documentRequestURL,
+               routePolicy.sharesSessionOrigin(with: source),
+               [.authLogin, .authSignup].contains(routePolicy.decision(for: source).route.kind),
+               [.authLogin, .authSignup, .authProvider, .authCallback].contains(kind) {
+                return .primarySignIn
+            }
+            return .none
+        }
+
+        nonisolated static func allowsProviderLinkStart(
+            request: URLRequest, sourceURL: URL?, sourceIsMainFrame: Bool,
+            targetIsMainFrame: Bool, documentURL: URL?, documentIsAuthenticated: Bool,
+            routePolicy: DesktopCabinetRoutePolicy
+        ) -> Bool {
+            guard documentIsAuthenticated, sourceIsMainFrame, targetIsMainFrame,
+                  let url = request.url, let sourceURL, let documentURL,
+                  sourceURL == documentURL, routePolicy.sharesSessionOrigin(with: documentURL),
+                  routePolicy.decision(for: documentURL).route.kind == .settings,
+                  (request.httpMethod ?? "GET").uppercased() == "POST",
+                  routePolicy.sharesSessionOrigin(with: url),
+                  routePolicy.decision(for: url).route.kind == .authProvider,
+                  let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                  parts.query == nil, parts.fragment == nil,
+                  parts.percentEncodedPath == url.path,
+                  !parts.percentEncodedPath.contains("//"),
+                  url.path.hasPrefix("/desktop/settings/provider-links/"), url.path.hasSuffix("/start")
+            else { return false }
+            return true
         }
 
         /// A billing document of the cabinet itself, whatever its path. Any of
@@ -3086,7 +3156,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 || isCabinetBillingRoute(navigationAction.sourceFrame.documentRequestURL)
             let decision = routePolicy.decision(
                 for: url,
-                allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url),
+                allowExternalAuthProvider: authContinuation != .none,
                 allowExternalPaymentProvider: paymentNavigation.externalProviderNavigationAllowed(),
                 allowExternalPaymentProviderHandoff: startsPaymentChain
             )
@@ -3100,6 +3170,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             guard let navigation = webView.load(navigationAction.request) else {
                 paymentNavigation = paymentNavigation.stopped()
                 navigationController.cancelPendingNavigation(webView: webView)
+                cancelAuthNavigation(in: webView)
                 return nil
             }
             navigationController.navigationDidStart(

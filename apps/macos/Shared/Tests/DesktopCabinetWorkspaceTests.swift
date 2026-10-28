@@ -119,6 +119,188 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
     }
 
     @MainActor
+    func testProviderLinkIntermediateDocumentsKeepSession() async throws {
+        try await checkSessionBoundary(method: "POST",
+            targetPath: "/desktop/settings/provider-links/yandex/start", providerLink: true)
+    }
+
+    @MainActor
+    func testProviderLinkRedirectOnlyKeepsSession() async throws {
+        try await checkSessionBoundary(method: "POST",
+            targetPath: "/desktop/settings/provider-links/yandex/start", redirect: true, providerLink: true)
+    }
+
+    @MainActor
+    func testProviderLinkPermitsExternalPolicyDuringContinuation() async throws {
+        try await checkSessionBoundary(method: "POST",
+            targetPath: "/desktop/settings/provider-links/yandex/start", providerLink: true,
+            probeProviderPermission: true)
+    }
+
+    @MainActor
+    func testProviderLinkCancellationRevokesExternalPermission() async throws {
+        try await checkSessionBoundary(method: "POST",
+            targetPath: "/desktop/settings/provider-links/yandex/start", cancel: true,
+            providerLink: true, probeProviderPermission: false)
+    }
+
+    @MainActor
+    func testProviderLinkServerErrorRevokesExternalPermission() async throws {
+        try await checkSessionBoundary(method: "POST",
+            targetPath: "/desktop/settings/provider-links/yandex/start", status: "503 Service Unavailable",
+            providerLink: true, probeProviderPermission: false)
+    }
+
+    @MainActor
+    func testProviderLinkExpiredSessionRevokesExternalPermissionAndHistory() async throws {
+        try await checkSessionBoundary(method: "POST",
+            targetPath: "/desktop/settings/provider-links/yandex/start", status: "401 Unauthorized",
+            changesSession: true, providerLink: true, probeProviderPermission: false)
+    }
+
+    @MainActor
+    func testProviderLinkReselectionRevokesExternalPermissionAndHistory() async throws {
+        try await checkSessionBoundary(method: "POST",
+            targetPath: "/desktop/settings/provider-links/yandex/start", status: "403 Forbidden",
+            reselect: true, changesSession: true, providerLink: true, probeProviderPermission: false)
+    }
+
+    @MainActor
+    func testProviderLinkStaleCallbacksKeepCurrentContinuation() async throws {
+        try await checkSessionBoundary(method: "POST",
+            targetPath: "/desktop/settings/provider-links/yandex/start", probeStaleCallbacks: true,
+            providerLink: true, probeProviderPermission: true)
+    }
+
+    @MainActor
+    func testProviderLinkStaleResponseKeepsCurrentContinuation() async throws {
+        try await checkSessionBoundary(method: "POST",
+            targetPath: "/desktop/settings/provider-links/yandex/start", probeStaleResponse: true,
+            providerLink: true, probeProviderPermission: true)
+    }
+
+    @MainActor
+    func testProviderLinkStaleSameURLResponseKeepsFinishedContinuation() async throws {
+        try await checkSessionBoundary(method: "POST",
+            targetPath: "/desktop/settings/provider-links/yandex/start", probeStaleResponse: true,
+            sameURLStaleResponse: true, providerLink: true, probeProviderPermission: true)
+    }
+
+    @MainActor
+    func testProviderLinkRootLoginEndsSession() async throws {
+        try await checkSessionBoundary(method: "POST",
+            targetPath: "/desktop/settings/provider-links/yandex/start", providerLink: true, providerLogout: true)
+    }
+
+    func testProviderLinkRequiresTrustedAuthenticatedSettingsPost() throws {
+        let origin = try XCTUnwrap(URL(string: "https://cabinet.example"))
+        let settings = origin.appendingPathComponent("desktop/settings/account")
+        let start = origin.appendingPathComponent("desktop/settings/provider-links/yandex/start")
+        let policy = DesktopCabinetRoutePolicy(baseURL: origin)
+        func allows(method: String = "POST", url: URL? = nil, source: URL? = nil,
+                    sourceMain: Bool = true, targetMain: Bool = true, authenticated: Bool = true) -> Bool {
+            var request = URLRequest(url: url ?? start)
+            request.httpMethod = method
+            return EmbeddedCabinetWebView.Coordinator.allowsProviderLinkStart(request: request,
+                sourceURL: source ?? settings, sourceIsMainFrame: sourceMain, targetIsMainFrame: targetMain,
+                documentURL: settings, documentIsAuthenticated: authenticated, routePolicy: policy)
+        }
+        XCTAssertTrue(allows())
+        XCTAssertFalse(allows(method: "GET"))
+        XCTAssertFalse(allows(sourceMain: false))
+        XCTAssertFalse(allows(targetMain: false))
+        XCTAssertFalse(allows(authenticated: false))
+        for path in ["/desktop/settings/provider-links/yandex/start?x=1",
+                     "/desktop/settings/provider-links/yandex/start#fragment",
+                     "/desktop/settings/provider-links/yandex%2Fother/start",
+                     "/desktop/settings/provider-links/yandex/%73tart",
+                     "/desktop/settings/provider-links/yandex//start",
+                     "/desktop/settings/provider-links/yandex/start/",
+                     "/api/v1/auth/callback/yandex", "/login/yandex/start"] {
+            XCTAssertFalse(allows(url: try XCTUnwrap(URL(string: path, relativeTo: origin)?.absoluteURL)), path)
+        }
+        for source in ["https://other.example/desktop/settings/account",
+                       "https://cabinet.example/desktop/settings/profile", "https://cabinet.example/login"] {
+            XCTAssertFalse(allows(source: try XCTUnwrap(URL(string: source))))
+        }
+        XCTAssertFalse(allows(url: try XCTUnwrap(URL(string: "https://other.example/desktop/settings/provider-links/yandex/start"))))
+    }
+
+    @MainActor
+    func testProviderLinkSurvivesRealWorkspaceReconciliation() async throws {
+        _ = NSApplication.shared
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        let listener = try NWListener(using: parameters)
+        let listening = expectation(description: "provider-link workspace fixture listening")
+        let initial = expectation(description: "initial settings request")
+        let submitted = expectation(description: "one provider-link POST")
+        let result = expectation(description: "intermediate provider document")
+        let requests = SessionBoundaryRequests()
+        let path = "/desktop/settings/account"
+        let start = "/desktop/settings/provider-links/yandex/start"
+        let final = "/desktop/settings/provider-links/yandex"
+        listener.stateUpdateHandler = { if case .ready = $0 { listening.fulfill() } }
+        listener.newConnectionHandler = { connection in
+            connection.start(queue: .global())
+            Self.receiveSessionFixtureRequest(connection, initialPath: path, targetPath: start,
+                method: "POST", status: "200 OK", cancel: false, reselect: false, redirect: false,
+                initial: initial, submitted: submitted, result: result, requests: requests, resultCount: 1,
+                providerResultPath: final)
+        }
+        listener.start(queue: .global())
+        defer { requests.cancelHeldConnection(); listener.cancel() }
+        await fulfillment(of: [listening], timeout: 5)
+        let origin = try XCTUnwrap(URL(string: "http://127.0.0.1:\(try XCTUnwrap(listener.port).rawValue)"))
+        let document = SessionBoundaryDocument(state: .loading)
+        let suite = "F136-provider-link-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel())
+        let host = NSHostingView(rootView: RealWorkspaceFixture(configuration: .init(baseURL: origin),
+            initialRoute: origin.appendingPathComponent(path), document: document, presenter: presenter))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        defer { window.close() }
+        await fulfillment(of: [initial], timeout: 10)
+        let web = try XCTUnwrap(Self.sessionFixtureWebView(host))
+        func finished(_ expectedPath: String) async throws {
+            for _ in 0..<250 {
+                if document.state == .ready, web.url?.path == expectedPath, !web.isLoading { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            for _ in 0..<10 {
+                host.layoutSubtreeIfNeeded()
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            XCTAssertEqual(document.state, .ready)
+            XCTAssertEqual(web.url?.path, expectedPath)
+            XCTAssertTrue(Self.sessionFixtureWebView(host) === web, "The actual workspace must keep its WebView")
+        }
+        try await finished(path)
+        _ = try await web.evaluateJavaScript("document.forms[0].submit(); true")
+        await fulfillment(of: [submitted, result], timeout: 10)
+        try await finished(start)
+        XCTAssertEqual(document.route?.path, path)
+        let container = try XCTUnwrap(web.superview as? EmbeddedCabinetWebView.WebViewContainer)
+        XCTAssertEqual(container.lastLoadedRequestIdentity, EmbeddedCabinetWebView.loadIdentity(url: origin.appendingPathComponent(path)))
+        let intermediateDOM = try await web.evaluateJavaScript("Boolean(document.getElementById('result'))")
+        XCTAssertEqual(intermediateDOM as? Bool, true)
+        _ = try await web.evaluateJavaScript("window.location.href='/api/v1/auth/callback/yandex'; true")
+        try await finished(final)
+        XCTAssertEqual(document.route?.path, final)
+        XCTAssertEqual(container.lastLoadedRequestIdentity, EmbeddedCabinetWebView.loadIdentity(url: try XCTUnwrap(web.url)))
+        XCTAssertEqual(requests.count("GET \(path)"), 1)
+        XCTAssertEqual(requests.count("POST \(start)"), 1)
+        XCTAssertEqual(requests.count("GET \(start)"), 0)
+        XCTAssertEqual(requests.count("GET /api/v1/auth/callback/yandex"), 1)
+        XCTAssertEqual(requests.count("GET \(final)?result=yes"), 1)
+    }
+
+    @MainActor
     func testSessionBoundaryNewFormSupersedesPendingFormWithoutRemount() async throws {
         try await checkSessionBoundary(method: "POST", supersedesPendingForm: true)
     }
@@ -507,7 +689,9 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         targetPath: String = "/desktop/settings/account", status: String = "200 OK",
         cancel: Bool = false, reselect: Bool = false, changesSession: Bool = false, redirect: Bool = false,
         supersedesPendingForm: Bool = false, networkFailure: Bool = false,
-        committedCancellation: Bool = false, probeStaleCallbacks: Bool = false
+        committedCancellation: Bool = false, probeStaleCallbacks: Bool = false, probeStaleResponse: Bool = false,
+        sameURLStaleResponse: Bool = false, providerLink: Bool = false,
+        probeProviderPermission: Bool? = nil, providerLogout: Bool = false
     ) async throws {
         let trace = { (phase: String) in
             FileHandle.standardError.write(Data("F136_NATIVE_SESSION \(phase) method=\(method) status=\(status)\n".utf8))
@@ -521,17 +705,20 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         let submitted = expectation(description: "one explicit form submission")
         let initial = expectation(description: "initial document")
         let requests = SessionBoundaryRequests()
+        let providerResultPath = providerLink ? (providerLogout ? "/login" : "/desktop/settings/provider-links/yandex") : nil
         defer { requests.cancelHeldConnection() }
         let result = expectation(description: "result request and only the permitted session remount")
-        result.expectedFulfillmentCount = changesSession ? 2 : 1
+        result.expectedFulfillmentCount = sameURLStaleResponse || (changesSession && !providerLink) ? 2 : 1
         listener.stateUpdateHandler = { if case .ready = $0 { listening.fulfill() } }
         listener.newConnectionHandler = { connection in
             connection.start(queue: .global())
             Self.receiveSessionFixtureRequest(connection, initialPath: initialPath, targetPath: targetPath,
                 method: method, status: status, cancel: cancel, reselect: reselect, redirect: redirect,
-                initial: initial, submitted: submitted, result: result, requests: requests, resultCount: changesSession ? 2 : 1,
+                initial: initial, submitted: submitted, result: result, requests: requests, resultCount: sameURLStaleResponse || changesSession ? 2 : 1,
                 supersedesPendingForm: supersedesPendingForm, networkFailure: networkFailure,
-                committedCancellation: committedCancellation)
+                committedCancellation: committedCancellation, providerResultPath: providerResultPath,
+                sameURLStaleResponse: sameURLStaleResponse,
+                holdResultResponse: providerLink && probeStaleCallbacks)
         }
         listener.start(queue: .global())
         defer { listener.cancel() }
@@ -586,6 +773,28 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             XCTFail("Navigation did not finish at the expected synthetic document")
         }
         var staleNavigation: WKNavigation?
+        var staleResponse: WKNavigationResponse?
+        if probeStaleResponse {
+            let capture = ProviderPolicyProbe(coordinator: coordinator)
+            webView.navigationDelegate = capture
+            let oldURL = origin.appendingPathComponent("desktop/settings/integrations/calendar")
+                .appending(queryItems: [.init(name: "stale-response", value: "yes")])
+            if sameURLStaleResponse {
+                _ = try await webView.evaluateJavaScript("document.forms[0].submit(); true")
+            } else {
+                _ = webView.load(URLRequest(url: oldURL))
+            }
+            for _ in 0..<250 {
+                if capture.response != nil, document.state == .offline, !controller.isLoading { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            staleResponse = try XCTUnwrap(capture.response)
+            XCTAssertEqual(document.state, .offline)
+            webView.navigationDelegate = coordinator
+            _ = webView.load(request)
+            try await waitForDocument(at: try XCTUnwrap(request.url))
+            XCTAssertEqual(document.state, .ready)
+        }
         if probeStaleCallbacks {
             staleNavigation = try XCTUnwrap(webView.reload())
             for _ in 0..<250 {
@@ -622,11 +831,18 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             _ = try await webView.evaluateJavaScript("document.forms[0].submit(); true")
         }
         if let staleNavigation {
+            XCTAssertTrue(controller.isLoading, "The current form must be pending before stale callbacks")
+            XCTAssertTrue(webView.backForwardList.currentItem === initialItem)
+            XCTAssertEqual(controller.sessionBoundaryID, boundary)
+            trace("before-stale-callbacks")
             coordinator.webView(webView, didCommit: staleNavigation)
             coordinator.webView(webView, didFinish: staleNavigation)
             coordinator.webView(webView, didFail: staleNavigation, withError: URLError(.cancelled))
             XCTAssertTrue(controller.isLoading, "Stale callbacks must not retire the pending form")
             XCTAssertTrue(webView.backForwardList.currentItem === initialItem)
+            XCTAssertEqual(controller.sessionBoundaryID, boundary)
+            trace("after-stale-callbacks")
+            if providerLink { requests.releaseHeldResponse() }
         }
         if committedCancellation {
             let probe = try XCTUnwrap(probe)
@@ -650,13 +866,33 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertFalse(controller.isLoading, "Terminal callback must release navigation")
         XCTAssertNotEqual(document.state, .loading)
         if cancel { XCTAssertEqual(document.state, committedCancellation ? .malformedResponse : .ready) }
+        if let probeProviderPermission {
+            if let staleResponse {
+                var responsePolicy: WKNavigationResponsePolicy?
+                coordinator.webView(webView, decidePolicyFor: staleResponse) { responsePolicy = $0 }
+                XCTAssertEqual(responsePolicy, .cancel)
+                XCTAssertEqual(document.state, .ready, "A late old response cannot retire the new continuation")
+            }
+            XCTAssertEqual(controller.sessionBoundaryID == boundary, !changesSession)
+            XCTAssertEqual(boundaryCount, changesSession ? 1 : 0)
+            XCTAssertEqual(requests.count("POST \(targetPath)"), sameURLStaleResponse ? 2 : 1)
+            XCTAssertEqual(requests.count("GET \(targetPath)"), 0, "The provider action must not be replayed as GET")
+            if changesSession {
+                XCTAssertEqual(document.state, reselect ? .workspaceReselectionRequired : .expiredSession)
+                XCTAssertFalse(controller.canGoBack)
+                XCTAssertFalse(controller.canGoForward)
+                XCTAssertFalse(controller.canGoHome)
+            }
+            try await checkProviderExternalPolicy(in: webView, coordinator: coordinator, allowed: probeProviderPermission)
+            return
+        }
         XCTAssertEqual(controller.sessionBoundaryID == boundary, !changesSession)
         XCTAssertEqual(boundaryCount, changesSession ? 1 : 0)
         let initialGetCount = probeStaleCallbacks ? 2 : 1
         XCTAssertEqual(requests.count("GET \(initialPath)"), initialGetCount, "The initial document must not be reloaded after a form")
         XCTAssertEqual(requests.count("\(method) \(targetPath)" + (method == "GET" ? "?result=yes" : "")),
             changesSession || supersedesPendingForm ? 2 : 1)
-        if redirect { XCTAssertEqual(requests.count("GET \(targetPath)?result=yes"), 1) }
+        if redirect { XCTAssertEqual(requests.count("GET \(providerResultPath ?? targetPath)?result=yes"), 1) }
         let currentWebView = try XCTUnwrap(Self.sessionFixtureWebView(host))
         if !changesSession {
             XCTAssertTrue(currentWebView === webView, "Ordinary form results/errors/cancellation keep the live WebView")
@@ -716,10 +952,66 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             }
         }
         if status == "200 OK", !cancel, !networkFailure {
-            XCTAssertEqual(document.route?.path, URL(string: targetPath)?.path)
+            let expectedPath = providerLink ? (redirect ? providerResultPath! : initialPath) : targetPath
+            XCTAssertEqual(document.route?.path, URL(string: expectedPath)?.path)
             let loaded = try await currentWebView.evaluateJavaScript("Boolean(document.getElementById('result'))")
             XCTAssertEqual(loaded as? Bool, true, "Keep the actual form result after SwiftUI reconciliation")
         }
+        if let providerResultPath {
+            XCTAssertEqual(document.state, .ready, "Provider linking must preserve the authenticated presentation")
+            guard document.state == .ready else { return }
+            if !redirect {
+                XCTAssertFalse(controller.canReload, "The intermediate POST remains transient")
+                let callback = origin.appendingPathComponent("api/v1/auth/callback/yandex")
+                _ = try await webView.evaluateJavaScript("window.location.href='\(callback.absoluteString)'; true")
+                let finalURL = try XCTUnwrap(URL(string: providerResultPath + "?result=yes", relativeTo: origin)?.absoluteURL)
+                try await waitForDocument(at: finalURL)
+                XCTAssertEqual(requests.count("GET /api/v1/auth/callback/yandex"), 1)
+            }
+            if providerLogout {
+                for _ in 0..<250 {
+                    if Self.sessionFixtureWebView(host) !== webView,
+                       document.state == .expiredSession, !controller.isLoading { break }
+                    try await Task.sleep(for: .milliseconds(20))
+                }
+                XCTAssertNotEqual(controller.sessionBoundaryID, boundary)
+                XCTAssertEqual(boundaryCount, 1)
+                XCTAssertEqual(document.state, .expiredSession)
+                XCTAssertEqual(document.route?.path, "/login")
+                XCTAssertFalse(controller.canGoBack)
+                XCTAssertFalse(controller.canGoForward)
+                XCTAssertFalse(controller.canGoHome)
+                XCTAssertEqual(requests.count("POST \(targetPath)"), 1)
+                XCTAssertEqual(requests.count("GET \(targetPath)"), 0)
+                let replacement = try XCTUnwrap(Self.sessionFixtureWebView(host))
+                XCTAssertFalse(replacement === webView)
+                try await checkProviderExternalPolicy(in: replacement,
+                    coordinator: try XCTUnwrap(replacement.navigationDelegate as? EmbeddedCabinetWebView.Coordinator), allowed: false)
+                return
+            }
+            XCTAssertEqual(controller.sessionBoundaryID, boundary)
+            XCTAssertEqual(boundaryCount, 0)
+            XCTAssertEqual(document.state, .ready)
+            XCTAssertEqual(document.route?.path, providerResultPath)
+            XCTAssertEqual(requests.count("POST \(targetPath)"), 1)
+            XCTAssertEqual(requests.count("GET \(targetPath)"), 0)
+            XCTAssertEqual(requests.count("GET \(providerResultPath)?result=yes"), 1)
+            XCTAssertTrue(Self.sessionFixtureWebView(host) === webView)
+            XCTAssertTrue(controller.canReload, "The final Settings GET is safe again")
+            try await checkProviderExternalPolicy(in: webView, coordinator: coordinator, allowed: false)
+        }
+    }
+
+    @MainActor
+    private func checkProviderExternalPolicy(in webView: WKWebView,
+        coordinator: EmbeddedCabinetWebView.Coordinator, allowed: Bool) async throws {
+        let probe = ProviderPolicyProbe(coordinator: coordinator,
+            decision: expectation(description: "real external WKNavigationAction policy"))
+        webView.navigationDelegate = probe
+        defer { webView.navigationDelegate = coordinator }
+        _ = try await webView.evaluateJavaScript("window.location.href='https://provider.invalid/f136'; true")
+        await fulfillment(of: [try XCTUnwrap(probe.decision)], timeout: 5)
+        XCTAssertEqual(probe.policy, allowed ? .allow : .cancel)
     }
 
     @MainActor
@@ -733,7 +1025,9 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         method: String, status: String, cancel: Bool, reselect: Bool, redirect: Bool,
         initial: XCTestExpectation, submitted: XCTestExpectation, result: XCTestExpectation,
         requests: SessionBoundaryRequests, resultCount: Int, supersedesPendingForm: Bool = false,
-        networkFailure: Bool = false, committedCancellation: Bool = false, holdInitial: Bool = false
+        networkFailure: Bool = false, committedCancellation: Bool = false, holdInitial: Bool = false,
+        providerResultPath: String? = nil, sameURLStaleResponse: Bool = false,
+        holdResultResponse: Bool = false
     ) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { chunk, _, complete, error in
             var bytes = data; bytes.append(chunk ?? Data())
@@ -746,7 +1040,9 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                     targetPath: targetPath, method: method, status: status, cancel: cancel, reselect: reselect, redirect: redirect,
                     initial: initial, submitted: submitted, result: result, requests: requests, resultCount: resultCount,
                     supersedesPendingForm: supersedesPendingForm, networkFailure: networkFailure,
-                    committedCancellation: committedCancellation, holdInitial: holdInitial)
+                    committedCancellation: committedCancellation, holdInitial: holdInitial,
+                    providerResultPath: providerResultPath, sameURLStaleResponse: sameURLStaleResponse,
+                    holdResultResponse: holdResultResponse)
                 return
             }
             let key = request.components(separatedBy: "\r\n")[0].split(separator: " ").prefix(2).joined(separator: " ")
@@ -756,7 +1052,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                 return
             }
             let isPost = request.hasPrefix("POST \(targetPath) ")
-            let isResult = isPost || request.hasPrefix("GET \(targetPath)?result=yes ")
+            let isResult = isPost || request.hasPrefix("GET \(providerResultPath ?? targetPath)?result=yes ")
             let html: String
             let replyStatus: String
             if isResult {
@@ -765,12 +1061,20 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                     submitted.fulfill()
                     return
                 }
-                if count == 1, isPost || method == "GET" { submitted.fulfill() }
-                if (supersedesPendingForm ? count == 2 : count <= resultCount), !redirect || !isPost { result.fulfill() }
+                if count == 1, isPost || method == "GET", !holdResultResponse { submitted.fulfill() }
+                if (supersedesPendingForm ? count == 2 : count <= resultCount), !redirect || !isPost,
+                   providerResultPath == nil || redirect || isPost { result.fulfill() }
                 if supersedesPendingForm { requests.attemptHeldRedirect() }
                 html = "<!doctype html><title>Synthetic result</title><p id='result'>Result</p>"
                     + (committedCancellation && isPost ? "<img src='/f136-held-resource'>" : "")
-                replyStatus = redirect && isPost ? "303 See Other\r\nLocation: \(targetPath)?result=yes" : status
+                replyStatus = sameURLStaleResponse && isPost && count == 1 ? "503 Service Unavailable"
+                    : redirect && isPost ? "303 See Other\r\nLocation: \(providerResultPath ?? targetPath)?result=yes" : status
+            } else if providerResultPath != nil, key == "GET /api/v1/auth/callback/yandex" {
+                html = ""
+                replyStatus = "303 See Other\r\nLocation: \(providerResultPath!)?result=yes"
+            } else if key == "GET /desktop/settings/integrations/calendar?stale-response=yes" {
+                html = "<!doctype html><title>Old failed response</title>"
+                replyStatus = "503 Service Unavailable"
             } else if key == "GET /desktop/settings/integrations/calendar" {
                 html = "<!doctype html><title>Next safe document</title>"
                 replyStatus = "200 OK"
@@ -778,14 +1082,21 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                 if count == 1 { initial.fulfill() }
                 if holdInitial { requests.hold(connection); return }
                 html = "<!doctype html><title>Synthetic form</title><form method='\(method.lowercased())' action='\(targetPath)'><input name='result' value='yes'></form><script>window.recordingConnections=0;window.GRAFRecordingSettings={connect(){recordingConnections++}};window.notificationConnections=0;window.GRAFNotificationSettings={connect(nonce){notificationConnections++;window.notificationNonce=nonce},disconnect(){window.notificationNonce=null}};</script>"
-                replyStatus = "200 OK"
+                replyStatus = providerResultPath != nil && requests.count("POST \(targetPath)") > 0
+                    && (status == "401 Unauthorized" || reselect) ? status : "200 OK"
             } else {
                 XCTFail("Unexpected synthetic session route"); connection.cancel(); return
             }
-            let recovery = reselect && isResult ? "X-GRAF-Cabinet-Recovery: reselect-space\r\n" : ""
+            let recovery = reselect && (isResult || replyStatus == "403 Forbidden")
+                ? "X-GRAF-Cabinet-Recovery: reselect-space\r\n" : ""
             let length = html.utf8.count
             let response = "HTTP/1.1 \(replyStatus)\r\nContent-Type: text/html\r\nCache-Control: no-store\r\n\(recovery)Content-Length: \(length)\r\nConnection: close\r\n\r\n\(html)"
-            if networkFailure && isResult {
+            if holdResultResponse && isResult {
+                // Publish the barrier before waking the test; WebKit cannot
+                // commit this response until stale callbacks have been checked.
+                requests.hold(connection, response: Data(response.utf8))
+                submitted.fulfill()
+            } else if networkFailure && isResult {
                 connection.cancel()
             } else if cancel && isResult && !committedCancellation {
                 requests.hold(connection)
@@ -1946,6 +2257,39 @@ private final class CommittedNavigationProbe: NSObject, @preconcurrency WKNaviga
 }
 
 @MainActor
+private final class ProviderPolicyProbe: NSObject, @preconcurrency WKNavigationDelegate {
+    let coordinator: EmbeddedCabinetWebView.Coordinator
+    let decision: XCTestExpectation?
+    var policy: WKNavigationActionPolicy?
+    var response: WKNavigationResponse?
+    init(coordinator: EmbeddedCabinetWebView.Coordinator, decision: XCTestExpectation? = nil) {
+        self.coordinator = coordinator; self.decision = decision
+    }
+    override func responds(to selector: Selector!) -> Bool {
+        super.responds(to: selector) || coordinator.responds(to: selector)
+    }
+    override func forwardingTarget(for selector: Selector!) -> Any? { coordinator }
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+                 decisionHandler: @escaping EmbeddedCabinetNavigationResponseDecisionHandler) {
+        response = navigationResponse
+        coordinator.webView(webView, decidePolicyFor: navigationResponse, decisionHandler: decisionHandler)
+    }
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping EmbeddedCabinetNavigationDecisionHandler) {
+        guard navigationAction.request.url?.host == "provider.invalid" else {
+            coordinator.webView(webView, decidePolicyFor: navigationAction, decisionHandler: decisionHandler)
+            return
+        }
+        coordinator.webView(webView, decidePolicyFor: navigationAction) { policy in
+            self.policy = policy
+            // Observe the real coordinator decision, but never contact an external provider.
+            decisionHandler(.cancel)
+            self.decision?.fulfill()
+        }
+    }
+}
+
+@MainActor
 private final class HistoryPolicyProbe: NSObject, @preconcurrency WKNavigationDelegate {
     let coordinator: EmbeddedCabinetWebView.Coordinator
     let decision: XCTestExpectation
@@ -1969,13 +2313,27 @@ private final class SessionBoundaryRequests: @unchecked Sendable {
     private let lock = NSLock()
     private var counts: [String: Int] = [:]
     private var heldConnection: NWConnection?
+    private var heldResponse: Data?
     func record(_ key: String) -> Int {
         lock.withLock { counts[key, default: 0] += 1; return counts[key]! }
     }
     func count(_ key: String) -> Int { lock.withLock { counts[key, default: 0] } }
-    func hold(_ connection: NWConnection) { lock.withLock { heldConnection = connection } }
+    func hold(_ connection: NWConnection, response: Data? = nil) {
+        lock.withLock { heldConnection = connection; heldResponse = response }
+    }
+    func releaseHeldResponse() {
+        let held = lock.withLock {
+            let value = (heldConnection, heldResponse)
+            heldConnection = nil; heldResponse = nil
+            return value
+        }
+        guard let connection = held.0, let response = held.1 else {
+            XCTFail("Missing held synthetic response"); held.0?.cancel(); return
+        }
+        connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
+    }
     func cancelHeldConnection() {
-        lock.withLock { heldConnection?.cancel(); heldConnection = nil }
+        lock.withLock { heldConnection?.cancel(); heldConnection = nil; heldResponse = nil }
     }
     func attemptHeldRedirect() {
         let connection = lock.withLock { let value = heldConnection; heldConnection = nil; return value }
