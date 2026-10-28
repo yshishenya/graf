@@ -1,0 +1,24 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <GrafWindowsAllowPreviewPackages>false</GrafWindowsAllowPreviewPackages>
+
+    <!-- Versions are stable NuGet packages recorded during Feature 200 setup. -->
+    <GrafWindowsAppSdkVersion>2.4.0</GrafWindowsAppSdkVersion>
+    <GrafWebView2SdkVersion>1.0.4129.50</GrafWebView2SdkVersion>
+    <GrafCppWinRTVersion>3.0.260818.1</GrafCppWinRTVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageVersion Include="Microsoft.WindowsAppSDK" Version="$(GrafWindowsAppSdkVersion)" />
+    <PackageVersion Include="Microsoft.Web.WebView2" Version="$(GrafWebView2SdkVersion)" />
+    <PackageVersion Include="Microsoft.Windows.CppWinRT" Version="$(GrafCppWinRTVersion)" />
+  </ItemGroup>
+
+  <Target Name="RejectPreviewWindowsPackages" BeforeTargets="Restore">
+    <Error Condition="'$(GrafWindowsAllowPreviewPackages)' == 'true'"
+           Text="Feature 200 forbids preview Windows SDK, Windows App SDK and WebView2 packages." />
+  </Target>
+</Project>
