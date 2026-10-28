@@ -4,6 +4,7 @@ import asyncio
 from contextlib import suppress
 from datetime import timedelta
 from pathlib import Path
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -19,6 +20,65 @@ from twobrain_rec_server.workflows.processing_workflow import (
 )
 
 SERVER_SRC = Path(__file__).parents[2] / "src"
+
+
+async def _start_time_skipping() -> WorkflowEnvironment:
+    for delay in (5, 15):
+        try:
+            return await WorkflowEnvironment.start_time_skipping()
+        except RuntimeError as error:
+            if not str(error).startswith(
+                "Failed starting test server: HTTP status client error "
+                "(429 Too Many Requests) for url (https://temporal.download/"
+            ):
+                raise
+        await asyncio.sleep(delay)
+    return await WorkflowEnvironment.start_time_skipping()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", [
+    "success", "one_429", "two_429", "exhausted", "other_runtime",
+    "other_host", "other_status", "cancelled_start", "cancelled_sleep",
+])
+async def test_time_skipping_start_retries_only_bounded_download_429(monkeypatch, case):
+    download_429 = (
+        "Failed starting test server: HTTP status client error "
+        "(429 Too Many Requests) for url (https://temporal.download/assets/test.tar.gz)"
+    )
+    errors = [RuntimeError(download_429) for _ in range(3)]
+    env = object()
+    outcomes = [env]
+    delays = []
+    expected_error = None
+    if case in {"one_429", "two_429", "exhausted", "cancelled_sleep"}:
+        count = {"one_429": 1, "two_429": 2, "exhausted": 3, "cancelled_sleep": 1}[case]
+        outcomes = errors[:count] + ([] if case == "exhausted" else [env])
+        delays = [5, 15][:min(count, 2)]
+        expected_error = errors[-1] if case == "exhausted" else None
+    elif case in {"other_runtime", "other_host", "other_status", "cancelled_start"}:
+        expected_error = {
+            "other_runtime": RuntimeError("Failed starting test server: connection refused"),
+            "other_host": RuntimeError(download_429.replace("temporal.download", "example.test")),
+            "other_status": RuntimeError(download_429.replace("429 Too Many Requests", "503 Service Unavailable")),
+            "cancelled_start": asyncio.CancelledError(),
+        }[case]
+        outcomes = [expected_error]
+    start = AsyncMock(side_effect=outcomes)
+    sleep = AsyncMock()
+    if case == "cancelled_sleep":
+        expected_error = asyncio.CancelledError()
+        sleep.side_effect = expected_error
+    monkeypatch.setattr(WorkflowEnvironment, "start_time_skipping", start)
+    monkeypatch.setattr(asyncio, "sleep", sleep)
+    if expected_error is None:
+        assert await _start_time_skipping() is env
+    else:
+        with pytest.raises(type(expected_error)) as caught:
+            await _start_time_skipping()
+        assert caught.value is expected_error
+    assert start.await_count == (1 if case == "cancelled_sleep" else len(outcomes))
+    assert [call.args for call in sleep.await_args_list] == [(delay,) for delay in delays]
 
 
 @workflow.defn(name="MediaScribeProcessingWorkflow")
@@ -99,7 +159,7 @@ async def test_recovery_workflow_uses_durable_timer_and_bounded_activity_options
             return {"processing_status": "polling", "next_poll_seconds": "30"}
         return {"processing_status": "processed"}
 
-    async with await WorkflowEnvironment.start_time_skipping() as env:
+    async with await _start_time_skipping() as env:
         task_queue = f"processing-temporal-{uuid4()}"
         async with Worker(
             env.client,
@@ -190,7 +250,7 @@ async def test_unknown_outcome_uses_durable_timer_for_same_key_reconciliation() 
             }
         return {"processing_status": "processed"}
 
-    async with await WorkflowEnvironment.start_time_skipping() as env:
+    async with await _start_time_skipping() as env:
         task_queue = f"processing-unknown-{uuid4()}"
         async with Worker(
             env.client,
@@ -306,7 +366,7 @@ async def test_normalization_pending_wait_is_bounded_and_continues_as_new() -> N
             }
         return {"processing_status": "processed"}
 
-    async with await WorkflowEnvironment.start_time_skipping() as env:
+    async with await _start_time_skipping() as env:
         task_queue = f"processing-normalization-{uuid4()}"
         async with Worker(
             env.client,
@@ -347,7 +407,7 @@ async def test_provider_polling_history_is_bounded_with_continue_as_new() -> Non
             return {"processing_status": "waiting_retry", "next_poll_seconds": "5"}
         return {"processing_status": "processed"}
 
-    async with await WorkflowEnvironment.start_time_skipping() as env:
+    async with await _start_time_skipping() as env:
         task_queue = f"processing-provider-history-{uuid4()}"
         async with Worker(
             env.client,
@@ -387,7 +447,7 @@ async def test_normalization_pending_uses_slow_fallback_when_schedule_is_missing
             return {"processing_status": "normalization_pending"}
         return {"processing_status": "processed"}
 
-    async with await WorkflowEnvironment.start_time_skipping() as env:
+    async with await _start_time_skipping() as env:
         task_queue = f"processing-normalization-fallback-{uuid4()}"
         async with Worker(
             env.client,
@@ -462,7 +522,7 @@ async def test_current_recovery_history_replays_with_normalization_branch() -> N
             return {"processing_status": "polling", "next_poll_seconds": "5"}
         return {"processing_status": "processed"}
 
-    async with await WorkflowEnvironment.start_time_skipping() as env:
+    async with await _start_time_skipping() as env:
         task_queue = f"processing-current-replay-{uuid4()}"
         async with Worker(
             env.client,

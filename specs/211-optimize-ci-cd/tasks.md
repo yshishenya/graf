@@ -316,3 +316,8 @@ dry-run/backup/CD/public readback и publication attestation PASS.
 [выпускном отчёте](../../docs/deployments/2brain-rec/release-v2026.10.27.1.md).
 Общая F211 и коммерческие AC остаются открытыми. Issue7742 закрывается
 после документального PR и отдельного live closeout verifier.
+
+## Phase29 — T103/T104: надёжная подготовка тестовых ресурсов
+
+- [X] T103 Исправить подтверждённые Full40613955028 ошибки подготовки в существующих `apps/server/tests/fixtures/test_resources.py`, `apps/server/tests/unit/test_processing_temporal_workflow.py` и `tests/governance/test_test_resources.py`: strict по fixture closure и ограниченный retry только SDK download429 до env. Пройти requirements review, analyze/issue sync до кода; причинный red/green, реальные focused DB/Temporal, independent code review/converge и фрагмент F211. (FR034/035/055/058) (Issue #7789)
+- [ ] T104 После T103 принять exact-SHA/base PR checks/merge, затем новую согласованную основу, train/candidate и один успешный authoritative Full; штатные dry-run/backup/CD/publication остаются отдельными воротами. Сохранить failed candidate40613955028 и не переиспользовать его. Общая F211 и коммерческие AC открыты. (depends T103) (Issue #7789)

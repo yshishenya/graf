@@ -585,3 +585,22 @@ Lane: active Spec Kit slice / high-risk CI/governance. Constitution7.1.0 check
    scoped analyze без CRITICAL/HIGH и issue sync. Затем сначала FAIL регрессии,
    минимальный fix, focused tests пяти consumers и Ruff, independent implementation
    review/converge, owned fragment. T102 остаётся отдельной приёмкой выпуска.
+
+## T103/T104 — минимальная коррекция тестовых ресурсов,28.10.2026
+
+Lane: existing high-risk F211, FR034/035/055/058. Реальные ошибки — Full40613955028;
+код продукта и порядок существующих фаз не меняются.
+
+1. В tests/fixtures/test_resources.py существующий collection hook добавляет
+   strict_rls по полной зависимости migrated_postgres_urls, до postgres и inventory.
+   tests/governance/test_test_resources.py проверяет непосредственный/косвенный
+   caller, отсутствие ложного strict и сохранённую непересекающуюся коллекцию.
+2. В unit/test_processing_temporal_workflow.py одна локальная функция подготовки
+   оборачивает шесть прежних start_time_skipping calls. Максимум3, только точный
+   download429, паузы5+15с. Никаких повторов workflow/assertions и новых ресурсов.
+   Негативные unit-пробы подменяют только подготовку/паузы; настоящие шесть
+   workflow остаются отдельным обязательным исполнением.
+3. До кода independent requirements review/checklist, scoped analyze и issue sync.
+   Затем red/green, профильные реальные проверки, Ruff, process/governance,
+   independent code review/converge и фрагмент F211. T104 требует новых exact
+   PR checks/merge и authoritative Full; не принимает ранее неуспешный кандидат.
