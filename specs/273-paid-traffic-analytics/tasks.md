@@ -615,3 +615,13 @@ parameters синхронизированы, auth/runtime/equality test сохр
 [Причина и доказательства](validation/openapi-release-fix-20261028.md).
 T113/T112 и #7698 остаются открытыми; новый PR/кандидат/Full/CD и рабочая
 приёмка обязательны. Предыдущий неуспешный кандидат не переиспользуется.
+
+### Первый срез закрытых копий GRAF — 28.10.2026
+
+T110/T113: до приёмки восстановления исправить создание закрытого комплекта
+в `infra/scripts/backup-rec-stack.sh` и профиль
+`apps/server/tests/integration/test_deployment_backup_restore_rehearsal.py`
+по operations §Закрытые файлы комплекта GRAF. Прежние права проверяются и
+исправляются отдельно только в названных границах. Reviewer gate/analyze,
+причинные проверки, code review/converge и exact PR gates обязательны.
+Задачи остаются открытыми до полной исходной приёмки; writer не включается.
