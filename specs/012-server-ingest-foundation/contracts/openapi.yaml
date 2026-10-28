@@ -3507,6 +3507,31 @@ paths:
       - product-analytics
       summary: Product Analytics Events
       operationId: product_analytics_events_api_v1_product_analytics_events_post
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
       requestBody:
         content:
           application/json:
@@ -3587,6 +3612,31 @@ paths:
       - product-analytics
       summary: Product Analytics Posthog Desktop Capture
       operationId: product_analytics_posthog_desktop_capture_api_v1_product_analytics_posthog_desktop_capture_post
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
       requestBody:
         content:
           application/json:
