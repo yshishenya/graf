@@ -717,7 +717,8 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                 initial: initial, submitted: submitted, result: result, requests: requests, resultCount: sameURLStaleResponse || changesSession ? 2 : 1,
                 supersedesPendingForm: supersedesPendingForm, networkFailure: networkFailure,
                 committedCancellation: committedCancellation, providerResultPath: providerResultPath,
-                sameURLStaleResponse: sameURLStaleResponse)
+                sameURLStaleResponse: sameURLStaleResponse,
+                holdResultResponse: providerLink && probeStaleCallbacks)
         }
         listener.start(queue: .global())
         defer { listener.cancel() }
@@ -830,11 +831,18 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
             _ = try await webView.evaluateJavaScript("document.forms[0].submit(); true")
         }
         if let staleNavigation {
+            XCTAssertTrue(controller.isLoading, "The current form must be pending before stale callbacks")
+            XCTAssertTrue(webView.backForwardList.currentItem === initialItem)
+            XCTAssertEqual(controller.sessionBoundaryID, boundary)
+            trace("before-stale-callbacks")
             coordinator.webView(webView, didCommit: staleNavigation)
             coordinator.webView(webView, didFinish: staleNavigation)
             coordinator.webView(webView, didFail: staleNavigation, withError: URLError(.cancelled))
             XCTAssertTrue(controller.isLoading, "Stale callbacks must not retire the pending form")
             XCTAssertTrue(webView.backForwardList.currentItem === initialItem)
+            XCTAssertEqual(controller.sessionBoundaryID, boundary)
+            trace("after-stale-callbacks")
+            if providerLink { requests.releaseHeldResponse() }
         }
         if committedCancellation {
             let probe = try XCTUnwrap(probe)
@@ -1018,7 +1026,8 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         initial: XCTestExpectation, submitted: XCTestExpectation, result: XCTestExpectation,
         requests: SessionBoundaryRequests, resultCount: Int, supersedesPendingForm: Bool = false,
         networkFailure: Bool = false, committedCancellation: Bool = false, holdInitial: Bool = false,
-        providerResultPath: String? = nil, sameURLStaleResponse: Bool = false
+        providerResultPath: String? = nil, sameURLStaleResponse: Bool = false,
+        holdResultResponse: Bool = false
     ) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { chunk, _, complete, error in
             var bytes = data; bytes.append(chunk ?? Data())
@@ -1032,7 +1041,8 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                     initial: initial, submitted: submitted, result: result, requests: requests, resultCount: resultCount,
                     supersedesPendingForm: supersedesPendingForm, networkFailure: networkFailure,
                     committedCancellation: committedCancellation, holdInitial: holdInitial,
-                    providerResultPath: providerResultPath, sameURLStaleResponse: sameURLStaleResponse)
+                    providerResultPath: providerResultPath, sameURLStaleResponse: sameURLStaleResponse,
+                    holdResultResponse: holdResultResponse)
                 return
             }
             let key = request.components(separatedBy: "\r\n")[0].split(separator: " ").prefix(2).joined(separator: " ")
@@ -1051,7 +1061,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                     submitted.fulfill()
                     return
                 }
-                if count == 1, isPost || method == "GET" { submitted.fulfill() }
+                if count == 1, isPost || method == "GET", !holdResultResponse { submitted.fulfill() }
                 if (supersedesPendingForm ? count == 2 : count <= resultCount), !redirect || !isPost,
                    providerResultPath == nil || redirect || isPost { result.fulfill() }
                 if supersedesPendingForm { requests.attemptHeldRedirect() }
@@ -1081,7 +1091,12 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
                 ? "X-GRAF-Cabinet-Recovery: reselect-space\r\n" : ""
             let length = html.utf8.count
             let response = "HTTP/1.1 \(replyStatus)\r\nContent-Type: text/html\r\nCache-Control: no-store\r\n\(recovery)Content-Length: \(length)\r\nConnection: close\r\n\r\n\(html)"
-            if networkFailure && isResult {
+            if holdResultResponse && isResult {
+                // Publish the barrier before waking the test; WebKit cannot
+                // commit this response until stale callbacks have been checked.
+                requests.hold(connection, response: Data(response.utf8))
+                submitted.fulfill()
+            } else if networkFailure && isResult {
                 connection.cancel()
             } else if cancel && isResult && !committedCancellation {
                 requests.hold(connection)
@@ -2298,13 +2313,27 @@ private final class SessionBoundaryRequests: @unchecked Sendable {
     private let lock = NSLock()
     private var counts: [String: Int] = [:]
     private var heldConnection: NWConnection?
+    private var heldResponse: Data?
     func record(_ key: String) -> Int {
         lock.withLock { counts[key, default: 0] += 1; return counts[key]! }
     }
     func count(_ key: String) -> Int { lock.withLock { counts[key, default: 0] } }
-    func hold(_ connection: NWConnection) { lock.withLock { heldConnection = connection } }
+    func hold(_ connection: NWConnection, response: Data? = nil) {
+        lock.withLock { heldConnection = connection; heldResponse = response }
+    }
+    func releaseHeldResponse() {
+        let held = lock.withLock {
+            let value = (heldConnection, heldResponse)
+            heldConnection = nil; heldResponse = nil
+            return value
+        }
+        guard let connection = held.0, let response = held.1 else {
+            XCTFail("Missing held synthetic response"); held.0?.cancel(); return
+        }
+        connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
+    }
     func cancelHeldConnection() {
-        lock.withLock { heldConnection?.cancel(); heldConnection = nil }
+        lock.withLock { heldConnection?.cancel(); heldConnection = nil; heldResponse = nil }
     }
     func attemptHeldRedirect() {
         let connection = lock.withLock { let value = heldConnection; heldConnection = nil; return value }

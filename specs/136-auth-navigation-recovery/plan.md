@@ -311,3 +311,27 @@ T020 включает предварительный GET с завершённо
 Настоящий Workspace должен подтвердить один GET B, прежние DOM/currentItem/view,
 route/identity A после reconciliation и Reload A без повторного B/POST.
 Сначала проба на текущей логике, затем минимальное исправление только при RED.
+
+
+## Исправление порядка synthetic stale-callback пробы — 28.10.2026
+
+Hosted macos-pr40609780164 на63272ac68dd3dda584d019c173fca39f4b0fa7c3
+завершился FAIL:1296 тестов,1293PASS/1FAIL/2SKIP; у одного нового теста
+две assertions pending/currentItem. Локальный PASS не снимает этот отказ.
+Текущий fixture сигнализирует submitted до немедленной отправки ответа:
+ожидание получения POST не гарантирует, что новый документ ещё не committed.
+Это установленный пробел синхронизации; причинность hosted порядка проверяется
+отдельной управляемой пробой и не выводится только из текста журнала.
+
+В рамках существующей T012/CHK018/019, без нового продуктового требования:
+сначала позволить настоящему POST завершиться до stale injection и записать
+состояние до него. Затем только для providerLink+probeStaleCallbacks удержать
+подготовленный ответ в существующем SessionBoundaryRequests до submitted;
+проверить pending/currentItem/boundary до и после прежних stale callbacks,
+явно отпустить ответ и пройти прежние terminal/external-policy assertions.
+Не убирать assertions, не добавлять retry/sleep/skip вместо серверного барьера.
+Сохраняется настоящий WebKit и один POST; продуктовый source не меняется.
+До кода — независимый допуск обоих checklist; после — направленная проба,
+профильные и полный XCTest quickstart, независимое итоговое ревью/converge,
+новые exact-SHA/base GitHub checks. T016 и live closeout остаются открытыми.
+Полоса active Spec Kit F136; constitution/product/security gates неизменны.
