@@ -6,7 +6,7 @@
 
 **Created**: 2026-08-31
 
-**Status**: Draft
+**Status**: Завершающая сверка принятого объёма; закрытие трекера ожидает PR
 
 **Umbrella issue**: [#6207](https://github.com/yshishenya/graf/issues/6207)
 
@@ -18,6 +18,41 @@ release train связывает фактический SHA `master` с PR, Feat
 единственным authoritative Full CI.
 
 ## Уточнения
+
+### Завершающий объём — 28.10.2026
+
+Это решение заменяет прежнее намерение внедрить native merge queue в нынешнем
+репозитории. `yshishenya/graf` — публичный репозиторий личного аккаунта
+(`owner.type=User`); GitHub предоставляет merge queues репозиториям организаций.
+Источник и точная цитата сохранены в research §R9. Отсутствие событий очереди
+само по себе не является основанием решения.
+
+- T015/#6222: подтвердить исходную гарантию stale/superseded через действующие
+  producer/consumer пути. Добавить только недостающую отрицательную проверку
+  `validate-pr-checks.py`: при успешных совпадающих run/job/head/base/attempt
+  валидный по схеме non-passed receipt отвергается именно конечным потребителем.
+  Положительный passed остаётся успешным. Производственный код менять не нужно.
+- T016/#6223: отменить дополнительное ручное дублирование URL/base/receipt в
+  описании PR. Обязательный Exact source SHA, trusted metadata, существующий
+  шаблон и проверка настоящих артефактов общим consumer сохраняются.
+- T028/#6235: тот же `ci-local.sh --fast` на GitHub runner с event base выполняет
+  исходный функциональный результат exact-SHA fast. Нужны focused, workflow lint
+  и настоящие обязательные checks. Непроведённый повтор на Mac не заявляется.
+- T029/#6236 и T031/#6274: отменить оставшиеся подготовку и настоящую приёмку
+  native queue для нынешнего личного MVP. Действующий последовательный PR путь,
+  fail-closed mapping и все условные требования merge_group сохраняются.
+  Fixtures не считаются живой приёмкой. Вернуться к этому объёму только при
+  подтверждённой доступности очереди и конкретной потребности; перед включением
+  нужны новый актуальный план, настоящие положительные/отрицательные сценарии,
+  authoritative membership, expected-state, полномочия и проверенный откат.
+- T030/#6237 остаётся обязательной: полная сверка всех исходных задач и детей,
+  converge без скрытого обязательного дефекта. Общая #6207 закрывается последней
+  как NOT_PLANNED смешанного исходного плана, а не как реализованная очередь.
+
+Все 33 исходные строки и владельцы сохраняются. Отменённые T016/T029/T031
+остаются `[ ]`; для COMPLETED нужны индивидуальные live-closeout проверки.
+Решение вступает в силу после независимого ревью и принятия PR; до этого
+перечисленные задачи и закрытие общей issue не объявляются принятыми.
 
 ### Проверка применимости 2026-10-17
 
@@ -163,7 +198,8 @@ post-merge SHA `master`, запускает один authoritative Full CI и п
   drift.
 - **FR-009**: Required GitHub checks MUST be enabled only after the workflow
   is present on `master` and its stable check names are verified. Native merge
-  queue is a separate operator-owned future gate: all required workflows and
+  queue is outside the accepted personal-repository scope; before any future
+  activation all required workflows and
   authoritative PR mapping MUST pass a real `merge_group` rehearsal first.
   Serial merges remain the current operating mode.
 - **FR-010**: Generic event/receipt schemas and validators MUST be portable to
