@@ -117,11 +117,14 @@ Zoom и одну ссылку протокола на `/meetings`, штатны�
 
 ## Перенос увеличенного текста — FR034
 
-- [X] T022 Сначала воспроизвести переполнение настоящих public templates в `apps/server/tests/browser/public-audio-help.test.cjs`, сохранить обнаружение в вызывающем `apps/server/tests/contract/test_public_audio_help.py`, затем исправить перенос в `apps/server/src/twobrain_rec_server/public/static/public/content.css`; пройти70 сочетаний FR034, прежние keyboard/no-JS/reduced-motion и focused contracts, независимый checklist, convergence и exact-SHA/base PR gates. (Issue #7796)
+- [ ] T022 Сначала воспроизвести переполнение настоящих public templates в `apps/server/tests/browser/public-audio-help.test.cjs`, сохранить обнаружение в вызывающем `apps/server/tests/contract/test_public_audio_help.py`, затем исправить перенос в `apps/server/src/twobrain_rec_server/public/static/public/content.css`; пройти70 сочетаний FR034, прежние keyboard/no-JS/reduced-motion и focused contracts, независимый checklist, convergence и exact-SHA/base PR gates. (Issue #7796)
 - [ ] T023 После T022 включить исправление в согласованный штатный выпуск и подтвердить FR034 на публичных7 страницах; записать candidate/Full/CD и live70 в `specs/281-mac-meeting-guide/text-reflow-validation-20261028.md`. До публикации оставить задачу открытой. (Issue #7797)
 
-Отметка T022 фиксирует локальную реализацию и проверку28.10: исходный отказ
+Прежняя локальная проверка28.10 сохранена: исходный отказ
 471px воспроизведён, CSS-перенос проходит70 сочетаний, все20 профильных
 контрактов PASS. [Отчёт и границы](text-reflow-validation-20261028.md).
-Принятие PR и закрытие #7796 требуют новых exact-SHA/base GitHub checks
-и общего валидатора; локальная отметка их не заменяет. T023 не выполнена.
+На source `b35ace2074d530f9938dfb4cb16a0f4c428070f0` GitHub
+`governance-fast40629252793` выявил выход четырёх стрелок карточек за границы
+при320px/200% текста. T022 возвращена в незавершённое состояние: нужны
+исправление и новые exact-SHA/base GitHub checks с общим валидатором.
+Прежний локальный PASS не заменяет отказ CI. T023 не выполнена.

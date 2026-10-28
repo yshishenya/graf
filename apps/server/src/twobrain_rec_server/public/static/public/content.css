@@ -12,7 +12,7 @@
 .guide-card-hit{position:absolute;inset:0;border-radius:var(--radius)}
 .guide-card a:focus-visible{outline:0;text-decoration:underline;text-decoration-thickness:3px;text-underline-offset:.18em}
 .guide-card:hover{border-color:#8c5cff;box-shadow:0 12px 35px rgba(18,12,37,.08)}
-.guide-read{display:flex;justify-content:space-between;gap:16px;margin-top:auto;padding-top:22px;border-top:1px solid var(--line);color:#6944b4;font-size:15px;font-weight:650}
+.guide-read{display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px;margin-top:auto;padding-top:22px;border-top:1px solid var(--line);color:#6944b4;font-size:15px;font-weight:650}
 .guides-footer{padding:30px 0 36px;color:#b6bac5;font-size:14px}
 .guides-footer>.shell{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}
 .guides-footer p{margin:12px 0}.guides-footer nav{display:flex;flex-wrap:wrap;gap:6px 24px}.guides-footer nav a{display:inline-flex;align-items:center;min-height:44px;text-decoration:underline;text-underline-offset:4px}
