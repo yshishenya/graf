@@ -118,7 +118,20 @@ chmod. Счётчик теперь используется только в по
 намеренного отказа final chmod; обычные/параллельные запуски не имеют общей
 изменяемой переменной. Рабочий helper не менялся. Неуспешный run сохраняется
 как отказ и не используется для слияния; новая версия требует свежих проверок.
+
 После поправки профиль снова дал24 PASS/2 прежних предупреждения22.85s:
 `.dev/growth/f273-private-backups-green-final-20261028.txt`. Ruff,
 development-process и diff — PASS. Новое независимое ревью поправки
 фиксируется отдельно в `.dev/growth/f273-private-backups-ci-fix-review-20261028.md`.
+
+## Проверки PR и слияние
+
+PR #7795 слит 28.10.2026 штатным squash; merge
+`2b361954a7f19a8017fccea7d4e4063039aa5180`, source
+`cd0d1d876c66d9478f31f48af11acc457175be35`, checked base
+`811bf17413cad3e307fe74d5a95acb6afd7a3523`.
+Три обязательные проверки SUCCESS: governance-fast 40628535160,
+macos-pr 40628534782, pr-metadata 40628534028. Общий
+`scripts/validate-pr-checks.py` подтвердил эти head/base до и после слияния;
+JSON сохранены в `.dev/growth/pr7795-checks-{before,after}-merge-20261028.json`.
+Это приёмка PR, без установки helper или полной приёмки T110/T113.
