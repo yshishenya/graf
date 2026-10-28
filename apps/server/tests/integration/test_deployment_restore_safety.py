@@ -1,7 +1,10 @@
 """Execute rehearsal shells with synthetic Docker/MinIO; never contact a server."""
 
 import os
+import signal
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -20,6 +23,13 @@ if a[0]=='compose' and 'ps' in a:print('synthetic-postgres');sys.exit(0)
 if a[0]=='compose' and 'exec' in a:
  cmd=a[a.index('rec-postgres')+1:]; tool=cmd[0]
  if tool=='createdb':
+  if os.environ.get('RESTORE_TEST_CREATE_WAIT')=='database':
+   import time
+   (root/'create-started').touch()
+   deadline=time.monotonic()+10
+   while not (root/'create-release').exists():
+    if time.monotonic()>deadline:sys.exit(7)
+    time.sleep(0.01)
   if failure=='createdb':
    (root/'foreign-db').write_text(cmd[-1]);sys.exit(7)
   (root/'owned-db').write_text(cmd[-1]);sys.exit(0)
@@ -48,6 +58,13 @@ root=pathlib.Path(os.environ['RESTORE_TEST_ROOT']);a=sys.argv[1:]
 failure=os.environ.get('RESTORE_TEST_FAILURE','')
 if a[0]=='alias':sys.exit(0)
 if a[0]=='mb':
+ if os.environ.get('RESTORE_TEST_CREATE_WAIT')=='bucket':
+  import time
+  (root/'create-started').touch()
+  deadline=time.monotonic()+10
+  while not (root/'create-release').exists():
+   if time.monotonic()>deadline:sys.exit(7)
+   time.sleep(0.01)
  if failure=='bucket-create':
   (root/'foreign-bucket').write_text(a[-1]);sys.exit(0 if '--ignore-existing' in a else 7)
  (root/'owned-bucket').write_text(a[-1]);sys.exit(0)
@@ -77,6 +94,7 @@ def restore_env(tmp_path):
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     bindir = tmp_path / "bin"
     bindir.mkdir()
+    (bindir / "python3").symlink_to(sys.executable)
     for name, text in [("docker", DOCKER), ("mc", MC)]:
         p = bindir / name
         p.write_text(text)
@@ -88,8 +106,8 @@ def restore_env(tmp_path):
     for name in ["user", "password", "unrelated"]:
         (tmp_path / name).write_text("synthetic")
     return {
-        **os.environ,
         "PATH": str(bindir) + os.pathsep + os.environ["PATH"],
+        "LANG": "C.UTF-8",
         "RESTORE_TEST_ROOT": str(tmp_path),
         "RESTORE_BACKUP_REFERENCE": str(backup),
         "GRAF_RELEASE_MC_IMAGE": "synthetic-mc",
@@ -282,3 +300,74 @@ def test_restore_wrapper_stop_keeps_lock_until_child_cleanup(restore_env, stop):
     if stop == "terminate":
         assert first.returncode != 0
         assert "restore_rehearsal_result=pass" not in output
+
+
+@pytest.mark.parametrize("stop", [signal.SIGHUP, signal.SIGINT, signal.SIGTERM])
+@pytest.mark.parametrize("target", ["database", "bucket"])
+@pytest.mark.parametrize("create_succeeds", [True, False])
+def test_restore_stop_during_creation_records_ownership_before_cleanup(
+    restore_env, stop, target, create_succeeds
+):
+    root = Path(restore_env["RESTORE_TEST_ROOT"])
+    failure = "" if create_succeeds else {"database": "createdb", "bucket": "bucket-create"}[target]
+    first = subprocess.Popen(
+        [str(REPO / "infra/scripts/rehearse-rec-restore.sh"), "--execute"],
+        cwd=root,
+        env={**restore_env, "RESTORE_TEST_CREATE_WAIT": target, "RESTORE_TEST_FAILURE": failure},
+        # Non-interactive launchers can pass an ignored INT to the supervisor.
+        preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        deadline = time.monotonic() + 5
+        while (
+            not (root / "create-started").exists()
+            and first.poll() is None
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+        assert (root / "create-started").exists()
+        first.send_signal(stop)
+        second = rehearsal(restore_env)
+        assert second.returncode != 0
+        assert "deployment_or_rehearsal_running" in second.stdout
+    finally:
+        (root / "create-release").touch()
+        output, error = first.communicate(timeout=15)
+    assert first.returncode != 0, error
+    assert "restore_rehearsal_result=pass" not in output
+    assert not (root / "owned-db").exists() and not (root / "owned-bucket").exists()
+    assert not list(root.glob("graf-rec-restore.*"))
+    if not create_succeeds:
+        foreign = "foreign-db" if target == "database" else "foreign-bucket"
+        assert (root / foreign).exists()
+    assert (root / "unrelated").read_text() == "synthetic"
+
+
+@pytest.mark.parametrize("stop", [signal.SIGHUP, signal.SIGINT, signal.SIGTERM])
+def test_restore_supervisor_defers_signal_before_child_exists(restore_env, stop):
+    root = Path(restore_env["RESTORE_TEST_ROOT"])
+    support = root / "python-support"
+    support.mkdir()
+    (support / "sitecustomize.py").write_text("""import os,pathlib,signal,subprocess
+original = subprocess.Popen
+def spawn(args, *a, **kw):
+    if isinstance(args, list) and args[0] == 'sh':
+        pathlib.Path(os.environ['RESTORE_TEST_ROOT'], 'early-signal').touch()
+        os.kill(os.getpid(), int(os.environ['RESTORE_TEST_EARLY_SIGNAL']))
+        child = original(args, *a, **kw)
+        pathlib.Path(os.environ['RESTORE_TEST_ROOT'], 'early-child').touch()
+        return child
+    return original(args, *a, **kw)
+subprocess.Popen = spawn
+""")
+    r = rehearsal(
+        {**restore_env, "PYTHONPATH": str(support), "RESTORE_TEST_EARLY_SIGNAL": str(stop)}
+    )
+    assert (root / "early-signal").exists() and (root / "early-child").exists()
+    assert r.returncode != 0
+    assert "restore_rehearsal_result=pass" not in r.stdout
+    assert not (root / "owned-db").exists() and not (root / "owned-bucket").exists()
+    assert not list(root.glob("graf-rec-restore.*"))

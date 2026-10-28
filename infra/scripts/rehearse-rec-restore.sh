@@ -32,16 +32,23 @@ with open(path, 'a') as lock:
     except BlockingIOError:
         print('restore_rehearsal_result=blocked\nreason=deployment_or_rehearsal_running')
         raise SystemExit(1)
-    child = subprocess.Popen(['sh', *sys.argv[1:]],
-                             env=dict(os.environ, GRAF_RESTORE_LOCK_HELD='1'),
-                             pass_fds=(lock.fileno(),))
+    child = None
+    pending = set()
     def forward(number, frame):
+        if child is None:
+            pending.add(number)
+            return
         try:
             child.send_signal(number)
         except ProcessLookupError:
             pass
     for number in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
         signal.signal(number, forward)
+    child = subprocess.Popen(['sh', *sys.argv[1:]],
+                             env=dict(os.environ, GRAF_RESTORE_LOCK_HELD='1'),
+                             pass_fds=(lock.fileno(),))
+    for number in pending:
+        forward(number, None)
     status = child.wait()
     raise SystemExit(status if status >= 0 else 128 - status)
 PY
@@ -57,6 +64,7 @@ staging="$(mktemp -d "${TMPDIR:-/tmp}/graf-rec-restore.XXXXXX")"
 log="$staging/commands.log"
 database_owned=0
 bucket_owned=0
+stop_requested=0
 root_user_file="${TWOBRAIN_MINIO_ROOT_USER_FILE:-./secrets/twobrain_minio_root_user}"
 root_password_file="${TWOBRAIN_MINIO_ROOT_PASSWORD_FILE:-./secrets/twobrain_minio_root_password}"
 mc_run() {
@@ -94,13 +102,19 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 chmod 0700 "$staging"
-# Flags follow successful create-only commands; an uncertain create never owns a target.
+# Defer stop until successful creation records ownership for cleanup.
+trap 'stop_requested=1' HUP INT TERM
 docker compose -f infra/docker-compose.yml exec -T rec-postgres createdb -U twobrain_rec "$restore_db" >>"$log" 2>&1
 database_owned=1
+trap 'exit 1' HUP INT TERM
+[ "$stop_requested" = 0 ] || exit 1
 docker compose -f infra/docker-compose.yml exec -T rec-postgres \
   pg_restore --exit-on-error -U twobrain_rec -d "$restore_db" --no-owner <"$reference/postgres.dump" >>"$log" 2>&1
 docker compose -f infra/docker-compose.yml exec -T rec-postgres \
   psql -X -U twobrain_rec -d "$restore_db" -Atqc 'SELECT count(*) FROM information_schema.tables' >>"$log" 2>&1
+trap 'stop_requested=1' HUP INT TERM
 mc_run "mc mb rec/$restore_bucket >/dev/null" >>"$log" 2>&1
 bucket_owned=1
+trap 'exit 1' HUP INT TERM
+[ "$stop_requested" = 0 ] || exit 1
 mc_run "mc mirror /backup/minio-objects rec/$restore_bucket >/dev/null" >>"$log" 2>&1
