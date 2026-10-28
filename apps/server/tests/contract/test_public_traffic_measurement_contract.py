@@ -66,6 +66,20 @@ IDENTIFIER_VALUE_MARKERS = (
 )
 
 
+@pytest.fixture(autouse=True)
+def functional_database_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify stored values without benchmarking a shared runner's latency.
+
+    Production's 250 ms best-effort limits are checked by the separate timeout
+    and cancellation tests; functional assertions here require confirmed writes.
+    """
+    import twobrain_rec_server.product_analytics.anonymous_aggregate as aggregate
+    import twobrain_rec_server.public.web as web
+
+    monkeypatch.setattr(web, "PUBLIC_WEB_DB_PHASE_TIMEOUT_SECONDS", 2)
+    monkeypatch.setattr(aggregate, "ANONYMOUS_AGGREGATE_WRITE_TIMEOUT_SECONDS", 2)
+
+
 def _stored_rows(database_url: str) -> list[dict]:
     async def _read() -> list[dict]:
         engine = create_async_engine(database_url, poolclass=NullPool)
