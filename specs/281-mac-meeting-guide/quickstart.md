@@ -62,3 +62,19 @@ FR027–28/T016: сначала сверить свежие master, deployed ima
 Проверить прежние metadata/три CTA/якоря, нулевой diff других public файлов,
 отображение320/390/768/1440 без JS и с реальными прежними CSS. Затем штатные
 exact-SHA gates и выпуск; после него публично прочитать новый раздел.
+
+## Перенос FR034/T022–T023
+
+Расширить существующий `public-audio-help.test.cjs` и вызывающий его
+pytest. Рендерить семь настоящих шаблонов с текущим реестром и локальными
+CSS/шрифтом;320/360/390/768/1440 ×100/200% текста. Размеры удваивать
+из заранее снятых computed font sizes, не накапливать масштабирование.
+Проверить document scrollWidth <= innerWidth+1 и границы текстовых Range
+intro/cards; запрет на скрытие overflow/ellipsis/уменьшение шрифта проверить
+по diff. Сохранить исходный FAIL, затем полный PASS и прежние keyboard,
+no-JS, reduced-motion проверки. Запустить все public guide/help/navigation
+контракты через existing isolated PostgreSQL runner; выполнить Ruff,
+fragment/governance/diff checks. Все шаблоны и иные публичные CSS/JS должны
+побайтно совпасть с основой. PR:3 required checks + common validator.
+T023: в согласованном выпуске exact candidate Full/CD и та же live matrix;
+без неё не закрывать publication task и общую F281.

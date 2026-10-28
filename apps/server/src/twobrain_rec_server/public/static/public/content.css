@@ -1,4 +1,5 @@
 .guides-header{position:relative;border-bottom:1px solid var(--night-line)}
+.guides-intro,.guide-card{overflow-wrap:break-word}
 .guides-intro{padding:76px 0 80px;background:radial-gradient(ellipse at 90% 0,rgba(140,92,255,.13),transparent 55%),var(--night)}
 .guides-intro h1{max-width:1000px;margin:0;font-size:clamp(40px,6vw,76px);font-weight:590;letter-spacing:-.055em;line-height:1.07}
 .guides-lead{max-width:710px;margin:28px 0 0;color:#b6bac5;font-size:20px;line-height:1.65}
@@ -11,7 +12,7 @@
 .guide-card-hit{position:absolute;inset:0;border-radius:var(--radius)}
 .guide-card a:focus-visible{outline:0;text-decoration:underline;text-decoration-thickness:3px;text-underline-offset:.18em}
 .guide-card:hover{border-color:#8c5cff;box-shadow:0 12px 35px rgba(18,12,37,.08)}
-.guide-read{display:flex;justify-content:space-between;gap:16px;margin-top:auto;padding-top:22px;border-top:1px solid var(--line);color:#6944b4;font-size:15px;font-weight:650}
+.guide-read{display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px;margin-top:auto;padding-top:22px;border-top:1px solid var(--line);color:#6944b4;font-size:15px;font-weight:650}
 .guides-footer{padding:30px 0 36px;color:#b6bac5;font-size:14px}
 .guides-footer>.shell{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}
 .guides-footer p{margin:12px 0}.guides-footer nav{display:flex;flex-wrap:wrap;gap:6px 24px}.guides-footer nav a{display:inline-flex;align-items:center;min-height:44px;text-decoration:underline;text-underline-offset:4px}

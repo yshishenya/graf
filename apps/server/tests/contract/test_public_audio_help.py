@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock
 from xml.etree import ElementTree
@@ -15,6 +16,7 @@ from twobrain_rec_server.public.content import (
     HELP_PATH,
     ONE_SIDED_AUDIO_PATH,
     PUBLIC_CONTENT_SURFACES,
+    PUBLISHED_CONTENT_PATHS,
 )
 
 
@@ -95,11 +97,12 @@ def test_help_mobile_text_zoom_and_keyboard_in_real_browser(tmp_path):
     node = shutil.which("node")
     assert node is not None, "Node is required for the Help browser gate"
     with TestClient(create_app(Settings())) as client:
-        for name, path in (
-            ("help", HELP_PATH), ("audio", ONE_SIDED_AUDIO_PATH),
-            ("hub", "/guides"), ("guide", GUIDE_PATH),
-        ):
-            (tmp_path / f"{name}.html").write_text(client.get(path).text)
+        pages = {}
+        for path in PUBLISHED_CONTENT_PATHS:
+            response = client.get(path)
+            assert response.status_code == 200, path
+            pages[path] = response.text
+        (tmp_path / "pages.json").write_text(json.dumps(pages), encoding="utf-8")
     modules = os.environ.get("GRAF_NODE_MODULES", str(root / "tests/browser/node_modules"))
     result = subprocess.run(
         [node, str(root / "tests/browser/public-audio-help.test.cjs"), str(tmp_path)],
@@ -112,3 +115,5 @@ def test_help_mobile_text_zoom_and_keyboard_in_real_browser(tmp_path):
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "public_audio_help_browser=pass" in result.stdout
+    assert f"cases={len(PUBLISHED_CONTENT_PATHS) * 5 * 2}" in result.stdout
+    print(result.stdout.strip())
