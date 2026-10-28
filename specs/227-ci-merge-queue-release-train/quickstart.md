@@ -2,6 +2,10 @@
 
 ## Preflight
 
+Текущий завершающий объём — spec §«Завершающий объём — 28.10.2026».
+Историческое намерение native rehearsal ниже заменено отменой нынешнего этапа;
+оно остаётся обязательным условием любого будущего включения очереди.
+
 ```sh
 python3 scripts/validate-agent-context.py
 python3 scripts/check-development-process.py
@@ -81,6 +85,15 @@ Native `merge_group` rehearsal и authoritative API mapping T029/T031 остаю
 fixtures и serial train их не выполняют. Защита GitHub не меняется.
 
 ## Pinned harness
+
+Для T015 сначала успешный bundle, затем schema-valid stale/superseded при тех
+же успешных GitHub run/job и идентичностях; ожидать конкретный отказ
+`code receipt identity mismatch`. Выполнить `tests/governance/test_pr_checks.py`
+вместе с producer/guard/workflow/event/train наборами выше и self-test workflow.
+T028 подтверждается настоящим запуском того же fast на GitHub runner точного
+PR SHA/base; локальный широкий повтор не нужен. T030 требует отдельной полной
+матрицы задач/детей, не только прохождения нового теста. Закрытие и смена reason
+допускаются только после принятого PR и индивидуальных проверок tracker-policy.
 
 Матрица Python 3.9/3.12 из закреплённого SHA и successful run описаны в
 [research.md](research.md#r8--закреплённая-матрица-переносимого-инструментария).

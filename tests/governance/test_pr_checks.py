@@ -142,6 +142,21 @@ def test_current_complete_set_and_historical_boundary(bundle):
         checks.historical(pr, {})
 
 
+@pytest.mark.parametrize('status', ['stale', 'superseded'])
+def test_valid_nonpassed_receipt_cannot_pass_successful_github_jobs(bundle, status):
+    assert validate(bundle)['policy'] == 'separate'
+    run, proof = bundle[3]['governance-fast']
+    original_run = copy.deepcopy(run)
+    proof.update(status=status, conclusion=status, reason=status,
+                 cancellation_state='none',
+                 supersession_state='superseded' if status == 'superseded' else 'none',
+                 final_cleanliness='stale' if status == 'stale' else 'ambiguous')
+    assert checks.receipts.validate(proof) == []
+    with pytest.raises(ValueError, match='^code receipt identity mismatch$'):
+        validate(bundle)
+    assert run == original_run
+
+
 @pytest.mark.parametrize('workflow', ['governance-fast', 'macos-pr', 'pr-metadata'])
 @pytest.mark.parametrize('mutation', ['head', 'base', 'attempt', 'run', 'failure', 'path', 'event', 'missing'])
 def test_mixed_stale_or_unsuccessful_proof_fails(bundle, workflow, mutation):

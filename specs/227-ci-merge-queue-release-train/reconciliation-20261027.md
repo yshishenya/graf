@@ -104,3 +104,42 @@ T030/#6237 и T031/#6274 остаются открытыми.
 
 Не запускались и не менялись: Full CI, release/CD, branch protection,
 native queue, приложение GRAF Dev, Docker-стенд, TCC и production.
+
+## Продолжение поштучной сверки — 28.10.2026
+
+Основа `668dd771341a92e0bbc3286585b25e99c2eacf86`, ветка
+`codex/227-final-task-reconciliation`, lane `Active Spec Kit slice`.
+Исходные критерии и текущие состояния всех 33 issues получены заново.
+Канонические ссылки всех 33 задач добавлены в tasks без смены владельцев;
+T032/T033 совместно принадлежат #7645. Новых задач и issues нет.
+
+В T015 есть действующая защита, но не было прямой регрессии конечного
+`validate-pr-checks.py` для schema-valid non-passed receipt при успешных
+GitHub run/job. Добавлены только два параметра существующего test bundle:
+stale и superseded. Каждый сначала подтверждает положительный baseline,
+затем схему, затем именно `code receipt identity mismatch`; run/job не меняются.
+Cleanliness соответствует producer: stale/ambiguous соответственно.
+
+Новая проверка девяти полных файлов quickstart, включая consumer и прежний
+набор этой матрицы: **603 уникальных PASS, 0 FAIL, 0 SKIP, 138.88с**.
+Отдельный исходный consumer baseline:152 PASS. После уточнения cleanliness
+superseded оба новых случая повторены:2 PASS; пересекающиеся результаты не
+суммируются. Workflow/train/mapping self-tests и portable harness self-test,
+sample и package scan — PASS. Зависимости не устанавливались. Неудачный вызов
+несуществующего `dev_harness.cli` исправлен использованием штатного
+`harness/bin/harness-check`; созданный этим вызовом bytecode удалён.
+Свежий GitHub tag v0.1.13 снова разрешён в закреплённый commit
+`6a8257186aee878087b68fd77716ddce595a012d`; Python matrix остаётся исторической.
+
+Предыдущие основания T001–T013/T017–T027/T032/T033 выше сохраняют происхождение
+реализации, но не заменяют будущий current closeout. Общий validator для
+старого PR6790 сейчас отказал: `governance-fast: missing/expired artifact`.
+Поэтому T030/#6237 и общая #6207 остаются открытыми до нового допустимого
+proof каждого COMPLETED ребёнка, индивидуальных комментариев и live-проверок.
+Новый проверенный снимок не следует называть первоначальной реализацией всех
+задач. Для T028 нужен настоящий fast нового PR exact SHA/base.
+
+Предлагаемые отмены T016/T029/T031 определены в текущем spec/plan/tasks и
+ждут принятого PR. Ни одна issue пока не закрыта и причина её закрытия не
+изменена. Настоящий merge_group rehearsal не выполнен и не заявляется.
+Производственный код, CI workflow, защиты GitHub, выпуск и CD не меняются.

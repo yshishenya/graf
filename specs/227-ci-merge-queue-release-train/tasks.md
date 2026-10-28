@@ -2,6 +2,10 @@
 
 ## Phase 1: Setup
 
+Текущий объём и отмена дополнительной автоматизации определены в
+spec §«Завершающий объём — 28.10.2026». Исторические разделы ниже сохраняют
+состояние своих дат; это не действующее требование внедрить очередь.
+
 - [X] T001 [P] Зафиксировать CI receipt и release-train schemas per `specs/227-ci-merge-queue-release-train/contracts/ci-receipt.v1.md` и `contracts/release-train.v1.md`.
 - [X] T002 [P] Добавить metadata-only changelog fragment в `changes/unreleased/F227.yaml`.
 - [X] T003 [P] Добавить synthetic PR/manual/merge_group fixtures в `tests/governance/fixtures/feature_227/`.
@@ -31,7 +35,7 @@ produce terminal non-success receipts rejected by validators.
 - [X] T012 [US2] Ввести canonical concurrency key и cancellation contract в `.github/workflows/governance-fast.yml`.
 - [X] T013 [US2] Добавить final tracked/untracked cleanliness gate после всех stages в `infra/scripts/ci-local.sh`.
 - [X] T014 [US2] Расширить CI evidence producer полями cancellation/supersession/conclusion в `scripts/emit-ci-evidence.py`.
-- [ ] T015 [US2] Добавить stale/superseded negative tests в `tests/governance/test_ci_guard.py` и `tests/governance/test_ci_evidence_producer.py`.
+- [X] T015 [US2] Добавить stale/superseded negative tests в `tests/governance/test_ci_guard.py` и `tests/governance/test_ci_evidence_producer.py`.
 - [ ] T016 [US2] Обновить PR metadata validator и template полями workflow URL, target/base SHA и receipt в `scripts/validate-pr-metadata.py` и `.github/pull_request_template.md`.
 
 ## Phase 5: User Story 3 — Release train provenance
@@ -186,3 +190,76 @@ terminal step, профильные проверки и итоговое рев�
 Отмечена локальная реализация T014; issue остаётся открытой до независимого
 итогового ревью, нового PR, трёх проверок точного SHA/base, слияния и live-closeout.
 Итог: 27 выполненных / 6 открытых задач; вся F227 не завершена.
+
+## Завершающая сверка — 28.10.2026
+
+Исходные 33 строки, описания и владельцы сохранены. На момент подготовки этой
+таблицы новые отметки не ставились; последующий локальный результат T015 ниже.
+
+| Задача | Владелец | Решение и оставшееся условие |
+|---|---|---|
+| T015 | #6222 | COMPLETED только после прямой регрессии общего consumer, ревью, PR checks/merge и live-closeout. Исторический CLOSED сам по себе недостаточен. |
+| T016 | #6223 | NOT_PLANNED: лишняя ручная копия URL/base/receipt; сохраняются нынешние машинные проверки. Исходная `[ ]`; исторический reason исправить после принятия решения. Вернуться при доказанной потребности нового потребителя. |
+| T028 | #6235 | COMPLETED по focused/lint и тому же fast на GitHub runner exact SHA/base; местный повтор не заявлять. Нужны PR checks/merge и live-closeout. |
+| T029 | #6236 | NOT_PLANNED для оставшегося native этапа в personal repo. PR путь сохраняется; вернуться при доступности очереди и конкретной потребности по spec. |
+| T030 | #6237 | Обязательная полная сверка и converge принятого объёма; пока `[ ]`. |
+| T031 | #6274 | NOT_PLANNED для native authoritative mapping приёмки; существующие fail-closed guards сохраняются. Условия возвращения те же, что T029. |
+
+T016/T029/T031 остаются `[ ]` и после принятой отмены. Все COMPLETED дети
+проверяются индивидуально; общая #6207 — последней NOT_PLANNED смешанного
+исходного плана, без ложного завершения native очереди. Новых дублей задач нет.
+
+## Канонические ссылки существующих владельцев
+
+Это связи уже существующих задач, а не новые executable tasks. Исходные строки,
+описания и отменённые отметки выше не изменяются. У каждой задачи один владелец;
+T032/T033 совместно принадлежат существующей #7645.
+
+- T001 (Issue #6208)
+- T002 (Issue #6209)
+- T003 (Issue #6210)
+- T004 (Issue #6211)
+- T005 (Issue #6212)
+- T006 (Issue #6213)
+- T007 (Issue #6214)
+- T008 (Issue #6215)
+- T009 (Issue #6216)
+- T010 (Issue #6217)
+- T011 (Issue #6218)
+- T012 (Issue #6219)
+- T013 (Issue #6220)
+- T014 (Issue #6221)
+- T015 (Issue #6222)
+- T016 (Issue #6223)
+- T017 (Issue #6224)
+- T018 (Issue #6225)
+- T019 (Issue #6226)
+- T020 (Issue #6227)
+- T021 (Issue #6228)
+- T022 (Issue #6229)
+- T023 (Issue #6230)
+- T024 (Issue #6231)
+- T025 (Issue #6232)
+- T026 (Issue #6233)
+- T027 (Issue #6234)
+- T028 (Issue #6235)
+- T029 (Issue #6236)
+- T030 (Issue #6237)
+- T031 (Issue #6274)
+- T032 (Issue #7645)
+- T033 (Issue #7645)
+
+## Локальный результат T015 — 28.10.2026
+
+Реализовано соответствие существующим producer/consumer путям из spec. Исходные
+guard/evidence проверки сохранены; недостающие два случая добавлены в общий
+`test_pr_checks.py`. Успешный baseline и schema-valid stale/superseded receipt
+при неизменных успешных run/job завершаются точным отказом consumer. Новый
+производственный механизм не нужен; код producer/consumer и workflow не менялись.
+
+Профиль quickstart: 603 уникальных PASS / 0 FAIL / 0 SKIP. Оба новых случая
+повторно прошли после уточнения cleanliness superseded к существующему producer.
+Отмечена только локальная реализация T015; T028/T030 остаются `[ ]` до своих
+доказательств. T016/T029/T031 сохраняют `[ ]` как отменяемый объём. Итог:
+28 отмеченных / 5 неотмеченных исходных задач. Полный closeout ещё не выполнен.
+Подробности и пределы — новый раздел reconciliation-20261027.md от28.10.
