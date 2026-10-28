@@ -1,0 +1,99 @@
+# Приёмка серверного выпуска v2026.10.28.1
+
+Опубликован28.10.2026 в02:38:36UTC. Источник, тег и работающая версия:
+`0cecb0b47b006bdf5cfff4f568d8b90aee230201`.
+База — опубликованный v2026.10.27.2,
+`c4a742eb9fb3f9c9d62d8c4f6e5b9bd12c0a62c4`.
+Полоса выпуска — release/deploy; отчёт — docs-only/mechanical.
+
+## Проверенная цепочка
+
+- [x] Согласовано окно без параллельных слияний. Train
+  `train-20261028T021642Z-0cecb0b47b00` охватывает20 принятых PR:
+  #7771–#7788, #7790 и #7791. Точные проверки подтверждены штатным сборщиком;
+  подготовка #7791 прошла независимое ревью состава и ограничений.
+- [x] Candidate `rc-20261028T021836Z-826f398259e2` закрепляет source выше
+  и digest CHANGELOG
+  `sha256:2dbc8e0937d995b22e48cc89f27e60dd8c6df5025bd4742ccbb5800cf60e4e0c`.
+- [x] Единственный авторитетный
+  [Full40620162666](https://github.com/yshishenya/graf/actions/runs/40620162666)
+  — SUCCESS, все13 jobs успешны. Repository/server/macOS совпали с source;
+  `skipped_gates=[]`. Digest evidence:
+  `sha256:b6a63adb7c6d2217eb8bbd283d8751a8b1a212a22d77f12a0cbe38710a004019`.
+- [x] Train-attest/decision дали go. Неизменный кандидат прошёл CD dry-run.
+- [x] Свежая закрытая backup, миграция0106, проверки DB identity/RLS,
+  подготовка образов, штатный smoke и cleanup прошли. `deploy_result=pass`,
+  deployed/runtime/source совпадают; резервная копия осталась на сервере,
+  на Mac не копировалась. Это не приёмка полного восстановления F273.
+- [x] После smoke повторно подтверждены Temporal/processing-worker,
+  открытие автоматической диспетчеризации, прежние публичные download/feed.
+- [x] После развёртывания четыре службы независимо прочитаны: API,
+  processing-worker, media-worker, maintenance используют source выше,
+  running/restart_count0. Первые три healthy; у maintenance нет healthcheck.
+- [x] Независимая сверка notes/source/tag/receipts — SCOPED PASS.
+  Notes SHA256 `c56349943e51e9f68f6433ddb7b7cbe1f5aad752fa38db793c26c7b3b8d1f3fb`.
+- [x] [GitHub Release](https://github.com/yshishenya/graf/releases/tag/v2026.10.28.1)
+  stable, не draft/prerelease; target/body проверены после публикации.
+  Аннотированный tag-object `353768f1d1f6b78cf65d441086f90beea8ad47eb`
+  указывает на source. Publication attestation
+  `pa-rc-20261028T021836Z-826f398259e2` создана в02:38:38UTC.
+
+Прежние Full40609630585 и40613955028 завершились FAILURE и сохранены
+с abandoned-кандидатами; не использованы как разрешение. Исправление T103
+прошло отдельные причинные и реальные проверки, PR #7790 и новый Full.
+Ошибка подготовки driver остановила создание PR после сохранения ветки;
+метаданные проверены, удалённый ввод об ограничениях восстановлен до
+окончательного коммита #7791. Проверки и последующее слияние штатные.
+
+## Публичный путь посетителя
+
+- [x] Все17 canonical URL:200, по одному H1/title/description/canonical,
+  уникальные title/description, без noindex, есть входящие ссылки.
+  Неизвестный адрес возвращает404.
+- [x] `/transcription` сообщает «Войти и загрузить запись» и объясняет вход
+  перед загрузкой готового файла через браузер. Кнопка ведёт на
+  `/login?next=/meetings`, пример — на существующий `#graf-result` протокола.
+- [x] Браузер без JavaScript:320/390/768/1440, переполнения нет; оба
+  перехода нажаты. Tab показывает обводку «К содержанию», Enter ведёт к#main.
+  Мобильный снимок390 просмотрен после выкладки.
+- [x] Главная и её три CSS/JS ресурса сохранены побайтно относительно снимка
+  до выпуска. Расширенная аналитика/получатели выключены, readiness blocked.
+
+Изменение пути — [#7781](https://github.com/yshishenya/graf/pull/7781):
+source `91edbd4130e5b7626c1d3be1d1105f069171b134`,
+checked base `888ad9539c8bc21a9fe4c3935d6647e035272aa3`,
+merge `c4d30be7af737495545e5402b0483e4ec55d4cb5`.
+Подробная [приёмка редакции](../../growth/transcription-entry-2026-10-28.md).
+Все проверки посетителя — операторские/автоматические, без нового входа,
+загрузки, внешней публикации или оплаты.
+
+## Границы выпуска
+
+Состав исходников — F125/F136/F206/F211/F224/F263/F273/F282/F289.
+Это `--no-app`: новое приложение macOS/appcast не публиковалось. Native
+исправление F136 есть в исходниках; установленный клиент его этим выпуском
+не получает. T016/#4743 и остальные приёмки клиента открыты.
+
+Расширенная аналитика, IP и отправка получателям выключены; nginx не
+применялся. Триггеры результата, полное восстановление и рабочая воронка
+F273/G010–G019 остаются открытыми. Миграция0106 добавляет таблицу;
+откат непустой истории запрещён. CD readiness — infra_smoke_ready,
+playback_normalization_scope=worker_capability_only. Automatic retry,
+backfill inventory, Range playback и normalization cleanup сохраняют
+required_post_deploy; этим выпуском не закрыты.
+
+Индексирование, переходы, внешние клиенты и коммерческие AC01–AC06 не
+следуют из технической приёмки. Окно освобождено после публикации сообщением
+задаче «Проверь порядок в репозитории».
+
+## Сохранённые доказательства
+
+В игнорируемом `.dev/growth/`: release-20261028-resources.log,
+release-publish-20261028-resources.log, cd-results-20261028.json,
+runtime-release-after-20261028.json, public-runtime-after-20261028.json,
+public-crawl-2026-10-28-after-release.json,
+transcription-entry-public-browser-20261028.json, public-landing-*-20261028.json,
+release-published-20261028.json и два независимых release-review отчёта.
+15 неизменяемых candidate/train/decision/evidence/publication записей сохранены
+в release-20261028-resources/ с manifest размеров иSHA256. Зависимости,
+промежуточные сборки, частные записи и резервная копия БД туда не переносились.
