@@ -86,10 +86,12 @@ a = sys.argv[1:]
 if tool in {"find", "chmod"}:
     if tool == "find" and failure == "find": sys.exit(7)
     if tool == "chmod":
-        count = root / "chmod-count"
-        calls = int(count.read_text()) + 1 if count.exists() else 1
-        count.write_text(str(calls))
-        if failure == "chmod-initial" or (failure == "chmod" and calls > 1): sys.exit(7)
+        if failure == "chmod-initial": sys.exit(7)
+        if failure == "chmod":
+            count = root / "chmod-count"
+            calls = int(count.read_text()) + 1 if count.exists() else 1
+            count.write_text(str(calls))
+            if calls > 1: sys.exit(7)
     os.execv(os.environ["BACKUP_REAL_" + tool.upper()], [tool, *a])
 mask = os.umask(0)
 os.umask(mask)
