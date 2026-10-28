@@ -299,3 +299,32 @@ US2/US3 и общая F263 остаются открытыми; выпуск/pro
 PASS, два настоящих PG-запуска по68 PASS с workers1/2, 65.691/52.922 s,
 одинаковый состав без повторов/пропусков и удалённые контейнеры. US2 baseline
 и общая F263 не приняты; PR/CI/merge/live closeout проверяются отдельно.
+
+## Дополнение: точный PR proof T011 — 2026-10-28
+
+Итоговая документальная сверка принята независимым reviewer: APPROVE,
+0открытых замечаний; T001/T010/T012 подтверждены отдельно. После переноса
+на основу `312b9cbbcb2d666832a9c8b583e7b7bb08d8ff2c` все10SHA256 проверенного
+кода/тестов совпали; продуктовые тесты из-за неизменного кода не повторялись.
+Context/process/fragment/metadata/governance/diff PASS, исходные11описаний и
+owners сохранены. Новый PR #7800 открыт обычным, не черновиком.
+
+Source `3ca3275a08d9cd3c9cc745ebe801abba106d741c`, checked base
+`312b9cbbcb2d666832a9c8b583e7b7bb08d8ff2c`:
+
+- governance-fast: PASS https://github.com/yshishenya/graf/actions/runs/40634639021
+- macos-pr: PASS https://github.com/yshishenya/graf/actions/runs/40634638957
+- pr-metadata: PASS https://github.com/yshishenya/graf/actions/runs/40634639059
+
+Все attempt1. Общий validate-pr-checks.py PASS подтвердил весь текущий набор,
+артефакты и identity; файл f263-pr7800-first-complete-checks-20261028.json
+сохранён во внешнем каталоге проверки. Native execution штатно пропущен для
+доказанного документального diff; required macos-pr контекст SUCCESS.
+Это PR proof и принятие T011, а не Full, публикация или завершённое слияние.
+
+Отметка T011 и это дополнение — только два документа. Окончательный SHA
+после их коммита вновь требует трёх GitHub gate и общего validator до merge.
+Новые изменения product/CI/checklist отсутствуют. Пока #6904/#6909/#6901 OPEN:
+после обычного принятия — индивидуальные mixed NOT_PLANNED/COMPLETED проверки
+по реестру выше, общая issue последней. Согласованный выпуск F273/F281 ждём
+без новых слияний F263; его Full/CD самостоятельно не запускаем.
