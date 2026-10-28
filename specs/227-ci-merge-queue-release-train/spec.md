@@ -38,6 +38,22 @@ release train связывает фактический SHA `master` с PR, Feat
 
 ## User Scenarios & Testing
 
+### Уточнение T014 / #6221 — 28.10.2026
+
+Известный шагу формирования квитанции `job.status=failure` или `cancelled`
+имеет приоритет над уже сохранённым локальным PASS. При `success` сохраняется
+фактический локальный статус, включая `stale`, `superseded` и другие отказы;
+отсутствие evidence или неизвестный статус задания не разрешают PASS.
+Поля `conclusion`, `cancellation_state`, `supersession_state` формирует уже
+существующий `scripts/emit-ci-receipt.py`: переносить или дублировать их ради
+старого пути T014 не требуется. Исходная задача и её владелец сохраняются.
+
+Квитанция описывает известное состояние при её формировании. Отмена или ошибка
+последующего шага может произойти позже; перед принятием результата общий
+`validate-pr-checks.py` обязан отдельно подтвердить фактические успешные run/job
+GitHub, точные SHA/base и попытку запуска. Синтетическая проверка workflow не
+заменяет настоящий GitHub run, native queue rehearsal или выпуск.
+
 ### US1 — Проверить PR или merge queue на правильном SHA (P0)
 
 Разработчик получает быстрый CI для PR, а merge queue получает отдельную
@@ -79,6 +95,10 @@ receipt.
    **Then** итог имеет `stale` или `ambiguous` и не проходит release validator.
 3. **Given** повторный запуск того же target, **When** он использует canonical
    concurrency key, **Then** он отменяет только предыдущий запуск этого target.
+4. **Given** готовое локальное evidence с PASS, **When** шаг формирования
+   квитанции уже знает `failure`/`cancelled`, **Then** evidence квитанции и её
+   `status`/`conclusion` показывают соответственно `failed`/`cancelled`,
+   исходный локальный файл не перезаписывается, и PASS не публикуется.
 
 ### US3 — Выпустить редкий release train с одной полной проверкой (P0)
 
@@ -109,8 +129,9 @@ post-merge SHA `master`, запускает один authoritative Full CI и п
 - `merge_group` не содержит PR mapping или base SHA: run блокируется.
 - Новый commit появляется во время Full CI: candidate становится stale, создаётся
   новый candidate; старое evidence не переиспользуется.
-- Отмена workflow завершается после записи промежуточного файла: receipt имеет
-  terminal non-success status и не проходит validator.
+- Известная при формировании квитанции отмена перекрывает промежуточный PASS.
+  Более поздняя отмена отклоняется доверенной проверкой фактических run/job
+  GitHub; файл из предыдущего шага не доказывает окончательный успех workflow.
 - Генерация evidence оставляет untracked файл: final cleanliness gate блокирует
   release receipt, кроме явно разрешённых metadata-only paths.
 - Synthetic merge SHA отличается от post-merge SHA `master`: оба сохраняются,

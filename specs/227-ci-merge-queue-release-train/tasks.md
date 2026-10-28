@@ -30,7 +30,7 @@ produce terminal non-success receipts rejected by validators.
 
 - [X] T012 [US2] Ввести canonical concurrency key и cancellation contract в `.github/workflows/governance-fast.yml`.
 - [X] T013 [US2] Добавить final tracked/untracked cleanliness gate после всех stages в `infra/scripts/ci-local.sh`.
-- [ ] T014 [US2] Расширить CI evidence producer полями cancellation/supersession/conclusion в `scripts/emit-ci-evidence.py`.
+- [X] T014 [US2] Расширить CI evidence producer полями cancellation/supersession/conclusion в `scripts/emit-ci-evidence.py`.
 - [ ] T015 [US2] Добавить stale/superseded negative tests в `tests/governance/test_ci_guard.py` и `tests/governance/test_ci_evidence_producer.py`.
 - [ ] T016 [US2] Обновить PR metadata validator и template полями workflow URL, target/base SHA и receipt в `scripts/validate-pr-metadata.py` и `.github/pull_request_template.md`.
 
@@ -155,3 +155,34 @@ CRITICAL 0 / HIGH 0, покрытие 18/18; независимое итогов
 T014/T015/T016/T028/T029/T030/T031 сохраняют исходные критерии и открытые отметки.
 Историческая матрица выше сохранена; новых задач и дублей issues нет.
 #6233 закрывается после принятия документального PR и live-проверки.
+
+## Возвращённая T014 / #6221 — 28.10.2026
+
+Исходная строка T014, её описание и владелец #6221 сохранены. Задача вновь
+открыта после исполнения настоящего terminal step: готовый локальный PASS
+перекрывает известные failure/cancelled. Проверка общего consumer отдельно
+отвергает фактический неуспех GitHub; обход merge/release не установлен.
+
+Текущие пути исходной T014: `.github/workflows/governance-fast.yml` выбирает
+evidence; `scripts/emit-ci-receipt.py` уже производит conclusion/cancellation/
+supersession, дублирование в `emit-ci-evidence.py` не требуется. До кода:
+независимое ревью обоих checklists и анализ. Затем исполняемая регрессия
+`tests/governance/test_governance_workflow.py`, минимальное исправление общего
+terminal step, профильные проверки и итоговое ревью по plan/quickstart.
+Отметка T014 допустима после локальной проверки, закрытие #6221 — только после
+обязательных проверок PR SHA/base, слияния и индивидуального live-closeout.
+Другие шесть открытых задач и umbrella #6207 этим срезом не закрываются.
+
+## Локальный результат T014 — 28.10.2026
+
+- T014 (Issue #6221)
+
+Исходное описание сохранено. Поля состояния уже формирует общий
+`scripts/emit-ci-receipt.py`; исправлены только приоритет известного неуспеха
+и его причина в существующем terminal step. Исполняемая матрица: исходные
+36 FAIL / 20 PASS, после исправления профиль 367 PASS / 0 SKIP / 0 FAIL.
+Подробности, контрольные суммы и узкая сверка сходимости —
+[validation-terminal-20261028.md](validation-terminal-20261028.md).
+Отмечена локальная реализация T014; issue остаётся открытой до независимого
+итогового ревью, нового PR, трёх проверок точного SHA/base, слияния и live-closeout.
+Итог: 27 выполненных / 6 открытых задач; вся F227 не завершена.

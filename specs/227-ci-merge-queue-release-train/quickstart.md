@@ -45,6 +45,24 @@ PR checks и Full CI в fixture подставлены: это проверка 
 
 ## PR и release gates
 
+Для T014/#6221 исполнить настоящий terminal step и receipt CLI в изолированных
+временных каталогах, затем существующие producer/consumer контракты:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 -m pytest -q \
+  tests/governance/test_governance_workflow.py \
+  tests/governance/test_ci_event_identity.py \
+  tests/governance/test_ci_evidence_producer.py \
+  tests/governance/test_pr_checks.py
+```
+
+Матрица: success/failure/cancelled/неизвестный статус задания; локальный PASS,
+non-success или отсутствие evidence; явный путь и поиск по target SHA.
+Проверить status/conclusion/cancellation/supersession, валидность metadata-only
+receipt, неизменность исходного evidence. Это синтетическое исполнение настоящего
+кода, а не отмена настоящего запуска GitHub. Окончательное состояние run/job
+всегда проверяется отдельно общим consumer, включая более поздние отказы.
+
 Локальный `ci-local.sh --fast` — диагностический путь. Для PR обязательны
 `governance-fast`, `macos-pr`, `pr-metadata` на точном SHA и текущей основе:
 

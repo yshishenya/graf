@@ -128,3 +128,32 @@ Git cat-file и merge-base этой проверки выполняются с -
 независимое reviewer-owned ревью этого уточнения; затем исходные RED,
 минимальное общее исправление, focused suite и итоговое ревью.
 T032/T033 остаются владельцами; исходные T001–T031 не закрываются.
+
+## Текущий срез T014 / #6221 — 28.10.2026
+
+Lane: `Active Spec Kit slice`, shared CI evidence. Конституция VI соблюдена;
+metadata-only, exact SHA/base, cleanliness и проверки GitHub не ослабляются.
+Только известный дефект приоритета статусов, без новой схемы или зависимости.
+
+1. После независимого ревью обоих существующих checklists и анализа требований
+   добавить исполняемую регрессию в `tests/governance/test_governance_workflow.py`.
+   Исполнить настоящий YAML terminal step и CLI `emit-ci-receipt.py` с готовым
+   локальным PASS и состояниями задания success/failure/cancelled, включая
+   configured/discovered evidence. Подтвердить исходный отказ до исправления.
+2. В существующем terminal step `.github/workflows/governance-fast.yml` известный
+   неуспех направить в уже имеющееся terminal evidence; оставить исходный файл
+   неизменным. Успешное задание не повышает локальный non-success до PASS.
+   Отсутствующее evidence и неизвестный job status дают отказ. Поля состояния
+   по-прежнему формирует общий `scripts/emit-ci-receipt.py`; не дублировать их
+   в `emit-ci-evidence.py`. Это соответствие текущих путей исходной T014.
+3. Проверить producer/receipt/workflow и общий consumer, добавить результат
+   в существующую задачу и fragment F227. Независимое итоговое ревью, три
+   обязательных GitHub проверки точного SHA/base и защищённое слияние отдельно.
+
+Вызовы общего receipt producer: governance-fast и release-full; последний
+создаёт receipt после успешных component/evidence gates и не выбирает прежний
+PASS по JOB_STATUS. Его путь не меняется. Общий consumer проверяет реальные
+run/job и attempt, поэтому квитанция не заменяет конечное состояние GitHub.
+Поздняя отмена после terminal step проверяется этим consumer; реальная отмена
+GitHub данным синтетическим тестом не заявляется. Выпуск, CD, protection,
+F227 T015/T016/T028/T029/T030/T031 и текущий frozen source вне изменения.
