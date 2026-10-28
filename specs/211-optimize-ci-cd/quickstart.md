@@ -987,3 +987,34 @@ T063/T087 завершены в этой области. #6986 закрывае�
 документальной сверки и отдельного live closeout. Общая F211, T077/A9 и
 выпуск macOS остаются открытыми. Исторический отказ нового workflow на старом
 #6991 сохранён; старый PR повторно не редактировался.
+
+## T103/T104 — изоляция роли и download429,28.10.2026
+
+- tests/governance/test_test_resources.py: реальный pytest collection с прямой
+  и косвенной migrated_postgres_urls, обычным DB и pure control; до исправления
+  отсутствие strict должно давать FAIL. После — тот же union, disjoint фаз.
+- unit/test_processing_temporal_workflow.py: точный429→успех, исчерпание3,
+  немедленный иной отказ, отмена, отсутствие повтора после успеха. Паузы5/15
+  в этих пробах подменяются; настоящий workflow не подменяется.
+- Реальный runner: --focused --partitioned -q
+  tests/integration/test_rls_postgres_migrations.py
+  tests/contract/test_activation_milestone_ledger.py
+  tests/unit/test_processing_temporal_workflow.py.
+  Сохранить phase inventories и итог, нет skip выбранных проверок, cleanup PASS.
+- Профильный существующий runner/resource контракт, Ruff/process/governance/diff.
+  Не запускать локальный Full вместо focused. Независимый review/converge,
+  PR checks на финальном SHA/base, новый frozen hosted Full до production.
+
+### T103 — локальная приёмка, 28.10.2026
+
+Причинный RED, 16 GREEN, настоящий профиль 49 PASS без пропусков и 228 runner/CI
+contracts PASS. Прежние 7721 node IDs сохранены, добавлены 9 startup cases;
+два migration caller переведены в strict. Проверены все 74 shared-role callers
+из 8 файлов и неизменность 19 прежних определений Temporal по AST.
+[Отчёт и команда](validation/t103-test-resources-2026-10-28.md).
+Независимое implementation review — SCOPED PASS; SHA256 отчёта:
+`666ce3660d9724c49090db990cb321d8f51df8f54cd5648518f3de5fd3802879`.
+Scoped convergence T103: 4 требования, 2 решения плана, обязательные ограничения
+реальных ресурсов/неизменных проверок рассмотрены; новых обязательных задач нет.
+T104 уже описывает exact PR/merge и новый frozen Full и остаётся открытым.
+Общая F211 и коммерческая приёмка не закрыты.
