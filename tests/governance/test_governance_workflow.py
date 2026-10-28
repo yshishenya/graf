@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import importlib.util
+import hashlib
 import json
 import os
 import shutil
@@ -282,10 +283,75 @@ def test_governance_workflow_emits_terminal_receipt_after_failure_or_cancel() ->
     source = (ROOT / ".github/workflows/governance-fast.yml").read_text(encoding="utf-8")
     assert source.count("if: ${{ always() && needs.scope.outputs.text_only == 'false' }}") >= 5
     assert "Prepare terminal metadata-only evidence and identity" in source
-    assert '"reason": f"workflow_{status}_before_ci_evidence"' in source
+    assert '"reason": f"workflow_{status}_at_terminal_step"' in source
     assert "${{ steps.terminal.outputs.evidence_path }}" in source
     assert "${{ steps.receipt.outputs.path }}" in source
     assert "path: |\n            ${{ steps.terminal.outputs.evidence_path }}" in source
+
+
+@pytest.mark.parametrize("job_status", ["success", "failure", "cancelled", "unknown"])
+@pytest.mark.parametrize("local_status", [None, "passed", "failed", "stale", "cancelled", "superseded", "ambiguous"])
+@pytest.mark.parametrize("discovery", ["configured", "discovered"])
+def test_actual_terminal_receipt_preserves_known_job_failure(tmp_path, job_status, local_status, discovery):
+    import yaml
+
+    workflow = yaml.load((ROOT / ".github/workflows/governance-fast.yml").read_text(), Loader=yaml.BaseLoader)
+    terminal = next(step for step in workflow["jobs"]["governance-fast"]["steps"] if step.get("id") == "terminal")
+    sha, base = "a" * 40, "b" * 40
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps({"number": 7, "pull_request": {"number": 7, "base": {"sha": base}}}))
+    runner_temp = tmp_path / "runner-temp"
+    runner_temp.mkdir()
+    local = tmp_path / ".dev/ci-evidence/local.json"
+    local.parent.mkdir(parents=True)
+    original = None
+    if local_status is not None:
+        local.write_text(json.dumps({
+            "run_id": "ci-local-25", "lane": "fast", "status": local_status,
+            "requested_sha": sha, "observed_sha_start": sha, "observed_sha_end": sha,
+            "started_at": "2026-10-28T00:00:00Z", "finished_at": "2026-10-28T00:00:01Z",
+            "commands": ["synthetic fast lane"], "skipped_gates": [], "scope": "synthetic contract",
+            "reason": "synthetic_" + local_status, "artifact_digests": {"fixture": "sha256:" + "c" * 64},
+            "component_shas": {"repository": sha},
+        }))
+        original = local.read_bytes()
+    output = tmp_path / "outputs"
+    result = subprocess.run(
+        ["bash", "-c", terminal["run"]], cwd=tmp_path, capture_output=True, text=True, timeout=10,
+        env={**os.environ, "GITHUB_EVENT_PATH": str(event), "RUNNER_TEMP": str(runner_temp),
+             "GITHUB_OUTPUT": str(output), "EVENT_NAME": "pull_request", "JOB_STATUS": job_status,
+             "GRAF_CI_REQUESTED_SHA": sha, "RUN_ID": "25",
+             "GRAF_CI_EVIDENCE_PATH": str(local) if discovery == "configured" else "missing.json"},
+    )
+    assert result.returncode == 0, result.stderr
+    selected = tmp_path / dict(line.split("=", 1) for line in output.read_text().splitlines())["evidence_path"]
+    receipt = tmp_path / "receipt.json"
+    emitted = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/emit-ci-receipt.py"),
+         "--identity", str(runner_temp / "graf-event-identity.json"), "--evidence", str(selected),
+         "--output", str(receipt), "--workflow", "governance-fast", "--run-id", "25", "--run-attempt", "2",
+         "--workflow-url", "https://github.com/owner/repo/actions/runs/25"],
+        capture_output=True, text=True, timeout=10,
+    )
+    assert emitted.returncode == 0, emitted.stderr
+    value = json.loads(receipt.read_text())
+    expected = local_status if job_status == "success" and local_status is not None else "cancelled" if job_status == "cancelled" else "failed"
+    assert value["status"] == value["conclusion"] == expected
+    assert value["cancellation_state"] == ("cancelled" if expected == "cancelled" else "none")
+    assert value["supersession_state"] == ("superseded" if expected == "superseded" else "none")
+    assert value["final_cleanliness"] == {"passed": "pass", "failed": "fail", "stale": "stale"}.get(expected, "ambiguous")
+    assert value["local_evidence_digest"] == "sha256:" + hashlib.sha256(selected.read_bytes()).hexdigest()
+    assert value["target_sha"] == value["requested_sha"] == value["observed_sha_start"] == value["observed_sha_end"] == sha
+    assert value["base_sha"] == base and value["pull_request_numbers"] == [7]
+    assert value["event_name"] == "pull_request" and value["run_id"] == "25" and value["run_attempt"] == 2
+    assert (selected == local) == (job_status == "success" and local_status is not None)
+    assert (local.read_bytes() if local.exists() else None) == original
+    for script, accepted in [("validate-ci-receipt.py", True), ("validate-ci-evidence.py", expected == "passed")]:
+        validation = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / script), str(receipt if "receipt" in script else selected)],
+            capture_output=True, text=True, timeout=10,
+        )
+        assert (validation.returncode == 0) == accepted, validation.stdout + validation.stderr
 
 
 def test_governance_workflow_rejects_production_and_stale_bypasses(tmp_path: Path) -> None:

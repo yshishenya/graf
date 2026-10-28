@@ -387,7 +387,7 @@ jobs:
                   if str(value.get("requested_sha", "")).lower() == target.lower():
                       evidence_path = path
                       break
-          if evidence_path is None:
+          if evidence_path is None or job_status != "success":
               evidence_path = Path(".dev/ci-evidence") / f"terminal-{run_id}.json"
               now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
               status = "cancelled" if job_status == "cancelled" else "failed"
@@ -399,7 +399,7 @@ jobs:
                   "finished_at": now.isoformat().replace("+00:00", "Z"),
                   "commands": ["governance-fast terminal receipt fallback"],
                   "skipped_gates": [], "scope": "github-actions terminal fallback",
-                  "reason": f"workflow_{status}_before_ci_evidence",
+                  "reason": f"workflow_{status}_at_terminal_step",
                   "artifact_digests": {"terminal-fallback": "sha256:" + "0" * 64},
                   "component_shas": {"repository": target},
               }, ensure_ascii=False, sort_keys=True) + "\n", encoding="utf-8")
