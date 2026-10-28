@@ -18,7 +18,7 @@ Purpose: независимое ревью до реализации. Created:20
 - [x] CHK009 Сохранены лиunknown/shared/rename/base и частичный характер карты? [Completeness, Spec §FR-014]
 - [x] CHK010 Предписан ли существующий изолированныйPGсмиграциями/RLSиcleanup без новых зависимостей? [Safety, Plan §Phase1]
 - [x] CHK011 Разделены лиstubконтракты и фактический запуск обоихcalendarфайлов? [Evidence, Quickstart §Реальный календарь]
-- [x] CHK012 Согласованы лиreview/analyze/sync/converge/exactSHAи отдельное разрешениеcommit? [Governance, Spec §FR-015]
+- [x] CHK012 Согласованы ли независимое ревью, analyze/sync/converge и проверка перед commit/merge с обязательными PR checks точного SHA и основы? [Governance, Spec §FR-015]
 - [x] CHK013 Сохранены лиисходныеissues/задачии критерии старых замеров безsilentcancel? [Traceability, Tasks §Setup]
 - [x] CHK014 Предписаны ли metadata-onlyevidenceи отсутствие измененийDev/production? [Privacy, Plan §Constraints]
 - [x] CHK015 Нет ли изменения конституционных принципов или ослабленияunit/component/releasegates? [Consistency, Plan §Constitution Check]
@@ -45,3 +45,12 @@ APPROVE только отмены T002/T004/T005; прежние результ�
 После полного перечитывания: 15 checked / 0 unchecked. Обязательные проверки
 US1/US3/US4 сохраняются; T001/T010/T011 и общая F263 этим не приняты.
 PR/CI/merge и последующий NOT_PLANNED #6906 проверяются отдельно.
+
+Независимая итоговая проверка требований — 28.10.2026:
+[отчёт](../review-final-requirements-20261028.md). **15 checked / 0 unchecked**.
+CHK012 приведён к действующему FR-015 и общим правилам: устаревшее требование
+отдельного разрешения на commit удалено из вопроса. Содержательные проверки,
+точный SHA/основа, общий validator и согласованное окно слияний сохранены.
+Каждый пункт перечитан; текущая отмена US2 явная и не меняет требований US4.
+Это PASS качества требований для T001, а не итоговая приёмка T010/T011,
+новых результатов запуска, PR, слияния или всей F263.
