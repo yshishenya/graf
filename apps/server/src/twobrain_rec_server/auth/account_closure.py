@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -21,6 +21,7 @@ from twobrain_rec_server.db.models import (
     WorkspaceMembership,
     WorkspaceSubscription,
 )
+from twobrain_rec_server.product_analytics.milestones import delete_account_activation_decisions
 
 ACCOUNT_CLOSE_COOLING_DAYS = 7
 ACCOUNT_CLOSE_POLICY_VERSION = "account-close-v1"
@@ -429,10 +430,8 @@ async def finalize_account_close(
         )
         .values(status="inactive")
     )
-    activation_purge = await db.execute(
-        delete(ProductActivationMilestone).where(
-            ProductActivationMilestone.account_id == request.requested_by_user_id,
-        )
+    activation_purged_count = await delete_account_activation_decisions(
+        db, account_id=request.requested_by_user_id,
     )
     request.state = "completed"
     request.finalized_at = now_utc
@@ -440,7 +439,7 @@ async def finalize_account_close(
         **(request.metadata_json or {}),
         "access_revoked_at": now_utc.isoformat(),
         "activation_decisions_purged_at": now_utc.isoformat(),
-        "activation_decisions_purged_count": activation_purge.rowcount,
+        "activation_decisions_purged_count": activation_purged_count,
         "meeting_deletion_boundary": "delegated_to_deletion_reconciler",
     }
     await db.flush()

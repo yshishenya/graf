@@ -23,7 +23,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4, uuid5
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -436,6 +436,18 @@ async def finish_milestone_delivery(
         .returning(model.id)
     )
     return result.scalar_one_or_none() is not None
+
+
+async def delete_account_activation_decisions(db: AsyncSession, *, account_id: UUID) -> int:
+    """Exact ledger erasure shared by account finalization and isolated replay.
+
+    Caller owns identity/drain locking and the transaction; this never commits.
+    """
+
+    result = await db.execute(
+        delete(ProductActivationMilestone).where(ProductActivationMilestone.account_id == account_id)
+    )
+    return int(result.rowcount)
 
 
 async def quarantine_milestone_deliveries(

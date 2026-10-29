@@ -157,7 +157,7 @@ def test_withdrawal_state_file_path_follows_the_environment(tmp_path: Path) -> N
 
 
 def test_unsupported_state_version_is_reported(tmp_path: Path) -> None:
-    register = _register(tmp_path, WITHDRAWAL_LINE, version="2")
+    register = _register(tmp_path, WITHDRAWAL_LINE, version="9")
 
     assert register.file_errors == ("legal_basis_state_version_unsupported",)
     assert len(register.withdrawals) == 1, "a protective record must not be dropped"

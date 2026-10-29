@@ -41,6 +41,7 @@ WRITE_ALLOWED = "allowed"
 WRITE_BLOCKED_WITHDRAWN = "legal_basis_withdrawn"
 WRITE_BLOCKED_SETTINGS = "measurement_level_disabled"
 WRITE_BLOCKED_UNKNOWN_LEVEL = "unknown_measurement_level"
+WRITE_BLOCKED_REGISTER = "legal_basis_register_invalid"
 
 
 def activation_milestone_write_blockers(settings: Settings) -> tuple[str, ...]:
@@ -114,9 +115,8 @@ def legal_basis_write_gate(
             reason=WRITE_BLOCKED_SETTINGS,
         )
 
-    # A missing/unreadable register is not treated as a global product outage:
-    # there is no affected level to stop.  A valid recorded withdrawal is the
-    # only state that blocks an otherwise configured writer.
+    # Preserve existing missing-file semantics; an explicitly malformed register
+    # cannot authorize a local write or hide a valid withdrawal.
     register = read_basis_withdrawal_register(environ)
     withdrawal = register.withdrawal(level_key)
     if withdrawal is not None:
@@ -126,6 +126,10 @@ def legal_basis_write_gate(
             reason=WRITE_BLOCKED_WITHDRAWN,
             withdrawal=withdrawal,
         )
+
+    if register.file_errors:
+        return LegalBasisWriteDecision(level_key=level_key, allowed=False,
+                                       reason=WRITE_BLOCKED_REGISTER)
 
     return LegalBasisWriteDecision(
         level_key=level_key,
