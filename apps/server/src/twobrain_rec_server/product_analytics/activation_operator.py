@@ -12,10 +12,16 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import stat
+import sys
+import tempfile
 import time
+import unicodedata
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 from .activation_fence import READY_FIELDS, ActivationHold, _object, _require
 
@@ -43,6 +49,173 @@ SERVICE_NETWORKS = {
 # Read only selected metadata; never inspect Env, Cmd, query text or private rows.
 CONTAINER_FORMAT = """{"id":{{json .Id}},"service":{{json (index .Config.Labels "com.docker.compose.service")}},"project":{{json (index .Config.Labels "com.docker.compose.project")}},"oneoff":{{json (index .Config.Labels "com.docker.compose.oneoff")}},"state":{"status":{{json .State.Status}},"running":{{json .State.Running}},"restarting":{{json .State.Restarting}},"paused":{{json .State.Paused}},"pid":{{json .State.Pid}},"exit":{{json .State.ExitCode}}},"networks":{{json .NetworkSettings.Networks}}}"""
 NETWORK_FORMAT = """{"id":{{json .Id}},"name":{{json .Name}},"internal":{{json .Internal}},"project":{{json (index .Labels "com.docker.compose.project")}},"containers":{{json .Containers}}}"""
+
+
+def _object_key(key):
+    try:
+        _require(isinstance(key, str) and 0 < len(key.encode("utf-8")) <= 1024
+                 and "\0" not in key and unicodedata.normalize("NFC", key) == key
+                 and all(p not in {"", ".", ".."} for p in key.split("/")),
+                 "activation_operator_object_key_invalid")
+    except UnicodeError:
+        raise ActivationHold("activation_operator_object_key_invalid") from None
+    return key
+
+
+def _distinct_keys(keys):
+    _require(len(keys) == len(set(keys)), "activation_operator_object_key_collision")
+    names = set(keys)
+    for key in keys:
+        parts = key.split("/")
+        _require(not any("/".join(parts[:i]) in names for i in range(1, len(parts))),
+                 "activation_operator_object_key_collision")
+
+
+def _file_manifest(root, *, deadline):
+    """Private immutable backup bytes, traversed by held no-follow directory FDs."""
+    def snapshot(info):
+        return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_nlink,
+                info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+    def private(info, directory):
+        _require(info.st_uid == os.geteuid()
+                 and (stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode))
+                 and stat.S_IMODE(info.st_mode) == (0o700 if directory else 0o600)
+                 and (directory or info.st_nlink == 1),
+                 "activation_operator_backup_permissions")
+
+    def visit(fd, prefix, *, read):
+        _require(time.monotonic() < deadline, "activation_operator_manifest_timeout")
+        before = os.fstat(fd)
+        private(before, True)
+        tree, rows = {prefix: snapshot(before)}, []
+        for name in sorted(os.listdir(fd)):
+            key = _object_key(prefix + name)
+            info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            directory = stat.S_ISDIR(info.st_mode)
+            private(info, directory)
+            child = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+                            | (os.O_DIRECTORY if directory else 0), dir_fd=fd)
+            try:
+                _require(snapshot(os.fstat(child)) == snapshot(info),
+                         "activation_operator_backup_changed")
+                if directory:
+                    children, entries = visit(child, key + "/", read=read)
+                    tree.update(children)
+                    rows.extend(entries)
+                else:
+                    tree[key] = snapshot(info)
+                    if read:
+                        digest, size = hashlib.sha256(), 0
+                        while chunk := os.read(child, 1024 * 1024):
+                            _require(time.monotonic() < deadline,
+                                     "activation_operator_manifest_timeout")
+                            size += len(chunk)
+                            _require(size <= info.st_size, "activation_operator_backup_changed")
+                            digest.update(chunk)
+                        _require(size == info.st_size, "activation_operator_backup_changed")
+                        rows.append((key, size, digest.hexdigest()))
+                _require(snapshot(os.fstat(child)) == snapshot(info)
+                         and snapshot(os.stat(name, dir_fd=fd, follow_symlinks=False))
+                         == snapshot(info), "activation_operator_backup_changed")
+            finally:
+                os.close(child)
+        _require(snapshot(os.fstat(fd)) == snapshot(before), "activation_operator_backup_changed")
+        return tree, rows
+
+    try:
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            tree, rows = visit(fd, "", read=True)
+            current, _ = visit(fd, "", read=False)
+            _require(tree == current and snapshot(os.lstat(root)) == tree[""],
+                     "activation_operator_backup_changed")
+            _distinct_keys([r[0] for r in rows])
+            _require(time.monotonic() < deadline, "activation_operator_manifest_timeout")
+            return sorted(rows)
+        finally:
+            os.close(fd)
+    except (OSError, ValueError):
+        raise ActivationHold("activation_operator_backup_unverified") from None
+
+
+def _object_manifest(client, bucket, *, deadline):
+    """Run in an owned worker thread; client must have finite HTTP timeouts/no retries."""
+    from minio.error import S3Error
+
+    def remaining():
+        _require(time.monotonic() < deadline, "activation_operator_manifest_timeout")
+
+    def configuration():
+        remaining()
+        _require(client.get_bucket_versioning(bucket).status is None,
+                 "activation_operator_bucket_versioning")
+        try:
+            _require(client.get_bucket_lifecycle(bucket) is None,
+                     "activation_operator_bucket_lifecycle")
+        except S3Error as error:
+            _require(error.code == "NoSuchLifecycleConfiguration",
+                     "activation_operator_bucket_lifecycle")
+        try:
+            client.get_object_lock_config(bucket)
+        except S3Error as error:
+            _require(error.code == "ObjectLockConfigurationNotFoundError",
+                     "activation_operator_bucket_object_lock")
+        else:
+            raise ActivationHold("activation_operator_bucket_object_lock")
+        remaining()
+
+    def metadata(obj):
+        remaining()
+        key = _object_key(obj.object_name)
+        _require(type(obj.size) is int and obj.size >= 0
+                 and isinstance(obj.etag, str) and bool(obj.etag)
+                 and isinstance(obj.last_modified, datetime)
+                 and obj.last_modified.utcoffset() is not None
+                 and getattr(obj, "version_id", None) is None,
+                 "activation_operator_object_metadata")
+        return key, obj.size, obj.etag, obj.last_modified
+
+    def listing():
+        result = sorted(metadata(o) for o in client.list_objects(bucket, recursive=True))
+        _distinct_keys([r[0] for r in result])
+        remaining()
+        return result
+
+    try:
+        configuration()
+        before, rows = listing(), []
+        for entry in before:
+            key, expected_size, _, _ = entry
+            initial_stat = metadata(client.stat_object(bucket, key))
+            # S3 list has milliseconds; HTTP Last-Modified in HEAD has whole seconds.
+            _require(initial_stat[:3] == entry[:3],
+                     "activation_operator_object_changed")
+            response = client.get_object(bucket, key)
+            try:
+                digest, size = hashlib.sha256(), 0
+                for chunk in response.stream(1024 * 1024):
+                    remaining()
+                    _require(isinstance(chunk, bytes), "activation_operator_object_stream")
+                    size += len(chunk)
+                    _require(size <= expected_size, "activation_operator_object_changed")
+                    digest.update(chunk)
+                _require(size == expected_size, "activation_operator_object_changed")
+                rows.append((key, size, digest.hexdigest()))
+            finally:
+                try:
+                    response.close()
+                finally:
+                    response.release_conn()
+            _require(metadata(client.stat_object(bucket, key)) == initial_stat,
+                     "activation_operator_object_changed")
+        _require(listing() == before, "activation_operator_object_changed")
+        configuration()
+        return rows
+    except ActivationHold:
+        raise
+    except Exception:
+        raise ActivationHold("activation_operator_object_unverified") from None
 
 
 def _create_initial(fence, *, started_at: datetime, history_proof_sha256: str) -> bytes:
@@ -425,6 +598,284 @@ async def _settled_sql(operation):
             task.result()
         raise asyncio.CancelledError
     return task.result()
+
+
+@asynccontextmanager
+async def _rehearsal_resources(*, root, reference, owner, pg_container, cluster_id,
+                               mc_image, network, user_file, password_file, client, deadline):
+    """Native ephemeral restore; trusted caller replays before leaving this context.
+
+    Caller retains the deployment lock, immutable installation/backup binding and
+    stopped source/export proof. No readiness, T0, product restore or resume here.
+    Every caller SQL/CLI child must be settled and every target connection closed
+    before leaving the body. Unknown creates never authorise deletion by name.
+    """
+    from .restore_replay import private_bytes
+
+    token = uuid4().hex
+    target, schema = "rec_restore_rehearsal_" + token, "rec_restore_schema_" + token
+    bucket = "twobrain-rec-restore-rehearsal-" + token
+    pg_staging = "/tmp/twobrain-rec-backup." + token
+    databases, containers, unknown, pg_commands = {}, [], set(), {}
+    staging = None
+    staging_identity = None
+    pg_owned = bucket_owned = False
+
+    async def command(*argv, until=deadline):
+        return await _command(list(argv), deadline=until)
+
+    async def wait_pg_commands(until):
+        for marker, digest in list(pg_commands.items()):
+            while True:
+                raw = await command("docker", "exec", "--user=0", pg_container, "sh", "-c",
+                    'if [ ! -e "$1" ] && [ ! -L "$1" ]; then echo pending; exit; fi; '
+                    'test -f "$1" && test ! -L "$1" '
+                    '&& test "$(stat -c %u "$1")" = 0 '
+                    '&& test "$(stat -c %a "$1")" = 600 '
+                    '&& test "$(stat -c %h "$1")" = 1 '
+                    '&& test "$(stat -c %s "$1")" -ge 67 '
+                    '&& test "$(stat -c %s "$1")" -le 69 && cat "$1"',
+                    "sh", marker, until=until)
+                if raw != b"pending\n":
+                    _require(re.fullmatch(digest.encode() + rb":[0-9]{1,3}\n", raw)
+                             and int(raw.split(b":")[1]) <= 255,
+                             "activation_operator_native_completion_invalid")
+                    del pg_commands[marker]
+                    break
+                _require(time.monotonic() < until, "activation_operator_native_completion_timeout")
+                await asyncio.sleep(.02)
+
+    async def pg_run(argv):
+        marker = pg_staging + "/exec-" + uuid4().hex + ".done"
+        digest = hashlib.sha256(json.dumps(argv).encode()).hexdigest()
+        pg_commands[marker] = digest  # Unknown spawn must preserve the resources it may use.
+        await command("docker", "exec", "--detach", "--user=0", pg_container, "sh", "-c",
+            'umask 077; final="$1"; digest="$2"; shift 2; '
+            '"$@" >/dev/null 2>&1; status=$?; set -C; '
+            'printf "%s:%s\\n" "$digest" "$status" > "$final.partial" '
+            '&& mv -- "$final.partial" "$final"', "sh", marker, digest, *argv)
+        await wait_pg_commands(deadline)
+        raw = await command("docker", "exec", "--user=0", pg_container, "cat", marker)
+        _require(raw == (digest + ":0\n").encode(), "activation_operator_native_command_failed")
+
+    async def identity(until):
+        _require(not owner.is_in_transaction(), "activation_operator_transaction_active")
+        row = await owner.fetchrow("""SELECT current_database(),session_user::text,
+            current_user::text,r.rolsuper,system_identifier::text
+            FROM pg_roles r CROSS JOIN pg_control_system() WHERE r.rolname=session_user""")
+        _require(row is not None and tuple(row) == (
+            "postgres", "twobrain_rec", "twobrain_rec", True, cluster_id),
+            "activation_operator_owner_identity")
+        raw = await command("docker", "exec", pg_container, "psql", "-XqAt",
+            "-v", "ON_ERROR_STOP=1", "-U", "twobrain_rec", "-d", "postgres", "-c",
+            "SELECT current_database()||':'||session_user||':'||current_user||':'||"
+            "rolsuper||':'||system_identifier::text FROM pg_roles CROSS JOIN pg_control_system() "
+            "WHERE rolname=session_user", until=until)
+        _require(raw.decode().strip() == "postgres:twobrain_rec:twobrain_rec:true:" + cluster_id,
+                 "activation_operator_container_identity")
+
+    async def mc(action):
+        # Record the immutable container ID before starting any native bucket mutation.
+        label = "org.2brain.graf.rehearsal=" + token
+        unknown.add("mc_container")
+        raw = await command("docker", "create", "--pull=never", "--network", network,
+            "--label", label, "--entrypoint", "/bin/sh", "--env", "MC_CONFIG_DIR=/tmp/graf-mc",
+            "--mount", f"type=bind,src={reference / 'minio-objects'},dst=/backup,readonly",
+            "--mount", f"type=bind,src={user_file},dst=/run/secrets/user,readonly",
+            "--mount", f"type=bind,src={password_file},dst=/run/secrets/password,readonly",
+            mc_image, "-c", 'set -eu; umask 077; '
+            'mc alias set rec http://rec-minio:9000 "$(cat /run/secrets/user)" '
+            '"$(cat /run/secrets/password)" >/dev/null; ' + action)
+        cid = raw.decode().strip()
+        _require(re.fullmatch(r"[0-9a-f]{64}", cid), "activation_operator_container_create_unknown")
+        containers.append(cid)
+        unknown.remove("mc_container")
+        await command("docker", "start", "--attach", cid)
+        state = json.loads(await command("docker", "inspect", "--format", "{{json .State}}", cid))
+        _require(state["Status"] == "exited" and state["ExitCode"] == 0
+                 and state["Running"] is False, "activation_operator_mirror_failed")
+
+    async def prepare():
+        nonlocal staging, staging_identity, pg_owned, bucket_owned
+        async with asyncio.timeout_at(deadline):
+            _require(root.is_absolute() and reference.is_absolute()
+                     and re.fullmatch(r"[0-9a-f]{64}", pg_container)
+                     and re.fullmatch(r"[0-9]{1,20}", cluster_id)
+                     and re.fullmatch(r"sha256:[0-9a-f]{64}", mc_image)
+                     and re.fullmatch(r"[0-9a-f]{64}", network),
+                     "activation_operator_rehearsal_binding")
+            for secret in (user_file, password_file):
+                private_bytes(secret, limit=16384)
+            before = await _settled_sql(asyncio.to_thread(_file_manifest, reference, deadline=deadline))
+            expected = [(key.removeprefix("minio-objects/"), size, digest)
+                        for key, size, digest in before if key.startswith("minio-objects/")]
+            _require((reference / "minio-objects").is_dir(),
+                     "activation_operator_backup_objects_missing")
+            await command(sys.executable, str(root / "infra/scripts/rec-db-verify.py"),
+                          str(reference), "--inventory")
+            await identity(deadline)
+            staging = Path(tempfile.mkdtemp(prefix="graf-rec-restore-"))
+            staging.chmod(0o700)
+            info = staging.lstat()
+            staging_identity = info.st_dev, info.st_ino
+            unknown.add("pg_staging")
+            await command("docker", "exec", pg_container, "mkdir", "-m", "700", pg_staging)
+            pg_owned = True
+            unknown.remove("pg_staging")
+            for artifact in ("postgres.dump", "schema.sql"):
+                unknown.add("pg_upload")
+                await command("docker", "cp", str(reference / artifact),
+                              pg_container + ":" + pg_staging + "/input-" + artifact)
+                unknown.remove("pg_upload")
+            unknown.add("pg_upload")
+            await command("docker", "cp", str(root / "infra/scripts/rec-db-backup-inventory.sql"),
+                          pg_container + ":" + pg_staging + "/capture.sql")
+            unknown.remove("pg_upload")
+            for database in (target, schema):
+                unknown.add(database)
+                await owner.execute(f'CREATE DATABASE "{database}" CONNECTION LIMIT 0')
+                oid = await owner.fetchval("SELECT oid::bigint FROM pg_database WHERE datname=$1",
+                                          database)
+                _require(type(oid) is int and oid > 0, "activation_operator_create_unknown")
+                databases[database] = oid
+                unknown.remove(database)
+                if database == target:
+                    await pg_run(["pg_restore", "--exit-on-error", "-U", "twobrain_rec",
+                                  "-d", database, pg_staging + "/input-postgres.dump"])
+                else:
+                    await pg_run(["psql", "-Xq",
+                        "-v", "ON_ERROR_STOP=1", "-U", "twobrain_rec", "-d", database,
+                        "-f", pg_staging + "/input-schema.sql"])
+                await pg_run(["sh", "-c",
+                    'umask 077; exec psql "$@"', "sh", "-XqAt", "-v", "ON_ERROR_STOP=1",
+                    "-U", "twobrain_rec", "-d", database, "-v", "expected_db=" + database,
+                    "-v", "capture_dump=false", "-v", "staging=" + pg_staging,
+                    "-f", pg_staging + "/capture.sql"])
+                destination = staging / database
+                destination.mkdir(mode=0o700)
+                for artifact in ("schema.sql", "inventory.jsonl"):
+                    path = destination / artifact
+                    await command("docker", "cp", pg_container + ":" + pg_staging + "/" + artifact,
+                                  str(path))
+                    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                    try:
+                        info = os.fstat(fd)
+                        _require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+                                 and info.st_uid == os.geteuid() and info.st_size > 0,
+                                 "activation_operator_restore_metadata")
+                        os.fchmod(fd, 0o600)
+                    finally:
+                        os.close(fd)
+                row = await owner.fetchrow("SELECT oid::bigint,datallowconn,datconnlimit "
+                                          "FROM pg_database WHERE datname=$1", database)
+                _require(row is not None and tuple(row) == (oid, True, 0),
+                         "activation_operator_target_changed")
+            await command(sys.executable, str(root / "infra/scripts/rec-db-verify.py"),
+                str(reference), str(staging / target), target, str(staging / schema), schema)
+            unknown.add("bucket")
+            await mc("mc mb rec/" + bucket + " >/dev/null")
+            bucket_owned = True
+            unknown.remove("bucket")
+            await mc("mc mirror /backup rec/" + bucket + " >/dev/null")
+            restored = await _settled_sql(asyncio.to_thread(_object_manifest, client, bucket,
+                                                           deadline=deadline))
+            _require(restored == expected, "activation_operator_restored_bytes_mismatch")
+            after = await _settled_sql(asyncio.to_thread(_file_manifest, reference, deadline=deadline))
+            _require(after == before, "activation_operator_backup_changed")
+            await identity(deadline)
+            return dict(target=target, target_oid=databases[target], schema=schema,
+                        schema_oid=databases[schema], bucket=bucket, staging=staging,
+                        pg_staging=pg_staging)
+
+    async def cleanup():
+        # Retain ownership through repeated cancellation; no ready follows a cleanup failure.
+        if not databases and not containers and not unknown and staging is None and not bucket_owned:
+            return
+        until = time.monotonic() + 30
+        failed = bool(unknown)
+        try:
+            async with asyncio.timeout_at(until):
+                await identity(until)
+            identity_ok = True
+        except Exception:
+            identity_ok = False
+            failed = True
+        try:
+            async with asyncio.timeout_at(until):
+                await wait_pg_commands(until)
+            pg_safe = "pg_upload" not in unknown
+        except Exception:
+            pg_safe = False
+        failed |= not pg_safe
+        for database, oid in databases.items():
+            try:
+                _require(identity_ok and pg_safe, "activation_operator_owner_identity")
+                async with asyncio.timeout_at(until):
+                    actual = await owner.fetchval(
+                        "SELECT oid::bigint FROM pg_database WHERE datname=$1", database)
+                    _require(actual == oid, "activation_operator_cleanup_identity")
+                    await owner.execute(f'DROP DATABASE "{database}"')
+                    _require(await owner.fetchval("SELECT count(*) FROM pg_database WHERE oid=$1 "
+                        "OR datname=$2", oid, database) == 0, "activation_operator_cleanup_database")
+            except Exception:
+                failed = True
+        mc_safe = "mc_container" not in unknown
+        for cid in containers:
+            try:
+                await command("docker", "rm", "--force", "--volumes", cid, until=until)
+                _require(not (await command("docker", "ps", "--all", "--quiet", "--no-trunc",
+                    "--filter", "id=" + cid, until=until)).strip(),
+                    "activation_operator_cleanup_container")
+            except Exception:
+                mc_safe = False
+                failed = True
+        if bucket_owned and mc_safe:
+            def remove_bucket():
+                from minio.deleteobjects import DeleteObject
+                def entries():
+                    for entry in client.list_objects(bucket, recursive=True):
+                        _require(time.monotonic() < until, "activation_operator_cleanup_timeout")
+                        yield DeleteObject(_object_key(entry.object_name))
+                errors = list(client.remove_objects(bucket, entries()))
+                _require(not errors, "activation_operator_cleanup_objects")
+                _require(time.monotonic() < until, "activation_operator_cleanup_timeout")
+                client.remove_bucket(bucket)
+                _require(not client.bucket_exists(bucket), "activation_operator_cleanup_bucket")
+            try:
+                await _settled_sql(asyncio.to_thread(remove_bucket))
+            except Exception:
+                failed = True
+        if pg_owned:
+            try:
+                _require(identity_ok and pg_safe, "activation_operator_owner_identity")
+                await command("docker", "exec", pg_container, "sh", "-c",
+                    'rm -rf -- "$1"; test ! -e "$1"', "sh", pg_staging, until=until)
+            except Exception:
+                failed = True
+        if staging is not None:
+            try:
+                info = staging.lstat()
+                _require(stat.S_ISDIR(info.st_mode)
+                         and (info.st_dev, info.st_ino) == staging_identity,
+                         "activation_operator_cleanup_staging")
+                shutil.rmtree(staging)
+                _require(not staging.exists(), "activation_operator_cleanup_staging")
+            except Exception:
+                failed = True
+        _require(not failed, "activation_operator_rehearsal_cleanup_unverified")
+
+    try:
+        try:
+            resources = await _settled_sql(prepare())
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            raise ActivationHold("activation_operator_rehearsal_unverified") from None
+        yield resources
+        _require(time.monotonic() < deadline, "activation_operator_rehearsal_timeout")
+    finally:
+        await _settled_sql(cleanup())
+    _require(time.monotonic() < deadline, "activation_operator_rehearsal_timeout")
 
 
 async def _quiet_database(source, oid):

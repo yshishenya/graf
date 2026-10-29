@@ -722,3 +722,15 @@ false/limit0 с EX/0PID/0prepared). Общий native fence/operator/drain/Compo
 [экспорт](validation/t113-controlled-export-20261030.md). T113/#7804 не закрывается:
 верхний backup/rehearsal/replay/actual restore/resume/ready и T112 впереди.
 Неизменная T0 ещё не назначена, безусловный recovery blocker сохранён.
+
+### Репетиция до очистки временных ресурсов T113 — 30.10.2026
+
+Внутренний `_rehearsal_resources` объединяет прежние native restore/schema/
+inventory/mc стадии, полный byte readback и пониженный replay до cleanup.
+Проверены отмена, неизвестные create/native/mirror outcomes, сохранение
+используемых PG ресурсов и ограниченный cleanup identity. Итоговый общий
+fence/operator/drain/replay профиль131PASS; свои стенды удалены.
+[Доказательства и точные границы](validation/t113-rehearsal-stages-20261030.md).
+Это partial той же T113/#7804: trusted верхний оператор, actual restore/resume,
+ежедневные проверки, перевод shell на общий вход и T112 остаются открытыми.
+Отдельного выпуска нет; рабочая T0 и готовность не создаются, запрет сохранён.

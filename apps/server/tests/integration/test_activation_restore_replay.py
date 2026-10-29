@@ -2,11 +2,14 @@
 
 import asyncio
 import importlib.util
+import ipaddress
 import json
 import os
 import shutil
 import subprocess
 import sys
+import time
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -26,6 +29,367 @@ def closed(path, value):
     path.write_text(value)
     path.chmod(0o600)
     return path
+
+
+@pytest.fixture
+def rehearsal_objects(tmp_path):
+    import urllib3
+    from minio import Minio
+
+    token = uuid4().hex
+    network = "graf-rehearsal-" + token
+    container = "graf-rehearsal-minio-" + token
+    user, password = uuid4().hex, uuid4().hex
+    user_file = closed(tmp_path / "minio-user", user)
+    password_file = closed(tmp_path / "minio-password", password)
+    owned_network = owned_container = False
+
+    def docker(*args):
+        return subprocess.run(["docker", *args], capture_output=True, text=True, check=True,
+                              timeout=45).stdout.strip()
+
+    try:
+        ids = docker("network", "ls", "--quiet").split()
+        existing = json.loads(docker("network", "inspect", *ids)) if ids else []
+        occupied = [ipaddress.ip_network(c["Subnet"]) for n in existing
+                    for c in n["IPAM"]["Config"] or []
+                    if c.get("Subnet") and ":" not in c["Subnet"]]
+        subnet = next(n for n in ipaddress.ip_network("198.19.0.0/16").subnets(new_prefix=28)
+                      if not any(n.overlaps(c) for c in occupied))
+        network_id = docker("network", "create", "--subnet", str(subnet),
+                            "--label", "org.2brain.graf.test-owner=" + token, network)
+        owned_network = True
+        image = docker("image", "inspect", "--format", "{{.Id}}",
+                       "minio/minio:RELEASE.2025-05-24T17-08-30Z")
+        mc_image = docker("image", "inspect", "--format", "{{.Id}}",
+                          "minio/mc:RELEASE.2025-05-21T01-59-54Z")
+        docker("run", "--detach", "--rm", "--pull=never", "--name", container,
+               "--label", "org.2brain.graf.test-owner=" + token, "--network", network_id,
+               "--network-alias", "rec-minio", "--publish", "127.0.0.1::9000",
+               "--mount", f"type=bind,src={user_file},dst=/run/user-secret,readonly",
+               "--mount", f"type=bind,src={password_file},dst=/run/password-secret,readonly",
+               "--env", "MINIO_ROOT_USER_FILE=/run/user-secret",
+               "--env", "MINIO_ROOT_PASSWORD_FILE=/run/password-secret",
+               "--tmpfs", "/data:rw", image, "server", "/data")
+        owned_container = True
+        port = docker("port", container, "9000/tcp").rsplit(":", 1)[1]
+        client = Minio(f"127.0.0.1:{port}", access_key=user, secret_key=password, secure=False,
+                       http_client=urllib3.PoolManager(
+                           timeout=urllib3.Timeout(connect=2, read=5), retries=False))
+        deadline = time.monotonic() + 30
+        while True:
+            try:
+                client.list_buckets()
+                break
+            except Exception:
+                assert time.monotonic() < deadline, "owned_minio_start_timeout"
+                time.sleep(.1)
+        yield dict(client=client, network=network_id, mc_image=mc_image,
+                   user_file=user_file, password_file=password_file)
+    finally:
+        if owned_container:
+            labels = json.loads(docker("inspect", "--format", "{{json .Config.Labels}}", container))
+            assert labels["org.2brain.graf.test-owner"] == token
+            docker("rm", "--force", "--volumes", container)
+        if owned_network:
+            docker("network", "rm", network)
+
+
+def test_staged_native_restore_replays_before_cleanup(replay_world, rehearsal_objects):
+    import asyncpg
+    from sqlalchemy import event, text
+
+    from twobrain_rec_server.product_analytics import activation_operator as operator
+    from twobrain_rec_server.product_analytics import restore_replay as replay
+
+    world, objects = replay_world, rehearsal_objects
+    reference = world["root"] / "reference"
+    files = reference / "minio-objects"
+    files.mkdir(mode=0o700)
+    (files / "nested").mkdir(mode=0o700)
+    closed(files / "nested/中文.txt", "Synthetic meeting only")
+    closed(files / "empty.bin", "")
+
+    async def run():
+        url = world["url"]
+        owner = await asyncpg.connect(host=url.host, port=url.port, user=url.username,
+                                     password=url.password, database="postgres")
+        pg_container = (await operator._command(
+            ["docker", "inspect", "--format", "{{.Id}}", world["container"]],
+            deadline=time.monotonic()+5)).decode().strip()
+        cluster_id = await owner.fetchval("SELECT system_identifier::text FROM pg_control_system()")
+        resources = None
+        engines = []
+        try:
+            async with operator._rehearsal_resources(
+                root=REPO, reference=reference, owner=owner, pg_container=pg_container,
+                cluster_id=cluster_id, deadline=time.monotonic()+90, **objects,
+            ) as resources:
+                name, oid = resources["target"], resources["target_oid"]
+                assert tuple(await owner.fetchrow(
+                    "SELECT datallowconn,datconnlimit FROM pg_database WHERE oid=$1", oid
+                )) == (True, 0)
+                with pytest.raises(asyncpg.TooManyConnectionsError):
+                    await asyncpg.connect(host=url.host, port=url.port,
+                        user="twobrain_rec_maintenance", password=world["password"].read_text(),
+                        database=name)
+                sessions = []
+                for database in (world["source"], name):
+                    engine = create_async_engine(url.set(database=database), poolclass=NullPool)
+                    engines.append(engine)
+
+                    @event.listens_for(engine.sync_engine, "connect")
+                    def reduce(dbapi_connection, _):
+                        async def setup(connection):
+                            await connection.execute("SET SESSION AUTHORIZATION twobrain_rec_maintenance")
+                            await connection.execute("SET row_security=on")
+                        dbapi_connection.run_async(setup)
+
+                    sessions.append(async_sessionmaker(engine))
+                now = datetime.now(UTC)
+                cases = replay.parse_disposition_cases(world["operator"].read_text(), now=now)
+                source_oid = world["binding"]["source_oid"]
+                async with sessions[0]() as source:
+                    await source.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+                    await replay.database_context(source, name=world["source"], oid=source_oid)
+                    accounts, categories = replay.replay_accounts(
+                        await replay.closure_snapshot(source), cases, withdrawn=False, now=now)
+                    assert not categories
+                    async with sessions[1]() as target:
+                        await replay.database_context(target, name=name, oid=oid)
+                        before = await replay.ledger(target)
+                        assert len(before) == 9
+                        expected = replay.expected_ledger(before, accounts, category=False)
+                        assert len(expected) == 8
+                        assert await replay.quarantine_milestone_deliveries(target, after_restore=True) == 8
+                        for account in accounts:
+                            assert await replay.delete_account_activation_decisions(
+                                target, account_id=account) == 1
+                        await replay.verify_ledger(target, expected)
+                        await target.commit()
+                    async with sessions[1]() as readback:
+                        await replay.database_context(readback, name=name, oid=oid)
+                        await replay.verify_ledger(readback, expected)
+                for engine in engines:
+                    await engine.dispose()
+                assert resources["staging"].exists()
+                assert len(operator._object_manifest(objects["client"], resources["bucket"],
+                           deadline=time.monotonic()+5)) == 2
+            assert not resources["staging"].exists()
+            assert not objects["client"].bucket_exists(resources["bucket"])
+            assert await owner.fetchval("SELECT count(*) FROM pg_database WHERE datname=ANY($1)",
+                                       [resources["target"], resources["schema"]]) == 0
+            assert b"absent" in await operator._command(
+                ["docker", "exec", pg_container, "sh", "-c",
+                 'test ! -e "$1" && echo absent', "sh", resources["pg_staging"]],
+                deadline=time.monotonic()+5)
+        finally:
+            for engine in engines:
+                await engine.dispose()
+            await owner.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("mode", ["body_error", "cancel_create", "cancel_cleanup", "unknown_create",
+                                   "cleanup_failure", "schema_mismatch", "byte_corruption",
+                                   "cancel_native", "unknown_native", "native_unresolved",
+                                   "unknown_mirror", "cleanup_identity_timeout"])
+def test_staged_native_failures_preserve_ownership(replay_world, rehearsal_objects, monkeypatch, mode):
+    import hashlib
+    import io
+    from types import SimpleNamespace
+
+    import asyncpg
+
+    from twobrain_rec_server.product_analytics import activation_operator as operator
+
+    world, objects = replay_world, rehearsal_objects
+    reference = world["root"] / "reference"
+    files = reference / "minio-objects"
+    files.mkdir(mode=0o700)
+    closed(files / "synthetic.bin", "synthetic")
+    if mode == "schema_mismatch":
+        path = reference / "schema.sql"
+        suffix = "--\n-- PostgreSQL database dump complete\n--\n\n"
+        assert suffix in path.read_text()
+        path.write_text(path.read_text().replace(
+            suffix, "CREATE TABLE public.synthetic_extra(id int);\n\n" + suffix))
+        closed(reference / "checksums.sha256", "".join(
+            hashlib.sha256((reference / name).read_bytes()).hexdigest() + "  " + name + "\n"
+            for name in ("postgres.dump", "schema.sql", "inventory.jsonl")))
+    if mode == "byte_corruption":
+        original = operator._object_manifest
+        def corrupt(client, bucket, *, deadline):
+            client.put_object(bucket, "synthetic.bin", io.BytesIO(b"corrupted"), 9)
+            return original(client, bucket, deadline=deadline)
+        monkeypatch.setattr(operator, "_object_manifest", corrupt)
+
+    async def run():
+        url = world["url"]
+        owner = await asyncpg.connect(host=url.host, port=url.port, user=url.username,
+                                     password=url.password, database="postgres")
+        observed, release = asyncio.Event(), asyncio.Event()
+        created, dropped, stage_paths, tool_ids, gates = [], [], [], [], []
+        resources = None
+        cleanup_started = None
+        identity_calls = 0
+        command = operator._command
+        guarded_bucket_removal = []
+        remove_bucket = objects["client"].remove_bucket
+
+        def guarded_remove(bucket):
+            for cid in tool_ids:
+                result = subprocess.run(["docker", "ps", "--all", "--quiet", "--no-trunc",
+                    "--filter", "id=" + cid], capture_output=True, check=True, timeout=5)
+                assert not result.stdout, "native_mirror_still_owned_the_bucket"
+            guarded_bucket_removal.append(True)
+            return remove_bucket(bucket)
+        monkeypatch.setattr(objects["client"], "remove_bucket", guarded_remove)
+
+        async def track(argv, **kwargs):
+            native_restore = argv[:3] == ["docker", "exec", "--detach"] and "pg_restore" in argv
+            if native_restore and mode in {"cancel_native", "unknown_native"}:
+                gate = argv[9] + ".gate"
+                gates.append(gate)
+                argv = [*argv[:11], "sh", "-c",
+                        'while [ ! -f "$1" ]; do sleep 0.02; done; shift; exec "$@"',
+                        "sh", gate, *argv[11:]]
+            if native_restore and mode == "native_unresolved":
+                raise TimeoutError("synthetic_unknown_spawn")
+            if mode == "native_unresolved" and argv[:3] == ["docker", "exec", "--user=0"]:
+                return b"invalid_completion\n"  # Neither a successful nor a failed native result.
+            if mode == "unknown_mirror" and argv[:2] == ["docker", "create"] and "mc mirror" in argv[-1]:
+                argv = [*argv[:-1], 'while [ ! -f /tmp/proceed ]; do sleep 0.02; done; ' + argv[-1]]
+            if mode == "unknown_mirror" and argv[:3] == ["docker", "start", "--attach"] and len(tool_ids) == 2:
+                await command(["docker", "start", tool_ids[-1]], **kwargs)
+                raise TimeoutError("synthetic_lost_mirror_response")
+            result = await command(argv, **kwargs)
+            if native_restore and mode in {"cancel_native", "unknown_native"}:
+                observed.set()
+                if mode == "unknown_native":
+                    raise TimeoutError("synthetic_lost_spawn_response")
+            if argv[:2] == ["docker", "exec"] and argv[3:6] == ["mkdir", "-m", "700"]:
+                stage_paths.append(argv[6])
+            if argv[:2] == ["docker", "create"]:
+                tool_ids.append(result.decode().strip())
+            return result
+        monkeypatch.setattr(operator, "_command", track)
+
+        class TrackedOwner:
+            def __getattr__(self, name):
+                return getattr(owner, name)
+
+            async def fetchrow(self, sql, *args):
+                nonlocal identity_calls
+                if "pg_control_system()" in sql:
+                    identity_calls += 1
+                    if mode == "cleanup_identity_timeout" and identity_calls >= 3:
+                        # Release eventually even on the old unbounded implementation.
+                        await asyncio.sleep(2)
+                return await owner.fetchrow(sql, *args)
+
+            async def execute(self, sql):
+                creating, dropping = sql.startswith("CREATE DATABASE"), sql.startswith("DROP DATABASE")
+                if dropping:
+                    dropped.append(sql.split('"')[1])
+                    if mode == "cleanup_failure" and len(dropped) == 1:
+                        raise OSError("synthetic_drop_failure")
+                result = await owner.execute(sql)
+                if creating:
+                    created.append(sql.split('"')[1])
+                    if mode == "unknown_create" and len(created) == 1:
+                        raise TimeoutError("synthetic_lost_create_response")
+                if ((mode == "cancel_create" and creating and len(created) == 1)
+                        or (mode == "cancel_cleanup" and dropping and len(dropped) == 1)):
+                    observed.set()
+                    await release.wait()
+                return result
+
+        task = None
+        try:
+            pg_container = (await command(["docker", "inspect", "--format", "{{.Id}}",
+                world["container"]], deadline=time.monotonic()+5)).decode().strip()
+            cluster_id = await owner.fetchval("SELECT system_identifier::text FROM pg_control_system()")
+            async def attempt():
+                nonlocal resources, cleanup_started
+                async with operator._rehearsal_resources(
+                    root=REPO, reference=reference, owner=TrackedOwner(), pg_container=pg_container,
+                    cluster_id=cluster_id, deadline=time.monotonic()+90, **objects,
+                ) as resources:
+                    if mode == "body_error":
+                        raise RuntimeError("synthetic_body_failure")
+                    if mode == "cleanup_identity_timeout":
+                        cleanup_started = time.monotonic()
+                        # Compress the existing 30s cleanup window to 100ms, no new retry budget.
+                        monkeypatch.setattr(operator, "time", SimpleNamespace(
+                            monotonic=lambda: time.monotonic()-29.9))
+            task = asyncio.create_task(attempt())
+            if mode.startswith("cancel_") or mode == "unknown_native":
+                await asyncio.wait_for(observed.wait(), 30)
+                if mode.startswith("cancel_"):
+                    task.cancel()
+                    await asyncio.sleep(.02)
+                    task.cancel()
+                await asyncio.sleep(.02)
+                assert not task.done()
+                if gates:
+                    # The live native process has not connected yet: no-PID alone permits no DROP.
+                    assert await owner.fetchval("SELECT count(*) FROM pg_database WHERE datname=$1",
+                                                created[0]) == 1
+                    assert not dropped
+                    await command(["docker", "exec", pg_container, "touch", gates[0]],
+                                  deadline=time.monotonic()+5)
+                release.set()
+            expected = (asyncio.CancelledError if mode.startswith("cancel_") else
+                        RuntimeError if mode == "body_error" else operator.ActivationHold)
+            with pytest.raises(expected):
+                await task
+            remaining = await owner.fetch("SELECT datname FROM pg_database WHERE datname=ANY($1)", created)
+            expected_remaining = (created if mode == "cleanup_identity_timeout" else created[:1]
+                if mode in {"unknown_create", "cleanup_failure", "native_unresolved"} else [])
+            assert sorted(r[0] for r in remaining) == sorted(expected_remaining)
+            if mode == "cleanup_identity_timeout":
+                assert time.monotonic()-cleanup_started < 1.5
+                assert not dropped
+            if mode == "unknown_create":
+                assert not dropped  # An unknown CREATE response never grants deletion by name.
+            if mode == "native_unresolved":
+                assert not dropped  # The native process may still own the DB and dump file.
+            if mode == "schema_mismatch":
+                assert len(created) == 2  # Fail the native schema comparison, after both parses.
+            if mode != "cleanup_identity_timeout":
+                assert not list(objects["client"].list_buckets())
+            if mode == "unknown_mirror":
+                assert guarded_bucket_removal == [True]
+            assert resources is None or not resources["staging"].exists()
+            for path in stage_paths:
+                await command(["docker", "exec", pg_container, "sh", "-c",
+                               'test -d "$1"' if mode in {"native_unresolved", "cleanup_identity_timeout"}
+                               else 'test ! -e "$1"',
+                               "sh", path], deadline=time.monotonic()+5)
+            if tool_ids and mode != "cleanup_identity_timeout":
+                assert not (await command(["docker", "ps", "--all", "--quiet", "--no-trunc",
+                    *[value for cid in tool_ids for value in ("--filter", "id=" + cid)]],
+                    deadline=time.monotonic()+5)).strip()
+        finally:
+            release.set()
+            if task is not None and not task.done():
+                task.cancel()
+                with suppress(BaseException):
+                    await task
+            # These names are known creations of this test, independent of operator knowledge.
+            for name in created:
+                if await owner.fetchval("SELECT count(*) FROM pg_database WHERE datname=$1", name):
+                    await owner.execute(f'DROP DATABASE "{name}"')
+            if mode == "cleanup_identity_timeout":
+                for cid in tool_ids:
+                    # Confirmed test-owned IDs only, even if the operator deadline expired.
+                    subprocess.run(["docker", "rm", "--force", "--volumes", cid],
+                                   capture_output=True, timeout=5)
+            await owner.close()
+
+    asyncio.run(run())
 
 
 @pytest.fixture

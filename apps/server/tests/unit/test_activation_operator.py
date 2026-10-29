@@ -2,10 +2,13 @@
 
 import asyncio
 import copy
+import hashlib
 import json
 import os
 import sys
 import time
+from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -273,3 +276,117 @@ def test_one_database_deadline_starts_before_identity_sql(fence, monkeypatch):
         assert time.monotonic() - start < 0.5 and len(calls) == 1
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("defect", ["good", "empty", "symlink", "hardlink", "mode",
+                                    "directory_mode", "decomposed", "special"])
+def test_private_backup_object_manifest(tmp_path, defect):
+    tmp_path.chmod(0o700)
+    objects = tmp_path / "objects"
+    objects.mkdir(mode=0o700)
+    nested = objects / "notes"
+    nested.mkdir(mode=0o700)
+    payload = nested / "中文.txt"
+    payload.write_bytes(b"educational only")
+    payload.chmod(0o600)
+    (objects / "empty.bin").touch(mode=0o600)
+    if defect == "empty":
+        payload.unlink()
+    if defect == "symlink":
+        (objects / "link").symlink_to(payload)
+    if defect == "hardlink":
+        os.link(payload, objects / "link")
+    if defect == "mode":
+        payload.chmod(0o644)
+    if defect == "directory_mode":
+        nested.chmod(0o755)
+    if defect == "decomposed":
+        (objects / "e\u0301").touch(mode=0o600)
+    if defect == "special":
+        os.mkfifo(objects / "pipe", 0o600)
+    if defect in {"good", "empty"}:
+        result = operator._file_manifest(objects, deadline=time.monotonic() + 5)
+        expected = [("empty.bin", 0, hashlib.sha256(b"").hexdigest())]
+        if defect == "good":
+            expected.append(("notes/中文.txt", len(b"educational only"),
+                             hashlib.sha256(b"educational only").hexdigest()))
+        assert result == expected
+    else:
+        with pytest.raises(ActivationHold):
+            operator._file_manifest(objects, deadline=time.monotonic() + 5)
+
+
+@pytest.mark.parametrize("key", ["", "/leading", "trailing/", "double//slash", "./dot",
+                                 "parent/../x", "nul\0x", "e\u0301", "x" * 1025, "\ud800"])
+def test_ambiguous_object_key_is_refused(key):
+    with pytest.raises(ActivationHold):
+        operator._object_key(key)
+
+
+@pytest.mark.parametrize("defect", ["good", "versioning", "lifecycle", "object_lock",
+                                    "changed_stat", "changed_list", "short_stream", "read_error",
+                                    "empty", "collision", "missing_list", "extra_list"])
+def test_sdk_byte_manifest_closes_responses_and_detects_change(defect):
+    from minio.error import S3Error
+
+    closed = []
+    stamp = datetime.now(UTC)
+
+    class Client:
+        lists = 0
+        stats = 0
+
+        def get_bucket_versioning(self, bucket):
+            return SimpleNamespace(status="Suspended" if defect == "versioning" else None)
+
+        def get_bucket_lifecycle(self, bucket):
+            return object() if defect == "lifecycle" else None
+
+        def get_object_lock_config(self, bucket):
+            if defect != "object_lock":
+                raise S3Error(response=None, code="ObjectLockConfigurationNotFoundError",
+                              message="synthetic", resource="", request_id="", host_id="")
+            return object()
+
+        def list_objects(self, bucket, *, recursive):
+            self.lists += 1
+            if defect == "empty" or (defect == "missing_list" and self.lists > 1):
+                return []
+            rows = [SimpleNamespace(object_name="nested/中文", size=3,
+                etag="different" if defect == "changed_list" and self.lists > 1 else "stable",
+                last_modified=stamp)]
+            if defect == "collision" or (defect == "extra_list" and self.lists > 1):
+                rows.append(SimpleNamespace(object_name="nested", size=0, etag="extra",
+                                            last_modified=stamp))
+            return rows
+
+        def stat_object(self, bucket, key):
+            self.stats += 1
+            return SimpleNamespace(object_name=key, size=3, last_modified=stamp,
+                etag="different" if defect == "changed_stat" and self.stats > 1 else "stable")
+
+        def get_object(self, bucket, key, **kwargs):
+            class Response:
+                def stream(self, size):
+                    if defect == "read_error":
+                        raise OSError("synthetic stream failure")
+                    yield b"ab" if defect == "short_stream" else b"abc"
+
+                def close(self):
+                    closed.append("close")
+
+                def release_conn(self):
+                    closed.append("release")
+
+            return Response()
+
+    if defect == "empty":
+        assert operator._object_manifest(Client(), "synthetic", deadline=time.monotonic()+5) == []
+    elif defect == "good":
+        assert operator._object_manifest(Client(), "synthetic", deadline=time.monotonic()+5) == [
+            ("nested/中文", 3, hashlib.sha256(b"abc").hexdigest())]
+    else:
+        with pytest.raises((ActivationHold, OSError)):
+            operator._object_manifest(Client(), "synthetic", deadline=time.monotonic()+5)
+    assert closed == ([] if defect in {"versioning", "lifecycle", "object_lock", "empty", "collision"}
+                      else ["close", "release"])
