@@ -926,6 +926,8 @@ def stopped_case(tmp_path, monkeypatch):
     import urllib.request  # Import platform helpers before modelling macOS on Linux.
 
     scratch = tmp_path.resolve()
+    # GNU ps otherwise truncates command identity under pytest's captured output.
+    monkeypatch.setenv("COLUMNS", "4096")
     # Model macOS consistently in the controller and its unchanged Python guards.
     python_site = scratch / "test-python"
     python_site.mkdir()
