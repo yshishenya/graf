@@ -2,6 +2,7 @@
 """Closed backup checks and source/restore comparison; never changes readiness."""
 
 import ast
+import graphlib
 import hashlib
 import json
 import re
@@ -185,20 +186,32 @@ def inventory(root, expected_db, *, schema_only=False):
             and trigger['function'] == 'rec_activation_decision_immutable'
             and trigger['security_definer'] is False)
     migrations = Path(__file__).resolve().parents[2] / 'apps/server/src/twobrain_rec_server/db/migrations/versions'
-    revisions, parents = set(), set()
+    revisions = {}
     for path in migrations.glob('*.py'):
+        metadata = {}
         for node in ast.parse(path.read_text()).body:
             if isinstance(node, (ast.Assign, ast.AnnAssign)):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 for target in targets:
                     if not isinstance(target, ast.Name) or target.id not in ('revision', 'down_revision'):
                         continue
-                    value = ast.literal_eval(node.value)
-                    values = {value} if isinstance(value, str) else set(value or ())
-                    (revisions if target.id == 'revision' else parents).update(values)
-    require(len(revisions - parents) == 1)
-    require({r['name'] for r in rows.values() if r['kind'] == 'revision'} ==
-            (set() if schema_only else revisions - parents))
+                    require(target.id not in metadata)
+                    metadata[target.id] = ast.literal_eval(node.value)
+        require(set(metadata) == {'revision', 'down_revision'}
+                and isinstance(metadata['revision'], str) and metadata['revision'] not in revisions)
+        parent = metadata['down_revision']
+        revisions[metadata['revision']] = {parent} if isinstance(parent, str) else set(parent or ())
+    parents = set().union(*revisions.values())
+    require(parents <= revisions.keys() and len(revisions.keys() - parents) == 1)
+    list(graphlib.TopologicalSorter(revisions).static_order())  # Reject cycles, including detached ones.
+    current = next(iter(revisions.keys() - parents))
+    supported = {current}
+    while current != '0106_activation_milestones':
+        require(len(revisions[current]) == 1)
+        current = next(iter(revisions[current]))
+        supported.add(current)
+    saved = {r['name'] for r in rows.values() if r['kind'] == 'revision'}
+    require(not saved if schema_only else len(saved) == 1 and saved <= supported)
     require(not schema_only or all(number == 0 for number in counts.values()))
     migration = ast.parse((migrations / '0106_activation_milestones.py').read_text())
     constants = {n.targets[0].id: ast.literal_eval(n.value) for n in migration.body

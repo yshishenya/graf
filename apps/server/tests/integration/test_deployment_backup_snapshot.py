@@ -256,6 +256,46 @@ def test_full_migrated_database_restore_comparison(
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     command = result.args
+    # A release backs up BEFORE migrating: its next checkout must accept that point.
+    checkout = tmp_path / "next-checkout"
+    verifier_path = checkout / "infra/scripts/rec-db-verify.py"
+    verifier_path.parent.mkdir(parents=True)
+    shutil.copyfile(command[1], verifier_path)
+    migrations_relative = Path("apps/server/src/twobrain_rec_server/db/migrations/versions")
+    shutil.copytree(REPO / migrations_relative, checkout / migrations_relative)
+    next_migration = checkout / migrations_relative / "t113_next.py"
+    next_migration.write_text("revision = 't113_next'\ndown_revision = '0106_activation_milestones'\n")
+    next_command = [command[0], str(verifier_path), *command[2:]]
+    preflight = next_command[:3] + ["--inventory"]
+    assert subprocess.run(preflight, capture_output=True).returncode == 0
+    assert subprocess.run(next_command, capture_output=True).returncode == 0
+    # Different supported markers must not pass source/restore comparison.
+    psql(target, "UPDATE alembic_version SET version_num='t113_next'", database=database, role="twobrain_rec")
+    capture(target, database, restored, dump=False)
+    next_spec = importlib.util.spec_from_file_location("next_restore_verifier", verifier_path)
+    next_verifier = importlib.util.module_from_spec(next_spec)
+    next_spec.loader.exec_module(next_verifier)
+    next_verifier.inventory(restored, database)  # Valid alone; only the source/restore mismatch fails.
+    assert subprocess.run(next_command, capture_output=True).returncode != 0
+    psql(target, "UPDATE alembic_version SET version_num='0106_activation_milestones'", database=database, role="twobrain_rec")
+    capture(target, database, restored, dump=False)
+    assert subprocess.run(next_command, capture_output=True).returncode == 0
+    # Broken checkout histories fail closed, without executing migration code.
+    valid_migration = next_migration.read_text()
+    for history in (
+        "revision='t113_next'\ndown_revision='missing'\n",
+        "revision='t113_next'\ndown_revision='t113_next'\n",
+        "revision='0106_activation_milestones'\ndown_revision='0105_anonymous_aggregate_region'\n",
+        "revision='t113_next'\ndown_revision=('0106_activation_milestones','0105_anonymous_aggregate_region')\n",
+    ):
+        next_migration.write_text(history)
+        assert subprocess.run(preflight, capture_output=True, timeout=5).returncode != 0, history
+    next_migration.write_text(valid_migration)
+    other_migration = next_migration.with_name("t113_other.py")
+    other_migration.write_text("revision='t113_other'\ndown_revision='0106_activation_milestones'\n")
+    assert subprocess.run(preflight, capture_output=True, timeout=5).returncode != 0
+    other_migration.unlink()
+    assert subprocess.run(preflight, capture_output=True).returncode == 0
     # Causal preflight cases: bad metadata must fail before any Docker/resource call.
     invalid = tmp_path / "invalid"
     sentinel_bin = tmp_path / "sentinel-bin"
@@ -267,6 +307,7 @@ def test_full_migrated_database_restore_comparison(
     for defect in ("missing", "empty", "symlink", "hardlink", "checksum", "extra-manifest", "duplicate-manifest",
                    "malformed-json", "duplicate-json-key", "duplicate-row", "unknown-kind", "unknown-field",
                    "missing-field", "missing-count", "old-version", "wrong-db", "wrong-role", "wrong-head",
+                   "missing-revision", "multiple-revisions", "pre-ledger-revision",
                    "state-count", "open-role", "missing-setting", "bad-policy", "bad-check"):
         if invalid.exists():
             shutil.rmtree(invalid)
@@ -310,6 +351,12 @@ def test_full_migrated_database_restore_comparison(
                 rows[0]["role"] = "twobrain_rec_app"
             elif defect == "wrong-head":
                 next(r for r in rows if r["kind"] == "revision")["name"] = "unknown"
+            elif defect == "missing-revision":
+                rows = [r for r in rows if r["kind"] != "revision"]
+            elif defect == "multiple-revisions":
+                rows.append({"kind": "revision", "name": "t113_next"})
+            elif defect == "pre-ledger-revision":
+                next(r for r in rows if r["kind"] == "revision")["name"] = "0105_anonymous_aggregate_region"
             elif defect == "state-count":
                 rows[-1]["rows"] += 1
             elif defect == "open-role":
