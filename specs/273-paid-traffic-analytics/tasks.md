@@ -625,3 +625,19 @@ T110/T113: до приёмки восстановления исправить �
 исправляются отдельно только в названных границах. Reviewer gate/analyze,
 причинные проверки, code review/converge и exact PR gates обязательны.
 Задачи остаются открытыми до полной исходной приёмки; writer не включается.
+
+
+### Исполнение T113 первого локального периода — 28.10.2026
+
+В существующей T113 порядок: полный GRAF backup/restore и cleanup → защищённая
+readiness/fence → local_only → оба ingress/отзыв/удаление/actual restore → T112.
+Пути: infra/scripts/{backup-rec-stack,rehearse-rec-restore,cd-remote-runtime}.sh,
+infra/docker-compose.yml, docs/deployments/2brain-rec/rollback-runbook.md,
+config.py, product_analytics/{legal_basis_gate,ingest,milestones,provider_readiness,
+legal_basis_lifecycle}.py и прежние профильные unit/contract/integration tests.
+Состояние/fixed (273,3) DB drain/общий product maintenance и проверки заданы
+activation-milestones/operations/quickstart. До кода — reviewer gate117/0
+и scoped analyze. T113, lifecycle T109–T111 и ресурсы T116 имеют частичные
+Refs #7696/#7698; это не каноническое соответствие T113 отдельному issue.
+Новых задач/закрытий нет. Учебный PASS и новый технический выпуск
+не включают writer и не закрывают T113 либо коммерческие критерии.

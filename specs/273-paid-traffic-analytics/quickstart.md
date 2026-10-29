@@ -341,3 +341,54 @@ apps/server/.venv/bin/python -m pytest -q apps/server/tests/contract/test_produc
 процессе позволяет проверить по одному синтетическому запросу. После выхода
 из неё блокировка проверяется повторно; число отправок не увеличивается.
 Это не доказательство рабочего восстановления и не закрывает T118.
+
+
+### Первый локальный период T113 — дополнение сценариев4/7
+
+1. Доказать первый старт полной maintenance-ролью без RLS-фильтра и историей
+   закрытого durable admission. Проверить неправильную DB/relation, hidden
+   rows, прежние решения/удаления/restore: один count0 не открывает режим.
+2. На непустой учебной DB выполнить полные dump/restore/schema/roles/RLS/
+   unique/FK/state и точные удаления; повторить на текущей рабочей копии
+   только в изолированной цели. Проверить checksum/snapshot/cleanup failure.
+3. local_only + выключенные получатели: два процесса/обе HTTP-ветви/restart
+   принимают одну account+event; оба состояния not_requested, сетевых вызовов0.
+   Включённый provider/несовместимые flags, stale/missing/чужой/небезопасный
+   state, смена lock inode и ошибочный fsync дают HOLD, продукт доступен.
+4. Долгий commit/cancellation против exclusive revoke/drain: actual restore
+   не начинается до разрешения DB исхода и сохранённого revoke. Отдельный
+   SIGKILL после отправки COMMIT/до локального ACK освобождает flock, но EX DB
+   advisory lock (273, 3) ждёт окончания server-side транзакции; timeout
+   запрещает restore. Проверить общий ключ и порядок SH/EX во всех процессах.
+   Поздний category/account_closure DELETE/identity COMMIT после SIGKILL также
+   удерживает actual restore до общего product maintenance/drain: admission-only
+   lock не достаточен. При analytics HOLD вне восстановления удаления работают. Удержанный
+   оператором lock не задерживает новый запрос. Проверить потерю state,
+   runtime/schema rollback, gap после копии, category purge/account closure: нет
+   нового периода, resurrection, повторного INSERT или отправки получателю.
+5. Legal/disclosure/withdrawal/retention/capacity/protection остаются воротами.
+   Свежая копия/receipt сохраняет started_at; пределы26часов/30дней проверяются.
+   Старый аккаунт не считается новым внешним клиентом; служебные прогоны не
+   считаются трафиком. T112 принимает только реальный видимый результат
+   владельца и серверную lineage; GET/prefetch/браузерная загрузка не доказывают
+   desktop_first_recording. Не включать production по учебному PASS.
+
+### Первый срез безопасной репетиции T113 — 28.10.2026
+
+`apps/server/.venv/bin/python -m pytest -q apps/server/tests/integration/test_deployment_restore_safety.py apps/server/tests/integration/test_deployment_backup_restore_rehearsal.py`
+
+Настоящие shell-команды исполняются с подставными Docker/MinIO и учебными
+файлами. Проверить конфликт create-only БД/bucket без удаления чужой цели,
+ошибку restore/mirror/drop/readback, отсутствие общего контейнерного дампа,
+закрытый временный журнал и его очистку до PASS. Параллельная репетиция
+отклоняется общей deployment-блокировкой. Автоматический выбор исключает
+nginx-edge, ссылки и неполные комплекты; нестандартное имя полного комплекта
+допустимо только явным reference. Ни этот профиль, ни обычный pg_restore
+не принимают полную сверку schema/roles/RLS/ledger/deletions первого периода.
+
+Остановка HUP/INT/TERM во время создания каждой цели проверяется отдельно
+при успешном и неуспешном create: подтверждённая собственная цель очищена,
+чужая сохранена, PASS отсутствует, общий замок удерживается до очистки.
+Отдельная проверка посылает сигнал до появления дочернего процесса.
+Учебная среда закрепляет настоящий интерпретатор текущего тестового процесса
+и не наследует произвольные переменные окружения оператора.

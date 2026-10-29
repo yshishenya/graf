@@ -1,86 +1,120 @@
 #!/usr/bin/env sh
 set -eu
-
+umask 077
 host="${TWOBRAIN_DEPLOY_HOST:-2brain.dev}"
 path="${TWOBRAIN_DEPLOY_PATH:-/opt/projects/2brain-rec}"
-
+reference="${RESTORE_BACKUP_REFERENCE:-}"
+if [ -z "$reference" ]; then
+  printf 'restore_rehearsal_result=blocked\nreason=backup_reference_missing\n'
+  exit 0
+fi
+case "$reference" in /*) ;; *) printf 'restore_rehearsal_result=blocked\nreason=backup_reference_invalid\n'; exit 1 ;; esac
+case "$reference" in *[!A-Za-z0-9._/-]*) printf 'restore_rehearsal_result=blocked\nreason=backup_reference_invalid\n'; exit 1 ;; esac
 if [ "${1:-}" = "--remote" ]; then
-  exec ssh "$host" "cd '$path' && RESTORE_BACKUP_REFERENCE='${RESTORE_BACKUP_REFERENCE:-}' ./infra/scripts/rehearse-rec-restore.sh --execute"
+  exec ssh "$host" "cd '$path' && RESTORE_BACKUP_REFERENCE='$reference' ./infra/scripts/rehearse-rec-restore.sh --execute"
 fi
-
-if [ -z "${RESTORE_BACKUP_REFERENCE:-}" ]; then
-  cat <<EOF
-restore_rehearsal_result=blocked
-reason=backup_reference_missing
-remote_host=$host
-deploy_path=$path
-EOF
-  exit 0
-fi
-
 if [ "${1:-}" != "--execute" ]; then
-  cat <<EOF
-restore_rehearsal_result=dry_run
-backup_reference=$RESTORE_BACKUP_REFERENCE
-remote_host=$host
-deploy_path=$path
-EOF
+  printf 'restore_rehearsal_result=dry_run\nbackup_reference=%s\n' "$reference"
   exit 0
 fi
-
-if [ -f .env ]; then
-  set -a
-  . ./.env
-  set +a
+if [ -L "$reference" ] || [ ! -d "$reference" ] || [ -L "$reference/postgres.dump" ] || [ ! -s "$reference/postgres.dump" ] || [ -L "$reference/minio-objects" ] || [ ! -d "$reference/minio-objects" ]; then
+  printf 'restore_rehearsal_result=blocked\nreason=backup_set_incomplete\n'
+  exit 1
 fi
-
+# Reuse the deployment lock: a rehearsal may not overlap production replacement.
+if [ "${GRAF_RESTORE_LOCK_HELD:-0}" != "1" ]; then
+  exec python3 - "$0" "$@" <<'PY'
+import fcntl, os, signal, subprocess, sys
+path = subprocess.check_output(['git', 'rev-parse', '--git-path', 'twobrain-rec-deploy.lock'], text=True).strip()
+with open(path, 'a') as lock:
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print('restore_rehearsal_result=blocked\nreason=deployment_or_rehearsal_running')
+        raise SystemExit(1)
+    child = None
+    pending = set()
+    def forward(number, frame):
+        if child is None:
+            pending.add(number)
+            return
+        try:
+            child.send_signal(number)
+        except ProcessLookupError:
+            pass
+    for number in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+        signal.signal(number, forward)
+    child = subprocess.Popen(['sh', *sys.argv[1:]],
+                             env=dict(os.environ, GRAF_RESTORE_LOCK_HELD='1'),
+                             pass_fds=(lock.fileno(),))
+    for number in pending:
+        forward(number, None)
+    status = child.wait()
+    raise SystemExit(status if status >= 0 else 128 - status)
+PY
+fi
+if [ -f .env ]; then set -a; . ./.env; set +a; fi
 if [ -z "${GRAF_RELEASE_MC_IMAGE:-}" ]; then
   GRAF_RELEASE_MC_IMAGE="$(python3 infra/scripts/release-images.py current-override --service rec-minio-init)"
 fi
-
-test -d "$RESTORE_BACKUP_REFERENCE"
-test -f "$RESTORE_BACKUP_REFERENCE/postgres.dump"
-test -d "$RESTORE_BACKUP_REFERENCE/minio-objects"
-
-restore_db="rec_restore_rehearsal_$(date -u +%Y%m%d%H%M%S)"
-restore_bucket="twobrain-rec-restore-rehearsal-$(date -u +%Y%m%d%H%M%S)"
-cleanup() {
-  docker compose -f infra/docker-compose.yml exec -T rec-postgres dropdb -U twobrain_rec --if-exists "$restore_db" >/dev/null 2>&1 || true
-  if [ -n "${root_user_file:-}" ] && [ -n "${root_password_file:-}" ]; then
-    docker run --rm --pull never \
-      --network twobrain-rec-private \
-      --entrypoint /bin/sh \
-      -e "TWOBRAIN_MINIO_BUCKET=${TWOBRAIN_MINIO_BUCKET:-twobrain-rec-ingest}" \
-      -v "$root_user_file":/run/secrets/twobrain_minio_root_user:ro \
-      -v "$root_password_file":/run/secrets/twobrain_minio_root_password:ro \
-      "${GRAF_RELEASE_MC_IMAGE:-minio/mc:RELEASE.2025-05-21T01-59-54Z}" \
-      -c 'mc alias set rec http://rec-minio:9000 "$(cat /run/secrets/twobrain_minio_root_user)" "$(cat /run/secrets/twobrain_minio_root_password)" >/dev/null && mc rb --force "rec/'"$restore_bucket"'" >/dev/null 2>&1 || true' >/dev/null 2>&1 || true
-  fi
-}
-trap cleanup EXIT
-
-docker compose -f infra/docker-compose.yml exec -T rec-postgres createdb -U twobrain_rec "$restore_db"
-docker compose -f infra/docker-compose.yml exec -T rec-postgres mkdir -p /tmp/twobrain-rec-restore
-docker cp "$RESTORE_BACKUP_REFERENCE/postgres.dump" "$(docker compose -f infra/docker-compose.yml ps -q rec-postgres)":/tmp/twobrain-rec-restore/postgres.dump
-docker compose -f infra/docker-compose.yml exec -T rec-postgres \
-  pg_restore -U twobrain_rec -d "$restore_db" --no-owner /tmp/twobrain-rec-restore/postgres.dump
-docker compose -f infra/docker-compose.yml exec -T rec-postgres \
-  psql -U twobrain_rec -d "$restore_db" -Atc "select count(*) >= 0 from information_schema.tables" >/dev/null
-
+token="$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
+restore_db="rec_restore_rehearsal_$token"
+restore_bucket="twobrain-rec-restore-rehearsal-$token"
+staging="$(mktemp -d "${TMPDIR:-/tmp}/graf-rec-restore.XXXXXX")"
+log="$staging/commands.log"
+database_owned=0
+bucket_owned=0
+stop_requested=0
 root_user_file="${TWOBRAIN_MINIO_ROOT_USER_FILE:-./secrets/twobrain_minio_root_user}"
 root_password_file="${TWOBRAIN_MINIO_ROOT_PASSWORD_FILE:-./secrets/twobrain_minio_root_password}"
-docker run --rm --pull never \
-  --network twobrain-rec-private \
-  --entrypoint /bin/sh \
-  -e "TWOBRAIN_MINIO_BUCKET=${TWOBRAIN_MINIO_BUCKET:-twobrain-rec-ingest}" \
-  -v "$RESTORE_BACKUP_REFERENCE/minio-objects":/backup/minio-objects:ro \
-  -v "$root_user_file":/run/secrets/twobrain_minio_root_user:ro \
-  -v "$root_password_file":/run/secrets/twobrain_minio_root_password:ro \
-  "${GRAF_RELEASE_MC_IMAGE:-minio/mc:RELEASE.2025-05-21T01-59-54Z}" \
-  -c 'mc alias set rec http://rec-minio:9000 "$(cat /run/secrets/twobrain_minio_root_user)" "$(cat /run/secrets/twobrain_minio_root_password)" >/dev/null && mc mb --ignore-existing "rec/'"$restore_bucket"'" >/dev/null && mc mirror --overwrite /backup/minio-objects "rec/'"$restore_bucket"'" >/dev/null && mc ls --recursive "rec/'"$restore_bucket"'" >/dev/null'
-cat <<EOF
-restore_rehearsal_result=pass
-backup_reference=$RESTORE_BACKUP_REFERENCE
-postgres_restore_target=$restore_db
-minio_restore_target=$restore_bucket
-EOF
+mc_run() {
+  docker run --rm --pull never --network twobrain-rec-private --entrypoint /bin/sh \
+    -e MC_CONFIG_DIR=/tmp/graf-restore-mc \
+    -v "$reference/minio-objects":/backup/minio-objects:ro \
+    -v "$root_user_file":/run/secrets/user:ro \
+    -v "$root_password_file":/run/secrets/password:ro \
+    "$GRAF_RELEASE_MC_IMAGE" -c 'set -eu; umask 077; mc alias set rec http://rec-minio:9000 "$(cat /run/secrets/user)" "$(cat /run/secrets/password)" >/dev/null; '"$1"
+}
+cleanup() {
+  result=$?
+  trap - EXIT HUP INT TERM
+  failed=0
+  if [ "$bucket_owned" = 1 ]; then
+    if ! mc_run "mc rb --force rec/$restore_bucket >/dev/null" >>"$log" 2>&1; then failed=1; fi
+    if listing="$(mc_run 'mc ls --json rec' 2>>"$log")"; then
+      if ! printf '%s' "$listing" | python3 -c 'import json,sys; target=sys.argv[1]; rows=[json.loads(s) for s in sys.stdin]; sys.exit(any(r.get("key", "").rstrip("/")==target for r in rows))' "$restore_bucket" >>"$log" 2>&1; then failed=1; fi
+    else failed=1; fi
+  fi
+  if [ "$database_owned" = 1 ]; then
+    if ! docker compose -f infra/docker-compose.yml exec -T rec-postgres dropdb --force -U twobrain_rec "$restore_db" >>"$log" 2>&1; then failed=1; fi
+    remaining="$(docker compose -f infra/docker-compose.yml exec -T rec-postgres psql -X -U twobrain_rec -d twobrain_rec -Atqc "SELECT count(*) FROM pg_database WHERE datname='$restore_db'" 2>>"$log")" || failed=1
+    [ "$remaining" = 0 ] || failed=1
+  fi
+  if ! rm -rf -- "$staging" 2>>"$log" || [ -e "$staging" ]; then failed=1; fi
+  [ "$failed" = 0 ] || result=1
+  if [ "$result" = 0 ]; then
+    printf 'restore_rehearsal_result=pass\nbackup_reference=%s\ncleanup_result=pass\n' "$reference"
+  else
+    printf 'restore_rehearsal_result=failed\nreason=restore_or_cleanup_failed\npostgres_restore_target=%s\nminio_restore_target=%s\n' "$restore_db" "$restore_bucket"
+  fi
+  exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+chmod 0700 "$staging"
+# Defer stop until successful creation records ownership for cleanup.
+trap 'stop_requested=1' HUP INT TERM
+docker compose -f infra/docker-compose.yml exec -T rec-postgres createdb -U twobrain_rec "$restore_db" >>"$log" 2>&1
+database_owned=1
+trap 'exit 1' HUP INT TERM
+[ "$stop_requested" = 0 ] || exit 1
+docker compose -f infra/docker-compose.yml exec -T rec-postgres \
+  pg_restore --exit-on-error -U twobrain_rec -d "$restore_db" --no-owner <"$reference/postgres.dump" >>"$log" 2>&1
+docker compose -f infra/docker-compose.yml exec -T rec-postgres \
+  psql -X -U twobrain_rec -d "$restore_db" -Atqc 'SELECT count(*) FROM information_schema.tables' >>"$log" 2>&1
+trap 'stop_requested=1' HUP INT TERM
+mc_run "mc mb rec/$restore_bucket >/dev/null" >>"$log" 2>&1
+bucket_owned=1
+trap 'exit 1' HUP INT TERM
+[ "$stop_requested" = 0 ] || exit 1
+mc_run "mc mirror /backup/minio-objects rec/$restore_bucket >/dev/null" >>"$log" 2>&1
