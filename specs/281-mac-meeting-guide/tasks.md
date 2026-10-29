@@ -118,7 +118,7 @@ Zoom и одну ссылку протокола на `/meetings`, штатны�
 ## Перенос увеличенного текста — FR034
 
 - [X] T022 Сначала воспроизвести переполнение настоящих public templates в `apps/server/tests/browser/public-audio-help.test.cjs`, сохранить обнаружение в вызывающем `apps/server/tests/contract/test_public_audio_help.py`, затем исправить перенос в `apps/server/src/twobrain_rec_server/public/static/public/content.css`; пройти70 сочетаний FR034, прежние keyboard/no-JS/reduced-motion и focused contracts, независимый checklist, convergence и exact-SHA/base PR gates. (Issue #7796)
-- [ ] T023 После T022 включить исправление в согласованный штатный выпуск и подтвердить FR034 на публичных7 страницах; записать candidate/Full/CD и live70 в `specs/281-mac-meeting-guide/text-reflow-validation-20261028.md`. До публикации оставить задачу открытой. (Issue #7797)
+- [X] T023 После T022 включить исправление в согласованный штатный выпуск и подтвердить FR034 на публичных7 страницах; записать candidate/Full/CD и live70 в `specs/281-mac-meeting-guide/text-reflow-validation-20261028.md`. До публикации оставить задачу открытой. (Issue #7797)
 
 Прежняя локальная проверка28.10 сохранена: исходный отказ
 471px воспроизведён, CSS-перенос проходит70 сочетаний, все20 профильных
@@ -139,3 +139,17 @@ macos-pr40631411026 и pr-metadata40631430421 SUCCESS, общий
 Документальный коммит этой отметки требует собственных окончательных checks
 до merge #7798. Закрытие #7796 — после принятого merge и live-валидатора;
 публикация T023/#7797 и общая #7391 остаются открытыми.
+
+## Приёмка опубликованного FR034 — 29.10.2026
+
+T022 окончательно принята в PR #7798 на source
+`240fcbc919a81c626c884f8bbfed494957e8f00f`, merge
+`312b9cbbcb2d666832a9c8b583e7b7bb08d8ff2c`; промежуточные проверки выше
+сохранены как история. T023 подтверждена в опубликованном `v2026.10.29.1`,
+Candidate SHA `976f310f9fff09b96a1e6fcec99cb43f4bb706ae`:
+Full40873789634 attempt1, decision/штатные CD/backup/health/tag/Release и
+publication attestation проверены отдельно. Повторная настоящая публичная
+матрица29.10:70 PASS,0FAIL;17 страниц и сохранение защищённых ресурсов PASS.
+[Доказательства и ограничения](text-reflow-validation-20261028.md).
+#7797 закрывается после принятия документального PR и release-gated
+live-проверки. Общая #7391 остаётся открытой для сверки исторических владельцев.
