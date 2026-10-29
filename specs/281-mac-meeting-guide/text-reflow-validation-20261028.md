@@ -156,3 +156,87 @@ checkbox не меняются. После документального ком
 source/merge и проверки закрытия будут записаны в #7796.
 T023/#7797 и общая #7391 остаются открытыми; публичная матрица70,
 новый candidate/Full/CD и установленный Mac этим результатом не приняты.
+
+## Приёмка опубликованного T023 — 29.10.2026
+
+Полоса текущего изменения: docs-only / mechanical внутри активной F281;
+записывается результат уже состоявшегося выпуска без изменения поведения.
+Новых Full/CD, сборки или проверки установленного приложения не выполнялось.
+Исторические отказы и промежуточные доказательства выше сохранены.
+
+### Реализация и опубликованный исходник
+
+Окончательный source PR #7798 —
+`240fcbc919a81c626c884f8bbfed494957e8f00f`, checked base
+`2b361954a7f19a8017fccea7d4e4063039aa5180`, merge
+`312b9cbbcb2d666832a9c8b583e7b7bb08d8ff2c`.
+Свежий общий `validate-pr-checks.py` подтвердил governance-fast40632383437,
+macos-pr40632383426 и pr-metadata40632411107, все attempt1 SUCCESS.
+Этот merge входит в выпущенный Candidate SHA
+`976f310f9fff09b96a1e6fcec99cb43f4bb706ae`.
+
+Выпуск `v2026.10.29.1` опубликован29.10 в12:55:40Z:
+[Release](https://github.com/yshishenya/graf/releases/tag/v2026.10.29.1),
+candidate `rc-20261029T122755Z-ffd5395ed51e`, train
+`train-20261029T122640Z-976f310f9fff`.
+Свежий GitHub API подтвердил единственный
+[Full40873789634](https://github.com/yshishenya/graf/actions/runs/40873789634),
+attempt1, workflow_dispatch,13/13 заданий SUCCESS на указанном source.
+Неистёкший artifact12896914500 прочитан в память: ZIP SHA256
+`b5a429b048e85cd51d31052c2049ed02b0b3472786b1064c4e840f07a9afed27`
+совпал с GitHub digest; canonical JSON побайтно равен сохранённому,
+SHA256 `0b05db093154750bfea8ee9a177b98901d39c2d43a893cfab43da47c6ac1b852`.
+Все13 raw records сверены с manifest по размеру и SHA256, всего11277 байт;
+manifest SHA256 `39d07db92bb725d01a4d82ad4777244938649160b255b1b8e4ab31e93b55b737`.
+Candidate/train/decision=go/Full/publication связывают один source и digest.
+Tag разрешён в тот же commit; Release не draft/prerelease; опубликованные
+notes совпали с принятыми. Attestation `pa-rc-20261029T122755Z-ffd5395ed51e`
+создана12:55:42Z и содержит digest принятого decision.
+
+Прочитаны штатные CD dry-run/execute и отдельные runtime/CD результаты:
+`authoritative_full_reused`, `deploy_result=pass`, deployed/runtime SHA
+совпадают с candidate. Свежая backup, migration/RLS/secret gates,
+служебная загрузка/очистка, final Temporal/processing readiness PASS.
+API/processing healthy, restart0; фактическая метка образа подтверждает source.
+Подробности — [выпускной отчёт](../../docs/deployments/2brain-rec/release-v2026.10.29.1.md).
+
+### Повторная собственная публичная проверка
+
+В13:52:03–13:52:42Z тот же неизменный `public-reflow-live-20261029.cjs`
+повторён с уже установленными Playwright/Chromium на настоящем
+`https://rec.2brain.pro`: **70 PASS,0FAIL**, exit0.
+Скрипт SHA256 `ba2641f05fcde7f19e88f5ae462c6786f21411757b88e8bb796ba620df789fde`;
+семь адресов,320/360/390/768/1440 ×100/200%, Onest, scrollWidth и текстовые
+Range, no-JS и Tab/Enter→#main. Reduced motion этим скриптом не проверяется:
+он остаётся отдельным navigation/Full доказательством T022.
+
+Тот же существующий `check-public-release-20261029.py` повторно подтвердил
+17 HTTP200 страниц, уникальные title/description, self canonical, один H1,
+ссылки/sitemap и неизвестный404. Главная, sitemap/robots/appcast и три
+landing-ресурса совпали с исходным снимком. Публичный content.css совпал
+с выпущенным исходником: SHA256
+`dbecfcf2bdcbd51fdd43e8a2763ec84b682fa3803cbc34f8d34522e473e250ab`.
+Во всём public-поддереве между опубликованной базой и candidate изменён
+только этот CSS. Аналитика enabled=false, validation/provider disabled,
+rollout blocked. Установщик получен и проверен; CD sync=unchanged.
+
+Исторического нормализованного HTML `/download` нет: его побайтовая
+идентичность до/после не заявляется. Неизменные исходники и два текущих
+ответа проверены с точной заменой случайного `graf_attr_[a-f0-9]{32}`;
+другой динамический текст не исключался из сравнения.
+
+Во внешнем каталоге аудита сохранены `f281-t023-live70-recheck-20261029.log`
+SHA256 `16d33b280be1e7291b863b09aa8905b9bcf22138716a6250b6e5b09782bcfca8`
+и `f281-t023-public-recheck-20261029.json`
+SHA256 `d3afee18949a04c98f03f50d94ea9181d52dff7e65a5b5594594d9528c6971ed`.
+Независимое предварительное ревью требований:6/0, замечаний0;
+`f281-t023-requirements-review-20261029.md` SHA256
+`9002e1df22f66ef577420007ebfed6ca12346b7274356dfc1184d4fe29974c17`.
+
+Сходимость T023: все исходные критерии #7797 имеют отдельные доказательства;
+новых обязательных задач этого среза не найдено. Его документальный PR
+требует собственных трёх exact-SHA/base checks, общего валидатора и merge;
+после них #7797 закрывается с отдельной release-gated live-проверкой.
+Общая #7391 остаётся для сверки исторических владельцев. Полный F273 T113,
+конечный результат ИИ, установленный Mac, органический трафик и продажи
+этой приёмкой не подтверждаются.
