@@ -85,23 +85,8 @@ for artifact in postgres.dump schema.sql inventory.jsonl checksums.sha256; do
     || fail postgres_copy_failed
   [ -s "$backup_dir/$artifact" ] || fail postgres_artifact_empty
 done
-python3 - "$backup_dir" <<'PY' || fail postgres_checksum_failed
-import hashlib
-import re
-import sys
-from pathlib import Path
-root = Path(sys.argv[1])
-lines = (root / 'checksums.sha256').read_text().splitlines()
-names = ['postgres.dump', 'schema.sql', 'inventory.jsonl']
-if len(lines) != len(names):
-    raise SystemExit(1)
-for name, line in zip(names, lines):
-    if not re.fullmatch(r'[0-9a-f]{64}  ' + re.escape(name), line):
-        raise SystemExit(1)
-    with (root / name).open('rb') as handle:
-        if hashlib.file_digest(handle, 'sha256').hexdigest() != line[:64]:
-            raise SystemExit(1)
-PY
+python3 "$script_dir/rec-db-verify.py" "$backup_dir" 2>/dev/null \
+  || fail postgres_checksum_failed
 
 mkdir -p "$backup_dir/minio-objects"
 root_user_file="${TWOBRAIN_MINIO_ROOT_USER_FILE:-./secrets/twobrain_minio_root_user}"

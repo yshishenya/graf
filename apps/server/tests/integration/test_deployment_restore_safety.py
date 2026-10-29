@@ -1,6 +1,7 @@
 """Execute rehearsal shells with synthetic Docker/MinIO; never contact a server."""
 
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -11,7 +12,7 @@ import pytest
 
 REPO = Path(__file__).parents[4]
 DOCKER = r"""#!/usr/bin/env python3
-import os,pathlib,subprocess,sys
+import os,pathlib,shutil,subprocess,sys
 root=pathlib.Path(os.environ['RESTORE_TEST_ROOT']); a=sys.argv[1:]
 failure=os.environ.get('RESTORE_TEST_FAILURE','')
 for stage in root.glob('graf-rec-restore.*'):
@@ -23,25 +24,56 @@ if a[0]=='compose' and 'ps' in a:print('synthetic-postgres');sys.exit(0)
 if a[0]=='compose' and 'exec' in a:
  cmd=a[a.index('rec-postgres')+1:]; tool=cmd[0]
  if tool=='createdb':
-  if os.environ.get('RESTORE_TEST_CREATE_WAIT')=='database':
+  schema=cmd[-1].startswith('rec_restore_schema_')
+  if os.environ.get('RESTORE_TEST_CREATE_WAIT')==('schema' if schema else 'database'):
    import time
    (root/'create-started').touch()
    deadline=time.monotonic()+10
    while not (root/'create-release').exists():
     if time.monotonic()>deadline:sys.exit(7)
     time.sleep(0.01)
-  if failure=='createdb':
-   (root/'foreign-db').write_text(cmd[-1]);sys.exit(7)
-  (root/'owned-db').write_text(cmd[-1]);sys.exit(0)
+  if failure==('schema-create' if schema else 'createdb'):
+   (root/('foreign-schema' if schema else 'foreign-db')).write_text(cmd[-1]);sys.exit(7)
+  (root/('owned-schema' if schema else 'owned-db')).write_text(cmd[-1]);sys.exit(0)
  if tool=='dropdb':
-  if failure=='database-cleanup':sys.exit(7)
-  target=root/('owned-db' if (root/'owned-db').exists() else 'foreign-db')
+  schema=cmd[-1].startswith('rec_restore_schema_')
+  if failure==('schema-cleanup' if schema else 'database-cleanup'):sys.exit(7)
+  target=root/('owned-schema' if schema else 'owned-db')
   target.unlink();sys.exit(0)
  if tool=='pg_restore':
   sys.stdin.buffer.read();sys.exit(7 if failure=='restore' else 0)
  if tool=='psql':
-  print('1' if (root/'owned-db').exists() else '0');sys.exit(0)
+  if '-Atqc' in cmd:
+   schema='rec_restore_schema_' in cmd[-1]
+   if failure==('schema-readback' if schema else 'database-readback'):sys.exit(7)
+   print('1' if (root/('owned-schema' if schema else 'owned-db')).exists() else '0');sys.exit(0)
+  sys.stdin.read();sys.exit(7 if failure=='schema-restore' else 0)
+ if tool=='sh':
+  command=cmd[2]
+  stage=root/'container-stage'
+  if 'mktemp ' in command:
+   if os.environ.get('RESTORE_TEST_CREATE_WAIT')=='staging':
+    import time
+    (root/'create-started').touch()
+    while not (root/'create-release').exists():time.sleep(0.01)
+   if failure=='staging-create':sys.exit(7)
+   stage.mkdir(mode=0o700);print('/tmp/twobrain-rec-backup.TEST123');sys.exit(0)
+  if 'rm -rf ' in command:
+   if failure=='staging-cleanup':sys.exit(7)
+   shutil.rmtree(stage);sys.exit(0)
+  if 'exec psql ' in command:
+   sys.stdin.read()
+   if failure=='inventory':sys.exit(7)
+   for artifact in ('schema.sql','inventory.jsonl'):
+    (stage/artifact).write_text('synthetic');(stage/artifact).chmod(0o600)
+   sys.exit(0)
  sys.exit(8)
+if a[0]=='cp':
+ if failure=='metadata-copy':sys.exit(7)
+ artifact=a[1].rsplit('/',1)[1];assert artifact in ('schema.sql','inventory.jsonl')
+ if failure=='metadata-link':pathlib.Path(a[2]).symlink_to(root/'unrelated');sys.exit(0)
+ if failure=='metadata-hardlink':os.link(root/'unrelated',a[2]);sys.exit(0)
+ shutil.copyfile(root/'container-stage'/artifact,a[2]);sys.exit(0)
 if a[0]=='run':
  cmd=a[a.index('-c')+1]
  for flag_index,value in enumerate(a):
@@ -95,6 +127,17 @@ def restore_env(tmp_path):
     bindir = tmp_path / "bin"
     bindir.mkdir()
     (bindir / "python3").symlink_to(sys.executable)
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    for name in ("rehearse-rec-restore.sh", "rec-db-backup-inventory.sql"):
+        shutil.copyfile(REPO / "infra/scripts" / name, scripts / name)
+    (scripts / "rehearse-rec-restore.sh").chmod(0o700)
+    # Shell ownership/signal tests isolate the verifier. Native snapshot tests
+    # execute the real verifier against migration-backed PostgreSQL metadata.
+    (scripts / "rec-db-verify.py").write_text(
+        "import os,sys\nsys.exit(7 if os.environ.get('RESTORE_TEST_FAILURE') == "
+        "('preflight' if len(sys.argv)==3 else 'comparison') else 0)\n"
+    )
     for name, text in [("docker", DOCKER), ("mc", MC)]:
         p = bindir / name
         p.write_text(text)
@@ -102,6 +145,7 @@ def restore_env(tmp_path):
     backup = tmp_path / "backup"
     backup.mkdir()
     (backup / "postgres.dump").write_bytes(b"synthetic database")
+    (backup / "schema.sql").write_text("synthetic schema")
     (backup / "minio-objects").mkdir()
     for name in ["user", "password", "unrelated"]:
         (tmp_path / name).write_text("synthetic")
@@ -119,7 +163,7 @@ def restore_env(tmp_path):
 
 def rehearsal(env):
     return subprocess.run(
-        [str(REPO / "infra/scripts/rehearse-rec-restore.sh"), "--execute"],
+        [str(Path(env["RESTORE_TEST_ROOT"]) / "scripts/rehearse-rec-restore.sh"), "--execute"],
         cwd=env["RESTORE_TEST_ROOT"],
         env=env,
         text=True,
@@ -136,7 +180,8 @@ def test_restore_cleans_only_confirmed_own_targets_before_pass(restore_env):
     assert not (root / "owned-db").exists() and not (root / "owned-bucket").exists()
     assert not list(root.glob("graf-rec-restore.*"))
     assert (root / "unrelated").read_text() == "synthetic"
-    assert "['cp'," not in (root / "calls").read_text()  # No shared container dump.
+    assert "/postgres.dump'" not in (root / "calls").read_text()  # No shared container dump.
+    assert not (root / "owned-schema").exists() and not (root / "container-stage").exists()
 
 
 @pytest.mark.parametrize(
@@ -149,10 +194,14 @@ def test_restore_cleans_only_confirmed_own_targets_before_pass(restore_env):
         "database-cleanup",
         "bucket-cleanup",
         "bucket-readback",
+        "schema-create", "schema-restore", "schema-cleanup", "schema-readback",
+        "staging-create", "staging-cleanup", "inventory", "metadata-copy", "metadata-link", "metadata-hardlink", "comparison",
+        "database-readback",
     ],
 )
 def test_restore_failure_never_passes_and_never_deletes_unowned_target(restore_env, failure):
     root = Path(restore_env["RESTORE_TEST_ROOT"])
+    original_mode = (root / "unrelated").stat().st_mode
     r = rehearsal({**restore_env, "RESTORE_TEST_FAILURE": failure})
     assert r.returncode != 0
     assert "restore_rehearsal_result=pass" not in r.stdout
@@ -163,9 +212,14 @@ def test_restore_failure_never_passes_and_never_deletes_unowned_target(restore_e
     if failure == "bucket-create":
         assert "mc rb " not in calls
         assert (root / "foreign-bucket").exists()
+    if failure == "schema-create":
+        assert (root / "foreign-schema").exists()
+    if failure != "schema-cleanup":
+        assert not (root / "owned-schema").exists()
     if failure not in ["database-cleanup", "bucket-cleanup", "bucket-readback"]:
         assert not (root / "owned-db").exists() and not (root / "owned-bucket").exists()
     assert (root / "unrelated").read_text() == "synthetic"
+    assert (root / "unrelated").stat().st_mode == original_mode
     assert not list(root.glob("graf-rec-restore.*"))
 
 
@@ -236,7 +290,7 @@ def test_restore_rejects_parallel_attempt_under_existing_deploy_lock(restore_env
 
     root = Path(restore_env["RESTORE_TEST_ROOT"])
     first = subprocess.Popen(
-        [str(REPO / "infra/scripts/rehearse-rec-restore.sh"), "--execute"],
+        [str(root / "scripts/rehearse-rec-restore.sh"), "--execute"],
         cwd=root,
         env={**restore_env, "RESTORE_TEST_WAIT": "1"},
         text=True,
@@ -269,7 +323,7 @@ def test_restore_wrapper_stop_keeps_lock_until_child_cleanup(restore_env, stop):
 
     root = Path(restore_env["RESTORE_TEST_ROOT"])
     first = subprocess.Popen(
-        [str(REPO / "infra/scripts/rehearse-rec-restore.sh"), "--execute"],
+        [str(root / "scripts/rehearse-rec-restore.sh"), "--execute"],
         cwd=root,
         env={**restore_env, "RESTORE_TEST_WAIT": "1"},
         text=True,
@@ -303,15 +357,16 @@ def test_restore_wrapper_stop_keeps_lock_until_child_cleanup(restore_env, stop):
 
 
 @pytest.mark.parametrize("stop", [signal.SIGHUP, signal.SIGINT, signal.SIGTERM])
-@pytest.mark.parametrize("target", ["database", "bucket"])
+@pytest.mark.parametrize("target", ["database", "bucket", "schema", "staging"])
 @pytest.mark.parametrize("create_succeeds", [True, False])
 def test_restore_stop_during_creation_records_ownership_before_cleanup(
     restore_env, stop, target, create_succeeds
 ):
     root = Path(restore_env["RESTORE_TEST_ROOT"])
-    failure = "" if create_succeeds else {"database": "createdb", "bucket": "bucket-create"}[target]
+    failure = "" if create_succeeds else {"database": "createdb", "bucket": "bucket-create",
+                                         "schema": "schema-create", "staging": "staging-create"}[target]
     first = subprocess.Popen(
-        [str(REPO / "infra/scripts/rehearse-rec-restore.sh"), "--execute"],
+        [str(root / "scripts/rehearse-rec-restore.sh"), "--execute"],
         cwd=root,
         env={**restore_env, "RESTORE_TEST_CREATE_WAIT": target, "RESTORE_TEST_FAILURE": failure},
         # Non-interactive launchers can pass an ignored INT to the supervisor.
@@ -340,8 +395,9 @@ def test_restore_stop_during_creation_records_ownership_before_cleanup(
     assert "restore_rehearsal_result=pass" not in output
     assert not (root / "owned-db").exists() and not (root / "owned-bucket").exists()
     assert not list(root.glob("graf-rec-restore.*"))
-    if not create_succeeds:
-        foreign = "foreign-db" if target == "database" else "foreign-bucket"
+    assert not (root / "owned-schema").exists() and not (root / "container-stage").exists()
+    if not create_succeeds and target != "staging":
+        foreign = {"database": "foreign-db", "bucket": "foreign-bucket", "schema": "foreign-schema"}[target]
         assert (root / foreign).exists()
     assert (root / "unrelated").read_text() == "synthetic"
 
