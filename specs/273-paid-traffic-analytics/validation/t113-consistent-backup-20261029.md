@@ -72,13 +72,25 @@ infra 29/0; всего 117/0. Существующие reviewer-owned списк
 | `infra/scripts/backup-rec-stack.sh` | `2aa73b0912fda052f1339829e6b89090576e1977df6a1e35fceabc25e82a5cd5` |
 | `infra/scripts/rec-db-backup-inventory.sql` | `0150b1ce00684a5871721f4f74af7142465ff2046b919428cb1f936417fb382d` |
 | `apps/server/tests/integration/test_deployment_backup_restore_rehearsal.py` | `0840ff155986dd8cfef2c821cb506146b8a3e17ad95539666b1e15f5bb51490b` |
-| `apps/server/tests/integration/test_deployment_backup_snapshot.py` | `39d521793efea63b67bfc74bbab2379aca65270c12394e6a94a1d80d546fcbb5` |
+| `apps/server/tests/integration/test_deployment_backup_snapshot.py` | `1ddf79bf1fa9e04be970ea2a68385b935f5e62b24d852727114f5ca97412e402` |
 | `changes/unreleased/F273.yaml` | `aef2d3a9e9e076b1b11e549fe409b5e040d92eedba01185d24d087679e2a3dde` |
 
 Локальный первичный отчёт ревью имеет SHA-256
 `fd9ccb1e3ae973baee71b596bb3cd1dde14ca527cd4d68369f26b002b4883b23`.
 Настоящий отслеживаемый отчёт сохраняет решение, проверки, границы и хеши
 для проверки PR без доступа к игнорируемым материалам.
+
+### Уточнение состава ресурсов после открытия PR
+
+Дополнительный независимый обзор подтвердил P2: неизвестное имя fixture
+`snapshot_postgres` не получало автоматический маркер PostgreSQL. Все 6 случаев
+попадали в `pure`, хотя прямо создают БД. Добавлен только модульный
+`pytestmark = pytest.mark.postgres`; алгоритмы и тела тестов не менялись.
+Сбор без исполнения воспроизвёл `pure=6/resource=0` до правки и подтвердил
+`pure=0/resource=6` после неё; `baseline=6/parallel=6/strict=0` сохранены.
+Это проверка классификации без создания контейнеров; результаты 64/6/33 выше
+получены до добавления маркера и не выдаются за новый запуск продукта.
+Хеш native-файла в таблице обновлён на окончательные байты с маркером.
 
 ## Сходимость и границы
 

@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.postgres
+
 REPO = Path(__file__).parents[4]
 SQL = REPO / "infra/scripts/rec-db-backup-inventory.sql"
 
