@@ -113,6 +113,7 @@ def test_train_freeze_and_validate_bind_post_merge_sha_and_provenance(tmp_path: 
     assert manifest["synthetic_merge_sha"] != source
     assert manifest["included_prs"] == [101, 102, 103]
     assert manifest["feature_ids"] == ["227", "228"]
+    assert manifest["rollback_target"] == "v2026.08.31.1"
     assert manifest["decision"] == "pending"
 
     validated = _run(root, "train-validate", str(output), "--current")
