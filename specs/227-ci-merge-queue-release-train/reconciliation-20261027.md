@@ -143,3 +143,95 @@ proof каждого COMPLETED ребёнка, индивидуальных ко
 ждут принятого PR. Ни одна issue пока не закрыта и причина её закрытия не
 изменена. Настоящий merge_group rehearsal не выполнен и не заявляется.
 Производственный код, CI workflow, защиты GitHub, выпуск и CD не меняются.
+
+
+## Новая приёмка унаследованного снимка — 29.10.2026
+
+Lane: `Active Spec Kit slice`. Основа — принятый #7806, merge
+`378b9f4d117b6a15bc34fdd3c4e43c05f706f7b9`. Этот срез не является
+первоначальной реализацией исторических задач. Их происхождение — #6275/#6790;
+артефакт #6790 истёк или отсутствует, поэтому старые ссылки не используются
+как новые доказательства закрытия. Исходные задачи и владельцы сохранены.
+
+### Уже принято через #7806
+
+Head `bc6643504265e6a03cb573fc8156ffac6112457e`, checked base
+`668dd771341a92e0bbc3286585b25e99c2eacf86`. Общий `validate-pr-checks.py`
+прошёл до и после слияния: governance-fast 40647941764, macos-pr 40647941824,
+pr-metadata 40649692184; попытка 1, настоящие артефакты и точные идентичности.
+Это новый пригодный fast для исходной T028. На Mac широкий fast
+не повторялся и не заявляется: тот же `ci-local.sh --fast` с event base
+выполнен GitHub runner по принятому уточнению spec.
+
+- T015/#6222: собственный новый комментарий; предложенный и фактический
+  `--verify-live` PASS; CLOSED/COMPLETED и точный комментарий перечитаны.
+- T016/#6223: прежний ошибочный COMPLETED исправлен на NOT_PLANNED.
+- T029/#6236 и T031/#6274: закрыты NOT_PLANNED по принятому решению;
+  каждое исходное тело/комментарии/задача и итог state/reason/comment проверены.
+  Их исходные `[ ]` сохранены; очередь не объявляется работающей.
+
+### Поимённая сверка 23 прежних закрытых детей
+
+Оригинальные тела и комментарии, текущие исходники и требования сверены
+индивидуально. Независимый проверяющий подтвердил 22 реализации и выявил
+единственный пробел T019. Таблица фиксирует предметное основание;
+ни одна строка не заменяет индивидуальную live-проверку нового PR.
+
+| Task / issue | Текущая реализация и граница |
+|---|---|
+| T001 / #6208 | Оба контракта задают обязательные идентичности, metadata-only данные и разделение source/synthetic; схемы существуют, terminal non-pass отдельно проверяется consumer. |
+| T002 / #6209 | Исходный F227 fragment архивирован штатным выпуском; сохранены feature/task/issue, совместимость и ограничения. Текущий fragment среза не подменяет исходный. |
+| T003 / #6210 | Четыре синтетических payload: PR, ручное событие, merge-group и API mapping; реальные GitHub queue события ими не заявляются. |
+| T004 / #6211 | Resolver различает три события, требует полные SHA/base, отвергает конфликтующие представления, выдаёт canonical concurrency key. Отсутствующий group mapping требует отдельного API шага и не допускается passed receipt. |
+| T005 / #6212 | Схема и validator существуют; проверяются SHA/base, точные события, run/attempt, PR/group, digest, время, cleanliness, terminal cancellation/supersession и отсутствие приватного содержимого. |
+| T006 / #6213 | Train schema/validator проверяют actual/synthetic, состав PR/features/receipts, digest, Full и no-go для неверных ссылок; при потреблении дополнительно проверяется raw Git ancestry. |
+| T007 / #6214 | 11 исполняемых проверок event/receipt/train: exact head/base, конфликтующие payload, manual SHA, cancellation и синтетический source. |
+| T008 / #6215 | Workflow подписан на pull_request, merge_group/checks_requested и workflow_dispatch с обязательным requested_sha; вызывает общий resolver. |
+| T009 / #6216 | Checkout на событие head/requested SHA, проверка HEAD против requested и resolver target; bounded fast использует event base и merge-base. |
+| T010 / #6217 | Workflow загружает authoritative commit/pulls API с пагинацией, вызывает fail-closed verifier, формирует/проверяет/upload metadata receipt. Настоящий queue rehearsal отдельно T029/T031. |
+| T011 / #6218 | 198 случаев workflow suite, включая точную базу/checkout, malformed/event contracts и исполнение terminal step. Это автоматические регрессии, не настоящая отмена GitHub run. |
+| T012 / #6219 | Code concurrency разделена по PR/group/manual, cancel-in-progress=true; title/body-only события не отменяют code lane; producer/consumer отвергают отменённый результат. |
+| T013 / #6220 | Final tracked/untracked status сравнивается с initial после stages до pipeline_result=pass; drift даёт ambiguous; существующий тест проверяет порядок и общий guard. |
+| T017 / #6224 | Train-freeze требует HEAD=origin/master=source, distinct synthetic, ancestry, clean tree, changelog и полные PR proofs; запись manifest/identity create-once. Train-validate использует общий schema+ancestry validator. |
+| T018 / #6225 | Freeze --train, train-validate, train-attest и decide --train используют общий validate_train; candidate связывает train ID/source/features, Full attestation проверяет canonical artifact и GitHub. |
+| T019 / #6226 | В существующем test_release_train.py::test_train_freeze_and_validate_bind_post_merge_sha_and_provenance добавлена одна assert сохранённого rollback_target=v2026.08.31.1; source/base/synthetic уже проверяются. Исходная строка с test_release_candidate.py сохранена, проверка находится у нынешнего владельца train. Точечный запуск: 1 PASS, без пропусков. Производственный дефект не установлен. |
+| T020 / #6227 | Изолированный serial Git flow: три PR, отдельный synthetic commit, пустые queue collections; отрицательные ancestry/missing commit/graft/immutable/partial-set сценарии. PR/Full ответы подставлены тестом. |
+| T021 / #6228 | Portable resolver/receipt contract существует; SHA/event/terminal/privacy validation отделено от GRAF-specific release/capture. Ранее в этом диалоге штатные self-test/sample/package scan PASS. |
+| T022 / #6229 | Закреплён immutable v0.1.13/6a8257186aee878087b68fd77716ddce595a012d; свежий tag lookup сохранён. Python3.9/3.12 run33497610330 исторический и не назван текущим прогоном. |
+| T023 / #6230 | CI and release rhythm явно требует exact target, cancellation, clean tree, one authoritative Full, отдельный source/synthetic и последовательный текущий порядок. |
+| T024 / #6231 | Действующая инструкция сохраняет exact head/checked base, общий PR consumer, train/candidate freeze и один authoritative Full; локальный fast лишь диагностика. |
+| T025 / #6232 | Шаблон на русском содержит feature/umbrella/tasks/branch, exact source/checked base, validation lane, release/provenance/legacy и правила closing keywords. |
+| T027 / #6234 | Свежий live список33 issues: канонические task owners и labels сверяются отдельно; T032/T033 совместно #7645, дублей не создаётся. |
+
+### Что именно проверено
+
+Точечный запуск изменённого теста от 28.10 — **1 PASS / 0 FAIL / 0 ERROR /
+0 SKIP**, 0.82 с. Он вызывает настоящий train-freeze и train-validate во
+временном Git fixture и читает сохранённый manifest. Проверки PR подставлены
+тестом; Full CI здесь не выполняется. Настоящий выпуск или откат не запускается.
+29.10 повторно проверены та же основа и неизменность рабочего дополнения.
+
+Прежние 603 уникальных PASS относятся к профилю #7806 до последнего уточнения
+cleanliness superseded; после уточнения отдельно повторены только два случая
+consumer. Новый точечный результат не суммируется с прежними и не выдаётся
+за повтор всех девяти файлов. Исходники ранее проверенных механизмов совпали
+побайтно; test_release_train.py изменён только одной assert.
+
+Предреализационное независимое ревью T019: requirements 16/0, infra 13/0.
+Канон issues от 28.10: 265 открытых Spec Kit issues проверены, нарушений нет.
+Это не проверка выполнения всех 265 задач. Новые issues и задачи не создавались.
+
+### Границы следующего закрытия
+
+T028 отмечается по настоящему принятому fast #7806; её комментарий будет
+связан с новым документальным PR, у которого нужны собственные три проверки
+точного SHA/основы. Все 23 исторических ребёнка также требуют собственного
+подробного комментария, proposed/actual live-validator и повторного чтения
+state/reason. Новая ссылка не восстанавливает старый истёкший артефакт.
+
+Проверка реализации принятого объёма не выявила нового обязательного кода
+после одной assert T019. T030/#6237 остаётся `[ ]`: полная сверка и закрытие
+трекера ещё не приняты. #6207 остаётся открытой и закрывается последней как
+NOT_PLANNED смешанного исходного плана только после всех детей.
+F200/F254, приложение, GitHub protection, очередь, Full CI, выпуск и CD
+в этот срез не входят. Новых слияний до согласованного окна нет.

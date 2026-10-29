@@ -61,7 +61,7 @@ release evidence.
 
 - [X] T026 Запустить `$speckit-analyze`, устранить critical/high findings и сохранить coverage report.
 - [X] T027 Запустить `$speckit-taskstoissues`, проверить отсутствие дубликатов и canonical labels для T001–T025.
-- [ ] T028 Запустить focused governance tests, workflow lint и `infra/scripts/ci-local.sh --fast` на exact SHA.
+- [X] T028 Запустить focused governance tests, workflow lint и `infra/scripts/ci-local.sh --fast` на exact SHA.
 - [ ] T029 Провести GitHub Actions PR и `merge_group` rehearsal; enforcement остаётся operator-owned до merge в `master`.
 - [ ] T030 Провести `$speckit-converge` и обновить tasks только append-only remaining work.
 
@@ -263,3 +263,21 @@ guard/evidence проверки сохранены; недостающие дв�
 доказательств. T016/T029/T031 сохраняют `[ ]` как отменяемый объём. Итог:
 28 отмеченных / 5 неотмеченных исходных задач. Полный closeout ещё не выполнен.
 Подробности и пределы — новый раздел reconciliation-20261027.md от28.10.
+
+
+## Приёмка снимка исторических задач — 29.10.2026
+
+T019/#6226: единственный найденный пробел устранён одной assert
+`rollback_target` в существующем test_release_train.py. Исходная формулировка
+и владелец сохранены; точечный тест 1 PASS. Проверки source/base/synthetic
+уже существовали. Производственный код и механизм отката не меняются.
+
+T028/#6235 отмечена после принятого #7806: настоящий governance-fast 40647941764
+на source bc6643504265e6a03cb573fc8156ffac6112457e и
+base 668dd771341a92e0bbc3286585b25e99c2eacf86, общий consumer PASS до/после merge.
+Применимость GitHub runner вместо повтора на Mac принята в spec. Собственная
+приёмка 23 исторических детей и T028 через новый PR/live-closeout ещё впереди.
+
+T030/#6237 остаётся `[ ]`; отменённые T016/T029/T031 также `[ ]`. Итог:
+29 отмеченных / 4 неотмеченных исходных задачи, все 33 описания и владельцы
+сохранены. Подробная поимённая матрица — reconciliation-20261027.md.
