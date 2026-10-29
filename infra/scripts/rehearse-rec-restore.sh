@@ -21,6 +21,11 @@ if [ -L "$reference" ] || [ ! -d "$reference" ] || [ -L "$reference/postgres.dum
   printf 'restore_rehearsal_result=blocked\nreason=backup_set_incomplete\n'
   exit 1
 fi
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+if ! python3 "$script_dir/rec-db-verify.py" "$reference" --inventory 2>/dev/null; then
+  printf 'restore_rehearsal_result=blocked\nreason=postgres_backup_unverified\n'
+  exit 1
+fi
 # Reuse the deployment lock: a rehearsal may not overlap production replacement.
 if [ "${GRAF_RESTORE_LOCK_HELD:-0}" != "1" ]; then
   exec python3 - "$0" "$@" <<'PY'
@@ -59,11 +64,14 @@ if [ -z "${GRAF_RELEASE_MC_IMAGE:-}" ]; then
 fi
 token="$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
 restore_db="rec_restore_rehearsal_$token"
+schema_db="rec_restore_schema_$token"
 restore_bucket="twobrain-rec-restore-rehearsal-$token"
 staging="$(mktemp -d "${TMPDIR:-/tmp}/graf-rec-restore.XXXXXX")"
 log="$staging/commands.log"
 database_owned=0
+schema_owned=0
 bucket_owned=0
+postgres_staging=""
 stop_requested=0
 root_user_file="${TWOBRAIN_MINIO_ROOT_USER_FILE:-./secrets/twobrain_minio_root_user}"
 root_password_file="${TWOBRAIN_MINIO_ROOT_PASSWORD_FILE:-./secrets/twobrain_minio_root_password}"
@@ -85,10 +93,16 @@ cleanup() {
       if ! printf '%s' "$listing" | python3 -c 'import json,sys; target=sys.argv[1]; rows=[json.loads(s) for s in sys.stdin]; sys.exit(any(r.get("key", "").rstrip("/")==target for r in rows))' "$restore_bucket" >>"$log" 2>&1; then failed=1; fi
     else failed=1; fi
   fi
-  if [ "$database_owned" = 1 ]; then
-    if ! docker compose -f infra/docker-compose.yml exec -T rec-postgres dropdb --force -U twobrain_rec "$restore_db" >>"$log" 2>&1; then failed=1; fi
-    remaining="$(docker compose -f infra/docker-compose.yml exec -T rec-postgres psql -X -U twobrain_rec -d twobrain_rec -Atqc "SELECT count(*) FROM pg_database WHERE datname='$restore_db'" 2>>"$log")" || failed=1
+  for cleanup_db in "$restore_db" "$schema_db"; do
+    if [ "$cleanup_db" = "$restore_db" ]; then owned="$database_owned"; else owned="$schema_owned"; fi
+    [ "$owned" = 1 ] || continue
+    if ! docker compose -f infra/docker-compose.yml exec -T rec-postgres dropdb --force -U twobrain_rec "$cleanup_db" >>"$log" 2>&1; then failed=1; fi
+    remaining="$(docker compose -f infra/docker-compose.yml exec -T rec-postgres psql -X -U twobrain_rec -d twobrain_rec -Atqc "SELECT count(*) FROM pg_database WHERE datname='$cleanup_db'" 2>>"$log")" || failed=1
     [ "$remaining" = 0 ] || failed=1
+  done
+  if [ -n "$postgres_staging" ]; then
+    if ! docker compose -f infra/docker-compose.yml exec -T rec-postgres \
+      sh -c 'rm -rf -- "$1"; test ! -e "$1"' sh "$postgres_staging" >>"$log" 2>&1; then failed=1; fi
   fi
   if ! rm -rf -- "$staging" 2>>"$log" || [ -e "$staging" ]; then failed=1; fi
   [ "$failed" = 0 ] || result=1
@@ -109,9 +123,49 @@ database_owned=1
 trap 'exit 1' HUP INT TERM
 [ "$stop_requested" = 0 ] || exit 1
 docker compose -f infra/docker-compose.yml exec -T rec-postgres \
-  pg_restore --exit-on-error -U twobrain_rec -d "$restore_db" --no-owner <"$reference/postgres.dump" >>"$log" 2>&1
+  pg_restore --exit-on-error -U twobrain_rec -d "$restore_db" <"$reference/postgres.dump" >>"$log" 2>&1
+# Native parsing canonicalizes CHECK casts/AND trees without rewriting SQL text.
+trap 'stop_requested=1' HUP INT TERM
+docker compose -f infra/docker-compose.yml exec -T rec-postgres createdb -U twobrain_rec "$schema_db" >>"$log" 2>&1
+schema_owned=1
+trap 'exit 1' HUP INT TERM
+[ "$stop_requested" = 0 ] || exit 1
 docker compose -f infra/docker-compose.yml exec -T rec-postgres \
-  psql -X -U twobrain_rec -d "$restore_db" -Atqc 'SELECT count(*) FROM information_schema.tables' >>"$log" 2>&1
+  psql -Xq -v ON_ERROR_STOP=1 -U twobrain_rec -d "$schema_db" <"$reference/schema.sql" >>"$log" 2>&1
+# A new container staging is owned only after a validated successful create.
+trap 'stop_requested=1' HUP INT TERM
+candidate="$(docker compose -f infra/docker-compose.yml exec -T rec-postgres \
+  sh -c 'umask 077; mktemp -d /tmp/twobrain-rec-backup.XXXXXX' 2>>"$log")"
+case "$candidate" in /tmp/twobrain-rec-backup.*) suffix="${candidate#/tmp/twobrain-rec-backup.}" ;; *) exit 1 ;; esac
+case "$suffix" in ''|*[!a-zA-Z0-9]*) exit 1 ;; esac
+postgres_staging="$candidate"
+trap 'exit 1' HUP INT TERM
+[ "$stop_requested" = 0 ] || exit 1
+postgres_id="$(docker compose -f infra/docker-compose.yml ps -q rec-postgres 2>>"$log")"
+[ -n "$postgres_id" ] || exit 1
+for capture_db in "$restore_db" "$schema_db"; do
+  docker compose -f infra/docker-compose.yml exec -T rec-postgres \
+    sh -c 'umask 077; exec psql -XqAt -v ON_ERROR_STOP=1 -U twobrain_rec -d "$1" -v expected_db="$1" -v capture_dump=false -v staging="$2"' \
+    sh "$capture_db" "$postgres_staging" <"$script_dir/rec-db-backup-inventory.sql" >>"$log" 2>&1
+  mkdir -m 700 "$staging/$capture_db"
+  for artifact in schema.sql inventory.jsonl; do
+    docker cp "$postgres_id:$postgres_staging/$artifact" "$staging/$capture_db/$artifact" >>"$log" 2>&1
+  done
+  python3 - "$staging/$capture_db" >>"$log" 2>&1 <<'PY'
+import os, stat, sys
+from pathlib import Path
+for name in ('schema.sql', 'inventory.jsonl'):
+    fd = os.open(Path(sys.argv[1]) / name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size == 0:
+            raise ValueError('invalid_restore_metadata')
+        os.fchmod(fd, 0o600)
+    finally:
+        os.close(fd)
+PY
+done
+python3 "$script_dir/rec-db-verify.py" "$reference" "$staging/$restore_db" "$restore_db" "$staging/$schema_db" "$schema_db" >>"$log" 2>&1
 trap 'stop_requested=1' HUP INT TERM
 mc_run "mc mb rec/$restore_bucket >/dev/null" >>"$log" 2>&1
 bucket_owned=1
