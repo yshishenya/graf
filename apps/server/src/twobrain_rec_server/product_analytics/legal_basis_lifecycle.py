@@ -34,12 +34,14 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from twobrain_rec_server.product_analytics.advertising_transfer import (
     REASON_PATTERN,
     AdvertisingTransferTraceViolation,
     evidence_reference_token,
 )
+from twobrain_rec_server.product_analytics.approvals import APPROVER_ROLE_PATTERN
 from twobrain_rec_server.product_analytics.forbidden_fields import (
     find_forbidden_fields,
     find_security_credential_fields,
@@ -137,6 +139,23 @@ WITHDRAWAL_RECORD_KEYWORD = "basis_withdrawal"
 
 class LegalBasisLifecycleError(ValueError):
     """Raised when a level or a category has no declared lifecycle."""
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class DispositionCase:
+    """Closed operator record; identifiers must never appear in public evidence."""
+
+    case_ref: str
+    decision_ref: str
+    scope: str
+    selector_ref: str
+    owner_role: str
+    reason: str
+    decided_at: datetime
+    due_at: datetime
+    stage: str
+    applied_at: datetime | None = None
+    rows_affected: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -403,12 +422,21 @@ def read_basis_withdrawal_register(
         return BasisWithdrawalRegister(available=False, state_path=path)
 
     file_errors: list[str] = []
-    if _header_value(text) != BASIS_WITHDRAWAL_STATE_VERSION:
+    version = _header_value(text)
+    if version not in {BASIS_WITHDRAWAL_STATE_VERSION, "2"}:
         file_errors.append("legal_basis_state_version_unsupported")
 
     current_day = date.today() if today is None else today
     withdrawals: list[BasisWithdrawal] = []
-    for record in _records(text):
+    records = _records(text)
+    if version == "2":
+        try:
+            tagged = _version2_records(text)
+            records = tuple(record for kind, record in tagged if kind == WITHDRAWAL_RECORD_KEYWORD)
+            parse_disposition_cases(text, now=datetime.now(UTC))
+        except LegalBasisLifecycleError:
+            file_errors.append("legal_basis_record_invalid")
+    for record in records:
         withdrawal = _withdrawal_record(record, today=current_day)
         if withdrawal is None:
             file_errors.append("legal_basis_record_invalid")
@@ -422,6 +450,99 @@ def read_basis_withdrawal_register(
         withdrawals=tuple(withdrawals),
         file_errors=tuple(file_errors),
     )
+
+
+def _version2_records(text: str) -> tuple[tuple[str, dict[str, str]], ...]:
+    lines = [line.strip() for line in text.splitlines()
+             if line.strip() and not line.strip().startswith("#")]
+    if not lines or lines.pop(0) != "legal_basis_state_version=2":
+        raise LegalBasisLifecycleError("replay_register_version_invalid")
+    records: list[tuple[str, dict[str, str]]] = []
+    for line in lines:
+        tokens = line.split()
+        if tokens[0] in {WITHDRAWAL_RECORD_KEYWORD, "disposition_case"}:
+            records.append((tokens.pop(0), {}))
+        if not records or not tokens:
+            raise LegalBasisLifecycleError("replay_record_invalid")
+        record = records[-1][1]
+        for token in tokens:
+            name, separator, value = token.partition("=")
+            if not separator or not value or name in record:
+                raise LegalBasisLifecycleError("replay_record_invalid")
+            record[name] = value
+    return tuple(records)
+
+
+def _case_time(raw: str) -> datetime:
+    try:
+        value = datetime.fromisoformat(raw)
+    except (ValueError, TypeError):
+        raise LegalBasisLifecycleError("replay_case_time_invalid") from None
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise LegalBasisLifecycleError("replay_case_time_invalid")
+    return value.astimezone(UTC)
+
+
+def parse_disposition_cases(text: str, *, now: datetime) -> tuple[DispositionCase, ...]:
+    """Version 1 remains readable for withdrawals but never authorizes replay."""
+
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise LegalBasisLifecycleError("replay_case_time_invalid")
+    cases: list[DispositionCase] = []
+    levels: set[str] = set()
+    references: set[tuple[str, str]] = set()
+    common = {"case_ref", "decision_ref", "scope", "selector_ref", "owner_role", "reason",
+              "decided_at", "due_at", "stage"}
+    for kind, record in _version2_records(text):
+        if kind == WITHDRAWAL_RECORD_KEYWORD:
+            allowed = {"level", "state", "withdrawn_at", "reason", "evidence_ref"}
+            withdrawal = _withdrawal_record(record, today=now.date())
+            if (set(record) - allowed or not (allowed - {"evidence_ref"}) <= set(record)
+                    or withdrawal is None or withdrawal.level_key in levels):
+                raise LegalBasisLifecycleError("replay_withdrawal_invalid")
+            levels.add(withdrawal.level_key)
+            continue
+        expected = common | ({"applied_at", "rows_affected"}
+                             if record.get("stage") == "applied" else set())
+        if set(record) != expected or record["stage"] not in {"accepted", "applied", "failed"}:
+            raise LegalBasisLifecycleError("replay_case_fields_invalid")
+        if (not evidence_reference_token(record["case_ref"])
+                or not evidence_reference_token(record["decision_ref"])
+                or not APPROVER_ROLE_PATTERN.fullmatch(record["owner_role"])
+                or not REASON_PATTERN.fullmatch(record["reason"])):
+            raise LegalBasisLifecycleError("replay_case_token_invalid")
+        scope = record["scope"]
+        selector = record["selector_ref"]
+        if scope == "account_closure":
+            try:
+                if str(UUID(selector)) != selector:
+                    raise ValueError
+            except ValueError:
+                raise LegalBasisLifecycleError("replay_case_selector_invalid") from None
+        elif scope != "activation_milestone_decisions" or selector != "all":
+            raise LegalBasisLifecycleError("replay_case_scope_invalid")
+        decided, due = (_case_time(record[key]) for key in ("decided_at", "due_at"))
+        applied = _case_time(record["applied_at"]) if "applied_at" in record else None
+        if decided > now or due < decided or (
+            applied is not None and not decided <= applied <= now
+        ):
+            raise LegalBasisLifecycleError("replay_case_time_invalid")
+        rows = record.get("rows_affected")
+        if rows is not None and (
+            len(rows) > 19 or not rows.isascii() or not rows.isdecimal()
+            or int(rows) > 2**63 - 1
+        ):
+            raise LegalBasisLifecycleError("replay_case_result_invalid")
+        case = DispositionCase(**{
+            **record, "decided_at": decided, "due_at": due, "applied_at": applied,
+            "rows_affected": int(rows) if rows is not None else None,
+        })
+        keys = {("case", case.case_ref), ("decision", case.decision_ref), (scope, selector)}
+        if references & keys:
+            raise LegalBasisLifecycleError("replay_case_duplicate")
+        references.update(keys)
+        cases.append(case)
+    return tuple(cases)
 
 
 def _header_value(text: str) -> str | None:
@@ -605,8 +726,8 @@ async def apply_basis_loss_disposition(
 ) -> tuple[BasisLossErasureResult, ...]:
     """Erase or anonymise what GRAF stores, and record the provider requests.
 
-    The erasure happens immediately, which is necessarily within the retention
-    deadline. Categories the provider holds cannot be deleted from here, so
+    Erasure is immediate; each result separately records whether its deadline
+    was met. Categories the provider holds cannot be deleted from here, so
     their result carries ``rows_affected = 0`` and the recorded method; the
     deadline in :class:`BasisLossErasureResult` is what the operator is held to.
     """
