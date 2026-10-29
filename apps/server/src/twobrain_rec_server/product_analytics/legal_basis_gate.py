@@ -49,6 +49,9 @@ def activation_milestone_write_blockers(settings: Settings) -> tuple[str, ...]:
     blockers = []
     if not settings.product_analytics_enabled or settings.product_analytics_validation_mode == "disabled":
         blockers.append(WRITE_BLOCKED_SETTINGS)
+    if (settings.product_analytics_validation_mode == "local_only"
+            and not settings.product_analytics_local_only_configuration_valid()):
+        blockers.append("local_only_configuration_invalid")
     if not settings.product_analytics_legal_approved or not settings.product_analytics_disclosure_approved:
         blockers.append("legal_basis_not_confirmed")
     register = read_basis_withdrawal_register()

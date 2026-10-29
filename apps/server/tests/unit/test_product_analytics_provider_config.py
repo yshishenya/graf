@@ -84,6 +84,53 @@ def test_provider_modes_and_rollback_modes_are_restricted() -> None:
         Settings(product_analytics_rollback_mode="delete_provider_data")
 
 
+@pytest.mark.parametrize("production", [False, True])
+def test_local_only_requires_no_provider_configuration(production) -> None:
+    factory = _production_settings if production else Settings
+    settings = factory(
+        product_analytics_enabled=True, product_analytics_validation_mode="local_only",
+    )
+    config = ProductAnalyticsProviderConfig.from_settings(settings)
+    assert config.validation_mode == "local_only"
+    assert config.provider_mode == "disabled"
+    assert not config.posthog.enabled
+    assert not config.yandex.all_pages_enabled and not config.yandex.offline_enabled
+    assert not config.campaign_launch_allowed and not config.live_provider_delivery_allowed
+
+
+@pytest.mark.parametrize("production", [False, True])
+@pytest.mark.parametrize("override", [
+    {"product_analytics_enabled": False},
+    {"product_analytics_provider_mode": "posthog_primary"},
+    {"product_analytics_provider_mode": "parallel_measurement"},
+    {"product_analytics_posthog_enabled": True},
+    {"product_analytics_yandex_all_pages_enabled": True},
+    {"product_analytics_yandex_offline_enabled": True},
+    {"product_analytics_posthog_desktop_direct_enabled": True},
+    {"product_analytics_direct_desktop_egress_enabled": True},
+    {"product_analytics_replay_enabled": True},
+])
+def test_local_only_rejects_conflicting_configuration(production, override) -> None:
+    factory = _production_settings if production else Settings
+    values = dict(product_analytics_enabled=True, product_analytics_validation_mode="local_only")
+    values.update(override)
+    with pytest.raises(ValidationError, match="local_only requires"):
+        factory(**values)
+
+
+def test_local_only_cannot_claim_live_delivery_with_prior_approvals() -> None:
+    settings = Settings(
+        product_analytics_enabled=True, product_analytics_validation_mode="local_only",
+        product_analytics_live_provider_delivery_approved=True,
+        product_analytics_legal_approved=True, product_analytics_privacy_approved=True,
+        product_analytics_security_approved=True, product_analytics_qa_approved=True,
+        product_analytics_disclosure_approved=True, product_analytics_dashboard_ready=True,
+        product_analytics_provider_smoke_approved=True, product_analytics_rollback_approved=True,
+    )
+    config = ProductAnalyticsProviderConfig.from_settings(settings)
+    assert not config.live_provider_delivery_allowed and not config.campaign_launch_allowed
+
+
 def test_production_rejects_posthog_autocapture_without_credential_suppression(tmp_path: Path) -> None:
     project_key_file = tmp_path / "posthog_project_key"
     project_key_file.write_text("synthetic-posthog-key", encoding="utf-8")

@@ -428,9 +428,9 @@ class Settings(BaseSettings):
     @classmethod
     def validate_product_analytics_validation_mode(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if normalized not in {"disabled", "render_only", "provider_smoke", "live_safe"}:
+        if normalized not in {"disabled", "render_only", "provider_smoke", "live_safe", "local_only"}:
             raise ValueError(
-                "product_analytics_validation_mode must be disabled, render_only, provider_smoke, or live_safe"
+                "product_analytics_validation_mode must be disabled, render_only, provider_smoke, live_safe, or local_only"
             )
         return normalized
 
@@ -460,6 +460,15 @@ class Settings(BaseSettings):
                 "posthog_autocapture_disabled, yandex_disabled, or all_disabled"
             )
         return normalized
+
+    @model_validator(mode="after")
+    def validate_local_only_analytics(self) -> "Settings":
+        if (
+            self.product_analytics_validation_mode == "local_only"
+            and not self.product_analytics_local_only_configuration_valid()
+        ):
+            raise ValueError("local_only requires enabled analytics and disabled providers, egress and replay")
+        return self
 
     @model_validator(mode="after")
     def validate_source_retention_safety(self) -> "Settings":
@@ -762,7 +771,11 @@ class Settings(BaseSettings):
                 )
         if self.product_analytics_enabled and self.product_analytics_validation_mode == "disabled":
             raise ValueError("production product analytics requires a non-disabled validation mode")
-        if self.product_analytics_enabled and self.product_analytics_provider_mode == "disabled":
+        if (
+            self.product_analytics_enabled
+            and self.product_analytics_provider_mode == "disabled"
+            and self.product_analytics_validation_mode != "local_only"
+        ):
             raise ValueError("production product analytics requires an explicit provider mode")
         if (
             self.product_analytics_validation_mode == "live_safe"
@@ -1039,9 +1052,25 @@ class Settings(BaseSettings):
             )
         return self
 
+    def product_analytics_local_only_configuration_valid(self) -> bool:
+        return (
+            self.product_analytics_enabled
+            and self.product_analytics_validation_mode == "local_only"
+            and self.product_analytics_provider_mode == "disabled"
+            and not any((
+                self.product_analytics_posthog_enabled,
+                self.product_analytics_yandex_all_pages_enabled,
+                self.product_analytics_yandex_offline_enabled,
+                self.product_analytics_posthog_desktop_direct_enabled,
+                self.product_analytics_direct_desktop_egress_enabled,
+                self.product_analytics_replay_enabled,
+            ))
+        )
+
     def product_analytics_live_provider_delivery_allowed(self) -> bool:
         return (
-            self.product_analytics_live_provider_delivery_approved
+            self.product_analytics_validation_mode != "local_only"
+            and self.product_analytics_live_provider_delivery_approved
             and self.product_analytics_legal_approved
             and self.product_analytics_privacy_approved
             and self.product_analytics_security_approved

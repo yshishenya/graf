@@ -94,9 +94,9 @@ def test_concurrent_ingress_owns_commit_and_keeps_original_decision(
     run(postgres_seeded_database_url, scenario)
 
 
-@pytest.mark.parametrize("purpose_only", [False, True])
+@pytest.mark.parametrize("change", ["basis", "purpose", "local_flags", "local_mode"])
 def test_withdrawal_while_waiting_for_account_lock_is_rechecked_before_insert(
-    postgres_seeded_database_url, isolated_admission, monkeypatch, purpose_only
+    postgres_seeded_database_url, isolated_admission, monkeypatch, change
 ):
     async def scenario(sessions, engine):
         withdrawn = False
@@ -112,7 +112,7 @@ def test_withdrawal_while_waiting_for_account_lock_is_rechecked_before_insert(
 
         monkeypatch.setattr(ingest, "apply_tenant_context", context)
         monkeypatch.setattr(ingest, "activation_milestone_write_blockers", lambda s: (
-            ("legal_basis_withdrawn",) if withdrawn and not purpose_only else ()
+            ("legal_basis_withdrawn",) if withdrawn and change == "basis" else ()
         ))
         monkeypatch.setattr(
             ingest.YandexOfflineConversionExporter, "transfer_decision",
@@ -122,9 +122,11 @@ def test_withdrawal_while_waiting_for_account_lock_is_rechecked_before_insert(
             await blocker.scalar(select(UserIdentity.id).where(
                 UserIdentity.id == USER_ID
             ).with_for_update())
-            waiting = asyncio.create_task(ProductAnalyticsIngestService(
-                Settings(product_analytics_enabled=True)
-            ).ingest_authenticated(
+            settings = Settings(
+                product_analytics_enabled=True,
+                product_analytics_validation_mode="local_only" if change.startswith("local_") else "disabled",
+            )
+            waiting = asyncio.create_task(ProductAnalyticsIngestService(settings).ingest_authenticated(
                 payload("desktop_account_connected"), principal=principal(),
                 sessionmaker=sessions, source_kind="server",
             ))
@@ -142,12 +144,16 @@ def test_withdrawal_while_waiting_for_account_lock_is_rechecked_before_insert(
                 await asyncio.gather(waiting, return_exceptions=True)
                 raise AssertionError("admission did not wait for the account lock")
             withdrawn = True
+            if change == "local_flags":
+                settings.product_analytics_yandex_offline_enabled = True
+            elif change == "local_mode":
+                settings.product_analytics_validation_mode = "live_safe"
             released_at = datetime.now(UTC)
             await blocker.rollback()
             result = await asyncio.wait_for(waiting, timeout=3)
         async with sessions() as db:
             rows = (await db.scalars(select(ProductActivationMilestone))).all()
-        if purpose_only:
+        if change == "purpose":
             assert result.accepted and len(rows) == 1
             assert rows[0].posthog_state == "pending"
             assert rows[0].yandex_state == "not_requested"
@@ -159,13 +165,22 @@ def test_withdrawal_while_waiting_for_account_lock_is_rechecked_before_insert(
     run(postgres_seeded_database_url, scenario)
 
 
-def test_both_http_shapes_share_one_durable_decision(client, isolated_admission, monkeypatch):
+@pytest.mark.parametrize("local_only", [False, True])
+def test_both_http_shapes_share_one_durable_decision(client, isolated_admission, monkeypatch, local_only):
     settings = client.app.state.settings
     for key in (
         "product_analytics_enabled", "product_analytics_posthog_enabled",
         "product_analytics_posthog_desktop_direct_enabled", "product_analytics_direct_desktop_egress_enabled",
     ):
-        monkeypatch.setattr(settings, key, True)
+        monkeypatch.setattr(settings, key, key == "product_analytics_enabled" or not local_only)
+    if local_only:
+        monkeypatch.setattr(settings, "product_analytics_validation_mode", "local_only")
+
+        def forbidden(*a, **kw):
+            raise AssertionError("local_only must not resolve a provider")
+
+        monkeypatch.setattr(ingest, "resolve_provider_delivery_gate", forbidden)
+        monkeypatch.setattr(ingest.YandexOfflineConversionExporter, "from_settings", forbidden)
     value = payload()
     first = client.post("/api/v1/product-analytics/events", json=value, headers=auth_headers())
     second = client.post(
@@ -179,17 +194,34 @@ def test_both_http_shapes_share_one_durable_decision(client, isolated_admission,
     assert second.json()["status"] == "duplicate"
     assert first.json()["event"] == second.json()["event"]
     assert first.json()["provider_results"] == second.json()["provider_results"] == []
+    if local_only:
+        # A later provider mode must not replay the original local decision.
+        monkeypatch.setattr(settings, "product_analytics_validation_mode", "provider_smoke")
+        monkeypatch.setattr(ingest, "resolve_provider_delivery_gate", lambda *a, **kw: SimpleNamespace(allowed=True))
+        third = client.post("/api/v1/product-analytics/events", json=value, headers=auth_headers())
+        assert third.status_code == 200 and third.json()["status"] == "duplicate"
+
+        async def check():
+            async with client.app.state.db_sessionmaker() as db:
+                rows = (await db.scalars(select(ProductActivationMilestone))).all()
+                assert len(rows) == 1
+                assert rows[0].posthog_state == rows[0].yandex_state == "not_requested"
+
+        asyncio.run(check())
 
 
 @pytest.mark.parametrize("proxy", [False, True])
+@pytest.mark.parametrize("local_only", [False, True])
 def test_http_rejects_missing_account_forged_account_and_unverified_triggers(
-    client, isolated_admission, monkeypatch, proxy
+    client, isolated_admission, monkeypatch, proxy, local_only
 ):
     for key in (
         "product_analytics_enabled", "product_analytics_posthog_enabled",
         "product_analytics_posthog_desktop_direct_enabled", "product_analytics_direct_desktop_egress_enabled",
     ):
-        monkeypatch.setattr(client.app.state.settings, key, True)
+        monkeypatch.setattr(client.app.state.settings, key, key == "product_analytics_enabled" or not local_only)
+    if local_only:
+        monkeypatch.setattr(client.app.state.settings, "product_analytics_validation_mode", "local_only")
     path = "/api/v1/product-analytics/" + ("posthog-desktop-capture" if proxy else "events")
 
     def send(value, headers):
@@ -207,6 +239,10 @@ def test_http_rejects_missing_account_forged_account_and_unverified_triggers(
     ):
         response = send(payload(name), auth_headers())
         assert response.status_code == 403, response.text
+    if proxy:
+        valid = {"event": payload()["event_name"], "distinct_id": payload()["stable_pseudonymous_user_id"]}
+        assert client.post(path, json={**valid, "telemetry_gate_state": "declined"}, headers=auth_headers()).status_code == 403
+        assert client.post(path, json={**valid, "api_key_state": "client_key"}, headers=auth_headers()).status_code == 400
 
     async def count():
         async with client.app.state.db_sessionmaker() as db:
@@ -243,13 +279,26 @@ def test_withdrawal_after_connection_and_commit_failure_leave_no_decision(
     run(postgres_seeded_database_url, scenario)
 
 
-def test_server_auth_uses_the_same_account_ledger(postgres_seeded_database_url, isolated_admission):
+@pytest.mark.parametrize("local_only", [False, True])
+def test_server_auth_uses_the_same_account_ledger(
+    postgres_seeded_database_url, isolated_admission, monkeypatch, local_only
+):
     from twobrain_rec_server.api.auth import record_account_connected_milestone
+
+    if local_only:
+        def forbidden(*a, **kw):
+            raise AssertionError("local_only must not resolve a provider")
+
+        monkeypatch.setattr(ingest, "resolve_provider_delivery_gate", forbidden)
+        monkeypatch.setattr(ingest.YandexOfflineConversionExporter, "from_settings", forbidden)
 
     async def scenario(sessions, engine):
         user = principal()
         results = [await record_account_connected_milestone(
-            settings=Settings(product_analytics_enabled=True), user_id=user.user_id,
+            settings=Settings(
+                product_analytics_enabled=True,
+                product_analytics_validation_mode="local_only" if local_only else "disabled",
+            ), user_id=user.user_id,
             organization_id=user.organization_id, workspace_id=next(iter(user.workspace_ids)),
             sessionmaker=sessions, provider="synthetic", handoff=None,
         ) for _ in range(2)]
@@ -257,7 +306,7 @@ def test_server_auth_uses_the_same_account_ledger(postgres_seeded_database_url, 
         async with sessions() as db:
             row = await db.scalar(select(ProductActivationMilestone))
             assert row.source_kind == "server"
-            assert row.posthog_state == row.yandex_state == "pending"
+            assert row.posthog_state == row.yandex_state == ("not_requested" if local_only else "pending")
 
     run(postgres_seeded_database_url, scenario)
 
@@ -282,11 +331,12 @@ def test_auth_milestone_builder_failure_is_best_effort(monkeypatch):
     "", "basis_withdrawal level=attribution_profiles state=withdrawn withdrawn_at=broken",
     "basis_withdrawal level=attribution_profiles state=withdrawn withdrawn_at=2026-01-01 reason=owner_decision",
 ])
-def test_runtime_gate_never_opens_on_missing_or_partial_recovery(tmp_path, monkeypatch, record):
+@pytest.mark.parametrize("mode", ["live_safe", "local_only"])
+def test_runtime_gate_never_opens_on_missing_or_partial_recovery(tmp_path, monkeypatch, record, mode):
     path = tmp_path / "basis"
     monkeypatch.setenv(BASIS_WITHDRAWAL_STATE_FILE_ENV, str(path))
     settings = Settings(
-        product_analytics_enabled=True, product_analytics_validation_mode="live_safe",
+        product_analytics_enabled=True, product_analytics_validation_mode=mode,
         product_analytics_legal_approved=True, product_analytics_disclosure_approved=True,
     )
     monkeypatch.setattr(
@@ -300,3 +350,36 @@ def test_runtime_gate_never_opens_on_missing_or_partial_recovery(tmp_path, monke
         assert "basis_unavailable" in blockers
     elif record:
         assert "legal_basis_withdrawn" in blockers
+    if mode == "local_only":
+        settings.product_analytics_yandex_offline_enabled = True
+        assert "local_only_configuration_invalid" in legal_basis_gate.activation_milestone_write_blockers(settings)
+
+
+def test_local_only_real_recovery_gate_keeps_both_http_and_server_auth_closed(client, monkeypatch):
+    from twobrain_rec_server.api.auth import record_account_connected_milestone
+
+    settings = client.app.state.settings
+    monkeypatch.setattr(settings, "product_analytics_enabled", True)
+    monkeypatch.setattr(settings, "product_analytics_validation_mode", "local_only")
+    first = client.post("/api/v1/product-analytics/events", json=payload(), headers=auth_headers())
+    second = client.post(
+        "/api/v1/product-analytics/posthog-desktop-capture",
+        json={"event": payload()["event_name"], "distinct_id": payload()["stable_pseudonymous_user_id"]},
+        headers=auth_headers(),
+    )
+    assert first.status_code == second.status_code == 403
+    assert first.json()["code"] == "product_analytics_admission_blocked"
+    assert second.json()["code"] == "posthog_desktop_admission_blocked"
+
+    async def check():
+        user = principal()
+        result = await record_account_connected_milestone(
+            settings=settings, user_id=user.user_id, organization_id=user.organization_id,
+            workspace_id=next(iter(user.workspace_ids)),
+            sessionmaker=client.app.state.db_sessionmaker, provider="synthetic", handoff=None,
+        )
+        assert not result.accepted and result.status == "admission_blocked"
+        async with client.app.state.db_sessionmaker() as db:
+            assert await db.scalar(select(func.count()).select_from(ProductActivationMilestone)) == 0
+
+    asyncio.run(check())

@@ -456,3 +456,21 @@ bash apps/server/scripts/run_local_postgres_tests.sh --focused \
 drain, actual restore, полнота истории, readiness/fence/local_only, T112/T113
 целиком и коммерческие критерии ею не принимаются. Writer и новый период
 измерения не открываются даже при успешном учебном результате.
+
+### Подготовительный local_only T113 — 29.10.2026
+
+```sh
+bash apps/server/scripts/run_local_postgres_tests.sh --focused -q --tb=short \
+  tests/contract/test_activation_milestone_ingress.py \
+  tests/unit/test_product_analytics_provider_config.py \
+  tests/unit/test_product_analytics_provider_delivery_gate.py \
+  tests/unit/test_config_validation.py
+```
+
+Проверить отдельный local_only во всех средах, конфликтующие flags, оба HTTP и
+server-auth с одной account+event и not_requested/not_requested. После смены
+режима повтор не создаёт намерения отправки. Вызов resolver/exporter в local_only
+должен падать в тесте; изменение flags/режима после реального ожидания account-lock
+запрещает INSERT. С настоящим recovery gate обе HTTP-ветви и server-auth остаются
+HOLD. [Результат и границы](validation/t113-local-only-20261029.md).
+Это не приёмка всех5 runtime writers, истории, восстановления, T112 или воронки.

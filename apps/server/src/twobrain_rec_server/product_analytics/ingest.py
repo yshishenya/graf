@@ -115,6 +115,7 @@ class ProductAnalyticsIngestService:
             return refused("authentication_required")
         if sessionmaker is None:
             return refused("database_unavailable")
+        validation_mode = self.settings.product_analytics_validation_mode
         if activation_milestone_write_blockers(self.settings):
             return refused("admission_blocked")
         try:
@@ -126,8 +127,13 @@ class ProductAnalyticsIngestService:
                     context_kind="auth_bootstrap",
                 ))
                 def before_insert() -> tuple[str, ...]:
-                    if activation_milestone_write_blockers(self.settings):
+                    if (self.settings.product_analytics_validation_mode != validation_mode
+                            or activation_milestone_write_blockers(self.settings)):
                         raise PermissionError("milestone admission blocked")
+                    if validation_mode == "local_only":
+                        if not self.settings.product_analytics_local_only_configuration_valid():
+                            raise PermissionError("local_only configuration changed")
+                        return ()
                     return tuple(
                         provider for provider in ("posthog", "yandex")
                         if (provider != "yandex" or (

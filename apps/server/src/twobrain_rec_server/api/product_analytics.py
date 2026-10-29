@@ -365,9 +365,14 @@ async def product_analytics_posthog_desktop_capture(
     settings = _settings_from_request(request)
     if not (
         settings.product_analytics_enabled
-        and settings.product_analytics_posthog_enabled
-        and settings.product_analytics_posthog_desktop_direct_enabled
-        and settings.product_analytics_direct_desktop_egress_enabled
+        and (
+            settings.product_analytics_validation_mode == "local_only"
+            or (
+                settings.product_analytics_posthog_enabled
+                and settings.product_analytics_posthog_desktop_direct_enabled
+                and settings.product_analytics_direct_desktop_egress_enabled
+            )
+        )
     ):
         raise ProblemDetail(
             status=403,
