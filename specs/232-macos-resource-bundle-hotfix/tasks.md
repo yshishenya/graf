@@ -106,7 +106,7 @@ change or UI change belongs in this feature.
 
 - [X] T024 [US3] Добавить negative-first проверки занятости, identity/SHA, recovery, замены PID, отсутствия окна и восстановления в `tests/governance/test_dev_launch_validation.py`; реализовать FR-015–FR-020 через существующие `scripts/dev-harness.py`, `apps/macos/Scripts/dev-app-lifecycle.swift`, `apps/macos/Scripts/validate-packaged-app-launch.sh` (Issue #7209)
 - [X] T025 [US3] Пройти startup/signing fixtures, профильные проверки и независимое ревью; описать команды/ограничения в `infra/dev/README.md`, `quickstart.md`, `contracts/packaged-startup.md`, `validation/dev-launch-20261016.md`, `changes/unreleased/F232.yaml`; зафиксировать действующее общее разрешение пользователя на проверенный commit (Issue #7209)
-- [ ] T026 [US3] После разрешённого commit из чистого checkout выполнить сам валидатор на единственном Dev через harness, подтвердить восстановление, exact-SHA/base GitHub gates и подробный комментарий; только после всех исходных критериев закрыть #7209 (Issue #7209)
+- [X] T026 [US3] После разрешённого commit из чистого checkout выполнить сам валидатор на единственном Dev через harness, подтвердить восстановление, exact-SHA/base GitHub gates и подробный комментарий; только после всех исходных критериев закрыть #7209 (Issue #7209)
 
 Порядок: review/analyze/issue sync → T024 → T025 → разрешённый commit → T026.
 T023 отражает принятую реализацию readiness и не подтверждает сама по себе

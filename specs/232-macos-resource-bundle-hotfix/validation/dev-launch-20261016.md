@@ -148,3 +148,79 @@ F224 PR#7676 тоже меняет общий state_lock. При последу�
 обязательно сохранить принадлежность общего каталога/проверки lock из F224
 и запрет операций при квитанции launch recovery из F232. Будущая интеграция
 ещё не создана и не проверена; текущее APPROVE на неё не переносится.
+
+## Установленная приёмка T026, 30.10.2026
+
+Предыдущие записи о недостающем запуске сохранены как история. Новый результат
+получен штатной командой, без изменений продуктового или управляющего кода:
+
+```sh
+infra/scripts/dev-harness.sh validate-app-launch --live --restart-idle-app
+infra/scripts/dev-harness.sh status --json
+infra/scripts/dev-harness.sh smoke --live --json
+```
+
+Перед перезапуском прочитаны status и интерфейс единственного Dev, проверено
+отсутствие открытого редактора/активной записи; пользователь непосредственно
+подтвердил отсутствие звонка, завершающейся записи и несохранённой работы.
+Соседняя задача подтвердила свободный Dev. Независимое ревью перед испытанием:
+45 checked / 0 unchecked, открытых замечаний нет.
+
+Сам валидатор исполнялся **29.10.2026 23:35:53–23:36:10 UTC**
+(30.10.2026 по Europe/Istanbul), exit code **0**:
+
+| Поле | Фактический результат |
+|---|---|
+| SHA инструмента из чистого checkout | `b4da9e3de09267f56dc351cb79367ae3f9264038` |
+| SHA установленного приложения/runtime | `698ebfa5202986f1a681fd46eb4f12e505352ded` |
+| Manifest | `dev-698ebfa52029` |
+| Lifecycle / status | `dev-harness` / `pass` |
+| Уникальный PID/start identity | `53778:1793316957.626794` |
+| Непрерывная жизнь | не менее 5 секунд |
+| Новые события | `app_launch_finished`, `app_main_window_presented` |
+| Восстановление исходного running | `restored_running=true` |
+| Удаление своего временного журнала | `temporary_logs_removed=true` |
+
+После операции отдельная системная проверка подтвердила `running`; через интерфейс
+видны главное окно, «Готово к записи» и кнопка ручного начала записи.
+Status остался `active`, приложение установлено, recovery receipt отсутствует.
+В снимках до и после операции совпали SHA-256 указателя активной версии и
+служебной записи runtime; хеш пакета приложения и параметры его подписи
+остались прежними. Сам harness
+повторно проверил committed bytes, полный bundle digest и фактическую подпись
+до PASS. Последующий live smoke: **14/14 PASS**, включая maintenance readiness.
+
+Текущий адресный набор `test_dev_launch_validation.py`: **41/41 PASS за 28,43 с**;
+`test-packaged-app-launch.sh`: **PASS**, в том числе отказ живого процесса без
+окна. Эти проверки не суммируются с историческими перекрывающимися наборами.
+
+Итоговое независимое ревью фактических квитанций: **PASS**, все исходные
+критерии #7209 сопоставлены, 45/0 требований. Отчёт сохранён во внешнем реестре,
+SHA-256 `c9fb1fd580bd789bfb6b176b6079994bbe8eef16e4eeca5b748daca93c163642`.
+
+Общий `validate-pr-checks.py` подтвердил принятые изменения:
+
+- Readiness PR [#7212](https://github.com/yshishenya/graf/pull/7212):
+  head `2598001d1bc414aa43a8b16fc6fd0174c8835d08`,
+  checked base `e4ab7b9fd14fa0315be3733eafd4f61e51cef182`,
+  governance-fast [35465745834](https://github.com/yshishenya/graf/actions/runs/35465745834),
+  macos-pr [35465745828](https://github.com/yshishenya/graf/actions/runs/35465745828),
+  pr-metadata [35465790444](https://github.com/yshishenya/graf/actions/runs/35465790444).
+- Installed observer PR [#7677](https://github.com/yshishenya/graf/pull/7677):
+  head `b0dd9a514b728a3440aacb05e572c4f8b06b55e1`,
+  checked base `bfa7d71839171afd3043768ea736ce76ffa29808`,
+  governance-fast [39253194348](https://github.com/yshishenya/graf/actions/runs/39253194348),
+  macos-pr [39253194338](https://github.com/yshishenya/graf/actions/runs/39253194338),
+  pr-metadata [39253195380](https://github.com/yshishenya/graf/actions/runs/39253195380).
+
+Исходный русский changelog T023 сохранён в
+`changes/releases/v2026.09.21.1/F232.yaml`; документация T024/T025 — в
+`changes/releases/v2026.10.22.1/F232.yaml`. Нового поведения эта сверка не вводит.
+
+Путь приёмки — существующий **Active Spec Kit slice**, T026; фиксация результата
+— **Docs-only / mechanical**, два документальных файла без изменения требований.
+Это подтверждает установленный запуск SHA приложения, а не новый продуктовый код
+SHA инструмента. Сборка, promote, миграции, TCC, Full, CD, публичный выпуск и
+приёмка F224/T011–T013 этим результатом не выполнялись.
+Закрытие #7209 выполняется после принятия документальной сверки, обязательных
+проверок её точного PR SHA/base и успешного live closeout-validator.
