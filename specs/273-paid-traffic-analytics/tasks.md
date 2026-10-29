@@ -700,3 +700,13 @@ T0 ещё не установлен. Независимый анализ и по
 created_at > T0; [проверки и остаток](validation/t113-runtime-binding-20261030.md).
 Доверенный initial verifier, общий product drain, actual restore/rollback и
 рабочая приёмка впереди. Код не снимает activation_recovery_unverified.
+
+### Общий product drain T113 — 30.10.2026
+
+Локально подготовлены два внутренних шага `product_analytics/activation_operator.py`
+и причинные `tests/unit/test_activation_operator.py`,
+`tests/integration/test_activation_product_drain.py`. Профиль вместе с прежними
+fence-проверками62PASS; настоящие PostgreSQL17 и Compose-стенд удалены.
+[Объём и остаток](validation/t113-product-drain-20261030.md). T113/#7804 остаются
+открытыми: верхний оператор initial/actual restore/ready/resume/rollback и T112
+ещё не приняты. Не снимается activation_recovery_unverified; рабочего T0 нет.
