@@ -682,3 +682,33 @@ def test_real_runtime_logins_and_rls_owner_cannot_erase_hidden_history(
             )
 
     run(url, preserved)
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize("valid_provider", [False, True])
+def test_sync_and_async_admission_callbacks_preserve_provider_states_and_single_count(
+    postgres_seeded_database_url, asynchronous, valid_provider,
+):
+    async def scenario(sessions):
+        calls = []
+        def sync_callback():
+            calls.append(True)
+            return ("posthog",) if valid_provider else ("unknown",)
+        async def async_callback():
+            await asyncio.sleep(0)
+            return sync_callback()
+        callback = async_callback if asynchronous else sync_callback
+        if valid_provider:
+            original, created = await admit(sessions, before_insert=callback)
+            repeated, duplicate_created = await admit(sessions, before_insert=callback)
+            assert created and not duplicate_created and original.id == repeated.id
+            assert original.posthog_state == repeated.posthog_state == "pending"
+            assert original.yandex_state == repeated.yandex_state == "not_requested"
+            assert len(calls) == 2
+        else:
+            with pytest.raises(ValueError, match="unknown milestone provider"):
+                await admit(sessions, before_insert=callback)
+            assert len(calls) == 1
+        async with sessions() as db:
+            assert await db.scalar(select(func.count()).select_from(ProductActivationMilestone)) == int(valid_provider)
+    run(postgres_seeded_database_url, scenario)

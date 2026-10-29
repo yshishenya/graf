@@ -170,6 +170,10 @@ def compose_config(source):
         ref = service.get("image") or f"{PROJECT}-{name}"
         require_match(ref, IMAGE_REF, "invalid image ref")
         services[name] = dict(ref=ref, target=target)
+        if name in {"rec-api", "rec-maintenance"}:
+            services[name]["activation_binding_required"] = (
+                "GRAF_PRODUCT_ACTIVATION_IMAGE_ID" in service.get("environment", {})
+            )
     require(services and any(row["target"] for row in services.values()), "missing application services")
     return services
 
@@ -188,6 +192,12 @@ def containers():
         name = labels.get("com.docker.compose.service")
         require(name and name not in observed, "missing/ambiguous container service")
         observed[name] = dict(id=row["Id"], image=row["Image"], running=row["State"]["Running"])
+        if name in {"rec-api", "rec-maintenance"}:
+            observed[name]["activation_images"] = [
+                value.removeprefix("GRAF_PRODUCT_ACTIVATION_IMAGE_ID=")
+                for value in row["Config"].get("Env", [])
+                if value.startswith("GRAF_PRODUCT_ACTIVATION_IMAGE_ID=")
+            ]
     return observed
 
 
@@ -369,6 +379,12 @@ def verify(attempt, side, services=()):
     for name in names:
         require(name in data["images"] and current.get(name, {}).get("running") is True
                 and current[name]["image"] == data["images"][name]["image"], "runtime image mismatch")
+        if name in {"rec-api", "rec-maintenance"}:
+            values = current[name]["activation_images"]
+            # Older previous Compose has no capability; image recovery remains
+            # valid, while activation_recovery_unverified still closes analytics.
+            if data["images"][name].get("activation_binding_required", False) or values:
+                require(values == [data["images"][name]["image"]], "activation image binding mismatch")
     return current
 
 

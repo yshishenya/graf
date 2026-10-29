@@ -685,3 +685,18 @@ actual restore/rollback, история и T112 остаются непрове�
 сценариев сначала дали RED на прежнем коде; [профиль89PASS и границы](validation/t113-ingest-fence-20261029.md).
 Доверенный verifier/binding, product drain/actual restore/rollback, история и
 T112 ещё открыты. T113/#7804 не закрывается; рабочего включения и выпуска нет.
+
+
+### Принят фиксированный T0 новых аккаунтов — 30.10.2026
+
+Уточнение владельца включено в FR-025/SC-006, plan/data-model,
+activation-milestones/operations/quickstart и правила отчёта. Единственный
+started_at=T0, trusted created_at > T0, новая запись после T0, открытый готовый
+результат, оплата с возвратами. Прежняя маркетинговая история до T0 не условие
+нового счёта; полный текущий snapshot, основания, удаления, restore и gap
+после T0 сохраняются. Задачи T112/T113, #7804 и AC01–AC06 остаются открытыми.
+T0 ещё не установлен. Независимый анализ и повторное ревью117 вопросов приняты
+117/0. В существующем T113 локально подготовлены runtime/DB binding и фильтр
+created_at > T0; [проверки и остаток](validation/t113-runtime-binding-20261030.md).
+Доверенный initial verifier, общий product drain, actual restore/rollback и
+рабочая приёмка впереди. Код не снимает activation_recovery_unverified.

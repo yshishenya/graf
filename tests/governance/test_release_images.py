@@ -37,6 +37,8 @@ def docker(tmp_path, monkeypatch):
                                 Config=dict(Labels={'com.docker.compose.project': 'twobrain-rec',
                                                     'com.docker.compose.service': service})))
     new = copy.deepcopy(old)
+    for service in ('rec-api', 'rec-maintenance'):
+        new[service]['environment'] = {'GRAF_PRODUCT_ACTIVATION_IMAGE_ID': ''}
     calls = []
     state = dict(platform='linux/x86_64', fail=None)
     def command(*args, input=None):
@@ -159,6 +161,8 @@ def test_finish_requires_actual_runtime_and_preserves_failed_result(docker, monk
     candidate = images.read(attempt / 'candidate.json')['images']
     for row in docker.running:
         row['Image'] = candidate[row['Config']['Labels']['com.docker.compose.service']]['image']
+        if row['Config']['Labels']['com.docker.compose.service'] in {'rec-api', 'rec-maintenance'}:
+            row['Config']['Env'] = [f"GRAF_PRODUCT_ACTIVATION_IMAGE_ID={row['Image']}"]
     with pytest.raises(ValueError, match='runtime changed'):
         images.finish(docker.directory, 'unchanged', docker.args.attempt_id)
     real_fsync = images.os.fsync
@@ -192,6 +196,8 @@ def test_standalone_uses_completed_current_images_and_blocks_incomplete(docker):
     candidate = images.read(images.active(docker.directory) / 'candidate.json')['images']
     for row in docker.running:
         row['Image'] = candidate[row['Config']['Labels']['com.docker.compose.service']]['image']
+        if row['Config']['Labels']['com.docker.compose.service'] in {'rec-api', 'rec-maintenance'}:
+            row['Config']['Env'] = [f"GRAF_PRODUCT_ACTIVATION_IMAGE_ID={row['Image']}"]
     images.finish(docker.directory, 'deployed', docker.args.attempt_id)
     path = images.current_override()
     assert path.name == 'override.json'
@@ -284,3 +290,117 @@ def test_active_pointer_is_retained_after_directory_persistence_error(tmp_path, 
     with pytest.raises(OSError):
         images.write(path, {'attempt': '2'*32})
     assert images.read(path)['attempt'] == '2'*32
+
+
+@pytest.mark.parametrize('case', ['missing', 'wrong', 'duplicate', 'valid'])
+def test_activation_image_binding_matches_actual_running_candidate(docker, case):
+    images.prepare(docker.args)
+    attempt = images.active(docker.directory)
+    candidate = images.read(attempt / 'candidate.json')['images']
+    for row in docker.running:
+        name = row['Config']['Labels']['com.docker.compose.service']
+        row['Image'] = candidate[name]['image']
+        if name in {'rec-api', 'rec-maintenance'}:
+            value = f"GRAF_PRODUCT_ACTIVATION_IMAGE_ID={row['Image']}"
+            row['Config']['Env'] = [value]
+    api = docker.running[0]
+    if case == 'missing':
+        api['Config']['Env'] = []
+    if case == 'wrong':
+        api['Config']['Env'] = ['GRAF_PRODUCT_ACTIVATION_IMAGE_ID=sha256:' + 'f'*64]
+    if case == 'duplicate':
+        api['Config']['Env'] *= 2
+    if case == 'valid':
+        images.verify(attempt, 'candidate')
+    else:
+        with pytest.raises(ValueError, match='activation image binding'):
+            images.verify(attempt, 'candidate')
+
+
+def test_activation_image_binding_legacy_previous_keeps_product_recovery(docker):
+    images.prepare(docker.args)
+    attempt = images.active(docker.directory)
+    # Existing previous fixture has no new env capability. Its image proof is
+    # still valid; no analytics readiness is issued by image verification.
+    images.verify(attempt, 'previous')
+
+
+@pytest.mark.parametrize('function,side', [
+    ('restore_previous_services', 'previous'),
+    ('restore_previous_safe_processing_runtime', 'previous'),
+    ('restore_compatibility_runtime', 'candidate'),
+    ('compatibility_after_previous_failure', 'candidate'),
+])
+def test_activation_image_binding_is_selected_before_each_runtime_up(tmp_path, function, side):
+    import os
+    import subprocess
+    runtime = (ROOT / 'infra/scripts/cd-remote-runtime.sh').read_text()
+    def definition(name):
+        start = runtime.index(name + '() {')
+        return runtime[start:runtime.index('\n}\n', start) + 3]
+    if function == 'compatibility_after_previous_failure':
+        selected = definition('restore_previous_services') + definition('restore_compatibility_runtime')
+        invoke = ('EXPECT_SIDE=previous; FAIL_PREVIOUS=1; restore_previous_services && exit 8; '
+                  'EXPECT_SIDE=candidate; restore_compatibility_runtime')
+    else:
+        selected = definition(function)
+        invoke = function + ' same'
+    bind = definition('bind_activation_images') if 'bind_activation_images() {' in runtime else ''
+    script = '''
+set -euo pipefail
+previous_sha=previous
+expected_sha=candidate
+previous_schema_head=same
+expected_schema_head=same
+image_attempt=/synthetic
+image_helper=/synthetic/helper
+prompt_worker_was_running=''
+backup_reference=synthetic
+GRAF_PRODUCT_ACTIVATION_API_IMAGE_ID=stale
+GRAF_PRODUCT_ACTIVATION_MAINTENANCE_IMAGE_ID=stale
+python3() { if [[ "$2" == image ]]; then printf '%s-%s\n' "$3" "$4"; fi; }
+git() { :; }
+wait_for_previous_temporal_health() { :; }
+wait_for_previous_processing_pollers() { :; }
+verify_processing_runtime_health() { :; }
+verify_api_dispatch_gate() { :; }
+curl() { :; }
+docker() {
+  if [[ " $* " == *' up '* ]]; then
+    [[ "$GRAF_PRODUCT_ACTIVATION_API_IMAGE_ID" == "$EXPECT_SIDE-rec-api" ]] || return 1
+    [[ "$GRAF_PRODUCT_ACTIVATION_MAINTENANCE_IMAGE_ID" == "$EXPECT_SIDE-rec-maintenance" ]] || return 1
+    if [[ "${FAIL_PREVIOUS:-0}" == 1 && "$EXPECT_SIDE" == previous ]]; then
+      printf 'previous-up-failed\n' >>"$TRACE_PATH"
+      return 1
+    fi
+    printf 'bound-up\n' >>"$TRACE_PATH"
+  elif [[ " $* " == *' config --services '* ]]; then
+    printf 'rec-api\nrec-maintenance\nrec-temporal\nrec-processing-worker\n'
+  elif [[ " $* " == *' ps '* ]]; then
+    printf 'synthetic-container\n'
+  elif [[ "$1" == inspect ]]; then
+    printf 'synthetic-host\n'
+  fi
+}
+''' + bind + '\n' + selected + '\n' + invoke + '\n'
+    trace = tmp_path / 'trace'
+    result = subprocess.run(['bash', '-c', script], text=True, capture_output=True,
+                            env={**os.environ, 'EXPECT_SIDE': side, 'TRACE_PATH': str(trace)})
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert 'bound-up' in trace.read_text()
+    if function == 'compatibility_after_previous_failure':
+        assert trace.read_text().index('previous-up-failed') < trace.read_text().index('bound-up')
+
+
+def test_activation_image_binding_historical_candidate_without_capability_is_readable(docker):
+    images.prepare(docker.args)
+    attempt = images.active(docker.directory)
+    candidate_path = attempt / 'candidate.json'
+    candidate = images.read(candidate_path)
+    for name, row in candidate['images'].items():
+        row.pop('activation_binding_required', None)
+    images.write(candidate_path, candidate)
+    for row in docker.running:
+        row['Image'] = candidate['images'][row['Config']['Labels']['com.docker.compose.service']]['image']
+    images.finish(docker.directory, 'deployed', docker.args.attempt_id)
+    assert images.current_override().name == 'override.json'

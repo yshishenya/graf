@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from collections.abc import Mapping
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from alembic.script import ScriptDirectory
+from alembic.util import CommandError
+from sqlalchemy import text
+from sqlalchemy.engine import make_url
 
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.config import Settings
@@ -131,11 +137,36 @@ class ProductAnalyticsIngestService:
                     user_id=principal.user_id,
                     context_kind="auth_bootstrap",
                 ))
-                def before_insert() -> tuple[str, ...]:
+                async def before_insert() -> tuple[str, ...]:
+                    # Read from this held transaction, never from the ready file.
+                    rows = (await db.execute(text("""
+                        SELECT pg_catalog.current_database() AS db_name, d.oid::bigint AS db_oid,
+                               c.system_identifier::text AS cluster_id, a.version_num AS schema_revision,
+                               u.created_at AS account_created_at, pg_catalog.clock_timestamp() AS db_now
+                        FROM pg_catalog.pg_database AS d
+                        CROSS JOIN pg_catalog.pg_control_system() AS c
+                        CROSS JOIN public.alembic_version AS a
+                        JOIN public.user_identities AS u ON u.id=:account_id
+                        WHERE d.datname=pg_catalog.current_database()
+                    """), {"account_id": principal.user_id})).mappings().all()
+                    if (len(rows) != 1 or rows[0]["db_name"] != make_url(self.settings.database_url).database
+                            or rows[0]["schema_revision"] != schema_head):
+                        raise PermissionError("activation_database_binding_unverified")
+                    actual = rows[0]
+                    # No await after these final fresh checks: a SELECT may have
+                    # waited while the operator revoked the basis or readiness.
                     if (self.settings.product_analytics_validation_mode != validation_mode
                             or activation_milestone_write_blockers(self.settings)):
                         raise PermissionError("milestone admission blocked")
+                    ready = fence.read_ready(expected={
+                        "source_sha": source_sha, "image_id": image_id,
+                        **{key: actual[key] for key in ("cluster_id", "db_name", "db_oid", "schema_revision")},
+                    })
                     if validation_mode == "local_only":
+                        created = actual["account_created_at"]
+                        if (created is None or created.tzinfo is None
+                                or not datetime.fromisoformat(ready["started_at"]) < created <= actual["db_now"]):
+                            raise PermissionError("activation_account_outside_t0")
                         if not self.settings.product_analytics_local_only_configuration_valid():
                             raise PermissionError("local_only configuration changed")
                         return ()
@@ -163,11 +194,21 @@ class ProductAnalyticsIngestService:
         try:
             with ExitStack() as stack:
                 try:
-                    stack.enter_context(activation_fence(
+                    source_sha = os.environ["GRAF_DEV_SOURCE_SHA"]
+                    image_id = os.environ["GRAF_PRODUCT_ACTIVATION_IMAGE_ID"]
+                    if (re.fullmatch(r"[0-9a-f]{40}", source_sha) is None
+                            or re.fullmatch(r"sha256:[0-9a-f]{64}", image_id) is None):
+                        return refused("admission_blocked")
+                    schema_head = ScriptDirectory(str(
+                        Path(__file__).resolve().parents[1] / "db" / "migrations"
+                    )).get_current_head()
+                    if schema_head is None:
+                        return refused("admission_blocked")
+                    fence = stack.enter_context(activation_fence(
                         Path(os.environ["GRAF_PRODUCT_ACTIVATION_STATE_FILE"]),
                         owner_uid=int(os.environ["GRAF_PRODUCT_ACTIVATION_OWNER_UID"]),
                     ))
-                except (KeyError, ValueError, OSError):
+                except (KeyError, ValueError, OSError, CommandError):
                     return refused("admission_blocked")
                 # AsyncSession.__aexit__ shields a separate close task. Keep one
                 # uncancelled owner of the entire session, including that close,

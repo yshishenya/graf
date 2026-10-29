@@ -527,19 +527,26 @@ def test_previous_safe_processing_fallback_executes_verified_single_network_rest
     runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
     helper_start = runtime.index("wait_for_previous_temporal_health()")
     helper_end = runtime.index("restore_previous_runtime()", helper_start)
-    helper_source = runtime[helper_start:helper_end]
+    binding_start = runtime.index("bind_activation_images() {")
+    binding_end = runtime.index("\n}\n", binding_start) + 3
+    helper_source = runtime[binding_start:binding_end] + runtime[helper_start:helper_end]
     trace_path = tmp_path / "rollback-trace"
     fixture_script = f"""
 set -euo pipefail
 compose=(compose_stub)
 previous_sha=previous-safe-sha
 image_attempt=/private-attempt
+image_helper=/private-attempt/release-images.py
 prompt_worker_was_running="{"prompt-container" if prompt_running else ""}"
 images_recovery_verified=0
 backup_reference=fixture-backup
 previous_schema_head=0023_production_smoke_setup
 expected_schema_head=0023_production_smoke_setup
 {helper_source}
+python3() {{
+  [[ "$1" == "$image_helper" && "$2" == "image" && "$3" == "previous" ]] || return 1
+  printf 'synthetic-%s\n' "$4"
+}}
 git() {{
   printf 'git_%s_%s\n' "$1" "$2" >>"$TRACE_PATH"
   [[ "$1" == "reset" && "$2" == "--hard" && "$3" == "$previous_sha" ]]
@@ -559,6 +566,8 @@ compose_stub() {{
       printf 'compose_stop_runtime\n' >>"$TRACE_PATH"
       ;;
     up:*)
+      [[ "$GRAF_PRODUCT_ACTIVATION_API_IMAGE_ID" == "synthetic-rec-api" ]] || return 1
+      [[ "$GRAF_PRODUCT_ACTIVATION_MAINTENANCE_IMAGE_ID" == "synthetic-rec-maintenance" ]] || return 1
       if [[ "$*" == *"rec-temporal"* ]]; then
         printf 'compose_up_previous_temporal\n' >>"$TRACE_PATH"
       elif [[ "$*" == *"rec-processing-worker"* ]]; then

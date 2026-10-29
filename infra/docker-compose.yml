@@ -12,6 +12,7 @@ services:
       - ./env/rec.production.env.example
     environment:
       TWOBRAIN_ENV: production
+      GRAF_PRODUCT_ACTIVATION_IMAGE_ID: ${GRAF_PRODUCT_ACTIVATION_API_IMAGE_ID:-}
       GRAF_POSTHOG_GUARD_STATE_DIR: /run/graf-analytics-guard
       GRAF_POSTHOG_BACKUP_STATE_DIR: /run/graf-analytics-backup
       GRAF_PRODUCT_ANALYTICS_RETENTION_STATE_DIR: /run/graf-analytics-retention
@@ -716,6 +717,7 @@ services:
       - ./env/rec.production.env.example
     environment:
       TWOBRAIN_ENV: production
+      GRAF_PRODUCT_ACTIVATION_IMAGE_ID: ${GRAF_PRODUCT_ACTIVATION_MAINTENANCE_IMAGE_ID:-}
       TWOBRAIN_PUBLIC_BASE_URL: ${TWOBRAIN_PUBLIC_BASE_URL:-https://rec.2brain.pro}
       TWOBRAIN_WEB_RUNTIME_ENABLED: "false"
       TWOBRAIN_WEB_LOGIN_WORKSPACE_ID: ${TWOBRAIN_WEB_LOGIN_WORKSPACE_ID:-}

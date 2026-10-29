@@ -660,10 +660,19 @@ feature_truth_count() {
     | tr -d '\r'
 }
 
+bind_activation_images() {
+  local side="$1" api_image maintenance_image
+  api_image="$(python3 "$image_helper" image "$side" rec-api)" || return 1
+  maintenance_image="$(python3 "$image_helper" image "$side" rec-maintenance)" || return 1
+  export GRAF_PRODUCT_ACTIVATION_API_IMAGE_ID="$api_image"
+  export GRAF_PRODUCT_ACTIVATION_MAINTENANCE_IMAGE_ID="$maintenance_image"
+}
+
 restore_previous_services() {
   local rollback_failed=0
   git reset --hard "$previous_sha" >/dev/null 2>&1 || rollback_failed=1
   export TWOBRAIN_LANGFUSE_RELEASE="$previous_sha"
+  bind_activation_images previous || rollback_failed=1
   compose=(docker compose --profile operations -f infra/docker-compose.yml -f "$image_attempt/previous.json")
   local available_services rollback_up_services service
   available_services="$("${compose[@]}" config --services 2>/dev/null || true)"
@@ -688,6 +697,7 @@ restore_previous_services() {
 
 restore_compatibility_runtime() {
   local rollback_failed=0
+  bind_activation_images candidate || return 1
   compose=(docker compose --profile operations -f infra/docker-compose.yml -f "$image_attempt/override.json")
   TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=false \
     TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=false \
@@ -757,6 +767,7 @@ restore_previous_safe_processing_runtime() {
   echo "rollback_fallback=previous_safe_processing_runtime"
   git reset --hard "$previous_sha" >/dev/null 2>&1 || rollback_failed=1
   export TWOBRAIN_LANGFUSE_RELEASE="$previous_sha"
+  bind_activation_images previous || rollback_failed=1
   compose=(docker compose --profile operations -f infra/docker-compose.yml -f "$image_attempt/previous.json")
 
   if [[ "$rollback_failed" == "0" ]]; then
@@ -1097,6 +1108,7 @@ image_helper="$image_attempt/release-images.py"
 export GRAF_RELEASE_IMAGE_OVERRIDE="$image_attempt/override.json"
 GRAF_RELEASE_MC_IMAGE="$(python3 "$image_helper" image candidate rec-minio-init)"
 export GRAF_RELEASE_MC_IMAGE
+bind_activation_images candidate
 compose+=(-f "$GRAF_RELEASE_IMAGE_OVERRIDE")
 echo "release_images_result=prepared"
 

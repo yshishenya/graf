@@ -1,9 +1,11 @@
 """Trusted admission on disposable PostgreSQL; never enable a real provider."""
 
 import asyncio
+import hashlib
+import json
 import os
 from contextlib import nullcontext
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -17,12 +19,20 @@ from tests.fakes.auth_contexts import USER_ID, principal
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import ProductActivationMilestone, UserIdentity
 from twobrain_rec_server.product_analytics import ingest, legal_basis_gate
-from twobrain_rec_server.product_analytics.activation_fence import ActivationHold, activation_fence
+from twobrain_rec_server.product_analytics.activation_fence import (
+    DIGEST_FIELDS,
+    READY_FIELDS,
+    ActivationFence,
+    ActivationHold,
+    activation_fence,
+)
 from twobrain_rec_server.product_analytics.identity import build_safe_identity
 from twobrain_rec_server.product_analytics.ingest import ProductAnalyticsIngestService
 from twobrain_rec_server.product_analytics.legal_basis_lifecycle import (
     BASIS_WITHDRAWAL_STATE_FILE_ENV,
 )
+
+REAL_READ_READY = ActivationFence.read_ready
 
 
 def payload(name="first_recording_completed", user_id=USER_ID):
@@ -36,7 +46,15 @@ def payload(name="first_recording_completed", user_id=USER_ID):
 
 
 @pytest.fixture
-def isolated_admission(monkeypatch, tmp_path):
+def isolated_admission(monkeypatch, tmp_path, postgres_seeded_database_url):
+    monkeypatch.setenv("GRAF_DEV_SOURCE_SHA", "a" * 40)
+    monkeypatch.setenv("GRAF_PRODUCT_ACTIVATION_IMAGE_ID", "sha256:" + "b" * 64)
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_seeded_database_url)
+    # Older lifetime/HTTP tests replace only the still-blocked operating receipts.
+    # The binding profile below restores real read_ready and writes private files.
+    monkeypatch.setattr(ActivationFence, "read_ready", lambda *a, **kw: {
+        "started_at": "2000-01-01T00:00:00+00:00",
+    })
     # Replace only the still-blocked operating receipts in this test process.
     # The real resolver stays fail-closed pending T110/T113 recovery verification.
     monkeypatch.setattr(ingest, "activation_milestone_write_blockers", lambda settings: ())
@@ -161,6 +179,7 @@ def test_fence_covers_transaction_and_close_even_after_repeated_cancellation(
 
 @pytest.mark.parametrize("failure", [
     "state_missing", "uid_missing", "uid_invalid", "uid_wrong", "lock_missing", "lock_busy", "mount_writable",
+    "source_missing", "source_invalid", "image_missing", "image_invalid",
 ])
 def test_fence_refuses_before_creating_database_session(isolated_admission, monkeypatch, failure):
     path = isolated_admission
@@ -174,6 +193,10 @@ def test_fence_refuses_before_creating_database_session(isolated_admission, monk
         (path.parent / "activation.lock").unlink()
     elif failure == "mount_writable":
         monkeypatch.setattr(ingest, "activation_fence", activation_fence)
+    elif failure in {"source_missing", "image_missing"}:
+        monkeypatch.delenv("GRAF_DEV_SOURCE_SHA" if failure.startswith("source") else "GRAF_PRODUCT_ACTIVATION_IMAGE_ID")
+    elif failure in {"source_invalid", "image_invalid"}:
+        monkeypatch.setenv("GRAF_DEV_SOURCE_SHA" if failure.startswith("source") else "GRAF_PRODUCT_ACTIVATION_IMAGE_ID", "invalid")
 
     calls = []
 
@@ -507,3 +530,170 @@ def test_local_only_real_recovery_gate_keeps_both_http_and_server_auth_closed(cl
             assert await db.scalar(select(func.count()).select_from(ProductActivationMilestone)) == 0
 
     asyncio.run(check())
+
+
+async def bound_ready(sessions, path):
+    """Synthetic operating receipts; expected runtime DB values stay real."""
+    async with sessions() as db:
+        actual = (await db.execute(text("""
+            SELECT pg_catalog.current_database() AS db_name, d.oid::bigint AS db_oid,
+                   c.system_identifier::text AS cluster_id, a.version_num AS schema_revision
+            FROM pg_catalog.pg_database d CROSS JOIN pg_catalog.pg_control_system() c
+            CROSS JOIN public.alembic_version a
+            WHERE d.datname=pg_catalog.current_database()
+        """))).mappings().one()
+        created_at = await db.scalar(select(UserIdentity.created_at).where(UserIdentity.id == USER_ID))
+    now = datetime.now(UTC).isoformat()
+    info = (path.parent / "activation.lock").stat()
+    initial = dict(version=1, started_at=(created_at - timedelta(seconds=1)).isoformat(),
+                   lock_dev=info.st_dev, lock_ino=info.st_ino, history_proof_sha256="c" * 64)
+    initial_raw = json.dumps(initial).encode()
+    (path.parent / "initial.json").write_bytes(initial_raw)
+    (path.parent / "initial.json").chmod(0o600)
+    record = dict.fromkeys(READY_FIELDS)
+    record.update({key: "c" * 64 for key in DIGEST_FIELDS})
+    record.update(actual)
+    record.update(initial)
+    record.update(source_sha="a" * 40, image_id="sha256:" + "b" * 64,
+                  status="ready", mode="local_only", reason="verified", verified_at=now,
+                  backup_finished_at=now, restore_verified_at=now,
+                  retention_verified_at=now, resource_verified_at=now,
+                  initial_receipt_sha256=hashlib.sha256(initial_raw).hexdigest())
+    path.write_text(json.dumps(record))
+    path.chmod(0o600)
+    return record, created_at
+
+
+@pytest.mark.parametrize("field", ["source_sha", "image_id", "cluster_id", "db_name", "db_oid", "schema_revision", None])
+def test_runtime_binding_uses_actual_database_not_receipt(
+    postgres_seeded_database_url, isolated_admission, monkeypatch, field,
+):
+    monkeypatch.setattr(ActivationFence, "read_ready", REAL_READ_READY)
+    async def scenario(sessions, engine):
+        path = isolated_admission
+        record, _ = await bound_ready(sessions, path)
+        if field:
+            record[field] = {"source_sha": "d" * 40, "image_id": "sha256:" + "d" * 64,
+                             "cluster_id": "1", "db_name": "synthetic_other",
+                             "db_oid": 1, "schema_revision": "0001_initial"}[field]
+            path.write_text(json.dumps(record))
+        settings = Settings(product_analytics_enabled=True, product_analytics_validation_mode="local_only")
+        service = ProductAnalyticsIngestService(settings)
+        results = [await service.ingest_authenticated(payload(), principal=principal(),
+                   sessionmaker=sessions, source_kind="desktop") for _ in range(2)]
+        if field:
+            assert all(r.status == "admission_blocked" for r in results)
+        else:
+            assert [r.status for r in results] == ["accepted", "duplicate"]
+        async with sessions() as db:
+            rows = (await db.scalars(select(ProductActivationMilestone))).all()
+        assert len(rows) == (0 if field else 1)
+        if rows:
+            assert rows[0].posthog_state == rows[0].yandex_state == "not_requested"
+    run(postgres_seeded_database_url, scenario)
+
+
+@pytest.mark.parametrize("offset", [-1, 0, 1])
+def test_runtime_binding_fixed_t0_excludes_old_or_equal_account(
+    postgres_seeded_database_url, isolated_admission, monkeypatch, offset,
+):
+    monkeypatch.setattr(ActivationFence, "read_ready", REAL_READ_READY)
+    async def scenario(sessions, engine):
+        path = isolated_admission
+        record, created_at = await bound_ready(sessions, path)
+        # Change only this synthetic initial anchor. Production has no such writer.
+        initial_path = path.parent / "initial.json"
+        initial = json.loads(initial_path.read_text())
+        initial["started_at"] = (created_at + timedelta(microseconds=offset)).isoformat()
+        initial_path.write_text(json.dumps(initial))
+        record["started_at"] = initial["started_at"]
+        record["initial_receipt_sha256"] = hashlib.sha256(initial_path.read_bytes()).hexdigest()
+        path.write_text(json.dumps(record))
+        result = await ProductAnalyticsIngestService(Settings(product_analytics_enabled=True,
+            product_analytics_validation_mode="local_only")).ingest_authenticated(
+                payload(), principal=principal(), sessionmaker=sessions, source_kind="desktop")
+        assert result.accepted == (offset < 0)
+        async with sessions() as db:
+            assert await db.scalar(select(func.count()).select_from(ProductActivationMilestone)) == int(offset < 0)
+    run(postgres_seeded_database_url, scenario)
+
+
+@pytest.mark.parametrize("change", ["basis", "mode", "flags", "ready"])
+def test_runtime_binding_rechecks_after_awaited_metadata_select(
+    postgres_seeded_database_url, isolated_admission, monkeypatch, change,
+):
+    monkeypatch.setattr(ActivationFence, "read_ready", REAL_READ_READY)
+    async def scenario(sessions, engine):
+        path = isolated_admission
+        await bound_ready(sessions, path)
+        entered, release = asyncio.Event(), asyncio.Event()
+        withdrawn = False
+        class PausedSession(AsyncSession):
+            async def execute(self, statement, *args, **kwargs):
+                if "pg_control_system" in str(statement):
+                    entered.set()
+                    await release.wait()
+                return await super().execute(statement, *args, **kwargs)
+        settings = Settings(product_analytics_enabled=True, product_analytics_validation_mode="local_only")
+        monkeypatch.setattr(ingest, "activation_milestone_write_blockers",
+                            lambda s: ("withdrawn",) if withdrawn else ())
+        waiting = asyncio.create_task(ProductAnalyticsIngestService(settings).ingest_authenticated(
+            payload(), principal=principal(),
+            sessionmaker=async_sessionmaker(engine, class_=PausedSession, expire_on_commit=False),
+            source_kind="desktop"))
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=2)
+            if change == "basis":
+                withdrawn = True
+            elif change == "mode":
+                settings.product_analytics_validation_mode = "live_safe"
+            elif change == "flags":
+                settings.product_analytics_yandex_offline_enabled = True
+            else:
+                record = json.loads(path.read_text())
+                record["status"] = "revoked"
+                path.write_text(json.dumps(record))
+        finally:
+            release.set()
+            result = await asyncio.wait_for(waiting, timeout=3)
+        assert result.status == "admission_blocked" and not result.accepted
+        async with sessions() as db:
+            assert await db.scalar(select(func.count()).select_from(ProductActivationMilestone)) == 0
+    run(postgres_seeded_database_url, scenario)
+
+
+@pytest.mark.parametrize("invalid", ["null_creation", "future_creation", "wrong_database", "unknown_schema", "multiple_heads"])
+def test_runtime_binding_unknown_account_database_or_schema_is_closed(
+    postgres_seeded_database_url, isolated_admission, monkeypatch, invalid,
+):
+    monkeypatch.setattr(ActivationFence, "read_ready", REAL_READ_READY)
+    async def scenario(sessions, engine):
+        path = isolated_admission
+        record, _ = await bound_ready(sessions, path)
+        revision = record["schema_revision"]
+        settings = Settings(product_analytics_enabled=True, product_analytics_validation_mode="local_only")
+        async with sessions() as db:
+            if invalid in {"null_creation", "future_creation"}:
+                await db.execute(text("UPDATE public.user_identities SET created_at=:created WHERE id=:id"),
+                    {"created": None if invalid == "null_creation" else datetime.now(UTC) + timedelta(days=1), "id": USER_ID})
+            elif invalid == "unknown_schema":
+                await db.execute(text("UPDATE public.alembic_version SET version_num='9999_unknown'"))
+            elif invalid == "multiple_heads":
+                await db.execute(text("INSERT INTO public.alembic_version VALUES ('9999_unknown')"))
+            await db.commit()
+        if invalid == "wrong_database":
+            # Use the same actual session but a different trusted configuration.
+            settings.database_url = settings.database_url.rsplit("/", 1)[0] + "/synthetic_other"
+        try:
+            result = await ProductAnalyticsIngestService(settings).ingest_authenticated(
+                payload(), principal=principal(), sessionmaker=sessions, source_kind="desktop")
+            assert result.status == "admission_blocked" and not result.accepted
+            async with sessions() as db:
+                assert await db.scalar(select(func.count()).select_from(ProductActivationMilestone)) == 0
+        finally:
+            if invalid in {"unknown_schema", "multiple_heads"}:
+                async with sessions() as db:
+                    await db.execute(text("DELETE FROM public.alembic_version"))
+                    await db.execute(text("INSERT INTO public.alembic_version VALUES (:revision)"), {"revision": revision})
+                    await db.commit()
+    run(postgres_seeded_database_url, scenario)
