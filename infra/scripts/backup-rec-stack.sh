@@ -71,14 +71,37 @@ case "$suffix" in
   ''|*[!a-zA-Z0-9]*) fail postgres_staging_invalid ;;
 esac
 staging="$staging_candidate"
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+# PostgreSQL owns the exported snapshot until both dump and metadata finish.
 docker compose -f infra/docker-compose.yml exec -T rec-postgres \
-  sh -c 'umask 077; pg_dump -U twobrain_rec -d twobrain_rec --format=custom --file="$1/postgres.dump"' \
-  sh "$staging" 2>/dev/null || fail postgres_dump_failed
+  sh -c 'umask 077; psql -XqAt -v ON_ERROR_STOP=1 -U twobrain_rec -d twobrain_rec -v expected_db=twobrain_rec -v capture_dump=true -v staging="$1"' \
+  sh "$staging" <"$script_dir/rec-db-backup-inventory.sql" 2>/dev/null \
+  || fail postgres_snapshot_failed
 postgres_id="$(docker compose -f infra/docker-compose.yml ps -q rec-postgres 2>/dev/null)" \
   || fail postgres_container_lookup_failed
 [ -n "$postgres_id" ] || fail postgres_container_missing
-docker cp "$postgres_id:$staging/postgres.dump" "$backup_dir/postgres.dump" 2>/dev/null \
-  || fail postgres_copy_failed
+for artifact in postgres.dump schema.sql inventory.jsonl checksums.sha256; do
+  docker cp "$postgres_id:$staging/$artifact" "$backup_dir/$artifact" 2>/dev/null \
+    || fail postgres_copy_failed
+  [ -s "$backup_dir/$artifact" ] || fail postgres_artifact_empty
+done
+python3 - "$backup_dir" <<'PY' || fail postgres_checksum_failed
+import hashlib
+import re
+import sys
+from pathlib import Path
+root = Path(sys.argv[1])
+lines = (root / 'checksums.sha256').read_text().splitlines()
+names = ['postgres.dump', 'schema.sql', 'inventory.jsonl']
+if len(lines) != len(names):
+    raise SystemExit(1)
+for name, line in zip(names, lines):
+    if not re.fullmatch(r'[0-9a-f]{64}  ' + re.escape(name), line):
+        raise SystemExit(1)
+    with (root / name).open('rb') as handle:
+        if hashlib.file_digest(handle, 'sha256').hexdigest() != line[:64]:
+            raise SystemExit(1)
+PY
 
 mkdir -p "$backup_dir/minio-objects"
 root_user_file="${TWOBRAIN_MINIO_ROOT_USER_FILE:-./secrets/twobrain_minio_root_user}"
