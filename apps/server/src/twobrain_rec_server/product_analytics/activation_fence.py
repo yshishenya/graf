@@ -167,8 +167,36 @@ class ActivationFence:
                  and initial["version"] == 1 and all(type(initial[key]) is type(record[key])
                  and initial[key] == record[key] for key in INITIAL_FIELDS - {"version"}),
                  "activation_initial_mismatch")
+        marker = self.initial_marker()
+        _require(marker == {"version": 1, "state": "attempted",
+                            "initial_sha256": record["initial_receipt_sha256"]},
+                 "activation_initial_marker_mismatch")
         self.identity()
         return record
+
+    def initial_marker(self) -> dict:
+        """Read the permanent inode; an unknown marker never means a new period."""
+        self.identity()
+        before = os.fstat(self.descriptor)
+        raw = os.pread(self.descriptor, 1025, 0)
+        after = os.fstat(self.descriptor)
+        _require(0 < before.st_size <= 1024 and len(raw) == before.st_size
+                 and (before.st_size, before.st_mtime_ns, before.st_ctime_ns)
+                 == (after.st_size, after.st_mtime_ns, after.st_ctime_ns),
+                 "activation_initial_marker_invalid")
+        try:
+            marker = _object(raw)
+        except ActivationHold:
+            raise ActivationHold("activation_initial_marker_invalid") from None
+        _require(type(marker.get("version")) is int and marker["version"] == 1
+                 and (marker == {"version": 1, "state": "never_started"}
+                      or (set(marker) == {"version", "state", "initial_sha256"}
+                          and marker["state"] == "attempted"
+                          and isinstance(marker["initial_sha256"], str)
+                          and re.fullmatch(r"[a-f0-9]{64}", marker["initial_sha256"]))),
+                 "activation_initial_marker_invalid")
+        self.identity()
+        return marker
 
     def revoke(self) -> None:
         """Durably close admission even when the old receipt is absent/invalid.

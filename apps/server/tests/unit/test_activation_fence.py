@@ -39,6 +39,8 @@ def state(tmp_path):
     initial = dict(version=1, started_at=(NOW - timedelta(days=1)).isoformat(),
                    lock_dev=info.st_dev, lock_ino=info.st_ino, history_proof_sha256="c" * 64)
     private(directory / "initial.json", initial)
+    private(lock, dict(version=1, state="attempted", initial_sha256=hashlib.sha256(
+        (directory / "initial.json").read_bytes()).hexdigest()))
     record = dict.fromkeys(READY_FIELDS)
     record.update({key: "c" * 64 for key in DIGEST_FIELDS})
     record.update(expected)
@@ -189,3 +191,75 @@ except ActivationHold as e: print(str(e))
     with activation_fence(path, owner_uid=os.geteuid(), exclusive=True):
         assert child("SH") == child("EX") == "activation_lock_busy"
     assert child("EX") == "locked"
+
+
+@pytest.mark.parametrize('marker', [b'', b'permanent', b'{', b'{"version":1,"state":"never_started"}',
+                                    b'{"version":1,"state":"attempted","initial_sha256":"' + b'0' * 64 + b'"}'])
+def test_ready_requires_attempt_marker_in_the_permanent_lock_inode(state, marker):
+    path, record, expected = state
+    private(path.parent / 'activation.lock', marker)
+    # The inode remains the same: the permanent marker, not a second pathname,
+    # must distinguish never-started from a lost/replaced initial receipt.
+    with (activation_fence(path, owner_uid=os.geteuid(), readonly=False) as fence,
+          pytest.raises(ActivationHold, match='initial_marker')):
+        fence.read_ready(expected=expected, now=NOW)
+
+
+def test_missing_initial_after_attempt_cannot_be_recreated_with_a_new_t0(state):
+    from twobrain_rec_server.product_analytics import activation_operator as operator
+
+    path, record, _ = state
+    with activation_fence(path, owner_uid=os.geteuid(), exclusive=True) as fence:
+        fence.revoke()
+        (path.parent / 'initial.json').unlink()
+        before = (path.parent / 'activation.lock').read_bytes()
+        with pytest.raises(ActivationHold, match='initial_already_attempted'):
+            operator._create_initial(fence, started_at=NOW, history_proof_sha256='d' * 64)
+        assert (path.parent / 'activation.lock').read_bytes() == before
+        assert not (path.parent / 'initial.json').exists()
+
+
+def test_one_time_initial_preserves_lock_inode_and_refuses_repeat(state):
+    from twobrain_rec_server.product_analytics import activation_operator as operator
+
+    path, _, _ = state
+    (path.parent / 'initial.json').unlink()
+    private(path.parent / 'activation.lock', {'version': 1, 'state': 'never_started'})
+    info = (path.parent / 'activation.lock').stat()
+    with activation_fence(path, owner_uid=os.geteuid(), exclusive=True) as fence:
+        fence.revoke()
+        raw = operator._create_initial(fence, started_at=NOW, history_proof_sha256='d' * 64)
+        assert raw == (path.parent / 'initial.json').read_bytes()
+        assert json.loads(raw)['started_at'] == NOW.isoformat()
+        assert json.loads((path.parent / 'activation.lock').read_bytes()) == {
+            'version': 1, 'state': 'attempted', 'initial_sha256': hashlib.sha256(raw).hexdigest(),
+        }
+        assert (path.parent / 'activation.lock').stat().st_ino == info.st_ino
+        with pytest.raises(ActivationHold, match='initial_already_attempted'):
+            operator._create_initial(fence, started_at=NOW + timedelta(seconds=1), history_proof_sha256='e' * 64)
+
+
+@pytest.mark.parametrize('failure_at', ['marker', 'initial', 'directory'])
+def test_uncertain_initial_write_never_restores_never_started_marker(state, monkeypatch, failure_at):
+    from twobrain_rec_server.product_analytics import activation_operator as operator
+
+    path, _, _ = state
+    (path.parent / 'initial.json').unlink()
+    private(path.parent / 'activation.lock', {'version': 1, 'state': 'never_started'})
+    lock_ino = (path.parent / 'activation.lock').stat().st_ino
+    with activation_fence(path, owner_uid=os.geteuid(), exclusive=True) as fence:
+        fence.revoke()
+        fsync = os.fsync
+        def fail(fd):
+            info = os.fstat(fd)
+            kind = ('directory' if stat.S_ISDIR(info.st_mode) else 'marker' if info.st_ino == lock_ino else 'initial')
+            if kind == failure_at:
+                raise OSError('synthetic fsync failure')
+            fsync(fd)
+        monkeypatch.setattr(os, 'fsync', fail)
+        with pytest.raises(OSError, match='fsync failure'):
+            operator._create_initial(fence, started_at=NOW, history_proof_sha256='d' * 64)
+        monkeypatch.setattr(os, 'fsync', fsync)
+        assert json.loads((path.parent / 'activation.lock').read_bytes())['state'] == 'attempted'
+        with pytest.raises(ActivationHold, match='initial_already_attempted'):
+            operator._create_initial(fence, started_at=NOW + timedelta(seconds=1), history_proof_sha256='e' * 64)

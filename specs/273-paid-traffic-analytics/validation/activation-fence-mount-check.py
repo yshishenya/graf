@@ -104,6 +104,8 @@ for name in ('direct','supported','atomic'):
  initial=dict(version=1,started_at=now,lock_dev=info.st_dev,lock_ino=info.st_ino,
               history_proof_sha256='c'*64)
  save(d/'initial.json',initial)
+ save(d/'activation.lock',dict(version=1,state='attempted',initial_sha256=hashlib.sha256(
+  (d/'initial.json').read_bytes()).hexdigest()))
  record=dict.fromkeys(READY_FIELDS); record.update({k:'c'*64 for k in DIGEST_FIELDS})
  record.update(expected); record.update(initial)
  record.update(status='ready',mode='local_only',reason='verified',verified_at=now,

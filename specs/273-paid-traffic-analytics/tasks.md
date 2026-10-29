@@ -710,3 +710,15 @@ fence-проверками62PASS; настоящие PostgreSQL17 и Compose-с�
 [Объём и остаток](validation/t113-product-drain-20261030.md). T113/#7804 остаются
 открытыми: верхний оператор initial/actual restore/ready/resume/rollback и T112
 ещё не приняты. Не снимается activation_recovery_unverified; рабочего T0 нет.
+
+
+### Внутреннее окно экспорта T113 — 30.10.2026
+
+В том же принятом полном алгоритме добавлены защита однократного marker/initial
+и внутренний `_controlled_export` (false → подтверждённый limit0 → true →
+false/limit0 с EX/0PID/0prepared). Общий native fence/operator/drain/Compose
+профиль80PASS; рабочий сервер не менялся.
+[Прогресс и остаток](validation/t113-full-operator-progress-20261030.md),
+[экспорт](validation/t113-controlled-export-20261030.md). T113/#7804 не закрывается:
+верхний backup/rehearsal/replay/actual restore/resume/ready и T112 впереди.
+Неизменная T0 ещё не назначена, безусловный recovery blocker сохранён.

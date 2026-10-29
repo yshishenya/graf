@@ -8,10 +8,13 @@ remains held through the caller's export. These steps never authorise admission.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import os
 import re
 import time
-from contextlib import suppress
+from contextlib import asynccontextmanager, suppress
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .activation_fence import READY_FIELDS, ActivationHold, _object, _require
@@ -40,6 +43,62 @@ SERVICE_NETWORKS = {
 # Read only selected metadata; never inspect Env, Cmd, query text or private rows.
 CONTAINER_FORMAT = """{"id":{{json .Id}},"service":{{json (index .Config.Labels "com.docker.compose.service")}},"project":{{json (index .Config.Labels "com.docker.compose.project")}},"oneoff":{{json (index .Config.Labels "com.docker.compose.oneoff")}},"state":{"status":{{json .State.Status}},"running":{{json .State.Running}},"restarting":{{json .State.Restarting}},"paused":{{json .State.Paused}},"pid":{{json .State.Pid}},"exit":{{json .State.ExitCode}}},"networks":{{json .NetworkSettings.Networks}}}"""
 NETWORK_FORMAT = """{"id":{{json .Id}},"name":{{json .Name}},"internal":{{json .Internal}},"project":{{json (index .Labels "com.docker.compose.project")}},"containers":{{json .Containers}}}"""
+
+
+def _create_initial(fence, *, started_at: datetime, history_proof_sha256: str) -> bytes:
+    """Internal final step only: caller has completed the full stopped verifier.
+
+    No CLI accepts these arguments. Mark attempted before O_EXCL creation so a
+    lost/partial initial or failed fsync cannot silently allocate another T0.
+    """
+    _revoked(fence)
+    _require(fence.initial_marker()["state"] == "never_started",
+             "activation_initial_already_attempted")
+    _require(isinstance(started_at, datetime) and started_at.tzinfo is not None
+             and started_at.utcoffset() == UTC.utcoffset(started_at)
+             and isinstance(history_proof_sha256, str)
+             and re.fullmatch(r"[a-f0-9]{64}", history_proof_sha256) is not None,
+             "activation_initial_arguments_invalid")
+    try:
+        os.stat("initial.json", dir_fd=fence.directory, follow_symlinks=False)
+    except FileNotFoundError:
+        pass
+    else:
+        raise ActivationHold("activation_initial_already_attempted")
+    dev, ino = fence.identity()
+    raw = (json.dumps(dict(version=1, started_at=started_at.isoformat(), lock_dev=dev,
+                           lock_ino=ino, history_proof_sha256=history_proof_sha256),
+                      sort_keys=True) + "\n").encode()
+    marker = (json.dumps(dict(version=1, state="attempted",
+                              initial_sha256=hashlib.sha256(raw).hexdigest()),
+                         sort_keys=True) + "\n").encode()
+    fd = os.open("activation.lock", os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                 dir_fd=fence.directory)
+    try:
+        info = os.fstat(fd)
+        _require((info.st_dev, info.st_ino) == (dev, ino), "activation_lock_changed")
+        fence.identity()
+        os.ftruncate(fd, 0)
+        _require(os.write(fd, marker) == len(marker), "activation_initial_marker_write_failed")
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    _require(fence.initial_marker()["initial_sha256"] == hashlib.sha256(raw).hexdigest(),
+             "activation_initial_marker_mismatch")
+    fd = os.open("initial.json", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                 0o600, dir_fd=fence.directory)
+    try:
+        os.fchmod(fd, 0o600)
+        if os.fstat(fd).st_uid != fence.owner_uid:
+            os.fchown(fd, fence.owner_uid, -1)
+        _require(os.write(fd, raw) == len(raw), "activation_initial_write_failed")
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.fsync(fence.directory)
+    fence.identity()
+    _require(fence._file("initial.json") == raw, "activation_initial_write_failed")
+    return raw
 
 
 def _revoked(fence):
@@ -348,6 +407,114 @@ async def _closed(owner, name, oid):
     _require(
         row is not None and tuple(row) == (oid, False), "activation_operator_database_not_closed"
     )
+
+
+async def _settled_sql(operation):
+    """Resolve an owned SQL step before returning even repeated waiter cancellation."""
+    task = asyncio.create_task(operation)
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancelled = True
+        except Exception:
+            break
+    if cancelled:
+        with suppress(BaseException):
+            task.result()
+        raise asyncio.CancelledError
+    return task.result()
+
+
+async def _quiet_database(source, oid):
+    _require(not source.is_in_transaction(), "activation_operator_transaction_active")
+    await source.execute("SELECT pg_stat_clear_snapshot()")
+    row = await source.fetchrow("""SELECT
+        EXISTS(SELECT 1 FROM pg_locks WHERE pid=pg_backend_pid() AND database=$1
+          AND locktype='advisory' AND classid=273 AND objid=3 AND objsubid=2
+          AND mode='ExclusiveLock' AND granted),
+        (SELECT count(*) FROM pg_stat_activity WHERE datid=$1 AND pid<>pg_backend_pid()),
+        (SELECT count(*) FROM pg_prepared_xacts WHERE database=current_database())""", oid)
+    _require(row is not None and tuple(row) == (True, 0, 0),
+             "activation_operator_database_not_quiet")
+
+
+@asynccontextmanager
+async def _controlled_export(fence, *, source, owner, name, oid, cluster_id, deadline):
+    """Internal export window only. Caller retains stopped writers, EX and connections.
+
+    No readiness/CLI or resume is exposed. The caller must reap its export children
+    before leaving the body. The original limit is returned for its explicit later
+    resume; this context always leaves the source closed with limit0 after mutation.
+    """
+    _require(isinstance(name, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,62}", name)
+             and name not in {"postgres", "template0", "template1"}
+             and type(oid) is int and oid > 0,
+             "activation_operator_database_binding")
+    attempted = False
+
+    async def gate(expected):
+        row = await owner.fetchrow(
+            "SELECT oid::bigint,datallowconn,datconnlimit FROM pg_database WHERE datname=$1", name
+        )
+        _require(row is not None and tuple(row) == (oid, expected, 0),
+                 "activation_operator_export_gate_unverified")
+
+    async def prepare():
+        nonlocal attempted
+        async with asyncio.timeout_at(deadline):
+            _revoked(fence)
+            await _database_identity(source, owner, name=name, oid=oid, cluster_id=cluster_id)
+            await _closed(owner, name, oid)
+            await _quiet_database(source, oid)
+            limit = await owner.fetchval("SELECT datconnlimit FROM pg_database WHERE oid=$1", oid)
+            _require(type(limit) is int and limit >= -1, "activation_operator_export_limit_invalid")
+            _revoked(fence)
+            attempted = True  # A lost ALTER response still requires a closing attempt.
+            await owner.execute(f'ALTER DATABASE "{name}" CONNECTION LIMIT 0')
+            await gate(False)
+            await owner.execute(f'ALTER DATABASE "{name}" ALLOW_CONNECTIONS true')
+            await gate(True)
+            await _quiet_database(source, oid)
+            _revoked(fence)
+            return limit
+
+    async def close():
+        # Cleanup may outlive the operation deadline; it never grants success.
+        async with asyncio.timeout(30):
+            await owner.execute(f'ALTER DATABASE "{name}" ALLOW_CONNECTIONS false')
+            await gate(False)
+            while True:
+                try:
+                    await _quiet_database(source, oid)
+                    break
+                except ActivationHold as error:
+                    if str(error) != "activation_operator_database_not_quiet":
+                        raise
+                    await asyncio.sleep(.02)
+            await _database_identity(source, owner, name=name, oid=oid, cluster_id=cluster_id)
+            await gate(False)
+            _revoked(fence)
+
+    try:
+        try:
+            limit = await _settled_sql(prepare())
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            raise ActivationHold("activation_operator_export_unverified") from None
+        yield limit
+        _require(time.monotonic() < deadline, "activation_operator_export_timeout")
+    finally:
+        if attempted:
+            try:
+                await _settled_sql(close())
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                raise ActivationHold("activation_operator_export_close_unverified") from None
+    _require(time.monotonic() < deadline, "activation_operator_export_timeout")
 
 
 async def drain_product_database(fence, *, source, owner, name: str, oid: int, cluster_id: str):

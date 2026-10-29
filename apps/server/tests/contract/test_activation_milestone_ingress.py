@@ -550,6 +550,9 @@ async def bound_ready(sessions, path):
     initial_raw = json.dumps(initial).encode()
     (path.parent / "initial.json").write_bytes(initial_raw)
     (path.parent / "initial.json").chmod(0o600)
+    (path.parent / "activation.lock").write_text(json.dumps(dict(
+        version=1, state="attempted", initial_sha256=hashlib.sha256(initial_raw).hexdigest(),
+    )))
     record = dict.fromkeys(READY_FIELDS)
     record.update({key: "c" * 64 for key in DIGEST_FIELDS})
     record.update(actual)
@@ -608,6 +611,9 @@ def test_runtime_binding_fixed_t0_excludes_old_or_equal_account(
         initial_path.write_text(json.dumps(initial))
         record["started_at"] = initial["started_at"]
         record["initial_receipt_sha256"] = hashlib.sha256(initial_path.read_bytes()).hexdigest()
+        (path.parent / "activation.lock").write_text(json.dumps(dict(
+            version=1, state="attempted", initial_sha256=record["initial_receipt_sha256"],
+        )))
         path.write_text(json.dumps(record))
         result = await ProductAnalyticsIngestService(Settings(product_analytics_enabled=True,
             product_analytics_validation_mode="local_only")).ingest_authenticated(

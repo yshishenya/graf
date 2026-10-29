@@ -20,7 +20,7 @@ pytestmark = pytest.mark.postgres
 
 
 @pytest.fixture(scope="module")
-def cluster():
+def owned_cluster():
     token = uuid4().hex
     container = "graf-drain-test-" + token
     password = uuid4().hex
@@ -83,10 +83,11 @@ def cluster():
                         timeout=2,
                     )
                     try:
-                        await owner.execute(
-                            "CREATE ROLE twobrain_rec_maintenance NOSUPERUSER "
-                            "NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
-                        )
+                        for role in ("twobrain_rec_maintenance", "twobrain_rec_app", "twobrain_rec_media"):
+                            await owner.execute(
+                                f"CREATE ROLE {role} LOGIN NOSUPERUSER NOBYPASSRLS "
+                                f"NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD '{password}'"
+                            )
                         return
                     finally:
                         await owner.close()
@@ -96,12 +97,17 @@ def cluster():
                     await asyncio.sleep(0.1)
 
         asyncio.run(initialise())
-        yield dict(host="127.0.0.1", port=port, user="twobrain_rec", password=password)
+        yield dict(host="127.0.0.1", port=port, user="twobrain_rec", password=password), container
     finally:
         if started:
             info = json.loads(docker("inspect", "--format", "{{json .Config.Labels}}", container))
             assert info["org.2brain.graf.test-owner"] == token
             docker("rm", "--force", "--volumes", container)
+
+
+@pytest.fixture(scope="module")
+def cluster(owned_cluster):
+    return owned_cluster[0]
 
 
 @pytest.fixture
@@ -291,6 +297,114 @@ def test_native_database_drain(cluster, fence, barrier, monkeypatch):
                 finally:
                     await resolver.close()
             # Only this test-owned DB is removed, after its sessions close.
+            await owner.execute(f'DROP DATABASE "{name}"')
+            await owner.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("mode", ["success", "body_error", "cancel_open", "cancel_close",
+                                  "unknown_open", "missing_ex", "late_pid", "expired"])
+def test_native_controlled_export(owned_cluster, fence, mode):
+    cluster, container = owned_cluster
+
+    async def run():
+        name = "twobrain_rec_test_" + uuid4().hex
+        owner = await asyncpg.connect(**cluster, database="postgres")
+        source = late = task = None
+        altered, release = asyncio.Event(), asyncio.Event()
+        yielded = False
+        try:
+            await owner.execute(f'CREATE DATABASE "{name}" CONNECTION LIMIT 7')
+            oid = await owner.fetchval("SELECT oid::bigint FROM pg_database WHERE datname=$1", name)
+            cluster_id = await owner.fetchval("SELECT system_identifier::text FROM pg_control_system()")
+            source = await asyncpg.connect(**cluster, database=name)
+            await source.execute("CREATE TABLE synthetic(id int); INSERT INTO synthetic VALUES(41)")
+            await source.execute("GRANT EXECUTE ON FUNCTION pg_control_system() TO twobrain_rec_maintenance")
+            await source.execute("SET SESSION AUTHORIZATION twobrain_rec_maintenance")
+            if mode == "late_pid":
+                late = await asyncpg.connect(**cluster, database=name)
+            await owner.execute(f'ALTER DATABASE "{name}" ALLOW_CONNECTIONS false')
+            if mode != "missing_ex":
+                await source.execute("SELECT pg_advisory_lock(273,3)")
+
+            class DelayedOwner:
+                def __getattr__(self, key):
+                    return getattr(owner, key)
+
+                async def execute(self, sql):
+                    result = await owner.execute(sql)
+                    opening = sql.endswith("ALLOW_CONNECTIONS true")
+                    closing = sql.endswith("ALLOW_CONNECTIONS false")
+                    if opening and mode == "unknown_open":
+                        raise TimeoutError
+                    if (opening and mode == "cancel_open") or (closing and mode == "cancel_close"):
+                        altered.set()
+                        await release.wait()  # Delay receipt after the real server committed.
+                    return result
+
+            async def export():
+                nonlocal yielded
+                async with operator._controlled_export(
+                    fence, source=source, owner=DelayedOwner(), name=name, oid=oid,
+                    cluster_id=cluster_id,
+                    deadline=time.monotonic() + (-1 if mode == "expired" else 5),
+                ) as original_limit:
+                    yielded = True
+                    assert original_limit == 7
+                    assert tuple(await owner.fetchrow(
+                        "SELECT datallowconn,datconnlimit FROM pg_database WHERE oid=$1", oid
+                    )) == (True, 0)
+                    # Ordinary roles remain denied while the trusted native dump can connect.
+                    for role in ("twobrain_rec_app", "twobrain_rec_media", "twobrain_rec_maintenance"):
+                        with pytest.raises(asyncpg.TooManyConnectionsError):
+                            await asyncpg.connect(**{**cluster, "user": role}, database=name)
+                    await operator._command([
+                        "docker", "exec", container, "pg_dump", "-U", "twobrain_rec", "-d", name,
+                        "--format=custom", "--file=/tmp/controlled.dump",
+                    ], deadline=time.monotonic() + 5)
+                    assert b"synthetic" in await operator._command([
+                        "docker", "exec", container, "pg_restore", "--list", "/tmp/controlled.dump",
+                    ], deadline=time.monotonic() + 5)
+                    if mode == "body_error":
+                        raise RuntimeError("synthetic_export_failure")
+
+            task = asyncio.create_task(export())
+            if mode.startswith("cancel_"):
+                await asyncio.wait_for(altered.wait(), 5)
+                task.cancel()
+                await asyncio.sleep(.02)
+                task.cancel()
+                await asyncio.sleep(.02)
+                assert not task.done()
+                release.set()
+            expected = (asyncio.CancelledError if mode.startswith("cancel_") else
+                        RuntimeError if mode == "body_error" else ActivationHold)
+            if mode == "success":
+                await task
+            else:
+                with pytest.raises(expected):
+                    await task
+            assert yielded is (mode in {"success", "body_error", "cancel_close"})
+            assert tuple(await owner.fetchrow(
+                "SELECT datallowconn,datconnlimit FROM pg_database WHERE oid=$1", oid
+            )) == (False, 7 if mode in {"missing_ex", "late_pid", "expired"} else 0)
+            if mode not in {"missing_ex", "late_pid", "expired"}:
+                assert await source.fetchval("""SELECT EXISTS(SELECT 1 FROM pg_locks
+                    WHERE pid=pg_backend_pid() AND locktype='advisory' AND classid=273
+                    AND objid=3 AND objsubid=2 AND mode='ExclusiveLock' AND granted)""")
+                await source.execute("SELECT pg_stat_clear_snapshot()")
+                assert await source.fetchval("SELECT count(*) FROM pg_stat_activity WHERE datid=$1 AND pid<>pg_backend_pid()", oid) == 0
+            assert json.loads(fence.path.read_bytes())["status"] == "revoked"
+        finally:
+            release.set()
+            if task is not None and not task.done():
+                task.cancel()
+                with suppress(BaseException):
+                    await task
+            for connection in (late, source):
+                if connection is not None and not connection.is_closed():
+                    await connection.close()
             await owner.execute(f'DROP DATABASE "{name}"')
             await owner.close()
 
