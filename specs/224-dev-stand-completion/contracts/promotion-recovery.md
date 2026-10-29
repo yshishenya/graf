@@ -1,6 +1,9 @@
 # F224/T010: восстановление обычного переключения
 
-Проект 26.10.2026; код ещё не изменён. Владелец: T010/#7641.
+Исходный проект 26.10.2026 принят в изолированной T010/#7641 через PR #7753.
+Дополнение stopped same-active от29.10.2026 принадлежит T009/#7640;
+реализация проходит отдельную изолированную проверку и независимое ревью;
+реальная приёмка этой задачи остаётся открытой.
 Область: обычные `promote --live` и `rollback --live` при одинаковой схеме
 и совместимых образах хранилищ. `schema-transition.json` и `recover-schema`
 сохраняют приоритет; снимки томов и новая машина миграций не добавляются.
@@ -123,6 +126,73 @@ Frozen adapter служит проверке исходников/resolver; ег
 затем закреплённый startup script исполняет собственный guard без обхода.
 Существующий `_schema_start_authorized` и schema recovery сохраняют свой
 приоритет и отдельные проверки. Exact-SHA/bytes/digest/resolver не ослабляются.
+
+## T009: восстановление остановленного same-active текущим инструментом
+
+Используется только `promote --live --manifest <неизменный-active>
+--previous-checkout <точный-checkout-active>` из чистого текущего checkout.
+Новый флаг CLI, команда, постоянный реестр и схема журнала не добавляются.
+Первоначально требуются существующий live active pointer, полный совпадающий
+manifest, известная согласованная runtime запись с мёртвым PID, остановленный
+app либо его отсутствие. `_schema_container_ids(running=True)` должен вернуть
+пустой список: мёртвый supervisor не исключает оставшиеся контейнеры проекта
+или пользователей двух Dev-томов. Неизвестная проверка означает отказ.
+
+В существующем `operation` допускается ровно одно дополнительное поле
+`controller_source_sha`: строка40hex фактически исполняемого инструмента,
+отличная от `target.source_sha`. Оно допустимо только при `kind=promote`,
+непустом `previous`, `_same_pinned_manifest(previous, target)`, неизменных
+`previous_was_live=false` и `app_was_running=false`. `controller_manifest`
+сохраняет прежний смысл командной runtime identity и совпадает с target.
+Отдельные фактические root/SHA/digest инструмента находятся в существующем
+`checkouts.controller`; его SHA обязан совпасть с `controller_source_sha`.
+`checkouts.previous` и `checkouts.target` полностью равны и закрепляют один
+прежний checkout. Без нового поля действуют прежние связи и проверки receipt;
+равный runtime SHA, ложный тип, неполная пара или применение при rollback/
+first-install/другом active дают отказ. Формат `dev-rollback-required.v1`
+сохраняется; отсутствие operation по-прежнему требует отдельного восстановления.
+
+Фактический `_repo_root()` исполняемого модуля, `self.root` контроллера и
+закреплённый controller root должны совпадать. Все три checkout проходят
+существующий `_checkout_adapter`: clean full SHA, canonical origin, tracked
+bytes, resolver и сохранённый runtime-definition digest. Для controller
+используется source-only запись с его собственным SHA по уже существующему
+образцу `_assert_launch_tooling`; полный runtime manifest не переписывается.
+Каждая мутация и вложенная компенсация выполняется текущим классом.
+
+Поддерживаемая frozen startup семья ограничена парой SHA-256 полных файлов
+из698ebfa5202986f1a681fd46eb4f12e505352ded:
+
+| Файл | SHA-256 |
+|---|---|
+| scripts/dev-harness.py | b23eddeb435140b4cbe6bebaede4a0095f889428eb8b0082df3d2fd7f737469a |
+| infra/scripts/start-dev-runtime.sh | da350be23ae5b6af319ae809ecd81f9c724494fb3f6bdf4f91893df02f880486 |
+
+Пара проверяется после source guards до snapshot/receipt/install/start и на
+повторе. Любая иная пара, включая прежний reader, отвергающий split SHA,
+означает ранний отказ; это ограничение только нового пути. Frozen guard
+из698eb не читает ordinary receipt; его успешный возврат не авторизует
+операцию. Поэтому текущий контроллер повторно проверяет ordinary контекст,
+все pins, actual root/source/bytes/digest, ownership, held lock и собственные
+PID/start token до каждого разрешающего pipe byte. После fsync runtime.json
+обязательны точное обратное чтение записанной записи, PID созданного ребёнка
+и его start token. Ожидаемая post-exec команда равна `sh <pinned startup>`;
+ребёнок до допуска ещё ждёт в Python pipe gate, поэтому `_pid_owned` для
+этой будущей команды не подменяет проверку gate-процесса.
+
+ID операции, три root/SHA/digest, полные manifests и исходные flags на retry
+не меняются. Начальная проверка остановки не применяется к уже запущенному
+закреплённому target после прерывания: его владение доказывается существующими
+runtime/PID/start-token проверками. Любая неизвестная идентичность отказывает.
+Malformed/unfinished schema journal имеет прежний приоритет. Frozen startup
+исполняется без изменения guard и выполняет настоящий migration preflight
+в закреплённом image до application writers; неизвестная ревизия — отказ,
+без stamp/downgrade и подстановки observed revision из manifest.
+
+После ошибки действуют прежние компенсация и публикация: исходная runtime
+запись и отсутствие app, если его не было, восстанавливаются; health остаётся
+unknown. Lock inode, данные и единственная копия приложения сохраняются.
+Это дополнение не принимает живые T009/T011/T012/T013 или #6180.
 
 ## Публикация и очистка
 

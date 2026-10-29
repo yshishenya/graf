@@ -62,6 +62,12 @@ schema-transition.json, rollback-required.json, data_root и secrets не мен
 [contracts/promotion-recovery.md](contracts/promotion-recovery.md).
 Формат binding, schema-transition и данные томов этим не меняются.
 
+Дополнение T009 от29.10.2026: необязательное `operation.controller_source_sha`
+разделяет фактический источник инструмента и неизменяемую runtime identity
+только при stopped same-active. Строгие допустимые поля, три checkout pins,
+совместимость frozen startup и retry определены в том же договоре; остальные
+ordinary receipts сохраняют прежнюю связь SHA. Новая сущность не создаётся.
+
 
 ## T009: временный план классификации, 27.10.2026
 

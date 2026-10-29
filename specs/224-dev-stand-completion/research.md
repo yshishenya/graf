@@ -198,3 +198,25 @@ _validate_manifest требует processing_worker у невыбранного 
 Предварительный внешний отчёт f224-preserved-metadata-precheck.md имеет SHA256
 51f11311163f410eed7c7c5ec14920316c70fa5dc7019d49930d79d903394c25;
 он не подтверждает приёмку checklist, приложения или конкретного старого root.
+
+## T009: stopped same-active — исследование29.10.2026
+
+Причина: на609633cd текущий `_ordinary_transition` требует SHA target для
+controller, а schema transition требует живого predecessor. Active698ebfa
+остановлен, установленного app нет. Проверены9/9 сохранённых image IDs и5/5
+source labels, но это не проверка настоящей схемы БД или запуска.
+Отдельная проба8/8 показала: frozen698eb guard не читает ordinary receipt,
+текущий reader отвергает split SHA; обе версии сохраняют schema priority.
+Границы пробы сохранены во внешнем f224-frozen-startup-compatibility-result-20261029.json.
+
+Решение: существующий promote+previous-checkout, одно optional поле receipt
+для фактического controller SHA и узкий допуск двух полных frozen файлов
+по [договору](contracts/promotion-recovery.md#t009-восстановление-остановленного-same-active-текущим-инструментом).
+Независимое source research подтвердило source-only образец
+`_assert_launch_tooling`, готовый `_checkout_adapter` и проверку orphan
+контейнеров `_schema_container_ids`; новый общий helper/менеджер не нужен.
+Контроллер выполняет все мутации и проверяет durable runtime до pipe byte.
+Отвергнуты самостоятельный старый controller, подмена SHA/root/guard,
+классификатор AST, общий реестр startup и холодная миграция вместо отдельной
+настоящей приёмки прежнего runtime. Код не реализован; прежний reviewer45/7
+выявил R1–R3. Новые требования и цельная матрица требуют повторного ревью.
