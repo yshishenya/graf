@@ -90,6 +90,41 @@ def test_failed_transaction_does_not_accept_or_deliver(postgres_seeded_database_
     run(postgres_seeded_database_url, scenario)
 
 
+@pytest.mark.parametrize("finish", ["commit", "rollback"])
+def test_maintenance_fence_waits_for_admission_transaction(postgres_seeded_database_url, finish):
+    async def scenario(sessions):
+        async with sessions() as writer, sessions() as operator:
+            await admit_account_milestone(
+                writer, event(), account_id=USER_ID, source_kind="browser")
+            assert not await operator.scalar(select(func.pg_try_advisory_xact_lock(273, 3)))
+            await operator.rollback()
+            await getattr(writer, finish)()
+            assert await operator.scalar(select(func.pg_try_advisory_xact_lock(273, 3)))
+            await operator.rollback()
+            assert await operator.scalar(select(func.count()).select_from(
+                ProductActivationMilestone)) == (1 if finish == "commit" else 0)
+
+    run(postgres_seeded_database_url, scenario)
+
+
+def test_operator_fence_refuses_before_waiting_for_account(postgres_seeded_database_url):
+    from twobrain_rec_server.db.models import UserIdentity
+
+    async def scenario(sessions):
+        async with sessions() as operator, sessions() as identity, sessions() as writer:
+            assert await operator.scalar(select(func.pg_try_advisory_xact_lock(273, 3)))
+            await identity.scalar(select(UserIdentity.id).where(
+                UserIdentity.id == USER_ID).with_for_update())
+            with pytest.raises(PermissionError, match="activation_maintenance_busy"):
+                await asyncio.wait_for(admit_account_milestone(
+                    writer, event(), account_id=USER_ID, source_kind="browser"), timeout=.5)
+            await writer.rollback()
+            assert await operator.scalar(select(func.count()).select_from(
+                ProductActivationMilestone)) == 0
+
+    run(postgres_seeded_database_url, scenario)
+
+
 @pytest.mark.parametrize(
     "outcome,expected",
     [

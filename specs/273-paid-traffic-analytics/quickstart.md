@@ -375,6 +375,24 @@ apps/server/.venv/bin/python -m pytest -q apps/server/tests/contract/test_produc
 
 ### Первый срез безопасной репетиции T113 — 28.10.2026
 
+Файловый замок проверяется отдельно от ещё не подключённых DB-транзакций:
+
+```sh
+PYTHONPATH=apps/server/src python -m pytest -q apps/server/tests/unit/test_activation_fence.py
+python3 specs/273-paid-traffic-analytics/validation/activation-fence-mount-check.py \
+  apps/server/src/twobrain_rec_server/product_analytics/activation_fence.py
+```
+
+Вторая команда требует уже установленный `python:3.12-slim` и Docker. Она
+создаёт только собственный учебный том, выполняет настоящий Linux bind со
+стабильным внешним родителем и проверяет отказ прямого bind, замену дочернего
+каталога и видимость atomic revoke в уже работающем контейнере. Отрицательная
+контрольная проба явно обходит только новую mount-проверку в учебном процессе
+и должна воспроизвести старое разрешение после замены прямого bind. Собственные
+контейнеры/том удаляются; рабочая БД, сеть, секреты и GRAF Dev не используются.
+Этот профиль не доказывает удержание блокировки до COMMIT, готовность всей T113
+или право включить рабочее измерение.
+
 `apps/server/.venv/bin/python -m pytest -q apps/server/tests/integration/test_deployment_restore_safety.py apps/server/tests/integration/test_deployment_backup_restore_rehearsal.py`
 
 Настоящие shell-команды исполняются с подставными Docker/MinIO и учебными

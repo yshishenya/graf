@@ -283,6 +283,9 @@ async def admit_account_milestone(
     now = datetime.now(UTC)
     if event.occurred_at.tzinfo is None or event.occurred_at > now:
         raise ValueError("milestone occurrence time is not verified")
+    # Shared maintenance barrier precedes identity locks and lasts through COMMIT/ROLLBACK.
+    if not await db.scalar(select(func.pg_try_advisory_xact_lock_shared(273, 3))):
+        raise PermissionError("activation_maintenance_busy")
     # Account close takes the same identity lock before purge. A delayed auth
     # background task must not reinsert a first decision after that purge.
     active_account = await db.scalar(
