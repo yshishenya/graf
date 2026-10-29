@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import asyncio
+import os
 from collections.abc import Mapping
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.tenant_context import WorkspaceAuthContext, apply_tenant_context
+from twobrain_rec_server.product_analytics.activation_fence import activation_fence
 from twobrain_rec_server.product_analytics.delivery_gap import AnalyticsDeliveryGap
 from twobrain_rec_server.product_analytics.event_catalog import (
     yandex_offline_conversion_event_names,
@@ -118,7 +123,7 @@ class ProductAnalyticsIngestService:
         validation_mode = self.settings.product_analytics_validation_mode
         if activation_milestone_write_blockers(self.settings):
             return refused("admission_blocked")
-        try:
+        async def save_decision():
             async with sessionmaker() as db:
                 await apply_tenant_context(db, WorkspaceAuthContext(
                     organization_id=principal.organization_id,
@@ -153,6 +158,38 @@ class ProductAnalyticsIngestService:
                     properties=row.safe_payload["properties"],
                 )
                 await db.commit()
+            return saved_event, created
+
+        try:
+            with ExitStack() as stack:
+                try:
+                    stack.enter_context(activation_fence(
+                        Path(os.environ["GRAF_PRODUCT_ACTIVATION_STATE_FILE"]),
+                        owner_uid=int(os.environ["GRAF_PRODUCT_ACTIVATION_OWNER_UID"]),
+                    ))
+                except (KeyError, ValueError, OSError):
+                    return refused("admission_blocked")
+                # AsyncSession.__aexit__ shields a separate close task. Keep one
+                # uncancelled owner of the entire session, including that close,
+                # so repeated request cancellation cannot release SH early.
+                operation = asyncio.create_task(save_decision())
+                cancelled = None
+                while True:
+                    try:
+                        await asyncio.shield(operation)
+                        break
+                    except asyncio.CancelledError as exc:
+                        if cancelled is None:
+                            cancelled = exc
+                        if operation.done():
+                            break
+                    except Exception:
+                        break  # Extract the owner's exception below, even after cancellation.
+                try:
+                    saved_event, created = operation.result()
+                finally:
+                    if cancelled is not None:
+                        raise cancelled
         except PermissionError:
             return refused("admission_blocked")
         except Exception:  # analytics failure must not undo sign-in or a recording

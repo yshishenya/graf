@@ -1,6 +1,8 @@
 """Trusted admission on disposable PostgreSQL; never enable a real provider."""
 
 import asyncio
+import os
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
@@ -15,6 +17,7 @@ from tests.fakes.auth_contexts import USER_ID, principal
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import ProductActivationMilestone, UserIdentity
 from twobrain_rec_server.product_analytics import ingest, legal_basis_gate
+from twobrain_rec_server.product_analytics.activation_fence import ActivationHold, activation_fence
 from twobrain_rec_server.product_analytics.identity import build_safe_identity
 from twobrain_rec_server.product_analytics.ingest import ProductAnalyticsIngestService
 from twobrain_rec_server.product_analytics.legal_basis_lifecycle import (
@@ -33,10 +36,22 @@ def payload(name="first_recording_completed", user_id=USER_ID):
 
 
 @pytest.fixture
-def isolated_admission(monkeypatch):
+def isolated_admission(monkeypatch, tmp_path):
     # Replace only the still-blocked operating receipts in this test process.
     # The real resolver stays fail-closed pending T110/T113 recovery verification.
     monkeypatch.setattr(ingest, "activation_milestone_write_blockers", lambda settings: ())
+    directory = (tmp_path / "operator").resolve()
+    directory.mkdir(mode=0o700)
+    path = directory / "state.json"
+    lock = directory / "activation.lock"
+    lock.write_bytes(b"synthetic permanent inode")
+    lock.chmod(0o600)
+    monkeypatch.setenv("GRAF_PRODUCT_ACTIVATION_STATE_FILE", str(path))
+    monkeypatch.setenv("GRAF_PRODUCT_ACTIVATION_OWNER_UID", str(os.geteuid()))
+    # Only this Mac test opener bypasses read-only mount validation. Actual
+    # flock/UID/inode checks remain; production must keep readonly=True.
+    monkeypatch.setattr(ingest, "activation_fence", lambda path, *, owner_uid:
+                        activation_fence(path, owner_uid=owner_uid, readonly=False), raising=False)
     monkeypatch.setattr(
         ingest, "resolve_provider_delivery_gate", lambda *a, **kw: SimpleNamespace(allowed=True)
     )
@@ -55,6 +70,7 @@ def isolated_admission(monkeypatch):
     monkeypatch.setattr(
         "twobrain_rec_server.product_analytics.router.ParallelMeasurementRouter.dispatch", forbidden
     )
+    return path
 
 
 def run(url, scenario):
@@ -66,6 +82,114 @@ def run(url, scenario):
             await engine.dispose()
 
     asyncio.run(execute())
+
+
+@pytest.mark.parametrize("phase", ["commit", "close"])
+@pytest.mark.parametrize("fail_commit", [False, True])
+@pytest.mark.parametrize("cancel_twice", [False, True])
+def test_fence_covers_transaction_and_close_even_after_repeated_cancellation(
+    postgres_seeded_database_url, isolated_admission, phase, fail_commit, cancel_twice,
+):
+    path = isolated_admission
+
+    def exclusive_available():
+        try:
+            with activation_fence(path, owner_uid=os.geteuid(), exclusive=True, timeout=0):
+                return True
+        except ActivationHold as exc:
+            assert str(exc) == "activation_lock_busy"
+            return False
+
+    async def scenario(sessions, engine):
+        entered, release = asyncio.Event(), asyncio.Event()
+        closed = False
+        acquired_before_factory = []
+
+        class PausedSession(AsyncSession):
+            async def commit(self):
+                if phase == "commit":
+                    entered.set()
+                    await release.wait()
+                if fail_commit:
+                    raise RuntimeError("synthetic commit failure")
+                await super().commit()
+
+            async def close(self):
+                nonlocal closed
+                if phase == "close":
+                    entered.set()
+                    await release.wait()
+                await super().close()
+                closed = True
+
+        def factory():
+            acquired_before_factory.append(not exclusive_available())
+            return PausedSession(engine, expire_on_commit=False)
+
+        request = asyncio.create_task(ProductAnalyticsIngestService(
+            Settings(product_analytics_enabled=True, product_analytics_validation_mode="local_only")
+        ).ingest_authenticated(payload(), principal=principal(), sessionmaker=factory, source_kind="desktop"))
+        cancelled = False
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=3)
+            assert acquired_before_factory == [True]
+            assert not exclusive_available()
+            if cancel_twice:
+                assert request.cancel("first cancellation")
+                cancelled = True
+                await asyncio.sleep(0)
+                assert request.cancel("second cancellation")
+                await asyncio.sleep(0)
+                assert not request.done()
+                assert not closed and not exclusive_available()
+        finally:
+            release.set()
+            if cancelled:
+                with pytest.raises(asyncio.CancelledError, match="first cancellation"):
+                    await asyncio.wait_for(request, timeout=3)
+            else:
+                result = await asyncio.wait_for(request, timeout=3)
+                assert result.status == ("database_unavailable" if fail_commit else "accepted")
+        assert closed and exclusive_available()
+        async with sessions() as db:
+            assert await db.scalar(select(func.count()).select_from(ProductActivationMilestone)) == (
+                0 if fail_commit else 1
+            )
+
+    run(postgres_seeded_database_url, scenario)
+
+
+@pytest.mark.parametrize("failure", [
+    "state_missing", "uid_missing", "uid_invalid", "uid_wrong", "lock_missing", "lock_busy", "mount_writable",
+])
+def test_fence_refuses_before_creating_database_session(isolated_admission, monkeypatch, failure):
+    path = isolated_admission
+    if failure in {"state_missing", "uid_missing"}:
+        monkeypatch.delenv("GRAF_PRODUCT_ACTIVATION_" + ("STATE_FILE" if failure == "state_missing" else "OWNER_UID"))
+    elif failure == "uid_invalid":
+        monkeypatch.setenv("GRAF_PRODUCT_ACTIVATION_OWNER_UID", "unknown")
+    elif failure == "uid_wrong":
+        monkeypatch.setenv("GRAF_PRODUCT_ACTIVATION_OWNER_UID", str(os.geteuid() + 1))
+    elif failure == "lock_missing":
+        (path.parent / "activation.lock").unlink()
+    elif failure == "mount_writable":
+        monkeypatch.setattr(ingest, "activation_fence", activation_fence)
+
+    calls = []
+
+    def forbidden_session():
+        calls.append(True)
+        raise AssertionError("database must not be entered")
+
+    with (activation_fence(path, owner_uid=os.geteuid(), exclusive=True, timeout=0)
+          if failure == "lock_busy" else nullcontext()):
+        result = asyncio.run(ProductAnalyticsIngestService(Settings(
+            product_analytics_enabled=True, product_analytics_validation_mode="local_only",
+        )).ingest_authenticated(
+            payload(), principal=principal(), sessionmaker=forbidden_session, source_kind="desktop",
+        ))
+    assert result.status == "admission_blocked" and not result.accepted
+    assert calls == []
 
 
 def test_concurrent_ingress_owns_commit_and_keeps_original_decision(

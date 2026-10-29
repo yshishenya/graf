@@ -373,6 +373,21 @@ apps/server/.venv/bin/python -m pytest -q apps/server/tests/contract/test_produc
    владельца и серверную lineage; GET/prefetch/браузерная загрузка не доказывают
    desktop_first_recording. Не включать production по учебному PASS.
 
+Профиль lifetime SH (собственная PostgreSQL, фактический flock, паузы COMMIT
+и close, повторная отмена родителя, отказ до sessionmaker):
+
+```sh
+bash apps/server/scripts/run_local_postgres_tests.sh --focused -q --tb=short \
+  tests/contract/test_activation_milestone_ingress.py \
+  tests/contract/test_activation_milestone_ledger.py \
+  tests/unit/test_activation_fence.py
+```
+
+Проверить освобождение SH только после закрытия сессии и передачу первой
+CancelledError. Успешный COMMIT при отмене родителя может сохранить строку;
+отмена HTTP не обещает отката. Отдельно сохранён настоящий unconditional HOLD.
+Профиль не принимает доверенную readiness, общий product drain или SIGKILL.
+
 ### Первый срез безопасной репетиции T113 — 28.10.2026
 
 Файловый замок проверяется отдельно от ещё не подключённых DB-транзакций:
