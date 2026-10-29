@@ -903,8 +903,8 @@ def test_ordinary_startup_gate_registers_before_execution(tmp_path, boundary):
                 os.kill(pid, signal.SIGTERM)
 
 
-# Real local Git objects; the new path must pass unchanged source guards.
-FROZEN_RUNTIME = "698ebfa5202986f1a681fd46eb4f12e505352ded"
+# Reachable master history with the exact inspected frozen harness/startup bytes.
+FROZEN_RUNTIME = "66bc074c5b39fc2ef7955a28a920785e0775f24f"
 
 
 def _stopped_git(checkout, *args):
@@ -939,6 +939,7 @@ def stopped_case(tmp_path, monkeypatch):
               "infra/scripts/dev-migration-preflight.py")
     for role, sha in (("controller", "609633cd0e43b26adc0def3dfa6c478939f41c09"),
                       ("runtime", FROZEN_RUNTIME)):
+        _stopped_git(ROOT, "merge-base", "--is-ancestor", sha, "HEAD")
         checkout = scratch / role / "crisp"
         checkout.parent.mkdir()
         _stopped_git(ROOT, "clone", "--shared", "--no-checkout", "--quiet", str(ROOT), str(checkout))

@@ -167,7 +167,8 @@ T009/T011/T012/T013; поздний живой план требует собс�
 
 До реализации — независимые requirements/infra PASS, analyze и sync #7640.
 Используются существующий promotion suite и отдельные настоящие временные
-Git-checkouts текущего controller и закреплённого698eb. Исторические объекты
+Git-checkouts текущего controller и принятого66bc с той же проверенной
+парой frozen файлов, что698eb. Исторические объекты
 берутся из локального репозитория без сети; sparse clone с общим object store
 позволяет не копировать историю/зависимости. Отсутствие нужного объекта — отказ
 подготовки, не SKIP/PASS. Source/SHA/origin/bytes/digest/resolver guards и
