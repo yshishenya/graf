@@ -354,7 +354,8 @@ def test_signed_app_identity_is_measured_from_codesign_output(monkeypatch, tmp_p
     assert entitlements_digest.startswith("sha256:")
 
 
-def test_future_feature_smoke_rejects_stale_local_presentation(monkeypatch, tmp_path):
+@pytest.fixture
+def smoke_adapter(monkeypatch, tmp_path):
     sha = "d" * 40
     adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
     active = manifest(tmp_path, sha, feature="230")
@@ -391,10 +392,36 @@ def test_future_feature_smoke_rejects_stale_local_presentation(monkeypatch, tmp_
         lambda command, *, cwd, env=None: presentation[command[2]],
     )
 
+    return adapter, active, presentation
+
+
+def test_future_feature_smoke_rejects_stale_local_presentation(smoke_adapter):
+    adapter, active, presentation = smoke_adapter
     assert adapter.smoke(active)["app_presentation"] == "pass"
 
     presentation["CFBundleDisplayName"] = "GRAF Local"
     assert adapter.smoke(active)["app_presentation"] == "fail"
+
+
+@pytest.mark.parametrize("readiness", ["pass", "fail", "error"])
+def test_smoke_checks_required_maintenance_service(smoke_adapter, monkeypatch, readiness):
+    adapter, active, _ = smoke_adapter
+    services = []
+
+    def ready(service, env):
+        services.append(service)
+        assert env["GRAF_DEV_SOURCE_SHA"] == active["source_sha"]
+        if service == "rec-maintenance":
+            if readiness == "error":
+                raise dev_harness.HarnessError("Docker inspection failed")
+            return readiness
+        return "pass"
+
+    monkeypatch.setattr(adapter, "_compose_service_ready", ready)
+    checks = adapter.smoke(active)
+    assert services.count("rec-maintenance") == 1
+    assert checks["maintenance_readiness"] == ("pass" if readiness == "pass" else "fail")
+    assert all(value == "pass" for value in checks.values()) == (readiness == "pass")
 
 
 def test_http_probe_preserves_auth_challenge_status(monkeypatch, tmp_path):
@@ -674,13 +701,30 @@ def full_smoke():
     return dict.fromkeys(("backend_health", "frontend_reachability", "auth_session_bootstrap",
         "representative_api", "processing_worker_readiness", "media_worker_readiness",
         "database_readiness", "storage_readiness", "temporal_readiness", "migration_readiness",
-        "exact_source_sha", "app_identity", "app_presentation"), "pass")
+        "exact_source_sha", "app_identity", "app_presentation", "maintenance_readiness"), "pass")
 
 
 @pytest.mark.parametrize("checks", [{}, {"backend_health": "pass"}, {**full_smoke(), "exact_source_sha": "fail"}])
 def test_transition_rejects_incomplete_or_failed_smoke(checks):
     with pytest.raises(dev_harness.HarnessError, match="smoke"):
         dev_harness.GrafLocalAdapter._assert_transition_smoke(checks)
+
+
+@pytest.mark.parametrize("app_was_running", [True, False])
+@pytest.mark.parametrize("readiness", [None, "fail", "unknown", "pass"])
+def test_transition_requires_maintenance_even_without_running_app(app_was_running, readiness):
+    checks = full_smoke()
+    if not app_was_running:
+        checks.pop("app_presentation")
+    if readiness is None:
+        checks.pop("maintenance_readiness")
+    else:
+        checks["maintenance_readiness"] = readiness
+    if readiness == "pass":
+        dev_harness.GrafLocalAdapter._assert_transition_smoke(checks, app_was_running=app_was_running)
+    else:
+        with pytest.raises(dev_harness.HarnessError, match="smoke"):
+            dev_harness.GrafLocalAdapter._assert_transition_smoke(checks, app_was_running=app_was_running)
 
 
 def test_transition_checks_exact_tracked_source_before_loading(monkeypatch, tmp_path):

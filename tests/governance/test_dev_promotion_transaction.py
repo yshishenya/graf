@@ -207,7 +207,7 @@ def _crash_worker(root, selected, command):
             'auth_session_bootstrap', 'representative_api', 'processing_worker_readiness',
             'media_worker_readiness', 'database_readiness', 'storage_readiness',
             'temporal_readiness', 'migration_readiness', 'exact_source_sha',
-            'app_identity', 'app_presentation')}
+            'app_identity', 'app_presentation', 'maintenance_readiness')}
     cls.smoke = smoke
     cls._ensure_rollback_archive = lambda self, previous: None
     cls._apply_retention = lambda self, *args, **kwargs: None
@@ -1050,7 +1050,7 @@ def _stopped_worker(controller, runtime, state, boundary):
         return {key: "pass" for key in ("backend_health", "frontend_reachability",
             "auth_session_bootstrap", "representative_api", "processing_worker_readiness",
             "media_worker_readiness", "database_readiness", "storage_readiness", "temporal_readiness",
-            "migration_readiness", "exact_source_sha", "app_identity", "app_presentation")}
+            "migration_readiness", "exact_source_sha", "app_identity", "app_presentation", "maintenance_readiness")}
     cls.smoke = smoke
     # Pinned shell, frozen guard and preflight run unchanged. External Docker
     # and Alembic are markers; this is not database or installed-app acceptance.

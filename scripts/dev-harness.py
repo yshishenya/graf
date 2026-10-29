@@ -1651,6 +1651,7 @@ class GrafLocalAdapter:
             "representative_api", "processing_worker_readiness", "media_worker_readiness",
             "database_readiness", "storage_readiness", "temporal_readiness",
             "migration_readiness", "exact_source_sha", "app_identity", "app_presentation",
+            "maintenance_readiness",
         }
         if not app_was_running:
             required.remove("app_presentation")
@@ -2809,7 +2810,8 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
         self._schema_start_authorized(adapter, chosen, journal)
         if forward or journal["app_was_running"]:
             self._launch_dev_app(_dev_app_destination())
-        checks = adapter.smoke(chosen)
+        checker = self if forward else GrafLocalAdapter(adapter.root, adapter.state)
+        checks = checker.smoke(chosen)
         self._assert_transition_smoke(checks, app_was_running=forward or journal["app_was_running"])
         result = dict(chosen, status="active", health={"result": "pass", "checked_at": now(), "checks": checks})
         _publish_active(self.state, result, "live")
@@ -3229,14 +3231,16 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
             api_ready = self._compose_service_ready("api", runtime_env)
             processing_ready = self._compose_service_ready("rec-processing-worker", runtime_env)
             media_ready = self._compose_service_ready("rec-media-worker", runtime_env)
+            maintenance_ready = self._compose_service_ready("rec-maintenance", runtime_env)
             temporal_ready = self._compose_service_ready("rec-temporal", runtime_env)
             database_ready = self._compose_service_ready("rec-postgres", runtime_env)
             storage_ready = self._compose_service_ready("rec-minio", runtime_env)
         except HarnessError:
-            api_ready = processing_ready = media_ready = temporal_ready = database_ready = storage_ready = "fail"
+            api_ready = processing_ready = media_ready = maintenance_ready = temporal_ready = database_ready = storage_ready = "fail"
         checks["backend_health"] = "pass" if checks["backend_health"] == "pass" and api_ready == "pass" else "fail"
         checks["processing_worker_readiness"] = "pass" if internal_ready == "pass" and processing_ready == "pass" else "fail"
         checks["media_worker_readiness"] = "pass" if internal_ready == "pass" and media_ready == "pass" else "fail"
+        checks["maintenance_readiness"] = maintenance_ready
         checks["database_readiness"] = database_ready
         checks["storage_readiness"] = storage_ready
         checks["frontend_reachability"] = probe(frontend, "/login")
@@ -3941,6 +3945,7 @@ def operation_smoke(args: argparse.Namespace) -> Dict[str, Any]:
             "temporal_readiness": "pass",
             "processing_worker_readiness": "pass",
             "media_worker_readiness": "pass",
+            "maintenance_readiness": "pass",
             "app_identity": "pass",
             "app_presentation": "pass",
             "exact_source_sha": "pass",
