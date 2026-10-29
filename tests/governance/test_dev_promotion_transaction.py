@@ -903,8 +903,492 @@ def test_ordinary_startup_gate_registers_before_execution(tmp_path, boundary):
                 os.kill(pid, signal.SIGTERM)
 
 
+# Real local Git objects; the new path must pass unchanged source guards.
+FROZEN_RUNTIME = "698ebfa5202986f1a681fd46eb4f12e505352ded"
+
+
+def _stopped_git(checkout, *args):
+    result = subprocess.run(["git", *args], cwd=checkout, text=True,
+                            capture_output=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+
+
+def _load_stopped_module(checkout):
+    spec = importlib.util.spec_from_file_location("stopped_candidate", checkout / "scripts/dev-harness.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture
+def stopped_case(tmp_path, monkeypatch):
+    import urllib.request  # Import platform helpers before modelling macOS on Linux.
+
+    scratch = tmp_path.resolve()
+    # Model macOS consistently in the controller and its unchanged Python guards.
+    python_site = scratch / "test-python"
+    python_site.mkdir()
+    (python_site / "sitecustomize.py").write_text('import urllib.request, sys\nsys.platform = "darwin"\n')
+    monkeypatch.setenv("PYTHONPATH", str(python_site))
+    monkeypatch.setattr(sys, "platform", "darwin")
+    checkouts = {}
+    inputs = ("scripts/dev-harness.py", "infra/docker-compose.dev.yml",
+              "infra/scripts/start-dev-runtime.sh", "apps/macos/Scripts/install-dev-app.sh",
+              "apps/macos/Scripts/dev-app-lifecycle.swift", "apps/macos/Scripts/build-dev-app.sh",
+              "infra/scripts/dev-migration-preflight.py")
+    for role, sha in (("controller", "609633cd0e43b26adc0def3dfa6c478939f41c09"),
+                      ("runtime", FROZEN_RUNTIME)):
+        checkout = scratch / role / "crisp"
+        checkout.parent.mkdir()
+        _stopped_git(ROOT, "clone", "--shared", "--no-checkout", "--quiet", str(ROOT), str(checkout))
+        _stopped_git(checkout, "remote", "set-url", "origin", "git@github.com:yshishenya/graf.git")
+        _stopped_git(checkout, "sparse-checkout", "set", "--no-cone", *("/" + p for p in inputs))
+        _stopped_git(checkout, "checkout", "--quiet", "--detach", sha)
+        if role == "controller":
+            (checkout / "scripts/dev-harness.py").write_bytes((ROOT / "scripts/dev-harness.py").read_bytes())
+            _stopped_git(checkout, "add", "scripts/dev-harness.py")
+            # A disposable fixture commit lets the real guards verify this candidate.
+            _stopped_git(checkout, "-c", "user.name=GRAF fixture", "-c", "user.email=fixture@graf.test",
+                         "commit", "--allow-empty", "--quiet", "-m", "isolated controller candidate")
+        checkouts[role] = checkout
+    monkeypatch.setenv("HOME", str(scratch / "home"))
+    monkeypatch.setenv("PYTHONDONTWRITEBYTECODE", "1")
+    monkeypatch.delenv("GRAF_DEV_STATE_DIR", raising=False)
+    module = _load_stopped_module(checkouts["controller"])
+    module._stopped_test_workers = []
+    state = module._machine_state_base() / "crisp/harness"
+    state.mkdir(parents=True, mode=0o700)
+    module._write_json(module._machine_state_base() / "repository-state.json", {
+        "schema_version": "graf-dev-repository-state.v1", "repository": "github.com/yshishenya/graf",
+        "state_root": str(state), "adopted_active_sha": FROZEN_RUNTIME, "adopted_at": "2026-10-29T00:00:00Z"})
+    manifest = module.build_manifest(FROZEN_RUNTIME, "224", "synthetic", "synthetic-head", state)
+    manifest["status"] = "active"
+    module._publish_active(state, manifest, "live")
+    adapter = module.GrafLocalAdapter(checkouts["controller"], state)
+    frozen = adapter._checkout_adapter(checkouts["runtime"], manifest)
+    module._write_json(state / "runtime.json", dict(_runtime_marker(FROZEN_RUNTIME),
+                       runtime_definition_digest=frozen._runtime_definition_digest()))
+    (state / "promote.lock").touch()
+    (state / "protected-data").write_bytes(b"synthetic protected bytes")
+    try:
+        yield module, checkouts, state, manifest
+    finally:
+        for worker in module._stopped_test_workers:
+            if worker.poll() is None:
+                worker.kill()
+            worker.communicate(timeout=5)
+        record = module._read_json(state / "runtime.json") if (state / "runtime.json").exists() else None
+        adapter = module.GrafLocalAdapter(checkouts["runtime"], state)
+        if record and adapter._pid_alive(record.get("pid", -1)) and adapter._pid_owned(record):
+            adapter._stop_previous()
+        # No dependencies/history copied; discard owned sparse clones and state.
+        module.shutil.rmtree(scratch)
+
+
+def _stopped_worker(controller, runtime, state, boundary):
+    module = _load_stopped_module(controller)
+    cls = module.GrafLocalAdapter
+    destination = state / "installed-marker"
+    module._dev_app_destination = lambda: destination
+    module._installed_app_state = lambda: {"installed": destination.exists()}
+    cls._app_is_running = lambda self, path: boundary == "live-app"
+    cls._checked_app_bundle = lambda self, manifest: state
+    cls._validate_launch_bundle = lambda self, manifest, path: None
+    cls._compose_config = lambda self, env: None
+    cls._assert_manifest_images = lambda self, manifest, env: None
+    cls._ensure_rollback_archive = lambda self, manifest: None
+    cls._apply_retention = lambda self, *args, **kwargs: None
+    cls._terminate_dev_app = lambda self, path: None
+    cls._launch_dev_app = lambda self, path: None
+
+    def snapshot(self):
+        _crash_handshake(state, "before-receipt", boundary)
+        if not destination.exists():
+            return None
+        backup = state / "transactions/previous-stopped.app"
+        backup.mkdir(parents=True)
+        (backup / "version").write_bytes(destination.read_bytes())
+        return backup
+    cls._snapshot_app = snapshot
+
+    def install(self, manifest, env):
+        destination.write_text(manifest["source_sha"])
+        _crash_handshake(state, "after-install", boundary)
+    cls._install_app = install
+
+    def restore(self, backup):
+        _crash_handshake(state, "before-restore", boundary)
+        if backup is None:
+            destination.unlink(missing_ok=True)
+        else:
+            destination.write_bytes((backup / "version").read_bytes())
+        _crash_handshake(state, "after-restore", boundary)
+    cls._restore_app = restore
+    restore_runtime = cls._restore_runtime
+
+    def restoring_runtime(self, *args):
+        _crash_handshake(state, "before-restore-runtime", boundary)
+        restore_runtime(self, *args)
+        _crash_handshake(state, "after-restore-runtime", boundary)
+    cls._restore_runtime = restoring_runtime
+    cleanup = cls._cleanup_ordinary
+
+    def cleaning(self, *args):
+        _crash_handshake(state, "before-cleanup", boundary)
+        cleanup(self, *args)
+        _crash_handshake(state, "after-cleanup", boundary)
+    cls._cleanup_ordinary = cleaning
+
+    def smoke(self, manifest):
+        _crash_handshake(state, "after-start", boundary)
+        if boundary == "smoke-failure" or boundary in {"before-restore", "after-restore", "before-restore-runtime", "after-restore-runtime"}:
+            raise module.HarnessError("injected smoke failure")
+        return {key: "pass" for key in ("backend_health", "frontend_reachability",
+            "auth_session_bootstrap", "representative_api", "processing_worker_readiness",
+            "media_worker_readiness", "database_readiness", "storage_readiness", "temporal_readiness",
+            "migration_readiness", "exact_source_sha", "app_identity", "app_presentation")}
+    cls.smoke = smoke
+    # Pinned shell, frozen guard and preflight run unchanged. External Docker
+    # and Alembic are markers; this is not database or installed-app acceptance.
+    os.environ["GRAF_DEV_STATE_ROOT"] = str(state)
+    binaries = state.parent / "test-bin"
+    binaries.mkdir(exist_ok=True)
+    docker = binaries / "docker"
+    docker.write_text(f"#!{sys.executable}\n" + r'''
+import os,pathlib,subprocess,sys
+state=pathlib.Path(os.environ['GRAF_DEV_STATE_ROOT'])
+args=sys.argv[1:]
+with (pathlib.Path(sys.argv[0]).parent/'docker-calls').open('a') as out: out.write(' '.join(args)+'\n')
+if args[0]=='ps':
+    if os.environ.get('GRAF_TEST_ORPHAN'): print('orphan')
+    sys.exit(0)
+if '/app/scripts/dev-migration-preflight.py' in args:
+    sys.exit(subprocess.call([sys.executable, str(pathlib.Path.cwd()/'infra/scripts/dev-migration-preflight.py'), '--server-root', str(state), '--json']))
+if 'api' in args and 'up' in args: (state/'writers-started').touch()
+if '--services' in args: print('api')
+''')
+    docker.chmod(0o700)
+    alembic = binaries / "alembic"
+    revision = "unknown-revision" if boundary == "unknown-revision" else "synthetic-head"
+    alembic.write_text("#!/bin/sh\nprintf '%s\\n' " + revision + "\n")
+    alembic.chmod(0o700)
+    os.environ["PATH"] = str(binaries) + os.pathsep + os.path.dirname(sys.executable) + os.pathsep + os.defpath
+    if boundary == "orphan":
+        os.environ["GRAF_TEST_ORPHAN"] = "1"
+
+    def wait_ready(self, *args):
+        _crash_handshake(state, "after-permit", boundary)
+        _wait_marker(state / "writers-started")
+    cls._wait_runtime_ready = wait_ready
+    write = module._write_json
+
+    def writing(path, value):
+        write(path, value)
+        if path.name == "rollback-required.json":
+            with (binaries / "receipt-history.jsonl").open("a") as history:
+                history.write(json.dumps(value["operation"]) + "\n")
+            _crash_handshake(state, "after-receipt", boundary)
+        if path.name == "runtime.json":
+            if boundary == "runtime-tamper":
+                write(path, dict(value, start_token="foreign"))
+            elif boundary == "receipt-tamper":
+                receipt = module._read_json(state / "rollback-required.json")
+                receipt["operation"]["checkouts"]["controller"]["digest"] = "sha256:" + "0" * 64
+                write(state / "rollback-required.json", receipt)
+            elif boundary in {"controller-drift", "runtime-drift"}:
+                checkout = controller if boundary == "controller-drift" else runtime
+                with (checkout / "infra/docker-compose.dev.yml").open("a") as file:
+                    file.write("\n# drift before startup admission\n")
+            _crash_handshake(state, "after-runtime", boundary)
+    module._write_json = writing
+    publish = module._publish_active
+
+    def publishing(*args):
+        publish(*args)
+        _crash_handshake(state, "after-pointer", boundary)
+    module._publish_active = publishing
+    unlink = Path.unlink
+
+    def unlinking(path, *args, **kwargs):
+        if path == state / "rollback-required.json":
+            _crash_handshake(state, "before-unlink", boundary)
+        result = unlink(path, *args, **kwargs)
+        if path == state / "rollback-required.json":
+            _crash_handshake(state, "after-unlink", boundary)
+        return result
+    Path.unlink = unlinking
+    sys.exit(module.main(["promote", "--live", "--manifest", str(state / "manifests" / ("dev-" + FROZEN_RUNTIME[:12] + ".json")),
+                          "--previous-checkout", str(runtime)]))
+
+
+def _start_stopped_worker(case, boundary="none"):
+    module, checkouts, state, _manifest = case
+    worker = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--stopped-worker",
+                             str(checkouts["controller"]), str(checkouts["runtime"]), str(state), boundary],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    module._stopped_test_workers.append(worker)
+    return worker
+
+
+@pytest.mark.parametrize("fault", [
+    "controller-origin", "runtime-origin", "controller-dirty", "runtime-dirty",
+    "controller-hidden", "runtime-hidden", "runtime-sha", "runtime-resolver",
+    "runtime-digest", "runtime-source", "runtime-missing", "runtime-token",
+    "runtime-command", "runtime-pid-zero", "runtime-pid-negative",
+    "active-missing", "active-mode", "unsupported-startup",
+    "schema-malformed", "schema-unfinished",
+])
+def test_stopped_source_and_state_guards_refuse_before_effects(stopped_case, fault):
+    module, checkouts, state, manifest = stopped_case
+    if fault.endswith("-origin"):
+        _stopped_git(checkouts[fault.split("-")[0]], "remote", "set-url", "origin", "git@github.com:other/repo.git")
+    elif fault.endswith(("-dirty", "-hidden")):
+        checkout = checkouts[fault.split("-")[0]]
+        if fault.endswith("-hidden"):
+            _stopped_git(checkout, "update-index", "--assume-unchanged", "infra/docker-compose.dev.yml")
+        with (checkout / "infra/docker-compose.dev.yml").open("a") as file:
+            file.write("\n# changed tracked bytes\n")
+    elif fault == "runtime-sha":
+        _stopped_git(checkouts["runtime"], "checkout", "--quiet", "--detach", "609633cd0e43b26adc0def3dfa6c478939f41c09")
+    elif fault == "runtime-resolver":
+        destination = checkouts["runtime"].with_name("renamed")
+        checkouts["runtime"].rename(destination)
+        checkouts["runtime"] = destination
+    elif fault == "runtime-missing":
+        (state / "runtime.json").unlink()
+    elif fault.startswith("runtime-"):
+        record = module._read_json(state / "runtime.json")
+        key = {"runtime-digest": "runtime_definition_digest", "runtime-source": "source_sha",
+               "runtime-token": "start_token", "runtime-command": "command",
+               "runtime-pid-zero": "pid", "runtime-pid-negative": "pid"}[fault]
+        record[key] = {"runtime-digest": "sha256:" + "0" * 64,
+                       "runtime-pid-zero": 0, "runtime-pid-negative": -1}.get(fault, "")
+        module._write_json(state / "runtime.json", record)
+    elif fault == "active-missing":
+        (state / "active-manifest.json").unlink()
+    elif fault == "active-mode":
+        pointer = module._read_json(state / "active-manifest.json")
+        module._write_json(state / "active-manifest.json", dict(pointer, runtime_mode="metadata-only"))
+    elif fault == "unsupported-startup":
+        sha = "609633cd0e43b26adc0def3dfa6c478939f41c09"
+        _stopped_git(checkouts["runtime"], "checkout", "--quiet", "--detach", sha)
+        candidate = dict(module.build_manifest(sha, "224", "synthetic", "synthetic-head", state), status="active")
+        module._publish_active(state, candidate, "live")
+        module._write_json(state / "manifests" / (manifest["manifest_id"] + ".json"), candidate)
+        adapter = module.GrafLocalAdapter(checkouts["runtime"], state)
+        module._write_json(state / "runtime.json", dict(_runtime_marker(sha),
+                           runtime_definition_digest=adapter._runtime_definition_digest()))
+    else:
+        journal = {} if fault == "schema-malformed" else {
+            "schema_version": "dev-schema-transition.v1", "phase": "prepared", "operation_id": "upgrade-1",
+            "previous": manifest, "target": manifest,
+            "volumes": {"graf-dev-postgres-data": {}, "graf-dev-minio-data": {}},
+        }
+        module._write_json(state / "schema-transition.json", journal)
+        if fault == "schema-unfinished":
+            assert module._read_schema_transition(state)["phase"] == "prepared"
+    before = {str(path.relative_to(state)): path.read_bytes() for path in state.rglob("*") if path.is_file()}
+    inode = (state / "promote.lock").stat().st_ino
+    worker = _start_stopped_worker(stopped_case)
+    out, err = worker.communicate(timeout=60)
+    assert worker.returncode != 0, (fault, out, err)
+    expected = {
+        "controller-origin": "Dev state belongs to another repository",
+        "runtime-origin": "transition checkout must belong to this Git repository",
+        "controller-dirty": "live adapter requires a clean checkout",
+        "runtime-dirty": "live adapter requires a clean checkout",
+        "controller-hidden": "transition input differs from committed bytes",
+        "runtime-hidden": "transition input differs from committed bytes",
+        "runtime-sha": "candidate source_sha to equal the checked-out HEAD",
+        "runtime-resolver": "pinned checkout resolver does not match the adopted Dev state",
+        "runtime-digest": "active Dev runtime definition differs from checkout",
+        "runtime-source": "ordinary transition runtime identity is unknown",
+        "runtime-missing": "same-active recovery requires stopped runtime, app and Dev containers",
+        "runtime-token": "ordinary transition runtime identity is unknown",
+        "runtime-command": "ordinary transition runtime identity is unknown",
+        "runtime-pid-zero": "ordinary transition runtime identity is unknown",
+        "runtime-pid-negative": "ordinary transition runtime identity is unknown",
+        "active-missing": "candidate source_sha to equal the checked-out HEAD",
+        "active-mode": "different controller source requires a stopped same-active promotion",
+        "unsupported-startup": "unsupported stopped-runtime startup",
+        "schema-malformed": "invalid schema transition journal",
+        "schema-unfinished": "unfinished schema transition",
+    }[fault]
+    assert expected in err, (fault, err)
+    assert before == {str(path.relative_to(state)): path.read_bytes() for path in state.rglob("*") if path.is_file()}
+    assert (state / "promote.lock").stat().st_ino == inode
+    assert not (state / "transactions").exists()
+    assert not (state / "writers-started").exists()
+
+
+@pytest.mark.parametrize("fault", [
+    "missing-field", "null", "boolean", "short-sha", "same-sha", "rollback",
+    "no-previous", "live-runtime", "live-app", "no-runtime", "invalid-pid",
+    "controller-pin", "different-runtime-pin", "runtime-record-digest", "extra-field",
+])
+def test_stopped_optional_receipt_rejects_invalid_forms(tmp_path, fault):
+    root = tmp_path.resolve()
+    module, _previous, target, protected, lock, inode = _pending_operation(root)
+    adapter = module.GrafLocalAdapter(root, root)
+    operation = module._read_ordinary_operation(root)
+    operation.update(previous=target, controller_manifest=target, previous_runtime=_runtime_marker(NEW),
+                     previous_was_live=False, app_was_running=False, backup=None, backup_digest=None,
+                     controller_source_sha=OLD)
+    operation["checkouts"]["controller"]["source_sha"] = OLD
+    operation["checkouts"]["previous"] = dict(operation["checkouts"]["target"])
+    adapter._write_ordinary_receipt(operation)
+    assert module._read_ordinary_operation(root) == operation
+    if fault == "missing-field":
+        operation.pop("controller_source_sha")
+    elif fault in {"null", "boolean", "short-sha", "same-sha"}:
+        operation["controller_source_sha"] = {"null": None, "boolean": True, "short-sha": OLD[:8], "same-sha": NEW}[fault]
+    elif fault == "rollback":
+        operation["kind"] = "rollback"
+    elif fault == "no-previous":
+        operation["previous"] = None
+    elif fault in {"live-runtime", "live-app"}:
+        operation["previous_was_live" if fault == "live-runtime" else "app_was_running"] = True
+    elif fault == "no-runtime":
+        operation["previous_runtime"] = None
+    elif fault == "invalid-pid":
+        operation["previous_runtime"]["pid"] = 0
+    elif fault == "controller-pin":
+        operation["checkouts"]["controller"]["source_sha"] = NEW
+    elif fault == "different-runtime-pin":
+        operation["checkouts"]["previous"]["digest"] = "sha256:" + "0" * 64
+    elif fault == "runtime-record-digest":
+        operation["previous_runtime"]["runtime_definition_digest"] = "sha256:" + "0" * 64
+    else:
+        operation["unexpected"] = True
+    adapter._write_ordinary_receipt(operation)
+    receipt = (root / "rollback-required.json").read_bytes()
+    with pytest.raises(module.HarnessError):
+        module._read_ordinary_operation(root)
+    assert (root / "rollback-required.json").read_bytes() == receipt
+    assert protected.read_bytes() == b"synthetic protected bytes"
+    assert lock.stat().st_ino == inode
+
+
+@pytest.mark.parametrize(("installed", "schema_phase"), [(False, None), (True, None), (False, "complete"), (False, "recovered")])
+def test_stopped_same_active_cli_uses_current_controller_and_pinned_startup(stopped_case, installed, schema_phase):
+    module, checkouts, state, manifest = stopped_case
+    if installed:
+        (state / "installed-marker").write_text(FROZEN_RUNTIME)
+    if schema_phase:
+        module._write_json(state / "schema-transition.json", {
+            "schema_version": "dev-schema-transition.v1", "phase": schema_phase, "operation_id": "upgrade-1",
+            "previous": manifest, "target": manifest,
+            "volumes": {"graf-dev-postgres-data": {}, "graf-dev-minio-data": {}},
+        })
+        assert module._read_schema_transition(state)["phase"] == schema_phase
+    worker = _start_stopped_worker(stopped_case)
+    try:
+        out, err = worker.communicate(timeout=60)
+        assert worker.returncode == 0, (out, err)
+        assert module._same_pinned_manifest(module._load_active(state), manifest)
+        record = module._read_json(state / "runtime.json")
+        assert record["source_sha"] == FROZEN_RUNTIME
+        assert record["runtime_definition_digest"] == module.GrafLocalAdapter(checkouts["runtime"], state)._runtime_definition_digest()
+        assert (state / "writers-started").exists()
+        assert not (state / "rollback-required.json").exists()
+    finally:
+        if worker.poll() is None:
+            worker.kill()
+            worker.communicate(timeout=5)
+        module.GrafLocalAdapter(checkouts["runtime"], state)._stop_previous()
+
+
+@pytest.mark.parametrize("boundary", ["before-receipt", "after-receipt", "after-install",
+                                     "after-runtime", "after-permit", "after-start",
+                                     "after-pointer", "before-unlink", "after-unlink",
+                                     "before-cleanup", "after-cleanup", "before-restore", "after-restore",
+                                     "before-restore-runtime", "after-restore-runtime"])
+def test_stopped_same_active_sigkill_and_exact_retry(stopped_case, boundary):
+    module, checkouts, state, manifest = stopped_case
+    if boundary.endswith("cleanup"):
+        (state / "installed-marker").write_text(FROZEN_RUNTIME)
+    lock_inode = (state / "promote.lock").stat().st_ino
+    worker = _start_stopped_worker(stopped_case, boundary)
+    try:
+        deadline = time.monotonic() + 60
+        while not (state / "ready").exists():
+            if worker.poll() is not None:
+                pytest.fail(str(worker.communicate()))
+            assert time.monotonic() < deadline, boundary
+            time.sleep(0.02)
+        worker.kill()
+        worker.communicate(timeout=5)
+        assert worker.returncode == -signal.SIGKILL
+        before = module._read_ordinary_operation(state)
+        status = module.operation_status(argparse.Namespace())
+        assert status["status"] == ("active" if boundary in {"before-receipt", "after-unlink", "before-cleanup", "after-cleanup"} else "rollback_required")
+        if boundary.endswith("cleanup"):
+            assert (state / "transactions/previous-stopped.app").exists() == (boundary == "before-cleanup")
+        (state / "ready").unlink()
+        retry = _start_stopped_worker(stopped_case)
+        out, err = retry.communicate(timeout=60)
+        assert retry.returncode == 0, (out, err)
+        assert not (state / "rollback-required.json").exists()
+        assert module._same_pinned_manifest(module._load_active(state), manifest)
+        assert (state / "protected-data").read_bytes() == b"synthetic protected bytes"
+        assert (state / "promote.lock").stat().st_ino == lock_inode
+        if before is not None:
+            assert before["checkouts"]["target"] == before["checkouts"]["previous"]
+            assert before["controller_source_sha"] == _stopped_git(checkouts["controller"], "rev-parse", "HEAD")
+            history = [json.loads(line) for line in (state.parent / "test-bin/receipt-history.jsonl").read_text().splitlines()]
+            mutable = {"controller_pid", "controller_start"}
+            assert {key: value for key, value in before.items() if key not in mutable} == {
+                key: value for key, value in history[-1].items() if key not in mutable}
+    finally:
+        if worker.poll() is None:
+            worker.kill()
+            worker.communicate(timeout=5)
+
+
+@pytest.mark.parametrize("failure", ["orphan", "live-app", "runtime-tamper", "receipt-tamper", "smoke-failure", "unknown-revision", "controller-drift", "runtime-drift"])
+def test_stopped_same_active_failure_preserves_data(stopped_case, failure):
+    module, _checkouts, state, manifest = stopped_case
+    original_runtime = (state / "runtime.json").read_bytes()
+    inode = (state / "promote.lock").stat().st_ino
+    source_inputs = {role: (checkout / "infra/docker-compose.dev.yml").read_bytes() for role, checkout in _checkouts.items()}
+    worker = _start_stopped_worker(stopped_case, failure)
+    out, err = worker.communicate(timeout=60)
+    assert worker.returncode != 0, (out, err)
+    assert (state / "protected-data").read_bytes() == b"synthetic protected bytes"
+    assert (state / "promote.lock").stat().st_ino == inode
+    if failure in {"orphan", "live-app"}:
+        assert not (state / "transactions").exists()
+    if failure in {"runtime-tamper", "receipt-tamper", "unknown-revision", "controller-drift", "runtime-drift"}:
+        assert not (state / "writers-started").exists()
+    if failure in {"controller-drift", "runtime-drift"}:
+        assert (state / "rollback-required.json").exists(), err
+        for role, source in source_inputs.items():
+            (_checkouts[role] / "infra/docker-compose.dev.yml").write_bytes(source)
+    if failure in {"runtime-tamper", "controller-drift", "runtime-drift"} and (state / "rollback-required.json").exists():
+        record = module._read_json(state / "runtime.json")
+        adapter = module.GrafLocalAdapter(_checkouts["runtime"], state)
+        deadline = time.monotonic() + 5
+        while adapter._pid_alive(record["pid"]):
+            assert time.monotonic() < deadline, "denied startup child did not exit on pipe EOF"
+            time.sleep(0.01)
+        retry = _start_stopped_worker(stopped_case)
+        out, err = retry.communicate(timeout=60)
+        assert retry.returncode == 0, (out, err)
+        assert not (state / "rollback-required.json").exists()
+        assert module._same_pinned_manifest(module._load_active(state), manifest)
+    elif failure != "receipt-tamper":
+        assert not (state / "rollback-required.json").exists(), err
+        assert (state / "runtime.json").read_bytes() == original_runtime
+        assert not (state / "installed-marker").exists()
+        if failure not in {"orphan", "live-app"}:
+            assert module._load_active(state)["health"]["result"] == "unknown"
+
+
 if __name__ == "__main__":
-    if len(sys.argv) == 4 and sys.argv[1] == "--lock-worker":
+    if len(sys.argv) == 6 and sys.argv[1] == "--stopped-worker":
+        _stopped_worker(Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]), sys.argv[5])
+    elif len(sys.argv) == 4 and sys.argv[1] == "--lock-worker":
         _lock_worker(Path(sys.argv[2]), sys.argv[3])
     elif len(sys.argv) == 4 and sys.argv[1] == "--startup-worker":
         _startup_worker(Path(sys.argv[2]), sys.argv[3])

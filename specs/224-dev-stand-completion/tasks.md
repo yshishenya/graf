@@ -58,6 +58,15 @@ missing-selected-lock и выбранных lock races входит в ту же
 selected-live/lock-race случаи по quickstart. Общие loaders остаются строгими;
 исходная строка T009 и её открытая реальная приёмка не меняются.
 
+Уточнение той же T009/#7640 от29.10.2026: восстановление stopped same-active
+текущим controller по contracts/promotion-recovery.md. До кода — повторное
+независимое requirements/infra ревью R1–R3, analyze и sync. Затем в
+tests/governance/test_dev_promotion_transaction.py воспроизвести цельный отказ
+current-controller→настоящий pinned startup с неподменёнными source guards,
+добавить отрицательные и SIGKILL/retry случаи quickstart, минимально исправить
+scripts/dev-harness.py; записать результаты в validation-runtime.md.
+Историческая T010 не переоткрывается; исходные13 задач и их отметки сохранены.
+
 ## Phase 5: US3 — восстановление и разрешения (P1)
 
 **Независимая проверка**: crash boundaries дают согласованный результат либо

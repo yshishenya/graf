@@ -269,3 +269,28 @@ commit/PR и три точные GitHub SHA/base проверки. Общее р
 окно выпуска другой задачи сохраняется. Реальный adopt/build/promote отдельно
 после актуальной проверки владельца выбранного root и исключения писателей.
 T009/T011/T012/T013 и #6180 остаются открытыми.
+
+## T009: восстановление stopped same-active —29.10.2026
+
+Ветка codex/224-stopped-predecessor, основа609633cd0e43b26adc0def3dfa6c478939f41c09;
+lane high-risk-product. Свободно183GiB. Конституция, PRD, current-status,
+product-gates и документы активной фичи прочитаны полностью. Общее разрешение
+на проверенные commit/PR/merge действует; окно без новых слияний для PR #7814
+согласовано. Продуктовых вопросов0; уточнены US2/FR-009/012/SC-003.
+
+Phase0: независимое исследование подтвердило пробел раздельной source identity,
+ограниченность frozen guard и существующие методы для source-only проверки,
+checkout pins и orphan containers. Phase1: минимальный формат и точная семья
+startup заданы единожды в contracts/promotion-recovery.md; data-model ссылается
+на него. Реализация после reviewer/analyze/sync остаётся в dev-harness.py,
+матрица — в test_dev_promotion_transaction.py. Новых зависимостей, команд,
+общего recovery manager и schema-transition механизма нет.
+
+До и после проекта: нарушений конституции не найдено; одна установка, подпись,
+данные, current controller, frozen source guards и настоящий migration preflight
+сохранены. Это самооценка проекта. До кода обязателен повторный независимый PASS
+requirements/infra после прежних45/7, анализ CRITICAL/HIGH0 и sync #7640.
+Далее цельный RED/GREEN на настоящих временных Git-копиях, процессная матрица
+quickstart, регрессии, независимое implementation review и converge; затем
+проверенный commit/PR и новые обязательные SHA/base gates. Живые операции
+выполняются отдельно после проверки доступности единственного Dev.

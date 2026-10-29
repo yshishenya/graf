@@ -162,3 +162,46 @@ Docker/Swift/сеть и рабочие данные запрещены в эт�
 
 Команда ownership приведена выше. Новые успешные тесты не закрывают реальную
 T009/T011/T012/T013; поздний живой план требует собственного актуального proof.
+
+## T009: stopped same-active — матрица29.10.2026
+
+До реализации — независимые requirements/infra PASS, analyze и sync #7640.
+Используются существующий promotion suite и отдельные настоящие временные
+Git-checkouts текущего controller и закреплённого698eb. Исторические объекты
+берутся из локального репозитория без сети; sparse clone с общим object store
+позволяет не копировать историю/зависимости. Отсутствие нужного объекта — отказ
+подготовки, не SKIP/PASS. Source/SHA/origin/bytes/digest/resolver guards и
+frozen startup guard не подменяются; app/Docker заменяются маркерами.
+
+1. Цельный CLI promote+previous-checkout: на исходном609633 воспроизвести отказ
+   SHA; после исправления восстановить ровно прежний manifest. Отдельные случаи:
+   отсутствующий app и существующий остановленный app; runtime исходно stopped.
+2. Изменить по одному controller/previous/target root, origin, full SHA,
+   tracked bytes (включая assume-unchanged), digest, resolver, complete manifest,
+   parent/Dev boundary; проверить отсутствующий active, неизвестный runtime/PID/
+   start token, живой app и orphan контейнер. Отказ до snapshot/receipt/install/
+   stop/start, исходные файлы и lock inode неизменны.
+3. Проверить строгий новый optional receipt и отсутствие поля у старых receipts.
+   Неподдерживаемая frozen пара, в том числе reader609633, отказывает до эффектов.
+   Поддержанный698eb guard исполняется неизменным; его возврат не считается
+   авторизацией. Подменить pins/ordinary контекст и runtime record между записью
+   и pipe byte: ни одно действие startup не допускается. Проверить PID ребёнка
+   и start token, не выдавая future post-exec command за текущую команду gate.
+4. Отдельно: schema journal отсутствует/complete/recovered, malformed/unfinished;
+   schema recovery имеет приоритет. Настоящий закреплённый preflight предшествует
+   application writers и отвергает неизвестную ревизию; observed revision из
+   manifest не подставляется. Маркеры внешних команд не доказывают реальную БД.
+5. Настоящий SIGKILL до/после durable receipt, install, runtime record, pipe byte,
+   pointer, unlink/cleanup. Status показывает незавершённость, повтор сохраняет
+   ID и все immutable pins. Уже owned target после SIGKILL допустим для retry;
+   начальная остановка не проверяется повторно как неизменное текущее состояние.
+6. Компенсация возвращает точную исходную runtime запись и отсутствие app,
+   если его не было; health unknown. Данные, inode и единственный backup целы.
+   Повторить ordinary promote/rollback/first-install, schema/ownership/signature,
+   fd/pipe/launch/retention регрессии. Временные копии удалить после проверки.
+
+Команда: `PYTHONDONTWRITEBYTECODE=1 python -m pytest -q -o addopts=
+tests/governance/test_dev_promotion_transaction.py`. Сохранить RED и GREEN
+раздельно, полный перечень случаев и границы подменённых эффектов. Затем
+independent review/converge и новые exact PR SHA/base gates; настоящий Dev,
+данные БД и TCC проверяются отдельно. T009/T011/T012/T013/#6180 открыты.

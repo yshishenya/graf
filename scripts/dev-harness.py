@@ -1288,6 +1288,20 @@ def _read_ordinary_operation(root):
     if receipt.get("manifest_id") != target["manifest_id"] or receipt.get("source_sha") != target["source_sha"]:
         raise HarnessError("ordinary receipt differs from its pinned target")
     previous = operation["previous"]
+    controller_source = operation.get("controller_source_sha")
+    if "controller_source_sha" in operation:
+        if (set(operation) != required | {"controller_source_sha"}
+                or not isinstance(controller_source, str) or not SHA_RE.fullmatch(controller_source)
+                or controller_source == target["source_sha"] or operation["kind"] != "promote"
+                or previous is None or not _same_pinned_manifest(previous, target)
+                or operation["previous_was_live"] or operation["app_was_running"]
+                or not isinstance(operation["previous_runtime"], dict)):
+            raise HarnessError("split controller requires a stopped same-active promotion")
+        runtime = operation["previous_runtime"]
+        if (type(runtime.get("pid")) is not int or runtime["pid"] <= 0
+                or not isinstance(runtime.get("command"), str) or not runtime["command"]
+                or not isinstance(runtime.get("start_token"), str) or not runtime["start_token"]):
+            raise HarnessError("split controller predecessor identity is invalid")
     controller = target if operation["kind"] == "promote" else previous
     if controller is None or not _same_pinned_manifest(controller, operation["controller_manifest"]):
         raise HarnessError("ordinary controller manifest differs from its command")
@@ -1309,11 +1323,16 @@ def _read_ordinary_operation(root):
         manifest = operation["controller_manifest"] if role == "controller" else operation[role]
         if (not isinstance(record, dict) or not isinstance(record.get("root"), str)
                 or not Path(record["root"]).is_absolute()
-                or record.get("source_sha") != manifest["source_sha"]
+                or record.get("source_sha") != (controller_source if role == "controller" and controller_source else manifest["source_sha"])
                 or not re.fullmatch(r"sha256:[0-9a-f]{64}", str(record.get("digest", "")))):
             raise HarnessError("ordinary operation checkout identity is invalid")
         if not _checked_state_path(Path(record["root"])).is_dir():
             raise HarnessError("pinned ordinary checkout is missing")
+    if controller_source and checkouts["previous"] != checkouts["target"]:
+        raise HarnessError("stopped recovery requires one pinned runtime checkout")
+    if (operation["previous_runtime"] is not None
+            and str(operation["previous_runtime"].get("runtime_definition_digest", "")).lower() != checkouts["previous"]["digest"]):
+        raise HarnessError("ordinary previous runtime differs from its pinned definition")
     backup = operation["backup"]
     if backup is not None:
         if not isinstance(backup, str) or not re.fullmatch(r"transactions/previous-[A-Za-z0-9-]+\.app", backup):
@@ -1339,6 +1358,21 @@ def _assert_ordinary_controller(root, manifest):
             or not any(value is not None and _same_pinned_manifest(value, manifest)
                        for value in (operation["previous"], operation["target"]))):
         raise HarnessError("ordinary operation requires its current verified controller")
+    if "controller_source_sha" in operation:
+        _assert_no_schema_transition(root)
+        pins = operation["checkouts"]
+        if Path(pins["controller"]["root"]).resolve() != adapter.root.resolve():
+            raise HarnessError("stopped recovery requires its actual controller root")
+        lock_info = os.fstat(held[2])
+        path_info = (root / "promote.lock").lstat()
+        if (lock_info.st_dev, lock_info.st_ino) != (path_info.st_dev, path_info.st_ino):
+            raise HarnessError("ordinary operation lock changed")
+        for role, pin in pins.items():
+            source = {"source_sha": operation["controller_source_sha"]} if role == "controller" else operation[role]
+            frozen = adapter._checkout_adapter(Path(pin["root"]), source)
+            if frozen._runtime_definition_digest() != pin["digest"]:
+                raise HarnessError("pinned recovery runtime bytes changed")
+        adapter._assert_stopped_startup(Path(pins["target"]["root"]))
     return operation
 
 
@@ -1590,6 +1624,16 @@ class GrafLocalAdapter:
             return self._checkout_adapter(Path(checkout), manifest, record)
         self._assert_runtime_definition_compatible(record)
         return self
+
+    @staticmethod
+    def _assert_stopped_startup(checkout):
+        # Only this inspected frozen guard supports the split-controller lane.
+        for relative, expected in (
+            ("scripts/dev-harness.py", "b23eddeb435140b4cbe6bebaede4a0095f889428eb8b0082df3d2fd7f737469a"),
+            ("infra/scripts/start-dev-runtime.sh", "da350be23ae5b6af319ae809ecd81f9c724494fb3f6bdf4f91893df02f880486"),
+        ):
+            if hashlib.sha256((checkout / relative).read_bytes()).hexdigest() != expected:
+                raise HarnessError("unsupported stopped-runtime startup; preserve its pinned checkout")
 
     @staticmethod
     def _assert_transition_compatible(previous, target):
@@ -2255,9 +2299,7 @@ class GrafLocalAdapter:
             if gate_read is not None:
                 os.close(gate_read)
         try:
-            _write_json(
-                runtime,
-                {
+            record = {
                     "pid": process.pid,
                     "source_sha": manifest["source_sha"],
                     "compose_project": "graf-dev",
@@ -2272,11 +2314,21 @@ class GrafLocalAdapter:
                     "started_at": now(),
                     "command": "sh " + str(self.start_script) if gated else self._process_command(process.pid),
                     "start_token": self._process_start_token(process.pid),
-                },
-            )
+                }
+            _write_json(runtime, record)
             if gate_write is not None:
                 if ordinary is not None:
-                    _assert_ordinary_controller(self.state, manifest)
+                    observed = _assert_ordinary_controller(self.state, manifest)
+                    if observed != ordinary:
+                        raise HarnessError("ordinary operation changed before startup admission")
+                    if "controller_source_sha" in ordinary:
+                        pin = ordinary["checkouts"]["target"]
+                        if (self.root.resolve() != Path(pin["root"])
+                                or _read_json(runtime) != record or record["pid"] != process.pid
+                                or record["command"] != "sh " + str(self.start_script)
+                                or record["start_token"] != self._process_start_token(process.pid)
+                                or process.poll() is not None):
+                            raise HarnessError("stopped startup runtime readback differs from its gate child")
                 os.write(gate_write, b"1")
         finally:
             if gate_write is not None:
@@ -2846,6 +2898,7 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
         _assert_no_schema_transition(self.state)
         operation = _read_ordinary_operation(self.state)
         active = _load_active(self.state)
+        controller_source = operation.get("controller_source_sha") if operation else None
         if operation is not None:
             if operation["kind"] != kind or not _same_pinned_manifest(operation["target"], target):
                 raise HarnessError("recovery requires the same command and complete pinned target")
@@ -2884,10 +2937,23 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
                      "target": {"root": str(Path(target_checkout or self.root).resolve())}}
             if previous is not None:
                 paths["previous"] = {"root": str(Path(previous_checkout or self.root).resolve())}
-        self._assert_source_matches_checkout(controller_manifest)
+            source_sha = (_sha(_run_command(["git", "rev-parse", "HEAD"], cwd=self.root))
+                          if (kind == "promote" and previous_checkout is not None and previous is not None
+                              and _same_pinned_manifest(previous, target)) else controller_manifest["source_sha"])
+            if source_sha != controller_manifest["source_sha"]:
+                pointer = _read_json(self.state / "active-manifest.json") if active else {}
+                if (kind != "promote" or previous is None or not _same_pinned_manifest(previous, target)
+                        or previous_checkout is None or target_checkout is not None
+                        or pointer.get("runtime_mode") != "live"):
+                    raise HarnessError("different controller source requires a stopped same-active promotion")
+                controller_source = source_sha
+                paths["target"] = dict(paths["previous"])
+        if controller_source and self.root.resolve() != _repo_root().resolve():
+            raise HarnessError("stopped recovery requires the executing controller checkout")
+        self._assert_source_matches_checkout({"source_sha": controller_source} if controller_source else controller_manifest)
         adapters = {}
         for role, record in paths.items():
-            manifest = controller_manifest if role == "controller" else target if role == "target" else previous
+            manifest = ({"source_sha": controller_source} if controller_source else controller_manifest) if role == "controller" else target if role == "target" else previous
             frozen = self._checkout_adapter(Path(record["root"]), manifest)
             # Only exact source/resolver validation uses frozen code. Every
             # mutation and nested self call executes this current class.
@@ -2900,6 +2966,8 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
                 record.update(source_sha=manifest["source_sha"], digest=digest)
         target_adapter = adapters["target"]
         previous_adapter = adapters.get("previous")
+        if controller_source:
+            self._assert_stopped_startup(target_adapter.root)
         if previous is not None:
             self._assert_transition_compatible(previous, target)
         runtime_path = self._runtime_record()
@@ -2907,7 +2975,7 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
         if current_runtime is not None:
             roles = [role for role in ("previous", "target") if role in adapters and
                      (previous if role == "previous" else target)["source_sha"] == current_runtime.get("source_sha")]
-            if (not roles or type(current_runtime.get("pid")) is not int
+            if (not roles or type(current_runtime.get("pid")) is not int or current_runtime["pid"] <= 0
                     or not isinstance(current_runtime.get("command"), str) or not current_runtime["command"]
                     or not isinstance(current_runtime.get("start_token"), str) or not current_runtime["start_token"]):
                 raise HarnessError("ordinary transition runtime identity is unknown")
@@ -2930,6 +2998,10 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
         app_destination = _dev_app_destination()
         if operation is None:
             previous_app_was_running = self._app_is_running(app_destination)
+            if controller_source:
+                if (current_runtime is None or self._pid_alive(current_runtime["pid"])
+                        or previous_app_was_running or self._schema_container_ids(running=True)):
+                    raise HarnessError("same-active recovery requires stopped runtime, app and Dev containers")
             if previous_app_was_running and not app_destination.exists():
                 raise HarnessError("running Dev app has no installed bundle; quit it before repeating promote/rollback")
             if app_destination.exists():
@@ -2952,6 +3024,8 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
                          "app_was_running": previous_app_was_running,
                          "backup": str(app_backup.relative_to(self.state)) if app_backup is not None else None,
                          "backup_digest": _tree_digest(app_backup) if app_backup is not None else None}
+            if controller_source:
+                operation["controller_source_sha"] = controller_source
         operation.update(controller_pid=os.getpid(), controller_start=self._process_start_token(os.getpid()))
         self._write_ordinary_receipt(operation)
         # Re-read validates backup, manifests and the complete pinned record
