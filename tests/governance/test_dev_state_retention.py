@@ -361,7 +361,7 @@ def prepare_ordinary_retention_fixture(monkeypatch, adapter, previous, candidate
         "backend_health", "frontend_reachability", "auth_session_bootstrap", "representative_api",
         "processing_worker_readiness", "media_worker_readiness", "database_readiness",
         "storage_readiness", "temporal_readiness", "migration_readiness", "exact_source_sha",
-        "app_identity", "app_presentation"), "pass"))
+        "app_identity", "app_presentation", "maintenance_readiness"), "pass"))
     def runtime(value):
         return {"pid": 99999999, "source_sha": value["source_sha"], "command": "synthetic runtime",
                 "start_token": "synthetic start", "runtime_definition_digest": "sha256:" + "d" * 64}
