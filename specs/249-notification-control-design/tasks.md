@@ -222,9 +222,14 @@ T035: https://github.com/yshishenya/graf/issues/6780
 
 ## Phase 18: Convergence — сохраняющий данные переход Dev
 
-- [ ] T038 Добавить и независимо проверить сохраняющий данные переход схемы единственного GRAF Dev по `dev-schema-transition.md`: доказанный предок, неизменные образы хранилищ, согласованный холодный снимок PostgreSQL/MinIO, компенсация до допуска записи данных, отказ от автоматического возврата старого снимка после запуска worker. Область: `scripts/dev-harness.py`, `infra/scripts/dev-migration-preflight.py`, `tests/governance/`, `docs/agent-guidance/local-development.md`. Текущий отказ не обходить. [FR-015/018; T022/T030; live schema0086→0088 blocker; HIGH]
+- [X] T038 Добавить и независимо проверить сохраняющий данные переход схемы единственного GRAF Dev по `dev-schema-transition.md`: доказанный предок, неизменные образы хранилищ, согласованный холодный снимок PostgreSQL/MinIO, компенсация до допуска записи данных, отказ от автоматического возврата старого снимка после запуска worker. Область: `scripts/dev-harness.py`, `infra/scripts/dev-migration-preflight.py`, `tests/governance/`, `docs/agent-guidance/local-development.md`. Текущий отказ не обходить. [FR-015/018; T022/T030; live schema0086→0088 blocker; HIGH] (Issue #6786)
 
 T038: https://github.com/yshishenya/graf/issues/6786
+
+Сверка 2026-10-30: отметка согласована с исторической приёмкой #6786 после
+проверки исходного объёма, принятой истории и неизменной текущей регрессии.
+Основания и ограничения — раздел «T038 — сверка трекера, 2026-10-30»
+в `implementation-evidence.md`. Новый живой цикл F224/T011 этим не принят.
 
 
 ## Изменение приёмки владельцем — 2026-09-07
