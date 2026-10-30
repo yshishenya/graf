@@ -801,3 +801,14 @@ Docker template без Health. [Отчёт и остаток](validation/t113-ru
 Полный policy/DB/resource/retention/access preflight и верхние операции впереди;
 результат всегда HOLD/full_preflight_not_implemented. T113/#7804/T112 открыты,
 рабочий T0 и измерение не включены. Цель роста и AC01–AC06 не закрываются.
+
+### Фактические Settings и secret bind T113 — 30.10.2026
+
+В тот же runtime preflight подключены actual Env/production validators,
+точный RO bind через /proc/PID/root и sealed memfd проверенных байтов.
+357 локальных PASS/6SKIP и38 Linux PASS; реальный stale-bind отказ подтверждён
+на собственном учебном томе. [Доказательства](validation/t113-settings-preflight-20261030.md).
+После исправления двух P2 повторное независимое ревью дало SCOPED PASS
+(P1=0/P2=0), окончательные суммы совпали. Полный preflight,
+верхние операции/actual restore/resume/shell/CD/T112 и T113/#7804 остаются
+открытыми. Рабочие T0/ready/IP/аналитика/получатели не включались.

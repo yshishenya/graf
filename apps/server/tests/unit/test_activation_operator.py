@@ -677,12 +677,23 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
 
     monkeypatch.setattr(operator, '_local_docker', socket)
     monkeypatch.setattr(operator, '_process_identity', process)
+    from contextlib import contextmanager
+
+    checked_settings = []
+
+    @contextmanager
+    def settings(row, **kwargs):
+        checked_settings.append(row['id'])
+        yield None, 'f' * 64
+
+    monkeypatch.setattr(operator, '_runtime_settings', settings)
     if case in {'good', 'optional_absent'}:
         result = asyncio.run(operator._runtime_preflight(
             root=tmp_path, snapshot=tmp_path, source=source, deadline=time.monotonic() + 20))
         assert result['runtime'] == 'verified' and result['source_sha'] == source
         assert result['container_count'] == len(rows)
         assert len(result['runtime_sha256']) == 64
+        assert set(checked_settings) == {r['id'] for r in rows if r['service'] in operator.WRITERS and r['state']['running']}
     else:
         with pytest.raises(ActivationHold):
             asyncio.run(operator._runtime_preflight(
@@ -691,11 +702,11 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
     assert not any(set(c) & {'stop', 'start', 'restart', 'up', 'exec', 'create', 'run'} for c in calls)
 
 
-@pytest.mark.parametrize('case', ['good', 'uid', 'gid', 'map', 'stat', 'missing'])
+@pytest.mark.parametrize('case', ['good', 'uid', 'gid', 'map', 'stat', 'missing', 'groups_invalid', 'groups_duplicate'])
 def test_runtime_process_identity_reads_all_ids_and_parses_comm(tmp_path, case):
     proc = tmp_path / '123'
     proc.mkdir()
-    (proc / 'status').write_text('Uid:\t100\t100\t100\t100\nGid:\t101\t101\t101\t101\n')
+    (proc / 'status').write_text('Uid:\t100\t100\t100\t100\nGid:\t101\t101\t101\t101\nGroups:\t101 1001\n')
     (proc / 'stat').write_text('123 (odd ) process name) S ' + '0 ' * 18 + '12345 0\n')
     for name in ('uid_map', 'gid_map'):
         (proc / name).write_text('         0          0 4294967295\n')
@@ -708,8 +719,10 @@ def test_runtime_process_identity_reads_all_ids_and_parses_comm(tmp_path, case):
         (proc / 'stat').write_text('malformed')
     if case == 'missing':
         (proc / 'status').unlink()
+    if case.startswith('groups_'):
+        (proc / 'status').write_text((proc / 'status').read_text().replace('101 1001', '-1' if case == 'groups_invalid' else '101 101'))
     if case == 'good':
-        assert operator._process_identity(123, proc_root=tmp_path) == (123, 12345)
+        assert operator._process_identity(123, proc_root=tmp_path) == (123, 12345, (101, 1001))
     else:
         with pytest.raises(ActivationHold):
             operator._process_identity(123, proc_root=tmp_path)
@@ -733,3 +746,248 @@ def test_runtime_docker_endpoint_is_the_existing_local_socket(monkeypatch, case)
     else:
         with pytest.raises(ActivationHold):
             operator._local_docker()
+
+
+@pytest.mark.parametrize('case', [
+    'good', 'alias', 'json_and_nodecode', 'caller_env', 'dotenv', 'bad_proxy',
+    'duplicate_env', 'case_collision', 'development', 'missing_core',
+    'readwrite', 'not_bind', 'parent_mount', 'missing', 'symlink', 'hardlink',
+    'public', 'writable', 'empty', 'oversize', 'relative', 'dotdot',
+    'placeholder_disabled', 'placeholder_enabled', 'arbitrary_empty',
+    'changed', 'replaced', 'sealed_bytes', 'host_proxy',
+    'inline_password', 'marker_username', 'maintenance_inline', 'maintenance_marker_path',
+])
+def test_actual_runtime_settings_use_bound_files_and_canonical_validators(tmp_path, monkeypatch, case):
+    from contextlib import contextmanager
+    from urllib.parse import quote
+
+    directory = tmp_path.resolve()
+    monkeypatch.setattr(operator, 'INSTALLATION_UID', os.getuid(), raising=False)
+    monkeypatch.delenv('FORWARDED_ALLOW_IPS', raising=False)
+    files = {}
+    for name, raw in [('db', b'S@fe/p%?word'), ('access', b'graf_runtime_api'),
+                      ('secret', b'non-placeholder-production-secret')]:
+        path = directory / name
+        path.write_bytes(raw)
+        path.chmod(0o640)
+        if sys.platform == 'linux':
+            os.chown(path, -1, 101)
+        files[name] = path
+    environment = {
+        'TWOBRAIN_ENV': 'production', 'TWOBRAIN_WEB_RUNTIME_ENABLED': 'false',
+        'TWOBRAIN_AUTH_RU_LOCAL_STORAGE_ATTESTED': 'true',
+        'TWOBRAIN_DATABASE_URL': 'postgresql+asyncpg://twobrain_rec_app:__POSTGRES_PASSWORD__@rec-postgres:5432/twobrain_rec',
+        'TWOBRAIN_POSTGRES_PASSWORD_FILE': str(files['db']),
+        'TWOBRAIN_MINIO_ENDPOINT': 'rec-minio:9000',
+        'TWOBRAIN_MINIO_ACCESS_KEY_FILE': str(files['access']),
+        'TWOBRAIN_MINIO_SECRET_KEY_FILE': str(files['secret']),
+    }
+    mounts = [dict(Destination=str(p), Source=str(p), Type='bind', RW=False) for p in files.values()]
+    process = (123, 456, tuple(sorted({101, os.getgid()})))
+    monkeypatch.setattr(operator, '_process_identity', lambda *a, **kw: process)
+    proc = directory / 'proc/123'
+    proc.mkdir(parents=True)
+    (proc / 'root').symlink_to('/', target_is_directory=True)
+    if sys.platform == 'linux':
+        # Native tests use /owned as basetemp, never a world-writable host ancestor.
+        for parent in (directory, *directory.parents):
+            if str(parent).startswith('/owned'):
+                parent.chmod(0o755)
+    else:
+        # macOS native ACL/memfd/proc boundaries are tested separately on Linux.
+        monkeypatch.setattr(operator, '_settings_no_acl', lambda fd: None, raising=False)
+        @contextmanager
+        def snapshot(raw):
+            path = directory / ('snapshot-' + str(len(list(directory.glob('snapshot-*')))))
+            path.write_bytes(raw)
+            try:
+                yield path
+            finally:
+                path.unlink()
+
+        @contextmanager
+        def destination(_root_fd, path, _groups):
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            try:
+                yield fd
+            finally:
+                os.close(fd)
+
+        monkeypatch.setattr(operator, '_sealed_settings_file', snapshot, raising=False)
+        monkeypatch.setattr(operator, '_settings_destination', destination, raising=False)
+        monkeypatch.setattr(operator, '_settings_source_ancestors', lambda p: [], raising=False)
+    if case == 'alias':
+        environment['GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE'] = str(files['secret'])
+    if case == 'json_and_nodecode':
+        environment.update(TWOBRAIN_BILLING_CHECKOUT_WORKSPACE_IDS='["aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"]',
+                           TWOBRAIN_PRODUCT_ANALYTICS_INTERNAL_HOSTS='192.0.2.0/24,198.51.100.3')
+    if case == 'caller_env':
+        monkeypatch.setenv('TWOBRAIN_DATABASE_URL', 'poison://must-not-be-read')
+        monkeypatch.setenv('TWOBRAIN_ENV', 'development')
+        monkeypatch.setenv('GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE', '/missing/caller-secret')
+    if case == 'dotenv':
+        monkeypatch.chdir(directory)
+        (directory / '.env').write_text('TWOBRAIN_DATABASE_URL=poison://dotenv\n')
+    if case == 'bad_proxy':
+        environment['FORWARDED_ALLOW_IPS'] = '*'
+    if case == 'host_proxy':
+        monkeypatch.setenv('FORWARDED_ALLOW_IPS', '*')
+    if case == 'development':
+        environment['TWOBRAIN_ENV'] = 'development'
+    if case == 'missing_core':
+        del environment['TWOBRAIN_POSTGRES_PASSWORD_FILE']
+    if case == 'inline_password':
+        environment['TWOBRAIN_DATABASE_URL'] = environment['TWOBRAIN_DATABASE_URL'].replace('__POSTGRES_PASSWORD__', 'inline-password')
+    if case == 'marker_username':
+        environment['TWOBRAIN_DATABASE_URL'] = 'postgresql+asyncpg://__POSTGRES_PASSWORD__:inline-password@rec-postgres:5432/twobrain_rec'
+    if case.startswith('maintenance_'):
+        environment['TWOBRAIN_PROMPT_OPTIMIZATION_DATABASE_URL'] = 'postgresql+asyncpg://twobrain_rec_maintenance:inline-password@rec-postgres:5432/' + ('__POSTGRES_PASSWORD__' if case == 'maintenance_marker_path' else 'twobrain_rec')
+        environment['TWOBRAIN_PROMPT_OPTIMIZATION_POSTGRES_PASSWORD_FILE'] = str(files['db'])
+    if case == 'readwrite':
+        mounts[0]['RW'] = True
+    if case == 'not_bind':
+        mounts[0]['Type'] = 'volume'
+    if case == 'parent_mount':
+        mounts.append(dict(Destination=str(directory), Source=str(directory), Type='bind', RW=False))
+    if case == 'missing':
+        files['db'].unlink()
+    if case == 'symlink':
+        files['db'].unlink()
+        files['db'].symlink_to(files['secret'])
+    if case == 'hardlink':
+        os.link(files['db'], directory / 'other-link')
+    if case in {'public', 'writable'}:
+        files['db'].chmod(0o644 if case == 'public' else 0o660)
+    if case in {'empty', 'oversize'}:
+        files['db'].write_bytes(b'' if case == 'empty' else b'X' * 65537)
+    if case in {'relative', 'dotdot'}:
+        environment['TWOBRAIN_POSTGRES_PASSWORD_FILE'] = 'db' if case == 'relative' else str(directory) + '/x/../db'
+    if case.startswith('placeholder') or case == 'arbitrary_empty':
+        placeholder = directory / 'infra/secret-placeholders/disabled_optional_provider_secret'
+        placeholder.parent.mkdir(parents=True)
+        placeholder.parent.parent.chmod(0o755)
+        placeholder.parent.chmod(0o755)
+        placeholder.write_bytes(b'')
+        placeholder.chmod(0o644)
+        if case == 'arbitrary_empty':
+            placeholder.rename(directory / 'arbitrary-empty')
+            placeholder = directory / 'arbitrary-empty'
+        environment['TWOBRAIN_GOOGLE_CALENDAR_CLIENT_SECRET_FILE'] = str(placeholder)
+        environment['TWOBRAIN_GOOGLE_CALENDAR_ENABLED'] = 'true' if case == 'placeholder_enabled' else 'false'
+        mounts.append(dict(Destination=str(placeholder), Source=str(placeholder), Type='bind', RW=False))
+    row = dict(config=dict(Env=[k + '=' + v for k, v in environment.items()]),
+               mounts=mounts, state=dict(pid=123))
+    if case == 'duplicate_env':
+        row['config']['Env'].append('TWOBRAIN_ENV=production')
+    if case == 'case_collision':
+        row['config']['Env'].append('twobrain_env=production')
+
+    admitted = []
+
+    def check():
+        with operator._runtime_settings(row, root=directory, process=process, proc_root=directory / 'proc') as (settings, digest):
+            admitted.append(True)
+            assert settings.env == 'production'
+            assert quote('S@fe/p%?word', safe='') in settings.database_url
+            assert settings.minio_access_key == 'graf_runtime_api'
+            assert len(digest) == 64
+            if case == 'alias':
+                assert settings.credential_encryption_key_file.read_bytes() == files['secret'].read_bytes()
+            if case == 'json_and_nodecode':
+                assert len(settings.billing_checkout_workspace_ids) == 1
+                assert settings.product_analytics_internal_hosts == ('192.0.2.0/24', '198.51.100.3')
+            if case in {'changed', 'sealed_bytes'}:
+                files['db'].write_bytes(b'changed-after-snapshot')
+                # Canonical validators and later consumers still see verified immutable bytes.
+                assert settings.postgres_password_file.read_bytes() == b'S@fe/p%?word'
+            if case == 'replaced':
+                replacement = directory / 'replacement'
+                replacement.write_bytes(b'other-inode')
+                replacement.replace(files['db'])
+
+    good = {'good', 'alias', 'json_and_nodecode', 'caller_env', 'dotenv', 'placeholder_disabled'}
+    if case in good:
+        check()
+    else:
+        with pytest.raises(ActivationHold) as held:
+            check()
+        if case not in {'changed', 'replaced', 'sealed_bytes'}:
+            assert not admitted, 'invalid configuration reached the caller'
+        assert str(held.value) == 'activation_operator_settings_unverified'
+        assert str(directory) not in str(held.value) and 'S@fe' not in str(held.value)
+
+
+@pytest.mark.skipif(sys.platform != 'linux', reason='Linux sealed memfd boundary')
+def test_settings_snapshot_cannot_be_written_or_truncated():
+    with operator._sealed_settings_file(b'synthetic secret') as path:
+        assert path.read_bytes() == b'synthetic secret'
+        with pytest.raises(OSError):
+            path.write_bytes(b'changed')
+        with pytest.raises(OSError):
+            os.truncate(path, 0)
+    assert not path.exists()
+
+
+@pytest.mark.parametrize('case', ['good', 'world_write', 'wrong_owner', 'group_unconfirmed', 'link'])
+def test_settings_source_ancestry_is_protected(monkeypatch, case):
+    import stat
+
+    monkeypatch.setattr(Path, 'resolve', lambda self, **kwargs: self)
+    monkeypatch.setattr(operator, '_settings_no_acl', lambda fd: None)
+    monkeypatch.setattr(operator.os, 'open', lambda *args, **kwargs: 999)
+    monkeypatch.setattr(operator.os, 'close', lambda fd: None)
+    monkeypatch.setattr(Path, 'lstat', lambda self: SimpleNamespace(
+        st_dev=1, st_ino=2, st_nlink=1, st_size=0, st_mtime_ns=1, st_ctime_ns=1,
+        st_uid=9999 if case == 'wrong_owner' else 0,
+        st_gid=operator.INSTALLATION_GID,
+        st_mode=(stat.S_IFLNK if case == 'link' else stat.S_IFDIR)
+        | (0o777 if case == 'world_write' else 0o775 if case == 'group_unconfirmed' else 0o755)))
+    monkeypatch.setattr(operator.os, 'fstat', lambda fd: Path('/synthetic').lstat())
+    monkeypatch.setattr(operator.grp, 'getgrgid', lambda _gid: SimpleNamespace(gr_mem=['unconfirmed']))
+    monkeypatch.setattr(operator.pwd, 'getpwall', lambda: [
+        SimpleNamespace(pw_uid=1003, pw_gid=operator.INSTALLATION_GID, pw_name='unconfirmed')])
+    if case == 'good':
+        assert operator._settings_source_ancestors(Path('/synthetic/file'))
+    else:
+        with pytest.raises(ActivationHold):
+            operator._settings_source_ancestors(Path('/synthetic/file'))
+
+
+@pytest.mark.skipif(sys.platform != 'linux', reason='Linux native FD lifetime')
+def test_runtime_settings_closes_fds_after_success_and_failures(tmp_path, monkeypatch):
+    before = set(os.listdir('/proc/self/fd'))
+    for case in ('good', 'empty', 'changed', 'placeholder_enabled'):
+        path = tmp_path / case
+        path.mkdir()
+        with monkeypatch.context() as isolated:
+            test_actual_runtime_settings_use_bound_files_and_canonical_validators(path, isolated, case)
+        assert set(os.listdir('/proc/self/fd')) == before
+
+
+@pytest.mark.skipif(sys.platform != 'linux', reason='Linux POSIX ACL boundary')
+@pytest.mark.parametrize('case', ['runtime_deny', 'foreign_read', 'directory_write'])
+def test_settings_reject_extended_acl_on_pinned_files_and_directories(tmp_path, monkeypatch, case):
+    import struct
+
+    path = tmp_path / 'acl-target'
+    if case == 'directory_write':
+        path.mkdir(mode=0o770)
+    else:
+        path.write_bytes(b'synthetic')
+        path.chmod(0o640)
+    fd = os.open(path, os.O_RDONLY | (os.O_DIRECTORY if path.is_dir() else 0))
+    try:
+        uid = 100 if case == 'runtime_deny' else 1003
+        mask = 7 if case == 'directory_write' else 4
+        permission = 0 if case == 'runtime_deny' else mask
+        entries = [(1, 7 if case == 'directory_write' else 6, 0xffffffff),
+                   (2, permission, uid), (4, mask, 0xffffffff),
+                   (16, mask, 0xffffffff), (32, 0, 0xffffffff)]
+        acl = struct.pack('<I', 2) + b''.join(struct.pack('<HHI', *e) for e in entries)
+        operator._settings_no_acl(fd)
+        os.setxattr(fd, 'system.posix_acl_access', acl)
+        assert os.fstat(fd).st_mode & 0o777 == (0o770 if case == 'directory_write' else 0o640)
+        with pytest.raises(ActivationHold):
+            operator._settings_no_acl(fd)
+    finally:
+        os.close(fd)

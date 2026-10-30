@@ -8,9 +8,13 @@ remains held through the caller's export. These steps never authorise admission.
 from __future__ import annotations
 
 import asyncio
+import fcntl
+import grp
 import hashlib
+import ipaddress
 import json
 import os
+import pwd
 import re
 import runpy
 import shutil
@@ -19,9 +23,10 @@ import sys
 import tempfile
 import time
 import unicodedata
-from contextlib import asynccontextmanager, suppress
+from contextlib import ExitStack, asynccontextmanager, contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from .activation_fence import READY_FIELDS, ActivationHold, _object, _require, _timestamp
@@ -1595,6 +1600,8 @@ RUNTIME_FORMAT = """{"id":{{json .Id}},"image":{{json .Image}},"config":{{json .
 IMAGE_FORMAT = """{"id":{{json .Id}},"os":{{json .Os}},"architecture":{{json .Architecture}},"config":{"User":{{json .Config.User}},"Env":{{json .Config.Env}},"Labels":{{json .Config.Labels}}}}"""
 DOCKER_ENDPOINT = "unix:///var/run/docker.sock"
 GRAF_SERVICES = WRITERS | {"rec-migrate", "rec-db-runtime-bootstrap"}
+INSTALLATION_UID = 1001
+INSTALLATION_GID = 1002
 
 
 def _local_docker():
@@ -1632,10 +1639,241 @@ def _process_identity(pid, *, proc_root=Path("/proc")):
         for name in ("uid_map", "gid_map"):
             _require([int(i) for i in (directory / name).read_text().split()]
                      == [0, 0, 4294967295], "activation_operator_process_namespace")
+        groups = tuple(sorted(int(i) for i in status["Groups"].split()))
+        _require(len(set(groups)) == len(groups) and all(i >= 0 for i in groups),
+                 "activation_operator_process_groups")
         _require(start() == before, "activation_operator_process_changed")
-        return pid, before
+        return pid, before, groups
     except (OSError, KeyError, TypeError, ValueError):
         raise ActivationHold("activation_operator_process_unverified") from None
+
+
+def _settings_file_identity(info):
+    return (info.st_dev, info.st_ino, info.st_uid, info.st_gid, info.st_mode,
+            info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _settings_no_acl(fd):
+    _require(not any("acl" in name.lower() for name in os.listxattr(fd)),
+             "activation_operator_secret_acl")
+
+
+def _settings_source_ancestors(path):
+    _require(path.is_absolute() and str(path) == str(path.resolve(strict=True)),
+             "activation_operator_secret_path")
+    identities = []
+    for parent in path.parents:
+        info = parent.lstat()
+        fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            _require(_settings_file_identity(os.fstat(fd)) == _settings_file_identity(info),
+                     "activation_operator_secret_ancestry")
+            _settings_no_acl(fd)
+        finally:
+            os.close(fd)
+        _require(stat.S_ISDIR(info.st_mode) and info.st_uid in {0, INSTALLATION_UID}
+                 and not info.st_mode & stat.S_IWOTH, "activation_operator_secret_ancestry")
+        if info.st_mode & stat.S_IWGRP:
+            _require(info.st_gid == INSTALLATION_GID, "activation_operator_secret_ancestry")
+            members = set(grp.getgrgid(info.st_gid).gr_mem)
+            actual = {p.pw_uid for p in pwd.getpwall()
+                      if p.pw_gid == info.st_gid or p.pw_name in members}
+            _require(actual == {INSTALLATION_UID}, "activation_operator_secret_group_unconfirmed")
+        identities.append((info.st_dev, info.st_ino, info.st_uid, info.st_gid, info.st_mode))
+    return identities
+
+
+@contextmanager
+def _settings_destination(root_fd, path, groups):
+    """Walk only the already selected exact file bind, after the proc-root hop."""
+    with ExitStack() as owned:
+        directory = root_fd
+        for component in path.parts[1:-1]:
+            info = os.fstat(directory)
+            _settings_no_acl(directory)
+            shift = 6 if info.st_uid == 100 else 3 if info.st_gid in groups else 0
+            _require(stat.S_ISDIR(info.st_mode) and (info.st_mode >> shift) & 1,
+                     "activation_operator_secret_traversal")
+            directory = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                                dir_fd=directory)
+            owned.callback(os.close, directory)
+        info = os.fstat(directory)
+        _settings_no_acl(directory)
+        shift = 6 if info.st_uid == 100 else 3 if info.st_gid in groups else 0
+        _require(stat.S_ISDIR(info.st_mode) and (info.st_mode >> shift) & 1,
+                 "activation_operator_secret_traversal")
+        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+        owned.callback(os.close, fd)
+        yield fd
+
+
+@contextmanager
+def _sealed_settings_file(raw):
+    """Linux RAM-only snapshot; ordinary Settings Path validators read these bytes."""
+    fd = os.memfd_create("graf-operator-secret", os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING)
+    try:
+        remaining = memoryview(raw)
+        while remaining:
+            written = os.write(fd, remaining)
+            _require(written > 0, "activation_operator_secret_snapshot")
+            remaining = remaining[written:]
+        seals = fcntl.F_SEAL_SEAL | fcntl.F_SEAL_SHRINK | fcntl.F_SEAL_GROW | fcntl.F_SEAL_WRITE
+        fcntl.fcntl(fd, fcntl.F_ADD_SEALS, seals)
+        _require(fcntl.fcntl(fd, fcntl.F_GET_SEALS) == seals
+                 and os.pread(fd, 65537, 0) == raw, "activation_operator_secret_snapshot")
+        yield Path(f"/proc/self/fd/{fd}")
+    finally:
+        os.close(fd)
+
+
+@contextmanager
+def _runtime_settings(row, *, root, process, proc_root=Path("/proc")):
+    """Private Settings live only while the verified source/mount/snapshot FDs do."""
+    from pydantic import AliasChoices
+    from pydantic_settings import EnvSettingsSource
+    from pydantic_settings.sources.utils import parse_env_vars
+
+    from twobrain_rec_server.config import Settings
+
+    try:
+        _require("FORWARDED_ALLOW_IPS" not in os.environ, "activation_operator_host_environment")
+        environment = {}
+        for item in row["config"]["Env"]:
+            key, separator, value = item.partition("=")
+            _require(separator and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key)
+                     and key.lower() not in {k.lower() for k in environment},
+                     "activation_operator_environment_invalid")
+            environment[key] = value
+        for address in environment.get("FORWARDED_ALLOW_IPS", "127.0.0.1").split(","):
+            ipaddress.ip_address(address.strip())
+        _require(_process_identity(row["state"]["pid"], proc_root=proc_root) == process,
+                 "activation_operator_process_changed")
+        groups = {101, *process[2]}
+        files, placeholders, logical_paths = {}, set(), {}
+        with ExitStack() as owned:
+            proc_path = proc_root / str(process[0]) / "root"
+            root_fd = os.open(proc_path, os.O_RDONLY | os.O_DIRECTORY)
+            owned.callback(os.close, root_fd)
+            root_identity = os.fstat(root_fd)
+
+            def mapped(field, value):
+                path = Path(value)
+                _require(path.is_absolute() and str(path) == value and ".." not in path.parts,
+                         "activation_operator_secret_path")
+                mounts = [m for m in row["mounts"] if path.is_relative_to(m["Destination"])]
+                _require(len(mounts) == 1 and mounts[0]["Destination"] == value
+                         and mounts[0]["Type"] == "bind" and mounts[0]["RW"] is False,
+                         "activation_operator_secret_mount")
+                source = Path(mounts[0]["Source"])
+                _require(str(source) == mounts[0]["Source"] and ".." not in source.parts,
+                         "activation_operator_secret_path")
+                ancestors = _settings_source_ancestors(source)
+                fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                owned.callback(os.close, fd)
+                info = os.fstat(fd)
+                _settings_no_acl(fd)
+                _require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+                         and info.st_uid in {0, INSTALLATION_UID} and info.st_size <= 65536,
+                         "activation_operator_secret_file")
+                raw = os.pread(fd, 65537, 0)
+                placeholder = source == root / "infra/secret-placeholders/disabled_optional_provider_secret"
+                if placeholder:
+                    _require(raw == b"" and stat.S_IMODE(info.st_mode) == 0o644,
+                             "activation_operator_secret_placeholder")
+                    placeholders.add(field)
+                else:
+                    _require(stat.S_IMODE(info.st_mode) in {0o600, 0o640}
+                             and info.st_gid in groups and info.st_mode & stat.S_IRGRP
+                             and raw.decode("utf-8").strip(), "activation_operator_secret_private")
+                identity = _settings_file_identity(info)
+                _require(len(raw) == info.st_size and _settings_file_identity(source.lstat()) == identity
+                         and _settings_file_identity(os.fstat(fd)) == identity,
+                         "activation_operator_secret_changed")
+                destination = owned.enter_context(_settings_destination(root_fd, path, groups))
+                _settings_no_acl(destination)
+                _require(_settings_file_identity(os.fstat(destination)) == identity
+                         and os.pread(destination, 65537, 0) == raw,
+                         "activation_operator_secret_bind_mismatch")
+                files[field] = (source, path, fd, destination, identity, raw, ancestors)
+                logical_paths[field] = value
+                return owned.enter_context(_sealed_settings_file(raw))
+
+            class ActualEnvironment(EnvSettingsSource):
+                def _load_env_vars(self):
+                    return parse_env_vars(environment, self.case_sensitive, self.env_ignore_empty,
+                                          self.env_parse_none_str)
+
+                def __call__(self):
+                    data = super().__call__()
+                    for url_field, password_field in (
+                        ("database_url", "postgres_password_file"),
+                        ("prompt_optimization_database_url", "prompt_optimization_postgres_password_file"),
+                    ):
+                        value = data.get(url_field)
+                        if url_field == "database_url" or (isinstance(value, str) and value.strip()):
+                            _require(isinstance(value, str)
+                                     and urlsplit(value).password == "__POSTGRES_PASSWORD__"
+                                     and bool(data.get(password_field)),
+                                     "activation_operator_database_secret_binding")
+                    for name, field in Settings.model_fields.items():
+                        if not name.endswith("_file"):
+                            continue
+                        alias = field.validation_alias
+                        keys = [name, *(alias.choices if isinstance(alias, AliasChoices)
+                                        else [alias] if isinstance(alias, str) else [])]
+                        for key in keys:
+                            if key in data and data[key] is not None:
+                                data[key] = mapped(name, data[key])
+                    return data
+
+            class ActualSettings(Settings):
+                @classmethod
+                def settings_customise_sources(cls, settings_cls, **_sources):
+                    return (ActualEnvironment(settings_cls),)
+
+            settings = ActualSettings(_env_file=None)
+            _require(settings.env == "production" and all(name in files for name in
+                     ("postgres_password_file", "minio_access_key_file", "minio_secret_key_file")),
+                     "activation_operator_settings_incomplete")
+            allowed_empty = {
+                "billing_yookassa_secret_file": not (settings.billing_checkout_enabled
+                                                      or settings.billing_provider_observation_enabled),
+                "billing_yookassa_webhook_secret_file": not (settings.billing_checkout_enabled
+                                                              or settings.billing_provider_observation_enabled),
+                "billing_referral_secret_file": not settings.billing_checkout_enabled,
+                "google_calendar_client_secret_file": not settings.google_calendar_enabled,
+                "product_analytics_posthog_project_key_file": not settings.product_analytics_posthog_enabled,
+                "product_analytics_yandex_oauth_token_file": not settings.product_analytics_yandex_offline_enabled,
+                "litellm_api_key_file": not (settings.outcome_generation_enabled
+                                             or settings.prompt_optimization_enabled),
+            }
+            _require(all(allowed_empty.get(name) is True for name in placeholders),
+                     "activation_operator_secret_placeholder")
+            semantics = settings.model_dump(mode="json")
+            semantics.update(logical_paths)  # Internal memfd numbers are not configuration identity.
+            proof = _json_digest(dict(settings=semantics, files={
+                name: dict(identity=values[4], content=hashlib.sha256(values[5]).hexdigest())
+                for name, values in files.items()}))
+            yield settings, proof
+            for source, path, fd, destination, identity, raw, ancestors in files.values():
+                _settings_no_acl(fd)
+                _settings_no_acl(destination)
+                _require(_settings_source_ancestors(source) == ancestors
+                         and _settings_file_identity(source.lstat()) == identity
+                         and all(_settings_file_identity(os.fstat(f)) == identity
+                                 and os.pread(f, 65537, 0) == raw for f in (fd, destination)),
+                         "activation_operator_secret_changed")
+                with _settings_destination(root_fd, path, groups) as current:
+                    _require(_settings_file_identity(os.fstat(current)) == identity
+                             and os.pread(current, 65537, 0) == raw,
+                             "activation_operator_secret_changed")
+            current_root = proc_path.stat()
+            _require((current_root.st_dev, current_root.st_ino)
+                     == (root_identity.st_dev, root_identity.st_ino)
+                     and _process_identity(process[0], proc_root=proc_root) == process,
+                     "activation_operator_process_changed")
+    except Exception:
+        raise ActivationHold("activation_operator_settings_unverified") from None
 
 
 async def _runtime_preflight(*, root, snapshot, source, deadline):
@@ -1746,21 +1984,29 @@ async def _runtime_preflight(*, root, snapshot, source, deadline):
                 processes[row["id"]] = _process_identity(state["pid"])
         elif service == "rec-minio-init":
             _require(config["User"] == image["config"]["User"], "activation_operator_initializer_user")
-    _require(await inspect() == actual, "activation_operator_runtime_changed")
-    for row in actual:
-        if row["id"] in processes:
-            _require(_process_identity(row["state"]["pid"]) == processes[row["id"]],
-                     "activation_operator_process_changed")
-    _require(await _inventory("twobrain-rec", deadline) == (rows, networks)
-             and await postal_identity() == postal_info, "activation_operator_runtime_changed")
-    path, data, _ = await release()
-    _require(path == pinned_path and data == pinned_bytes, "activation_operator_release_changed")
-    await head()
-    _require(_local_docker() == socket and time.monotonic() < deadline,
-             "activation_operator_runtime_changed")
-    return dict(runtime="verified", source_sha=source, container_count=len(ids),
-                runtime_sha256=_json_digest(dict(containers=actual, networks=networks,
-                                                postal=postal_info, processes=processes)))
+    with ExitStack() as actual_settings:
+        settings_proofs = {}
+        for row in actual:
+            if row["id"] in processes:
+                _, proof = actual_settings.enter_context(_runtime_settings(
+                    row, root=root, process=processes[row["id"]]))
+                settings_proofs[row["id"]] = proof
+        _require(await inspect() == actual, "activation_operator_runtime_changed")
+        for row in actual:
+            if row["id"] in processes:
+                _require(_process_identity(row["state"]["pid"]) == processes[row["id"]],
+                         "activation_operator_process_changed")
+        _require(await _inventory("twobrain-rec", deadline) == (rows, networks)
+                 and await postal_identity() == postal_info, "activation_operator_runtime_changed")
+        path, data, _ = await release()
+        _require(path == pinned_path and data == pinned_bytes, "activation_operator_release_changed")
+        await head()
+        _require(_local_docker() == socket and time.monotonic() < deadline,
+                 "activation_operator_runtime_changed")
+        return dict(runtime="verified", source_sha=source, container_count=len(ids),
+                    runtime_sha256=_json_digest(dict(containers=actual, networks=networks,
+                                                    postal=postal_info, processes=processes,
+                                                    settings=settings_proofs)))
 
 
 def _runtime_main(argv=None):
