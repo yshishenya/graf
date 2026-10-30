@@ -458,7 +458,7 @@ def package_safety(package_root: Path) -> list[str]:
         re.IGNORECASE,
     )
     credential_assignment = re.compile(
-        r"(?:\b(?:api[_ -]?key|secret|password|(?:[A-Za-z0-9]+_)?token|cookie|signed[-_ ]?url|bearer)\s*[:=]\s*['\"]?"
+        r"(?:\b(?:[A-Za-z0-9]+_)*(?:api[_ -]?key|secret|password|token|cookie|signed[-_ ]?url|bearer)['\"]?\s*[:=]\s*['\"]?"
         r"|\bauthorization\s*:\s*bearer\s+['\"]?)"
         r"[A-Za-z0-9][A-Za-z0-9_./+=:-]{7,}",
         re.IGNORECASE,
@@ -613,6 +613,33 @@ def self_test() -> int:
             "Authorization: " + "Bearer abcdefgh\n", encoding="utf-8"
         )
         assert package_safety(bearer_package)
+
+        assignment_package = root / "assignment-package"
+        assignment_package.mkdir()
+        assignment = assignment_package / "config.txt"
+        value = "synthetic-" * 3
+        for text in (
+            json.dumps({"api_key": value}),
+            json.dumps({"enabled": True, "token": value}),
+            json.dumps({"password": value}, indent=2),
+            "{'secret': '" + value + "'}",
+            '"cookie": "' + value + '"',
+            f"GITHUB_TOKEN={value}",
+            f"SERVICE_GITHUB_TOKEN={value}",
+            f"APP_API_KEY={value}",
+            f"DB_PASSWORD={value}",
+            f"SIGNED_URL={value}",
+            f"Authorization: Bearer {value}",
+        ):
+            assignment.write_text(text, encoding="utf-8")
+            assert package_safety(assignment_package) == ["forbidden secret/private content: config.txt"]
+        for text in (
+            "Use `secret:` and `password =` as field names.\n",
+            'config = {"api_key": value}\n',
+            "token = result\n",
+        ):
+            assignment.write_text(text, encoding="utf-8")
+            assert package_safety(assignment_package) == []
     print("harness-check: self-test OK")
     return 0
 

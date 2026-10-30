@@ -978,6 +978,34 @@ def test_package_safety_allows_documentation_examples_but_rejects_credentials(tm
     assert any("forbidden secret/private content" in error for error in errors)
 
 
+def test_package_safety_rejects_each_quoted_or_prefixed_assignment(tmp_path: Path) -> None:
+    validator = load_harness_validators()
+    path = tmp_path / "config.txt"
+    value = "synthetic-" * 3
+    for text in (
+        json.dumps({"api_key": value}),
+        json.dumps({"enabled": True, "token": value}),
+        json.dumps({"password": value}, indent=2),
+        "{'secret': '" + value + "'}",
+        '"cookie": "' + value + '"',
+        f"GITHUB_TOKEN={value}",
+        f"SERVICE_GITHUB_TOKEN={value}",
+        f"APP_API_KEY={value}",
+        f"DB_PASSWORD={value}",
+        f"SIGNED_URL={value}",
+        f"Authorization: Bearer {value}",
+    ):
+        path.write_text(text, encoding="utf-8")
+        assert validator.package_safety(tmp_path) == ["forbidden secret/private content: config.txt"]
+    for text in (
+        "Use `secret:` and `password =` as field names.\n",
+        'config = {"api_key": value}\n',
+        "token = result\n",
+    ):
+        path.write_text(text, encoding="utf-8")
+        assert validator.package_safety(tmp_path) == []
+
+
 def _context_pointer(feature_directory: str = "specs/001-example", feature_id: str = "001") -> dict[str, object]:
     return {
         "schema_version": 1,

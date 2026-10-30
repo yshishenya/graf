@@ -293,3 +293,25 @@ retirement отдельно.
 - [ ] Reusable harness опубликован отдельно только после clean sample validation
   и не содержит GRAF private/product data.
 - [ ] Product release/deploy не заявлены и не выполнялись в этой фиче.
+
+
+## Phase 12: Convergence
+
+- [X] T061 [US8] Устранить подтверждённые пропуски распознавания присваиваний
+  секретов в `harness/src/dev_harness/validators.py` и соответствующем
+  `src/dev_harness/validators.py` внешнего `yshishenya/graf-development-harness`:
+  проверять JSON-поля в кавычках и префиксные имена переменных; сначала добавить
+  отрицательные случаи и допустимые примеры в существующие self-test и
+  `tests/governance/test_validator_safety.py`, затем исправить существующий
+  шаблон без нового механизма, зависимости и вывода значений. Принять оба
+  изменения после независимого ревью и обязательных проверок точных SHA/основ
+  (FR-031, US8/AC2, Constitution III; partial). (Issue #7823)
+- [ ] T062 [US8] После T061 проверить происхождение и лицензию материалов,
+  self-test, scan, реальную упаковку и чистую установку исправленного внешнего
+  harness; выпустить следующий неизменяемый SemVer без перезаписи v0.1.13,
+  проверить контрольные суммы и обновление/возврат, затем обновить
+  `harness/harness.lock.json`, `harness/README.md` и Feature 216 quickstart
+  только на принятые commit/tag/артефакты. Сохранить полную квитанцию с областью
+  и пропусками; G23 не отмечать до предметной приёмки, остальные G5/G8/G18
+  этим не закрывать (FR-030–FR-031, FR-035, SC-007, US8/AC3,
+  `contracts/harness-package.md`; partial). (Issue #7824)
