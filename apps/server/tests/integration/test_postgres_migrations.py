@@ -259,13 +259,15 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         promotion_counter_function,
         promotion_counter_config,
     ) = asyncio.run(inspect_schema())
-    assert versions == ["0106_activation_milestones"]
+    assert versions == ["0107_billing_registry"]
     assert "public.promotion_campaigns" in promotion_counter_function
     assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {
         "dispatch_intents",
         "meeting_deletion_fences",
         "meeting_purge_journal",
+        "billing_registry_imports",
+        "billing_registry_gaps",
     }.issubset(tables)
     required_columns = {
         "meetings": {"deletion_epoch"},

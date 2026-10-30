@@ -131,6 +131,14 @@ FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
 WHERE c.relkind IN ('r','p','m') AND n.nspname NOT IN ('pg_catalog','information_schema')
     AND n.nspname !~ '^pg_'
 ORDER BY n.nspname,c.relname \gexec
+-- Sequence state is not MVCC: differing counters read by pg_dump and this
+-- inventory fail source/restore comparison; they are not exported snapshot proof.
+SELECT format('SELECT json_build_object(''kind'',''sequence_state'',''schema'',%L,''name'',%L,''last_value'',last_value,''is_called'',is_called) FROM %I.%I;',
+    n.nspname,c.relname,n.nspname,c.relname)
+FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+WHERE c.relkind = 'S' AND n.nspname NOT IN ('pg_catalog','information_schema')
+    AND n.nspname !~ '^pg_'
+ORDER BY n.nspname,c.relname \gexec
 -- Do not copy arbitrary corrupt state text into the inventory.
 SELECT NOT EXISTS (SELECT FROM public.product_activation_milestones
     WHERE posthog_state NOT IN ('not_requested','pending','pre_send_retry','dispatching',
