@@ -3,7 +3,9 @@
 ## Modeling rules
 
 - `workspace_id` is the billing/tenant boundary; actor/payer references the
-  existing `UserIdentity`.
+  existing `UserIdentity`. Исключение по области, не обход tenant RLS:
+  общий metadata отчёта магазина T075 хранится в отдельных maintenance-only
+  таблицах по [контракту импорта](contracts/registry-operator-import.md).
 - Money is integer minor units plus ISO currency (`RUB` at launch). Decimal
   bytes are integers; displayed hour equivalents never drive enforcement.
 - All timestamps are UTC. Free window boundaries are derived once from
@@ -334,11 +336,15 @@ Gaps are internal operations truth, never a user refund status.
 
 ### `registry_import`
 
-Audited manual CSV import: report kind `payments|refunds`, shop/environment,
-Moscow report date, schema/language/config version, part/last-part, content hash,
-safe filename, row identities/counts/totals, state/error. Completeness requires
-every part or configured empty report for both kinds. Restricted input has
-short retention after normalized evidence; SFTP automation is deferred.
+Реализация T075 использует `billing_registry_imports` (неизменяемый receipt
+попытки, scope/digests/counts/completeness/previous receipt/DB identity/time)
+и `billing_registry_gaps` (стабильный ключ, поколение, owner/severity/deadline,
+detected/checked и resolution/actor/time/closing receipt).
+Полный ключ повторов, атомарность, защита замены и RLS определены в
+[контракте импорта](contracts/registry-operator-import.md). Raw CSV, provider
+object IDs, суммы и контакты здесь не сохраняются; разбор и проверка identities
+выполняются только в памяти. Исходный экспорт команда не копирует и не удаляет.
+Состояния общего магазина не привязываются к произвольному workspace.
 
 ## Transaction boundaries and invariants
 

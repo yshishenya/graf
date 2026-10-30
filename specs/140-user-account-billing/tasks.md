@@ -242,6 +242,13 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 ### Implementation for User Story 10
 
 - [ ] T075 [US10] Implement provider polling, observed refund/receipt/method reconciliation, separate payments/refunds registry import, completeness hashes and metadata-only gap ownership in `apps/server/src/twobrain_rec_server/billing/reconciliation.py` and `apps/server/src/twobrain_rec_server/billing/registry.py`. (Issue #4930).
+
+  Уточнение исполнения 30.10.2026: сначала [внутренний импорт B1–B3](contracts/registry-operator-import.md)
+  через `cli/billing_registry.py`, две ограниченные maintenance-only таблицы,
+  миграцию и `db/rls_validation.py`; затем полная CSV/API/ledger сверка.
+  Полнота файлов не означает финансовый PASS. До реализации прочитать
+  независимое ревью и чистый анализ; до `[X]` выполнить DB/CLI/restart/права,
+  отрицательные входы и полный остаток исходной T075. Issue не дробится.
 - [X] T076 [US10] Implement Temporal reconciliation, stuck-operation, storage projection, add-on/time-credit and notification maintenance workflows in `apps/server/src/twobrain_rec_server/workflows/billing_reconciliation_workflow.py` and `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py`.
 - [ ] T077 [US10] Add operational metrics, dashboards, emergency stop and read-only launch diagnostics through existing observability patterns in `apps/server/src/twobrain_rec_server/billing/monitoring.py`, `apps/server/src/twobrain_rec_server/readiness/checks.py`, and `apps/server/src/twobrain_rec_server/admin/metrics.py`. (Issue #4932).
 - [ ] T078 [US10] Add test-shop and controlled real-shop canary runbooks, environment separation, provider capability evidence, legal/finance sign-off records, and rollback/stop procedure in `specs/140-user-account-billing/quickstart.md` and `docs/runbooks/billing-launch.md`.

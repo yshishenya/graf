@@ -1,5 +1,12 @@
 # Contract: operations, reconciliation and launch
 
+Текущий срез T075 от 30.10.2026: [контракт внутреннего импорта](registry-operator-import.md)
+задаёт B1–B3 и имеет приоритет для этого входа. Ниже сохранён исходный
+операционный план: его emergency stop/one-attempt/catalog требования заменены
+F272/F278/F199 согласно §Scope Summary `../spec.md`. Они не реализуются заново.
+Состояния registry gap `detected|resolved` — узкий путь проверки/восстановления
+отчёта; он не является приёмкой общей системы incidents или запуском биллинга.
+
 ## Scheduled operations
 
 - Renewal planner creates exactly one operation per subscription period and skips cancel/stop/ineligible rows under lock; confirmed/unconfirmed outcome at cutoff projects Free without a new charge attempt.
