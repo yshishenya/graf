@@ -1,7 +1,8 @@
 """Fixed local policy/trigger catalog, not a full retention or readiness receipt.
 
 The operator owns this physical source connection and its read-only transaction.
-Standalone functions, lifecycle/RLS/data and installed jobs are separate gates.
+Routine definitions are pinned to clean PG17 migrations. ACL/dependencies,
+lifecycle/RLS/data and installed jobs remain separate gates.
 """
 
 from __future__ import annotations
@@ -17,6 +18,12 @@ from .legal_basis_lifecycle import LEVEL_RETENTION_CATEGORIES, LOCAL_CATEGORY_TA
 from .retention import retention_rule
 
 TABLES = LOCAL_CATEGORY_TABLES
+# Clean PG17/Alembic head 0106, not a fingerprint supplied by the checked server.
+EXPECTED_ROUTINES_SHA256 = 'f587419462003e7aa9116c51191c23ad7a885867bf880885386a068a7f0f8550'
+ROUTINES_FROM = """FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+    JOIN pg_catalog.pg_language l ON l.oid=p.prolang
+    WHERE p.oid>=16384 OR (n.nspname<>'information_schema' AND n.nspname !~ '^pg_')"""
 # table, name, type, UPDATE OF columns, function, final body migration.
 TRIGGERS = (
     ('meeting_outcome_generation_attempts', 'trg_bump_summary_slot_state_version', 17,
@@ -89,6 +96,32 @@ async def local_retention_database_catalog(source):
         bodies = _expected_bodies()
         _require(source.is_in_transaction() and await source.fetchval('SHOW transaction_read_only') == 'on',
                  'retention_catalog_transaction')
+        _require(170000 <= int(await source.fetchval('SHOW server_version_num')) < 180000
+                 and await source.fetchval('SHOW search_path') == '"$user", public',
+                 'retention_catalog_environment')
+        _require([row[0] for row in await source.fetch(
+            'SELECT lanname::text FROM pg_catalog.pg_language ORDER BY lanname')]
+            == ['c', 'internal', 'plpgsql', 'sql'] and await source.fetchval("""
+                SELECT NOT EXISTS(SELECT FROM pg_catalog.pg_event_trigger)
+                    AND NOT EXISTS(SELECT FROM pg_catalog.pg_foreign_data_wrapper)
+                    AND NOT EXISTS(SELECT FROM pg_catalog.pg_foreign_server)
+            """) is True, 'retention_catalog_executables')
+        # Deparser rejects aggregates; refuse every unsupported kind before calling it.
+        _require(await source.fetchval("SELECT count(*)=31 AND coalesce(bool_and(p.prokind='f'),false) "
+                                       + ROUTINES_FROM) is True, 'retention_catalog_routine_kind')
+        routines = [tuple(row) for row in await source.fetch("""
+            SELECT n.nspname::text,p.proname::text,
+                pg_catalog.pg_get_function_identity_arguments(p.oid),
+                pg_catalog.pg_get_functiondef(p.oid),pg_catalog.pg_get_userbyid(p.proowner)::text,
+                l.lanname::text,p.prokind::text,p.proleakproof,p.proisstrict,p.proretset,
+                p.provolatile::text,p.proparallel::text,p.probin IS NULL,
+                p.prosupport::oid::bigint,p.prosqlbody IS NULL
+        """ + ROUTINES_FROM + """
+            ORDER BY n.nspname COLLATE pg_catalog."C",p.proname COLLATE pg_catalog."C",
+                pg_catalog.pg_get_function_identity_arguments(p.oid) COLLATE pg_catalog."C"
+        """)]
+        routine_digest = hashlib.sha256(json.dumps(routines, sort_keys=True).encode()).hexdigest()
+        _require(routine_digest == EXPECTED_ROUTINES_SHA256, 'retention_catalog_routines')
         relations = [tuple(row) for row in await source.fetch("""
             SELECT c.relname::text,c.relkind::text,c.relpersistence::text,
                 pg_catalog.pg_get_userbyid(c.relowner)::text,
@@ -136,6 +169,7 @@ async def local_retention_database_catalog(source):
                  'retention_catalog_triggers')
         # No function bodies, SQL, identifiers or rows leave this internal reader.
         proof = dict(policy=policies, relations=relations, extensions=extensions,
+                     routines_sha256=routine_digest,
                      triggers=[(row[0:4], hashlib.sha256(repr(tuple(row)).encode()).hexdigest()) for row in rows])
         return hashlib.sha256(json.dumps(proof, sort_keys=True).encode()).hexdigest()
     except Exception:

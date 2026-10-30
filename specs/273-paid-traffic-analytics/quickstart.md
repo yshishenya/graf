@@ -500,3 +500,12 @@ server-auth с одной account+event и not_requested/not_requested. Посл
 запрещает INSERT. С настоящим recovery gate обе HTTP-ветви и server-auth остаются
 HOLD. [Результат и границы](validation/t113-local-only-20261029.md).
 Это не приёмка всех5 runtime writers, истории, восстановления, T112 или воронки.
+
+### Каталог функций T113 — 30.10.2026
+
+Штатный focused-профиль `tests/integration/test_local_retention.py` проверяет
+31 функцию текущих миграций на чистой PG17, обратимые подмены определений, владельца и свойств
+функции, новые routines во всех схемах, процедуру/aggregate до deparser, event
+trigger/язык/FDW и search_path. Owner→reduced даёт тот же digest; неизвестный
+expected не создаётся из source. Это не проверка всех ACL/зависимостей или
+установленных host jobs и не рабочее включение.

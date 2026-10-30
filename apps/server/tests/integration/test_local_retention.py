@@ -104,3 +104,97 @@ def test_native_local_retention_catalog(postgres_isolated_cluster_database_url):
         finally:
             await db.close()
     asyncio.run(run())
+
+
+@pytest.mark.postgres
+def test_native_routine_catalog(postgres_isolated_cluster_database_url, monkeypatch):
+    module = importlib.import_module('twobrain_rec_server.product_analytics.local_retention')
+    url = make_url(postgres_isolated_cluster_database_url)
+    assert url.host == '127.0.0.1' and url.database.startswith('twobrain_rec_test_')
+
+    async def run():
+        db = await asyncpg.connect(host=url.host, port=url.port, user=url.username,
+                                   password=url.password, database=url.database)
+        queries = []
+
+        class ObservedSource:
+            def is_in_transaction(self):
+                return db.is_in_transaction()
+
+            async def fetchval(self, query, *args):
+                queries.append(query)
+                return await db.fetchval(query, *args)
+
+            async def fetch(self, query, *args):
+                queries.append(query)
+                return await db.fetch(query, *args)
+
+        async def catalog():
+            queries.clear()
+            async with db.transaction(readonly=True):
+                return await module.local_retention_database_catalog(ObservedSource())
+
+        try:
+            baseline = await catalog()  # Current migrations must match the pinned constant.
+            await db.execute('CREATE ROLE synthetic_routine_owner NOLOGIN')
+            original = await db.fetchval("SELECT pg_get_functiondef('public.rec_setting(text)'::regprocedure)")
+            changes = [
+                ('extra', "CREATE FUNCTION public.synthetic_extra() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$", 'DROP FUNCTION public.synthetic_extra()'),
+                ('purge_not_called', 'CREATE FUNCTION public.synthetic_purge() RETURNS void LANGUAGE sql AS $$ DELETE FROM public.anonymous_page_aggregate_buckets $$', 'DROP FUNCTION public.synthetic_purge()'),
+                ('overload', 'CREATE FUNCTION public.rec_setting(int) RETURNS int LANGUAGE sql AS $$ SELECT $1 $$', 'DROP FUNCTION public.rec_setting(int)'),
+                ('other_schema', 'CREATE SCHEMA synthetic; CREATE FUNCTION synthetic.f() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$', 'DROP SCHEMA synthetic CASCADE'),
+                ('pg_catalog', 'CREATE FUNCTION pg_catalog.synthetic_extra() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$', 'DROP FUNCTION pg_catalog.synthetic_extra()'),
+                ('body', "CREATE OR REPLACE FUNCTION public.rec_setting(name text) RETURNS text LANGUAGE sql STABLE AS $$ SELECT NULL::text $$", original),
+                ('security', 'ALTER FUNCTION public.rec_setting(text) SECURITY DEFINER', original),
+                ('config', 'ALTER FUNCTION public.rec_setting(text) SET search_path=public', original),
+                ('owner', 'ALTER FUNCTION public.rec_setting(text) OWNER TO synthetic_routine_owner', 'ALTER FUNCTION public.rec_setting(text) OWNER TO twobrain_rec'),
+                ('parallel', 'ALTER FUNCTION public.rec_setting(text) PARALLEL SAFE', original),
+                ('leakproof', 'ALTER FUNCTION public.rec_setting(text) LEAKPROOF', original),
+                ('strict', 'ALTER FUNCTION public.rec_setting(text) STRICT', original),
+                ('cost', 'ALTER FUNCTION public.rec_setting(text) COST 222', original),
+                ('procedure', 'CREATE PROCEDURE public.synthetic_proc() LANGUAGE sql AS $$ SELECT 1 $$', 'DROP PROCEDURE public.synthetic_proc()'),
+                ('aggregate', 'CREATE AGGREGATE public.synthetic_sum(bigint) (SFUNC=pg_catalog.int8pl,STYPE=bigint,INITCOND=0)', 'DROP AGGREGATE public.synthetic_sum(bigint)'),
+                ('language', 'CREATE LANGUAGE synthetic_language HANDLER plpgsql_call_handler VALIDATOR plpgsql_validator', 'DROP LANGUAGE synthetic_language'),
+                ('fdw', 'CREATE FOREIGN DATA WRAPPER synthetic_fdw NO HANDLER NO VALIDATOR', 'DROP FOREIGN DATA WRAPPER synthetic_fdw'),
+                ('server', 'CREATE FOREIGN DATA WRAPPER synthetic_fdw; CREATE SERVER synthetic_server FOREIGN DATA WRAPPER synthetic_fdw', 'DROP SERVER synthetic_server; DROP FOREIGN DATA WRAPPER synthetic_fdw'),
+                ('event', "CREATE FUNCTION public.synthetic_event() RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN END $$; CREATE EVENT TRIGGER synthetic_event ON ddl_command_end EXECUTE FUNCTION public.synthetic_event()", 'DROP EVENT TRIGGER synthetic_event; DROP FUNCTION public.synthetic_event()'),
+                ('search_path', "SET search_path=pg_catalog,public", 'RESET search_path'),
+            ]
+            for name, change, undo in changes:
+                await db.execute(change)
+                try:
+                    with pytest.raises(ActivationHold, match='retention_catalog'):
+                        await catalog()
+                    if name in ('procedure', 'aggregate', 'event', 'language', 'search_path'):
+                        assert not any('pg_get_functiondef' in q for q in queries), name
+                finally:
+                    await db.execute(undo)
+                assert await catalog() == baseline, name
+
+            # PostgreSQL cannot remove a newly added default with CREATE OR REPLACE.
+            # Roll this one DDL change back instead of dropping a shared helper.
+            transaction = db.transaction()
+            await transaction.start()
+            try:
+                await db.execute(original.replace('rec_setting(name text)',
+                    "rec_setting(name text DEFAULT 'synthetic'::text)"))
+                await db.execute('SET TRANSACTION READ ONLY')
+                with pytest.raises(ActivationHold, match='retention_catalog'):
+                    await module.local_retention_database_catalog(db)
+            finally:
+                await transaction.rollback()
+            assert await catalog() == baseline
+
+            with monkeypatch.context() as patch:
+                patch.setattr(module, 'EXPECTED_ROUTINES_SHA256', '0' * 64)
+                with pytest.raises(ActivationHold, match='retention_catalog'):
+                    await catalog()
+            assert await catalog() == baseline
+            await db.execute('DROP ROLE synthetic_routine_owner')
+            await db.execute('CREATE ROLE twobrain_rec_maintenance LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT')
+            await db.execute('SET SESSION AUTHORIZATION twobrain_rec_maintenance')
+            assert await catalog() == baseline
+        finally:
+            await db.close()
+
+    asyncio.run(run())
