@@ -225,3 +225,24 @@ fail и ошибку опроса `rec-maintenance`; обязательност�
 и не выдавать отсутствие Docker Health за healthy. Сохранить только технические
 результаты и отдельные SHA инструмента/runtime. T009 закрывается только после
 всех исходных критериев, остальные живые ворота отдельно.
+
+
+## T011: повторное использование образов при сборке — 30.10.2026
+
+После актуальных reviewer/analyze/sync: расширить существующее ожидание pull
+в `test_live_build_runs_compose_backend_and_signed_app_adapter` правилом
+`--policy missing`; параметризацию отказа отсутствующего образа расширить
+на `rec-postgres`/`rec-temporal`, сохранив оба MinIO случая. На исходном коде
+подтвердить RED, затем минимальное исправление и GREEN. Existing image-ID/
+immutable-tag test остаётся обязательным. Все внешние команды подменены;
+настоящие Docker, сборка приложения и Dev этим набором не запускаются.
+
+Из подготовленной среды:
+
+    python -m pytest -q -o addopts= tests/governance/test_graf_local_adapter.py
+    python -m pytest -q -o addopts= tests/governance/test_dev_schema_transition.py tests/governance/test_dev_promotion_transaction.py tests/governance/test_dev_state_retention.py
+
+Проверка существующих guards обязана сохранить отказ при изменённых stateful
+ID как при той же схеме, так и при upgrade. После ревью/converge — обычные
+PR SHA/base gates. Успех тестов не закрывает живой T011: build→promote→status→
+smoke→пойманная компенсация→совместимый rollback ещё проверяются отдельно.

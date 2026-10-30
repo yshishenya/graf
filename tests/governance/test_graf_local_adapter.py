@@ -95,11 +95,11 @@ def test_live_build_runs_compose_backend_and_signed_app_adapter(monkeypatch, tmp
     assert result["app_bundle_digest"].startswith("sha256:")
     pulls = [command[command.index("pull"):] for command in calls if "pull" in command]
     assert pulls == [
-        ["pull", "--quiet", "rec-temporal", "rec-postgres"],
+        ["pull", "--quiet", "--policy", "missing", "rec-temporal", "rec-postgres"],
         ["pull", "--quiet", "--policy", "missing", "rec-minio", "rec-minio-init"],
     ]
 
-@pytest.mark.parametrize("missing_service", ["rec-minio", "rec-minio-init"])
+@pytest.mark.parametrize("missing_service", ["rec-postgres", "rec-temporal", "rec-minio", "rec-minio-init"])
 def test_live_build_stops_before_archive_and_app_when_missing_image_cannot_pull(monkeypatch, tmp_path, missing_service):
     adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path / "state")
     monkeypatch.setattr(adapter, "_assert_supported", lambda: None)

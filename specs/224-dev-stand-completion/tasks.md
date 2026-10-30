@@ -90,6 +90,13 @@ recovery-required; совместимый живой rollback и Dev TCC под�
 итоговые 391 проверка и свежие проверки точного SHA/основы подтвердили закрытие
 #7641. Доказательства — validation-recovery.md и комментарий закрытия #7641;
 T009/T011/T012/T013 остаются открытыми.
+Подготовка той же T011/#7642 от30.10.2026: уточнение spec/plan/research и
+quickstart для сборки без обновления доступных stateful images. До одной
+строки исправления scripts/dev-harness.py — независимые checklists/analyze/sync;
+существующие build tests в test_graf_local_adapter.py расширяются RED/GREEN,
+затем schema/promotion/retention регрессии, ревью/converge и PR gates.
+Исходная живая приёмка T011 и все13 строк задач сохранены.
+
 - [ ] T011 [US3] После T009/T010 и освобождения стенда выполнить штатный живой build→promote→status→smoke→compensation→rollback на одном /Applications/GRAF Dev.app; в specs/224-dev-stand-completion/validation-live.md доказать согласованность app/runtime/pointer, exact SHA и сохранность данных; для schema-changing перехода использовать существующего владельца specs/249-notification-control-design/tasks.md T038/#6786, не дублировать миграционную задачу и не принимать F224 до её доказательства.
 - [ ] T012 [US3] По docs/agent-guidance/local-development.md и specs/224-dev-stand-completion/quickstart.md провести Dev-only проверку разрешений до/update/relaunch/после с тем же подписантом; в specs/224-dev-stand-completion/validation-tcc.md сохранить только технические signer/requirement/entitlements и результаты microphone/system-audio по Dev bundle ID, без reset TCC/отдельного приложения/частных записей; неизвестное состояние не считать PASS.
 
