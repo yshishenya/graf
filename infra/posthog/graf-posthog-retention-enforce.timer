@@ -2,7 +2,7 @@
 Description=Verify GRAF analytics storage policy every day
 
 [Timer]
-OnCalendar=*-*-* 03:15:00
+OnCalendar=*-*-* 03:15:00 UTC
 Persistent=true
 Unit=graf-posthog-retention-enforce.service
 

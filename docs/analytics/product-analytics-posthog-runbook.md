@@ -704,9 +704,9 @@ FR-036, FR-051, FR-052).
 
 | Artifact | Schedule | State file | Contract |
 | --- | --- | --- | --- |
-| `infra/scripts/backup-posthog.sh` | daily systemd timer `graf-posthog-backup.timer`, `OnCalendar=*-*-* 02:30:00` | `/var/lib/graf-posthog-backup/backup-state` | Target: last 7 verified complete local sets, minimum 2. No offsite requirement in this stage; T117 local candidate; installation pending. A failed/partial run blocks readiness and cannot evict good sets |
-| `infra/scripts/verify-posthog-restore.sh` | systemd timer `graf-posthog-restore-verify.timer`, days 1 and 15, `OnCalendar=*-*-01,15 04:30:00` | `/var/lib/graf-posthog-backup/restore-state` | Historical v1 extraction/file-count path; does not satisfy current T118 or open updated readiness |
-| `infra/scripts/enforce-product-analytics-retention.sh` | daily systemd timer `graf-posthog-retention-enforce.timer`, `OnCalendar=*-*-* 03:15:00` | `/var/lib/graf-posthog-retention/retention-state` | Verifies explicit until_decision policy and absence of event TTL; never deletes rows |
+| `infra/scripts/backup-posthog.sh` | daily systemd timer `graf-posthog-backup.timer`, `OnCalendar=*-*-* 02:30:00 UTC` | `/var/lib/graf-posthog-backup/backup-state` | Target: last 7 verified complete local sets, minimum 2. No offsite requirement in this stage; T117 local candidate; installation pending. A failed/partial run blocks readiness and cannot evict good sets |
+| `infra/scripts/verify-posthog-restore.sh` | systemd timer `graf-posthog-restore-verify.timer`, days 1 and 15, `OnCalendar=*-*-01,15 04:30:00 UTC` | `/var/lib/graf-posthog-backup/restore-state` | Historical v1 extraction/file-count path; does not satisfy current T118 or open updated readiness |
+| `infra/scripts/enforce-product-analytics-retention.sh` | daily systemd timer `graf-posthog-retention-enforce.timer`, `OnCalendar=*-*-* 03:15:00 UTC` | `/var/lib/graf-posthog-retention/retention-state` | Verifies explicit until_decision policy and absence of event TTL; never deletes rows |
 | `infra/scripts/apply-posthog-event-ttl.sh` | operator migration after isolated validation | — | Removes the old event TTL with `infra/posthog/clickhouse-retention.sql`; requires explicit `GRAF_PRODUCT_ANALYTICS_RETENTION_MODE=until_decision` |
 
 Проверка хранения читает наличие таблиц `anonymous_page_aggregate_buckets`,
@@ -780,9 +780,9 @@ the same state-file paths the guard and the backup task write.
 сохраните `DRY_RUN=1` в его env-файле. Проверка штатного блока на временных
 файлах не доказывает установку или читаемость состояния настоящим API.
 
-systemd evaluates `OnCalendar` in the
-server timezone: keep the analytics server on UTC so `02:30`, `04:30`, and
-`03:15` are UTC times, and record the timezone with each receipt.
+Each calendar explicitly includes `UTC`, so `02:30`, `04:30`, and `03:15`
+remain UTC times regardless of the server timezone or daylight-saving changes.
+Keep the server timezone unchanged and record the calendar timezone with each receipt.
 
 Категории `measurement_events`, `anonymous_aggregate`, `visit_attribution` и
 `acquisition_attribute` имеют `retention_mode=until_decision`,

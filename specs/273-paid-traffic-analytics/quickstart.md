@@ -540,3 +540,21 @@ backup/lifecycle/four-category, включая closed-source false/limit0, из
 сравниваются с полным `sequence_state`; schema-only эталон не доказывает данные.
 Исторические отчёты0106 сохраняются. Установленные задания, полный оператор,
 рабочие T0/ready, выпуск и коммерческая приёмка остаются отдельными проверками.
+
+### UTC в существующих календарях — 30.10.2026
+
+Из apps/server выполнить существующие contract-модули:
+
+```sh
+.venv/bin/python -m pytest -q --tb=short \
+  tests/contract/test_analytics_degradation_alerting.py \
+  tests/contract/test_analytics_retention_enforcement.py
+```
+
+На systemd255 вычислить конечные OnCalendar из трёх source timer через
+`systemd-analyze calendar --iterations=4` с `--base-time`27марта/23октября2026
+23:59UTC для локальных UTC и Europe/Amsterdam. Результаты должны совпасть вUTC:
+backup02:30 каждый день, restore04:30 первого/пятнадцатого, retention03:15
+каждый день;29марта не пропускается. Это read-only вычисление, без установки
+и запуска. [Зафиксированный результат](validation/t113-schedule-20261030.md).
+Полные installed-jobs/оператор/восстановление и рабочий T0 проверяются отдельно.

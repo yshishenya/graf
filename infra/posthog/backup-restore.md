@@ -174,9 +174,9 @@ alerts on failure instead of stopping the product.
 
 | Task | Unit and timer | State file |
 | --- | --- | --- |
-| Archive every inventory volume class as a verified complete local set (T117 local candidate; installation pending) | `infra/posthog/graf-posthog-backup.{service,timer}`, daily 02:30 | `/var/lib/graf-posthog-backup/backup-state` |
-| Historical v1: extract one stored copy and count files; does not open current readiness | `infra/posthog/graf-posthog-restore-verify.{service,timer}`, days 1 and 15 at 04:30 | `/var/lib/graf-posthog-backup/restore-state` |
-| Enforce the events, aggregate and attribution retention terms | `infra/posthog/graf-posthog-retention-enforce.{service,timer}`, daily 03:15 | `/var/lib/graf-posthog-retention/retention-state` |
+| Archive every inventory volume class as a verified complete local set (T117 local candidate; installation pending) | `infra/posthog/graf-posthog-backup.{service,timer}`, daily 02:30 UTC | `/var/lib/graf-posthog-backup/backup-state` |
+| Historical v1: extract one stored copy and count files; does not open current readiness | `infra/posthog/graf-posthog-restore-verify.{service,timer}`, days 1 and 15 at 04:30 UTC | `/var/lib/graf-posthog-backup/restore-state` |
+| Enforce the events, aggregate and attribution retention terms | `infra/posthog/graf-posthog-retention-enforce.{service,timer}`, daily 03:15 UTC | `/var/lib/graf-posthog-retention/retention-state` |
 
 Commands:
 

@@ -627,13 +627,13 @@ def test_scheduled_alerting_units_exist_with_the_reviewed_cadence() -> None:
     expected = {
         "graf-analytics-degradation-alert.timer": "OnUnitActiveSec=5min",
         "graf-analytics-alert-channel-check.timer": "OnUnitActiveSec=15min",
-        "graf-posthog-backup.timer": "OnCalendar=*-*-* 02:30:00",
-        "graf-posthog-restore-verify.timer": "OnCalendar=*-*-01,15 04:30:00",
-        "graf-posthog-retention-enforce.timer": "OnCalendar=*-*-* 03:15:00",
+        "graf-posthog-backup.timer": "OnCalendar=*-*-* 02:30:00 UTC",
+        "graf-posthog-restore-verify.timer": "OnCalendar=*-*-01,15 04:30:00 UTC",
+        "graf-posthog-retention-enforce.timer": "OnCalendar=*-*-* 03:15:00 UTC",
     }
     for name, schedule in expected.items():
         timer = (UNIT_DIR / name).read_text(encoding="utf-8")
-        assert schedule in timer, name
+        assert schedule in timer.splitlines(), name
         assert "Persistent=true" in timer, name
         assert "WantedBy=timers.target" in timer, name
 
