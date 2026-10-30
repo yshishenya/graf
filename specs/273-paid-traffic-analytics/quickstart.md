@@ -558,3 +558,14 @@ backup02:30 каждый день, restore04:30 первого/пятнадца�
 каждый день;29марта не пропускается. Это read-only вычисление, без установки
 и запуска. [Зафиксированный результат](validation/t113-schedule-20261030.md).
 Полные installed-jobs/оператор/восстановление и рабочий T0 проверяются отдельно.
+
+### Общий lifecycle reader — 30.10.2026
+
+Повторить профиль из [отчёта](validation/t113-shared-lifecycle-20261030.md):
+unit operator/replay, native runtime DB, source lifecycle, coherent copy и
+four-category потребители. Invalid bytes/версия/случаи/остатки и смена БД
+после yield дают HOLD. На closedDB false/limit0 общий core читает уже удержанную
+reduced source без reconnect, metadata восстанавливаются в finally.
+Отдельный Linux запуск проверяет actual bound files; Mac skips его не заменяют.
+Исторические сроки и provider deletion, installed jobs и полный допуск этим
+reader не принимаются. Оба общих HOLD сохраняются.

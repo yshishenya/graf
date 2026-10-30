@@ -559,16 +559,26 @@ def test_native_compose_stop_on_owned_networks(fence, tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('case', ['good', 'revision', 'grant', 'role', 'membership', 'cancel_query',
                                 'catalog_changed', 'access_initial', 'access_changed',
-                                'catalog_always', 'catalog_state_changed'])
+                                'catalog_always', 'catalog_state_changed', 'lifecycle_version', 'lifecycle_malformed',
+                                'lifecycle_withdrawal', 'lifecycle_accepted', 'lifecycle_failed',
+                                'lifecycle_applied', 'lifecycle_remnant', 'lifecycle_changed',
+                                'lifecycle_closure', 'lifecycle_closure_changed', 'cancel_lifecycle'])
 def test_native_runtime_database_preflight_full_schema(
     postgres_isolated_cluster_database_url, tmp_path, monkeypatch, case,
 ):
     """Only transport host/port are redirected on Mac; all SQL/verifier are real."""
     import runpy
     from contextlib import asynccontextmanager
+    from datetime import UTC, datetime, timedelta
     from pathlib import Path
 
     from sqlalchemy.engine import make_url
+
+    from twobrain_rec_server.product_analytics.legal_basis_lifecycle import LegalBasisLifecycleError
+    from twobrain_rec_server.product_analytics.restore_replay import (
+        CLOSURE_POLICY_QUERY,
+        ReplayHold,
+    )
 
     root = Path(__file__).resolve().parents[4]
     url = make_url(postgres_isolated_cluster_database_url)
@@ -597,11 +607,54 @@ def test_native_runtime_database_preflight_full_schema(
     async def run():
         admin = await asyncpg.connect(host=url.host, port=url.port,
             user=url.username, password=url.password, database='postgres')
+        locker = None
         try:
             await admin.execute(f'ALTER DATABASE "{url.database}" RENAME TO twobrain_rec')
             setup = await asyncpg.connect(host=url.host, port=url.port,
                 user=url.username, password=url.password, database='twobrain_rec')
+            now = datetime.now(UTC) - timedelta(minutes=1)
+            register = 'legal_basis_state_version=2\n'
+            if case == 'lifecycle_version':
+                register = 'legal_basis_state_version=1\n'
+            if case == 'lifecycle_malformed':
+                register += 'disposition_case invalid\n'
+            if case == 'lifecycle_withdrawal':
+                register += ('basis_withdrawal level=anonymous_aggregate state=withdrawn '
+                             f'withdrawn_at={now.date()} reason=purpose_ended\n')
+            if case in {'lifecycle_accepted', 'lifecycle_failed', 'lifecycle_applied',
+                        'lifecycle_remnant', 'lifecycle_changed'}:
+                stage = {'lifecycle_accepted': 'accepted', 'lifecycle_failed': 'failed'}.get(case, 'applied')
+                register += ('disposition_case case_ref=case_category decision_ref=decision_category '
+                    'scope=anonymous_page_aggregate selector_ref=all owner_role=operator '
+                    f'reason=purpose_ended decided_at={now.isoformat()} '
+                    f'due_at={(now+timedelta(days=1)).isoformat()} stage={stage}')
+                if stage == 'applied':
+                    register += f' applied_at={now.isoformat()} rows_affected=0'
+                register += '\n'
+            register_raw = register.encode()
+            closure_id = uuid4()
+            insert_bucket = """INSERT INTO anonymous_page_aggregate_buckets
+                (id,bucket_date,surface,landing_path)
+                VALUES(gen_random_uuid(),current_date,'download','/download')"""
             try:
+                if case in {'lifecycle_closure', 'lifecycle_closure_changed'}:
+                    organization, account, workspace = uuid4(), uuid4(), uuid4()
+                    await setup.execute("INSERT INTO organizations(id,slug,name) VALUES($1,'synthetic','Synthetic')", organization)
+                    await setup.execute("""INSERT INTO user_identities
+                        (id,organization_id,external_subject,locale,theme,status)
+                        VALUES($1,$2,'synthetic','ru-RU','system','active')""", account, organization)
+                    await setup.execute("""INSERT INTO workspaces
+                        (id,organization_id,slug,name,kind,owner_user_id,
+                         default_summary_template_key,default_summary_template_version)
+                        VALUES($1,$2,'synthetic','Synthetic','personal',$3,'graf-auto-v1',1)""",
+                        workspace, organization, account)
+                    await setup.execute("""INSERT INTO account_closure_requests
+                        (id,workspace_id,requested_by_user_id,request_key,state,finalize_at)
+                        VALUES($1,$2,$3,'synthetic', $4, now()+interval '1 day')""",
+                        closure_id, workspace, account,
+                        'failed' if case == 'lifecycle_closure' else 'scheduled')
+                if case == 'lifecycle_remnant':
+                    await setup.execute(insert_bucket)
                 if case == 'revision':
                     await setup.execute("UPDATE alembic_version SET version_num='synthetic_wrong_revision'")
                 if case == 'grant':
@@ -623,10 +676,15 @@ def test_native_runtime_database_preflight_full_schema(
                     'rec-maintenance': 'twobrain_rec_maintenance',
                     'rec-prompt-optimization-worker': 'twobrain_rec_maintenance',
                 }.items()}
+            if case == 'good':
+                with pytest.raises(TypeError, match='register_raw'):
+                    operator._runtime_databases(settings=settings, password=url.password,
+                        host='172.19.0.2', snapshot=root, deadline=time.monotonic()+15)
             entered = asyncio.Event()
             async def operation():
                 async with operator._runtime_databases(settings=settings, password=url.password,
-                        host='172.19.0.2', snapshot=root, deadline=time.monotonic()+15) as (owner, source, proof):
+                        host='172.19.0.2', snapshot=root, deadline=time.monotonic()+15,
+                        register_raw=register_raw) as (owner, source, proof):
                     assert await owner.fetchval('SELECT current_database()') == 'postgres'
                     assert await source.fetchval('SELECT session_user') == 'twobrain_rec_maintenance'
                     assert not source.is_in_transaction()
@@ -634,9 +692,21 @@ def test_native_runtime_database_preflight_full_schema(
                     assert len(proof['roles_sha256']) == 64
                     assert len(proof['retention_catalog_sha256']) == 64
                     assert len(proof['retention_access_sha256']) == 64
+                    assert len(proof['lifecycle_sha256']) == 64
+                    assert 'legal_basis_state_version' not in json.dumps(proof)
                     entered.set()
                     if case == 'cancel_query':
                         await source.execute('SELECT pg_sleep(3)')
+                    if case in {'lifecycle_changed', 'lifecycle_closure_changed'}:
+                        modifier = await asyncpg.connect(host=url.host, port=url.port,
+                            user=url.username, password=url.password, database='twobrain_rec')
+                        try:
+                            if case == 'lifecycle_changed':
+                                await modifier.execute(insert_bucket)
+                            else:
+                                await modifier.execute("UPDATE account_closure_requests SET state='failed' WHERE id=$1", closure_id)
+                        finally:
+                            await modifier.close()
                     if case in ('catalog_changed', 'access_changed', 'catalog_state_changed'):
                         modifier = await asyncpg.connect(host=url.host, port=url.port,
                             user=url.username, password=url.password, database='twobrain_rec')
@@ -649,16 +719,42 @@ def test_native_runtime_database_preflight_full_schema(
                             await modifier.execute(changes[case])
                         finally:
                             await modifier.close()
-            if case == 'cancel_query':
+            if case in {'cancel_query', 'cancel_lifecycle'}:
+                if case == 'cancel_lifecycle':
+                    locker = await asyncpg.connect(host=url.host, port=url.port,
+                        user=url.username, password=url.password, database='twobrain_rec')
+                    original_lifecycle = operator._local_lifecycle
+                    source_pid = None
+                    async def locked_lifecycle(source, raw, **kwargs):
+                        nonlocal source_pid
+                        source_pid = source.get_server_pid()
+                        await locker.execute('BEGIN')
+                        await locker.execute('LOCK TABLE account_closure_requests IN ACCESS EXCLUSIVE MODE')
+                        return await original_lifecycle(source, raw, **kwargs)
+                    monkeypatch.setattr(operator, '_local_lifecycle', locked_lifecycle)
                 task = asyncio.create_task(operation())
-                await asyncio.wait_for(entered.wait(), 10)
+                if case == 'cancel_lifecycle':
+                    async def wait_for_actual_lifecycle_query():
+                        while not await admin.fetchval("""SELECT EXISTS(SELECT FROM pg_stat_activity
+                            WHERE application_name='graf-activation-preflight' AND wait_event_type='Lock'
+                              AND left(query,128)=ANY($1::text[]) AND pid=$3::int
+                              AND $2::int=ANY(pg_blocking_pids(pid)))""",
+                                [CLOSURE_POLICY_QUERY[:128]],
+                                locker.get_server_pid(), source_pid):
+                            if task.done():
+                                await task
+                                raise AssertionError('lifecycle query was not observed')
+                            await asyncio.sleep(.01)
+                    await asyncio.wait_for(wait_for_actual_lifecycle_query(), 10)
+                else:
+                    await asyncio.wait_for(entered.wait(), 10)
                 await asyncio.sleep(.03)
                 task.cancel()
                 await asyncio.sleep(0)
                 task.cancel()
                 with pytest.raises(asyncio.CancelledError):
                     await task
-            elif case in ('good', 'catalog_always'):
+            elif case in ('good', 'catalog_always', 'lifecycle_applied'):
                 await operation()
             elif case in ('access_initial', 'access_changed'):
                 with pytest.raises(operator.ActivationHold, match='retention_access'):
@@ -667,10 +763,15 @@ def test_native_runtime_database_preflight_full_schema(
                 with pytest.raises(operator.ActivationHold, match='retention_catalog_changed'):
                     await operation()
             else:
-                with pytest.raises((operator.ActivationHold, RuntimeError)):
+                with pytest.raises((operator.ActivationHold, ReplayHold, LegalBasisLifecycleError, RuntimeError)):
                     await operation()
             assert await admin.fetchval("SELECT count(*) FROM pg_stat_activity "
                 "WHERE application_name='graf-activation-preflight'") == 0
         finally:
+            if locker is not None:
+                try:
+                    await locker.execute('ROLLBACK')
+                finally:
+                    await locker.close()
             await admin.close()
     asyncio.run(run())

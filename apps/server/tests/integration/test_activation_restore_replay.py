@@ -996,6 +996,24 @@ def test_source_lifecycle_proves_absence_without_hidden_rls_rows(replay_world, m
 
             baseline, raw = await evaluate()
             assert len(baseline) == 64 and raw == world["operator"].read_bytes()
+            for invalid in (None, 'legal_basis_state_version=2\n', b'', b'x' * (10 * 1024 * 1024 + 1)):
+                with pytest.raises(ActivationHold, match='lifecycle_register'):
+                    await operator._local_lifecycle(source, invalid, root=REPO)
+                assert not source.is_in_transaction()
+            assert await operator._local_lifecycle(source, raw, root=REPO) == baseline
+            database, oid = await source.fetchrow('SELECT current_database(),oid FROM pg_database WHERE datname=current_database()')
+            assert not source.is_in_transaction()
+            original_metadata = await owner.fetchrow('SELECT datallowconn,datconnlimit FROM pg_database WHERE oid=$1', oid)
+            gate = await asyncpg.connect(**{**kwargs, "database": "postgres"})
+            try:
+                await gate.execute(f'ALTER DATABASE "{database}" CONNECTION LIMIT 0 ALLOW_CONNECTIONS false')
+                try:
+                    assert await operator._local_lifecycle(source, raw, root=REPO) == baseline
+                finally:
+                    await gate.execute(f'ALTER DATABASE "{database}" CONNECTION LIMIT {original_metadata[1]} '
+                                       + ('ALLOW_CONNECTIONS true' if original_metadata[0] else 'ALLOW_CONNECTIONS false'))
+            finally:
+                await gate.close()
             assert await owner.fetchval("SELECT count(*) FROM product_activation_milestones") == 8
             remnant = uuid4()
             await owner.execute("""INSERT INTO product_activation_milestones

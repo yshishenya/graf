@@ -621,3 +621,13 @@ backup02:30 ежедневно, restore04:30 первого/пятнадцато
 backup-restore согласованы. [Проектный гейт](validation/t113-schedule-design-review-20261030.md)
 разрешил минимальную правку; [результат и остаток](validation/t113-schedule-20261030.md).
 Рабочая установка, общий каталог host jobs и верхний оператор остаются в T113.
+
+### Общее чтение обязательных удалений — 30.10.2026
+
+В T113 прежнее тело backup lifecycle выделено в общее внутреннее ядро,
+которое runtime вызывает через ту же физическую reduced source до/после yield.
+Actual register bytes всех writers сравниваются отдельно от digests и остаются
+в памяти; файловый wrapper сохраняет private_bytes/0700/0600/10МБ и readback.
+[Проектный гейт](validation/t113-shared-lifecycle-design-review-20261030.md),
+[проверки и остаток](validation/t113-shared-lifecycle-20261030.md).
+Installed jobs/shell graf-local/верхний оператор и рабочий допуск ещё открыты.

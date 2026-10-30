@@ -738,12 +738,23 @@ def _json_digest(value):
 
 
 async def _backup_lifecycle(source, register, *, root):
+    from .restore_replay import private_bytes
+
+    raw = private_bytes(register)
+    digest = await _local_lifecycle(source, raw, root=root)
+    _require(private_bytes(register) == raw, "activation_operator_register_changed")
+    return digest, raw
+
+
+async def _local_lifecycle(source, raw, *, root):
+    """Same actual four-category reads for backup and runtime; no readiness writer."""
     from twobrain_rec_server.db.tenant_context import maintenance_context_settings
 
     from . import restore_replay as replay
     from .local_retention import local_retention_database_access, local_retention_database_catalog
 
-    raw = replay.private_bytes(register)
+    _require(type(raw) is bytes and 0 < len(raw) <= 10 * 1024 * 1024,
+             "activation_operator_lifecycle_register")
     ledger_policy = runpy.run_path(str(root / "infra/scripts/rec-db-verify.py"))["POLICY"]
     async with source.transaction(isolation="repeatable_read", readonly=True):
         for key, value in maintenance_context_settings(replay.CONTEXT).items():
@@ -788,7 +799,6 @@ async def _backup_lifecycle(source, register, *, root):
             else:
                 continue
             _require(remains is False, "activation_operator_lifecycle_remnants")
-        _require(replay.private_bytes(register) == raw, "activation_operator_register_changed")
         digest = _json_digest(dict(rows=rows, register_sha256=hashlib.sha256(raw).hexdigest(),
             retention_catalog_sha256=catalog, retention_access_sha256=retention_access, ledger_policy=policy,
             category_coverage=sorted(scopes), local_access=[tuple(row) for row in access],
@@ -796,7 +806,7 @@ async def _backup_lifecycle(source, register, *, root):
             provider_dispositions="outside_local_scope"))
     # The caller must be able to run identity/quiet queries outside this transaction.
     _require(not source.is_in_transaction(), "activation_operator_transaction_active")
-    return digest, raw
+    return digest
 
 
 def _backup_metadata(root, reference):
@@ -1929,8 +1939,9 @@ def _runtime_operations(row, *, settings, root, process, snapshot, proc_root=Pat
                          "activation_operator_guard_changed")
 
             evaluate()
-            yield _json_digest(dict(files={name: dict(identity=values[4],
-                content=hashlib.sha256(values[5]).hexdigest()) for name, values in files.items()}, guard=digest))
+            yield (_json_digest(dict(files={name: dict(identity=values[4],
+                content=hashlib.sha256(values[5]).hexdigest()) for name, values in files.items()}, guard=digest)),
+                files["legal"][5])
             evaluate()
             _require(_settings_file_identity(proc_path.stat())[:2] == root_identity
                      and _process_identity(process[0], proc_root=proc_root) == process,
@@ -2158,7 +2169,7 @@ async def _physical_connection(*, deadline, **kwargs):
 
 
 @asynccontextmanager
-async def _runtime_databases(*, settings, password, host, snapshot, deadline):
+async def _runtime_databases(*, settings, password, host, snapshot, deadline, register_raw):
     from alembic.script import ScriptDirectory
 
     from .local_retention import local_retention_database_access, local_retention_database_catalog
@@ -2208,16 +2219,19 @@ async def _runtime_databases(*, settings, password, host, snapshot, deadline):
                 revisions = await connection.fetch("SELECT version_num FROM public.alembic_version")
                 _require([r[0] for r in revisions] == [head], "activation_operator_schema_revision")
                 proofs.append(tuple(row))
+        lifecycle = await _local_lifecycle(source, register_raw, root=snapshot)
         yield owner, source, dict(cluster_id=cluster, db_name="twobrain_rec", db_oid=oid,
                                  schema_revision=head, roles_sha256=_json_digest(proofs),
                                  retention_catalog_sha256=retention_catalog,
-                                 retention_access_sha256=retention_access)
+                                 retention_access_sha256=retention_access, lifecycle_sha256=lifecycle)
         await _database_identity(source, owner, name="twobrain_rec", oid=oid, cluster_id=cluster)
         async with source.transaction(readonly=True):
             _require(await local_retention_database_catalog(source) == retention_catalog,
                      "activation_operator_retention_catalog_changed")
             _require(await local_retention_database_access(source) == retention_access,
                      "activation_operator_retention_access_changed")
+        _require(await _local_lifecycle(source, register_raw, root=snapshot) == lifecycle,
+                 "activation_operator_lifecycle_changed")
 
 
 def _policy_static(value):
@@ -2641,21 +2655,24 @@ async def _runtime_preflight(*, root, snapshot, source, deadline):
                              volumes=await volume_metadata())
     with ExitStack() as actual_settings:
         settings_proofs, writer_settings, operations_proofs = {}, {}, {}
+        register_raw = None
         for row in actual:
             if by_id[row["id"]] in WRITERS and row["id"] in processes:
                 settings, proof = actual_settings.enter_context(_runtime_settings(
                     row, root=root, process=processes[row["id"]]))
                 settings_proofs[row["id"]] = proof
                 writer_settings[by_id[row["id"]]] = settings
-                operations_proofs[row["id"]] = actual_settings.enter_context(_runtime_operations(
+                operations_proofs[row["id"]], raw = actual_settings.enter_context(_runtime_operations(
                     row, settings=settings, root=root, process=processes[row["id"]], snapshot=snapshot))
+                _require(register_raw is None or raw == register_raw, "activation_operator_register_mismatch")
+                register_raw = raw
         _require(len(set(operations_proofs.values())) == 1, "activation_operator_operations_mismatch")
         pg = next(row for row in actual if row["id"] == ids["rec-postgres"])
         password, password_proof = actual_settings.enter_context(_runtime_owner_password(
             pg, root=root, process=processes[pg["id"]]))
         async with _runtime_databases(settings=writer_settings, password=password,
                 host=_runtime_database_address(rows, networks), snapshot=snapshot,
-                deadline=deadline) as (_, _, database_proof):
+                deadline=deadline, register_raw=register_raw) as (_, _, database_proof):
             _require(await inspect() == actual, "activation_operator_runtime_changed")
             for row in actual:
                 if row["id"] in processes:

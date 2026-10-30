@@ -159,7 +159,9 @@ def test_runtime_operations_use_actual_directory_binds(tmp_path, monkeypatch, ca
         with operator._runtime_operations(row, settings=settings, root=directory,
                 process=process, snapshot=snapshot, proc_root=directory / 'proc') as proof:
             reached.append(True)
-            assert len(proof) == 64
+            assert len(proof[0]) == 64
+            assert proof[1] == files['legal'].read_bytes()
+            assert type(proof[1]) is bytes
             if case == 'sibling_update':
                 (state / 'unrelated').write_text('ordinary atomic sibling update')
             if case in {'installed_changed', 'snapshot_changed'}:
@@ -748,7 +750,7 @@ def test_two_complete_copies_and_latest_attempt_are_verified(fence, tmp_path, mo
     'good', 'optional_absent', 'wrong_image', 'wrong_source', 'duplicate_source',
     'wrong_user', 'userns', 'required_exited', 'unhealthy', 'config_changed',
     'pid_changed', 'override_changed', 'no_release', 'deadline', 'foreign_network',
-    'rootless', 'remap', 'image_env', 'image_platform', 'process_changed', 'postal_changed', 'socket_changed', 'thirdparty_user', 'model_changed', 'registry_changed', 'policy_drift', 'poisoned_env', 'volume_good', 'volume_changed', 'volume_options', 'late_database_close', 'late_secret_close', 'operations_failure', 'operations_mismatch', 'late_operations_close',
+    'rootless', 'remap', 'image_env', 'image_platform', 'process_changed', 'postal_changed', 'socket_changed', 'thirdparty_user', 'model_changed', 'registry_changed', 'policy_drift', 'poisoned_env', 'volume_good', 'volume_changed', 'volume_options', 'late_database_close', 'late_secret_close', 'operations_failure', 'operations_mismatch', 'raw_mismatch', 'late_operations_close',
 ])
 def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypatch, case):
     rows, networks = inventory()
@@ -919,7 +921,9 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
         checked_operations.append(row['id'])
         if case == 'operations_failure':
             raise ActivationHold('synthetic_operations_failure')
-        yield ('9' if case == 'operations_mismatch' and len(checked_operations) > 1 else '8') * 64
+        yield (('9' if case == 'operations_mismatch' and len(checked_operations) > 1 else '8') * 64,
+               b'changed' if case == 'raw_mismatch' and len(checked_operations) > 1
+               else b'legal_basis_state_version=2\n# private-register-sentinel\n')
         if case == 'late_operations_close':
             monkeypatch.setattr(operator, 'time', SimpleNamespace(monotonic=lambda: time.monotonic()+60))
 
@@ -934,6 +938,7 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
     @asynccontextmanager
     async def databases(**kwargs):
         assert kwargs['password'] == 'synthetic-owner'
+        assert kwargs['register_raw'] == b'legal_basis_state_version=2\n# private-register-sentinel\n'
         assert set(kwargs['settings']) == {r['service'] for r in rows
             if r['service'] in operator.WRITERS and r['state']['running']}
         yield None, None, {'synthetic-database': True}
@@ -952,12 +957,13 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
         assert volume_count == (2 if case == 'volume_good' else 0)
         assert model_count == 2
         assert result['runtime'] == 'verified' and result['source_sha'] == source
+        assert 'private-register-sentinel' not in json.dumps(result)
         assert result['container_count'] == len(rows)
         assert len(result['runtime_sha256']) == 64
         assert set(checked_settings) == {r['id'] for r in rows if r['service'] in operator.WRITERS and r['state']['running']}
         assert set(checked_operations) == set(checked_settings)
     else:
-        with pytest.raises(ActivationHold):
+        with pytest.raises(ActivationHold, match='register_mismatch' if case == 'raw_mismatch' else None):
             asyncio.run(operator._runtime_preflight(
                 root=tmp_path, snapshot=tmp_path, source=source,
                 deadline=time.monotonic() + (-1 if case == 'deadline' else 20)))
