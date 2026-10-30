@@ -1814,7 +1814,7 @@ class GrafLocalAdapter:
         _run_command(
             [
                 "docker", "compose", "-p", "graf-dev", "-f", str(self.compose_file),
-                "pull", "--quiet", "rec-temporal", "rec-postgres",
+                "pull", "--quiet", "--policy", "missing", "rec-temporal", "rec-postgres",
             ],
             cwd=self.root,
             env=env,
