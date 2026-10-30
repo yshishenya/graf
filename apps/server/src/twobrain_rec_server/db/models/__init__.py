@@ -35,6 +35,7 @@ from twobrain_rec_server.db.models.billing import (
     UsageReservation,
     WorkspaceSubscription,
 )
+from twobrain_rec_server.db.models.billing_registry import BillingRegistryGap, BillingRegistryImport
 from twobrain_rec_server.db.models.calendar import (
     CalendarAuditEvent,
     CalendarCredentialEnvelope,
@@ -158,6 +159,8 @@ from twobrain_rec_server.db.models.summary_sharing import (
 from twobrain_rec_server.db.models.support import SupportIncident, SupportIncidentRateLimitBucket
 
 __all__ = [
+    "BillingRegistryGap",
+    "BillingRegistryImport",
     "SummaryAutoSendException",
     "SummaryAutoSendRule",
     "SummarySharingPreference",
