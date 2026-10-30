@@ -47,7 +47,10 @@ def _require(value, reason):
 def _environment():
     return {"PATH": "/usr/bin:/bin", "HOME": "/root", "LANG": "C.UTF-8",
             "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null",
-            "GIT_TERMINAL_PROMPT": "0", "UV_NO_CONFIG": "1"}
+            "GIT_TERMINAL_PROMPT": "0", "UV_NO_CONFIG": "1",
+            "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory",
+            "GIT_CONFIG_VALUE_0": str(ROOT),
+            "DOCKER_HOST": "unix:///var/run/docker.sock"}
 
 
 @contextmanager
@@ -301,6 +304,31 @@ def _prepare(root, source, temporary):
     return dict(source_sha=source, lock_sha256=lock_digest, **manifest)
 
 
+def _runtime(temporary, source):
+    """Invoke only the installed module while its pinned environment still exists."""
+    raw = _run([str(temporary / "venv/bin/python"), "-I", "-B", "-m",
+                "twobrain_rec_server.product_analytics.activation_operator",
+                "--runtime-preflight", "--source-sha", source], deadline=time.monotonic() + 35)
+
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            _require(key not in result, "bootstrap_runtime_result_invalid")
+            result[key] = value
+        return result
+
+    _require(len(raw) <= 2048, "bootstrap_runtime_result_invalid")
+    result = json.loads(raw, object_pairs_hook=unique)
+    _require(isinstance(result, dict)
+             and set(result) == {"runtime", "source_sha", "runtime_sha256", "container_count"}
+             and result["runtime"] == "verified" and result["source_sha"] == source
+             and isinstance(result["runtime_sha256"], str)
+             and re.fullmatch(r"[a-f0-9]{64}", result["runtime_sha256"])
+             and type(result["container_count"]) is int and 1 <= result["container_count"] <= 11,
+             "bootstrap_runtime_result_invalid")
+    return result
+
+
 def main(argv=None):
     with _signals() as pending:
         return _main(argv, pending)
@@ -325,6 +353,7 @@ def _main(argv, pending):
             try:
                 temporary.chmod(0o700)
                 metadata = _prepare(root, source, temporary)
+                metadata.update(_runtime(temporary, source))
                 _require(_git(root, "rev-parse", "HEAD").decode().strip() == source
                          and not _git(root, "status", "--porcelain", "--untracked-files=no").strip(),
                          "bootstrap_source_changed")

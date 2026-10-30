@@ -301,6 +301,7 @@ def test_signal_during_temp_cleanup_holds_lock_and_cannot_verify(bootstrap, repo
         remove(directory)
 
     monkeypatch.setattr(bootstrap, "_prepare", prepare)
+    monkeypatch.setattr(bootstrap, "_runtime", lambda *_: {})
     monkeypatch.setattr(bootstrap.shutil, "rmtree", interrupted_cleanup)
     assert bootstrap.main(["--preflight"]) == 1
     result = json.loads(capsys.readouterr().out)
@@ -372,3 +373,102 @@ def test_linux_supervisor_reaps_descendants_and_repeated_signals(bootstrap, tmp_
         fcntl.flock(released, fcntl.LOCK_EX | fcntl.LOCK_NB)
     after = ctypes.c_int()
     assert libc.prctl(37, ctypes.byref(after), 0, 0, 0) == 0 and before.value == after.value
+
+
+@pytest.mark.parametrize("case", ["good", "extra", "partial", "duplicate", "source", "boolean", "noise", "oversized"])
+def test_installed_runtime_output_is_bounded_and_exact(bootstrap, tmp_path, monkeypatch, case):
+    source = "a" * 40
+    value = dict(runtime="verified", source_sha=source, runtime_sha256="b" * 64, container_count=10)
+    if case == "extra":
+        value["ready"] = True
+    if case == "partial":
+        del value["runtime_sha256"]
+    if case == "source":
+        value["source_sha"] = "c" * 40
+    if case == "boolean":
+        value["container_count"] = True
+    raw = json.dumps(value).encode()
+    if case == "duplicate":
+        raw = raw[:-1] + b',"runtime":"verified"}'
+    if case == "noise":
+        raw += b"\nprivate noise"
+    if case == "oversized":
+        raw += b" " * 2048
+
+    def run(argv, *, deadline):
+        assert argv == [str(tmp_path / "venv/bin/python"), "-I", "-B", "-m",
+                        "twobrain_rec_server.product_analytics.activation_operator",
+                        "--runtime-preflight", "--source-sha", source]
+        assert 0 < deadline - time.monotonic() <= 35
+        assert (tmp_path / "source").is_dir()
+        return raw
+
+    (tmp_path / "source").mkdir()
+    monkeypatch.setattr(bootstrap, "_run", run)
+    if case == "good":
+        assert bootstrap._runtime(tmp_path, source) == value
+    else:
+        with pytest.raises((bootstrap.BootstrapHold, ValueError)):
+            bootstrap._runtime(tmp_path, source)
+
+
+def test_runtime_environment_selects_local_socket_and_clears_context(bootstrap, monkeypatch):
+    for name in ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"):
+        monkeypatch.setenv(name, "synthetic-poison")
+    environment = bootstrap._environment()
+    assert environment["DOCKER_HOST"] == "unix:///var/run/docker.sock"
+    assert environment['GIT_CONFIG_COUNT'] == '1'
+    assert environment['GIT_CONFIG_KEY_0'] == 'safe.directory'
+    assert environment['GIT_CONFIG_VALUE_0'] == str(bootstrap.ROOT)
+    assert not any(name in environment for name in ("DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"))
+
+
+@pytest.mark.parametrize('failure', [False, True])
+def test_runtime_runs_inside_pinned_lifetime_and_never_opens_full_preflight(bootstrap, repository, monkeypatch, capsys, failure):
+    root, lock = repository
+    script = root / 'infra/scripts/activation-operator.py'
+    script.parent.mkdir(parents=True)
+    script.write_bytes(SCRIPT.read_bytes())
+    subprocess.run(['git', '-C', str(root), 'add', '.'], check=True)
+    subprocess.run(['git', '-C', str(root), 'commit', '-qm', 'bootstrap'], check=True)
+    monkeypatch.setattr(bootstrap.sys, 'flags', SimpleNamespace(isolated=1))
+    monkeypatch.setattr(bootstrap, '_installation', lambda: root)
+    seen = []
+
+    def prepare(_root, source, temporary):
+        (temporary / 'source').mkdir()
+        return {'source_sha': source}
+
+    def runtime(temporary, source):
+        seen.append(temporary)
+        assert (temporary / 'source').is_dir()
+        with lock.open() as contender, pytest.raises(BlockingIOError):
+            fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if failure:
+            raise bootstrap.BootstrapHold('bootstrap_child_failed')
+        return dict(runtime='verified', source_sha=source, runtime_sha256='b' * 64, container_count=10)
+
+    monkeypatch.setattr(bootstrap, '_prepare', prepare)
+    monkeypatch.setattr(bootstrap, '_runtime', runtime)
+    assert bootstrap.main(['--preflight']) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert result['result'] == 'hold'
+    assert result['reason'] == ('bootstrap_child_failed' if failure else 'full_preflight_not_implemented')
+    assert result['bootstrap'] == ('unverified' if failure else 'verified')
+    assert all(not path.exists() for path in seen)
+    assert 'ready' not in result and 'started_at' not in result
+
+
+def test_release_helper_git_trusts_only_the_fixed_installation(bootstrap, repository, tmp_path, monkeypatch):
+    root, _ = repository
+    monkeypatch.setattr(bootstrap, 'ROOT', root)
+    environment = dict(bootstrap._environment(), GIT_TEST_ASSUME_DIFFERENT_OWNER='1')
+    without_trust = {key: value for key, value in environment.items() if not key.startswith('GIT_CONFIG_')}
+    refused = subprocess.run(['git', '-C', str(root), 'rev-parse', 'HEAD'], env=without_trust, capture_output=True)
+    assert refused.returncode != 0 and b'dubious ownership' in refused.stderr
+    accepted = subprocess.run(['git', '-C', str(root), 'rev-parse', 'HEAD'], env=environment, capture_output=True)
+    assert accepted.returncode == 0 and len(accepted.stdout.strip()) == 40
+    other = tmp_path / 'other'
+    subprocess.run(['git', 'init', '-q', str(other)], check=True, capture_output=True)
+    foreign = subprocess.run(['git', '-C', str(other), 'status', '--porcelain'], env=environment, capture_output=True)
+    assert foreign.returncode != 0 and b'dubious ownership' in foreign.stderr

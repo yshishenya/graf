@@ -568,3 +568,168 @@ def test_two_complete_copies_and_latest_attempt_are_verified(fence, tmp_path, mo
             operator._verified_backup_set(fence, **kwargs)
         if defect == "deep_manifest":
             assert str(held.value) in {"activation_operator_backup_unverified", "activation_operator_backup_set_unverified"}
+
+
+@pytest.mark.parametrize('case', [
+    'good', 'optional_absent', 'wrong_image', 'wrong_source', 'duplicate_source',
+    'wrong_user', 'userns', 'required_exited', 'unhealthy', 'config_changed',
+    'pid_changed', 'override_changed', 'no_release', 'deadline', 'foreign_network',
+    'rootless', 'remap', 'image_env', 'image_platform', 'process_changed', 'postal_changed', 'socket_changed', 'thirdparty_user',
+])
+def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypatch, case):
+    rows, networks = inventory()
+    if case == 'optional_absent':
+        rows = [r for r in rows if r['service'] not in operator.OPTIONAL_WRITERS]
+    for row in rows:
+        row['project'] = 'twobrain-rec'
+    for network in networks:
+        network['project'] = 'twobrain-rec'
+    source = 'a' * 40
+    images = {r['service']: 'sha256:' + f'{i + 1:064x}' for i, r in enumerate(rows)}
+    override = tmp_path / 'override.json'
+    override.write_text(json.dumps({'services': {
+        name: dict(image=image, pull_policy='never') for name, image in images.items()
+    }}))
+    details = [{
+        'id': r['id'], 'image': images[r['service']], 'config': {
+            'User': 'twobrain' if r['service'] in operator.WRITERS | {'rec-migrate', 'rec-db-runtime-bootstrap'} else '',
+            'Labels': {'com.docker.compose.config-hash': 'c' * 64},
+            'Env': ['GRAF_DEV_SOURCE_SHA=' + source], 'Entrypoint': ['synthetic'], 'Cmd': [],
+        },
+        'host': {'UsernsMode': ''}, 'mounts': [],
+        'state': dict(r['state'], started='2026-10-30T01:00:00Z', health='healthy'),
+        'restarts': 0,
+    } for r in rows]
+    images_info = [{
+        'id': images[r['service']], 'os': 'linux', 'architecture': 'amd64',
+        'config': copy.deepcopy(d['config']),
+    } for r, d in zip(rows, details, strict=True)]
+    for image in images_info:
+        image['config']['Labels']['org.2brain.graf.dev.source-sha'] = source
+    api = next(d for d in details if d['id'] == rows[0]['id'])
+    if case == 'wrong_image':
+        api['image'] = 'sha256:' + 'f' * 64
+    if case == 'wrong_source':
+        images_info[0]['config']['Labels']['org.2brain.graf.dev.source-sha'] = 'b' * 40
+    if case == 'duplicate_source':
+        api['config']['Env'].append('GRAF_DEV_SOURCE_SHA=' + source)
+    if case == 'image_env':
+        images_info[0]['config']['Env'] = []
+    if case == 'image_platform':
+        images_info[0]['architecture'] = 'unexpected'
+    if case == 'thirdparty_user':
+        next(d for r, d in zip(rows, details, strict=True) if r['service'] == 'rec-minio-init')['config']['User'] = 'root'
+    if case == 'wrong_user':
+        api['config']['User'] = 'root'
+    if case == 'userns':
+        api['host']['UsernsMode'] = 'host'
+    if case == 'required_exited':
+        api['state'].update(status='exited', running=False, pid=0)
+    if case == 'unhealthy':
+        api['state']['health'] = 'unhealthy'
+    if case == 'foreign_network':
+        networks[0]['containers']['f' * 64] = {}
+    calls, inspect_count, release_count, postal_count, socket_count, process_count = [], 0, 0, 0, 0, 0
+
+    async def command(argv, *, deadline, cwd=None):
+        nonlocal inspect_count, release_count, postal_count
+        calls.append(argv)
+        if argv[0] == '/usr/bin/git':
+            return (source + '\n').encode()
+        if 'current-override' in argv:
+            release_count += 1
+            if case == 'no_release':
+                return b'\n'
+            if case == 'override_changed' and release_count == 2:
+                override.write_text(override.read_text() + '\n')
+            return (str(override) + '\n').encode()
+        if argv[1] == 'info':
+            return json.dumps({'os': 'linux', 'security': ['name=' + ('userns' if case == 'remap' else case)] if case in {'rootless', 'remap'} else ['name=seccomp'], 'architecture': 'x86_64'}).encode()
+        if argv[1:3] == ['image', 'inspect']:
+            return b'\n'.join(json.dumps(v).encode() for v in images_info)
+        if argv[1] == 'inspect':
+            inspect_count += 1
+            current = copy.deepcopy(details)
+            if inspect_count == 2 and case == 'config_changed':
+                current[0]['mounts'] = [{'Destination': '/synthetic-changed'}]
+            if inspect_count == 2 and case == 'pid_changed':
+                current[0]['state']['pid'] += 1
+            return b'\n'.join(json.dumps(v).encode() for v in current)
+        if argv[1:3] == ['network', 'inspect']:
+            postal_count += 1
+            return json.dumps({'id': ('f' if case == 'postal_changed' and postal_count == 2 else 'e') * 64, 'name': 'postal-network'}).encode()
+        pytest.fail('unexpected runtime command')
+
+    async def get_inventory(*_):
+        return copy.deepcopy(rows), copy.deepcopy(networks)
+
+    monkeypatch.setattr(operator, '_command', command)
+    monkeypatch.setattr(operator, '_inventory', get_inventory)
+    def socket():
+        nonlocal socket_count
+        socket_count += 1
+        return ('changed' if case == 'socket_changed' and socket_count == 2 else 'synthetic-socket',)
+
+    def process(pid):
+        nonlocal process_count
+        process_count += 1
+        return pid, process_count if case == 'process_changed' else 12345
+
+    monkeypatch.setattr(operator, '_local_docker', socket)
+    monkeypatch.setattr(operator, '_process_identity', process)
+    if case in {'good', 'optional_absent'}:
+        result = asyncio.run(operator._runtime_preflight(
+            root=tmp_path, snapshot=tmp_path, source=source, deadline=time.monotonic() + 20))
+        assert result['runtime'] == 'verified' and result['source_sha'] == source
+        assert result['container_count'] == len(rows)
+        assert len(result['runtime_sha256']) == 64
+    else:
+        with pytest.raises(ActivationHold):
+            asyncio.run(operator._runtime_preflight(
+                root=tmp_path, snapshot=tmp_path, source=source,
+                deadline=time.monotonic() + (-1 if case == 'deadline' else 20)))
+    assert not any(set(c) & {'stop', 'start', 'restart', 'up', 'exec', 'create', 'run'} for c in calls)
+
+
+@pytest.mark.parametrize('case', ['good', 'uid', 'gid', 'map', 'stat', 'missing'])
+def test_runtime_process_identity_reads_all_ids_and_parses_comm(tmp_path, case):
+    proc = tmp_path / '123'
+    proc.mkdir()
+    (proc / 'status').write_text('Uid:\t100\t100\t100\t100\nGid:\t101\t101\t101\t101\n')
+    (proc / 'stat').write_text('123 (odd ) process name) S ' + '0 ' * 18 + '12345 0\n')
+    for name in ('uid_map', 'gid_map'):
+        (proc / name).write_text('         0          0 4294967295\n')
+    if case in {'uid', 'gid'}:
+        name, before, after = ('Uid', '100\t100', '100\t0') if case == 'uid' else ('Gid', '101\t101', '101\t0')
+        (proc / 'status').write_text((proc / 'status').read_text().replace(name + ':\t' + before, name + ':\t' + after))
+    if case == 'map':
+        (proc / 'gid_map').write_text('0 100000 65536\n')
+    if case == 'stat':
+        (proc / 'stat').write_text('malformed')
+    if case == 'missing':
+        (proc / 'status').unlink()
+    if case == 'good':
+        assert operator._process_identity(123, proc_root=tmp_path) == (123, 12345)
+    else:
+        with pytest.raises(ActivationHold):
+            operator._process_identity(123, proc_root=tmp_path)
+
+
+@pytest.mark.parametrize('case', ['good', 'remote', 'context', 'config', 'tls', 'symlink', 'world_write', 'owner'])
+def test_runtime_docker_endpoint_is_the_existing_local_socket(monkeypatch, case):
+    import stat
+
+    for name in ('DOCKER_CONTEXT', 'DOCKER_CONFIG', 'DOCKER_TLS_VERIFY', 'DOCKER_CERT_PATH'):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv('DOCKER_HOST', operator.DOCKER_ENDPOINT if case != 'remote' else 'ssh://synthetic.invalid')
+    if case in {'context', 'config', 'tls'}:
+        monkeypatch.setenv({'context': 'DOCKER_CONTEXT', 'config': 'DOCKER_CONFIG', 'tls': 'DOCKER_TLS_VERIFY'}[case], 'poison')
+    info = SimpleNamespace(st_dev=1, st_ino=2, st_uid=9 if case == 'owner' else 0,
+                           st_gid=0, st_mode=(stat.S_IFLNK if case == 'symlink' else stat.S_IFSOCK)
+                           | (0o666 if case == 'world_write' else 0o660))
+    monkeypatch.setattr(Path, 'lstat', lambda _: info)
+    if case == 'good':
+        assert operator._local_docker()[:2] == (1, 2)
+    else:
+        with pytest.raises(ActivationHold):
+            operator._local_docker()

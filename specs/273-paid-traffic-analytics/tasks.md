@@ -788,3 +788,16 @@ Native probe15/15PASS, собственная среда удалена. Это 
 Полный preflight/верхние операции/actual restore/resume/shell/CD/T112 ещё
 открыты; T113/#7804 не закрывается. Рабочего T0, включения аналитики/IP,
 изменений production/Dev, отдельного PR или выпуска нет.
+
+
+### Фактический runtime binding T113 — 30.10.2026
+
+Локально подключён installed module внутри bootstrap lifetime: completed release,
+images/source, реальная config/network/process identity и повторная сверка;
+207PASS/1LinuxSKIP и собственные Linux/Docker пробы. Найден и исправлен отказ
+Docker template без Health. [Отчёт и остаток](validation/t113-runtime-binding-preflight-20261030.md).
+Независимое code review дало SCOPED PASS (P1=0/P2=0), исходники и доказательства
+сверены по хешам; срез сохраняется в существующей ветке. Нового PR/выпуска нет.
+Полный policy/DB/resource/retention/access preflight и верхние операции впереди;
+результат всегда HOLD/full_preflight_not_implemented. T113/#7804/T112 открыты,
+рабочий T0 и измерение не включены. Цель роста и AC01–AC06 не закрываются.

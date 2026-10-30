@@ -293,7 +293,7 @@ def _revoked(fence):
     )
 
 
-async def _command(argv, *, deadline):
+async def _command(argv, *, deadline, cwd=None):
     """Own the CLI child through reap even when its waiter is cancelled twice."""
 
     async def owned():
@@ -302,7 +302,7 @@ async def _command(argv, *, deadline):
             async with asyncio.timeout_at(deadline):
                 spawn = asyncio.create_task(
                     asyncio.create_subprocess_exec(
-                        *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
+                        *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL, cwd=cwd
                     )
                 )
                 try:
@@ -1588,3 +1588,202 @@ async def drain_product_database(fence, *, source, owner, name: str, oid: int, c
     except Exception:
         # Never expose driver/CLI errors with connection details or private text.
         raise ActivationHold("activation_operator_database_unverified") from None
+
+
+# Actual configuration is private; only its aggregate digest leaves this process.
+RUNTIME_FORMAT = """{"id":{{json .Id}},"image":{{json .Image}},"config":{{json .Config}},"host":{{json .HostConfig}},"mounts":{{json .Mounts}},"state":{"status":{{json .State.Status}},"running":{{json .State.Running}},"restarting":{{json .State.Restarting}},"paused":{{json .State.Paused}},"pid":{{json .State.Pid}},"exit":{{json .State.ExitCode}},"started":{{json .State.StartedAt}},"health":{{with index .State "Health"}}{{json .Status}}{{else}}null{{end}}},"restarts":{{json .RestartCount}}}"""
+IMAGE_FORMAT = """{"id":{{json .Id}},"os":{{json .Os}},"architecture":{{json .Architecture}},"config":{"User":{{json .Config.User}},"Env":{{json .Config.Env}},"Labels":{{json .Config.Labels}}}}"""
+DOCKER_ENDPOINT = "unix:///var/run/docker.sock"
+GRAF_SERVICES = WRITERS | {"rec-migrate", "rec-db-runtime-bootstrap"}
+
+
+def _local_docker():
+    _require(os.environ.get("DOCKER_HOST") == DOCKER_ENDPOINT
+             and not any(name in os.environ for name in
+                         ("DOCKER_CONTEXT", "DOCKER_CONFIG", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH")),
+             "activation_operator_docker_endpoint")
+    info = Path("/var/run/docker.sock").lstat()
+    _require(stat.S_ISSOCK(info.st_mode) and info.st_uid == 0
+             and not info.st_mode & stat.S_IWOTH, "activation_operator_docker_socket")
+    return info.st_dev, info.st_ino, info.st_uid, info.st_gid, info.st_mode
+
+
+def _process_identity(pid, *, proc_root=Path("/proc")):
+    """Host metadata only, for a PID from the fixed local Docker endpoint."""
+    try:
+        _require(type(pid) is int and pid > 0, "activation_operator_process_invalid")
+        directory = proc_root / str(pid)
+
+        def start():
+            raw = (directory / "stat").read_text()
+            prefix, suffix = raw.rsplit(") ", 1)
+            _require(prefix.startswith(str(pid) + " (") and len(suffix.split()) > 19,
+                     "activation_operator_process_invalid")
+            result = int(suffix.split()[19])  # suffix starts at field3, after comm.
+            _require(result > 0, "activation_operator_process_invalid")
+            return result
+
+        before = start()
+        status = dict(line.split(":", 1) for line in (directory / "status").read_text().splitlines()
+                      if ":" in line)
+        _require([int(i) for i in status["Uid"].split()] == [100] * 4
+                 and [int(i) for i in status["Gid"].split()] == [101] * 4,
+                 "activation_operator_process_owner")
+        for name in ("uid_map", "gid_map"):
+            _require([int(i) for i in (directory / name).read_text().split()]
+                     == [0, 0, 4294967295], "activation_operator_process_namespace")
+        _require(start() == before, "activation_operator_process_changed")
+        return pid, before
+    except (OSError, KeyError, TypeError, ValueError):
+        raise ActivationHold("activation_operator_process_unverified") from None
+
+
+async def _runtime_preflight(*, root, snapshot, source, deadline):
+    """Bind actual runtime before further gates; never write ready or stop product."""
+    _require(time.monotonic() < deadline and re.fullmatch(r"[a-f0-9]{40}", source),
+             "activation_operator_runtime_input")
+    socket = _local_docker()
+    helper = [sys.executable, "-I", "-B", str(snapshot / "infra/scripts/release-images.py"),
+              "current-override"]
+
+    async def release():
+        raw = await _command(helper, deadline=deadline, cwd=root)
+        path = raw.decode().strip()
+        _require(path and "\n" not in path and Path(path).is_absolute(),
+                 "activation_operator_release_missing")
+        data = Path(path).read_bytes()
+        parsed = _object(data)
+        _require(set(parsed) == {"services"}, "activation_operator_release_invalid")
+        services = parsed["services"]
+        _require(isinstance(services, dict) and services, "activation_operator_release_invalid")
+        for name, row in services.items():
+            _require(name in SERVICE_NETWORKS and isinstance(row, dict)
+                     and set(row) == {"image", "pull_policy"} and row["pull_policy"] == "never"
+                     and isinstance(row["image"], str)
+                     and re.fullmatch(r"sha256:[a-f0-9]{64}", row["image"]),
+                     "activation_operator_release_invalid")
+        return path, data, services
+
+    async def head():
+        actual = await _command(["/usr/bin/git", "-c", "core.fsmonitor=false", "-c",
+                                 "core.hooksPath=/dev/null", "-c", f"safe.directory={root}",
+                                 "-C", str(root), "rev-parse", "HEAD"], deadline=deadline)
+        _require(actual.decode().strip() == source, "activation_operator_source_changed")
+
+    await head()
+    pinned_path, pinned_bytes, pinned = await release()
+    daemon = json.loads(await _command(
+        ["docker", "info", "--format",
+         '{"os":{{json .OSType}},"security":{{json .SecurityOptions}},"architecture":{{json .Architecture}}}'],
+        deadline=deadline))
+    _require(daemon["os"] == "linux" and isinstance(daemon["security"], list)
+             and all(isinstance(s, str) and "rootless" not in s and "userns" not in s
+                     for s in daemon["security"]), "activation_operator_docker_namespace")
+    architecture = {"x86_64": "amd64", "aarch64": "arm64"}.get(daemon["architecture"], daemon["architecture"])
+    _require(architecture in {"amd64", "arm64"}, "activation_operator_image_platform")
+    rows, networks = await _inventory("twobrain-rec", deadline)
+    api = [r for r in rows if r["service"] == "rec-api"]
+    _require(len(api) == 1, "activation_operator_required_missing")
+    postal = set(api[0]["networks"]) - {PRIVATE}
+    _require(len(postal) == 1, "activation_operator_membership_invalid")
+    postal = postal.pop()
+    ids = _validate_inventory(rows, networks, project="twobrain-rec", postal_network=postal, stopped=False)
+
+    async def inspect():
+        raw = await _command(["docker", "inspect", "--format", RUNTIME_FORMAT, *sorted(ids.values())], deadline=deadline)
+        data = [json.loads(line) for line in raw.splitlines()]
+        _require(len(data) == len(ids) and {r["id"] for r in data} == set(ids.values()),
+                 "activation_operator_runtime_incomplete")
+        return sorted(data, key=lambda r: r["id"])
+
+    async def postal_identity():
+        return json.loads(await _command(
+            ["docker", "network", "inspect", "--format", '{"id":{{json .Id}},"name":{{json .Name}}}', postal],
+            deadline=deadline))
+
+    actual = await inspect()
+    postal_info = await postal_identity()
+    _require(postal_info["name"] == postal and re.fullmatch(r"[a-f0-9]{64}", postal_info["id"]),
+             "activation_operator_network_invalid")
+    image_ids = sorted({r["image"] for r in actual})
+    image_data = [json.loads(line) for line in (await _command(
+        ["docker", "image", "inspect", "--format", IMAGE_FORMAT, *image_ids], deadline=deadline)).splitlines()]
+    _require(len(image_data) == len(image_ids) and {r["id"] for r in image_data} == set(image_ids),
+             "activation_operator_image_incomplete")
+    images = {r["id"]: r for r in image_data}
+    processes = {}
+    by_id = {v: k for k, v in ids.items()}
+    inventory_by_id = {r["id"]: r for r in rows}
+    for row in actual:
+        service = by_id[row["id"]]
+        image = images[row["image"]]
+        _require(service in pinned and row["image"] == pinned[service]["image"]
+                 and image["os"] == "linux" and image["architecture"] == architecture,
+                 "activation_operator_image_mismatch")
+        state, config = row["state"], row["config"]
+        expected_state = inventory_by_id[row["id"]]["state"]
+        _require(all(state[k] == v and type(state[k]) is type(v) for k, v in expected_state.items())
+                 and type(row["restarts"]) is int and row["restarts"] >= 0
+                 and re.fullmatch(r"[a-f0-9]{64}", config["Labels"]["com.docker.compose.config-hash"])
+                 and isinstance(row["host"], dict) and isinstance(row["mounts"], list),
+                 "activation_operator_runtime_changed")
+        if service in REQUIRED_WRITERS:
+            _require(state["running"] is True, "activation_operator_required_stopped")
+        if state["running"]:
+            _require(state["health"] == "healthy" if service in INFRASTRUCTURE | {"rec-api"}
+                     else state["health"] in {None, "healthy"}, "activation_operator_runtime_unhealthy")
+            _timestamp(state["started"])
+        if service in GRAF_SERVICES:
+            _require(config["User"] == image["config"]["User"] == "twobrain"
+                     and row["host"].get("UsernsMode") == ""
+                     and image["config"]["Labels"].get("org.2brain.graf.dev.source-sha") == source,
+                     "activation_operator_runtime_source")
+            for cfg in (config, image["config"]):
+                _require(isinstance(cfg["Env"], list)
+                         and [v for v in cfg["Env"] if v.startswith("GRAF_DEV_SOURCE_SHA=")]
+                         == ["GRAF_DEV_SOURCE_SHA=" + source], "activation_operator_runtime_source")
+            if state["running"] and service in WRITERS:
+                processes[row["id"]] = _process_identity(state["pid"])
+        elif service == "rec-minio-init":
+            _require(config["User"] == image["config"]["User"], "activation_operator_initializer_user")
+    _require(await inspect() == actual, "activation_operator_runtime_changed")
+    for row in actual:
+        if row["id"] in processes:
+            _require(_process_identity(row["state"]["pid"]) == processes[row["id"]],
+                     "activation_operator_process_changed")
+    _require(await _inventory("twobrain-rec", deadline) == (rows, networks)
+             and await postal_identity() == postal_info, "activation_operator_runtime_changed")
+    path, data, _ = await release()
+    _require(path == pinned_path and data == pinned_bytes, "activation_operator_release_changed")
+    await head()
+    _require(_local_docker() == socket and time.monotonic() < deadline,
+             "activation_operator_runtime_changed")
+    return dict(runtime="verified", source_sha=source, container_count=len(ids),
+                runtime_sha256=_json_digest(dict(containers=actual, networks=networks,
+                                                postal=postal_info, processes=processes)))
+
+
+def _runtime_main(argv=None):
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Read-only runtime binding, no readiness writer.")
+    parser.add_argument("--runtime-preflight", action="store_true", required=True)
+    parser.add_argument("--source-sha", required=True)
+    args = parser.parse_args(argv)
+    try:
+        _require(sys.flags.isolated and sys.platform == "linux" and os.geteuid() == 0
+                 and sys.version_info[:2] == (3, 13), "activation_operator_installed_runtime_required")
+        prefix = Path(sys.prefix).resolve(strict=True)
+        _require(Path(__file__).resolve().is_relative_to(prefix), "activation_operator_package_unpinned")
+        result = asyncio.run(_runtime_preflight(
+            root=Path("/opt/projects/2brain-rec"), snapshot=prefix.parent / "source",
+            source=args.source_sha, deadline=time.monotonic() + 30))
+    except Exception:
+        print(json.dumps(dict(runtime="unverified", reason="activation_operator_runtime_unverified")))
+        return 1
+    print(json.dumps(result, sort_keys=True))
+    return 0  # Only runtime bindings; the bootstrap still holds full admission.
+
+
+if __name__ == "__main__":
+    raise SystemExit(_runtime_main())
