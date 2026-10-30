@@ -24,6 +24,7 @@ KEYS = {
     'activation_states': ('posthog_state', 'yandex_state'), 'ledger_access': ('role',),
     'ledger_column': ('name',),
     'snapshot': (),
+    'sequence_state': ('schema', 'name'),
 }
 FIELDS = {
     'snapshot': 'format_version database role snapshot server_version',
@@ -39,6 +40,7 @@ FIELDS = {
     'activation_states': 'posthog_state yandex_state rows',
     'ledger_access': 'role select insert update delete truncate references trigger maintain grant_option',
     'ledger_column': 'name type not_null default_md5 identity generated acl',
+    'sequence_state': 'schema name last_value is_called',
 }
 POLICY = (
     "(((rec_context_kind() = ANY (ARRAY['request'::text, 'worker'::text, 'auth_bootstrap'::text])) "
@@ -125,7 +127,11 @@ def inventory(root, expected_db, *, schema_only=False):
     require(not any(row['role'] in ROLES or row['member'] in ROLES
                     for row in rows.values() if row['kind'] == 'membership'))
     relations = [row for row in rows.values() if row['kind'] == 'relation']
-    require(relations and all(row['type'] in ('r', 'p', 'i', 'I', 'v') for row in relations))
+    require(relations and all(row['type'] in ('r', 'p', 'i', 'I', 'v', 'S') for row in relations))
+    sequences = [row for row in rows.values() if row['kind'] == 'sequence_state']
+    require({(r['schema'], r['name']) for r in sequences} ==
+            {(r['schema'], r['name']) for r in relations if r['type'] == 'S'})
+    require(all(type(r['last_value']) is int and type(r['is_called']) is bool for r in sequences))
     counts = {row['relation']: row['rows'] for row in rows.values() if row['kind'] == 'count'}
     require(set(counts) == {r['schema'] + '.' + r['name'] for r in relations if r['type'] in ('r', 'p')})
     require(all(type(number) is int and number >= 0 for number in counts.values()))
@@ -272,8 +278,8 @@ def main():
                 require(first['server_version'] == second['server_version'] == third['server_version'])
                 require(without_expressions(expected) == without_expressions(actual))
                 # Reference has schema only; source data/state is ALWAYS compared above.
-                require({k: r for k, r in actual.items() if k[0] not in ('count', 'activation_states', 'revision')}
-                        == {k: r for k, r in schema_rows.items() if k[0] not in ('count', 'activation_states', 'revision')})
+                require({k: r for k, r in actual.items() if k[0] not in ('count', 'activation_states', 'revision', 'sequence_state')}
+                        == {k: r for k, r in schema_rows.items() if k[0] not in ('count', 'activation_states', 'revision', 'sequence_state')})
                 require(schema(canonical) == schema(target))
         return 0
     except (OSError, ValueError, KeyError, TypeError, IndexError):

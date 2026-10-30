@@ -231,6 +231,22 @@ def test_full_migrated_database_restore_comparison(
         VALUES ('00000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-000000000002',
           'first_recording_completed','00000000-0000-0000-0000-000000000005',now(),now(),'{}','server','pending','submitted');
     """, role="twobrain_rec")
+    registry_rows = """
+        SET app.context_kind='maintenance'; SET app.maintenance_actor='synthetic';
+        SET app.maintenance_reason='synthetic'; SET app.maintenance_feature_area='billing';
+        SET app.maintenance_operation='billing_reconciliation';
+        INSERT INTO billing_registry_imports
+          (environment,shop_id,report_date,profile,config_fingerprint,input_digest,
+           parts,expected_empty,accepted,files_complete,result_code,operator,reason_code)
+        VALUES ('test','42','2026-10-30','yookassa-ru-csv-v1',repeat('a',64),repeat('b',64),
+          '[]','[]',true,false,'accepted_incomplete','synthetic','initial_import') RETURNING id;
+        INSERT INTO billing_registry_gaps
+          (environment,shop_id,report_date,kind,part_index,reason,generation,owner,
+           detected_receipt_id,detected_at,checked_at,deadline_at)
+        VALUES ('test','42','2026-10-30','payments',0,'missing_report',1,'synthetic',
+          (SELECT max(id) FROM billing_registry_imports),now(),now(),now()+interval '1 hour') RETURNING id;
+    """
+    assert psql(source, registry_rows, role="twobrain_rec_maintenance").splitlines() == ["1", "1"]
     reference = tmp_path / "reference"
     capture(source, "twobrain_rec", reference, dump=True)
     target = snapshot_postgres
@@ -264,7 +280,7 @@ def test_full_migrated_database_restore_comparison(
     migrations_relative = Path("apps/server/src/twobrain_rec_server/db/migrations/versions")
     shutil.copytree(REPO / migrations_relative, checkout / migrations_relative)
     next_migration = checkout / migrations_relative / "t113_next.py"
-    next_migration.write_text("revision = 't113_next'\ndown_revision = '0106_activation_milestones'\n")
+    next_migration.write_text("revision = 't113_next'\ndown_revision = '0107_billing_registry'\n")
     next_command = [command[0], str(verifier_path), *command[2:]]
     preflight = next_command[:3] + ["--inventory"]
     assert subprocess.run(preflight, capture_output=True).returncode == 0
@@ -277,7 +293,7 @@ def test_full_migrated_database_restore_comparison(
     next_spec.loader.exec_module(next_verifier)
     next_verifier.inventory(restored, database)  # Valid alone; only the source/restore mismatch fails.
     assert subprocess.run(next_command, capture_output=True).returncode != 0
-    psql(target, "UPDATE alembic_version SET version_num='0106_activation_milestones'", database=database, role="twobrain_rec")
+    psql(target, "UPDATE alembic_version SET version_num='0107_billing_registry'", database=database, role="twobrain_rec")
     capture(target, database, restored, dump=False)
     assert subprocess.run(next_command, capture_output=True).returncode == 0
     # Broken checkout histories fail closed, without executing migration code.
@@ -308,6 +324,7 @@ def test_full_migrated_database_restore_comparison(
                    "malformed-json", "duplicate-json-key", "duplicate-row", "unknown-kind", "unknown-field",
                    "missing-field", "missing-count", "old-version", "wrong-db", "wrong-role", "wrong-head",
                    "missing-revision", "multiple-revisions", "pre-ledger-revision",
+                   "missing-sequence-state", "invalid-sequence-value", "invalid-sequence-called",
                    "state-count", "open-role", "missing-setting", "bad-policy", "bad-check"):
         if invalid.exists():
             shutil.rmtree(invalid)
@@ -357,6 +374,12 @@ def test_full_migrated_database_restore_comparison(
                 rows.append({"kind": "revision", "name": "t113_next"})
             elif defect == "pre-ledger-revision":
                 next(r for r in rows if r["kind"] == "revision")["name"] = "0105_anonymous_aggregate_region"
+            elif defect == "missing-sequence-state":
+                rows.remove(next(r for r in rows if r["kind"] == "sequence_state"))
+            elif defect == "invalid-sequence-value":
+                next(r for r in rows if r["kind"] == "sequence_state")["last_value"] = True
+            elif defect == "invalid-sequence-called":
+                next(r for r in rows if r["kind"] == "sequence_state")["is_called"] = 1
             elif defect == "state-count":
                 rows[-1]["rows"] += 1
             elif defect == "open-role":
@@ -388,6 +411,9 @@ def test_full_migrated_database_restore_comparison(
     table = "product_activation_milestones"
     # Each mutation starts from the same real backup. No bootstrap/repair grants.
     mutations = [
+        "ALTER SEQUENCE billing_registry_imports_id_seq RESTART WITH 100",
+        "ALTER SEQUENCE billing_registry_gaps_id_seq RESTART WITH 1",
+        "ALTER SEQUENCE billing_registry_imports_id_seq INCREMENT BY 2",
         "DELETE FROM product_activation_milestones",
         "INSERT INTO organizations(id,slug,name) VALUES(gen_random_uuid(),'extra','Extra')",
         "UPDATE product_activation_milestones SET posthog_state='ambiguous'",
@@ -491,3 +517,5 @@ def test_full_migrated_database_restore_comparison(
     with pytest.raises(subprocess.CalledProcessError) as denied:
         psql(target, f"SELECT count(*) FROM {table}", database=database, role="unrelated_public")
     assert "permission denied" in denied.value.stderr
+    assert psql(target, registry_rows.replace("'42'", "'43'"), database=database,
+                role="twobrain_rec_maintenance").splitlines() == ["2", "2"]
