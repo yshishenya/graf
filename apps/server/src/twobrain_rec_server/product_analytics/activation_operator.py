@@ -2130,6 +2130,8 @@ async def _physical_connection(*, deadline, **kwargs):
 async def _runtime_databases(*, settings, password, host, snapshot, deadline):
     from alembic.script import ScriptDirectory
 
+    from .local_retention import local_retention_database_catalog
+
     urls = _runtime_database_urls(settings)
     head = ScriptDirectory(str(Path(__file__).resolve().parents[1] / "db/migrations")).get_current_head()
     _require(head is not None, "activation_operator_schema_head")
@@ -2150,6 +2152,7 @@ async def _runtime_databases(*, settings, password, host, snapshot, deadline):
             _require([r[0] for r in revisions] == [head]
                      and 170000 <= int(await source.fetchval("SHOW server_version_num")) < 180000,
                      "activation_operator_schema_revision")
+            retention_catalog = await local_retention_database_catalog(source)
         await source.execute("SET SESSION AUTHORIZATION twobrain_rec_maintenance")
         await source.execute("SET row_security=on")
         await _database_identity(source, owner, name="twobrain_rec", oid=oid, cluster_id=cluster)
@@ -2174,8 +2177,12 @@ async def _runtime_databases(*, settings, password, host, snapshot, deadline):
                 _require([r[0] for r in revisions] == [head], "activation_operator_schema_revision")
                 proofs.append(tuple(row))
         yield owner, source, dict(cluster_id=cluster, db_name="twobrain_rec", db_oid=oid,
-                                 schema_revision=head, roles_sha256=_json_digest(proofs))
+                                 schema_revision=head, roles_sha256=_json_digest(proofs),
+                                 retention_catalog_sha256=retention_catalog)
         await _database_identity(source, owner, name="twobrain_rec", oid=oid, cluster_id=cluster)
+        async with source.transaction(readonly=True):
+            _require(await local_retention_database_catalog(source) == retention_catalog,
+                     "activation_operator_retention_catalog_changed")
 
 
 def _policy_static(value):

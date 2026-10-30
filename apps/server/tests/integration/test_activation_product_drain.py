@@ -557,7 +557,7 @@ def test_native_compose_stop_on_owned_networks(fence, tmp_path, monkeypatch):
             ).strip()
 
 
-@pytest.mark.parametrize('case', ['good', 'revision', 'grant', 'role', 'membership', 'cancel_query'])
+@pytest.mark.parametrize('case', ['good', 'revision', 'grant', 'role', 'membership', 'cancel_query', 'catalog_changed'])
 def test_native_runtime_database_preflight_full_schema(
     postgres_isolated_cluster_database_url, tmp_path, monkeypatch, case,
 ):
@@ -626,9 +626,17 @@ def test_native_runtime_database_preflight_full_schema(
                     assert not source.is_in_transaction()
                     assert proof['db_name'] == 'twobrain_rec' and proof['db_oid'] > 0
                     assert len(proof['roles_sha256']) == 64
+                    assert len(proof['retention_catalog_sha256']) == 64
                     entered.set()
                     if case == 'cancel_query':
                         await source.execute('SELECT pg_sleep(3)')
+                    if case == 'catalog_changed':
+                        modifier = await asyncpg.connect(host=url.host, port=url.port,
+                            user=url.username, password=url.password, database='twobrain_rec')
+                        try:
+                            await modifier.execute('ALTER TABLE public.product_activation_milestones DISABLE TRIGGER activation_decision_immutable')
+                        finally:
+                            await modifier.close()
             if case == 'cancel_query':
                 task = asyncio.create_task(operation())
                 await asyncio.wait_for(entered.wait(), 10)
