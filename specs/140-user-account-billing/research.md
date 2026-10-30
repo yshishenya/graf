@@ -1,5 +1,35 @@
 # Research: личный кабинет, биллинг и growth mechanics
 
+## Дополнение T075 — 2026-10-30
+
+- Решение B1: переиспользовать `billing/database.py` и фиксированную реальную
+  maintenance role/context; общий отчёт магазина хранить отдельно от workspace
+  с узкой RLS. Существующие audit/incident таблицы требуют workspace и для
+  общего receipt не подходят. Не ослаблять их ограничение и не создавать API.
+- Решение B2: один профиль официальных русских framed CSV, без SFTP/Excel и
+  догадок о недокументированных столбцах. UTF-8 — явное ограничение GRAF;
+  настройка/реальный экспорт магазина проверяются отдельно. Официальное
+  [описание реестров](https://yookassa.ru/docs/support/merchant/payments/reports/reports-new)
+  проверено 30.10; оно описывает раздельные виды, footer, multipart и даты,
+  но не удостоверяет кодировку или test/production по содержимому файла.
+- Решение B3: два небольших metadata store по [контракту](contracts/registry-operator-import.md),
+  атомарный receipt/gaps и сравнение ожидаемого текущего digest. Альтернативы
+  отклонены: случайный workspace нарушает изоляцию; память теряет результат
+  после restart; blind replace теряет историю; raw CSV retention добавляет PII.
+- Ограничение финансовой сверки: `PaymentObservation.captured_at` существует
+  в памяти; сохранённый `provider_paid_at` допускает fallback на created time,
+  а `ObservedProviderRefund.observed_at` — локальное время наблюдения.
+  Эти поля не доказывают день операции. Текущий `list_payments` фильтрует
+  создание, не подтверждение; `list_refunds` не принимает временной фильтр.
+  Дальнейшая сверка должна расширять существующий адаптер authenticated
+  captured/created filters и обходить все страницы с GET/scope проверками.
+  Усечение, unknown object и недоступный API оставляют owned gap/pending.
+  Импорт с `financial_status=not_checked` не закрывает T075.
+
+Новая запись — исследование и принятый дизайн, не runtime/merchant evidence.
+Исторические решения ниже применяются с заменами F199/F272/F278/конституции,
+описанными в текущем `spec.md`.
+
 **Дата проверки**: 2026-08-06
 
 **Метод**: официальная документация YooKassa, публичные pricing/help-страницы

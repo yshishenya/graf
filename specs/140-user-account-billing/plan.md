@@ -4,6 +4,32 @@
 
 ## Summary
 
+Активная доработка 30.10.2026 — F140/T075/#4930, сначала операторский импорт
+по [контракту B1–B3](contracts/registry-operator-import.md). Полоса:
+`active Spec Kit slice`, high-risk gates для PostgreSQL, полномочий и денег.
+Прежний план ниже сохраняет историю; заменённые каталог/renewal/emergency-stop/
+launch-table/brand-distance требования не восстанавливаются (см. §Scope Summary
+`spec.md`). Новая служба, интерфейс, SDK и финансовая mutation не нужны.
+
+Порядок: уточнение → независимое ревью B1–B3 → анализ → существующая #4930 →
+parser/CLI/storage → изолированная PostgreSQL/права/restart → converge →
+проверенный commit/PR → `governance-fast`, `macos-pr`, `pr-metadata` и общий
+валидатор точного SHA/основы. До scoped PASS код не меняется. Частичный импорт
+с `financial_status=not_checked` оставляет T075 открытой.
+
+Пути реализации: существующий `billing/registry.py`, один внутренний
+`cli/billing_registry.py`, два определения metadata-таблиц рядом с billing
+models, одна миграция от фактического Alembic head, `db/rls_validation.py` и
+профильные parser/CLI/DB tests. До миграции проверить head, grants и существующий
+advisory-lock pattern. Новых зависимостей нет. Финансовую сверку продолжать в
+том же T075 после полного импорта, используя authenticated API time; локальные
+`created_at/observed_at` не подходят для дня подтверждения.
+
+Предварительная конституционная проверка: PASS для дизайна — доступ только
+maintenance, не меняются charge/entitlement, client secrets, capture/deletion
+или production. После независимого ревью повторить оценку; runtime/RLS/release
+gates этим не принимаются.
+
 Расширить существующий Jinja/HTMX-кабинет GRAF личным account-and-billing
 контуром. GRAF остаётся источником истины для каталога, согласий, invoice,
 subscription schedule, entitlement, точных Free-секунд, playback-storage,

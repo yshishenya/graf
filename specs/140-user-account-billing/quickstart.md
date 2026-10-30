@@ -1,5 +1,44 @@
 # Quickstart and validation matrix
 
+## План проверки операторского импорта T075 — 2026-10-30
+
+Это будущая приёмка [контракта B1–B3](contracts/registry-operator-import.md),
+не выполненные сценарии. Использовать только синтетические данные и отдельную
+одноразовую PostgreSQL; GRAF Dev и рабочий магазин не затрагиваются.
+
+1. После реализации выполнить существующие registry tests и новые проверки
+   CLI/DB тем же Python окружением сервера. В argv/stdout/отчёт не выводить
+   реальный DB URL, путь исходного экспорта или финансовые данные.
+2. Сначала dry-run, затем `python -m twobrain_rec_server.cli.billing_registry
+   import --date 2026-10-29 --payments <synthetic-file> --refunds <synthetic-file>
+   --owner billing-operations --operator test-operator --execute` под фактической
+   служебной ролью. Для корректного zero-row CSV добавить соответствующий
+   `--expect-empty`. Указанные пути — условные обозначения, не секреты.
+3. Завершить процесс. Новый процесс `...billing_registry status --date
+   2026-10-29` обязан вернуть сохранённый receipt/counts/completeness/gaps,
+   не читая CSV. Повтор импорта не создаёт второй receipt и не переносит срок.
+4. Пропущенная часть/last/вид дают неполноту с owner/deadline; пустой файл без
+   ожидания, чужая шапка, duplicate identity, footer mismatch и лишняя часть
+   не заменяют предыдущий принятый набор. Исправление требует
+   `--replace <current-digest> --reason corrected_export`; устаревший digest и
+   два конкурирующих исправления не допускают потерянного обновления.
+5. Проверить failure injection до commit и повтор после restart; owner,
+   detected/deadline и история gap сохраняются. Только проверенное исправление
+   даёт resolved с actor/reason/time/closing receipt. Ошибка сохраняет последний
+   принятый набор, но остаётся видимой в последней попытке и открытых gaps.
+6. Через настоящие подключения проверить request/worker/maintenance,
+   `SET ROLE`, неверные operation/area и `row_security=off`. Отказ нужен до
+   чтения входа; app/tenant не видит общие таблицы. Проверить inventory/RLS.
+7. В stdout/DB/evidence отсутствуют provider object IDs, суммы, контакты,
+   сырой CSV и исходные пути. `files_complete=true` при обоих наборах даёт
+   только `financial_status=not_checked`. Для принятия всего T075 отдельно
+   пройти CSV ↔ authenticated provider GET/list ↔ ledger, включая обратные
+   пропуски, точный день, pagination, неизвестные объекты и provider outage.
+
+После реализации записать точные команды, версии, результаты и ограничения;
+сейчас T075/#4930 остаётся открытой. Все исходные задачи и внешние launch gates
+сохраняются. Новых issues для этого же остатка не создавать.
+
 ## Safety and prerequisites
 
 Use only synthetic users, workspaces, codes, media metadata and provider

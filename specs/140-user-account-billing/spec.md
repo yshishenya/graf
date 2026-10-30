@@ -10,6 +10,15 @@
 
 ## Scope Summary
 
+Применимость при доработке T075 (30.10.2026): исторические цены, одна попытка
+продления, emergency stop и runtime launch-gates ниже не восстанавливаются.
+Их заменяют принятые F278 (каталог), F272 (три попытки за 72/48/24 часа и
+удаление emergency stop) и дополнение F199 в текущем статусе продукта.
+Конституция §VII заменяет старый общий запрет совпадения с Krisp; независимость
+кода и права на материалы обязательны. Возврат остаётся внешним процессом
+без case/выбора оплаченного срока в GRAF. Исторические финансовые снимки
+не переписываются. Это не приёмка заменивших фич или разрешение открыть продажи.
+
 Feature 140 превращает существующий авторизованный кабинет GRAF в самостоятельный публичный account-and-billing контур. Он добавляет:
 
 - персональное рабочее пространство для каждого нового самостоятельного пользователя;
@@ -103,7 +112,25 @@ Pre-purchase copy MUST place the finite archive boundary next to unlimited wordi
 - Q: Какой статус НДС использовать в чеке? → A: «Без НДС»; настройку нужно сверить с магазином YooKassa и актуальным налоговым статусом до production enablement.
 - Q: Какой статус YooKassa shop доступен сейчас? → A: Магазин оформлен на продавца, тестовый режим доступен; production checkout и реальные списания остаются выключенными до canary и внешнего sign-off.
 
+### Session 2026-10-30
+
+Решения исполнителя в рамках общего поручения пользователя продолжать
+самостоятельно; новых ответов пользователя эти записи не приписывают.
+
+- Q: Кто принимает общий реестр магазина и где хранит результат? → A: Только внутренний оператор с проверенной реальной maintenance DB identity; общий metadata store недоступен browser/desktop/tenant, `workspace_id` существующего аудита не ослабляется (B1).
+- Q: Какой вход и доказательство полноты поддерживаются? → A: Один русский официальный CSV profile с явной UTF-8 границей GRAF, проверками framing/filename/shop/date/identity/footer/last-part; ноль требует существующего пустого отчёта и явного ожидания, отсутствие остаётся gap (B2).
+- Q: Как принимать повтор и исправленный экспорт? → A: Сохраняемый receipt и owned gaps в одной транзакции; одинаковые байты дают replay, замена требует текущего digest, ошибка сохраняет прежний принятый результат; восстановление закрывает gap только с проверенным receipt и actor/reason/time (B3).
+
+Подробные проверяемые границы этих решений заданы один раз в
+[контракте импорта](contracts/registry-operator-import.md). Полнота файлов
+отдельна от финансовой сверки. Нереализованная часть T075 не закрывается.
+
 ## Actors And Authority
+
+Для T075 системный оператор действует только через защищённый внутренний
+maintenance-вход. Он не является workspace Owner/Admin и не получает
+продуктового финансового интерфейса. Общие метаданные магазина изолированы
+от всех workspace согласно [контракту импорта](contracts/registry-operator-import.md).
 
 - **Новый пользователь**: регистрируется, получает личное workspace и `Free`; до подтверждения основной личности trial недоступен и UI ведёт в verification flow, после которого eligibility обновляется автоматически; eligible verified пользователь может один раз явно запустить trial.
 - **Workspace Owner / плательщик**: единственный billing Owner личного workspace выбирает тариф/add-on, принимает оферту и автоплатёж, управляет оплатой, промокодом и отменой; в истории видит опубликованный refund/support email и safe invoice reference для внешнего обращения. Его billing authority не передаётся вместе с сохранённым способом оплаты.
@@ -463,7 +490,7 @@ Owner вводит промокод в checkout или `Скидки`, сраз�
 
 ### Operations, Reconciliation And Public Launch
 
-- **FR-087**: Billing operations MUST иметь webhook fast path, polling stuck payments/observed refunds/receipts/methods, periodic provider API reconciliation and audited manual daily YooKassa CSV import. Payments and refunds are separate required report kinds; each import MUST bind shop/environment/schema/language/config version, Moscow report date, part/last-part, row identity and content hash, prove completeness including configured empty reports, handle safe replacement/missing/malformed files, restrict retention and record gap owner. SFTP automation is out of scope.
+- **FR-087**: Billing operations MUST иметь webhook fast path, polling stuck payments/observed refunds/receipts/methods, periodic provider API reconciliation and audited manual daily YooKassa CSV import. Payments and refunds are separate required report kinds; each import MUST bind shop/environment/schema/language/config version, Moscow report date, part/last-part, row identity and content hash, prove completeness including configured empty reports, handle safe replacement/missing/malformed files, restrict retention and record gap owner. SFTP automation is out of scope. Оператор, формат, сохранение и проверка B1–B3 определены в [контракте импорта](contracts/registry-operator-import.md); `files_complete` MUST NOT выдаваться за сравнение CSV/API/ledger или разрешение выдавать entitlement.
 - **FR-088**: Emergency `stop all charges` MUST блокировать новые GRAF checkout/renewal/binding, сохраняя read-only history, external support/refund backoffice, electronic payment-data refusal, self-service cancel and product availability outside money mutation.
 - **FR-089**: Monitoring MUST покрывать payment success/cancellation reasons, unknown age, webhook lag/errors, immediate-Free projection, duplicate prevention, storage used/reserved/reconciliation, add-on/time-credit jobs, observed provider-refund/receipt reconciliation gaps and notification failures without private payloads; no refund-case age/SLA metric exists in GRAF.
 - **FR-090**: Test shop E2E MUST покрывать bank-card initial success/saved true/false, zero binding, recurring/declines, UI-expired hosted payment that later succeeds, 23:59/24:01 idempotency boundaries for payment/binding, duplicate/out-of-order webhook, provider floor, manual merchant-cabinet full/partial refund observation, refund receipt reconciliation, immediate receipt-canceled alert, pending 3-day escalation and complete separate payments/refunds registry sets; GRAF MUST issue zero refund API calls.
