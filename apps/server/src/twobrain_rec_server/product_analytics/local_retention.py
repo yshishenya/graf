@@ -18,14 +18,14 @@ from .legal_basis_lifecycle import LEVEL_RETENTION_CATEGORIES, LOCAL_CATEGORY_TA
 from .retention import retention_rule
 
 TABLES = LOCAL_CATEGORY_TABLES
-# Clean PG17/Alembic head 0106, not a fingerprint supplied by the checked server.
-EXPECTED_ROUTINES_SHA256 = 'f587419462003e7aa9116c51191c23ad7a885867bf880885386a068a7f0f8550'
+# Clean PG17/Alembic head 0107, not a fingerprint supplied by the checked server.
+EXPECTED_ROUTINES_SHA256 = '7563a8dc31e36bb32b916667b9c404b04c2eba0e79befd6e58a94923b41881ff'
 ROUTINES_FROM = """FROM pg_catalog.pg_proc p
     JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
     JOIN pg_catalog.pg_language l ON l.oid=p.prolang
     WHERE p.oid>=16384 OR (n.nspname<>'information_schema' AND n.nspname !~ '^pg_')"""
-# Clean PG17/Alembic head 0106 plus standard runtime-role bootstrap.
-EXPECTED_ACCESS_SHA256 = 'bfb2080813ca48347c03e453b1e52195d4b5d21d69915d207fe518d12f554ddc'
+# Clean PG17/Alembic head 0107 plus standard runtime-role bootstrap.
+EXPECTED_ACCESS_SHA256 = '3b469e7bad18fcc4ecaf12d28f9190abbeb043d74451e28abf073cdb696dfd43'
 # Fixed supported metadata only; no recursive schema framework or source-supplied expected.
 ACCESS_QUERY = """
 WITH tables AS (SELECT c.* FROM pg_catalog.pg_class c
@@ -195,6 +195,10 @@ TRIGGERS = (
      'rec_purchase_quote_immutable', '0100_billing_purchases'),
     ('product_activation_milestones', 'activation_decision_immutable', 19, (),
      'rec_activation_decision_immutable', '0106_activation_milestones'),
+    ('billing_registry_imports', 'registry_history_guard', 27, (),
+     'rec_registry_history_guard', '0107_billing_registry'),
+    ('billing_registry_gaps', 'registry_history_guard', 27, (),
+     'rec_registry_history_guard', '0107_billing_registry'),
 )
 FUNCTION_SQL = re.compile(
     r'\bcreate\s+(?:or\s+replace\s+)?function\s+(\w+)\s*\(\s*\)'
@@ -261,7 +265,7 @@ async def local_retention_database_catalog(source):
                     AND NOT EXISTS(SELECT FROM pg_catalog.pg_foreign_server)
             """) is True, 'retention_catalog_executables')
         # Deparser rejects aggregates; refuse every unsupported kind before calling it.
-        _require(await source.fetchval("SELECT count(*)=31 AND coalesce(bool_and(p.prokind='f'),false) "
+        _require(await source.fetchval("SELECT count(*)=32 AND coalesce(bool_and(p.prokind='f'),false) "
                                        + ROUTINES_FROM) is True, 'retention_catalog_routine_kind')
         routines = [tuple(row) for row in await source.fetch("""
             SELECT n.nspname::text,p.proname::text,

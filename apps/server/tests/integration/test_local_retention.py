@@ -64,6 +64,9 @@ def test_native_local_retention_catalog(postgres_isolated_cluster_database_url):
                 ('config', 'ALTER FUNCTION public.rec_activation_decision_immutable() SET search_path=public', original),
                 ('scheduler', 'CREATE SCHEMA cron', 'DROP SCHEMA cron'),
                 ('extension', 'CREATE EXTENSION pg_trgm', 'DROP EXTENSION pg_trgm'),
+                *[(table, f'ALTER TABLE public.{table} DISABLE TRIGGER registry_history_guard',
+                   f'ALTER TABLE public.{table} ENABLE TRIGGER registry_history_guard')
+                  for table in ('billing_registry_imports', 'billing_registry_gaps')],
             ]
             for name, change, undo in alterations:
                 await db.execute(change)

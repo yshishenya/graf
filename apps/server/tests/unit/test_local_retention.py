@@ -26,10 +26,10 @@ def test_retention_policy_fails_before_catalog(monkeypatch, case):
         asyncio.run(module.local_retention_database_catalog(None))
 
 
-@pytest.mark.parametrize('case', ['missing', 'duplicate', 'wrong_tag', 'outside_upgrade', 'disconnected', 'call_args', 'tag_case'])
+@pytest.mark.parametrize('case', ['missing', 'duplicate', 'wrong_tag', 'outside_upgrade', 'disconnected', 'call_args', 'tag_case', 'registry_missing', 'registry_tag'])
 def test_function_literal_must_be_unambiguous(monkeypatch, case):
     module = importlib.import_module('twobrain_rec_server.product_analytics.local_retention')
-    assert len(module._expected_bodies()) == 7
+    assert len(module._expected_bodies()) == 8
     original = module.Path.read_text
     def changed(path, *args, **kwargs):
         value = original(path, *args, **kwargs)
@@ -39,6 +39,11 @@ def test_function_literal_must_be_unambiguous(monkeypatch, case):
             return value.replace('    _install_policies()', '    _install_policies(1)')
         if case == 'tag_case' and path.name == '0079_summary_state_versions.py':
             return value.replace('        $fn$', '        $FN$')
+        if path.name == '0107_billing_registry.py':
+            if case == 'registry_missing':
+                return value.replace('CREATE FUNCTION rec_registry_history_guard()', 'SELECT')
+            if case == 'registry_tag':
+                return value.replace('END $$', 'END $different$')
         if path.name == '0106_activation_milestones.py':
             if case == 'missing':
                 return value.replace('CREATE FUNCTION rec_activation_decision_immutable()', 'SELECT')
