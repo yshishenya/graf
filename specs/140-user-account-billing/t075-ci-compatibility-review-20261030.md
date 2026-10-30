@@ -143,3 +143,65 @@ T075/#4930 остаются открытыми: CSV ↔ authenticated provider A
 сверка и внешние условия запуска отдельно. `financial_status=not_checked`
 не меняется. Окончательные GitHub-проверки нового точного SHA и основы
 обязательны после обновления PR; локальные 142 PASS их не заменяют.
+
+
+## Дополнение: формат metadata миграции 0107 — 2026-10-30
+
+**PASS для двух аннотаций типов в миграции 0107. Замечаний нет.**
+Основа дополнения: `5281dcf13c7f33135cdae25f7efd1b62f19776b6`.
+Полоса: минимальная правка формата metadata в существующей проверенной миграции;
+новой схемы, поведения upgrade/downgrade или требований не добавлено.
+
+Непосредственный diff показывает ровно две изменённые строки:
+
+```python
+revision: str = "0107_billing_registry"
+down_revision: str | None = "0106_activation_milestones"
+```
+
+Значения обоих идентификаторов сохранены. Чистая read-only AST-сверка между
+HEAD и рабочим файлом после приведения двух `AnnAssign` к прежним `Assign`
+дала полное совпадение AST без координат. Следовательно, импорты, SQL,
+функции upgrade/downgrade и все остальные присваивания не изменены.
+Добавляются только предусмотренные Python аннотации metadata; буквальное
+равенство ненормализованного AST или отсутствие `__annotations__` не заявляется.
+Verifier уже явно поддерживает оба вида `ast.Assign` и `ast.AnnAssign`;
+новый fallback или ослабление migration graph не нужны.
+
+Проверка `test_alembic_revision_ids_fit_default_version_table_length` прочитана:
+она требует каноническую строку `revision: str = "..."` через регулярное
+выражение. Миграция приведена к существующему формату без изменения этого
+теста или расширения списка исторических исключений.
+
+SHA256 окончательно просмотренной миграции:
+`apps/server/src/twobrain_rec_server/db/migrations/versions/0107_billing_registry.py`
+— `e8ff8a51ac0acb519f9fd3608e6a481b0b41dde5557107a3d3efbeec766eb614`.
+Сумма совпала с переданной исполнителем.
+
+Непосредственно прочитаны XML и полный журнал отдельного запуска:
+
+- `/Users/yshishenya/Documents/Codex/2026-10-30/graf-repository-audit/f140-t075-migration-format-final.xml`
+  — SHA256 `8c896e947df047dc346c8f210ebb0ef1c8d80d4bba96fec1d6450009a898b959`.
+- `/Users/yshishenya/Documents/Codex/2026-10-30/graf-repository-audit/f140-t075-migration-format-final.log`
+  — SHA256 `f84f8a34d3602b08342defc63ef013639d79b3bbdf790b2622e14fbc4f8b506e`.
+
+XML: **37 testcase, 0 failure, 0 error, 0 skipped**. Журнал:
+`37 passed, 1 warning in 63.44s`, focused phase PASS 67s,
+`postgres_test_cleanup=isolated_container_removed`.
+Проверены имена всех случаев: 17 migration tests, 9 registry integration tests
+и 11 worker unit tests. В том числе присутствуют исходно упавшая проверка
+формата revision, clean/legacy upgrade, registry downgrade/history refusal,
+согласованное status и актуальная packaged head.
+
+Это отдельная выборка, пересекающаяся с прежними 142 PASS. Числа **не
+складываются** и не объявляются одним общим запуском; историческое
+доказательство восстановления последовательностей сохранено выше.
+Историческая фраза о неизменности 0107 в первой части отчёта относится к её
+прежнему основанию; новый hash и точный двухстрочный diff записаны здесь.
+
+Reviewer не запускал тесты, БД, приложение, Docker, сборки или Git/GitHub
+mutations. Выполнены только чтение diff/исходников/XML/log, вычисление
+hashes, нормализованная AST-сверка и `git diff --check` (PASS).
+Изменено только это дополнение к назначенному отчёту. Прежние выводы и
+контрольные суммы сохранены. T075/#4930 и финансовая сверка остаются открытыми;
+новый точный SHA и его основу после коммита обязан проверить GitHub CI.
