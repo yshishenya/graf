@@ -771,7 +771,7 @@ def _capacity_inputs():
     now = 1792634400
     classes = dict.fromkeys(capacity.CLASSES, 0)
     classes['events'] = 10_000
-    sample = {'storage_sample_version': 2, 'recorded_at_epoch': now,
+    sample = {'storage_sample_version': 3, 'measurement_scope': 'posthog', 'recorded_at_epoch': now,
               'inventory_version': 'a' * 64, 'result': 'complete', 'reasons': [],
               'classes': classes, 'analytics_storage_bytes': 10_000,
               'filesystems': [{'identity': 'b' * 64, 'total_bytes': 1000,
@@ -889,7 +889,7 @@ def test_protection_requires_durable_request_and_verified_runtime_before_manual_
     assert capacity.transition(path, [], 'protected', now=now, runtime_env=runtime) == 'protected'
     sample['growth'] = {'result': 'measured', 'interval_seconds': 86400, 'end_epoch': now,
                         'bytes_per_day': dict.fromkeys(capacity.CLASSES, 1)}
-    receipt = {'restore_receipt_version': 1, 'incident_id': incident, 'role': 'infra_operator',
+    receipt = {'restore_receipt_version': 2, 'measurement_scope': 'posthog', 'incident_id': incident, 'role': 'infra_operator',
                'approved_at_epoch': now, 'expires_at_epoch': now + 300,
                'config_version': 'd' * 64, 'budget_version': 'c' * 64,
                'runtime_env_sha256': hashlib.sha256(json.dumps(capacity.DISABLED_ENV, sort_keys=True).encode()).hexdigest(),
@@ -1052,8 +1052,9 @@ def test_incomplete_collector_keeps_discovered_low_space(tmp_path: Path, monkeyp
         # Use the real discovery function with metadata-only Docker replies.
         monkeypatch.setattr(collector, 'runtime_roots', runtime_roots)
         monkeypatch.setattr(collector, 'command', lambda *args: (
-            'container' if args[1] == 'ps' else json.dumps([{
-                'Config': {'Labels': {'com.docker.compose.service': 'db'}},
+            'a' * 64 if args[1] == 'ps' else json.dumps([{
+                'Id': 'a' * 64,
+                'Config': {'Labels': {'com.docker.compose.service': 'db', 'com.docker.compose.project': 'graf-posthog'}},
                 'Mounts': [{'Type': 'volume', 'Name': 'synthetic', 'Source': str(events),
                             'Destination': '/data'}] + ([{'Type': 'bind', 'Source': str(tmp_path),
                             'Destination': '/unknown'}] if failure == 'runtime_mount' else []),
@@ -1290,3 +1291,202 @@ os.chmod(sys.argv[8], 0o600)
             for path in files:
                 assert path.read_text() == f'KEEP=value with spaces\nTWOBRAIN_RUNTIME_SECRET_GID={selected}\n'
                 assert path.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize('scope', ['posthog', 'graf-local'])
+def test_local_resource_inventory_requires_exact_container_and_volume_identity(tmp_path, monkeypatch, scope):
+    collector = _storage_collector()
+    (tmp_path / 'storage-mounts.txt').write_text('db /data relational\nclickhouse /data events\n')
+    (tmp_path / 'backup-volumes.txt').write_text('graf-posthog_postgres-data\ngraf-posthog_clickhouse-data\n')
+    calls = []
+    def command(*args):
+        calls.append(args)
+        if args[1] == 'ps':
+            assert '--no-trunc' in args
+            return ''
+        if args[1:3] == ('volume', 'ls'):
+            return ''
+        raise AssertionError(args)
+    monkeypatch.setattr(collector, 'command', command)
+    if scope == 'graf-local':
+        roots, version = collector.runtime_roots(tmp_path, 'graf-posthog', [], scope)
+        assert roots == [] and re.fullmatch('[a-f0-9]{64}', version)
+        assert len([args for args in calls if args[1:3] == ('volume', 'ls')]) == 2
+    else:
+        with pytest.raises(collector.Incomplete, match='analytics_runtime_missing'):
+            collector.runtime_roots(tmp_path, 'graf-posthog', [], scope)
+
+
+@pytest.mark.parametrize('scope', ['posthog', 'graf-local'])
+def test_capacity_and_protection_bind_measurement_scope(tmp_path, scope):
+    capacity, sample, budget, now = _capacity_inputs()
+    sample.update(storage_sample_version=3, measurement_scope=scope)
+    assert capacity.evaluate(sample, budget, now=now, config_version='d' * 64,
+                             expected_scope=scope)['capacity_ready']
+    other = 'graf-local' if scope == 'posthog' else 'posthog'
+    sample['filesystems'][0]['available_bytes'] = 99
+    decision = capacity.evaluate(sample, budget, now=now, config_version='d' * 64, expected_scope=other)
+    assert not decision['capacity_ready'] and not decision['input_verified']
+    assert decision['disable_reasons'] == ['analytics_storage']
+    path = tmp_path / 'state'
+    capacity.transition(path, ['analytics_storage'], 'protection_requested', now=now, scope=scope)
+    original = path.read_bytes()
+    with pytest.raises(ValueError, match='protection_state_unverified'):
+        capacity.transition(path, [], 'status', now=now, scope=other)
+    assert path.read_bytes() == original
+    value = json.loads(original)
+    assert value['protection_state_version'] == 2 and value['measurement_scope'] == scope
+    value['protection_state_version'] = 1
+    path.write_text(json.dumps(value))
+    original = path.read_bytes()
+    with pytest.raises(ValueError, match='protection_state_unverified'):
+        capacity.transition(path, [], 'status', now=now, scope=scope)
+    assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize('mutation', [
+    'good', 'short_id', 'duplicate_ps', 'partial', 'duplicate_inspect', 'extra',
+    'wrong_id', 'wrong_project', 'wrong_service', 'ps_error', 'volume_error',
+    'duplicate_volume', 'wrong_volume_name', 'multiple_volume_inspect', 'unclassified',
+])
+def test_local_resource_discovers_residual_storage_and_rejects_incomplete_inventory(tmp_path, monkeypatch, mutation):
+    collector = _storage_collector()
+    (tmp_path / 'storage-mounts.txt').write_text('db /data relational\n')
+    (tmp_path / 'backup-volumes.txt').write_text('graf-posthog_postgres-data\ngraf-posthog_clickhouse-data\n')
+    residual = tmp_path / 'residual'
+    residual.mkdir()
+    (residual / 'allocated').write_bytes(b'x' * 8192)
+    cid = 'a' * 64
+    containers = [{'Id': cid, 'Config': {'Labels': {
+        'com.docker.compose.project': 'graf-posthog', 'com.docker.compose.service': 'db'}}, 'Mounts': []}]
+    if mutation == 'partial':
+        containers = []
+    if mutation == 'duplicate_inspect':
+        containers *= 2
+    if mutation == 'extra':
+        containers += [{**containers[0], 'Id': 'b' * 64}]
+    if mutation == 'wrong_id':
+        containers[0]['Id'] = 'b' * 64
+    if mutation == 'wrong_project':
+        containers[0]['Config']['Labels']['com.docker.compose.project'] = 'other'
+    if mutation == 'wrong_service':
+        containers[0]['Config']['Labels']['com.docker.compose.service'] = 'unknown'
+    name = 'graf-posthog_postgres-data' if mutation != 'unclassified' else 'graf-posthog_unknown'
+    def command(*args):
+        if args[1] == 'ps':
+            assert '--no-trunc' in args
+            if mutation == 'ps_error':
+                raise collector.Incomplete('metadata_probe_failed')
+            return 'a' * 12 if mutation == 'short_id' else (' '.join([cid, cid]) if mutation == 'duplicate_ps' else cid)
+        if args[1] == 'inspect':
+            return json.dumps(containers)
+        if args[1:3] == ('volume', 'ls'):
+            if mutation == 'volume_error':
+                raise collector.Incomplete('metadata_probe_failed')
+            return '' if '--filter' in args else (name + ' ' + name if mutation == 'duplicate_volume' else name)
+        if args[1:3] == ('volume', 'inspect'):
+            value = {'Name': name if mutation != 'wrong_volume_name' else 'other', 'Mountpoint': str(residual)}
+            return json.dumps([value] * (2 if mutation == 'multiple_volume_inspect' else 1))
+        raise AssertionError(args)
+    monkeypatch.setattr(collector, 'command', command)
+    if mutation == 'good':
+        roots, _ = collector.runtime_roots(tmp_path, 'graf-posthog', [], 'graf-local')
+        assert roots == [('relational', residual)]
+        assert collector.allocated(roots)[0]['relational'] >= 8192
+    else:
+        with pytest.raises(collector.Incomplete):
+            collector.runtime_roots(tmp_path, 'graf-posthog', [], 'graf-local')
+
+
+@pytest.mark.parametrize('mutation', ['good', 'absent_parent', 'archive_link', 'archive_permission',
+    'backup_missing', 'backup_link', 'override_outside', 'override_nested', 'override_child'])
+def test_local_collector_uses_actual_filesystems_without_posthog_calls(tmp_path, monkeypatch, mutation):
+    collector = _storage_collector()
+    parent = tmp_path / 'backups'
+    parent.mkdir()
+    monkeypatch.setattr(collector, 'MIXED_BACKUP_PARENT', parent)
+    archives_parent = tmp_path / 'archives-parent'
+    archives_parent.mkdir()
+    archives = archives_parent / 'absent'
+    relation = tmp_path / 'relation'
+    relation.write_bytes(b'x' * 8192)
+    state = tmp_path / 'state'
+    monkeypatch.setenv('GRAF_POSTHOG_STORAGE_STATE_FILE', str(state))
+    monkeypatch.setenv('GRAF_POSTHOG_BACKUP_DIR', str(archives))
+    monkeypatch.setenv('GRAF_APP_DIR', str(tmp_path))
+    monkeypatch.setenv('GRAF_POSTHOG_ANALYTICS_PATH', '/absent/posthog/must-not-be-used')
+    monkeypatch.delenv('TWOBRAIN_BACKUP_DIR', raising=False)
+    (tmp_path / 'storage-mounts.txt').write_text('db /data relational\n')
+    (tmp_path / 'backup-volumes.txt').write_text('graf-posthog_postgres-data\n')
+    monkeypatch.setenv('GRAF_POSTHOG_STORAGE_INVENTORY_DIR', str(tmp_path))
+    def command(*args):
+        assert args[1] in ('ps', 'volume'), args
+        return ''
+    monkeypatch.setattr(collector, 'command', command)
+    monkeypatch.setattr(collector, 'graf_relation_roots', lambda *args: ([('graf_analytics_tables', relation)], 'relations', 1, []))
+    monkeypatch.setattr(collector, 'event_count', lambda *args: pytest.fail('local called ClickHouse'))
+    if mutation == 'absent_parent':
+        archives_parent.rmdir()
+    if mutation == 'archive_link':
+        archives.symlink_to(tmp_path, target_is_directory=True)
+    if mutation == 'archive_permission':
+        original = Path.lstat
+        def denied(path):
+            if path == archives:
+                raise PermissionError('synthetic')
+            return original(path)
+        monkeypatch.setattr(Path, 'lstat', denied)
+    if mutation == 'backup_missing':
+        parent.rmdir()
+    if mutation == 'backup_link':
+        parent.rmdir()
+        parent.symlink_to(tmp_path, target_is_directory=True)
+    if mutation in ('override_outside', 'override_nested', 'override_child'):
+        override = {'override_outside': tmp_path / 'other', 'override_nested': parent / 'nested/child',
+                    'override_child': parent / 'new-copy'}[mutation]
+        monkeypatch.setenv('TWOBRAIN_BACKUP_DIR', str(override))
+    monkeypatch.setattr(sys, 'argv', ['posthog-storage.py', '--scope', 'graf-local'])
+    good = mutation in ('good', 'override_child')
+    assert collector.main() == (0 if good else 1)
+    sample = json.loads(state.with_suffix('.json').read_text())
+    assert sample['measurement_scope'] == 'graf-local' and sample['storage_sample_version'] == 3
+    if good:
+        assert sample['classes']['graf_analytics_tables'] >= 8192
+        assert sample['class_status']['backup_artifacts'] == 'not_present_in_reviewed_runtime'
+        anchor_path = state.parent / 'storage-growth-anchor.json'
+        anchor = json.loads(anchor_path.read_text())
+        anchor['recorded_at_epoch'] -= 86401
+        anchor_path.write_text(json.dumps(anchor))
+        assert collector.main() == 0
+        sample = json.loads(state.with_suffix('.json').read_text())
+        assert sample['growth']['result'] == 'measured'
+        assert sample['growth']['events_in_window'] is None
+
+
+@pytest.mark.parametrize('scope', ['posthog', 'graf-local'])
+def test_restoration_keeps_incident_scope_and_requires_its_own_proofs(tmp_path, scope):
+    capacity, sample, budget, now = _capacity_inputs()
+    sample.update(measurement_scope=scope, storage_sample_version=3,
+                  growth={'result': 'measured', 'interval_seconds': 86400, 'end_epoch': now,
+                          'bytes_per_day': dict.fromkeys(capacity.CLASSES, 1)})
+    path = tmp_path / 'state'
+    capacity.transition(path, ['analytics_storage'], 'protection_requested', now=now-10, scope=scope)
+    incident = json.loads(path.read_text())['incident_id']
+    runtime = [f'{k}={v}' for k, v in capacity.DISABLED_ENV.items()]
+    common = {'growth_review', 'expansion_review', 'runtime_review', 'basis_consent_review'}
+    own = {'provider_smoke', 'page_validation'} if scope == 'posthog' else {'local_measurement_review'}
+    receipt = dict(restore_receipt_version=2, measurement_scope=scope, incident_id=incident,
+        role='infra_operator', approved_at_epoch=now, expires_at_epoch=now+100,
+        config_version='d'*64, budget_version='c'*64,
+        runtime_env_sha256=hashlib.sha256(json.dumps(capacity.DISABLED_ENV, sort_keys=True).encode()).hexdigest(),
+        proofs=dict.fromkeys(common | own, 'e'*64))
+    for change in ({'measurement_scope': 'graf-local' if scope=='posthog' else 'posthog'},
+                   {'restore_receipt_version': 1}, {'proofs': dict.fromkeys(common, 'e'*64)}):
+        before = path.read_bytes()
+        with pytest.raises(ValueError):
+            capacity.restore(path, {**receipt, **change}, sample, budget, runtime, now=now,
+                             config_version='d'*64, scope=scope)
+        assert path.read_bytes() == before
+    assert capacity.restore(path, receipt, sample, budget, runtime, now=now,
+                            config_version='d'*64, scope=scope) == 'observed'
+    assert json.loads(path.read_text())['measurement_scope'] == scope

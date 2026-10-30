@@ -68,7 +68,7 @@ BLOCKER_PROTECTION_LATCHED = "analytics_protection_latched"
 
 def runtime_guard_blockers(
     environ: Mapping[str, str] | None = None, *, now: float | None = None,
-    protection_state_file: str | None = None,
+    protection_state_file: str | None = None, expected_scope: str = "posthog",
 ) -> tuple[str, ...]:
     """Consume the current guard schema, including a pre-switch incident latch."""
     environment = os.environ if environ is None else environ
@@ -80,7 +80,9 @@ def runtime_guard_blockers(
     sample_epoch = _optional_epoch(values.get("capacity_sample_epoch"))
     budget_deadline = _optional_epoch(values.get("capacity_budget_deadline_epoch"))
     blockers = []
-    if (values.get("alert_state_version") != "2" or epoch is None
+    if (values.get("alert_state_version") != "3"
+            or expected_scope not in ("posthog", "graf-local")
+            or values.get("measurement_scope") != expected_scope or epoch is None
             or not 0 <= current - epoch < 120 or sample_epoch is None
             or not 0 <= current - sample_epoch < 120
             or values.get("capacity_input_verified") != "true"
@@ -97,7 +99,8 @@ def runtime_guard_blockers(
     except ValueError:
         protection = None
     if (not isinstance(protection, dict) or type(protection.get("protection_state_version")) is not int
-            or protection.get("protection_state_version") != 1
+            or protection.get("protection_state_version") != 2
+            or protection.get("measurement_scope") != expected_scope
             or not isinstance(protection.get("status"), str)
             or protection.get("status") not in {"observed", "protection_requested", "blocked_dry_run",
                                                 "not_enabled", "apply_failed", "protected"}
@@ -440,7 +443,7 @@ def build_analytics_operations_readiness(
     environment = os.environ if environ is None else environ
     collected = evidence if evidence is not None else collect_analytics_operations_evidence(environment, now=now)
     blockers = tuple(dict.fromkeys((*analytics_operations_blockers(collected, environment),
-                                   *runtime_guard_blockers(environment, now=now))))
+                                   *runtime_guard_blockers(environment, now=now, expected_scope="posthog"))))
 
     retention_terms = ",".join(
         f"{category}=until_decision" for category, _ in REQUIRED_RETENTION_TERMS

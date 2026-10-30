@@ -85,7 +85,7 @@ def _rule_map() -> dict[str, dict[str, str]]:
 def _write_state(path: Path, lines: list[str]) -> None:
     if path.name == "guard-state":
         # Normal alert fixtures represent the current complete writer schema.
-        lines = ["alert_state_version=2", "capacity_ready=true", "capacity_input_verified=true", "protection_status=observed", *lines]
+        lines = ["alert_state_version=3\nmeasurement_scope=posthog", "capacity_ready=true", "capacity_input_verified=true", "protection_status=observed", *lines]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -683,7 +683,7 @@ def test_guard_alert_state_keys_match_the_alert_reader() -> None:
     guard = GUARD_PATH.read_text(encoding="utf-8")
     alert = ALERT_PATH.read_text(encoding="utf-8")
 
-    writer = guard.split("alert_state_version=2", 1)[1].split('} > "$tmp_alert_state"', 1)[0]
+    writer = guard.split("alert_state_version=3", 1)[1].split('} > "$tmp_alert_state"', 1)[0]
     written = set(re.findall(r"printf '([a-z0-9_]+)=", writer))
     for key in (
         "recorded_at_epoch",
@@ -778,11 +778,12 @@ def test_guard_state_feeds_the_alert_end_to_end(tmp_path: Path) -> None:
     assert "delivery_deadline_minutes: 15" in message
 
 
-def _capacity_guard_runtime(tmp_path: Path):
+def _capacity_guard_runtime(tmp_path: Path, scope="posthog"):
     from tests.contract.test_analytics_retention_enforcement import _capacity_inputs
     capacity, sample, budget, _ = _capacity_inputs()
     now = int(time.time())
     sample['recorded_at_epoch'] = now
+    sample['measurement_scope'] = scope
     budget.update(accepted_at_epoch=now - 1, review_deadline_epoch=now + 3600)
     bin_dir = tmp_path / 'bin'
     bin_dir.mkdir()
@@ -830,12 +831,14 @@ elif args[0] == 'inspect':
         'GRAF_POSTHOG_HEALTH_URL': 'https://guard-test.invalid/health',
         'GRAF_READY_URL': 'https://guard-test.invalid/ready',
         'RESTART_LOG': str(tmp_path / 'restart-log'),
+        'GRAF_ANALYTICS_GUARD_SCOPE': scope,
     }
     return environment, sample, state.with_suffix('.json')
 
 
-def test_guard_persists_one_successful_transition_and_does_not_auto_restore(tmp_path: Path):
-    environment, sample, sample_path = _capacity_guard_runtime(tmp_path)
+@pytest.mark.parametrize('scope', ['posthog', 'graf-local'])
+def test_guard_persists_one_successful_transition_and_does_not_auto_restore(tmp_path: Path, scope):
+    environment, sample, sample_path = _capacity_guard_runtime(tmp_path, scope)
     sample['filesystems'][0]['available_bytes'] = 99
     sample_path.write_text(json.dumps(sample))
     for _ in range(2):
@@ -860,8 +863,9 @@ def test_guard_persists_one_successful_transition_and_does_not_auto_restore(tmp_
 
 
 @pytest.mark.parametrize('failure', ['FAIL_RESTART', 'FAIL_READBACK'])
-def test_guard_failure_stays_closed_and_retries_application(tmp_path: Path, failure: str):
-    environment, sample, sample_path = _capacity_guard_runtime(tmp_path)
+@pytest.mark.parametrize('scope', ['posthog', 'graf-local'])
+def test_guard_failure_stays_closed_and_retries_application(tmp_path: Path, failure: str, scope):
+    environment, sample, sample_path = _capacity_guard_runtime(tmp_path, scope)
     sample['filesystems'][0]['available_bytes'] = 199
     sample_path.write_text(json.dumps(sample))
     result = subprocess.run([BASH, str(GUARD_PATH)], env={**environment, failure: '1'}, capture_output=True, text=True)
@@ -881,8 +885,9 @@ def test_guard_failure_stays_closed_and_retries_application(tmp_path: Path, fail
     ({'GRAF_POSTHOG_GUARD_DRY_RUN': '1'}, 'blocked_dry_run'),
     ({'GRAF_POSTHOG_GUARD_AUTO_ROLLBACK': '0'}, 'not_enabled'),
 ])
-def test_guard_dry_run_and_auto_off_never_claim_protection(tmp_path: Path, mode, status):
-    environment, sample, sample_path = _capacity_guard_runtime(tmp_path)
+@pytest.mark.parametrize('scope', ['posthog', 'graf-local'])
+def test_guard_dry_run_and_auto_off_never_claim_protection(tmp_path: Path, mode, status, scope):
+    environment, sample, sample_path = _capacity_guard_runtime(tmp_path, scope)
     sample['filesystems'][0]['available_bytes'] = 199
     sample_path.write_text(json.dumps(sample))
     result = subprocess.run([BASH, str(GUARD_PATH)], env={**environment, **mode}, capture_output=True, text=True)
@@ -892,8 +897,9 @@ def test_guard_dry_run_and_auto_off_never_claim_protection(tmp_path: Path, mode,
     assert not (tmp_path / 'restart-log').exists()
 
 
-def test_guard_bad_state_and_failed_fresh_probe_prevent_readiness(tmp_path: Path):
-    environment, sample, _ = _capacity_guard_runtime(tmp_path)
+@pytest.mark.parametrize('scope', ['posthog', 'graf-local'])
+def test_guard_bad_state_and_failed_fresh_probe_prevent_readiness(tmp_path: Path, scope):
+    environment, sample, _ = _capacity_guard_runtime(tmp_path, scope)
     collector = Path(environment['GRAF_POSTHOG_STORAGE_COLLECTOR'])
     collector.write_text('#!/bin/sh\nexit 1\n')
     result = subprocess.run([BASH, str(GUARD_PATH)], env=environment, capture_output=True, text=True)
@@ -910,8 +916,9 @@ def test_guard_bad_state_and_failed_fresh_probe_prevent_readiness(tmp_path: Path
     assert not (tmp_path / 'restart-log').exists()
 
 
-def test_parallel_guard_runs_apply_once_and_real_state_feeds_readiness(tmp_path: Path):
-    environment, sample, sample_path = _capacity_guard_runtime(tmp_path)
+@pytest.mark.parametrize('scope', ['posthog', 'graf-local'])
+def test_parallel_guard_runs_apply_once_and_real_state_feeds_readiness(tmp_path: Path, scope):
+    environment, sample, sample_path = _capacity_guard_runtime(tmp_path, scope)
     sample['filesystems'][0]['available_bytes'] = 199
     sample_path.write_text(json.dumps(sample))
     runs = [subprocess.Popen([BASH, str(GUARD_PATH)], env=environment, stdout=subprocess.PIPE,
@@ -921,7 +928,7 @@ def test_parallel_guard_runs_apply_once_and_real_state_feeds_readiness(tmp_path:
         assert run.returncode == 0, error
         assert 'posthog_guard_protection_status=protected' in output
     assert (tmp_path / 'restart-log').read_text().splitlines() == ['restart']
-    assert 'analytics_protection_latched' in provider_readiness.runtime_guard_blockers(environment)
+    assert 'analytics_protection_latched' in provider_readiness.runtime_guard_blockers(environment, expected_scope=scope)
 
 
 @pytest.mark.parametrize('age', [-1, 0, 119, 120])
@@ -934,7 +941,7 @@ def test_readiness_consumes_fresh_capacity_and_immediate_incident_latch(tmp_path
     guard = Path(environment['GRAF_POSTHOG_GUARD_STATE_DIR'])
     # A pre-switch incident must block even while the last alert-state says pass.
     (guard / 'protection-state.json').write_text(json.dumps({
-        'protection_state_version': 1, 'status': 'protection_requested',
+        'protection_state_version': 2, 'measurement_scope': 'posthog', 'status': 'protection_requested',
         'reasons': ['analytics_storage'],
     }))
     assert 'analytics_protection_latched' in provider_readiness.runtime_guard_blockers(environment, now=now)
@@ -1060,7 +1067,7 @@ def test_alert_preserves_complete_input_when_capacity_is_blocked(tmp_path: Path,
     state = _valid_operations_state(tmp_path, now=now)
     guard = tmp_path / 'guard-state'
     guard.write_text(
-        'alert_state_version=2\ncapacity_ready=false\ncapacity_input_verified=true\n'
+        'alert_state_version=3\nmeasurement_scope=posthog\ncapacity_ready=false\ncapacity_input_verified=true\n'
         f'protection_status=observed\nrecorded_at_epoch={now}\nresult=alert\nanalytics_breaches={reason}\n'
     )
     environment, _ = _alert_environment(tmp_path, state)
@@ -1398,7 +1405,7 @@ def test_complete_capacity_input_remains_independent_of_readiness(tmp_path: Path
     elif condition == "protection":
         text = text.replace("protection_status=observed", "protection_status=protection_requested")
         (directory / "protection-state.json").write_text(json.dumps({
-            "protection_state_version": 1, "status": "protection_requested", "reasons": ["analytics_storage"],
+            "protection_state_version": 2, "measurement_scope": "posthog", "status": "protection_requested", "reasons": ["analytics_storage"],
         }))
     guard.write_text(text)
     assert provider_readiness.runtime_guard_blockers(environment, now=now) == expected
@@ -1411,3 +1418,131 @@ def test_complete_capacity_input_remains_independent_of_readiness(tmp_path: Path
     assert alert.returncode == 0, alert.stderr
     for code in ("capacity_input_unverified", "capacity_not_ready", "capacity_budget_unverified", "analytics_protection_latched"):
         assert (code in alert.stdout) is (code in expected)
+
+
+@pytest.mark.parametrize('available', [500, 199, 99])
+def test_local_guard_omits_provider_probes_and_preserves_capacity_protection(tmp_path, available):
+    environment, sample, sample_path = _capacity_guard_runtime(tmp_path)
+    environment['GRAF_ANALYTICS_GUARD_SCOPE'] = 'graf-local'
+    sample['measurement_scope'] = 'graf-local'
+    sample['filesystems'][0]['available_bytes'] = available
+    sample_path.write_text(json.dumps(sample))
+    bin_dir = Path(environment['PATH'].split(':')[0])
+    docker = bin_dir / 'docker'
+    docker.write_text(docker.read_text().replace('args = sys.argv[1:]', '''args = sys.argv[1:]
+with open(os.environ['PROBE_LOG'], 'a') as stream: stream.write('docker ' + ' '.join(args) + '\\n')'''))
+    (bin_dir / 'curl').write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$PROBE_LOG"\nexit 0\n')
+    log = tmp_path / 'probes'
+    environment['PROBE_LOG'] = str(log)
+    for _ in range(2):
+        result = subprocess.run([BASH, str(GUARD_PATH)], env=environment, capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+    text = (tmp_path / 'guard/alert-state').read_text()
+    assert 'measurement_scope=graf-local' in text and 'alert_state_version=3' in text
+    for metric in ('delivery_lag_seconds', 'queue_depth', 'queue_growth_per_min', 'container_count',
+                   'oom_count', 'restart_count', 'analytics_health_failures'):
+        assert metric+'=not_applicable' in text
+    probes = log.read_text()
+    assert 'https://guard-test.invalid/health' not in probes and 'https://guard-test.invalid/ready' in probes
+    assert 'clickhouse' not in probes and 'docker exec' not in probes
+    assert 'label=com.docker.compose.project' not in probes
+    from twobrain_rec_server.product_analytics.provider_readiness import runtime_guard_blockers
+    if available == 500:
+        assert 'analytics_scope=pass' in text and 'capacity_ready=true' in text
+        assert runtime_guard_blockers(environment, expected_scope='graf-local') == ()
+        assert 'capacity_input_unverified' in runtime_guard_blockers(environment)
+    else:
+        assert 'analytics_storage' in text and 'protection_status=protected' in text
+        assert (tmp_path / 'restart-log').read_text().splitlines() == ['restart']
+        assert ('host_disk' in text) is (available == 99)
+
+
+def test_invalid_guard_scope_has_no_state_or_probe_side_effects(tmp_path):
+    environment, _, _ = _capacity_guard_runtime(tmp_path)
+    environment['GRAF_ANALYTICS_GUARD_SCOPE'] = 'invalid'
+    result = subprocess.run([BASH, str(GUARD_PATH)], env=environment, capture_output=True, text=True)
+    assert result.returncode != 0 and 'measurement_scope_invalid' in result.stderr
+    assert not (tmp_path / 'guard').exists() and not (tmp_path / 'restart-log').exists()
+
+
+@pytest.mark.parametrize('change', ['old_alert', 'missing_scope', 'wrong_scope', 'old_protection',
+    'missing_protection_scope', 'wrong_protection_scope'])
+def test_runtime_consumer_refuses_old_or_foreign_scope_even_with_guard_env(tmp_path, change):
+    from tests.fixtures.analytics_operations import write_runtime_guard
+    now = int(time.time())
+    environment = write_runtime_guard(tmp_path, now=now)
+    environment['GRAF_ANALYTICS_GUARD_SCOPE'] = 'graf-local'
+    directory = Path(environment['GRAF_POSTHOG_GUARD_STATE_DIR'])
+    alert = directory / 'alert-state'
+    protection = directory / 'protection-state.json'
+    text = alert.read_text()
+    value = json.loads(protection.read_text())
+    if change == 'old_alert':
+        text = text.replace('alert_state_version=3', 'alert_state_version=2')
+    elif change == 'missing_scope':
+        text = text.replace('measurement_scope=posthog', '')
+    elif change == 'wrong_scope':
+        text = text.replace('measurement_scope=posthog', 'measurement_scope=graf-local')
+    elif change == 'old_protection':
+        value['protection_state_version'] = 1
+    elif change == 'missing_protection_scope':
+        del value['measurement_scope']
+    else:
+        value['measurement_scope'] = 'graf-local'
+    alert.write_text(text)
+    protection.write_text(json.dumps(value))
+    assert provider_readiness.runtime_guard_blockers(environment, now=now)
+
+
+def test_local_guard_real_collector_capacity_state_and_runtime_consumer(tmp_path):
+    environment, _, _ = _capacity_guard_runtime(tmp_path)
+    environment['GRAF_ANALYTICS_GUARD_SCOPE'] = 'graf-local'
+    bin_dir = Path(environment['PATH'].split(':')[0])
+    # Actual collector/relations/allocated blocks, only Docker metadata and FS
+    # sensors are synthetic. No sockets, product rows or external services.
+    pg = tmp_path / 'pg/base/1'
+    pg.mkdir(parents=True)
+    (pg / '100').write_bytes(b'x' * 8192)
+    backups = tmp_path / 'mixed-backups'
+    backups.mkdir()
+    inventory = tmp_path / 'inventory'
+    inventory.mkdir()
+    (inventory / 'storage-mounts.txt').write_text('db /data relational\n')
+    (inventory / 'backup-volumes.txt').write_text('graf-posthog_postgres-data\n')
+    (inventory / 'storage-relations.txt').write_text('public.synthetic\n')
+    collector = bin_dir / 'collector'
+    collector.write_text(f'#!{sys.executable}\n' + f'''
+import json, os, runpy
+from pathlib import Path
+m = runpy.run_path({str(REPO_ROOT / 'infra/scripts/posthog-storage.py')!r})
+g = m['main'].__globals__
+g['MIXED_BACKUP_PARENT'] = Path({str(backups)!r})
+def command(*args):
+    if args[1] == 'ps':
+        return 'a' * 64 if 'label=com.docker.compose.service=rec-postgres' in args else ''
+    if args[1] == 'volume': return ''
+    if args[1] == 'inspect':
+        return json.dumps([dict(Mounts=[dict(Destination='/data', Source={str(tmp_path / 'pg')!r})])])
+    if args[1] == 'exec':
+        return json.dumps(dict(data_directory='/data', present=['public.synthetic'], files=['base/1/100']))
+    raise AssertionError(args)
+g['command'] = command
+g['filesystem'] = lambda path: dict(identity='b'*64, total_bytes=1000, available_bytes=500)
+raise SystemExit(m['main']())
+''')
+    environment.update(GRAF_POSTHOG_STORAGE_INVENTORY_DIR=str(inventory),
+        GRAF_POSTHOG_BACKUP_DIR=str(tmp_path / 'absent-archives'),
+        GRAF_POSTHOG_ANALYTICS_PATH='/absent/unused/posthog')
+    first = subprocess.run([str(collector), '--scope', 'graf-local'], env=environment, capture_output=True, text=True)
+    assert first.returncode == 0, first.stderr
+    sample_path = Path(environment['GRAF_POSTHOG_STORAGE_STATE_FILE']).with_suffix('.json')
+    sample = json.loads(sample_path.read_text())
+    budget_path = Path(environment['GRAF_POSTHOG_CAPACITY_BUDGET_FILE'])
+    budget = json.loads(budget_path.read_text())
+    budget['inventory_version'] = sample['inventory_version']
+    budget_path.write_text(json.dumps(budget))
+    result = subprocess.run([BASH, str(GUARD_PATH)], env=environment, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert 'posthog_guard_capacity_ready=true' in result.stdout
+    assert provider_readiness.runtime_guard_blockers(environment, expected_scope='graf-local') == ()
+    assert provider_readiness.runtime_guard_blockers(environment, expected_scope='posthog')

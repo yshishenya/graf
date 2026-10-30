@@ -38,14 +38,24 @@ PROTECTION_STATES = {"observed", "protection_requested", "blocked_dry_run",
 
 
 def transition(path: Path, reasons: list[str], action: str, *, now: int,
-               runtime_env: object = None) -> str:
+               runtime_env: object = None, scope: str = "posthog") -> str:
     """Caller holds guard.lock. Persist the incident before changing switches."""
-    exists = path.exists()
+    if scope not in ("posthog", "graf-local"):
+        raise ValueError("protection_state_unverified")
+    try:
+        info = path.lstat()
+        import stat
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("protection_state_unverified")
+        exists = True
+    except FileNotFoundError:
+        exists = False
     state = read_json(path) if exists else {
-        "protection_state_version": 1, "status": "observed", "reasons": [], "recorded_at_epoch": now,
+        "protection_state_version": 2, "measurement_scope": scope, "status": "observed", "reasons": [], "recorded_at_epoch": now,
     }
     if (not isinstance(state, dict) or type(state.get("protection_state_version")) is not int
-            or state.get("protection_state_version") != 1
+            or state.get("protection_state_version") != 2
+            or state.get("measurement_scope") != scope
             or not isinstance(state.get("status"), str)
             or state.get("status") not in PROTECTION_STATES
             or not isinstance(state.get("reasons"), list)
@@ -96,13 +106,16 @@ def transition(path: Path, reasons: list[str], action: str, *, now: int,
 
 
 def restore(path: Path, receipt: object, sample: object, budget: object, runtime_env: object,
-            *, now: int, config_version: str) -> str:
+            *, now: int, config_version: str, scope: str = "posthog") -> str:
     """Manual Restoration only. The timer never calls this entry point."""
+    path.lstat()  # Missing/linked/old state is never a new restoration incident.
+    transition(path, [], "status", now=now, scope=scope)
     state = read_json(path)
-    decision = evaluate(sample, budget, now=now, config_version=config_version)
+    decision = evaluate(sample, budget, now=now, config_version=config_version, expected_scope=scope)
     if (not isinstance(state, dict) or state.get("status") not in PROTECTION_STATES - {"observed"}
             or not isinstance(receipt, dict) or type(receipt.get("restore_receipt_version")) is not int
-            or receipt.get("restore_receipt_version") != 1
+            or receipt.get("restore_receipt_version") != 2
+            or receipt.get("measurement_scope") != scope
             or receipt.get("incident_id") != state.get("incident_id")
             or not isinstance(state.get("incident_id"), str)
             or re.fullmatch(r"[a-f0-9]{32}", state["incident_id"]) is None
@@ -117,8 +130,8 @@ def restore(path: Path, receipt: object, sample: object, budget: object, runtime
             or not 0 < started <= approved <= now < expiry <= budget["review_deadline_epoch"]):
         raise ValueError("restoration_unverified")
     proofs = receipt.get("proofs")
-    required = {"growth_review", "expansion_review", "runtime_review", "basis_consent_review",
-                "provider_smoke", "page_validation"}
+    required = {"growth_review", "expansion_review", "runtime_review", "basis_consent_review"}
+    required |= {"provider_smoke", "page_validation"} if scope == "posthog" else {"local_measurement_review"}
     if not isinstance(proofs, dict) or not required.issubset(proofs) or any(not sha(proofs[p]) for p in required):
         raise ValueError("restoration_unverified")
     growth = sample.get("growth", {})
@@ -140,7 +153,7 @@ def restore(path: Path, receipt: object, sample: object, budget: object, runtime
     if receipt.get("runtime_env_sha256") != digest:
         raise ValueError("restoration_readback_unverified")
     writer = runpy.run_path(str(Path(__file__).with_name("posthog-storage.py")))["atomic_json"]
-    writer(path, {"protection_state_version": 1, "status": "observed", "reasons": [],
+    writer(path, {"protection_state_version": 2, "measurement_scope": scope, "status": "observed", "reasons": [],
                   "recorded_at_epoch": now, "closed_incident_id": state["incident_id"],
                   "restoration_receipt_sha256": hashlib.sha256(json.dumps(receipt, sort_keys=True).encode()).hexdigest(),
                   "applied_config_sha256": digest})
@@ -155,7 +168,8 @@ def nonnegative(value: object) -> bool:
     return type(value) is int and value >= 0
 
 
-def evaluate(sample: object, budget: object, *, now: int, config_version: str) -> dict:
+def evaluate(sample: object, budget: object, *, now: int, config_version: str,
+             expected_scope: str = "posthog") -> dict:
     """Incomplete sizes cannot hide a separately verified low-space signal."""
     sample = sample if isinstance(sample, dict) else {}
     budget = budget if isinstance(budget, dict) else {}
@@ -166,7 +180,9 @@ def evaluate(sample: object, budget: object, *, now: int, config_version: str) -
     amount = sample.get("analytics_storage_bytes")
     size_verified = (
         fresh and type(sample.get("storage_sample_version")) is int
-        and sample.get("storage_sample_version") == 2
+        and sample.get("storage_sample_version") == 3
+        and expected_scope in ("posthog", "graf-local")
+        and sample.get("measurement_scope") == expected_scope
         and sample.get("result") == "complete" and sha(inventory)
         and isinstance(classes, dict) and set(classes) == CLASSES
         and all(nonnegative(value) for value in classes.values())
@@ -236,7 +252,7 @@ def evaluate(sample: object, budget: object, *, now: int, config_version: str) -
     if not accepted:
         analytics_reasons.append("capacity_budget_unverified")
     return {
-        "capacity_state_version": 1, "recorded_at_epoch": now,
+        "capacity_state_version": 1, "measurement_scope": expected_scope, "recorded_at_epoch": now,
         "sample_epoch": epoch if type(epoch) is int else None,
         "inventory_version": inventory if sha(inventory) else "unknown",
         "budget_version": budget.get("budget_version") if accepted else "unknown",
@@ -261,6 +277,7 @@ def read_json(path: Path) -> object:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--scope", choices=("posthog", "graf-local"), default="posthog")
     parser.add_argument("--sample", type=Path)
     parser.add_argument("--budget", type=Path)
     parser.add_argument("--shell", action="store_true")
@@ -282,11 +299,11 @@ def main() -> int:
                     print(restore(args.protection_state, read_json(args.restore_receipt),
                                   read_json(args.sample), read_json(args.budget), json.load(sys.stdin),
                                   now=int(time.time()),
-                                  config_version=os.environ.get("GRAF_POSTHOG_GUARD_CONFIG_VERSION", "")))
+                                  config_version=os.environ.get("GRAF_POSTHOG_GUARD_CONFIG_VERSION", ""), scope=args.scope))
                 return 0
             runtime = json.load(sys.stdin) if args.protection_action == "protected" else None
             print(transition(args.protection_state, [c for c in args.reasons.split(",") if c],
-                             args.protection_action, now=int(time.time()), runtime_env=runtime))
+                             args.protection_action, now=int(time.time()), runtime_env=runtime, scope=args.scope))
             return 0
         except (OSError, ValueError, TypeError):
             print("protection_state_unverified")
@@ -294,7 +311,7 @@ def main() -> int:
     if args.sample is None or args.budget is None:
         parser.error("--sample and --budget are required for capacity evaluation")
     result = evaluate(read_json(args.sample), read_json(args.budget), now=int(time.time()),
-                      config_version=os.environ.get("GRAF_POSTHOG_GUARD_CONFIG_VERSION", ""))
+                      config_version=os.environ.get("GRAF_POSTHOG_GUARD_CONFIG_VERSION", ""), expected_scope=args.scope)
     if args.shell:
         for key in ("capacity_ready", "input_verified", "budget_accepted", "sample_epoch",
                     "inventory_version", "budget_version", "analytics_storage_bytes", "analytics_budget_bytes",

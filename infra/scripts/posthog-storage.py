@@ -25,6 +25,7 @@ CLASSES = (
     "relational", "events", "object_storage", "queue_cache", "broker",
     "coordination", "runtime_auxiliary", "graf_analytics_tables", "backup_artifacts",
 )
+MIXED_BACKUP_PARENT = Path("/opt/projects/2brain-rec/backups")
 VOLUME_CLASSES = {
     "postgres-data": "relational", "clickhouse-data": "events",
     "objectstorage": "object_storage", "seaweedfs": "object_storage",
@@ -134,22 +135,40 @@ def allocated(roots: list[tuple[str, Path]]) -> tuple[dict[str, int], list[Path]
     return amounts, [path for _, path in normalized]
 
 
-def runtime_roots(directory: Path, project: str, discovered_paths: list[Path] | None = None) -> tuple[list[tuple[str, Path]], str]:
+def runtime_roots(directory: Path, project: str, discovered_paths: list[Path] | None = None,
+                  measurement_scope: str = "posthog") -> tuple[list[tuple[str, Path]], str]:
+    if measurement_scope not in ("posthog", "graf-local"):
+        raise Incomplete("measurement_scope_invalid")
     if discovered_paths is None:
         discovered_paths = []
     rows = records(directory / "storage-mounts.txt")
     rules = {(service, destination): category for service, destination, category in rows}
     if len(rules) != len(rows) or any(c not in CLASSES for c in rules.values()):
         raise Incomplete("mount_inventory_invalid")
-    ids = command("docker", "ps", "-aq", "--filter", f"label=com.docker.compose.project={project}").split()
-    if not ids:
+    ids = command("docker", "ps", "-aq", "--no-trunc", "--filter",
+                  f"label=com.docker.compose.project={project}").split()
+    if len(set(ids)) != len(ids) or any(not re.fullmatch(r"[0-9a-f]{64}", cid) for cid in ids):
+        raise Incomplete("runtime_container_inventory_invalid")
+    if not ids and measurement_scope == "posthog":
         raise Incomplete("analytics_runtime_missing")
-    containers = json.loads(command("docker", "inspect", *ids))
+    containers = json.loads(command("docker", "inspect", *ids)) if ids else []
+    if (not isinstance(containers, list) or any(not isinstance(c, dict) for c in containers)
+            or len(containers) != len(ids)
+            or any(not isinstance(c.get("Id"), str) for c in containers)
+            or {c["Id"] for c in containers} != set(ids)):
+        raise Incomplete("runtime_container_inventory_invalid")
     roots = []
     scope = []
     mounted_volumes = set()
+    mounted_sources = {}
     for container in containers:
-        service = container["Config"]["Labels"]["com.docker.compose.service"]
+        labels = container["Config"]["Labels"]
+        service = labels["com.docker.compose.service"]
+        if (labels.get("com.docker.compose.project") != project
+                or not isinstance(service, str) or not re.fullmatch(r"[a-zA-Z0-9_-]+", service)
+                or service not in {row[0] for row in rows}
+                or not isinstance(container["Mounts"], list)):
+            raise Incomplete("runtime_container_inventory_invalid")
         for mount in container["Mounts"]:
             if mount["Type"] in ("bind", "volume"):
                 discovered_paths.append(Path(mount["Source"]))
@@ -160,29 +179,47 @@ def runtime_roots(directory: Path, project: str, discovered_paths: list[Path] | 
             scope.append([service, mount["Destination"], category, digest(mount["Source"])])
             if mount["Type"] == "volume":
                 mounted_volumes.add(mount["Name"])
+                if mount["Name"] in mounted_sources and mounted_sources[mount["Name"]] != mount["Source"]:
+                    raise Incomplete("runtime_volume_inventory_invalid")
+                mounted_sources[mount["Name"]] = mount["Source"]
     # Detached named/project-labelled volumes still consume analytics storage.
-    names = set(command("docker", "volume", "ls", "-q").split())
-    labelled = set(command("docker", "volume", "ls", "-q", "--filter",
-                           f"label=com.docker.compose.project={project}").split())
+    names_list = command("docker", "volume", "ls", "-q").split()
+    labelled_list = command("docker", "volume", "ls", "-q", "--filter",
+                            f"label=com.docker.compose.project={project}").split()
+    if (len(set(names_list)) != len(names_list) or len(set(labelled_list)) != len(labelled_list)
+            or not set(labelled_list).issubset(names_list)
+            or any(not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", n) for n in names_list)
+            or not mounted_volumes.issubset(names_list)):
+        raise Incomplete("runtime_volume_inventory_invalid")
+    names, labelled = set(names_list), set(labelled_list)
     inventory = [row[0] for row in records(directory / "backup-volumes.txt")]
     patterns = [p.replace("graf-posthog_", project + "_", 1) for p in inventory]
     for pattern in patterns:
         matches = [name for name in names if fnmatch.fnmatchcase(name, pattern.rstrip("?"))]
-        if not matches and not pattern.endswith("?"):
+        if not matches and not pattern.endswith("?") and measurement_scope == "posthog":
             raise Incomplete("required_volume_missing")
-    for name in sorted((labelled | {n for n in names if n.startswith(project + "_")}) - mounted_volumes):
+    for name in sorted(labelled | {n for n in names if n.startswith(project + "_")} | mounted_volumes):
         suffix = name.removeprefix(project + "_")
         classes = {value for pattern, value in VOLUME_CLASSES.items() if fnmatch.fnmatchcase(suffix, pattern)}
         if len(classes) != 1 or not any(fnmatch.fnmatchcase(name, p.rstrip("?")) for p in patterns):
             raise Incomplete("detached_volume_unclassified")
         category = classes.pop()
-        volume = json.loads(command("docker", "volume", "inspect", name))[0]
+        volumes = json.loads(command("docker", "volume", "inspect", name))
+        if (not isinstance(volumes, list) or len(volumes) != 1 or not isinstance(volumes[0], dict)
+                or volumes[0].get("Name") != name):
+            raise Incomplete("runtime_volume_inventory_invalid")
+        volume = volumes[0]
+        if (name in labelled and (volume.get("Labels") or {}).get("com.docker.compose.project") != project
+                or name in mounted_sources and mounted_sources[name] != volume.get("Mountpoint")):
+            raise Incomplete("runtime_volume_inventory_invalid")
+        if name in mounted_volumes:
+            continue
         discovered_paths.append(Path(volume["Mountpoint"]))
         roots.append((category, Path(volume["Mountpoint"])))
         scope.append(["detached", digest(name), category])
-    if not {"relational", "events"}.issubset({c for c, _ in roots}):
+    if measurement_scope == "posthog" and not {"relational", "events"}.issubset({c for c, _ in roots}):
         raise Incomplete("required_storage_class_missing")
-    return roots, digest([rows, inventory, sorted({tuple(row) for row in scope})])
+    return roots, digest([measurement_scope, rows, inventory, sorted({tuple(row) for row in scope})])
 
 
 def graf_relation_roots(directory: Path, discovered_paths: list[Path] | None = None) -> tuple[list[tuple[str, Path]], str, int, list[str]]:
@@ -282,8 +319,40 @@ def measured_growth(sample: dict, anchor: dict, now: int) -> tuple[dict, dict]:
     return result, {**sample, "last_growth": result}
 
 
+def safe_directory(path: Path, *, allow_absent: bool = False) -> bool:
+    if not path.is_absolute() or ".." in path.parts:
+        raise Incomplete("storage_directory_unverified")
+    for parent in reversed(path.parents):
+        if not stat.S_ISDIR(parent.lstat().st_mode):
+            raise Incomplete("storage_directory_unverified")
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        if allow_absent:
+            return False
+        raise
+    if not stat.S_ISDIR(info.st_mode):
+        raise Incomplete("storage_directory_unverified")
+    return True
+
+
+def local_backup_filesystem() -> Path:
+    safe_directory(MIXED_BACKUP_PARENT)
+    override = os.environ.get("TWOBRAIN_BACKUP_DIR", "")
+    if override:
+        destination = Path(override)
+        if (destination.parent != MIXED_BACKUP_PARENT or destination.name in ("", ".", "..")
+                or str(destination) != override):
+            raise Incomplete("unsupported_backup_destination")
+        safe_directory(destination, allow_absent=True)
+        if destination.exists() and destination.stat().st_dev != MIXED_BACKUP_PARENT.stat().st_dev:
+            raise Incomplete("unsupported_backup_destination")
+    return MIXED_BACKUP_PARENT
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--scope", choices=("posthog", "graf-local"), default="posthog")
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--window-hours", type=int, default=24)
     args = parser.parse_args()
@@ -296,20 +365,19 @@ def main() -> int:
     # ponytail: one host-wide lock; split only if multiple stacks require it.
     with (state.parent / "storage.lock").open("w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        sample = {"storage_sample_version": 2, "result": "incomplete", "reasons": []}
+        sample = {"storage_sample_version": 3, "measurement_scope": args.scope, "result": "incomplete", "reasons": []}
         measured_paths = []
         try:
             if args.window_hours <= 0:
                 raise Incomplete("window_hours_invalid")
             directory = Path(os.environ.get("GRAF_POSTHOG_STORAGE_INVENTORY_DIR", str(Path(__file__).resolve().parents[1] / "posthog")))
-            roots, mount_version = runtime_roots(directory, os.environ.get("GRAF_POSTHOG_PROJECT", "graf-posthog"), measured_paths)
+            roots, mount_version = runtime_roots(directory, os.environ.get("GRAF_POSTHOG_PROJECT", "graf-posthog"), measured_paths, args.scope)
             measured_paths.extend(path for _, path in roots)
             graf_roots, relation_version, present, absent = graf_relation_roots(directory, measured_paths)
             measured_paths.extend(path for _, path in graf_roots)
             backup = Path(os.environ.get("GRAF_POSTHOG_BACKUP_DIR", "/var/backups/graf-posthog"))
-            if not backup.is_dir():
-                raise Incomplete("backup_storage_unverified")
-            roots += graf_roots + [("backup_artifacts", backup)]
+            backup_present = safe_directory(backup, allow_absent=args.scope == "graf-local")
+            roots += graf_roots + ([("backup_artifacts", backup)] if backup_present else [])
             measured_paths = [path for _, path in roots]
             amounts, measured_paths = allocated(roots)
             sample.update(result="complete", classes=amounts, analytics_storage_bytes=sum(amounts.values()),
@@ -317,15 +385,25 @@ def main() -> int:
                                         else "not_present_in_reviewed_runtime" for c in CLASSES},
                           graf_relations_present=present,
                           graf_relations_not_present=absent,
-                          inventory_version=digest([mount_version, relation_version]))
+                          inventory_version=digest([args.scope, mount_version, relation_version]))
         except (Incomplete, OSError, ValueError, KeyError, TypeError) as exc:
             sample["reasons"].append(str(exc) if isinstance(exc, Incomplete) else "storage_probe_incomplete")
         # A failed size probe cannot erase a separately known low-space signal.
         resources: dict[str, dict] = {}
         device_resources: dict[int, str] = {}
         app_path = Path(os.environ.get("GRAF_APP_DIR", "/opt/projects/2brain-rec"))
-        analytics_path = Path(os.environ.get("GRAF_POSTHOG_ANALYTICS_PATH", str(app_path)))
-        for role, path in [("analytics", p) for p in measured_paths + [analytics_path]] + [("host", app_path)]:
+        anchors = [app_path] if args.scope == "graf-local" else [
+            Path(os.environ.get("GRAF_POSTHOG_ANALYTICS_PATH", str(app_path)))]
+        if args.scope == "graf-local":
+            try:
+                safe_directory(app_path)
+                anchors.append(local_backup_filesystem())
+            except (Incomplete, OSError) as exc:
+                sample["result"] = "incomplete"
+                sample["reasons"].append(str(exc) if isinstance(exc, Incomplete) else "backup_filesystem_unverified")
+                # Even an unsupported destination cannot hide known low space.
+                anchors.append(MIXED_BACKUP_PARENT)
+        for role, path in [("analytics", p) for p in measured_paths + anchors] + [("host", app_path)]:
             try:
                 device = path.stat().st_dev
                 if device not in device_resources:
@@ -350,7 +428,7 @@ def main() -> int:
                 growth, anchor = measured_growth(sample, anchor, sample["recorded_at_epoch"])
                 if growth.get("end_epoch") == sample["recorded_at_epoch"]:
                     try:
-                        growth["events_in_window"] = event_count(
+                        growth["events_in_window"] = None if args.scope == "graf-local" else event_count(
                             os.environ.get("GRAF_POSTHOG_PROJECT", "graf-posthog"),
                             growth["start_epoch"], growth["end_epoch"])
                     except Incomplete:
@@ -363,7 +441,7 @@ def main() -> int:
         atomic_json(state.with_suffix(".json"), sample)
         free_percent = min((100 * fs["available_bytes"] / fs["total_bytes"]
                             for fs in resources.values() if "analytics" in fs["roles"]), default="unknown")
-        lines = ["storage_sample_version=2", f"recorded_at_epoch={sample['recorded_at_epoch']}",
+        lines = ["storage_sample_version=3", f"measurement_scope={args.scope}", f"recorded_at_epoch={sample['recorded_at_epoch']}",
                  f"storage_result={sample['result']}", f"inventory_version={sample.get('inventory_version', 'unknown')}",
                  f"analytics_storage_bytes={sample.get('analytics_storage_bytes', 'unknown')}",
                  f"storage_growth_result={growth['result']}", "content_policy=metadata_only_allocated_blocks"]

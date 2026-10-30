@@ -138,8 +138,8 @@ Restoration after rollback requires:
 
 - non-secret reason the blocker is closed;
 - runtime config review;
-- provider smoke pass;
-- page validation pass when page providers are affected;
+- provider smoke/page validation for posthog;
+- local_measurement_review for graf-local, with no provider calls;
 - dashboard caveat update;
 - implementation evidence update.
 
@@ -147,12 +147,22 @@ Restoration does not approve paid campaign launch. The launch gate is computed
 from the approval records, not from the rollback state
 (`product-analytics-launch-approval.md`).
 
+For a T116 capacity incident, protection state and restore receipt are version2
+with mandatory measurement_scope. Pass explicit --scope posthog or --scope
+graf-local to the helper; sample/alert version3, receipt and the original
+incident must all match this scope. Old version1, missing or mismatched scopes
+remain HOLD without overwrite/deletion/automatic migration. A separate trusted
+working transition must preserve incident history. Switching scope never replaces
+provider proofs with local proofs.
+
 For a T116 capacity incident, the operator also verifies a fresh complete sample,
 accepted budget/inventory/configuration, measured growth and a 90-day forecast
 within budget. The root-owned receipt names the current incident, operator role,
 approval/expiry, budget/configuration versions, the runtime-switch digest and
 SHA-256 references for growth, expansion, runtime, basis/consent, provider smoke
-and page validation reviews. It must not contain provider values or IP addresses.
+and page validation reviews for posthog, or local_measurement_review for graf-local.
+Common growth/expansion/runtime/basis/readback proofs always remain required.
+It must not contain provider values or IP addresses.
 
 After reading the running container's `Config.Env` into the helper's standard
 input through a pipe (never a log or shell variable printed to output), run

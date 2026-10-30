@@ -629,3 +629,60 @@ HOLD не препятствует обязательным удалениям. 
 неизвестный интервал; повторное принятие утраченных решений запрещено.
 Первое открытие, ежедневный контроль копии/ресурсов и восстановление — разные
 проверки. Полные T110/T113/T118/T119 и платный запуск остаются отдельными.
+
+
+### Ресурсная область local_only — T113/T116, 30.10.2026
+
+Существующие collector/capacity/guard имеют ровно две области измерения:
+`posthog` (по умолчанию) и `graf-local`. Collector/capacity получают `--scope`,
+guard — `GRAF_ANALYTICS_GUARD_SCOPE`. Неверная область отвергается до проб и
+изменений. API выбирает ожидаемую область из принятого режима Settings:
+локальный оператор явно требует `graf-local`, provider readiness — `posthog`;
+переменная guard не выбирает область разрешения API.
+
+Обе области требуют полный успешный `docker ps -aq --no-trunc`, точные уникальные
+64hex Id и полное равенство ответа inspect, правильные project/service labels,
+оба volume lists и точный Name каждого volume inspect. Ошибка не означает
+отсутствие. Оставшиеся mounts/labelled/prefix/detached volumes всегда входят
+в inventory. Только graf-local допускает доказанное отсутствие обязательных
+классов PostHog. GRAF relations обязательны; строки продукта не читаются.
+Отсутствующий каталог выделенных аналитических архивов допустим local только
+по ENOENT при существующем безопасном родителе; links/ошибки доступа запрещают
+полноту. Выделенные архивы/staging/failed/incomplete считаются целиком.
+
+Полные смешанные копии GRAF не прибавляются целиком к analytics sum: их доля
+аналитики неизвестна, точный90дневный прогноз этой доли не заявляется. Их
+настоящий filesystem защищается тем же резервом аналитики. Для этого среза
+поддерживается только parent `/opt/projects/2brain-rec/backups`, независимо от
+GRAF_APP_DIR. TWOBRAIN_BACKUP_DIR допускает лишь canonical прямой дочерний
+destination на том же FS без links; unknown/другой путь — HOLD. Guard не создаёт
+missing parent. Actual runtime overrides проверяет local operator. Host staging
+только в этом parent; PostgreSQL staging — на уже привязанном продуктовом FS
+либо доказанном tmpfs с защитой памяти. Неизвестные installed jobs/cron/shell
+paths и staging остаются HOLD полного оператора. До stop верхний оператор
+отдельно принимает место для двух новых полных копий, restore target и staging;
+минутный резерв эту оценку не заменяет.
+
+В graf-local FS anchors — actual roots, GRAF app и fixed backup parent;
+отсутствующий PostHog analytics path не требуется. Provider-specific probes,
+lag/queue/OOM/restarts/container caps пропускаются с `not_applicable`, без
+выдуманного0/PASS. Product ready/host sensors/capacity/budget/reserve/latch
+остаются. После24ч local не вызывает ClickHouse event count: count и per1000
+неизвестны; метаданные роста классов сохраняются.
+
+Sample и alert имеют version3 с обязательным measurement_scope; старый формат
+не принимается. Scope входит в inventory digest, старый anchor несопоставим.
+Budget schema version1 прежняя, но требует новый scope-bound inventory/config;
+128GiB и пересмотр21.11.2026UTC не меняются. Известный свежий низкий запас
+сохраняется даже при несовпадении scope или неполноте размеров.
+
+Protection state version2 и manual restore receipt version2 имеют ту же область,
+что исходный incident, sample и явный scope helper. Version1/missing/другая
+область дают HOLD без перезаписи или автоматической миграции. Новый observed
+создаётся только при доказанном отсутствии файла. Receipt сохраняет прежние
+incident/time/growth/expansion/runtime/basis/readback proofs; posthog требует
+provider_smoke/page_validation, graf-local — local_measurement_review.
+Смена scope не заменяет provider proofs. Timer не восстанавливает запись.
+Рабочий переход старого состояния требует отдельного trusted решения с
+сохранением истории; этот срез его не исполняет. Общие HOLD полного оператора,
+ready/T0 и отдельные удаления остаются.

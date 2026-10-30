@@ -218,6 +218,7 @@ def test_coherent_copy_is_native_and_can_be_restored(replay_world, rehearsal_obj
     closed(directory / "activation.lock", json.dumps(dict(version=1, state="never_started")))
     backups = world["root"] / "backups"
     backups.mkdir(mode=0o700)
+    monkeypatch.setattr(operator, "MIXED_BACKUP_PARENT", backups)
 
     async def run():
         url = world["url"]

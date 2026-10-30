@@ -28,7 +28,7 @@ def test_guard_pinned_protection_path_is_explicit(tmp_path):
         assert 'protection_state_unverified' in runtime_guard_blockers(
             environment, now=now, protection_state_file=path)
     pinned = tmp_path / 'pinned-protection'
-    pinned.write_text(json.dumps(dict(protection_state_version=1, status='protected', reasons=[])))
+    pinned.write_text(json.dumps(dict(protection_state_version=2, measurement_scope='posthog', status='protected', reasons=[])))
     assert 'analytics_protection_latched' in runtime_guard_blockers(
         environment, now=now, protection_state_file=str(pinned))
 
@@ -42,6 +42,8 @@ def test_guard_pinned_protection_path_is_explicit(tmp_path):
     'file_symlink', 'file_hardlink', 'public_file', 'installed_mode', 'installed_changed',
     'directory_replaced', 'file_replaced', 'file_changed', 'guard_stale_on_exit',
     'access_expired_on_exit', 'budget_expired_on_exit', 'snapshot_changed',
+    'backup_outside', 'backup_nested', 'backup_link', 'backup_missing', 'backup_child', 'backup_replaced',
+    'guard_scope_mismatch', 'protection_scope_mismatch',
 ])
 def test_runtime_operations_use_actual_directory_binds(tmp_path, monkeypatch, case):
     directory = tmp_path.resolve()
@@ -50,6 +52,9 @@ def test_runtime_operations_use_actual_directory_binds(tmp_path, monkeypatch, ca
     for parent in (directory, *directory.parents):
         if str(parent).startswith('/owned'):
             parent.chmod(0o755)
+    backup_parent = directory / 'backups'
+    backup_parent.mkdir(mode=0o700)
+    monkeypatch.setattr(operator, 'MIXED_BACKUP_PARENT', backup_parent)
     state = directory / 'state'
     state.mkdir(mode=0o750)
     os.chown(state, 0, 101)
@@ -75,12 +80,12 @@ def test_runtime_operations_use_actual_directory_binds(tmp_path, monkeypatch, ca
         f'repository_digest={digest}\nconfig_digest={digest}\ninstalled_guard_digest={digest}\n'
         'revocation_review=complete\ncredential_rotation_review=complete\naudit_review=complete\n')
     files['alert'].write_text(
-        'alert_state_version=2\ncapacity_ready=true\ncapacity_input_verified=true\n'
+        'alert_state_version=3\nmeasurement_scope=graf-local\ncapacity_ready=true\ncapacity_input_verified=true\n'
         'capacity_budget_accepted=true\nprotection_status=observed\n'
         f'recorded_at_epoch={now}\ncapacity_sample_epoch={now}\n'
         f'capacity_budget_deadline_epoch={now + 3600}\n'
         f'capacity_inventory_version={"a" * 64}\ncapacity_budget_version={"b" * 64}\n')
-    files['protection'].write_text(json.dumps(dict(protection_state_version=1, status='observed', reasons=[])))
+    files['protection'].write_text(json.dumps(dict(protection_state_version=2, measurement_scope='graf-local', status='observed', reasons=[])))
     for file in files.values():
         file.chmod(0o640)
         os.chown(file, 0, 101)
@@ -123,7 +128,7 @@ def test_runtime_operations_use_actual_directory_binds(tmp_path, monkeypatch, ca
     if case in {'stale_guard', 'future_guard'}:
         files['alert'].write_text(files['alert'].read_text().replace(f'={now}\n', f'={now-120 if case == "stale_guard" else now+1}\n'))
     if case == 'latched':
-        files['protection'].write_text(json.dumps(dict(protection_state_version=1, status='protected', reasons=[])))
+        files['protection'].write_text(json.dumps(dict(protection_state_version=2, measurement_scope='graf-local', status='protected', reasons=[])))
     if case == 'writable_bind':
         row['mounts'][0]['RW'] = True
     if case == 'overlapping_bind':
@@ -153,6 +158,19 @@ def test_runtime_operations_use_actual_directory_binds(tmp_path, monkeypatch, ca
         files['access'].write_text(files['access'].read_text().replace(str(now+3600), str(now+1)))
     if case == 'budget_expired_on_exit':
         files['alert'].write_text(files['alert'].read_text().replace(str(now+3600), str(now+1)))
+    if case in {'backup_outside', 'backup_nested', 'backup_child'}:
+        destination = {'backup_outside': directory / 'other', 'backup_nested': backup_parent / 'nested/child',
+                       'backup_child': backup_parent / 'new-copy'}[case]
+        row['config']['Env'].append('TWOBRAIN_BACKUP_DIR=' + str(destination))
+    if case == 'backup_missing':
+        backup_parent.rmdir()
+    if case == 'backup_link':
+        backup_parent.rmdir()
+        backup_parent.symlink_to(directory, target_is_directory=True)
+    if case == 'guard_scope_mismatch':
+        files['alert'].write_text(files['alert'].read_text().replace('graf-local', 'posthog'))
+    if case == 'protection_scope_mismatch':
+        files['protection'].write_text(files['protection'].read_text().replace('graf-local', 'posthog'))
     before = set(os.listdir('/proc/self/fd'))
     reached = []
     def check():
@@ -162,6 +180,9 @@ def test_runtime_operations_use_actual_directory_binds(tmp_path, monkeypatch, ca
             assert len(proof[0]) == 64
             assert proof[1] == files['legal'].read_bytes()
             assert type(proof[1]) is bytes
+            if case == 'backup_replaced':
+                backup_parent.rename(directory / 'old-backups')
+                backup_parent.mkdir(mode=0o700)
             if case == 'sibling_update':
                 (state / 'unrelated').write_text('ordinary atomic sibling update')
             if case in {'installed_changed', 'snapshot_changed'}:
@@ -179,14 +200,14 @@ def test_runtime_operations_use_actual_directory_binds(tmp_path, monkeypatch, ca
                 files['legal'].write_text('legal_basis_state_version=2\n#changed\n')
             if case.endswith('_on_exit'):
                 monkeypatch.setattr(operator, 'time', SimpleNamespace(time=lambda: now+(120 if case == 'guard_stale_on_exit' else 1)))
-    good = {'good', 'host_environment', 'sibling_update'}
+    good = {'good', 'host_environment', 'sibling_update', 'backup_child'}
     try:
         if case in good:
             check()
         else:
             with pytest.raises(ActivationHold):
                 check()
-            if case not in {'installed_changed', 'snapshot_changed', 'directory_replaced', 'file_replaced',
+            if case not in {'backup_replaced', 'installed_changed', 'snapshot_changed', 'directory_replaced', 'file_replaced',
                             'file_changed', 'guard_stale_on_exit', 'access_expired_on_exit', 'budget_expired_on_exit'}:
                 assert not reached
     finally:

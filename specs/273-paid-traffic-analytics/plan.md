@@ -643,3 +643,19 @@ root:root0644, безопасные предки, точные bytes из зак
 [Проектное ревью](validation/t113-guard-units-design-review-20261030.md),
 [проверки и остаток](validation/t113-guard-units-20261030.md). Это часть installed
 jobs; полный host/cron/retention и работающий local_only ещё не приняты.
+
+
+### Локальный ресурсный путь T113/T116 — 30.10.2026
+
+Действует [контракт двух областей](contracts/operations.md#ресурсная-область-local_only--t113t116-30102026)
+и [независимый проектный гейт](validation/t113-local-resource-design-review-20261030.md).
+Обновляются прежние collector/capacity/guard/alert и consumers вместе: sample/alert3,
+protection/receipt2, exact Docker inventory, residual volumes, fixed mixed-backup
+FS, scope-bound budget и incident. Проверить local без PostHog и без provider
+calls, остаточные данные, partial/duplicate/extra inspect, ошибки команд/links,
+неизвестный бюджет/старую схему/смену scope, disk19.9/9.9, dryrun/autooff/
+applyfail/retry/once и scope-specific manual restore. Полные два contract modules,
+unit consumers и Linux actual files обязательны. T113/T116/#7804 не закрываются:
+working v1 migration, installed jobs/staging, upper operator и рабочая приёмка
+ещё отдельно; full_preflight_not_implemented/activation_recovery_unverified
+сохраняются. Это не включение аналитики и не старт T0.

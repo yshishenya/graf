@@ -33,6 +33,8 @@ from uuid import uuid4
 
 from .activation_fence import READY_FIELDS, ActivationHold, _object, _require, _timestamp
 
+MIXED_BACKUP_PARENT = Path("/opt/projects/2brain-rec/backups")
+
 REQUIRED_WRITERS = frozenset({"rec-api", "rec-processing-worker", "rec-media-worker"})
 OPTIONAL_WRITERS = frozenset({"rec-prompt-optimization-worker", "rec-maintenance"})
 WRITERS = REQUIRED_WRITERS | OPTIONAL_WRITERS
@@ -1072,7 +1074,7 @@ async def _create_coherent_backup(fence, *, root, parent, source, owner, binding
             async with asyncio.timeout_at(deadline):
                 _backup_binding(binding)
                 _require(0 < deadline - time.monotonic() <= 600
-                         and root.is_absolute() and parent.is_absolute()
+                         and root.is_absolute() and parent == MIXED_BACKUP_PARENT
                          and re.fullmatch(r"[0-9a-f]{64}", pg_container)
                          and re.fullmatch(r"sha256:[0-9a-f]{64}", mc_image)
                          and re.fullmatch(r"[0-9a-f]{64}", network)
@@ -1854,6 +1856,34 @@ def _bound_runtime_file(row, value, *, root, root_fd, groups, uid=100, group_rea
             check_directory()
 
 
+def _runtime_backup_destination(environment):
+    """Only the fixed, independently protected mixed-backup filesystem is supported."""
+    parent = MIXED_BACKUP_PARENT
+    ancestry = _settings_source_ancestors(parent)
+    info = parent.lstat()
+    _require(stat.S_ISDIR(info.st_mode) and info.st_uid in {0, INSTALLATION_UID}
+             and not stat.S_IMODE(info.st_mode) & 0o022,
+             "activation_operator_backup_destination")
+    override = environment.get("TWOBRAIN_BACKUP_DIR", "")
+    child_identity = None
+    if override:
+        destination = Path(override)
+        _require(destination.parent == parent and destination.name not in ("", ".", "..")
+                 and str(destination) == override,
+                 "activation_operator_backup_destination")
+        try:
+            child = destination.lstat()
+        except FileNotFoundError:
+            pass  # Parent already exists; destination has not been created yet.
+        else:
+            _require(stat.S_ISDIR(child.st_mode) and child.st_dev == info.st_dev
+                     and child.st_uid in {0, INSTALLATION_UID}
+                     and not stat.S_IMODE(child.st_mode) & 0o022,
+                     "activation_operator_backup_destination")
+            child_identity = _settings_file_identity(child)[:2]
+    return _json_digest([ancestry, _settings_file_identity(info)[:2], override, child_identity])
+
+
 @contextmanager
 def _runtime_operations(row, *, settings, root, process, snapshot, proc_root=Path("/proc")):
     """Read actual operational files, without granting lifecycle or full readiness."""
@@ -1872,6 +1902,7 @@ def _runtime_operations(row, *, settings, root, process, snapshot, proc_root=Pat
 
     try:
         environment = _runtime_environment(row)
+        backup_destination = _runtime_backup_destination(environment)
         guard_dir = environment.get("GRAF_POSTHOG_GUARD_STATE_DIR", "/var/lib/graf-posthog-runtime-guard")
         paths = dict(
             legal=basis_withdrawal_state_file_path(environment),
@@ -1914,6 +1945,8 @@ def _runtime_operations(row, *, settings, root, process, snapshot, proc_root=Pat
                 GRAF_ANALYTICS_GUARD_STATE_FILE=pinned["alert"])
 
             def evaluate():
+                _require(_runtime_backup_destination(environment) == backup_destination,
+                         "activation_operator_backup_destination_changed")
                 now = time.time()
                 moment = datetime.fromtimestamp(now, UTC)
                 _require(settings.product_analytics_local_only_configuration_valid()
@@ -1928,7 +1961,7 @@ def _runtime_operations(row, *, settings, root, process, snapshot, proc_root=Pat
                 _require(not access_governance_blockers(read_access_governance_state(readers),
                              environ=readers, now=int(now))
                          and not runtime_guard_blockers(readers, now=now,
-                                                        protection_state_file=pinned["protection"]),
+                                                        protection_state_file=pinned["protection"], expected_scope="graf-local"),
                          "activation_operator_operations_blocked")
                 _settings_no_acl(guard_fd)
                 _require(_settings_source_ancestors(INSTALLED_GUARD) == ancestry
@@ -1940,7 +1973,8 @@ def _runtime_operations(row, *, settings, root, process, snapshot, proc_root=Pat
 
             evaluate()
             yield (_json_digest(dict(files={name: dict(identity=values[4],
-                content=hashlib.sha256(values[5]).hexdigest()) for name, values in files.items()}, guard=digest)),
+                content=hashlib.sha256(values[5]).hexdigest()) for name, values in files.items()},
+                guard=digest, backup_destination=backup_destination)),
                 files["legal"][5])
             evaluate()
             _require(_settings_file_identity(proc_path.stat())[:2] == root_identity

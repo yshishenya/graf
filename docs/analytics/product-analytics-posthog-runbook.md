@@ -1001,3 +1001,25 @@ Root-owned конфигурация `/etc/graf-analytics-alert.env` с прав�
 нужны exact-SHA CI, штатная установка на astraglobal, проверка таймера,
 изолированная цель и конкретно разрешённая учебная доставка за ≤15 минут.
 Реальную цель ради учебной тревоги не отключать.
+
+
+## Ресурсная область локального периода — 30.10.2026
+
+Нормативный [контракт](../../specs/273-paid-traffic-analytics/contracts/operations.md#ресурсная-область-local_only--t113t116-30102026)
+различает posthog и graf-local. Для local collector передают `--scope graf-local`,
+guard получает GRAF_ANALYTICS_GUARD_SCOPE=graf-local; это не разрешает запись.
+Sample/alert3 и protection/receipt2 требуют ту же область, новый inventory/config
+и принятое бюджетное основание. Старый state не переносится автоматически.
+Оставшиеся PostHog данные и выделенные аналитические архивы считаются полностью.
+Полные смешанные GRAF backups/staging не прибавляются целиком к analytics sum:
+доля неизвестна, точный90дневный прогноз её не заявляется. Резерв их настоящего
+FS обязателен. Поддержан только parent /opt/projects/2brain-rec/backups;
+TWOBRAIN_BACKUP_DIR — canonical прямой child на том же FS без links. Missing
+parent создаёт отдельно trusted provisioning, guard этого не делает. Local
+использует app/actual roots/backup FS, не требует absent PostHog path и не
+вызывает ClickHouse даже после24ч. Provider-only показатели — not_applicable.
+Installed jobs/cron/overrides/staging требуют отдельного полного гейта;
+PostgreSQL staging — привязанный FS либо доказанный tmpfs с memory guard.
+Верхний оператор до stop отдельно проверяет место для двух полных копий,
+restore target и staging. Порог128GiB, резерв20%/10%, T097 и срок21.11 прежние.
+Рабочая установка и миграция state1 этим описанием не подтверждаются.

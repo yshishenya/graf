@@ -247,7 +247,8 @@ collect_reasons() {
     if ! valid_epoch "$recorded" || (( recorded > now_epoch || now_epoch - recorded >= 120 )); then
       reasons+=("guard_state_stale")
     fi
-    if [[ "$(state_value "$guard_state_file" alert_state_version)" != "2" ]] \
+    if [[ "$(state_value "$guard_state_file" alert_state_version)" != "3" ]] \
+      || [[ "$(state_value "$guard_state_file" measurement_scope)" != "posthog" && "$(state_value "$guard_state_file" measurement_scope)" != "graf-local" ]] \
       || [[ "$(state_value "$guard_state_file" capacity_input_verified)" != "true" ]]; then
       reasons+=("capacity_input_unverified")
     fi
@@ -365,6 +366,10 @@ build_message() {
   if [[ -n "$extra" ]]; then
     lines+=("detail: $extra")
   fi
+  local measurement_scope
+  measurement_scope="$(state_value "$guard_state_file" measurement_scope)"
+  case "$measurement_scope" in posthog|graf-local) ;; *) measurement_scope=unknown ;; esac
+  lines+=("measurement_scope: $measurement_scope")
   lines+=("metrics: $(metrics_summary)")
   lines+=("owner: $(owner_summary "$codes")")
   lines+=("product_impact: measurement gap only; product workflows stay online")
