@@ -403,6 +403,21 @@ def test_coherent_copy_is_native_and_can_be_restored(replay_world, rehearsal_obj
                         assert (occupied / "keep").read_text() == "do not change"
                     return
                 result = await task
+                first = result
+                with pytest.raises(ActivationHold, match="activation_operator_backup_minimum_missing"):
+                    await operator._settled_sql(asyncio.to_thread(operator._verified_backup_set,
+                        fence, root=REPO, parent=backups, binding=binding,
+                        now=await source.fetchval("SELECT clock_timestamp()"), deadline=time.monotonic()+30))
+                result = await operator._create_coherent_backup(fence, root=REPO,
+                    parent=backups, source=source, owner=owner, binding=binding, pg_container=pg,
+                    bucket=bucket, register=world["operator"], deadline=time.monotonic()+90, **objects)
+                verified = await operator._settled_sql(asyncio.to_thread(operator._verified_backup_set,
+                    fence, root=REPO, parent=backups, binding=binding,
+                    now=await source.fetchval("SELECT clock_timestamp()"), deadline=time.monotonic()+30))
+                assert verified["latest"]["destination"] == result["destination"]
+                assert verified["companion"]["destination"] == first["destination"]
+                assert verified["latest"]["manifest_sha256"] == result["manifest_sha256"]
+                assert verified["companion"]["manifest_sha256"] == first["manifest_sha256"]
                 reference = backups / result["destination"]
                 raw = (reference / "manifest.json").read_bytes()
                 manifest = json.loads(raw)

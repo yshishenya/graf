@@ -7,7 +7,8 @@ import json
 import os
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -423,3 +424,147 @@ def test_backup_attempt_requires_known_durable_previous_outcome(fence, prior):
     else:
         with pytest.raises(ActivationHold):
             operator._previous_backup_attempt(fence)
+
+
+@pytest.mark.parametrize("defect", ["good", "one_copy", "failed_latest", "manifest_version", "duplicate",
+    "extra_field", "bool_count", "wrong_bytes", "artifact_order", "missing_artifact", "object_key",
+    "native_metadata", "current_binding", "future", "age_26h", "parent_link", "changed_attempt",
+    "deleted_companion", "object_corruption", "dump_corruption", "extra_file", "invalid_old",
+    "historical_companion", "manifest_hash", "missing_attempt", "deadline", "float_metadata",
+    "replaced_companion", "deep_manifest"])
+def test_two_complete_copies_and_latest_attempt_are_verified(fence, tmp_path, monkeypatch, defect):
+    parent = tmp_path / "backups"
+    parent.mkdir(mode=0o700)
+    now = datetime.now(UTC)
+    binding = dict(source_sha="a"*40, image_id="sha256:"+"b"*64, cluster_id="123",
+                   db_name="twobrain_rec", db_oid=123)
+    metadata = dict(snapshot=dict(kind="snapshot", format_version=2, database="twobrain_rec",
+        role="twobrain_rec", snapshot="00000001-00000002-1", server_version="170006"),
+        schema_revision="0106_activation_milestones", schema_sha256="c"*64,
+        roles_sha256="d"*64, ledger_invariants_sha256="e"*64, inventory_sha256="f"*64)
+    monkeypatch.setattr(operator, "_backup_metadata", lambda *_: copy.deepcopy(metadata))
+
+    def make(token):
+        reference = parent / ("backup-"+token)
+        reference.mkdir(mode=0o700)
+        objects = reference / "minio-objects"
+        objects.mkdir(mode=0o700)
+        for key, value in [("postgres.dump", b"synthetic"), ("schema.sql", b"schema"),
+                           ("inventory.jsonl", b"inventory"), ("checksums.sha256", b"checksums"),
+                           ("minio-objects/中文.txt", b"Synthetic"), ("minio-objects/empty.bin", b"")]:
+            (reference/key).write_bytes(value)
+            (reference/key).chmod(0o600)
+        files = operator._file_manifest(reference, deadline=time.monotonic()+5)
+        obj = [(k.removeprefix("minio-objects/"), n, h) for k, n, h in files if k.startswith("minio-objects/")]
+        record = dict(version=1, run_id=token, binding=dict(binding), **copy.deepcopy(metadata),
+            started_at=(now-timedelta(minutes=4)).isoformat(), export_started_at=(now-timedelta(minutes=3)).isoformat(),
+            export_closed_at=(now-timedelta(minutes=2)).isoformat(), finished_at=(now-timedelta(minutes=1)).isoformat(),
+            cleanup="confirmed", disposition_coverage_sha256="1"*64,
+            code_sha256={k: "2"*64 for k in ("operator", "capture", "verifier", "lifecycle", "replay", "tenant_context")},
+            artifacts=files, objects=obj, object_count=2, object_bytes=9)
+        return reference, record
+
+    first, _ = make("1"*32)
+    latest, manifest = make("2"*32)
+    # Unit cases isolate strict input contracts; the native integration case uses
+    # the real producer/inventory verifier for both copies and no metadata mock.
+    first_manifest = copy.deepcopy(manifest)
+    first_manifest["run_id"] = "1"*32
+    if defect == "historical_companion":
+        first_manifest["binding"].update(source_sha="c"*40, image_id="sha256:"+"d"*64, db_oid=321, cluster_id="321")
+    for reference, record in ((first, first_manifest), (latest, manifest)):
+        path = reference / "manifest.json"
+        path.write_text(json.dumps(record, sort_keys=True)+"\n")
+        path.chmod(0o600)
+    if defect == "one_copy":
+        import shutil
+        shutil.rmtree(first)
+    if defect == "manifest_version":
+        manifest["version"] = 2
+    if defect == "extra_field":
+        manifest["extra"] = "not allowed"
+    if defect == "bool_count":
+        manifest["object_count"] = True
+    if defect == "wrong_bytes":
+        manifest["object_bytes"] += 1
+    if defect == "artifact_order":
+        manifest["artifacts"] = list(reversed(manifest["artifacts"]))
+    if defect == "missing_artifact":
+        manifest["artifacts"] = manifest["artifacts"][1:]
+    if defect == "object_key":
+        manifest["objects"][0] = ("../escape", 0, "3"*64)
+    if defect == "native_metadata":
+        manifest["roles_sha256"] = "3"*64
+    if defect == "float_metadata":
+        manifest["snapshot"]["format_version"] = 2.0
+    if defect == "current_binding":
+        manifest["binding"]["source_sha"] = "f"*40
+    if defect == "future":
+        manifest["finished_at"] = (now+timedelta(seconds=1)).isoformat()
+    if defect == "age_26h":
+        for key in ("started_at", "export_started_at", "export_closed_at", "finished_at"):
+            manifest[key] = (now-timedelta(hours=26)).isoformat()
+    raw = json.dumps(manifest, sort_keys=True)+"\n"
+    if defect == "duplicate":
+        raw = raw.replace('"version": 1', '"version": 1, "version": 1')
+    if defect == "deep_manifest":
+        raw = raw.rstrip()[:-1] + ', "nested": ' + "["*10000 + "0" + "]"*10000 + "}"
+    (latest / "manifest.json").write_text(raw)
+    attempt = dict(version=1, run_id="2"*32, destination=latest.name, **manifest["binding"],
+        started_at=manifest["started_at"], finished_at=manifest["finished_at"],
+        status="completed", reason="verified", manifest_sha256=hashlib.sha256(raw.encode()).hexdigest())
+    if defect == "failed_latest":
+        attempt.update(status="failed", reason="backup_failed", manifest_sha256=None)
+    if defect == "manifest_hash":
+        attempt["manifest_sha256"] = "0"*64
+    if defect in {"object_corruption", "dump_corruption", "extra_file"}:
+        name = {"object_corruption": "minio-objects/中文.txt", "dump_corruption": "postgres.dump",
+                "extra_file": "extra"}[defect]
+        path = latest / name
+        path.write_bytes(b"X"*len(path.read_bytes()) if path.exists() else b"new")
+        path.chmod(0o600)
+    if defect == "invalid_old":
+        old = parent / ("backup-"+"0"*32)
+        old.mkdir(mode=0o700)
+        (old / "postgres.dump").touch(mode=0o600)
+    state = fence.path.parent / "backup-attempt.json"
+    state.write_text(json.dumps(attempt))
+    state.chmod(0o600)
+    if defect == "missing_attempt":
+        state.unlink()
+        (fence.path.parent / "activation.lock").write_text(json.dumps(dict(version=1, state="never_started")))
+    selected_parent = parent
+    if defect == "parent_link":
+        selected_parent = tmp_path / "link"
+        selected_parent.symlink_to(parent, target_is_directory=True)
+    if defect in {"changed_attempt", "deleted_companion", "replaced_companion"}:
+        original = operator._read_coherent_backup
+
+        def changing(*args, **kwargs):
+            result = original(*args, **kwargs)
+            if result["destination"] == first.name:
+                if defect == "changed_attempt":
+                    state.write_text(state.read_text()+"\n")
+                elif defect == "replaced_companion":
+                    import shutil
+
+                    moved = parent / "previous"
+                    first.rename(moved)
+                    shutil.copytree(moved, first)
+                else:
+                    (first / "postgres.dump").unlink()
+            return result
+
+        monkeypatch.setattr(operator, "_read_coherent_backup", changing)
+    kwargs = dict(root=Path(__file__).resolve().parents[4], parent=selected_parent, binding=binding,
+                  now=now, deadline=time.monotonic()+(-1 if defect == "deadline" else 5))
+    if defect in {"good", "invalid_old", "historical_companion"}:
+        verified = operator._verified_backup_set(fence, **kwargs)
+        assert verified["latest"]["destination"] == latest.name
+        assert verified["companion"]["destination"] == first.name
+        assert not (fence.path.parent / "initial.json").exists()
+    else:
+        with pytest.raises(ActivationHold) as held:
+            operator._verified_backup_set(fence, **kwargs)
+        if defect == "deep_manifest":
+            assert str(held.value) in {"activation_operator_backup_unverified", "activation_operator_backup_set_unverified"}

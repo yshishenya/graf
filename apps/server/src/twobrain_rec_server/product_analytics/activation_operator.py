@@ -776,6 +776,164 @@ def _backup_metadata(root, reference):
         inventory_sha256=_json_digest(values))
 
 
+BACKUP_METADATA_FIELDS = {"snapshot", "schema_sha256", "schema_revision", "roles_sha256",
+                          "ledger_invariants_sha256", "inventory_sha256"}
+BACKUP_CODE_FIELDS = {"operator", "capture", "verifier", "lifecycle", "replay", "tenant_context"}
+BACKUP_MANIFEST_FIELDS = BACKUP_METADATA_FIELDS | {
+    "version", "run_id", "binding", "started_at", "export_started_at", "export_closed_at",
+    "finished_at", "cleanup", "code_sha256", "disposition_coverage_sha256", "artifacts",
+    "objects", "object_count", "object_bytes",
+}
+
+
+def _manifest_entries(value):
+    _require(isinstance(value, list), "activation_operator_backup_manifest_invalid")
+    result = []
+    for row in value:
+        _require(isinstance(row, list) and len(row) == 3
+                 and type(row[1]) is int and row[1] >= 0
+                 and isinstance(row[2], str) and re.fullmatch(r"[0-9a-f]{64}", row[2]),
+                 "activation_operator_backup_manifest_invalid")
+        result.append((_object_key(row[0]), row[1], row[2]))
+    _require(result == sorted(result), "activation_operator_backup_manifest_invalid")
+    _distinct_keys([row[0] for row in result])
+    return result
+
+
+def _read_coherent_backup(*, root, reference, now, deadline):
+    """Verify actual private bytes and native metadata; never a readiness receipt."""
+    from .restore_replay import private_bytes
+
+    try:
+        initial = reference.lstat()
+        _require(re.fullmatch(r"backup-[0-9a-f]{32}", reference.name)
+                 and stat.S_ISDIR(initial.st_mode) and initial.st_uid == os.geteuid()
+                 and stat.S_IMODE(initial.st_mode) == 0o700,
+                 "activation_operator_backup_reference_invalid")
+        files = _file_manifest(reference, deadline=deadline)
+        entry = next(row for row in files if row[0] == "manifest.json")
+        raw = private_bytes(reference / "manifest.json", limit=entry[1])
+        digest = hashlib.sha256(raw).hexdigest()
+        _require(digest == entry[2], "activation_operator_backup_changed")
+        manifest = _object(raw)
+        _require(set(manifest) == BACKUP_MANIFEST_FIELDS
+                 and type(manifest["version"]) is int and manifest["version"] == 1
+                 and manifest["run_id"] == reference.name.removeprefix("backup-")
+                 and manifest["cleanup"] == "confirmed",
+                 "activation_operator_backup_manifest_invalid")
+        _backup_binding(manifest["binding"])
+        moments = [_timestamp(manifest[key]) for key in
+                   ("started_at", "export_started_at", "export_closed_at", "finished_at")]
+        _require(moments == sorted(moments) and moments[-1] <= now,
+                 "activation_operator_backup_timestamp_invalid")
+        for key in ("schema_sha256", "roles_sha256", "ledger_invariants_sha256",
+                    "inventory_sha256", "disposition_coverage_sha256"):
+            _require(isinstance(manifest[key], str) and re.fullmatch(r"[0-9a-f]{64}", manifest[key]),
+                     "activation_operator_backup_digest_invalid")
+        code = manifest["code_sha256"]
+        _require(isinstance(code, dict) and set(code) == BACKUP_CODE_FIELDS
+                 and all(isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value)
+                         for value in code.values()), "activation_operator_backup_digest_invalid")
+        artifacts, objects = (_manifest_entries(manifest[key]) for key in ("artifacts", "objects"))
+        _require(artifacts == [row for row in files if row[0] != "manifest.json"]
+                 and objects == [(k.removeprefix("minio-objects/"), n, h)
+                                 for k, n, h in artifacts if k.startswith("minio-objects/")]
+                 and type(manifest["object_count"]) is int and manifest["object_count"] == len(objects)
+                 and type(manifest["object_bytes"]) is int and manifest["object_bytes"] == sum(r[1] for r in objects),
+                 "activation_operator_backup_manifest_mismatch")
+        info = (reference / "minio-objects").lstat()
+        _require(stat.S_ISDIR(info.st_mode), "activation_operator_backup_objects_missing")
+        actual = _backup_metadata(root, reference)
+        _require(set(actual) == BACKUP_METADATA_FIELDS
+                 and _json_digest({key: manifest[key] for key in BACKUP_METADATA_FIELDS}) == _json_digest(actual),
+                 "activation_operator_backup_metadata_mismatch")
+        _require(_file_manifest(reference, deadline=deadline) == files,
+                 "activation_operator_backup_changed")
+        final = reference.lstat()
+        _require(stat.S_ISDIR(final.st_mode) and final.st_uid == os.geteuid()
+                 and stat.S_IMODE(final.st_mode) == 0o700
+                 and (final.st_dev, final.st_ino) == (initial.st_dev, initial.st_ino)
+                 and time.monotonic() < deadline, "activation_operator_backup_changed")
+        return dict(destination=reference.name, manifest_sha256=digest, manifest=manifest,
+                    identity=(initial.st_dev, initial.st_ino))
+    except ActivationHold:
+        raise
+    except (OSError, ValueError, TypeError, KeyError, StopIteration, RecursionError):
+        raise ActivationHold("activation_operator_backup_unverified") from None
+
+
+def _verified_backup_set(fence, *, root, parent, binding, now, deadline):
+    """Physical latest plus a distinct complete historical point, never rehearsal."""
+    parent_fd = None
+    try:
+        _revoked(fence)
+        _backup_binding(binding)
+        _require(isinstance(now, datetime) and now.tzinfo is not None
+                 and now.utcoffset() == UTC.utcoffset(now)
+                 and time.monotonic() < deadline <= time.monotonic()+600,
+                 "activation_operator_backup_verification_arguments")
+        parent_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        initial = os.fstat(parent_fd)
+
+        def parent_identity():
+            info = parent.lstat()
+            _require(stat.S_ISDIR(info.st_mode) and info.st_uid == os.geteuid()
+                     and stat.S_IMODE(info.st_mode) == 0o700
+                     and (info.st_dev, info.st_ino) == (initial.st_dev, initial.st_ino),
+                     "activation_operator_backup_parent_changed")
+            _require(time.monotonic() < deadline, "activation_operator_backup_verification_timeout")
+
+        parent_identity()
+        before = fence._file("backup-attempt.json")
+        attempt = _previous_backup_attempt(fence)
+        _require(attempt == _object(before) and attempt["status"] == "completed"
+                 and {key: attempt[key] for key in BACKUP_BINDING} == binding,
+                 "activation_operator_backup_latest_unverified")
+        latest = _read_coherent_backup(root=root, reference=parent / attempt["destination"], now=now, deadline=deadline)
+        _require(latest["manifest_sha256"] == attempt["manifest_sha256"]
+                 and latest["manifest"]["binding"] == binding
+                 and latest["manifest"]["finished_at"] == attempt["finished_at"]
+                 and 0 <= (now-_timestamp(attempt["finished_at"])).total_seconds() < 26*3600,
+                 "activation_operator_backup_latest_unverified")
+        names = sorted(name for name in os.listdir(parent_fd)
+                       if re.fullmatch(r"backup-[0-9a-f]{32}", name) and name != latest["destination"])
+        companion = None
+        for name in names:
+            parent_identity()
+            try:
+                companion = _read_coherent_backup(root=root, reference=parent / name, now=now, deadline=deadline)
+            except ActivationHold:
+                # A failed/old-layout point does not count. Parent/time failures
+                # remain global and cannot disappear inside this candidate skip.
+                parent_identity()
+                continue
+            break
+        _require(companion is not None, "activation_operator_backup_minimum_missing")
+        for selected in (latest, companion):
+            reference = parent / selected["destination"]
+            rows = _file_manifest(reference, deadline=deadline)
+            info = reference.lstat()
+            recorded = _manifest_entries(selected["manifest"]["artifacts"])
+            _require(stat.S_ISDIR(info.st_mode) and info.st_uid == os.geteuid()
+                     and stat.S_IMODE(info.st_mode) == 0o700
+                     and (info.st_dev, info.st_ino) == selected["identity"]
+                     and [r for r in rows if r[0] != "manifest.json"] == recorded
+                     and next(h for k, _, h in rows if k == "manifest.json") == selected["manifest_sha256"],
+                     "activation_operator_backup_changed")
+        parent_identity()
+        _require(fence._file("backup-attempt.json") == before,
+                 "activation_operator_backup_attempt_changed")
+        _revoked(fence)
+        return dict(latest=latest, companion=companion)
+    except ActivationHold:
+        raise
+    except (OSError, ValueError, TypeError, KeyError, StopIteration, RecursionError):
+        raise ActivationHold("activation_operator_backup_set_unverified") from None
+    finally:
+        if parent_fd is not None:
+            os.close(parent_fd)
+
+
 def _write_backup_manifest(reference, manifest, *, deadline):
     # Object lists can exceed the fence's 16 KiB receipt limit. Stream the private file.
     path = reference / "manifest.json"
