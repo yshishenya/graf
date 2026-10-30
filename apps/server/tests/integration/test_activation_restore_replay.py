@@ -809,6 +809,128 @@ def replay_world(postgres_isolated_cluster_database_url, tmp_path, monkeypatch, 
     assert not list(staging.iterdir())
 
 
+def test_native_local_access_catalog(replay_world, monkeypatch):
+    import asyncpg
+
+    from twobrain_rec_server.product_analytics import local_retention as module
+    from twobrain_rec_server.product_analytics.activation_fence import ActivationHold
+
+    world = replay_world
+
+    async def run():
+        url = world['url']
+        db = await asyncpg.connect(host=url.host, port=url.port, user=url.username,
+                                   password=url.password, database=url.database)
+        queries, fault = [], None
+
+        class ObservedSource:
+            def is_in_transaction(self):
+                return db.is_in_transaction()
+
+            async def fetchval(self, query, *args):
+                if fault == 'version' and query == 'SHOW server_version_num':
+                    return '160000'
+                return await db.fetchval(query, *args)
+
+            async def fetch(self, query, *args):
+                queries.append(query)
+                if fault == 'query':
+                    raise OSError('synthetic_read_failure')
+                if fault == 'cancel':
+                    raise asyncio.CancelledError
+                return await db.fetch(query, *args)
+
+        source = ObservedSource()
+
+        async def read():
+            queries.clear()
+            async with db.transaction(readonly=True):
+                return await module.local_retention_database_access(source)
+
+        try:
+            baseline = await read()
+            assert baseline == module.EXPECTED_ACCESS_SHA256 and await read() == baseline
+            with pytest.raises(ActivationHold, match='retention_access'):
+                await module.local_retention_database_access(source)
+            async with db.transaction():
+                queries.clear()
+                with pytest.raises(ActivationHold, match='retention_access'):
+                    await module.local_retention_database_access(source)
+                assert not queries
+            for fault in ('version', 'query', 'cancel'):
+                expected = asyncio.CancelledError if fault == 'cancel' else ActivationHold
+                with pytest.raises(expected):
+                    await read()
+                assert not queries if fault == 'version' else len(queries) == 1
+                assert not db.is_in_transaction()
+            fault = None
+            with monkeypatch.context() as patch:
+                patch.setattr(module, 'EXPECTED_ACCESS_SHA256', '0' * 64)
+                with pytest.raises(ActivationHold, match='retention_access'):
+                    await read()
+            assert await read() == baseline
+            changes = [
+                ('column_grant', 'GRANT SELECT(account_id) ON client_acquisition_attributes TO twobrain_rec_media',
+                 'REVOKE SELECT(account_id) ON client_acquisition_attributes FROM twobrain_rec_media'),
+                ('function_option', 'GRANT EXECUTE ON FUNCTION rec_maintenance_allowed() TO twobrain_rec_app WITH GRANT OPTION',
+                 'REVOKE EXECUTE ON FUNCTION rec_maintenance_allowed() FROM twobrain_rec_app'),
+                ('default_acl', 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT UPDATE ON TABLES TO twobrain_rec_media',
+                 'ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE UPDATE ON TABLES FROM twobrain_rec_media'),
+                ('incoming_fk', 'CREATE TABLE synthetic_access(id uuid REFERENCES client_acquisition_attributes(id) ON DELETE CASCADE)',
+                 'DROP TABLE synthetic_access'),
+                ('sibling_rule', 'CREATE RULE synthetic_access AS ON DELETE TO user_identities DO INSTEAD NOTHING',
+                 'DROP RULE synthetic_access ON user_identities'),
+                ('internal_fk', 'ALTER TABLE client_acquisition_attributes DISABLE TRIGGER ALL',
+                 'ALTER TABLE client_acquisition_attributes ENABLE TRIGGER ALL'),
+                ('sibling_policy', 'CREATE POLICY synthetic_access ON user_identities AS RESTRICTIVE USING(false)',
+                 'DROP POLICY synthetic_access ON user_identities'),
+                ('column_default', "ALTER TABLE public_visit_attributions ALTER landing_path SET DEFAULT '/synthetic'",
+                 'ALTER TABLE public_visit_attributions ALTER landing_path DROP DEFAULT'),
+                ('index', 'ALTER INDEX ix_public_visit_attribution_expiry SET (fillfactor=55)',
+                 'ALTER INDEX ix_public_visit_attribution_expiry RESET (fillfactor)'),
+                ('database_acl', f'GRANT CONNECT ON DATABASE "{url.database}" TO twobrain_rec_media WITH GRANT OPTION',
+                 f'REVOKE GRANT OPTION FOR CONNECT ON DATABASE "{url.database}" FROM twobrain_rec_media'),
+                ('schema_acl', 'GRANT CREATE ON SCHEMA public TO twobrain_rec_media',
+                 'REVOKE CREATE ON SCHEMA public FROM twobrain_rec_media'),
+                ('language_acl', 'REVOKE USAGE ON LANGUAGE plpgsql FROM PUBLIC',
+                 'GRANT USAGE ON LANGUAGE plpgsql TO PUBLIC'),
+                ('role', 'ALTER ROLE twobrain_rec_maintenance CONNECTION LIMIT 5',
+                 'ALTER ROLE twobrain_rec_maintenance CONNECTION LIMIT -1'),
+                ('membership', 'GRANT twobrain_rec TO twobrain_rec_media',
+                 'REVOKE twobrain_rec FROM twobrain_rec_media'),
+                ('role_setting', 'ALTER ROLE twobrain_rec_media SET statement_timeout=1234',
+                 'ALTER ROLE twobrain_rec_media RESET statement_timeout'),
+                ('cast', 'CREATE CAST(text AS integer) WITH INOUT AS ASSIGNMENT',
+                 'DROP CAST(text AS integer)'),
+                ('search_path', 'SET search_path=pg_catalog,public', 'RESET search_path'),
+            ]
+            for name, change, undo in changes:
+                await db.execute(change)
+                try:
+                    with pytest.raises(ActivationHold, match='retention_access'):
+                        await read()
+                    if name == 'search_path':
+                        assert not queries
+                finally:
+                    await db.execute(undo)
+                assert await read() == baseline, name
+            async with db.transaction(readonly=True):
+                ordinary = await module.local_retention_database_catalog(db)
+            await db.execute('ALTER TABLE product_activation_milestones ENABLE ALWAYS TRIGGER activation_decision_immutable')
+            try:
+                assert await read() == baseline
+                async with db.transaction(readonly=True):
+                    assert await module.local_retention_database_catalog(db) != ordinary
+            finally:
+                await db.execute('ALTER TABLE product_activation_milestones ENABLE TRIGGER activation_decision_immutable')
+            assert await read() == baseline
+            await db.execute('SET SESSION AUTHORIZATION twobrain_rec_maintenance')
+            assert await read() == baseline
+        finally:
+            await db.close()
+    asyncio.run(run())
+
+
 def launch(world):
     command = [sys.executable, "-m", MODULE, "--host", world["url"].host,
                "--port", str(world["url"].port)]

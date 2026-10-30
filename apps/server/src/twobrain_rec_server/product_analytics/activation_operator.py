@@ -741,7 +741,7 @@ async def _backup_lifecycle(source, register, *, root):
     from twobrain_rec_server.db.tenant_context import maintenance_context_settings
 
     from . import restore_replay as replay
-    from .local_retention import local_retention_database_catalog
+    from .local_retention import local_retention_database_access, local_retention_database_catalog
 
     raw = replay.private_bytes(register)
     ledger_policy = runpy.run_path(str(root / "infra/scripts/rec-db-verify.py"))["POLICY"]
@@ -758,6 +758,7 @@ async def _backup_lifecycle(source, register, *, root):
                  and await source.fetchval(replay.CLOSURE_ACCESS_QUERY) is True,
                  "activation_operator_lifecycle_policy")
         catalog = await local_retention_database_catalog(source)
+        retention_access = await local_retention_database_access(source)
         policy = [tuple(row) for row in await source.fetch("""
             SELECT polname,polpermissive,polcmd::text,polroles::text,
                 pg_get_expr(polqual,polrelid),pg_get_expr(polwithcheck,polrelid)
@@ -789,7 +790,7 @@ async def _backup_lifecycle(source, register, *, root):
             _require(remains is False, "activation_operator_lifecycle_remnants")
         _require(replay.private_bytes(register) == raw, "activation_operator_register_changed")
         digest = _json_digest(dict(rows=rows, register_sha256=hashlib.sha256(raw).hexdigest(),
-            retention_catalog_sha256=catalog, ledger_policy=policy,
+            retention_catalog_sha256=catalog, retention_access_sha256=retention_access, ledger_policy=policy,
             category_coverage=sorted(scopes), local_access=[tuple(row) for row in access],
             applied_after_recorded_due=late, historical_deadlines="unverified",
             provider_dispositions="outside_local_scope"))
@@ -2127,7 +2128,7 @@ async def _physical_connection(*, deadline, **kwargs):
     task = asyncio.create_task(asyncpg.connect(
         **kwargs, timeout=remaining, command_timeout=remaining, ssl=False,
         server_settings={"application_name": "graf-activation-preflight", "row_security": "on",
-                         "search_path": "pg_catalog, public"}))
+                         "search_path": '"$user", public'}))
     try:
         cancelled = False
         while not task.done():
@@ -2160,7 +2161,7 @@ async def _physical_connection(*, deadline, **kwargs):
 async def _runtime_databases(*, settings, password, host, snapshot, deadline):
     from alembic.script import ScriptDirectory
 
-    from .local_retention import local_retention_database_catalog
+    from .local_retention import local_retention_database_access, local_retention_database_catalog
 
     urls = _runtime_database_urls(settings)
     head = ScriptDirectory(str(Path(__file__).resolve().parents[1] / "db/migrations")).get_current_head()
@@ -2183,6 +2184,7 @@ async def _runtime_databases(*, settings, password, host, snapshot, deadline):
                      and 170000 <= int(await source.fetchval("SHOW server_version_num")) < 180000,
                      "activation_operator_schema_revision")
             retention_catalog = await local_retention_database_catalog(source)
+            retention_access = await local_retention_database_access(source)
         await source.execute("SET SESSION AUTHORIZATION twobrain_rec_maintenance")
         await source.execute("SET row_security=on")
         await _database_identity(source, owner, name="twobrain_rec", oid=oid, cluster_id=cluster)
@@ -2208,11 +2210,14 @@ async def _runtime_databases(*, settings, password, host, snapshot, deadline):
                 proofs.append(tuple(row))
         yield owner, source, dict(cluster_id=cluster, db_name="twobrain_rec", db_oid=oid,
                                  schema_revision=head, roles_sha256=_json_digest(proofs),
-                                 retention_catalog_sha256=retention_catalog)
+                                 retention_catalog_sha256=retention_catalog,
+                                 retention_access_sha256=retention_access)
         await _database_identity(source, owner, name="twobrain_rec", oid=oid, cluster_id=cluster)
         async with source.transaction(readonly=True):
             _require(await local_retention_database_catalog(source) == retention_catalog,
                      "activation_operator_retention_catalog_changed")
+            _require(await local_retention_database_access(source) == retention_access,
+                     "activation_operator_retention_access_changed")
 
 
 def _policy_static(value):

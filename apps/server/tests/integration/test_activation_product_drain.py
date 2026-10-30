@@ -557,7 +557,9 @@ def test_native_compose_stop_on_owned_networks(fence, tmp_path, monkeypatch):
             ).strip()
 
 
-@pytest.mark.parametrize('case', ['good', 'revision', 'grant', 'role', 'membership', 'cancel_query', 'catalog_changed'])
+@pytest.mark.parametrize('case', ['good', 'revision', 'grant', 'role', 'membership', 'cancel_query',
+                                'catalog_changed', 'access_initial', 'access_changed',
+                                'catalog_always', 'catalog_state_changed'])
 def test_native_runtime_database_preflight_full_schema(
     postgres_isolated_cluster_database_url, tmp_path, monkeypatch, case,
 ):
@@ -606,6 +608,10 @@ def test_native_runtime_database_preflight_full_schema(
                     await setup.execute('GRANT DELETE ON public.meetings TO twobrain_rec_media')
                 if case == 'membership':
                     await setup.execute('CREATE ROLE synthetic_group; GRANT synthetic_group TO twobrain_rec_app')
+                if case == 'access_initial':
+                    await setup.execute('GRANT SELECT(account_id) ON client_acquisition_attributes TO twobrain_rec_media')
+                if case == 'catalog_always':
+                    await setup.execute('ALTER TABLE product_activation_milestones ENABLE ALWAYS TRIGGER activation_decision_immutable')
             finally:
                 await setup.close()
             settings = {service: SimpleNamespace(database_url=make_url(
@@ -627,14 +633,20 @@ def test_native_runtime_database_preflight_full_schema(
                     assert proof['db_name'] == 'twobrain_rec' and proof['db_oid'] > 0
                     assert len(proof['roles_sha256']) == 64
                     assert len(proof['retention_catalog_sha256']) == 64
+                    assert len(proof['retention_access_sha256']) == 64
                     entered.set()
                     if case == 'cancel_query':
                         await source.execute('SELECT pg_sleep(3)')
-                    if case == 'catalog_changed':
+                    if case in ('catalog_changed', 'access_changed', 'catalog_state_changed'):
                         modifier = await asyncpg.connect(host=url.host, port=url.port,
                             user=url.username, password=url.password, database='twobrain_rec')
                         try:
-                            await modifier.execute('ALTER TABLE public.product_activation_milestones DISABLE TRIGGER activation_decision_immutable')
+                            changes = {
+                                'catalog_changed': 'ALTER TABLE product_activation_milestones DISABLE TRIGGER activation_decision_immutable',
+                                'catalog_state_changed': 'ALTER TABLE product_activation_milestones ENABLE ALWAYS TRIGGER activation_decision_immutable',
+                                'access_changed': 'GRANT SELECT(account_id) ON client_acquisition_attributes TO twobrain_rec_media',
+                            }
+                            await modifier.execute(changes[case])
                         finally:
                             await modifier.close()
             if case == 'cancel_query':
@@ -646,8 +658,14 @@ def test_native_runtime_database_preflight_full_schema(
                 task.cancel()
                 with pytest.raises(asyncio.CancelledError):
                     await task
-            elif case == 'good':
+            elif case in ('good', 'catalog_always'):
                 await operation()
+            elif case in ('access_initial', 'access_changed'):
+                with pytest.raises(operator.ActivationHold, match='retention_access'):
+                    await operation()
+            elif case == 'catalog_state_changed':
+                with pytest.raises(operator.ActivationHold, match='retention_catalog_changed'):
+                    await operation()
             else:
                 with pytest.raises((operator.ActivationHold, RuntimeError)):
                     await operation()

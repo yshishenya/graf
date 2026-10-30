@@ -509,3 +509,22 @@ HOLD. [Результат и границы](validation/t113-local-only-20261029
 trigger/язык/FDW и search_path. Owner→reduced даёт тот же digest; неизвестный
 expected не создаётся из source. Это не проверка всех ACL/зависимостей или
 установленных host jobs и не рабочее включение.
+
+### Права и зависимости локальных таблиц T113 — 30.10.2026
+
+```sh
+bash apps/server/scripts/run_local_postgres_tests.sh --focused -q --tb=short \
+  tests/integration/test_activation_restore_replay.py::test_native_local_access_catalog \
+  tests/integration/test_activation_product_drain.py::test_native_runtime_database_preflight_full_schema
+```
+
+Фиксированный metadata/ACL эталон текущих миграций и штатного bootstrap должен
+совпасть для owner/reduced; дополнительные права, defaults, incoming FK,
+внутренний FK без enforcement, rule/policy или неизвестное определение дают
+HOLD. Неправильный expected, ошибка чтения и неподдержанный search_path не
+дают PASS. Сверка повторяется после runtime yield. Пользовательские O/A
+по-прежнему разрешены, но смена между чтениями обнаруживается прежним catalog;
+состояние внутренних FK остаётся точным. Также выполнить профиль5потребителей
+backup/lifecycle/four-category, включая closed-source false/limit0, из
+[отчёта](validation/t113-access-20261030.md). Installed host jobs, полный
+оператор, рабочий T0 и включение аналитики этим профилем не принимаются.

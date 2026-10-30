@@ -1586,6 +1586,7 @@ def test_physical_connection_waits_through_repeated_cancellation(monkeypatch, st
         connection = Connection()
         async def connect(**kwargs):
             assert kwargs['timeout'] <= 3 and kwargs['command_timeout'] <= 3
+            assert kwargs['server_settings']['search_path'] == '"$user", public'
             connected.set()
             if stage == 'connect_race':
                 raise OSError('synthetic simultaneous connection failure')
