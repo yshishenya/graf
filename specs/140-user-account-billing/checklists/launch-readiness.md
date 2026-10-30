@@ -13,9 +13,9 @@
 - [x] CHK002 Определены ли отдельные approaching/exhausted thresholds, обязательная copy и recovery CTA для Free processing quota, не смешанные со storage thresholds 80/95/100%? [Completeness, Spec §FR-028, US2]
 - [x] CHK003 Определены ли IA и decision point для `Обработать без сохранения аудио` во всех исходных flows — завершение desktop-записи, manual upload и full-storage recovery, а не только на billing usage screen? [Coverage, Spec §FR-106, US2 AC6, Contract IA §Usage]
 - [x] CHK004 Зафиксирована ли approved boundary, что после role loss/account close нет claimant-recovery route в GRAF: остаются только безопасная invoice reference и внешний support email, без восстановления доступа или money mutation? [Completeness, Security, Spec §FR-003–FR-005, Contract HTTP §Browser routes]
-- [x] CHK005 Распространены ли tenant/RLS requirements на все новые workspace/user-scoped сущности, включая trial activation, Free range ledger, playback inventory, current/legacy transcription-source lifecycle, observed-refund/time-credit и worker paths? [Coverage, Spec §FR-078, Data Model §Transaction boundaries]
+- [ ] CHK005 Распространены ли tenant/RLS requirements на все новые workspace/user-scoped сущности, включая trial activation, Free range ledger, playback inventory, current/legacy transcription-source lifecycle, observed-refund/time-credit и worker paths? [Coverage, Spec §FR-078, Data Model §Transaction boundaries] Проверка 2026-10-30: B1; см. [отчёт T075](../t075-requirements-review-20261030.md).
 - [x] CHK006 Зафиксировано ли, что `awaiting_customer_info` и evidence upload не являются GRAF-состояниями: допустимый канал — внешний support email, а GRAF хранит ноль correspondence/request fields и не обещает SLA? [Completeness, Privacy, Spec §FR-053, Contract Notifications §Support flow]
-- [x] CHK007 Полны ли durable-workflow requirements для reservation expiry, WAV retention/purge, playback/source reconciliation, notices и incidents: deterministic identity, restart/replay, terminal states, owner и deadline? [Completeness, Non-Functional, Spec §FR-087–FR-089, Contract Operations §Scheduled operations]
+- [ ] CHK007 Полны ли durable-workflow requirements для reservation expiry, WAV retention/purge, playback/source reconciliation, notices и incidents: deterministic identity, restart/replay, terminal states, owner и deadline? [Completeness, Non-Functional, Spec §FR-087–FR-089, Contract Operations §Scheduled operations] Проверка 2026-10-30: B3; см. [отчёт T075](../t075-requirements-review-20261030.md).
 - [x] CHK008 Определён ли единый incident lifecycle для missed transient/WAV purge, orphan lifecycle row и quota/reconciliation gap: severity, owner, containment, notification, evidence, closure и launch-blocking rule? [Completeness, Measurability, Spec §FR-070, FR-089, FR-106, Contract Operations §Incident lifecycle]
 
 ## Ясность и однозначность
@@ -28,15 +28,15 @@
 - [x] CHK014 Измеримо ли определены current/legacy transcription-source purge gates: критерии successful transcript import и verified active playback, событие начала retention deadline, policy-version change и потеря verification? [Clarity, Measurability, Spec §FR-094, FR-100]
 - [x] CHK015 Однозначно ли задана граница `refusal before provider mutation wins`, включая DB commit/lock, равные timestamps и уже начавшийся outbound request? [Clarity, Spec §FR-044, FR-045, FR-103]
 - [x] CHK016 Уточнено ли, что GRAF не задаёт календарь/timezone/праздники или SLA для внешнего refund-процесса, а provider и merchant clocks остаются внешней операционной truth? [Clarity, Measurability, Spec §FR-053–FR-054]
-- [x] CHK017 Определены ли как versioned launch-gate values `four-eyes threshold`/`high-value`, допустимые роли и разделение approver/executor для provider/off-provider paths? [Clarity, Security, Spec §FR-055–FR-056]
-- [x] CHK018 Зафиксировано ли, что после late-success-after-refusal нет окна выбора `Оставить оплаченный период`: остаются Free, incident и внешняя support-инструкция без product refund mutation? [Completeness, Edge Case, Spec §FR-104, US5 AC6]
+- [ ] CHK017 Определены ли как versioned launch-gate values `four-eyes threshold`/`high-value`, допустимые роли и разделение approver/executor для provider/off-provider paths? [Clarity, Security, Spec §FR-055–FR-056] Проверка 2026-10-30: X4; см. [отчёт T075](../t075-requirements-review-20261030.md).
+- [ ] CHK018 Зафиксировано ли, что после late-success-after-refusal нет окна выбора `Оставить оплаченный период`: остаются Free, incident и внешняя support-инструкция без product refund mutation? [Completeness, Edge Case, Spec §FR-104, US5 AC6] Проверка 2026-10-30: X4; см. [отчёт T075](../t075-requirements-review-20261030.md).
 
 ## Непротиворечивость артефактов
 
 - [x] CHK019 Сведены ли product/unit-economics/finance/accounting/legal/storage/privacy approvals к одной canonical матрице без расхождений между Product Decisions, FR-023, FR-080, FR-100 и launch contracts? [Consistency, Spec §Product Decisions, FR-023, FR-080, FR-100]
 - [x] CHK020 Согласовано ли обещание `чек доступен` после payment success с допустимыми registration states `pending|canceled` и обязательным пользовательским next action для каждого состояния? [Consistency, US3 AC4, Spec §FR-051]
-- [x] CHK021 Согласованы ли во всех source и downstream artifacts текущие ёмкости 250 MB/500 MB/2 GB/5–500 GB и удалены ли заменённые 1/10 GB assertions? [Consistency, Spec §FR-093, Plan §Scale/Scope, Tasks §T035/T038, Checklist UX §CHK016]
-- [x] CHK022 Используется ли единый subscription/payment vocabulary без скрытого `past_due`, grace или противоречащих друг другу `unknown`, `method_required` и `renewal_resolution_pending`? [Consistency, Spec §FR-039–FR-048]
+- [ ] CHK021 Согласованы ли во всех source и downstream artifacts текущие ёмкости 250 MB/500 MB/2 GB/5–500 GB и удалены ли заменённые 1/10 GB assertions? [Consistency, Spec §FR-093, Plan §Scale/Scope, Tasks §T035/T038, Checklist UX §CHK016] Проверка 2026-10-30: X6; см. [отчёт T075](../t075-requirements-review-20261030.md).
+- [ ] CHK022 Используется ли единый subscription/payment vocabulary без скрытого `past_due`, grace или противоречащих друг другу `unknown`, `method_required` и `renewal_resolution_pending`? [Consistency, Spec §FR-039–FR-048] Проверка 2026-10-30: X5; см. [отчёт T075](../t075-requirements-review-20261030.md).
 - [x] CHK023 Определено ли, как account-scoped referral UI выбирает и показывает target workspace для workspace-bound time credit у пользователя с несколькими personal workspaces? [Consistency, Spec §FR-065, FR-068, US8]
 - [x] CHK024 Задана ли precedence-матрица между meeting/account deletion, legal/policy hold, WAV recovery retention и normal purge gate, чтобы данные не переживали удаление молча и legal hold не обходился? [Consistency, Recovery, Constitution §IV, Spec §FR-018–FR-019, FR-094]
 - [x] CHK025 Согласована ли no-archive copy во всех surfaces относительно трёх последствий: playback не останется, transcript/notes сохранятся, а Free расходует только exact accepted seconds? [Consistency, Spec §FR-027, FR-106, Contract IA §Interaction rules]
@@ -53,7 +53,7 @@
 ## Покрытие основных, альтернативных и recovery-сценариев
 
 - [x] CHK032 Полон ли primary journey `signup → Free → explicit trial → Free/paid → renewal/cancel`, включая отсутствие карты у trial и fresh consent перед первой оплатой? [Scenario Coverage, Spec §US1–US5, FR-022, FR-031]
-- [x] CHK033 Полны ли alternate/recovery requirements для abandoned/canceled/unknown payment, late success with/without refusal, provider-key expiry и manual resume без duplicate charge? [Recovery Coverage, Spec §FR-033–FR-049, US3/US5]
+- [ ] CHK033 Полны ли alternate/recovery requirements для abandoned/canceled/unknown payment, late success with/without refusal, provider-key expiry и manual resume без duplicate charge? [Recovery Coverage, Spec §FR-033–FR-049, US3/US5] Проверка 2026-10-30: X4, X5; см. [отчёт T075](../t075-requirements-review-20261030.md).
 - [x] CHK034 Полны ли over-capacity downgrade requirements: read/export/delete, no auto-delete, archival block, no-archive processing и возврат к paid/add-on capacity? [Scenario Coverage, Spec §FR-096, FR-099, FR-106]
 - [x] CHK035 Определены ли recovery requirements при недоступном transient admission: processing не начался, local custody сохранена, Free reservation не consumed, retry/support action понятен? [Recovery Coverage, Spec §FR-027, FR-106]
 - [x] CHK036 Покрыты ли promo/referral alternate cases: competing discounts, code expiry/caps, first-touch, self-referral, maturity pause, reversal, cancel-scheduled credit и appeal? [Scenario Coverage, Spec §FR-057–FR-069, FR-101, FR-108]
@@ -63,10 +63,15 @@
 
 - [x] CHK038 Определены ли accessible fallback requirements для YooKassa blocker, referral copy/share denial, manual link selection, dynamic status announcements и no-JS recovery paths? [Accessibility, Coverage, Spec §FR-082–FR-085]
 - [x] CHK039 Полны ли privacy requirements для trial/usage ranges, external safe-reference support channel, WAV evidence, risk signals, notices и incident artifacts, включая retention и forbidden analytics/log fields? [Security, Privacy, Coverage, Spec §FR-075–FR-079]
-- [x] CHK040 Заданы ли для real-shop capabilities, reconciliation и default-off gate owner/evidence type, validity/revalidation, revocation behavior, maximum unresolved age, severity-to-blocking matrix и authority повторного enablement? [Dependency, Recovery, Spec §FR-038, FR-080, FR-087–FR-092]
+- [ ] CHK040 Заданы ли для real-shop capabilities, reconciliation и default-off gate owner/evidence type, validity/revalidation, revocation behavior, maximum unresolved age, severity-to-blocking matrix и authority повторного enablement? [Dependency, Recovery, Spec §FR-038, FR-080, FR-087–FR-092] Проверка 2026-10-30: B2, B3, X5; см. [отчёт T075](../t075-requirements-review-20261030.md).
 
 ## Notes
 
 - Отмечайте пункт `[x]` только после того, как соответствующие требования либо признаны достаточными, либо уточнены в source artifacts.
 - Findings фиксируйте рядом с пунктом со ссылкой на изменённое требование.
 - Результат перепроверки 2026-08-06: PASS. Все 40 вопросов получили ответ в spec/plan/contracts/data-model/tasks; launch gates остаются default-off до внешних approvals/evidence.
+
+## Независимая перепроверка перед T075 — 2026-10-30
+
+Перечитаны все пункты этого списка и относящиеся к ним требования. Исторические результаты выше сохранены; они не являются текущим PASS. Снятые отметки и область каждого расхождения объяснены в [отчёте T075](../t075-requirements-review-20261030.md). Сохранённые `[x]` подтверждают достаточность соответствующей формулировки требований в проверенной области, а не выполнение тестов, выпуск, готовность всей F140 или закрытие issue.
+Текущий подсчёт: **32 отмечены / 8 открыты**. Решение по реализации T075: **BLOCK** до устранения B1–B3.
