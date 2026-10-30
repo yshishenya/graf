@@ -12,7 +12,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from twobrain_rec_server.product_analytics import activation_operator as operator
 from twobrain_rec_server.product_analytics.activation_fence import ActivationHold, activation_fence
 
@@ -574,7 +573,7 @@ def test_two_complete_copies_and_latest_attempt_are_verified(fence, tmp_path, mo
     'good', 'optional_absent', 'wrong_image', 'wrong_source', 'duplicate_source',
     'wrong_user', 'userns', 'required_exited', 'unhealthy', 'config_changed',
     'pid_changed', 'override_changed', 'no_release', 'deadline', 'foreign_network',
-    'rootless', 'remap', 'image_env', 'image_platform', 'process_changed', 'postal_changed', 'socket_changed', 'thirdparty_user',
+    'rootless', 'remap', 'image_env', 'image_platform', 'process_changed', 'postal_changed', 'socket_changed', 'thirdparty_user', 'model_changed', 'registry_changed', 'policy_drift', 'poisoned_env', 'volume_good', 'volume_changed', 'volume_options',
 ])
 def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypatch, case):
     rows, networks = inventory()
@@ -606,7 +605,35 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
     } for r, d in zip(rows, details, strict=True)]
     for image in images_info:
         image['config']['Labels']['org.2brain.graf.dev.source-sha'] = source
+    policy_root, model, policy_rows, _, policy_ids = _policy_sample(tmp_path, monkeypatch)
+    policy_by_name = {name: next(r for r in policy_rows if r['id'] == ident)
+                      for name, ident in policy_ids.items()}
+    for row, detail, image in zip(rows, details, images_info, strict=True):
+        sample = policy_by_name[row['service']]
+        detail['host'] = copy.deepcopy(sample['host'])
+        detail['mounts'] = copy.deepcopy(sample['mounts'])
+        detail['config'].update(WorkingDir='/app', Healthcheck=sample['config']['Healthcheck'])
+        detail['config']['Env'].append('PATH=/usr/bin')
+        image['config'].update(WorkingDir='/app', Healthcheck=None)
+        image['config']['Env'].append('PATH=/usr/bin')
     api = next(d for d in details if d['id'] == rows[0]['id'])
+    volume_records = []
+    if case in {'volume_good', 'volume_changed', 'volume_options'}:
+        data = policy_root / 'volume-data'
+        data.mkdir()
+        model['volumes']['owned'] = dict(name='synthetic-owned')
+        model['services']['rec-api']['volumes'].append(dict(type='volume', source='owned', target='/data'))
+        api['mounts'].append(dict(Type='volume', Name='synthetic-owned', Source=str(data),
+                                  Destination='/data', Driver='local', RW=True, Propagation=''))
+        volume_records = [dict(name='synthetic-owned', driver='local', scope='local',
+                               options={} if case != 'volume_options' else {'type': 'none', 'o': 'bind', 'device': '/foreign'},
+                               mountpoint=str(data))]
+    if case == 'policy_drift':
+        api['host']['Privileged'] = True
+    if case == 'poisoned_env':
+        monkeypatch.setenv('COMPOSE_FILE', '/must/not/read')
+        monkeypatch.setenv('TWOBRAIN_RUNTIME_SECRET_GID', '99999')
+        (tmp_path / '.env').write_text('LD_PRELOAD=/must/not/read\n')
     if case == 'wrong_image':
         api['image'] = 'sha256:' + 'f' * 64
     if case == 'wrong_source':
@@ -630,9 +657,10 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
     if case == 'foreign_network':
         networks[0]['containers']['f' * 64] = {}
     calls, inspect_count, release_count, postal_count, socket_count, process_count = [], 0, 0, 0, 0, 0
+    model_count = volume_count = 0
 
     async def command(argv, *, deadline, cwd=None):
-        nonlocal inspect_count, release_count, postal_count
+        nonlocal inspect_count, release_count, postal_count, model_count, volume_count
         calls.append(argv)
         if argv[0] == '/usr/bin/git':
             return (source + '\n').encode()
@@ -643,6 +671,28 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
             if case == 'override_changed' and release_count == 2:
                 override.write_text(override.read_text() + '\n')
             return (str(override) + '\n').encode()
+        if argv[1:3] == ['volume', 'inspect']:
+            volume_count += 1
+            assert argv[-1] == 'synthetic-owned'
+            current = copy.deepcopy(volume_records)
+            if volume_count == 2 and case == 'volume_changed':
+                current[0]['options'] = {'type': 'none', 'o': 'bind', 'device': '/foreign'}
+            return b'\n'.join(json.dumps(v).encode() for v in current)
+        if argv[1] == 'compose':
+            model_count += 1
+            assert cwd == tmp_path / 'infra'
+            assert argv == ['docker', 'compose', '--env-file', '/dev/null', '--profile', 'operations',
+                            '-f', str(tmp_path / 'infra/docker-compose.yml'), 'config', '--no-interpolate',
+                            '--no-env-resolution', '--no-path-resolution', '--format', 'json']
+            current = copy.deepcopy(model)
+            if model_count == 2 and case == 'model_changed':
+                current['x-changed-source'] = True
+            if model_count == 2 and case == 'registry_changed':
+                replacement = policy_root / 'replacement'
+                replacement.write_text('synthetic-only')
+                replacement.chmod(0o640)
+                replacement.replace(policy_root / 'shared-secret')
+            return json.dumps(current).encode()
         if argv[1] == 'info':
             return json.dumps({'os': 'linux', 'security': ['name=' + ('userns' if case == 'remap' else case)] if case in {'rootless', 'remap'} else ['name=seccomp'], 'architecture': 'x86_64'}).encode()
         if argv[1:3] == ['image', 'inspect']:
@@ -687,9 +737,11 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
         yield None, 'f' * 64
 
     monkeypatch.setattr(operator, '_runtime_settings', settings)
-    if case in {'good', 'optional_absent'}:
+    if case in {'good', 'optional_absent', 'poisoned_env', 'volume_good'}:
         result = asyncio.run(operator._runtime_preflight(
             root=tmp_path, snapshot=tmp_path, source=source, deadline=time.monotonic() + 20))
+        assert volume_count == (2 if case == 'volume_good' else 0)
+        assert model_count == 2
         assert result['runtime'] == 'verified' and result['source_sha'] == source
         assert result['container_count'] == len(rows)
         assert len(result['runtime_sha256']) == 64
@@ -699,6 +751,8 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
             asyncio.run(operator._runtime_preflight(
                 root=tmp_path, snapshot=tmp_path, source=source,
                 deadline=time.monotonic() + (-1 if case == 'deadline' else 20)))
+    if case in {'policy_drift', 'volume_options'}:
+        assert not checked_settings
     assert not any(set(c) & {'stop', 'start', 'restart', 'up', 'exec', 'create', 'run'} for c in calls)
 
 
@@ -991,3 +1045,245 @@ def test_settings_reject_extended_acl_on_pinned_files_and_directories(tmp_path, 
             operator._settings_no_acl(fd)
     finally:
         os.close(fd)
+
+
+def _policy_sample(tmp_path, monkeypatch):
+    root = tmp_path.resolve()
+    monkeypatch.setattr(operator, 'INSTALLATION_UID', os.getuid())
+    if sys.platform != 'linux':
+        monkeypatch.setattr(operator, '_settings_source_ancestors', lambda p: [])
+        monkeypatch.setattr(operator, '_settings_no_acl', lambda fd: None)
+    secret = root / 'shared-secret'
+    secret.write_text('synthetic-only')
+    secret.chmod(0o640)
+    downloads = root / 'infra/runtime/public-downloads'
+    downloads.mkdir(parents=True)
+    model = dict(name='twobrain-rec', services={}, secrets={
+        'shared': dict(file='${GRAF_TEST_FILE:-./secrets/shared}')}, volumes={})
+    rows, images, ids = [], {}, {}
+    for number, name in enumerate(operator.SERVICE_NETWORKS, 1):
+        identifier, image = f'{number:064x}', 'sha256:' + f'{number:064x}'
+        ids[name] = identifier
+        config = dict(Entrypoint=None, Cmd=['python', '-m', 'synthetic'], WorkingDir='/app',
+                      Env=['PATH=/usr/bin'], Healthcheck=None)
+        images[image] = dict(config=copy.deepcopy(config))
+        model['services'][name] = dict(logging=dict(driver='json-file', options={
+            'max-size': '10m', 'max-file': '5'}))
+        host = dict(UsernsMode='', NetworkMode=next(iter(operator.SERVICE_NETWORKS[name])),
+                    Privileged=False, AutoRemove=False, RestartPolicy={'Name': 'no', 'MaximumRetryCount': 0},
+                    CapAdd=None, Devices=[], DeviceRequests=None,
+                    DeviceCgroupRules=None, VolumesFrom=None, PidMode='', IpcMode='private',
+                    UTSMode='', CgroupnsMode='private', Links=None, ExtraHosts=None, Dns=[],
+                    DnsOptions=[], DnsSearch=[], Sysctls=None, ReadonlyRootfs=False, Init=None,
+                    CapDrop=None, SecurityOpt=None, GroupAdd=None, Memory=0, NanoCpus=0,
+                    PidsLimit=None, PortBindings={}, PublishAllPorts=False, Tmpfs=None,
+                    LogConfig=dict(Type='json-file', Config={'max-size': '10m', 'max-file': '5'}))
+        rows.append(dict(id=identifier, image=image, config=config, host=host, mounts=[]))
+    api, worker = rows[:2]
+    model['services']['rec-api'].update(
+        ports=[dict(host_ip='127.0.0.1', published='18081', target=8080, protocol='tcp')],
+        volumes=[dict(type='bind', source='./runtime/public-downloads',
+                      target='/downloads', read_only=True)],
+        healthcheck=dict(test=['CMD', 'python', '-c', 'pass'], interval='10s', timeout='8s',
+                         start_period='20s', retries=3))
+    api['host']['PortBindings'] = {'8080/tcp': [dict(HostIp='127.0.0.1', HostPort='18081')]}
+    api['config']['Healthcheck'] = dict(Test=['CMD', 'python', '-c', 'pass'],
+                                      Interval=10_000_000_000, Timeout=8_000_000_000,
+                                      StartPeriod=20_000_000_000, StartInterval=0, Retries=3)
+    api['mounts'].append(dict(Type='bind', Source=str(downloads), Destination='/downloads',
+                              RW=False, Propagation='rprivate'))
+    for row in (api, worker):
+        name = next(n for n, identifier in ids.items() if identifier == row['id'])
+        model['services'][name]['secrets'] = [dict(source='shared', target='shared-key')]
+        row['mounts'].append(dict(Type='bind', Source=str(secret),
+                                 Destination='/run/secrets/shared-key', RW=False, Propagation='rprivate'))
+    return root, model, rows, images, ids
+
+
+@pytest.mark.parametrize('defect', [
+    'good', 'autoremove', 'restart', 'restart_retry', 'user', 'command', 'entrypoint', 'working_dir', 'loader', 'healthcheck', 'privileged',
+    'cap_add', 'device', 'device_request', 'device_rule', 'pid', 'ipc', 'uts', 'userns',
+    'network', 'sysctl', 'dns', 'extra_hosts', 'volumes_from', 'readonly', 'init',
+    'cap_drop', 'security_opt', 'memory', 'cpu', 'pids', 'port', 'extra_port', 'publish_all',
+    'missing_mount', 'extra_mount', 'writable_mount', 'wrong_bind', 'propagation',
+    'secret_mismatch', 'static_secret', 'public_secret', 'secret_link', 'tmpfs', 'log',
+    'command_interpolation', 'source_services',
+])
+def test_runtime_policy_rejects_actual_configuration_drift(tmp_path, monkeypatch, defect):
+    root, model, rows, images, ids = _policy_sample(tmp_path, monkeypatch)
+    api, worker = rows[:2]
+    config, host = api['config'], api['host']
+    changes = {
+        'autoremove': ('AutoRemove', True),
+        'restart': ('RestartPolicy', {'Name': 'always', 'MaximumRetryCount': 0}),
+        'restart_retry': ('RestartPolicy', {'Name': 'no', 'MaximumRetryCount': 5}),
+        'privileged': ('Privileged', True), 'cap_add': ('CapAdd', ['SYS_ADMIN']),
+        'device': ('Devices', [dict(PathOnHost='/dev/mem')]),
+        'device_request': ('DeviceRequests', [dict(Count=-1)]),
+        'device_rule': ('DeviceCgroupRules', ['a *:* rwm']),
+        'pid': ('PidMode', 'host'), 'ipc': ('IpcMode', 'host'), 'uts': ('UTSMode', 'host'),
+        'userns': ('UsernsMode', 'host'), 'network': ('NetworkMode', 'host'),
+        'sysctl': ('Sysctls', {'net.ipv4.ip_forward': '1'}), 'dns': ('Dns', ['192.0.2.1']),
+        'extra_hosts': ('ExtraHosts', ['rec-postgres:192.0.2.1']),
+        'volumes_from': ('VolumesFrom', ['foreign']), 'readonly': ('ReadonlyRootfs', True),
+        'init': ('Init', True), 'cap_drop': ('CapDrop', ['ALL']),
+        'security_opt': ('SecurityOpt', ['seccomp:unconfined']), 'memory': ('Memory', 1),
+        'cpu': ('NanoCpus', 1), 'pids': ('PidsLimit', 1), 'publish_all': ('PublishAllPorts', True),
+        'tmpfs': ('Tmpfs', {'/app': 'rw'}), 'log': ('LogConfig', {'Type': 'none', 'Config': {}}),
+    }
+    if defect in changes:
+        key, value = changes[defect]
+        host[key] = value
+    if defect in {'command', 'entrypoint', 'working_dir'}:
+        config[{'command': 'Cmd', 'entrypoint': 'Entrypoint', 'working_dir': 'WorkingDir'}[defect]] = (
+            '/tmp' if defect == 'working_dir' else ['sh', '-c', 'true'])
+    if defect == 'user':
+        config['User'] = 'foreign'
+    if defect == 'loader':
+        config['Env'].append('LD_PRELOAD=/tmp/foreign.so')
+    if defect == 'healthcheck':
+        config['Healthcheck']['Test'] = ['CMD', 'true']
+    if defect == 'port':
+        host['PortBindings']['8080/tcp'][0]['HostIp'] = '0.0.0.0'
+    if defect == 'extra_port':
+        host['PortBindings']['5432/tcp'] = [dict(HostIp='0.0.0.0', HostPort='5432')]
+    if defect == 'missing_mount':
+        api['mounts'].pop(0)
+    if defect == 'extra_mount':
+        api['mounts'].append(dict(Type='bind', Source='/', Destination='/host', RW=True))
+    if defect in {'writable_mount', 'wrong_bind', 'propagation'}:
+        key, value = {'writable_mount': ('RW', True), 'wrong_bind': ('Source', str(root)),
+                      'propagation': ('Propagation', 'rshared')}[defect]
+        api['mounts'][0][key] = value
+    if defect == 'secret_mismatch':
+        alternate = root / 'alternate'
+        alternate.write_text('synthetic-only')
+        alternate.chmod(0o640)
+        worker['mounts'][0]['Source'] = str(alternate)
+    if defect == 'static_secret':
+        model['secrets']['shared']['file'] = './secrets/other'
+    if defect == 'public_secret':
+        (root / 'shared-secret').chmod(0o644)
+    if defect == 'secret_link':
+        target = root / 'shared-secret'
+        target.rename(root / 'actual-secret')
+        target.symlink_to(root / 'actual-secret')
+    if defect == 'command_interpolation':
+        model['services']['rec-api']['command'] = ['sh', '-c', '$UNVERIFIED']
+    if defect == 'source_services':
+        model['services']['foreign'] = {}
+    def call():
+        return operator._runtime_policy(rows, images, model, ids=ids, root=root,
+                                        postal_network='postal-network')
+    if defect == 'good':
+        assert len(call()) == 64
+    else:
+        with pytest.raises(ActivationHold):
+            call()
+
+
+@pytest.mark.parametrize('entrypoint,command,image_entrypoint,expected_entrypoint,expected_command', [
+    (None, None, None, [], ['image-default']),
+    ([], [], None, [], ['image-default']),
+    (['sh', '-c', 'printf "$$HOME"\n'], None, None, ['sh', '-c', 'printf "$HOME"\n'], []),
+    (None, ['custom', 'one argument'], ['wrapper'], ['wrapper'], ['custom', 'one argument']),
+    ([], None, ['wrapper'], [], ['image-default']),
+])
+def test_runtime_policy_matches_native_docker_argv_merge(
+    tmp_path, monkeypatch, entrypoint, command, image_entrypoint, expected_entrypoint, expected_command
+):
+    root, model, rows, images, ids = _policy_sample(tmp_path, monkeypatch)
+    spec = model['services']['rec-api']
+    spec.update(entrypoint=entrypoint, command=command)
+    images[rows[0]['image']]['config'].update(Entrypoint=image_entrypoint, Cmd=['image-default'])
+    rows[0]['config'].update(Entrypoint=expected_entrypoint, Cmd=expected_command)
+    assert len(operator._runtime_policy(rows, images, model, ids=ids, root=root,
+                                        postal_network='postal-network')) == 64
+
+
+@pytest.mark.parametrize('defect', ['good', 'volume_name', 'volume_type', 'subpath', 'limit_conflict',
+                                   'tmpfs_target', 'tmpfs_options', 'secret_replaced', 'health_interval',
+                                   'volume_driver', 'volume_scope', 'volume_bind_device', 'volume_mountpoint',
+                                   'volume_missing', 'volume_link', 'secret_generated_name', 'wrong_secret_name'])
+def test_runtime_policy_restricted_profile_and_secret_aliases(tmp_path, monkeypatch, defect):
+    root, model, rows, images, ids = _policy_sample(tmp_path, monkeypatch)
+    api = rows[0]
+    spec = model['services']['rec-api']
+    spec.update(read_only=True, init=True, cap_drop=['ALL'], security_opt=['no-new-privileges:true'],
+                cpus='1.0', mem_limit='1g', pids_limit=128,
+                group_add=['${TWOBRAIN_RUNTIME_SECRET_GID:-1001}'],
+                deploy=dict(resources=dict(limits=dict(cpus='1', memory='1073741824', pids=128))),
+                tmpfs=['/tmp:rw,noexec,size=64m'])
+    spec['secrets'].append(dict(source='shared', target='alias'))
+    model['secrets']['shared']['file'] = str(root / 'shared-secret')
+    spec['volumes'].append(dict(type='volume', source='owned', target='/owned'))
+    model['volumes']['owned'] = dict(name='synthetic-owned')
+    data = root / 'volume-data'
+    data.mkdir()
+    volumes = {'synthetic-owned': dict(name='synthetic-owned', driver='local', scope='local',
+                                      options=None, mountpoint=str(data))}
+    host = api['host']
+    host.update(ReadonlyRootfs=True, Init=True, CapDrop=['ALL'], SecurityOpt=['no-new-privileges:true'],
+                Memory=1024**3, NanoCpus=10**9, PidsLimit=128, GroupAdd=['1001'],
+                Tmpfs={'/tmp': 'rw,noexec,size=64m'},
+                Mounts=[dict(Type='volume', Source='synthetic-owned', Target='/owned', VolumeOptions={})])
+    api['mounts'].extend([
+        dict(Type='bind', Source=str(root / 'shared-secret'), Destination='/run/secrets/alias', RW=False, Propagation='rprivate'),
+        dict(Type='volume', Name='synthetic-owned', Source=str(data),
+             Driver='local', Destination='/owned', RW=True, Propagation=''),
+    ])
+    if defect in {'secret_generated_name', 'wrong_secret_name'}:
+        model['secrets']['shared']['name'] = 'twobrain-rec_shared' if defect == 'secret_generated_name' else 'foreign'
+    if defect.startswith('volume_') and defect not in {'volume_name', 'volume_type', 'volume_missing', 'volume_link'}:
+        key, value = {'volume_driver': ('driver', 'foreign'), 'volume_scope': ('scope', 'global'),
+                      'volume_bind_device': ('options', {'type': 'none', 'o': 'bind', 'device': '/foreign'}),
+                      'volume_mountpoint': ('mountpoint', str(root))}[defect]
+        volumes['synthetic-owned'][key] = value
+    if defect == 'volume_missing':
+        volumes.clear()
+    if defect == 'volume_link':
+        data.rmdir()
+        data.symlink_to(root, target_is_directory=True)
+    if defect == 'volume_name':
+        api['mounts'][-1]['Name'] = 'foreign'
+    if defect == 'volume_type':
+        api['mounts'][-1]['Type'] = 'bind'
+    if defect == 'subpath':
+        host['Mounts'][0]['VolumeOptions'] = {'Subpath': 'foreign'}
+    if defect == 'limit_conflict':
+        spec['deploy']['resources']['limits']['memory'] = '2g'
+    if defect == 'tmpfs_target':
+        api['mounts'].append(dict(Type='tmpfs', Destination='/foreign', Source='', RW=True))
+    if defect == 'tmpfs_options':
+        host['Tmpfs']['/tmp'] = 'rw,exec'
+    if defect == 'health_interval':
+        api['config']['Healthcheck']['Interval'] += 1
+    if defect == 'secret_replaced':
+        original = operator._settings_no_acl
+        calls = 0
+        inode = (root / 'shared-secret').stat().st_ino
+
+        def swap(fd):
+            nonlocal calls
+            original(fd)
+            if os.fstat(fd).st_ino == inode:
+                calls += 1
+            if calls == 2:
+                replacement = root / 'new-inode'
+                replacement.write_text('synthetic-only')
+                replacement.chmod(0o640)
+                replacement.replace(root / 'shared-secret')
+
+        monkeypatch.setattr(operator, '_settings_no_acl', swap)
+    def call():
+        return operator._runtime_policy(rows, images, model, ids=ids, root=root,
+                                        postal_network='postal-network', volumes=volumes)
+    if defect in {'good', 'secret_generated_name'}:
+        assert len(call()) == 64
+        # Daemon may also include tmpfs mounts; both shapes are legitimate.
+        api['mounts'].append(dict(Type='tmpfs', Source='', Destination='/tmp', RW=True,
+                                 Mode='rw,noexec,size=64m'))
+        assert len(call()) == 64
+    else:
+        with pytest.raises(ActivationHold):
+            call()

@@ -17,6 +17,7 @@ import os
 import pwd
 import re
 import runpy
+import shlex
 import shutil
 import stat
 import sys
@@ -25,6 +26,7 @@ import time
 import unicodedata
 from contextlib import ExitStack, asynccontextmanager, contextmanager, suppress
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -1597,7 +1599,7 @@ async def drain_product_database(fence, *, source, owner, name: str, oid: int, c
 
 # Actual configuration is private; only its aggregate digest leaves this process.
 RUNTIME_FORMAT = """{"id":{{json .Id}},"image":{{json .Image}},"config":{{json .Config}},"host":{{json .HostConfig}},"mounts":{{json .Mounts}},"state":{"status":{{json .State.Status}},"running":{{json .State.Running}},"restarting":{{json .State.Restarting}},"paused":{{json .State.Paused}},"pid":{{json .State.Pid}},"exit":{{json .State.ExitCode}},"started":{{json .State.StartedAt}},"health":{{with index .State "Health"}}{{json .Status}}{{else}}null{{end}}},"restarts":{{json .RestartCount}}}"""
-IMAGE_FORMAT = """{"id":{{json .Id}},"os":{{json .Os}},"architecture":{{json .Architecture}},"config":{"User":{{json .Config.User}},"Env":{{json .Config.Env}},"Labels":{{json .Config.Labels}}}}"""
+IMAGE_FORMAT = """{"id":{{json .Id}},"os":{{json .Os}},"architecture":{{json .Architecture}},"config":{"User":{{json .Config.User}},"Env":{{json .Config.Env}},"Labels":{{json .Config.Labels}},"Entrypoint":{{json .Config.Entrypoint}},"Cmd":{{json .Config.Cmd}},"WorkingDir":{{json .Config.WorkingDir}},"Healthcheck":{{json (index .Config "Healthcheck")}}}}"""
 DOCKER_ENDPOINT = "unix:///var/run/docker.sock"
 GRAF_SERVICES = WRITERS | {"rec-migrate", "rec-db-runtime-bootstrap"}
 INSTALLATION_UID = 1001
@@ -1876,6 +1878,289 @@ def _runtime_settings(row, *, root, process, proc_root=Path("/proc")):
         raise ActivationHold("activation_operator_settings_unverified") from None
 
 
+def _policy_static(value):
+    _require(isinstance(value, str) and '$' not in value.replace('$$', ''),
+             'activation_operator_policy_interpolation')
+    return value.replace('$$', '$')
+
+
+def _policy_quantity(value, *, duration=False):
+    """Exact bytes/nanoseconds only; Compose's existing units, no float rounding."""
+    units = {'ns': 1, 'ms': 10**6, 's': 10**9, 'm': 60 * 10**9, 'h': 3600 * 10**9} if duration else {
+        '': 1, 'b': 1, 'k': 1024, 'kb': 1024, 'm': 1024**2, 'mb': 1024**2,
+        'g': 1024**3, 'gb': 1024**3}
+    parts = re.findall(r'([0-9]+(?:\.[0-9]+)?)([a-z]*)', str(value).lower())
+    _require(parts and ''.join(n + u for n, u in parts) == str(value).lower()
+             and (duration or len(parts) == 1) and all(u in units for _, u in parts),
+             'activation_operator_policy_quantity')
+    result = sum(Decimal(n) * units[u] for n, u in parts)
+    _require(result.is_finite() and result >= 0 and result == int(result),
+             'activation_operator_policy_quantity')
+    return int(result)
+
+
+def _runtime_policy(rows, images, model, *, ids, root, postal_network, volumes=None):
+    """Compare actual Engine config with trusted Compose/image, without host env."""
+    try:
+        _require(model['name'] == 'twobrain-rec' and set(model['services']) == set(SERVICE_NETWORKS)
+                 and len(ids) == len(rows) and len(set(ids.values())) == len(ids)
+                 and {r['id'] for r in rows} == set(ids.values()), 'activation_operator_policy_inventory')
+        registry, mounts_proof, secret_group = {}, {}, None
+        volumes = volumes or {}
+        by_id = {v: k for k, v in ids.items()}
+
+        def argv(value):
+            if value is None:
+                return None
+            if isinstance(value, str):
+                return shlex.split(_policy_static(value))
+            _require(isinstance(value, list), 'activation_operator_policy_command')
+            return [_policy_static(v) for v in value]
+
+        def environment(values):
+            result = {}
+            for item in values or []:
+                key, sep, value = item.partition('=')
+                _require(sep and key not in result, 'activation_operator_policy_environment')
+                result[key] = value
+            return result
+
+        def source_path(value):
+            value = _policy_static(value)
+            path = Path(value)
+            return path if path.is_absolute() else root / 'infra' / path
+
+        def protected(path, *, secret, volume=False):
+            _require(str(path) == str(path.resolve(strict=True)), 'activation_operator_policy_path')
+            ancestors = _settings_source_ancestors(path)
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            try:
+                info = os.fstat(fd)
+                _settings_no_acl(fd)
+                _require((volume or info.st_uid in {0, INSTALLATION_UID})
+                         and (stat.S_ISDIR(info.st_mode) if volume else
+                              stat.S_ISREG(info.st_mode) or (not secret and stat.S_ISDIR(info.st_mode)))
+                         and not info.st_mode & 0o022, 'activation_operator_policy_file')
+                if secret:
+                    placeholder = path == root / 'infra/secret-placeholders/disabled_optional_provider_secret'
+                    _require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+                             and info.st_size <= 65536
+                             and (info.st_size == 0 and stat.S_IMODE(info.st_mode) == 0o644 if placeholder
+                                  else stat.S_IMODE(info.st_mode) in {0o600, 0o640}),
+                             'activation_operator_policy_secret')
+                identity = _settings_file_identity(info)
+                _require(_settings_file_identity(path.lstat()) == identity,
+                         'activation_operator_policy_file_changed')
+                return dict(path=str(path), identity=identity, ancestors=ancestors)
+            finally:
+                os.close(fd)
+
+        for row in rows:
+            name = by_id[row['id']]
+            spec, actual, host = model['services'][name], row['config'], row['host']
+            image = images[row['image']]['config']
+            entrypoint, command = argv(spec.get('entrypoint')), argv(spec.get('command')) or []
+            # Engine merge: empty command inherits image Cmd only with empty entrypoint.
+            if not entrypoint:
+                command = command or image.get('Cmd') or []
+                if entrypoint is None:
+                    entrypoint = image.get('Entrypoint')
+            _require(actual.get('User', '') == _policy_static(spec.get('user', image.get('User', '')))
+                     and (actual.get('Entrypoint') or []) == (entrypoint or [])
+                     and (actual.get('Cmd') or []) == command
+                     and actual.get('WorkingDir', '') == _policy_static(spec.get('working_dir', image.get('WorkingDir', ''))),
+                     'activation_operator_policy_command')
+            default_env, actual_env = environment(image.get('Env')), environment(actual.get('Env'))
+            overrides = spec.get('environment') or {}
+            for key in ('PATH', 'PYTHONPATH', 'PYTHONHOME', 'PYTHONSTARTUP', 'PYTHONINSPECT',
+                        'LD_PRELOAD', 'LD_LIBRARY_PATH', 'LD_AUDIT', 'BASH_ENV', 'ENV'):
+                expected = _policy_static(overrides[key]) if key in overrides else default_env.get(key)
+                _require(actual_env.get(key) == expected, 'activation_operator_policy_loader')
+
+            restart = _policy_static(spec.get('restart', 'no'))
+            match = re.fullmatch(r'(no|always|unless-stopped|on-failure)(?::([1-9][0-9]*))?', restart)
+            _require(match and (match[2] is None or match[1] == 'on-failure')
+                     and host.get('AutoRemove') is False
+                     and host['RestartPolicy'] == dict(Name=match[1], MaximumRetryCount=int(match[2] or 0)),
+                     'activation_operator_policy_restart')
+            for key in ('Privileged', 'CapAdd', 'Devices', 'DeviceRequests', 'DeviceCgroupRules',
+                        'VolumesFrom', 'Links', 'ExtraHosts', 'Dns', 'DnsOptions', 'DnsSearch',
+                        'Sysctls', 'PublishAllPorts'):
+                _require(not host.get(key), 'activation_operator_policy_privilege')
+            _require(all(not host.get(k) for k in ('PidMode', 'UTSMode', 'UsernsMode'))
+                     and host.get('IpcMode') == 'private'
+                     and host.get('CgroupnsMode', 'private') == 'private'
+                     and host['NetworkMode'] in {postal_network if n == 'postal-network' else n
+                                                for n in SERVICE_NETWORKS[name]},
+                     'activation_operator_policy_namespace')
+            for source_key, actual_key, default in (('read_only', 'ReadonlyRootfs', False), ('init', 'Init', None)):
+                expected = spec.get(source_key, default)
+                _require(expected in (True, False, None) and host.get(actual_key, default) is expected,
+                         'activation_operator_policy_restriction')
+            for source_key, actual_key in (('cap_drop', 'CapDrop'), ('security_opt', 'SecurityOpt')):
+                expected, observed = spec.get(source_key) or [], host.get(actual_key) or []
+                _require(len(set(expected)) == len(expected) and len(set(observed)) == len(observed)
+                         and set(expected) == set(observed), 'activation_operator_policy_restriction')
+            declared_groups, groups = spec.get('group_add') or [], host.get('GroupAdd') or []
+            if declared_groups:
+                _require(declared_groups == ['${TWOBRAIN_RUNTIME_SECRET_GID:-1001}']
+                         and len(groups) == 1 and re.fullmatch(r'[1-9][0-9]*', groups[0]),
+                         'activation_operator_policy_group')
+                _require(secret_group is None or secret_group == groups[0], 'activation_operator_policy_group')
+                secret_group = groups[0]
+            else:
+                _require(not groups, 'activation_operator_policy_group')
+            limits = spec.get('deploy', {}).get('resources', {}).get('limits', {})
+            for top, deploy, engine in (('mem_limit', 'memory', 'Memory'), ('cpus', 'cpus', 'NanoCpus'),
+                                        ('pids_limit', 'pids', 'PidsLimit')):
+                def quantity(value, top=top):
+                    if top == 'mem_limit':
+                        return _policy_quantity(value)
+                    number = Decimal(str(value)) * (10**9 if top == 'cpus' else 1)
+                    _require(number.is_finite() and number >= 0 and number == int(number),
+                             'activation_operator_policy_quantity')
+                    return int(number)
+                values = [quantity(v) for v in (spec.get(top), limits.get(deploy)) if v is not None]
+                observed = host.get(engine)
+                _require((values and len(set(values)) == 1 and type(observed) is int and observed == values[0])
+                         or (not values and observed in (None, 0, -1)), 'activation_operator_policy_limit')
+
+            ports = {}
+            for port in spec.get('ports') or []:
+                _require(set(port) <= {'host_ip', 'published', 'target', 'protocol', 'mode'}
+                         and port.get('mode', 'ingress') == 'ingress'
+                         and port['host_ip'] == '127.0.0.1' and str(port['published']).isdigit()
+                         and 0 < int(port['published']) < 65536 and 0 < int(port['target']) < 65536
+                         and port.get('protocol', 'tcp') == 'tcp', 'activation_operator_policy_port')
+                key = str(port['target']) + '/tcp'
+                ports.setdefault(key, []).append(dict(HostIp=port['host_ip'], HostPort=str(port['published'])))
+            _require((host.get('PortBindings') or {}) == ports, 'activation_operator_policy_port')
+            logging = spec['logging']
+            _require(logging == dict(driver='json-file', options={'max-size': '10m', 'max-file': '5'})
+                     and host['LogConfig'] == dict(Type=logging['driver'], Config=logging['options']),
+                     'activation_operator_policy_logging')
+
+            health = dict(image.get('Healthcheck') or {})
+            declared = spec.get('healthcheck') or {}
+            _require(set(declared) <= {'test', 'disable', 'interval', 'timeout', 'start_period', 'start_interval', 'retries'},
+                     'activation_operator_policy_health')
+            for key, target in (('test', 'Test'), ('interval', 'Interval'), ('timeout', 'Timeout'),
+                                ('start_period', 'StartPeriod'), ('start_interval', 'StartInterval'), ('retries', 'Retries')):
+                if key in declared:
+                    value = declared[key]
+                    if key == 'test':
+                        value = argv(value)
+                    elif key == 'retries':
+                        _require(type(value) is int and value >= 0, 'activation_operator_policy_health')
+                    else:
+                        value = _policy_quantity(value, duration=True)
+                    if value:
+                        health[target] = value
+            if declared.get('disable') is True:
+                health = {'Test': ['NONE']}
+            observed_health = actual.get('Healthcheck') or {}
+            fields = {'Test', 'Interval', 'Timeout', 'StartPeriod', 'StartInterval', 'Retries'}
+            _require(set(health) <= fields and set(observed_health) <= fields
+                     and all(health.get(k, [] if k == 'Test' else 0)
+                             == observed_health.get(k, [] if k == 'Test' else 0) for k in fields),
+                     'activation_operator_policy_health')
+
+            tmpfs = {}
+            for value in spec.get('tmpfs') or []:
+                target, sep, options = _policy_static(value).partition(':')
+                _require(target.startswith('/') and target not in tmpfs, 'activation_operator_policy_tmpfs')
+                tmpfs[target] = options if sep else ''
+            _require((host.get('Tmpfs') or {}) == tmpfs, 'activation_operator_policy_tmpfs')
+            expected_mounts = {}
+            for volume in spec.get('volumes') or []:
+                _require(set(volume) <= {'type', 'source', 'target', 'read_only', 'bind', 'volume'},
+                         'activation_operator_policy_mount')
+                kind, target = volume['type'], _policy_static(volume['target'])
+                _require(target.startswith('/') and target not in expected_mounts,
+                         'activation_operator_policy_mount')
+                options = volume.get(kind) or {}
+                _require((kind == 'bind' and set(options) <= {'create_host_path', 'propagation'}
+                          and options.get('create_host_path', True) in (True, False)
+                          and options.get('propagation', 'rprivate') == 'rprivate')
+                         or (kind == 'volume' and not options), 'activation_operator_policy_mount_options')
+                source = volume['source']
+                if kind == 'bind':
+                    source = str(source_path(source))
+                    mounts_proof[source] = protected(Path(source), secret=False)
+                else:
+                    _require(kind == 'volume', 'activation_operator_policy_mount')
+                    declaration = model['volumes'][source]
+                    _require(set(declaration) == {'name'}, 'activation_operator_policy_volume')
+                    source = _policy_static(declaration['name'])
+                expected_mounts[target] = (kind, source, not volume.get('read_only', False))
+            for secret in spec.get('secrets') or []:
+                _require(set(secret) <= {'source', 'target', 'uid', 'gid', 'mode'}, 'activation_operator_policy_secret')
+                logical = secret['source']
+                target = '/run/secrets/' + secret.get('target', logical)
+                _require(target not in expected_mounts and Path(target).parent == Path('/run/secrets'),
+                         'activation_operator_policy_secret')
+                matched = [m for m in row['mounts'] if m['Destination'] == target]
+                _require(len(matched) == 1, 'activation_operator_policy_secret')
+                source = matched[0]['Source']
+                declaration = model['secrets'][logical]
+                _require(set(declaration) <= {'file', 'name'}
+                         and declaration.get('name', 'twobrain-rec_' + logical) == 'twobrain-rec_' + logical,
+                         'activation_operator_policy_secret')
+                template = declaration['file']
+                if '$' in template:
+                    _require(re.fullmatch(r'\$\{[A-Za-z_][A-Za-z0-9_]*:-[^${}]+\}', template),
+                             'activation_operator_policy_secret_template')
+                else:
+                    _require(source == str(source_path(template)), 'activation_operator_policy_secret_source')
+                proof = protected(Path(source), secret=True)
+                _require(logical not in registry or registry[logical] == proof,
+                         'activation_operator_policy_secret_source')
+                registry[logical] = proof
+                expected_mounts[target] = ('bind', source, False)
+            _require(not (set(expected_mounts) & set(tmpfs)), 'activation_operator_policy_mount')
+            seen = set()
+            for mount in row['mounts']:
+                target, kind = mount['Destination'], mount['Type']
+                _require(target not in seen and set(mount) <= {
+                    'Type', 'Name', 'Source', 'Destination', 'Driver', 'Mode', 'RW', 'Propagation'},
+                    'activation_operator_policy_mount')
+                seen.add(target)
+                if kind == 'tmpfs':
+                    _require(target in tmpfs and not mount.get('Source') and not mount.get('Name')
+                             and mount.get('Mode', '') in {'', tmpfs[target]}, 'activation_operator_policy_tmpfs')
+                    continue
+                _require(target in expected_mounts, 'activation_operator_policy_mount')
+                expected_kind, source, writable = expected_mounts[target]
+                _require(kind == expected_kind and mount['RW'] is writable
+                         and mount.get('Mode', '') in {'', 'rw' if writable else 'ro'}
+                         and mount.get('Propagation', '') in ({'', 'rprivate'} if kind == 'bind' else {''}),
+                         'activation_operator_policy_mount')
+                _require(mount['Source'] == source if kind == 'bind' else
+                         mount['Name'] == source and mount.get('Driver') == 'local',
+                         'activation_operator_policy_mount_source')
+                if kind == 'volume':
+                    metadata = volumes[source]
+                    _require(set(metadata) == {'name', 'driver', 'scope', 'options', 'mountpoint'}
+                             and metadata['name'] == source and metadata['driver'] == 'local'
+                             and metadata['scope'] == 'local' and not metadata['options']
+                             and metadata['mountpoint'] == mount['Source'], 'activation_operator_policy_volume')
+                    mounts_proof[mount['Source']] = protected(Path(mount['Source']), secret=False, volume=True)
+            _require(set(expected_mounts) <= seen, 'activation_operator_policy_mount')
+            # Engine Mounts omits volume subpath/driver options: check their request too.
+            for request in host.get('Mounts') or []:
+                _require(set(request) <= {'Type', 'Source', 'Target', 'ReadOnly', 'Consistency', 'BindOptions', 'VolumeOptions'}
+                         and request['Target'] in expected_mounts
+                         and not request.get('Consistency')
+                         and not request.get('VolumeOptions')
+                         and set(request.get('BindOptions') or {}) <= {'CreateMountpoint', 'Propagation'}
+                         and (request.get('BindOptions') or {}).get('Propagation', 'rprivate') == 'rprivate'
+                         and (request.get('BindOptions') or {}).get('CreateMountpoint', True) in (True, False),
+                         'activation_operator_policy_mount_options')
+        return _json_digest(dict(model=model, secrets=registry, paths=mounts_proof, group=secret_group, volumes=volumes))
+    except Exception:
+        raise ActivationHold('activation_operator_policy_unverified') from None
+
+
 async def _runtime_preflight(*, root, snapshot, source, deadline):
     """Bind actual runtime before further gates; never write ready or stop product."""
     _require(time.monotonic() < deadline and re.fullmatch(r"[a-f0-9]{40}", source),
@@ -1908,7 +2193,17 @@ async def _runtime_preflight(*, root, snapshot, source, deadline):
                                  "-C", str(root), "rev-parse", "HEAD"], deadline=deadline)
         _require(actual.decode().strip() == source, "activation_operator_source_changed")
 
+    async def compose_model():
+        raw = await _command([
+            "docker", "compose", "--env-file", "/dev/null", "--profile", "operations",
+            "-f", str(snapshot / "infra/docker-compose.yml"), "config", "--no-interpolate",
+            "--no-env-resolution", "--no-path-resolution", "--format", "json",
+        ], deadline=deadline, cwd=snapshot / "infra")
+        _require(len(raw) <= 2 * 1024**2, "activation_operator_policy_size")
+        return _object(raw)
+
     await head()
+    model = await compose_model()
     pinned_path, pinned_bytes, pinned = await release()
     daemon = json.loads(await _command(
         ["docker", "info", "--format",
@@ -1984,6 +2279,22 @@ async def _runtime_preflight(*, root, snapshot, source, deadline):
                 processes[row["id"]] = _process_identity(state["pid"])
         elif service == "rec-minio-init":
             _require(config["User"] == image["config"]["User"], "activation_operator_initializer_user")
+    async def volume_metadata():
+        names = sorted({m["Name"] for row in actual for m in row["mounts"] if m["Type"] == "volume"})
+        if not names:
+            return {}
+        raw = await _command([
+            "docker", "volume", "inspect", "--format",
+            '{"name":{{json .Name}},"driver":{{json .Driver}},"scope":{{json .Scope}},'
+            '"options":{{json .Options}},"mountpoint":{{json .Mountpoint}}}', *names,
+        ], deadline=deadline)
+        records = [json.loads(line) for line in raw.splitlines()]
+        _require(len(records) == len(names) and {r["name"] for r in records} == set(names),
+                 "activation_operator_volume_incomplete")
+        return {r["name"]: r for r in records}
+
+    policy = _runtime_policy(actual, images, model, ids=ids, root=root, postal_network=postal,
+                             volumes=await volume_metadata())
     with ExitStack() as actual_settings:
         settings_proofs = {}
         for row in actual:
@@ -2001,12 +2312,15 @@ async def _runtime_preflight(*, root, snapshot, source, deadline):
         path, data, _ = await release()
         _require(path == pinned_path and data == pinned_bytes, "activation_operator_release_changed")
         await head()
+        _require(_runtime_policy(actual, images, await compose_model(), ids=ids, root=root,
+                                 postal_network=postal, volumes=await volume_metadata()) == policy,
+                 "activation_operator_policy_changed")
         _require(_local_docker() == socket and time.monotonic() < deadline,
                  "activation_operator_runtime_changed")
         return dict(runtime="verified", source_sha=source, container_count=len(ids),
                     runtime_sha256=_json_digest(dict(containers=actual, networks=networks,
                                                     postal=postal_info, processes=processes,
-                                                    settings=settings_proofs)))
+                                                    settings=settings_proofs, policy=policy)))
 
 
 def _runtime_main(argv=None):
