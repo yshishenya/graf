@@ -1604,6 +1604,7 @@ DOCKER_ENDPOINT = "unix:///var/run/docker.sock"
 GRAF_SERVICES = WRITERS | {"rec-migrate", "rec-db-runtime-bootstrap"}
 INSTALLATION_UID = 1001
 INSTALLATION_GID = 1002
+INSTALLED_GUARD = Path("/usr/local/libexec/graf-posthog-runtime-guard.sh")
 
 
 def _local_docker():
@@ -1729,20 +1730,47 @@ def _sealed_settings_file(raw):
 
 
 @contextmanager
-def _bound_runtime_file(row, value, *, root, root_fd, groups, uid=100, group_read=True, optional=False):
+def _bound_runtime_file(row, value, *, root, root_fd, groups, uid=100, group_read=True,
+                        optional=False, directory_bind=False):
     """Hold the actual source and exact proc-root bind through byte/identity rechecks."""
     with ExitStack() as owned:
         path = Path(value)
         _require(path.is_absolute() and str(path) == value and ".." not in path.parts,
                  "activation_operator_secret_path")
         mounts = [m for m in row["mounts"] if path.is_relative_to(m["Destination"])]
-        _require(len(mounts) == 1 and mounts[0]["Destination"] == value
+        _require(len(mounts) == 1
                  and mounts[0]["Type"] == "bind" and mounts[0]["RW"] is False,
                  "activation_operator_secret_mount")
-        source = Path(mounts[0]["Source"])
-        _require(str(source) == mounts[0]["Source"] and ".." not in source.parts,
+        mount = mounts[0]
+        source_root, destination_root = Path(mount["Source"]), Path(mount["Destination"])
+        _require(str(source_root) == mount["Source"] and ".." not in source_root.parts
+                 and destination_root.is_absolute() and str(destination_root) == mount["Destination"]
+                 and ".." not in destination_root.parts,
                  "activation_operator_secret_path")
+        _require(destination_root != path if directory_bind else destination_root == path,
+                 "activation_operator_secret_mount")
+        source = source_root / path.relative_to(destination_root) if directory_bind else source_root
         ancestors = _settings_source_ancestors(source)
+        if directory_bind:
+            source_directory = os.open(source_root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            owned.callback(os.close, source_directory)
+            destination_directory = owned.enter_context(
+                _settings_destination(root_fd, destination_root, groups, uid=uid))
+            directory_identity = _settings_file_identity(os.fstat(source_directory))[:5]
+
+            def check_directory():
+                _require(stat.S_ISDIR(os.fstat(source_directory).st_mode)
+                         and _settings_file_identity(source_root.lstat())[:5] == directory_identity,
+                         "activation_operator_state_directory_changed")
+                for descriptor in (source_directory, destination_directory):
+                    _settings_no_acl(descriptor)
+                    _require(_settings_file_identity(os.fstat(descriptor))[:5] == directory_identity,
+                             "activation_operator_state_directory_changed")
+                with _settings_destination(root_fd, destination_root, groups, uid=uid) as current:
+                    _require(_settings_file_identity(os.fstat(current))[:5] == directory_identity,
+                             "activation_operator_state_directory_changed")
+
+            check_directory()
         fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
         owned.callback(os.close, fd)
         info = os.fstat(fd)
@@ -1781,6 +1809,103 @@ def _bound_runtime_file(row, value, *, root, root_fd, groups, uid=100, group_rea
             _require(_settings_file_identity(os.fstat(current)) == identity
                      and os.pread(current, 65537, 0) == raw,
                      "activation_operator_secret_changed")
+        if directory_bind:
+            check_directory()
+
+
+@contextmanager
+def _runtime_operations(row, *, settings, root, process, snapshot, proc_root=Path("/proc")):
+    """Read actual operational files, without granting lifecycle or full readiness."""
+    from .access_governance import (
+        access_governance_blockers,
+        access_governance_state_file_path,
+        read_access_governance_state,
+    )
+    from .legal_basis_lifecycle import (
+        ATTRIBUTION_PROFILES_LEVEL,
+        basis_withdrawal_state_file_path,
+        parse_disposition_cases,
+        read_basis_withdrawal_register,
+    )
+    from .provider_readiness import runtime_guard_blockers
+
+    try:
+        environment = _runtime_environment(row)
+        guard_dir = environment.get("GRAF_POSTHOG_GUARD_STATE_DIR", "/var/lib/graf-posthog-runtime-guard")
+        paths = dict(
+            legal=basis_withdrawal_state_file_path(environment),
+            access=access_governance_state_file_path(environment),
+            alert=environment.get("GRAF_ANALYTICS_GUARD_STATE_FILE", os.path.join(guard_dir, "alert-state")),
+            protection=os.path.join(guard_dir, "protection-state.json"),
+        )
+        with ExitStack() as owned:
+            _require(_process_identity(process[0], proc_root=proc_root) == process,
+                     "activation_operator_process_changed")
+            proc_path = proc_root / str(process[0]) / "root"
+            root_fd = os.open(proc_path, os.O_RDONLY | os.O_DIRECTORY)
+            owned.callback(os.close, root_fd)
+            root_identity = _settings_file_identity(os.fstat(root_fd))[:2]
+            files, pinned = {}, {}
+            for name, path in paths.items():
+                files[name] = owned.enter_context(_bound_runtime_file(
+                    row, path, root=root, root_fd=root_fd, groups={101, *process[2]}, directory_bind=True))
+                pinned[name] = str(owned.enter_context(_sealed_settings_file(files[name][5])))
+
+            ancestry = _settings_source_ancestors(INSTALLED_GUARD)
+            _require(all(uid == 0 and not mode & 0o022 for _, _, uid, _, mode in ancestry),
+                     "activation_operator_guard_ancestry")
+            guard_fd = os.open(INSTALLED_GUARD, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            owned.callback(os.close, guard_fd)
+            info = os.fstat(guard_fd)
+            _settings_no_acl(guard_fd)
+            _require(stat.S_ISREG(info.st_mode) and info.st_uid == 0 and info.st_nlink == 1
+                     and stat.S_IMODE(info.st_mode) == 0o755 and 0 < info.st_size <= 65536,
+                     "activation_operator_guard_file")
+            guard_identity = _settings_file_identity(info)
+            guard_bytes = os.pread(guard_fd, 65537, 0)
+            digest = "sha256:" + hashlib.sha256(guard_bytes).hexdigest()
+            _require(len(guard_bytes) == info.st_size and environment.get(
+                "GRAF_PRODUCT_ANALYTICS_ACCESS_GOVERNANCE_EXPECTED_DIGEST", digest) == digest,
+                "activation_operator_guard_digest")
+            readers = dict(environment, GRAF_PRODUCT_ANALYTICS_LEGAL_BASIS_STATE_FILE=pinned["legal"],
+                GRAF_PRODUCT_ANALYTICS_ACCESS_GOVERNANCE_STATE_FILE=pinned["access"],
+                GRAF_PRODUCT_ANALYTICS_ACCESS_GOVERNANCE_EXPECTED_DIGEST=digest,
+                GRAF_ANALYTICS_GUARD_STATE_FILE=pinned["alert"])
+
+            def evaluate():
+                now = time.time()
+                moment = datetime.fromtimestamp(now, UTC)
+                _require(settings.product_analytics_local_only_configuration_valid()
+                         and settings.product_analytics_legal_approved
+                         and settings.product_analytics_disclosure_approved,
+                         "activation_operator_operations_settings")
+                register = read_basis_withdrawal_register(readers, today=moment.date())
+                _require(register.available and not register.file_errors
+                         and register.withdrawal(ATTRIBUTION_PROFILES_LEVEL) is None,
+                         "activation_operator_operations_register")
+                parse_disposition_cases(files["legal"][5].decode("utf-8"), now=moment)
+                _require(not access_governance_blockers(read_access_governance_state(readers),
+                             environ=readers, now=int(now))
+                         and not runtime_guard_blockers(readers, now=now,
+                                                        protection_state_file=pinned["protection"]),
+                         "activation_operator_operations_blocked")
+                _settings_no_acl(guard_fd)
+                _require(_settings_source_ancestors(INSTALLED_GUARD) == ancestry
+                         and _settings_file_identity(INSTALLED_GUARD.lstat()) == guard_identity
+                         and _settings_file_identity(os.fstat(guard_fd)) == guard_identity
+                         and os.pread(guard_fd, 65537, 0) == guard_bytes
+                         and (snapshot / "infra/scripts/posthog-runtime-guard.sh").read_bytes() == guard_bytes,
+                         "activation_operator_guard_changed")
+
+            evaluate()
+            yield _json_digest(dict(files={name: dict(identity=values[4],
+                content=hashlib.sha256(values[5]).hexdigest()) for name, values in files.items()}, guard=digest))
+            evaluate()
+            _require(_settings_file_identity(proc_path.stat())[:2] == root_identity
+                     and _process_identity(process[0], proc_root=proc_root) == process,
+                     "activation_operator_process_changed")
+    except Exception:
+        raise ActivationHold("activation_operator_operations_unverified") from None
 
 
 @contextmanager
@@ -2473,13 +2598,16 @@ async def _runtime_preflight(*, root, snapshot, source, deadline):
     policy = _runtime_policy(actual, images, model, ids=ids, root=root, postal_network=postal,
                              volumes=await volume_metadata())
     with ExitStack() as actual_settings:
-        settings_proofs, writer_settings = {}, {}
+        settings_proofs, writer_settings, operations_proofs = {}, {}, {}
         for row in actual:
             if by_id[row["id"]] in WRITERS and row["id"] in processes:
                 settings, proof = actual_settings.enter_context(_runtime_settings(
                     row, root=root, process=processes[row["id"]]))
                 settings_proofs[row["id"]] = proof
                 writer_settings[by_id[row["id"]]] = settings
+                operations_proofs[row["id"]] = actual_settings.enter_context(_runtime_operations(
+                    row, settings=settings, root=root, process=processes[row["id"]], snapshot=snapshot))
+        _require(len(set(operations_proofs.values())) == 1, "activation_operator_operations_mismatch")
         pg = next(row for row in actual if row["id"] == ids["rec-postgres"])
         password, password_proof = actual_settings.enter_context(_runtime_owner_password(
             pg, root=root, process=processes[pg["id"]]))
@@ -2506,7 +2634,7 @@ async def _runtime_preflight(*, root, snapshot, source, deadline):
             result = dict(runtime="verified", source_sha=source, container_count=len(ids),
                         runtime_sha256=_json_digest(dict(containers=actual, networks=networks,
                                                         postal=postal_info, processes=processes,
-                                                        settings=settings_proofs, policy=policy,
+                                                        settings=settings_proofs, operations=operations_proofs, policy=policy,
                                                         owner_secret=password_proof, database=database_proof)))
     _require(time.monotonic() < deadline, "activation_operator_runtime_timeout")
     return result

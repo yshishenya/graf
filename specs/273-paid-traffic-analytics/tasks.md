@@ -839,3 +839,14 @@ verifier выполняется до понижения source; проверяю
 Это часть открытой T113/#7804: полный schema/lifecycle/local-retention/access/
 resource preflight и верхние операции ещё впереди. Общий HOLD сохранён;
 рабочий T0, аналитика/IP, выпуск и T112/AC01–AC06 не принимаются.
+
+### Фактические legal/access/guard файлы preflight T113 — 30.10.2026
+
+Существующий runtime preflight удерживает actual RO directory binds и sealed
+snapshots реестра, доступа и защиты каждой работающей службы. Штатные readers
+проверяют основание/раскрытие/v2, доступ/MFA/installed guard digest и свежие
+ресурсы/latch; итоговые proofs всех writers должны совпасть. Повторное чтение
+со свежим временем и file/directory identity выполняется после ожиданий.
+[Проверки и границы](validation/t113-operations-preflight-20261030.md).
+Это часть открытой T113/#7804: local-retention SQL/jobs, lifecycle/остатки,
+верхние операции и рабочая приёмка не завершены; общие HOLD сохранены.

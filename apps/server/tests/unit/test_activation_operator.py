@@ -17,6 +17,180 @@ from twobrain_rec_server.product_analytics import activation_operator as operato
 from twobrain_rec_server.product_analytics.activation_fence import ActivationHold, activation_fence
 
 
+def test_guard_pinned_protection_path_is_explicit(tmp_path):
+    from tests.fixtures.analytics_operations import write_runtime_guard
+    from twobrain_rec_server.product_analytics.provider_readiness import runtime_guard_blockers
+
+    now = int(time.time())
+    environment = write_runtime_guard(tmp_path, now=now)
+    assert runtime_guard_blockers(environment, now=now) == ()
+    for path in ('', str(tmp_path / 'missing')):
+        assert 'protection_state_unverified' in runtime_guard_blockers(
+            environment, now=now, protection_state_file=path)
+    pinned = tmp_path / 'pinned-protection'
+    pinned.write_text(json.dumps(dict(protection_state_version=1, status='protected', reasons=[])))
+    assert 'analytics_protection_latched' in runtime_guard_blockers(
+        environment, now=now, protection_state_file=str(pinned))
+
+
+@pytest.mark.skipif(sys.platform != 'linux' or os.geteuid() != 0, reason='Linux root/proc/memfd boundary')
+@pytest.mark.parametrize('case', [
+    'good', 'host_environment', 'sibling_update', 'bad_settings', 'legal_disabled',
+    'disclosure_disabled', 'missing', 'version1', 'invalid_register', 'withdrawn',
+    'expired_access', 'wrong_digest', 'wrong_expected', 'stale_guard', 'future_guard',
+    'latched', 'writable_bind', 'overlapping_bind', 'exact_file_bind', 'wrong_inode',
+    'file_symlink', 'file_hardlink', 'public_file', 'installed_mode', 'installed_changed',
+    'directory_replaced', 'file_replaced', 'file_changed', 'guard_stale_on_exit',
+    'access_expired_on_exit', 'budget_expired_on_exit', 'snapshot_changed',
+])
+def test_runtime_operations_use_actual_directory_binds(tmp_path, monkeypatch, case):
+    directory = tmp_path.resolve()
+    monkeypatch.setattr(operator, 'INSTALLATION_UID', os.getuid())
+    # Native volume is /owned, with no world-writable source ancestors.
+    for parent in (directory, *directory.parents):
+        if str(parent).startswith('/owned'):
+            parent.chmod(0o755)
+    state = directory / 'state'
+    state.mkdir(mode=0o750)
+    os.chown(state, 0, 101)
+    now = int(time.time())
+    installed = directory / 'installed-guard'
+    installed.write_text('#!/bin/sh\nexit 0\n')
+    installed.chmod(0o755)
+    snapshot = directory / 'snapshot'
+    (snapshot / 'infra/scripts').mkdir(parents=True)
+    pinned = snapshot / 'infra/scripts/posthog-runtime-guard.sh'
+    pinned.write_bytes(installed.read_bytes())
+    digest = 'sha256:' + hashlib.sha256(installed.read_bytes()).hexdigest()
+    files = {
+        'legal': state / 'legal-basis-withdrawals',
+        'access': state / 'access-governance-state',
+        'alert': state / 'alert-state',
+        'protection': state / 'protection-state.json',
+    }
+    files['legal'].write_text('legal_basis_state_version=2\n')
+    files['access'].write_text(
+        f'access_governance_state_version=1\nreviewed_at={now}\nexpires_at={now + 3600}\n'
+        'accepted_operator_count=2\nmfa_operator_count=2\n'
+        f'repository_digest={digest}\nconfig_digest={digest}\ninstalled_guard_digest={digest}\n'
+        'revocation_review=complete\ncredential_rotation_review=complete\naudit_review=complete\n')
+    files['alert'].write_text(
+        'alert_state_version=2\ncapacity_ready=true\ncapacity_input_verified=true\n'
+        'capacity_budget_accepted=true\nprotection_status=observed\n'
+        f'recorded_at_epoch={now}\ncapacity_sample_epoch={now}\n'
+        f'capacity_budget_deadline_epoch={now + 3600}\n'
+        f'capacity_inventory_version={"a" * 64}\ncapacity_budget_version={"b" * 64}\n')
+    files['protection'].write_text(json.dumps(dict(protection_state_version=1, status='observed', reasons=[])))
+    for file in files.values():
+        file.chmod(0o640)
+        os.chown(file, 0, 101)
+    environment = {
+        'GRAF_PRODUCT_ANALYTICS_LEGAL_BASIS_STATE_DIR': str(state),
+        'GRAF_PRODUCT_ANALYTICS_ACCESS_GOVERNANCE_STATE_DIR': str(state),
+        'GRAF_POSTHOG_GUARD_STATE_DIR': str(state),
+    }
+    row = dict(config=dict(Env=[k+'='+v for k, v in environment.items()]),
+               mounts=[dict(Destination=str(state), Source=str(state), Type='bind', RW=False)],
+               state=dict(pid=123))
+    process = (123, 456, (101,))
+    monkeypatch.setattr(operator, '_process_identity', lambda *a, **kw: process)
+    monkeypatch.setattr(operator, 'INSTALLED_GUARD', installed, raising=False)
+    proc = directory / 'proc/123'
+    proc.mkdir(parents=True)
+    (proc / 'root').symlink_to('/', target_is_directory=True)
+    settings = SimpleNamespace(product_analytics_legal_approved=case != 'legal_disabled',
+        product_analytics_disclosure_approved=case != 'disclosure_disabled',
+        product_analytics_local_only_configuration_valid=lambda: case != 'bad_settings')
+    if case == 'host_environment':
+        for key in environment:
+            monkeypatch.setenv(key, '/host/poison/must-not-be-read')
+    if case == 'missing':
+        files['legal'].unlink()
+    if case == 'version1':
+        files['legal'].write_text('legal_basis_state_version=1\n')
+    if case == 'invalid_register':
+        files['legal'].write_text('legal_basis_state_version=2\nunknown=record\n')
+    if case == 'withdrawn':
+        files['legal'].write_text('legal_basis_state_version=2\nbasis_withdrawal level=attribution_profiles '
+            'state=withdrawn withdrawn_at='+datetime.now(UTC).date().isoformat()+' reason=owner_decision\n')
+    if case == 'expired_access':
+        files['access'].write_text(files['access'].read_text().replace(
+            f'reviewed_at={now}\n', f'reviewed_at={now-60}\n').replace(str(now+3600), str(now)))
+    if case == 'wrong_digest':
+        files['access'].write_text(files['access'].read_text().replace(digest, 'sha256:'+'c'*64))
+    if case == 'wrong_expected':
+        row['config']['Env'].append('GRAF_PRODUCT_ANALYTICS_ACCESS_GOVERNANCE_EXPECTED_DIGEST=sha256:'+'d'*64)
+    if case in {'stale_guard', 'future_guard'}:
+        files['alert'].write_text(files['alert'].read_text().replace(f'={now}\n', f'={now-120 if case == "stale_guard" else now+1}\n'))
+    if case == 'latched':
+        files['protection'].write_text(json.dumps(dict(protection_state_version=1, status='protected', reasons=[])))
+    if case == 'writable_bind':
+        row['mounts'][0]['RW'] = True
+    if case == 'overlapping_bind':
+        row['mounts'].append(dict(row['mounts'][0]))
+    if case == 'exact_file_bind':
+        row['mounts'] = [dict(Destination=str(f), Source=str(f), Type='bind', RW=False) for f in files.values()]
+    if case == 'wrong_inode':
+        other = directory / 'other'
+        other.mkdir(mode=0o750)
+        os.chown(other, 0, 101)
+        for file in files.values():
+            target = other / file.name
+            target.write_bytes(file.read_bytes())
+            target.chmod(0o640)
+            os.chown(target, 0, 101)
+        row['mounts'][0]['Source'] = str(other)
+    if case == 'file_symlink':
+        files['legal'].unlink()
+        files['legal'].symlink_to(files['access'])
+    if case == 'file_hardlink':
+        os.link(files['legal'], state / 'hardlink')
+    if case == 'public_file':
+        files['legal'].chmod(0o644)
+    if case == 'installed_mode':
+        installed.chmod(0o777)
+    if case == 'access_expired_on_exit':
+        files['access'].write_text(files['access'].read_text().replace(str(now+3600), str(now+1)))
+    if case == 'budget_expired_on_exit':
+        files['alert'].write_text(files['alert'].read_text().replace(str(now+3600), str(now+1)))
+    before = set(os.listdir('/proc/self/fd'))
+    reached = []
+    def check():
+        with operator._runtime_operations(row, settings=settings, root=directory,
+                process=process, snapshot=snapshot, proc_root=directory / 'proc') as proof:
+            reached.append(True)
+            assert len(proof) == 64
+            if case == 'sibling_update':
+                (state / 'unrelated').write_text('ordinary atomic sibling update')
+            if case in {'installed_changed', 'snapshot_changed'}:
+                (installed if case == 'installed_changed' else pinned).write_text('changed')
+            if case == 'directory_replaced':
+                state.rename(directory / 'prior-state')
+                state.mkdir(mode=0o750)
+            if case == 'file_replaced':
+                old = files['legal'].with_suffix('.old')
+                files['legal'].rename(old)
+                files['legal'].write_bytes(old.read_bytes())
+                files['legal'].chmod(0o640)
+                os.chown(files['legal'], 0, 101)
+            if case == 'file_changed':
+                files['legal'].write_text('legal_basis_state_version=2\n#changed\n')
+            if case.endswith('_on_exit'):
+                monkeypatch.setattr(operator, 'time', SimpleNamespace(time=lambda: now+(120 if case == 'guard_stale_on_exit' else 1)))
+    good = {'good', 'host_environment', 'sibling_update'}
+    try:
+        if case in good:
+            check()
+        else:
+            with pytest.raises(ActivationHold):
+                check()
+            if case not in {'installed_changed', 'snapshot_changed', 'directory_replaced', 'file_replaced',
+                            'file_changed', 'guard_stale_on_exit', 'access_expired_on_exit', 'budget_expired_on_exit'}:
+                assert not reached
+    finally:
+        assert set(os.listdir('/proc/self/fd')) == before
+
+
 @pytest.fixture
 def fence(tmp_path):
     directory = tmp_path / "operator"
@@ -574,7 +748,7 @@ def test_two_complete_copies_and_latest_attempt_are_verified(fence, tmp_path, mo
     'good', 'optional_absent', 'wrong_image', 'wrong_source', 'duplicate_source',
     'wrong_user', 'userns', 'required_exited', 'unhealthy', 'config_changed',
     'pid_changed', 'override_changed', 'no_release', 'deadline', 'foreign_network',
-    'rootless', 'remap', 'image_env', 'image_platform', 'process_changed', 'postal_changed', 'socket_changed', 'thirdparty_user', 'model_changed', 'registry_changed', 'policy_drift', 'poisoned_env', 'volume_good', 'volume_changed', 'volume_options', 'late_database_close', 'late_secret_close',
+    'rootless', 'remap', 'image_env', 'image_platform', 'process_changed', 'postal_changed', 'socket_changed', 'thirdparty_user', 'model_changed', 'registry_changed', 'policy_drift', 'poisoned_env', 'volume_good', 'volume_changed', 'volume_options', 'late_database_close', 'late_secret_close', 'operations_failure', 'operations_mismatch', 'late_operations_close',
 ])
 def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypatch, case):
     rows, networks = inventory()
@@ -738,6 +912,18 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
         yield None, 'f' * 64
 
     monkeypatch.setattr(operator, '_runtime_settings', settings)
+    checked_operations = []
+
+    @contextmanager
+    def operations(row, **kwargs):
+        checked_operations.append(row['id'])
+        if case == 'operations_failure':
+            raise ActivationHold('synthetic_operations_failure')
+        yield ('9' if case == 'operations_mismatch' and len(checked_operations) > 1 else '8') * 64
+        if case == 'late_operations_close':
+            monkeypatch.setattr(operator, 'time', SimpleNamespace(monotonic=lambda: time.monotonic()+60))
+
+    monkeypatch.setattr(operator, '_runtime_operations', operations)
     @contextmanager
     def owner_password(row, **kwargs):
         assert row['id'] == next(r['id'] for r in rows if r['service'] == 'rec-postgres')
@@ -769,6 +955,7 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
         assert result['container_count'] == len(rows)
         assert len(result['runtime_sha256']) == 64
         assert set(checked_settings) == {r['id'] for r in rows if r['service'] in operator.WRITERS and r['state']['running']}
+        assert set(checked_operations) == set(checked_settings)
     else:
         with pytest.raises(ActivationHold):
             asyncio.run(operator._runtime_preflight(

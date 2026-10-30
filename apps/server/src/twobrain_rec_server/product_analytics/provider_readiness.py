@@ -68,6 +68,7 @@ BLOCKER_PROTECTION_LATCHED = "analytics_protection_latched"
 
 def runtime_guard_blockers(
     environ: Mapping[str, str] | None = None, *, now: float | None = None,
+    protection_state_file: str | None = None,
 ) -> tuple[str, ...]:
     """Consume the current guard schema, including a pre-switch incident latch."""
     environment = os.environ if environ is None else environ
@@ -90,7 +91,9 @@ def runtime_guard_blockers(
             or not re.fullmatch(r"[a-f0-9]{64}", values.get("capacity_budget_version", ""))):
         blockers.append(BLOCKER_CAPACITY_BUDGET)
     try:
-        protection = json.loads(_read_state_text(os.path.join(directory, "protection-state.json")) or "null")
+        protection_path = (os.path.join(directory, "protection-state.json")
+                           if protection_state_file is None else protection_state_file)
+        protection = json.loads(_read_state_text(protection_path) or "null")
     except ValueError:
         protection = None
     if (not isinstance(protection, dict) or type(protection.get("protection_state_version")) is not int
