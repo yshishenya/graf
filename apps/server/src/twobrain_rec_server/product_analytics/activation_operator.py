@@ -737,32 +737,53 @@ def _json_digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
 
 
-async def _backup_lifecycle(source, register):
+async def _backup_lifecycle(source, register, *, root):
     from twobrain_rec_server.db.tenant_context import maintenance_context_settings
 
     from . import restore_replay as replay
     from .legal_basis_lifecycle import _version2_records
+    from .local_retention import local_retention_database_catalog
 
     raw = replay.private_bytes(register)
+    ledger_policy = runpy.run_path(str(root / "infra/scripts/rec-db-verify.py"))["POLICY"]
     async with source.transaction(isolation="repeatable_read", readonly=True):
         for key, value in maintenance_context_settings(replay.CONTEXT).items():
             await source.execute("SELECT set_config($1,$2,true)", key, value)
-        _require(await source.fetchval("SELECT rec_maintenance_allowed()") is True,
+        _require(await source.fetchval("""SELECT rec_maintenance_allowed()
+                 AND session_user='twobrain_rec_maintenance' AND current_user=session_user
+                 AND current_setting('row_security')='on'""") is True,
                  "activation_operator_lifecycle_context")
         policy = [tuple(row) for row in await source.fetch(replay.CLOSURE_POLICY_QUERY)]
         _require(policy == [("account_closure_requests_owner", True, "*", "{0}",
                              replay.CLOSURE_POLICY, replay.CLOSURE_POLICY)]
                  and await source.fetchval(replay.CLOSURE_ACCESS_QUERY) is True,
                  "activation_operator_lifecycle_policy")
+        catalog = await local_retention_database_catalog(source)
+        policy = [tuple(row) for row in await source.fetch("""
+            SELECT polname,polpermissive,polcmd::text,polroles::text,
+                pg_get_expr(polqual,polrelid),pg_get_expr(polwithcheck,polrelid)
+            FROM pg_policy WHERE polrelid='public.product_activation_milestones'::regclass
+        """)]
+        _require(policy == [("activation_account_isolation", True, "*", "{0}",
+                             ledger_policy, ledger_policy)] and await source.fetchval("""
+            SELECT relrowsecurity AND relforcerowsecurity
+                AND has_table_privilege(session_user,oid,'SELECT') FROM pg_class
+            WHERE oid='public.product_activation_milestones'::regclass
+        """) is True, "activation_operator_lifecycle_ledger_policy")
         now = await source.fetchval("SELECT clock_timestamp()")
         text = raw.decode("utf-8")
         cases = replay.parse_disposition_cases(text, now=now)
         withdrawn = any(kind == "basis_withdrawal" and item["level"] == "attribution_profiles"
                         for kind, item in _version2_records(text))
         rows = [dict(row) for row in await source.fetch(replay.CLOSURE_ROWS_QUERY)]
-        replay.replay_accounts(rows, cases, withdrawn=withdrawn, now=now)
+        accounts, categories, late = replay.source_replay_accounts(rows, cases, withdrawn=withdrawn, now=now)
+        _require(await source.fetchval("""SELECT EXISTS(SELECT FROM public.product_activation_milestones
+            WHERE account_id=ANY($1::uuid[]) OR $2::boolean)""", list(accounts), bool(categories)) is False,
+            "activation_operator_lifecycle_remnants")
         _require(replay.private_bytes(register) == raw, "activation_operator_register_changed")
-        digest = _json_digest(dict(rows=rows, register_sha256=hashlib.sha256(raw).hexdigest()))
+        digest = _json_digest(dict(rows=rows, register_sha256=hashlib.sha256(raw).hexdigest(),
+            retention_catalog_sha256=catalog, ledger_policy=policy,
+            applied_after_recorded_due=late, historical_deadlines="unverified"))
     # The caller must be able to run identity/quiet queries outside this transaction.
     _require(not source.is_in_transaction(), "activation_operator_transaction_active")
     return digest, raw
@@ -1066,7 +1087,7 @@ async def _create_coherent_backup(fence, *, root, parent, source, owner, binding
                 async with _controlled_export(fence, source=source, owner=owner, name=name,
                         oid=oid, cluster_id=cluster_id, deadline=deadline):
                     try:
-                        coverage, register_raw = await _settled_sql(_backup_lifecycle(source, register))
+                        coverage, register_raw = await _settled_sql(_backup_lifecycle(source, register, root=root))
                         before = await _settled_sql(asyncio.to_thread(_object_manifest, client, bucket,
                                                                      deadline=deadline))
                         unknown.add("pg_staging")

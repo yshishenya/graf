@@ -169,6 +169,35 @@ def replay_accounts(rows, cases, *, withdrawn: bool, now: datetime):
     return {requests[key]["account_id"] for key in completed}, categories
 
 
+def source_replay_accounts(rows, cases, *, withdrawn: bool, now: datetime):
+    """Current source postconditions; a replay intent is not historical deadline proof."""
+    accounts, categories = replay_accounts(rows, cases, withdrawn=withdrawn, now=now)
+    for row in rows:
+        times = [row[key] for key in ("requested_at", "finalize_at", "finalized_at", "canceled_at")]
+        if any(not isinstance(value, datetime) or value.utcoffset() is None
+               for value in times if value is not None):
+            raise ReplayHold("replay_source_timeline_invalid")
+        requested, due, finalized, canceled = times
+        if requested is None or due is None or not requested <= now or due < requested:
+            raise ReplayHold("replay_source_timeline_invalid")
+        if row["state"] == "completed":
+            valid = canceled is None and due <= datetime.fromisoformat(row["purged_at"]) <= finalized
+        else:
+            valid = finalized is None and all(row[key] is None for key in
+                ("purged_at", "purged_count", "purged_type"))
+            if row["state"] == "scheduled":
+                valid = valid and canceled is None and now < due
+            else:  # replay_accounts already rejected unresolved/unknown states.
+                valid = valid and canceled is not None and requested <= canceled <= now and canceled < due
+        if not valid:
+            raise ReplayHold("replay_source_timeline_invalid")
+    if any(case.stage != "applied" for case in categories):
+        raise ReplayHold("replay_source_category_result_missing")
+    # A later idempotent replay can legitimately have different count/time from the first purge.
+    late = sum(case.applied_at > case.due_at for case in cases if case.applied_at is not None)
+    return accounts, categories, late
+
+
 async def ledger(db):
     return {row["id"]: dict(row) for row in
             (await db.execute(select(ProductActivationMilestone.__table__))).mappings()}

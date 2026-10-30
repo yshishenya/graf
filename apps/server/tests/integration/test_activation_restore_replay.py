@@ -838,6 +838,148 @@ def launch(world):
                                "PYTHONDONTWRITEBYTECODE": "1"})
 
 
+def test_source_lifecycle_proves_absence_without_hidden_rls_rows(replay_world, monkeypatch):
+    import asyncpg
+
+    from twobrain_rec_server.product_analytics import activation_operator as operator
+    from twobrain_rec_server.product_analytics import restore_replay as replay
+    from twobrain_rec_server.product_analytics.activation_fence import ActivationHold
+    from twobrain_rec_server.product_analytics.restore_replay import ReplayHold
+
+    world = replay_world
+
+    async def run():
+        url = world["url"]
+        kwargs = dict(host=url.host, port=url.port, user=url.username,
+                      password=url.password, database=url.database)
+        owner, source = await asyncpg.connect(**kwargs), await asyncpg.connect(**kwargs)
+        try:
+            await source.execute("SET SESSION AUTHORIZATION twobrain_rec_maintenance")
+            await source.execute("SET row_security=on")
+
+            async def evaluate():
+                try:
+                    return await operator._backup_lifecycle(source, world["operator"], root=REPO)
+                finally:
+                    assert not source.is_in_transaction()
+
+            baseline, raw = await evaluate()
+            assert len(baseline) == 64 and raw == world["operator"].read_bytes()
+            assert await owner.fetchval("SELECT count(*) FROM product_activation_milestones") == 8
+            remnant = uuid4()
+            await owner.execute("""INSERT INTO product_activation_milestones
+                (id,account_id,event_name,event_id,occurred_at,accepted_at,safe_payload,source_kind)
+                VALUES($1,$2,'first_result_viewed',$3,now(),now(),'{}','browser')""",
+                remnant, world["accounts"][0], uuid4())
+            try:
+                with pytest.raises((ActivationHold, ReplayHold)):
+                    await evaluate()
+            finally:
+                await owner.execute("DELETE FROM product_activation_milestones WHERE id=$1", remnant)
+            assert (await evaluate())[0] == baseline
+
+            # Owner and wrong context cannot stand in for a current maintenance read.
+            with pytest.raises(ActivationHold, match="lifecycle_context"):
+                await operator._backup_lifecycle(owner, world["operator"], root=REPO)
+            assert not owner.is_in_transaction()
+            from twobrain_rec_server.db import tenant_context
+
+            original_context = tenant_context.maintenance_context_settings
+            with monkeypatch.context() as patch:
+                patch.setattr(tenant_context, "maintenance_context_settings", lambda context: {
+                    **original_context(context), "app.context_kind": "request"})
+                with pytest.raises(ActivationHold, match="lifecycle_context"):
+                    await evaluate()
+            assert (await evaluate())[0] == baseline
+
+            original_reader, reads = replay.private_bytes, 0
+
+            def changed_register(path):
+                nonlocal reads
+                reads += 1
+                if reads == 2:
+                    closed(path, raw.decode()+"\n")
+                return original_reader(path)
+
+            try:
+                with monkeypatch.context() as patch:
+                    patch.setattr(replay, "private_bytes", changed_register)
+                    with pytest.raises(ActivationHold, match="register_changed"):
+                        await evaluate()
+            finally:
+                closed(world["operator"], raw.decode())
+            assert (await evaluate())[0] == baseline
+
+            predicate = await owner.fetchval("""SELECT pg_get_expr(polqual,polrelid) FROM pg_policy
+                WHERE polrelid='public.product_activation_milestones'::regclass""")
+            changes = [
+                ("CREATE POLICY synthetic_hide ON product_activation_milestones AS RESTRICTIVE USING(false)",
+                 "DROP POLICY synthetic_hide ON product_activation_milestones"),
+                ("ALTER POLICY activation_account_isolation ON product_activation_milestones USING(false)",
+                 "ALTER POLICY activation_account_isolation ON product_activation_milestones USING("+predicate+")"),
+                ("ALTER TABLE product_activation_milestones NO FORCE ROW LEVEL SECURITY",
+                 "ALTER TABLE product_activation_milestones FORCE ROW LEVEL SECURITY"),
+                ("ALTER TABLE product_activation_milestones DISABLE ROW LEVEL SECURITY",
+                 "ALTER TABLE product_activation_milestones ENABLE ROW LEVEL SECURITY"),
+                ("REVOKE SELECT ON product_activation_milestones FROM twobrain_rec_maintenance",
+                 "GRANT SELECT ON product_activation_milestones TO twobrain_rec_maintenance"),
+            ]
+            for change, undo in changes:
+                await owner.execute(change)
+                try:
+                    with pytest.raises((ActivationHold, ReplayHold)):
+                        await evaluate()
+                finally:
+                    await owner.execute(undo)
+                assert (await evaluate())[0] == baseline
+
+            due = await owner.fetchval("SELECT id FROM account_closure_requests WHERE state='scheduled' LIMIT 1")
+            original = await owner.fetchval("SELECT finalize_at FROM account_closure_requests WHERE id=$1", due)
+            await owner.execute("UPDATE account_closure_requests SET finalize_at=requested_at WHERE id=$1", due)
+            try:
+                with pytest.raises((ActivationHold, ReplayHold)):
+                    await evaluate()
+            finally:
+                await owner.execute("UPDATE account_closure_requests SET finalize_at=$2 WHERE id=$1", due, original)
+            assert (await evaluate())[0] == baseline
+
+            now = await owner.fetchval("SELECT clock_timestamp()")
+            # These are new replay results, not equality assertions about the original purge.
+            completed = json.loads(await owner.fetchval("""SELECT row_to_json(r)::text FROM (
+                SELECT metadata_json->>'activation_decisions_purged_at' AS purged_at
+                FROM account_closure_requests WHERE id=$1) r""", world["closure"]))
+            assert datetime.fromisoformat(completed["purged_at"]) < now
+            reapplied = raw.decode().replace("stage=accepted", "stage=applied") + (
+                f" applied_at={now.isoformat()} rows_affected=0\n")
+            closed(world["operator"], reapplied)
+            assert len((await evaluate())[0]) == 64
+            closed(world["operator"], raw.decode())
+            category = ("disposition_case case_ref=case_category decision_ref=decision_category "
+                "scope=activation_milestone_decisions selector_ref=all owner_role=operator "
+                f"reason=purpose_ended decided_at={now.isoformat()} "
+                f"due_at={(now+timedelta(days=1)).isoformat()} stage=accepted\n")
+            closed(world["operator"], raw.decode()+category)
+            with pytest.raises((ActivationHold, ReplayHold)):
+                await evaluate()
+            applied = category.replace("stage=accepted", "stage=applied").strip()+(
+                f" applied_at={now.isoformat()} rows_affected=8\n")
+            closed(world["operator"], raw.decode()+applied)
+            with pytest.raises((ActivationHold, ReplayHold)):
+                await evaluate()
+            await owner.execute("DELETE FROM product_activation_milestones")
+            assert len((await evaluate())[0]) == 64
+            closed(world["operator"], raw.decode()+category)
+            with pytest.raises((ActivationHold, ReplayHold)):
+                await evaluate()  # Empty is not evidence that an accepted case executed.
+            closed(world["operator"], raw.decode()+applied)
+            assert len((await evaluate())[0]) == 64
+        finally:
+            await source.close()
+            await owner.close()
+
+    asyncio.run(run())
+
+
 def test_old_copy_replays_only_exact_account_and_quarantines_both(replay_world):
     world = replay_world
     source_before = world["owner"]("SELECT count(*) FROM product_activation_milestones")
