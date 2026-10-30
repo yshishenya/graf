@@ -12,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
 from twobrain_rec_server.product_analytics import activation_operator as operator
 from twobrain_rec_server.product_analytics.activation_fence import ActivationHold, activation_fence
 
@@ -573,7 +574,7 @@ def test_two_complete_copies_and_latest_attempt_are_verified(fence, tmp_path, mo
     'good', 'optional_absent', 'wrong_image', 'wrong_source', 'duplicate_source',
     'wrong_user', 'userns', 'required_exited', 'unhealthy', 'config_changed',
     'pid_changed', 'override_changed', 'no_release', 'deadline', 'foreign_network',
-    'rootless', 'remap', 'image_env', 'image_platform', 'process_changed', 'postal_changed', 'socket_changed', 'thirdparty_user', 'model_changed', 'registry_changed', 'policy_drift', 'poisoned_env', 'volume_good', 'volume_changed', 'volume_options',
+    'rootless', 'remap', 'image_env', 'image_platform', 'process_changed', 'postal_changed', 'socket_changed', 'thirdparty_user', 'model_changed', 'registry_changed', 'policy_drift', 'poisoned_env', 'volume_good', 'volume_changed', 'volume_options', 'late_database_close', 'late_secret_close',
 ])
 def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypatch, case):
     rows, networks = inventory()
@@ -720,14 +721,14 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
         socket_count += 1
         return ('changed' if case == 'socket_changed' and socket_count == 2 else 'synthetic-socket',)
 
-    def process(pid):
+    def process(pid, **kwargs):
         nonlocal process_count
         process_count += 1
         return pid, process_count if case == 'process_changed' else 12345
 
     monkeypatch.setattr(operator, '_local_docker', socket)
     monkeypatch.setattr(operator, '_process_identity', process)
-    from contextlib import contextmanager
+    from contextlib import asynccontextmanager, contextmanager
 
     checked_settings = []
 
@@ -737,6 +738,28 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
         yield None, 'f' * 64
 
     monkeypatch.setattr(operator, '_runtime_settings', settings)
+    @contextmanager
+    def owner_password(row, **kwargs):
+        assert row['id'] == next(r['id'] for r in rows if r['service'] == 'rec-postgres')
+        yield 'synthetic-owner', 'e' * 64
+        if case == 'late_secret_close':
+            monkeypatch.setattr(operator, 'time', SimpleNamespace(monotonic=lambda: time.monotonic()+60))
+
+    @asynccontextmanager
+    async def databases(**kwargs):
+        assert kwargs['password'] == 'synthetic-owner'
+        assert set(kwargs['settings']) == {r['service'] for r in rows
+            if r['service'] in operator.WRITERS and r['state']['running']}
+        yield None, None, {'synthetic-database': True}
+        if case == 'late_database_close':
+            monkeypatch.setattr(operator, 'time', SimpleNamespace(monotonic=lambda: time.monotonic()+60))
+
+    pg = next(r for r in rows if r['service'] == 'rec-postgres')
+    pg['networks'][operator.PRIVATE].update(IPAddress='172.19.0.2', IPPrefixLen=16)
+    next(n for n in networks if n['name'] == operator.PRIVATE)['containers'][pg['id']].update(
+        IPv4Address='172.19.0.2/16')
+    monkeypatch.setattr(operator, '_runtime_owner_password', owner_password)
+    monkeypatch.setattr(operator, '_runtime_databases', databases)
     if case in {'good', 'optional_absent', 'poisoned_env', 'volume_good'}:
         result = asyncio.run(operator._runtime_preflight(
             root=tmp_path, snapshot=tmp_path, source=source, deadline=time.monotonic() + 20))
@@ -756,7 +779,7 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
     assert not any(set(c) & {'stop', 'start', 'restart', 'up', 'exec', 'create', 'run'} for c in calls)
 
 
-@pytest.mark.parametrize('case', ['good', 'uid', 'gid', 'map', 'stat', 'missing', 'groups_invalid', 'groups_duplicate'])
+@pytest.mark.parametrize('case', ['good', 'postgres', 'uid', 'gid', 'map', 'stat', 'missing', 'groups_invalid', 'groups_duplicate'])
 def test_runtime_process_identity_reads_all_ids_and_parses_comm(tmp_path, case):
     proc = tmp_path / '123'
     proc.mkdir()
@@ -775,7 +798,10 @@ def test_runtime_process_identity_reads_all_ids_and_parses_comm(tmp_path, case):
         (proc / 'status').unlink()
     if case.startswith('groups_'):
         (proc / 'status').write_text((proc / 'status').read_text().replace('101 1001', '-1' if case == 'groups_invalid' else '101 101'))
-    if case == 'good':
+    if case == 'postgres':
+        (proc / 'status').write_text('Uid:\t70\t70\t70\t70\nGid:\t70\t70\t70\t70\nGroups:\t70\n')
+        assert operator._process_identity(123, proc_root=tmp_path, uid=70, gid=70) == (123, 12345, (70,))
+    elif case == 'good':
         assert operator._process_identity(123, proc_root=tmp_path) == (123, 12345, (101, 1001))
     else:
         with pytest.raises(ActivationHold):
@@ -860,7 +886,7 @@ def test_actual_runtime_settings_use_bound_files_and_canonical_validators(tmp_pa
                 path.unlink()
 
         @contextmanager
-        def destination(_root_fd, path, _groups):
+        def destination(_root_fd, path, _groups, *, uid=100):
             fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
             try:
                 yield fd
@@ -1287,3 +1313,192 @@ def test_runtime_policy_restricted_profile_and_secret_aliases(tmp_path, monkeypa
     else:
         with pytest.raises(ActivationHold):
             call()
+
+
+@pytest.mark.parametrize('case', ['good', 'dns', 'loopback', 'multicast', 'unspecified',
+    'ipv6', 'network_id', 'peer_ip', 'missing', 'broadcast'])
+def test_database_address_comes_from_both_actual_network_views(case):
+    rows, networks = inventory()
+    pg = next(r for r in rows if r['service'] == 'rec-postgres')
+    endpoint = pg['networks'][operator.PRIVATE]
+    endpoint.update(IPAddress='172.19.0.2', IPPrefixLen=16)
+    network = next(n for n in networks if n['name'] == operator.PRIVATE)
+    peer = network['containers'][pg['id']]
+    peer['IPv4Address'] = '172.19.0.2/16'
+    if case in {'dns', 'loopback', 'multicast', 'unspecified', 'ipv6', 'broadcast'}:
+        endpoint['IPAddress'] = dict(dns='rec-postgres', loopback='127.0.0.1',
+            multicast='224.0.0.1', unspecified='0.0.0.0', ipv6='::1',
+            broadcast='172.19.255.255')[case]
+    if case == 'network_id':
+        endpoint['NetworkID'] = 'f' * 64
+    if case == 'peer_ip':
+        peer['IPv4Address'] = '172.19.0.3/16'
+    if case == 'missing':
+        endpoint.pop('IPAddress')
+    if case == 'good':
+        assert operator._runtime_database_address(rows, networks) == '172.19.0.2'
+    else:
+        with pytest.raises(ActivationHold):
+            operator._runtime_database_address(rows, networks)
+
+
+@pytest.mark.parametrize('case', ['good', 'host', 'driver', 'port', 'database', 'role',
+    'query', 'password', 'prompt', 'missing_writer', 'unknown_writer'])
+def test_runtime_database_urls_are_closed_before_connect(case):
+    settings = {name: SimpleNamespace(database_url=
+        f'postgresql+asyncpg://{role}:synthetic-password@rec-postgres:5432/twobrain_rec',
+        prompt_optimization_database_url=None) for name, role in {
+            'rec-api': 'twobrain_rec_app', 'rec-processing-worker': 'twobrain_rec_app',
+            'rec-media-worker': 'twobrain_rec_media',
+            'rec-maintenance': 'twobrain_rec_maintenance',
+            'rec-prompt-optimization-worker': 'twobrain_rec_maintenance',
+        }.items()}
+    replacements = dict(host=('rec-postgres', 'other'), driver=('postgresql+asyncpg', 'postgresql'),
+        port=(':5432/', ':6432/'), database=('/twobrain_rec', '/other'),
+        role=('twobrain_rec_app:', 'twobrain_rec:'), password=('synthetic-password', ''))
+    if case in replacements:
+        before, after = replacements[case]
+        settings['rec-api'].database_url = settings['rec-api'].database_url.replace(before, after)
+    if case == 'query':
+        settings['rec-api'].database_url += '?host=other'
+    if case == 'prompt':
+        settings['rec-prompt-optimization-worker'].prompt_optimization_database_url = settings['rec-api'].database_url
+    if case == 'missing_writer':
+        settings.pop('rec-media-worker')
+    if case == 'unknown_writer':
+        settings['unknown'] = settings['rec-api']
+    if case == 'good':
+        urls = operator._runtime_database_urls(settings)
+        assert len(urls) == 5
+        assert {u.username for u in urls} == {'twobrain_rec_app', 'twobrain_rec_media', 'twobrain_rec_maintenance'}
+    else:
+        with pytest.raises(ActivationHold):
+            operator._runtime_database_urls(settings)
+
+
+@pytest.mark.parametrize('stage', ['connect', 'connect_error', 'connect_race', 'body', 'close', 'close_error'])
+def test_physical_connection_waits_through_repeated_cancellation(monkeypatch, stage):
+    import asyncpg
+
+    async def run():
+        connected, closing, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        counts = dict(closed=0, terminated=0)
+        class Connection:
+            async def close(self, *, timeout):
+                assert timeout <= 3
+                closing.set()
+                if stage == 'close':
+                    await release.wait()
+                if stage == 'close_error':
+                    raise TimeoutError
+                counts['closed'] += 1
+            def is_closed(self):
+                return bool(counts['closed'])
+            def terminate(self):
+                counts['terminated'] += 1
+        connection = Connection()
+        async def connect(**kwargs):
+            assert kwargs['timeout'] <= 3 and kwargs['command_timeout'] <= 3
+            connected.set()
+            if stage == 'connect_race':
+                raise OSError('synthetic simultaneous connection failure')
+            if stage in {'connect', 'connect_error'}:
+                await release.wait()
+            if stage == 'connect_error':
+                raise OSError('synthetic connection failure')
+            return connection
+        monkeypatch.setattr(asyncpg, 'connect', connect)
+        entered = asyncio.Event()
+        async def operation():
+            async with operator._physical_connection(host='172.19.0.2', user='synthetic',
+                    password='synthetic', database='postgres', deadline=time.monotonic()+10):
+                entered.set()
+                if stage == 'body':
+                    await release.wait()
+        task = asyncio.create_task(operation())
+        await asyncio.wait_for(connected.wait(), 2)
+        if stage == 'body':
+            await entered.wait()
+        if stage in {'close', 'close_error'}:
+            await closing.wait()
+        if stage != 'close_error':
+            task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
+            await asyncio.sleep(0)
+            if stage in {'connect', 'connect_error', 'close'}:
+                assert not task.done()
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert counts == dict(closed=0 if stage in {'connect_error', 'connect_race'} else 1, terminated=0)
+        else:
+            with pytest.raises(TimeoutError):
+                await task
+            assert counts == dict(closed=0, terminated=1)
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('case', ['good', 'password_env', 'auth_env', 'duplicate', 'path',
+    'empty', 'changed', 'process_changed', 'root_changed'])
+def test_postgres_owner_secret_uses_bound_file_without_daemon_leaf_read(tmp_path, monkeypatch, case):
+    from contextlib import contextmanager
+
+    secret = tmp_path / 'owner-secret'
+    secret.write_bytes(b'synthetic-owner-password\n')
+    secret.chmod(0o600)  # Deliberately no daemon group-read; root entrypoint reads it.
+    proc = tmp_path / 'proc/123'
+    proc.mkdir(parents=True)
+    first_root, other_root = tmp_path / 'first-root', tmp_path / 'other-root'
+    first_root.mkdir()
+    other_root.mkdir()
+    (proc / 'root').symlink_to(first_root, target_is_directory=True)
+    process = (123, 456, (70,))
+    calls = 0
+    def identity(pid, *, uid, gid, **kwargs):
+        nonlocal calls
+        assert (pid, uid, gid) == (123, 70, 70)
+        calls += 1
+        return (123, 457, (70,)) if case == 'process_changed' and calls > 1 else process
+    monkeypatch.setattr(operator, '_process_identity', identity)
+    monkeypatch.setattr(operator, 'INSTALLATION_UID', os.geteuid())
+    monkeypatch.setattr(operator, '_settings_source_ancestors', lambda p: [])
+    monkeypatch.setattr(operator, '_settings_no_acl', lambda fd: None)
+    @contextmanager
+    def destination(root_fd, path, groups, *, uid):
+        assert uid == 70 and groups == {70}
+        assert str(path) == '/run/secrets/twobrain_postgres_password'
+        fd = os.open(secret, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            yield fd
+        finally:
+            os.close(fd)
+    monkeypatch.setattr(operator, '_settings_destination', destination)
+    environment = ['POSTGRES_USER=twobrain_rec', 'POSTGRES_DB=twobrain_rec',
+                   'POSTGRES_PASSWORD_FILE=/run/secrets/twobrain_postgres_password']
+    if case == 'password_env':
+        environment.append('POSTGRES_PASSWORD=synthetic')
+    if case == 'auth_env':
+        environment.append('POSTGRES_HOST_AUTH_METHOD=trust')
+    if case == 'duplicate':
+        environment.append('postgres_user=twobrain_rec')
+    if case == 'path':
+        environment[-1] += '-other'
+    if case == 'empty':
+        secret.write_bytes(b'')
+    row = dict(config=dict(Env=environment), mounts=[dict(Type='bind', RW=False,
+        Source=str(secret), Destination='/run/secrets/twobrain_postgres_password')])
+    def check():
+        with operator._runtime_owner_password(row, root=tmp_path, process=process,
+                proc_root=tmp_path / 'proc') as (password, proof):
+            assert password == 'synthetic-owner-password' and len(proof) == 64
+            if case == 'changed':
+                secret.write_bytes(b'changed')
+            if case == 'root_changed':
+                (proc / 'root').unlink()
+                (proc / 'root').symlink_to(other_root, target_is_directory=True)
+    if case == 'good':
+        check()
+    else:
+        with pytest.raises(ActivationHold):
+            check()

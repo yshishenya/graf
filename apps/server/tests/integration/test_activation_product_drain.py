@@ -555,3 +555,96 @@ def test_native_compose_stop_on_owned_networks(fence, tmp_path, monkeypatch):
                     "label=org.2brain.graf.test-owner=" + token,
                 ]
             ).strip()
+
+
+@pytest.mark.parametrize('case', ['good', 'revision', 'grant', 'role', 'membership', 'cancel_query'])
+def test_native_runtime_database_preflight_full_schema(
+    postgres_isolated_cluster_database_url, tmp_path, monkeypatch, case,
+):
+    """Only transport host/port are redirected on Mac; all SQL/verifier are real."""
+    import runpy
+    from contextlib import asynccontextmanager
+    from pathlib import Path
+
+    from sqlalchemy.engine import make_url
+
+    root = Path(__file__).resolve().parents[4]
+    url = make_url(postgres_isolated_cluster_database_url)
+    assert url.host == '127.0.0.1' and url.database.startswith('twobrain_rec_test_')
+    bootstrap = runpy.run_path(str(root / 'apps/server/scripts/bootstrap_runtime_database_roles.py'))
+    monkeypatch.setenv('TWOBRAIN_DB_HOST', url.host)
+    monkeypatch.setenv('TWOBRAIN_DB_PORT', str(url.port))
+    monkeypatch.setenv('TWOBRAIN_DB_NAME', url.database)
+    for role in ('OWNER', 'APP', 'MAINTENANCE', 'MEDIA'):
+        path = tmp_path / role
+        path.write_text(url.password)
+        path.chmod(0o600)
+        monkeypatch.setenv('TWOBRAIN_DB_' + role + '_PASSWORD_FILE', str(path))
+    asyncio.run(bootstrap['_bootstrap']())  # Own disposable cluster only, never operator code.
+    original = operator._physical_connection
+
+    @asynccontextmanager
+    async def local_transport(**kwargs):
+        assert kwargs.pop('host') == '172.19.0.2' and kwargs.pop('port') == 5432
+        if case == 'role' and kwargs['user'] == 'twobrain_rec_app':
+            kwargs['user'] = 'twobrain_rec'  # Simulate credentials reaching a stronger actual role.
+        async with original(host=url.host, port=url.port, **kwargs) as connection:
+            yield connection
+    monkeypatch.setattr(operator, '_physical_connection', local_transport)
+
+    async def run():
+        admin = await asyncpg.connect(host=url.host, port=url.port,
+            user=url.username, password=url.password, database='postgres')
+        try:
+            await admin.execute(f'ALTER DATABASE "{url.database}" RENAME TO twobrain_rec')
+            setup = await asyncpg.connect(host=url.host, port=url.port,
+                user=url.username, password=url.password, database='twobrain_rec')
+            try:
+                if case == 'revision':
+                    await setup.execute("UPDATE alembic_version SET version_num='synthetic_wrong_revision'")
+                if case == 'grant':
+                    await setup.execute('GRANT DELETE ON public.meetings TO twobrain_rec_media')
+                if case == 'membership':
+                    await setup.execute('CREATE ROLE synthetic_group; GRANT synthetic_group TO twobrain_rec_app')
+            finally:
+                await setup.close()
+            settings = {service: SimpleNamespace(database_url=make_url(
+                'postgresql+asyncpg://role@rec-postgres:5432/twobrain_rec').set(
+                    username=role, password=url.password).render_as_string(hide_password=False),
+                prompt_optimization_database_url=None) for service, role in {
+                    'rec-api': 'twobrain_rec_app', 'rec-processing-worker': 'twobrain_rec_app',
+                    'rec-media-worker': 'twobrain_rec_media',
+                    'rec-maintenance': 'twobrain_rec_maintenance',
+                    'rec-prompt-optimization-worker': 'twobrain_rec_maintenance',
+                }.items()}
+            entered = asyncio.Event()
+            async def operation():
+                async with operator._runtime_databases(settings=settings, password=url.password,
+                        host='172.19.0.2', snapshot=root, deadline=time.monotonic()+15) as (owner, source, proof):
+                    assert await owner.fetchval('SELECT current_database()') == 'postgres'
+                    assert await source.fetchval('SELECT session_user') == 'twobrain_rec_maintenance'
+                    assert not source.is_in_transaction()
+                    assert proof['db_name'] == 'twobrain_rec' and proof['db_oid'] > 0
+                    assert len(proof['roles_sha256']) == 64
+                    entered.set()
+                    if case == 'cancel_query':
+                        await source.execute('SELECT pg_sleep(3)')
+            if case == 'cancel_query':
+                task = asyncio.create_task(operation())
+                await asyncio.wait_for(entered.wait(), 10)
+                await asyncio.sleep(.03)
+                task.cancel()
+                await asyncio.sleep(0)
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            elif case == 'good':
+                await operation()
+            else:
+                with pytest.raises((operator.ActivationHold, RuntimeError)):
+                    await operation()
+            assert await admin.fetchval("SELECT count(*) FROM pg_stat_activity "
+                "WHERE application_name='graf-activation-preflight'") == 0
+        finally:
+            await admin.close()
+    asyncio.run(run())
