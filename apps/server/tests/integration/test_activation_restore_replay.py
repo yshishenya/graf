@@ -191,6 +191,285 @@ def test_staged_native_restore_replays_before_cleanup(replay_world, rehearsal_ob
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("mode", ["success", "source_changed", "corrupt_copy", "invalid_register",
+    "changed_register", "native_failure", "unknown_copy", "unknown_mc_create", "cleanup_failure",
+    "fsync_failure", "parent_fsync_failure", "double_attempt_fsync_failure", "collision", "cancel_mirror", "cancel_cleanup",
+    "unknown_native", "native_unresolved", "cancel_native"])
+def test_coherent_copy_is_native_and_can_be_restored(replay_world, rehearsal_objects, monkeypatch, mode):
+    import hashlib
+    import io
+
+    import asyncpg
+
+    from twobrain_rec_server.product_analytics import activation_operator as operator
+    from twobrain_rec_server.product_analytics.activation_fence import (
+        ActivationHold,
+        activation_fence,
+    )
+
+    world, objects = replay_world, rehearsal_objects
+    world["owner"](f'ALTER DATABASE "{world["source"]}" RENAME TO twobrain_rec', "postgres")
+    bucket = "source-" + uuid4().hex
+    objects["client"].make_bucket(bucket)
+    for key, payload in [("nested/中文.txt", b"Synthetic only"), ("empty.bin", b"")]:
+        objects["client"].put_object(bucket, key, io.BytesIO(payload), len(payload))
+    directory = world["root"] / "activation"
+    directory.mkdir(mode=0o700)
+    closed(directory / "activation.lock", json.dumps(dict(version=1, state="never_started")))
+    backups = world["root"] / "backups"
+    backups.mkdir(mode=0o700)
+
+    async def run():
+        url = world["url"]
+        owner = await asyncpg.connect(host=url.host, port=url.port, user=url.username,
+                                     password=url.password, database="postgres")
+        source = await asyncpg.connect(host=url.host, port=url.port, user=url.username,
+                                      password=url.password, database="twobrain_rec")
+        await source.execute("SET SESSION AUTHORIZATION twobrain_rec_maintenance")
+        await source.execute("SET row_security=on")
+        cluster = await owner.fetchval("SELECT system_identifier::text FROM pg_control_system()")
+        pg = (await operator._command(["docker", "inspect", "--format", "{{.Id}}", world["container"]],
+                                     deadline=time.monotonic()+5)).decode().strip()
+        image = (await operator._command(["docker", "inspect", "--format", "{{.Image}}", pg],
+                                        deadline=time.monotonic()+5)).decode().strip()
+        binding = dict(source_sha="a"*40, image_id=image, cluster_id=cluster,
+                       db_name="twobrain_rec", db_oid=world["binding"]["source_oid"])
+        original_command = operator._command
+        containers, staging = [], []
+        reached = asyncio.Event()
+
+        async def command(argv, *, deadline):
+            capturing = argv[:3] == ["docker", "exec", "--detach"] and "capture_dump=true" in argv
+            if capturing and mode in {"unknown_native", "native_unresolved", "cancel_native"}:
+                argv = [item.replace('umask 077; exec psql',
+                    'umask 077; psql -XqAt -U twobrain_rec -d twobrain_rec -c "SELECT pg_sleep(1)"; exec psql')
+                    for item in argv]
+            if mode == "native_unresolved" and any("echo pending; exit;" in item for item in argv):
+                return b"pending\n"
+            if argv[:2] == ["docker", "create"] and mode == "cancel_mirror":
+                argv = [*argv[:-1], argv[-1].replace("mc mirror", "sleep 10; mc mirror")]
+            if argv[:3] == ["docker", "start", "--attach"] and mode == "cancel_mirror":
+                reached.set()
+            if "rm -rf --" in " ".join(argv) and mode == "cleanup_failure":
+                raise ActivationHold("synthetic_cleanup_failure")
+            raw = await original_command(argv, deadline=deadline)
+            if capturing and mode in {"unknown_native", "native_unresolved", "cancel_native"}:
+                if mode == "cancel_native":
+                    reached.set()
+                    await asyncio.sleep(30)
+                raise TimeoutError("synthetic_native_response_lost")
+            if "mkdir" in argv and argv[-1].startswith("/tmp/twobrain-rec-backup."):
+                staging.append(argv[-1])
+            if argv[:2] == ["docker", "create"]:
+                containers.append(raw.decode().strip())
+                if mode == "unknown_mc_create":
+                    raise TimeoutError("synthetic_unknown_create")
+            if argv[:2] == ["docker", "cp"] and argv[-2].endswith("/postgres.dump") and mode == "unknown_copy":
+                raise TimeoutError("synthetic_unknown_copy")
+            if argv[:2] == ["docker", "rm"] and mode == "cancel_cleanup":
+                reached.set()
+                await asyncio.sleep(.2)
+            return raw
+
+        monkeypatch.setattr(operator, "_command", command)
+        if mode == "invalid_register":
+            world["operator"].write_text("legal_basis_state_version=99\n")
+        if mode in {"source_changed", "changed_register"}:
+            original = operator._object_manifest
+            calls = 0
+
+            def changed(client, source_bucket, *, deadline):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    if mode == "source_changed":
+                        client.put_object(source_bucket, "nested/中文.txt", io.BytesIO(b"different only"), 14)
+                    else:
+                        world["operator"].write_text(world["operator"].read_text() + "\n")
+                return original(client, source_bucket, deadline=deadline)
+
+            monkeypatch.setattr(operator, "_object_manifest", changed)
+        if mode == "corrupt_copy":
+            original_modes = operator._private_copy_modes
+
+            def corrupt(path, *, deadline):
+                original_modes(path, deadline=deadline)
+                (path / "minio-objects/nested/中文.txt").write_bytes(b"X"*len(b"Synthetic only"))
+
+            monkeypatch.setattr(operator, "_private_copy_modes", corrupt)
+        if mode == "native_failure":
+            original_pg = operator._pg_run
+
+            async def failed(*args, deadline):
+                return await original_pg(*args[:-1], ["sh", "-c", "exit 17"], deadline=deadline)
+
+            monkeypatch.setattr(operator, "_pg_run", failed)
+        if mode == "fsync_failure":
+            original_manifest, original_fsync = operator._write_backup_manifest, os.fsync
+
+            def failed_manifest(*args, **kwargs):
+                import stat
+
+                def fsync(fd):
+                    if stat.S_ISDIR(os.fstat(fd).st_mode):
+                        raise OSError("synthetic_directory_fsync")
+                    return original_fsync(fd)
+
+                with monkeypatch.context() as patch:
+                    patch.setattr(os, "fsync", fsync)
+                    return original_manifest(*args, **kwargs)
+
+            monkeypatch.setattr(operator, "_write_backup_manifest", failed_manifest)
+        if mode == "parent_fsync_failure":
+            original_fsync = os.fsync
+            parent_info = backups.stat()
+
+            def failed_parent(fd):
+                info = os.fstat(fd)
+                if (info.st_dev, info.st_ino) == (parent_info.st_dev, parent_info.st_ino):
+                    raise OSError("synthetic_parent_fsync")
+                return original_fsync(fd)
+
+            monkeypatch.setattr(os, "fsync", failed_parent)
+        if mode == "double_attempt_fsync_failure":
+            original_attempt, original_fsync = operator._write_backup_attempt, os.fsync
+            completing = broken = False
+
+            def attempt_write(fence, record):
+                nonlocal completing
+                if record["status"] == "completed":
+                    completing = True
+                return original_attempt(fence, record)
+
+            def failed_attempt_fsync(fd):
+                import stat
+
+                nonlocal broken
+                if completing and stat.S_ISDIR(os.fstat(fd).st_mode):
+                    broken = True
+                if broken:
+                    raise OSError("synthetic_double_fsync")
+                return original_fsync(fd)
+
+            monkeypatch.setattr(operator, "_write_backup_attempt", attempt_write)
+            monkeypatch.setattr(os, "fsync", failed_attempt_fsync)
+        if mode == "collision":
+            from types import SimpleNamespace
+
+            token = "f" * 32
+            monkeypatch.setattr(operator, "uuid4", lambda: SimpleNamespace(hex=token))
+            occupied = backups / ("backup-" + token)
+            occupied.mkdir(mode=0o700)
+            closed(occupied / "keep", "do not change")
+        try:
+            with activation_fence(directory / "state.json", owner_uid=os.geteuid(),
+                                  exclusive=True, readonly=False) as fence:
+                fence.revoke()
+                await operator.drain_product_database(fence, source=source, owner=owner,
+                    name="twobrain_rec", oid=binding["db_oid"], cluster_id=cluster)
+                task = asyncio.create_task(operator._create_coherent_backup(fence, root=REPO,
+                    parent=backups, source=source, owner=owner, binding=binding, pg_container=pg,
+                    bucket=bucket, register=world["operator"], deadline=time.monotonic()+90, **objects))
+                if mode.startswith("cancel_"):
+                    await asyncio.wait_for(reached.wait(), 10)
+                    if mode == "cancel_native":
+                        async with asyncio.timeout(3):
+                            while not await owner.fetchval("SELECT count(*) FROM pg_stat_activity WHERE datid=$1 AND pid<>$2",
+                                    binding["db_oid"], source.get_server_pid()):
+                                await asyncio.sleep(.01)
+                    else:
+                        await asyncio.sleep(.05)
+                    task.cancel()
+                    await asyncio.sleep(.05)
+                    task.cancel()
+                if mode != "success":
+                    with pytest.raises(asyncio.CancelledError if mode.startswith("cancel_") else ActivationHold):
+                        await task
+                    attempt = json.loads((directory / "backup-attempt.json").read_text())
+                    assert attempt["status"] in {"failed", "in_progress"} and attempt["manifest_sha256"] is None
+                    if mode == "double_attempt_fsync_failure":
+                        with pytest.raises(ActivationHold):
+                            operator._previous_backup_attempt(fence)
+                    assert not source.is_in_transaction()
+                    assert tuple(await owner.fetchrow("SELECT datallowconn,datconnlimit FROM pg_database WHERE oid=$1",
+                                                      binding["db_oid"])) == (False, -1 if mode == "collision" else 0)
+                    assert not (directory / "initial.json").exists()
+                    assert json.loads((directory / "state.json").read_text())["status"] == "revoked"
+                    if mode in {"unknown_copy", "cleanup_failure", "native_unresolved"}:
+                        assert staging
+                        assert b"preserved" in await original_command(["docker", "exec", pg, "sh", "-c",
+                            'test -d "$1" && echo preserved', "sh", staging[0]], deadline=time.monotonic()+5)
+                    if mode == "collision":
+                        assert (occupied / "keep").read_text() == "do not change"
+                    return
+                result = await task
+                reference = backups / result["destination"]
+                raw = (reference / "manifest.json").read_bytes()
+                manifest = json.loads(raw)
+                assert result["manifest_sha256"] == hashlib.sha256(raw).hexdigest()
+                attempt = json.loads((directory / "backup-attempt.json").read_bytes())
+                assert attempt["status"] == "completed" and attempt["manifest_sha256"] == result["manifest_sha256"]
+                assert manifest["cleanup"] == "confirmed" and manifest["object_count"] == 2
+                assert manifest["object_bytes"] == len(b"Synthetic only")
+                assert not source.is_in_transaction()
+                assert tuple(await owner.fetchrow("SELECT datallowconn,datconnlimit FROM pg_database WHERE oid=$1",
+                                                  binding["db_oid"])) == (False, 0)
+                async with operator._rehearsal_resources(root=REPO, reference=reference,
+                    owner=owner, pg_container=pg, cluster_id=cluster,
+                    deadline=time.monotonic()+90, **objects) as resources:
+                    from sqlalchemy import event
+
+                    from twobrain_rec_server.db.tenant_context import maintenance_context_settings
+                    from twobrain_rec_server.product_analytics import restore_replay as replay
+
+                    now = datetime.now(UTC)
+                    cases = replay.parse_disposition_cases(world["operator"].read_text(), now=now)
+                    async with source.transaction(isolation="repeatable_read", readonly=True):
+                        for key, value in maintenance_context_settings(replay.CONTEXT).items():
+                            await source.execute("SELECT set_config($1,$2,true)", key, value)
+                        rows = [dict(row) for row in await source.fetch(replay.CLOSURE_ROWS_QUERY)]
+                        accounts, categories = replay.replay_accounts(rows, cases, withdrawn=False, now=now)
+                        assert not categories
+                    engine = create_async_engine(url.set(database=resources["target"]), poolclass=NullPool)
+
+                    @event.listens_for(engine.sync_engine, "connect")
+                    def reduce(dbapi_connection, _):
+                        async def setup(connection):
+                            await connection.execute("SET SESSION AUTHORIZATION twobrain_rec_maintenance")
+                            await connection.execute("SET row_security=on")
+                        dbapi_connection.run_async(setup)
+
+                    sessions = async_sessionmaker(engine)
+                    try:
+                        async with sessions() as target:
+                            await replay.database_context(target, name=resources["target"], oid=resources["target_oid"])
+                            before = await replay.ledger(target)
+                            assert len(before) == 8
+                            expected = replay.expected_ledger(before, accounts, category=False)
+                            assert await replay.quarantine_milestone_deliveries(target, after_restore=True) == 7
+                            for account in accounts:
+                                assert await replay.delete_account_activation_decisions(target, account_id=account) == 0
+                            await replay.verify_ledger(target, expected)
+                            await target.commit()
+                        async with sessions() as readback:
+                            await replay.database_context(readback, name=resources["target"], oid=resources["target_oid"])
+                            await replay.verify_ledger(readback, expected)
+                    finally:
+                        await engine.dispose()
+                assert not (directory / "initial.json").exists()
+                assert json.loads((directory / "state.json").read_text())["status"] == "revoked"
+        finally:
+            for cid in containers:
+                await original_command(["docker", "rm", "--force", "--volumes", cid],
+                                       deadline=time.monotonic()+10)
+            await source.close()
+            await owner.execute("ALTER DATABASE twobrain_rec ALLOW_CONNECTIONS true")
+            await owner.execute(f'ALTER DATABASE twobrain_rec RENAME TO "{world["source"]}"')
+            await owner.close()
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize("mode", ["body_error", "cancel_create", "cancel_cleanup", "unknown_create",
                                    "cleanup_failure", "schema_mismatch", "byte_corruption",
                                    "cancel_native", "unknown_native", "native_unresolved",

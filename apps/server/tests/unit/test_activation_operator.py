@@ -390,3 +390,36 @@ def test_sdk_byte_manifest_closes_responses_and_detects_change(defect):
             operator._object_manifest(Client(), "synthetic", deadline=time.monotonic()+5)
     assert closed == ([] if defect in {"versioning", "lifecycle", "object_lock", "empty", "collision"}
                       else ["close", "release"])
+
+
+@pytest.mark.parametrize("prior", ["missing", "running", "bad_json", "unknown_version",
+                                   "failed", "completed", "extra_field", "lost_initial"])
+def test_backup_attempt_requires_known_durable_previous_outcome(fence, prior):
+    marker = {"version": 1, "state": "never_started"}
+    path = fence.path.parent / "activation.lock"
+    path.write_text(json.dumps(marker))
+    binding = dict(source_sha="a" * 40, image_id="sha256:" + "b" * 64,
+                   cluster_id="123", db_name="twobrain_rec", db_oid=123)
+    now = datetime.now(UTC).isoformat()
+    record = dict(version=1, run_id="c" * 32, destination="backup-" + "c" * 32,
+                  **binding, status="failed", reason="backup_failed", started_at=now,
+                  finished_at=now, manifest_sha256=None)
+    if prior == "running":
+        record.update(status="in_progress", reason="running", finished_at=None)
+    if prior == "completed":
+        record.update(status="completed", reason="verified", manifest_sha256="d" * 64)
+    if prior == "extra_field":
+        record["extra"] = True
+    if prior == "unknown_version":
+        record["version"] = 2
+    if prior == "lost_initial":
+        path.write_text(json.dumps(dict(version=1, state="attempted", initial_sha256="e" * 64)))
+    if prior not in {"missing", "lost_initial"}:
+        attempt = fence.path.parent / "backup-attempt.json"
+        attempt.write_text("{" if prior == "bad_json" else json.dumps(record))
+        attempt.chmod(0o600)
+    if prior in {"missing", "failed", "completed"}:
+        operator._previous_backup_attempt(fence)
+    else:
+        with pytest.raises(ActivationHold):
+            operator._previous_backup_attempt(fence)

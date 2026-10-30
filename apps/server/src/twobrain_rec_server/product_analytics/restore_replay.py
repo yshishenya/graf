@@ -40,6 +40,20 @@ CONTEXT = MaintenanceTenantContext(
     reason_category="restore_replay", feature_area="product_analytics",
 )
 CLOSURE_POLICY = "((requested_by_user_id = rec_current_user_id()) OR rec_maintenance_allowed())"
+CLOSURE_POLICY_QUERY = """
+        SELECT polname, polpermissive, polcmd::text, polroles::text,
+               pg_get_expr(polqual, polrelid), pg_get_expr(polwithcheck, polrelid)
+          FROM pg_policy WHERE polrelid='public.account_closure_requests'::regclass
+    """
+CLOSURE_ACCESS_QUERY = "SELECT has_table_privilege(session_user,'public.account_closure_requests','SELECT')"
+CLOSURE_ROWS_QUERY = """
+        SELECT id, requested_by_user_id AS account_id, state, requested_at, finalize_at,
+               finalized_at, canceled_at,
+               metadata_json->>'activation_decisions_purged_at' AS purged_at,
+               metadata_json->>'activation_decisions_purged_count' AS purged_count,
+               json_typeof(metadata_json->'activation_decisions_purged_count') AS purged_type
+          FROM public.account_closure_requests ORDER BY id
+    """
 UNCONFIRMED = {"pending", "pre_send_retry", "dispatching", "submitted"}
 
 
@@ -114,26 +128,13 @@ async def database_context(db, *, name: str, oid: int):
 
 
 async def closure_snapshot(db) -> list[dict]:
-    policy = (await db.execute(text("""
-        SELECT polname, polpermissive, polcmd::text, polroles::text,
-               pg_get_expr(polqual, polrelid), pg_get_expr(polwithcheck, polrelid)
-          FROM pg_policy WHERE polrelid='public.account_closure_requests'::regclass
-    """))).all()
+    policy = (await db.execute(text(CLOSURE_POLICY_QUERY))).all()
     expected = ("account_closure_requests_owner", True, "*", "{0}",
                 CLOSURE_POLICY, CLOSURE_POLICY)
-    if [tuple(row) for row in policy] != [expected] or not await db.scalar(text(
-        "SELECT has_table_privilege(session_user,'public.account_closure_requests','SELECT')"
-    )):
+    if [tuple(row) for row in policy] != [expected] or not await db.scalar(text(CLOSURE_ACCESS_QUERY)):
         raise ReplayHold("replay_source_policy_invalid")
     # No due filter/limit, and no request key or arbitrary metadata in the snapshot.
-    rows = (await db.execute(text("""
-        SELECT id, requested_by_user_id AS account_id, state, requested_at, finalize_at,
-               finalized_at, canceled_at,
-               metadata_json->>'activation_decisions_purged_at' AS purged_at,
-               metadata_json->>'activation_decisions_purged_count' AS purged_count,
-               json_typeof(metadata_json->'activation_decisions_purged_count') AS purged_type
-          FROM public.account_closure_requests ORDER BY id
-    """))).mappings().all()
+    rows = (await db.execute(text(CLOSURE_ROWS_QUERY))).mappings().all()
     return [dict(row) for row in rows]
 
 

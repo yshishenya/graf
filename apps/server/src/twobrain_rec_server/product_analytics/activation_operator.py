@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import runpy
 import shutil
 import stat
 import sys
@@ -23,7 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from .activation_fence import READY_FIELDS, ActivationHold, _object, _require
+from .activation_fence import READY_FIELDS, ActivationHold, _object, _require, _timestamp
 
 REQUIRED_WRITERS = frozenset({"rec-api", "rec-processing-worker", "rec-media-worker"})
 OPTIONAL_WRITERS = frozenset({"rec-prompt-optimization-worker", "rec-maintenance"})
@@ -600,6 +601,473 @@ async def _settled_sql(operation):
     return task.result()
 
 
+BACKUP_BINDING = {"source_sha", "image_id", "cluster_id", "db_name", "db_oid"}
+BACKUP_ATTEMPT_FIELDS = BACKUP_BINDING | {
+    "version", "run_id", "destination", "status", "reason", "started_at", "finished_at",
+    "manifest_sha256",
+}
+
+
+def _backup_binding(binding):
+    _require(set(binding) == BACKUP_BINDING
+             and isinstance(binding["source_sha"], str)
+             and re.fullmatch(r"[0-9a-f]{40}", binding["source_sha"])
+             and isinstance(binding["image_id"], str)
+             and re.fullmatch(r"sha256:[0-9a-f]{64}", binding["image_id"])
+             and isinstance(binding["cluster_id"], str)
+             and re.fullmatch(r"[0-9]{1,20}", binding["cluster_id"])
+             and binding["db_name"] == "twobrain_rec"
+             and type(binding["db_oid"]) is int and binding["db_oid"] > 0,
+             "activation_operator_backup_binding")
+
+
+def _previous_backup_attempt(fence):
+    _revoked(fence)
+    try:
+        raw = fence._file("backup-attempt.json")
+    except FileNotFoundError:
+        _require(fence.initial_marker()["state"] == "never_started",
+                 "activation_operator_backup_attempt_missing")
+        try:
+            os.stat("initial.json", dir_fd=fence.directory, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        raise ActivationHold("activation_operator_backup_attempt_missing") from None
+    record = _object(raw)
+    _require(set(record) == BACKUP_ATTEMPT_FIELDS and type(record["version"]) is int
+             and record["version"] == 1 and isinstance(record["run_id"], str)
+             and re.fullmatch(r"[0-9a-f]{32}", record["run_id"])
+             and record["destination"] == "backup-" + record["run_id"],
+             "activation_operator_backup_attempt_invalid")
+    _backup_binding({key: record[key] for key in BACKUP_BINDING})
+    _require(record["status"] in {"failed", "completed"},
+             "activation_operator_backup_attempt_unresolved")
+    start, finish = _timestamp(record["started_at"]), _timestamp(record["finished_at"])
+    _require(start <= finish <= datetime.now(UTC), "activation_operator_backup_attempt_invalid")
+    if record["status"] == "failed":
+        _require(record["reason"] in {"backup_failed", "cancelled"}
+                 and record["manifest_sha256"] is None,
+                 "activation_operator_backup_attempt_invalid")
+    else:
+        _require(record["reason"] == "verified" and isinstance(record["manifest_sha256"], str)
+                 and re.fullmatch(r"[0-9a-f]{64}", record["manifest_sha256"]),
+                 "activation_operator_backup_attempt_invalid")
+    return record
+
+
+def _write_backup_attempt(fence, record):
+    _revoked(fence)
+    previous = None
+    if record["status"] == "completed":
+        previous = fence._file("backup-attempt.json")
+        prior = _object(previous)
+        _require(prior["status"] == "in_progress" and prior["run_id"] == record["run_id"],
+                 "activation_operator_backup_attempt_changed")
+    name = ".backup-attempt-" + uuid4().hex
+    raw = (json.dumps(record, sort_keys=True) + "\n").encode()
+    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                 0o600, dir_fd=fence.directory)
+    try:
+        os.fchmod(fd, 0o600)
+        if os.fstat(fd).st_uid != fence.owner_uid:
+            os.fchown(fd, fence.owner_uid, -1)
+        _require(os.write(fd, raw) == len(raw), "activation_operator_backup_attempt_write")
+        os.fsync(fd)
+        os.replace(name, "backup-attempt.json", src_dir_fd=fence.directory,
+                   dst_dir_fd=fence.directory)
+        os.fsync(fence.directory)
+        _revoked(fence)
+        _require(fence._file("backup-attempt.json") == raw,
+                 "activation_operator_backup_attempt_write")
+    except BaseException:
+        if previous is not None:
+            # The completed rename may be visible even if its directory fsync failed.
+            # Restore the prior in_progress bytes on this exact owned inode first;
+            # a second failing fsync cannot leave a visible completed admission.
+            with suppress(OSError, ActivationHold):
+                current = os.stat("backup-attempt.json", dir_fd=fence.directory, follow_symlinks=False)
+                owned = os.fstat(fd)
+                _require((current.st_dev, current.st_ino) == (owned.st_dev, owned.st_ino),
+                         "activation_operator_backup_attempt_changed")
+                os.ftruncate(fd, 0)
+                os.lseek(fd, 0, os.SEEK_SET)
+                _require(os.write(fd, previous) == len(previous), "activation_operator_backup_attempt_write")
+                os.fsync(fd)
+        raise
+    finally:
+        os.close(fd)
+        with suppress(FileNotFoundError):
+            os.unlink(name, dir_fd=fence.directory)
+
+
+def _private_copy_modes(root, *, deadline):
+    """Only a newly owned copy: reject unsafe nodes before changing their modes."""
+    def visit(fd):
+        info = os.fstat(fd)
+        directory = stat.S_ISDIR(info.st_mode)
+        _require(time.monotonic() < deadline and info.st_uid == os.geteuid()
+                 and (directory or (stat.S_ISREG(info.st_mode) and info.st_nlink == 1)),
+                 "activation_operator_backup_permissions")
+        os.fchmod(fd, 0o700 if directory else 0o600)
+        if directory:
+            for name in os.listdir(fd):
+                _object_key(name)
+                child = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+                try:
+                    visit(child)
+                finally:
+                    os.close(child)
+        os.fsync(fd)
+
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        visit(fd)
+    finally:
+        os.close(fd)
+
+
+def _json_digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
+
+
+async def _backup_lifecycle(source, register):
+    from twobrain_rec_server.db.tenant_context import maintenance_context_settings
+
+    from . import restore_replay as replay
+    from .legal_basis_lifecycle import _version2_records
+
+    raw = replay.private_bytes(register)
+    async with source.transaction(isolation="repeatable_read", readonly=True):
+        for key, value in maintenance_context_settings(replay.CONTEXT).items():
+            await source.execute("SELECT set_config($1,$2,true)", key, value)
+        _require(await source.fetchval("SELECT rec_maintenance_allowed()") is True,
+                 "activation_operator_lifecycle_context")
+        policy = [tuple(row) for row in await source.fetch(replay.CLOSURE_POLICY_QUERY)]
+        _require(policy == [("account_closure_requests_owner", True, "*", "{0}",
+                             replay.CLOSURE_POLICY, replay.CLOSURE_POLICY)]
+                 and await source.fetchval(replay.CLOSURE_ACCESS_QUERY) is True,
+                 "activation_operator_lifecycle_policy")
+        now = await source.fetchval("SELECT clock_timestamp()")
+        text = raw.decode("utf-8")
+        cases = replay.parse_disposition_cases(text, now=now)
+        withdrawn = any(kind == "basis_withdrawal" and item["level"] == "attribution_profiles"
+                        for kind, item in _version2_records(text))
+        rows = [dict(row) for row in await source.fetch(replay.CLOSURE_ROWS_QUERY)]
+        replay.replay_accounts(rows, cases, withdrawn=withdrawn, now=now)
+        _require(replay.private_bytes(register) == raw, "activation_operator_register_changed")
+        digest = _json_digest(dict(rows=rows, register_sha256=hashlib.sha256(raw).hexdigest()))
+    # The caller must be able to run identity/quiet queries outside this transaction.
+    _require(not source.is_in_transaction(), "activation_operator_transaction_active")
+    return digest, raw
+
+
+def _backup_metadata(root, reference):
+    verifier = runpy.run_path(str(root / "infra/scripts/rec-db-verify.py"))
+    verifier["checksums"](reference)
+    header, rows = verifier["inventory"](reference, "twobrain_rec")
+    canonical = verifier["schema"](reference)
+    values = [rows[key] for key in sorted(rows)]
+    return dict(snapshot=header, schema_sha256=hashlib.sha256(canonical.encode()).hexdigest(),
+        schema_revision=next(r["name"] for r in values if r["kind"] == "revision"),
+        roles_sha256=_json_digest([r for r in values if r["kind"] in
+                                  {"role", "role_setting", "membership"}]),
+        ledger_invariants_sha256=_json_digest([r for r in values if r.get("relation") ==
+            "product_activation_milestones" or r["kind"] in {"ledger_column", "ledger_access"}]),
+        inventory_sha256=_json_digest(values))
+
+
+def _write_backup_manifest(reference, manifest, *, deadline):
+    # Object lists can exceed the fence's 16 KiB receipt limit. Stream the private file.
+    path = reference / "manifest.json"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(fd, "w", closefd=False) as stream:
+            for chunk in json.JSONEncoder(sort_keys=True).iterencode(manifest):
+                _require(time.monotonic() < deadline, "activation_operator_backup_timeout")
+                stream.write(chunk)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(fd)
+    finally:
+        os.close(fd)
+    directory = os.open(reference, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+    rows = _file_manifest(reference, deadline=deadline)
+    # Readback includes all bytes, ownership and modes, not just buffered JSON.
+    expected = hashlib.sha256()
+    for chunk in json.JSONEncoder(sort_keys=True).iterencode(manifest):
+        expected.update(chunk.encode())
+    expected.update(b"\n")
+    actual = next(digest for key, _, digest in rows if key == "manifest.json")
+    _require(actual == expected.hexdigest()
+             and [row for row in rows if row[0] != "manifest.json"] == manifest["artifacts"],
+             "activation_operator_backup_manifest_changed")
+    return actual
+
+
+async def _create_coherent_backup(fence, *, root, parent, source, owner, binding, pg_container,
+                                  bucket, register, mc_image, network, user_file, password_file,
+                                  client, deadline):
+    """Internal stopped-copy stage; caller owns installation, writers and all locks.
+
+    Never opens admission or resumes the product. Incomplete copies are preserved;
+    unknown native outcomes retain staging. Source objects are only read.
+    """
+    from .restore_replay import private_bytes
+
+    token = uuid4().hex
+    reference = parent / ("backup-" + token)
+    pg_staging = "/tmp/twobrain-rec-backup." + token
+    containers, unknown, pg_commands = [], set(), {}
+    pg_owned = False
+    attempt = None
+    parent_fd = None
+    name, oid, cluster_id = binding["db_name"], binding["db_oid"], binding["cluster_id"]
+
+    async def identity():
+        await _database_identity(source, owner, name=name, oid=oid, cluster_id=cluster_id)
+        await _closed(owner, name, oid)
+        await _quiet_database(source, oid)
+        _revoked(fence)
+
+    async def cleanup():
+        until = time.monotonic() + 30
+        failed = bool(unknown)
+        try:
+            async with asyncio.timeout_at(until):
+                await _database_identity(source, owner, name=name, oid=oid, cluster_id=cluster_id)
+                await _wait_pg_commands(pg_container, pg_commands, deadline=until)
+            pg_safe = not (unknown & {"pg_upload", "pg_staging"})
+        except Exception:
+            pg_safe = False
+        failed |= not pg_safe
+        for cid in containers:
+            try:
+                await _native_command("docker", "rm", "--force", "--volumes", cid, deadline=until)
+                _require(not (await _native_command("docker", "ps", "--all", "--quiet",
+                    "--no-trunc", "--filter", "id=" + cid, deadline=until)).strip(),
+                    "activation_operator_cleanup_container")
+            except Exception:
+                failed = True
+        if pg_owned and pg_safe:
+            try:
+                await _native_command("docker", "exec", pg_container, "sh", "-c",
+                    'rm -rf -- "$1"; test ! -e "$1"', "sh", pg_staging, deadline=until)
+            except Exception:
+                failed = True
+        _require(not failed, "activation_operator_backup_cleanup_unverified")
+
+    async def copy():
+        nonlocal attempt, pg_owned, parent_fd
+        try:
+            async with asyncio.timeout_at(deadline):
+                _backup_binding(binding)
+                _require(0 < deadline - time.monotonic() <= 600
+                         and root.is_absolute() and parent.is_absolute()
+                         and re.fullmatch(r"[0-9a-f]{64}", pg_container)
+                         and re.fullmatch(r"sha256:[0-9a-f]{64}", mc_image)
+                         and re.fullmatch(r"[0-9a-f]{64}", network)
+                         and isinstance(bucket, str)
+                         and re.fullmatch(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]", bucket),
+                         "activation_operator_backup_binding")
+                parent_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                info = os.fstat(parent_fd)
+                _require(stat.S_ISDIR(info.st_mode) and info.st_uid == os.geteuid()
+                         and stat.S_IMODE(info.st_mode) == 0o700
+                         and (info.st_dev, info.st_ino) == (parent.lstat().st_dev, parent.lstat().st_ino),
+                         "activation_operator_backup_permissions")
+                parent_identity = info.st_dev, info.st_ino
+                for secret in (user_file, password_file):
+                    private_bytes(secret, limit=16384)
+                await identity()
+                raw = await _native_command("docker", "exec", pg_container, "psql", "-XqAt",
+                    "-v", "ON_ERROR_STOP=1", "-U", "twobrain_rec", "-d", "postgres", "-c",
+                    "SELECT system_identifier::text FROM pg_control_system()", deadline=deadline)
+                _require(raw.decode().strip() == cluster_id, "activation_operator_container_identity")
+                _previous_backup_attempt(fence)
+                started = datetime.now(UTC).isoformat()
+                attempt = dict(version=1, run_id=token, destination=reference.name, **binding,
+                    started_at=started, finished_at=None, status="in_progress", reason="running",
+                    manifest_sha256=None)
+                _write_backup_attempt(fence, attempt)
+                os.mkdir(reference.name, mode=0o700, dir_fd=parent_fd)
+                reference_info = reference.lstat()
+                reference_identity = reference_info.st_dev, reference_info.st_ino
+                (reference / "minio-objects").mkdir(mode=0o700)
+                export_started = datetime.now(UTC).isoformat()
+                async with _controlled_export(fence, source=source, owner=owner, name=name,
+                        oid=oid, cluster_id=cluster_id, deadline=deadline):
+                    try:
+                        coverage, register_raw = await _settled_sql(_backup_lifecycle(source, register))
+                        before = await _settled_sql(asyncio.to_thread(_object_manifest, client, bucket,
+                                                                     deadline=deadline))
+                        unknown.add("pg_staging")
+                        await _native_command("docker", "exec", pg_container, "mkdir", "-m", "700",
+                                              pg_staging, deadline=deadline)
+                        pg_owned = True
+                        unknown.remove("pg_staging")
+                        unknown.add("pg_upload")
+                        await _native_command("docker", "cp", str(root / "infra/scripts/rec-db-backup-inventory.sql"),
+                            pg_container + ":" + pg_staging + "/capture.sql", deadline=deadline)
+                        unknown.remove("pg_upload")
+                        await _pg_run(pg_container, pg_staging, pg_commands, ["sh", "-c",
+                            'umask 077; exec psql "$@"', "sh", "-XqAt", "-v", "ON_ERROR_STOP=1",
+                            "-U", "twobrain_rec", "-d", name, "-v", "expected_db=" + name,
+                            "-v", "capture_dump=true", "-v", "staging=" + pg_staging,
+                            "-f", pg_staging + "/capture.sql"], deadline=deadline)
+                        for artifact in ("postgres.dump", "schema.sql", "inventory.jsonl", "checksums.sha256"):
+                            unknown.add("pg_upload")
+                            await _native_command("docker", "cp", pg_container + ":" + pg_staging + "/" + artifact,
+                                                  str(reference / artifact), deadline=deadline)
+                            unknown.remove("pg_upload")
+                        await _mc_run("mc mirror rec/" + bucket + " /backup >/dev/null", token=token,
+                            objects=reference / "minio-objects", writable=True, mc_image=mc_image,
+                            network=network, user_file=user_file, password_file=password_file,
+                            containers=containers, unknown=unknown, deadline=deadline)
+                        await _settled_sql(asyncio.to_thread(_private_copy_modes, reference, deadline=deadline))
+                        files = await _settled_sql(asyncio.to_thread(_file_manifest, reference, deadline=deadline))
+                        metadata = await _settled_sql(asyncio.to_thread(_backup_metadata, root, reference))
+                        after = await _settled_sql(asyncio.to_thread(_object_manifest, client, bucket,
+                                                                    deadline=deadline))
+                        copied = [(key.removeprefix("minio-objects/"), size, digest)
+                                  for key, size, digest in files if key.startswith("minio-objects/")]
+                        _require(before == after == copied, "activation_operator_backup_objects_changed")
+                        _require(private_bytes(register) == register_raw, "activation_operator_register_changed")
+                    finally:
+                        await _settled_sql(cleanup())
+                await identity()
+                export_closed = datetime.now(UTC).isoformat()
+                info = parent.lstat()
+                _require((info.st_dev, info.st_ino) == parent_identity
+                         and stat.S_ISDIR(info.st_mode) and info.st_uid == os.geteuid()
+                         and stat.S_IMODE(info.st_mode) == 0o700,
+                         "activation_operator_backup_parent_changed")
+                _require(await _settled_sql(asyncio.to_thread(_file_manifest, reference, deadline=deadline))
+                         == files, "activation_operator_backup_changed")
+                paths = {"operator": Path(__file__), "capture": root / "infra/scripts/rec-db-backup-inventory.sql",
+                    "verifier": root / "infra/scripts/rec-db-verify.py",
+                    "lifecycle": Path(__file__).with_name("legal_basis_lifecycle.py"),
+                    "replay": Path(__file__).with_name("restore_replay.py"),
+                    "tenant_context": Path(__file__).parents[1] / "db/tenant_context.py"}
+                code = {key: hashlib.sha256(path.read_bytes()).hexdigest() for key, path in paths.items()}
+                manifest = dict(version=1, run_id=token, binding=binding, started_at=started,
+                    export_started_at=export_started, export_closed_at=export_closed,
+                    finished_at=datetime.now(UTC).isoformat(), cleanup="confirmed", **metadata,
+                    code_sha256=code, disposition_coverage_sha256=coverage, artifacts=files,
+                    objects=before, object_count=len(before), object_bytes=sum(row[1] for row in before))
+                digest = await _settled_sql(asyncio.to_thread(_write_backup_manifest, reference,
+                                                             manifest, deadline=deadline))
+                info, current = os.fstat(parent_fd), parent.lstat()
+                child = os.stat(reference.name, dir_fd=parent_fd, follow_symlinks=False)
+                _require((info.st_dev, info.st_ino) == (current.st_dev, current.st_ino) == parent_identity
+                         and stat.S_ISDIR(current.st_mode) and current.st_uid == os.geteuid()
+                         and stat.S_IMODE(current.st_mode) == 0o700
+                         and stat.S_ISDIR(child.st_mode)
+                         and (child.st_dev, child.st_ino) == reference_identity,
+                         "activation_operator_backup_parent_changed")
+                os.fsync(parent_fd)  # Persist the backup-UUID entry before a completed attempt.
+                _require(time.monotonic() < deadline, "activation_operator_backup_timeout")
+                attempt.update(status="completed", reason="verified", finished_at=manifest["finished_at"],
+                               manifest_sha256=digest)
+                _write_backup_attempt(fence, attempt)
+                _require(time.monotonic() < deadline, "activation_operator_backup_timeout")
+                return dict(destination=reference.name, manifest_sha256=digest)
+        except BaseException as error:
+            if attempt is not None:
+                attempt.update(status="failed", reason="cancelled" if isinstance(error, asyncio.CancelledError)
+                               else "backup_failed", finished_at=datetime.now(UTC).isoformat(), manifest_sha256=None)
+                _write_backup_attempt(fence, attempt)
+            raise
+        finally:
+            if parent_fd is not None:
+                os.close(parent_fd)
+
+    task = asyncio.create_task(copy())
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if not cancelled:
+                cancelled = True
+                task.cancel()
+        except Exception:
+            break
+    if cancelled:
+        with suppress(BaseException):
+            task.result()
+        raise asyncio.CancelledError
+    try:
+        return task.result()
+    except Exception:
+        raise ActivationHold("activation_operator_backup_unverified") from None
+
+
+async def _native_command(*argv, deadline):
+    return await _command(list(argv), deadline=deadline)
+
+
+async def _wait_pg_commands(pg_container, pg_commands, *, deadline):
+    for marker, digest in list(pg_commands.items()):
+        while True:
+            raw = await _native_command("docker", "exec", "--user=0", pg_container, "sh", "-c",
+                'if [ ! -e "$1" ] && [ ! -L "$1" ]; then echo pending; exit; fi; '
+                'test -f "$1" && test ! -L "$1" '
+                '&& test "$(stat -c %u "$1")" = 0 '
+                '&& test "$(stat -c %a "$1")" = 600 '
+                '&& test "$(stat -c %h "$1")" = 1 '
+                '&& test "$(stat -c %s "$1")" -ge 67 '
+                '&& test "$(stat -c %s "$1")" -le 69 && cat "$1"',
+                "sh", marker, deadline=deadline)
+            if raw != b"pending\n":
+                _require(re.fullmatch(digest.encode() + rb":[0-9]{1,3}\n", raw)
+                         and int(raw.split(b":")[1]) <= 255,
+                         "activation_operator_native_completion_invalid")
+                del pg_commands[marker]
+                break
+            _require(time.monotonic() < deadline, "activation_operator_native_completion_timeout")
+            await asyncio.sleep(.02)
+
+async def _pg_run(pg_container, pg_staging, pg_commands, argv, *, deadline):
+    marker = pg_staging + "/exec-" + uuid4().hex + ".done"
+    digest = hashlib.sha256(json.dumps(argv).encode()).hexdigest()
+    pg_commands[marker] = digest  # Unknown spawn must preserve the resources it may use.
+    await _native_command("docker", "exec", "--detach", "--user=0", pg_container, "sh", "-c",
+        'umask 077; final="$1"; digest="$2"; shift 2; '
+        '"$@" >/dev/null 2>&1; status=$?; set -C; '
+        'printf "%s:%s\\n" "$digest" "$status" > "$final.partial" '
+        '&& mv -- "$final.partial" "$final"', "sh", marker, digest, *argv, deadline=deadline)
+    await _wait_pg_commands(pg_container, pg_commands, deadline=deadline)
+    raw = await _native_command("docker", "exec", "--user=0", pg_container, "cat", marker, deadline=deadline)
+    _require(raw == (digest + ":0\n").encode(), "activation_operator_native_command_failed")
+
+
+async def _mc_run(action, *, token, objects, writable, mc_image, network, user_file,
+                  password_file, containers, unknown, deadline):
+    # Record the immutable container ID before starting any native bucket mutation.
+    label = "org.2brain.graf.rehearsal=" + token
+    unknown.add("mc_container")
+    raw = await _native_command("docker", "create", "--pull=never", "--network", network,
+        "--label", label, "--user", f"{os.geteuid()}:{os.getegid()}", "--entrypoint", "/bin/sh", "--env", "MC_CONFIG_DIR=/tmp/graf-mc",
+        "--mount", f"type=bind,src={objects},dst=/backup" + ("" if writable else ",readonly"),
+        "--mount", f"type=bind,src={user_file},dst=/run/secrets/user,readonly",
+        "--mount", f"type=bind,src={password_file},dst=/run/secrets/password,readonly",
+        mc_image, "-c", 'set -eu; umask 077; '
+        'mc alias set rec http://rec-minio:9000 "$(cat /run/secrets/user)" '
+        '"$(cat /run/secrets/password)" >/dev/null; ' + action, deadline=deadline)
+    cid = raw.decode().strip()
+    _require(re.fullmatch(r"[0-9a-f]{64}", cid), "activation_operator_container_create_unknown")
+    containers.append(cid)
+    unknown.remove("mc_container")
+    await _native_command("docker", "start", "--attach", cid, deadline=deadline)
+    state = json.loads(await _native_command("docker", "inspect", "--format", "{{json .State}}", cid, deadline=deadline))
+    _require(state["Status"] == "exited" and state["ExitCode"] == 0
+             and state["Running"] is False, "activation_operator_mirror_failed")
+
+
 @asynccontextmanager
 async def _rehearsal_resources(*, root, reference, owner, pg_container, cluster_id,
                                mc_image, network, user_file, password_file, client, deadline):
@@ -624,40 +1092,6 @@ async def _rehearsal_resources(*, root, reference, owner, pg_container, cluster_
     async def command(*argv, until=deadline):
         return await _command(list(argv), deadline=until)
 
-    async def wait_pg_commands(until):
-        for marker, digest in list(pg_commands.items()):
-            while True:
-                raw = await command("docker", "exec", "--user=0", pg_container, "sh", "-c",
-                    'if [ ! -e "$1" ] && [ ! -L "$1" ]; then echo pending; exit; fi; '
-                    'test -f "$1" && test ! -L "$1" '
-                    '&& test "$(stat -c %u "$1")" = 0 '
-                    '&& test "$(stat -c %a "$1")" = 600 '
-                    '&& test "$(stat -c %h "$1")" = 1 '
-                    '&& test "$(stat -c %s "$1")" -ge 67 '
-                    '&& test "$(stat -c %s "$1")" -le 69 && cat "$1"',
-                    "sh", marker, until=until)
-                if raw != b"pending\n":
-                    _require(re.fullmatch(digest.encode() + rb":[0-9]{1,3}\n", raw)
-                             and int(raw.split(b":")[1]) <= 255,
-                             "activation_operator_native_completion_invalid")
-                    del pg_commands[marker]
-                    break
-                _require(time.monotonic() < until, "activation_operator_native_completion_timeout")
-                await asyncio.sleep(.02)
-
-    async def pg_run(argv):
-        marker = pg_staging + "/exec-" + uuid4().hex + ".done"
-        digest = hashlib.sha256(json.dumps(argv).encode()).hexdigest()
-        pg_commands[marker] = digest  # Unknown spawn must preserve the resources it may use.
-        await command("docker", "exec", "--detach", "--user=0", pg_container, "sh", "-c",
-            'umask 077; final="$1"; digest="$2"; shift 2; '
-            '"$@" >/dev/null 2>&1; status=$?; set -C; '
-            'printf "%s:%s\\n" "$digest" "$status" > "$final.partial" '
-            '&& mv -- "$final.partial" "$final"', "sh", marker, digest, *argv)
-        await wait_pg_commands(deadline)
-        raw = await command("docker", "exec", "--user=0", pg_container, "cat", marker)
-        _require(raw == (digest + ":0\n").encode(), "activation_operator_native_command_failed")
-
     async def identity(until):
         _require(not owner.is_in_transaction(), "activation_operator_transaction_active")
         row = await owner.fetchrow("""SELECT current_database(),session_user::text,
@@ -675,25 +1109,9 @@ async def _rehearsal_resources(*, root, reference, owner, pg_container, cluster_
                  "activation_operator_container_identity")
 
     async def mc(action):
-        # Record the immutable container ID before starting any native bucket mutation.
-        label = "org.2brain.graf.rehearsal=" + token
-        unknown.add("mc_container")
-        raw = await command("docker", "create", "--pull=never", "--network", network,
-            "--label", label, "--entrypoint", "/bin/sh", "--env", "MC_CONFIG_DIR=/tmp/graf-mc",
-            "--mount", f"type=bind,src={reference / 'minio-objects'},dst=/backup,readonly",
-            "--mount", f"type=bind,src={user_file},dst=/run/secrets/user,readonly",
-            "--mount", f"type=bind,src={password_file},dst=/run/secrets/password,readonly",
-            mc_image, "-c", 'set -eu; umask 077; '
-            'mc alias set rec http://rec-minio:9000 "$(cat /run/secrets/user)" '
-            '"$(cat /run/secrets/password)" >/dev/null; ' + action)
-        cid = raw.decode().strip()
-        _require(re.fullmatch(r"[0-9a-f]{64}", cid), "activation_operator_container_create_unknown")
-        containers.append(cid)
-        unknown.remove("mc_container")
-        await command("docker", "start", "--attach", cid)
-        state = json.loads(await command("docker", "inspect", "--format", "{{json .State}}", cid))
-        _require(state["Status"] == "exited" and state["ExitCode"] == 0
-                 and state["Running"] is False, "activation_operator_mirror_failed")
+        return await _mc_run(action, token=token, objects=reference / "minio-objects",
+            writable=False, mc_image=mc_image, network=network, user_file=user_file,
+            password_file=password_file, containers=containers, unknown=unknown, deadline=deadline)
 
     async def prepare():
         nonlocal staging, staging_identity, pg_owned, bucket_owned
@@ -740,17 +1158,17 @@ async def _rehearsal_resources(*, root, reference, owner, pg_container, cluster_
                 databases[database] = oid
                 unknown.remove(database)
                 if database == target:
-                    await pg_run(["pg_restore", "--exit-on-error", "-U", "twobrain_rec",
-                                  "-d", database, pg_staging + "/input-postgres.dump"])
+                    await _pg_run(pg_container, pg_staging, pg_commands, ["pg_restore", "--exit-on-error", "-U", "twobrain_rec",
+                                  "-d", database, pg_staging + "/input-postgres.dump"], deadline=deadline)
                 else:
-                    await pg_run(["psql", "-Xq",
+                    await _pg_run(pg_container, pg_staging, pg_commands, ["psql", "-Xq",
                         "-v", "ON_ERROR_STOP=1", "-U", "twobrain_rec", "-d", database,
-                        "-f", pg_staging + "/input-schema.sql"])
-                await pg_run(["sh", "-c",
+                        "-f", pg_staging + "/input-schema.sql"], deadline=deadline)
+                await _pg_run(pg_container, pg_staging, pg_commands, ["sh", "-c",
                     'umask 077; exec psql "$@"', "sh", "-XqAt", "-v", "ON_ERROR_STOP=1",
                     "-U", "twobrain_rec", "-d", database, "-v", "expected_db=" + database,
                     "-v", "capture_dump=false", "-v", "staging=" + pg_staging,
-                    "-f", pg_staging + "/capture.sql"])
+                    "-f", pg_staging + "/capture.sql"], deadline=deadline)
                 destination = staging / database
                 destination.mkdir(mode=0o700)
                 for artifact in ("schema.sql", "inventory.jsonl"):
@@ -802,7 +1220,7 @@ async def _rehearsal_resources(*, root, reference, owner, pg_container, cluster_
             failed = True
         try:
             async with asyncio.timeout_at(until):
-                await wait_pg_commands(until)
+                await _wait_pg_commands(pg_container, pg_commands, deadline=until)
             pg_safe = "pg_upload" not in unknown
         except Exception:
             pg_safe = False
