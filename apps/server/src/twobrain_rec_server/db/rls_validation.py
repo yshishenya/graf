@@ -124,6 +124,8 @@ RLS_OPERATOR_TABLES = frozenset(
 # remain in the same production RLS truth inventory as the original MVP tables.
 RLS_BILLING_TABLES = frozenset(
     {
+        "billing_registry_imports",
+        "billing_registry_gaps",
         "billing_plan_versions",
         "promotion_campaigns",
         "promotion_redemptions",
