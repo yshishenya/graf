@@ -12,14 +12,14 @@
 - [ ] CHK001 Определён ли один первичный self-service сегмент для launch с его job-to-be-done, частотой встреч, willingness-to-pay и причиной выбрать GRAF, а не только общее «самостоятельный пользователь»? [Gap, Spec §Scope Summary, §Actors And Authority]
 - [x] CHK002 Зафиксирована ли проверяемая ценностная иерархия `system-audio-first capture → контроль/приватность → transcript/notes → predictable billing`, которая формулирует проверяемую гипотезу причин выбора GRAF при более щедрых storage/free предложениях части конкурентов, с явным разделением гипотезы и факта? [Hypothesis, Research §R11, product-market.md §JTBD]
 - [x] CHK003 Явно ли отделены personal self-service launch и team/enterprise sales-assisted future без ложных seat/admin обещаний? [Scope, Spec §Product Decisions, §Out Of Scope]
-- [x] CHK004 Обосновано ли clean-room использование Krisp/Otter/Notta/Fireflies как pattern evidence, а не как источник копируемой IA, copy или trade dress? [Consistency, Research §R6–R7, Spec §FR-081]
+- [ ] CHK004 Обосновано ли clean-room использование Krisp/Otter/Notta/Fireflies как pattern evidence, а не как источник копируемой IA, copy или trade dress? [Consistency, Research §R6–R7, Spec §FR-081] Проверка 2026-10-30: X7; см. [отчёт T075](../t075-requirements-review-20261030.md).
 
 ## Packaging, Price And Value Metric
 
 - [x] CHK005 Описана ли одна понятная launch модель `Free + Личный + storage add-on` без credit wallet, minute overage, второго paid tier и скрытой матрицы usage charges? [Clarity, Spec §Launch Tariff Levels, Research §R7]
 - [x] CHK006 Задана ли единственная paid expansion metric — exact playback storage bytes — и отделена ли она от unlimited minutes/meetings/transcription/AI? [Clarity, Spec §FR-024–FR-030, FR-093–FR-100]
 - [x] CHK007 Сопровождается ли каждое `Без лимита` точным scope, finite archive capacity и двумя recovery choices при заполнении? [Clarity, Spec §FR-030, FR-106, IA Contract §CX copy principles]
-- [x] CHK008 Едины ли Free/Trial/Личный/add-on values, decimal units, measured-hour disclaimers, annual saving и catalog versioning в pricing, checkout, account и receipt requirements? [Consistency, Spec §Product Decisions, §Launch Tariff Levels, FR-023, FR-093]
+- [ ] CHK008 Едины ли Free/Trial/Личный/add-on values, decimal units, measured-hour disclaimers, annual saving и catalog versioning в pricing, checkout, account и receipt requirements? [Consistency, Spec §Product Decisions, §Launch Tariff Levels, FR-023, FR-093] Проверка 2026-10-30: X6; см. [отчёт T075](../t075-requirements-review-20261030.md).
 - [ ] CHK009 Требует ли launch gate dated comparable evidence по plan type, geography, currency/tax, cadence, audience и unit semantics, а также target-segment acceptance для 250 MB/500 MB/2 GB, 5/20/100/500 GB и 790 ₽/7 900 ₽ — не только COGS/finance approval? [Gap, Research §R11, Spec §FR-023, FR-100]
 - [x] CHK010 Запрещает ли spec публиковать placeholder price/add-on и требует ли new immutable catalog/offer version при любом изменении? [Launch Gate, Spec §FR-020, FR-023, FR-100]
 
@@ -36,7 +36,7 @@
 - [x] CHK016 Показывает ли initial checkout до оплаты exact today/next amount, period, discount fate, storage, recurrence, consent, cancellation и external-refund boundary, а каждое последующее money action — свои applicable amount/date/consequence? [Completeness, Spec §US3–US4, FR-030–FR-038, FR-047, FR-097]
 - [x] CHK017 Описан ли self-service cancel без mandatory reason, retention offer и скрытого повторного списания, с exact paid-through consequence и не более трёх screens? [Trust, Spec §FR-045, SC-005]
 - [x] CHK018 Различаются ли `Отключить автопродление`, `Удалить способ оплаты`, `Написать письмо` о возврате и `Закрыть аккаунт` без взаимозаменяемых обещаний? [Clarity, Spec §FR-018–FR-019, FR-045–FR-046, FR-052–FR-056]
-- [x] CHK019 Едина ли external-refund boundary в spec, plan, research, data model, contracts и tasks: только safe email/reference в GRAF, а eligibility/calculation/communication/execution — вне продукта? [Consistency, Spec §FR-052–FR-056, Research §R4]
+- [ ] CHK019 Едина ли external-refund boundary в spec, plan, research, data model, contracts и tasks: только safe email/reference в GRAF, а eligibility/calculation/communication/execution — вне продукта? [Consistency, Spec §FR-052–FR-056, Research §R4] Проверка 2026-10-30: X4; см. [отчёт T075](../t075-requirements-review-20261030.md).
 - [x] CHK020 Требует ли public-launch gate утверждённый external support/refund runbook, address ownership, legal copy и response obligations, не выдавая их за in-product SLA? [Dependency, Spec §FR-080, §Dependencies]
 
 ## Promotions And Referrals
@@ -95,3 +95,8 @@
 - [Stripe AI pricing models, 2026](https://stripe.com/en-sg/resources/more/ai-pricing-models)
 - [YooKassa merchant refunds](https://yookassa.ru/docs/support/merchant/payments/refunds)
 - [WCAG 2.2](https://www.w3.org/TR/WCAG22/)
+
+## Независимая перепроверка перед T075 — 2026-10-30
+
+Перечитаны все пункты этого списка и относящиеся к ним требования. Исторические результаты выше сохранены; они не являются текущим PASS. Снятые отметки и область каждого расхождения объяснены в [отчёте T075](../t075-requirements-review-20261030.md). Сохранённые `[x]` подтверждают достаточность соответствующей формулировки требований в проверенной области, а не выполнение тестов, выпуск, готовность всей F140 или закрытие issue.
+Текущий подсчёт: **35 отмечены / 5 открыты**. Решение по реализации T075: **BLOCK** до устранения B1–B3.
