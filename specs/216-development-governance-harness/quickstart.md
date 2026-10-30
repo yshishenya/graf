@@ -113,20 +113,23 @@ feature work, Legacy Impact is present, and no exception is expired or ownerless
 ## 8. Reusable harness sample project
 
 The generic core is published at
-`https://github.com/yshishenya/graf-development-harness/releases/tag/v0.1.13`.
+`https://github.com/yshishenya/graf-development-harness/releases/tag/v0.1.15`.
 Clone that immutable tag into a clean temporary directory, confirm commit
-`6a8257186aee878087b68fd77716ddce595a012d` against `harness/harness.lock.json`,
+`8f41a53508d0c8ca27afb97cea4b020ae474c6ce` against `harness/harness.lock.json`,
 and run from the external repository root:
 
 ```sh
-bin/harness-check --self-test
-(cd sample && ../bin/harness-check --spec specs/001-example/spec.md)
+shellcheck bin/harness-check
+PYTHONDONTWRITEBYTECODE=1 bin/harness-check --self-test
+(cd sample && PYTHONDONTWRITEBYTECODE=1 ../bin/harness-check --spec specs/001-example/spec.md)
+PYTHONDONTWRITEBYTECODE=1 bin/harness-check --package-root .
+PYTHONDONTWRITEBYTECODE=1 bin/harness-check --context-check . --package-root .
 ```
 
 Record the release tag, commit SHA, tool versions and pass/fail counts. This
 step must not include GRAF credentials, private paths or meeting content.
 Also verify published package checksums, install into a temporary consumer,
-and check upgrade/rollback against `v0.1.12`. Keep only logs and checksums;
+and check upgrade/rollback against `v0.1.14`. Keep only logs and checksums;
 remove temporary checkouts, packages and environments after verification.
 
 ## Release-candidate boundary
