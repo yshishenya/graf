@@ -69,6 +69,10 @@ class _SpySession:
         self.execute_calls += 1
         return _SpyResult()
 
+    async def scalar(self, _statement):
+        self.execute_calls += 1
+        return "active"
+
     async def commit(self) -> None:
         self.commit_calls += 1
 
@@ -229,7 +233,7 @@ async def test_missing_register_keeps_normal_writers_on_the_sql_path(tmp_path) -
         )
         is True
     )
-    assert session.execute_calls == 3
+    assert session.execute_calls == 4
     assert session.commit_calls == 2
 
 

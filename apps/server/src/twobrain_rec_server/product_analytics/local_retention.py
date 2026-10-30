@@ -13,15 +13,10 @@ import re
 from pathlib import Path
 
 from .activation_fence import ActivationHold, _require
-from .legal_basis_lifecycle import LEVEL_RETENTION_CATEGORIES
+from .legal_basis_lifecycle import LEVEL_RETENTION_CATEGORIES, LOCAL_CATEGORY_TABLES
 from .retention import retention_rule
 
-TABLES = {
-    'activation_milestone_decisions': 'product_activation_milestones',
-    'anonymous_page_aggregate': 'anonymous_page_aggregate_buckets',
-    'visit_attribution': 'public_visit_attributions',
-    'client_acquisition_attribute': 'client_acquisition_attributes',
-}
+TABLES = LOCAL_CATEGORY_TABLES
 # table, name, type, UPDATE OF columns, function, final body migration.
 TRIGGERS = (
     ('meeting_outcome_generation_attempts', 'trg_bump_summary_slot_state_version', 17,

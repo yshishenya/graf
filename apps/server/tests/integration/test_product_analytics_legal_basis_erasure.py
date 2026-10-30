@@ -107,10 +107,10 @@ async def _seed(database_url: str, *, moment: datetime = NOW) -> None:
                 sa.text(
                     f'insert into "{SERVER_ACQUISITION_TABLE}" '
                     "(id, account_id, source, medium, campaign, content, term, yclid, "
-                    "landing_path, attribution_rule, attribution_confidence, captured_at) "
+                    "landing_path, attribution_rule, attribution_confidence, captured_at, graf_attribution_id) "
                     "values (gen_random_uuid(), :account, 'yandex_direct', 'cpc', "
                     "'campaign_096', 'banner_a', 'keyword_b', 'yclid_basis_loss', "
-                    "'/download', 'last_non_direct_90d', 'linked', :captured)"
+                    "'/download', 'last_non_direct_90d', 'linked', :captured, 'graf_attr_synthetic123')"
                 ),
                 {"account": USER_ID, "captured": moment},
             )
@@ -184,7 +184,7 @@ def test_provider_held_categories_become_a_dated_provider_request(
         assert f"category={result.category}" in line
 
 
-def test_level_two_data_is_deleted_and_anonymised_within_the_term(
+def test_level_two_data_is_deleted_within_the_term(
     erasure_database_url: str, tmp_path: Path
 ) -> None:
     plan = _plan_for("attribution_profiles", tmp_path)
@@ -195,15 +195,10 @@ def test_level_two_data_is_deleted_and_anonymised_within_the_term(
     assert visits == [], "the visit attribution row is deleted"
 
     rows = asyncio.run(_rows(erasure_database_url, SERVER_ACQUISITION_TABLE))
-    assert len(rows) == 1, "the client record itself stays"
-    attribute = rows[0]
-    assert attribute["account_id"] == USER_ID
-    assert attribute["landing_path"] == "/download"
-    for label in ("source", "medium", "campaign", "content", "term", "yclid"):
-        assert attribute[label] is None, f"{label} must be anonymised"
-
+    assert rows == [], "the separate acquisition row and bridge are deleted"
+    assert asyncio.run(_rows(erasure_database_url, "user_identities")), "identities stay"
     assert {result.execution for result in results} == {EXECUTION_LOCAL}
-    assert {result.disposition for result in results} == {"delete", "anonymise"}
+    assert {result.disposition for result in results} == {"delete"}
     for result in results:
         assert result.within_deadline is True
     assert basis_loss_evidence_lines(results, reason=plan.reason)[0].count("reason=") == 1

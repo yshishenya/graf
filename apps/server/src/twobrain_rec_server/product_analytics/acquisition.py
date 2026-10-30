@@ -31,7 +31,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -915,6 +915,8 @@ async def record_client_acquisition_attribute_safely(
         return False
     if session is None:
         return False
+    from twobrain_rec_server.db.models import UserIdentity
+
     table = ClientAcquisitionAttributeRow.__table__
     statement = (
         postgresql_insert(table)
@@ -938,6 +940,11 @@ async def record_client_acquisition_attribute_safely(
     )
     try:
         async with session.begin_nested():
+            # Serialize with the account finalizer; a closed account cannot regain attribution.
+            status = await session.scalar(select(UserIdentity.status).where(
+                UserIdentity.id == attribute.account_id).with_for_update())
+            if status != "active":
+                return False
             result = await session.execute(statement)
             written = result.scalar_one_or_none() is not None
         if written and commit:
@@ -1022,3 +1029,10 @@ def _safe_yclid(value: Any) -> str | None:
 
 def _lowered(value: Any) -> Any:
     return value.lower() if isinstance(value, str) else value
+
+
+async def delete_account_acquisition_attribute(db: AsyncSession, *, account_id: UUID) -> int:
+    """Caller owns the account lock and transaction; never commits or deletes an identity."""
+    result = await db.execute(delete(ClientAcquisitionAttributeRow).where(
+        ClientAcquisitionAttributeRow.account_id == account_id))
+    return int(result.rowcount)

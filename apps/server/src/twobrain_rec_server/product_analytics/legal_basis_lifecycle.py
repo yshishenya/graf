@@ -103,25 +103,22 @@ LEGAL_BASIS_STATES = (
 
 PROCESSING_STATE_STOPPED = "stopped"
 
-# How an affected category is dealt with. ``delete`` removes the rows, and
-# ``anonymise`` removes the attribution values while the record itself stays
-# (FR-048 allows either).
+# Local category erasure removes the whole separate analytics row, not its account.
 DISPOSITION_DELETE = "delete"
 DISPOSITION_ANONYMISE = "anonymise"
 DISPOSITIONS = (DISPOSITION_DELETE, DISPOSITION_ANONYMISE)
-
-# GRAF deletes its own rows, and asks a provider for what the provider holds.
 EXECUTION_LOCAL = "local_delete_or_anonymise"
 EXECUTION_PROVIDER_REQUEST = "provider_deletion_request"
 
-# What happens to each registered category when its level loses its basis. The
-# choice follows the retention rule of the category: the aggregate carries no
-# identifier and is simply removed, the campaign attribute is part of an account
-# record and is anonymised in place, and the provider-held categories can only be
-# requested from the provider.
+LOCAL_CATEGORY_TABLES = {
+    "activation_milestone_decisions": "product_activation_milestones",
+    "anonymous_page_aggregate": "anonymous_page_aggregate_buckets",
+    "visit_attribution": "public_visit_attributions",
+    "client_acquisition_attribute": "client_acquisition_attributes",
+}
 CATEGORY_DISPOSITIONS: Mapping[str, str] = {
     ANONYMOUS_AGGREGATE_RETENTION_CATEGORY: DISPOSITION_DELETE,
-    ATTRIBUTION_PROFILES_RETENTION_CATEGORY: DISPOSITION_ANONYMISE,
+    ATTRIBUTION_PROFILES_RETENTION_CATEGORY: DISPOSITION_DELETE,
     "visit_attribution": DISPOSITION_DELETE,
     "activation_milestone_decisions": DISPOSITION_DELETE,
     PROVIDER_ANALYTICS_RETENTION_CATEGORY: DISPOSITION_DELETE,
@@ -519,7 +516,7 @@ def parse_disposition_cases(text: str, *, now: datetime) -> tuple[DispositionCas
                     raise ValueError
             except ValueError:
                 raise LegalBasisLifecycleError("replay_case_selector_invalid") from None
-        elif scope != "activation_milestone_decisions" or selector != "all":
+        elif scope not in LOCAL_CATEGORY_TABLES or selector != "all":
             raise LegalBasisLifecycleError("replay_case_scope_invalid")
         decided, due = (_case_time(record[key]) for key in ("decided_at", "due_at"))
         applied = _case_time(record["applied_at"]) if "applied_at" in record else None
@@ -734,7 +731,7 @@ async def apply_basis_loss_disposition(
 
     # Imported here so the planner, the readiness report and the tests can use
     # the lifecycle without loading the ORM.
-    from sqlalchemy import delete, update
+    from sqlalchemy import delete
 
     from twobrain_rec_server.db.models.product_analytics import (
         AnonymousPageAggregateBucket,
@@ -758,14 +755,7 @@ async def apply_basis_loss_disposition(
         elif action.category == "activation_milestone_decisions":
             statement = delete(ProductActivationMilestone)
         elif action.category == ATTRIBUTION_PROFILES_RETENTION_CATEGORY:
-            statement = update(ClientAcquisitionAttribute).values(
-                source=None,
-                medium=None,
-                campaign=None,
-                content=None,
-                term=None,
-                yclid=None,
-            )
+            statement = delete(ClientAcquisitionAttribute)
         else:  # pragma: no cover - a new local category must declare its statement
             raise LegalBasisLifecycleError(
                 f"retention category {action.category!r} has no erasure statement"

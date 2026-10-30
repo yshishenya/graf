@@ -100,7 +100,7 @@ def test_source_finalizer_result_allows_a_new_replay_intent_and_idempotent_appli
     intent = CASE.replace("decided_at=2026-10-29T10:00:00Z", "decided_at=2026-10-29T14:30:00Z")
     for line in (intent, intent.replace("stage=accepted", "stage=applied") +
                  " applied_at=2026-10-29T14:45:00Z rows_affected=0"):
-        accounts, categories, late = source_replay_accounts([row], parse(line), withdrawn=False, now=NOW)
+        accounts, categories, late = source_replay_accounts([row], parse(line), required_categories=set(), now=NOW)
         assert accounts == {row["account_id"]} and not categories and late == 0
 
 
@@ -120,7 +120,7 @@ def test_source_completed_requires_consistent_authoritative_result(change):
     )
 
     with pytest.raises(ReplayHold):
-        source_replay_accounts([{**source_row(), **change}], parse(), withdrawn=False, now=NOW)
+        source_replay_accounts([{**source_row(), **change}], parse(), required_categories=set(), now=NOW)
 
 
 def test_source_completion_boundaries_and_exact_case_coverage():
@@ -130,11 +130,11 @@ def test_source_completion_boundaries_and_exact_case_coverage():
     )
 
     row = {**source_row(), "finalize_at": NOW, "purged_at": NOW.isoformat(), "finalized_at": NOW}
-    assert source_replay_accounts([row], parse(), withdrawn=False, now=NOW)[0] == {row["account_id"]}
+    assert source_replay_accounts([row], parse(), required_categories=set(), now=NOW)[0] == {row["account_id"]}
     for rows, cases, withdrawn in (([row], (), False), ([], parse(), False), ([], (), True),
                                    ([{**row, "state": "finalizing"}], parse(), False)):
         with pytest.raises(ReplayHold):
-            source_replay_accounts(rows, cases, withdrawn=withdrawn, now=NOW)
+            source_replay_accounts(rows, cases, required_categories={"activation_milestone_decisions"} if withdrawn else set(), now=NOW)
 
 
 @pytest.mark.parametrize("state", ["scheduled", "canceled"])
@@ -147,12 +147,12 @@ def test_source_pending_and_canceled_have_their_own_timeline(state):
     row = {**source_row(state), "finalize_at": NOW+timedelta(days=1), "finalized_at": None,
            "purged_at": None, "purged_count": None, "purged_type": None,
            "canceled_at": NOW if state == "canceled" else None}
-    assert source_replay_accounts([row], (), withdrawn=False, now=NOW) == (set(), [], 0)
+    assert source_replay_accounts([row], (), required_categories=set(), now=NOW) == (set(), [], 0)
     for changes in ({"finalize_at": NOW}, {"requested_at": NOW+timedelta(seconds=1)},
                     {"finalized_at": NOW}, {"purged_count": "0"},
                     {"canceled_at": NOW+timedelta(seconds=1)}):
         with pytest.raises(ReplayHold):
-            source_replay_accounts([{**row, **changes}], (), withdrawn=False, now=NOW)
+            source_replay_accounts([{**row, **changes}], (), required_categories=set(), now=NOW)
 
 
 def test_source_category_requires_a_result_and_preserves_observed_lateness():
@@ -167,8 +167,58 @@ def test_source_category_requires_a_result_and_preserves_observed_lateness():
         for stage in ("accepted", "failed"):
             line = category.replace("2026-10-30T10:00:00Z", due).replace("stage=accepted", "stage="+stage)
             with pytest.raises(ReplayHold):
-                source_replay_accounts([], parse(line), withdrawn=False, now=NOW)
+                source_replay_accounts([], parse(line), required_categories=set(), now=NOW)
     for due, late in (("2026-10-30T10:00:00Z", 0), ("2026-10-29T10:00:00Z", 1)):
         line = category.replace("2026-10-30T10:00:00Z", due).replace("stage=accepted", "stage=applied")
         cases = parse(line + " applied_at=2026-10-29T11:00:00Z rows_affected=0")
-        assert source_replay_accounts([], cases, withdrawn=True, now=NOW) == (set(), list(cases), late)
+        assert source_replay_accounts([], cases, required_categories={"activation_milestone_decisions"}, now=NOW) == (set(), list(cases), late)
+
+
+@pytest.mark.parametrize("scope", ["anonymous_page_aggregate", "visit_attribution",
+                                    "client_acquisition_attribute", "activation_milestone_decisions"])
+def test_every_local_scope_is_parsed_and_replayed(scope):
+    from twobrain_rec_server.product_analytics.restore_replay import replay_accounts
+
+    line = CASE.replace("scope=account_closure", "scope="+scope).replace(
+        "selector_ref=00000000-0000-0000-0000-000000000001", "selector_ref=all")
+    cases = parse(line)
+    assert replay_accounts([], cases, required_categories={scope}, now=NOW) == (set(), list(cases))
+
+
+def test_local_withdrawals_require_every_category_even_when_empty():
+    from twobrain_rec_server.product_analytics.restore_replay import (
+        ReplayHold,
+        replay_accounts,
+        withdrawn_local_categories,
+    )
+
+    text = ("legal_basis_state_version=2\nbasis_withdrawal level=attribution_profiles "
+            "state=withdrawn withdrawn_at=2026-10-28 reason=purpose_ended\n")
+    required = withdrawn_local_categories(text)
+    both = text + ("basis_withdrawal level=anonymous_aggregate state=withdrawn "
+                   "withdrawn_at=2026-10-28 reason=purpose_ended\n")
+    assert withdrawn_local_categories(both) == required | {"anonymous_page_aggregate"}
+    assert required == {"client_acquisition_attribute", "visit_attribution", "activation_milestone_decisions"}
+    with pytest.raises(ReplayHold, match="category_case_missing"):
+        replay_accounts([], (), required_categories=required, now=NOW)
+
+
+@pytest.mark.parametrize("damage", [
+    {"acquisition_purged_at": None}, {"acquisition_purged_count": None},
+    {"acquisition_purged_type": "string"}, {"acquisition_purged_count": "-1"},
+    {"acquisition_purged_count": str(2**63)}, {"acquisition_purged_at": NOW.isoformat()},
+    {"acquisition_purged_at": (NOW-timedelta(days=2)).isoformat()},
+    {"acquisition_purged_at": NOW.replace(tzinfo=None).isoformat()},
+])
+def test_present_acquisition_result_is_independent_and_complete(damage):
+    from twobrain_rec_server.product_analytics.restore_replay import (
+        ReplayHold,
+        source_replay_accounts,
+    )
+
+    row = {**source_row(), "acquisition_present": True,
+           "acquisition_purged_at": (NOW-timedelta(hours=1)).isoformat(),
+           "acquisition_purged_count": "0", "acquisition_purged_type": "number"}
+    assert source_replay_accounts([row], parse(), required_categories=set(), now=NOW)[0] == {row["account_id"]}
+    with pytest.raises(ReplayHold):
+        source_replay_accounts([{**row, **damage}], parse(), required_categories=set(), now=NOW)

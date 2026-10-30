@@ -105,7 +105,12 @@ submitted; confirmed требует точного отдельного readback
 выключенная аналитика/получатель и отсутствующая БД не используют fallback.
 Проверить предел16KiB, unknown поля, пять строк на аккаунт и bounded scan20/60с.
 
-На учебной GRAF DB проверить until_decision, права, account/category deletion,
+На учебной GRAF DB проверить until_decision, права, account/category deletion
+всех четырёх локальных категорий (ledger/aggregate/visit/acquisition), полное
+удаление acquisition bridge без удаления identity, отдельные purge-results,
+rollback completion и отказ позднего writer после блокировки identity,
+полный withdrawal coverage даже при пустых таблицах и точные survivors,
+
 restore старой копии с pending/dispatching/submitted и удалениями после её точки.
 До свежей reconciliation/retention/restore-проверки всё восстановленное
 неподтверждённое quarantined/ambiguous и writer закрыт. Пропуск после копии —

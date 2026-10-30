@@ -21,6 +21,7 @@ from twobrain_rec_server.db.models import (
     WorkspaceMembership,
     WorkspaceSubscription,
 )
+from twobrain_rec_server.product_analytics.acquisition import delete_account_acquisition_attribute
 from twobrain_rec_server.product_analytics.milestones import delete_account_activation_decisions
 
 ACCOUNT_CLOSE_COOLING_DAYS = 7
@@ -433,6 +434,9 @@ async def finalize_account_close(
     activation_purged_count = await delete_account_activation_decisions(
         db, account_id=request.requested_by_user_id,
     )
+    acquisition_purged_count = await delete_account_acquisition_attribute(
+        db, account_id=request.requested_by_user_id,
+    )
     request.state = "completed"
     request.finalized_at = now_utc
     request.metadata_json = {
@@ -440,6 +444,8 @@ async def finalize_account_close(
         "access_revoked_at": now_utc.isoformat(),
         "activation_decisions_purged_at": now_utc.isoformat(),
         "activation_decisions_purged_count": activation_purged_count,
+        "acquisition_attributes_purged_at": now_utc.isoformat(),
+        "acquisition_attributes_purged_count": acquisition_purged_count,
         "meeting_deletion_boundary": "delegated_to_deletion_reconciler",
     }
     await db.flush()

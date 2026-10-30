@@ -741,7 +741,6 @@ async def _backup_lifecycle(source, register, *, root):
     from twobrain_rec_server.db.tenant_context import maintenance_context_settings
 
     from . import restore_replay as replay
-    from .legal_basis_lifecycle import _version2_records
     from .local_retention import local_retention_database_catalog
 
     raw = replay.private_bytes(register)
@@ -773,17 +772,27 @@ async def _backup_lifecycle(source, register, *, root):
         now = await source.fetchval("SELECT clock_timestamp()")
         text = raw.decode("utf-8")
         cases = replay.parse_disposition_cases(text, now=now)
-        withdrawn = any(kind == "basis_withdrawal" and item["level"] == "attribution_profiles"
-                        for kind, item in _version2_records(text))
+        access = await source.fetch(replay.LOCAL_ACCESS_QUERY)
+        replay.check_local_access(access)
         rows = [dict(row) for row in await source.fetch(replay.CLOSURE_ROWS_QUERY)]
-        accounts, categories, late = replay.source_replay_accounts(rows, cases, withdrawn=withdrawn, now=now)
-        _require(await source.fetchval("""SELECT EXISTS(SELECT FROM public.product_activation_milestones
-            WHERE account_id=ANY($1::uuid[]) OR $2::boolean)""", list(accounts), bool(categories)) is False,
-            "activation_operator_lifecycle_remnants")
+        accounts, categories, late = replay.source_replay_accounts(rows, cases,
+            required_categories=replay.withdrawn_local_categories(text), now=now)
+        scopes = {case.scope for case in categories}
+        for category, table in replay.LOCAL_CATEGORY_TABLES.items():
+            if category in scopes:
+                remains = await source.fetchval(f'SELECT EXISTS(SELECT FROM public."{table}")')
+            elif category in {"activation_milestone_decisions", "client_acquisition_attribute"}:
+                remains = await source.fetchval(f'SELECT EXISTS(SELECT FROM public."{table}" '
+                    'WHERE account_id=ANY($1::uuid[]))', list(accounts))
+            else:
+                continue
+            _require(remains is False, "activation_operator_lifecycle_remnants")
         _require(replay.private_bytes(register) == raw, "activation_operator_register_changed")
         digest = _json_digest(dict(rows=rows, register_sha256=hashlib.sha256(raw).hexdigest(),
             retention_catalog_sha256=catalog, ledger_policy=policy,
-            applied_after_recorded_due=late, historical_deadlines="unverified"))
+            category_coverage=sorted(scopes), local_access=[tuple(row) for row in access],
+            applied_after_recorded_due=late, historical_deadlines="unverified",
+            provider_dispositions="outside_local_scope"))
     # The caller must be able to run identity/quiet queries outside this transaction.
     _require(not source.is_in_transaction(), "activation_operator_transaction_active")
     return digest, raw

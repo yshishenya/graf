@@ -153,7 +153,7 @@ def test_staged_native_restore_replays_before_cleanup(replay_world, rehearsal_ob
                     await source.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
                     await replay.database_context(source, name=world["source"], oid=source_oid)
                     accounts, categories = replay.replay_accounts(
-                        await replay.closure_snapshot(source), cases, withdrawn=False, now=now)
+                        await replay.closure_snapshot(source), cases, required_categories=set(), now=now)
                     assert not categories
                     async with sessions[1]() as target:
                         await replay.database_context(target, name=name, oid=oid)
@@ -443,7 +443,7 @@ def test_coherent_copy_is_native_and_can_be_restored(replay_world, rehearsal_obj
                         for key, value in maintenance_context_settings(replay.CONTEXT).items():
                             await source.execute("SELECT set_config($1,$2,true)", key, value)
                         rows = [dict(row) for row in await source.fetch(replay.CLOSURE_ROWS_QUERY)]
-                        accounts, categories = replay.replay_accounts(rows, cases, withdrawn=False, now=now)
+                        accounts, categories = replay.replay_accounts(rows, cases, required_categories=set(), now=now)
                         assert not categories
                     engine = create_async_engine(url.set(database=resources["target"]), poolclass=NullPool)
 
@@ -726,6 +726,15 @@ def replay_world(postgres_isolated_cluster_database_url, tmp_path, monkeypatch, 
               (id,account_id,event_name,event_id,occurred_at,accepted_at,safe_payload,source_kind,
                posthog_state,yandex_state) VALUES('{uuid4()}','{account}','first_result_viewed',
                '{uuid4()}',now(),now(),'{{}}','browser','{state}','{states[-index-1]}')""", "twobrain_rec")
+    for account in accounts:
+        owner(f"""INSERT INTO client_acquisition_attributes
+            (id,account_id,source,landing_path,attribution_confidence,captured_at,graf_attribution_id)
+            VALUES('{uuid4()}','{account}','synthetic','/download','linked',now(),'graf_attr_synthetic123')""",
+            "twobrain_rec")
+    owner("""INSERT INTO public_visit_attributions(id,attribution_ref,landing_path,first_seen_at,expires_at)
+        VALUES(gen_random_uuid(),'graf_visit_synthetic','/download',now(),now()+interval '90 days');
+        INSERT INTO anonymous_page_aggregate_buckets(id,bucket_date,surface,landing_path)
+        VALUES(gen_random_uuid(),current_date,'download','/download')""", "twobrain_rec")
     owner(f"""INSERT INTO workspaces(id,organization_id,slug,name,kind,owner_user_id,
                 default_summary_template_key,default_summary_template_version)
           VALUES('{workspace}','{organization}','synthetic','Synthetic','personal','{accounts[0]}',
@@ -989,7 +998,7 @@ def test_old_copy_replays_only_exact_account_and_quarantines_both(replay_world):
     assert result.returncode == 0, result.stderr + result.stdout
     receipt = json.loads(result.stdout)
     assert receipt["replay_result"] == "verified" and receipt["readiness"] == "hold"
-    assert receipt["quarantined_intents"] == 8 and receipt["deleted_rows"] == 1
+    assert receipt["quarantined_intents"] == 8 and receipt["deleted_rows"] == 2
     assert int(world["owner"]("SELECT count(*) FROM product_activation_milestones", world["target"])) == 8
     assert world["owner"]("SELECT count(*) FROM product_activation_milestones") == source_before
     again = launch(world)
@@ -1054,7 +1063,7 @@ def test_category_case_erases_ledger_and_preserves_other_relations(replay_world)
     result = launch(world)
     assert result.returncode == 0, result.stderr + result.stdout
     receipt = json.loads(result.stdout)
-    assert receipt["cases"] == 2 and receipt["deleted_rows"] == 9
+    assert receipt["cases"] == 2 and receipt["deleted_rows"] == 10
     assert world["owner"]("SELECT count(*) FROM product_activation_milestones", world["target"]).strip() == "0"
     assert world["owner"]("SELECT md5(jsonb_agg(to_jsonb(t) ORDER BY id)::text) FROM user_identities t",
                            world["target"]) == outside
@@ -1190,3 +1199,222 @@ def test_changed_operator_rolls_back_and_cleanup_failure_never_passes(replay_wor
         with pytest.raises(replay.ReplayHold, match="replay_result_unknown"):
             asyncio.run(replay.reconcile(**replay_kwargs(world)))
     assert not list(world["staging"].iterdir())
+
+
+def test_all_four_categories_replay_and_source_postconditions(replay_world):
+    import asyncpg
+
+    from twobrain_rec_server.product_analytics import activation_operator as operator
+    from twobrain_rec_server.product_analytics import restore_replay as replay
+    from twobrain_rec_server.product_analytics.activation_fence import ActivationHold
+    from twobrain_rec_server.product_analytics.local_retention import TABLES
+
+    world = replay_world
+    assert int(world["owner"]("SELECT count(*) FROM client_acquisition_attributes")) == 8
+    assert world["owner"]("SELECT metadata_json->>'acquisition_attributes_purged_count' "
+                          "FROM account_closure_requests WHERE state='completed'").strip() == '1'
+    original = world["operator"].read_text()
+    now = datetime.now(UTC)
+    cases = {}
+    for scope in TABLES:
+        cases[scope] = (f"disposition_case case_ref=case_{scope} decision_ref=decision_{scope} "
+            f"scope={scope} selector_ref=all owner_role=operator reason=purpose_ended "
+            f"decided_at={now.isoformat()} due_at={(now+timedelta(days=1)).isoformat()} stage=applied "
+            f"applied_at={now.isoformat()} rows_affected=0\n")
+
+    async def source_checks():
+        url = world["url"]
+        owner = await asyncpg.connect(host=url.host,port=url.port,user=url.username,
+                                      password=url.password,database=url.database)
+        source = await asyncpg.connect(host=url.host,port=url.port,user=url.username,
+                                       password=url.password,database=url.database)
+        try:
+            await source.execute("SET SESSION AUTHORIZATION twobrain_rec_maintenance")
+            await source.execute("SET row_security=on")
+            async def evaluate():
+                try:
+                    return await operator._backup_lifecycle(source, world["operator"], root=REPO)
+                finally:
+                    assert not source.is_in_transaction()
+            baseline = (await evaluate())[0]
+            metadata = await owner.fetchval('SELECT metadata_json::text FROM account_closure_requests WHERE id=$1',world['closure'])
+            legacy = {k:v for k,v in json.loads(metadata).items() if not k.startswith('acquisition_attributes_purged_')}
+            for change, allowed in ((legacy,True),
+                ({**legacy,'acquisition_attributes_purged_at':None},False),
+                ({**legacy,'acquisition_attributes_purged_count':0},False),
+                ({**json.loads(metadata),'acquisition_attributes_purged_count':'1'},False)):
+                await owner.execute('UPDATE account_closure_requests SET metadata_json=$2::json WHERE id=$1',world['closure'],json.dumps(change))
+                try:
+                    if allowed:
+                        assert len((await evaluate())[0]) == 64
+                    else:
+                        with pytest.raises((ActivationHold,replay.ReplayHold)):
+                            await evaluate()
+                finally:
+                    await owner.execute('UPDATE account_closure_requests SET metadata_json=$2::json WHERE id=$1',world['closure'],metadata)
+                assert (await evaluate())[0] == baseline
+            remnant = uuid4()
+            await owner.execute("""INSERT INTO client_acquisition_attributes
+                (id,account_id,source,landing_path,attribution_confidence,captured_at)
+                VALUES($1,$2,'synthetic','/download','linked',now())""",remnant,world['accounts'][0])
+            try:
+                with pytest.raises((ActivationHold,replay.ReplayHold)):
+                    await evaluate()
+            finally:
+                await owner.execute('DELETE FROM client_acquisition_attributes WHERE id=$1',remnant)
+            assert (await evaluate())[0] == baseline
+            for scope, table in TABLES.items():
+                if scope != 'activation_milestone_decisions':
+                    for change, undo in (
+                        (f'CREATE POLICY synthetic_hide ON {table} AS RESTRICTIVE USING(false)',
+                         f'DROP POLICY synthetic_hide ON {table}'),
+                        (f'ALTER TABLE {table} ENABLE ROW LEVEL SECURITY',
+                         f'ALTER TABLE {table} DISABLE ROW LEVEL SECURITY'),
+                        (f'REVOKE SELECT ON {table} FROM twobrain_rec_maintenance',
+                         f'GRANT SELECT ON {table} TO twobrain_rec_maintenance'),
+                    ):
+                        await owner.execute(change)
+                        try:
+                            with pytest.raises((ActivationHold,replay.ReplayHold)):
+                                await evaluate()
+                        finally:
+                            await owner.execute(undo)
+                        assert (await evaluate())[0] == baseline
+                closed(world["operator"], original+cases[scope])
+                with pytest.raises((ActivationHold,replay.ReplayHold)):
+                    await evaluate()  # Applied metadata cannot hide actual remaining rows.
+                from twobrain_rec_server.product_analytics.legal_basis_lifecycle import (
+                    LEVEL_RETENTION_CATEGORIES,
+                    apply_basis_loss_disposition,
+                    plan_processing_stop,
+                )
+                engine = create_async_engine(world["url"], poolclass=NullPool)
+                try:
+                    async with async_sessionmaker(engine)() as db:
+                        plan = plan_processing_stop(
+                            level_key=next(level for level, group in LEVEL_RETENTION_CATEGORIES.items() if scope in group),
+                            basis_lost_at=now, reason="purpose_ended", affected_categories=(scope,),
+                            deletion_deadlines={scope:now+timedelta(days=1)})
+                        assert (await apply_basis_loss_disposition(db,plan))[0].disposition == 'delete'
+                finally:
+                    await engine.dispose()
+                assert len((await evaluate())[0]) == 64
+                closed(world["operator"], original+cases[scope].replace('stage=applied','stage=accepted').split(' applied_at=')[0]+'\n')
+                with pytest.raises((ActivationHold,replay.ReplayHold)):
+                    await evaluate()  # Even an empty category requires a result.
+                closed(world["operator"], original)
+                baseline = (await evaluate())[0]
+            withdrawal = ("basis_withdrawal level=attribution_profiles state=withdrawn "
+                "withdrawn_at="+now.date().isoformat()+" reason=purpose_ended\n")
+            for missing in ('client_acquisition_attribute','visit_attribution','activation_milestone_decisions'):
+                closed(world["operator"], original+withdrawal+''.join(v for k,v in cases.items() if k != missing))
+                with pytest.raises((ActivationHold,replay.ReplayHold)):
+                    await evaluate()
+            closed(world["operator"], original+withdrawal+''.join(cases.values()))
+            assert len((await evaluate())[0]) == 64
+        finally:
+            await source.close()
+            await owner.close()
+
+    asyncio.run(source_checks())
+    closed(world["operator"], original)
+    result = launch(world)
+    assert result.returncode == 0, result.stdout+result.stderr
+    assert json.loads(result.stdout)['deleted_rows'] == 2
+    identities = world["owner"]("SELECT md5(jsonb_agg(to_jsonb(t) ORDER BY id)::text) FROM user_identities t",world["target"])
+    for scope, table in TABLES.items():
+        other = {name:world["owner"](f'SELECT md5(jsonb_agg(to_jsonb(t) ORDER BY id)::text) FROM {name} t',world["target"])
+                 for name in TABLES.values() if name != table}
+        closed(world["operator"], world["operator"].read_text()+cases[scope])
+        result = launch(world)
+        assert result.returncode == 0, result.stdout+result.stderr
+        assert int(world["owner"](f'SELECT count(*) FROM {table}',world["target"])) == 0
+        for name, expected in other.items():
+            assert world["owner"](f'SELECT md5(jsonb_agg(to_jsonb(t) ORDER BY id)::text) FROM {name} t',world["target"]) == expected
+    assert world["owner"]("SELECT md5(jsonb_agg(to_jsonb(t) ORDER BY id)::text) FROM user_identities t",world["target"]) == identities
+    assert json.loads(launch(world).stdout)['deleted_rows'] == 0
+    withdrawal = ("basis_withdrawal level=attribution_profiles state=withdrawn "
+        "withdrawn_at="+now.date().isoformat()+" reason=purpose_ended\n")
+    for missing in ('client_acquisition_attribute','visit_attribution','activation_milestone_decisions'):
+        closed(world['operator'],original+withdrawal+''.join(v for k,v in cases.items() if k != missing))
+        assert launch(world).returncode != 0  # Empty restored tables do not replace exact coverage.
+    closed(world['operator'],original+withdrawal+''.join(cases.values()))
+    assert launch(world).returncode == 0
+
+
+def test_acquisition_finalizer_rolls_back_and_serializes_late_writer(replay_world, monkeypatch):
+    import asyncpg
+    from sqlalchemy import text
+
+    from twobrain_rec_server.auth import account_closure
+    from twobrain_rec_server.product_analytics import acquisition
+
+    world = replay_world
+    account = world['accounts'][0]
+    world['owner'](f"""UPDATE user_identities SET status='active' WHERE id='{account}';
+        UPDATE account_closure_requests SET state='scheduled',finalized_at=NULL,metadata_json='{{}}'
+            WHERE id='{world['closure']}';
+        INSERT INTO product_activation_milestones
+            (id,account_id,event_name,event_id,occurred_at,accepted_at,safe_payload,source_kind)
+            VALUES(gen_random_uuid(),'{account}','first_result_viewed',gen_random_uuid(),now(),now(),'{{}}','browser');
+        INSERT INTO client_acquisition_attributes
+            (id,account_id,source,landing_path,attribution_confidence,captured_at,graf_attribution_id)
+            VALUES(gen_random_uuid(),'{account}','synthetic','/download','linked',now(),'graf_attr_synthetic123')""")
+
+    async def run():
+        engine = create_async_engine(world['url'],poolclass=NullPool)
+        url = world['url']
+        owner = await asyncpg.connect(host=url.host,port=url.port,user=url.username,
+                                      password=url.password,database=url.database)
+        task = None
+        try:
+            original = account_closure.delete_account_acquisition_attribute
+            async def fail(*args,**kwargs):
+                raise RuntimeError('synthetic_erasure_failure')
+            with monkeypatch.context() as patch:
+                patch.setattr(account_closure,'delete_account_acquisition_attribute',fail)
+                async with async_sessionmaker(engine)() as db:
+                    with pytest.raises(RuntimeError,match='synthetic_erasure_failure'):
+                        await account_closure.finalize_account_close(db,request_id=world['closure'],now=datetime.now(UTC))
+                    await db.rollback()
+            assert account_closure.delete_account_acquisition_attribute is original
+            assert await owner.fetchval('SELECT count(*) FROM product_activation_milestones WHERE account_id=$1',account) == 1
+            assert await owner.fetchval('SELECT count(*) FROM client_acquisition_attributes WHERE account_id=$1',account) == 1
+            assert await owner.fetchval('SELECT state FROM account_closure_requests WHERE id=$1',world['closure']) == 'scheduled'
+            assert await owner.fetchval('SELECT status FROM user_identities WHERE id=$1',account) == 'active'
+            monkeypatch.setattr(acquisition,'legal_basis_write_allowed',lambda *args,**kwargs:True)
+            pid = asyncio.Future()
+            async def late_writer():
+                async with async_sessionmaker(engine)() as db:
+                    pid.set_result(await db.scalar(text('SELECT pg_backend_pid()')))
+                    attribute = acquisition.build_client_acquisition_attribute(account_id=account,landing_path='/download',source='synthetic')
+                    result = await acquisition.record_client_acquisition_attribute_safely(db,attribute)
+                    await db.commit()
+                    return result
+            async with async_sessionmaker(engine)() as db:
+                await account_closure.finalize_account_close(db,request_id=world['closure'],now=datetime.now(UTC))
+                task = asyncio.create_task(late_writer())
+                writer_pid = await pid
+                deadline = time.monotonic()+5
+                while not await owner.fetchval('SELECT cardinality(pg_blocking_pids($1)) > 0',writer_pid):
+                    assert time.monotonic() < deadline, 'writer_did_not_wait_on_identity'
+                    await asyncio.sleep(.01)
+                assert not task.done()
+                await db.commit()
+            assert await asyncio.wait_for(task,5) is False
+            metadata = await owner.fetchval('SELECT metadata_json::text FROM account_closure_requests WHERE id=$1',world['closure'])
+            result = json.loads(metadata)
+            assert result['acquisition_attributes_purged_count'] == result['activation_decisions_purged_count'] == 1
+            assert await owner.fetchval('SELECT count(*) FROM client_acquisition_attributes WHERE account_id=$1',account) == 0
+            async with async_sessionmaker(engine)() as db:
+                await account_closure.finalize_account_close(db,request_id=world['closure'],now=datetime.now(UTC))
+                await db.commit()
+            assert await owner.fetchval('SELECT metadata_json::text FROM account_closure_requests WHERE id=$1',world['closure']) == metadata
+        finally:
+            if task is not None and not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+            await owner.close()
+            await engine.dispose()
+    asyncio.run(run())

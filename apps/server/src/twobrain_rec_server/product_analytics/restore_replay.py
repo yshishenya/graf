@@ -25,7 +25,11 @@ from sqlalchemy.pool import NullPool
 
 from twobrain_rec_server.db.models import ProductActivationMilestone
 from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
+from twobrain_rec_server.product_analytics.acquisition import delete_account_acquisition_attribute
 from twobrain_rec_server.product_analytics.legal_basis_lifecycle import (
+    LEVEL_RETENTION_CATEGORIES,
+    LOCAL_CATEGORY_TABLES,
+    _version2_records,
     apply_basis_loss_disposition,
     parse_disposition_cases,
     plan_processing_stop,
@@ -45,13 +49,43 @@ CLOSURE_POLICY_QUERY = """
                pg_get_expr(polqual, polrelid), pg_get_expr(polwithcheck, polrelid)
           FROM pg_policy WHERE polrelid='public.account_closure_requests'::regclass
     """
-CLOSURE_ACCESS_QUERY = "SELECT has_table_privilege(session_user,'public.account_closure_requests','SELECT')"
+CLOSURE_ACCESS_QUERY = """SELECT relrowsecurity AND relforcerowsecurity
+    AND has_table_privilege(session_user,oid,'SELECT') FROM pg_class
+    WHERE oid='public.account_closure_requests'::regclass"""
+UNRESTRICTED_TABLES = sorted(name for category, name in LOCAL_CATEGORY_TABLES.items()
+                             if category != "activation_milestone_decisions")
+LOCAL_ACCESS_QUERY = """
+    SELECT c.relname::text,c.relrowsecurity,c.relforcerowsecurity,
+        has_table_privilege(session_user,c.oid,'SELECT'),
+        (SELECT count(*) FROM pg_policy p WHERE p.polrelid=c.oid)
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relname IN
+        ('anonymous_page_aggregate_buckets','client_acquisition_attributes','public_visit_attributions')
+    ORDER BY c.relname
+"""
+
+
+def check_local_access(rows):
+    if [tuple(row) for row in rows] != [(name, False, False, True, 0) for name in UNRESTRICTED_TABLES]:
+        raise ReplayHold("replay_local_access_invalid")
+
+
+def withdrawn_local_categories(value):
+    return {category for kind, row in _version2_records(value)
+            if kind == "basis_withdrawal" and row["level"] != "provider_analytics"
+            for category in LEVEL_RETENTION_CATEGORIES[row["level"]]}
+
 CLOSURE_ROWS_QUERY = """
         SELECT id, requested_by_user_id AS account_id, state, requested_at, finalize_at,
                finalized_at, canceled_at,
                metadata_json->>'activation_decisions_purged_at' AS purged_at,
                metadata_json->>'activation_decisions_purged_count' AS purged_count,
-               json_typeof(metadata_json->'activation_decisions_purged_count') AS purged_type
+               json_typeof(metadata_json->'activation_decisions_purged_count') AS purged_type,
+               metadata_json->>'acquisition_attributes_purged_at' AS acquisition_purged_at,
+               metadata_json->>'acquisition_attributes_purged_count' AS acquisition_purged_count,
+               json_typeof(metadata_json->'acquisition_attributes_purged_count') AS acquisition_purged_type,
+               metadata_json::jsonb ?| ARRAY['acquisition_attributes_purged_at',
+                   'acquisition_attributes_purged_count'] AS acquisition_present
           FROM public.account_closure_requests ORDER BY id
     """
 UNCONFIRMED = {"pending", "pre_send_retry", "dispatching", "submitted"}
@@ -138,13 +172,13 @@ async def closure_snapshot(db) -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def replay_accounts(rows, cases, *, withdrawn: bool, now: datetime):
+def replay_accounts(rows, cases, *, required_categories: set[str], now: datetime):
     requests = {str(row["id"]): row for row in rows}
     if len(requests) != len(rows) or any(case.stage == "failed" for case in cases):
         raise ReplayHold("replay_history_invalid")
     account_cases = {case.selector_ref: case for case in cases if case.scope == "account_closure"}
-    categories = [case for case in cases if case.scope == "activation_milestone_decisions"]
-    if withdrawn and not categories:
+    categories = [case for case in cases if case.scope in LOCAL_CATEGORY_TABLES]
+    if not required_categories <= {case.scope for case in categories}:
         raise ReplayHold("replay_category_case_missing")
     completed = set()
     for reference, row in requests.items():
@@ -169,9 +203,9 @@ def replay_accounts(rows, cases, *, withdrawn: bool, now: datetime):
     return {requests[key]["account_id"] for key in completed}, categories
 
 
-def source_replay_accounts(rows, cases, *, withdrawn: bool, now: datetime):
+def source_replay_accounts(rows, cases, *, required_categories: set[str], now: datetime):
     """Current source postconditions; a replay intent is not historical deadline proof."""
-    accounts, categories = replay_accounts(rows, cases, withdrawn=withdrawn, now=now)
+    accounts, categories = replay_accounts(rows, cases, required_categories=required_categories, now=now)
     for row in rows:
         times = [row[key] for key in ("requested_at", "finalize_at", "finalized_at", "canceled_at")]
         if any(not isinstance(value, datetime) or value.utcoffset() is None
@@ -189,6 +223,16 @@ def source_replay_accounts(rows, cases, *, withdrawn: bool, now: datetime):
                 valid = valid and canceled is None and now < due
             else:  # replay_accounts already rejected unresolved/unknown states.
                 valid = valid and canceled is not None and requested <= canceled <= now and canceled < due
+        if row.get("acquisition_present", False):
+            try:
+                purged = datetime.fromisoformat(row["acquisition_purged_at"])
+                count = row["acquisition_purged_count"]
+                valid = (valid and row["state"] == "completed" and purged.utcoffset() is not None
+                         and due <= purged <= finalized
+                         and row["acquisition_purged_type"] == "number" and count.isascii()
+                         and count.isdecimal() and len(count) <= 19 and int(count) <= 2**63 - 1)
+            except (ValueError, TypeError, AttributeError):
+                valid = False
         if not valid:
             raise ReplayHold("replay_source_timeline_invalid")
     if any(case.stage != "applied" for case in categories):
@@ -230,6 +274,26 @@ async def verify_ledger(db, expected):
             raise ReplayHold("replay_ledger_mismatch")
 
 
+async def local_rows(db):
+    check_local_access((await db.execute(text(LOCAL_ACCESS_QUERY))).all())
+    return {category: {row["id"]: dict(row) for row in
+            (await db.execute(text(f'SELECT * FROM public."{table}"'))).mappings()}
+            for category, table in LOCAL_CATEGORY_TABLES.items()
+            if category != "activation_milestone_decisions"}
+
+
+def expected_local_rows(before, accounts, categories):
+    return {category: {key: row for key, row in rows.items()
+            if category not in categories and not (
+                category == "client_acquisition_attribute" and row["account_id"] in accounts)}
+            for category, rows in before.items()}
+
+
+async def verify_local_rows(db, expected):
+    if await local_rows(db) != expected:
+        raise ReplayHold("replay_local_rows_mismatch")
+
+
 async def reconcile(*, host: str, port: int, password_file: Path, operator_file: Path,
                     ownership_file: Path, staging: Path) -> dict:
     """One stopped synthetic source and one previously compared owned UUID target."""
@@ -243,11 +307,7 @@ async def reconcile(*, host: str, port: int, password_file: Path, operator_file:
     binding = ownership_record(ownership)
     now = datetime.now(UTC)
     cases = parse_disposition_cases(operator.decode("utf-8"), now=now)
-    # Reuse the validated v2 records without reopening a less constrained path.
-    from twobrain_rec_server.product_analytics.legal_basis_lifecycle import _version2_records
-
-    withdrawn = any(kind == "basis_withdrawal" and item["level"] == "attribution_profiles"
-                    for kind, item in _version2_records(operator.decode("utf-8")))
+    required_categories = withdrawn_local_categories(operator.decode("utf-8"))
     password = private_bytes(password_file, limit=16384).decode("utf-8").strip()
     if not password or "\x00" in password:
         raise ReplayHold("replay_password_invalid")
@@ -268,7 +328,7 @@ async def reconcile(*, host: str, port: int, password_file: Path, operator_file:
             await source.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
             await database_context(source, name=binding["source_database"], oid=binding["source_oid"])
             rows = await closure_snapshot(source)
-            accounts, categories = replay_accounts(rows, cases, withdrawn=withdrawn, now=now)
+            accounts, categories = replay_accounts(rows, cases, required_categories=required_categories, now=now)
             snapshot = json.dumps({"binding": binding, "register_sha256": digest(operator),
                                    "captured_at": now.isoformat(), "requests": rows},
                                   default=str, sort_keys=True).encode()
@@ -292,21 +352,26 @@ async def reconcile(*, host: str, port: int, password_file: Path, operator_file:
                 async with target_sessions() as target:
                     await database_context(target, name=binding["target_database"], oid=binding["target_oid"])
                     before = await ledger(target)
-                    expected = expected_ledger(before, accounts, category=bool(categories))
+                    scopes = {case.scope for case in categories}
+                    expected = expected_ledger(before, accounts, category="activation_milestone_decisions" in scopes)
+                    expected_local = expected_local_rows(await local_rows(target), accounts, scopes)
                     unchanged()
                     intents = await quarantine_milestone_deliveries(target, after_restore=True)
                     removed = 0
                     for account in sorted(accounts, key=str):
                         removed += await delete_account_activation_decisions(target, account_id=account)
+                        removed += await delete_account_acquisition_attribute(target, account_id=account)
                     for case in categories:
                         plan = plan_processing_stop(
-                            level_key="attribution_profiles", basis_lost_at=case.decided_at,
-                            reason=case.reason, affected_categories=("activation_milestone_decisions",),
-                            deletion_deadlines={"activation_milestone_decisions": case.due_at},
+                            level_key=next(level for level, group in LEVEL_RETENTION_CATEGORIES.items()
+                                           if case.scope in group), basis_lost_at=case.decided_at,
+                            reason=case.reason, affected_categories=(case.scope,),
+                            deletion_deadlines={case.scope: case.due_at},
                         )
                         outcomes = await apply_basis_loss_disposition(target, plan, commit=False)
                         removed += sum(result.rows_affected for result in outcomes)
                     await verify_ledger(target, expected)
+                    await verify_local_rows(target, expected_local)
                     unchanged()
                     commit_attempted = True
                     await target.commit()
@@ -314,6 +379,7 @@ async def reconcile(*, host: str, port: int, password_file: Path, operator_file:
                 async with target_sessions() as readback:
                     await database_context(readback, name=binding["target_database"], oid=binding["target_oid"])
                     await verify_ledger(readback, expected)
+                    await verify_local_rows(readback, expected_local)
                     unchanged()
             if Path(directory).exists():
                 raise ReplayHold("replay_cleanup_failed")
