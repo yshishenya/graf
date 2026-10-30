@@ -332,7 +332,9 @@ The repository includes a deliberately narrow guard at
 root-owned copy from `/usr/local/libexec`, not the mutable application
 checkout, through the systemd oneshot/timer pair
 (`graf-posthog-runtime-guard.service` and `graf-posthog-runtime-guard.timer`)
-once per minute.
+once per minute, with `AccuracySec=1s` to avoid the default one-minute
+coalescing delay. This is not a real-time guarantee; the existing sample
+freshness limit remains strictly below 120 seconds.
 The guard emits only aggregate metrics and threshold/blocker codes to stdout
 and journald. It fails closed when host, Docker, or health metrics are
 unavailable, validates that running analytics containers retain non-zero CPU
@@ -352,8 +354,10 @@ The runtime environment example is `infra/posthog/runtime-guard.env.example`.
 The installed unit pins both `GRAF_POSTHOG_STORAGE_STATE_DIR` and
 `GRAF_POSTHOG_STORAGE_STATE_FILE` to `/var/lib/graf-posthog-storage` inside its
 write sandbox, even if the environment file specifies another location.
-Relocation requires a reviewed systemd drop-in replacing `ExecStart` and adding
-the matching `ReadWritePaths`; changing only the environment is insufficient.
+The T113 preflight accepts only the reviewed fixed paths, source bytes and
+loaded critical systemd properties, with no drop-ins or extra commands.
+Relocation requires a reviewed source and reader change; changing only the
+environment or adding a drop-in keeps admission closed.
 Manual collector runs retain their explicit path options.
 
 Installation is a release/deploy step, not a local smoke side effect:

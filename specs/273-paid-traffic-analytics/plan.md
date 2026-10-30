@@ -631,3 +631,15 @@ Actual register bytes всех writers сравниваются отдельно
 [Проектный гейт](validation/t113-shared-lifecycle-design-review-20261030.md),
 [проверки и остаток](validation/t113-shared-lifecycle-20261030.md).
 Installed jobs/shell graf-local/верхний оператор и рабочий допуск ещё открыты.
+
+### Исходные и загруженные guard units — 30.10.2026
+
+В T113 проверяются две существующие systemd units: удержанные read-only FD,
+root:root0644, безопасные предки, точные bytes из закреплённой копии исходников;
+штатный busctl читает критические свойства до/после runtime DB-проверки.
+Динамические ticks и история исполнения валидируются отдельно от стабильного
+отпечатка. Окружение с подменённым адресом системной шины запрещено.
+В прежнем timer добавляется AccuracySec=1s без изменения интервала и срока120с.
+[Проектное ревью](validation/t113-guard-units-design-review-20261030.md),
+[проверки и остаток](validation/t113-guard-units-20261030.md). Это часть installed
+jobs; полный host/cron/retention и работающий local_only ещё не приняты.

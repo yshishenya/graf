@@ -4,6 +4,7 @@ Description=Run the GRAF PostHog resource and health guard every minute
 [Timer]
 OnBootSec=2min
 OnUnitActiveSec=1min
+AccuracySec=1s
 Persistent=true
 Unit=graf-posthog-runtime-guard.service
 

@@ -12,6 +12,7 @@ visitor or user data, and its own channel must be probed by an independent path.
 
 from __future__ import annotations
 
+import configparser
 import json
 import os
 import re
@@ -630,6 +631,12 @@ def test_scheduled_alerting_units_exist_with_the_reviewed_cadence() -> None:
         "graf-posthog-backup.timer": "OnCalendar=*-*-* 02:30:00 UTC",
         "graf-posthog-restore-verify.timer": "OnCalendar=*-*-01,15 04:30:00 UTC",
         "graf-posthog-retention-enforce.timer": "OnCalendar=*-*-* 03:15:00 UTC",
+    }
+    parser = configparser.ConfigParser(interpolation=None, strict=True)
+    parser.read(UNIT_DIR / "graf-posthog-runtime-guard.timer", encoding="utf-8")
+    assert dict(parser['Timer']) == {
+        'onbootsec': '2min', 'onunitactivesec': '1min', 'accuracysec': '1s',
+        'persistent': 'true', 'unit': 'graf-posthog-runtime-guard.service',
     }
     for name, schedule in expected.items():
         timer = (UNIT_DIR / name).read_text(encoding="utf-8")

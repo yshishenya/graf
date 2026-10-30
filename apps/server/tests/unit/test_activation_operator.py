@@ -750,7 +750,7 @@ def test_two_complete_copies_and_latest_attempt_are_verified(fence, tmp_path, mo
     'good', 'optional_absent', 'wrong_image', 'wrong_source', 'duplicate_source',
     'wrong_user', 'userns', 'required_exited', 'unhealthy', 'config_changed',
     'pid_changed', 'override_changed', 'no_release', 'deadline', 'foreign_network',
-    'rootless', 'remap', 'image_env', 'image_platform', 'process_changed', 'postal_changed', 'socket_changed', 'thirdparty_user', 'model_changed', 'registry_changed', 'policy_drift', 'poisoned_env', 'volume_good', 'volume_changed', 'volume_options', 'late_database_close', 'late_secret_close', 'operations_failure', 'operations_mismatch', 'raw_mismatch', 'late_operations_close',
+    'rootless', 'remap', 'image_env', 'image_platform', 'process_changed', 'postal_changed', 'socket_changed', 'thirdparty_user', 'model_changed', 'registry_changed', 'policy_drift', 'poisoned_env', 'volume_good', 'volume_changed', 'volume_options', 'late_database_close', 'late_secret_close', 'operations_failure', 'operations_mismatch', 'raw_mismatch', 'late_operations_close', 'guard_failure', 'late_guard_exit',
 ])
 def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypatch, case):
     rows, networks = inventory()
@@ -906,6 +906,32 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
     monkeypatch.setattr(operator, '_process_identity', process)
     from contextlib import asynccontextmanager, contextmanager
 
+    guard_state = dict(active=False, exited=False)
+    runtime_fingerprints = []
+    original_digest = operator._json_digest
+
+    def digest(value):
+        if isinstance(value, dict) and 'containers' in value:
+            runtime_fingerprints.append(value)
+        return original_digest(value)
+
+    monkeypatch.setattr(operator, '_json_digest', digest)
+
+    @asynccontextmanager
+    async def guard_units(**kwargs):
+        assert kwargs['snapshot'] == tmp_path
+        assert kwargs['deadline'] > time.monotonic()
+        if case == 'guard_failure':
+            raise ActivationHold('synthetic_guard_unverified')
+        guard_state['active'] = True
+        try:
+            yield '6' * 64
+            if case == 'late_guard_exit':
+                raise ActivationHold('synthetic_guard_changed')
+        finally:
+            guard_state.update(active=False, exited=True)
+
+    monkeypatch.setattr(operator, '_runtime_guard_units', guard_units, raising=False)
     checked_settings = []
 
     @contextmanager
@@ -937,11 +963,13 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
 
     @asynccontextmanager
     async def databases(**kwargs):
+        assert guard_state['active']
         assert kwargs['password'] == 'synthetic-owner'
         assert kwargs['register_raw'] == b'legal_basis_state_version=2\n# private-register-sentinel\n'
         assert set(kwargs['settings']) == {r['service'] for r in rows
             if r['service'] in operator.WRITERS and r['state']['running']}
         yield None, None, {'synthetic-database': True}
+        assert guard_state['active']
         if case == 'late_database_close':
             monkeypatch.setattr(operator, 'time', SimpleNamespace(monotonic=lambda: time.monotonic()+60))
 
@@ -960,6 +988,8 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
         assert 'private-register-sentinel' not in json.dumps(result)
         assert result['container_count'] == len(rows)
         assert len(result['runtime_sha256']) == 64
+        assert guard_state == dict(active=False, exited=True)
+        assert len(runtime_fingerprints) == 1 and runtime_fingerprints[0]['guard_units_sha256'] == '6' * 64
         assert set(checked_settings) == {r['id'] for r in rows if r['service'] in operator.WRITERS and r['state']['running']}
         assert set(checked_operations) == set(checked_settings)
     else:
@@ -1696,3 +1726,398 @@ def test_postgres_owner_secret_uses_bound_file_without_daemon_leaf_read(tmp_path
     else:
         with pytest.raises(ActivationHold):
             check()
+
+
+def _guard_unit_sample(directory):
+    service, timer = ("graf-posthog-runtime-guard." + suffix for suffix in ("service", "timer"))
+    installed = directory / "installed-units"
+    installed.mkdir()
+    snapshot = directory / "snapshot"
+    (snapshot / "infra/posthog").mkdir(parents=True)
+    for name in (service, timer):
+        (installed / name).write_text("synthetic unit " + name)
+        (installed / name).chmod(0o644)
+        (snapshot / "infra/posthog" / name).write_bytes((installed / name).read_bytes())
+    properties = {}
+    for name in (service, timer):
+        for key, pair in {
+            "Id": ("s", name),
+            "Names": ("as", [name]),
+            "FragmentPath": ("s", str(installed / name)),
+            "SourcePath": ("s", ""),
+            "DropInPaths": ("as", []),
+            "LoadState": ("s", "loaded"),
+            "NeedDaemonReload": ("b", False),
+            "Transient": ("b", False),
+            "UnitFileState": ("s", "enabled" if name == timer else "static"),
+            "ActiveState": ("s", "active" if name == timer else "activating"),
+            "SubState": ("s", "waiting" if name == timer else "start"),
+        }.items():
+            properties[name, "Unit", key] = dict(type=pair[0], data=pair[1])
+    for key, pair in {
+        "Unit": ("s", service),
+        "TimersMonotonic": (
+            "a(stt)",
+            [["OnBootUSec", 120000000, 5], ["OnUnitActiveUSec", 60000000, 6]],
+        ),
+        "TimersCalendar": ("a(sst)", []),
+        "AccuracyUSec": ("t", 1000000),
+        "RandomizedDelayUSec": ("t", 0),
+        "Persistent": ("b", True),
+        "WakeSystem": ("b", False),
+        "RemainAfterElapse": ("b", True),
+        "OnClockChange": ("b", False),
+        "OnTimezoneChange": ("b", False),
+    }.items():
+        properties[timer, "Timer", key] = dict(type=pair[0], data=pair[1])
+    argv = [
+        "/usr/bin/env",
+        "GRAF_POSTHOG_STORAGE_STATE_DIR=/var/lib/graf-posthog-storage",
+        "GRAF_POSTHOG_STORAGE_STATE_FILE=/var/lib/graf-posthog-storage/storage-growth-state",
+        "/usr/local/libexec/graf-posthog-runtime-guard.sh",
+    ]
+    for key, pair in {
+        "Type": ("s", "oneshot"),
+        "User": ("s", "root"),
+        "Group": ("s", ""),
+        "DynamicUser": ("b", False),
+        "RemainAfterExit": ("b", False),
+        "ExecStart": ("a(sasbttttuii)", [["/usr/bin/env", argv, False, *([0] * 7)]]),
+        "ExecStartEx": ("a(sasasttttuii)", [["/usr/bin/env", argv, [], *([0] * 7)]]),
+        **{
+            key: ("a(sasbttttuii)", [])
+            for key in (
+                "ExecCondition",
+                "ExecStartPre",
+                "ExecStartPost",
+                "ExecReload",
+                "ExecStop",
+                "ExecStopPost",
+            )
+        },
+        **{key: ("as", []) for key in ("Environment", "PassEnvironment", "UnsetEnvironment")},
+        "EnvironmentFiles": ("a(sb)", [["/etc/graf-posthog-runtime-guard.env", True]]),
+        "ProtectSystem": ("s", "strict"),
+        "ProtectHome": ("s", "yes"),
+        "PrivateTmp": ("b", True),
+        "NoNewPrivileges": ("b", True),
+        "RootDirectory": ("s", ""),
+        "RootImage": ("s", ""),
+        "BindPaths": ("a(ssbt)", []),
+        "BindReadOnlyPaths": ("a(ssbt)", []),
+        "TemporaryFileSystem": ("a(ss)", []),
+        "ReadWritePaths": (
+            "as",
+            [
+                "/var/lib/graf-posthog-runtime-guard",
+                "/var/lib/graf-posthog-storage",
+                "/opt/projects/2brain-rec",
+            ],
+        ),
+    }.items():
+        properties[service, "Service", key] = dict(type=pair[0], data=pair[1])
+    return installed, snapshot, properties, service, timer
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux" or os.geteuid() != 0, reason="Linux root installed unit boundary"
+)
+@pytest.mark.parametrize(
+    "case",
+    [
+        "good",
+        "tick",
+        "write_paths_order",
+        "missing",
+        "mode",
+        "owner",
+        "gid",
+        "hardlink",
+        "symlink",
+        "ancestor_link",
+        "ancestor_owner",
+        "ancestor_writable",
+        "acl",
+        "empty",
+        "oversize_file",
+        "file_before_yield",
+        "file_after_yield",
+        "file_replaced",
+        "source_changed",
+        "directory_replaced",
+        "bad_json",
+        "duplicate_key",
+        "extra_key",
+        "wrong_signature",
+        "oversize_response",
+        "bus_override",
+        "bus_override_during_query",
+        "bus_override_after_yield",
+        "command_failed",
+        "cancel_property",
+        "wrong_fragment",
+        "dropin",
+        "reload",
+        "transient",
+        "disabled",
+        "stopped",
+        "failed_service",
+        "calendar",
+        "extra_interval",
+        "bad_interval",
+        "negative_tick",
+        "bool_tick",
+        "wrong_accuracy",
+        "random_delay",
+        "bool_as_int",
+        "extra_command",
+        "wrong_argv",
+        "ignore_failure",
+        "exec_flags",
+        "flags_string",
+        "exec_history_bool",
+        "extra_environment",
+        "wrong_envfile",
+        "sandbox",
+        "root_directory",
+        "bind",
+        "wrong_write_paths",
+        "exit_drift",
+        "deadline",
+    ],
+)
+def test_runtime_guard_units_pin_files_and_effective_properties(tmp_path, monkeypatch, case):
+    directory = tmp_path.resolve()
+    for parent in (directory, *directory.parents):
+        if str(parent).startswith("/owned"):
+            parent.chmod(0o755)
+    installed, snapshot, properties, service, timer = _guard_unit_sample(directory)
+    monkeypatch.setattr(operator, "SYSTEMD_UNIT_DIR", installed, raising=False)
+    monkeypatch.delenv("DBUS_SYSTEM_BUS_ADDRESS", raising=False)
+    selected = installed / timer
+    if case == "missing":
+        selected.unlink()
+    if case == "mode":
+        selected.chmod(0o666)
+    if case == "owner":
+        os.chown(selected, 1, 0)
+    if case == "gid":
+        os.chown(selected, 0, 1)
+    if case == "hardlink":
+        os.link(selected, directory / "linked")
+    if case == "symlink":
+        selected.unlink()
+        selected.symlink_to(installed / service)
+    if case == "ancestor_link":
+        installed.rename(directory / "actual-units")
+        installed.symlink_to(directory / "actual-units", target_is_directory=True)
+    if case == "ancestor_owner":
+        os.chown(installed, 1, 0)
+    if case == "ancestor_writable":
+        installed.chmod(0o777)
+    if case == "acl":
+        import struct
+
+        entries = [(1, 6, 0xffffffff), (2, 4, 12345), (4, 4, 0xffffffff),
+                   (16, 4, 0xffffffff), (32, 4, 0xffffffff)]
+        acl = struct.pack("<I", 2) + b"".join(struct.pack("<HHI", *e) for e in entries)
+        os.setxattr(selected, "system.posix_acl_access", acl)
+        assert selected.stat().st_mode & 0o777 == 0o644
+    if case == "empty":
+        selected.write_bytes(b"")
+    if case == "oversize_file":
+        selected.write_bytes(b"x" * 65537)
+    if case == "bus_override":
+        monkeypatch.setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/must-not-be-read")
+    defects = {
+        "wrong_fragment": (timer, "Unit", "FragmentPath", "/foreign"),
+        "dropin": (timer, "Unit", "DropInPaths", ["/foreign"]),
+        "reload": (timer, "Unit", "NeedDaemonReload", True),
+        "transient": (timer, "Unit", "Transient", True),
+        "disabled": (timer, "Unit", "UnitFileState", "disabled"),
+        "stopped": (timer, "Unit", "ActiveState", "inactive"),
+        "failed_service": (service, "Unit", "ActiveState", "failed"),
+        "calendar": (timer, "Timer", "TimersCalendar", [["OnCalendar", "*-*-* 00:00:00", 1]]),
+        "wrong_accuracy": (timer, "Timer", "AccuracyUSec", 60000000),
+        "random_delay": (timer, "Timer", "RandomizedDelayUSec", 1),
+        "bool_as_int": (timer, "Timer", "Persistent", 1),
+        "extra_command": (
+            service,
+            "Service",
+            "ExecStartPre",
+            [["/foreign", [], False, *([0] * 7)]],
+        ),
+        "extra_environment": (
+            service,
+            "Service",
+            "Environment",
+            ["SECRET_SENTINEL=must-not-be-exported"],
+        ),
+        "wrong_envfile": (service, "Service", "EnvironmentFiles", [["/foreign", True]]),
+        "sandbox": (service, "Service", "ProtectSystem", "no"),
+        "root_directory": (service, "Service", "RootDirectory", "/foreign"),
+        "bind": (service, "Service", "BindPaths", [["/foreign", "/usr", False, 0]]),
+        "wrong_write_paths": (service, "Service", "ReadWritePaths", ["/"]),
+    }
+    if case in defects:
+        name, interface, key, data = defects[case]
+        properties[name, interface, key]["data"] = data
+    monotonic = properties[timer, "Timer", "TimersMonotonic"]["data"]
+    if case == "extra_interval":
+        monotonic.append(["OnActiveUSec", 1, 1])
+    if case == "bad_interval":
+        monotonic[0][1] = 1
+    if case == "negative_tick":
+        monotonic[0][2] = -1
+    if case == "bool_tick":
+        monotonic[0][2] = True
+    if case == "wrong_argv":
+        properties[service, "Service", "ExecStart"]["data"][0][1] = ["/foreign"]
+    if case == "ignore_failure":
+        properties[service, "Service", "ExecStart"]["data"][0][2] = True
+    if case == "exec_flags":
+        properties[service, "Service", "ExecStartEx"]["data"][0][2] = ["privileged"]
+    if case == "flags_string":
+        properties[service, "Service", "ExecStartEx"]["data"][0][2] = ""
+    if case == "exec_history_bool":
+        properties[service, "Service", "ExecStartEx"]["data"][0][3] = False
+    calls, reached, pids = [], [], []
+    original_command = operator._command
+
+    async def command(argv, *, deadline, cwd=None):
+        assert argv[:5] == [
+            "/usr/bin/busctl",
+            "--json=short",
+            "--system",
+            "get-property",
+            "org.freedesktop.systemd1",
+        ]
+        assert len(argv) == 8 and cwd is None
+        calls.append(argv)
+        if case == "cancel_property":
+            pidfile = directory / "owned-property-child"
+            program = (
+                "import os,pathlib,time; pathlib.Path("
+                + repr(str(pidfile))
+                + ").write_text(str(os.getpid())); time.sleep(30)"
+            )
+            return await original_command([sys.executable, "-I", "-c", program], deadline=deadline)
+        if case == "command_failed":
+            raise ActivationHold("synthetic_property_unavailable")
+        if case == "bus_override_during_query":
+            monkeypatch.setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/foreign")
+        if case == "file_before_yield" and len(calls) == 1:
+            selected.write_text("changed")
+        if case == "bad_json":
+            return b"not json"
+        if case == "duplicate_key":
+            return b'{"type":"s","type":"b","data":"loaded"}'
+        if case == "oversize_response":
+            return b" " * 65537
+        name = (
+            argv[5]
+            .removeprefix("/org/freedesktop/systemd1/unit/")
+            .replace("_2d", "-")
+            .replace("_2e", ".")
+        )
+        interface = argv[6].removeprefix("org.freedesktop.systemd1.")
+        data = copy.deepcopy(properties[name, interface, argv[7]])
+        if case == "extra_key":
+            data["untrusted"] = True
+        if case == "wrong_signature":
+            data["type"] = "v"
+        return json.dumps(data).encode()
+
+    monkeypatch.setattr(operator, "_command", command)
+    before = set(os.listdir("/proc/self/fd"))
+
+    async def check():
+        async with operator._runtime_guard_units(
+            snapshot=snapshot, deadline=time.monotonic() + (-1 if case == "deadline" else 10)
+        ) as proof:
+            reached.append(True)
+            assert len(proof) == 64 and "SECRET_SENTINEL" not in proof
+            if case == "tick":
+                properties[service, "Unit", "ActiveState"]["data"] = "inactive"
+                properties[service, "Unit", "SubState"]["data"] = "dead"
+                properties[timer, "Unit", "SubState"]["data"] = "running"
+                for row in monotonic:
+                    row[2] += 100
+                for key in ("ExecStart", "ExecStartEx"):
+                    properties[service, "Service", key]["data"][0][3:] = list(range(7))
+            if case == "write_paths_order":
+                properties[service, "Service", "ReadWritePaths"]["data"].reverse()
+            if case == "file_after_yield":
+                selected.write_text("changed")
+            if case == "file_replaced":
+                selected.rename(directory / "old-unit")
+                selected.write_bytes((directory / "old-unit").read_bytes())
+                selected.chmod(0o644)
+            if case == "source_changed":
+                (snapshot / "infra/posthog" / timer).write_text("changed")
+            if case == "directory_replaced":
+                installed.rename(directory / "old-directory")
+                installed.mkdir()
+            if case == "exit_drift":
+                properties[timer, "Timer", "AccuracyUSec"]["data"] = 60000000
+            if case == "bus_override_after_yield":
+                monkeypatch.setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/foreign")
+
+    async def cancel():
+        task = asyncio.create_task(check())
+        pidfile = directory / "owned-property-child"
+        try:
+            for _ in range(500):
+                if pidfile.exists():
+                    break
+                await asyncio.sleep(0.01)
+            assert pidfile.exists() and not reached
+            pids.append(int(pidfile.read_text()))
+            task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        finally:
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    try:
+        if case in {"good", "tick", "write_paths_order"}:
+            asyncio.run(check())
+        elif case == "cancel_property":
+            asyncio.run(cancel())
+            with pytest.raises(ProcessLookupError):
+                os.kill(pids[0], 0)
+        else:
+            with pytest.raises(ActivationHold):
+                asyncio.run(check())
+            if case not in {
+                "file_after_yield",
+                "file_replaced",
+                "source_changed",
+                "directory_replaced",
+                "exit_drift",
+                "bus_override_after_yield",
+            }:
+                assert not reached
+        if case in {
+            "bus_override",
+            "missing",
+            "mode",
+            "owner",
+            "gid",
+            "hardlink",
+            "symlink",
+            "ancestor_link",
+            "ancestor_owner",
+            "ancestor_writable",
+            "acl",
+            "empty",
+            "oversize_file",
+            "deadline",
+        }:
+            assert not calls
+    finally:
+        assert set(os.listdir("/proc/self/fd")) == before

@@ -569,3 +569,17 @@ reduced source без reconnect, metadata восстанавливаются в 
 Отдельный Linux запуск проверяет actual bound files; Mac skips его не заменяют.
 Исторические сроки и provider deletion, installed jobs и полный допуск этим
 reader не принимаются. Оба общих HOLD сохраняются.
+
+### Исходные и загруженные guard units — 30.10.2026
+
+Выполнить unit operator и оба contract-модуля alerting/retention. На Linux root
+проверить actual FD/path/ACL/owner/mode/ancestor/bytes и подмену после yield.
+Неверные busctl signature/type/value, дополнительные commands/env/dropins,
+ExecStartEx flags, DBUS_SYSTEM_BUS_ADDRESS, отключённый timer и drift запрещают
+успех; штатный tick и завершение oneshot разрешены. Две отмены property wait
+должны завершить принадлежащий запросу процесс. Runtime DB должен удерживать
+контекст, включая свой выход, и привязывать guard_units_sha256 в результате.
+На существующем systemd проверить временные конечные service/timer через
+`systemd-analyze verify` без install/load/start/reload.
+[Результат и ограничения](validation/t113-guard-units-20261030.md).
+Полные installed jobs, host/cron, ресурсы local_only и рабочий допуск отдельно.

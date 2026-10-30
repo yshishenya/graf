@@ -2517,6 +2517,154 @@ def _runtime_policy(rows, images, model, *, ids, root, postal_network, volumes=N
         raise ActivationHold('activation_operator_policy_unverified') from None
 
 
+SYSTEMD_UNIT_DIR = Path("/etc/systemd/system")
+
+
+@asynccontextmanager
+async def _runtime_guard_units(*, snapshot, deadline):
+    """Pin the two installed guard units and their loaded critical configuration."""
+    service, timer = ("graf-posthog-runtime-guard." + suffix for suffix in ("service", "timer"))
+    held = []
+
+    def files():
+        _require(time.monotonic() < deadline and not os.environ.get("DBUS_SYSTEM_BUS_ADDRESS"),
+                 "activation_operator_guard_units_environment")
+        for path, source_path, fd, identity, ancestors, content in held:
+            _require(_settings_source_ancestors(path) == ancestors,
+                     "activation_operator_guard_units_ancestry")
+            for parent in path.parents:
+                info = parent.lstat()
+                _require(info.st_uid == 0 and not info.st_mode & 0o022,
+                         "activation_operator_guard_units_ancestry")
+            _settings_no_acl(fd)
+            _require(_settings_file_identity(os.fstat(fd)) == identity
+                     and _settings_file_identity(path.lstat()) == identity
+                     and os.pread(fd, 65537, 0) == content == source_path.read_bytes(),
+                     "activation_operator_guard_units_changed")
+
+    async def property_value(name, interface, key, signature):
+        files()
+        unit_path = name.replace("-", "_2d").replace(".", "_2e")
+        raw = await _command([
+            "/usr/bin/busctl", "--json=short", "--system", "get-property",
+            "org.freedesktop.systemd1", "/org/freedesktop/systemd1/unit/" + unit_path,
+            "org.freedesktop.systemd1." + interface, key,
+        ], deadline=deadline)
+        files()
+        _require(len(raw) <= 65536, "activation_operator_guard_units_response")
+        parsed = _object(raw)
+        _require(set(parsed) == {"type", "data"} and parsed["type"] == signature,
+                 "activation_operator_guard_units_response")
+        return parsed["data"]
+
+    async def effective():
+        stable = {}
+
+        async def expected(name, interface, key, signature, value):
+            actual = await property_value(name, interface, key, signature)
+            # Equality alone accepts integer 1 as True, including inside arrays.
+            _require(_json_digest(actual) == _json_digest(value),
+                     "activation_operator_guard_units_property")
+            stable[name + "." + key] = actual
+
+        for name in (service, timer):
+            for key, (signature, value) in {
+                "Id": ("s", name), "Names": ("as", [name]),
+                "FragmentPath": ("s", str(SYSTEMD_UNIT_DIR / name)),
+                "SourcePath": ("s", ""), "DropInPaths": ("as", []),
+                "LoadState": ("s", "loaded"), "NeedDaemonReload": ("b", False),
+                "Transient": ("b", False),
+                "UnitFileState": ("s", "enabled" if name == timer else "static"),
+            }.items():
+                await expected(name, "Unit", key, signature, value)
+            active = await property_value(name, "Unit", "ActiveState", "s")
+            sub = await property_value(name, "Unit", "SubState", "s")
+            allowed = ({("active", "waiting"), ("active", "running")} if name == timer
+                       else {("inactive", "dead"), ("activating", "start")})
+            _require(isinstance(active, str) and isinstance(sub, str) and (active, sub) in allowed,
+                     "activation_operator_guard_units_state")
+
+        intervals = await property_value(timer, "Timer", "TimersMonotonic", "a(stt)")
+        _require(isinstance(intervals, list) and len(intervals) == 2,
+                 "activation_operator_guard_units_intervals")
+        normalized = []
+        for row in intervals:
+            _require(isinstance(row, list) and len(row) == 3 and isinstance(row[0], str)
+                     and all(type(v) is int and v >= 0 for v in row[1:]),
+                     "activation_operator_guard_units_intervals")
+            normalized.append(row[:2])
+        _require(sorted(normalized) == [["OnBootUSec", 120000000], ["OnUnitActiveUSec", 60000000]],
+                 "activation_operator_guard_units_intervals")
+        stable[timer + ".TimersMonotonic"] = sorted(normalized)
+        for key, (signature, value) in {
+            "Unit": ("s", service), "TimersCalendar": ("a(sst)", []),
+            "AccuracyUSec": ("t", 1000000), "RandomizedDelayUSec": ("t", 0),
+            "Persistent": ("b", True), "WakeSystem": ("b", False),
+            "RemainAfterElapse": ("b", True), "OnClockChange": ("b", False),
+            "OnTimezoneChange": ("b", False),
+        }.items():
+            await expected(timer, "Timer", key, signature, value)
+
+        argv = ["/usr/bin/env", "GRAF_POSTHOG_STORAGE_STATE_DIR=/var/lib/graf-posthog-storage",
+                "GRAF_POSTHOG_STORAGE_STATE_FILE=/var/lib/graf-posthog-storage/storage-growth-state",
+                "/usr/local/libexec/graf-posthog-runtime-guard.sh"]
+        for key, signature, flags in (("ExecStart", "a(sasbttttuii)", False),
+                                      ("ExecStartEx", "a(sasasttttuii)", [])):
+            commands = await property_value(service, "Service", key, signature)
+            _require(isinstance(commands, list) and len(commands) == 1
+                     and isinstance(commands[0], list) and len(commands[0]) == 10,
+                     "activation_operator_guard_units_command")
+            command = commands[0]
+            _require(_json_digest(command[:3]) == _json_digest(["/usr/bin/env", argv, flags])
+                     and all(type(v) is int for v in command[3:]),
+                     "activation_operator_guard_units_command")
+            stable[service + "." + key] = command[:3]
+        for key, (signature, value) in {
+            "Type": ("s", "oneshot"), "User": ("s", "root"), "Group": ("s", ""),
+            "DynamicUser": ("b", False), "RemainAfterExit": ("b", False),
+            **{key: ("a(sasbttttuii)", []) for key in (
+                "ExecCondition", "ExecStartPre", "ExecStartPost", "ExecReload", "ExecStop", "ExecStopPost")},
+            **{key: ("as", []) for key in ("Environment", "PassEnvironment", "UnsetEnvironment")},
+            "EnvironmentFiles": ("a(sb)", [["/etc/graf-posthog-runtime-guard.env", True]]),
+            "ProtectSystem": ("s", "strict"), "ProtectHome": ("s", "yes"),
+            "PrivateTmp": ("b", True), "NoNewPrivileges": ("b", True),
+            "RootDirectory": ("s", ""), "RootImage": ("s", ""),
+            "BindPaths": ("a(ssbt)", []), "BindReadOnlyPaths": ("a(ssbt)", []),
+            "TemporaryFileSystem": ("a(ss)", []),
+        }.items():
+            await expected(service, "Service", key, signature, value)
+        paths = await property_value(service, "Service", "ReadWritePaths", "as")
+        _require(isinstance(paths, list) and all(isinstance(p, str) for p in paths)
+                 and sorted(paths) == sorted(["/var/lib/graf-posthog-runtime-guard",
+                                             "/var/lib/graf-posthog-storage", "/opt/projects/2brain-rec"]),
+                 "activation_operator_guard_units_write_paths")
+        stable[service + ".ReadWritePaths"] = sorted(paths)
+        return _json_digest(dict(properties=stable, files=[hashlib.sha256(h[-1]).hexdigest() for h in held]))
+
+    try:
+        with ExitStack() as owned:
+            files()
+            for name in (service, timer):
+                path, source_path = SYSTEMD_UNIT_DIR / name, snapshot / "infra/posthog" / name
+                ancestors = _settings_source_ancestors(path)
+                fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                owned.callback(os.close, fd)
+                info = os.fstat(fd)
+                _require(stat.S_ISREG(info.st_mode) and info.st_uid == info.st_gid == 0
+                         and stat.S_IMODE(info.st_mode) == 0o644 and info.st_nlink == 1
+                         and 0 < info.st_size <= 65536, "activation_operator_guard_units_file")
+                held.append((path, source_path, fd, _settings_file_identity(info), ancestors,
+                             os.pread(fd, 65537, 0)))
+            files()
+            proof = await effective()
+            files()
+            yield proof
+            _require(await effective() == proof, "activation_operator_guard_units_changed")
+            files()
+    except (OSError, KeyError, TypeError, ValueError, UnicodeError):
+        raise ActivationHold("activation_operator_guard_units_unverified") from None
+
+
 async def _runtime_preflight(*, root, snapshot, source, deadline):
     """Bind actual runtime before further gates; never write ready or stop product."""
     _require(time.monotonic() < deadline and re.fullmatch(r"[a-f0-9]{40}", source),
@@ -2670,9 +2818,12 @@ async def _runtime_preflight(*, root, snapshot, source, deadline):
         pg = next(row for row in actual if row["id"] == ids["rec-postgres"])
         password, password_proof = actual_settings.enter_context(_runtime_owner_password(
             pg, root=root, process=processes[pg["id"]]))
-        async with _runtime_databases(settings=writer_settings, password=password,
+        async with (
+            _runtime_guard_units(snapshot=snapshot, deadline=deadline) as guard_units_proof,
+            _runtime_databases(settings=writer_settings, password=password,
                 host=_runtime_database_address(rows, networks), snapshot=snapshot,
-                deadline=deadline, register_raw=register_raw) as (_, _, database_proof):
+                deadline=deadline, register_raw=register_raw) as (_, _, database_proof),
+        ):
             _require(await inspect() == actual, "activation_operator_runtime_changed")
             for row in actual:
                 if row["id"] in processes:
@@ -2694,7 +2845,8 @@ async def _runtime_preflight(*, root, snapshot, source, deadline):
                         runtime_sha256=_json_digest(dict(containers=actual, networks=networks,
                                                         postal=postal_info, processes=processes,
                                                         settings=settings_proofs, operations=operations_proofs, policy=policy,
-                                                        owner_secret=password_proof, database=database_proof)))
+                                                        owner_secret=password_proof, database=database_proof,
+                                                        guard_units_sha256=guard_units_proof)))
     _require(time.monotonic() < deadline, "activation_operator_runtime_timeout")
     return result
 
