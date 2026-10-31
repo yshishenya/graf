@@ -1980,12 +1980,14 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         }
 
         public func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
-            guard let webView = userTimeWebView, let url = webView.url,
+            // The navigation's final reconciliation owns cookie changes until it finishes.
+            guard authNavigationBarrier == nil, let webView = userTimeWebView, let url = webView.url,
                   routePolicy.decision(for: url).decision == .allow else { return }
             let revision = userTimeDocumentRevision
             DesktopCabinetSessionBridge.syncAuthSessionCookies(from: webView, isCurrentDocument: { [weak self, weak webView] in
                 guard let self, let webView else { return false }
                 return self.isActive && self.navigationController.isAttached(to: webView)
+                    && self.authNavigationBarrier == nil
                     && self.userTimeDocumentRevision == revision && webView.url == url
             })
         }

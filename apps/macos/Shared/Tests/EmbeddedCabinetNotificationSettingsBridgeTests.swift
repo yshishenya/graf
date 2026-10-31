@@ -19,7 +19,19 @@ final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
         try await checkCoordinatorActivation(reconcilesAccount: true)
     }
 
-    private func checkCoordinatorActivation(changesAccount: Bool = false, reconcilesAccount: Bool = false) async throws {
+    func testCoordinatorAcceptsCookieObserverReconciliationDuringNavigationFinish() async throws {
+        try await checkCoordinatorActivation(reconcilesAccount: true, observesCookies: true)
+    }
+
+    func testCoordinatorStillRejectsIndependentAccountChangeWithCookieObserver() async throws {
+        try await checkCoordinatorActivation(changesAccount: true, observesCookies: true)
+    }
+
+    func testCoordinatorDefersAlreadyPendingCookieObserverUntilNavigationFinishes() async throws {
+        try await checkCoordinatorActivation(reconcilesAccount: true, observesCookies: true, observerBeforeNavigation: true)
+    }
+
+    private func checkCoordinatorActivation(changesAccount: Bool = false, reconcilesAccount: Bool = false, observesCookies: Bool = false, observerBeforeNavigation: Bool = false) async throws {
         let suite = "F277-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -72,13 +84,24 @@ final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
             cabinetState: .constant(.ready), currentRoute: .constant(url), navigationEventLogger: nil,
             showsAppUpdateBadge: false, onCheckForUpdates: {}, onOpenMeetingDetectionSettings: {},
             supportIncidentBridge: nil, notificationPresenter: presenter, navigationController: navigation)
+        if observesCookies { coordinator.observeAuthCookies(in: web) }
         defer { coordinator.detachNavigationController(from: web); presenter.invalidate() }
         let dispatched = expectation(description: "settings navigation dispatched")
+        if observerBeforeNavigation {
+            coordinator.cookiesDidChange(in: configuration.websiteDataStore.httpCookieStore)
+        }
         coordinator.dispatchAuthNavigation(in: web, targetURL: url,
             decisionHandler: { _ in XCTFail("current navigation cancelled") }, dispatch: { dispatched.fulfill() })
         await fulfillment(of: [dispatched], timeout: 5)
+        if observerBeforeNavigation {
+            _ = await configuration.websiteDataStore.httpCookieStore.allCookies()
+            XCTAssertEqual(reconciliations, 0, "The pending observer must not change native auth during navigation")
+            XCTAssertNil(DesktopUploadClient.authSessionToken(from: HTTPCookieStorage.shared.cookies ?? [], url))
+        }
         XCTAssertFalse(DesktopCabinetSessionBridge.isCurrentSession(DesktopCabinetSessionBridge.generation))
         coordinator.webView(web, didFinish: nil)
+        // Deliver the observer callback before finishAuthNavigation's cookie read completes.
+        if observesCookies { coordinator.cookiesDidChange(in: configuration.websiteDataStore.httpCookieStore) }
         if changesAccount {
             presenter.invalidate()
             presenter.updateContext(user: UUID().uuidString, workspace: UUID().uuidString)
