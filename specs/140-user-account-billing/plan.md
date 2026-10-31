@@ -70,7 +70,7 @@ YooKassa test shop и синтетические doubles/CSV; Playwright/Chromiu
 
 **Risk / Validation Lane**: `high-risk-feature` — деньги, auth/session,
 tenant isolation, secrets, Postgres/MinIO/Temporal, retention/deletion,
-external provider, accessibility и brand-distance UX
+external provider, accessibility и reference-fidelity UX
 
 **Release Gate**: `no deploy` для planning slice. Реализация требует feature
 quickstart и `infra/scripts/ci-local.sh --fast` перед PR; production требует
@@ -126,8 +126,10 @@ real-shop capabilities также являются fail-closed launch gates.
 - Spec-driven delivery: выбран полный high-risk lane; clarify завершён, этот
   planning pass создаёт research, model, contracts и runnable quickstart;
   checklist/tasks/analyze остаются обязательными до implementation.
-- UX/brand distance: используется текущий GRAF shell/tokens, clean-room
-  hierarchy, WCAG 2.2 AA, Russian-first localization и явные degraded states.
+- UX/reference fidelity: используется текущий GRAF shell/tokens; наблюдаемые
+  Krisp UX/UI/IA и функциональные подписи допускают точное воспроизведение
+  по FR-081 и конституции §VII. Проверяются независимый код, права на материалы,
+  WCAG 2.2 AA, Russian-first localization и явные degraded states.
 - Deployment: planning не выполняет deploy и не повышает текущий
   `pilot_blocked` status.
 
@@ -193,7 +195,8 @@ same persisted request/key and blocks pay-again until resolved.
   registry reconciliation and never rendered as product status.
 - **Growth/CX**: promo atomicity/no stacking, referral first touch/maturity/
   7-or-30-day/cap/reversal, notification dedupe, keyboard/screen-reader/200%
-  zoom/reduced-motion/JS-off states, Russian copy and brand-distance review.
+  zoom/reduced-motion/JS-off states, Russian copy, reference fidelity,
+  independent implementation and third-party asset rights under FR-081.
 - **Operations**: stop-all-charges, test/prod isolation, secret rotation,
   webhook/poller/CSV gaps, billing backup/restore, migration rollback,
   disk-full fail-closed and metadata-only evidence scan.

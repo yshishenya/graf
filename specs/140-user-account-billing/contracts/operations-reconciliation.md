@@ -44,7 +44,7 @@ Production flag defaults off. Release owner collects:
 1. product approval of `Free` 250 MB / Trial 500 MB / `Личный` 2 GB, unlimited scope/fair-use, total-capacity 5/20/100/500 GB add-on/pro-rata and usability evidence;
 2. unit-economics/finance/accounting/legal approval of every base/add-on price version, plus approved transcription-source retention/recovery deadline and compliance records;
 3. security/RLS/secret/analytics/privacy and abuse review;
-4. automated test-shop matrix and accessibility/brand-distance evidence;
+4. automated test-shop matrix, accessibility and FR-081 reference-fidelity/independent-code/asset-rights evidence;
 5. Docker configuration, billing-ledger backup/restore, migration rollback, disk-full fail-closed behavior, health, monitoring and stop-all-charges drill;
 6. real-shop base payment and only approved/enabled add-on payment → GET/webhook → unlimited/storage entitlement → payment receipt → manual full and partial refund in YooKassa merchant cabinet outside GRAF → webhook or poll + authoritative refund GET → refund receipt observation → registry reconciliation, with zero GRAF refund mutation calls;
 7. support/runbook ownership and closure of global `pilot_blocked` gaps.

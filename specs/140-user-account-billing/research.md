@@ -166,9 +166,14 @@
   CTA, а не новые постоянные разделы.
 - **Rationale**: Krisp объединяет plan, renewal, method и invoice history;
   Otter/Granola/Fireflies отделяют cancellation от конца уже оплаченного
-  периода. Это подтверждает знакомую IA, но не задаёт визуальный стиль GRAF.
-- **Alternatives considered**: отдельные `Подписка`/`Биллинг`/`Платежи`, team
-  seats в personal launch, копирование competitor card/layout/copy. Отклонены.
+  периода. По действующей конституции §VII наблюдаемые Krisp UX/UI/IA,
+  включая композицию и функциональные подписи, разрешено воспроизводить
+  точно. Первоначальный запрет совпадения интерфейса заменён этим решением;
+  историческое исследование 06.08.2026 не объявляется новой приёмкой.
+- **Alternatives considered**: отдельные `Подписка`/`Биллинг`/`Платежи` и team
+  seats в personal launch отклонены. Заимствование исходников, извлечённых
+  ресурсов или частных данных запрещено. Сторонние материалы требуют прав;
+  согласия, юридические тексты, цены и обещания остаются применимыми к GRAF.
 
 Источники: [Krisp subscription](https://help.krisp.ai/hc/en-us/articles/5626527210908-How-Krisp-subscription-works),
 [Krisp pricing](https://krisp.ai/pricing/),

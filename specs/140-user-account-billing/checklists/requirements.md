@@ -24,7 +24,7 @@
 
 - [x] CHK011 Capture safety и deletion truth сохранены; коммерческий статус не блокирует Record/Stop/deletion/export. [FR-019, FR-026, FR-048]
 - [ ] CHK012 Tenant isolation, CSRF, secret discipline, analytics masking и audit определены. [FR-005, FR-075–FR-080] Проверка 2026-10-30: B1; см. [отчёт T075](../t075-requirements-review-20261030.md).
-- [ ] CHK013 Доступность, локализация, reflow и brand-distance имеют проверяемые требования. [FR-081–FR-086] Проверка 2026-10-30: X7; см. [отчёт T075](../t075-requirements-review-20261030.md).
+- [x] CHK013 Доступность, локализация и reflow имеют проверяемые требования; соответствие наблюдаемым Krisp UX/UI/IA проверяется при независимом коде и подтверждённых правах на материалы, без требования отличаться от референса. [FR-081–FR-086, Конституция §VII] Проверка требований 2026-10-30: X7 согласовано на уровне документов; см. [отчёт](../review-reference-requirements-20261030.md). Реализация и ручная приёмка этим пунктом не подтверждаются.
 - [ ] CHK014 Reconciliation, emergency stop, мониторинг, test shop и real-shop canary являются launch gates. [FR-087–FR-092] Проверка 2026-10-30: B2, X5; см. [отчёт T075](../t075-requirements-review-20261030.md).
 - [x] CHK015 Зависимости и внешние согласования перечислены, публичная готовность не обещана заранее. [Spec §Dependencies, SC-012]
 
