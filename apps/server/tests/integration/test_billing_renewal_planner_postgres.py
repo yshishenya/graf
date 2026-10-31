@@ -181,7 +181,7 @@ async def paid_workspace(migrated_postgres_urls, tmp_path, monkeypatch):
             ).one()
             assert tuple(role) == ("twobrain_rec_maintenance", False, False, False, "on")
         ids = await _seed_probe_rows(engine)
-        case = SimpleNamespace(factory=factory, workspace=ids["workspace_a"], owner=ids["user_a"])
+        case = SimpleNamespace(factory=factory, settings=settings, workspace=ids["workspace_a"], owner=ids["user_a"])
         now = datetime.now(UTC)
         async with _session(factory) as db:
             base = await db.scalar(
@@ -526,3 +526,109 @@ async def test_repeat_dispatched_charge_preserves_state(
     assert repeated == first
     assert await snapshot() == before
     assert calls == ["POST"]
+
+
+async def test_three_confirmed_declines_persist_without_duplicate_charges_or_lost_paid_term(
+    paid_workspace, tmp_path, monkeypatch
+):
+    case = paid_workspace
+    secret = tmp_path / "synthetic-provider-secret"
+    secret.write_text("synthetic-offline-not-a-real-key")
+    secret.chmod(0o600)
+    webhook_secret = tmp_path / "synthetic-webhook-secret"
+    webhook_secret.write_text("synthetic-offline-not-a-webhook-key")
+    webhook_secret.chmod(0o600)
+    referral_secret = tmp_path / "synthetic-referral-secret"
+    referral_secret.write_text("synthetic-offline-not-a-referral-key")
+    referral_secret.chmod(0o600)
+    settings = Settings(_env_file=None, **{**case.settings.model_dump(),
+        "public_base_url": "https://example.invalid",
+        "billing_checkout_enabled": True,
+        "billing_provider_observation_enabled": True,
+        "billing_checkout_workspace_ids": frozenset({case.workspace}),
+        "billing_yookassa_base_url": "https://api.yookassa.test",
+        "billing_yookassa_environment": "test",
+        "billing_yookassa_shop_id": "1",
+        "billing_yookassa_secret_file": secret,
+        "billing_yookassa_webhook_secret_file": webhook_secret,
+        "billing_referral_secret_file": referral_secret,
+        "billing_support_email": "billing@example.invalid",
+        "billing_receipt_tax_system_code": 2,
+        "billing_receipt_vat_code": 1,
+    })
+    calls = []
+
+    def provider(request):
+        assert request.method == "POST" and request.url.path == "/v3/payments"
+        payload = json.loads(request.content)
+        assert payload["payment_method_id"] == "synthetic-no-provider-method"
+        assert payload["amount"] == {
+            "value": f"{case.amount // 100}.{case.amount % 100:02d}", "currency": "RUB"
+        }
+        calls.append(request.headers["Idempotence-Key"])
+        return httpx.Response(200, json={
+            "id": str(uuid4()), "status": "canceled", "test": True,
+            "recipient": {"account_id": "1"},
+            "amount": payload["amount"], "metadata": payload["metadata"],
+        })
+
+    transport = httpx.MockTransport(provider)
+
+    async def mock_only_send(client, request, **kwargs):
+        assert request.url.host == "api.yookassa.test"
+        assert client._transport_for_url(request.url) is transport
+        return await _ASYNC_HTTP_SEND(client, request, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", mock_only_send)
+    monkeypatch.setattr(
+        renewal_charge, "YooKassaClient", lambda config: YooKassaClient(config, transport=transport)
+    )
+    original = case.original["subscription"]
+    for attempt in range(1, 4):
+        now = case.t0 + timedelta(hours=24 * (attempt - 1))
+        async with _session(case.factory) as db:
+            (operation_id,) = await plan_due_renewals(
+                db, now=now, allowed_workspace_ids=frozenset({case.workspace})
+            )
+            await db.commit()
+        async with _session(case.factory) as db:
+            result = await charge_renewal_operation(
+                db, settings, operation_id=operation_id, workspace_id=case.workspace, now=now
+            )
+        assert result.status == "canceled"
+        async with _session(case.factory) as db:
+            repeated = await charge_renewal_operation(
+                db, settings, operation_id=operation_id, workspace_id=case.workspace, now=now
+            )
+        assert repeated == result
+        assert len(calls) == len(set(calls)) == attempt
+        async with _session(case.factory) as db:
+            subscription = await db.get(WorkspaceSubscription, case.workspace)
+            operation = await db.get(BillingOperation, operation_id)
+            invoice = await db.scalar(select(BillingInvoice).where(
+                BillingInvoice.operation_id == operation_id
+            ))
+            assert operation.request_snapshot["renewal_attempt"] == attempt
+            assert operation.state == invoice.status == "canceled"
+            assert operation.provider_id == result.provider_id
+            assert subscription.paid_through == original["paid_through"]
+            assert subscription.plan_code == subscription.state == "personal"
+            assert subscription.recurring_allowed is (attempt < 3)
+            assert subscription.recurring_authority_version == (
+                original["recurring_authority_version"] + (attempt == 3)
+            )
+            notices = list(await db.scalars(select(BillingNotificationDelivery).where(
+                BillingNotificationDelivery.workspace_id == case.workspace,
+                BillingNotificationDelivery.template_key == "renewal_attempt_failed",
+            )))
+            assert len(notices) == attempt
+            assert len({notice.event_id for notice in notices}) == attempt
+            assert all(notice.state == "pending" and notice.attempts == 0 for notice in notices)
+            purchase = await _original_purchase(db, case)
+            assert purchase["grants"] == case.original["grants"]
+            assert purchase["methods"] == case.original["methods"]
+            assert await plan_due_renewals(
+                db, now=now + timedelta(hours=23),
+                allowed_workspace_ids=frozenset({case.workspace}),
+            ) == ()
+            await db.commit()

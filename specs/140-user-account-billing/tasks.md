@@ -237,7 +237,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 - [X] T072 [P] [US10] Add reconciliation completeness, registry hash/part identity, configured-empty-report, replacement/missing-file, and gap-owner tests in `apps/server/tests/integration/test_billing_registry.py`.
 - [X] T073 [P] [US10] Add monitoring, durable incident lifecycle/owner/deadline, emergency-stop, RLS inventory, redaction, accessibility, four-eyes gate metadata, and launch-canary assertions in `apps/server/tests/contract/test_billing_launch_gates.py`.
-- [X] T074 [P] [US10] Add test-shop E2E coverage for initial/saved payment, recurring decline, timeout-late success, zero binding, provider floor, merchant-cabinet refund observation, receipt observation, and zero product refund mutations in `apps/server/tests/e2e/test_billing_test_shop.py`. (Issue #4928).
+- [ ] T074 [P] [US10] Add test-shop E2E coverage for initial/saved payment, recurring decline, timeout-late success, zero binding, provider floor, merchant-cabinet refund observation, receipt observation, and zero product refund mutations in `apps/server/tests/e2e/test_billing_test_shop.py`. (Issue #4928).
 
 ### Implementation for User Story 10
 
@@ -339,3 +339,12 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 функциональных подписей. Исходные ID, описания и отметки всех 87 задач
 сохранены. Эта сверка устраняет противоречие X7 в рамках T079/T083;
 доступность, ручная приёмка и остальные открытые критерии не принимаются.
+
+
+## Повторная приёмка T074 — 2026-10-31
+
+Неподтверждённая общая отметка T074 снята; ID, исходное описание и владелец
+сохранены. #4928 открыта. Три старых offline provider-boundary проверки не
+подтверждают сохраняемую цепочку recurring decline. Уточнение spec/plan и
+`checklists/renewal-decline.md` принимают только действующие F278 FR-014
+внутри автоматической части; остальные реальные/выпускные критерии остаются.
