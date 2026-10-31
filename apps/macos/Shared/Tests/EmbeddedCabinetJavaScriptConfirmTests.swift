@@ -68,6 +68,8 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
         }
         view.navigationDelegate = coordinator
         view.uiDelegate = coordinator
+        XCTAssertTrue(coordinator.responds(to: NSSelectorFromString(
+            "webView:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:completionHandler:")))
         let documentURL = localOrigin.appendingPathComponent("desktop/settings/account")
         view.load(URLRequest(url: documentURL))
         for key in ["\r", "\u{1b}"] {
@@ -80,6 +82,16 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
                 && coordinator.pendingConfirmation == nil && window.attachedSheet == nil
             XCTAssertTrue(ready, "Document/sheet must be ready before key=\(key.debugDescription): navigation=\(navigation.isLoading), webView=\(view.isLoading), sheet=\(String(describing: window.attachedSheet))")
             guard ready else { return }
+            let scriptReady = expectation(description: "real document JavaScript is ready")
+            var scriptCompleted = false
+            view.evaluateJavaScript("document.readyState") { result, error in
+                XCTAssertNil(error)
+                XCTAssertEqual(result as? String, "complete")
+                scriptCompleted = true
+                scriptReady.fulfill()
+            }
+            await fulfillment(of: [scriptReady], timeout: 5)
+            guard scriptCompleted else { return }
             let replied = expectation(description: "real JavaScript completes after cancellation")
             view.evaluateJavaScript("window.protectedAction = false; if (confirm('Synthetic action')) window.protectedAction = true; window.protectedAction") { result, error in
                 XCTAssertNil(error)
@@ -93,7 +105,7 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
             }
             let presented = coordinator.pendingConfirmation?.alert.window.isVisible == true
                 && window.attachedSheet === coordinator.pendingConfirmation?.alert.window
-            XCTAssertTrue(presented, "Real confirm must appear for key=\(key.debugDescription)")
+            XCTAssertTrue(presented, "Real confirm must appear for key=\(key.debugDescription): visible=\(window.isVisible), key=\(window.isKeyWindow), space=\(window.isOnActiveSpace), navigation=\(navigation.isLoading), webView=\(view.isLoading)")
             let alert = try XCTUnwrap(coordinator.pendingConfirmation?.alert,
                                       "Missing real confirm for key=\(key.debugDescription)")
             let event = try XCTUnwrap(NSEvent.keyEvent(

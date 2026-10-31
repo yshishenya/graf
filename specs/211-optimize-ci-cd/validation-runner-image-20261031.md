@@ -234,3 +234,30 @@ T106 уже содержит оставшуюся внешнюю проверк�
 Reviewer повторно прочитал checklist:7 отмечено/0 не отмечено. T108 пока
 остаётся открытой до полного закреплённого native вместе с T106; местная
 приёмка не подставляется за CI.
+
+
+### Третий закреплённый native — остаётся confirm
+
+Run41220589209 на `dc4e97d1b6aeae5857796979d7028b54ca194e75`:
+среда и WebKit compilation приняты, все три настоящих consumer tests PASS.
+Всего1296 XCTest,9 skip,3 failures/1 unexpected в одном случае:
+`testRealJavaScriptCancelAndKeyboardNeverRunProtectedAction` — после готовой
+навигации диалог не появился для Return, completion остался не получен.
+Это не PASS T108/T106. Точная причина ещё не доказана.
+
+Следующая ограниченная проверка T108: до confirm проверить настоящий
+`document.readyState` через выполненный JavaScript callback и ObjC selector
+реального coordinator. Пустой loading флаг не доказывает готовность JS realm.
+При отказе записать видимость/Space/key/loading состояния; критерий настоящего
+диалога, Return/Escape/false не менять, прокси делегата в принятом тесте нет.
+Это проверка предпосылки, не заявление об устранении корня отказа.
+
+Дополнение JavaScript readiness: независимый scoped review PASS,
+`review-js-readiness-20261031.md` (SHA256
+`6ccccff8229e08bd4e576adfd285d526e7eff17153d1fafbbccc861f64374a95`).
+Окончательный локальный source SHA256 confirm test:
+`2e6e3043b5228f7590bb8ac45a44568dcaa40d3f16313c3737072735b50b338e`.
+Профиль6PASS/0SKIP/0FAIL,7.090s. Полный новый повтор после этих строк:
+1296 total/1287PASS/9прежнихSKIP/0FAIL,172.441s; все1296 discovery IDs
+совпали с execution без дублей. ContractValidation PASS. Новый pinned CI
+ещё обязателен; причина прежнего отказа не объявлена доказанной.
