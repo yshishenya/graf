@@ -412,13 +412,28 @@ def test_governance_workflow_self_test() -> None:
     ("release-full", "server-parallel"), ("release-full", "server-phases"),
     ("governance-fast", "governance-fast"),
 ])
-@pytest.mark.parametrize("tools_state", ["working", "missing-ffmpeg", "missing-ffprobe", "update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe", "non-server", "mirror-failed", "npm-failed", "browser-failed", "write-failed", "unknown-mirror", "duplicate-mirror", "missing-mirror", "bad-source", "missing-source", "crlf-mirror", "mirror-symlink", "source-symlink", "second-source", "continued-source", "disabled-source", "duplicate-source", "multiple-stanzas", "diag-direct", "diag-unknown", "diag-credential", "diag-backslash", "diag-nul", "diag-empty-port", "diag-long", "diag-multi", "diag-query", "diag-fragment"])
+@pytest.mark.parametrize("tools_state", [
+    "working", "missing-ffmpeg", "missing-ffprobe", "update-failed", "install-failed",
+    "broken-ffmpeg", "broken-ffprobe", "non-server", "mirror-failed", "npm-failed", "browser-failed",
+    "write-failed", "replace-failed", "readback-failed", "changed-source",
+    "unknown-mirror", "duplicate-mirror", "missing-mirror", "bad-source", "missing-source",
+    "crlf-mirror", "mirror-symlink", "source-symlink", "second-source", "continued-source",
+    "disabled-source", "duplicate-source", "multiple-stanzas", "mixed-suites", "security-only",
+    "deb-src", "wide-fields", "optional-fields", "canonical", "diag-direct", "diag-unknown", "diag-credential",
+    "diag-backslash", "diag-nul", "diag-empty-port", "diag-long", "diag-multi", "diag-query", "diag-fragment",
+    "bad-os", "bad-version", "bad-codename", "bad-arch", "foreign-arch", "self-hosted",
+    "source-owner", "source-mode", "parent-owner", "parent-mode", "parent-symlink",
+    "key-owner", "key-mode", "key-symlink", "key-missing", "key-empty", "key-oversize",
+    "source-empty", "source-oversize", "non-ascii", "del-source", "unknown-field", "trusted",
+    "bad-type", "duplicate-type", "bad-suite", "duplicate-suite", "bad-component", "duplicate-component",
+    "bad-signed-by", "bad-architecture", "duplicate-field", "malformed", "empty-uri",
+])
 def test_actual_media_resource_preparation(tmp_path, workflow_name, job_name, tools_state):
     import yaml
 
     workflow = yaml.load((ROOT / f".github/workflows/{workflow_name}.yml").read_text(), Loader=yaml.BaseLoader)
-    job = workflow["jobs"][job_name]
-    step = next(step for step in job["steps"] if "browser" in step.get("name", "").lower() and "resources" in step["name"])
+    step = next(step for step in workflow["jobs"][job_name]["steps"]
+                if "browser" in step.get("name", "").lower() and "resources" in step["name"])
     runner = tmp_path / "infra/scripts/ci-local.sh"
     runner.parent.mkdir(parents=True)
     runner.write_text('source "$CI_SOURCE"\nchanged_files() { printf "%s\\n" "$CHANGED_PATH"; }\n')
@@ -427,19 +442,25 @@ def test_actual_media_resource_preparation(tmp_path, workflow_name, job_name, to
     browser.write_text('#!/bin/sh\nprintf "browser\\n" >> "$PREP_EVENTS"\n[ "$TOOLS_STATE" != browser-failed ]\n')
     browser.chmod(0o755)
     apt = tmp_path / "apt"
-    (apt / "sources.list.d").mkdir(parents=True)
+    parent = apt / "sources.list.d"
+    parent.mkdir(parents=True)
+    parent.chmod(0o755)
+    key = tmp_path / "ubuntu-archive-keyring.gpg"
+    key.write_bytes(b"fixture-keyring")
+    source = parent / "ubuntu.sources"
     source_text = ("Types: deb\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\n"
                    "Suites: noble noble-updates noble-backports\nComponents: main universe restricted multiverse\n"
                    "Architectures: amd64\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n")
-    source = apt / "sources.list.d/ubuntu.sources"
     source.write_text(source_text.replace("/etc/apt", str(apt)))
-    third_party = apt / "sources.list.d/third-party.list"
+    third_party = parent / "third-party.list"
     third_party.write_text("deb [signed-by=/some/key.gpg] https://example.invalid/packages stable main\n")
     mirror = apt / "apt-mirrors.txt"
     original = ("http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\n"
                 "https://archive.ubuntu.com/ubuntu/\tpriority:2\n"
                 "https://security.ubuntu.com/ubuntu/\tpriority:3\n")
     mirror.write_text(original)
+    platform_file = tmp_path / "os-release"
+    platform_file.write_text('ID=ubuntu\nVERSION_ID="24.04"\nVERSION_CODENAME=noble\n')
     diagnostic_uris = {
         "diag-direct": "https://archive.ubuntu.com/ubuntu/",
         "diag-unknown": "https://fixture-private-value.invalid/ubuntu/",
@@ -452,40 +473,113 @@ def test_actual_media_resource_preparation(tmp_path, workflow_name, job_name, to
         "diag-query": "https://archive.ubuntu.com/ubuntu/?fixture-private-value",
         "diag-fragment": "https://archive.ubuntu.com/ubuntu/#fixture-private-value",
     }
+    replacements = {
+        "bad-source": ("mirror+file:", "file:"), "continued-source": ("\nSuites:", "\n continued\nSuites:"),
+        "security-only": ("noble noble-updates noble-backports", "noble-security"),
+        "mixed-suites": ("noble noble-updates noble-backports", "noble noble-security noble-updates"),
+        "deb-src": ("Types: deb", "Types: deb deb-src"), "bad-type": ("Types: deb", "Types: rpm"),
+        "duplicate-type": ("Types: deb", "Types: deb deb"), "bad-suite": ("Suites: noble", "Suites: jammy"),
+        "duplicate-suite": ("Suites: noble", "Suites: noble noble"),
+        "bad-component": ("Components: main", "Components: private"),
+        "duplicate-component": ("Components: main", "Components: main main"),
+        "bad-signed-by": ("Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg", "Signed-By: /other/key.gpg"),
+        "bad-architecture": ("Architectures: amd64", "Architectures: arm64"),
+        "optional-fields": ("Architectures: amd64\n", "Enabled: yes\n"),
+        "empty-uri": (f"URIs: mirror+file:{apt}/apt-mirrors.txt", "URIs:"),
+        "canonical": (f"URIs: mirror+file:{apt}/apt-mirrors.txt", "URIs: https://archive.ubuntu.com/ubuntu/"),
+    }
     if tools_state in diagnostic_uris:
         source.write_text(source.read_text().replace(f"mirror+file:{apt}/apt-mirrors.txt", diagnostic_uris[tools_state]))
+    elif tools_state == "wide-fields":
+        source.write_text(source.read_text().replace("Types: deb", "Types: deb" + " " * 5000 + "deb-src")
+                          .replace("noble noble-updates noble-backports", "noble noble-updates noble-backports noble-security"))
+        assert source.stat().st_size < 16384
+    elif tools_state in replacements:
+        source.write_text(source.read_text().replace(*replacements[tools_state]))
     elif tools_state == "unknown-mirror":
         mirror.write_text(original + "https://other.invalid/ubuntu/\tpriority:1\n")
     elif tools_state == "duplicate-mirror":
         mirror.write_text(original + original)
     elif tools_state == "missing-mirror":
         mirror.unlink()
-    elif tools_state == "bad-source":
-        source.write_text(source.read_text().replace("mirror+file:", "file:"))
-    elif tools_state == "second-source":
-        source.write_text(source.read_text() + "\n" + source_text.replace("mirror+file:/etc/apt/apt-mirrors.txt", "https://other.invalid/ubuntu/"))
-    elif tools_state == "continued-source":
-        source.write_text(source.read_text().replace("\nSuites:", "\n https://other.invalid/ubuntu/\nSuites:"))
-    elif tools_state == "disabled-source":
-        source.write_text(source.read_text() + "Enabled: no\n")
-    elif tools_state == "duplicate-source":
-        source.write_text(source.read_text() + "URIs: https://other.invalid/ubuntu/\n")
-    elif tools_state == "multiple-stanzas":
-        source.write_text(source.read_text() + "\n" + source.read_text().replace("noble noble-updates noble-backports", "noble-security"))
-    elif tools_state == "missing-source":
-        source.unlink()
+    elif tools_state in {"second-source", "multiple-stanzas"}:
+        extra = source.read_text()
+        if tools_state == "multiple-stanzas":
+            extra = extra.replace("noble noble-updates noble-backports", "noble-security")
+        source.write_text(source.read_text() + "\n" + extra)
+    elif tools_state in {"disabled-source", "duplicate-source", "unknown-field", "trusted", "duplicate-field", "malformed", "del-source", "non-ascii"}:
+        source.write_text(source.read_text() + {
+            "disabled-source": "Enabled: no\n", "duplicate-source": "URIs: https://other.invalid/ubuntu/\n",
+            "unknown-field": "Check-Valid-Until: no\n", "trusted": "Trusted: yes\n",
+            "duplicate-field": "types: deb\n", "malformed": "broken line\n", "del-source": "#\x7f\n",
+            "non-ascii": "# пример\n",
+        }[tools_state])
+    elif tools_state in {"missing-source", "key-missing"}:
+        (source if tools_state == "missing-source" else key).unlink()
     elif tools_state == "crlf-mirror":
         mirror.write_bytes(original.replace("\n", "\r\n").encode())
-    elif tools_state in {"mirror-symlink", "source-symlink", "second-source", "continued-source", "disabled-source", "duplicate-source"}:
-        target = mirror if tools_state == "mirror-symlink" else source
+    elif tools_state in {"source-empty", "source-oversize", "key-empty", "key-oversize"}:
+        target = source if tools_state.startswith("source-") else key
+        target.write_bytes(b"" if tools_state.endswith("empty") else b"x" * (16385 if target == source else 1048577))
+    elif tools_state in {"source-mode", "parent-mode", "key-mode"}:
+        {"source-mode": source, "parent-mode": parent, "key-mode": key}[tools_state].chmod(0o777)
+    elif tools_state in {"mirror-symlink", "source-symlink", "parent-symlink", "key-symlink"}:
+        target = {"mirror-symlink": mirror, "source-symlink": source, "parent-symlink": parent, "key-symlink": key}[tools_state]
         saved = target.with_suffix(".saved")
         target.rename(saved)
         target.symlink_to(saved)
+    elif tools_state in {"bad-os", "bad-version", "bad-codename"}:
+        platform_file.write_text(platform_file.read_text().replace(*{
+            "bad-os": ("ubuntu", "debian"), "bad-version": ("24.04", "26.04"), "bad-codename": ("noble", "jammy"),
+        }[tools_state]))
     source_before = source.read_bytes() if source.exists() else None
     mirror_before = mirror.read_bytes() if mirror.exists() else None
+    third_before = third_party.read_bytes()
+    mode_before = source.stat().st_mode if source.exists() else None
     helper = ROOT / "infra/scripts/prepare-ci-apt.sh"
-    if helper.exists():
-        (runner.parent / helper.name).write_text(helper.read_text().replace("/etc/apt", str(apt)))
+    (runner.parent / helper.name).write_text(helper.read_text().replace("/etc/apt", str(apt))
+        .replace("/usr/lib/os-release", str(platform_file))
+        .replace("Path('/usr/share/keyrings/ubuntu-archive-keyring.gpg')", f"Path({str(key)!r})"))
+    # Explicit local model of root metadata; the security branches still execute.
+    model = tmp_path / "root-model.py"
+    model.write_text(r'''
+import os, sys, types
+from pathlib import Path
+from unittest.mock import patch
+state = os.environ["TOOLS_STATE"]
+source, parent, key = map(Path, (os.environ["APT_SOURCE"], os.environ["APT_PARENT"], os.environ["APT_KEY"]))
+real_lstat, real_fstat = Path.lstat, os.fstat
+inodes = {p.stat().st_ino: label for p, label in ((source, "source"), (parent, "parent"), (key, "key")) if p.exists()}
+def root_stat(value):
+    attrs = {n: getattr(value, n) for n in dir(value) if n.startswith("st_")}
+    label = inodes.get(value.st_ino)
+    attrs.update(st_uid=1 if state == f"{label}-owner" else 0, st_gid=0)
+    return types.SimpleNamespace(**attrs)
+patch.object(Path, "lstat", lambda p: root_stat(real_lstat(p))).start()
+patch("os.fstat", lambda fd: root_stat(real_fstat(fd))).start()
+patch("os.fchown", lambda fd, uid, gid: None).start()
+if state == "write-failed":
+    patch("os.fsync", side_effect=PermissionError("fixture write failure")).start()
+if state == "replace-failed":
+    patch("os.replace", side_effect=PermissionError("fixture replace failure")).start()
+if state == "changed-source":
+    real_fsync = os.fsync
+    def changed(fd):
+        real_fsync(fd)
+        source.write_bytes(source.read_bytes() + b"# fixture changed\n")
+    patch("os.fsync", changed).start()
+if state == "readback-failed":
+    real_replace = os.replace
+    def corrupt(src, dst):
+        real_replace(src, dst)
+        Path(dst).write_bytes(b"# fixture failed readback\n")
+    patch("os.replace", corrupt).start()
+exec(compile(sys.stdin.read(), "prepare-ci-apt.sh", "exec"))
+''')
+    dpkg = tmp_path / "bin/dpkg"
+    dpkg.parent.mkdir()
+    dpkg.write_text('#!/bin/sh\ncase "$1" in\n--print-architecture) if [ "$TOOLS_STATE" = bad-arch ]; then echo arm64; else echo amd64; fi;;\n--print-foreign-architectures) if [ "$TOOLS_STATE" = foreign-arch ]; then echo arm64; fi;;\n*) exit 91;;\nesac\n')
+    dpkg.chmod(0o755)
     events = tmp_path / "events"
     harness = r'''
 installed=0
@@ -498,15 +592,11 @@ sudo() {
   if [[ "$1" == python3 ]]; then
     printf 'mirror\n' >> "$PREP_EVENTS"
     [[ "$TOOLS_STATE" != mirror-failed ]] || return 23
-    if [[ "$TOOLS_STATE" == write-failed ]]; then
-      builtin command python3 -c 'import sys,unittest.mock; unittest.mock.patch("pathlib.Path.write_bytes", side_effect=PermissionError("fixture write denied")).start(); exec(sys.stdin.read())'
-    else
-      builtin command "$@"
-    fi
+    builtin command python3 "$ROOT_MODEL"
     return
   fi
   [[ "$1" == apt-get ]] || return 99
-  ! grep -q azure "$APT_MIRROR" || return 98
+  ! grep -q azure "$APT_SOURCE" || return 98
   printf '%s\n' "$*" >> "$PREP_EVENTS"
   [[ "$TOOLS_STATE" != update-failed || "$2" != update ]] || return 23
   [[ "$TOOLS_STATE" != install-failed || "$2" != install ]] || return 23
@@ -516,41 +606,59 @@ npm() { printf 'npm\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != npm-failed ]]; }
 ffmpeg() { printf 'ffmpeg\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ffmpeg ]]; }
 ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ffprobe ]]; }
 '''
-    result = subprocess.run(
-        ["bash", "-e", "-o", "pipefail", "-c", harness + step["run"]], cwd=tmp_path,
-        env={**os.environ, "CI_SOURCE": str(ROOT / "infra/scripts/ci-local.sh"),
-             "CHANGED_PATH": "README.md" if tools_state == "non-server" else "apps/server/src/example.py",
-             "TOOLS_STATE": tools_state, "PREP_EVENTS": str(events),
-             "APT_MIRROR": str(mirror), "GITHUB_ACTIONS": "true", "RUNNER_OS": "Linux"},
-        capture_output=True, text=True, check=False, timeout=10,
-    )
+    env = {**os.environ, "CI_SOURCE": str(ROOT / "infra/scripts/ci-local.sh"),
+           "CHANGED_PATH": "README.md" if tools_state == "non-server" else "apps/server/src/example.py",
+           "TOOLS_STATE": tools_state, "PREP_EVENTS": str(events), "ROOT_MODEL": str(model),
+           "APT_SOURCE": str(source), "APT_PARENT": str(parent), "APT_KEY": str(key),
+           "GITHUB_ACTIONS": "true", "RUNNER_OS": "Linux",
+           "RUNNER_ENVIRONMENT": "self-hosted" if tools_state == "self-hosted" else "github-hosted",
+           "PATH": str(dpkg.parent) + os.pathsep + os.environ["PATH"]}
+    result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", harness + step["run"]],
+                            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10)
     rows = events.read_text().splitlines() if events.exists() else []
     if workflow_name == "governance-fast" and tools_state == "non-server":
         assert result.returncode == 0 and not rows, result.stderr
         return
-    failed = tools_state in {"update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe", "mirror-failed", "npm-failed", "browser-failed", "write-failed", "unknown-mirror", "duplicate-mirror", "missing-mirror", "bad-source", "missing-source", "crlf-mirror", "mirror-symlink", "source-symlink", "second-source", "continued-source", "disabled-source", "duplicate-source"} or tools_state in diagnostic_uris
+    helper_failures = {
+        "mirror-failed", "write-failed", "replace-failed", "readback-failed", "changed-source",
+        "missing-source", "source-symlink", "second-source", "continued-source", "disabled-source",
+        "duplicate-source", "diag-nul", "bad-os", "bad-version", "bad-codename", "bad-arch", "foreign-arch",
+        "self-hosted", "source-owner", "source-mode", "parent-owner", "parent-mode", "parent-symlink",
+        "key-owner", "key-mode", "key-symlink", "key-missing", "key-empty", "key-oversize", "source-empty",
+        "source-oversize", "non-ascii", "del-source", "unknown-field", "trusted", "bad-type", "duplicate-type",
+        "bad-suite", "duplicate-suite", "bad-component", "duplicate-component", "bad-signed-by",
+        "bad-architecture", "duplicate-field", "malformed", "empty-uri",
+    }
+    later_failures = {"update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe", "npm-failed", "browser-failed"}
+    failed = tools_state in helper_failures | later_failures
     assert (result.returncode != 0) == failed, result.stdout + result.stderr
-    assert rows[0] == "mirror", rows
-    assert (source.read_bytes() if source.exists() else None) == source_before
-    assert third_party.read_text() == "deb [signed-by=/some/key.gpg] https://example.invalid/packages stable main\n"
-    helper_failed = tools_state in {"mirror-failed", "write-failed", "unknown-mirror", "duplicate-mirror", "missing-mirror", "bad-source", "missing-source", "crlf-mirror", "mirror-symlink", "source-symlink", "second-source", "continued-source", "disabled-source", "duplicate-source"} or tools_state in diagnostic_uris
-    if tools_state in diagnostic_uris or tools_state == "disabled-source":
-        metadata = [json.loads(line) for line in result.stdout.splitlines() if line.startswith('{"uris":')]
-        assert len(metadata) == 1, result.stdout + result.stderr
-        assert metadata[0]["enabled"] is (tools_state != "disabled-source")
-        values = metadata[0]["uris"]
-        expected_kind = "ubuntu_uri" if tools_state in {"diag-direct", "diag-multi"} else "mirror_list" if tools_state == "disabled-source" else "UNKNOWN"
-        assert values[-1]["kind"] == expected_kind
-        if expected_kind == "UNKNOWN":
-            assert values == [{"kind": "UNKNOWN", "sha256": hashlib.sha256(diagnostic_uris[tools_state].encode()).hexdigest()}]
-        if tools_state == "diag-multi":
-            assert values[0] == {"kind": "mirror_list"} and len(values) == 2
-        assert "fixture-private-value" not in result.stdout + result.stderr
-    if helper_failed:
-        assert rows == ["mirror"]
-        assert (mirror.read_bytes() if mirror.exists() else None) == mirror_before
+    assert rows == ([] if tools_state == "self-hosted" else ["mirror"]) if tools_state in helper_failures else rows[0] == "mirror"
+    assert "fixture-private-value" not in result.stdout + result.stderr
+    assert (mirror.read_bytes() if mirror.exists() else None) == mirror_before
+    assert third_party.read_bytes() == third_before
+    assert key.read_bytes() == b"fixture-keyring" if tools_state not in {"key-missing", "key-empty", "key-oversize"} else True
+    if tools_state in helper_failures:
+        if tools_state not in {"changed-source", "readback-failed"}:
+            assert (source.read_bytes() if source.exists() else None) == source_before
     else:
-        assert mirror.read_text() == original.split("\n", 1)[1]
+        def tuples(data):
+            sections = [dict(line.split(":", 1) for line in section.splitlines() if line and not line.startswith("#"))
+                        for section in data.decode().strip().split("\n\n")]
+            return {suite: {k: tuple(v.split()) for k, v in fields.items() if k not in {"URIs", "Suites"}}
+                    for fields in sections for suite in fields["Suites"].split()}
+        after = source.read_bytes()
+        assert tuples(after) == tuples(source_before)
+        for section in after.decode().strip().split("\n\n"):
+            fields = dict(line.split(":", 1) for line in section.splitlines())
+            expected = "security" if fields["Suites"].strip() == "noble-security" else "archive"
+            assert fields["URIs"].strip() == f"https://{expected}.ubuntu.com/ubuntu/"
+        assert source.stat().st_mode == mode_before
+        before = (source.read_bytes(), source.stat().st_mtime_ns)
+        repeat = subprocess.run(["bash", "-e", "-c", harness + "source infra/scripts/prepare-ci-apt.sh"],
+                                cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10)
+        assert repeat.returncode == 0, repeat.stderr
+        assert (source.read_bytes(), source.stat().st_mtime_ns) == before
+    assert not list(parent.glob(".ubuntu.sources-*"))
     installs = [row for row in rows if row.startswith("apt-get")]
     if tools_state in {"missing-ffmpeg", "missing-ffprobe", "install-failed"}:
         assert len(installs) == 2 and installs[0] == "apt-get update"
@@ -559,20 +667,12 @@ ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ff
         assert installs == ["apt-get update"]
     else:
         assert installs == []
-    if helper_failed or tools_state in {"update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe"}:
+    if tools_state in helper_failures | {"update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe"}:
         assert "npm" not in rows and "browser" not in rows
     elif tools_state == "npm-failed":
         assert "browser" not in rows
     if not failed:
         assert rows.count("ffmpeg") == rows.count("ffprobe") == rows.count("npm") == rows.count("browser") == 1
-        # The real helper is safe to repeat without rewriting any bytes.
-        before = mirror.stat().st_mtime_ns
-        repeat = subprocess.run(["bash", "-e", "-c", harness + "source infra/scripts/prepare-ci-apt.sh"],
-                                cwd=tmp_path, env={**os.environ, "PREP_EVENTS": str(events),
-                                "TOOLS_STATE": tools_state, "GITHUB_ACTIONS": "true", "RUNNER_OS": "Linux"},
-                                capture_output=True, text=True, check=False)
-        assert repeat.returncode == 0, repeat.stderr
-        assert mirror.stat().st_mtime_ns == before
 
 
 ACTION_PINS = {

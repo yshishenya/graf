@@ -1,73 +1,120 @@
 #!/usr/bin/env bash
-# F211 T099: use the official HTTPS fallbacks on disposable GitHub runners.
+# F211 T112: normalize package sources on disposable GitHub Ubuntu runners.
 set -euo pipefail
-if [[ "${GITHUB_ACTIONS:-}" != true || "${RUNNER_OS:-}" != Linux ]]; then
-  echo 'CI APT preparation requires a GitHub Linux runner' >&2
+if [[ "${GITHUB_ACTIONS:-}" != true || "${RUNNER_OS:-}" != Linux || "${RUNNER_ENVIRONMENT:-}" != github-hosted ]]; then
+  echo 'CI APT preparation requires a GitHub-hosted Linux runner' >&2
   exit 1
 fi
 sudo python3 - <<'PY'
 from pathlib import Path
-from urllib.parse import urlsplit
-import hashlib
-import json
+import os
 import re
+import stat
+import subprocess
+import tempfile
 
-def describe(uri):
-    if uri == "mirror+file:/etc/apt/apt-mirrors.txt":
-        return {"kind": "mirror_list"}
-    try:
-        value = urlsplit(uri)
-        host = value.hostname or ""
-        if (value.scheme in {"http", "https"}
-                and len(host) <= 253
-                and re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*ubuntu\.com", host)
-                and all(32 < ord(char) < 127 for char in uri)
-                and value.netloc.lower() == host
-                and value.path in {"/ubuntu", "/ubuntu/"}
-                and value.username is None and value.password is None
-                and value.port is None and not value.query and not value.fragment):
-            return {"kind": "ubuntu_uri", "scheme": value.scheme,
-                    "host": host, "path": value.path}
-    except ValueError:
-        pass
-    return {"kind": "UNKNOWN", "sha256": hashlib.sha256(uri.encode()).hexdigest()}
 
+def fail(reason):
+    raise SystemExit('CI APT preparation: ' + reason)
+
+
+def fingerprint(value):
+    return (value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid,
+            value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+
+
+def checked_read(path, limit):
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode) or before.st_uid != 0 or before.st_mode & 0o022 or not 0 < before.st_size <= limit:
+        fail('unsafe source or keyring metadata')
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), 'rb') as stream:
+        if fingerprint(os.fstat(stream.fileno())) != fingerprint(before):
+            fail('input changed while opening')
+        data = stream.read(limit + 1)
+        if len(data) != before.st_size or fingerprint(os.fstat(stream.fileno())) != fingerprint(before):
+            fail('input changed while reading')
+    return data, before
+
+
+platform = dict(line.split('=', 1) for line in Path('/usr/lib/os-release').read_text().splitlines()
+                if line and not line.startswith('#') and '=' in line)
+if any(platform.get(k, '').strip('"') != v for k, v in
+       {'ID': 'ubuntu', 'VERSION_ID': '24.04', 'VERSION_CODENAME': 'noble'}.items()):
+    fail('expected Ubuntu 24.04 noble')
+if (subprocess.check_output(['dpkg', '--print-architecture'], text=True).strip() != 'amd64'
+        or subprocess.check_output(['dpkg', '--print-foreign-architectures'], text=True).strip()):
+    fail('expected native amd64 without foreign architectures')
 source = Path('/etc/apt/sources.list.d/ubuntu.sources')
-mirror = Path('/etc/apt/apt-mirrors.txt')
-for path in (source, mirror):
-    if path.is_symlink() or not path.is_file():
-        raise SystemExit(f'CI APT preparation: expected a regular file: {path}')
-# Accept only the runner's flat deb822 fields, including multiple stanzas.
-sections = re.split(r'\n[ \t]*\n', source.read_text().strip())
-for section in sections:
+parent = source.parent.lstat()
+if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != 0 or parent.st_mode & 0o022:
+    fail('unsafe source directory')
+keyring = Path('/usr/share/keyrings/ubuntu-archive-keyring.gpg')
+checked_read(keyring, 1048576)
+original, metadata = checked_read(source, 16384)
+if any(byte > 126 or byte < 32 and byte not in (9, 10) for byte in original):
+    fail('expected flat ASCII source')
+allowed = {'types', 'uris', 'suites', 'components', 'signed-by', 'architectures', 'enabled'}
+required = {'types', 'uris', 'suites', 'components', 'signed-by'}
+seen_suites = set()
+output = []
+for section in re.split(r'\n[ \t]*\n', original.decode('ascii').strip('\n')):
     fields = {}
     for line in section.splitlines():
         if line.startswith('#'):
             continue
-        key, separator, value = line.partition(':')
-        if not separator or not key or key[0].isspace() or key.lower() in fields:
-            raise SystemExit('CI APT preparation: unsupported Ubuntu source fields')
-        fields[key.lower()] = value.strip()
+        name, separator, value = line.partition(':')
+        name = name.lower()
+        if not separator or name not in allowed or name in fields:
+            fail('unsupported or duplicate source field')
+        fields[name] = value.strip()
     if not fields:
         continue
-    if (fields.get('uris') != 'mirror+file:/etc/apt/apt-mirrors.txt'
+    if not required <= fields.keys() or any(not value for value in fields.values()):
+        fail('missing source field')
+    for name, values in {'types': {'deb', 'deb-src'},
+                         'suites': {'noble', 'noble-updates', 'noble-backports', 'noble-security'},
+                         'components': {'main', 'restricted', 'universe', 'multiverse'}}.items():
+        tokens = fields[name].split()
+        if len(set(tokens)) != len(tokens) or not set(tokens) <= values:
+            fail('unsupported or repeated package setting')
+        fields[name] = ' '.join(tokens)
+    if (fields['signed-by'] != '/usr/share/keyrings/ubuntu-archive-keyring.gpg'
+            or fields.get('architectures', 'amd64') != 'amd64'
             or fields.get('enabled', 'yes') != 'yes'):
-        uri = fields.get('uris', '')
-        descriptions = ([describe(value) for value in uri.split()] if len(uri) <= 4096
-                        else [{"kind": "UNKNOWN", "sha256": hashlib.sha256(uri.encode()).hexdigest()}])
-        print(json.dumps({"uris": descriptions, "enabled": fields.get('enabled', 'yes') == 'yes'}), flush=True)
-        raise SystemExit('CI APT preparation: unsupported Ubuntu mirror source')
-if not any(line.startswith('URIs:') for line in source.read_text().splitlines()):
-    raise SystemExit('CI APT preparation: missing Ubuntu mirror source')
-azure = b'http://azure.archive.ubuntu.com/ubuntu/\tpriority:1\n'
-official = (b'https://archive.ubuntu.com/ubuntu/\tpriority:2\n'
-            b'https://security.ubuntu.com/ubuntu/\tpriority:3\n')
-current = mirror.read_bytes()
-if current not in (azure + official, official):
-    raise SystemExit('CI APT preparation: unsupported Ubuntu mirror list')
-if current != official:
-    mirror.write_bytes(official)
-if mirror.read_bytes() != official:
-    raise SystemExit('CI APT preparation: mirror write verification failed')
-print('CI APT mirrors: official Ubuntu HTTPS archives; Azure excluded')
+        fail('unsupported source trust or architecture')
+    for suite in fields['suites'].split():
+        if suite in seen_suites:
+            fail('repeated suite across source sections')
+        seen_suites.add(suite)
+        host = 'security' if suite == 'noble-security' else 'archive'
+        normalized = {**fields, 'uris': f'https://{host}.ubuntu.com/ubuntu/', 'suites': suite}
+        output.append('\n'.join(f'{name}: {normalized[name.lower()]}' for name in
+                      ('Types', 'URIs', 'Suites', 'Components', 'Signed-By', 'Architectures', 'Enabled')
+                      if name.lower() in normalized))
+if not output:
+    fail('missing Ubuntu source')
+canonical = ('\n\n'.join(output) + '\n').encode('ascii')
+if len(canonical) > 16384:
+    fail('normalized source exceeds size limit')
+if canonical != original:
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=source.parent, prefix='.ubuntu.sources-', delete=False) as stream:
+            temporary = Path(stream.name)
+            os.fchown(stream.fileno(), metadata.st_uid, metadata.st_gid)
+            os.fchmod(stream.fileno(), stat.S_IMODE(metadata.st_mode))
+            stream.write(canonical)
+            stream.flush()
+            os.fsync(stream.fileno())
+        current, current_metadata = checked_read(source, 16384)
+        if current != original or fingerprint(current_metadata) != fingerprint(metadata) or fingerprint(source.parent.lstat())[:5] != fingerprint(parent)[:5]:
+            fail('source changed before replacement')
+        os.replace(temporary, source)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    actual, final_metadata = checked_read(source, 16384)
+    if actual != canonical or (final_metadata.st_uid, final_metadata.st_gid, final_metadata.st_mode) != (metadata.st_uid, metadata.st_gid, metadata.st_mode):
+        fail('source write verification failed')
+print('CI APT sources: official Ubuntu HTTPS archives')
 PY

@@ -363,3 +363,14 @@ F269/T031, установленная приёмка macOS14 и будущий �
 
 
 - [X] T111 Сохранить отказ неизвестного APT и добавить безопасную JSON-классификацию в `infra/scripts/prepare-ci-apt.sh` по spec T111; переиспользовать T110 describe, не менять allowlist/доверие/три caller; удалить временный `.github/workflows/ubuntu-apt-diagnostic.yml`, расширить существующий исполняемый `tests/governance/test_governance_workflow.py`, пройти before-code review/analyze/issue sync, RED/GREEN, focused/static, независимый review/converge и exact PR gates. Фактический AWS остаётся T110; Full не повторяется. (FR-057/SC-025; Issue #7849)
+
+## T112 — официальные источники независимо от облака
+
+- [ ] T112 [US2] Нормализовать только Ubuntu sources в `infra/scripts/prepare-ci-apt.sh` по spec/plan T112: после checklist PASS и analyze/issue sync сначала RED cloud/mixed-suites в существующем `tests/governance/test_governance_workflow.py`, затем проверка Ubuntu24.04/amd64/root/files/полей, сохранение package tuples, две официальные HTTPS цели и атомарная запись с readback/no-op/cleanup; GREEN всей прежней матрицы трёх настоящих callers, negative owner/mode/platform/keyring/format/write/readback, static/governance/process/fragment/diff, независимое review/converge и exact PR gates; обновить `changes/unreleased/F211.yaml` и evidence в `specs/211-optimize-ci-cd/quickstart.md`. Новые инфраструктура/зависимости и изменения YAML/mirror/third-party/ключей/доверия исключены. (FR-057/SC-025; Issue #7859)
+
+Зависимости: reviewer-owned `ci-official-sources.md` 5/0 PASS → T112 analyze →
+issue sync → existing test RED → helper → GREEN/static → review/converge →
+commit/PR exact checks. T112 — один самостоятельный результат US2, параллельных
+задач нет: helper и общий test принадлежат одному исполнителю. Историческая
+T110 остаётся открытой; новый способ устраняет зависимость выпуска от cloud URI.
+Новый frozen Full/выпуск и runtime/T0 принимаются отдельно по T100/T102/F273.

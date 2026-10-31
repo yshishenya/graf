@@ -1119,3 +1119,47 @@ fragment/diff, независимое implementation review/converge. Удалё
 временный workflow не заменяется новой инфраструктурой. Три обязательных
 PR gates остаются, AWS критерий открыт, release-full не запускается ради
 выборки машины.
+
+
+## T112 — официальные источники CI
+
+Before-code: независимый checklists/ci-official-sources.md, scoped analyze,
+issue sync. Один существующий test_actual_media_resource_preparation исполняет
+все три YAML callers и настоящий helper на временных files без сети/sudo.
+Новый cloud-URI/mixed-suites профиль сначала RED на прежнем helper, затем
+весь tests/governance/test_governance_workflow.py GREEN с T112. Assert package
+tuples и metadata/mtime, две фиксированные HTTPS цели, source/mirror/thirdparty
+на отказах, отсутствие APT/npm/Playwright после ошибки. Непривилегированный
+fixture явно моделирует root metadata, в том числе в hosted тесте. Настоящие
+права проверяет внешний helper при server-change или Full: infra-only PR
+сохраняет прежний server-scope и не выдаёт модель за native/root proof.
+
+Матрица: исходный/нормализованный/mixed/security-only/no-security/deb-src,
+optional fields; unknown/credential URI не читается и не печатается; неверные
+platform/native/foreign arch, unsafe owner/mode/source parent/keyring,
+missing/symlink/oversize/malformed/повторы/unknown fields/disabled; полный
+prewrite отказ, replace/readback failure и temp cleanup. bash -n, Ruff,
+actionlint прежних workflows, governance/process/fragment/diff, независимое
+review/converge и exact PR gates. T110 historical unknown сохраняется, отдельной
+случайной выборки нет. Full/CD/рабочая аналитика/T0 принимаются отдельно.
+
+### T112: локальная проверка 01.11.2026
+
+На основе master `a20ce7fc008de6df21967361317ed668ce29238b`:
+новые mixed/unknown сценарии дали RED6/6 на прежнем helper; найденный review
+случай с 5000 пробелами дал отдельный RED1, после исправления GREEN3/3.
+Окончательный весь `tests/governance/test_governance_workflow.py`:
+**402 passed, 0 skipped, 157,22с**. Скрипт и тест во время этого повтора
+не изменялись. Ранний промежуточный запуск с ошибкой сравнения mtime каталога
+не считается успехом; финальный код сравнивает идентичность/права parent,
+а изменение каталога от собственного tempfile не выдаёт за подмену.
+
+Bash syntax, Ruff helper/test, actionlint обоих неизменённых workflows,
+development-process, governance workflow self-test, Spec Kit governance,
+changelog-fragments и diff-check PASS. Зависимости/сеть/APT/production не
+запускались; root metadata и native платформа явно моделировались. Обязательные
+GitHub проверки и merge ещё должны подтвердиться для коммита; настоящий
+helper/root/native и новый Full принимаются в штатном выпуске отдельно.
+
+- Helper SHA256: `2364d3e6d5d66ef4b9081ae7d411380cdab37d09ca0dcaa1ca2f2670a7b9123f`.
+- Test SHA256: `64223c8b65a55c227b6789dd7d2db1355e000da0718b974536120477e11d5f99`.
