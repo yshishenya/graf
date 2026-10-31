@@ -495,3 +495,30 @@ push, release and deployment are outside this planning command.
 запускались; исторические результаты не выданы за новый прогон. Эти issues
 уже открыты и не закрываются этим документальным изменением. Остальные
 задачи, приёмка F140, включение оплаты и выпуск не принимаются.
+
+
+## T074: PostgreSQL и три подтверждённых отказа — 2026-10-31
+
+Переиспользовать одноразовую migrated PostgreSQL штатного test runner.
+Запустить existing `test_billing_renewal_planner_postgres.py`,
+`unit/test_renewal_charge.py` и `e2e/test_billing_test_shop.py`. Новый сценарий
+проходит все три окна через настоящий planner/charge, читает commit из новых
+sessions и проверяет ровно один transport POST/notification на отказ; повтор
+того же operation не создаёт вторую отправку. Между окнами новой operation нет.
+Проверить оплаченный срок и grant/method, после третьего отказа выключенное
+согласие и отсутствие четвёртой попытки. HTTP разрешён только существующему
+offline MockTransport, внешние сервисы/почта запрещены.
+
+Сохранить числа PASS/SKIP/FAIL и границы. Это дополнение автоматической
+матрицы; отсутствие настоящего test shop или другой части FR-090 не прятать
+за зелёной PostgreSQL. T074/#4928 закрывается лишь после отдельной полной
+сверки исходного объёма.
+
+Предварительный scoped analyze T074: FR-090 recurring-decline + принятое
+F278 FR-014/US3 AC4–5 → исходная T074 и один существующий test file.
+Проверены6 критериев reviewer checklist,3 окна и границы idempotency/authority/
+paid-access/offline. Покрытие100%, несвязанных задач0, CRITICAL/HIGH0,
+новых финансовых решений0. Исторические58 открытых checklist items
+не принимаются; применимость к test-only отдельно разобрана reviewer.
+Baseline до нового тестового кода:116 PASS/0 SKIP/0 FAIL,5.04s;
+одноразовый PostgreSQL контейнер штатно удалён.

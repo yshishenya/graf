@@ -295,3 +295,20 @@ commercial/legal/provider параметры превращены в default-off
 SPA, dunning/grace engine, wallet, stacked add-ons, seats/team billing,
 usage-overage и GRAF refund backoffice. Добавлять их можно только отдельной
 проверенной feature slice, когда появится подтверждённая потребность.
+
+
+## T074: сохраняемый отказ продления — 2026-10-31
+
+Полоса: active Spec Kit slice, test-only. Владелец — repository-audit; #4928.
+Только существующий `apps/server/tests/integration/test_billing_renewal_planner_postgres.py`:
+переиспользовать paid_workspace, maintenance context, настоящий planner/charge
+и проверенный offline MockTransport pattern. Новые зависимости, фабрики
+платежей, службы, миграции и продуктовые изменения не нужны.
+
+До тестового кода — независимый `checklists/renewal-decline.md` и scoped analyze.
+Далее существующий baseline → один последовательный PostgreSQL сценарий
+трёх отказов → профильные unit/contract/integration/E2E → independent review
+и converge → точные PR checks. При найденном дефекте продукта остановить
+его зависимую приёмку и оформить требования отдельно, не ослаблять assertion.
+Constitution Check: сохраняются полномочия, scope, согласие, оплаченный доступ,
+сохранность истории и запрет реальных запросов; release/Dev/production не входят.
