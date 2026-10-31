@@ -51,6 +51,8 @@ function createEnvironment(config, options) {
   const localStorage = createStorage(settings.localStorage);
   const sessionStorage = createStorage(settings.sessionStorage);
   const requestListeners = {};
+  const windowListeners = {};
+  const listenerCounts = {};
 
   const sandbox = {
     console,
@@ -90,7 +92,11 @@ function createEnvironment(config, options) {
       querySelectorAll: () => [],
       addEventListener: (type, handler) => {
         requestListeners[type] = handler;
+        listenerCounts[type] = (listenerCounts[type] || 0) + 1;
       },
+    },
+    addEventListener: (type, handler) => {
+      (windowListeners[type] ||= []).push(handler);
     },
     navigator: {
       sendBeacon: (url, blob) => {
@@ -151,7 +157,11 @@ function createEnvironment(config, options) {
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(fs.readFileSync(CONTROLLER, "utf8"), sandbox, { filename: "analytics.js" });
-  return { sandbox, calls };
+  return {
+    sandbox, calls, listenerCounts,
+    emitWindow: (type, event = {}) => (windowListeners[type] || []).forEach((handler) => handler(event)),
+    emitDocument: (type, event = {}) => requestListeners[type]?.(event),
+  };
 }
 
 // The real library saves a fresh choice before notifying the controller.
@@ -606,6 +616,93 @@ async function main() {
     }
     console.log("ok internal_browser_relay_carries_current_revision");
   }
+
+  // A cross-tab choice must close the gate before its storage event arrives.
+  for (const fault of ["revoked", "missing", "damaged", "unreadable"]) {
+    const environment = createEnvironment(config);
+    notifyConsent(environment, { cookie: consentRecord(["necessary", "analytics"]) });
+    const before = relayCalls(environment.calls);
+    if (fault === "missing") environment.sandbox.localStorage.removeItem(CONSENT_STORAGE_KEY);
+    else if (fault === "unreadable") environment.sandbox.localStorage.getItem = () => { throw new Error("denied"); };
+    else environment.sandbox.localStorage.setItem(CONSENT_STORAGE_KEY, fault === "damaged" ? "{" : JSON.stringify(consentRecord(["necessary"], "revoked")));
+    const commands = environment.calls.goals.filter((args) => args[1] !== "destruct").length;
+    assert.equal(dispatch(environment, "public_download_viewed"), false, fault);
+    assert.equal(relayCalls(environment.calls), before, fault);
+    assert.equal(environment.calls.goals.filter((args) => args[1] !== "destruct").length, commands, fault);
+    assert.equal(environment.sandbox.GRAFPublicAnalytics.providerCaptureState().blocked, true, fault);
+  }
+  console.log("ok current_storage_closes_every_managed_send");
+
+  for (const eventType of ["storage", "clear", "pageshow", "focus", "visibilitychange"]) {
+    const environment = createEnvironment(config);
+    notifyConsent(environment, { cookie: consentRecord(["necessary", "analytics"]) });
+    environment.emitWindow("storage", { key: "unrelated" });
+    assert.equal(environment.sandbox.GRAFPublicAnalytics.providerCaptureState().blocked, false);
+    environment.sandbox.localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify(consentRecord(["necessary"], "revoked")));
+    if (eventType === "visibilitychange") environment.emitDocument(eventType);
+    else environment.emitWindow(eventType === "clear" ? "storage" : eventType, {
+      key: eventType === "clear" ? null : CONSENT_STORAGE_KEY, persisted: true,
+    });
+    assert.equal(environment.sandbox.GRAFPublicAnalytics.providerCaptureState().blocked, true, eventType);
+    const before = relayCalls(environment.calls);
+    assert.equal(dispatch(environment, "public_download_viewed"), false);
+    assert.equal(relayCalls(environment.calls), before);
+    assert.equal(environment.calls.goals.filter((args) => args[1] === "destruct").length, 1, eventType);
+    environment.emitWindow("focus");
+    assert.equal(environment.calls.goals.filter((args) => args[1] === "destruct").length, 1, "disable is idempotent");
+  }
+  console.log("ok cross_tab_and_resume_stop_without_restart");
+
+  {
+    const environment = createEnvironment(config, {
+      productConfig: {
+        enabled: true, page_class: "settings", sensitivity: "product",
+        posthog: { enabled: true, autocapture_enabled: true,
+          capture_endpoint: "/api/v1/product-analytics/posthog-web-capture",
+          distinct_id: "graf_pseudo_user_c0ffee0000000000" },
+      },
+    });
+    notifyConsent(environment, { cookie: consentRecord(["necessary", "analytics"]) });
+    const stale = JSON.parse(environment.sandbox.localStorage.getItem(CONSENT_STORAGE_KEY));
+    const refused = JSON.stringify(consentRecord(["necessary"], "revoked"));
+    environment.sandbox.localStorage.setItem(CONSENT_STORAGE_KEY, refused);
+    const before = relayCalls(environment.calls);
+    environment.calls.consentOptions.onConsent({ cookie: stale });
+    assert.equal(environment.sandbox.localStorage.getItem(CONSENT_STORAGE_KEY), refused, "stale callback must not overwrite refusal");
+    assert.equal(relayCalls(environment.calls), before);
+    assert.equal(dispatch(environment, "public_download_viewed"), false);
+    environment.sandbox.localStorage.setItem(CONSENT_STORAGE_KEY, JSON.stringify(stale));
+    environment.emitWindow("storage", { key: CONSENT_STORAGE_KEY });
+    assert.equal(dispatch(environment, "public_download_viewed"), false, "a storage grant must not restart providers");
+    notifyConsent(environment, { cookie: consentRecord(["necessary", "analytics"]) });
+    assert.equal(dispatch(environment, "public_download_viewed"), true, "a fresh saved choice can grant again");
+    assert.equal(environment.listenerCounts.click, 1, "regrant does not bind duplicate product listeners");
+  }
+  console.log("ok stale_callback_cannot_restore_consent");
+
+  {
+    const environment = createEnvironment(config);
+    delete environment.sandbox.ym;
+    notifyConsent(environment, { cookie: consentRecord(["necessary", "analytics"]) });
+    environment.sandbox.ym("other-counter", "hit", "/unrelated");
+    environment.sandbox.localStorage.removeItem(CONSENT_STORAGE_KEY);
+    environment.emitWindow("storage", { key: null });
+    const pending = Array.from(environment.sandbox.ym.a || []);
+    assert.equal(pending.some((args) => String(args[0]) === String(config.yandex_metrica_id) && ["init", "hit", "reachGoal"].includes(args[1])), false);
+    assert.equal(pending.some((args) => args[0] === "other-counter" && args[1] === "hit"), true);
+    assert.equal(pending.filter((args) => args[1] === "destruct").length, 1);
+  }
+  console.log("ok revoke_clears_only_the_owned_counter_queue");
+
+  {
+    const environment = createEnvironment(config);
+    notifyConsent(environment, { cookie: consentRecord(["necessary", "analytics"]) });
+    environment.sandbox.ym = (...args) => { if (args[1] === "destruct") throw new Error("provider failed"); };
+    assert.doesNotThrow(() => notifyConsent(environment, { cookie: consentRecord(["necessary"], "revoked") }));
+    assert.equal(dispatch(environment, "public_download_viewed"), false);
+    assert.equal(environment.sandbox.GRAFPublicAnalytics.providerCaptureState().blocked, true);
+  }
+  console.log("ok destruct_failure_keeps_the_local_gate_closed");
 
   console.log("public_analytics_consent_harness=pass");
 }

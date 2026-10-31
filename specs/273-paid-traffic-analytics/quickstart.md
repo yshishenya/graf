@@ -454,3 +454,18 @@ contract public analytics/consent, lifecycle/provider gate и browser harness.
 Рабочий внешний SDK закрыт, настоящая передача/метрики/T0 этим не приняты;
 затем независимое review/converge и exact PR checks, один Full только
 после готового согласованного кандидата.
+
+
+## T106 — локальный выбор открытой вкладки
+
+RED/GREEN в существующем tests/browser/public-analytics-consent.test.cjs:
+(1) grant, затем внешняя смена localStorage на отказ, до storage callback
+следующий relay/goal уже запрещён; (2) storage event/clear немедленно вызывает
+отключение; (3) pageshow/focus/visibility после чужого отказа запрещают sends;
+(4) удалённая/повреждённая/нечитаемая запись; (5) старый положительный callback
+не переписывает отказ и не рестартует; (6) свежий явный grant допускается,
+другая storage key не меняет выбор; (7) штатный destruct и очистка собственной
+очереди, исключение destruct сохраняет запреты. Считать beacon/fetch/ym
+команды, а не только поля API. Старые refusal/replay/revision/credential
+assertions не ослаблять. Реальный modal harness дополнительно проверяет
+совместимость с настоящей библиотекой. Это не настоящий SDK и не T0.
