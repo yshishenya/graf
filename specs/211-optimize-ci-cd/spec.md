@@ -777,3 +777,37 @@ Run41222159260 на9b3edf7351b1421bac821db04b061a71891057c8
 Это отдельно определённое владение и требование после product failure;
 T109 проходит requirements review/analyze до кода и implementation review
 после проверок. T106 зависит также от T109. Установка/выпуск не входят.
+
+
+## T110 — выяснение неизвестного источника APT, 2026-10-31
+
+Продолжение T099/T100, без изменения их исторической приёмки. Full41239402369
+source4a6220af6f74d29eb2186ded8e1e247e621d9a15 остановил shard2 до тестов:
+`unsupported Ubuntu mirror source`. Runner AWS/us-east-1, Ubuntu24.04.5,
+image20261018.96.1. Фактические URIs в журнале отсутствуют; указанный runner
+tag `ubuntu24/20261018.96` через GitHub API возвращает404. Текущий upstream
+helper подтверждает только прежний mirror-list, поэтому новый URI не угадан.
+
+Clarify: T110 только читает метаданные APT одноразовых GitHub Ubuntu runners.
+Пользовательские данные, секреты, рабочий сервер, установка пакетов, выпуск
+и изменение доверия не входят. Lane: active Spec Kit slice, CI diagnostics.
+
+- Временная проверка запускается на изменении собственного файла в draft PR,
+  ровно8 задач Ubuntu24.04, timeout5min, без checkout, actions, сети, sudo,
+  установки и секретов; permissions пустые. Она не выпускает CI receipt и
+  не заменяет required checks/Full. Недоступный AWS не считается исследованным.
+- Читаются только `/etc/apt/sources.list.d/ubuntu.sources` и
+  `/etc/apt/apt-mirrors.txt`: обычные нессылочные файлы не более16KiB.
+  В выводе только размер/хеш и безопасное описание строк URIs: точный
+  mirror+file путь либо http/https host внутри ubuntu.com с путём /ubuntu[/],
+  без логина, пароля, порта, query или fragment. Прочее — только UNKNOWN и
+  SHA256 значения. Данные выдаются через JSON, без сырых строк и environment.
+  Отсутствующий, слишком большой либо не обычный файл даёт явную ошибку.
+- Локально исполняется тот же inline Python на временных файлах: известный
+  mirror-list, прямой учебный Ubuntu URI, неизвестный/credential URI, команды
+  GitHub в строке, symlink, missing и oversize. Никаких изменений APT на Mac.
+- После получения фактического формата временный workflow удаляется до merge.
+  Поддержка нового формата — отдельное дополнение spec/plan/tests с новым
+  независимым review до кода. Неизвестный формат по-прежнему блокируется.
+  Старый кандидат повторно не запускается; новый Full только на новой основе.
+  Legacy Impact: untouched; legacy_new=0.

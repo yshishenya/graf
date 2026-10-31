@@ -691,3 +691,27 @@ CHK008 и scoped analyze, затем существующие шесть confirm
 XCTest/ContractValidation и новый pinned native, независимое code review.
 Продуктовые полномочия и данные не меняются; Constitution Check PASS
 по сохранению guards/однократности/metadata-only evidence.
+
+
+## T110 — ограниченная диагностика неизвестного APT
+
+Lane: active Spec Kit slice, CI diagnostics. Constitution III/VI до и после
+планирования PASS: только публичные метаданные одноразовой машины, без секретов,
+изменения APT, runtime и release gate. Исходный отказ и неопределённость — spec T110.
+
+Временно добавить `.github/workflows/ubuntu-apt-diagnostic.yml`: pull_request
+opened/synchronize только при изменении этого файла, восемь задач с matrix
+0–7 и fail-fast=false, ubuntu-24.04, permissions={}, timeout5min. Один run
+step с Python stdlib, без checkout/сети/sudo/зависимостей. Pathlib проверяет
+is_symlink/is_file/размер до read_bytes; вывод JSON содержит hashes и только
+allowlisted Ubuntu URIs без credentials/port/query/fragment. Для unknown
+выводить лишь hash, не строку. Проверка не сообщает успех выпуска.
+
+Локальный исполняемый профиль сохранить в `.dev/ci-apt-diagnosis/` вместе
+с журналом: извлечь тот же inline run из YAML, перенаправить две константы
+пути в временную директорию, выполнить положительные/отрицательные случаи.
+Не создавать новую долговечную инфраструктуру. Временный workflow удалить
+до окончательного merge. Reviewer-owned checklist: `checklists/ci-apt-diagnosis.md`.
+Порядок: review требований → analyze → issue sync → код → focused/static →
+независимое code review → draft PR/hosted diagnosis → запись фактов и удаление
+workflow. Исправление helper только после доказанного формата и нового review.

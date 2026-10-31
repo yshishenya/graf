@@ -1073,3 +1073,17 @@ confirm cases сохраняются. Локальный focused → полны�
 ContractValidation → независимый implementation review → новый exact-SHA
 макOS native и общий validator. Прежний FAIL сохраняется, новые skip или
 подмена настоящего диалога недопустимы. T106/#7834 ждут полного PASS.
+
+
+## T110 — безопасная диагностика APT
+
+До кода: независимое `checklists/ci-apt-diagnosis.md`, узкий analyze и issue sync.
+Профиль `.dev/ci-apt-diagnosis/check.py` исполняет настоящий inline Python
+на временных путях: mirror+file, прямой учебный Ubuntu URI, unknown/credential
+URI, управляющая строка GitHub, missing/symlink/oversize; stdout разбирается
+как JSON и проверяется отсутствие закрытого исходного значения. Затем
+actionlint временного workflow, process/governance и diff check, независимое
+code review. Draft PR запускает8 коротких Ubuntu24.04 задач без сети/sudo.
+Принять только полученный фактический формат; при отсутствии AWS оставить
+пробел открытым. Сохранить run/source/hash, удалить временный файл до merge.
+Новый формат helper не включается без отдельного уточнения и review.
