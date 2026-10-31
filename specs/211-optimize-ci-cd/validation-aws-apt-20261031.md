@@ -118,3 +118,23 @@ T110/#7849 остаются открытыми; T111 ждёт независим
 Принятые helper/harness hashes совпали; отчёт review-ci-apt-failure-diagnosis-20261101.md
 прочитан. Process, governance, fragment и diff-check PASS. Коммит и PR
 проверки следуют отдельно; T111 до их принятия остаётся открытой.
+
+
+## Приёмка T111 в master — 1 ноября по Стамбулу
+
+PR #7850 принят защищённым squash: source
+`4445a3f234f857eadc9c046e41ded7d5618a0330`, checked base
+`c1d8c31690ea27050952b82c62413cd019181614`, merge
+`f4d68a10d9bbe091dadfede8da1a9c3880e61f3a`. Общий
+`validate-pr-checks.py` прошёл до и после слияния.
+
+- [governance-fast41244281699](https://github.com/yshishenya/graf/actions/runs/41244281699) — PASS.
+- [macos-pr41244281706](https://github.com/yshishenya/graf/actions/runs/41244281706) — PASS.
+- [pr-metadata41244328967](https://github.com/yshishenya/graf/actions/runs/41244328967) — PASS.
+
+Сводка локальных доказательств выше и независимое ревью
+`review-ci-apt-failure-diagnosis-20261101.md` сохраняют свой объём.
+T111 отмечена выполненной. T110 и #7849 остаются открытыми: фактический
+AWS URI не установлен; неизвестный источник по-прежнему запрещён.
+Новый Full/CD/tag/Release не запускался, рабочий сервер не менялся.
+Полоса этого дополнения — docs-only / mechanical, только сверка статуса.
