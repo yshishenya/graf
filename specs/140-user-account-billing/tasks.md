@@ -63,7 +63,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 - [X] T020 [P] [US1] Add profile, security, notifications, language/theme, active-session/device screens, recovery-safe login-method unlink guard, and the admin usage label `Использование и лимиты` by extending `apps/server/src/twobrain_rec_server/cabinet/web_routes/settings.py`, `apps/server/src/twobrain_rec_server/auth/provider_links.py`, `apps/server/src/twobrain_rec_server/admin/view_models.py`, `apps/server/src/twobrain_rec_server/admin/templates/admin/balance.html`, and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_account_content.html`.
 - [X] T021 [US1] Implement explicit trial activation, verification gate, one-time identity eligibility, and expiry projection in `apps/server/src/twobrain_rec_server/billing/trial.py` and `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py`.
 - [X] T022 [US1] Implement account-close scheduling, seven-day cancellation, immediate access/quota revocation at accepted deletion, and Temporal finalization integration by extending `apps/server/src/twobrain_rec_server/deletion/service.py`, `apps/server/src/twobrain_rec_server/db/models/deletion.py`, and `apps/server/src/twobrain_rec_server/workflows/maintenance_worker.py`.
-- [X] T023 [US1] Add Russian-first account templates, keyboard/focus states, no-JS navigation fallback, clean-room visual tokens, and read-only browser handoff/expired/offline states in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_account_content.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/account_navigation.html`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`, `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetRoutePolicy.swift`, and `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`. (Issue #4877).
+- [ ] T023 [US1] Add Russian-first account templates, keyboard/focus states, no-JS navigation fallback, clean-room visual tokens, and read-only browser handoff/expired/offline states in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_account_content.html`, `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/account_navigation.html`, `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`, `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetRoutePolicy.swift`, and `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift`. (Issue #4877).
 
 **Checkpoint**: Account center and trial are independently usable; account close remains distinct from canceling paid renewal and never disables local Record/Stop.
 
@@ -348,3 +348,19 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 подтверждают сохраняемую цепочку recurring decline. Уточнение spec/plan и
 `checklists/renewal-decline.md` принимают только действующие F278 FR-014
 внутри автоматической части; остальные реальные/выпускные критерии остаются.
+
+## Отмена исторической совокупной T023 — 31.10.2026
+
+T023 / #4877: NOT_PLANNED после принятия сверки отдельным PR.
+Исходное описание задачи сохранено, отметка `[X]` снята: это не принятие
+реализации. Владелец сверки — агент уборки репозитория; владелец нового
+продуктового решения о возврате browser-only пути — владелец продукта.
+Причина: принятые F210 FR017/F278 FR006 заменили отдельную desktop сводку
+и обязательный внешний billing handoff действующим встроенным кабинетом.
+
+Действующая приёмка account UI/клавиатуры/фокуса/no-JS/ошибок не отменена:
+T079/#4936, F210 T017/#5961, F278 T017/#7323/T025/#7332 остаются открытыми.
+Account-close, внешний refund и денежные/защитные границы сохраняются.
+Возврат T023 допускается только по новому явному решению о смене пути оплаты
+с отдельными требованиями и проверками. Подробности и пределы —
+`reconciliation-t023-20261031.md`. Остальные 86 задач не меняются.
