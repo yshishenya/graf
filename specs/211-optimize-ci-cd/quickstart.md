@@ -1045,3 +1045,10 @@ Full validator/self-test, actionlint трёх изменённых workflow и �
 Результаты и непроверенные границы записываются в
 `validation-runner-image-20261031.md`; выпуск/production/установленная приёмка
 и ускорение F269/T031 этим срезом не принимаются.
+
+A14/T107: первый hosted native run41215353665 воспроизвёл compile failure
+трёх WebKit conformances на правильном Swift6.0.3/SDK15.2. После удаления
+неверных старых typealias branches проверить оба файла и всех consumers,
+локальную компиляцию/существующие XCTest и новые hosted build/XCTest/
+ContractValidation на закреплённой среде. Другие code bodies не меняются;
+новые tests/guards поверх существующей compilation не нужны.

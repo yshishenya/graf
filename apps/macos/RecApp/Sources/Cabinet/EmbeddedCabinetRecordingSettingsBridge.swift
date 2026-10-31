@@ -2,11 +2,7 @@ import Foundation
 import WebKit
 import TwoBrainRecShared
 
-#if swift(<6.1)
-typealias RecordingSettingsReply = (Any?, String?) -> Void
-#else
 typealias RecordingSettingsReply = @MainActor @Sendable (Any?, String?) -> Void
-#endif
 
 /// Only local automatic-recording preferences cross this boundary, never capture commands.
 @MainActor

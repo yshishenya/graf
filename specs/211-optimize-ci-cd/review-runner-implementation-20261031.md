@@ -28,14 +28,14 @@ Git/GitHub, приложение, выпуск и production проверяющ�
 | --- | --- | --- |
 | FR038 | Меняется только среда native job. Сохраняются точный checkout/requested SHA, scope native_required/text_only, required result macos-pr, обработка required+skipped и text source proof. Build, run-swift-tests.sh и ContractValidation вызываются прежними командами. | Соответствует |
 | FR059: образ и выбор Xcode | Все три существующих macOS задания переходят на macos-15 и имеют job-level DEVELOPER_DIR Xcode16.2. Переменная действует и на следующие build/test шаги. Нет системного switch, sudo, загрузки compiler, нового helper или latest fallback. | Соответствует |
-| FR059: реальные условия среды | До изменения PATH проверяются заданный DEVELOPER_DIR, успешный uname/arm64, actual developer, непустой SDK внутри выбранного Xcode, SDK15.2 и оба исполняемых swift/swiftc с точной версией6.0.3. Ошибки команд останавливают shell через set-euo pipefail. После изменения PATH проверяются разрешившиеся пути compiler и неизменность developer/SDK/path/version. GITHUB_PATH дописывается последним. | Соответствует |
+| FR059: реальные условия среды | До изменения PATH проверяются заданный DEVELOPER_DIR, успешный uname/arm64, actual developer, непустой SDK внутри выбранного Xcode, SDK15.2 и оба исполняемых swift/swiftc с точной версией 6.0.3. Ошибки команд останавливают shell через set-euo pipefail. После изменения PATH проверяются разрешившиеся пути compiler и неизменность developer/SDK/path/version. GITHUB_PATH дописывается последним. | Соответствует |
 | FR060 | В обоих caches одинаковый основной ключ с macos15, runner.os/arch, Swift6.0.3, Xcode16.2 и хешами lock/source. Одинаковый restore prefix содержит ту же совместимую среду, без хешей. Старый префикс удалён. Условия build/test не зависят от cache hit; только прежний refresh timestamps условен. | Соответствует |
-| SC026: причинные проверки | Actual-YAML shell проверяется на трёх workflow. Все прежние11 сценариев сохранены, добавлены12 на каждый workflow: всего69. Отдельный параметризованный тест проверяет job image/env. Full self-test дополнен отказом на macos14. Cache/diagnostic контракты согласованы с новой средой без удаления остальных assertions. | Локальная часть соответствует |
+| SC026: причинные проверки | Actual-YAML shell проверяется на трёх workflow. Все прежние 11 сценариев сохранены, добавлены 12 на каждый workflow: всего 69. Отдельный параметризованный тест проверяет job image/env. Full self-test дополнен отказом на macos14. Cache/diagnostic контракты согласованы с новой средой без удаления остальных assertions. | Локальная часть соответствует |
 | SC026: внешняя приёмка | Реального native job macos15 и нового набора трёх exact-SHA/base checks ещё нет; T106 остаётся отдельным обязательным состоянием. | Ожидается |
 
 ### Проверка отрицательных сценариев
 
-Сохранены valid, missing/wrong/error swift/swiftc, версия6.0.31 вместо6.0.3,
+Сохранены valid, missing/wrong/error swift/swiftc, версия 6.0.31 вместо 6.0.3,
 ошибка SDK, смена SDK и developer. Добавлены wrong-arch/arch-error,
 missing-env/wrong-env, wrong-developer/developer-error/empty-developer,
 empty-sdk/sdk-outside, sdk-version/sdk-version-error/sdk-version-drift.
@@ -70,19 +70,19 @@ Diagnostic остаётся неавторитетным и не получае�
 /Users/yshishenya/Documents/crisp/apps/server/.venv/bin/python -m pytest -q tests/governance/test_governance_workflow.py apps/server/tests/contract/test_ci_cd_contract.py
 ```
 
-- RED actual-shell:27 FAILED/42 PASSED/165 deselected,86.23s. Итоговая строка
-  и перечень27 отказов прочитаны в исходном журнале. Отдельные RED для двух
+- RED actual-shell: 27 FAILED/42 PASSED/165 deselected,86.23s. Итоговая строка
+  и перечень 27 отказов прочитаны в исходном журнале. Отдельные RED для двух
   cache/diagnostic contracts и трёх job pins сообщены исполнителем; отдельных
   журналов этих двух проверок reviewer не получал и не выдаёт их за собственное
   исполнение.
-- GREEN:365 PASSED/0 failed/0 skipped,129.76s; журнал достиг100% и содержит
+- GREEN: 365 PASSED/0 failed/0 skipped,129.76s; журнал достиг 100% и содержит
   терминальный итог. Один PytestAssertRewriteWarning относится к заранее
   импортированному fixture-модулю; он не скрывает skip или отказ.
 - Статический журнал: Full validator/self-test OK, Ruff All checks passed,
   development-process OK, pinned Spec Kit governance OK, changelog-fragments OK.
   Actionlint и git diff --check не выводят текст при успехе; их PASS и точные
   команды подтверждены исполнителем. Reviewer отдельно выполнил только
-  read-only git diff --check: exit0.
+  read-only git diff --check: exit 0.
 
 Команды статического этапа исполнителя:
 

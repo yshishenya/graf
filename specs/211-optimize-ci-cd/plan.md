@@ -633,3 +633,15 @@ SC026 → T105/T106. Другие срезы и их незавершённые 
 
 Источники: [отключение](https://github.com/actions/runner-images/issues/13518),
 [закреплённый состав macos15 arm64](https://github.com/actions/runner-images/blob/4da2307112a0fad2fd2ecaca8ba7d08683b8c581/images/macos/macos-15-arm64-Readme.md).
+
+### A14: T107 — устранение доказанного compile blocker
+
+FR061/SC026 → T107 → T106. После независимого requirements review и analyze
+удалить только старые ветви двух групп typealias, сохранить существующую
+MainActor/Sendable ветвь, без изменения методов/прав/навигации/настроек.
+Проверить все consumers этих alias и три conformance из настоящего отказа.
+Hosted run41215353665 является RED; локальная компиляция/существующие XCTest
+проверяют текущий SDK, новый native CI — именно Swift6.0.3/SDK15.2.
+Достаточна существующая compilation + поведенческая матрица, новая обвязка
+и изменение tests expectations не нужны. После независимого code review
+получить новые exact-SHA checks. GRAF Dev, выпуск и production не запускаются.

@@ -3,18 +3,6 @@ import Combine
 import SwiftUI
 import TwoBrainRecShared
 
-#if swift(<6.1)
-public typealias EmbeddedCabinetNavigationDecisionHandler =
-    (WKNavigationActionPolicy) -> Void
-public typealias EmbeddedCabinetNavigationResponseDecisionHandler =
-    (WKNavigationResponsePolicy) -> Void
-public typealias EmbeddedCabinetOpenPanelCompletionHandler =
-    ([URL]?) -> Void
-public typealias EmbeddedCabinetDownloadCompletionHandler =
-    (URL?) -> Void
-public typealias EmbeddedCabinetConfirmCompletionHandler =
-    (Bool) -> Void
-#else
 public typealias EmbeddedCabinetNavigationDecisionHandler =
     @MainActor @Sendable (WKNavigationActionPolicy) -> Void
 public typealias EmbeddedCabinetNavigationResponseDecisionHandler =
@@ -25,7 +13,6 @@ public typealias EmbeddedCabinetDownloadCompletionHandler =
     @MainActor @Sendable (URL?) -> Void
 public typealias EmbeddedCabinetConfirmCompletionHandler =
     @MainActor @Sendable (Bool) -> Void
-#endif
 
 public enum EmbeddedCabinetBackNavigationDecision: Equatable, Sendable {
     case history
