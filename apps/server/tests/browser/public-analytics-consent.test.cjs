@@ -685,8 +685,18 @@ async function main() {
     delete environment.sandbox.ym;
     notifyConsent(environment, { cookie: consentRecord(["necessary", "analytics"]) });
     environment.sandbox.ym("other-counter", "hit", "/unrelated");
+    const ownedQueue = environment.sandbox.ym.a;
+    let destructHandled = 0;
+    const sdkPush = function (...commands) {
+      destructHandled += commands.filter((args) => args[1] === "destruct").length;
+      return Array.prototype.push.apply(this, commands);
+    };
+    ownedQueue.push = sdkPush;
     environment.sandbox.localStorage.removeItem(CONSENT_STORAGE_KEY);
     environment.emitWindow("storage", { key: null });
+    assert.equal(environment.sandbox.ym.a, ownedQueue, "SDK subscription array must survive cleanup");
+    assert.equal(ownedQueue.push, sdkPush, "SDK push handler must survive cleanup");
+    assert.equal(destructHandled, 1, "destruct must reach the SDK subscriber");
     const pending = Array.from(environment.sandbox.ym.a || []);
     assert.equal(pending.some((args) => String(args[0]) === String(config.yandex_metrica_id) && ["init", "hit", "reachGoal"].includes(args[1])), false);
     assert.equal(pending.some((args) => args[0] === "other-counter" && args[1] === "hit"), true);

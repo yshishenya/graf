@@ -639,3 +639,60 @@ Constitution II/III/IV/VI без изменения: данные/цели/по�
 sync существующего T106/#7696 → RED/GREEN в существующем Node harness.
 Затем actual CookieConsent modal, server/public/provider regressions,
 независимое review/converge и обязательные exact PR checks.
+
+
+## T106 — профиль настоящего SDK без внешней передачи
+
+Lane active Spec Kit slice / privacy browser. После настоящего RED
+добавлено только исправление общей очистки ownedYandexQueue (см. ниже). Использовать installed Playwright и существующие readConfig/
+loadController из browser/public-analytics-consent-modal.test.cjs: минимальный
+export и require.main guard сохраняют прежнее самостоятельное выполнение.
+Новый focused Node CLI public-analytics-sdk-network.test.cjs принимает только
+явный локальный файл SDK и ожидаемый SHA-256; отсутствующий/повреждённый/
+неподходящий input завершает профиль ошибкой, не SKIP и не сетевой fallback.
+Публичный SDK не коммитится и не загружается тестом. Конкретный источник/
+время/HTTP/hash фиксируются отдельным metadata-only отчётом.
+
+Настоящие страницы изолированы в новом непостоянном browser context. Каждый
+HTTP перехватывается: fixture HTML/контроллер/библиотека/SDK и first-party
+relay получают локальные ответы; watch получает минимальный учебный JSON,
+прочие внешние запросы abort. WebSocket также закрыт; route.continue/fetch
+не используются. В учебной конфигурации counter заменяется на99999999, validation_mode
+переключается с render_only на существующий provider_smoke: render_only
+намеренно не загружает tag.js и дал честный FAIL positive control. Это только
+переданный локальной странице config; продуктовые Settings/flags не меняются.
+Library hideFromBots снимается точно существующим modal helper, SDK не
+подменяется. Категории выбирает реальная библиотека, её запись и callback
+использует настоящий контроллер. Во второй вкладке загружается тот же
+контроллер и библиотека; localStorage общий по origin, события настоящие.
+
+Для каждой поверхности и обоих путей отказа: положительный контроль SDK
+instance+watch → отметка границы отзыва → реальная library choice →
+отсутствие instance → активность и20с наблюдения →0 новых необязательных
+попыток. Записывать только count/types/phase, без query, cookies, body или
+псевдонимов SDK. Никаких live account/counter/goals. Для причинной проверки
+сделать собственную временную копию harness: она подавляет только destruct
+после положительного контроля и обязана FAIL на оставшемся instance. Это
+не доказательство автономной отправки при потерянном destruct. Копия
+удаляется в finally; продуктовый JS и исходный тест не мутируются.
+
+До тестового кода: независимый public-sdk-network checklist → scoped analyze
+и sync существующей T106/#7696. После: negative control,4 обычных сценария,
+прежние modal/Node/server контракты без ослабления; независимое review/
+converge, exact PR checks. SDK/replay/backend/global/individual/T0 HOLD
+сохраняется; профиль не включается в CI с неявной сетевой зависимостью.
+
+
+### T106 — причина integrated RED и минимальная правка
+
+Настоящий SDK Bi оборачивает push исходного массива ym.a. Прежний filter
+создаёт новый массив и теряет подписку SDK; вызов destruct ставится в новую
+необрабатываемую очередь. Прямой instance.destruct в отдельной диагностике
+удаляет instance. Все callers disableYandexCounter: disableOptionalProviders
+для public и product ID; очистка нужна обоим путям.
+Сохранить прежний disable flag и idempotence, заменить только присваивание
+filter обратным проходом с splice по массиву ownedYandexQueue.a. Не менять
+SDK/ym/порядок guards, не удалять чужие команды. В существующий Node сценарий
+owned queue добавить custom push, ссылки на array/push и count destruct.
+RED до правки, GREEN после; настоящий SDK профиль затем без диагностической
+подмены методов. Независимый checklist/analyze/sync повторяются до product JS.

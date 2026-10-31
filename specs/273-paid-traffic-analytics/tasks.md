@@ -676,3 +676,22 @@ Browser side effects повторно сверяют сохранённый вы
 закрывают устаревший grant, callback не перезаписывает новый отказ, destruct
 очищает собственный старт. Server permission/индивидуальный server revoke/
 actual SDK stop/включение/T0 и полный T106 остаются открытыми.
+
+
+### T106 — проверка настоящего SDK без внешней передачи
+
+Та же T106/#7696: checklist public-sdk-network → independent requirements
+review → scoped analyze/sync → focused SDK CLI в существующем browser tests
+и минимальные exports modal helpers → negative control/4 сценария →
+прежние consent/modal/server regressions → independent code review/converge
+→ exact PR gates. Нет новой задачи/провайдера/продуктовой настройки.
+Файл SDK только явный проверенный input, в Git не попадает. Реальные
+получатели не вызываются. Analytics-only конечное наблюдение не закрывает
+replay/backend/global server permission/individual server revoke/runtime/T0.
+
+
+Уточнение T106 после integrated RED: сохранить идентичность ym.a/custom push
+в общей disableYandexCounter в static/public/analytics.js и причинно проверить
+в существующем public-analytics-consent.test.cjs. filter заменяется in-place
+splice только для своего counter; перед кодом повторный independent gate.
+Не создаётся новая задача, никакой иной scope не расширяется.
