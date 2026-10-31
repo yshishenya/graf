@@ -683,3 +683,170 @@ Plan/tasks правильно называют это проектом до ре
 Изменён только свой report; прежняя история сохранена. Итоговое дополнение
 перечитано, хеш вычислен после записи. Git/GitHub мутации, серверные пробы,
 новые эксперименты и личные тесты:0.
+
+
+## Дополнение: кандидат L6 prechange invalidation — принцип допустим, проект HOLD
+
+Узкий независимый разбор на сообщённом source
+`71fffe15c3d86630e8a7e22105df997c96b806d7`, high-risk design без реализации.
+Полностью прочитан proposal `.dev/growth/t113-prechange-invalidation-proposal-20261031.md`,
+SHA256 `44fb9a559a94f223afbc7651450b32e3afdea0df0ed30ff7b1767f09e5a31363`.
+Дополнительно полностью прочитан новый source receipt
+`.dev/growth/t113-apt-invalidation-source-excerpts-20261031.json`, SHA256
+`fd5633a37994f142833af9c85bf5100b5f4f357f8692fb9c307dc342d3fa3063`.
+Перечитаны применимые целые разделы ActivationFence, admission/DB drain
+контракта и прежнего owner design. Сохранённые основные hashes совпали;
+повторного исследования ОС или серверных проб нет.
+
+### Решение и точные находки
+
+**Принцип допустим:** полная доказанная предварительная invalidation каждого
+поддержанного опасного изменения может заменить привилегированный current
+host readback на каждом API admission. API достаточно существующего SH/fail-closed
+receipt boundary, если никто не может выдать новый ready при ещё разрешённом
+старом mutator. Конституционного изменения или нового сервиса из этого
+принципа не следует. Это не принятие полноты actual mutators или установки hook.
+
+**Текущий кандидат: SCOPED DESIGN HOLD, CRITICAL0/HIGH2/P1:2/P2:0.**
+Два конкретных уточнения ниже не требуют новой платформенной разведки.
+
+| ID | Точные места и причина | Минимальное конечное исправление |
+| --- | --- | --- |
+| I1 / P1 | Proposal27,34–35 обещает, что EX дождался COMMIT/ROLLBACK/close **всех** прежних транзакций. Но filesystem SH исчезает при SIGKILL клиента, пока PostgreSQL ещё держит transaction/может завершить COMMIT. Это прямо сохранено в activation-milestones306–331 и operations614–629; там отдельно используется DB EX(273,3). Один stdlib revoke без DB не доказывает заявленного drain | Не обещать универсального DB drain от filesystem EX. Разделить доказанный graceful SH lifetime и клиентский crash. Для выбранного эффекта, которому реально нужен DB settlement, использовать прежний поддержанный DB drain/полный operator путь либо оставить его HOLD; для безвредного к pending DB исходам изменения дать конечное обоснование, почему допускается прежняя crash граница. Не добавлять DB/stop во все hooks автоматически |
+| I2 / P1 | Proposal25–26 отпускает EX/deployment до тела mutator;38–40 разрешает verifier вернуть ready. Для внеоконного/deferred mutator из49–51 не сказано, что исключает такое расписание: revoke завершился → verifier проверил ещё неизменную платформу и вернул ready → старый разрешённый mutator позднее начал изменение. Полнота списка hooks сама по себе не исключает это | Для каждого actual mutator в той же конечной карте указать **непрерывную сериализацию с каждым ready writer от prechange revoke до последнего опасного эффекта/settlement**, либо новое обязательное prechange revoke на фактическом позднем входе, которое само защищено от этого же окна. Для APT допустимы уже удерживаемые frontend/другие native locks, если конкретные caller/lifetime/finish/deferred окна доказаны. Отложенная работа после release родительского lock не наследует это доказательство. Никакого нового daemon/latch-хранилища не требуется по умолчанию |
+
+I2 не требует удерживать EX во время каждого безвредного cache refresh и не
+запрещает release короткого revoke-only hook. Для синхронного APT effect,
+непрерывно защищённого native lock, verifier не получает полный свой набор
+и не возвращает ready до settlement. Но этот причинный invariant надо
+написать явно и включить в требование coverage; одно «verifier под native
+locks» не покрывает исполнителя вне этих native lock domains.
+
+I1 не объявляет всякое штатное обновление equivalent actual restore и не
+требует продуктовый stop у каждого пакета. Утверждение окончания всех SQL
+лишь должно соответствовать выбранному механизму. Native systemd/Docker/PG
+и vendor trust сохраняются; неверный filesystem=DB вывод из них не следует.
+
+### Что уже корректно и не требует переоткрывать вопрос
+
+NB deployment у hook, который может быть вызван уже под APT locks, совместим
+с L2/L5: полный operator держит deployment и получает native locks NB; hook
+не ждёт deployment и не пытается повторно взять caller locks. При конфликте
+одна сторона получает HOLD/abort, а не ждёт взаимную блокировку. Конечное
+ожидание filesystem EX при удержанном deployment не выдаётся за неограниченное
+ожидание. SH admission не должен брать deployment или platform locks по пути
+завершения: это прежний порядок, а не новый IPC.
+
+`ActivationFence.revoke` действительно требует EX, пишет revoked через temp/
+fsync/replace/fsync directory/readback, не создаёт/меняет initial/T0 и не
+пишет ready. При failed/unknown fsync caller не получает разрешения изменять
+платформу. Crash до успешного hook return не разрешает mutator; после
+подтверждённого return старый ready отсутствует. Failed/no-op mutation может
+оставлять analytics revoked без остановки обычного продукта. Recovery ready
+допустим только прежним trusted verifier с теми же product proofs и I2.
+Смерть клиента/неоконченный SQL отдельно учитываются I1, а не скрываются EX.
+
+Новый source receipt связан exact hash/size с прежним authenticated apt2.8.3
+архивом, не новым произвольным источником. `fileutl.cc96–197` подтверждает
+синхронный RunScripts: `system` nonzero → nonzero child exit → waitpid →
+false; chroot/workdir и effective script list относятся к actual policy.
+`dpkgpm.cc1540–1558` из прежнего receipt ставит DPkg::Pre-Invoke до
+Pre-Install-Pkgs/вызова dpkg. Install/Upgrade excerpts показывают вызов
+OpenForInstall до InstallPackages, но не весь его внутренний lock proof,
+не unattended/PackageKit/прямой dpkg и не полноту hook precedence. Ограничения
+источников в proposal корректны. Root hook не доверяет pass-file/SQL/new T0,
+не получает произвольный путь от caller; фиксированная stdlib source boundary
+должна сохраниться при реализации. Failing hook нельзя обернуть в `|| true`
+или пропустить через config/chroot/APT_CONFIG внутри принятой policy.
+
+### Security updates и минимальный следующий путь
+
+Предварительный fail-closed hook **по смыслу может остановить security update**,
+если GRAF deployment busy, SH не дренирован, source mismatch или revoke
+недоступен. Это следует из источников RunScripts и не маскируется как успешное
+обновление. Proposal честно оставляет влияние открытым. До установки нужно
+конкретно описать существующий операционный путь: конечный timeout/abort,
+реальная видимость неуспешного обновления, повтор штатного scheduler и
+действие оператора при постоянном отказе. Нельзя отключать обновления или
+возвращать hook exit0 при неизвестном revoke ради устранения этой ошибки.
+Новая служба или разрешение ослабить product gates для такого описания не нужны.
+Возможность гарантировать вечное продолжение обновлений при недоступном
+хранилище revoked этим кандидатом не обещана и не должна быть обещана.
+
+Следующий конечный шаг без sudo: дописать в этот же proposal две строки
+invariants I1/I2 и конечный пример caller timeline APT → native locks → revoke
+→ опасные эффекты/settlement → release → verifier, затем внеоконные/deferred
+пункты оставить открытыми до их существующего finite closure. Указать failure/
+retry/операторский путь security update. После этого можно независимо принять
+саму ограниченную L6 architecture; полный J1 допускается только после реального
+coverage и прежних checks. Платформенные настройки/хуки сейчас не устанавливать.
+
+Требуемые будущие причинные проверки дополнить: SIGKILL SH-клиента при ещё
+живом DB transaction; late COMMIT; revoke→готовый verifier→отложенный mutator;
+взаимное NB contention; failed/unknown fsync; hook nonzero propagation; cleanup/
+crash caller; persistent failed update с видимым состоянием и штатным retry.
+Это испытания выбранного будущего кода в изоляции, не требование снова запускать
+рабочий APT/dpkg. Все прежние J1/P1a/P1b/L1–L5/full operator/resource/T0 HOLD
+сохраняются; SCOPED L2/L5 PASS предыдущего раздела не отменяется этим разбором.
+
+Дополнительный источник activation-milestones SHA256:
+`9898007a0e87400246f8c95b899dd807fab0424472143e15338429873982f3f9`;
+ActivationFence hash прежний
+`142fcacf6f5a43c9fc2358b197245e7ef312ed57b0c3dd4dd2ad1f6da17e902b`.
+Изменён только свой report; итоговое дополнение перечитано. Код/spec/plan/tasks/
+checklist/Git/GitHub/сервер/Dev/публикации не менялись, личных тестов и проб:0.
+
+
+### Повторная проверка I1/I2: SCOPED L6 ARCHITECTURE PASS
+
+Полностью перечитан исправленный prechange proposal, SHA256
+`043ef40de08f7d2c6f95cf5116fd7192ac824cfd13efafc77ba2da4ec8dde289`.
+Применимые contracts hashes прежние: activation-milestones
+`9898007a0e87400246f8c95b899dd807fab0424472143e15338429873982f3f9`,
+operations `8340e07793a6c27668f9850652f00b05fdc147fb895375bd9c9815a80d68a1d5`.
+
+**Оба локальных замечания I1/I2 закрыты. SCOPED L6 ARCHITECTURE PASS;
+открытых I1/I2=0, новых CRITICAL/HIGH/P1/P2=0.**
+Принимается принцип и ограниченный договор, не фактическая полнота платформы.
+
+I1: удалено обещание SQL settlement от filesystem EX. Прямо различены обычное
+освобождение SH и crash/unknown SQL. Для actual restore/schema/data replacement
+и любого эффекта с требованием DB settlement сохраняются прежний DB EX(273,3)
+и полный поддержанный drain либо HOLD. Unknown DB outcome не даёт ready
+по одному файловому отзыву. Hook не останавливает продукт и не получает
+универсального права обходить pending транзакции.
+
+I2: задан непрерывный конкретный timeline для принятого синхронного APT entry:
+caller conflicting native lock → deployment NB → filesystem EX/durable revoke
+→ поддержанное тело/последний опасный hook/settlement под тем же native lock
+→ release → новый полный verifier под всем набором L1 → ready для той же initial.
+**Все** writers ready, включая initial/backup/verify/resume, включены в этот
+barrier; раннего отдельного writer не допускается. Проблемный deferred путь
+после release не считается покрытым: harmless proof, собственный actual-entry
+revoke с непрерывной сериализацией либо общий HOLD. Заранее вызванный revoke,
+ожидание таймера или пустая очередь не заменяют это условие.
+
+Порядок NB по-прежнему исключает APT↔deployment взаимное ожидание; EX ожидание
+ограничено. Failed/unknown revoke не даёт разрешения начать опасное тело;
+crash и исходы SQL не маскируются как готовность. Failed/no-op update оставляет
+analytics revoked; ready может вернуть лишь full verifier по прежним proofs.
+
+Security-update порядок теперь конечен и честно ограничен: nonzero/abort,
+фиксированный metadata-only журнал, сохранённые штатные таймеры/повтор,
+устранение причины существующим оператором без bypass/принудительного ready.
+До установки обязательно доказать видимость отказа на actual entry даже при
+итоговом exit0/suppressed output apt.systemd.daily. Точная привязка к журналу/
+существующему наблюдению явно ещё не принята. Это корректное предустановочное
+условие, а не ложное обещание уже работающего alert или вечной доступности.
+
+**Полный L6/J1/P1a/P1b DESIGN HOLD сохраняется:** actual coverage, неизбежность
+hook, effective config/argv/chroot/overrides, relevant source/native lock windows,
+deferred/Snap/direct dpkg/прочие executors и журнал должны пройти прежнюю
+конечную проверку до допуска. Source excerpts доказывают только перечисленные
+локальные функции/callers; новый proposal не выдаёт их за весь inventory.
+Прежний SCOPED L2/L5 PASS сохранён. Runtime/установка/117 checklists/T0/выпуск
+этим архитектурным разбором не принимаются.
+
+Изменён только свой report, история I1/I2 сохранена. Итоговое дополнение
+перечитано; код, требования, чужие файлы, чекбоксы, Git/GitHub и сервер не
+менялись. Новых probes, тестов, экспериментов или исследований ОС:0.

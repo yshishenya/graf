@@ -1025,3 +1025,9 @@ entries, owner/deferred/Snap/generation, доступ/ресурсы, оба HOL
 через fork. Parent сохраняет окружение до защищённого cleanup; прежний быстрый
 SIGKILL не является полной обёрткой. Реализации и новых runtime PASS нет.
 L6 current platform generation/admission и полный J1 остаются открытыми.
+
+Для того же T113 принят [ограниченный архитектурный договор L6](validation/t113-platform-invalidation-design-20261031.md),
+I1/I2=0: prechange revoke, непрерывная сериализация всех ready writers,
+отдельный DB settlement и видимый отказ hook без отключения security updates.
+Фактическое покрытие установки остаётся HOLD полного J1; новые runtime PASS,
+готовый полный оператор и выполненная T113 этим дополнением не заявляются.

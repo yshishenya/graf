@@ -727,3 +727,10 @@ outer install callers/overrides, L2–L6 и оба общих HOLD сохран�
 до stop и удерживает набор до cleanup/последней attempt. Нынешний быстрый
 SIGKILL bootstrap не переносится в полную операцию. Это проект до кода;
 L6 current generation/admission ещё не решён, общий J1 DESIGN HOLD сохраняется.
+
+Принят [архитектурный механизм L6](validation/t113-platform-invalidation-design-20261031.md):
+предварительный durable revoke каждого поддержанного опасного изменения и
+непрерывный native barrier против раннего возврата ready. API не читает
+root-only inventory. I1/I2 закрыты в узком review; фактический охват entries/
+deferred/Snap, DB settlement где нужен и наблюдение отказа ещё обязательны.
+Полного L6/J1 PASS, реализации или рабочего включения это не даёт.

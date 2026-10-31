@@ -806,3 +806,26 @@ current host platform generation; один root receipt/его давность 
 root-only input не считается прочитанным. Новая служба и запуск root из API
 этим проектом не вводятся. Приёмка самого owner/cancel/recovery — после реализации
 на изолированных процессах; дополнительные рабочие lock-пробы сейчас не нужны.
+
+### L6: предварительный отзыв допуска — архитектурный договор
+
+Принят [ограниченный проект prechange invalidation](t113-platform-invalidation-design-20261031.md):
+вместо root-readback из каждого API — durable revoke до каждого поддержанного
+опасного изменения, с непрерывной сериализацией относительно всех writers ready.
+Для синхронного APT выбран кандидат DPkg::Pre-Invoke → revoke-only существующего
+bootstrap; все actual entries, overrides, ранние/deferred hooks и прочие
+executors ещё требуют конечного покрытия. Нового watcher/service/root API нет.
+Filesystem EX не доказывает завершение SQL после смерти клиента; прежние DB EX
+и полный drain для требующих этого эффектов сохраняются. Ошибка hook не даёт
+продолжить опасное изменение и должна быть видна независимо от итогового exit0
+apt.systemd.daily. Штатные обновления не отключаются; фактический путь отказа/
+повтора принимается до установки. SCOPED L6 ARCHITECTURE PASS закрывает только
+I1/I2; полный L6/J1 и оба общих HOLD остаются открытыми, код/сервер не менялись.
+
+Дополнительное чтение того же аутентифицированного apt 2.8.3 archive подтвердило
+синхронный RunScripts в fileutl.cc 98–165: system(child command), waitpid и false
+при nonzero/abnormal exit. private-install/private-upgrade вызывают OpenForInstall
+до InstallPackages; его полная lock lifetime и прочие клиенты ещё не установлены.
+Новые выбранные excerpts SHA256
+`fd5633a37994f142833af9c85bf5100b5f4f357f8692fb9c307dc342d3fa3063`.
+Это локальные source-факты без запуска APT/установки и без полного L1 PASS.
