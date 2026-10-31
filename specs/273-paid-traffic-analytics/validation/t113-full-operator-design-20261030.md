@@ -605,3 +605,94 @@ revokes before downgrade; daily verify does not reset T0 or accept stale proof.
 row fingerprint/MinIO manifest либо daily proof freshness), reviewer должен дать HOLD и назвать
 конкретный минимальный недостающий алгоритм. Кода до устранения блокирующих
 находок не писать; узкий helper не выдаётся за полную реализацию T113.
+
+## J1: проверенная поставка и следующий проект блокировок — 31.10.2026
+
+Это документация наблюдений и ещё не принятого следующего проекта в той же
+T113/#7804, без изменения кода или рабочих настроек. [Независимый разбор](t113-platform-trust-review-20261031.md)
+допускает конечную границу доверия поставщику платформы в прежних требованиях;
+отдельное решение владельца или изменение конституции для этого не нужны.
+Полный J1 остаётся DESIGN HOLD, P1a/P1b открыты.
+
+### Фактическая платформа и происхождение файлов
+
+31.10 через обычную SSH-учётную запись прочитаны Ubuntu24.04.4 LTS/noble,
+amd64 и следующие версии. Это наблюдение установки, а не список всех
+автоматически разрешённых пакетов или доказательство их исполнения.
+
+| Роль | Установленные версии | Источник по текущему apt-cache policy |
+| --- | --- | --- |
+| APT и пакетная база | apt2.8.3; dpkg1.22.6ubuntu6.6 | Ubuntu noble-updates/main; dpkg также noble-security/main |
+| Службы и обновления | systemd255.4-1ubuntu8.18; needrestart3.6-7ubuntu4.5 | Ubuntu noble-updates/main и noble-security/main |
+| Автоматическая установка | unattended-upgrades2.9.1+nmu4ubuntu1 | Ubuntu noble/main |
+| Контейнерный runtime | docker-ce/docker-ce-cli5:29.2.1-1~ubuntu.24.04~noble; containerd.io2.2.1-1~ubuntu.24.04~noble; compose5.0.2-1~ubuntu.24.04~noble | Docker noble/stable, amd64 |
+
+Активные Ubuntu sources содержат noble/noble-updates/noble-backports/
+noble-proposed и noble-security, компоненты main/restricted/universe/multiverse.
+Четыре сторонних источника: Docker, Cloudflare, gierens, NodeSource.
+Файл с окончанием `.curtin.orig` не является отдельным активным source.
+Наличие source не означает его допуска в J1. Предлагаемая начальная граница
+стандартных ролей — Ubuntu noble/noble-updates/noble-security, main, amd64/all;
+Docker noble/stable рассматривается отдельно. Остальные компоненты/источники,
+backports/proposed и новые роли требуют явной классификации фактического
+влияния. Ничего в источниках/приоритетах/обновлениях этим наблюдением не менялось.
+
+В13:12:44UTC начата и успешно завершена отдельная проверка apt2.8.3:
+ключи получены по HTTPS с официального
+[Ubuntu archive keyring](https://archive.ubuntu.com/ubuntu/project/ubuntu-archive-keyring.gpg),
+основной fingerprint `F6ECB3762474EDA9D21B7022871920D1991BC93C`
+сверен с [документацией Ubuntu](https://documentation.ubuntu.com/security/software-integrity/image-verification/).
+`gpgv` подтвердил локальный noble-updates InRelease; SHA256 и размер
+его main/binary-amd64/Packages совпали с подписанными метаданными.
+Затем независимо загружен точный apt_2.8.3_amd64.deb:
+1375526байт, SHA256 `c9ace99efc7726fe0035f921a9acf262a9723bbf35b861aab4f9075a0be67442`.
+Его хеш/размер совпали с этим индексом. Установленные apt-get, apt-config,
+apt-helper, apt.systemd.daily, apt-daily.service и apt-daily-upgrade.service
+совпали побайтно с пакетом, как и postinst/postrm/preinst/prerm/triggers.
+Сценарии не исполнялись; временный каталог загрузки удалён штатным finally.
+Metadata receipt SHA256 `e389632987d65ff031c6df390465791ddf4d0aed4ca3c7d0f802b34e955831ef`.
+Это подтверждает выбранные файлы APT, а не все библиотеки, конфигурацию,
+другие пакеты или полный J1. Предварительная попытка с неверно предположенным
+суффиксом `.lz4` не прошла; итог использовал фактический несжатый Packages.
+
+Отдельно noble InRelease Docker проверен ключом из официального
+`https://download.docker.com/linux/ubuntu/gpg` после преобразования ASCII-armored
+ключа во временный бинарный keyring: exit0, signing subkey
+`D3306A018370199E527AE7997EA0A9C3F273FCD8`, primary
+`9DC858229FC7DD38854AE2D88D81803C0EBFCD88`.
+Первая проверка ASCII-файла напрямую через gpgv дала NO_PUBKEY; это ограничение
+того вызова, а не установленная подмена ключа. Пакеты Docker с установленными
+файлами здесь ещё не сравнивались. Временный keyring удалён; доверенные ключи
+рабочего APT не менялись.
+Metadata followup из сохранённого вывода этого вызова: SHA256
+`f013c45bc0fa89a2165ecc17cf8804e7b7c6f52219a3a4149f50005f107d76c7`.
+Точное время наблюдения и хеш InRelease в положительном вызове отдельно
+не записаны; старый хеш индекса к этому результату задним числом не привязан.
+
+### Конечный следующий шаг P1b
+
+Проверяемый кандидат: deployment EX → NB flock фактического daily_lock →
+NB POSIX whole-file WRITE locks dpkg frontend/backend, APT lists/archives →
+полный preflight → прежний filesystem fence/revoke/attempt/операция/resume →
+последняя durable attempt → освобождение. Busy/error до stop означает HOLD
+и освобождение частично полученного набора; обновления не выключаются.
+В13:14:27UTC apt-config с `/d` и `/f` разрешил полные пути в
+`/var/lib/apt/`, `/var/lib/dpkg/status`, `/var/lib/apt/lists/`,
+`/var/cache/apt/archives/`; пять обычных lockfiles существуют, root-owned,
+regular, без symlink. Это наблюдение путей, не проба конкуренции и не доказательство
+всех effective overrides/окон получения locks.
+
+До кода закрыть L1–L6 независимого отчёта: фактические типы/окна locks;
+один живой owner без fork-передачи record locks и повторного open/close того
+же inode; конечный разбор внеоконных/отложенных hooks; отдельно Snap и прочие
+исполнители; crash/cancel/reap/recovery; точная generation с повторной проверкой
+перед ready и последующим admission. Нынешний bootstrap передаёт deployment
+flock child-процессу; это не передаёт POSIX locks тем же способом. Конкретного
+owner и потребителей generation ещё надо согласовать до реализации.
+`apt-news/esm-cache --no-block`, самостоятельный snap refresh и пустой
+`list-jobs` не подменяют этот разбор. Доверенный delegate с доказанным отсутствием
+влияния на ГРАФ не требует отдельной блокировки. Новый сервис/общий parser не нужен.
+
+Оба общих HOLD, недоступные административные roots, UID1003, запас ресурсов,
+полный верхний цикл/T112, выпуск и рабочий T0 остаются открытыми. Ни эта
+проверка происхождения, ни допустимость lock-модели не дают разрешения ready.
