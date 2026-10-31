@@ -73,8 +73,16 @@ python3 -m pytest -q \
 
 ```sh
 sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh
-sh apps/macos/Scripts/validate-macos-permission-retention.sh
+infra/scripts/dev-harness.sh status --json
 ```
+
+`status` — читающий снимок установленного `/Applications/GRAF Dev.app` и
+активного manifest, а не доказательство сохранения разрешений при обновлении.
+Для этого сначала сверяются принятые результаты F229/F249; оставшиеся реальные
+сценарии выполняются только по `docs/agent-guidance/local-development.md`.
+Исторический `validate-macos-permission-retention.sh` без подкоманды выводит
+справку с кодом 0, а его проверки привязаны к production bundle ID; поэтому
+он не служит проверкой единственного GRAF Dev и здесь не запускается.
 
 When a local build is intentionally run, use only the existing Dev scripts with
 a loopback origin. Verify `pro.2brain.graf.dev`, the same designated requirement

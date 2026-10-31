@@ -148,7 +148,7 @@ worktree.
 **Purpose**: завершить governance без product release и подготовить legacy
 retirement отдельно.
 
-- [ ] T036 Выполнить reviewer-owned checklists из
+- [X] T036 Выполнить reviewer-owned checklists из
   `checklists/requirements.md` и `checklists/governance.md`; implementation
   agent не меняет checkbox state (FR-034). (Issue #6125)
 - [X] T037 Запустить `$speckit-analyze`, устранить все Critical/High и повторить
@@ -244,7 +244,7 @@ retirement отдельно.
 
 ## Phase 11: Сверка требований и трекера
 
-- [ ] T060 Сверить требования, `tasks.md` и GitHub F216 в
+- [X] T060 Сверить требования, `tasks.md` и GitHub F216 в
   `reconciliation-20261026.md`: исправить устаревшие инструкции, восстановить
   только доказанные отметки, связать T054 с отдельной issue, заменить T000
   родителя #6090 на эту действительную задачу и перечислить остаток приёмки.
