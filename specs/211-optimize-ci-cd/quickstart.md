@@ -1030,3 +1030,18 @@ T104 принята после #7790/#7791 и общего validator до/пос
 [Точная цепочка и границы](validation/t104-release-2026-10-28.md).
 Прежний failed candidate не переиспользован. Общая F211 и коммерческая
 приёмка остаются открытыми; этот документ не меняет код и правила проверок.
+
+
+## A14: поддерживаемый образ CI — 2026-10-31
+
+T105/T106, #7834, полоса `active Spec Kit slice`. Продуктовый код не меняется.
+Проверка требований — `checklists/runner-image.md`, actual YAML shell —
+`tests/governance/test_governance_workflow.py::test_actual_native_toolchain_selection`.
+После её PASS: весь существующий workflow-набор, профильный CI contract,
+Full validator/self-test, actionlint трёх изменённых workflow и проектные
+проверки. Новый PR должен действительно исполнить macOS native job на macos15,
+а не только scope/result; три обязательных SHA/base checks сверяет общий
+`validate-pr-checks.py`. Старые source proofs не подставляются за новый SHA.
+Результаты и непроверенные границы записываются в
+`validation-runner-image-20261031.md`; выпуск/production/установленная приёмка
+и ускорение F269/T031 этим срезом не принимаются.

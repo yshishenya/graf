@@ -550,10 +550,25 @@ def test_actions_use_reviewed_node24_pins_and_preserve_artifact_contract():
     assert found == set(ACTION_PINS)
 
 
+@pytest.mark.parametrize('workflow_name,job_name', [
+    ('macos-pr', 'native'), ('release-full', 'macos-full'), ('macos-diagnostic', 'macos-diagnostic'),
+])
+def test_native_jobs_pin_supported_image_and_developer(workflow_name, job_name):
+    import yaml
+
+    workflow = yaml.load((ROOT / f'.github/workflows/{workflow_name}.yml').read_text(), Loader=yaml.BaseLoader)
+    job = workflow['jobs'][job_name]
+    assert job['runs-on'] == 'macos-15'
+    assert job['env']['DEVELOPER_DIR'] == '/Applications/Xcode_16.2.app/Contents/Developer'
+
+
 @pytest.mark.parametrize('workflow_name', ['macos-pr', 'release-full', 'macos-diagnostic'])
 @pytest.mark.parametrize('scenario', [
     'valid', 'missing-swift', 'missing-swiftc', 'wrong-swift', 'wrong-swiftc',
     'prefix-version', 'swift-error', 'swiftc-error', 'sdk-error', 'sdk-drift', 'developer-drift',
+    'wrong-arch', 'arch-error', 'missing-env', 'wrong-env', 'wrong-developer',
+    'developer-error', 'empty-developer', 'empty-sdk', 'sdk-outside',
+    'sdk-version', 'sdk-version-error', 'sdk-version-drift',
 ])
 def test_actual_native_toolchain_selection(tmp_path, workflow_name, scenario):
     import yaml
@@ -565,7 +580,9 @@ def test_actual_native_toolchain_selection(tmp_path, workflow_name, scenario):
     command = selectors[0]['run']
     assert 'DEVELOPER_DIR=' not in command and 'SDKROOT=' not in command
     assert 'xcode-select --switch' not in command and 'TOOLCHAINS=' not in command
-    toolchain = tmp_path / 'Xcode_16.2.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin'
+    developer = tmp_path / 'Xcode_16.2.app/Contents/Developer'
+    sdk = developer / 'Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk'
+    toolchain = developer / 'Toolchains/XcodeDefault.xctoolchain/usr/bin'
     toolchain.mkdir(parents=True)
     for tool in ('swift', 'swiftc'):
         if scenario == f'missing-{tool}':
@@ -574,27 +591,46 @@ def test_actual_native_toolchain_selection(tmp_path, workflow_name, scenario):
         executable = toolchain / tool
         executable.write_text(f'#!/bin/sh\nprintf "Apple Swift version {version} (swiftlang-test)\\n"\nexit {1 if scenario == tool+"-error" else 0}\n')
         executable.chmod(0o755)
-    for tool, initial, changed in [('xcrun', '/synthetic/SDK', '/synthetic/OtherSDK'), ('xcode-select', '/synthetic/Developer', '/synthetic/OtherDeveloper')]:
+    for tool, initial, changed in [('xcrun', str(sdk), '/synthetic/OtherSDK'), ('xcode-select', str(developer), '/synthetic/OtherDeveloper')]:
+        if scenario == 'wrong-developer' and tool == 'xcode-select':
+            initial = '/synthetic/OtherDeveloper'
+        if scenario == 'sdk-outside' and tool == 'xcrun':
+            initial = '/synthetic/OtherSDK'
+        if scenario == ('empty-sdk' if tool == 'xcrun' else 'empty-developer'):
+            initial = ''
         executable = tmp_path / tool
         counter = tmp_path / f'{tool}-called'
         drift = scenario == ('sdk-drift' if tool == 'xcrun' else 'developer-drift')
         executable.write_text(
             '#!/bin/sh\n' +
-            ('exit 1\n' if tool == 'xcrun' and scenario == 'sdk-error' else
+            (f'if [ "$3" = --show-sdk-version ]; then\n'
+             f'  [ "{scenario}" != sdk-version-error ] || exit 1\n'
+             f'  if [ -f "{tmp_path / "sdk-version-called"}" ]; then printf "%s\\n" "{"15.3" if scenario == "sdk-version-drift" else "15.2"}"; '
+             f'else touch "{tmp_path / "sdk-version-called"}"; printf "%s\\n" "{"15.3" if scenario == "sdk-version" else "15.2"}"; fi\n'
+             '  exit 0\nfi\n' if tool == 'xcrun' else '') +
+            ('exit 1\n' if scenario == ('sdk-error' if tool == 'xcrun' else 'developer-error') else
              f'if [ -f "{counter}" ]; then printf "%s\\n" "{changed if drift else initial}"; else touch "{counter}"; printf "%s\\n" "{initial}"; fi\n')
         )
         executable.chmod(0o755)
+    uname = tmp_path / 'uname'
+    uname.write_text(f'#!/bin/sh\nprintf "%s\\n" "{"x86_64" if scenario == "wrong-arch" else "arm64"}"\nexit {1 if scenario == "arch-error" else 0}\n')
+    uname.chmod(0o755)
     github_path = tmp_path / 'github-path'
     github_path.write_text('existing-entry\n')
     # Execute the actual YAML shell; only the three platform filesystem roots
     # are replaced, so no installed compiler or developer directory is changed.
-    command = command.replace('/Applications/Xcode_16.2.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin', str(toolchain))
+    command = command.replace('/Applications/Xcode_16.2.app/Contents/Developer', str(developer))
     command = command.replace('/usr/bin/xcrun', str(tmp_path / 'xcrun')).replace('/usr/bin/xcode-select', str(tmp_path / 'xcode-select'))
-    result = subprocess.run(['bash', '-c', command], cwd=tmp_path, env={**os.environ, 'GITHUB_PATH': str(github_path)}, capture_output=True, text=True)
+    env = {**os.environ, 'GITHUB_PATH': str(github_path), 'DEVELOPER_DIR': str(developer), 'PATH': f'{tmp_path}:{os.environ["PATH"]}'}
+    if scenario == 'missing-env':
+        env.pop('DEVELOPER_DIR')
+    elif scenario == 'wrong-env':
+        env['DEVELOPER_DIR'] = '/synthetic/OtherDeveloper'
+    result = subprocess.run(['bash', '-c', command], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10)
     if scenario == 'valid':
         assert result.returncode == 0, result.stderr
         assert github_path.read_text() == f'existing-entry\n{toolchain}\n'
-        assert '/synthetic/SDK' in result.stdout
+        assert str(sdk) in result.stdout
     else:
         assert result.returncode != 0, result.stdout
         assert github_path.read_text() == 'existing-entry\n'
