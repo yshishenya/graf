@@ -11,9 +11,13 @@ STATIC_DIR = ROOT / "src" / "twobrain_rec_server" / "cabinet" / "static" / "cabi
 
 
 @pytest.mark.browser
-def test_recording_deletion_recovery_in_browser() -> None:
+@pytest.mark.parametrize("script, expected", [
+    ("recording-deletion-recovery", "real deletion index pending, phases, report links, safe text and updates passed"),
+    ("mixed-meeting-list", "S44 mixed native bulk: late and duplicate replies, accepted alias, current allowed/denied rights passed"),
+])
+def test_recording_deletion_recovery_in_browser(script: str, expected: str) -> None:
     result = subprocess.run(
-        ["node", str(ROOT / "tests/browser/recording-deletion-recovery.test.cjs")],
+        ["node", str(ROOT / f"tests/browser/{script}.test.cjs")],
         cwd=ROOT,
         env={**os.environ, "NODE_PATH": os.environ.get("GRAF_NODE_MODULES", str(ROOT / "tests/browser/node_modules"))},
         capture_output=True,
@@ -22,7 +26,7 @@ def test_recording_deletion_recovery_in_browser() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "real deletion index pending, phases, report links, safe text and updates passed" in result.stdout
+    assert expected in result.stdout
 
 
 def test_local_htmx_asset_is_pinned_with_source_and_license() -> None:

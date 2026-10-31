@@ -190,6 +190,78 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
     assert.match(await page.locator('[data-local-account-recovery]').textContent(),/аккаунт не подтвержден/);
     await page.evaluate(() => window.GRAFLocalRecordings.update([], [], false));
     assert.equal(await page.locator('[data-local-account-recovery]').count(),0);
+    // S44: per-item truth arrives before the late aggregate reply for the same bulk.
+    for (const canAccess of [true, false]) {
+      const bulk = await browser.newPage();
+      try {
+        bulk.on('pageerror', error => errors.push(error.message));
+        await bulk.route('https://synthetic.invalid/**', route => route.fulfill({contentType:'text/html',body:'<html><body></body></html>'}));
+        await bulk.goto('https://synthetic.invalid/desktop/meetings');
+        const serverRow = (id, allowed = true) => `<li data-meeting-row data-meeting-id="${id}"><input type="checkbox" data-meeting-select ${allowed ? '' : 'disabled'}><button data-meeting-open ${allowed ? '' : 'disabled'}>Открыть</button><span class="row-meta">${allowed ? 'Доступно' : 'Нет доступа'}</span></li>`;
+        const staleAccepted = serverRow('accepted');
+        await bulk.setContent(`<form class="cabinet-list-controls"></form><h1 data-list-title tabindex="-1">Встречи</h1>
+          <div id="meeting-list-region"><div data-meeting-result-count>Найдено: 2</div><div data-meeting-result-complete="true"><section data-meeting-list><ol class="meeting-list">${staleAccepted}${serverRow('rejected')}</ol></section></div></div>
+          <div data-selection-toolbar hidden><span data-selection-count></span><button data-selection-delete>Удалить выбранные</button></div><div id="delete-feedback-region"></div><div data-meeting-result-announcer></div>
+          <dialog data-delete-dialog data-title-one="Удаление" data-title-many="Удаление"><h2 data-delete-title></h2><p data-delete-count></p><p data-delete-error hidden></p><button data-delete-cancel>Отмена</button><button data-delete-confirm>Удалить</button></dialog>`);
+        await bulk.evaluate(resultHTML => {
+          window.GRAFRecordingDeletionBridgeVersion = 1;
+          window.bulkMessages = []; window.bulkRefreshes = 0;
+          window.webkit = {messageHandlers:{grafLocalRecording:{postMessage(message) {
+            if (message.action === 'deleteSelection') window.bulkMessages.push(message);
+          }}}};
+          document.querySelector('form').addEventListener('submit', event => {
+            event.preventDefault(); window.bulkRefreshes += 1;
+            // A fresh server list response determines the rejected row's current rights.
+            document.querySelector('ol').innerHTML = resultHTML;
+            document.body.dispatchEvent(new CustomEvent('htmx:afterSwap', {detail:{target:document.querySelector('#meeting-list-region')}}));
+          });
+        }, serverRow('rejected', canAccess));
+        await bulk.addScriptTag({path:path.join(assets,'user-time.js')});
+        await bulk.addScriptTag({path:path.join(assets,'cabinet.js')});
+        const alias = {...local,id:'accepted-local',meetingId:'accepted',uploadComplete:true};
+        const operations = ['accepted','rejected'].map(id => ({id:`operation-${id}`,target:{meeting:{_0:id}},phase:'sending'}));
+        const project = ops => bulk.evaluate(({alias,ops}) => window.GRAFLocalRecordings.update([alias],ops),{alias,ops});
+        await project([]);
+        for (const checkbox of await bulk.locator('[data-meeting-select]').all()) await checkbox.check();
+        await bulk.locator('[data-selection-delete]').click();
+        await bulk.locator('[data-delete-confirm]').click();
+        const messages = await bulk.evaluate(() => window.bulkMessages);
+        assert.equal(messages.length,1);
+        assert.deepEqual(messages[0].meetingIds,['accepted','rejected']);
+        assert.deepEqual(messages[0].localIds,[]);
+        await project(operations);
+        assert.equal(await bulk.locator('[data-meeting-select]:disabled').count(),2);
+        const settled = operations.map(op => ({...op,phase:op.target.meeting._0}));
+        await project(settled);
+        assert.equal(await bulk.evaluate(() => window.bulkRefreshes),1,'rejection requests fresh rights');
+        const assertResult = async () => {
+          assert.equal(await bulk.locator('[data-meeting-id="accepted"], [data-graf-local-recording-row]').count(),0,'accepted and its local alias stay absent');
+          assert.equal(await bulk.locator('[data-meeting-row]').count(),1);
+          assert.equal(await bulk.locator('[data-meeting-id="rejected"] [data-meeting-select]').isEnabled(),canAccess);
+          assert.equal(await bulk.locator('[data-meeting-id="rejected"] [data-meeting-open]').isEnabled(),canAccess);
+          assert.equal(await bulk.locator('[data-meeting-result-count]').textContent(),'Найдено: 1');
+          assert.equal(await bulk.locator('[data-selection-count]').textContent(),'Выбрано: 0');
+          assert.equal(await bulk.locator('[data-selection-toolbar]').isHidden(),true);
+          assert.equal(await bulk.evaluate(() => window.bulkMessages.length),1,'no second destructive command');
+        };
+        await assertResult();
+        const result = {saved:true,accepted:1,pending:0,rejected:1};
+        await bulk.evaluate(({id,result}) => window.GRAFLocalRecordings.deletionCompleted(id,result),{id:messages[0].requestId,result});
+        await bulk.waitForFunction(() => !document.querySelector('[data-delete-dialog]').open);
+        assert.match(await bulk.locator('#delete-feedback-region').textContent(),/Удалено из списка: 1\. Ожидают подтверждения: 0\. Отклонено: 1\./);
+        await assertResult();
+        await bulk.locator('ol').evaluate((list,html) => list.insertAdjacentHTML('beforeend',html),staleAccepted);
+        await bulk.evaluate(() => document.body.dispatchEvent(new CustomEvent('htmx:afterSwap',{detail:{target:document.querySelector('#meeting-list-region')}})));
+        await assertResult();
+        await project(settled);
+        await assertResult();
+        const refreshes = await bulk.evaluate(() => window.bulkRefreshes);
+        await bulk.evaluate(({id,result}) => window.GRAFLocalRecordings.deletionCompleted(id,result),{id:messages[0].requestId,result});
+        await assertResult();
+        assert.equal(await bulk.evaluate(() => window.bulkRefreshes),refreshes,'duplicate reply does not refresh or repeat deletion');
+      } finally { await bulk.close(); }
+    }
+    console.log('S44 mixed native bulk: late and duplicate replies, accepted alias, current allowed/denied rights passed');
     // Viewport hints include local and linked aliases, never filtered/offscreen history.
     const visibility = await browser.newPage({viewport:{width:800,height:500}});
     await visibility.route('https://synthetic.invalid/**', route => route.fulfill({contentType:'text/html',body:'<html><body></body></html>'}));
