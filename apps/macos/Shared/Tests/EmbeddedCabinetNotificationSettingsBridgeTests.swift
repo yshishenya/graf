@@ -7,6 +7,145 @@ import XCTest
 final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
     private static var retainedViews: [WKWebView] = []
 
+    func testCoordinatorReadsSettingsOnlyAfterFinishingItsNavigationBarrier() async throws {
+        try await checkCoordinatorActivation()
+    }
+
+    func testCoordinatorRejectsAccountChangeBeforeReconciliationStarts() async throws {
+        try await checkCoordinatorActivation(changesAccount: true)
+    }
+
+    func testCoordinatorAcceptsItsOwnConfirmedCookieAccountChange() async throws {
+        try await checkCoordinatorActivation(reconcilesAccount: true)
+    }
+
+    private func checkCoordinatorActivation(changesAccount: Bool = false, reconcilesAccount: Bool = false) async throws {
+        let suite = "F277-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let requested = expectation(description: "current settings context requested")
+        requested.isInverted = changesAccount
+        var blockedReads = 0
+        var reconciliations = 0
+        let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel(),
+            contextProvider: {
+                requested.fulfill()
+                if reconcilesAccount { XCTAssertEqual(reconciliations, 1, "The cookie account change must precede context activation") }
+                guard DesktopCabinetSessionBridge.isCurrentSession(DesktopCabinetSessionBridge.generation) else {
+                    blockedReads += 1
+                    throw CocoaError(.userCancelled)
+                }
+                return DesktopNotificationContext(user_id: UUID(), workspace_id: UUID(), recording_deletion_protocol_version: nil)
+            })
+        let url = URL(string: "https://notification-settings.example.test/desktop/settings/notifications")!
+        let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent()
+        let web = WKWebView(frame: .zero, configuration: configuration)
+        Self.retainedViews.append(web)
+        var observer: NSObjectProtocol?
+        var cookie: HTTPCookie?
+        if reconcilesAccount {
+            let value = try XCTUnwrap(HTTPCookie(properties: [
+                .name: DesktopCabinetSessionBridge.authSessionCookieName, .value: "synthetic-settings-session",
+                .domain: url.host!, .path: "/", .secure: "TRUE", .expires: Date().addingTimeInterval(3600)
+            ]))
+            cookie = value
+            await withCheckedContinuation { continuation in
+                configuration.websiteDataStore.httpCookieStore.setCookie(value) { continuation.resume() }
+            }
+            observer = NotificationCenter.default.addObserver(forName: .twoBrainRecDesktopAuthSessionDidChange,
+                object: nil, queue: .main) { _ in MainActor.assumeIsolated {
+                    reconciliations += 1
+                    presenter.invalidate()
+                } }
+        }
+        defer {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            if let cookie { HTTPCookieStorage.shared.deleteCookie(cookie) }
+        }
+        web.loadHTMLString("<script>window.connections=0;window.GRAFNotificationSettings={connect(){connections++},disconnect(){}};</script>", baseURL: url)
+        try await wait("typeof window.connections === 'number' && document.readyState === 'complete'", web)
+        let policy = DesktopCabinetRoutePolicy(baseURL: url)
+        let navigation = EmbeddedCabinetNavigationController()
+        let request = URLRequest(url: url)
+        navigation.attach(webView: web, routePolicy: policy, fallbackRequest: request, initialRequest: request, sessionExpired: false)
+        let coordinator = EmbeddedCabinetWebView.Coordinator(routePolicy: policy, desktopHeaders: [:],
+            cabinetState: .constant(.ready), currentRoute: .constant(url), navigationEventLogger: nil,
+            showsAppUpdateBadge: false, onCheckForUpdates: {}, onOpenMeetingDetectionSettings: {},
+            supportIncidentBridge: nil, notificationPresenter: presenter, navigationController: navigation)
+        defer { coordinator.detachNavigationController(from: web); presenter.invalidate() }
+        let dispatched = expectation(description: "settings navigation dispatched")
+        coordinator.dispatchAuthNavigation(in: web, targetURL: url,
+            decisionHandler: { _ in XCTFail("current navigation cancelled") }, dispatch: { dispatched.fulfill() })
+        await fulfillment(of: [dispatched], timeout: 5)
+        XCTAssertFalse(DesktopCabinetSessionBridge.isCurrentSession(DesktopCabinetSessionBridge.generation))
+        coordinator.webView(web, didFinish: nil)
+        if changesAccount {
+            presenter.invalidate()
+            presenter.updateContext(user: UUID().uuidString, workspace: UUID().uuidString)
+        }
+        await fulfillment(of: [requested], timeout: changesAccount ? 0.5 : 5)
+        XCTAssertEqual(blockedReads, 0, "The real context endpoint rejects requests before cookie reconciliation ends")
+        XCTAssertTrue(DesktopCabinetSessionBridge.isCurrentSession(DesktopCabinetSessionBridge.generation),
+            "An account change must not leave the completed navigation barrier behind")
+        if changesAccount {
+            let connections = try await web.evaluateJavaScript("connections")
+            XCTAssertEqual(connections as? Int, 0)
+        } else if blockedReads == 0 { try await wait("connections === 1", web) }
+        if reconcilesAccount { XCTAssertEqual(reconciliations, 1) }
+        let cleanup = coordinator.detachNavigationController(from: web)
+        await cleanup?.value
+        presenter.invalidate()
+    }
+
+    func testCoordinatorRejectsDocumentsInvalidatedWhileContextIsPending() async throws {
+        for interruption in ["account", "navigation", "detach"] {
+            let suite = "F277-\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let gate = NotificationSettingsGate()
+            let returned = expectation(description: "context returned after \(interruption)")
+            let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel(),
+                contextProvider: {
+                    await gate.wait()
+                    returned.fulfill()
+                    return DesktopNotificationContext(user_id: UUID(), workspace_id: UUID(), recording_deletion_protocol_version: nil)
+                })
+            let url = URL(string: "https://graf.test/desktop/settings/notifications")!
+            let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent()
+            let web = WKWebView(frame: .zero, configuration: configuration)
+            Self.retainedViews.append(web)
+            web.loadHTMLString("<script>window.connections=0;window.GRAFNotificationSettings={connect(){connections++},disconnect(){}};</script>", baseURL: url)
+            try await wait("document.readyState === 'complete' && typeof window.connections === 'number'", web)
+            let policy = DesktopCabinetRoutePolicy(baseURL: url)
+            let navigation = EmbeddedCabinetNavigationController()
+            let request = URLRequest(url: url)
+            navigation.attach(webView: web, routePolicy: policy, fallbackRequest: request, initialRequest: request, sessionExpired: false)
+            let coordinator = EmbeddedCabinetWebView.Coordinator(routePolicy: policy, desktopHeaders: [:],
+                cabinetState: .constant(.ready), currentRoute: .constant(url), navigationEventLogger: nil,
+                showsAppUpdateBadge: false, onCheckForUpdates: {}, onOpenMeetingDetectionSettings: {},
+                supportIncidentBridge: nil, notificationPresenter: presenter, navigationController: navigation)
+            let dispatched = expectation(description: "settings navigation dispatched")
+            coordinator.dispatchAuthNavigation(in: web, targetURL: url,
+                decisionHandler: { _ in XCTFail("current navigation cancelled") }, dispatch: { dispatched.fulfill() })
+            await fulfillment(of: [dispatched], timeout: 5)
+            coordinator.webView(web, didFinish: nil)
+            await gate.untilWaiting()
+            switch interruption {
+            case "account":
+                presenter.invalidate()
+                presenter.updateContext(user: UUID().uuidString, workspace: UUID().uuidString)
+            case "navigation": coordinator.webView(web, didStartProvisionalNavigation: nil)
+            default: await coordinator.detachNavigationController(from: web)?.value
+            }
+            gate.release()
+            await fulfillment(of: [returned], timeout: 5)
+            let connections = try await web.evaluateJavaScript("connections")
+            XCTAssertEqual(connections as? Int, 0, interruption)
+            await coordinator.detachNavigationController(from: web)?.value
+            presenter.invalidate()
+        }
+    }
+
     func testNativeFallbackKeepsTheFivePreferenceContractWithoutSystemPermissionUI() throws {
         let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let source = try String(contentsOf: repo.appendingPathComponent("apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift"), encoding: .utf8)

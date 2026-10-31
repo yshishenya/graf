@@ -571,7 +571,11 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suite) }
         let user = UUID(), workspace = UUID()
         let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel(),
-            contextProvider: { DesktopNotificationContext(user_id: user, workspace_id: workspace, recording_deletion_protocol_version: nil) })
+            contextProvider: {
+                XCTAssertTrue(DesktopCabinetSessionBridge.isCurrentSession(DesktopCabinetSessionBridge.generation),
+                    "A restored settings document must finish authentication before requesting its context")
+                return DesktopNotificationContext(user_id: user, workspace_id: workspace, recording_deletion_protocol_version: nil)
+            })
         let host = NSHostingView(rootView: RealWorkspaceFixture(configuration: .init(baseURL: origin),
             initialRoute: url, document: document, presenter: presenter))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),

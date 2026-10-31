@@ -360,3 +360,23 @@ PASS. Полный итог после изоляции двух прежних 
 PASS, без изменения production/assertions/ожиданий. T019/T021 проверены
 повторно в этом срезе; T020/T022 и аппаратный долг остаются открытыми.
 Свежие exact-SHA/base gates и слияние — следующая отдельная стадия.
+
+## Phase 15: Convergence — настройки после перехода
+
+Проверка #6690 на установленном GRAF Dev `dev-1c0b78c5f42d` выявила
+воспроизводимый отказ: «Аккаунт → Уведомления» оставляет все локальные
+настройки недоступными, повтор чтения не помогает, обновление документа
+восстанавливает значения. Повторный переход возвращает ошибку. Настройки,
+разрешения и запись во время проверки не менялись.
+
+В `EmbeddedCabinetWebView.Coordinator` завершение перехода асинхронно
+сверяет cookies и снимает session barrier, а получение контекста настроек
+начинается независимо. `notificationContext()` отвергает запрос при ещё
+открытом barrier. Это проверяемая гипотеза причины, не уже принятый результат.
+Сверка ограничена FR-015/020, US3, plan Architecture 4/7 и действующим
+контрактом settings-bridge; одна partial/HIGH находка. Новая возможность,
+политика аккаунта или повторные фоновые запросы не требуются.
+
+- [ ] T036 [US3] Сначала воспроизвести отказ получения текущего контекста при завершении перехода в настоящем `EmbeddedCabinetWebView.Coordinator` и `EmbeddedCabinetNotificationSettingsBridge` в `apps/macos/Shared/Tests/EmbeddedCabinetNotificationSettingsBridgeTests.swift`. После RED упорядочить завершение текущего auth navigation и активацию настроек в `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`: контекст читается только после завершения cookie reconciliation и снятия принадлежащего переходу barrier; после каждого ожидания проверяются текущий документ, revision, attachment и аккаунт. Проверить обычный переход, обновление, восстановление прежнего документа после отмены, уход со страницы, смену аккаунта и закрытие окна во время ожидания; устаревший callback не подключает прежние настройки. Сохранить origin/main-frame/route/nonce/epoch и session guards, текущие запросы/хранилище/предпочтения; не добавлять polling, зависимости или подстановку прежнего владельца. Выполнить профиль bridge/session/navigation, общий F277 quickstart, build/ContractValidation, независимое ревью, повторный converge и обязательные exact-SHA/base PR checks. После чистого проверенного коммита подтвердить переход в единственном GRAF Dev штатным harness при свободном стенде. Записать фактические результаты и пропуски в `specs/277-compact-notifications/validation.md`, обновить `changes/unreleased/F277.yaml`; #6690 и общую F277 не закрывать по одному исправлению. До реализации — analyze, issue sync и независимый reviewer-owned checklist gate. По FR-015/020, US3, plan Architecture 4/7, settings-bridge (partial, HIGH).
+
+- T036 (Issue #7844) — https://github.com/yshishenya/graf/issues/7844
