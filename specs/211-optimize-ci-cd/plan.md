@@ -691,3 +691,65 @@ CHK008 и scoped analyze, затем существующие шесть confirm
 XCTest/ContractValidation и новый pinned native, независимое code review.
 Продуктовые полномочия и данные не меняются; Constitution Check PASS
 по сохранению guards/однократности/metadata-only evidence.
+
+
+## T110 — ограниченная диагностика неизвестного APT
+
+Lane: active Spec Kit slice, CI diagnostics. Constitution III/VI до и после
+планирования PASS: только публичные метаданные одноразовой машины, без секретов,
+изменения APT, runtime и release gate. Исходный отказ и неопределённость — spec T110.
+
+Временно добавить `.github/workflows/ubuntu-apt-diagnostic.yml`: pull_request
+opened/synchronize только при изменении этого файла, восемь задач с matrix
+0–7 и fail-fast=false, ubuntu-24.04, permissions={}, timeout5min. Один run
+step с Python stdlib, без checkout/сети/sudo/зависимостей. Pathlib проверяет
+is_symlink/is_file/размер до read_bytes; вывод JSON содержит hashes и только
+allowlisted Ubuntu URIs без credentials/port/query/fragment. Для unknown
+выводить лишь hash, не строку. Проверка не сообщает успех выпуска.
+
+Локальный исполняемый профиль сохранить в `.dev/ci-apt-diagnosis/` вместе
+с журналом: извлечь тот же inline run из YAML, перенаправить две константы
+пути в временную директорию, выполнить положительные/отрицательные случаи.
+Не создавать новую долговечную инфраструктуру. Временный workflow удалить
+до окончательного merge. Reviewer-owned checklist: `checklists/ci-apt-diagnosis.md`.
+Порядок: review требований → analyze → issue sync → код → focused/static →
+независимое code review → draft PR/hosted diagnosis → запись фактов и удаление
+workflow. Исправление helper только после доказанного формата и нового review.
+
+
+### T110 — второй ограниченный набор с настоящей меткой Full
+
+Первый [run41240805226](https://github.com/yshishenya/graf/actions/runs/41240805226),
+source5d42971c40625997ccc49a8b0d438a263f7fc523:8/8 Azure, Ubuntu24.04
+image20261025.353.1, прежний mirror_list. Фактический AWS остался неизвестным.
+В отказавшем Full и всех трёх callers используется `ubuntu-latest`, тогда
+как первый диагностический набор использовал `ubuntu-24.04`. Это разные
+выборки; причина различия облаков не доказана. Следующий набор ровно8 jobs
+использует ту же метку `ubuntu-latest`. Это разрешает только чтение той же
+ограниченной пары файлов на актуальном GitHub Ubuntu, не установку пакетов
+или изменение доверия. Всего в двух наборах не более16 jobs; остальные
+ограничения, код вывода,5min/permissions и удаление до merge сохраняются.
+До изменения runs-on требуется повторное независимое requirements review;
+локально проверить точную метку и прежние14 сценариев. Если AWS снова не
+встретится, не объявлять его формат установленным и не повторять Full.
+
+
+## T111 — минимальный отказ с безопасным объяснением
+
+Constitution III/VI до/после design PASS. Lane active Spec Kit slice, CI diagnostics.
+Из временного inline кода T110 перенести describe в существующий Python
+heredoc `infra/scripts/prepare-ci-apt.sh`: hashlib/json/urlsplit, DNS regex
+через уже импортированный re. В точке неподдержанного URI/disabled раздела
+сформировать bounded JSON и затем прежний SystemExit. Значение<=4096
+разбить на URI tokens, для большего вывести лишь UNKNOWN/hash. Unknown raw
+никогда не печатается. Разрешения APT, parse и список зеркал не меняются.
+Без нового модуля/настройки/зависимости/caller. Удалить временный YAML.
+Расширить существующий параметризованный shell harness resource preparation
+с отказами на известной/неизвестной/credential/control/длинной строке; JSON
+разбирать из stdout, проверять отсутствие опасного значения и отсутствие
+побочных действий. Все прежние случаи сохраняются. Фактический AWS остаётся
+отдельным открытым критерием T110; новое сообщение будет получено штатным
+будущим caller, повторять Full ради диагностики нельзя. Before-code checklist
+`checklists/ci-apt-failure-diagnosis.md`, analyze/issue sync, RED→GREEN,
+focused/actionlint/bash/process/governance/fragment/diff, независимое review/
+converge, коммит/PR exact gates. Успешная локальная/PR приёмка не равна Full.

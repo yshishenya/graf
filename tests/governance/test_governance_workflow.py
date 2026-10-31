@@ -412,7 +412,7 @@ def test_governance_workflow_self_test() -> None:
     ("release-full", "server-parallel"), ("release-full", "server-phases"),
     ("governance-fast", "governance-fast"),
 ])
-@pytest.mark.parametrize("tools_state", ["working", "missing-ffmpeg", "missing-ffprobe", "update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe", "non-server", "mirror-failed", "npm-failed", "browser-failed", "write-failed", "unknown-mirror", "duplicate-mirror", "missing-mirror", "bad-source", "missing-source", "crlf-mirror", "mirror-symlink", "source-symlink", "second-source", "continued-source", "disabled-source", "duplicate-source", "multiple-stanzas"])
+@pytest.mark.parametrize("tools_state", ["working", "missing-ffmpeg", "missing-ffprobe", "update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe", "non-server", "mirror-failed", "npm-failed", "browser-failed", "write-failed", "unknown-mirror", "duplicate-mirror", "missing-mirror", "bad-source", "missing-source", "crlf-mirror", "mirror-symlink", "source-symlink", "second-source", "continued-source", "disabled-source", "duplicate-source", "multiple-stanzas", "diag-direct", "diag-unknown", "diag-credential", "diag-backslash", "diag-nul", "diag-empty-port", "diag-long", "diag-multi", "diag-query", "diag-fragment"])
 def test_actual_media_resource_preparation(tmp_path, workflow_name, job_name, tools_state):
     import yaml
 
@@ -440,7 +440,21 @@ def test_actual_media_resource_preparation(tmp_path, workflow_name, job_name, to
                 "https://archive.ubuntu.com/ubuntu/\tpriority:2\n"
                 "https://security.ubuntu.com/ubuntu/\tpriority:3\n")
     mirror.write_text(original)
-    if tools_state == "unknown-mirror":
+    diagnostic_uris = {
+        "diag-direct": "https://archive.ubuntu.com/ubuntu/",
+        "diag-unknown": "https://fixture-private-value.invalid/ubuntu/",
+        "diag-credential": "https://fixture-private-value:fixture-only@archive.ubuntu.com/ubuntu/",
+        "diag-backslash": r"https://fixture-private-value\.ubuntu.com/ubuntu/",
+        "diag-nul": "https://fixture-private-value\0.ubuntu.com/ubuntu/",
+        "diag-empty-port": "https://archive.ubuntu.com:/ubuntu/",
+        "diag-long": "https://archive.ubuntu.com/ubuntu/?" + "fixture-private-value" * 250,
+        "diag-multi": f"mirror+file:{apt}/apt-mirrors.txt https://archive.ubuntu.com/ubuntu/",
+        "diag-query": "https://archive.ubuntu.com/ubuntu/?fixture-private-value",
+        "diag-fragment": "https://archive.ubuntu.com/ubuntu/#fixture-private-value",
+    }
+    if tools_state in diagnostic_uris:
+        source.write_text(source.read_text().replace(f"mirror+file:{apt}/apt-mirrors.txt", diagnostic_uris[tools_state]))
+    elif tools_state == "unknown-mirror":
         mirror.write_text(original + "https://other.invalid/ubuntu/\tpriority:1\n")
     elif tools_state == "duplicate-mirror":
         mirror.write_text(original + original)
@@ -514,12 +528,24 @@ ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ff
     if workflow_name == "governance-fast" and tools_state == "non-server":
         assert result.returncode == 0 and not rows, result.stderr
         return
-    failed = tools_state in {"update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe", "mirror-failed", "npm-failed", "browser-failed", "write-failed", "unknown-mirror", "duplicate-mirror", "missing-mirror", "bad-source", "missing-source", "crlf-mirror", "mirror-symlink", "source-symlink", "second-source", "continued-source", "disabled-source", "duplicate-source"}
+    failed = tools_state in {"update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe", "mirror-failed", "npm-failed", "browser-failed", "write-failed", "unknown-mirror", "duplicate-mirror", "missing-mirror", "bad-source", "missing-source", "crlf-mirror", "mirror-symlink", "source-symlink", "second-source", "continued-source", "disabled-source", "duplicate-source"} or tools_state in diagnostic_uris
     assert (result.returncode != 0) == failed, result.stdout + result.stderr
     assert rows[0] == "mirror", rows
     assert (source.read_bytes() if source.exists() else None) == source_before
     assert third_party.read_text() == "deb [signed-by=/some/key.gpg] https://example.invalid/packages stable main\n"
-    helper_failed = tools_state in {"mirror-failed", "write-failed", "unknown-mirror", "duplicate-mirror", "missing-mirror", "bad-source", "missing-source", "crlf-mirror", "mirror-symlink", "source-symlink", "second-source", "continued-source", "disabled-source", "duplicate-source"}
+    helper_failed = tools_state in {"mirror-failed", "write-failed", "unknown-mirror", "duplicate-mirror", "missing-mirror", "bad-source", "missing-source", "crlf-mirror", "mirror-symlink", "source-symlink", "second-source", "continued-source", "disabled-source", "duplicate-source"} or tools_state in diagnostic_uris
+    if tools_state in diagnostic_uris or tools_state == "disabled-source":
+        metadata = [json.loads(line) for line in result.stdout.splitlines() if line.startswith('{"uris":')]
+        assert len(metadata) == 1, result.stdout + result.stderr
+        assert metadata[0]["enabled"] is (tools_state != "disabled-source")
+        values = metadata[0]["uris"]
+        expected_kind = "ubuntu_uri" if tools_state in {"diag-direct", "diag-multi"} else "mirror_list" if tools_state == "disabled-source" else "UNKNOWN"
+        assert values[-1]["kind"] == expected_kind
+        if expected_kind == "UNKNOWN":
+            assert values == [{"kind": "UNKNOWN", "sha256": hashlib.sha256(diagnostic_uris[tools_state].encode()).hexdigest()}]
+        if tools_state == "diag-multi":
+            assert values[0] == {"kind": "mirror_list"} and len(values) == 2
+        assert "fixture-private-value" not in result.stdout + result.stderr
     if helper_failed:
         assert rows == ["mirror"]
         assert (mirror.read_bytes() if mirror.exists() else None) == mirror_before

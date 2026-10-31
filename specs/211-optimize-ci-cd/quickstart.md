@@ -1073,3 +1073,49 @@ confirm cases сохраняются. Локальный focused → полны�
 ContractValidation → независимый implementation review → новый exact-SHA
 макOS native и общий validator. Прежний FAIL сохраняется, новые skip или
 подмена настоящего диалога недопустимы. T106/#7834 ждут полного PASS.
+
+
+## T110 — безопасная диагностика APT
+
+До кода: независимое `checklists/ci-apt-diagnosis.md`, узкий analyze и issue sync.
+Профиль `.dev/ci-apt-diagnosis/check.py` исполняет настоящий inline Python
+на временных путях: mirror+file, прямой учебный Ubuntu URI, unknown/credential
+URI, управляющая строка GitHub, missing/symlink/oversize; stdout разбирается
+как JSON и проверяется отсутствие закрытого исходного значения. Затем
+actionlint временного workflow, process/governance и diff check, независимое
+code review. Draft PR запускает8 коротких Ubuntu24.04 задач без сети/sudo.
+Принять только полученный фактический формат; при отсутствии AWS оставить
+пробел открытым. Сохранить run/source/hash, удалить временный файл до merge.
+Новый формат helper не включается без отдельного уточнения и review.
+
+
+### T110 — второй ограниченный набор с настоящей меткой Full
+
+Первый [run41240805226](https://github.com/yshishenya/graf/actions/runs/41240805226),
+source5d42971c40625997ccc49a8b0d438a263f7fc523:8/8 Azure, Ubuntu24.04
+image20261025.353.1, прежний mirror_list. Фактический AWS остался неизвестным.
+В отказавшем Full и всех трёх callers используется `ubuntu-latest`, тогда
+как первый диагностический набор использовал `ubuntu-24.04`. Это разные
+выборки; причина различия облаков не доказана. Следующий набор ровно8 jobs
+использует ту же метку `ubuntu-latest`. Это разрешает только чтение той же
+ограниченной пары файлов на актуальном GitHub Ubuntu, не установку пакетов
+или изменение доверия. Всего в двух наборах не более16 jobs; остальные
+ограничения, код вывода,5min/permissions и удаление до merge сохраняются.
+До изменения runs-on требуется повторное независимое requirements review;
+локально проверить точную метку и прежние14 сценариев. Если AWS снова не
+встретится, не объявлять его формат установленным и не повторять Full.
+
+
+## T111 — сообщение отказа APT
+
+Before-code: checklist ci-apt-failure-diagnosis, analyze и issue#7849 sync.
+Сначала новый профиль должен FAIL на отсутствии JSON прежнего helper, затем
+тот же весь `tests/governance/test_governance_workflow.py` PASS с новым.
+Каждый из3 caller: прямой учебный Ubuntu URI/unknown/credentials/некорректный
+DNS/NUL/empty-port/long остаётся отказом, stdout JSON безопасен, bytes
+source/mirror/third-party неизменны, после failure только событие mirror.
+Затем bash syntax, actionlint существующих workflow, process/governance/
+fragment/diff, независимое implementation review/converge. Удалённый
+временный workflow не заменяется новой инфраструктурой. Три обязательных
+PR gates остаются, AWS критерий открыт, release-full не запускается ради
+выборки машины.
