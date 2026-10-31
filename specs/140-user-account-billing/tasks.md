@@ -144,7 +144,7 @@ description: "Dependency-ordered implementation tasks for the GRAF personal acco
 
 - [X] T046 [US5] Implement one-operation renewal scheduling, exact `paid_through` cutoff, and Free projection in `apps/server/src/twobrain_rec_server/billing/renewal.py`.
 - [X] T047 [US5] Implement Temporal renewal workflow, provider-key recovery, expiry gap, late-success incident, and refusal precedence in `apps/server/src/twobrain_rec_server/workflows/billing_renewal_workflow.py` and `apps/server/src/twobrain_rec_server/billing/renewal_resolution.py`.
-- [X] T048 [US5] Add renewal reminder, failure-to-Free, unknown, late-success and manual-resume notifications in `apps/server/src/twobrain_rec_server/billing/notifications.py` and their bounded delivery loop in `apps/server/src/twobrain_rec_server/workflows/worker.py`. (Issue #4903).
+- [ ] T048 [US5] Add renewal reminder, failure-to-Free, unknown, late-success and manual-resume notifications in `apps/server/src/twobrain_rec_server/billing/notifications.py` and their bounded delivery loop in `apps/server/src/twobrain_rec_server/workflows/worker.py`. (Issue #4903).
 - [X] T049 [US5] Render next-charge, paid-through, renewal-off, pending-resolution and Free fallback states in `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_overview_content.html` and `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/billing_subscription_content.html`.
 
 **Checkpoint**: A failed or unconfirmed renewal never creates a grace period, an automatic retry, or an ambiguous paid state.
@@ -364,3 +364,17 @@ Account-close, внешний refund и денежные/защитные гра
 Возврат T023 допускается только по новому явному решению о смене пути оплаты
 с отдельными требованиями и проверками. Подробности и пределы —
 `reconciliation-t023-20261031.md`. Остальные 86 задач не меняются.
+
+
+## Текущий срез T048 / #4903 — 01.11.2026
+
+Исходное описание T048 сохранено; отметка выполнения снята по подтверждённому
+отсутствию рабочих producers. Порядок внутри существующей задачи:
+1. Независимое reviewer-owned `checklists/renewal-unknown.md`, scoped analyze.
+2. Причинный PostgreSQL RED для сообщения при cutoff и отсутствие внешнего HTTP.
+3. Проверка связи операции/счёта с текущим плательщиком и периодом; запись
+   существующего UNKNOWN в той же транзакции, без изменения платежей/доступа.
+4. PostgreSQL commit/restart/dedup/rollback и отрицательные границы; профильные
+   регрессии, review/converge и точные PR gates.
+5. Оставить общую T048/#4903 открытой: reminder, failure-to-Free, late-success,
+   manual-resume и фактическая доставка требуют отдельной проверки/доработки.
