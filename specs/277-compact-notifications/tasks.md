@@ -377,7 +377,7 @@ PASS, без изменения production/assertions/ожиданий. T019/T02
 контрактом settings-bridge; одна partial/HIGH находка. Новая возможность,
 политика аккаунта или повторные фоновые запросы не требуются.
 
-- [ ] T036 [US3] Сначала воспроизвести отказ получения текущего контекста при завершении перехода в настоящем `EmbeddedCabinetWebView.Coordinator` и `EmbeddedCabinetNotificationSettingsBridge` в `apps/macos/Shared/Tests/EmbeddedCabinetNotificationSettingsBridgeTests.swift`. После RED упорядочить завершение текущего auth navigation и активацию настроек в `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`: контекст читается только после завершения cookie reconciliation и снятия принадлежащего переходу barrier; после каждого ожидания проверяются текущий документ, revision, attachment и аккаунт. Проверить обычный переход, обновление, восстановление прежнего документа после отмены, уход со страницы, смену аккаунта и закрытие окна во время ожидания; устаревший callback не подключает прежние настройки. Сохранить origin/main-frame/route/nonce/epoch и session guards, текущие запросы/хранилище/предпочтения; не добавлять polling, зависимости или подстановку прежнего владельца. Выполнить профиль bridge/session/navigation, общий F277 quickstart, build/ContractValidation, независимое ревью, повторный converge и обязательные exact-SHA/base PR checks. После чистого проверенного коммита подтвердить переход в единственном GRAF Dev штатным harness при свободном стенде. Записать фактические результаты и пропуски в `specs/277-compact-notifications/validation.md`, обновить `changes/unreleased/F277.yaml`; #6690 и общую F277 не закрывать по одному исправлению. До реализации — analyze, issue sync и независимый reviewer-owned checklist gate. По FR-015/020, US3, plan Architecture 4/7, settings-bridge (partial, HIGH).
+- [X] T036 [US3] Сначала воспроизвести отказ получения текущего контекста при завершении перехода в настоящем `EmbeddedCabinetWebView.Coordinator` и `EmbeddedCabinetNotificationSettingsBridge` в `apps/macos/Shared/Tests/EmbeddedCabinetNotificationSettingsBridgeTests.swift`. После RED упорядочить завершение текущего auth navigation и активацию настроек в `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`: контекст читается только после завершения cookie reconciliation и снятия принадлежащего переходу barrier; после каждого ожидания проверяются текущий документ, revision, attachment и аккаунт. Проверить обычный переход, обновление, восстановление прежнего документа после отмены, уход со страницы, смену аккаунта и закрытие окна во время ожидания; устаревший callback не подключает прежние настройки. Сохранить origin/main-frame/route/nonce/epoch и session guards, текущие запросы/хранилище/предпочтения; не добавлять polling, зависимости или подстановку прежнего владельца. Выполнить профиль bridge/session/navigation, общий F277 quickstart, build/ContractValidation, независимое ревью, повторный converge и обязательные exact-SHA/base PR checks. После чистого проверенного коммита подтвердить переход в единственном GRAF Dev штатным harness при свободном стенде. Записать фактические результаты и пропуски в `specs/277-compact-notifications/validation.md`, обновить `changes/unreleased/F277.yaml`; #6690 и общую F277 не закрывать по одному исправлению. До реализации — analyze, issue sync и независимый reviewer-owned checklist gate. По FR-015/020, US3, plan Architecture 4/7, settings-bridge (partial, HIGH).
 
 - T036 (Issue #7844) — https://github.com/yshishenya/graf/issues/7844
 
@@ -393,3 +393,13 @@ T036 выполнена: RED/GREEN, независимое ревью, повт�
 Исправление и 501 проверки описаны в validation.md; отметка T036 возвращена
 в `[ ]` до приёмки новых байтов в GRAF Dev и свежих PR gates. Прежний
 результат сохранён выше как история, #7844 остаётся открытой.
+
+
+Итог повторной проверки гонки observer (01.11.2026): новая установленная
+приёмка `dev-f3b0609a29a2` и общий PR-валидатор на
+`f3b0609a29a2c93640b9eb3a74945af4f2b46a4f` / основе
+`e8a67a7e21046a641b2bdd0f1caf75aca7895e6f` — PASS. T036 снова отмечена
+выполненной; подробности новой приёмки и источники проверок — в validation.md.
+Документальная отметка требует свежих проверок своего SHA до слияния.
+#7844 закрывается только после слияния и live closeout. Общие #6690,
+T020/#7305 и T022/#7276 остаются открытыми.
