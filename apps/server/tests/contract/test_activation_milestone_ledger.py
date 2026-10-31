@@ -428,10 +428,11 @@ def test_category_erasure_requires_separate_deadline(postgres_seeded_database_ur
 
 
 def test_empty_migration_round_trip_and_populated_downgrade_guard(
-    postgres_seeded_database_url, postgres_clean_database_url
+    postgres_clean_database_url,
 ):
     from sqlalchemy.exc import DBAPIError
 
+    from tests.conftest import _seed_database
     from tests.contract.test_product_analytics_anonymous_aggregate_contract import _run_alembic
 
     empty = postgres_clean_database_url
@@ -442,14 +443,20 @@ def test_empty_migration_round_trip_and_populated_downgrade_guard(
         downgrade_to="0105_anonymous_aggregate_region",
     )
     _run_alembic(empty, upgrade_to="0106_activation_milestones")
+    asyncio.run(_seed_database(empty))
 
     async def scenario(sessions):
+        async with sessions() as db:
+            assert (
+                await db.scalar(text("SELECT version_num FROM alembic_version"))
+                == "0106_activation_milestones"
+            )
         await admit(sessions)
 
-    run(postgres_seeded_database_url, scenario)
+    run(empty, scenario)
     with pytest.raises(DBAPIError, match="activation decisions exist"):
         _run_alembic(
-            postgres_seeded_database_url,
+            empty,
             upgrade_to="0106_activation_milestones",
             downgrade_to="0105_anonymous_aggregate_region",
         )
@@ -464,7 +471,7 @@ def test_empty_migration_round_trip_and_populated_downgrade_guard(
                 == "0106_activation_milestones"
             )
 
-    run(postgres_seeded_database_url, still_present)
+    run(empty, still_present)
 
 
 def test_real_runtime_logins_and_rls_owner_cannot_erase_hidden_history(
@@ -477,12 +484,22 @@ def test_real_runtime_logins_and_rls_owner_cannot_erase_hidden_history(
     from tests.contract.test_product_analytics_anonymous_aggregate_contract import _run_alembic
 
     url = postgres_isolated_cluster_database_url
+    _run_alembic(
+        url,
+        upgrade_to="0106_activation_milestones",
+        downgrade_to="0106_activation_milestones",
+    )
     asyncio.run(_seed_database(url))
     password = uuid4().hex
     owner_role = "graf_ledger_owner_" + uuid4().hex
     other_id = uuid4()
 
     async def setup(sessions):
+        async with sessions() as db:
+            assert (
+                await db.scalar(text("SELECT version_num FROM alembic_version"))
+                == "0106_activation_milestones"
+            )
         await admit(sessions)
         async with sessions() as db:
             from tests.fakes.auth_contexts import ORG_ID

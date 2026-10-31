@@ -92,6 +92,10 @@ AUTH_RATE_LIMIT_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0037_auth_rate_limit_buckets.py"
 )
+BILLING_REGISTRY_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0107_billing_registry.py"
+)
 
 
 def _load_migration_module(path: Path, module_name: str) -> ModuleType:
@@ -191,6 +195,10 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         AUTH_RATE_LIMIT_MIGRATION,
         "auth_rate_limit_migration",
     )
+    billing_registry_migration = _load_migration_module(
+        BILLING_REGISTRY_MIGRATION,
+        "billing_registry_migration",
+    )
     migration_tables = (
         set(migration.AUTH_PUBLIC_WORKSPACE_POLICIES)
         | set(migration.AUTH_REQUEST_WORKSPACE_POLICIES)
@@ -218,6 +226,7 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
         | set(lifecycle_reconciliation_migration.__dict__.get("CONTENT_WORKSPACE_POLICIES", {}))
         | set(legacy_lineage_migration.__dict__.get("CONTENT_WORKSPACE_POLICIES", {}))
         | set(auth_rate_limit_migration.AUTH_RATE_LIMIT_TABLES)
+        | {billing_registry_migration.IMPORTS, billing_registry_migration.GAPS}
         | {"workspace_join_offers"}
         | {
             "billing_plan_versions",
