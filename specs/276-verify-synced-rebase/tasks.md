@@ -31,7 +31,7 @@ tampering, final tree, manual sync/conflict, source merge/missing objects даю
 
 ## Phase 5: Validation and closeout
 
-- [ ] T004 Пройти `specs/276-verify-synced-rebase/quickstart.md`, независимое implementation review и converge; записать evidence в `specs/276-verify-synced-rebase/validation.md` и `changes/unreleased/F276.yaml`; lane significant-feature/high-risk governance, SC-001–004, exact-SHA PR gates до merge и отдельный release-full до выпуска.
+- [X] T004 Пройти `specs/276-verify-synced-rebase/quickstart.md`, независимое implementation review и converge; записать evidence в `specs/276-verify-synced-rebase/validation.md` и `changes/unreleased/F276.yaml`; lane significant-feature/high-risk governance, SC-001–004, exact-SHA PR gates до merge и отдельный release-full до выпуска. (Issue #7272).
 
 ## Dependencies and strategy
 
