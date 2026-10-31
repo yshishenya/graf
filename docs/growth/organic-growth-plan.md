@@ -1463,11 +1463,28 @@ PR #7850 и затем готовую T106 последовательно. В T1
   attempts за20с, instance удалён. Все HTTP/WebSocket локально обработаны
   или заблокированы. Это analytics-only с учебными backend replies,
   без контроллера ГРАФ, не приёмка всего SDK/runtime/T0.
-- [ ] Выполнить спланированный focused профиль настоящего SDK вместе
-  с контроллером ГРАФ и CookieConsent: обе поверхности, same/cross-tab
-  revoke. Перед кодом новый reviewer-owned checklist проверяется независимо.
+- [x] Выполнить focused профиль настоящего SDK с GRAF/CookieConsent:
+  4/4 сценария PASS (/, /download × same/cross-tab), до отказа3/6watch,
+  после0attempts20s и instance удалён. Все HTTP/WS локально перехвачены.
+  Найден и исправлен настоящий дефект замены ym.a: SDK push сохраняется
+  обратным splice. Node RED/GREEN и67 прежних проверок0skips PASS;
+  negative destruct и closed-page controls PASS. Independent requirements5/0,
+  implementation/converge P1/P2/HIGH0.
+- [ ] Принять [PR #7857](https://github.com/yshishenya/graf/pull/7857):
+  source66e705ec22f5346f6b42befffac94d18d864c36d,
+  base638cf598269a717258e77140d7e28801257b06d0;
+  три GitHub checks и общий validator ещё ожидаются. Окно слияний согласовано.
 
 Публичный tag.js с Mac вернул404; с рабочего сервера тот же адрес200.
 Причина различия не установлена, общий сбой SDK не объявляется.
 Ровно три Product Radar сообщения остаются неотправленными до принятых
 выпуска/измерения/T0. M01–M03 и AC01–AC06 не закрываются этими проверками.
+
+
+Ограничение нового SDK профиля: analytics-only, учебные backend replies,
+конечные20s. Replay, настоящие settings/readback, global/individual server
+revoke, runtime/T0 и весьT106 остаются HOLD. Три Product Radar сообщения
+по-прежнему не отправлены. Последний read-only Docker system df показал
+build cache65,51ГБ, reclaimable18,74ГБ; это меньше прежнего нижнего дефицита
+85,44ГБ. Images91,32ГБ reclaimable не приняты как мусор: rollback/источники
+не проверены, удаления/очистки не выполнялись. Полоса дополнения docs-only.

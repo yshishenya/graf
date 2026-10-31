@@ -124,3 +124,17 @@ HTTP connect3с/read8с, без retry. Writers не останавливалис
 Текущая только объектная сумма уже больше прежнего наибольшего дочернего
 объекта в дереве архивов11986456576байт; старый максимум нельзя использовать
 как верхнюю оценку нового полного комплекта. Полоса — read-only investigation.
+
+
+### SDK с реальным контроллером, продолжение
+
+Локально принят ограниченный профиль:4/4, positive watch3/6/3/6,0attempts
+после отзыва20s, настоящий instance удалён. Root cause ym.a filter-replacement
+исправлен на сохранение массива/SDK push;67regressions0skips и Node18PASS,
+negative destruct/closed-page controls PASS. Independent code/converge0P1/P2/HIGH.
+PR7857 source66e705ec22f5346f6b42befffac94d18d864c36d пока ожидает checks/merge;
+это не runtime/измерение/T0 и не прирост трафика. Replay/backend/global/individual
+и всяT106 открыты. Данные рекламных/поисковых кабинетов этим проходом не обновлялись.
+Read-only Docker system df: Images211,4ГБ/reclaimable91,32ГБ, containers3,024ГБ,
+volumes129,5ГБ/reclaimable4,919ГБ, buildcache65,51ГБ/reclaimable18,74ГБ.
+Reclaimable не означает разрешённое/безопасное удаление; ничего не очищено.
