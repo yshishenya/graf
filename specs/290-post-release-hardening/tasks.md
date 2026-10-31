@@ -22,7 +22,7 @@ Implementation ready не означает hosted/production/closeout PASS.
 Независимая приёмка: учёт100% stash, решение по каждой части, рабочие копии сохранены.
 Эта фаза не блокирует первый CI-срез, но блокирует закрытие всей #6501.
 
-- [ ] T006 [US2] Провести закрытую read-only инвентаризацию base/index/untracked stash, отдельно сверить пять файлов чужого владельца; в `specs/290-post-release-hardening/stash-disposition.md` сохранить только безопасные identity/coverage/решения, без diff и secret paths; FR005/009. (Issue #6501)
+- [X] T006 [US2] Провести закрытую read-only инвентаризацию base/index/untracked stash, отдельно сверить пять файлов чужого владельца; в `specs/290-post-release-hardening/stash-disposition.md` сохранить только безопасные identity/coverage/решения, без diff и secret paths; FR005/009. (Issue #6501)
 - [ ] T007 [US2] На основании T006 уточнить design/owned paths и независимое review в `specs/290-post-release-hardening/plan.md`; решение каждой части — transfer/retain/обоснованный отказ; не создавать параллельную ротацию и не выдумывать срок хранения; FR005/006. (Issue #6501)
 - [ ] T008 [US2] После T007 перенести только нужные части в `infra/scripts/backup-rec-stack.sh` и адресные `apps/server/tests/integration/test_deployment_backup_restore_rehearsal.py` либо доказать принятую замену/отказ; выполнить failure/concurrency/protected-copy/restore матрицу из quickstart, использовать действующее общее разрешение на проверенный commit; любое удаление сохранённой работы согласовать отдельно; FR006, SC002. (Issue #6501)
 
@@ -71,3 +71,13 @@ T006–T013 и #6501/#7646 остаются открытыми; принят т�
 ## Phase 7: Convergence — ранний отказ CI без SSH-настроек
 
 - [X] T016 [US1] Исправить ложный успешный результат отсутствующих SSH-предусловий в `.github/workflows/backup-restore-rehearsal.yml`: blocked/exit1 с прежней подсказкой и безопасным списком имён; сохранить полный успешный путь и обычные условия следующих шагов. До кода — FR012, независимый CHK014, scoped analyze и связь #6501; в существующем `tests/governance/test_governance_workflow.py` причинный RED/GREEN шести синтетических случаев реального Bash, полный workflow-профиль/actionlint, независимое ревью/converge, фрагмент F290 и три exact-SHA/base PR gates. SSH, секреты, backup/restore и production не менять/не запускать; T006–T013/F291 остаются открытыми. Владелец — агент уборки репозитория. (FR012, FR003/009–011; contradicts) (Issue #6501)
+
+
+## Принятие учёта T006 — 01.11.2026
+
+Повторное чтение подтвердило оба stash, все parents/три записи и пять файлов
+сохранённой незакоммиченной работы. Identity, digests, исторический владелец,
+метод и границы записаны в `stash-disposition.md`; независимое ревью20/20
+приняло только T006. T007/T008 и T009–T013 остаются незавершёнными; политика
+ротации, перенос, удаление и SC002 не приняты. Старые отметки T006–T013 выше
+описывают историческое состояние на дату соответствующего раздела.
