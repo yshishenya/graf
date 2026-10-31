@@ -1062,3 +1062,14 @@ T108. В обоих файлах никакого product edit или skip; ис
 Исполнить обе полные группы XCTest, затем общий XCTest/ContractValidation;
 отдельно настоящий pinned native на точном SHA. Все real Stop coverage,
 collision/gap/panel/deadline/action и Return/Escape false assertions остаются.
+
+
+### A14/T109: optional requirement вместо потерянного selector
+
+До реализации прочитать настоящий compiler nearly-matches и отказ selector
+в41222159260, затем независимый CHK008 и scoped analyze. Использовать
+стандартный async requirement WKUIDelegate; все guards и существующие шесть
+confirm cases сохраняются. Локальный focused → полный XCTest и
+ContractValidation → независимый implementation review → новый exact-SHA
+макOS native и общий validator. Прежний FAIL сохраняется, новые skip или
+подмена настоящего диалога недопустимы. T106/#7834 ждут полного PASS.

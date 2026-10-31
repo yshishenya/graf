@@ -675,3 +675,19 @@ Stop при сужении600→520 меняет и положение, и ши�
 проверяет полное покрытие Stop и его нахождение внутри окна. Фиксированный
 сдвиг центра не является продуктовым требованием. Виртуальное дерево
 перечитывается на каждой попытке; старый неизменный AX не разрешает ожидание.
+
+
+### A14/T109: регистрация WKUIDelegate confirm
+
+FR064/SC026 → T109 → T106. Уточнение после доказанного selector=false и
+compiler nearly-matches в41222159260: удалить единственный confirm alias
+и заменить callback-overload стандартным async requirement. Существующий
+requestJavaScriptConfirmation вызывается из MainActor через
+withCheckedContinuation; отмена/явное согласие разрешают continuation тем же
+сохранённым однократным callback. Все consumers alias найдены: объявление
+и один метод; остальные четыре alias не меняются. Продуктовый UI/guards,
+входные URL и жизненный цикл не переписываются. Сначала независимый review
+CHK008 и scoped analyze, затем существующие шесть confirm tests, полный
+XCTest/ContractValidation и новый pinned native, независимое code review.
+Продуктовые полномочия и данные не меняются; Constitution Check PASS
+по сохранению guards/однократности/metadata-only evidence.

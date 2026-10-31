@@ -337,3 +337,6 @@ analyze FR038/059/060/SC026 → T105/T106. Сначала проверка, за
 
 
 - [ ] T108 [US9] После независимого requirements review/analyze исправить только подготовку и наблюдение `apps/macos/Shared/Tests/DesktopNotificationProtectedConsumerTests.swift` и `EmbeddedCabinetJavaScriptConfirmTests.swift` по FR062/063: свободный исходный якорь, настоящее горизонтальное пересечение на небольшом viewport, новый AX после resize, готовый документ/закрытый sheet. Сохранить все проверки безопасности и достижимости, причинные предпосылки, focused XCTest и независимый review. T106 зависит также от T108 и нового полного pinned native. (FR062/063, SC026; Issue #7834)
+
+
+- [ ] T109 [US9] После независимого CHK008/analyze устранить доказанный WKUIDelegate optional-method mismatch по FR064: заменить только confirm callback-overload в `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift` стандартным async requirement с withCheckedContinuation, удалить неиспользуемый confirm alias; сохранить все request guards/lifecycle и6 настоящих/прямых confirm tests. Выполнить local/full/native проверки, независимое code review и converge. T106 зависит также от T109. (FR064, SC026; Issue #7834)

@@ -11,8 +11,6 @@ public typealias EmbeddedCabinetOpenPanelCompletionHandler =
     @MainActor @Sendable ([URL]?) -> Void
 public typealias EmbeddedCabinetDownloadCompletionHandler =
     @MainActor @Sendable (URL?) -> Void
-public typealias EmbeddedCabinetConfirmCompletionHandler =
-    @MainActor @Sendable (Bool) -> Void
 
 public enum EmbeddedCabinetBackNavigationDecision: Equatable, Sendable {
     case history
@@ -2103,13 +2101,14 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         public func webView(
             _ webView: WKWebView,
             runJavaScriptConfirmPanelWithMessage message: String,
-            initiatedByFrame frame: WKFrameInfo,
-            completionHandler: @escaping EmbeddedCabinetConfirmCompletionHandler
-        ) {
-            requestJavaScriptConfirmation(
-                in: webView, message: message, frameURL: frame.documentRequestURL,
-                frameIsMainFrame: frame.isMainFrame, completionHandler: completionHandler
-            )
+            initiatedByFrame frame: WKFrameInfo
+        ) async -> Bool {
+            await withCheckedContinuation { continuation in
+                requestJavaScriptConfirmation(
+                    in: webView, message: message, frameURL: frame.documentRequestURL,
+                    frameIsMainFrame: frame.isMainFrame
+                ) { continuation.resume(returning: $0) }
+            }
         }
 
         func requestJavaScriptConfirmation(

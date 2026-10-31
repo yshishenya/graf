@@ -752,3 +752,28 @@ T108 проходит независимое requirements review до измен
 проверяемый сценарий исходных предпосылок, профильные XCTest, независимое code
 review и полный pinned native. При выявленном дефекте продукта этот срез
 останавливает зависимую правку и отдельно определяет владение/требования.
+
+
+### A14/T109: настоящий метод подтверждения WebKit
+
+Run41222159260 на9b3edf7351b1421bac821db04b061a71891057c8
+воспроизвёл selector=false и отсутствие настоящего confirm. Компилятор
+сообщил nearly-matches: SDK15.2 ожидает @Sendable(Bool), текущий alias
+требует @MainActor @Sendable(Bool). Необязательный WKUIDelegate метод
+поэтому не зарегистрирован. Это продуктовый дефект объявления, T108
+не исправляется ослаблением теста.
+
+- **FR-064**: В существующем Coordinator MUST использовать объявленный
+  WKUIDelegate async метод `webView(_:runJavaScriptConfirmPanelWithMessage:initiatedByFrame:) async -> Bool`
+  вместо callback-overload с несовместимым alias. Удалить ставший неиспользуемым
+  EmbeddedCabinetConfirmCompletionHandler; внутри через стандартный
+  withCheckedContinuation передать тот же requestJavaScriptConfirmation.
+  Сохранить MainActor, все trust/lifecycle guards, однократное разрешение,
+  Return/Escape=false и явный Continue=true. Новых адаптеров, условных SDK
+  ветвей, делегатов, подмены alert или изменения времени ожидания нет.
+  Прежняя проверка настоящего selector и все1296 случаев остаются обязательными
+  на закреплённом Swift6.0.3/SDK15.2 и в локальной поддерживаемой среде.
+
+Это отдельно определённое владение и требование после product failure;
+T109 проходит requirements review/analyze до кода и implementation review
+после проверок. T106 зависит также от T109. Установка/выпуск не входят.

@@ -261,3 +261,85 @@ Run41220589209 на `dc4e97d1b6aeae5857796979d7028b54ca194e75`:
 1296 total/1287PASS/9прежнихSKIP/0FAIL,172.441s; все1296 discovery IDs
 совпали с execution без дублей. ContractValidation PASS. Новый pinned CI
 ещё обязателен; причина прежнего отказа не объявлена доказанной.
+
+
+### Четвёртый закреплённый native: причина optional confirm
+
+Run41222159260 на `9b3edf7351b1421bac821db04b061a71891057c8` завершился
+FAIL:1296 XCTest,9 прежних skip,4 failures/1 unexpected в том же confirm case.
+Новая проверка selector на строке71 дала false; document.readyState прошёл,
+window visible=true/space=true/key=false, оба loading=false.
+Все три protected consumer cases вновь PASS.
+
+Compiler warning содержит точный expected optional WKUIDelegate callback:
+`@escaping @Sendable (Bool) -> Void`, текущий тип
+`@MainActor @Sendable (Bool) -> Void` не соответствует ему. Метод только
+почти совпадает с необязательным requirement, поэтому не получает ObjC selector.
+Отсутствие настоящего confirm здесь не исправляется дальнейшим ожиданием.
+Предыдущая гипотеза JS readiness оказалась недостаточной; её локальный PASS
+не выдан за устранение причины.
+
+T108 не меняет продуктовый код: новое владение FR064/T109 определено до
+исправления. Требования используют стандартный async requirement вместо
+callback-overload и удаляют неиспользуемый confirm alias; implementation
+остановлена до независимого CHK008/analyze. T106/#7834/PR7835 открыты.
+Журнал и краткий compiler/error excerpt сохранены отдельно; новые проверки
+точного SHA/основы остаются обязательными.
+
+
+### T109: анализ до изменения кода
+
+Требования CHK008: независимый SCOPED PASS, весь checklist8/0; отчёт
+`review-confirm-requirements-20261031.md`, SHA256
+`cbe490ebe325ba2a29686e4d5f47fa36ce9a6ab07d1920e2abead7c7b21c6704`.
+Read-only analyze A14 после FR064: FR038/059/060 → T105, FR061 → T107,
+FR062/063 → T108, FR064 → T109, SC026 → T105/T107/T108/T109/T106.
+Покрытие8/8 требований,5 связанных задач, неоднозначность/дубли/непривязанные
+задачи/CRITICAL/HIGH0. FR064 явно определяет новое владение после product
+failure, не ослабляет старые guards или тесты. T109 предшествует T106;
+процесс согласован с конституцией. Состояние issue7834 обновлено до кода.
+
+
+### T109: минимальное исправление и локальная проверка
+
+Удалён только confirm alias и заменено одно объявление WKUIDelegate
+стандартным async requirement. Он вызывает прежний request через
+withCheckedContinuation; request/finish/cancel, guards, UUID и alert не меняются.
+Diff продукта:9 удалённых/8 добавленных строк, новых helpers/ветвей0.
+
+Профиль шести существующих confirm tests: **6 PASS/0 SKIP/0 FAIL,7.165s**.
+Настоящие selector, JavaScript, alert и Return/Escape сохранены без правки
+тестового файла. Исходный pinned selector=false остаётся причинным RED;
+локальный PASS другой среды не заменяет новый Swift6.0.3/SDK15.2.
+SHA256 продукта: `5c6b2f3cee584fa13765b00cfe27a17cbff2465eab615e85b373dbbd12fe96d2`.
+Полный локальный XCTest/ContractValidation ещё выполняются; T109/T106 открыты.
+
+
+Окончательный полный локальный T109: **1296 total/1287 PASS/9 прежних SKIP/
+0 FAIL,165.567s**, exit0. Все1296 discovery IDs совпали с завершёнными
+execution IDs; дублей, потерянных и лишних0. ContractValidation: PASS/exit0.
+Профиль6 случаев и полный прогон не суммируются. Product source и confirm
+test hash неизменны после профиля; новых skip нет. Process/governance/fragment/
+diff PASS. GRAF Dev, выпуск и production не запускались.
+
+
+### Итоговая сверка T109 перед новым PR CI
+
+Независимое implementation review: SCOPED PASS, P1/P2/CRITICAL/HIGH0,
+отчёт `review-confirm-implementation-20261031.md`, SHA256
+`09dfa0981c8ad1bb3bffca9e388e1729ea8b4ec9d6f4f702ff0dc9e418124695`.
+Reviewer подтвердил8/0 checklist, неизменные байты request/finish/cancel до
+конца файла, обе ветви разрешения continuation и неизменные6 tests/9 skips.
+
+Scoped converge A14 после T109:8 требований и4 решения текущего плана
+(закреплённая среда/кэши, обязательные типы SDK, подготовка двух UI-групп,
+стандартный async confirm) покрыты существующими T105/T107/T108/T109/T106.
+missing/partial/contradicts/unrequested в реализации текущего дополнения0;
+CRITICAL/HIGH0. Новых задач реализации0, tasks.md при converge не менялся.
+Внешнее исполнение и защищённый merge уже принадлежат открытой T106;
+T108/T109 также ждут закреплённого CI. Общая F211 не принимается.
+
+Следующая основа837594c9c2b61d440a64efd89970695050b768b3 содержит только
+принятый F140 test-only PR7837 относительно c9a85917307a4388d534c61bc98e036a18d1245e.
+Перед отправкой требуется сверка после синхронизации и новые exact-SHA/base
+проверки; старый governance41222159075 SUCCESS на9b3… не переносится на новый SHA.
