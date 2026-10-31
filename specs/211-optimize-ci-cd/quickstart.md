@@ -1104,3 +1104,18 @@ image20261025.353.1, прежний mirror_list. Фактический AWS ос
 До изменения runs-on требуется повторное независимое requirements review;
 локально проверить точную метку и прежние14 сценариев. Если AWS снова не
 встретится, не объявлять его формат установленным и не повторять Full.
+
+
+## T111 — сообщение отказа APT
+
+Before-code: checklist ci-apt-failure-diagnosis, analyze и issue#7849 sync.
+Сначала новый профиль должен FAIL на отсутствии JSON прежнего helper, затем
+тот же весь `tests/governance/test_governance_workflow.py` PASS с новым.
+Каждый из3 caller: прямой учебный Ubuntu URI/unknown/credentials/некорректный
+DNS/NUL/empty-port/long остаётся отказом, stdout JSON безопасен, bytes
+source/mirror/third-party неизменны, после failure только событие mirror.
+Затем bash syntax, actionlint существующих workflow, process/governance/
+fragment/diff, независимое implementation review/converge. Удалённый
+временный workflow не заменяется новой инфраструктурой. Три обязательных
+PR gates остаются, AWS критерий открыт, release-full не запускается ради
+выборки машины.

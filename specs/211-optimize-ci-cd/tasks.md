@@ -360,3 +360,6 @@ F269/T031, установленная приёмка macOS14 и будущий �
 ## Phase31 — неизвестный APT источник AWS
 
 - [ ] T110 Получить фактические безопасные метаданные неизвестного APT источника через временный `.github/workflows/ubuntu-apt-diagnostic.yml` по spec T110: review/analyze/issue sync до кода, локальный исполняемый профиль, draft PR и два ограниченных набора по8 одноразовых задач без сети/установки/секретов. Сохранить source/run/ограничения в `specs/211-optimize-ci-cd/validation-aws-apt-20261031.md`, удалить временный workflow до merge. Не менять helper, не угадывать URI и не повторять Full41239402369. (FR-057/SC-025; продолжение T099/T100) (Issue #7849)
+
+
+- [ ] T111 Сохранить отказ неизвестного APT и добавить безопасную JSON-классификацию в `infra/scripts/prepare-ci-apt.sh` по spec T111; переиспользовать T110 describe, не менять allowlist/доверие/три caller; удалить временный `.github/workflows/ubuntu-apt-diagnostic.yml`, расширить существующий исполняемый `tests/governance/test_governance_workflow.py`, пройти before-code review/analyze/issue sync, RED/GREEN, focused/static, независимый review/converge и exact PR gates. Фактический AWS остаётся T110; Full не повторяется. (FR-057/SC-025; Issue #7849)

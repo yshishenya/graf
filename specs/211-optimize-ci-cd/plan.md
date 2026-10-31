@@ -732,3 +732,24 @@ image20261025.353.1, прежний mirror_list. Фактический AWS ос
 До изменения runs-on требуется повторное независимое requirements review;
 локально проверить точную метку и прежние14 сценариев. Если AWS снова не
 встретится, не объявлять его формат установленным и не повторять Full.
+
+
+## T111 — минимальный отказ с безопасным объяснением
+
+Constitution III/VI до/после design PASS. Lane active Spec Kit slice, CI diagnostics.
+Из временного inline кода T110 перенести describe в существующий Python
+heredoc `infra/scripts/prepare-ci-apt.sh`: hashlib/json/urlsplit, DNS regex
+через уже импортированный re. В точке неподдержанного URI/disabled раздела
+сформировать bounded JSON и затем прежний SystemExit. Значение<=4096
+разбить на URI tokens, для большего вывести лишь UNKNOWN/hash. Unknown raw
+никогда не печатается. Разрешения APT, parse и список зеркал не меняются.
+Без нового модуля/настройки/зависимости/caller. Удалить временный YAML.
+Расширить существующий параметризованный shell harness resource preparation
+с отказами на известной/неизвестной/credential/control/длинной строке; JSON
+разбирать из stdout, проверять отсутствие опасного значения и отсутствие
+побочных действий. Все прежние случаи сохраняются. Фактический AWS остаётся
+отдельным открытым критерием T110; новое сообщение будет получено штатным
+будущим caller, повторять Full ради диагностики нельзя. Before-code checklist
+`checklists/ci-apt-failure-diagnosis.md`, analyze/issue sync, RED→GREEN,
+focused/actionlint/bash/process/governance/fragment/diff, независимое review/
+converge, коммит/PR exact gates. Успешная локальная/PR приёмка не равна Full.

@@ -7,7 +7,30 @@ if [[ "${GITHUB_ACTIONS:-}" != true || "${RUNNER_OS:-}" != Linux ]]; then
 fi
 sudo python3 - <<'PY'
 from pathlib import Path
+from urllib.parse import urlsplit
+import hashlib
+import json
 import re
+
+def describe(uri):
+    if uri == "mirror+file:/etc/apt/apt-mirrors.txt":
+        return {"kind": "mirror_list"}
+    try:
+        value = urlsplit(uri)
+        host = value.hostname or ""
+        if (value.scheme in {"http", "https"}
+                and len(host) <= 253
+                and re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*ubuntu\.com", host)
+                and all(32 < ord(char) < 127 for char in uri)
+                and value.netloc.lower() == host
+                and value.path in {"/ubuntu", "/ubuntu/"}
+                and value.username is None and value.password is None
+                and value.port is None and not value.query and not value.fragment):
+            return {"kind": "ubuntu_uri", "scheme": value.scheme,
+                    "host": host, "path": value.path}
+    except ValueError:
+        pass
+    return {"kind": "UNKNOWN", "sha256": hashlib.sha256(uri.encode()).hexdigest()}
 
 source = Path('/etc/apt/sources.list.d/ubuntu.sources')
 mirror = Path('/etc/apt/apt-mirrors.txt')
@@ -29,6 +52,10 @@ for section in sections:
         continue
     if (fields.get('uris') != 'mirror+file:/etc/apt/apt-mirrors.txt'
             or fields.get('enabled', 'yes') != 'yes'):
+        uri = fields.get('uris', '')
+        descriptions = ([describe(value) for value in uri.split()] if len(uri) <= 4096
+                        else [{"kind": "UNKNOWN", "sha256": hashlib.sha256(uri.encode()).hexdigest()}])
+        print(json.dumps({"uris": descriptions, "enabled": fields.get('enabled', 'yes') == 'yes'}), flush=True)
         raise SystemExit('CI APT preparation: unsupported Ubuntu mirror source')
 if not any(line.startswith('URIs:') for line in source.read_text().splitlines()):
     raise SystemExit('CI APT preparation: missing Ubuntu mirror source')

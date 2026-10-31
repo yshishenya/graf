@@ -83,3 +83,38 @@ ubuntu-latest; новый review обязателен до изменения YA
 P1/P2/HIGH0; YAML изменён только runs-on, safety code не менялся.
 Точная метка и прежние14 сценариев PASS, actionlint/process/diff PASS.
 Синхронизация issue#7849 сохраняет открытый AWS критерий и предел16 jobs.
+
+## Второй hosted набор и срез T111
+
+Run41241032858 SUCCESS, source7040d2502cd39dbc7c586d1fa69e683ab3bb4a57:
+8/8 Azure/image20261025.353.1, идентичные hashes/URIs первого набора.
+Всего16/16 Azure. Hash mirror-list совпадает с известной144-byte константой
+T099, но фактический AWS URI всё ещё неизвестен. T110 остаётся открытой;
+дальнейшие выборки/Full ради выбора облака не планируются.
+
+T111 pre-code analyze: пять групп требований spec→plan→T111→quickstart
+покрыты5/5: сохранение отказа/неизвестности; safe bounded JSON; trust/bytes/
+callers;3-caller исполняемый профиль; удаление временного workflow/gates.
+CRITICAL0/HIGH0/MEDIUM0, uncovered requirements0/unmapped tasks0.
+Нет новой продуктовой политики или APT источника. Независимый checklist и
+issue sync до кода ещё обязательны.
+
+
+## T111 — локальная реализация и проверки 01.11.2026
+
+До изменения helper новый профиль причинно завершился FAIL:30 failed,243
+deselected — отсутствовал JSON перед прежним отказом. После переноса describe
+полный существующий профиль: **273 passed in87.33s**. Три настоящих caller
+по-прежнему отказывают на прежних неподдержанных входах; проверены безопасный
+JSON, неизменные source/mirror/third-party bytes и отсутствие действий после
+отказа. Сохранены RED/GREEN журналы в локальном .dev/ci-apt-diagnosis.
+Bash syntax, actionlint двух существующих workflow, Ruff и diff-check PASS.
+Временный ubuntu-apt-diagnostic.yml удалён; новых выборок не будет. Это
+приёмка локального сообщения отказа, не исправление AWS или успешный Full.
+T110/#7849 остаются открытыми; T111 ждёт независимого review/converge и
+точных PR checks. Source до коммита7040d2502cd39dbc7c586d1fa69e683ab3bb4a57.
+
+Независимое implementation review/converge PASS:5/0, P1/P2/HIGH0.
+Принятые helper/harness hashes совпали; отчёт review-ci-apt-failure-diagnosis-20261101.md
+прочитан. Process, governance, fragment и diff-check PASS. Коммит и PR
+проверки следуют отдельно; T111 до их принятия остаётся открытой.
