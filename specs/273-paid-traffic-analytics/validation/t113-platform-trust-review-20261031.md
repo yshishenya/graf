@@ -976,3 +976,151 @@ unknown. Нет разрешения обходить их через Docker/с�
 spec/plan/tasks/checkboxes, Git/GitHub и сервер не менялись. Итоговое дополнение
 перечитано; tests/probes/установка/Dev/публикации этим reviewer:0. Полный J1,
 ресурсы/T112/T113/T0/выпуск/трафик/продажи данным разбором не принимаются.
+
+## Дополнение 01.11.2026: durable maintenance pending и смерть родителя
+
+Новый узкий read-only design review по прямому запросу родителя. Проверяется
+кандидат из сообщения: до vendor body trusted bootstrap под deployment и
+filesystem EX сохраняет durable pending maintenance attempt и revoked; ни
+vendor exit0, ни смерть parent pending не снимают; все ready writers отказывают
+при pending; снять его может только полный trusted verifier после доказанного
+settlement именно этой попытки. Это предложение, ещё не изменение договора.
+
+Перечитаны целиком применимые разделы activation-milestones о local readiness,
+initial/T0 и filesystem/DB fence, operations о local_only/product drain, durable
+attempts/attempt v2/recovery/ordinary verify в full-operator-design, а также весь
+platform-invalidation-design. Конституция и оба contracts имеют прежние SHA256
+7616e3d7… / 9898007a… / 8340e077…; действует ранее разрешённое исключение F273
+по повторному чтению. Source-observation report после уточнения sudo имеет
+SHA256 `a62c388b9da623dc20bad4008073cf16b2456c92d3cf00d64b66d524fa2ab15b`.
+Нового чтения vendor body или privileged/runtime probes нет.
+
+**SCOPED PARENT-DEATH SAFETY PRINCIPLE PASS.** Долговечный pending может
+заменить непрерывно живого parent как запрет повторного ready после его смерти.
+Это принятие принципа с перечисленными обязательными условиями; точная модель
+состояний ещё не задана и не получает implementation-ready PASS. Полные
+settlement/recovery/liveness, L6/J1/P1a/P1b остаются DESIGN HOLD.
+
+### Что именно закрывается и при каких условиях
+
+1. Vendor body/ранний effect разрешён только после подтверждённых durable
+   pending и revoke под прежним deployment→filesystem EX. Ошибка/unknown
+   atomic replace, fsync файла/каталога или readback запрещает body. Crash между
+   двумя записями не разрешает продолжить тело по одной уцелевшей записи.
+   Admission после body защищает durable revoked; перед его отпусканием EX
+   обычные SH закончены, прежний предел crash SQL/I1 сохраняется.
+2. Каждый initial/backup/verify/resume/recovery/CD writer ready под тем же EX
+   проверяет актуальный pending. Pending/in_progress/failed-with-unknown-
+   settlement, malformed/missing ожидаемая запись/неизвестная версия означают
+   HOLD. Нет раннего ready writer, TTL, снятия по exit0, свободному daily lock,
+   отсутствию PID, перезагрузке, старому completed backup или одной свежей
+   проверке конфигурации. Смерть parent освобождает locks, но не этот запрет.
+3. Обычный backup/новый maintenance run/failed cleanup не может перезаписать,
+   потерять или объявить terminal unresolved pending прежней попытки. Нужны
+   неизменные run identity/binding и защита от stale владельца/ABA: завершение
+   относится к exact текущей попытке/поколению. Все concurrent writers и
+   consumers переходят на один договор вместе; root-only trusted state вне
+   восстанавливаемой DB сохраняет прежние inode/path/ownership/parser/fsync
+   защиты. Удалённый или восстановленный старый state не означает отсутствие
+   maintenance. Повторный T0 не разрешён.
+4. Полный verifier под deployment, полным native L1 и filesystem EX сначала
+   доказывает settlement exact попытки и неизменность защищённого состояния,
+   затем проверяет current generation, DB outcome и все прежние proofs той же
+   initial. Снятие pending и готовность имеют конечный crash-safe commit point:
+   crash до него оставляет запрет; между проверкой/снятием/готовностью нет
+   нового неучтённого mutator. Новая внешняя операция должна войти через свой
+   защищённый entry и durable pending. Модель не предоставляет root API.
+
+При этих условиях даже осиротевший vendor child, выполнивший опасный эффект
+после освобождения daily flock, не встречает заново выставленный ready.
+**Это safety закрытого admission, а не утверждение, что child остановлен,
+обновление успешно, система восстановлена или все эффекты уже закончились.**
+Сам daily flock и прежние native locks нужны для сериализации штатных входов
+и verifier; pending не заменяет их и не разрешает произвольный root bypass.
+
+### Переиспользование attempt и конечное восстановление
+
+Можно переиспользовать существующий доверенный writer/parser/atomic fsync и
+подход durable attempts, не добавляя supervisor/service. Но текущий
+backup-attempt v2 является доказательством **копии**: completed связан с exact
+backup manifest, destination и scheduled_claim. Записать туда maintenance как
+обычную completed backup нельзя. Нужен один минимальный явно типизированный
+вариант состояния/переходов с сохранением backup receipts, scheduled claim,
+initial/T0 и unresolved maintenance; конкретный формат ещё подлежит review.
+Нельзя незаметно расширять allow_in_progress или принимать supplied pass JSON.
+Recovery failed backup также не является maintenance settlement по аналогии.
+
+Минимальный конечный recovery proof для возможности снова открыть аналитику:
+
+1. Под прежним порядком locks зафиксировать exact pending run и фактические
+   unit invocation/boot identity либо эквивалентное достоверное соответствие;
+   исключить новый unguarded вход в эту область на время восстановления.
+   PID без identity и сохранённое имя unit не доказывают принадлежность.
+2. Для установленной конечной области остановить/дождаться actual unit и
+   доказать drain его полного cgroup/потомков/дочерних units в принятой policy.
+   Можно переиспользовать существующий trusted stop/drain, если его фактическая
+   реализация покрывает именно эту область. `systemctl stop`/inactive, исчезнувший
+   parent или пустой снимок cgroup/list-jobs по отдельности недостаточны.
+   Timeout, uninterruptible child или неизвестный escape сохраняют pending/HOLD;
+   короткий preflight SIGKILL/reap не становится recovery full operation.
+3. Отдельно закрыть конечный список эффектов, ушедших из cgroup: уже принятые
+   manager/D-Bus jobs, restart/needrestart, shutdown/reboot, отдельные transient
+   units/daemon delegates и иные фактически настроенные поздние executors.
+   Для каждого достаточно одного из трёх доказанных исходов: completed с
+   фактическим результатом; надёжно cancelled/drained с подтверждением, что
+   позднее выполнение невозможно; harmless либо собственный защищённый entry,
+   не позволяющий эффекту после нового ready. Простой `queue empty now`, delay
+   или предположение «всё было в unit» не подходят. Unknown сохраняет HOLD.
+4. Под полным L1 заново проверить установленную generation/effective config,
+   package/DB consistency и прежние backup/restore/lifecycle/access/resource
+   proofs. Если затронуто SQL/schema/data, применяются DB EX(273,3) и полный
+   product drain из I1, а не только filesystem EX. Пропущенный post-T0 interval
+   не чинится новой датой T0. Лишь accepted settlement/proofs разрешают terminal
+   maintenance transition и новый ready с безопасным порядком fsync.
+
+Это конечный proof для конкретной принятой platform policy, не обещание
+восстановить любую неизвестную систему. Если фактический delegate невозможно
+конечно остановить/классифицировать, liveness остаётся HOLD при сохранённой
+safety. Security timers/штатные retries не отключаются ради аналитики; новый
+retry не стирает unresolved pending. До кода точная модель должна объяснить
+его admission/наследование pending и видимость отказа без блокирования обновлений
+навсегда и без forced ready. Существующий журнал/оператор могут быть достаточны,
+новый сервис не требуется; путь доставки ошибки ещё надо подтвердить.
+
+### Минимальные фактические наблюдения перед кодом
+
+Нужен один конечный привилегированный metadata-only inventory для принятой
+установки, а не повторный аудит ОС. Необходимы:
+
+- Полные действующие scheduler roots/units/timers/cron и известный UID1003,
+  которые могут менять выбранную generation; их effective unit/drop-ins,
+  ExecStart/argv/env/config и фактические caller paths. Закрытый root считать
+  пустым нельзя. Должны быть исключены незащищённые автоматические token/direct
+  входы либо явно защищены/признаны harmless.
+- Фактические unit/cgroup lifecycle/kill/delegate/escape границы и доступный
+  доверенному recovery способ доказать принадлежность/завершение/stop/drain.
+  Для конкретного run его invocation/descendant/settlement proof будет получен
+  в репетиции/исполнении; здесь требуется реализуемый путь такого доказательства,
+  а не вымышленная уже произошедшая авария. Текущий KillMode=process сам по себе
+  этот proof не даёт.
+- Effective APT/dpkg hooks/options/paths и конечные deferred delegates, включая
+  действительно активные reboot/needrestart/manager действия; owner/permissions/
+  inode native locks и trusted roots; точные package/source bindings применимых
+  файлов. Неподтверждённый python3-apt provenance не становится PASS, но whole-entry
+  защита не требует сначала доказать достижимость каждой внутренней AutoFix ветви.
+- Реальный путь отказа в существующий журнал/наблюдение и штатного retry даже
+  при daily exit0/suppressed output. Без этого security-update recovery не принят.
+
+Дальнейший повторный разбор уже закреплённых vendor source функций сейчас
+не нужен. Дополнительный source trace оправдан только конкретным найденным
+effective entry/delegate/изменившимся hash, который нельзя классифицировать
+по уже принятой ограниченной vendor trust boundary. Нельзя ради прекращения
+source-чтения объявить непрочитанный privileged inventory полным. `sudo -n true`
+и новый `sudo -n -l` по сообщению родителя требуют пароль; это не доказательство
+отсутствия всех узких NOPASSWD правил. Пригодный путь privileged inventory пока
+не подтверждён; Mac по сообщению родителя заблокирован; runtime не менялся.
+
+Изменён только этот собственный отчёт; старые результаты сохранены. Итоговое
+дополнение перечитано. Checklist marks/117 пунктов, код/spec/plan/tasks,
+Git/GitHub, сервер/SSH/sudo/Docker/Dev не менялись; tests/probes/установка:0.
+Полный J1/L6/recovery/runtime/выпуск/T0/трафик/продажи данным review не принимаются.
