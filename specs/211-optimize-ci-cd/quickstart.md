@@ -1052,3 +1052,13 @@ A14/T107: первый hosted native run41215353665 воспроизвёл compi
 локальную компиляцию/существующие XCTest и новые hosted build/XCTest/
 ContractValidation на закреплённой среде. Другие code bodies не меняются;
 новые tests/guards поверх существующей compilation не нужны.
+
+
+### A14/T108
+
+До изменения тестов: independent requirements review и analyze FR062/063 →
+T108. В обоих файлах никакого product edit или skip; исходные отказавшие
+предпосылки проверяются на ограниченном настоящем viewport/готовности sheet.
+Исполнить обе полные группы XCTest, затем общий XCTest/ContractValidation;
+отдельно настоящий pinned native на точном SHA. Все real Stop coverage,
+collision/gap/panel/deadline/action и Return/Escape false assertions остаются.

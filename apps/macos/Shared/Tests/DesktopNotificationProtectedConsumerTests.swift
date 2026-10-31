@@ -21,12 +21,15 @@ final class DesktopNotificationProtectedConsumerTests: XCTestCase {
     private func assertShellStopIsProtected(inTitlebar: Bool, expanded: Bool = false) async throws {
         try F277CardTestSupport.requireScreen()
         let screen = try XCTUnwrap(NSScreen.main)
+        let visibleFrame = NSRect(origin: screen.visibleFrame.origin,
+            size: NSSize(width: min(1024, screen.visibleFrame.width),
+                         height: min(743, screen.visibleFrame.height)))
         // Only inject the owner. The real consumers must install their own markers.
         // The application singleton also retires OS notifications, which requires
         // an application bundle and is not the subject of this XCTest fixture.
         let fixture = F277CardFixture()
-        fixture.screens = [.init(id: 1, frame: screen.frame, visibleFrame: screen.visibleFrame, isMain: true)]
-        fixture.pointer = NSPoint(x: screen.visibleFrame.midX, y: screen.visibleFrame.midY)
+        fixture.screens = [.init(id: 1, frame: screen.frame, visibleFrame: visibleFrame, isMain: true)]
+        fixture.pointer = NSPoint(x: visibleFrame.midX, y: visibleFrame.midY)
         let card = fixture.presenter()
         var stopActions = 0
         let session = CaptureSession(
@@ -56,10 +59,11 @@ final class DesktopNotificationProtectedConsumerTests: XCTestCase {
         let host = NSHostingView(rootView: AnyView(shell.environment(\.desktopNotificationCard, card)
             .environment(\.accessibilityEnabled, true)))
         let window = NSWindow(
-            contentRect: NSRect(x: screen.visibleFrame.minX + 20,
-                                y: screen.visibleFrame.minY + 20,
-                                width: min(960, screen.visibleFrame.width - 40),
-                                height: min(600, screen.visibleFrame.height - 100)),
+            contentRect: NSRect(x: visibleFrame.minX,
+                                y: visibleFrame.minY + 20,
+                                width: min(960, visibleFrame.width - DesktopNotificationCardPresenter.cardWidth
+                                    - 2 * DesktopNotificationCardPresenter.horizontalMargin - 16),
+                                height: min(600, visibleFrame.height - 100)),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
@@ -83,6 +87,16 @@ final class DesktopNotificationProtectedConsumerTests: XCTestCase {
 
         // Await real layout/accessibility publication, not a synthetic notification.
         // The bounded wait only prepares the fixture; missing AX controls fail below.
+        func currentControlNodes() -> [NSObject] {
+            if inTitlebar {
+                let roots = window.titlebarAccessoryViewControllers.map { $0.view as NSObject }
+                let hud = accessibilityNodes(roots).filter {
+                    identifier($0) == "systemAudio.titlebarRecordingHUD"
+                }
+                return accessibilityNodes(hud)
+            }
+            return accessibilityNodes([host] + scrollContentElements(in: host))
+        }
         var matches: [NSObject] = []
         var controlNodes: [NSObject] = []
         var accessibleHosts = Set<ObjectIdentifier>()
@@ -96,22 +110,10 @@ final class DesktopNotificationProtectedConsumerTests: XCTestCase {
                 accessory.view.layoutSubtreeIfNeeded()
             }
             window.displayIfNeeded()
-            if inTitlebar {
-                let roots = window.titlebarAccessoryViewControllers.map { $0.view as NSObject }
-                let hud = accessibilityNodes(roots).filter {
-                    identifier($0) == "systemAudio.titlebarRecordingHUD"
-                }
-                controlNodes = accessibilityNodes(hud)
-                matches = controlNodes.filter {
-                    role($0) == NSAccessibility.Role.button.rawValue
-                        && label($0) == SystemAudioStatusLabels.stopButtonAccessibilityLabel
-                }
-            } else {
-                controlNodes = accessibilityNodes([host] + scrollContentElements(in: host))
-                matches = controlNodes.filter {
-                    label($0) == SystemAudioStatusLabels.stopButtonAccessibilityLabel
-                        && role($0) == NSAccessibility.Role.button.rawValue
-                }
+            controlNodes = currentControlNodes()
+            matches = controlNodes.filter {
+                role($0) == NSAccessibility.Role.button.rawValue
+                    && label($0) == SystemAudioStatusLabels.stopButtonAccessibilityLabel
             }
             if matches.count == 1, let frame = frame(matches[0]), !frame.isEmpty { break }
             try await Task.sleep(nanoseconds: 10_000_000)
@@ -119,7 +121,7 @@ final class DesktopNotificationProtectedConsumerTests: XCTestCase {
         XCTAssertTrue(window.isVisible, "Fixture window must actually be visible")
         XCTAssertTrue(window.isOnActiveSpace, "Fixture must be on the active Space")
         XCTAssertEqual(matches.count, 1, "Expected one actual SwiftUI Stop AX element")
-        let stop = try XCTUnwrap(matches.first, "Missing Stop is a fixture/AX failure, not protection RED")
+        var stop = try XCTUnwrap(matches.first, "Missing Stop is a fixture/AX failure, not protection RED")
         var stopFrame = try XCTUnwrap(frame(stop), "Actual Stop must expose its screen frame")
         XCTAssertFalse(stopFrame.isEmpty)
         XCTAssertTrue([stopFrame.minX, stopFrame.minY, stopFrame.width, stopFrame.height].allSatisfy { $0.isFinite })
@@ -132,11 +134,21 @@ final class DesktopNotificationProtectedConsumerTests: XCTestCase {
             var resized = window.frame
             resized.size.width -= 80
             window.setFrame(resized, display: true)
+            let oldStopFrame = stopFrame
             let followedWindow = try await F277CardTestSupport.awaitAppKitState {
-                abs(accessory.view.bounds.width - (oldWidth - 80)) < 1
+                controlNodes = currentControlNodes()
+                matches = controlNodes.filter {
+                    self.role($0) == NSAccessibility.Role.button.rawValue
+                        && self.label($0) == SystemAudioStatusLabels.stopButtonAccessibilityLabel
+                }
+                guard matches.count == 1, let currentFrame = self.frame(matches[0]),
+                      !currentFrame.isEmpty else { return false }
+                return abs(accessory.view.bounds.width - (oldWidth - 80)) < 1
                     && abs(accessory.view.bounds.height - DesktopMeetingShellChrome.recordingStripHeight) < 0.5
+                    && currentFrame != oldStopFrame
             }
-            XCTAssertTrue(followedWindow, "Titlebar must preserve its height while following window width")
+            XCTAssertTrue(followedWindow, "Titlebar must preserve its height while following window width: oldWidth=\(oldWidth), newBounds=\(accessory.view.bounds), oldStop=\(oldStopFrame), currentStop=\(String(describing: matches.first.flatMap { frame($0) })), window=\(window.frame)")
+            stop = try XCTUnwrap(matches.first)
             stopFrame = try XCTUnwrap(frame(stop))
             XCTAssertTrue(window.frame.contains(stopFrame))
         }
@@ -178,14 +190,16 @@ final class DesktopNotificationProtectedConsumerTests: XCTestCase {
         // Start with a real card, then move the actual Stop into its old frame.
         // No supplied obstacle rectangles: only production consumer registrations.
         let notice = DesktopNotificationCardContent.problem(title: "Проверка размещения",
-            message: Array(repeating: "Синтетическая строка проверки", count: 12).joined(separator: "\n"),
+            message: Array(repeating: "Синтетическая строка проверки", count: 40).joined(separator: "\n"),
             actionTitle: "Открыть", sessionID: "synthetic")
-        XCTAssertTrue(card.present(notice, onAction: { _ in }))
+        XCTAssertTrue(card.present(notice, dismissAfter: fixture.now.addingTimeInterval(20), onAction: { _ in }))
         let panel = try XCTUnwrap(card.window)
         let originalPanelFrame = panel.frame
+        XCTAssertEqual(originalPanelFrame.maxY, visibleFrame.maxY - 8, accuracy: 1,
+                       "Fixture must start at an unobstructed top-right anchor: regions=\(card.protectedFrames)")
         let deadline = card.deadline
         window.setFrameOrigin(NSPoint(x: window.frame.minX + originalPanelFrame.midX - stopFrame.midX,
-            y: window.frame.minY + originalPanelFrame.midY - stopFrame.midY))
+            y: window.frame.minY))
         host.layoutSubtreeIfNeeded()
         for accessory in window.titlebarAccessoryViewControllers { accessory.view.layoutSubtreeIfNeeded() }
         let avoided = try await F277CardTestSupport.awaitAppKitState {
@@ -195,6 +209,7 @@ final class DesktopNotificationProtectedConsumerTests: XCTestCase {
         XCTAssertTrue(avoided, "Moving a real Stop into the notification must trigger relocation")
         let movedStop = try XCTUnwrap(frame(stop))
         XCTAssertTrue(originalPanelFrame.intersects(movedStop), "Fixture must arrange a genuine collision: panel=\(originalPanelFrame), stop=\(movedStop), regions=\(card.protectedFrames), window=\(window.frame)")
+        XCTAssertTrue(visibleFrame.contains(movedStop), "Collision must keep the real Stop visible")
         XCTAssertFalse(panel.frame.intersects(movedStop))
         for protected in card.protectedFrames where panel.frame.maxX > protected.minX && panel.frame.minX < protected.maxX {
             XCTAssertLessThanOrEqual(panel.frame.maxY, protected.minY - 8)

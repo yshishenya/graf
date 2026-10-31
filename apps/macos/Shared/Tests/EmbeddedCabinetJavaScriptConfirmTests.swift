@@ -59,7 +59,7 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
         await fulfillment(of: [listening], timeout: 5)
         let port = try XCTUnwrap(listener.port)
         let localOrigin = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port.rawValue)"))
-        let (view, window, coordinator) = makeCabinet(realDocument: true, baseURL: localOrigin)
+        let (view, window, coordinator, navigation) = makeCabinet(realDocument: true, baseURL: localOrigin)
         defer {
             coordinator.detachNavigationController(from: view)
             view.navigationDelegate = nil
@@ -70,12 +70,16 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
         view.uiDelegate = coordinator
         let documentURL = localOrigin.appendingPathComponent("desktop/settings/account")
         view.load(URLRequest(url: documentURL))
-        for _ in 0..<100 {
-            if !view.isLoading && view.url == documentURL { break }
-            try await Task.sleep(for: .milliseconds(30))
-        }
-        XCTAssertEqual(view.url, documentURL)
         for key in ["\r", "\u{1b}"] {
+            for _ in 0..<100 {
+                if !navigation.isLoading && !view.isLoading && view.url == documentURL
+                    && coordinator.pendingConfirmation == nil && window.attachedSheet == nil { break }
+                try await Task.sleep(for: .milliseconds(30))
+            }
+            let ready = !navigation.isLoading && !view.isLoading && view.url == documentURL
+                && coordinator.pendingConfirmation == nil && window.attachedSheet == nil
+            XCTAssertTrue(ready, "Document/sheet must be ready before key=\(key.debugDescription): navigation=\(navigation.isLoading), webView=\(view.isLoading), sheet=\(String(describing: window.attachedSheet))")
+            guard ready else { return }
             let replied = expectation(description: "real JavaScript completes after cancellation")
             view.evaluateJavaScript("window.protectedAction = false; if (confirm('Synthetic action')) window.protectedAction = true; window.protectedAction") { result, error in
                 XCTAssertNil(error)
@@ -83,11 +87,15 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
                 replied.fulfill()
             }
             for _ in 0..<100 {
-                if coordinator.pendingConfirmation != nil { break }
+                if coordinator.pendingConfirmation?.alert.window.isVisible == true
+                    && window.attachedSheet === coordinator.pendingConfirmation?.alert.window { break }
                 try await Task.sleep(for: .milliseconds(30))
             }
-            let alert = try XCTUnwrap(coordinator.pendingConfirmation?.alert)
-            try await Task.sleep(for: .milliseconds(400))
+            let presented = coordinator.pendingConfirmation?.alert.window.isVisible == true
+                && window.attachedSheet === coordinator.pendingConfirmation?.alert.window
+            XCTAssertTrue(presented, "Real confirm must appear for key=\(key.debugDescription)")
+            let alert = try XCTUnwrap(coordinator.pendingConfirmation?.alert,
+                                      "Missing real confirm for key=\(key.debugDescription)")
             let event = try XCTUnwrap(NSEvent.keyEvent(
                 with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
                 windowNumber: alert.window.windowNumber, context: nil,
@@ -105,7 +113,7 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
     }
 
     func testNativeButtonsCancelByDefaultAndContinueExplicitly() async throws {
-        let (view, window, coordinator) = makeCabinet()
+        let (view, window, coordinator, _) = makeCabinet()
         defer { coordinator.detachNavigationController(from: view); window.close() }
         for (index, expected) in [(0, false), (1, true)] {
             let replied = expectation(description: "native button reply")
@@ -124,7 +132,7 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
     }
 
     func testDuplicateAndLateCompletionCannotResolveNewRequest() async throws {
-        let (view, window, coordinator) = makeCabinet()
+        let (view, window, coordinator, _) = makeCabinet()
         defer { coordinator.detachNavigationController(from: view); window.close() }
         var replies: [Bool] = []
         request(coordinator, view: view) { replies.append($0) }
@@ -147,7 +155,7 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
     }
 
     func testUnavailableWindowsAndSubframesCancel() {
-        let (view, window, coordinator) = makeCabinet()
+        let (view, window, coordinator, _) = makeCabinet()
         defer { coordinator.detachNavigationController(from: view); window.close() }
         var replies: [Bool] = []
         coordinator.requestJavaScriptConfirmation(
@@ -167,7 +175,7 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
 
     func testLifecycleCancelsExactlyOnceAndProcessExitRejectsOldDocument() throws {
         for reason in ["navigation", "detach", "close", "process"] {
-            let (view, window, coordinator) = makeCabinet()
+            let (view, window, coordinator, _) = makeCabinet()
             var replies: [Bool] = []
             request(coordinator, view: view) { replies.append($0) }
             let id = try XCTUnwrap(coordinator.pendingConfirmation?.id)
@@ -188,7 +196,7 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
         }
     }
 
-    private func makeCabinet(realDocument: Bool = false, baseURL: URL? = nil) -> (WKWebView, NSWindow, EmbeddedCabinetWebView.Coordinator) {
+    private func makeCabinet(realDocument: Bool = false, baseURL: URL? = nil) -> (WKWebView, NSWindow, EmbeddedCabinetWebView.Coordinator, EmbeddedCabinetNavigationController) {
         _ = NSApplication.shared
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
@@ -219,7 +227,7 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
             navigationController: navigation
         )
         if !realDocument { coordinator.webView(view, didFinish: nil) }
-        return (view, window, coordinator)
+        return (view, window, coordinator, navigation)
     }
 
     private func request(_ coordinator: EmbeddedCabinetWebView.Coordinator, view: WKWebView,
