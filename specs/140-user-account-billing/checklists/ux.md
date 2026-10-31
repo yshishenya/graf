@@ -8,7 +8,7 @@
 - [x] CHK006 Desktop browser-only boundary понятна и не ломает Record/Stop. [FR-012, FR-026]
 - [x] CHK007 Keyboard, focus, labels, live status, target size и color-independent state заданы. [FR-028, FR-082–FR-084]
 - [x] CHK008 Mobile/compact/200%/long-RU/reduced-motion/no-JS coverage задан. [FR-085]
-- [ ] CHK009 GRAF clean-room/brand-distance и theme/localization требования явны. [FR-014, FR-081] Проверка 2026-10-30: X7; см. [отчёт T075](../t075-requirements-review-20261030.md).
+- [x] CHK009 Требования к теме и локализации явны; точное воспроизведение наблюдаемых Krisp UX/UI/IA допускается при независимом коде, подтверждённых правах на материалы и правдивых текстах GRAF. Отличие от референса не требуется. [FR-014, FR-081, Конституция §VII] Проверка требований 2026-10-30: X7 согласовано на уровне документов; см. [отчёт](../review-reference-requirements-20261030.md). Реализация и ручная приёмка этим пунктом не подтверждаются.
 - [x] CHK010 Usability outcome измеряет findability и cancel path. [SC-002, SC-005, SC-010]
 
 Результат: PASS — экранный контракт покрывает каждое меню, действие и критическое состояние.

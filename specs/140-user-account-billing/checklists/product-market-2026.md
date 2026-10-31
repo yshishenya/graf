@@ -12,7 +12,7 @@
 - [ ] CHK001 Определён ли один первичный self-service сегмент для launch с его job-to-be-done, частотой встреч, willingness-to-pay и причиной выбрать GRAF, а не только общее «самостоятельный пользователь»? [Gap, Spec §Scope Summary, §Actors And Authority]
 - [x] CHK002 Зафиксирована ли проверяемая ценностная иерархия `system-audio-first capture → контроль/приватность → transcript/notes → predictable billing`, которая формулирует проверяемую гипотезу причин выбора GRAF при более щедрых storage/free предложениях части конкурентов, с явным разделением гипотезы и факта? [Hypothesis, Research §R11, product-market.md §JTBD]
 - [x] CHK003 Явно ли отделены personal self-service launch и team/enterprise sales-assisted future без ложных seat/admin обещаний? [Scope, Spec §Product Decisions, §Out Of Scope]
-- [ ] CHK004 Обосновано ли clean-room использование Krisp/Otter/Notta/Fireflies как pattern evidence, а не как источник копируемой IA, copy или trade dress? [Consistency, Research §R6–R7, Spec §FR-081] Проверка 2026-10-30: X7; см. [отчёт T075](../t075-requirements-review-20261030.md).
+- [x] CHK004 Различены ли сравнительное исследование Otter/Notta/Fireflies/Granola и разрешённое точное воспроизведение наблюдаемых Krisp UX/UI/IA при независимом коде, подтверждённых правах на материалы и правдивых текстах GRAF, без расширения разрешения на другие продукты? [Consistency, Research §R6–R7, Spec §FR-081, Конституция §VII] Проверка требований 2026-10-30: X7 согласовано на уровне документов; см. [отчёт](../review-reference-requirements-20261030.md). Реализация и ручная приёмка этим пунктом не подтверждаются.
 
 ## Packaging, Price And Value Metric
 
