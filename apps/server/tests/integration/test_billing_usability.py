@@ -7,7 +7,8 @@ def test_public_landing_is_tracked_as_a_separate_manual_gate() -> None:
     review = (ROOT / "docs/evidence/140-user-account-billing/landing-review.md").read_text(encoding="utf-8")
     assert "не выполнено" in review or "partial manual pass" in review
     assert "200%" in review
-    assert "clean-room" in review
+    assert "код независимый" in review
+    assert "права на сторонние материалы подтверждены" in review
 
 
 def test_billing_ia_contract_names_recoverable_states() -> None:
