@@ -30,6 +30,45 @@ def test_governance_workflow_contract() -> None:
     assert validator.validate(ROOT / ".github/workflows/governance-fast.yml") == []
 
 
+@pytest.mark.parametrize("missing", [
+    "all", "PROD_SSH_HOST", "PROD_SSH_USER", "PROD_SSH_KEY",
+    "PROD_SSH_KNOWN_HOSTS", None,
+])
+def test_restore_workflow_stops_without_required_access(tmp_path: Path, missing: str | None) -> None:
+    import yaml
+
+    workflow = yaml.load(
+        (ROOT / ".github/workflows/backup-restore-rehearsal.yml").read_text(),
+        Loader=yaml.BaseLoader,
+    )
+    steps = workflow["jobs"]["rehearsal"]["steps"]
+    index = next(i for i, step in enumerate(steps) if step.get("name") == "Require production host access")
+    for step in steps[index + 1:]:
+        assert step.get("if", "success()") == "success()"
+    names = ("PROD_SSH_HOST", "PROD_SSH_USER", "PROD_SSH_KEY", "PROD_SSH_KNOWN_HOSTS")
+    values = {name: f"synthetic-{name}" for name in names}
+    summary = tmp_path / "summary"
+    environment = {"PATH": os.defpath, "GITHUB_STEP_SUMMARY": str(summary)}
+    environment.update({name: value for name, value in values.items() if missing not in ("all", name)})
+    result = subprocess.run(
+        ["bash", "-c", steps[index]["run"]], env=environment,
+        capture_output=True, text=True, timeout=10,
+    )
+    output = result.stdout + result.stderr + (summary.read_text() if summary.exists() else "")
+    assert not any(value in output for value in values.values())
+    assert result.returncode == (0 if missing is None else 1), output
+    if missing is None:
+        assert result.stdout.strip() == "production_host_access_result=configured"
+        assert not summary.exists()
+    else:
+        assert "restore_rehearsal_schedule_result=blocked" in result.stdout
+        assert "reason=production_host_ssh_secret_missing" in result.stdout
+        expected_missing = names if missing == "all" else (missing,)
+        assert f"missing_secrets={','.join(expected_missing)}" in result.stdout
+        assert "infra/scripts/rehearse-restore-scheduled.sh --execute" in summary.read_text()
+        assert "production_host_access_result=configured" not in result.stdout
+
+
 @pytest.mark.parametrize(
     ("event_name", "base_kind"),
     [

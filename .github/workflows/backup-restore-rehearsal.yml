@@ -92,10 +92,8 @@ jobs:
           [ -n "${PROD_SSH_KEY:-}" ] || missing+=(PROD_SSH_KEY)
           [ -n "${PROD_SSH_KNOWN_HOSTS:-}" ] || missing+=(PROD_SSH_KNOWN_HOSTS)
           if [ "${#missing[@]}" -gt 0 ]; then
-            # The production host is reachable only from an operator
-            # workstation, so this job cannot run the rehearsal here.  It
-            # reports the gap loudly and succeeds, because a job that is red
-            # every week for a known reason stops being read.
+            # Stop before configuring SSH or attempting a restore when the
+            # required access is missing; the summary retains the manual path.
             {
               echo "### Восстановление из резервной копии не проверено"
               echo
@@ -107,11 +105,11 @@ jobs:
               echo
               echo "Либо задать секреты: $(IFS=,; printf '%s' "${missing[*]}")"
             } >> "$GITHUB_STEP_SUMMARY"
-            echo "restore_rehearsal_schedule_result=skipped"
+            echo "restore_rehearsal_schedule_result=blocked"
             echo "reason=production_host_ssh_secret_missing"
             echo "missing_secrets=$(IFS=,; printf '%s' "${missing[*]}")"
             echo "manual_command=infra/scripts/rehearse-restore-scheduled.sh --execute"
-            exit 0
+            exit 1
           fi
           echo "production_host_access_result=configured"
 

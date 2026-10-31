@@ -67,3 +67,7 @@ a42b78e1878cc4830681e290aed8408cae10c556. Общий validate-pr-checks.py
 завершился exit0; настоящие AppleSwift6.0.3 build,1234XCTest(2SKIP/0FAIL)
 и ContractValidation успешны. Ссылки/пределы — в validation.md.
 T006–T013 и #6501/#7646 остаются открытыми; принят только US1 CI-срез.
+
+## Phase 7: Convergence — ранний отказ CI без SSH-настроек
+
+- [ ] T016 [US1] Исправить ложный успешный результат отсутствующих SSH-предусловий в `.github/workflows/backup-restore-rehearsal.yml`: blocked/exit1 с прежней подсказкой и безопасным списком имён; сохранить полный успешный путь и обычные условия следующих шагов. До кода — FR012, независимый CHK014, scoped analyze и связь #6501; в существующем `tests/governance/test_governance_workflow.py` причинный RED/GREEN шести синтетических случаев реального Bash, полный workflow-профиль/actionlint, независимое ревью/converge, фрагмент F290 и три exact-SHA/base PR gates. SSH, секреты, backup/restore и production не менять/не запускать; T006–T013/F291 остаются открытыми. Владелец — агент уборки репозитория. (FR012, FR003/009–011; contradicts; Issue #6501)
