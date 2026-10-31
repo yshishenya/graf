@@ -163,6 +163,7 @@ async def paid_workspace(migrated_postgres_urls, tmp_path, monkeypatch):
     )
     engine = create_engine(settings)
     factory = create_sessionmaker(engine)
+    case = None
     try:
         async with engine.connect() as conn:
             role = (
@@ -312,6 +313,14 @@ async def paid_workspace(migrated_postgres_urls, tmp_path, monkeypatch):
         yield case
         assert requests == []
     finally:
+        # Cutoff scans all subscriptions. Do not leave this fixture's paid
+        # subscription eligible for a later case in the module's shared DB.
+        if case is not None:
+            async with _session(factory) as db:
+                subscription = await db.get(WorkspaceSubscription, case.workspace)
+                if subscription is not None:
+                    await db.delete(subscription)
+                    await db.commit()
         await engine.dispose()
 
 
@@ -632,3 +641,197 @@ async def test_three_confirmed_declines_persist_without_duplicate_charges_or_los
                 allowed_workspace_ids=frozenset({case.workspace}),
             ) == ()
             await db.commit()
+
+
+async def _stage_unresolved_renewal(case, *, state="unknown"):
+    async with _session(case.factory) as db:
+        (operation_id,) = await plan_due_renewals(
+            db, now=case.t0, allowed_workspace_ids=frozenset({case.workspace})
+        )
+        await db.commit()
+    async with _session(case.factory) as db:
+        operation = await db.get(BillingOperation, operation_id)
+        invoice = await db.scalar(select(BillingInvoice).where(
+            BillingInvoice.operation_id == operation_id
+        ))
+        operation.state = state
+        if state != "scheduled":
+            operation.provider_id = "synthetic-renewal-" + uuid4().hex
+        invoice.status = "unknown" if state == "unknown" else "pending"
+        invoice_id = invoice.id
+        await db.commit()
+    return operation_id, invoice_id
+
+
+@pytest.mark.parametrize("state", ["sent", "processing", "unknown"])
+@pytest.mark.parametrize("consent_revoked", [False, True])
+async def test_cutoff_commits_one_unknown_notice_for_current_payer_and_period(
+    paid_workspace, state, consent_revoked
+):
+    from twobrain_rec_server.billing.notifications import (
+        BillingNotification,
+        build_notification,
+        notification_copy,
+    )
+
+    case = paid_workspace
+    operation_id, invoice_id = await _stage_unresolved_renewal(case, state=state)
+    cutoff = case.original["subscription"]["paid_through"]
+    authority_version = case.original["subscription"]["recurring_authority_version"]
+    async with _session(case.factory) as db:
+        subscription = await db.get(WorkspaceSubscription, case.workspace)
+        if consent_revoked:
+            subscription.recurring_allowed = False
+            subscription.recurring_authority_version += 1
+            authority_version += 1
+        assert await renewal_charge.project_renewal_cutoffs(
+            db, now=cutoff - timedelta(microseconds=1)
+        ) == 0
+        await db.commit()
+    async with _session(case.factory) as db:
+        assert await renewal_charge.project_renewal_cutoffs(db, now=cutoff) == 1
+        await db.commit()
+    async with _session(case.factory) as db:
+        subscription = await db.get(WorkspaceSubscription, case.workspace)
+        assert subscription.plan_code == subscription.state == "free"
+        assert subscription.renewal_resolution == "unknown_pending"
+        assert subscription.paid_through == cutoff
+        assert subscription.recurring_allowed is (not consent_revoked)
+        assert subscription.recurring_authority_version == authority_version
+        invoice = await db.get(BillingInvoice, invoice_id)
+        operation = await db.get(BillingOperation, operation_id)
+        assert operation.state == state
+        assert invoice.status == ("unknown" if state == "unknown" else "pending")
+        notices = list(await db.scalars(select(BillingNotificationDelivery).where(
+            BillingNotificationDelivery.workspace_id == case.workspace,
+            BillingNotificationDelivery.template_key == "renewal_unknown",
+        )))
+        assert len(notices) == 1
+        notice = notices[0]
+        assert notice.recipient_id == case.owner and notice.channel == "email"
+        assert notice.event_id == f"renewal:{invoice_id}:unknown"
+        assert notice.state == "pending" and notice.attempts == 0
+        assert notice.safe_payload == {
+            "invoice": invoice.safe_number, "action_path": "/billing/subscription"
+        }
+        title, body = notification_copy(build_notification(
+            event_id=notice.event_id, kind=BillingNotification.RENEWAL_UNKNOWN,
+            payload=notice.safe_payload,
+        ))
+        assert title == "Проверяем продление"
+        assert "бесплатный тариф" in body and "пока неизвестен" in body
+        assert "Новое списание не создаем" in body
+        original = await _original_purchase(db, case)
+        for key in ("operation", "invoice", "grants", "methods"):
+            assert original[key] == case.original[key]
+        assert await renewal_charge.project_renewal_cutoffs(db, now=cutoff) == 0
+        await db.commit()
+    async with _session(case.factory) as db:
+        notices = list(await db.scalars(select(BillingNotificationDelivery).where(
+            BillingNotificationDelivery.workspace_id == case.workspace,
+            BillingNotificationDelivery.template_key == "renewal_unknown",
+        )))
+        assert len(notices) == 1
+
+
+async def test_cutoff_rollback_keeps_paid_state_and_removes_unknown_notice(paid_workspace):
+    case = paid_workspace
+    await _stage_unresolved_renewal(case)
+    cutoff = case.original["subscription"]["paid_through"]
+    async with _session(case.factory) as db:
+        assert await renewal_charge.project_renewal_cutoffs(db, now=cutoff) == 1
+        await db.rollback()
+    async with _session(case.factory) as db:
+        assert (await _original_purchase(db, case)) == case.original
+        assert list(await db.scalars(select(BillingNotificationDelivery).where(
+            BillingNotificationDelivery.workspace_id == case.workspace,
+            BillingNotificationDelivery.template_key == "renewal_unknown",
+        ))) == []
+
+
+@pytest.mark.parametrize("mismatch", [
+    "operation_period", "operation_payer", "operation_snapshot", "operation_final",
+    "unsent", "missing_invoice", "invoice_period", "invoice_payer",
+    "invoice_snapshot", "invoice_final", "invoice_workspace", "workspace_scope",
+])
+async def test_cutoff_does_not_notify_for_unrelated_or_final_payment(paid_workspace, mismatch):
+    case = paid_workspace
+    operation_id, invoice_id = await _stage_unresolved_renewal(
+        case, state="scheduled" if mismatch == "unsent" else "unknown"
+    )
+    cutoff = case.original["subscription"]["paid_through"]
+    async with _session(case.factory) as db:
+        operation = await db.get(BillingOperation, operation_id)
+        invoice = await db.get(BillingInvoice, invoice_id)
+        if mismatch in {"operation_period", "operation_payer", "operation_snapshot"}:
+            snapshot = dict(operation.request_snapshot)
+            if mismatch == "operation_period":
+                snapshot["paid_through_at"] = (cutoff - timedelta(days=31)).isoformat()
+            elif mismatch == "operation_payer":
+                snapshot["billing_actor_user_id"] = str(uuid4())
+            else:
+                snapshot = {}
+            operation.request_snapshot = snapshot
+        elif mismatch == "operation_final":
+            operation.state = "canceled"
+            invoice.status = "canceled"
+        elif mismatch == "missing_invoice":
+            await db.delete(invoice)
+        elif mismatch in {"invoice_period", "invoice_payer", "invoice_snapshot"}:
+            snapshot = dict(invoice.plan_snapshot)
+            if mismatch == "invoice_period":
+                snapshot["paid_through_at"] = (cutoff - timedelta(days=31)).isoformat()
+            elif mismatch == "invoice_payer":
+                snapshot["billing_actor_user_id"] = str(uuid4())
+            else:
+                snapshot = {}
+            invoice.plan_snapshot = snapshot
+        elif mismatch == "invoice_final":
+            invoice.status = "succeeded"
+        elif mismatch == "invoice_workspace":
+            invoice.workspace_id = await db.scalar(select(Workspace.id).where(
+                Workspace.id != case.workspace
+            ).limit(1))
+            assert invoice.workspace_id is not None
+        elif mismatch == "workspace_scope":
+            workspace = await db.get(Workspace, case.workspace)
+            workspace.kind = "corporate"
+        await db.commit()
+    async with _session(case.factory) as db:
+        assert await renewal_charge.project_renewal_cutoffs(db, now=cutoff) == 1
+        await db.commit()
+    async with _session(case.factory) as db:
+        subscription = await db.get(WorkspaceSubscription, case.workspace)
+        assert subscription.state == subscription.plan_code == "free"
+        assert subscription.paid_through == cutoff
+        assert list(await db.scalars(select(BillingNotificationDelivery).where(
+            BillingNotificationDelivery.workspace_id == case.workspace,
+            BillingNotificationDelivery.template_key == "renewal_unknown",
+        ))) == []
+
+
+async def test_concurrent_cutoffs_commit_one_unknown_notice(paid_workspace):
+    import asyncio
+
+    case = paid_workspace
+    await _stage_unresolved_renewal(case)
+    cutoff = case.original["subscription"]["paid_through"]
+
+    async def project():
+        async with _session(case.factory) as db:
+            result = await renewal_charge.project_renewal_cutoffs(db, now=cutoff)
+            await db.commit()
+            return result
+
+    assert sorted(await asyncio.gather(project(), project())) == [0, 1]
+    async with _session(case.factory) as db:
+        notices = list(await db.scalars(select(BillingNotificationDelivery).where(
+            BillingNotificationDelivery.workspace_id == case.workspace,
+            BillingNotificationDelivery.template_key == "renewal_unknown",
+        )))
+        assert len(notices) == 1
+        subscription = await db.get(WorkspaceSubscription, case.workspace)
+        assert subscription.plan_code == "free"
+        assert subscription.application_version == (
+            case.original["subscription"]["application_version"] + 1
+        )

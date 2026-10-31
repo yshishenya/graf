@@ -775,6 +775,40 @@ async def project_renewal_cutoffs(
             subscription.renewal_resolution = (
                 "provider_key_expired" if state == "provider_key_expired" else "unknown_pending"
             )
+            snapshot = operation.request_snapshot
+            if (
+                state in {"sent", "processing", "unknown"}
+                and isinstance(snapshot, Mapping)
+                and snapshot.get("billing_actor_user_id") == str(subscription.billing_owner_id)
+                and snapshot.get("paid_through_at") == _utc(subscription.paid_through).isoformat()
+            ):
+                invoice = await db.scalar(
+                    select(BillingInvoice).where(
+                        BillingInvoice.operation_id == operation.id,
+                        BillingInvoice.workspace_id == subscription.workspace_id,
+                    ).with_for_update()
+                )
+                if (
+                    invoice is not None
+                    and invoice.status in {"pending", "unknown"}
+                    and isinstance(invoice.plan_snapshot, Mapping)
+                    and invoice.plan_snapshot.get("billing_actor_user_id")
+                    == str(subscription.billing_owner_id)
+                    and invoice.plan_snapshot.get("paid_through_at")
+                    == _utc(subscription.paid_through).isoformat()
+                ):
+                    await enqueue_billing_notification(
+                        db,
+                        workspace_id=subscription.workspace_id,
+                        recipient_id=subscription.billing_owner_id,
+                        event_id=f"renewal:{invoice.id}:unknown",
+                        kind=BillingNotification.RENEWAL_UNKNOWN,
+                        payload={
+                            "invoice": invoice.safe_number,
+                            "action_path": "/billing/subscription",
+                        },
+                        marketing_allowed=False,
+                    )
         else:
             subscription.recurring_allowed = False
             subscription.recurring_authority_version = (

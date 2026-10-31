@@ -314,7 +314,8 @@ def notification_copy(
         ),
         BillingNotification.RENEWAL_UNKNOWN: (
             "Проверяем продление",
-            "Статус платежа пока неизвестен. Новое списание не создаем.",
+            "Действует бесплатный тариф. Статус платежа пока неизвестен. "
+            "Новое списание не создаем.",
         ),
         BillingNotification.RENEWAL_ATTEMPT_FAILED: (
             "Списание не прошло",
