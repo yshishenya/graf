@@ -148,7 +148,7 @@ worktree.
 **Purpose**: завершить governance без product release и подготовить legacy
 retirement отдельно.
 
-- [ ] T036 Выполнить reviewer-owned checklists из
+- [X] T036 Выполнить reviewer-owned checklists из
   `checklists/requirements.md` и `checklists/governance.md`; implementation
   agent не меняет checkbox state (FR-034). (Issue #6125)
 - [X] T037 Запустить `$speckit-analyze`, устранить все Critical/High и повторить
@@ -161,7 +161,7 @@ retirement отдельно.
   skipped gates и metadata-only evidence (SC-002, SC-006, SC-009).
   Исторический локальный fast не заменяет нынешние GitHub-проверки FR-022/SC-009;
   их текущая приёмка относится к T047. (Issue #6129)
-- [ ] T040 Выполнить `$speckit-converge`: добавлять найденные задачи append-only,
+- [X] T040 Выполнить `$speckit-converge`: добавлять найденные задачи append-only,
   повторять issue sync/implementation/validation до отсутствия обязательных
   пунктов. (Issue #6128)
 - [X] T041 Создать следующую collision-free Feature 217+ для legacy retirement:
@@ -187,7 +187,7 @@ retirement отдельно.
 - [X] T046 Расширить `infra/scripts/release-candidate.sh` attestation path:
   schema validation, one-authoritative-full guard и go/no-go update без
   перезаписи frozen candidate (FR-020–FR-023; partial). (Issue #6138)
-- [ ] T047 Провести reviewer-owned checklists, повторный analyze/converge,
+- [X] T047 Провести reviewer-owned checklists, повторный analyze/converge,
   quickstart и обязательные GitHub-проверки точного SHA/основы; закрыть только
   подтверждённые task issues и подготовить проверенный PR (FR-034–FR-035; missing). (Issue #6139)
 
@@ -244,7 +244,7 @@ retirement отдельно.
 
 ## Phase 11: Сверка требований и трекера
 
-- [ ] T060 Сверить требования, `tasks.md` и GitHub F216 в
+- [X] T060 Сверить требования, `tasks.md` и GitHub F216 в
   `reconciliation-20261026.md`: исправить устаревшие инструкции, восстановить
   только доказанные отметки, связать T054 с отдельной issue, заменить T000
   родителя #6090 на эту действительную задачу и перечислить остаток приёмки.
