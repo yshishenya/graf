@@ -590,7 +590,9 @@ until_decision/отдельные удаления/restore и проверки �
 
 Следующая реализация T113 следует проверенному
 [полному алгоритму](validation/t113-full-operator-design-20261030.md),
-SHA256 `5d1e069f3fe18f31a21c72c9b0abc41614ff8bfc00c3269f27b1f3cb596738ec`.
+В принятой30.10 редакции SHA256 был
+`5d1e069f3fe18f31a21c72c9b0abc41614ff8bfc00c3269f27b1f3cb596738ec`;
+уточнение31.10 UTC/attempt v2 проходит отдельный гейт ниже и не наследует этот PASS.
 [Независимое ревью](validation/t113-full-operator-design-review-20261030.md)
 разрешило реализацию; это не разрешение рабочего включения. Алгоритм охватывает
 initial/backup/verify/restore, общий drain, байтовую сверку объектов, повтор
@@ -688,3 +690,18 @@ staging producers и общий SQL-validator меняются одноврем�
 охватывает retained prior DB после actual restore; принадлежность проверяется
 по trusted durable history, не по prefix. J1/верхний цикл/ресурсы и рабочий
 допуск открыты. Это принятый проект, а не реализация J2.
+
+### Собственное расписание J1 — 31.10.2026
+
+Выбран host cron каждую минуту с UTC-предикатом существующего bootstrap до uv,
+без смены Europe/Amsterdam и без нового сервиса. Основание —
+[сравнение](validation/t113-host-schedule-options-review-20261031.md).
+[Точная attempt v2 и переходы](validation/t113-full-operator-design-20261030.md#utc-расписание-и-attempt-v2--уточнение-31102026)
+сохраняют суточный claim в существующем backup-attempt.json до stop, включая
+failed/crash/ручные копии; верхний owner владеет одной попыткой до исхода,
+copy core не создаёт вторую. Требуются согласованное обновление consumers и
+изолированные причинные проверки. Ни cron, ни миграция состояния не установлены.
+[Независимое precode review](validation/t113-scheduled-attempt-design-review-20261031.md)
+дало SCOPED PASS, P1/P2/CRITICAL/HIGH0,117/0 для точной UTC/attempt-v2 модели;
+финальный commit point устраняет completed→failed. Полный J1 с косвенными
+jobs/hooks, ресурсы, общий оператор и оба HOLD сохраняются. Код не изменён.

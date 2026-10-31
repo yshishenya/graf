@@ -977,3 +977,26 @@ template0 не открывалась. Перечислены btree_gin и Tempo
 PASS, P1/P2/CRITICAL/HIGH0,117/0; сохранённые prior DB и ordinary verify
 после actual restore учтены. J1, реализация полного оператора, ресурсы/T112/
 выпуск/T0 и AC01–AC06 остаются открытыми. T113/#7804 не закрывается.
+
+### UTC-предикат и попытка до остановки — J1, 31.10.2026
+
+Выбран вариант1 [сравнения](validation/t113-host-schedule-options-review-20261031.md).
+В plan/contracts/data-model/quickstart добавлена
+[точная схема attempt v2](validation/t113-full-operator-design-20261030.md#utc-расписание-и-attempt-v2--уточнение-31102026):
+суточный claim до stop в прежнем файле, единственный верхний owner,
+сохранение claim после failed/crash/manual, отсутствие catch-up, общие lock и
+deadline. [Независимое review](validation/t113-scheduled-attempt-design-review-20261031.md)
+дало SCOPED PASS, P1/P2/CRITICAL/HIGH0,117/0; код/cron/provisioning не изменены.
+Следующий код T113 запрещён до закрытия полного J1/analyze. Оба общих HOLD,
+ресурсы/T112/выпуск/T0 и AC01–AC06 сохраняются; task не отмечается выполненной.
+
+Дополнительное read-only наблюдение31.10 в12:42–12:43UTC: native passwd/group
+показывают субъекты uid0/1000/1001/1003 через root/sudo/docker; продуктовая
+группа фактического корня также содержит1001/1003. User-systemd корни трёх
+субъектов недоступны текущему uid1001, а не доказанно отсутствуют. apt-config
+успешен: Update-Package-Lists=1, Unattended-Upgrade=1, девять Invoke settings.
+Это требует чтения конкретных hooks/цепочек, не разрешает отключать обновления.
+Metadata receipt SHA256
+`6f7962de859a97befae0572a1fb9c1871d6ff7906c2c55cae6f9443fc7c80378`.
+Это не полный список всех возможных sudoers/ACL subjects и не J1 PASS;
+допуск UID1003 в TRUSTED_GROUP_UIDS не расширялся.

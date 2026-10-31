@@ -131,17 +131,23 @@ Runtime остаётся read-only; запись marker разрешена то�
    fsync файла/каталога; bytes/digest/marker снова проверяются. Неопределённая
    запись/потеря initial после attempted — HOLD без нового T0. Начатый initial
    не перезаписывается; нет fallback на текущий clock или пустой ledger.
-8. Ready формата READY_FIELDS создаётся atomic replace/fsync только после
-   собственных выполненных проверок, затем читается штатным read_ready на
-   фактическом expected binding. Никакие произвольные supplied hash/"pass" не
-   считаются выполненными проверками. started_at всегда из одного initial.
+8. Ready формата READY_FIELDS подготавливается и записывается atomic
+   replace/fsync только после собственных выполненных проверок. На этом
+   внутреннем шаге обе physical copies доказаны, вторая attempt ещё in_progress,
+   EX запрещает admission. Runtime read_ready не получает исключения из
+   completed-only правила: его штатная проверка идёт после конечного commit
+   point шага9. Никакие supplied hash/"pass" не считаются проверками.
+   started_at всегда из одного initial.
 9. Только успешный resume: проверить неизменные image/config/IDs и актуальные
    gates, закрыть все source/target sessions, восстановить исходный datconnlimit,
    открыть source, запустить только раньше running writers через compose start
    (не up). Проверить те же ID/images/config/healthy. Ready остаётся недоступным
    admission до отпускания filesystem EX. Ошибка start/health → revoke/stop/
    closed/HOLD, initial и T0 не меняются. Если первоначально служба была exited,
-   оператор не маскирует это автоматическим её запуском.
+   оператор не маскирует это автоматическим её запуском. После всех этих
+   проверок completed второй attempt — последняя durable мутация initial,
+   затем обычный read_ready на actual expected binding и отпускание EX.
+   Последующий drift даёт HOLD/revoke, не повторное создание initial/T0.
 
 ## Один staged rehearsal без произвольного hook
 
@@ -190,7 +196,7 @@ count/bytes/digest/time/binding. Никаких user/content/private key в evid
 
 Один deployment lock сериализует operator backup, initial, verify, restore и CD.
 Приём last attempt не опирается на stdout helper или mtime старого каталога.
-До создания копии оператор atomic replace+fsync пишет свой `backup-attempt.json`
+До первого stop оператор atomic replace+fsync пишет свой `backup-attempt.json`
 в постоянном activation-каталоге: version/run UUID/status=in_progress/start UTC/
 source binding/целевой комплект. После любого известного отказа пишет failed;
 при crash остаётся in_progress, что также запрещает ready. Новая попытка никогда
@@ -235,8 +241,9 @@ restore target+staging и резерв физического диска; неи
 Поэтому `backup` использует ровно уже принятый controlled export с общим stop/
 drain; новый online протокол не строится. Цель запуска задана кодом как
 planned_coherent_graf_backup. Обычный verify продукт не останавливает.
-Расписание — host cron, 03:10 UTC ежедневно, закрытый проверенный root+frozen uv
-entrypoint; существующий host scheduler, нового daemon/долгоживущего сервиса нет.
+Расписание — существующий host cron каждую минуту и проверка03:10 UTC внутри
+закрытого bootstrap до frozen uv; точные переходы attempt описаны ниже.
+Нового daemon/долгоживущего сервиса нет.
 Установка отдельной cron-строки входит в выпуск, не утверждается уже выполненной.
 Deadline600с общий, без retry; до stop проверяются tooling/pinned runtime, source/
 IDs/networks/space/legal/resource/ownership и отсутствие незавершённого actual run.
@@ -258,7 +265,8 @@ chunk/двойной finalization запрещены. Новые запросы 
 
 Healthy preflight → deployment EX → filesystem EX/revoke → stop/drain → export
 true/limit0 → полный dump+objects+byte verification → false/drain → cleanup →
-completed manifest/attempt → безопасный product resume → самостоятельный verify.
+completed manifest → безопасный product resume/все proof+ready writes →
+completed attempt как последний commit point → самостоятельный ordinary verify.
 Фактическая пауза start-stop/start-health измеряется;600с — аварийный верхний
 предел, а не утверждение приемлемого времени. Стенд проверяет предел и отсутствие
 потери принятого upload/request. Рабочая длительность и нагрузка принимаются до
@@ -281,6 +289,126 @@ IDs/images/config и то, что active bucket в этой операции т�
 подтверждено, отдельный maintenance incident с durable known/unknown стадией,
 без догадки о resume. Это авария обслуживания, не штатная реакция аналитики.
 Actual restore сохраняет прежний более строгий HOLD и материалы своего run.
+
+### UTC-расписание и attempt v2 — уточнение 31.10.2026
+
+Выбран вариант1 из [сравнения расписаний](t113-host-schedule-options-review-20261031.md).
+Установленный cron не поддерживает отдельную зону расписания; общий пояс
+Europe/Amsterdam не меняется. Canonical запись root crontab содержит ровно:
+`* * * * * /usr/bin/python3 -I /opt/projects/2brain-rec/infra/scripts/activation-operator.py --scheduled-backup`.
+Это проект для будущей установки, не уже установленная запись. J1 проверяет
+также cron environment/SHELL/остальные записи и фактическую цепочку исходников;
+совпадение одной строки не закрывает полный installed-jobs proof.
+
+Bootstrap принимает взаимоисключающие фиксированные режимы; существующий
+`--preflight` сохраняется. Для `--scheduled-backup` stdlib `datetime.now(UTC)`
+до `_installation`/lock/`_prepare`/temp/uv/Docker/БД выбирает текущий день и минуту.
+Вне03:10 — exit0 с `result=not_due`, без записи файлов и без утверждения backup
+PASS. Параметров даты/слота/часового пояса нет. Due-вход сохраняет UTC timestamp
+и monotonic deadline600с, охватывающий ожидание lock, подготовку и операцию.
+Вложенные `_prepare`/`_runtime`/children получают остаток этого срока, не новый
+deadline. Доверенный root bootstrap передаёт вычисленные `due_started_at`
+(UTC ISO) и абсолютный `time.monotonic()` deadline фиксированными внутренними
+аргументами уже существующего pinned child вместе с inherited canonical
+deployment FD. Child проверяет root/source, held FD/dev/ino, типы/конечность
+значений, due minute03:10, тот же текущий UTC день, now≥due_started_at и
+0<остаток≤600. FD доказывает lock, но не переносит дату и не доказывает
+происхождение argv. Это доверенные данные root bootstrap; преднамеренный ручной
+root-вызов/подмена root bootstrap вне гарантий, как и ручной root SQL/restore.
+Криптографического proof parent не обещается. Обычный внешний CLI bootstrap
+не принимает дату/deadline/слот. Никаких token/pipe/нового IPC нет. Если
+подготовка пересекла03:10, этот доверенный вход продолжает работу в исходных
+600с; новый обычный bootstrap после03:10 возвращает not_due.
+
+В существующем `backup-attempt.json` version2 сохраняет все поля version1
+(`run_id`, `destination`, binding, status/reason, started_at/finished_at,
+manifest_sha256) и добавляет ровно `scheduled_claim`. Это либо `null`, либо
+объект с точными полями `utc_day` (`YYYY-MM-DD`), `run_id` (32hex), `claimed_at`
+(aware UTC ISO timestamp). День должен быть настоящей датой, совпадать с UTC-днём
+claimed_at; claimed_at не в будущем. В момент создания claim его run_id равен
+run_id этой attempt. После ручной/следующей попытки прежний scheduled run_id
+сохраняется внутри claim; он закономерно может отличаться от текущей attempt.
+Claim — монотонная отметка последнего потреблённого дня; initial/T0 и binding
+текущей попытки не выводятся из него. Unknown keys/version, partial/duplicate
+keys, неверные типы/даты, несовместимые timestamps — HOLD.
+
+Один верхний owner создаёт единственный UUID, destination и in_progress attempt
+после полного preflight, под deployment→filesystem EX, после durable revoke
+и **до любого stop/drain/export**. Initial с двумя копиями создаёт две
+последовательные attempt в том же закрытом интервале; вторая — до создания
+второй копии, с тем же сохранённым claim. Внутренний `_create_coherent_backup`
+получает уже удержанную attempt; не создаёт второй UUID, не читает «предыдущую»
+как разрешение начать заново и не заменяет claim. Его роль — bytes/manifest/
+cleanup; верхний owner записывает completed с manifest_sha256/finished_at из
+проверенного manifest **последней durable мутацией** после всех обязательных
+proof/ready writes и доказанного безопасного resume продукта. Для initial первая
+attempt завершается после первой verified copy+cleanup, затем начинается вторая.
+Вторая exact in_progress сохраняется под EX до T0/ready/safe resume. До T0
+trusted initial owner физически проверяет два полных immutable manifest/bytes
+существующим `_read_coherent_backup`; terminal attempt не заменяет этой проверки.
+Ordinary `_verified_backup_set`/`read_ready` остаются completed-only; публичного
+allow_in_progress/поставляемого proof нет. Пока EX удержан, подготовленный ready
+не даёт admission; completed пишется после безопасного resume перед отпусканием
+EX. Последующий ordinary read_ready/admission при drift может дать HOLD/revoke,
+но не является ретроактивным отказом уже завершённого копирования или PASS
+готовности. Scheduled/manual backup используют тот же конечный commit point.
+
+Точные переходы v2: in_progress (`reason=running`, finish/digest=null) → completed
+(`reason=verified`, finish/digest из exact manifest) либо failed
+(`reason=backup_failed|cancelled`, finish=currentUTC, digest=null). Run UUID,
+destination, binding, started_at и выбранный claim в пределах attempt неизменны.
+Новая attempt начинается только из terminal; claim копируется либо повышается
+новым scheduled днём. Completed→failed не используется. Ошибка до commit point
+оставляет admission revoked и записывает failed; неизвестный исход записи
+остаётся unresolved/HOLD. Ошибка fsync completed сохраняет прежний fallback
+на видимые in_progress bytes именно этой attempt с тем же claim. При повторной
+отмене cleanup/запись попытки не теряют владение lock/children. Ошибка resume
+не выдаётся за успех и старая копия не скрывает новую неоконченную попытку.
+
+Для scheduled-входа верхний owner сначала read-only читает текущую terminal
+attempt под deployment lock, до revoke/EX. Для этого защищённое чтение
+использует тот же строгий чистый parser v2; существующая revoked-проверка
+`_previous_backup_attempt` не ослабляется. Равный день claim даёт
+`already_claimed`, exit0 без мутации/stop/ready; это не успех копии. Если claim
+позже текущего дня, текущие часы раньше started_at/finished_at/claimed_at либо
+attempt in_progress/повреждена/потеряна — HOLD, не новый run. Повторная проверка
+под EX нужна до revoke/claim. При новом дне верхний owner сохраняет новый
+scheduled_claim вместе с in_progress одной atomic replace+fsync+readback;
+неудача fsync запрещает stop. Failed/cancelled/crash после этой записи расходуют
+слот, даже если остановка ещё не состоялась. Ручные backup/initial/restore
+копируют claim без изменения/обнуления, не открывают вторую автоматическую
+остановку в этот день. Unresolved actual restore запрещает новый backup даже
+при следующем дне. Ни отдельного schedule-state файла, ни TTL claim нет.
+
+После crash/неизвестного fsync обычный запуск не ремонтирует in_progress.
+Разрешённая recovery того же run с доказанным состоянием продукта/ресурсов
+может записать failed, сохраняя claim и T0; не делает второй scheduled stop.
+Первое создание attempt без предыдущей записи допустимо только для initial
+с проверенным never_started marker и отсутствием initial.json; scheduled
+режим требует уже принятые initial и v2 attempt. Legacy v1 не означает
+`scheduled_claim=null`: автоматической миграции при запуске нет. При выключенных
+scheduled entrypoints оператор отдельным provisioning-переходом доказывает
+отсутствие прежнего расписания/claims по полному J1, проверяет terminal v1,
+сохраняет закрытый digest исходной записи и добавляет null, не меняя остальных
+полей/initial/T0. Если отсутствие прежних claims не доказано — HOLD. Отсутствие
+записи после initial никогда не считается первым запуском.
+
+Все consumers (`_previous_backup_attempt`, `_verified_backup_set`, ready writer/
+`read_ready`, recovery и тесты) переходят на одну строгую version2 модель вместе.
+Для admission/latest proof допустим только completed с реально проверенным
+manifest; in_progress/failed/claim/not_due/already_claimed не заменяют receipt.
+Файл завершённого manifest остаётся version1: daily claim не является свойством
+immutable backup и не переписывает прежние архивы. При failed-completion fsync
+сохраняется нынешнее восстановление видимых in_progress bytes; содержащийся
+в них claim не теряется. Ошибка записи failed оставляет HOLD/unresolved.
+
+Пропущенный tick/перезагрузка не вызывают catch-up в другое время суток.
+Freshness/alert сообщают об отсутствии свежей успешной копии. Verify03:15
+пользуется тем же deployment lock и своим конечным deadline600с: ждёт остаток
+или возвращает HOLD без stop/второго backup. Копия может идти до03:20; наличие
+таймера или exit0 без копии не даёт ready. Неизвестные host jobs/hooks по-прежнему
+блокируют J1; этот раздел конкретизирует своё расписание и state-переходы.
+До кода нужны независимое review этой точной схемы и полный J1/analyze PASS.
 
 ### Rehearsal receipt и ordinary verify
 
@@ -367,7 +495,13 @@ Unconditional blocker не удаляется в коде раньше полн�
 
 После последнего await и непосредственно перед ready atomic write перечитываются
 binding/lock identity/current legal/disclosure/register/retention/access/guard и
-latest attempts. Несовпадение digest/current state — revoke/HOLD, без нового T0.
+latest attempts. При построении ready внутри initial/backup trusted owner под
+тем же EX сверяет собственную exact in_progress attempt и физические manifest/
+bytes двух копий; это внутренний proof из выполненных стадий, не вызов
+completed-only `_verified_backup_set` до конечного commit point. Для initial
+это именно вторая attempt, первая уже terminal. Ordinary verify/read_ready
+никаких in_progress исключений не получают. Несовпадение digest/current state
+— revoke/HOLD, без нового T0.
 Сам read_ready никогда не создаёт файлы и не выводит проверки из одного JSON.
 
 ## Actual restore / schema-runtime rollback

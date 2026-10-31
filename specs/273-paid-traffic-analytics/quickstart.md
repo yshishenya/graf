@@ -641,3 +641,24 @@ object identities при разных OID. Обычная смена PID/ticks T
 рабочего сервера нельзя. Во время своего drain проверяется reduced source
 без reconnect; отмена завершает все owned connections. До полного runtime
 цикла и J1 оба общих HOLD сохраняются. Эти проверки пока не исполнены.
+
+### UTC-слот и attempt v2 — J1, 31.10.2026
+
+Перед кодом независимо проверить
+[точную схему и переходы](validation/t113-full-operator-design-20261030.md#utc-расписание-и-attempt-v2--уточнение-31102026).
+Затем в существующих bootstrap/operator tests и изолированном native профиле:
+
+- UTC/Europe-Amsterdam, обе смены DST: вне03:10 нет uv/БД/temp/state writes;
+  один due-вход сохраняет исходный600с deadline через подготовку и lock wait.
+- Повтор/параллельный tick, manual backup между ними, новый день и часы назад:
+  не более одной автоматической остановки в день, claim не теряется/не понижается.
+- TERM/crash до и после claim/stop, недоступный fsync/partial/missing/future/v1:
+  stop только после durable claim; нет completed/ready из неизвестного исхода.
+- Initial две копии, copy-core без нового UUID, failure после manifest/resume:
+  один владелец attempt, верные terminal states, initial/T0 не перезаписываются.
+- Verify03:15 против долгой backup до03:20: общий lock, конечное ожидание/HOLD,
+  без второго stop/backup; missed tick/reboot не вызывают дневной catch-up.
+- Latest manifest проверяется физически; not_due/already_claimed/claim не
+  заменяют pass. Полный J1 проверяет реальные roots/executable/config/hooks.
+
+Это критерии будущей проверки, не выполненные тесты и не разрешение установки.
