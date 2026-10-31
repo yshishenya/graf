@@ -57,7 +57,7 @@ if a[0]=='compose' and 'exec' in a:
     (root/'create-started').touch()
     while not (root/'create-release').exists():time.sleep(0.01)
    if failure=='staging-create':sys.exit(7)
-   stage.mkdir(mode=0o700);print('/tmp/twobrain-rec-backup.TEST123');sys.exit(0)
+   stage.mkdir(mode=0o700);print('/var/lib/postgresql/data/twobrain-rec-backup.TEST123');sys.exit(0)
   if 'rm -rf ' in command:
    if failure=='staging-cleanup':sys.exit(7)
    shutil.rmtree(stage);sys.exit(0)

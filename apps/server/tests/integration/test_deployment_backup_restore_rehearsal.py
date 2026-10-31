@@ -54,14 +54,14 @@ elif a[0] == "compose" and "exec" in a:
         sys.exit(0)
     if failure == "cleanup" and ("rm" in command or any("rm " in x for x in command)):
         sys.exit(7)
-    command = [x.replace("/tmp/", str(root / "tmp") + "/") for x in command]
+    command = [x.replace("/var/lib/postgresql/data/", "/tmp/").replace("/tmp/", str(root / "tmp") + "/") for x in command]
     os.umask(0o022)  # A container does not inherit the caller's umask.
     result = subprocess.run(command, text=True, stdout=subprocess.PIPE)
-    sys.stdout.write(result.stdout.replace(str(root / "tmp") + "/", "/tmp/"))
+    sys.stdout.write(result.stdout.replace(str(root / "tmp") + "/", "/var/lib/postgresql/data/"))
     sys.exit(result.returncode)
 elif a[0] == "cp":
     if failure == "copy": sys.exit(7)
-    source = a[1].split(":", 1)[1].replace("/tmp/", str(root / "tmp") + "/")
+    source = a[1].split(":", 1)[1].replace("/var/lib/postgresql/data/", str(root / "tmp") + "/")
     shutil.copyfile(source, a[2])
     if failure == "corrupt-copy" and a[2].endswith("/inventory.jsonl"):
         pathlib.Path(a[2]).write_text("corrupt")

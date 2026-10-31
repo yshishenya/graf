@@ -390,10 +390,11 @@ def postgres_isolated_cluster_database_url() -> Iterator[str]:
             pytest.fail("isolated bootstrap PostgreSQL command failed or timed out", pytrace=False)
 
     try:
+        # Backup/restore uses docker cp, which cannot read tmpfs; rm --volumes owns cleanup.
         result = docker(
             "run", "--detach", "--rm", "--name", container,
             "--env", "POSTGRES_DB=postgres", "--env", "POSTGRES_USER=twobrain_rec",
-            "--env", "POSTGRES_PASSWORD", "--tmpfs", "/var/lib/postgresql/data:rw",
+            "--env", "POSTGRES_PASSWORD", "--mount", "type=volume,target=/var/lib/postgresql/data",
             "--publish", "127.0.0.1::5432", "postgres:17-alpine", timeout=30,
         )
         if result.returncode:

@@ -659,3 +659,15 @@ unit consumers и Linux actual files обязательны. T113/T116/#7804 н�
 working v1 migration, installed jobs/staging, upper operator и рабочая приёмка
 ещё отдельно; full_preflight_not_implemented/activation_recovery_unverified
 сохраняются. Это не включение аналитики и не старт T0.
+
+
+### Временные файлы на защищённом диске T113 — 31.10.2026
+
+Тот же high-risk-product T113/#7804, Legacy Impact untouched. Четыре PG
+staging producers и общий SQL-validator меняются одновременно; host metadata
+используют fixed parent dir_fd, runtime связывает PGDATA/backup/процесс/FS.
+[Договор](contracts/operations.md#временные-файлы-на-защищённом-диске-t113--31102026),
+[проектный гейт](validation/t113-staging-design-review-20261031.md),
+[проверки](quickstart.md#временные-файлы-на-защищённом-диске-t113--31102026).
+Изолированная PG fixture получает удаляемый anonymous volume вместо tmpfs,
+который Docker cp не читает. Это не рабочее включение или закрытие T113.

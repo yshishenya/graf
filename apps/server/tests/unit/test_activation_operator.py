@@ -771,7 +771,7 @@ def test_two_complete_copies_and_latest_attempt_are_verified(fence, tmp_path, mo
     'good', 'optional_absent', 'wrong_image', 'wrong_source', 'duplicate_source',
     'wrong_user', 'userns', 'required_exited', 'unhealthy', 'config_changed',
     'pid_changed', 'override_changed', 'no_release', 'deadline', 'foreign_network',
-    'rootless', 'remap', 'image_env', 'image_platform', 'process_changed', 'postal_changed', 'socket_changed', 'thirdparty_user', 'model_changed', 'registry_changed', 'policy_drift', 'poisoned_env', 'volume_good', 'volume_changed', 'volume_options', 'late_database_close', 'late_secret_close', 'operations_failure', 'operations_mismatch', 'raw_mismatch', 'late_operations_close', 'guard_failure', 'late_guard_exit',
+    'rootless', 'remap', 'image_env', 'image_platform', 'process_changed', 'postal_changed', 'socket_changed', 'thirdparty_user', 'model_changed', 'registry_changed', 'policy_drift', 'poisoned_env', 'volume_good', 'volume_changed', 'volume_options', 'late_database_close', 'late_secret_close', 'operations_failure', 'operations_mismatch', 'raw_mismatch', 'late_operations_close', 'guard_failure', 'late_guard_exit', 'staging_failure', 'late_staging_close',
 ])
 def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypatch, case):
     rows, networks = inventory()
@@ -928,6 +928,7 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
     from contextlib import asynccontextmanager, contextmanager
 
     guard_state = dict(active=False, exited=False)
+    staging_state = dict(active=False, exited=False)
     runtime_fingerprints = []
     original_digest = operator._json_digest
 
@@ -982,15 +983,29 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
         if case == 'late_secret_close':
             monkeypatch.setattr(operator, 'time', SimpleNamespace(monotonic=lambda: time.monotonic()+60))
 
+    @contextmanager
+    def postgres_staging(row, **kwargs):
+        assert row['id'] == next(r['id'] for r in rows if r['service'] == 'rec-postgres')
+        if case == 'staging_failure':
+            raise ActivationHold('synthetic_staging_unverified')
+        staging_state['active'] = True
+        try:
+            yield '7' * 64
+            if case == 'late_staging_close':
+                raise ActivationHold('synthetic_staging_changed')
+        finally:
+            staging_state.update(active=False, exited=True)
+
+    monkeypatch.setattr(operator, '_runtime_postgres_staging', postgres_staging)
     @asynccontextmanager
     async def databases(**kwargs):
-        assert guard_state['active']
+        assert guard_state['active'] and staging_state['active']
         assert kwargs['password'] == 'synthetic-owner'
         assert kwargs['register_raw'] == b'legal_basis_state_version=2\n# private-register-sentinel\n'
         assert set(kwargs['settings']) == {r['service'] for r in rows
             if r['service'] in operator.WRITERS and r['state']['running']}
         yield None, None, {'synthetic-database': True}
-        assert guard_state['active']
+        assert guard_state['active'] and staging_state['active']
         if case == 'late_database_close':
             monkeypatch.setattr(operator, 'time', SimpleNamespace(monotonic=lambda: time.monotonic()+60))
 
@@ -1010,6 +1025,8 @@ def test_runtime_preflight_binds_actual_release_and_processes(tmp_path, monkeypa
         assert result['container_count'] == len(rows)
         assert len(result['runtime_sha256']) == 64
         assert guard_state == dict(active=False, exited=True)
+        assert staging_state == dict(active=False, exited=True)
+        assert runtime_fingerprints[0]['postgres_staging_sha256'] == '7' * 64
         assert len(runtime_fingerprints) == 1 and runtime_fingerprints[0]['guard_units_sha256'] == '6' * 64
         assert set(checked_settings) == {r['id'] for r in rows if r['service'] in operator.WRITERS and r['state']['running']}
         assert set(checked_operations) == set(checked_settings)
@@ -2142,3 +2159,163 @@ def test_runtime_guard_units_pin_files_and_effective_properties(tmp_path, monkey
             assert not calls
     finally:
         assert set(os.listdir("/proc/self/fd")) == before
+
+
+@pytest.mark.skipif(sys.platform != 'linux' or os.geteuid() != 0, reason='actual Linux owners and FS required')
+@pytest.mark.parametrize('case', ['good', 'timestamps', 'env', 'duplicate_mount', 'submount',
+    'link', 'owner', 'permissions', 'changed', 'process_changed', 'parent_changed',
+    'env_absent', 'env_duplicate', 'readonly', 'bind', 'parent_mode', 'parent_link',
+    'gid', 'proc_changed', 'proc_mismatch', 'proc_link', 'ancestor_link', 'wrong_device'])
+def test_runtime_postgres_staging_binds_actual_protected_volume(tmp_path, monkeypatch, case):
+    first = tmp_path / 'root'
+    data = first / 'var/lib/postgresql/data'
+    data.mkdir(parents=True, mode=0o700)
+    os.chown(data, 70, 70)
+    parent = tmp_path / 'backups'
+    parent.mkdir(mode=0o700)
+    proc = tmp_path / 'proc/123'
+    proc.mkdir(parents=True)
+    (proc / 'root').symlink_to(first)
+    monkeypatch.setattr(operator, 'MIXED_BACKUP_PARENT', parent)
+    process = (123, 456, (70,))
+    current = [process]
+    monkeypatch.setattr(operator, '_process_identity', lambda *a, **k: current[0])
+    row = dict(config=dict(Env=['PGDATA=/var/lib/postgresql/data']), mounts=[dict(
+        Type='volume', Driver='local', Name='owned', Source=str(data),
+        Destination='/var/lib/postgresql/data', RW=True)])
+    if case == 'env_absent':
+        row['config']['Env'] = []
+    elif case == 'env_duplicate':
+        row['config']['Env'] *= 2
+    elif case == 'readonly':
+        row['mounts'][0]['RW'] = False
+    elif case == 'bind':
+        row['mounts'][0]['Type'] = 'bind'
+    elif case == 'parent_mode':
+        parent.chmod(0o750)
+    elif case == 'gid':
+        os.chown(data, 70, 0)
+    elif case == 'proc_mismatch':
+        other = tmp_path / 'other'
+        (other / 'var/lib/postgresql/data').mkdir(parents=True, mode=0o700)
+        os.chown(other / 'var/lib/postgresql/data', 70, 70)
+        (proc / 'root').unlink()
+        (proc / 'root').symlink_to(other)
+    elif case == 'proc_link':
+        leaf = data.with_name('other-data')
+        leaf.mkdir(mode=0o700)
+        os.chown(leaf, 70, 70)
+        data.rmdir()
+        data.symlink_to(leaf)
+    elif case == 'parent_link':
+        moved = parent.with_name('old-backups')
+        parent.rename(moved)
+        parent.symlink_to(moved)
+    elif case == 'ancestor_link':
+        directory = first / 'var/lib'
+        moved = directory.with_name('old-lib')
+        directory.rename(moved)
+        directory.symlink_to(moved)
+    elif case == 'wrong_device':
+        # Same inode fields except device are insufficient. Only the actual device changes.
+        fstat = os.fstat
+        def different_device(fd):
+            info = fstat(fd)
+            if info.st_ino == parent.stat().st_ino:
+                return SimpleNamespace(st_dev=info.st_dev + 1, st_ino=info.st_ino,
+                    st_uid=info.st_uid, st_gid=info.st_gid, st_mode=info.st_mode,
+                    st_nlink=info.st_nlink, st_size=info.st_size,
+                    st_mtime_ns=info.st_mtime_ns, st_ctime_ns=info.st_ctime_ns)
+            return info
+        monkeypatch.setattr(operator.os, 'fstat', different_device)
+        original_lstat = Path.lstat
+        def different_path_device(path):
+            info = original_lstat(path)
+            if path == parent:
+                return SimpleNamespace(st_dev=info.st_dev + 1, st_ino=info.st_ino,
+                    st_uid=info.st_uid, st_gid=info.st_gid, st_mode=info.st_mode,
+                    st_nlink=info.st_nlink, st_size=info.st_size,
+                    st_mtime_ns=info.st_mtime_ns, st_ctime_ns=info.st_ctime_ns)
+            return info
+        monkeypatch.setattr(Path, 'lstat', different_path_device)
+    elif case == 'env':
+        row['config']['Env'] = ['PGDATA=/elsewhere']
+    elif case == 'duplicate_mount':
+        row['mounts'] *= 2
+    elif case == 'submount':
+        row['mounts'].append(dict(Destination='/var/lib/postgresql/data/hidden'))
+    elif case == 'owner':
+        os.chown(data, 0, 0)
+    elif case == 'permissions':
+        data.chmod(0o777)
+    elif case == 'link':
+        moved = data.with_name('old-data')
+        data.rename(moved)
+        data.symlink_to(moved)
+
+    def check():
+        with operator._runtime_postgres_staging(row, process=process, proc_root=tmp_path / 'proc') as proof:
+            assert len(proof) == 64
+            if case == 'timestamps':
+                child = data / 'owned-child'
+                child.mkdir()
+                child.rmdir()
+            elif case == 'changed':
+                data.rename(data.with_name('previous'))
+                data.mkdir(mode=0o700)
+                os.chown(data, 70, 70)
+            elif case == 'proc_changed':
+                (proc / 'root').unlink()
+                (proc / 'root').symlink_to(tmp_path)
+            elif case == 'parent_changed':
+                parent.rename(parent.with_name('previous-backups'))
+                parent.mkdir(mode=0o700)
+            elif case == 'process_changed':
+                current[0] = (123, 457, (70,))
+    if case in {'good', 'timestamps', 'env_absent'}:
+        check()
+    else:
+        with pytest.raises(ActivationHold):
+            check()
+
+
+@pytest.mark.skipif(sys.platform != 'linux', reason='Linux fstatfs ABI')
+def test_staging_filesystem_rejects_actual_tmpfs_overlay_and_syscall_error():
+    # Actual filesystem types vary by runner; inspect the ABI independently.
+    import ctypes
+    import platform
+
+    if platform.machine() not in {'x86_64', 'aarch64'}:
+        pytest.skip('unsupported Linux64 ABI')
+    for path in ('/', '/tmp'):
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            raw = (ctypes.c_long * 15)()
+            assert ctypes.CDLL(None).fstatfs(fd, ctypes.byref(raw)) == 0
+            if raw[0] in {0xEF53, 0x58465342, 0x9123683E}:
+                assert operator._staging_filesystem(fd) == raw[0]
+            else:
+                with pytest.raises(ActivationHold):
+                    operator._staging_filesystem(fd)
+        finally:
+            os.close(fd)
+    with pytest.raises(ActivationHold):
+        operator._staging_filesystem(-1)
+
+
+def test_staging_filesystem_fails_closed_on_unknown_abi_magic_or_syscall(monkeypatch):
+    import ctypes
+    import platform
+
+    monkeypatch.setattr(operator.sys, 'platform', 'linux')
+    monkeypatch.setattr(platform, 'machine', lambda: 'unsupported')
+    with pytest.raises(ActivationHold, match='staging_filesystem'):
+        operator._staging_filesystem(-1)
+    monkeypatch.setattr(platform, 'machine', lambda: 'x86_64')
+    for result, magic in ((-1, 0xEF53), (0, 0xBAD)):
+        def fstatfs(fd, buffer, result=result, magic=magic):
+            ctypes.cast(buffer, ctypes.POINTER(ctypes.c_long))[0] = magic
+            return result
+        monkeypatch.setattr(ctypes, 'CDLL', lambda *a, function=fstatfs, **k: SimpleNamespace(fstatfs=function))
+        with pytest.raises(ActivationHold, match='staging_filesystem'):
+            operator._staging_filesystem(-1)

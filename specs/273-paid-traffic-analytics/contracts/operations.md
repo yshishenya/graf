@@ -657,8 +657,8 @@ guard — `GRAF_ANALYTICS_GUARD_SCOPE`. Неверная область отве
 GRAF_APP_DIR. TWOBRAIN_BACKUP_DIR допускает лишь canonical прямой дочерний
 destination на том же FS без links; unknown/другой путь — HOLD. Guard не создаёт
 missing parent. Actual runtime overrides проверяет local operator. Host staging
-только в этом parent; PostgreSQL staging — на уже привязанном продуктовом FS
-либо доказанном tmpfs с защитой памяти. Неизвестные installed jobs/cron/shell
+только в этом parent; PostgreSQL staging — только на уже привязанном продуктовом
+volume `/var/lib/postgresql/data`. tmpfs/overlay не поддерживаются этим путём. Неизвестные installed jobs/cron/shell
 paths и staging остаются HOLD полного оператора. До stop верхний оператор
 отдельно принимает место для двух новых полных копий, restore target и staging;
 минутный резерв эту оценку не заменяет.
@@ -686,3 +686,37 @@ provider_smoke/page_validation, graf-local — local_measurement_review.
 Рабочий переход старого состояния требует отдельного trusted решения с
 сохранением истории; этот срез его не исполняет. Общие HOLD полного оператора,
 ready/T0 и отдельные удаления остаются.
+
+
+### Временные файлы на защищённом диске T113 — 31.10.2026
+
+Четыре создателя временного PG-комплекта (Python coherent backup/rehearsal и
+shell backup/rehearse) используют только
+`/var/lib/postgresql/data/twobrain-rec-backup.<alnum>`. Общий SQL-validator
+отклоняет старый `/tmp`, произвольный и неканонический путь до запуска dump
+и вывода inventory. Fallback отсутствует; логические dump/restore не копируют
+PGDATA целиком. Очистка касается только уникального каталога данной попытки,
+не PGDATA/base/global/pg_wal и не соседних каталогов.
+
+Host metadata Python rehearsal создаются через удержанный FD уже существующего
+canonical MIXED_BACKUP_PARENT, без ссылок,0700, с владельцем оператора (root в
+рабочем входе). Reference — прямой canonical child. При коллизии чужой каталог
+и исходный комплект сохраняются; подмена parent или собственной цели закрывает
+успех. Удаление своей цели выполняется относительно удержанного FD parent.
+
+До и после runtime DB read удерживаются host volume Source, backup parent и
+PGDATA через единственный допустимый proc-root hop проверенного PG процесса.
+PGDATA отсутствует в env либо строго `/var/lib/postgresql/data`; единственный
+writable local volume mount не имеет submount. Реальный `SHOW data_directory`
+проверяется до/после DB context. Source/proc PGDATA совпадают по dev/ino/uid/gid/mode,
+UID/GID70,0700/0750,без ACL; parent root0700 на том же st_dev. Linux64 amd64/arm64
+`fstatfs` удержанных FD допускает только ext/XFS/Btrfs. Ошибка syscall,
+неизвестный ABI/magic,tmpfs/overlay дают HOLD. Обычные изменения времён,
+размера и числа ссылок каталога не считаются подменой.
+
+Это привязка ресурса, не принятие ёмкости двух копий/restore/staging. Shell host
+TMPDIR ещё не получает полный local_only допуск. Старый `_runtime_policy` digest
+полных метаданных volume root может измениться от own mkdir/cleanup: верхний
+оператор не должен считать его неизменным после таких действий.
+`full_preflight_not_implemented` и `activation_recovery_unverified` сохраняются;
+рабочие T0,writer,выпуск и полная приёмка T113 остаются впереди.

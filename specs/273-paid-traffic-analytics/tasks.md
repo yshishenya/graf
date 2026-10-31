@@ -956,3 +956,13 @@ unit consumers и Linux actual files обязательны. T113/T116/#7804 н�
 working v1 migration, installed jobs/staging, upper operator и рабочая приёмка
 ещё отдельно; full_preflight_not_implemented/activation_recovery_unverified
 сохраняются. Это не включение аналитики и не старт T0.
+
+
+### Временные файлы на защищённом диске T113 — 31.10.2026
+
+Тот же открытый T113/#7804: четыре PG staging producers/общий SQL, host
+metadata через parent dir_fd и runtime PGDATA/FS proof. Выполнить
+[проверки](quickstart.md#временные-файлы-на-защищённом-диске-t113--31102026)
+под [проектным гейтом](validation/t113-staging-design-review-20261031.md),
+потом независимое code review. Installed jobs, размер двух копий, верхний
+оператор, выпуск, T112/T0 и AC01–AC06 остаются отдельными открытыми воротами.

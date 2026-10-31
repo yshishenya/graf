@@ -75,7 +75,7 @@ def test_backup_inventory_and_dump_share_native_snapshot(snapshot_postgres, bind
     # Delay the real pg_dump AFTER snapshot export while another connection writes.
     subprocess.run(["docker", "exec", "-i", name, "sh", "-s"], input="""
 set -eu
-mkdir -m 700 /tmp/twobrain-rec-backup.TEST123 /tmp/snapshot-bin
+mkdir -m 700 /var/lib/postgresql/data/twobrain-rec-backup.TEST123 /tmp/snapshot-bin
 cat > /tmp/snapshot-bin/pg_dump <<'SH'
 #!/bin/sh
 touch /tmp/snapshot-exported
@@ -91,7 +91,7 @@ chmod 700 /tmp/snapshot-bin/pg_dump
     command = ["docker", "exec", "-i", "-e", "PATH=/tmp/snapshot-bin:/usr/local/bin:/usr/bin:/bin",
                name, "sh", "-c", 'umask 077; exec psql "$@"', "sh", "-XqAt", "-v", "ON_ERROR_STOP=1", "-U", "postgres",
                "-d", "twobrain_rec", "-v", "expected_db=twobrain_rec",
-               "-v", "staging=/tmp/twobrain-rec-backup.TEST123", "-v", "capture_dump=true"]
+               "-v", "staging=/var/lib/postgresql/data/twobrain-rec-backup.TEST123", "-v", "capture_dump=true"]
     process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, text=True)
     try:
@@ -111,7 +111,7 @@ chmod 700 /tmp/snapshot-bin/pg_dump
         output, error = process.communicate(timeout=30)
     assert process.returncode == 0, error
     assert output == ""
-    base = "/tmp/twobrain-rec-backup.TEST123"
+    base = "/var/lib/postgresql/data/twobrain-rec-backup.TEST123"
     rows = [json.loads(line) for line in subprocess.check_output(
         ["docker", "exec", name, "cat", base + "/inventory.jsonl"], text=True).splitlines()]
     counts = {r["relation"]: r["rows"] for r in rows if r["kind"] == "count"}
@@ -146,7 +146,7 @@ def test_native_snapshot_refuses_incomplete_or_untrusted_capture(snapshot_postgr
         GRANT SELECT ON product_activation_milestones TO limited;
     """)
     subprocess.run(["docker", "exec", name, "mkdir", "-m", "700",
-                    "/tmp/twobrain-rec-backup.TEST123"], check=True)
+                    "/var/lib/postgresql/data/twobrain-rec-backup.TEST123"], check=True)
     if failure in {"dump", "schema"}:
         subprocess.run(["docker", "exec", "-i", name, "sh", "-s"], input=f"""
 mkdir /tmp/snapshot-bin
@@ -163,17 +163,43 @@ chmod 700 /tmp/snapshot-bin/pg_dump
          name, "sh", "-c", 'umask 077; exec psql "$@"', "sh", "-XqAt", "-v", "ON_ERROR_STOP=1",
          "-U", "limited" if failure == "rls-role" else "postgres", "-d", "twobrain_rec",
          "-v", "expected_db=" + ("other" if failure == "wrong-database" else "twobrain_rec"),
-         "-v", "staging=/tmp/twobrain-rec-backup.TEST123", "-v", "capture_dump=true"],
+         "-v", "staging=/var/lib/postgresql/data/twobrain-rec-backup.TEST123", "-v", "capture_dump=true"],
         input=SQL.read_text(), text=True, capture_output=True, timeout=30,
     )
     assert result.returncode != 0
     assert result.stdout == ""
     assert subprocess.run(["docker", "exec", name, "test", "-e",
-                           "/tmp/twobrain-rec-backup.TEST123/checksums.sha256"]).returncode != 0
+                           "/var/lib/postgresql/data/twobrain-rec-backup.TEST123/checksums.sha256"]).returncode != 0
+
+
+def test_native_snapshot_rejects_old_or_noncanonical_staging_before_dump(snapshot_postgres):
+    name = snapshot_postgres
+    psql(name, "CREATE TABLE product_activation_milestones(posthog_state text, yandex_state text)")
+    # A real pg_dump marker proves refusal happened before either dump was launched.
+    subprocess.run(["docker", "exec", "-i", name, "sh", "-s"], input="""
+set -eu
+mkdir -m 700 /tmp/snapshot-bin
+printf '#!/bin/sh\ntouch /tmp/forbidden-dump\nexit 7\n' > /tmp/snapshot-bin/pg_dump
+chmod 700 /tmp/snapshot-bin/pg_dump
+""", text=True, check=True, capture_output=True)
+    prefix = "/var/lib/postgresql/data/twobrain-rec-backup."
+    for staging in ("/tmp/twobrain-rec-backup.TEST123", "/arbitrary", prefix,
+                    prefix + "../bad", prefix + "A/child", prefix + "A;false",
+                    "/var/lib/postgresql/data/../data/twobrain-rec-backup.A"):
+        result = subprocess.run(["docker", "exec", "-i", "-e",
+            "PATH=/tmp/snapshot-bin:/usr/local/bin:/usr/bin:/bin", name,
+            "psql", "-XqAt", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "twobrain_rec",
+            "-v", "expected_db=twobrain_rec", "-v", "staging=" + staging,
+            "-v", "capture_dump=true"], input=SQL.read_text(), text=True,
+            capture_output=True, timeout=10)
+        assert result.returncode != 0 and result.stdout == ""
+        assert "graf_backup_validation_failed" in result.stderr
+    assert subprocess.run(["docker", "exec", name, "test", "!", "-e", "/tmp/forbidden-dump"],
+                          capture_output=True).returncode == 0
 
 
 def capture(name, database, destination, *, dump):
-    staging = "/tmp/twobrain-rec-backup." + uuid.uuid4().hex
+    staging = "/var/lib/postgresql/data/twobrain-rec-backup." + uuid.uuid4().hex
     subprocess.run(["docker", "exec", name, "mkdir", "-m", "700", staging],
                    check=True, capture_output=True)
     try:

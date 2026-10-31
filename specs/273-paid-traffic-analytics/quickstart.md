@@ -599,3 +599,24 @@ unit consumers и Linux actual files обязательны. T113/T116/#7804 н�
 working v1 migration, installed jobs/staging, upper operator и рабочая приёмка
 ещё отдельно; full_preflight_not_implemented/activation_recovery_unverified
 сохраняются. Это не включение аналитики и не старт T0.
+
+
+### Временные файлы на защищённом диске T113 — 31.10.2026
+
+Продолжение существующей T113/#7804, `high-risk-product`, Legacy Impact untouched.
+[Контракт](contracts/operations.md#временные-файлы-на-защищённом-диске-t113--31102026)
+и [независимый проектный гейт](validation/t113-staging-design-review-20261031.md).
+Одновременно обновляются четыре PG staging producers и общий SQL-validator;
+Python host metadata привязаны к удержанному fixed backup parent, runtime
+проверяет actual PGDATA/SHOW/процесс/FD/FS до и после DB read. Нижний helper
+использует владельца оператора; root обеспечивается рабочим runtime-входом.
+
+Проверить причинный RED→GREEN: новый PG prefix, старые/неканонические пути
+до dump, foreign reference/parent/collision и сохранность исходного комплекта,
+wrong device/link/env/submount/process/SHOW drift, actual ext и отказ tmpfs/overlay,
+ошибки syscall/ABI. Повторить unit operator, оба shell integration profiles и
+native PG17 snapshot/full restore/replay/cancellation/unknown-create/cleanup.
+Общая изолированная PG fixture использует одноразовый anonymous volume,
+удаляемый штатным `docker rm --volumes`: Docker cp не читает её прежний tmpfs.
+Рабочие БД/сервер/Dev не меняются. T113/T112/AC01–AC06 и оба общих HOLD открыты;
+место для двух копий и верхний оператор принимаются отдельно.

@@ -21,7 +21,6 @@ import shlex
 import shutil
 import stat
 import sys
-import tempfile
 import time
 import unicodedata
 from contextlib import AsyncExitStack, ExitStack, asynccontextmanager, contextmanager, suppress
@@ -1028,7 +1027,7 @@ async def _create_coherent_backup(fence, *, root, parent, source, owner, binding
 
     token = uuid4().hex
     reference = parent / ("backup-" + token)
-    pg_staging = "/tmp/twobrain-rec-backup." + token
+    pg_staging = "/var/lib/postgresql/data/twobrain-rec-backup." + token
     containers, unknown, pg_commands = [], set(), {}
     pg_owned = False
     attempt = None
@@ -1291,10 +1290,12 @@ async def _rehearsal_resources(*, root, reference, owner, pg_container, cluster_
     token = uuid4().hex
     target, schema = "rec_restore_rehearsal_" + token, "rec_restore_schema_" + token
     bucket = "twobrain-rec-restore-rehearsal-" + token
-    pg_staging = "/tmp/twobrain-rec-backup." + token
+    pg_staging = "/var/lib/postgresql/data/twobrain-rec-backup." + token
     databases, containers, unknown, pg_commands = {}, [], set(), {}
     staging = None
     staging_identity = None
+    parent_fd = None
+    parent_identity = None
     pg_owned = bucket_owned = False
 
     async def command(*argv, until=deadline):
@@ -1322,7 +1323,7 @@ async def _rehearsal_resources(*, root, reference, owner, pg_container, cluster_
             password_file=password_file, containers=containers, unknown=unknown, deadline=deadline)
 
     async def prepare():
-        nonlocal staging, staging_identity, pg_owned, bucket_owned
+        nonlocal staging, staging_identity, pg_owned, bucket_owned, parent_fd, parent_identity
         async with asyncio.timeout_at(deadline):
             _require(root.is_absolute() and reference.is_absolute()
                      and re.fullmatch(r"[0-9a-f]{64}", pg_container)
@@ -1330,6 +1331,16 @@ async def _rehearsal_resources(*, root, reference, owner, pg_container, cluster_
                      and re.fullmatch(r"sha256:[0-9a-f]{64}", mc_image)
                      and re.fullmatch(r"[0-9a-f]{64}", network),
                      "activation_operator_rehearsal_binding")
+            parent = MIXED_BACKUP_PARENT
+            _require(reference.parent == parent and parent == parent.resolve(strict=True)
+                     and reference == reference.resolve(strict=True),
+                     "activation_operator_rehearsal_binding")
+            parent_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            info = os.fstat(parent_fd)
+            parent_identity = _settings_file_identity(info)[:5]
+            _require(info.st_uid == os.geteuid() and stat.S_IMODE(info.st_mode) == 0o700
+                     and _settings_file_identity(parent.lstat())[:5] == parent_identity,
+                     "activation_operator_backup_permissions")
             for secret in (user_file, password_file):
                 private_bytes(secret, limit=16384)
             before = await _settled_sql(asyncio.to_thread(_file_manifest, reference, deadline=deadline))
@@ -1340,10 +1351,16 @@ async def _rehearsal_resources(*, root, reference, owner, pg_container, cluster_
             await command(sys.executable, str(root / "infra/scripts/rec-db-verify.py"),
                           str(reference), "--inventory")
             await identity(deadline)
-            staging = Path(tempfile.mkdtemp(prefix="graf-rec-restore-"))
-            staging.chmod(0o700)
-            info = staging.lstat()
+            _require(_settings_file_identity(parent.lstat())[:5] == parent_identity,
+                     "activation_operator_cleanup_staging")
+            staging_name = "graf-rec-restore-" + token
+            os.mkdir(staging_name, mode=0o700, dir_fd=parent_fd)
+            staging = parent / staging_name
+            info = os.stat(staging_name, dir_fd=parent_fd, follow_symlinks=False)
             staging_identity = info.st_dev, info.st_ino
+            _require(_settings_file_identity(parent.lstat())[:5] == parent_identity
+                     and (staging.lstat().st_dev, staging.lstat().st_ino) == staging_identity,
+                     "activation_operator_cleanup_staging")
             unknown.add("pg_staging")
             await command("docker", "exec", pg_container, "mkdir", "-m", "700", pg_staging)
             pg_owned = True
@@ -1482,10 +1499,13 @@ async def _rehearsal_resources(*, root, reference, owner, pg_container, cluster_
             try:
                 info = staging.lstat()
                 _require(stat.S_ISDIR(info.st_mode)
+                         and parent_fd is not None
+                         and _settings_file_identity(MIXED_BACKUP_PARENT.lstat())[:5] == parent_identity
+                         and _settings_file_identity(os.fstat(parent_fd))[:5] == parent_identity
                          and (info.st_dev, info.st_ino) == staging_identity,
                          "activation_operator_cleanup_staging")
-                shutil.rmtree(staging)
-                _require(not staging.exists(), "activation_operator_cleanup_staging")
+                shutil.rmtree(staging.name, dir_fd=parent_fd)
+                _require(staging.name not in os.listdir(parent_fd), "activation_operator_cleanup_staging")
             except Exception:
                 failed = True
         _require(not failed, "activation_operator_rehearsal_cleanup_unverified")
@@ -1500,7 +1520,11 @@ async def _rehearsal_resources(*, root, reference, owner, pg_container, cluster_
         yield resources
         _require(time.monotonic() < deadline, "activation_operator_rehearsal_timeout")
     finally:
-        await _settled_sql(cleanup())
+        try:
+            await _settled_sql(cleanup())
+        finally:
+            if parent_fd is not None:
+                os.close(parent_fd)
     _require(time.monotonic() < deadline, "activation_operator_rehearsal_timeout")
 
 
@@ -1884,6 +1908,90 @@ def _runtime_backup_destination(environment):
     return _json_digest([ancestry, _settings_file_identity(info)[:2], override, child_identity])
 
 
+def _staging_filesystem(fd):
+    """Linux64 statfs ABI shared by amd64/arm64; unknown filesystems stay closed."""
+    import ctypes
+    import platform
+
+    _require(sys.platform == "linux" and ctypes.sizeof(ctypes.c_long) == 8
+             and platform.machine() in {"x86_64", "aarch64"},
+             "activation_operator_staging_filesystem")
+    # Linux struct statfs is 120 bytes on these ABIs; f_type is the first long.
+    result = (ctypes.c_long * 15)()
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.fstatfs.argtypes = (ctypes.c_int, ctypes.c_void_p)
+    libc.fstatfs.restype = ctypes.c_int
+    _require(libc.fstatfs(fd, ctypes.byref(result)) == 0
+             and result[0] in {0xEF53, 0x58465342, 0x9123683E},
+             "activation_operator_staging_filesystem")
+    return result[0]
+
+
+@contextmanager
+def _runtime_postgres_staging(row, *, process, proc_root=Path("/proc")):
+    """Bind PG staging to the held, protected product filesystem, before DB reads."""
+    try:
+        path = Path("/var/lib/postgresql/data")
+        environment = _runtime_environment(row)
+        _require(environment.get("PGDATA", str(path)) == str(path),
+                 "activation_operator_staging_environment")
+        mounts = [m for m in row["mounts"] if m["Destination"] == str(path)]
+        _require(len(mounts) == 1 and mounts[0]["Type"] == "volume"
+                 and mounts[0]["Driver"] == "local" and mounts[0]["RW"] is True
+                 and not any(m["Destination"].startswith(str(path) + "/") for m in row["mounts"]),
+                 "activation_operator_staging_mount")
+        source, parent = Path(mounts[0]["Source"]), MIXED_BACKUP_PARENT
+        ancestry = _settings_source_ancestors(source), _settings_source_ancestors(parent)
+        proc_path = proc_root / str(process[0]) / "root"
+
+        def process_check():
+            _require(_process_identity(process[0], proc_root=proc_root, uid=70, gid=70) == process,
+                     "activation_operator_process_changed")
+
+        with ExitStack() as owned:
+            process_check()
+            root_fd = os.open(proc_path, os.O_RDONLY | os.O_DIRECTORY)
+            owned.callback(os.close, root_fd)
+            root_identity = _settings_file_identity(os.fstat(root_fd))[:5]
+            host = os.open(source, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            owned.callback(os.close, host)
+            backup = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            owned.callback(os.close, backup)
+            data = owned.enter_context(_settings_destination(root_fd, path, {70, *process[2]}, uid=70))
+            identity = _settings_file_identity(os.fstat(host))[:5]
+            backup_identity = _settings_file_identity(os.fstat(backup))[:5]
+
+            def check():
+                process_check()
+                _require((_settings_source_ancestors(source), _settings_source_ancestors(parent)) == ancestry
+                         and _settings_file_identity(proc_path.stat())[:5] == root_identity
+                         and _settings_file_identity(os.fstat(root_fd))[:5] == root_identity,
+                         "activation_operator_staging_changed")
+                for fd in (host, data, backup):
+                    _settings_no_acl(fd)
+                    _staging_filesystem(fd)
+                info = os.fstat(host)
+                _require(stat.S_ISDIR(info.st_mode) and info.st_uid == info.st_gid == 70
+                         and stat.S_IMODE(info.st_mode) in {0o700, 0o750}
+                         and _settings_file_identity(info)[:5] == identity
+                         and _settings_file_identity(os.fstat(data))[:5] == identity
+                         and _settings_file_identity(source.lstat())[:5] == identity
+                         and _settings_file_identity(os.fstat(backup))[:5] == backup_identity
+                         and _settings_file_identity(parent.lstat())[:5] == backup_identity
+                         and backup_identity[0] == identity[0]
+                         and backup_identity[2] == 0 and stat.S_IMODE(backup_identity[4]) == 0o700,
+                         "activation_operator_staging_identity")
+                with _settings_destination(root_fd, path, {70, *process[2]}, uid=70) as current:
+                    _require(_settings_file_identity(os.fstat(current))[:5] == identity,
+                             "activation_operator_staging_changed")
+
+            check()
+            yield _json_digest([identity, backup_identity, root_identity, ancestry, _staging_filesystem(host)])
+            check()
+    except (OSError, KeyError, TypeError, ValueError):
+        raise ActivationHold("activation_operator_staging_unverified") from None
+
+
 @contextmanager
 def _runtime_operations(row, *, settings, root, process, snapshot, proc_root=Path("/proc")):
     """Read actual operational files, without granting lifecycle or full readiness."""
@@ -2219,6 +2327,8 @@ async def _runtime_databases(*, settings, password, host, snapshot, deadline, re
         source = await owned.enter_async_context(_physical_connection(host=host, port=5432,
             user="twobrain_rec", password=password, database="twobrain_rec", deadline=deadline))
         async with owner.transaction(readonly=True):
+            _require(await owner.fetchval("SHOW data_directory") == "/var/lib/postgresql/data",
+                     "activation_operator_staging_directory")
             oid = await owner.fetchval("SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname='twobrain_rec'")
             cluster = await owner.fetchval("SELECT system_identifier::text FROM pg_catalog.pg_control_system()")
         _require(type(oid) is int and oid > 0, "activation_operator_database_oid")
@@ -2264,6 +2374,9 @@ async def _runtime_databases(*, settings, password, host, snapshot, deadline, re
                      "activation_operator_retention_catalog_changed")
             _require(await local_retention_database_access(source) == retention_access,
                      "activation_operator_retention_access_changed")
+        async with owner.transaction(readonly=True):
+            _require(await owner.fetchval("SHOW data_directory") == "/var/lib/postgresql/data",
+                     "activation_operator_staging_directory")
         _require(await _local_lifecycle(source, register_raw, root=snapshot) == lifecycle,
                  "activation_operator_lifecycle_changed")
 
@@ -2852,6 +2965,8 @@ async def _runtime_preflight(*, root, snapshot, source, deadline):
         pg = next(row for row in actual if row["id"] == ids["rec-postgres"])
         password, password_proof = actual_settings.enter_context(_runtime_owner_password(
             pg, root=root, process=processes[pg["id"]]))
+        staging_proof = actual_settings.enter_context(_runtime_postgres_staging(
+            pg, process=processes[pg["id"]]))
         async with (
             _runtime_guard_units(snapshot=snapshot, deadline=deadline) as guard_units_proof,
             _runtime_databases(settings=writer_settings, password=password,
@@ -2880,6 +2995,7 @@ async def _runtime_preflight(*, root, snapshot, source, deadline):
                                                         postal=postal_info, processes=processes,
                                                         settings=settings_proofs, operations=operations_proofs, policy=policy,
                                                         owner_secret=password_proof, database=database_proof,
+                                                        postgres_staging_sha256=staging_proof,
                                                         guard_units_sha256=guard_units_proof)))
     _require(time.monotonic() < deadline, "activation_operator_runtime_timeout")
     return result

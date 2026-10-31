@@ -6,7 +6,7 @@ BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
 SET LOCAL row_security = off;
 SELECT current_database() = :'expected_db'
        AND (rolsuper OR rolbypassrls)
-       AND :'staging' ~ '^/tmp/twobrain-rec-backup\.[A-Za-z0-9]+$'
+       AND :'staging' ~ '^/var/lib/postgresql/data/twobrain-rec-backup\.[A-Za-z0-9]+$'
        AND to_regclass('public.product_activation_milestones') IS NOT NULL AS valid_source
 FROM pg_roles WHERE rolname = current_user \gset
 \if :valid_source

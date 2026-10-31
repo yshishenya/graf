@@ -562,7 +562,8 @@ def test_native_compose_stop_on_owned_networks(fence, tmp_path, monkeypatch):
                                 'catalog_always', 'catalog_state_changed', 'lifecycle_version', 'lifecycle_malformed',
                                 'lifecycle_withdrawal', 'lifecycle_accepted', 'lifecycle_failed',
                                 'lifecycle_applied', 'lifecycle_remnant', 'lifecycle_changed',
-                                'lifecycle_closure', 'lifecycle_closure_changed', 'cancel_lifecycle'])
+                                'lifecycle_closure', 'lifecycle_closure_changed', 'cancel_lifecycle',
+                                'data_directory_initial', 'data_directory_changed'])
 def test_native_runtime_database_preflight_full_schema(
     postgres_isolated_cluster_database_url, tmp_path, monkeypatch, case,
 ):
@@ -595,13 +596,29 @@ def test_native_runtime_database_preflight_full_schema(
     asyncio.run(bootstrap['_bootstrap']())  # Own disposable cluster only, never operator code.
     original = operator._physical_connection
 
+    directory_reads = []
+
     @asynccontextmanager
     async def local_transport(**kwargs):
         assert kwargs.pop('host') == '172.19.0.2' and kwargs.pop('port') == 5432
         if case == 'role' and kwargs['user'] == 'twobrain_rec_app':
             kwargs['user'] = 'twobrain_rec'  # Simulate credentials reaching a stronger actual role.
         async with original(host=url.host, port=url.port, **kwargs) as connection:
-            yield connection
+            class ObservedConnection:
+                def __getattr__(self, name):
+                    return getattr(connection, name)
+
+                async def fetchval(self, query, *args):
+                    result = await connection.fetchval(query, *args)
+                    if query == 'SHOW data_directory':
+                        directory_reads.append(result)
+                        assert result == '/var/lib/postgresql/data'
+                        if case == 'data_directory_initial' or (
+                                case == 'data_directory_changed' and len(directory_reads) > 1):
+                            return '/synthetic-wrong-directory'
+                    return result
+
+            yield ObservedConnection()
     monkeypatch.setattr(operator, '_physical_connection', local_transport)
 
     async def run():
@@ -756,6 +773,11 @@ def test_native_runtime_database_preflight_full_schema(
                     await task
             elif case in ('good', 'catalog_always', 'lifecycle_applied'):
                 await operation()
+            elif case in ('data_directory_initial', 'data_directory_changed'):
+                with pytest.raises(operator.ActivationHold, match='staging_directory'):
+                    await operation()
+                assert entered.is_set() == (case == 'data_directory_changed')
+                assert len(directory_reads) == (2 if entered.is_set() else 1)
             elif case in ('access_initial', 'access_changed'):
                 with pytest.raises(operator.ActivationHold, match='retention_access'):
                     await operation()

@@ -95,7 +95,7 @@ def rehearsal_objects(tmp_path):
             docker("network", "rm", network)
 
 
-def test_staged_native_restore_replays_before_cleanup(replay_world, rehearsal_objects):
+def test_staged_native_restore_replays_before_cleanup(replay_world, rehearsal_objects, monkeypatch):
     import asyncpg
     from sqlalchemy import event, text
 
@@ -121,6 +121,42 @@ def test_staged_native_restore_replays_before_cleanup(replay_world, rehearsal_ob
         resources = None
         engines = []
         try:
+            # Fail before creating targets, preserving the reference and foreign leaf.
+            fixed = uuid4()
+            pg_sibling = "/var/lib/postgresql/data/twobrain-rec-backup." + fixed.hex + "foreign"
+            await operator._command(["docker", "exec", pg_container, "sh", "-c",
+                'mkdir -m 700 "$1"; printf synthetic > "$1/foreign"', "sh", pg_sibling],
+                deadline=time.monotonic()+5)
+            collision = world["root"] / ("graf-rec-restore-" + fixed.hex)
+            collision.mkdir(mode=0o700)
+            marker = closed(collision / "foreign", "synthetic-owned-by-another-attempt")
+            linked = world["root"] / "linked-parent"
+            linked.symlink_to(world["root"], target_is_directory=True)
+            target_count = await owner.fetchval("SELECT count(*) FROM pg_database WHERE datname LIKE 'rec_restore_%'")
+            for defect in ("foreign_parent", "linked_parent", "nested_reference", "parent_mode", "collision"):
+                with monkeypatch.context() as patch:
+                    selected = reference
+                    if defect == "foreign_parent":
+                        patch.setattr(operator, "MIXED_BACKUP_PARENT", reference)
+                    elif defect == "linked_parent":
+                        patch.setattr(operator, "MIXED_BACKUP_PARENT", linked)
+                        selected = linked / reference.name
+                    elif defect == "nested_reference":
+                        selected = reference / "minio-objects"
+                    elif defect == "parent_mode":
+                        world["root"].chmod(0o750)
+                    else:
+                        patch.setattr(operator, "uuid4", lambda: fixed)
+                    with pytest.raises(operator.ActivationHold):
+                        async with operator._rehearsal_resources(
+                            root=REPO, reference=selected, owner=owner, pg_container=pg_container,
+                            cluster_id=cluster_id, deadline=time.monotonic()+30, **objects,
+                        ):
+                            pytest.fail("unsafe host staging admitted")
+                world["root"].chmod(0o700)
+                assert marker.read_text() == "synthetic-owned-by-another-attempt"
+                assert (reference / "postgres.dump").is_file()
+                assert await owner.fetchval("SELECT count(*) FROM pg_database WHERE datname LIKE 'rec_restore_%'") == target_count
             async with operator._rehearsal_resources(
                 root=REPO, reference=reference, owner=owner, pg_container=pg_container,
                 cluster_id=cluster_id, deadline=time.monotonic()+90, **objects,
@@ -173,9 +209,15 @@ def test_staged_native_restore_replays_before_cleanup(replay_world, rehearsal_ob
                 for engine in engines:
                     await engine.dispose()
                 assert resources["staging"].exists()
+                assert resources["staging"].parent == operator.MIXED_BACKUP_PARENT
+                assert resources["pg_staging"].startswith("/var/lib/postgresql/data/twobrain-rec-backup.")
                 assert len(operator._object_manifest(objects["client"], resources["bucket"],
                            deadline=time.monotonic()+5)) == 2
             assert not resources["staging"].exists()
+            await operator._command(["docker", "exec", pg_container, "test", "-s", pg_sibling + "/foreign"],
+                                    deadline=time.monotonic()+5)
+            assert marker.read_text() == "synthetic-owned-by-another-attempt"
+            assert (reference / "postgres.dump").is_file()
             assert not objects["client"].bucket_exists(resources["bucket"])
             assert await owner.fetchval("SELECT count(*) FROM pg_database WHERE datname=ANY($1)",
                                        [resources["target"], resources["schema"]]) == 0
@@ -259,7 +301,7 @@ def test_coherent_copy_is_native_and_can_be_restored(replay_world, rehearsal_obj
                     reached.set()
                     await asyncio.sleep(30)
                 raise TimeoutError("synthetic_native_response_lost")
-            if "mkdir" in argv and argv[-1].startswith("/tmp/twobrain-rec-backup."):
+            if "mkdir" in argv and argv[-1].startswith("/var/lib/postgresql/data/twobrain-rec-backup."):
                 staging.append(argv[-1])
             if argv[:2] == ["docker", "create"]:
                 containers.append(raw.decode().strip())
@@ -689,8 +731,10 @@ def test_staged_native_failures_preserve_ownership(replay_world, rehearsal_objec
 
 @pytest.fixture
 def replay_world(postgres_isolated_cluster_database_url, tmp_path, monkeypatch, request):
+    from twobrain_rec_server.product_analytics import activation_operator as operator
     from twobrain_rec_server.product_analytics.restore_replay import digest
 
+    monkeypatch.setattr(operator, "MIXED_BACKUP_PARENT", tmp_path.resolve())
     tmp_path.chmod(0o700)
     # This fixture owns this fresh directory; retain logs, never fixture dumps/passwords.
     request.addfinalizer(lambda: shutil.rmtree(tmp_path))

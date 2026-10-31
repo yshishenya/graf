@@ -135,8 +135,8 @@ docker compose -f infra/docker-compose.yml exec -T rec-postgres \
 # A new container staging is owned only after a validated successful create.
 trap 'stop_requested=1' HUP INT TERM
 candidate="$(docker compose -f infra/docker-compose.yml exec -T rec-postgres \
-  sh -c 'umask 077; mktemp -d /tmp/twobrain-rec-backup.XXXXXX' 2>>"$log")"
-case "$candidate" in /tmp/twobrain-rec-backup.*) suffix="${candidate#/tmp/twobrain-rec-backup.}" ;; *) exit 1 ;; esac
+  sh -c 'umask 077; mktemp -d /var/lib/postgresql/data/twobrain-rec-backup.XXXXXX' 2>>"$log")"
+case "$candidate" in /var/lib/postgresql/data/twobrain-rec-backup.*) suffix="${candidate#/var/lib/postgresql/data/twobrain-rec-backup.}" ;; *) exit 1 ;; esac
 case "$suffix" in ''|*[!a-zA-Z0-9]*) exit 1 ;; esac
 postgres_staging="$candidate"
 trap 'exit 1' HUP INT TERM

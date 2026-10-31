@@ -61,10 +61,10 @@ trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
 staging_candidate="$(docker compose -f infra/docker-compose.yml exec -T rec-postgres \
-  sh -c 'umask 077; mktemp -d /tmp/twobrain-rec-backup.XXXXXX' 2>/dev/null)" \
+  sh -c 'umask 077; mktemp -d /var/lib/postgresql/data/twobrain-rec-backup.XXXXXX' 2>/dev/null)" \
   || fail postgres_staging_create_failed
 case "$staging_candidate" in
-  /tmp/twobrain-rec-backup.*) suffix="${staging_candidate#/tmp/twobrain-rec-backup.}" ;;
+  /var/lib/postgresql/data/twobrain-rec-backup.*) suffix="${staging_candidate#/var/lib/postgresql/data/twobrain-rec-backup.}" ;;
   *) fail postgres_staging_invalid ;;
 esac
 case "$suffix" in
