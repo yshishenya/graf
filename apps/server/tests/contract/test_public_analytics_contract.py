@@ -1,9 +1,12 @@
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.main import create_app
+
+pytestmark = pytest.mark.usefixtures("public_basis_register")
 
 ROOT = Path(__file__).resolve().parents[2]
 REPO_ROOT = ROOT.parents[1]

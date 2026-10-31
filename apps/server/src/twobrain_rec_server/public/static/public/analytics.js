@@ -60,6 +60,7 @@
   var productCaptureBlocked = false;
   var publicProviderCaptureBlocked = false;
   var publicProviderCaptureFailure = false;
+  var ownedYandexQueue = null;
 
   (publicConfig && publicConfig.event_catalog ? publicConfig.event_catalog : []).forEach(function (event) {
     if (event && event.event_name) {
@@ -240,6 +241,9 @@
   }
 
   function canUseAnalytics() {
+    if (currentConsentState !== "unknown" && !persistedConsentMetadataMatches(currentConsentState, currentCategories)) {
+      disableOptionalProviders();
+    }
     return Boolean(
       api.consentReady &&
         !consentBlocked &&
@@ -293,11 +297,11 @@
   }
 
   function prepareYandexQueue() {
-    window.ym =
-      window.ym ||
-      function () {
+    if (!window.ym) {
+      ownedYandexQueue = window.ym = function () {
         (window.ym.a = window.ym.a || []).push(arguments);
       };
+    }
     window.ym.l = Number(new Date());
   }
 
@@ -365,11 +369,21 @@
     return true;
   }
 
-  function disableYandexCounter(counterId) {
+  function disableYandexCounter(counterId, started) {
     if (!counterId) {
       return false;
     }
     window["disableYaCounter" + counterId] = true;
+    if (started && ownedYandexQueue && Array.isArray(ownedYandexQueue.a)) {
+      ownedYandexQueue.a = ownedYandexQueue.a.filter(function (command) {
+        return String(command[0]) !== String(counterId);
+      });
+    }
+    if (started && typeof window.ym === "function") {
+      try {
+        window.ym(counterId, "destruct");
+      } catch (_) {}
+    }
     return true;
   }
 
@@ -502,16 +516,23 @@
   function disableOptionalProviders() {
     consentBlocked = true;
     publicProviderCaptureBlocked = true;
-    if (publicConfig) {
-      disableYandexCounter(publicConfig.yandex_metrica_id);
-      api.providerBlocked = true;
-    }
-    if (productConfig && productConfig.yandex) {
-      disableYandexCounter(productConfig.yandex.counter_id);
-    }
     productCaptureBlocked = true;
+    var publicStarted = publicProviderInitStarted;
+    var productStarted = productYandexInitStarted;
+    publicProviderInitStarted = false;
+    productYandexInitStarted = false;
+    api.providerLoaded = false;
+    api.providerInitStarted = false;
+    api.providerBlocked = true;
     if (window.GRAFProductAnalytics) {
       window.GRAFProductAnalytics.captureBlocked = true;
+      window.GRAFProductAnalytics.yandexEnabled = false;
+    }
+    if (publicConfig) {
+      disableYandexCounter(publicConfig.yandex_metrica_id, publicStarted);
+    }
+    if (productConfig && productConfig.yandex) {
+      disableYandexCounter(productConfig.yandex.counter_id, productStarted);
     }
   }
 
@@ -560,6 +581,16 @@
           Number(cookie.revision) === consentRevision() &&
           JSON.stringify(normalizedCategories(cookie.categories)) === JSON.stringify(expectedCategories),
       );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function persistedChoiceMatches(categories) {
+    try {
+      var cookie = JSON.parse(window.localStorage.getItem(config.consent_storage_key || "graf_public_cookie_consent"));
+      return Boolean(cookie && Number(cookie.revision) === consentRevision() &&
+        JSON.stringify(normalizedCategories(cookie.categories)) === JSON.stringify(categories));
     } catch (_) {
       return false;
     }
@@ -628,7 +659,7 @@
     var categories = normalizedCategories(cookie && cookie.categories);
     var hadOptionalConsent = previousOptionalConsent || cookieHadOptionalConsent(cookie);
     var nextState = consentStateFor(cookie, categories, hadOptionalConsent);
-    if (nextState === "unknown" || !transitionAllowed(nextState)) {
+    if (nextState === "unknown" || !transitionAllowed(nextState) || !persistedChoiceMatches(categories)) {
       currentCategories = [];
       currentConsentState = "unknown";
       api.currentCategories = [];
@@ -1182,5 +1213,13 @@
   if (publicConfig) {
     window.GRAFPublicAnalytics = api;
   }
+  window.addEventListener("storage", function (event) {
+    if (event.key === null || event.key === (config.consent_storage_key || "graf_public_cookie_consent")) {
+      canUseAnalytics();
+    }
+  });
+  window.addEventListener("pageshow", canUseAnalytics);
+  window.addEventListener("focus", canUseAnalytics);
+  document.addEventListener("visibilitychange", canUseAnalytics);
   runCookieConsent();
 })();

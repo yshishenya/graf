@@ -577,3 +577,65 @@ runbook: shared host directory монтируется read-only в процес�
 разрешённые поля/получатели прежние, продукт не зависит от измерения,
 until_decision/отдельные удаления/restore и проверки сохраняются. Нарушений
 проекта не выявлено; до независимого PASS реализацию не начинать.
+
+
+## T106 — public context и relay, 01.11.2026
+
+Lane active Spec Kit slice, privacy/server; Constitution II/III/IV/VI PASS
+до и после design, правила не меняются. Применяется исключение владельца
+на повторное чтение F273; затронутые sections/contracts/helper читаются
+полностью, базовые документы сверены по прежним SHA256.
+В public/analytics.py переиспользовать существующие константы public scope
+и read_basis_withdrawal_register. Одна функция возвращает безопасный код
+блокировки или None по public flag/env/revision/path и свежему register;
+available=false/file_errors блокируют неизвестное, withdrawal(provider_analytics)
+блокирует отозванное. Без новых файлов/конфигураций/зависимостей/кэша.
+Context использует этот код для configured/enabled/consent_ui, сохраняя
+ранее опубликованный scope/replay policy. Relay сохраняет ранние flag/revision,
+same-origin/size/normalizer guards и затем проверяет решение по нормализованному
+page_path. Delivery повторяет решение в своём потоке и возвращает delivered=false
+при отказе. Старый PostHog gate не меняется.
+Before-code независимый checklist public-server-gate, scoped analyze и sync
+существующей T106/#7696. RED на настоящем старом context/relay/delivery:
+реальный временный register меняется между вызовами, не подменять сам gate.
+GREEN включает валидное пустое состояние, другой уровень, provider withdrawal,
+missing/malformed/unreadable register, false flag/env/revision/private path
+и изменение между route и delivery. Подменять можно только provider transport
+и request body, чтобы доказать гонку до настоящего delivery gate.
+Никакого production SDK/readback/T0/выпуска этим промежуточным PASS.
+
+
+## T106 — актуальный локальный выбор, 01.11.2026
+
+Lane active Spec Kit slice, privacy/browser. Использовать существующие
+canUseAnalytics, persistedConsentMetadataMatches, handleConsent,
+disableOptionalProviders и disableYandexCounter. Общая canUseAnalytics
+сверяет сохранённые категории/state/revision перед управляемым side effect;
+при ошибке или несовпадении вызывает существующее отключение. Слушатели
+storage (только consent key или clear), pageshow, focus и visibilitychange
+проверяют ту же запись, без записи поверх чужого выбора или автоматического
+старта по положительному storage event. Callback до persist дополнительно
+сверяет категории и редакцию с фактической записью, уже сохранённой библиотекой;
+устаревшее положительное уведомление закрывается. Явный свежий выбор через
+существующий callback может восстановить только текущие категории.
+
+В disableYandexCounter сначала прежний disable-флаг, затем удаление
+команд данного ID только из созданной GRAF window.ym.a и try/catch вызов
+ym(id,destruct), если счётчик запускался. Состояния started/loaded сбрасываются
+для корректного нового явного grant. Блокирующие флаги устанавливаются до
+внешнего вызова, его исключение не ломает страницу и не открывает отправки.
+Официальная документация: https://yandex.ru/support/metrica/ru/code/counter-spa-setup ;
+источник destruct на yandex/metrica-tag commit47a80d0f0f8278fbb32309b5444b801eda99556e
+вызывает зарегистрированные unsubscribe callbacks и удаляет экземпляр.
+Это обоснование метода, а не доказательство сетевой остановки tag.js.
+
+Новых endpoint/постоянного состояния/таймеров/зависимостей нет. Scope providers,
+replay категории, источник атрибуции, server gate и флаги сохраняются.
+Глобальный server permission, индивидуальный серверный отзыв и настоящий
+SDK остаются отдельной незавершённой частью T106; никаких рабочих включений.
+Constitution II/III/IV/VI без изменения: данные/цели/получатели прежние,
+более строгий локальный отказ; продукт не зависит от провайдеров.
+До кода independent public-browser-choice checklist → scoped analyze →
+sync существующего T106/#7696 → RED/GREEN в существующем Node harness.
+Затем actual CookieConsent modal, server/public/provider regressions,
+независимое review/converge и обязательные exact PR checks.

@@ -110,6 +110,7 @@ def test_catalog_registers_retention_for_every_new_category(
 
 def test_public_page_drops_unsafe_campaign_labels_and_keeps_safe_ones(
     postgres_schema_database_url: str,
+    public_basis_register,
 ) -> None:
     hostile = (
         "?utm_source=Email&utm_medium=CPC&utm_campaign=IvanPetrov"

@@ -653,3 +653,26 @@ Refs #7696/#7698; это не каноническое соответствие 
 полнота рабочей истории, actual restore, readiness/fence/local_only и T112
 остаются открытыми в прежних задачах. Новых задач и закрытий нет; сам T113
 не отмечается выполненным на основании учебного результата.
+
+
+### T106 — серверный public срез, 01.11.2026
+
+Порядок существующей T106: reviewer-owned public-server-gate checklist →
+analyze/issue sync → RED/GREEN существующих public context/relay/delivery →
+focused review/converge → exact PR gates. Код: public/analytics.py и public/web.py;
+тесты: unit/test_public_analytics.py и существующие public contract files.
+Отсутствие/ошибка register закрывают public путь; PostHog final gate сохраняется.
+Новые задачи не создаются; T106/#7696 остаются открытыми до полного охвата.
+Runtime flags/consent revision/SDK и T0 не включаются этим срезом.
+
+
+### T106 — локальный выбор открытой вкладки, 01.11.2026
+
+Та же T106/#7696: independent public-browser-choice checklist → scoped
+analyze/issue sync → RED/GREEN existing Node consent harness → minimal
+analytics.js change → modal/public/provider regression → independent
+implementation review/converge → exact PR checks. Новый task не создаётся.
+Browser side effects повторно сверяют сохранённый выбор, lifecycle events
+закрывают устаревший grant, callback не перезаписывает новый отказ, destruct
+очищает собственный старт. Server permission/индивидуальный server revoke/
+actual SDK stop/включение/T0 и полный T106 остаются открытыми.

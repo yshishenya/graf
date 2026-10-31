@@ -363,6 +363,7 @@ def test_public_landing_sanitizes_unsafe_utm_values(client) -> None:
 
 def test_public_landing_analytics_has_opt_in_consent_widget(
     postgres_worker_database_url: str,
+    public_basis_register,
 ) -> None:
     settings = Settings(
         database_url=postgres_worker_database_url,
