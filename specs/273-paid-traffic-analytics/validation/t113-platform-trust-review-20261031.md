@@ -624,3 +624,62 @@ plan `8c28d1697bc7c1f97985a35e58435f7ef938c609654564711a7b5824d8bf9ae8`,
 tasks `2cbccb7f0323afff54c4ed381b399cb85952884969d4ba519830abe050b0b40d`,
 growth `4ce2bbe394556df39831dcaef809f0499b88972307b00eb7491ed2cd29121fec`.
 Изменён только этот отчёт. Новых серверных проб, тестов или мутаций Git нет.
+
+
+## Дополнение: SCOPED L2/L5 DESIGN PASS — один runtime owner
+
+Проверены только новые49 строк трёх docs после сообщённого сохранённого
+среза `0ad5b75f16e5aa35063b3c0f205b0e98f4166909`: full-operator новый раздел
+L2/L5 и два ссылочных абзаца plan/tasks. SHA256 полного design
+`a620254d214a556ce3a4a6551e9ca1f80edd38ab794c3b933cc709bb5a4f8078`
+совпал с запросом. Перечитан действующий bootstrap `_owned_run/_reap`80–143;
+его SIGKILL после1с подтверждён кодом, не выдан за полный production wrapper.
+
+**SCOPED L2/L5 DESIGN PASS: новых CRITICAL/HIGH/P1/P2=0.**
+Выбор владельцем native locks того же pinned runtime child конкретен и
+согласован с прежними действующими условиями:
+
+- Bootstrap держит deployment flock и делает только подготовку до запуска
+  child. Inherited deployment FD получает только этот child; проверяются
+  canonical identity/owner/mode и тот же flock open-file-description.
+- Все native locks child получает сам неблокирующим образом, без передачи
+  POSIX record ownership через fork, без create/replace native lockfiles и
+  без exec после получения. Частичный busy/error/identity drift даёт HOLD
+  до stop с освобождением лишь полученного набора.
+- Под locks повторно связываются prepared source/package/dependencies,
+  действующий runtime и текущее основание платформы. Подготовка до locks
+  не становится готовностью сама по себе; EX/revoke/attempt/stop идут после
+  этой повторной проверки. Общий предел времени не начинается заново.
+- Native FD не передаются обычным CLI children; повторный open/close того же
+  inode владельцем исключён. Для повторного identity check служат fstat
+  удержанного FD/lstat пути. Один PID сохраняет ownership через SQL-resolution,
+  reap/cleanup, safe resume и последний durable attempt.
+- Parent сохраняет deployment flock и prepared environment до child/group
+  settlement. Для полного пути прямо запрещён перенос нынешнего короткого
+  `_reap` с SIGKILL через1с: отмена передаётся owner, parent ждёт защищённый
+  cleanup, повторная отмена не освобождает окружение/locks раньше исхода.
+- Смерть owner не обещает сохранность kernel locks. Прежние durable revoke/
+  in_progress/unknown-outcome/recovery остаются причиной HOLD без автоматического
+  resume или нового T0. Это сохраняет честные пределы crash модели.
+
+Plan/tasks правильно называют это проектом до реализации; локальные ссылки
+и новый anchor соответствуют существующему разделу. Требований, новых служб,
+установок, runtime PASS и закрытых task/checklist marks добавления не вводят.
+Испытания будущего owner/cancel/recovery на изолированных процессах нужны
+после реализации; новые рабочие lock-пробы для этого review не требуются.
+
+**Полный J1/P1b DESIGN HOLD сохраняется.** PASS закрывает только конкретный
+договор L2/L5. Он не закрывает current platform generation/admission L6,
+фактический entrypoint/override/deferred/Snap closure, P1a, доступ/UID1003,
+ресурсы, верхний цикл, T112/T113, T0 или выпуск. Нового самостоятельного PASS
+117 reviewer-owned вопросов здесь нет. Нынешний runtime-preflight ещё не
+реализует принятую модель; код этим отчётом не менялся и не принимался.
+Сообщённый connection refused/HTTP200 не исследовался и не используется как
+доказательство lock или root-access приёмки.
+
+Входы plan/tasks соответственно:
+`1e94d6b999989ba648049d4ccbb1f6b31fa969103c3802d02417c15d9f18f908`,
+`edd092ef0d30e9eec6795554efd1eeedf82d2f405a9af31bcea327ef12b14fd3`.
+Изменён только свой report; прежняя история сохранена. Итоговое дополнение
+перечитано, хеш вычислен после записи. Git/GitHub мутации, серверные пробы,
+новые эксперименты и личные тесты:0.

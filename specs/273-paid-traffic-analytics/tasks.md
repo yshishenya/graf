@@ -1019,3 +1019,9 @@ Linux-базе пять native причинных lock-проверок прош
 и версии до/после совпали, временные файлы удалены. [Факты и ограничения L1](validation/t113-full-operator-design-20261030.md#l1-аутентифицированные-исходники-и-пять-native-проверок--31102026).
 Это не реализация/независимая приёмка полного L1 или J1. Overridden/неизвестные
 entries, owner/deferred/Snap/generation, доступ/ресурсы, оба HOLD и T0 открыты.
+
+Следующий [проектный шаг L2/L5](validation/t113-full-operator-design-20261030.md#l2l5-один-владелец-в-существующем-runtime-child)
+назначает native locks существующему runtime child, без передачи record locks
+через fork. Parent сохраняет окружение до защищённого cleanup; прежний быстрый
+SIGKILL не является полной обёрткой. Реализации и новых runtime PASS нет.
+L6 current platform generation/admission и полный J1 остаются открытыми.

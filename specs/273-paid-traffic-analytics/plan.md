@@ -721,3 +721,9 @@ jobs/hooks, ресурсы, общий оператор и оба HOLD сохр�
 Пять причинных случаев прошли, включая отсутствие Pre-Invoke при занятом lists
 lock. Это новые факты исполнителя, без независимой приёмки полного L1/J1;
 outer install callers/overrides, L2–L6 и оба общих HOLD сохраняются.
+
+Для следующей реализации [владельцем L2/L5 выбран существующий runtime child](validation/t113-full-operator-design-20261030.md#l2l5-один-владелец-в-существующем-runtime-child):
+он сам получает native locks после bootstrap, повторно связывает окружение
+до stop и удерживает набор до cleanup/последней attempt. Нынешний быстрый
+SIGKILL bootstrap не переносится в полную операцию. Это проект до кода;
+L6 current generation/admission ещё не решён, общий J1 DESIGN HOLD сохраняется.

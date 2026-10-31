@@ -769,3 +769,40 @@ generation/admission. Ранее запущенные apt-news/esm-cache/D-Bus �
 пережить release родительского lock; пять проверок не объявляют их безопасными.
 Старые общие HOLD, административный доступ, ресурсы/T112, выпуск и рабочий T0
 сохраняются. Новый helper/service/parser или отключение обновлений не вводились.
+
+### L2/L5: один владелец в существующем runtime child
+
+Выбранный проект, ещё не реализация: native locks получает сам существующий
+закреплённый `activation_operator` runtime child. Bootstrap под deployment flock
+сначала готовит временное окружение; этот шаг не даёт ready и не меняет продукт.
+Только этому child передаётся deployment FD через `pass_fds`. Child проверяет
+canonical dev/ino/owner/mode и flock того же open-file-description, затем получает
+NB daily flock → frontend/backend/lists/archives POSIX locks без создания или
+замены файлов. Один PID держит весь набор; после получения он не делает exec.
+Под набором заново проверяются подготовленные source/package/dependencies,
+действующий runtime и текущее основание платформы. Только после этого допускаются
+filesystem EX/revoke/attempt/stop. Busy/error/identity drift до stop даёт HOLD
+и освобождение только уже полученных locks; не запускает обновление или ремонт.
+
+Native FD не передаются обычным CLI children; их запуск использует close_fds.
+Owner не открывает второй FD того же inode: для повторной проверки использует
+fstat удержанного FD и lstat пути, не open/read/close lockfile. Он сохраняет
+набор через reap, разрешение SQL-исходов и cleanup до safe resume и последней
+durable attempt. Bootstrap сохраняет deployment flock и временное окружение до
+завершения runtime child и его группы. Общий deadline не начинается заново.
+
+Нынешний `_owned_run/_reap` bootstrap после отмены посылает SIGKILL через секунду;
+это путь короткого preflight, не допустимая готовая обёртка полной операции.
+В будущем полном пути parent передаёт отмену child и ждёт его защищённый cleanup,
+сохраняя окружение/владение; повторная отмена не превращается в ранний release.
+Смерть owner, включая SIGKILL, снимает kernel locks: прежние durable revoke,
+in_progress и unknown-outcome HOLD запрещают ложный ready и автоматический resume.
+Следующий запуск заново получает набор и разбирает тот же incident без нового T0.
+
+Это конкретизирует L2/L5, но не принимает весь J1. Текущий `read_ready` не сверяет
+current host platform generation; один root receipt/его давность не решают L6.
+Набор достаточных текущих сигналов, их доступность consumer и закрытие admission
+при изменении остаются обязательным проектным решением до кода. Недоступный
+root-only input не считается прочитанным. Новая служба и запуск root из API
+этим проектом не вводятся. Приёмка самого owner/cancel/recovery — после реализации
+на изолированных процессах; дополнительные рабочие lock-пробы сейчас не нужны.
