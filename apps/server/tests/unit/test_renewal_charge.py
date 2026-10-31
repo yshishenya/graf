@@ -1180,6 +1180,8 @@ async def test_late_decline_never_changes_new_authority_or_success(
 ) -> None:
     _settings(tmp_path)
     subscription, operation, invoice, _ = _rows(tmp_path, attempt=3)
+    # The real planner persists the same payer/period snapshot on both rows.
+    invoice.plan_snapshot = dict(operation.request_snapshot)
     operation.state = "sent"
     operation.provider_id = "pay-renewal-1"
     subscription.renewal_resolution = "previous"

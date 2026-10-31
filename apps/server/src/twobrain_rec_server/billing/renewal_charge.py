@@ -642,6 +642,65 @@ def _project_free(subscription: WorkspaceSubscription) -> None:
     subscription.application_version = (subscription.application_version or 0) + 1
 
 
+async def _enqueue_renewal_cutoff_notice(
+    db: AsyncSession,
+    *,
+    subscription: WorkspaceSubscription,
+    operation: BillingOperation,
+    invoice: BillingInvoice | None,
+    now: datetime,
+) -> None:
+    """Report the expired period's outcome without granting payment authority."""
+    if (
+        subscription.plan_code != "free" or subscription.state != "free"
+        or subscription.paid_through is None or subscription.billing_owner_id is None
+        or _utc(subscription.paid_through) > _utc(now)
+        or operation.kind != "renewal"
+        or operation.workspace_id != subscription.workspace_id
+        or invoice is None or invoice.operation_id != operation.id
+        or invoice.workspace_id != subscription.workspace_id
+    ):
+        return
+    for snapshot in (operation.request_snapshot, invoice.plan_snapshot):
+        if (
+            not isinstance(snapshot, Mapping)
+            or snapshot.get("billing_actor_user_id") != str(subscription.billing_owner_id)
+            or snapshot.get("paid_through_at") != _utc(subscription.paid_through).isoformat()
+        ):
+            return
+    payload = {"invoice": invoice.safe_number, "action_path": "/billing/subscription"}
+    if operation.state in {"sent", "processing", "unknown"} and invoice.status in {
+        "pending", "unknown",
+    }:
+        kind, outcome = BillingNotification.RENEWAL_UNKNOWN, "unknown"
+    elif operation.state == invoice.status == "canceled" and operation.provider_id:
+        kind, outcome = BillingNotification.PAYMENT_FAILED, "failed"
+        payload["access_until"] = _moscow_label(subscription.paid_through)
+    else:
+        return
+    workspace = await db.get(Workspace, subscription.workspace_id)
+    if (workspace is None or workspace.kind != "personal"
+            or workspace.owner_user_id != subscription.billing_owner_id):
+        return
+    owner = await db.scalar(select(WorkspaceMembership).where(
+        WorkspaceMembership.workspace_id == subscription.workspace_id,
+        WorkspaceMembership.user_id == subscription.billing_owner_id,
+        WorkspaceMembership.role == "owner",
+        WorkspaceMembership.status == "active",
+    ))
+    if owner is None:
+        return
+    await enqueue_billing_notification(
+        db,
+        workspace_id=subscription.workspace_id,
+        recipient_id=subscription.billing_owner_id,
+        event_id=f"renewal:{invoice.id}:{outcome}",
+        kind=kind,
+        payload=payload,
+        marketing_allowed=False,
+    )
+
+
 def _record_charge_audit(
     db: AsyncSession,
     *,
@@ -775,46 +834,20 @@ async def project_renewal_cutoffs(
             subscription.renewal_resolution = (
                 "provider_key_expired" if state == "provider_key_expired" else "unknown_pending"
             )
-            snapshot = operation.request_snapshot
-            if (
-                state in {"sent", "processing", "unknown"}
-                and isinstance(snapshot, Mapping)
-                and snapshot.get("billing_actor_user_id") == str(subscription.billing_owner_id)
-                and snapshot.get("paid_through_at") == _utc(subscription.paid_through).isoformat()
-            ):
-                invoice = await db.scalar(
-                    select(BillingInvoice).where(
-                        BillingInvoice.operation_id == operation.id,
-                        BillingInvoice.workspace_id == subscription.workspace_id,
-                    ).with_for_update()
-                )
-                if (
-                    invoice is not None
-                    and invoice.status in {"pending", "unknown"}
-                    and isinstance(invoice.plan_snapshot, Mapping)
-                    and invoice.plan_snapshot.get("billing_actor_user_id")
-                    == str(subscription.billing_owner_id)
-                    and invoice.plan_snapshot.get("paid_through_at")
-                    == _utc(subscription.paid_through).isoformat()
-                ):
-                    await enqueue_billing_notification(
-                        db,
-                        workspace_id=subscription.workspace_id,
-                        recipient_id=subscription.billing_owner_id,
-                        event_id=f"renewal:{invoice.id}:unknown",
-                        kind=BillingNotification.RENEWAL_UNKNOWN,
-                        payload={
-                            "invoice": invoice.safe_number,
-                            "action_path": "/billing/subscription",
-                        },
-                        marketing_allowed=False,
-                    )
         else:
             subscription.recurring_allowed = False
             subscription.recurring_authority_version = (
                 subscription.recurring_authority_version or 0
             ) + 1
             subscription.renewal_resolution = "manual_resume_required"
+        if operation is not None:
+            invoice = await db.scalar(select(BillingInvoice).where(
+                BillingInvoice.operation_id == operation.id,
+                BillingInvoice.workspace_id == subscription.workspace_id,
+            ).with_for_update())
+            await _enqueue_renewal_cutoff_notice(
+                db, subscription=subscription, operation=operation, invoice=invoice, now=current,
+            )
         db.add(
             BillingAuditEvent(
                 workspace_id=subscription.workspace_id,
@@ -896,6 +929,10 @@ async def record_renewal_decline(
         or type(snapshot.get("recurring_authority_version")) is not int
         or snapshot["recurring_authority_version"] != subscription.recurring_authority_version
     ):
+        if subscription is not None:
+            await _enqueue_renewal_cutoff_notice(
+                db, subscription=subscription, operation=operation, invoice=invoice, now=now,
+            )
         return
     if renewal_attempt_of(operation) >= RENEWAL_ATTEMPT_COUNT:
         if subscription.recurring_allowed:
@@ -915,7 +952,12 @@ async def record_renewal_decline(
         outcome="canceled",
         reason_code=reason_code,
     )
-    await _enqueue_renewal_attempt_failure(db, subscription=subscription, invoice=invoice)
+    if _utc(subscription.paid_through) <= _utc(now):
+        await _enqueue_renewal_cutoff_notice(
+            db, subscription=subscription, operation=operation, invoice=invoice, now=now,
+        )
+    else:
+        await _enqueue_renewal_attempt_failure(db, subscription=subscription, invoice=invoice)
 
 
 async def charge_renewal_operation(

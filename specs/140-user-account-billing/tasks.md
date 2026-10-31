@@ -378,3 +378,8 @@ Account-close, внешний refund и денежные/защитные гра
    регрессии, review/converge и точные PR gates.
 5. Оставить общую T048/#4903 открытой: reminder, failure-to-Free, late-success,
    manual-resume и фактическая доставка требуют отдельной проверки/доработки.
+
+Следующий срез той же T048: подтверждённый отказ → Free. Сначала требования
+и независимый checklists/renewal-final-failure.md, затем RED двух входов,
+одна общая безопасная запись события, сохраняемые PostgreSQL границы,
+review/converge и обязательные PR SHA/base gates. T048 остаётся `[ ]`.

@@ -130,3 +130,22 @@ def test_renewal_attempt_failure_is_mandatory_and_drops_an_unusable_date() -> No
     assert outbox.enqueue(event, recipient_id="user-1", marketing_allowed=False) is not None
     _, body = notification_copy(event)
     assert "в конце оплаченного периода" in body
+
+
+@pytest.mark.parametrize("access_until", ["10.08.2026 03:00", "завтра", None])
+def test_final_failure_copy_uses_only_a_valid_historical_cutoff(access_until) -> None:
+    event = build_notification(
+        event_id="renewal:1:failed",
+        kind=BillingNotification.PAYMENT_FAILED,
+        payload={"invoice": "INV-1", "access_until": access_until, "email": "private@example.test"},
+    )
+    title, body = notification_copy(event)
+    assert title == "Продление не состоялось"
+    assert "был выбран бесплатный тариф" in body
+    assert "Актуальный статус и доступные действия — в кабинете" in body
+    assert "private@example.test" not in body
+    if access_until == "10.08.2026 03:00":
+        assert "Оплаченный период завершился 10.08.2026 03:00 МСК" in body
+    else:
+        assert "access_until" not in event.safe_payload
+        assert "Оплаченный период завершился;" in body
