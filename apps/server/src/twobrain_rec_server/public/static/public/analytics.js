@@ -375,9 +375,12 @@
     }
     window["disableYaCounter" + counterId] = true;
     if (started && ownedYandexQueue && Array.isArray(ownedYandexQueue.a)) {
-      ownedYandexQueue.a = ownedYandexQueue.a.filter(function (command) {
-        return String(command[0]) !== String(counterId);
-      });
+      // The SDK subscribes to this array's push; keep that subscription intact.
+      for (var index = ownedYandexQueue.a.length - 1; index >= 0; index -= 1) {
+        if (String(ownedYandexQueue.a[index][0]) === String(counterId)) {
+          ownedYandexQueue.a.splice(index, 1);
+        }
+      }
     }
     if (started && typeof window.ym === "function") {
       try {

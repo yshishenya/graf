@@ -25,7 +25,9 @@ cd apps/server && python -m pytest tests/unit -k "aggregate or acquisition or re
 cd apps/server && python -m pytest tests/integration -k "analytics" -q
 
 # Браузерные сценарии согласия и меток
-cd apps/server/tests/browser && node --test ./*.cjs
+cd apps/server/tests/browser && node --test public-analytics-consent.test.cjs
+node public-analytics-consent-modal.test.cjs
+# Ручной SDK-профиль с обязательным input приведён в разделе T106 ниже.
 
 # Контракты приложения
 cd apps/macos && swift test --filter ProductActivationAnalyticsContractTests
@@ -469,3 +471,38 @@ RED/GREEN в существующем tests/browser/public-analytics-consent.tes
 команды, а не только поля API. Старые refusal/replay/revision/credential
 assertions не ослаблять. Реальный modal harness дополнительно проверяет
 совместимость с настоящей библиотекой. Это не настоящий SDK и не T0.
+
+
+## T106 — настоящий SDK, analytics-only, изолированная сеть
+
+После independent public-sdk-network checklist и analyze/sync выполнить
+новый ручной Node профиль с явными --sdk-file и --sdk-sha256. Только ранее
+полученный официальный файл; без него ошибка до запуска браузера, не SKIP.
+Запросы к working counter/backend не допускаются. Четыре сценария:
+`/` и `/download` × отзыв в той же и другой вкладке. До отзыва — настоящий
+instance и watch attempts>0; после library choice — instance отсутствует
+и0 новых optional HTTP/WebSocket/relay попыток за20с активности. Ни query/
+cookies/body, ни приватных ключей в stdout/отчётах. Собственная временная
+копия harness с подавленным destruct обязана FAIL на оставшемся instance;
+рабочий JS не меняется. Прежний actual modal, Node consent и scoped
+public/server/provider профиль должны пройти без новых SKIP.
+Профиль не принимает replay, реальный backend/readback, server permission/
+индивидуальный server revoke, весь T106 или runtime/T0; внешний HOLD сохраняется.
+
+Учебный config использует существующий provider_smoke вместо render_only,
+иначе реальный SDK намеренно не загружается. Меняется только config теста;
+перехват всей сети устанавливается до страницы/контроллера/SDK.
+
+Integrated RED дополнительно обнаружил потерю SDK push при filter-replacement
+ym.a: отказ сохранён, destruct вызван, instance остаётся. Перед правкой Node
+owned-queue scenario обязан FAIL на сохранении array/push и обработке destruct;
+после in-place очистки оба профиля GREEN. В accepted SDK test нет прямого
+instance.destruct или обёртки ym; они применялись только для диагностики FAIL.
+
+Запуск из корня (GRAF_NODE_MODULES указывает на уже установленный Playwright,
+если его нет в tests/browser/node_modules; автоматической установки нет):
+
+```sh
+node apps/server/tests/browser/public-analytics-sdk-network.test.cjs \
+  --sdk-file /absolute/path/to/tag.js --sdk-sha256 <64-hex-sha256>
+```
