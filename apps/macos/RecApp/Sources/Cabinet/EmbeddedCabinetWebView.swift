@@ -1980,12 +1980,14 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         }
 
         public func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
-            guard let webView = userTimeWebView, let url = webView.url,
+            // The navigation's final reconciliation owns cookie changes until it finishes.
+            guard authNavigationBarrier == nil, let webView = userTimeWebView, let url = webView.url,
                   routePolicy.decision(for: url).decision == .allow else { return }
             let revision = userTimeDocumentRevision
             DesktopCabinetSessionBridge.syncAuthSessionCookies(from: webView, isCurrentDocument: { [weak self, weak webView] in
                 guard let self, let webView else { return false }
                 return self.isActive && self.navigationController.isAttached(to: webView)
+                    && self.authNavigationBarrier == nil
                     && self.userTimeDocumentRevision == revision && webView.url == url
             })
         }
@@ -2026,22 +2028,36 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             finishAuthNavigation(in: webView, cancelled: true)
         }
 
-        func finishAuthNavigation(in webView: WKWebView, expectedURL: URL? = nil, cancelled: Bool = false) {
+        @discardableResult
+        func finishAuthNavigation(in webView: WKWebView, expectedURL: URL? = nil, cancelled: Bool = false) -> Task<Int?, Never>? {
             guard !authNavigationDispatchPending, let barrier = authNavigationBarrier,
-                  cancelled || (expectedURL ?? webView.url) == authNavigationURL else { return }
+                  cancelled || (expectedURL ?? webView.url) == authNavigationURL else { return nil }
             let revision = userTimeDocumentRevision
+            let presenter = notificationPresenter
+            let authEpoch = presenter.authEpoch
             let isCurrent: @MainActor () -> Bool = { [weak self, weak webView] in
                 guard let self, let webView else { return false }
                 return self.isActive && self.navigationController.isAttached(to: webView)
                     && self.authNavigationBarrier == barrier && self.userTimeDocumentRevision == revision
             }
-            Task { @MainActor in
+            return Task { @MainActor in
                 await DesktopCabinetSessionBridge.drainRenewal()
-                guard isCurrent() else { return }
-                DesktopCabinetSessionBridge.syncAuthSessionCookies(from: webView, isCurrentDocument: isCurrent) { [weak self] in
-                    guard isCurrent(), let self else { return }
-                    self.authNavigationBarrier = nil
-                    DesktopCabinetSessionBridge.endNavigation(barrier)
+                guard isCurrent() else { return nil }
+                var reconciled = false
+                return await withCheckedContinuation { continuation in
+                    DesktopCabinetSessionBridge.syncAuthSessionCookies(from: webView, isCurrentDocument: {
+                        reconciled = isCurrent() && presenter.authEpoch == authEpoch
+                        return reconciled
+                    }) { [weak self] in
+                        if isCurrent(), let self {
+                            self.authNavigationBarrier = nil
+                            DesktopCabinetSessionBridge.endNavigation(barrier)
+                            // Only our own synchronous reconciliation may change the account.
+                            continuation.resume(returning: reconciled ? presenter.authEpoch : nil)
+                        } else {
+                            continuation.resume(returning: nil)
+                        }
+                    }
                 }
             }
         }
@@ -2681,7 +2697,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             guard navigationController.isAttached(to: webView) else { return }
             guard navigationController.navigationDidFinish(webView: webView, navigation: navigation,
                 confirmsDocument: true, preservingProviderLink: authContinuation == .providerLink) else { return }
-            finishAuthNavigation(in: webView)
+            let authNavigation = finishAuthNavigation(in: webView)
             guard let url = webView.url else {
                 return
             }
@@ -2724,7 +2740,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 authContinuation = .none
             }
             webContentProcessTerminated = false
-            synchronizeUserTime(from: webView, url: url)
+            synchronizeUserTime(from: webView, url: url, after: authNavigation)
             if EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: routeDecision.route.kind, url: url),
                let container = webView.superview as? WebViewContainer {
                 // Transient auth pages must not replace the stable SwiftUI
@@ -2747,17 +2763,14 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             )
         }
 
-        private func synchronizeUserTime(from webView: WKWebView, url: URL) {
+        private func synchronizeUserTime(from webView: WKWebView, url: URL, after authNavigation: Task<Int?, Never>?) {
             let documentRevision = userTimeDocumentRevision
             let isCurrentDocument: @MainActor () -> Bool = { [weak self, weak webView] in
                 guard let self, let webView else { return false }
                 return self.isActive && self.navigationController.isAttached(to: webView)
                     && self.userTimeDocumentRevision == documentRevision && webView.url == url
             }
-            DesktopCabinetSessionBridge.syncAuthSessionCookies(
-                from: webView,
-                isCurrentDocument: isCurrentDocument
-            ) { [weak self, weak webView] in
+            let synchronize: @MainActor () -> Void = { [weak self, weak webView] in
                 guard let self, let webView, isCurrentDocument() else { return }
                 // Preferences belong to the authenticated document, after cookie reconciliation.
                 if EmbeddedCabinetNotificationSettingsBridge.isSettingsURL(url, policy: self.routePolicy) {
@@ -2780,6 +2793,17 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                           fields["documentURL"].flatMap(URL.init(string:)) == url else { return }
                     DesktopUserTimeContext.shared.update(from: fields, origin: url, expectedRevision: contextRevision)
                 }
+            }
+            if let authNavigation {
+                Task { @MainActor [weak self] in
+                    guard let authEpoch = await authNavigation.value,
+                          let self, isCurrentDocument(), self.notificationPresenter.authEpoch == authEpoch else { return }
+                    synchronize()
+                }
+            } else {
+                DesktopCabinetSessionBridge.syncAuthSessionCookies(
+                    from: webView, isCurrentDocument: isCurrentDocument, completion: synchronize
+                )
             }
         }
 
@@ -2854,11 +2878,11 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             let failedURL = (error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL
                 ?? navigationController.activeNavigationURL
             guard navigationController.navigationDidFail(webView: webView, navigation: navigation, error: error) else { return }
-            finishAuthNavigation(in: webView, expectedURL: failedURL)
+            let authNavigation = finishAuthNavigation(in: webView, expectedURL: failedURL)
             authContinuation = .none
             paymentNavigation = paymentNavigation.stopped()
             cancelJavaScriptConfirmation()
-            transitionAfterNavigationFailure(error, webView: webView, phase: "committed")
+            transitionAfterNavigationFailure(error, webView: webView, phase: "committed", after: authNavigation)
         }
 
         @MainActor
@@ -2867,11 +2891,11 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             let failedURL = (error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL
                 ?? navigationController.activeNavigationURL
             guard navigationController.navigationDidFail(webView: webView, navigation: navigation, error: error) else { return }
-            finishAuthNavigation(in: webView, expectedURL: failedURL)
+            let authNavigation = finishAuthNavigation(in: webView, expectedURL: failedURL)
             authContinuation = .none
             paymentNavigation = paymentNavigation.stopped()
             cancelJavaScriptConfirmation()
-            transitionAfterNavigationFailure(error, webView: webView, phase: "provisional")
+            transitionAfterNavigationFailure(error, webView: webView, phase: "provisional", after: authNavigation)
         }
 
         @MainActor
@@ -2910,7 +2934,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             cabinetState = .malformedResponse
         }
 
-        private func transitionAfterNavigationFailure(_ error: Error, webView: WKWebView, phase: String) {
+        private func transitionAfterNavigationFailure(_ error: Error, webView: WKWebView, phase: String, after authNavigation: Task<Int?, Never>?) {
             let previousState = cabinetState
             let failureState = DesktopCabinetState.state(forNavigationError: error, currentState: cabinetState)
             // This current navigation has terminated; a replacement's stale
@@ -2930,7 +2954,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             cabinetState = nextState
             if restoresFinishedDocument, let url = webView.url {
                 recordingSettingsBridge.activate(webView)
-                synchronizeUserTime(from: webView, url: url)
+                synchronizeUserTime(from: webView, url: url, after: authNavigation)
             }
             if nextState == .expiredSession || nextState == .workspaceReselectionRequired {
                 DesktopUserTimeContext.shared.reset()
